@@ -854,7 +854,7 @@ impl Store {
 
     pub fn push_tickets(&self) -> Vec<PushTicket> {
         let c = self.db.locked();
-        let rows = c.prepare("SELECT ticket, push_key, ctx FROM push_tickets").and_then(|mut st| {
+        let rows = c.prepare("SELECT ticket, push_key, ctx FROM push_tickets WHERE rowid IN (SELECT MAX(rowid) FROM push_tickets GROUP BY device_key)").and_then(|mut st| {
             st.query_map([], |r| Ok(PushTicket { ticket: r.get(0)?, push_key: r.get(1)?, ctx: r.get(2)? }))?
                 .collect::<rusqlite::Result<Vec<_>>>()
         });
@@ -877,7 +877,7 @@ impl Store {
     pub fn activity_tickets(&self, bot_id: &str) -> Vec<String> {
         let c = self.db.locked();
         let rows = c
-            .prepare("SELECT ticket FROM activity_tickets WHERE bot_id = ?1")
+            .prepare("SELECT ticket FROM activity_tickets WHERE bot_id = ?1 AND rowid IN (SELECT MAX(rowid) FROM activity_tickets GROUP BY bot_id, device_key)")
             .and_then(|mut st| st.query_map([bot_id], |r| r.get(0))?.collect::<rusqlite::Result<Vec<String>>>());
         logged("activity tickets", rows).unwrap_or_default()
     }
@@ -987,6 +987,19 @@ mod tests {
         assert_eq!(s.activity_tickets("b1"), ["a2"]);
         assert_eq!(s.take_activity_tickets("b1"), ["a2"]);
         assert!(s.activity_tickets("b1").is_empty());
+    }
+
+    #[test]
+    fn only_latest_ticket_is_used_before_an_existing_phone_reregisters() {
+        let s = temp_store();
+        s.db.locked().execute_batch(
+            "INSERT INTO push_tickets(ticket, device_key, created_at) VALUES('old', 'phone', 1), ('new', 'phone', 2), ('other', 'phone2', 3);
+             INSERT INTO activity_tickets(ticket, bot_id, device_key, created_at) VALUES('old-a', 'bot', 'phone', 1), ('new-a', 'bot', 'phone', 2);"
+        ).unwrap();
+        let tickets = s.push_tickets();
+        assert_eq!(tickets.len(), 2);
+        assert!(!tickets.iter().any(|ticket| ticket.ticket == "old"));
+        assert_eq!(s.activity_tickets("bot"), ["new-a"]);
     }
 
     #[test]
