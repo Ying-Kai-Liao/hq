@@ -202,8 +202,15 @@ private struct ScanPage: View {
                 .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
 
                 if let error {
-                    Text(error).font(.footnote).foregroundStyle(Palette.danger)
-                        .transition(.opacity)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(error).font(.footnote).foregroundStyle(Palette.danger)
+                        // The usual cause: the phone has no road to the computer yet.
+                        Label("Check that this iPhone and the computer are on the same Wi-Fi or both on Tailscale, or that “Reach from anywhere” is on in Codync on the computer.",
+                              systemImage: "wifi.exclamationmark")
+                            .font(.footnote)
+                            .foregroundStyle(Palette.secondary)
+                    }
+                    .transition(.opacity)
                 }
 
                 // The other way in: computers on your Google account show up and ask for access themselves.
