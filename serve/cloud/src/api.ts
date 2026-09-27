@@ -273,6 +273,14 @@ export const claimCanonical = (claimId: string, nonce: string, userId: string, c
 
 export const health = async () => ({ ok: true, version: VERSION });
 
+/**
+ * Where a connector's sign-in page returns when the user signed in on the phone. Stateless: it bounces
+ * the query (code, state or error) to the app, which hands it to the host over the E2E channel. The code
+ * is useless without the PKCE verifier that only the host holds.
+ */
+export const oauthCallback = async (c: Ctx) =>
+  new Response(null, { status: 302, headers: { Location: `codync://oauth${c.url.search}`, "Cache-Control": "no-store" } });
+
 // ---- Clerk (users) ----
 
 export async function me(c: Ctx) {

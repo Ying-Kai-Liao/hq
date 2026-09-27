@@ -1,11 +1,12 @@
 // /v1 HTTP API: auth, claims, access requests, grants, webhooks, cron.
 
-import { createScheduledController } from "cloudflare:test";
+import { createScheduledController, SELF } from "cloudflare:test";
 import { Webhook } from "svix";
 import { describe, expect, it } from "vitest";
 import worker from "../src/index";
 import {
   AUTHORITY,
+  ORIGIN,
   call,
   clerkToken,
   devicePath,
@@ -83,6 +84,12 @@ async function grantAccess(user: User, host: TestHost) {
 }
 
 describe("basics", () => {
+  it("bounces a connector sign-in to the app", async () => {
+    const res = await SELF.fetch(`${ORIGIN}/v1/oauth/callback?code=abc&state=xyz`, { redirect: "manual" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("codync://oauth?code=abc&state=xyz");
+  });
+
   it("health", async () => {
     expect(await call("GET", "/v1/health")).toEqual({ status: 200, body: { ok: true, version: "2.2.0" } });
   });

@@ -26,6 +26,7 @@ type Handler = (c: Ctx, params: string[]) => Promise<unknown>;
 const ID = "([A-Za-z0-9_-]{1,64})";
 const routes: [string, RegExp, Handler][] = [
   ["GET", /^\/v1\/health$/, api.health],
+  ["GET", /^\/v1\/oauth\/callback$/, api.oauthCallback],
   ["GET", /^\/v1\/me$/, api.me],
   ["POST", /^\/v1\/devices$/, api.registerDevice],
   ["GET", /^\/v1\/devices$/, api.listDevices],
