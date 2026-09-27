@@ -1105,9 +1105,14 @@ impl Actor {
         if !self.stop_requested && !delegated && !grouped {
             let body =
                 final_text.unwrap_or_else(|| if failed { "The agent failed.".into() } else { "Finished.".into() });
-            push::notify(&self.hub, &self.cfg, &self.cfg.name, &body, AlertKind::Done);
+            push::notify(
+                &self.hub,
+                &self.cfg,
+                &self.cfg.name,
+                &body,
+                if failed { AlertKind::Failed } else { AlertKind::Done },
+            );
         }
-        push::live_activity_end(&self.hub, &self.cfg.id);
     }
 
     // MARK: agent → client

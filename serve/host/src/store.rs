@@ -832,17 +832,23 @@ impl Store {
         ctx: Option<&str>,
         name: &str,
     ) -> Result<()> {
-        let c = self.db.locked();
-        c.execute(
+        let mut c = self.db.locked();
+        let tx = c.transaction()?;
+        // Relay tickets use a random nonce; registering again must replace this device's old ticket.
+        tx.execute("DELETE FROM push_tickets WHERE device_key = ?1", [device_key])?;
+        tx.execute(
             "INSERT INTO push_tickets(ticket, device_key, push_key, ctx, name, created_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(ticket) DO UPDATE SET device_key = ?2, push_key = ?3, ctx = ?4, name = ?5",
             params![ticket, device_key, push_key, ctx, name, now_ms()],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
     pub fn remove_push_ticket(&self, ticket: &str) -> Result<()> {
-        self.db.locked().execute("DELETE FROM push_tickets WHERE ticket = ?1", [ticket])?;
+        let c = self.db.locked();
+        c.execute("DELETE FROM push_tickets WHERE ticket = ?1", [ticket])?;
+        c.execute("DELETE FROM activity_tickets WHERE ticket = ?1", [ticket])?;
         Ok(())
     }
 
@@ -856,12 +862,15 @@ impl Store {
     }
 
     pub fn add_activity_ticket(&self, ticket: &str, bot_id: &str, device_key: &str) -> Result<()> {
-        let c = self.db.locked();
-        c.execute(
+        let mut c = self.db.locked();
+        let tx = c.transaction()?;
+        tx.execute("DELETE FROM activity_tickets WHERE device_key = ?1 AND bot_id = ?2", params![device_key, bot_id])?;
+        tx.execute(
             "INSERT INTO activity_tickets(ticket, bot_id, device_key, created_at) VALUES(?1, ?2, ?3, ?4)
              ON CONFLICT(ticket) DO UPDATE SET bot_id = ?2, device_key = ?3",
             params![ticket, bot_id, device_key, now_ms()],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -978,6 +987,25 @@ mod tests {
         assert_eq!(s.activity_tickets("b1"), ["a2"]);
         assert_eq!(s.take_activity_tickets("b1"), ["a2"]);
         assert!(s.activity_tickets("b1").is_empty());
+    }
+
+    #[test]
+    fn registration_replaces_old_keys_and_activity_tokens_for_one_device_only() {
+        let s = temp_store();
+        s.add_push_ticket("old", "phone", None, Some("local"), "Phone").unwrap();
+        s.add_push_ticket("other", "other-phone", Some("other-key"), Some("local"), "Other").unwrap();
+        s.add_push_ticket("new", "phone", Some("new-key"), Some("local"), "Phone").unwrap();
+        let tickets = s.push_tickets();
+        assert_eq!(tickets.len(), 2);
+        assert!(!tickets.iter().any(|t| t.ticket == "old"));
+        assert_eq!(tickets.iter().find(|t| t.ticket == "new").unwrap().push_key.as_deref(), Some("new-key"));
+        s.add_activity_ticket("old-activity", "bot", "phone").unwrap();
+        s.add_activity_ticket("new-activity", "bot", "phone").unwrap();
+        s.add_activity_ticket("other-bot", "bot2", "phone").unwrap();
+        assert_eq!(s.activity_tickets("bot"), ["new-activity"]);
+        s.remove_push_ticket("new-activity").unwrap();
+        assert!(s.activity_tickets("bot").is_empty());
+        assert_eq!(s.activity_tickets("bot2"), ["other-bot"]);
     }
 
     #[test]

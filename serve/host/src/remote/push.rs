@@ -1,7 +1,7 @@
 //! Push via the Codync relay (it holds the APNs key; the host only holds opaque
 //! per-device tickets the relay issued to the phone).
 //!
-//! Like Grok Bot there are only two alert kinds: "needs you" and "done", and
+//! Alerts cover completion, input requests, and failures;
 //! none are sent while the phone app is connected (it's in the foreground).
 
 use crate::LockExt;
@@ -15,12 +15,13 @@ use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use x25519_dalek::StaticSecret;
 
-/// The two alert kinds (wire values double as the APNs category).
+/// Alert kinds (wire values double as the APNs category).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AlertKind {
     Done,
     NeedsInput,
+    Failed,
 }
 
 /// (bot id, kind) → last alert.
@@ -60,7 +61,16 @@ fn post(url: String, body: Value) {
     });
 }
 
+fn purge_dead_tickets(hub: &Hub) {
+    for t in std::mem::take(&mut *GONE.locked()) {
+        if let Err(error) = hub.store.remove_push_ticket(&t) {
+            tracing::warn!(%error, "couldn't forget a dead push ticket");
+        }
+    }
+}
+
 pub fn notify(hub: &Hub, bot: &BotConfig, title: &str, body: &str, kind: AlertKind) {
+    purge_dead_tickets(hub);
     if bot.notify == Some(false) || bot.hidden || hub.ios_connected() {
         return;
     }
@@ -68,17 +78,20 @@ pub fn notify(hub: &Hub, bot: &BotConfig, title: &str, body: &str, kind: AlertKi
         return;
     }
     let Some(relay) = relay_url(hub) else { return };
-    for t in std::mem::take(&mut *GONE.locked()) {
-        if let Err(error) = hub.store.remove_push_ticket(&t) {
-            tracing::warn!(%error, "couldn't forget a dead push ticket");
-        }
-    }
     // The relay and APNs only see a generic line; the real one is sealed to each device (§6.7).
     let generic = match kind {
-        AlertKind::NeedsInput => "Needs you",
-        AlertKind::Done => "Done",
+        AlertKind::NeedsInput => "A bot needs your response. Open Codync to review.",
+        AlertKind::Done => "Your task is complete. Open Codync to read the result.",
+        AlertKind::Failed => "A task could not finish. Open Codync to review the issue.",
     };
-    let secret = json!({"title": title, "body": crate::agent::acp::truncate(body, 140)}).to_string();
+    let subtitle = match kind {
+        AlertKind::Done => "Task complete",
+        AlertKind::NeedsInput => "Response needed",
+        AlertKind::Failed => "Task failed",
+    };
+    let secret = json!({"title": crate::agent::acp::truncate(title, 80), "subtitle": subtitle,
+        "body": crate::agent::acp::truncate(body, 400)})
+    .to_string();
     let computer_id = hub.identity.computer_id();
     for t in hub.store.push_tickets() {
         let mut data = json!({"botId": bot.id, "computerId": computer_id, "ctx": t.ctx});
@@ -95,7 +108,7 @@ pub fn notify(hub: &Hub, bot: &BotConfig, title: &str, body: &str, kind: AlertKi
                 "ticket": t.ticket,
                 "alert": {"title": "Codync", "body": generic},
                 "mutableContent": true,
-                "threadId": bot.id,
+                "threadId": format!("{computer_id}:{}", bot.id),
                 "category": kind,
                 "data": data,
             }),
@@ -103,33 +116,56 @@ pub fn notify(hub: &Hub, bot: &BotConfig, title: &str, body: &str, kind: AlertKi
     }
 }
 
-/// Live Activity status updates for bots a phone is watching. Only the status enum and
-/// start time travel: no free text leaves the computer this way.
+/// Live Activities carry only status and dates. Task text stays in the encrypted channel.
 pub fn live_activity_update(hub: &Hub, bot_id: &str, rt: &Runtime) {
-    let tickets = hub.store.activity_tickets(bot_id);
-    if tickets.is_empty() {
-        return;
-    }
+    purge_dead_tickets(hub);
     let Some(relay) = relay_url(hub) else { return };
-    #[allow(clippy::cast_precision_loss)] // epoch milliseconds fit an f64 mantissa until year 287,396
-    let started_at = rt.started_at.map(|ms| ms as f64 / 1000.0 - SWIFT_REFERENCE_EPOCH);
-    let state = json!({"status": rt.status, "activity": "", "startedAt": started_at});
+    let terminal = matches!(rt.status, BotStatus::Idle | BotStatus::Error);
+    let tickets = if terminal { hub.store.take_activity_tickets(bot_id) } else { hub.store.activity_tickets(bot_id) };
+    let activity = activity_payload(rt);
     for ticket in tickets {
-        post(
-            format!("{relay}/push"),
-            json!({"ticket": ticket, "liveActivity": {"event": "update", "contentState": state}}),
-        );
+        post(format!("{relay}/push"), json!({"ticket": ticket, "liveActivity": activity}));
     }
 }
 
-pub fn live_activity_end(hub: &Hub, bot_id: &str) {
-    let tickets = hub.store.take_activity_tickets(bot_id);
-    let Some(relay) = relay_url(hub) else { return };
-    let state = json!({"status": BotStatus::Idle, "activity": "", "startedAt": null});
-    for ticket in tickets {
-        post(
-            format!("{relay}/push"),
-            json!({"ticket": ticket, "liveActivity": {"event": "end", "contentState": state}}),
-        );
+fn activity_payload(rt: &Runtime) -> Value {
+    #[allow(clippy::cast_precision_loss)]
+    let started_at = rt.started_at.map(|ms| ms as f64 / 1000.0 - SWIFT_REFERENCE_EPOCH);
+    let terminal = matches!(rt.status, BotStatus::Idle | BotStatus::Error);
+    let timestamp = crate::store::now_ms() / 1000;
+    json!({
+        "event": if terminal { "end" } else { "update" },
+        "timestamp": timestamp,
+        "staleDate": timestamp + 15 * 60,
+        "contentState": {"status": rt.status, "activity": "", "startedAt": started_at},
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn activity_failure_ends_with_error_and_never_includes_task_text() {
+        let payload = activity_payload(&Runtime {
+            status: BotStatus::Error,
+            activity: "secret file".into(),
+            ..Runtime::default()
+        });
+        assert_eq!(payload["event"], "end");
+        assert_eq!(payload["contentState"]["status"], "error");
+        assert_eq!(payload["contentState"]["activity"], "");
+    }
+
+    #[test]
+    fn waiting_for_input_stays_live_with_a_freshness_deadline() {
+        let payload = activity_payload(&Runtime {
+            status: BotStatus::NeedsInput,
+            started_at: Some(978_307_201_000),
+            ..Runtime::default()
+        });
+        assert_eq!(payload["event"], "update");
+        assert_eq!(payload["contentState"]["startedAt"], 1.0);
+        assert_eq!(payload["staleDate"].as_i64().unwrap() - payload["timestamp"].as_i64().unwrap(), 900);
     }
 }

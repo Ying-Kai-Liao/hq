@@ -8,7 +8,7 @@ use crate::LockExt;
 use crate::agent::backends;
 use crate::agent::bot::Cmd;
 use crate::api::devices::{Caller, Forbidden};
-use crate::hub::Hub;
+use crate::hub::{BotStatus, Hub};
 use crate::remote::crypto;
 use crate::store::{BotConfig, DeviceSource, EntryKind, Lane, ReadScope};
 use crate::{market, usage};
@@ -411,7 +411,32 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
             json!({})
         }
         "registerActivity" => {
-            hub.store.add_activity_ticket(str_arg(&b, "ticket")?, str_arg(&b, "botId")?, caller.device_key())?;
+            let bot_id = str_arg(&b, "botId")?;
+            let row = hub.store.bot(bot_id)?.filter(|row| !row.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
+            hub.store.add_activity_ticket(str_arg(&b, "ticket")?, bot_id, caller.device_key())?;
+            // Registration can finish after the task does. Send the current state immediately.
+            let state = hub.bot_json(&row);
+            let status = match state["status"].as_str() {
+                Some("working") => BotStatus::Working,
+                Some("needsInput") => BotStatus::NeedsInput,
+                Some("error") => BotStatus::Error,
+                _ => BotStatus::Idle,
+            };
+            // A send is acknowledged before its actor necessarily starts. An unanswered user
+            // message must not end the activity as "done" during that window.
+            let pending = status == BotStatus::Idle
+                && hub.store.last_message(bot_id).is_some_and(|message| message.author.is_none());
+            if !pending {
+                crate::remote::push::live_activity_update(
+                    hub,
+                    bot_id,
+                    &crate::hub::Runtime {
+                        status,
+                        started_at: state["startedAt"].as_i64(),
+                        ..crate::hub::Runtime::default()
+                    },
+                );
+            }
             json!({})
         }
         "refreshBackends" => {

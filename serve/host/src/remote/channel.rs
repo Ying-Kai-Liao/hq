@@ -800,13 +800,16 @@ mod tests {
     #[tokio::test]
     async fn revoking_closes_the_channel_and_its_subscription() {
         let hub = temp_hub();
+        let bot = serde_json::from_value(json!({"id": "b1", "name": "Test", "createdAt": 0})).unwrap();
+        hub.store.save_bot(&bot).unwrap();
+        hub.set_runtime("b1", |runtime| runtime.status = crate::hub::BotStatus::Working);
         let key = paired_phone(&hub).await;
         let dk = crypto::b64(key.verifying_key().as_bytes());
         let mut p = Phone::direct(&hub, key);
         p.hello(&hub, false).await;
         assert!(p.call(1, "registerDevice", json!({"ticket": "t1", "name": "iPhone"})).await["ok"].is_object());
         assert!(p.call(2, "registerActivity", json!({"ticket": "a1", "botId": "b1"})).await["ok"].is_object());
-        p.send(json!({"id": 3, "sub": "events", "b": {"since": 0, "client": "ios"}})).await;
+        p.send(json!({"id": 3, "sub": "events", "b": {"since": hub.store.current_rev(), "client": "ios"}})).await;
         let hello = p.recv().await.unwrap();
         assert_eq!((hello["id"].as_u64(), hello["ev"]["type"].as_str()), (Some(3), Some("hello")));
         assert!(hub.ios_connected());
