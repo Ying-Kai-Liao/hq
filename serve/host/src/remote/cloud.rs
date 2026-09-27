@@ -4,8 +4,8 @@
 //! the commit-then-reveal SAS. The relay socket itself lives in `relay`.
 
 use crate::LockExt;
-use crate::crypto::{self, b64};
 use crate::hub::Hub;
+use crate::remote::crypto::{self, b64};
 use crate::store::{Device, DeviceSource, Scope, Store, now_ms};
 use anyhow::{Context, Result, anyhow, bail};
 use reqwest::Method;
@@ -25,6 +25,13 @@ pub const LEASE_MS: i64 = 15 * 60 * 1000;
 const TIMEOUT: Duration = Duration::from_secs(15);
 /// Grant revocations the cloud hasn't confirmed yet (kv, JSON array of grant ids).
 const PENDING_REVOKES: &str = "grant_revokes";
+/// kv: the saved `Approval`.
+const APPROVAL: &str = "account_approval";
+
+pub fn approval(store: &Store) -> Approval {
+    if store.kv_get(APPROVAL).as_deref() == Some("auto") { Approval::Auto } else { Approval::Code }
+}
+
 /// When this host sent its recent SAS nonces (kv, JSON array of ms).
 const SAS_NONCES: &str = "sas_nonces";
 /// Every host nonce is one guess at the phone's code for whoever controls the cloud, revealed
@@ -75,6 +82,18 @@ pub struct CloudStatus {
     pub connected: bool,
     pub owner: Option<Owner>,
     pub last_error: Option<String>,
+    pub approval: Approval,
+}
+
+/// How account devices get in (`setApproval`, local only).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Approval {
+    /// The user compares the 6-digit code and approves each device here.
+    #[default]
+    Code,
+    /// Approved as soon as the SAS exchange completes, with no one comparing the code.
+    Auto,
 }
 
 /// A pending account access request, with this host's own nonce (memory only).
@@ -292,6 +311,16 @@ pub async fn pull(hub: &Hub, base: &str) -> Result<()> {
     apply_grants(hub, &state.grants)?;
     update_status(hub, |s| s.owner = state.owner);
     sync_requests(hub, base, state.requests).await;
+    if approval(&hub.store) == Approval::Auto {
+        // The SAS exchange still runs (the device's commit must match); only the user's comparison is skipped.
+        let ready: Vec<String> =
+            hub.cloud.requests.locked().iter().filter(|r| r.code.is_some()).map(|r| r.id.clone()).collect();
+        for id in ready {
+            if let Err(e) = decide(hub, &id, true).await {
+                tracing::warn!(error = format!("{e:#}"), request_id = id, "couldn't auto-approve an access request");
+            }
+        }
+    }
     retry_revokes(hub, base).await;
     Ok(())
 }
@@ -576,11 +605,19 @@ pub fn set_cloud(hub: &Hub, enabled: bool, new_url: Option<&str>) -> Result<Clou
     Ok(hub.cloud.status())
 }
 
+/// `setApproval`: whether account devices need the 6-digit check. Local only.
+pub fn set_approval(hub: &Hub, approval: Approval) -> Result<CloudStatus> {
+    hub.store.kv_set(APPROVAL, if approval == Approval::Auto { "auto" } else { "code" })?;
+    tracing::info!(?approval, "account approval changed");
+    update_status(hub, |s| s.approval = approval);
+    Ok(hub.cloud.status())
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
-    use crate::identity::Identity;
+    use crate::remote::identity::Identity;
 
     fn temp_hub() -> Arc<Hub> {
         let dir = std::env::temp_dir().join(format!("codync-cloud-{}", uuid::Uuid::new_v4()));
@@ -707,6 +744,28 @@ mod tests {
         let d = hub.store.device(&b64(&dk)).unwrap();
         assert_eq!((d.source, d.grant_id.as_deref()), (DeviceSource::Account, Some("grt_new")));
         assert!(hub.cloud.requests_json().is_empty());
+    }
+
+    #[tokio::test]
+    async fn auto_approval_still_needs_a_matching_reveal() {
+        let hub = temp_hub();
+        let fake = Arc::new(FakeCloud::default());
+        let base = fake_cloud(fake.clone()).await;
+        hub.store.kv_set("cloud_url", &base).unwrap();
+        set_approval(&hub, Approval::Auto).unwrap();
+        let (dk, nd): ([u8; 32], [u8; 32]) = (crypto::random(), crypto::random());
+        let request = |host_nonce: Option<String>, device_nonce: Option<[u8; 32]>| {
+            json!({"owner": null, "grants": [], "requests": [{"requestId": "req_1", "deviceKey": b64(&dk),
+                "commit": b64(&crypto::sas_commit(&dk, &nd)), "hostNonce": host_nonce,
+                "deviceNonce": device_nonce.map(|n| b64(&n))}]})
+        };
+        *fake.state.lock().unwrap() = request(None, None);
+        pull(&hub, &base).await.unwrap();
+        assert!(hub.store.device(&b64(&dk)).is_none(), "nothing is approved before the reveal");
+        let nh = fake.posts.lock().unwrap()[0].1["nonce"].as_str().unwrap().to_owned();
+        *fake.state.lock().unwrap() = request(Some(nh), Some(nd));
+        pull(&hub, &base).await.unwrap();
+        assert_eq!(hub.store.device(&b64(&dk)).unwrap().source, DeviceSource::Account, "approved without the user");
     }
 
     #[tokio::test]

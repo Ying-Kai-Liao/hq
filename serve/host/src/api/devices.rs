@@ -2,8 +2,8 @@
 //! per-method permissions, the device authorization check and QR pairing codes.
 //! The authorized-device table itself lives in `store`.
 
-use crate::crypto;
 use crate::hub::Hub;
+use crate::remote::crypto;
 use crate::store::{Device, DeviceSource, Scope, now_ms};
 use serde::Serialize;
 use std::sync::atomic::Ordering;
@@ -34,6 +34,9 @@ const LOCAL_ONLY: &[&str] = &[
     "pairing",
     "computerCall",
     "teamCall",
+    "routineCall",
+    "composioCall",
+    "connectorTarget",
     "claimSign",
     "unclaim",
     "devices",
@@ -42,6 +45,7 @@ const LOCAL_ONLY: &[&str] = &[
     "decideAccessRequest",
     "cloudStatus",
     "setCloud",
+    "setApproval",
 ];
 const SCREEN: &[&str] = &["screenOffer", "screenClose", "screenTakeover"];
 

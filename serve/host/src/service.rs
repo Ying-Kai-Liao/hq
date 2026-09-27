@@ -43,6 +43,17 @@ fn create_parent(file: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Held by the daemon for its entire lifetime. OS advisory locks are released
+/// after a crash, so a stale lock file never prevents recovery.
+pub fn lock_host() -> Result<std::fs::File> {
+    let path = data_dir().join("host.lock");
+    create_parent(&path)?;
+    let file = std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(path)?;
+    fs2::FileExt::try_lock_exclusive(&file)
+        .context("another codync-host is already running for this data directory")?;
+    Ok(file)
+}
+
 /// Installs and starts the host as a per-user background service. The current
 /// PATH is captured so the service finds `npx`, `claude`, `codex`, …
 pub fn install(port: u16) -> Result<()> {
@@ -142,7 +153,7 @@ impl KeepAwake {
                         .args([
                             "--what=sleep:idle",
                             "--who=Codync",
-                            "--why=A bot is working",
+                            "--why=A bot is working or a routine is scheduled",
                             "--mode=block",
                             "sleep",
                             "infinity",

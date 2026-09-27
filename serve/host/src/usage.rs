@@ -88,7 +88,7 @@ pub async fn refresh(hub: &Hub) {
 
 /// `claude -p /usage`: Claude Code's own local usage report, no model call.
 async fn claude_cli_usage() -> Option<Vec<Window>> {
-    let bin = crate::backends::which("claude")?;
+    let bin = crate::agent::backends::which("claude")?;
     let out = tokio::time::timeout(
         Duration::from_secs(60),
         tokio::process::Command::new(bin)

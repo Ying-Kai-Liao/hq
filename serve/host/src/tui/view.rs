@@ -1159,10 +1159,13 @@ fn thread_line(out: &mut Built, app: &App, e: &Entry) {
     out.lines.push(Line::from(line));
 }
 
-/// "↳ 3 replies · 12:31" from the host's `data.thread`, or nothing without replies.
+/// "↳ 3 replies · 12:31" (or "· 1 new") from the host's `data.thread`, or nothing without replies.
 fn thread_summary(v: &serde_json::Value) -> Option<String> {
     let n = v["count"].as_i64().filter(|&n| n > 0)?;
-    let at = when(v["lastAt"].as_i64().unwrap_or(0));
+    let at = match v["unread"].as_i64().unwrap_or(0) {
+        0 => when(v["lastAt"].as_i64().unwrap_or(0)),
+        unread => format!("{unread} new"),
+    };
     Some(if at.is_empty() { format!("↳ {}", replies(n)) } else { format!("↳ {} · {at}", replies(n)) })
 }
 
@@ -2326,6 +2329,10 @@ mod tests {
         assert_eq!(thread_summary(&serde_json::Value::Null), None);
         assert_eq!(thread_summary(&serde_json::json!({"count": 1})).as_deref(), Some("↳ 1 reply"));
         assert_eq!(thread_summary(&serde_json::json!({"count": 3, "lastAt": 0})).as_deref(), Some("↳ 3 replies"));
+        assert_eq!(
+            thread_summary(&serde_json::json!({"count": 3, "lastAt": 0, "unread": 1})).as_deref(),
+            Some("↳ 3 replies · 1 new")
+        );
     }
 
     #[test]

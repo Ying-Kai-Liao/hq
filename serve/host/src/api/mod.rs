@@ -2,12 +2,16 @@
 //! apps and helpers (loopback + `Authorization: Bearer <token>`), and `GET /channel`, the
 //! direct end-to-end encrypted channel phones use (see `channel`).
 
+pub mod devices;
+
 use crate::LockExt;
-use crate::bot::Cmd;
-use crate::devices::{Caller, Forbidden};
+use crate::agent::backends;
+use crate::agent::bot::Cmd;
+use crate::api::devices::{Caller, Forbidden};
 use crate::hub::Hub;
-use crate::store::{BotConfig, DeviceSource, EntryKind, Lane};
-use crate::{backends, crypto, market, usage};
+use crate::remote::crypto;
+use crate::store::{BotConfig, DeviceSource, EntryKind, Lane, ReadScope};
+use crate::{market, usage};
 use anyhow::{Context, Result, anyhow, bail};
 use axum::body::Bytes;
 use axum::extract::ws::WebSocketUpgrade;
@@ -33,11 +37,13 @@ const CATCH_UP_PER_BOT: i64 = 200;
 pub fn router(hub: Arc<Hub>) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/hooks/routines/{id}", post(routine_hook))
         .route("/events", get(events))
         .route("/api/{method}", post(command))
         .route("/term/{id}", get(term_stream))
         .route("/ingest/statusline", post(statusline))
         .route("/channel", get(channel))
+        .route("/oauth/callback", get(oauth_callback))
         .with_state(hub)
 }
 
@@ -80,7 +86,7 @@ pub fn error_status(e: &anyhow::Error) -> (StatusCode, String) {
         (StatusCode::NOT_FOUND, e.to_string())
     } else if e.is::<Forbidden>() {
         (StatusCode::FORBIDDEN, e.to_string())
-    } else if e.is::<crate::cloud::Conflict>() {
+    } else if e.is::<crate::remote::cloud::Conflict>() {
         (StatusCode::CONFLICT, e.to_string())
     } else {
         // `{:#}` keeps the context chain ("starting `npx …`: No such file or directory").
@@ -142,6 +148,43 @@ async fn command(
 }
 
 #[derive(Deserialize)]
+struct OAuthCallback {
+    state: Option<String>,
+    code: Option<String>,
+    error: Option<String>,
+    error_description: Option<String>,
+}
+
+/// `GET /oauth/callback`: where a connector's sign-in page returns when the browser runs on
+/// this computer. No bearer token: the one-time `state` (and the host-held PKCE verifier) authenticate.
+async fn oauth_callback(
+    State(hub): State<Arc<Hub>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Query(q): Query<OAuthCallback>,
+) -> Response {
+    if !is_loopback(peer.ip()) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let error = q.error_description.or(q.error);
+    let result =
+        market::oauth::finish(&hub.store, q.state.as_deref().unwrap_or_default(), q.code.as_deref(), error.as_deref())
+            .await;
+    let (title, detail) = match &result {
+        Ok(c) => (format!("{} is connected", c.name), "You can close this tab and go back to Codync.".to_owned()),
+        Err(e) => ("Sign-in didn't finish".to_owned(), format!("{e:#}")),
+    };
+    let escape = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    axum::response::Html(format!(
+        "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width\"><title>Codync</title>\
+         <body style=\"font:16px system-ui;margin:20vh auto;max-width:28em;padding:0 16px;text-align:center\">\
+         <h2>{}</h2><p>{}</p></body>",
+        escape(&title),
+        escape(&detail)
+    ))
+    .into_response()
+}
+
+#[derive(Deserialize)]
 struct ChannelQuery {
     v: Option<u32>,
 }
@@ -156,8 +199,8 @@ async fn channel(
     if q.v != Some(1) {
         return (StatusCode::UPGRADE_REQUIRED, Json(json!({"error": {"code": "upgradeRequired"}}))).into_response();
     }
-    ws.max_message_size(crate::channel::MAX_WS_MESSAGE)
-        .on_upgrade(move |socket| crate::channel::serve_direct(hub, socket, peer.ip()))
+    ws.max_message_size(crate::remote::channel::MAX_WS_MESSAGE)
+        .on_upgrade(move |socket| crate::remote::channel::serve_direct(hub, socket, peer.ip()))
 }
 
 fn str_arg<'a>(b: &'a Value, k: &str) -> Result<&'a str> {
@@ -166,29 +209,50 @@ fn str_arg<'a>(b: &'a Value, k: &str) -> Result<&'a str> {
 
 /// Runs one API method for `caller` (permissions per spec §6.6).
 pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<Value> {
-    crate::devices::permit(caller, method)?;
+    devices::permit(caller, method)?;
     Ok(match method {
         "composioCall" => {
-            json!({"result": crate::composio::call(&hub.store, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?})
+            json!({"result": market::composio::call(&hub.store, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?})
         }
-        "composioStatus" => crate::composio::status(&hub.store),
-        "setComposioKey" => crate::composio::set_key(&hub.store, b["key"].as_str().unwrap_or_default()).await?,
+        "composioStatus" => market::composio::status(&hub.store),
+        "setComposioKey" => market::composio::set_key(&hub.store, b["key"].as_str().unwrap_or_default()).await?,
         "composioToolkits" => {
-            crate::composio::toolkits(
+            market::composio::toolkits(
                 &hub.store,
                 b["search"].as_str().unwrap_or_default(),
                 b["cursor"].as_str().unwrap_or_default(),
             )
             .await?
         }
-        "composioConnect" => crate::composio::connect(&hub.store, str_arg(&b, "toolkit")?).await?,
+        "composioConnect" => market::composio::connect(&hub.store, str_arg(&b, "toolkit")?).await?,
         "composioConnectFields" => {
             let fields = b["fields"].as_object().ok_or_else(|| anyhow!("`fields` is required"))?;
-            crate::composio::connect_with_fields(&hub.store, str_arg(&b, "toolkit")?, str_arg(&b, "mode")?, fields)
+            market::composio::connect_with_fields(&hub.store, str_arg(&b, "toolkit")?, str_arg(&b, "mode")?, fields)
                 .await?
         }
-        "composioConnection" => crate::composio::connection(&hub.store, str_arg(&b, "id")?).await?,
-        "teamCall" => crate::team::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?,
+        "composioConnection" => market::composio::connection(&hub.store, str_arg(&b, "id")?).await?,
+        "routines" => hub.routines.list(str_arg(&b, "botId")?),
+        "saveRoutine" => hub.routines.save(hub, str_arg(&b, "botId")?, &b)?,
+        "setRoutineEnabled" => hub.routines.set_enabled(
+            &hub.store,
+            str_arg(&b, "botId")?,
+            str_arg(&b, "id")?,
+            b["enabled"].as_bool().context("enabled is required")?,
+        )?,
+        "deleteRoutine" => hub.routines.remove(&hub.store, str_arg(&b, "botId")?, str_arg(&b, "id")?)?,
+        "runRoutine" => hub.routines.enqueue(
+            &hub.store,
+            str_arg(&b, "botId")?,
+            str_arg(&b, "id")?,
+            json!({"source":"test"}),
+            None,
+            true,
+        )?,
+        "routineWebhook" => hub.routines.credentials(hub, str_arg(&b, "botId")?, str_arg(&b, "id")?)?,
+        "routineCall" => crate::routines::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"])?,
+        "teamCall" => {
+            crate::chat::team::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?
+        }
         "hello" => {
             let port = hub.port;
             json!({
@@ -197,7 +261,7 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
                 "signKey": hub.identity.sign_pub_b64(),
                 "boxKey": hub.identity.box_pub_b64(),
                 "protocol": 1,
-                "cloud": crate::cloud::url(&hub.store),
+                "cloud": crate::remote::cloud::url(&hub.store),
                 "name": crate::service::host_name(),
                 "version": env!("CARGO_PKG_VERSION"),
                 "os": std::env::consts::OS,
@@ -239,8 +303,14 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
             hub.delete_bot(str_arg(&b, "botId")?)?;
             json!({})
         }
+        // The main chat, one thread (`threadId`), or everything (`all`, the roster's "Mark as read").
         "markRead" => {
-            hub.mark_read(str_arg(&b, "botId")?)?;
+            let scope = match b["threadId"].as_str().filter(|t| !t.is_empty()) {
+                Some(root) => ReadScope::Thread(root),
+                None if b["all"] == true => ReadScope::All,
+                None => ReadScope::Chat,
+            };
+            hub.mark_read(str_arg(&b, "botId")?, scope)?;
             json!({})
         }
         "send" => {
@@ -274,13 +344,15 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
             let e = hub
                 .add_entry(&lane, EntryKind::User, turn, &json!({"text": text, "clientNonce": nonce, "status": status}))
                 .ok_or_else(|| anyhow!("couldn't save the message"))?;
+            // Before the turn starts, so its reply lands unread.
+            let scope = lane.thread.as_deref().map_or(ReadScope::Chat, ReadScope::Thread);
+            if let Err(error) = hub.mark_read(bot, scope) {
+                tracing::warn!(%error, bot, "couldn't mark bot read after send");
+            }
             if row.config.is_group() {
-                crate::group::start(hub, &row.config, lane);
+                crate::chat::group::start(hub, &row.config, lane);
             } else {
                 hub.send_cmd(bot, Cmd::Send { lane, entry_id: e.id.clone(), text: text.to_owned() })?;
-            }
-            if let Err(error) = hub.mark_read(bot) {
-                tracing::warn!(%error, bot, "couldn't mark bot read after send");
             }
             json!({"entry": e})
         }
@@ -298,19 +370,23 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
         }
         "memory" => {
             let bot = str_arg(&b, "botId")?.to_owned();
-            tokio::task::spawn_blocking(move || crate::memory::describe(&bot)).await??
+            tokio::task::spawn_blocking(move || crate::chat::memory::describe(&bot)).await??
         }
         "forgetMemory" => {
             let bot = str_arg(&b, "botId")?.to_owned();
             let id = str_arg(&b, "id")?.to_owned();
             let removed =
-                tokio::task::spawn_blocking(move || crate::memory::Memory::for_bot(&bot)?.remove(&id)).await??;
+                tokio::task::spawn_blocking(move || crate::chat::memory::Memory::for_bot(&bot)?.remove(&id)).await??;
             json!({"removed": removed})
         }
         "clearMemory" => {
             let bot = str_arg(&b, "botId")?.to_owned();
-            tokio::task::spawn_blocking(move || crate::memory::Memory::for_bot(&bot)?.clear()).await??;
+            tokio::task::spawn_blocking(move || crate::chat::memory::Memory::for_bot(&bot)?.clear()).await??;
             json!({})
+        }
+        "react" => {
+            let e = hub.react(str_arg(&b, "entryId")?, str_arg(&b, "emoji")?)?;
+            json!({"entry": e})
         }
         "respondPermission" => {
             let entry_id = str_arg(&b, "entryId")?;
@@ -373,24 +449,28 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
             let device = hub.store.device(key).ok_or_else(|| anyhow!("unknown device"))?;
             hub.revoke_device(key)?;
             if let Some(grant) = device.grant_id.filter(|_| device.source == DeviceSource::Account) {
-                tokio::spawn(crate::cloud::revoke_grant(hub.clone(), grant));
+                tokio::spawn(crate::remote::cloud::revoke_grant(hub.clone(), grant));
             }
             json!({})
         }
         "accessRequests" => json!({"requests": hub.cloud.requests_json()}),
         "decideAccessRequest" => {
             let approve = b["approve"].as_bool().ok_or_else(|| anyhow!("`approve` is required"))?;
-            crate::cloud::decide(hub, str_arg(&b, "requestId")?, approve).await?;
+            crate::remote::cloud::decide(hub, str_arg(&b, "requestId")?, approve).await?;
             json!({})
         }
         "unclaim" => {
-            crate::cloud::unclaim(hub).await?;
+            crate::remote::cloud::unclaim(hub).await?;
             json!({})
         }
         "cloudStatus" => serde_json::to_value(hub.cloud.status())?,
         "setCloud" => {
             let enabled = b["enabled"].as_bool().ok_or_else(|| anyhow!("`enabled` is required"))?;
-            serde_json::to_value(crate::cloud::set_cloud(hub, enabled, b["url"].as_str())?)?
+            serde_json::to_value(crate::remote::cloud::set_cloud(hub, enabled, b["url"].as_str())?)?
+        }
+        "setApproval" => {
+            let approval = serde_json::from_value(b["approval"].clone()).context("`approval` is code or auto")?;
+            serde_json::to_value(crate::remote::cloud::set_approval(hub, approval)?)?
         }
         "claimSign" => claim_sign(hub, &b).await?,
         "marketConnectors" => market::browse_connectors(&hub.store, b["search"].as_str().unwrap_or_default()).await?,
@@ -406,14 +486,32 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
                 )
                 .await?
             } else {
-                market::add_custom_connector(&hub.store, &b)?
+                market::add_custom_connector(&hub.store, &b).await?
             };
             json!({"connector": c})
         }
+        "connectorSignIn" => {
+            // The browser can only reach this host's loopback page when it runs on this computer.
+            let callback = if matches!(caller, Caller::Local) {
+                market::oauth::Callback::Host
+            } else {
+                market::oauth::Callback::App
+            };
+            market::oauth::start(&hub.store, hub.port, str_arg(&b, "id")?, callback).await?
+        }
+        "connectorSignInFinish" => {
+            let c = market::oauth::finish(&hub.store, str_arg(&b, "state")?, b["code"].as_str(), b["error"].as_str())
+                .await?;
+            json!({"connector": c.public()})
+        }
+        "connectorSignOut" => json!({"connector": market::oauth::sign_out(&hub.store, str_arg(&b, "id")?)?.public()}),
+        "connectorTarget" => {
+            market::oauth::target(&hub.store, str_arg(&b, "id")?, b["stale"].as_bool().unwrap_or(false)).await?
+        }
         "removeConnector" => {
             let id = str_arg(&b, "id")?;
-            match id.strip_prefix(crate::composio::PREFIX) {
-                Some(toolkit) => crate::composio::disconnect(&hub.store, toolkit).await?,
+            match id.strip_prefix(market::composio::PREFIX) {
+                Some(toolkit) => market::composio::disconnect(&hub.store, toolkit).await?,
                 None => market::remove_connector(&hub.store, id)?,
             }
             json!({})
@@ -432,18 +530,19 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
             json!({})
         }
         "agentSetup" => {
-            let step: crate::term::Step =
+            let step: crate::agent::term::Step =
                 serde_json::from_value(b["step"].clone()).context("`step` is install or login")?;
             let (cols, rows) = term_size(&b);
             json!({"term": hub.terms.start(str_arg(&b, "backend")?, step, b["method"].as_str(), cols, rows).await?})
         }
-        "agentAuth" => crate::auth::check(&hub.store, str_arg(&b, "backend")?).await?,
+        "agentModels" => crate::agent::auth::models(&hub.store, str_arg(&b, "backend")?).await?,
+        "agentAuth" => crate::agent::auth::check(&hub.store, str_arg(&b, "backend")?).await?,
         "agentAuthenticate" => {
-            crate::auth::authenticate(&hub.store, str_arg(&b, "backend")?, str_arg(&b, "method")?).await?
+            crate::agent::auth::authenticate(&hub.store, str_arg(&b, "backend")?, str_arg(&b, "method")?).await?
         }
         "setAgentEnv" => {
             let vars = b["vars"].as_object().ok_or_else(|| anyhow!("`vars` is required"))?;
-            crate::auth::set_env(&hub.store, str_arg(&b, "backend")?, vars).await?
+            crate::agent::auth::set_env(&hub.store, str_arg(&b, "backend")?, vars).await?
         }
         "termInput" => {
             hub.terms.write(str_arg(&b, "term")?, str_arg(&b, "data")?)?;
@@ -635,7 +734,7 @@ async fn pairing(hub: &Arc<Hub>) -> Result<Value> {
     let port = hub.port;
     // Shells out to `tailscale`: keep it off the async workers.
     let urls = tokio::task::spawn_blocking(move || crate::service::addresses(port)).await?;
-    let cloud = crate::cloud::url(&hub.store);
+    let cloud = crate::remote::cloud::url(&hub.store);
     if urls.is_empty() && cloud.is_none() {
         bail!("No network address a phone could reach, and the Codync cloud is off.");
     }
@@ -682,6 +781,33 @@ async fn claim_sign(hub: &Arc<Hub>, b: &Value) -> Result<Value> {
         "version": env!("CARGO_PKG_VERSION"),
         "sig": crypto::b64(&hub.identity.sign(input.as_bytes())),
     }))
+}
+
+/// A scoped webhook credential authorizes only firing its own routine.
+async fn routine_hook(
+    State(hub): State<Arc<Hub>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, ApiError> {
+    if body.len() > 64_000 {
+        return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, "event too large".into()));
+    }
+    let key = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .unwrap_or_default();
+    let delivery = headers.get("x-delivery-id").and_then(|v| v.to_str().ok()).map(str::to_owned);
+    if delivery.as_ref().is_some_and(|v| v.len() > 200) {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "delivery id too long".into()));
+    }
+    let event =
+        serde_json::from_slice(&body).map_err(|_| ApiError(StatusCode::BAD_REQUEST, "invalid event JSON".into()))?;
+    hub.routines
+        .webhook(&hub, &id, key, event, delivery)
+        .map(Json)
+        .map_err(|e| ApiError(StatusCode::BAD_REQUEST, e.to_string()))
 }
 
 #[cfg(test)]

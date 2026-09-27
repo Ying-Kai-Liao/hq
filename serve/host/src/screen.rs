@@ -459,7 +459,7 @@ impl Screen {
         self.emit();
     }
 
-    /// Only callable from this computer (see `api.rs`).
+    /// Only callable from this computer (see `api/mod.rs`).
     pub async fn set_enabled(&self, store: &crate::store::Store, on: bool) -> Result<()> {
         store.kv_set(KV_ENABLED, if on { "1" } else { "0" })?;
         self.enabled.store(on, Ordering::Relaxed);

@@ -83,7 +83,7 @@ pub fn platform() -> Option<&'static str> {
 
 pub fn launch_kind(agent: &Value) -> Option<Launch> {
     let d = &agent["distribution"];
-    let on_path = crate::backends::on_path;
+    let on_path = crate::agent::backends::on_path;
     if let Some(p) = platform()
         && d["binary"][p].is_object()
     {
@@ -314,7 +314,7 @@ mod tests {
     #[tokio::test]
     async fn npx_command_is_quoted() {
         let a = json!({"id": "x", "name": "X", "distribution": {"npx": {"package": "@s/x@1.0.0", "args": ["--acp", "a b"], "env": {"K": "v", "BAD;rm": "x"}}}});
-        if crate::backends::on_path("npx") {
+        if crate::agent::backends::on_path("npx") {
             assert_eq!(command(&a, |_| {}).await.unwrap().acp(), "env K=v npx -y @s/x@1.0.0 --acp 'a b'");
         }
     }

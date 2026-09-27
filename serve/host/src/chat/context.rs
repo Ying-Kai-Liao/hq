@@ -11,7 +11,7 @@
 //! block on the next message and folded into the snapshot after the next
 //! compaction. Memory learned in between reaches the prompt the same way.
 
-use crate::memory::{self, Memory};
+use crate::chat::memory::{self, Memory};
 use crate::store::{BotConfig, Store};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -130,7 +130,8 @@ pub fn render(store: &Store, cfg: &BotConfig) -> String {
         "You are a persistent agent the user delegates work to from their phone through Codync. They see only your final reply of each turn, so keep it short and phone-friendly: say what you did and what needs the user."
             .to_owned(),
     );
-    lines.push(crate::team::INSTRUCTIONS.to_owned());
+    lines.push(crate::chat::team::INSTRUCTIONS.to_owned());
+    lines.push(crate::routines::INSTRUCTIONS.to_owned());
     lines.push(
         "Your history is shared across your chats: a message that starts with [Group chat: ...] is your turn in a group chat, where the user and the other bots see only your final reply. Everything else here is your private chat with the user: don't @-mention anyone in it, and don't assume a group sees it."
             .to_owned(),

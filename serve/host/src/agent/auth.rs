@@ -11,9 +11,9 @@
 //!   environment on every launch.
 
 use crate::LockExt;
-use crate::acp::{AUTH_REQUIRED, Acp, Incoming, RpcError};
-use crate::backends;
-use crate::registry::{Cmd, env_prefix, shell_quote};
+use crate::agent::acp::{AUTH_REQUIRED, Acp, Incoming, RpcError};
+use crate::agent::backends;
+use crate::agent::registry::{Cmd, env_prefix, shell_quote};
 use crate::store::Store;
 use anyhow::{Context, Result, anyhow, bail};
 use serde::Serialize;
@@ -103,6 +103,74 @@ pub async fn check(store: &Store, backend: &str) -> Result<Value> {
     // Codync's own sign-in command (phone-friendly device flows where the CLI has one).
     v["login"] = json!(backends::login_available(backend));
     Ok(v)
+}
+
+/// Discover the agent's advertised models in an isolated, prompt-free session.
+/// This uses the same credentials as actual bot sessions and never reads project files.
+pub async fn models(store: &Store, backend: &str) -> Result<Value> {
+    let (acp, mut inbox, _, _) = start(store, backend).await?;
+    let result = tokio::time::timeout(Duration::from_secs(60), async {
+        let request = acp.request("session/new", json!({"cwd": probe_dir(), "mcpServers": []}));
+        tokio::pin!(request);
+        loop {
+            tokio::select! {
+                result = &mut request => break result,
+                incoming = inbox.recv() => match incoming {
+                    Some(Incoming::Request { id, .. }) => {
+                        acp.respond_error(id, -32601, "not supported during model discovery").await?;
+                    }
+                    Some(Incoming::Notification { .. }) => {}
+                    Some(Incoming::Closed { .. }) | None => bail!("agent closed during model discovery"),
+                }
+            }
+        }
+    })
+    .await;
+    acp.kill().await;
+    let session = result.context("the agent's model list timed out")??;
+    Ok(model_catalog(&session))
+}
+
+/// IDs are agent-defined: use the category, with legacy conventional IDs as a fallback.
+pub(crate) fn model_config(session: &Value) -> Option<&Value> {
+    let options = session["configOptions"].as_array()?;
+    let is_select = |v: &&Value| v["type"] == "select" || v.get("type").is_none();
+    options
+        .iter()
+        .filter(is_select)
+        .find(|v| v["category"] == "model")
+        .or_else(|| options.iter().filter(is_select).find(|v| v["id"] == "model" || v["id"] == "models"))
+}
+
+fn model_catalog(session: &Value) -> Value {
+    fn collect(options: &Value, out: &mut Vec<Value>) {
+        for option in options.as_array().into_iter().flatten() {
+            if option["options"].is_array() {
+                collect(&option["options"], out);
+            } else if let Some(id) = text(&option["value"])
+                && !out.iter().any(|v| v["id"] == id)
+            {
+                out.push(json!({"id": id, "name": text(&option["name"]).unwrap_or(id),
+                    "description": text(&option["description"])}));
+            }
+        }
+    }
+    let mut models = Vec::new();
+    let current = if let Some(config) = model_config(session) {
+        collect(&config["options"], &mut models);
+        text(&config["currentValue"])
+    } else {
+        for model in session["models"]["availableModels"].as_array().into_iter().flatten() {
+            if let Some(id) = text(&model["modelId"])
+                && !models.iter().any(|v| v["id"] == id)
+            {
+                models.push(json!({"id": id, "name": text(&model["name"]).unwrap_or(id),
+                    "description": text(&model["description"])}));
+            }
+        }
+        text(&session["models"]["currentModelId"])
+    };
+    json!({"models": models, "currentModelId": current})
 }
 
 async fn probe(store: &Store, backend: &str) -> Result<Status> {
@@ -298,6 +366,47 @@ pub async fn set_env(store: &Store, backend: &str, vars: &Map<String, Value>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_catalog_reads_grouped_config_and_preserves_agent_ids() {
+        let session = json!({"configOptions": [{
+            "id": "provider-model", "category": "model", "type": "select", "currentValue": "m2",
+            "options": [{"group": "a", "options": [
+                {"value": "m1", "name": "First"}, {"value": "m2", "name": "Second"},
+                {"value": "m1", "name": "Duplicate"}
+            ]}]
+        }], "models": {"availableModels": [{"modelId": "legacy", "name": "Legacy"}]}});
+        assert_eq!(model_config(&session).unwrap()["id"], "provider-model");
+        let result = model_catalog(&session);
+        assert_eq!(result["currentModelId"], "m2");
+        assert_eq!(result["models"].as_array().unwrap().len(), 2);
+        assert_eq!(result["models"][0]["id"], "m1");
+        assert_eq!(result["models"][1]["name"], "Second");
+    }
+
+    #[test]
+    fn model_catalog_reads_legacy_and_missing_lists() {
+        let result = model_catalog(&json!({"models": {
+            "currentModelId": "a", "availableModels": [
+                {"modelId": "a", "name": "Agent model", "description": "Available here"},
+                {"name": "No ID"}
+            ]
+        }}));
+        assert_eq!(result["models"].as_array().unwrap().len(), 1);
+        assert_eq!(result["models"][0]["description"], "Available here");
+        assert_eq!(model_catalog(&json!({})), json!({"models": [], "currentModelId": null}));
+    }
+
+    #[test]
+    fn model_config_prefers_category_and_ignores_unknown_types() {
+        let session = json!({"configOptions": [
+            {"id": "model", "type": "boolean"},
+            {"id": "models", "type": "select"},
+            {"id": "engine", "category": "model", "type": "select"}
+        ]});
+        assert_eq!(model_config(&session).unwrap()["id"], "engine");
+        assert!(model_config(&json!({"configOptions": [{"id": "model", "type": "boolean"}]})).is_none());
+    }
 
     fn cmd() -> Cmd {
         Cmd { program: "npx -y pkg@1".into(), args: "--acp".into() }

@@ -13,9 +13,9 @@
 //! lane and only sees the thread.
 
 use crate::LockExt;
-use crate::bot::Cmd;
+use crate::agent::bot::Cmd;
 use crate::hub::Hub;
-use crate::push::{self, AlertKind};
+use crate::remote::push::{self, AlertKind};
 use crate::store::{BotConfig, BotKind, Entry, EntryKind, Lane, Store};
 use anyhow::{Result, anyhow, bail};
 use std::collections::HashMap;
@@ -140,7 +140,7 @@ async fn run(hub: &Arc<Hub>, group_id: &str, lane: &Lane, epoch: u64) -> Result<
                 continue;
             }
             // A failed, cancelled or overdue member turn counts as a pass; its error shows in the room.
-            if let Ok(Ok(Ok(Some(text)))) = tokio::time::timeout(crate::team::ASK_TIMEOUT, answer).await {
+            if let Ok(Ok(Ok(Some(text)))) = tokio::time::timeout(crate::chat::team::ASK_TIMEOUT, answer).await {
                 spoke += 1;
                 replies += 1;
                 last_reply = Some((member.name.clone(), text));
@@ -267,7 +267,7 @@ fn line(hub: &Hub, e: &Entry, me: &BotConfig) -> String {
         return format!("User: {text}");
     }
     let author = e.data["author"].as_str().unwrap_or_default();
-    let text = crate::acp::truncate(text, LINE_CHARS);
+    let text = crate::agent::acp::truncate(text, LINE_CHARS);
     if author == me.id { format!("{} (you): {text}", me.name) } else { format!("{}: {text}", hub.bot_name(author)) }
 }
 
@@ -315,7 +315,7 @@ mod tests {
         assert_eq!(ids(&members, "@all go"), ["a", "b", "c"]);
     }
 
-    use crate::devices::Caller;
+    use crate::api::devices::Caller;
     use crate::hub::BotStatus;
     use std::path::PathBuf;
     use std::time::Duration;
@@ -346,7 +346,7 @@ mod tests {
             let hub = Hub::new(
                 store,
                 "test-host".into(),
-                crate::identity::Identity::load_or_create(&dir).unwrap(),
+                crate::remote::identity::Identity::load_or_create(&dir).unwrap(),
                 "test-token".into(),
                 19222,
             );
@@ -458,6 +458,32 @@ mod tests {
         let summary = room.hub.store.entry(&first.id).unwrap().data["thread"].clone();
         assert_eq!(summary["count"], 2);
         assert_eq!(summary["authors"], json!(["user", "a"]));
+
+        // Threads are read on their own (Slack's): reading the main chat leaves the thread's reply unread.
+        let unread = || room.hub.bot_value_for_test(&room.group)["unread"].as_i64().unwrap();
+        assert_eq!(summary["unread"], 1);
+        assert_eq!(unread(), 2, "the main chat's reply and the thread's");
+        let mark = |b: serde_json::Value| crate::api::dispatch(&room.hub, &Caller::Local, "markRead", b);
+        mark(json!({"botId": room.group})).await.unwrap();
+        assert_eq!(unread(), 1);
+        mark(json!({"botId": room.group, "threadId": first.id})).await.unwrap();
+        assert_eq!(unread(), 0);
+        assert_eq!(room.hub.store.entry(&first.id).unwrap().data["thread"]["unread"], 0);
+        assert!(mark(json!({"botId": "a", "threadId": first.id})).await.is_err(), "a thread of another chat");
+
+        // Reactions toggle, and reacting to a read message doesn't make it unread.
+        let reply = room.hub.store.messages_after(&Lane::main(&room.group), 0, 100).unwrap();
+        let reply = reply.iter().find(|e| e.kind == "agent" && e.data["final"] == true).unwrap();
+        let react = |emoji: &str| {
+            crate::api::dispatch(&room.hub, &Caller::Local, "react", json!({"entryId": reply.id, "emoji": emoji}))
+        };
+        react("👍").await.unwrap();
+        let reacted = react("✅").await.unwrap();
+        assert_eq!(reacted["entry"]["data"]["reactions"], json!(["👍", "✅"]));
+        assert_eq!(unread(), 0);
+        let undone = react("👍").await.unwrap();
+        assert_eq!(undone["entry"]["data"]["reactions"], json!(["✅"]));
+        assert!(react("hi").await.is_err(), "only emoji");
 
         // A thread in a bot's own chat gets a session of its own, told where it branched off.
         let dm = crate::api::dispatch(&room.hub, &Caller::Local, "send", json!({"botId": "b", "text": "main"}))

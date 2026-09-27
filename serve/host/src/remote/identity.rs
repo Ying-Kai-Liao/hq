@@ -4,7 +4,7 @@
 //! Kept in `identity.json` (0600) next to, never inside, the database: copying
 //! the database must not copy the identity. Blocking `std::fs`: load once at start.
 
-use crate::crypto::{self, b64};
+use crate::remote::crypto::{self, b64};
 use anyhow::{Context, Result, bail};
 use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};

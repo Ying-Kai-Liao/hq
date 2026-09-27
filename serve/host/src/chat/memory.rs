@@ -9,7 +9,7 @@
 //! journal entry. The bot sees memory through its frozen prompt (`context`).
 
 use crate::LockExt;
-use crate::acp::{self, Acp, Incoming};
+use crate::agent::acp::{self, Acp, Incoming};
 use crate::hub::Hub;
 use crate::store::{BotConfig, Store};
 use anyhow::{Context as _, Result, anyhow, bail};
@@ -643,11 +643,11 @@ async fn one_shot(hub: &Arc<Hub>, cfg: &BotConfig, system: &str, user: &str) -> 
     let cwd = crate::service::data_dir().join("memory-keeper");
     tokio::fs::create_dir_all(&cwd).await?;
     let cwd = cwd.to_string_lossy().into_owned();
-    let env = crate::auth::env(&hub.store, &cfg.backend);
+    let env = crate::agent::auth::env(&hub.store, &cfg.backend);
     let mut conn = None;
     let mut last_err = None;
-    for command in crate::bot::launch_commands(cfg, |_| {}).await? {
-        match crate::bot::start_agent(&command, &cwd, &env, Duration::from_secs(60)).await {
+    for command in crate::agent::bot::launch_commands(cfg, |_| {}).await? {
+        match crate::agent::bot::start_agent(&command, &cwd, &env, Duration::from_secs(60)).await {
             Ok(c) => {
                 conn = Some(c);
                 break;

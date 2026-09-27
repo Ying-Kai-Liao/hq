@@ -2,7 +2,7 @@
 //! native subagents remain the harness's responsibility.
 
 use crate::LockExt;
-use crate::bot::Cmd;
+use crate::agent::bot::Cmd;
 use crate::hub::{BotStatus, Hub};
 use crate::store::{BotConfig, EntryKind};
 use anyhow::{Result, anyhow, bail};
@@ -254,7 +254,7 @@ async fn ask(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str, timeou
         Ok(text) => {
             pending.finish(
                 Status::Completed,
-                &format!("Reply from {}:\n{}", target.name, crate::acp::truncate(&text, 4000)),
+                &format!("Reply from {}:\n{}", target.name, crate::agent::acp::truncate(&text, 4000)),
             );
             Ok(json!({"requestId": id, "botId": target.id, "name": target.name, "reply": text}))
         }
@@ -315,7 +315,7 @@ mod tests {
             let hub = Hub::new(
                 store,
                 "test-host".into(),
-                crate::identity::Identity::load_or_create(&dir).unwrap(),
+                crate::remote::identity::Identity::load_or_create(&dir).unwrap(),
                 "test-token".into(),
                 19222,
             );
@@ -331,7 +331,7 @@ mod tests {
             tokio::spawn(async move {
                 crate::api::dispatch(
                     &hub,
-                    &crate::devices::Caller::Local,
+                    &crate::api::devices::Caller::Local,
                     "teamCall",
                     json!({
                         "botId": "a", "name": "ask_bot", "arguments": {"botId": "b", "message": message},
@@ -372,7 +372,7 @@ mod tests {
         f.until(|| f.prompts().len() == 1).await;
         let sent = crate::api::dispatch(
             &f.hub,
-            &crate::devices::Caller::Local,
+            &crate::api::devices::Caller::Local,
             "send",
             json!({"botId": "b", "text": "thanks"}),
         )
@@ -413,7 +413,7 @@ mod tests {
             f.hub.store.history("b", i64::MAX, 100).unwrap().into_iter().find(|e| e.kind == "permission").unwrap();
         crate::api::dispatch(
             &f.hub,
-            &crate::devices::Caller::Local,
+            &crate::api::devices::Caller::Local,
             "respondPermission",
             json!({"entryId": card.id, "optionId": "allow"}),
         )
@@ -428,9 +428,14 @@ mod tests {
         let f = Fixture::new();
         let request = f.request("BLOCK waiting for cancellation");
         f.until(|| f.prompts().len() == 1).await;
-        crate::api::dispatch(&f.hub, &crate::devices::Caller::Local, "send", json!({"botId": "b", "text": "thanks"}))
-            .await
-            .unwrap();
+        crate::api::dispatch(
+            &f.hub,
+            &crate::api::devices::Caller::Local,
+            "send",
+            json!({"botId": "b", "text": "thanks"}),
+        )
+        .await
+        .unwrap();
         f.hub.send_cmd("a", Cmd::Stop).unwrap();
         assert!(request.await.unwrap().unwrap_err().to_string().contains("cancelled"));
         f.until(|| f.prompts().len() == 2 && f.hub.runtime("b").status == BotStatus::Idle).await;

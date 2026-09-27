@@ -7,7 +7,7 @@
 //! back to the official ACP registry build (npx / uvx / downloaded binary).
 
 use crate::LockExt;
-use crate::registry;
+use crate::agent::registry;
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

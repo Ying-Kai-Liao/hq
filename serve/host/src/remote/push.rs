@@ -5,8 +5,8 @@
 //! none are sent while the phone app is connected (it's in the foreground).
 
 use crate::LockExt;
-use crate::crypto;
 use crate::hub::{BotStatus, Hub, Runtime};
+use crate::remote::crypto;
 use crate::store::BotConfig;
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -78,7 +78,7 @@ pub fn notify(hub: &Hub, bot: &BotConfig, title: &str, body: &str, kind: AlertKi
         AlertKind::NeedsInput => "Needs you",
         AlertKind::Done => "Done",
     };
-    let secret = json!({"title": title, "body": crate::acp::truncate(body, 140)}).to_string();
+    let secret = json!({"title": title, "body": crate::agent::acp::truncate(body, 140)}).to_string();
     let computer_id = hub.identity.computer_id();
     for t in hub.store.push_tickets() {
         let mut data = json!({"botId": bot.id, "computerId": computer_id, "ctx": t.ctx});

@@ -10,9 +10,9 @@
 
 use crate::LockExt;
 use crate::api;
-use crate::crypto::{self, FrameError, Opener, Sealer};
-use crate::devices::{self, Caller, RejectCode};
+use crate::api::devices::{self, Caller, RejectCode};
 use crate::hub::Hub;
+use crate::remote::crypto::{self, FrameError, Opener, Sealer};
 use crate::store::{Device, DeviceSource, Scope, now_ms};
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use futures::{SinkExt as _, StreamExt as _};
@@ -606,7 +606,7 @@ impl Channel {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
-    use crate::identity::Identity;
+    use crate::remote::identity::Identity;
     use crate::store::Store;
     use ed25519_dalek::SigningKey;
 

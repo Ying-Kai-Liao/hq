@@ -7,10 +7,11 @@ use serde_json::{Value, json};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-const PROTOCOL_VERSION: &str = "2025-06-18";
+pub const PROTOCOL_VERSION: &str = "2025-06-18";
 
 #[derive(Clone, Copy)]
 pub enum Server {
+    Routines,
     Computer,
     Team,
     Composio,
@@ -106,8 +107,11 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
     let mut out = tokio::io::stdout();
     let (name, instructions, available_tools) = match server {
         Server::Computer => ("codync-computer", INSTRUCTIONS, tools()),
-        Server::Team => ("codync-team", crate::team::INSTRUCTIONS, crate::team::tools()),
-        Server::Composio => ("codync-composio", crate::composio::INSTRUCTIONS, crate::composio::tools()),
+        Server::Routines => ("codync-routines", crate::routines::INSTRUCTIONS, crate::routines::tools()),
+        Server::Team => ("codync-team", crate::chat::team::INSTRUCTIONS, crate::chat::team::tools()),
+        Server::Composio => {
+            ("codync-composio", crate::market::composio::INSTRUCTIONS, crate::market::composio::tools())
+        }
     };
     while let Some(line) = lines.next_line().await? {
         let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
@@ -147,8 +151,9 @@ async fn call(port: u16, token: &str, bot: &str, params: &Value, server: Server)
         "arguments": params.get("arguments").filter(|a| a.is_object()).cloned().unwrap_or_else(|| json!({})),
     });
     let (method, timeout) = match server {
+        Server::Routines => ("routineCall", Duration::from_secs(30)),
         Server::Computer => ("computerCall", Duration::from_secs(60)),
-        Server::Team => ("teamCall", crate::team::ASK_TIMEOUT + Duration::from_secs(30)),
+        Server::Team => ("teamCall", crate::chat::team::ASK_TIMEOUT + Duration::from_secs(30)),
         Server::Composio => ("composioCall", Duration::from_secs(120)),
     };
     let res = crate::http()
@@ -165,7 +170,9 @@ async fn call(port: u16, token: &str, bot: &str, params: &Value, server: Server)
                 Ok(v) if ok => {
                     return match server {
                         Server::Computer => json!({"content": v["content"]}),
-                        Server::Team => json!({"content": [{"type": "text", "text": v.to_string()}]}),
+                        Server::Team | Server::Routines => {
+                            json!({"content": [{"type": "text", "text": v.to_string()}]})
+                        }
                         Server::Composio => json!({"content": [{"type": "text", "text": v["result"].to_string()}]}),
                     };
                 }
@@ -178,9 +185,141 @@ async fn call(port: u16, token: &str, bot: &str, params: &Value, server: Server)
     json!({"content": [{"type": "text", "text": error}], "isError": true})
 }
 
+/// `codync-host mcp remote`: a stdio MCP server that forwards every message to a remote
+/// (streamable HTTP) connector with the headers and fresh sign-in token the host gives it.
+pub async fn serve_remote(connector: String, port: u16) -> Result<()> {
+    let token = std::fs::read_to_string(crate::service::data_dir().join("token")).unwrap_or_default();
+    let token = token.trim().to_owned();
+    let mut lines = BufReader::new(tokio::io::stdin()).lines();
+    let mut out = tokio::io::stdout();
+    let mut session: Option<String> = None;
+    while let Some(line) = lines.next_line().await? {
+        let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
+        let replies = match forward(port, &token, &connector, &msg, &mut session).await {
+            Ok(replies) => replies,
+            // Only requests get an answer; a failed notification is dropped.
+            Err(e) => match msg.get("id").filter(|id| !id.is_null()) {
+                Some(id) => {
+                    vec![json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": format!("{e:#}")}})]
+                }
+                None => vec![],
+            },
+        };
+        for reply in replies {
+            let mut line = serde_json::to_vec(&reply)?;
+            line.push(b'\n');
+            out.write_all(&line).await?;
+        }
+        out.flush().await?;
+    }
+    Ok(())
+}
+
+/// Sends one message; returns what the server answered (JSON, or the events of an SSE stream).
+async fn forward(
+    port: u16,
+    token: &str,
+    connector: &str,
+    msg: &Value,
+    session: &mut Option<String>,
+) -> Result<Vec<Value>> {
+    use futures::StreamExt as _;
+    for stale in [false, true] {
+        let target = crate::http()
+            .post(format!("http://127.0.0.1:{port}/api/connectorTarget"))
+            .bearer_auth(token)
+            .json(&json!({"id": connector, "stale": stale}))
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("can't reach the Codync host: {e}"))?;
+        let ok = target.status().is_success();
+        let target: Value = target.json().await?;
+        if !ok {
+            anyhow::bail!("{}", target["error"].as_str().unwrap_or("the Codync host refused"));
+        }
+        let url = target["url"].as_str().unwrap_or_default();
+        let mut req = crate::http()
+            .post(url)
+            .header("accept", "application/json, text/event-stream")
+            .json(msg)
+            .timeout(Duration::from_secs(600));
+        for (k, v) in target["headers"].as_object().into_iter().flatten() {
+            req = req.header(k.as_str(), v.as_str().unwrap_or_default());
+        }
+        if let Some(s) = session.as_deref() {
+            req = req.header("mcp-session-id", s);
+        }
+        let res = req.send().await.map_err(|e| anyhow::anyhow!("can't reach {url}: {e}"))?;
+        if res.status() == reqwest::StatusCode::UNAUTHORIZED && !stale {
+            continue;
+        }
+        if res.status() == reqwest::StatusCode::NOT_FOUND && session.is_some() && !stale {
+            // The server forgot our session; start over without it.
+            *session = None;
+            continue;
+        }
+        if let Some(s) = res.headers().get("mcp-session-id").and_then(|v| v.to_str().ok()) {
+            *session = Some(s.to_owned());
+        }
+        if !res.status().is_success() {
+            anyhow::bail!("{url} answered {}", res.status());
+        }
+        let sse = res
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|t| t.starts_with("text/event-stream"));
+        if !sse {
+            let body = res.bytes().await?;
+            if body.is_empty() {
+                return Ok(vec![]);
+            }
+            return Ok(match serde_json::from_slice::<Value>(&body)? {
+                Value::Array(all) => all,
+                one => vec![one],
+            });
+        }
+        // Read events until the answer to this request arrives (servers may keep the stream open).
+        let id = msg.get("id").filter(|id| !id.is_null());
+        let mut got = vec![];
+        let mut buf = String::new();
+        let mut stream = res.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            buf.push_str(&String::from_utf8_lossy(&chunk?).replace("\r\n", "\n"));
+            while let Some(end) = buf.find("\n\n") {
+                let event: String = buf.drain(..end + 2).collect();
+                if let Some(v) = sse_data(&event) {
+                    let done = id.is_some_and(|id| v.get("id") == Some(id) && v.get("method").is_none());
+                    got.push(v);
+                    if done {
+                        return Ok(got);
+                    }
+                }
+            }
+        }
+        return Ok(got);
+    }
+    anyhow::bail!("{connector} still refuses the sign-in; sign in again in Marketplace")
+}
+
+/// The JSON in one SSE event's `data:` lines.
+fn sse_data(event: &str) -> Option<Value> {
+    let data: Vec<&str> =
+        event.lines().filter_map(|l| l.strip_prefix("data:")).map(|d| d.strip_prefix(' ').unwrap_or(d)).collect();
+    serde_json::from_str(&data.join("\n")).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_sse_events() {
+        assert_eq!(sse_data("event: message\ndata: {\"id\":1}\n\n").unwrap()["id"], 1);
+        assert_eq!(sse_data("data:{\"a\":\ndata: 2}\n\n").unwrap()["a"], 2);
+        assert!(sse_data(": ping\n\n").is_none());
+    }
 
     #[test]
     fn every_tool_parses_as_a_computer_tool() {

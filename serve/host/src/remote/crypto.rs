@@ -322,7 +322,7 @@ mod tests {
     use serde_json::Value;
 
     fn vectors() -> Value {
-        serde_json::from_str(include_str!("../../docs/reference/fixtures/remote-relay-vectors.json")).unwrap()
+        serde_json::from_str(include_str!("../../../docs/reference/fixtures/remote-relay-vectors.json")).unwrap()
     }
 
     fn b(v: &Value) -> Vec<u8> {

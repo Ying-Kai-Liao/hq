@@ -3,7 +3,7 @@
 //! host picks the command (from `backends::HARNESSES`); clients only type.
 
 use crate::LockExt;
-use crate::backends;
+use crate::agent::backends;
 use anyhow::{Result, anyhow, bail};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
@@ -105,7 +105,7 @@ impl Terms {
             // Some CLIs (codex) delete the current credentials the moment a new sign-in starts.
             Step::Login if backends::signed_in(backend) == Some(true) => bail!("{name} is already signed in"),
             Step::Login => match method {
-                Some(m) => crate::auth::terminal_command(backend, m)
+                Some(m) => crate::agent::auth::terminal_command(backend, m)
                     .ok_or_else(|| anyhow!("That sign-in option is gone; check {name} again"))?,
                 None => backends::login_command(backend).await?,
             },

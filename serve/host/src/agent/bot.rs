@@ -15,14 +15,14 @@
 //! forked from the main one when the agent can fork) and in group chats (turns in
 //! its main session, written to the group's transcript; see `group`).
 
-use crate::acp::{self, Acp, Incoming};
-use crate::context::{self, Identity, Snapshot};
-use crate::group::GroupTurn;
+use crate::agent::acp::{self, Acp, Incoming};
+use crate::chat::context::{self, Identity, Snapshot};
+use crate::chat::group::GroupTurn;
+use crate::chat::memory;
 use crate::hub::{BotStatus, Hub};
-use crate::memory;
-use crate::push::{self, AlertKind};
+use crate::remote::push::{self, AlertKind};
 use crate::store::{BotConfig, Entry, EntryKind, Lane, Permission, lane_key, now_ms};
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -40,13 +40,14 @@ pub enum NoticeStyle {
 }
 
 pub enum Cmd {
+    Routine(String),
     /// The user wrote in the bot's chat or one of its threads.
     Send {
         lane: Lane,
         entry_id: String,
         text: String,
     },
-    Ask(crate::team::Ask),
+    Ask(crate::chat::team::Ask),
     CancelAsk {
         id: String,
     },
@@ -67,8 +68,9 @@ pub enum Cmd {
 }
 
 enum Queued {
+    Routine(String),
     User { lane: Lane, entry_id: String, text: String },
-    Ask(crate::team::Ask),
+    Ask(crate::chat::team::Ask),
     Group(GroupTurn),
 }
 
@@ -101,6 +103,10 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig) -> BotHandle {
         turn_session: None,
         thread_intro: None,
         active_group: None,
+        active_routine: None,
+        routine_deadline: None,
+        routine_timed_out: false,
+        routine_completion: None,
         session_fresh: false,
         applied_system: None,
         keeper,
@@ -152,6 +158,8 @@ enum Seg {
     Open { kind: SegKind, entry_id: String, buf: String, flushed: Instant, dirty: bool },
 }
 
+// These flags describe independent actor concerns, not interchangeable states.
+#[allow(clippy::struct_excessive_bools)]
 struct Actor {
     hub: Arc<Hub>,
     cfg: BotConfig,
@@ -167,6 +175,10 @@ struct Actor {
     /// Told on the first message of a new thread session: what the thread is about.
     thread_intro: Option<String>,
     active_group: Option<GroupTurn>,
+    active_routine: Option<String>,
+    routine_deadline: Option<Instant>,
+    routine_timed_out: bool,
+    routine_completion: Option<RoutineCompletion>,
     /// True until the first prompt of a new ACP session has been sent.
     session_fresh: bool,
     /// (session, instructions) last handed to Claude as its system prompt by this process.
@@ -178,7 +190,7 @@ struct Actor {
     announce: Option<(Snapshot, Identity)>,
     turn: Option<i64>,
     queue: VecDeque<Queued>,
-    active_ask: Option<crate::team::Ask>,
+    active_ask: Option<crate::chat::team::Ask>,
     seg: Seg,
     tools: HashMap<String, String>,
     plan_entry: Option<String>,
@@ -193,6 +205,13 @@ struct Actor {
     tools_changed: bool,
 }
 
+struct RoutineCompletion {
+    id: String,
+    status: crate::routines::Status,
+    detail: Option<String>,
+    text: Option<String>,
+}
+
 type Done = Result<Value>;
 
 impl Actor {
@@ -201,7 +220,19 @@ impl Actor {
     async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Cmd>, interrupted: Option<Lane>) {
         let (done_tx, mut done_rx) = mpsc::unbounded_channel::<Done>();
         let mut flush_tick = tokio::time::interval(Duration::from_millis(300));
-        if let Some(lane) = interrupted {
+        if let Some(run) = self.hub.routines.recovery(&self.cfg.id) {
+            self.active_routine = Some(run.id.clone());
+            self.routine_deadline = Some(Instant::now() + self.hub.routines.timeout(&run.id));
+            if let Some(root) = run.root_id {
+                self.resume_interrupted(Lane::in_thread(&self.cfg.id, &root), &done_tx).await;
+            } else {
+                self.finish_routine(
+                    crate::routines::Status::Interrupted,
+                    Some("Routine has no saved session; inspect before retrying".into()),
+                    None,
+                );
+            }
+        } else if let Some(lane) = interrupted {
             self.resume_interrupted(lane, &done_tx).await;
         }
         loop {
@@ -219,7 +250,18 @@ impl Actor {
                     self.finish_turn(&done);
                     self.next_in_queue(&done_tx).await;
                 }
-                _ = flush_tick.tick() => self.flush(false),
+                _ = flush_tick.tick() => {
+                    self.flush(false);
+                    if self.routine_completion.is_some() && self.retry_routine_completion() {
+                        self.set_inflight(false);
+                        self.next_in_queue(&done_tx).await;
+                    }
+                    if self.active_routine.is_some() && self.turn.is_some() && self.routine_deadline.is_some_and(|deadline| Instant::now() >= deadline) && !self.routine_timed_out {
+                        self.routine_timed_out = true;
+                        self.stop_requested = true;
+                        if let Some(c) = self.conn.take() { c.acp.kill().await; }
+                    }
+                },
             }
         }
         self.hub.team.cancel_from(&self.cfg.id);
@@ -238,6 +280,12 @@ impl Actor {
 
     async fn on_cmd(&mut self, cmd: Cmd, done_tx: &mpsc::UnboundedSender<Done>) -> bool {
         match cmd {
+            Cmd::Routine(id) => {
+                self.queue.push_back(Queued::Routine(id));
+                if self.turn.is_none() {
+                    self.next_in_queue(done_tx).await;
+                }
+            }
             Cmd::Send { lane, entry_id, text } => {
                 self.queue.push_back(Queued::User { lane, entry_id, text });
                 if self.turn.is_none() {
@@ -322,6 +370,12 @@ impl Actor {
 
     async fn stop(&mut self) {
         self.hub.team.cancel_from(&self.cfg.id);
+        if let Err(error) = self.hub.routines.cancel_queued(&self.hub.store, &self.cfg.id) {
+            tracing::error!(error = format!("{error:#}"), "couldn't cancel queued routines");
+        }
+        if self.active_routine.is_none() {
+            self.hub.routines.release(&self.cfg.id);
+        }
         // Queued messages are dropped too: Stop means "stop everything".
         for queued in self.queue.drain(..) {
             let Queued::User { entry_id, .. } = queued else { continue };
@@ -350,8 +404,35 @@ impl Actor {
 
     async fn next_in_queue(&mut self, done_tx: &mpsc::UnboundedSender<Done>) {
         let main = Lane::main(&self.cfg.id);
-        while self.turn.is_none() && !self.queue.is_empty() {
+        while self.turn.is_none() && self.routine_completion.is_none() && !self.queue.is_empty() {
             match self.queue.front() {
+                Some(Queued::Routine(_)) => {
+                    let Some(Queued::Routine(id)) = self.queue.pop_front() else { unreachable!("front is a routine") };
+                    self.active_routine = Some(id.clone());
+                    self.routine_timed_out = false;
+                    match self.hub.routines.begin(&self.hub, &self.cfg.id, &id) {
+                        Ok(Some(prepared)) => {
+                            self.routine_deadline = Some(Instant::now() + prepared.timeout);
+                            let result = self.start_turn(prepared.lane, &[], &prepared.prompt, false, done_tx).await;
+                            self.turn_text = None;
+                            if let Err(error) = result {
+                                self.start_failed(&error);
+                            }
+                        }
+                        Ok(None) => {
+                            self.active_routine = None;
+                            self.hub.routines.release(&self.cfg.id);
+                        }
+                        Err(error) => {
+                            self.finish_routine(
+                                crate::routines::Status::Failed,
+                                Some(format!("Could not start routine: {error:#}")),
+                                None,
+                            );
+                        }
+                    }
+                    continue;
+                }
                 Some(Queued::Ask(_)) => {
                     let Some(Queued::Ask(ask)) = self.queue.pop_front() else { unreachable!("front is an ask") };
                     if ask.reply.is_closed() {
@@ -408,17 +489,20 @@ impl Actor {
     }
 
     fn start_failed(&mut self, e: &anyhow::Error) {
+        self.finish_routine(crate::routines::Status::Failed, Some(format!("Could not start routine: {e:#}")), None);
         self.complete_ask(Err(anyhow!("couldn't start recipient: {e:#}")));
         self.complete_group(Err(anyhow!("couldn't start: {e:#}")));
         let mut msg = format!("Couldn't start the agent: {e}");
         if e.to_string().to_lowercase().contains("auth")
-            && let Some(h) = crate::backends::harness(&self.cfg.backend)
+            && let Some(h) = crate::agent::backends::harness(&self.cfg.backend)
         {
             msg = format!("{0} needs you to sign in. Open {0} in Marketplace to sign in.", h.name);
         }
         self.notice(&msg, NoticeStyle::Error);
         self.turn = None;
-        self.set_inflight(false);
+        if self.routine_completion.is_none() {
+            self.set_inflight(false);
+        }
         self.hub.set_runtime(&self.id(), |r| {
             r.status = BotStatus::Error;
             r.activity = "Couldn't start".into();
@@ -440,14 +524,62 @@ impl Actor {
         }
     }
 
+    fn finish_routine(&mut self, status: crate::routines::Status, detail: Option<String>, text: Option<String>) {
+        if let Some(id) = self.active_routine.take() {
+            self.routine_completion = Some(RoutineCompletion { id, status, detail, text });
+            self.routine_deadline = None;
+            self.retry_routine_completion();
+        }
+    }
+
+    /// If SQLite is temporarily unavailable, keep the result and block this
+    /// actor's next turn until the durable completion has been saved.
+    fn retry_routine_completion(&mut self) -> bool {
+        let Some(completion) = &self.routine_completion else {
+            return true;
+        };
+        match self.hub.routines.complete(
+            &self.hub,
+            &completion.id,
+            completion.status,
+            completion.detail.clone(),
+            completion.text.clone(),
+        ) {
+            Ok(()) => {
+                self.routine_completion = None;
+                true
+            }
+            Err(error) => {
+                tracing::error!(
+                    error = format!("{error:#}"),
+                    run = completion.id,
+                    "couldn't save routine result; will retry"
+                );
+                false
+            }
+        }
+    }
+
     /// Grok Bot's upgrade resume: the previous host process stopped mid-turn, so
     /// the agent is told, in the same session, to finish without redoing steps.
     async fn resume_interrupted(&mut self, lane: Lane, done_tx: &mpsc::UnboundedSender<Done>) {
         self.set_inflight(false);
         if self.session_for(lane.thread.as_deref()).is_none() {
+            self.finish_routine(
+                crate::routines::Status::Interrupted,
+                Some("No saved agent session is available; inspect this run before retrying".into()),
+                None,
+            );
             return;
         }
-        if let Err(e) = self.start_turn(lane, &[], RESUME_PROMPT, true, done_tx).await {
+        let prompt = if self.active_routine.is_some() {
+            format!(
+                "{RESUME_PROMPT} This is still a scheduled routine run. If its instruction permits silence and there is nothing to report, return exactly (pass)."
+            )
+        } else {
+            RESUME_PROMPT.to_owned()
+        };
+        if let Err(e) = self.start_turn(lane, &[], &prompt, true, done_tx).await {
             self.start_failed(&e);
         }
     }
@@ -480,10 +612,13 @@ impl Actor {
         hidden: bool,
         done_tx: &mpsc::UnboundedSender<Done>,
     ) -> Result<()> {
-        let turn = entry_ids
-            .last()
-            .and_then(|id| self.hub.store.entry(id))
-            .map_or_else(|| self.hub.store.max_turn(&lane.chat) + i64::from(self.active_group.is_some()), |e| e.turn);
+        let turn = entry_ids.last().and_then(|id| self.hub.store.entry(id)).map_or_else(
+            || {
+                self.hub.store.max_turn(&lane.chat)
+                    + i64::from(self.active_group.is_some() || self.active_routine.is_some())
+            },
+            |e| e.turn,
+        );
         for id in entry_ids {
             if let Some(mut e) = self.hub.store.entry(id) {
                 e.data["status"] = "sent".into();
@@ -503,7 +638,7 @@ impl Actor {
         self.last_text = None;
         // A delegated or group turn has no live waiter after a host restart. Its persisted
         // notices are marked interrupted instead of silently repeating work.
-        self.set_inflight(self.active_ask.is_none() && self.active_group.is_none());
+        self.set_inflight(self.active_ask.is_none() && self.active_group.is_none() && self.active_routine.is_none());
         self.hub.set_runtime(&self.id(), |r| {
             r.status = BotStatus::Working;
             r.activity = if hidden { "Picking up where it left off…" } else { "Starting…" }.into();
@@ -512,11 +647,24 @@ impl Actor {
         });
 
         let slot = self.slot(&lane);
-        self.ensure_session(slot.as_deref()).await?;
+        if let Some(deadline) = self.routine_deadline {
+            tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), self.ensure_session(slot.as_deref()))
+                .await
+                .context("routine session setup timed out")??;
+        } else {
+            self.ensure_session(slot.as_deref()).await?;
+        }
         if hidden && self.session_fresh {
-            // The interrupted session couldn't be resumed, so there is nothing to continue.
+            // A new session must never silently repeat an interrupted routine.
+            self.finish_routine(
+                crate::routines::Status::Interrupted,
+                Some("The agent could not reload this run's saved session; inspect before retrying".into()),
+                None,
+            );
             self.turn = None;
-            self.set_inflight(false);
+            if self.routine_completion.is_none() {
+                self.set_inflight(false);
+            }
             self.hub.team.cancel_from(&self.cfg.id);
             self.hub.set_runtime(&self.id(), |r| {
                 r.status = BotStatus::Idle;
@@ -562,6 +710,10 @@ impl Actor {
             "sessionId": sid,
             "prompt": [{"type": "text", "text": prompt}],
         });
+        if let Some(id) = &self.active_routine {
+            self.hub.routines.mark_started(&self.hub.store, id)?;
+            self.set_inflight(true);
+        }
         // Written before this returns, so a Stop right after is sent after the prompt.
         let answer = acp.send("session/prompt", params).await?;
         let done_tx = done_tx.clone();
@@ -665,8 +817,9 @@ impl Actor {
             .filter(|c| self.cfg.connectors.contains(&c.id))
             .filter_map(|c| c.acp(&exe, port))
             .collect();
-        let composio = crate::composio::enabled_for(&self.hub.store, &self.cfg.connectors);
-        let builtin = [Some("team"), self.cfg.computer.then_some("computer"), composio.then_some("composio")];
+        let composio = crate::market::composio::enabled_for(&self.hub.store, &self.cfg.connectors);
+        let builtin =
+            [Some("team"), Some("routines"), self.cfg.computer.then_some("computer"), composio.then_some("composio")];
         for name in builtin.into_iter().flatten() {
             servers.push(json!({
                 "name": name, "command": exe,
@@ -695,7 +848,7 @@ impl Actor {
             .await?;
             self.hub.set_runtime(&self.id(), |r| r.activity = "Starting agent…".into());
             // Keys saved from an "environment variable" sign-in.
-            let env = crate::auth::env(&self.hub.store, &self.cfg.backend);
+            let env = crate::agent::auth::env(&self.hub.store, &self.cfg.backend);
             let mut last_err = None;
             for (i, command) in candidates.iter().enumerate() {
                 let fallback_left = i + 1 < candidates.len();
@@ -806,7 +959,7 @@ impl Actor {
         let sid = res["sessionId"].as_str().ok_or_else(|| anyhow!("agent returned no sessionId"))?.to_owned();
         conn.loaded.insert(sid.clone());
         if let Some(model) = self.cfg.model.clone().filter(|m| !m.is_empty()) {
-            let config_id = crate::auth::model_config(&res).and_then(|c| c["id"].as_str());
+            let config_id = crate::agent::auth::model_config(&res).and_then(|c| c["id"].as_str());
             let r = if let Some(config_id) = config_id {
                 conn.acp
                     .request(
@@ -860,13 +1013,14 @@ impl Actor {
             }
         }
         let mut final_text = None;
-        let grouped = self.active_group.is_some();
+        let routine = self.active_routine.is_some();
+        let grouped = self.active_group.is_some() || routine;
         if let Some(id) = self.last_text.take().filter(|_| !stopped)
             && let Some(mut e) = self.hub.store.entry(&id)
         {
             let text = e.data["text"].as_str().map(str::to_owned);
             // A pass in a room stays in the trace; the room doesn't see it.
-            if !(grouped && text.as_deref().is_none_or(crate::group::is_pass)) {
+            if !(grouped && text.as_deref().is_none_or(crate::chat::group::is_pass)) {
                 e.data["final"] = true.into();
                 self.hub.set_entry(&id, &e.data);
                 final_text = text;
@@ -900,10 +1054,35 @@ impl Actor {
                 .filter(|s| !s.trim().is_empty())
                 .ok_or_else(|| anyhow!("recipient finished without a text reply"))
         };
+        if routine {
+            let (status, detail) = if self.routine_timed_out {
+                (
+                    crate::routines::Status::Failed,
+                    Some("Routine exceeded its execution time limit; its agent process was stopped".into()),
+                )
+            } else if stopped {
+                (crate::routines::Status::Cancelled, Some("Stopped by user".into()))
+            } else if failed || stop_reason != "end_turn" {
+                (
+                    crate::routines::Status::Failed,
+                    Some(format!("Routine did not finish ({stop_reason}); inspect the run conversation")),
+                )
+            } else {
+                (crate::routines::Status::Succeeded, None)
+            };
+            let text = (status == crate::routines::Status::Succeeded).then(|| final_text.clone()).flatten();
+            self.finish_routine(status, detail, text);
+        }
         self.complete_ask(reply);
-        self.complete_group(if stopped || failed { Err(anyhow!("stopped")) } else { Ok(final_text.clone()) });
+        self.complete_group(if stopped || failed || stop_reason != "end_turn" {
+            Err(anyhow!("turn did not complete ({stop_reason})"))
+        } else {
+            Ok(final_text.clone())
+        });
         self.turn = None;
-        self.set_inflight(false);
+        if self.routine_completion.is_none() {
+            self.set_inflight(false);
+        }
         // The message reached the agent: the profile update it carried is now known to it.
         if let (Ok(_), Some((snapshot, identity))) = (&done, self.announce.take())
             && let Err(error) = context::mark_announced(&self.hub.store, &self.cfg.id, &snapshot, identity)
@@ -1233,10 +1412,10 @@ fn system_meta(system: &str) -> Value {
 pub(crate) async fn launch_commands(cfg: &BotConfig, progress: impl Fn(&str)) -> Result<Vec<String>> {
     Ok(match cfg.command.as_deref().map(str::trim) {
         Some(c) if !c.is_empty() => vec![c.to_owned()],
-        _ => crate::backends::launch_candidates(&cfg.backend, progress)
+        _ => crate::agent::backends::launch_candidates(&cfg.backend, progress)
             .await?
             .iter()
-            .map(crate::registry::Cmd::acp)
+            .map(crate::agent::registry::Cmd::acp)
             .collect(),
     })
 }

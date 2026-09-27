@@ -1,32 +1,21 @@
 //! `codync-host`: runs coding-agent bots over ACP and serves the Codync apps.
 
-mod acp;
+mod agent;
 mod api;
-mod auth;
-mod backends;
-mod bot;
-mod channel;
-mod cloud;
-mod composio;
-mod context;
-mod crypto;
-mod devices;
-mod group;
+mod chat;
 mod hub;
-mod identity;
 mod market;
 mod mcp;
-mod memory;
-mod push;
-mod registry;
-mod relay;
+mod remote;
+mod routines;
 mod screen;
 mod service;
 mod store;
-mod team;
-mod term;
 mod tui;
 mod usage;
+
+use agent::{backends, registry};
+use remote::{identity, relay};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -51,7 +40,10 @@ impl<T> LockExt<T> for Mutex<T> {
 
 /// One shared HTTP client (connection pool + TLS config) for the whole process.
 pub fn http() -> &'static reqwest::Client {
-    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(reqwest::Client::new);
+    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+        // Only fails without system CA certificates (bare containers).
+        reqwest::Client::builder().build().expect("TLS setup failed: install the ca-certificates package")
+    });
     &CLIENT
 }
 
@@ -116,6 +108,11 @@ enum Sub {
         /// Cloud base URL (https://…); turns the cloud on unless --disable.
         #[arg(long)]
         url: Option<String>,
+        /// How devices on this computer's account get in: `code` (compare the 6-digit code,
+        /// the default) or `auto` (no check: anyone who gets into the account, or controls
+        /// the cloud, can then add a device).
+        #[arg(long, value_parser = ["code", "auto"])]
+        approval: Option<String>,
     },
     /// Install and start the host as a background service (launchd / systemd --user).
     Install {
@@ -179,6 +176,13 @@ enum AccessAction {
 
 #[derive(Subcommand)]
 enum McpServer {
+    /// Scheduled and event-triggered bot routines.
+    Routines {
+        #[arg(long)]
+        bot: String,
+        #[arg(long, default_value_t = service::DEFAULT_PORT)]
+        port: u16,
+    },
     /// Discover and ask the user's other bots for help.
     Team {
         #[arg(long)]
@@ -190,6 +194,13 @@ enum McpServer {
     Composio {
         #[arg(long)]
         bot: String,
+        #[arg(long, default_value_t = service::DEFAULT_PORT)]
+        port: u16,
+    },
+    /// A remote connector, with its sign-in handled by the host.
+    Remote {
+        #[arg(long)]
+        connector: String,
         #[arg(long, default_value_t = service::DEFAULT_PORT)]
         port: u16,
     },
@@ -271,7 +282,10 @@ async fn main() -> Result<()> {
             }
         },
         Sub::Access { port, action } => access(port, action.unwrap_or(AccessAction::List)).await,
-        Sub::Cloud { port, enable, disable, url } => {
+        Sub::Cloud { port, enable, disable, url, approval } => {
+            if let Some(approval) = approval {
+                local_call(port, "setApproval", json!({ "approval": approval })).await?;
+            }
             let status = if enable || disable || url.is_some() {
                 local_call(port, "setCloud", json!({"enabled": !disable, "url": url})).await?
             } else {
@@ -280,11 +294,12 @@ async fn main() -> Result<()> {
             let text = |k: &str| status[k].as_str().unwrap_or("-").to_owned();
             let owner = status["owner"]["email"].as_str().or(status["owner"]["userId"].as_str()).unwrap_or("none");
             println!(
-                "enabled:    {}\nurl:        {}\nregistered: {}\nconnected:  {}\naccount:    {owner}\nlast error: {}",
+                "enabled:    {}\nurl:        {}\nregistered: {}\nconnected:  {}\naccount:    {owner}\napproval:   {}\nlast error: {}",
                 status["enabled"],
                 text("url"),
                 status["registered"],
                 status["connected"],
+                text("approval"),
                 text("lastError"),
             );
             Ok(())
@@ -339,8 +354,10 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Sub::Mcp { server: McpServer::Computer { bot, port } } => mcp::serve(bot, port, mcp::Server::Computer).await,
+        Sub::Mcp { server: McpServer::Routines { bot, port } } => mcp::serve(bot, port, mcp::Server::Routines).await,
         Sub::Mcp { server: McpServer::Team { bot, port } } => mcp::serve(bot, port, mcp::Server::Team).await,
         Sub::Mcp { server: McpServer::Composio { bot, port } } => mcp::serve(bot, port, mcp::Server::Composio).await,
+        Sub::Mcp { server: McpServer::Remote { connector, port } } => mcp::serve_remote(connector, port).await,
         Sub::Tui { url, token, port } => {
             tui::run(url.unwrap_or_else(|| format!("http://127.0.0.1:{port}")), token).await
         }
@@ -359,6 +376,9 @@ fn cap_log() {
 }
 
 async fn serve(bind: &str, port: u16) -> Result<()> {
+    let _instance_lock = tokio::task::spawn_blocking(service::lock_host).await??;
+    let listener =
+        tokio::net::TcpListener::bind((bind, port)).await.with_context(|| format!("binding {bind}:{port}"))?;
     cap_log();
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -378,8 +398,6 @@ async fn serve(bind: &str, port: u16) -> Result<()> {
     tokio::spawn(relay::run(hub.clone()));
     #[cfg(target_os = "linux")]
     tokio::spawn(screen::supervise_linux_helper(hub.screen.clone()));
-    let listener =
-        tokio::net::TcpListener::bind((bind, port)).await.with_context(|| format!("binding {bind}:{port}"))?;
     tracing::info!(version = env!("CARGO_PKG_VERSION"), bind, port, "codync-host listening");
     // Peer addresses: some settings may only be changed from this computer.
     let app = api::router(hub.clone()).into_make_service_with_connect_info::<std::net::SocketAddr>();

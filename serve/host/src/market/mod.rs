@@ -16,6 +16,9 @@
 //! they're reduced to a safe slug first. Secret values (API keys, tokens) stay
 //! on this computer; listings only say which keys are set.
 
+pub mod composio;
+pub mod oauth;
+
 use crate::LockExt;
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
@@ -56,23 +59,33 @@ pub struct Connector {
     pub url: Option<String>,
     #[serde(default)]
     pub headers: BTreeMap<String, String>,
+    /// Remote servers that want sign-in; see `oauth`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth: Option<oauth::OAuth>,
 }
 
 impl Connector {
-    /// ACP `McpServer`. Remote servers need the agent's `mcpCapabilities.http`.
-    pub fn acp(&self, http_ok: bool) -> Option<Value> {
-        let pairs = |m: &BTreeMap<String, String>| -> Vec<Value> {
-            m.iter().map(|(k, v)| json!({"name": k, "value": v})).collect()
-        };
+    /// ACP `McpServer`. Remote servers run through this host's `remote` proxy (`codync-host mcp remote`),
+    /// which keeps sign-in tokens fresh and works with agents that only speak stdio.
+    /// A remote server still waiting for sign-in is left out.
+    pub fn acp(&self, exe: &std::path::Path, port: u16) -> Option<Value> {
         if let Some(command) = &self.command {
-            return Some(json!({"name": self.id, "command": command, "args": self.args, "env": pairs(&self.env)}));
+            let env: Vec<Value> = self.env.iter().map(|(k, v)| json!({"name": k, "value": v})).collect();
+            return Some(json!({"name": self.id, "command": command, "args": self.args, "env": env}));
         }
-        let url = self.url.as_ref()?;
-        http_ok.then(|| json!({"type": "http", "name": self.id, "url": url, "headers": pairs(&self.headers)}))
+        self.url.as_ref()?;
+        if self.oauth.as_ref().is_some_and(|o| !o.signed_in()) {
+            return None;
+        }
+        Some(json!({
+            "name": self.id, "command": exe,
+            "args": ["mcp", "remote", "--connector", self.id, "--port", port.to_string()],
+            "env": [],
+        }))
     }
 
     /// What clients see: everything but the secret values.
-    fn public(&self) -> Value {
+    pub fn public(&self) -> Value {
         json!({
             "id": self.id,
             "name": self.name,
@@ -82,6 +95,11 @@ impl Connector {
             "command": self.command.as_ref().map(|c| std::iter::once(c.clone()).chain(self.args.iter().cloned()).collect::<Vec<_>>().join(" ")),
             "url": self.url,
             "keys": self.env.keys().chain(self.headers.keys()).collect::<Vec<_>>(),
+            "auth": match &self.oauth {
+                None => "none",
+                Some(o) if o.signed_in() => "signedIn",
+                Some(_) => "signedOut",
+            },
         })
     }
 }
@@ -141,6 +159,10 @@ pub fn skills(store: &crate::store::Store) -> Vec<Skill> {
 
 fn save<T: Serialize>(store: &crate::store::Store, key: &str, items: &[T]) -> Result<()> {
     store.kv_set(key, &serde_json::to_string(items)?)
+}
+
+pub fn save_connectors(store: &crate::store::Store, items: &[Connector]) -> Result<()> {
+    save(store, "connectors", items)
 }
 
 fn unique_id(base: &str, taken: &[String]) -> String {
@@ -333,12 +355,19 @@ pub async fn install_connector(store: &crate::store::Store, name: &str, option: 
         env: BTreeMap::new(),
         url: None,
         headers: BTreeMap::new(),
+        oauth: None,
     };
     match kind {
         "package" => {
             let p = server["packages"].get(index).ok_or_else(|| anyhow!("unknown package"))?;
             let id = p["identifier"].as_str().ok_or_else(|| anyhow!("package has no identifier"))?;
-            let version = p["version"].as_str().unwrap_or("latest");
+            // A package runs as the user: install exactly the version the registry lists, never "latest".
+            let version = p["version"]
+                .as_str()
+                .filter(|v| !v.is_empty() && *v != "latest" && !v.contains(['^', '~', '*', ' ']))
+                .ok_or_else(|| {
+                    anyhow!("{id} has no pinned version in the MCP Registry, so it can't be installed safely")
+                })?;
             for e in p["environmentVariables"].as_array().into_iter().flatten() {
                 let Some(k) = e["name"].as_str() else { continue };
                 match input(k).or_else(|| e["default"].as_str().map(str::to_owned)) {
@@ -385,13 +414,18 @@ pub async fn install_connector(store: &crate::store::Store, name: &str, option: 
         }
         _ => bail!("unknown install option"),
     }
+    if let Some(url) = &c.url
+        && oauth::required(url, &c.headers).await
+    {
+        c.oauth = Some(oauth::OAuth::default());
+    }
     all.push(c.clone());
     save(store, "connectors", &all)?;
     Ok(c.public())
 }
 
 /// A connector you describe yourself: a command line or an https URL.
-pub fn add_custom_connector(store: &crate::store::Store, b: &Value) -> Result<Value> {
+pub async fn add_custom_connector(store: &crate::store::Store, b: &Value) -> Result<Value> {
     let name =
         b["name"].as_str().map(str::trim).filter(|s| !s.is_empty()).ok_or_else(|| anyhow!("`name` is required"))?;
     let mut all = connectors(store);
@@ -408,11 +442,15 @@ pub fn add_custom_connector(store: &crate::store::Store, b: &Value) -> Result<Va
         env: map(&b["env"]),
         url: None,
         headers: map(&b["headers"]),
+        oauth: None,
     };
     if let Some(url) = b["url"].as_str().map(str::trim).filter(|s| !s.is_empty()) {
         if !url.starts_with("https://") && !url.starts_with("http://localhost") && !url.starts_with("http://127.0.0.1")
         {
             bail!("remote connectors need an https URL");
+        }
+        if oauth::required(url, &c.headers).await {
+            c.oauth = Some(oauth::OAuth::default());
         }
         c.url = Some(url.to_owned());
     } else {
@@ -433,9 +471,9 @@ pub fn add_custom_connector(store: &crate::store::Store, b: &Value) -> Result<Va
 /// Installed MCP servers, then the apps connected through Composio.
 pub fn list_connectors(store: &crate::store::Store) -> Value {
     let mut items: Vec<Value> = connectors(store).iter().map(Connector::public).collect();
-    items.extend(crate::composio::connections(store).iter().filter(|c| c.active()).map(|c| {
+    items.extend(composio::connections(store).iter().filter(|c| c.active()).map(|c| {
         json!({
-            "id": format!("{}{}", crate::composio::PREFIX, c.toolkit),
+            "id": format!("{}{}", composio::PREFIX, c.toolkit),
             "name": c.name,
             "description": format!("{} through Composio", c.name),
             "registryName": null,
@@ -663,12 +701,16 @@ mod tests {
             env: BTreeMap::from([("TOKEN".into(), "x".into())]),
             url: None,
             headers: BTreeMap::new(),
+            oauth: None,
         };
-        assert_eq!(c.acp(false).unwrap()["env"][0]["name"], "TOKEN");
+        let exe = std::path::Path::new("/bin/codync-host");
+        assert_eq!(c.acp(exe, 1).unwrap()["env"][0]["name"], "TOKEN");
         assert!(c.public().get("env").is_none(), "secrets never leave the host");
         c.command = None;
         c.url = Some("https://example.com/mcp".into());
-        assert!(c.acp(false).is_none(), "remote needs the agent's http capability");
-        assert_eq!(c.acp(true).unwrap()["type"], "http");
+        assert_eq!(c.acp(exe, 1).unwrap()["args"][1], "remote", "remote servers go through the proxy");
+        c.oauth = Some(oauth::OAuth::default());
+        assert!(c.acp(exe, 1).is_none(), "not signed in yet");
+        assert_eq!(c.public()["auth"], "signedOut");
     }
 }

@@ -8,12 +8,13 @@
 //! drops all link state.
 
 use crate::LockExt;
-use crate::channel::{self, ChannelKind, Out, Transport};
-use crate::crypto::{self, b64};
-use crate::devices::{self, Caller};
+use crate::api;
+use crate::api::devices::{self, Caller};
 use crate::hub::Hub;
+use crate::remote::channel::{self, ChannelKind, Out, Transport};
+use crate::remote::cloud;
+use crate::remote::crypto::{self, b64};
 use crate::store::DeviceSource;
-use crate::{api, cloud};
 use anyhow::{Context, Result, anyhow, bail};
 use futures::{SinkExt as _, StreamExt as _};
 use serde::Serialize;
@@ -56,6 +57,7 @@ pub async fn run(hub: Arc<Hub>) {
         cloud::update_status(&hub, |s| {
             s.enabled = url.is_some();
             s.url.clone_from(&url);
+            s.approval = cloud::approval(&hub.store);
             s.registered = false;
             s.connected = false;
             if url.is_none() {
@@ -475,7 +477,7 @@ async fn deliver(hub: &Arc<Hub>, item: &Value) -> Result<(), MailboxFailure> {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
-    use crate::identity::Identity;
+    use crate::remote::identity::Identity;
     use crate::store::{BotConfig, Device, DeviceSource, Scope, Store, now_ms};
     use axum::extract::ws::{Message as AxMessage, WebSocket, WebSocketUpgrade};
     use axum::extract::{Request, State};

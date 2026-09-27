@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // test code: failing loudly is the point
 
 /// The host's wire crypto doubles as this test's device implementation.
-#[path = "../src/crypto.rs"]
+#[path = "../src/remote/crypto.rs"]
 #[allow(dead_code)]
 mod crypto;
 

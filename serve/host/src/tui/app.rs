@@ -864,7 +864,7 @@ impl App {
         {
             let id = b.id.clone();
             self.reading.insert(id.clone());
-            self.call("markRead", json!({"botId": id}), After::Nothing);
+            self.call("markRead", json!({"botId": id, "threadId": self.thread}), After::Nothing);
         }
         if self.chat_top && self.chat_visible() && self.thread.is_none() {
             self.load_history();
@@ -945,7 +945,8 @@ impl App {
             return;
         }
         let Some(new) = Bot::parse(v) else { return };
-        if new.unread == 0 {
+        // Marked read once per change: an open thread leaves the main chat's replies unread.
+        if self.bots.get(&new.id).is_none_or(|old| old.unread != new.unread) {
             self.reading.remove(&new.id);
         }
         let old = self.bots.insert(new.id.clone(), new.clone());
