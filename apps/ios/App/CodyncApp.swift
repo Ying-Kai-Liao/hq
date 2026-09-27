@@ -15,7 +15,7 @@ struct CodyncApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .id(app.contextID)
+                .id("\(app.contextID)#\(app.generation)")
                 .environment(app)
                 .environment(app.accounts)
                 .environment(app.account)
@@ -71,6 +71,8 @@ final class AppStore {
     /// The signed-in account's cloud; nil when signed out or the build has no cloud.
     private(set) var cloud: CloudClient?
     private(set) var contextID: String
+    /// Bumped by Start over so the whole UI is rebuilt, even though the local context keeps its id.
+    private(set) var generation = 0
     var tab = AppTab.bots
     var showComputers = false
     /// The computer whose marketplace is open.
@@ -117,6 +119,31 @@ final class AppStore {
         // Retire its stores first: a retiring store saves its cache one last time.
         switchAccount(to: account.userID)
         SharedStore.Context(accountID: userID).erase()
+    }
+
+    /// Settings → Start over: signs out of every account and forgets every computer, key and cache
+    /// on this iPhone, then shows the welcome again. The computers keep their bots and chats.
+    func startOver() async {
+        let userIDs = account.accounts.map(\.id)
+        await account.signOutAll()
+        accounts.retire()
+        PushRegistrar.shared.deactivate()
+        LiveActivities.shared.endAll()
+        for id in userIDs { SharedStore.Context(accountID: id).erase() }
+        let storage = SharedStore.Context(accountID: nil)
+        storage.erase()
+        storage.bots = []
+        SharedStore.activeAccountID = nil
+        UserDefaults.standard.set(false, forKey: "onboardingCompleted")
+        showComputers = false
+        account.showSwitcher = false
+        marketplace = nil
+        tab = .bots
+        contextID = storage.id
+        (accounts, cloud) = Self.makeAccounts(storage, session: account)
+        generation += 1
+        BotsWidgetFeed.reset()
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     func pair(_ pairing: Pairing) async throws -> Computer {

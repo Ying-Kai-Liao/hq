@@ -129,6 +129,17 @@ final class AccountSession {
         }
     }
 
+    /// Every account on this device, for starting over.
+    func signOutAll() async {
+        guard let clerk else { return }
+        isBusy = true
+        errorMessage = nil
+        defer { isBusy = false }
+        for session in clerk.auth.sessions {
+            try? await clerk.auth.signOut(sessionId: session.id)
+        }
+    }
+
     func switchAccount(_ account: Account) async {
         guard !isBusy, let clerk, account.id != userID else { return }
         isBusy = true

@@ -18,6 +18,7 @@ struct SettingsView: View {
     @State private var confirmForget: Computer?
     @State private var confirmRevoke: CloudComputer?
     @State private var access: AccessTarget?
+    @State private var confirmStartOver = false
 
     var body: some View {
         CardForm {
@@ -104,6 +105,20 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(Palette.text)
             }
+
+            CardSection {
+                Button { confirmStartOver = true } label: {
+                    Label("Start over", systemImage: "arrow.counterclockwise")
+                        .foregroundStyle(Palette.danger)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .codyncDialog("Start over?", isPresented: $confirmStartOver,
+                      message: "Signs out of every account and forgets every computer on this iPhone, then shows the welcome again. Your computers keep their bots and chats; pair again to use them.") {
+            [DialogAction("Start over", destructive: true) { Task { await app.startOver() } }]
         }
         .refreshable { await accounts.refreshCloud() }
         .page("Computers & settings", pushed: pushed)
