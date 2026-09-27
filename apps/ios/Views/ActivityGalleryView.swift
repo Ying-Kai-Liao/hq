@@ -4,11 +4,13 @@ import CodyncUI
 import SwiftUI
 
 struct ActivityGalleryView: View {
+    /// The presentations shown: the State tab splits Lock Screen from the Dynamic Island.
+    var forms = BotActivityPreview.Form.allCases
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
     @AppStorage("liveActivitiesEnabled") private var enabled = true
     @State private var allowed = ActivityAuthorizationInfo().areActivitiesEnabled
-    @State private var form = BotActivityPreview.Form.lockScreen
+    @State private var form: BotActivityPreview.Form?
     @State private var phase = BotActivityPresentation.Phase.working
     @State private var start = Date.now - 154
 
@@ -50,23 +52,22 @@ struct ActivityGalleryView: View {
                         Spacer()
                         Text("Sample task").font(.caption).foregroundStyle(Palette.secondary)
                     }
-                    ChoicePicker(selection: $form, options: BotActivityPreview.Form.allCases.map { ($0, $0.rawValue) })
+                    if forms.count > 1 {
+                        ChoicePicker(selection: Binding(get: { form ?? forms[0] }, set: { form = $0 }), options: forms.map { ($0, $0.rawValue) })
+                    }
                     ChoicePicker(selection: $phase, options: [
                         (.working, "Working"), (.needsInput, "Needs you"), (.completed, "Done"),
                         (.failed, "Error"), (.stale, "Update delayed"),
                     ])
                     if let bot = Bot.widgetPreview.first {
-                        BotActivityPreview(bot: bot, state: state, form: form)
+                        BotActivityPreview(bot: bot, state: state, form: form ?? forms[0])
                             .frame(maxWidth: .infinity, minHeight: 90)
                             .padding(12)
                             .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 28))
                     }
                 }
                 VStack(alignment: .leading, spacing: 14) {
-                    explanation("Lock Screen", "A task card with the bot, current step and elapsed time. Tap it to return to the conversation.")
-                    explanation("Compact", "The bot and timer appear beside the camera. The timer becomes a status icon when the task needs attention or ends.")
-                    explanation("Minimal", "A small status icon when iOS displays multiple Live Activities.")
-                    explanation("Expanded", "Touch and hold the Dynamic Island for the current step and a shortcut to the conversation.")
+                    ForEach(forms, id: \.self) { explanation($0) }
                 }
                 Text("iOS chooses the presentation based on your device and other active tasks. These previews don't start a Live Activity. Approvals are handled inside Codync.")
                     .font(.footnote).foregroundStyle(Palette.secondary)
@@ -74,7 +75,7 @@ struct ActivityGalleryView: View {
             .padding(18).frame(maxWidth: 560).frame(maxWidth: .infinity)
         }
         .background(Palette.background)
-        .page("Live Activity", pushed: true)
+
         .tint(Palette.accent)
         .onChange(of: enabled) { _, value in if !value { LiveActivities.shared.endAll() } }
         .onChange(of: scenePhase) { _, value in
@@ -82,9 +83,15 @@ struct ActivityGalleryView: View {
         }
     }
 
-    private func explanation(_ title: String, _ detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.subheadline.weight(.medium)).accessibilityAddTraits(.isHeader)
+    private func explanation(_ form: BotActivityPreview.Form) -> some View {
+        let detail = switch form {
+        case .lockScreen: "A task card with the bot, current step and elapsed time. Tap it to return to the conversation."
+        case .compact: "The bot and timer appear beside the camera. The timer becomes a status icon when the task needs attention or ends."
+        case .minimal: "A small status icon when iOS displays multiple Live Activities."
+        case .expanded: "Touch and hold the Dynamic Island for the current step and a shortcut to the conversation."
+        }
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(form.rawValue).font(.subheadline.weight(.medium)).accessibilityAddTraits(.isHeader)
             Text(detail).font(.footnote).foregroundStyle(Palette.secondary)
         }
     }

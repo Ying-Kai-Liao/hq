@@ -46,7 +46,7 @@ struct CodyncApp: App {
                     if let s = ProcessInfo.processInfo.environment["CODYNC_PAIR_URL"], let p = Pairing(string: s) {
                         _ = try? await app.pair(p)
                     }
-                    if ProcessInfo.processInfo.environment["CODYNC_OPEN_USAGE"] != nil { app.tab = .usage }
+                    if ProcessInfo.processInfo.environment["CODYNC_OPEN_USAGE"] != nil { app.tab = .state; app.showUsage = true }
                     await LiveActivities.shared.previewIfRequested()
                     if ProcessInfo.processInfo.environment["CODYNC_OPEN_SCREEN"] != nil {
                         try? await Task.sleep(for: .seconds(2))
@@ -58,7 +58,7 @@ struct CodyncApp: App {
     }
 }
 
-enum AppTab: Hashable { case bots, usage }
+enum AppTab: Hashable { case bots, state }
 
 /// One `AccountStore` per account context: switching accounts retires the old one so
 /// in-flight work can't land on another user's screen or storage.
@@ -75,6 +75,8 @@ final class AppStore {
     private(set) var generation = 0
     var tab = AppTab.bots
     var showComputers = false
+    /// The usage limits sheet over the State tab.
+    var showUsage = false
     /// The computer whose marketplace is open.
     var marketplace: ComputerID?
 
@@ -173,7 +175,9 @@ final class AppStore {
             tab = .bots
             marketplace = currentStore?.computer.id
         case "usage":
-            tab = .usage
+            accounts.selection = nil
+            tab = .state
+            showUsage = true
         case "computers":
             accounts.selection = nil
             tab = .bots

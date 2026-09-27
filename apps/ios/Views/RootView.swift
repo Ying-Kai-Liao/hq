@@ -55,9 +55,9 @@ struct RootView: View {
             // Holds the pushes inside the sheet (Widgets, Live Activity); no bar shows.
             NavigationStack { SettingsView() }
         }
-        .codyncSheet(isPresented: Binding(get: { app.marketplace != nil }, set: { if !$0 { app.marketplace = nil } })) {
-            if let store = app.marketplace.flatMap(accounts.store(for:)) {
-                MarketplaceView { app.marketplace = nil }
+        .codyncSheet(item: Binding(get: { app.marketplace.map(MarketplaceTarget.init) }, set: { app.marketplace = $0?.id })) { target in
+            if let store = accounts.store(for: target.id) {
+                MarketplaceView()
                     .environment(store)
             }
         }
@@ -71,8 +71,8 @@ struct RootView: View {
                     .navigationDestination(for: BotReference.self) { ref in ChatScreen(ref: ref) }
             }
             .tabLayer(app.tab == .bots)
-            UsageTab()
-                .tabLayer(app.tab == .usage)
+            StateTab()
+                .tabLayer(app.tab == .state)
         }
         .animation(Motion.reduced(Motion.fade, reduceMotion), value: app.tab)
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -81,7 +81,7 @@ struct RootView: View {
                     AccessBanners()
                     TabBar(selection: Bindable(app).tab, tabs: [
                         (id: AppTab.bots, title: "Bots", icon: "bubble.left.and.bubble.right.fill"),
-                        (id: AppTab.usage, title: "Usage", icon: "chart.bar.fill"),
+                        (id: AppTab.state, title: "State", icon: "rectangle.stack.fill"),
                     ])
                     .padding(.bottom, 4)
                 }
@@ -146,10 +146,51 @@ private struct ChatScreen: View {
     }
 }
 
+/// Where your bots show up outside the app: Widget, Live Activity and Dynamic Island,
+/// each designed and switched on here. Usage limits open from the header.
+private struct StateTab: View {
+    enum Surface: Hashable { case widget, liveActivity, island }
+
+    @Environment(AppStore.self) private var app
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var surface = Surface.widget
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScreenHeader {
+                EmptyView()
+            } title: {
+                Text("State").font(.body.weight(.semibold)).foregroundStyle(Palette.text)
+            } trailing: {
+                IconButton("Usage limits", systemImage: "chart.bar") { app.showUsage = true }
+            }
+            SegmentedChoice(selection: $surface, options: [
+                (.widget, "Widget"), (.liveActivity, "Live Activity"), (.island, "Dynamic Island"),
+            ])
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+            ZStack {
+                // Holds the gallery's pushes (Lock Screen widgets); no bar shows.
+                NavigationStack { WidgetGalleryView() }
+                    .environment(\.stateSurfaceActive, app.tab == .state && surface == .widget)
+                    .tabLayer(surface == .widget)
+                ActivityGalleryView(forms: [.lockScreen])
+                    .tabLayer(surface == .liveActivity)
+                ActivityGalleryView(forms: [.compact, .minimal, .expanded])
+                    .tabLayer(surface == .island)
+            }
+            .animation(Motion.reduced(Motion.fade, reduceMotion), value: surface)
+        }
+        .background(Palette.background)
+        .codyncSheet(isPresented: Bindable(app).showUsage) { UsageSheet() }
+    }
+}
+
 /// Usage for one computer at a time: the last active one, which the Usage widget shows too.
-private struct UsageTab: View {
+private struct UsageSheet: View {
     @Environment(AppStore.self) private var app
     @Environment(AccountStore.self) private var accounts
+    @Environment(\.dismissModal) private var dismiss
     /// Picked here; also becomes the computer the Usage widget shows.
     @State private var picked: ComputerID?
 
@@ -157,7 +198,7 @@ private struct UsageTab: View {
         let store = picked.flatMap(accounts.store(for:)) ?? app.currentStore
         VStack(spacing: 0) {
             ScreenHeader {
-                EmptyView()
+                IconButton("Close", systemImage: "xmark") { dismiss() }
             } title: {
                 Text("Usage").font(.body.weight(.semibold)).foregroundStyle(Palette.text)
             } trailing: {
@@ -294,4 +335,9 @@ private struct AccessBanners: View {
         .animation(Motion.layout, value: accounts.pendingAccess.keys.sorted())
         .accessibilityElement(children: .contain)
     }
+}
+
+/// The marketplace sheet's item, so it keeps its computer while sliding away.
+private struct MarketplaceTarget: Identifiable {
+    let id: ComputerID
 }

@@ -3,10 +3,8 @@ import CodyncUI
 import SwiftUI
 import WidgetKit
 
-/// The installed widgets and these previews share their rendering components.
+/// The State tab's Widget page. The installed widgets and these previews share their rendering components.
 struct WidgetGalleryView: View {
-    /// Pushed inside Computers & settings rather than opened as its own sheet.
-    var pushed = false
     @Environment(AccountStore.self) private var accounts
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var page: Page?
@@ -104,20 +102,13 @@ struct WidgetGalleryView: View {
                         Label("Lock Screen widgets", systemImage: "lock.rectangle").foregroundStyle(Palette.accent)
                     }
                     .buttonStyle(PressScale())
-                    Button { page = .activity } label: {
-                        Label("Live Activity & Dynamic Island", systemImage: "waveform").foregroundStyle(Palette.accent)
-                    }
-                    .buttonStyle(PressScale())
                 }
                 .font(.subheadline)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 12) {
                     sectionLabel("Add a widget")
-                    WidgetSetupAnimation()
-                    Text("Touch and hold the Home Screen · Edit · Add Widget · Codync")
-                        .font(.caption).foregroundStyle(Palette.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                    WidgetSetupDemo()
                 }
                 Text("Widgets show the latest report. Open Codync for live updates and approvals.")
                     .font(.caption2).foregroundStyle(Palette.tertiary)
@@ -127,18 +118,17 @@ struct WidgetGalleryView: View {
             .frame(maxWidth: .infinity)
         }
         .background(Palette.background)
-        .page("Widgets", pushed: pushed)
+        .hidesSystemNavigationBar()
         .navigationDestination(item: $page) { page in
             switch page {
             case .lockScreen: LockWidgetGalleryView()
-            case .activity: ActivityGalleryView()
             }
         }
         .task { checkWidgets() }
         .onChange(of: scenePhase) { _, phase in if phase == .active { checkWidgets() } }
     }
 
-    private enum Page: Hashable { case lockScreen, activity }
+    private enum Page: Hashable { case lockScreen }
 
     private static let kinds: [(id: String, label: String)] = [("usage", "Provider usage"), ("bots", "Bots")]
     private static let providers: [(id: String, label: String)] = [("claude", "Claude"), ("codex", "Codex")]
@@ -196,105 +186,6 @@ struct WidgetGalleryView: View {
                     widgetCheckFailed = installed == nil
                 }
             }
-        }
-    }
-}
-
-private struct WidgetSetupAnimation: View {
-    private enum Stage: CaseIterable { case home, choose, placed }
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Group {
-            if reduceMotion {
-                stageContent(.placed)
-            } else {
-                PhaseAnimator(Stage.allCases) { stage in
-                    stageContent(stage)
-                } animation: { _ in .easeInOut(duration: 0.55) }
-            }
-        }
-    }
-
-    private func stageContent(_ stage: Stage) -> some View {
-        ZStack {
-                RoundedRectangle(cornerRadius: 24).fill(Palette.bubbleAgent)
-                switch stage {
-                case .home:
-                    VStack(spacing: 14) {
-                        Text("9:41").font(.system(size: 32, weight: .medium, design: .rounded)).foregroundStyle(Palette.text)
-                        HStack(spacing: 12) {
-                            appIcon("message.fill", "Messages", .green)
-                            appIcon("calendar", "Calendar", .red)
-                            appIcon("photo.fill", "Photos", .blue)
-                            appIcon("gearshape.fill", "Settings", .gray)
-                        }
-                        Label("Touch & hold", systemImage: "hand.tap.fill")
-                            .font(.caption.weight(.medium)).foregroundStyle(Palette.secondary)
-                    }
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                case .choose:
-                    VStack(spacing: 10) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass").foregroundStyle(Palette.tertiary)
-                            Text("Search widgets").foregroundStyle(Palette.secondary)
-                            Spacer()
-                        }
-                        .font(.caption).padding(10).background(Palette.surface, in: Capsule())
-                        HStack(spacing: 12) {
-                            CharacterAvatar(shape: "hex", color: "gray", size: 38)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Codync").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.text)
-                                Text("Bots · Usage").font(.caption).foregroundStyle(Palette.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: "plus.circle.fill").font(.title2).foregroundStyle(Palette.accent)
-                        }
-                        .padding(14).background(Palette.surface, in: RoundedRectangle(cornerRadius: 18))
-                    }
-                    .padding(20).transition(.opacity.combined(with: .move(edge: .trailing)))
-                case .placed:
-                    HStack(spacing: 16) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Codync").font(.caption.weight(.semibold)).foregroundStyle(Palette.text)
-                            HStack(spacing: 6) {
-                                CharacterAvatar(shape: "blob", color: "green", size: 24)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Reviewer").font(.system(size: 10, weight: .semibold))
-                                    Text("Needs you").font(.system(size: 9)).foregroundStyle(Palette.warning)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            HStack(spacing: 6) {
-                                CharacterAvatar(shape: "hex", color: "orange", size: 24)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Builder").font(.system(size: 10, weight: .semibold))
-                                    Text("Running tests").font(.system(size: 9)).foregroundStyle(Palette.secondary)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                        }
-                        .padding(14).frame(width: 188, height: 142, alignment: .topLeading)
-                        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22))
-                        VStack(spacing: 10) {
-                            Image(systemName: "checkmark.circle.fill").font(.system(size: 32)).foregroundStyle(Palette.added)
-                            Text("Added").font(.caption.weight(.medium)).foregroundStyle(Palette.text)
-                        }
-                        .transition(.scale.combined(with: .opacity))
-                    }
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                }
-        }
-        .frame(height: 190)
-        .padding(10)
-        .accessibilityLabel("Widget setup preview, \(stage == .home ? "hold the Home Screen" : stage == .choose ? "choose Codync" : "widget added")")
-    }
-
-    private func appIcon(_ symbol: String, _ title: String, _ tint: Color) -> some View {
-        VStack(spacing: 5) {
-            Image(systemName: symbol).font(.system(size: 17, weight: .medium)).foregroundStyle(.white)
-                .frame(width: 38, height: 38).background(tint, in: RoundedRectangle(cornerRadius: 11))
-            Text(title).font(.system(size: 8)).foregroundStyle(Palette.secondary)
         }
     }
 }

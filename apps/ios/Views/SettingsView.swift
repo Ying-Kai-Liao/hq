@@ -12,7 +12,6 @@ struct SettingsView: View {
     @Environment(AccountStore.self) private var accounts
     @Environment(\.dismissModal) private var dismissModal
     @Environment(\.openURL) private var openURL
-    @State private var page: Page?
     @State private var notificationsAllowed: Bool?
     @State private var addingComputer = false
     @State private var confirmForget: Computer?
@@ -74,14 +73,6 @@ struct SettingsView: View {
             }
 
             CardSection {
-                Button { page = .widgets } label: {
-                    LinkRow { Label("Widgets", systemImage: "square.grid.2x2") }
-                }
-                .buttonStyle(.plain)
-                Button { page = .activity } label: {
-                    LinkRow { Label("Live Activity & Dynamic Island", systemImage: "waveform") }
-                }
-                .buttonStyle(.plain)
                 notificationsRow
             }
 
@@ -133,12 +124,6 @@ struct SettingsView: View {
         }
         .refreshable { await accounts.refreshCloud() }
         .page("Computers & settings", pushed: pushed)
-        .navigationDestination(item: $page) { page in
-            switch page {
-            case .widgets: WidgetGalleryView(pushed: true)
-            case .activity: ActivityGalleryView()
-            }
-        }
         .task { await accounts.refreshCloud() }
         .codyncSheet(isPresented: $addingComputer) {
             PairingView(inModal: true)
@@ -170,7 +155,6 @@ struct SettingsView: View {
         }
     }
 
-    private enum Page: Hashable { case widgets, activity }
 
     private struct AccessTarget: Identifiable {
         let computer: CloudComputer

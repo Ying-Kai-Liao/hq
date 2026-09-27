@@ -2,11 +2,10 @@ import CodyncKit
 import CodyncUI
 import SwiftUI
 
-/// The Usage tab: one card per provider, the tightest limit as a big bar, every limit listed below.
+/// Usage limits (opened from the State tab): one card per provider, the tightest limit as a big bar, every limit listed below.
 struct UsageView: View {
     @Environment(BotStore.self) private var model
     @State private var collapsed: Set<String> = []
-    @State private var widgetHelp = false
 
     var body: some View {
         ScrollView {
@@ -28,21 +27,11 @@ struct UsageView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 60)
                 }
-                Button("Widgets & setup") { widgetHelp = true }
-                    .buttonStyle(.plain)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(Palette.secondary)
-                    .padding(.top, 4)
             }
             .padding(16)
         }
         .background(Palette.background)
         .refreshable { await model.refreshUsage() }
-        .codyncSheet(isPresented: $widgetHelp) {
-            // Holds the pushes inside the sheet (Lock Screen widgets, Live Activity); no bar shows.
-            NavigationStack { WidgetGalleryView() }
-                .environment(model)
-        }
     }
 }
 
