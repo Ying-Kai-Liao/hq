@@ -13,7 +13,7 @@ cmp docs/reference/fixtures/remote-relay-vectors.json /tmp/codync-relay-vectors.
 
 Consumers:
 
-- `host/src/crypto.rs` (`include_str!`)
+- `host/src/remote/crypto.rs` (`include_str!`)
 - `kit/Tests/CodyncKitTests/RelayVectorsTests.swift`
 - `cloud/test/vectors.test.ts` and `cloud/test/relay.test.ts`
 
