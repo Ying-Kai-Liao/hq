@@ -254,6 +254,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             UNNotificationCategory(identifier: "needsInput", actions: [review], intentIdentifiers: []),
             UNNotificationCategory(identifier: "failed", actions: [open], intentIdentifiers: []),
         ])
+        #if DEBUG
+        PushRegistrar.shared.verifyDeliveryIfRequested()
+        #endif
         return true
     }
 

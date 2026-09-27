@@ -1,6 +1,6 @@
 // Alert aps: `mutableContent` passes through as `mutable-content: 1`, and only when asked.
 import assert from "node:assert/strict";
-import worker, { alertAps, liveActivityAps, tokenIsGone, sealTicket } from "../src/index.ts";
+import worker, { alertAps, liveActivityAps, tokenIsGone, sealTicket, latestTicketIndices, pushBatch } from "../src/index.ts";
 
 const base = { alert: { title: "Codync", body: "Needs you" }, threadId: "b1", category: "needsInput" };
 assert.equal(alertAps({ ...base, mutableContent: true })["mutable-content"], 1);
@@ -39,3 +39,30 @@ assert.equal((await request("/push", { ticket, alert: { body: "fallback" }, data
 const activityTicket = await sealTicket(env, { t: "ab".repeat(32), e: "sandbox", k: "liveactivity" });
 assert.equal((await request("/push", { ticket: activityTicket, liveActivity: { event: "start", contentState: state } })).status, 400);
 console.log("push request validation tests ok");
+
+// Old account/device identities may still point to the exact same physical phone.
+assert.deepEqual([...latestTicketIndices([
+  { t: "AB", e: "sandbox", k: "alert" },
+  { t: "ab", e: "sandbox", k: "alert" },
+  { t: "ab", e: "production", k: "alert" },
+  { t: "ab", e: "sandbox", k: "liveactivity" },
+  null,
+])], [1, 2, 3]);
+const newerTicket = await sealTicket(env, { t: "ab".repeat(32), e: "sandbox", k: "alert" });
+const sent: string[] = [];
+const batch = await pushBatch(new Request("https://relay.test/push-batch", {
+  method: "POST", body: JSON.stringify({ notifications: [
+    { ticket, alert: { body: "old-key" } },
+    { ticket: newerTicket, alert: { body: "current-key" } },
+    { ticket: "invalid" },
+  ] }),
+}), env, async request => {
+  sent.push((await request.json() as any).alert.body);
+  return Response.json({ ok: true });
+});
+assert.deepEqual(sent, ["current-key"]);
+assert.deepEqual(await batch.json(), { results: [
+  { index: 0, status: 200, superseded: true }, { index: 1, status: 200 }, { index: 2, status: 403 },
+] });
+assert.equal((await request("/push-batch", { notifications: [] })).status, 400);
+console.log("physical device deduplication tests ok");

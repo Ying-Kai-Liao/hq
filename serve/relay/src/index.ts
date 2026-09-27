@@ -197,6 +197,37 @@ async function push(req: Request, env: Env): Promise<Response> {
   }
 }
 
+/** One physical APNs destination receives only the newest registration for this event.
+ * The host cannot do this comparison itself because it never sees raw APNs tokens.
+ */
+export function latestTicketIndices(tickets: Array<TicketPayload | null>): Set<number> {
+  const latest = new Map<string, number>();
+  tickets.forEach((ticket, index) => {
+    if (ticket) latest.set(`${ticket.e}:${ticket.k}:${ticket.t.toLowerCase()}`, index);
+  });
+  return new Set(latest.values());
+}
+
+export async function pushBatch(req: Request, env: Env, deliver = push): Promise<Response> {
+  const body = await req.json().catch(() => null) as { notifications?: PushBody[] } | null;
+  const notifications = body?.notifications;
+  if (!Array.isArray(notifications) || notifications.length === 0 || notifications.length > 256) {
+    return json({ error: "invalid notification batch" }, 400);
+  }
+  const tickets = await Promise.all(notifications.map(notification =>
+    typeof notification?.ticket === "string" ? openTicket(env, notification.ticket) : null));
+  const latest = latestTicketIndices(tickets);
+  const results = await Promise.all(notifications.map(async (notification, index) => {
+    if (!tickets[index]) return { index, status: 403 };
+    if (!latest.has(index)) return { index, status: 200, superseded: true };
+    const response = await deliver(new Request(req.url, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(notification),
+    }), env);
+    return { index, status: response.status };
+  }));
+  return json({ results });
+}
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(req.url);
@@ -204,6 +235,7 @@ export default {
     if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
     if (pathname === "/register") return register(req, env);
     if (pathname === "/push") return push(req, env);
+    if (pathname === "/push-batch") return pushBatch(req, env);
     return json({ error: "not found" }, 404);
   },
 };

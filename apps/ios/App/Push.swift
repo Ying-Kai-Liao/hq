@@ -46,6 +46,41 @@ final class PushRegistrar {
 
     private struct WeakStore { weak var store: BotStore? }
 
+    #if DEBUG
+    /// Device acceptance checks can inspect only the explicitly selected test bot's notifications.
+    /// No keys, tickets, account identifiers, or unrelated notification content are logged.
+    func verifyDeliveryIfRequested() {
+        guard let botId = ProcessInfo.processInfo.environment["CODYNC_PUSH_VERIFY_BOT"] else { return }
+        let activities = Activity<BotActivityAttributes>.activities.filter { $0.attributes.botId == botId }.map {
+            ["status": $0.content.state.status, "state": String(describing: $0.activityState)]
+        }
+        Task {
+            let center = UNUserNotificationCenter.current()
+            let settings = await center.notificationSettings()
+            let delivered = await center.deliveredNotifications().filter {
+                $0.request.content.userInfo["botId"] as? String == botId
+            }
+            let notifications = delivered.map {
+                ["title": $0.request.content.title, "subtitle": $0.request.content.subtitle,
+                 "body": $0.request.content.body, "category": $0.request.content.categoryIdentifier]
+            }
+            if ProcessInfo.processInfo.environment["CODYNC_PUSH_CLEAR_TEST_NOTIFICATIONS"] == "1" {
+                center.removeDeliveredNotifications(withIdentifiers: delivered.map { $0.request.identifier })
+            }
+            let result: [String: Any] = [
+                "notifications": notifications, "activities": activities,
+                "authorization": settings.authorizationStatus.rawValue,
+                "alerts": settings.alertSetting.rawValue,
+                "notificationCenter": settings.notificationCenterSetting.rawValue,
+            ]
+            if let data = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]),
+               let text = String(data: data, encoding: .utf8) {
+                print("CODYNC_PUSH_VERIFICATION \(text)")
+            }
+        }
+    }
+    #endif
+
     func deactivate() {
         registrations.values.forEach { $0.cancel() }
         registrations = [:]
