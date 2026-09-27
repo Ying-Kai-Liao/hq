@@ -11,7 +11,7 @@ tag = "v1"
 new_sqlite_classes = ["ComputerRelay"]
 
 [vars]
-CLERK_ISSUER = "<production Clerk Frontend API URL>"
+CLERK_ISSUER = "https://clerk.codync.dev"
 
 [[d1_databases]]
 binding = "DB"
