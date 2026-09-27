@@ -49,7 +49,14 @@ fn throttled(key: (String, AlertKind), min_gap: Duration) -> bool {
 fn post(url: String, body: Value) {
     tokio::spawn(async move {
         match crate::http().post(&url).json(&body).timeout(Duration::from_secs(10)).send().await {
-            Ok(r) if r.status().is_success() => {}
+            Ok(r) if r.status().is_success() => {
+                if let Some(notifications) = body["notifications"].as_array() {
+                    match r.json::<Value>().await {
+                        Ok(reply) => record_batch_results(notifications, &reply),
+                        Err(error) => tracing::warn!(%error, "invalid relay batch response"),
+                    }
+                }
+            }
             Ok(r) if r.status() == reqwest::StatusCode::GONE => {
                 if let Some(t) = body["ticket"].as_str() {
                     GONE.locked().push(t.to_owned());
@@ -59,6 +66,18 @@ fn post(url: String, body: Value) {
             Err(error) => tracing::warn!(%url, %error, "relay unreachable"),
         }
     });
+}
+
+fn record_batch_results(notifications: &[Value], reply: &Value) {
+    for result in reply["results"].as_array().into_iter().flatten() {
+        let Some(index) = result["index"].as_u64().and_then(|index| usize::try_from(index).ok()) else { continue };
+        let Some(ticket) = notifications.get(index).and_then(|item| item["ticket"].as_str()) else { continue };
+        if result["status"] == 410 || result["superseded"] == true {
+            GONE.locked().push(ticket.to_owned());
+        } else if result["status"] != 200 {
+            tracing::warn!(status = ?result["status"], "relay rejected a batched notification");
+        }
+    }
 }
 
 fn purge_dead_tickets(hub: &Hub) {
@@ -93,6 +112,7 @@ pub fn notify(hub: &Hub, bot: &BotConfig, title: &str, body: &str, kind: AlertKi
         "body": crate::agent::acp::truncate(body, 400)})
     .to_string();
     let computer_id = hub.identity.computer_id();
+    let mut notifications = Vec::new();
     for t in hub.store.push_tickets() {
         let mut data = json!({"botId": bot.id, "computerId": computer_id, "ctx": t.ctx});
         if let Some(key) = t.push_key.as_deref().and_then(|k| crypto::unb64_n::<32>(k).ok()) {
@@ -102,17 +122,17 @@ pub fn notify(hub: &Hub, bot: &BotConfig, title: &str, body: &str, kind: AlertKi
                 Err(error) => tracing::warn!(error = format!("{error:#}"), "couldn't seal a notification"),
             }
         }
-        post(
-            format!("{relay}/push"),
-            json!({
-                "ticket": t.ticket,
-                "alert": {"title": "Codync", "body": generic},
-                "mutableContent": true,
-                "threadId": format!("{computer_id}:{}", bot.id),
-                "category": kind,
-                "data": data,
-            }),
-        );
+        notifications.push(json!({
+            "ticket": t.ticket,
+            "alert": {"title": "Codync", "body": generic},
+            "mutableContent": true,
+            "threadId": format!("{computer_id}:{}", bot.id),
+            "category": kind,
+            "data": data,
+        }));
+    }
+    if !notifications.is_empty() {
+        post(format!("{relay}/push-batch"), json!({"notifications": notifications}));
     }
 }
 

@@ -847,14 +847,20 @@ impl Store {
 
     pub fn remove_push_ticket(&self, ticket: &str) -> Result<()> {
         let c = self.db.locked();
-        c.execute("DELETE FROM push_tickets WHERE ticket = ?1", [ticket])?;
+        // If the newest ticket for an identity is dead or superseded, do not fall back
+        // to its older rows on the next delivery. A concurrently replaced ticket is untouched.
+        c.execute(
+            "DELETE FROM push_tickets WHERE device_key = (SELECT device_key FROM push_tickets WHERE ticket = ?1)
+             AND rowid <= (SELECT rowid FROM push_tickets WHERE ticket = ?1)",
+            [ticket],
+        )?;
         c.execute("DELETE FROM activity_tickets WHERE ticket = ?1", [ticket])?;
         Ok(())
     }
 
     pub fn push_tickets(&self) -> Vec<PushTicket> {
         let c = self.db.locked();
-        let rows = c.prepare("SELECT ticket, push_key, ctx FROM push_tickets WHERE rowid IN (SELECT MAX(rowid) FROM push_tickets GROUP BY device_key)").and_then(|mut st| {
+        let rows = c.prepare("SELECT ticket, push_key, ctx FROM push_tickets WHERE rowid IN (SELECT MAX(rowid) FROM push_tickets GROUP BY device_key) ORDER BY rowid").and_then(|mut st| {
             st.query_map([], |r| Ok(PushTicket { ticket: r.get(0)?, push_key: r.get(1)?, ctx: r.get(2)? }))?
                 .collect::<rusqlite::Result<Vec<_>>>()
         });
@@ -1000,6 +1006,8 @@ mod tests {
         assert_eq!(tickets.len(), 2);
         assert!(!tickets.iter().any(|ticket| ticket.ticket == "old"));
         assert_eq!(s.activity_tickets("bot"), ["new-a"]);
+        s.remove_push_ticket("new").unwrap();
+        assert_eq!(s.push_tickets().iter().map(|ticket| ticket.ticket.as_str()).collect::<Vec<_>>(), ["other"]);
     }
 
     #[test]
