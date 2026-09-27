@@ -19,6 +19,7 @@ struct SettingsView: View {
     @State private var confirmRevoke: CloudComputer?
     @State private var access: AccessTarget?
     @State private var confirmStartOver = false
+    @State private var confirmRemoveCopy: CloudComputer?
 
     var body: some View {
         CardForm {
@@ -34,9 +35,13 @@ struct SettingsView: View {
                     }
                 }
                 ForEach(accountOnly) { computer in
-                    AccountComputerRow(computer: computer, ticket: accounts.pendingAccess[computer.computerId],
-                                       ask: { access = AccessTarget(computer: computer) },
-                                       revoke: { confirmRevoke = computer })
+                    if accounts.isOlderCopy(computer) {
+                        OlderCopyRow(computer: computer) { confirmRemoveCopy = computer }
+                    } else {
+                        AccountComputerRow(computer: computer, ticket: accounts.pendingAccess[computer.computerId],
+                                           ask: { access = AccessTarget(computer: computer) },
+                                           revoke: { confirmRevoke = computer })
+                    }
                 }
                 Button {
                     addingComputer = true
@@ -115,6 +120,12 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
             }
+        }
+        .codyncDialog("Remove the older \(confirmRemoveCopy?.name ?? "computer")?", isPresented: Binding(
+            get: { confirmRemoveCopy != nil }, set: { if !$0 { confirmRemoveCopy = nil } }
+        ), message: "It's this computer under an earlier identity and can't be reached anymore. Removing it only cleans up your account.") {
+            guard let copy = confirmRemoveCopy else { return [] }
+            return [DialogAction("Remove", destructive: true) { Task { await accounts.removeFromAccount(copy.computerId) } }]
         }
         .codyncDialog("Start over?", isPresented: $confirmStartOver,
                       message: "Signs out of every account and forgets every computer on this iPhone, then shows the welcome again. Your computers keep their bots and chats; pair again to use them.") {
@@ -351,6 +362,31 @@ private struct AccountComputerRow: View {
         case "pending": "\(online) · A request is waiting"
         default: "\(online) · In your account"
         }
+    }
+}
+
+/// The same machine under an earlier identity: one tap cleans it out of the account.
+private struct OlderCopyRow: View {
+    let computer: CloudComputer
+    let remove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ComputerBadge(Computer(id: computer.computerId, name: computer.name, signKey: computer.signKey, device: computer.device), size: 40)
+                .opacity(0.35)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(computer.name).font(.body.weight(.semibold)).foregroundStyle(Palette.secondary)
+                Text(detail).font(.subheadline).foregroundStyle(Palette.tertiary).lineLimit(2)
+            }
+            Spacer()
+            IconButton("Remove from account", systemImage: "trash", action: remove)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var detail: String {
+        let seen = computer.lastSeenAt.map { " · last seen \(RelativeTime.day(Date(milliseconds: $0)))" } ?? ""
+        return "Older copy of this computer\(seen)"
     }
 }
 
