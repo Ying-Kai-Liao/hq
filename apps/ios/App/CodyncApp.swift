@@ -247,6 +247,13 @@ final class AppStore {
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        let open = UNNotificationAction(identifier: "openConversation", title: "Open conversation", options: [.foreground])
+        let review = UNNotificationAction(identifier: "reviewRequest", title: "Review request", options: [.foreground])
+        UNUserNotificationCenter.current().setNotificationCategories([
+            UNNotificationCategory(identifier: "done", actions: [open], intentIdentifiers: []),
+            UNNotificationCategory(identifier: "needsInput", actions: [review], intentIdentifiers: []),
+            UNNotificationCategory(identifier: "failed", actions: [open], intentIdentifiers: []),
+        ])
         return true
     }
 

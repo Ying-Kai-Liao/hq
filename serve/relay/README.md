@@ -2,8 +2,8 @@
 
 Cloudflare Worker that holds the APNs key and forwards pushes for codync-host.
 The phone exchanges its APNs token for an AES-GCM **ticket** (`POST /register`);
-hosts only ever see tickets (`POST /push`). A ticket is useless without the
-worker's `TICKET_KEY`, and it only reaches the one device it was issued for.
+hosts only ever see tickets (`POST /push`). A ticket is a bearer capability: anyone holding it can ask this Worker to push
+to its device. Only the Worker can decrypt the raw APNs token. Do not log tickets.
 
 ## Deploy
 
@@ -26,3 +26,11 @@ Rotating `TICKET_KEY` invalidates every ticket; phones re-register on launch.
 npm test        # ticket seal/open round trip, `mutableContent` → `mutable-content: 1`
 npm run typecheck
 ```
+
+## Notifications and Live Activities
+
+See the [notification design](../docs/design/push-and-live-activity.md) for event
+copy, encrypted content, ActivityKit payloads, configuration and device acceptance.
+The Worker handles alerts and updates/ends for activities started on the phone.
+Dynamic Island shares the ActivityKit update stream. This Worker does not start
+activities remotely or refresh Home Screen widgets.

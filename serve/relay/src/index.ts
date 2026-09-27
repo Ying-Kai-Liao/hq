@@ -93,8 +93,10 @@ const json = (body: unknown, status = 200) => Response.json(body, { status });
 
 async function register(req: Request, env: Env): Promise<Response> {
   const body = (await req.json().catch(() => null)) as { token?: string; env?: string; kind?: string } | null;
-  if (!body?.token || !/^[0-9a-fA-F]{32,200}$/.test(body.token)) return json({ error: "invalid token" }, 400);
-  const e: ApnsEnv = body.env === "production" ? "production" : "sandbox";
+  if (typeof body?.token !== "string" || !/^(?:[0-9a-fA-F]{2}){16,100}$/.test(body.token)) return json({ error: "invalid token" }, 400);
+  if (body.env !== "production" && body.env !== "sandbox") return json({ error: "invalid environment" }, 400);
+  if (body.kind !== "alert" && body.kind !== "liveactivity") return json({ error: "invalid kind" }, 400);
+  const e: ApnsEnv = body.env;
   const k: Kind = body.kind === "liveactivity" ? "liveactivity" : "alert";
   return json({ ticket: await sealTicket(env, { t: body.token, e, k }) });
 }
@@ -106,7 +108,7 @@ export interface PushBody {
   category?: string;
   data?: Record<string, unknown>;
   mutableContent?: boolean;
-  liveActivity?: { event?: "update" | "end"; contentState?: Record<string, unknown> };
+  liveActivity?: { event?: "update" | "end"; timestamp?: number; staleDate?: number; contentState?: Record<string, unknown> };
 }
 
 /** The `aps` dictionary for an alert push. */
@@ -121,6 +123,31 @@ export function alertAps(body: PushBody & { alert: NonNullable<PushBody["alert"]
   return aps;
 }
 
+/** ActivityKit dates use Unix seconds; startedAt inside content-state uses Swift's Date epoch. */
+export function liveActivityAps(la: NonNullable<PushBody["liveActivity"]>, now = Math.floor(Date.now() / 1000)): Record<string, unknown> {
+  const state = la.contentState;
+  if (!state || typeof state.status !== "string" || !["working", "needsInput", "idle", "error"].includes(state.status) ||
+      state.activity !== "" || !(state.startedAt == null || (typeof state.startedAt === "number" && Number.isFinite(state.startedAt)))) {
+    throw new Error("invalid contentState");
+  }
+  if (la.event !== "update" && la.event !== "end") throw new Error("invalid activity event");
+  const timestamp = la.timestamp ?? now;
+  const staleDate = la.staleDate ?? timestamp + 900;
+  if (!Number.isSafeInteger(timestamp) || timestamp < 0 || timestamp > now + 60 ||
+      !Number.isSafeInteger(staleDate) || staleDate < timestamp) throw new Error("invalid activity dates");
+  const aps: Record<string, unknown> = {
+    timestamp, event: la.event,
+    "content-state": { status: state.status, activity: "", startedAt: state.startedAt ?? null },
+  };
+  if (la.event === "end") aps["dismissal-date"] = timestamp + 60;
+  else aps["stale-date"] = staleDate;
+  return aps;
+}
+
+export function tokenIsGone(error: { reason?: string; statusCode?: number }): boolean {
+  return error.statusCode === 410 || ["Unregistered", "BadDeviceToken"].includes(error.reason ?? "");
+}
+
 async function push(req: Request, env: Env): Promise<Response> {
   const body = (await req.json().catch(() => null)) as PushBody | null;
   const t = body?.ticket ? await openTicket(env, body.ticket) : null;
@@ -128,23 +155,35 @@ async function push(req: Request, env: Env): Promise<Response> {
   // ponytail: no per-ticket rate limit; add a Durable Object counter if tickets get abused.
   try {
     if (t.k === "alert") {
-      if (!body.alert) return json({ error: "alert required" }, 400);
-      await client(env, t.e, "alert").send(
-        new Notification(t.t, {
+      if (!body.alert || typeof body.alert !== "object" ||
+          (body.alert.title !== undefined && typeof body.alert.title !== "string") ||
+          (body.alert.body !== undefined && typeof body.alert.body !== "string") ||
+          (body.data !== undefined && (!body.data || typeof body.data !== "object" || Array.isArray(body.data) || "aps" in body.data))) {
+        return json({ error: "invalid alert" }, 400);
+      }
+      const notification = new Notification(t.t, {
           type: PushType.alert,
           priority: Priority.immediate,
           aps: alertAps({ ...body, alert: body.alert }),
           data: body.data ?? {},
-        }),
-      );
+          expiration: Math.floor(Date.now() / 1000) + 3600,
+        });
+      if (new TextEncoder().encode(JSON.stringify(notification.buildApnsOptions())).length > 4096) {
+        return json({ error: "payload too large" }, 413);
+      }
+      await client(env, t.e, "alert").send(notification);
     } else {
       const la = body.liveActivity;
       if (!la) return json({ error: "liveActivity required" }, 400);
-      const now = Math.floor(Date.now() / 1000);
-      const aps: Record<string, unknown> = { timestamp: now, event: la.event ?? "update", "content-state": la.contentState ?? {} };
-      if (la.event === "end") aps["dismissal-date"] = now + 60;
+      let aps: Record<string, unknown>;
+      try { aps = liveActivityAps(la); }
+      catch { return json({ error: "invalid liveActivity" }, 400); }
       await client(env, t.e, "liveactivity").send(
-        new Notification(t.t, { type: PushType.liveactivity, priority: Priority.immediate, aps }),
+        new Notification(t.t, {
+          type: PushType.liveactivity,
+          priority: la.event === "end" || la.contentState?.status === "needsInput" ? Priority.immediate : Priority.throttled,
+          expiration: Number(aps["stale-date"] ?? aps["dismissal-date"]), aps,
+        }),
       );
     }
     return json({ ok: true });
@@ -153,7 +192,7 @@ async function push(req: Request, env: Env): Promise<Response> {
     const e = err as { reason?: string; statusCode?: number; message?: string };
     const reason = e.reason ?? e.message ?? String(err);
     // Dead device token: tell the host to drop the ticket.
-    const gone = e.statusCode === 410 || /Unregistered|BadDeviceToken|ExpiredToken/.test(reason);
+    const gone = tokenIsGone(e);
     return json({ error: reason, gone }, gone ? 410 : 502);
   }
 }

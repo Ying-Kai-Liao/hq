@@ -24,11 +24,17 @@ private func relayTicket(token: Data, kind: String) async throws -> String {
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.httpBody = try JSONEncoder().encode(Body(token: token.map { String(format: "%02x", $0) }.joined(), env: apnsEnvironment, kind: kind))
-    let (data, _) = try await URLSession.shared.data(for: req)
-    return try JSONDecoder().decode(Res.self, from: data).ticket
+    req.timeoutInterval = 15
+    let (data, response) = try await URLSession.shared.data(for: req)
+    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        throw URLError(.badServerResponse)
+    }
+    let ticket = try JSONDecoder().decode(Res.self, from: data).ticket
+    guard !ticket.isEmpty else { throw URLError(.cannotParseResponse) }
+    return ticket
 }
 
-/// Registers this phone for "needs you" / "done" alerts with every computer it's connected to.
+/// Registers this phone for input, completion, and failure alerts with every computer it's connected to.
 /// Each ticket carries this context's push key so the computer can seal the alert text (spec §6.7).
 @MainActor
 final class PushRegistrar {
@@ -61,10 +67,11 @@ final class PushRegistrar {
     func syncDevice(with store: BotStore) {
         let id = store.computer.id
         stores[id] = WeakStore(store: store)
+        LiveActivities.shared.resume(with: store)
         guard let token = deviceToken else {
             Task {
                 let settings = await UNUserNotificationCenter.current().notificationSettings()
-                if settings.authorizationStatus == .authorized { UIApplication.shared.registerForRemoteNotifications() }
+                if settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional { UIApplication.shared.registerForRemoteNotifications() }
             }
             return
         }
@@ -93,7 +100,7 @@ final class PushRegistrar {
 final class LiveActivities {
     static let shared = LiveActivities()
 
-    private var requests: [UUID: Task<Void, Never>] = [:]
+    private var requests: [String: Task<Void, Never>] = [:]
 
     #if DEBUG
     /// Simulator-only visual verification. No host, relay, or APNs request.
@@ -140,30 +147,53 @@ final class LiveActivities {
         guard UserDefaults.standard.object(forKey: "liveActivitiesEnabled") as? Bool ?? true else { return }
         guard ActivityAuthorizationInfo().areActivitiesEnabled, Self.find(ref) == nil, let client = store.client else { return }
         let attributes = BotActivityAttributes(bot: bot, computerId: ref.computerId, link: store.storage.botURL(ref))
-        let id = UUID()
-        requests[id] = Task.detached { [weak self] in
-            await Self.request(attributes: attributes, client: client)
-            await self?.finishedRequest(id)
+        do {
+            let state = BotActivityAttributes.ContentState(status: "working", activity: "", startedAt: .now)
+            let activity = try Activity.request(attributes: attributes,
+                content: .init(state: state, staleDate: .now + 15 * 60), pushType: .token)
+            observe(activity, client: client)
+        } catch {
+            log.error("Live activity not started: \(error.localizedDescription)")
         }
     }
 
-    private func finishedRequest(_ id: UUID) { requests[id] = nil }
+    /// Reattach token observers after a relaunch or connection replacement.
+    func resume(with store: BotStore) {
+        guard UserDefaults.standard.object(forKey: "liveActivitiesEnabled") as? Bool ?? true else { return }
+        guard let client = store.client else { return }
+        for activity in Activity<BotActivityAttributes>.activities
+            where activity.attributes.computerId == store.computer.id {
+            observe(activity, client: client)
+        }
+    }
 
-    private nonisolated static func request(attributes: BotActivityAttributes, client: HostClient) async {
-        // Start with status only. Later foreground updates may add the current ACP step locally.
-        let state = BotActivityAttributes.ContentState(status: "working", activity: "", startedAt: .now)
-        do {
-            try Task.checkCancellation()
-            let activity = try Activity.request(attributes: attributes, content: .init(state: state, staleDate: .now + 15 * 60), pushType: .token)
+    private func observe(_ activity: Activity<BotActivityAttributes>, client: HostClient) {
+        requests[activity.id]?.cancel()
+        requests[activity.id] = Task {
+            if let token = activity.pushToken { await Self.register(token, activity: activity, client: client) }
             for await token in activity.pushTokenUpdates {
-                guard !Task.isCancelled else { break }
-                guard let ticket = try? await relayTicket(token: token, kind: "liveactivity") else { continue }
-                guard !Task.isCancelled else { break }
-                try? await client.registerActivity(botId: attributes.botId, ticket: ticket)
+                guard !Task.isCancelled else { return }
+                await Self.register(token, activity: activity, client: client)
             }
-            if Task.isCancelled { await activity.end(nil, dismissalPolicy: .immediate) }
-        } catch {
-            log.info("live activity not started: \(error.localizedDescription)")
+        }
+    }
+
+    private static func register(_ token: Data, activity: Activity<BotActivityAttributes>, client: HostClient) async {
+        for attempt in 0..<3 {
+            do {
+                try Task.checkCancellation()
+                guard activity.activityState == .active || activity.activityState == .stale else { return }
+                let ticket = try await relayTicket(token: token, kind: "liveactivity")
+                try Task.checkCancellation()
+                try await client.registerActivity(botId: activity.attributes.botId, ticket: ticket)
+                return
+            } catch is CancellationError {
+                return
+            } catch {
+                log.error("Live activity registration failed: \(error.localizedDescription)")
+                guard attempt < 2 else { return }
+                do { try await Task.sleep(for: .seconds(attempt + 1)) } catch { return }
+            }
         }
     }
 

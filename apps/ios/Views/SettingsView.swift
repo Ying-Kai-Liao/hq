@@ -72,7 +72,7 @@ struct SettingsView: View {
                 }
             }
 
-            CardSection {
+            CardSection("Notifications", footer: "Get a result summary, a request for input, or a failure notice. Notification previews follow your iOS settings.") {
                 notificationsRow
             }
 
@@ -200,22 +200,18 @@ struct SettingsView: View {
         closeSheets { store.screenRequest = ScreenRequest() }
     }
 
-    @ViewBuilder private var notificationsRow: some View {
-        if notificationsAllowed == true {
-            ValueRow("Notifications", value: "On")
-        } else {
-            Button {
-                if notificationsAllowed == false {
-                    UIApplication.shared.open(URL(string: UIApplication.openNotificationSettingsURLString)!)
-                } else {
-                    Task { notificationsAllowed = await PushRegistrar.shared.requestAuthorization() }
-                }
-            } label: {
-                ValueRow("Notifications", value: notificationsAllowed == false ? "Off in Settings" : "Turn on")
-                    .contentShape(Rectangle())
+    private var notificationsRow: some View {
+        Button {
+            if notificationsAllowed != nil {
+                UIApplication.shared.open(URL(string: UIApplication.openNotificationSettingsURLString)!)
+            } else {
+                Task { notificationsAllowed = await PushRegistrar.shared.requestAuthorization() }
             }
-            .buttonStyle(.plain)
+        } label: {
+            ValueRow("Notifications", value: notificationsAllowed == true ? "On" : notificationsAllowed == false ? "Off in Settings" : "Turn on")
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 }
 
