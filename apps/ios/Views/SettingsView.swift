@@ -30,6 +30,7 @@ struct SettingsView: View {
                     if let store = accounts.store(for: computer.id) {
                         ComputerRow(store: store, inAccount: cloudComputer(computer.id),
                                     openScreen: { openScreen(store) },
+                                    openMarketplace: { closeSheets { app.marketplace = store.computer.id } },
                                     revoke: cloudComputer(computer.id).flatMap { c in c.access == "granted" ? { confirmRevoke = c } : nil },
                                     remove: { confirmForget = computer })
                     }
@@ -52,25 +53,6 @@ struct SettingsView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-            }
-
-            if !onlineStores.isEmpty {
-                CardSection {
-                    ForEach(onlineStores, id: \.computer.id) { store in
-                        Button {
-                            let id = store.computer.id
-                            closeSheets { app.marketplace = id }
-                        } label: {
-                            LinkRow {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(onlineStores.count > 1 ? "Marketplace on \(store.hostName)" : "Marketplace")
-                                    Text("Agents, connectors and skills for your bots").font(.subheadline).foregroundStyle(Palette.secondary)
-                                }
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
             }
 
             CardSection("Notifications", footer: "Get a result summary, a request for input, or a failure notice. Notification previews follow your iOS settings.") {
@@ -174,10 +156,6 @@ struct SettingsView: View {
         accounts.cloudComputers.filter { c in !accounts.computers.contains { $0.id == c.computerId } }
     }
 
-    private var onlineStores: [BotStore] {
-        accounts.computers.compactMap { accounts.store(for: $0.id) }.filter { $0.connection == .online }
-    }
-
     private struct HiddenBot: Identifiable {
         let store: BotStore
         let bot: Bot
@@ -224,6 +202,8 @@ private struct ComputerRow: View {
     let store: BotStore
     let inAccount: CloudComputer?
     let openScreen: () -> Void
+    /// Agents, connectors and skills installed on this computer.
+    let openMarketplace: () -> Void
     /// Set when this iPhone's access to the computer can be revoked.
     let revoke: (() -> Void)?
     let remove: () -> Void
@@ -244,6 +224,9 @@ private struct ComputerRow: View {
                 .foregroundStyle(store.isOffline ? Palette.warning : Palette.secondary)
             }
             Spacer()
+            if store.connection == .online {
+                IconButton("Marketplace", systemImage: "storefront", action: openMarketplace)
+            }
             if store.screen != nil, store.connection == .online {
                 IconButton("Screen", systemImage: "display", action: openScreen)
             }
@@ -274,6 +257,9 @@ private struct ComputerRow: View {
                     }
                 },
             ]
+            if store.connection == .online {
+                items.append(MenuItem("Marketplace", icon: "storefront", action: openMarketplace))
+            }
             if store.screen != nil, store.connection == .online {
                 items.append(MenuItem("Screen", icon: "display", action: openScreen))
             }

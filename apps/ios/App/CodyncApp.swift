@@ -36,7 +36,9 @@ struct CodyncApp: App {
                 }
                 .onOpenURL { url in app.open(url) }
                 .onChange(of: scenePhase, initial: true) { _, phase in
-                    app.accounts.setActive(phase == .active)
+                    // Only leaving for the background disconnects; `.inactive` (Control Center,
+                    // app switcher, system prompts) comes and goes too often to drop the link.
+                    app.accounts.setActive(phase != .background)
                     // Back in the app: a computer may have joined the account meanwhile.
                     if phase == .active { Task { await app.accounts.refreshCloud() } }
                 }

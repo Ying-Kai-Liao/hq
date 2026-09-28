@@ -6,104 +6,69 @@ import SwiftUI
 struct BotListView: View {
     @Environment(AppStore.self) private var app
     @Environment(AccountStore.self) private var accounts
-    @State private var connectingComputer: CloudComputer?
     @State private var editing: EditTarget?
     @State private var editingGroup: GroupTarget?
-    @State private var pickingComputer = false
     @State private var confirmDelete: RosterItem?
+    /// The computer section a dragged heading is over.
+    @State private var dropTarget: ComputerID?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Computers left out of the list on this device, comma-separated IDs.
     @AppStorage("hiddenComputers") private var hiddenComputers = ""
 
-    private var hidden: Set<ComputerID> { Set(hiddenComputers.split(separator: ",").map(String.init)) }
+    private var shownIDs: Set<ComputerID> {
+        Set(ComputerSelection(all: accounts.computers.map(\.id), hidden: hiddenComputers).shown)
+    }
 
-    /// More than one computer: the list groups bots under their computer and the header filters.
-    private var grouped: Bool { accounts.computers.count > 1 }
+    private var shownStores: [BotStore] {
+        accounts.computers.filter { shownIDs.contains($0.id) }.compactMap { accounts.store(for: $0.id) }
+    }
 
-    /// The computers the list shows (all of them when the filter would leave none).
-    private var shownComputers: [Computer] {
-        let shown = accounts.computers.filter { !hidden.contains($0.id) }
-        return shown.isEmpty ? accounts.computers : shown
+    /// One computer shows a flat list; more get a heading each.
+    private var grouped: Bool { shownStores.count > 1 }
+
+    /// Moves a computer one place up (-1) or down (+1) among the shown ones.
+    private func move(_ id: ComputerID, _ offset: Int) {
+        let ids = shownStores.map(\.computer.id)
+        guard let i = ids.firstIndex(of: id), ids.indices.contains(i + offset) else { return }
+        withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { accounts.move(id, to: ids[i + offset]) }
     }
 
     /// Computers that can take a new bot right now.
     private var onlineStores: [BotStore] {
-        accounts.computers.compactMap { accounts.store(for: $0.id) }.filter { $0.connection == .online }
+        accounts.computers.compactMap { accounts.store(for: $0.id) }
+            .filter { shownIDs.contains($0.computer.id) && $0.connection == .online }
     }
 
     var body: some View {
-        let roster = accounts.roster
+        let roster = accounts.roster.filter { shownIDs.contains($0.ref.computerId) }
         ScrollView {
             LazyVStack(spacing: 0) {
-                // Keep actionable offline warnings; transient connecting state lives in the header.
-                ForEach(shownComputers) { computer in
-                    // Connecting draws nothing here (the header shows it), so it takes no space either.
-                    if let store = accounts.store(for: computer.id), ![.online, .connecting, .unpaired].contains(store.connection) {
-                        ConnectionBanner()
-                            .environment(store)
-                            .padding(.vertical, 4)
-                    }
-                }
-
-                if !accountComputers.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Connect from your account")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(Palette.text)
-                        Text("Connect once to see all the bots on your computer. No QR code needed.")
-                            .font(.subheadline)
-                            .foregroundStyle(Palette.secondary)
-                        ForEach(accountComputers) { computer in
-                            Button {
-                                withAnimation(Motion.layout) {
-                                    if computer.access == "granted" {
-                                        app.showComputers = true
-                                    } else {
-                                        connectingComputer = computer
-                                    }
-                                }
-                            } label: {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "desktopcomputer")
-                                        .font(.title2)
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(computer.name).font(.headline)
-                                        Text(computer.isOnline ? "Online" : "Offline · Turn on your computer to connect")
-                                            .font(.subheadline)
-                                            .foregroundStyle(Palette.secondary)
-                                    }
-                                    Spacer()
-                                    Text(computer.access == "granted" ? "Manage" : "Connect")
-                                        .font(.subheadline.weight(.semibold))
-                                }
-                                .foregroundStyle(Palette.text)
-                                .padding(16)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 16))
-                            }
-                            .buttonStyle(PressScale())
-                        }
-                    }
-                    .padding(.vertical, 16)
-                }
-
-                if roster.isEmpty && accountComputers.isEmpty {
+                if roster.isEmpty {
                     EmptyRoster(canCreate: !onlineStores.isEmpty, hasComputer: !accounts.computers.isEmpty,
                                 create: newBot, showComputers: { app.showComputers = true })
                 }
 
                 if grouped {
-                    ForEach(shownComputers) { computer in
-                        if let store = accounts.store(for: computer.id) {
-                            ComputerSection(store: store)
-                            ForEach(roster.filter { $0.ref.computerId == computer.id }) { item in
-                                row(item, store: store, caption: false)
-                            }
+                    // A light heading per computer, in the order the user dragged them into.
+                    ForEach(shownStores, id: \.computer.id) { store in
+                        let id = store.computer.id
+                        VStack(spacing: 0) {
+                            ComputerSection(store: store, empty: !roster.contains { $0.ref.computerId == id },
+                                            targeted: dropTarget == id, move: move)
+                            ForEach(roster.filter { $0.ref.computerId == id }) { row($0, store: store) }
+                        }
+                        .dropDestination(for: String.self) { ids, _ in
+                            guard let dragged = ids.first else { return false }
+                            withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { accounts.move(dragged, to: id) }
+                            return true
+                        } isTargeted: { on in
+                            withAnimation(Motion.hover) { dropTarget = on ? id : (dropTarget == id ? nil : dropTarget) }
                         }
                     }
                 } else {
                     ForEach(roster) { item in
                         if let store = accounts.store(for: item.ref.computerId) {
-                            row(item, store: store, caption: true)
+                            row(item, store: store)
                         }
                     }
                 }
@@ -119,25 +84,7 @@ struct BotListView: View {
                 AccountSwitcherButton()
             }
             ToolbarItem(placement: .principal) {
-                if grouped {
-                    VStack(spacing: 0) {
-                        filterButton
-                        ConnectingIndicator(isConnecting: shownComputers.contains {
-                            accounts.store(for: $0.id)?.connection == .connecting
-                        })
-                    }
-                } else {
-                    // Keep the center empty when connected, while the system owns the bar's layout.
-                    ZStack {
-                        Color.clear.frame(width: 1, height: 1)
-                        ConnectingIndicator(isConnecting: accounts.computers.contains {
-                            accounts.store(for: $0.id)?.connection == .connecting
-                        })
-                    }
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Computers", systemImage: "desktopcomputer") { app.showComputers = true }
+                ComputerFilterHeader(accounts: accounts, hidden: $hiddenComputers) { app.showComputers = true }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 // A native menu: the bar hosts toolbar buttons outside SwiftUI's layout,
@@ -153,18 +100,21 @@ struct BotListView: View {
             for computer in accounts.computers { accounts.store(for: computer.id)?.restartStream() }
             await accounts.refreshCloud()
         }
-        .codyncSheet(item: $connectingComputer) { computer in
-            AccessRequestView(computer: computer, pending: accounts.pendingAccess[computer.id] != nil)
-        }
         .codyncSheet(item: $editing) { target in
-            if let store = accounts.store(for: target.computerId) {
-                BotEditorView(draft: target.draft)
+            // A new bot can move to another computer until it's created.
+            let computerId = editing?.computerId ?? target.computerId
+            if let store = accounts.store(for: computerId) {
+                BotEditorView(draft: target.draft,
+                              computers: onlineStores.map { ($0.computer.id, $0.hostName) },
+                              computer: target.draft.id == nil
+                                  ? Binding(get: { computerId }, set: { editing?.computerId = $0 })
+                                  : nil)
                     .environment(store)
                     .onChange(of: store.selection) { _, botId in
                         // A new bot opens its chat, on the computer it was created on.
                         guard let botId else { return }
                         store.selection = nil
-                        accounts.selection = BotReference(accountId: accounts.accountId, computerId: target.computerId, botId: botId)
+                        accounts.selection = BotReference(accountId: accounts.accountId, computerId: computerId, botId: botId)
                     }
             }
         }
@@ -179,15 +129,6 @@ struct BotListView: View {
                     }
             }
         }
-        .codyncSheet(isPresented: $pickingComputer) {
-            ComputerPicker(stores: onlineStores) { store in
-                // Let the picker slide away before the editor slides up.
-                Task {
-                    try? await Task.sleep(for: .milliseconds(450))
-                    editing = EditTarget(computerId: store.computer.id, draft: BotDraft())
-                }
-            }
-        }
         .codyncDialog("Delete \(confirmDelete?.bot.name ?? "bot")?",
                       isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
                       message: confirmDelete?.bot.isGroup == true ? "Its bots and their own chats stay." : "Files it changed on your computer stay as they are.") {
@@ -198,71 +139,15 @@ struct BotListView: View {
         }
     }
 
-    private var accountComputers: [CloudComputer] {
-        accounts.cloudComputers.filter { computer in
-            !accounts.computers.contains { $0.id == computer.id }
-        }
-    }
-
-    /// "All computers ⌄" / "MacBook ⌄" / "2 computers ⌄".
-    private var filterButton: some View {
-        let shown = shownComputers
-        let title = shown.count == accounts.computers.count ? "All computers"
-            : shown.count == 1 ? (accounts.store(for: shown[0].id)?.hostName ?? shown[0].name)
-            : "\(shown.count) computers"
-        return Menu {
-            Button { setHidden([]) } label: {
-                Label("All computers", systemImage: shown.count == accounts.computers.count ? "checkmark" : "square.stack")
-            }
-            Divider()
-            ForEach(accounts.computers) { computer in
-                let isShown = shown.contains { $0.id == computer.id }
-                // A tap toggles one computer; the last one shown stays.
-                Button {
-                    guard !isShown || shown.count > 1 else { return }
-                    setHidden(isShown ? hidden.union([computer.id]) : hidden.subtracting([computer.id]))
-                } label: {
-                    Label(accounts.store(for: computer.id)?.hostName ?? computer.name,
-                          systemImage: isShown ? "checkmark" : "desktopcomputer")
-                }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Text(title)
-                    .contentTransition(.opacity)
-                    .lineLimit(1)
-                Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(Palette.tertiary)
-            }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Palette.text)
-            .padding(.horizontal, 12)
-            .frame(height: 32)
-            .contentShape(Rectangle())
-            .animation(Motion.layout, value: title)
-        }
-        .accessibilityLabel("Show computers: \(title)")
-    }
-
-    private func setHidden(_ ids: Set<ComputerID>) {
-        withAnimation(Motion.layout) { hiddenComputers = ids.sorted().joined(separator: ",") }
-    }
-
-    private func row(_ item: RosterItem, store: BotStore, caption: Bool) -> some View {
+    private func row(_ item: RosterItem, store: BotStore) -> some View {
         let bot = item.bot
         // A plain button instead of a NavigationLink: same push, no chevron.
         return Button { accounts.selection = item.ref } label: {
-            VStack(alignment: .leading, spacing: 0) {
-                BotRow(bot: bot)
-                if caption {
-                    ComputerCaption(store: store)
-                        .padding(.leading, 58)
-                        .padding(.bottom, 6)
-                        .offset(y: -6)
-                }
-            }
-            .environment(store)
+            BotRow(bot: bot)
+                .environment(store)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(accounts.computers.count > 1 ? "\(bot.name), on \(store.hostName)" : bot.name)
         .contextActions {
             [
                 MenuItem(bot.pinned ? "Unpin" : "Pin", icon: bot.pinned ? "pin.slash" : "pin") { store.setPinned(bot, !bot.pinned) },
@@ -286,41 +171,74 @@ struct BotListView: View {
         }
     }
 
-    /// A new bot lives on one computer: pick it first when there's a choice.
+    /// A new bot starts on the first computer online; the editor's Computer row can move it.
     private func newBot() {
-        let stores = onlineStores
-        if stores.count == 1, let store = stores.first {
-            editing = EditTarget(computerId: store.computer.id, draft: BotDraft())
-        } else if stores.count > 1 {
-            pickingComputer = true
-        }
+        guard let store = onlineStores.first else { return }
+        editing = EditTarget(computerId: store.computer.id, draft: BotDraft())
     }
 }
 
-/// A computer's heading above its bots: badge, name, and its connection, changing in place.
+/// A computer's heading above its bots: badge, name and connection. Long-press and drag it onto
+/// another computer's section to reorder.
 private struct ComputerSection: View {
     let store: BotStore
+    let empty: Bool
+    let targeted: Bool
+    let move: (ComputerID, Int) -> Void
 
     var body: some View {
-        HStack(spacing: 6) {
-            ComputerBadge(store.computer, size: 18)
-            Text(store.hostName)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Palette.secondary)
-                .lineLimit(1)
-            Text(store.statusText)
-                .font(.footnote)
-                .foregroundStyle(store.isOffline ? Palette.warning : Palette.tertiary)
-                .contentTransition(.opacity)
-            if store.connection == .online {
-                RouteIcon(route: store.hostRoute).font(.caption2).foregroundStyle(Palette.tertiary)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                ComputerBadge(store.computer, size: 18)
+                Text(store.hostName)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Palette.secondary)
+                    .lineLimit(1)
+                Text(store.statusText)
+                    .font(.footnote)
+                    .foregroundStyle(store.isOffline ? Palette.warning : Palette.tertiary)
+                    .lineLimit(1)
+                    .contentTransition(.opacity)
+                if store.connection == .online {
+                    RouteIcon(route: store.hostRoute).font(.caption2).foregroundStyle(Palette.tertiary)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "line.3.horizontal")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Palette.tertiary)
+                    .accessibilityHidden(true)
             }
-            Spacer()
+            .padding(.vertical, 6)
+            .padding(.horizontal, 8)
+            .background(targeted ? Palette.bubbleAgent : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(Rectangle())
+            .draggable(store.computer.id) {
+                HStack(spacing: 6) {
+                    ComputerBadge(store.computer, size: 18)
+                    Text(store.hostName).font(.footnote.weight(.semibold)).foregroundStyle(Palette.text)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Palette.bubbleAgent, in: Capsule())
+            }
+            if empty {
+                Text("No bots yet")
+                    .font(.footnote)
+                    .foregroundStyle(Palette.tertiary)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 4)
+            }
         }
-        .padding(.top, 18)
-        .padding(.bottom, 4)
+        .padding(.top, 14)
+        .padding(.bottom, 2)
+        .padding(.horizontal, -8)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
+        .accessibilityHint("Drag to reorder computers")
+        .accessibilityActions {
+            Button("Move up") { move(store.computer.id, -1) }
+            Button("Move down") { move(store.computer.id, 1) }
+        }
     }
 }
 
@@ -332,46 +250,8 @@ private struct GroupTarget: Identifiable {
 
 private struct EditTarget: Identifiable {
     let id = UUID()
-    let computerId: ComputerID
+    var computerId: ComputerID
     let draft: BotDraft
-}
-
-/// "Which computer should it run on?" — only computers that are online.
-private struct ComputerPicker: View {
-    let stores: [BotStore]
-    let pick: (BotStore) -> Void
-    @Environment(\.dismissModal) private var dismiss
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ModalHeader("Run it on")
-            ScrollView {
-                VStack(spacing: 4) {
-                    ForEach(stores, id: \.computer.id) { store in
-                        Button {
-                            dismiss()
-                            pick(store)
-                        } label: {
-                            HStack(spacing: 12) {
-                                ComputerBadge(store.computer, size: 36)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(store.hostName).font(.body.weight(.semibold)).foregroundStyle(Palette.text)
-                                    Text("\(store.roster.count) bot\(store.roster.count == 1 ? "" : "s")")
-                                        .font(.subheadline).foregroundStyle(Palette.secondary)
-                                }
-                                Spacer()
-                                RouteIcon(route: store.hostRoute).foregroundStyle(Palette.tertiary)
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 10)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(PressScale())
-                    }
-                }
-            }
-        }
-    }
 }
 
 private struct EmptyRoster: View {

@@ -43,7 +43,7 @@ struct RootView: View {
             // device-level milestone across account changes and unpairing.
             if !empty { onboardingCompleted = true }
         }
-        .codyncDialog("Something went wrong", isPresented: errorShown, message: errorMessage, cancel: "OK") { [] }
+        .codyncDialog("Something went wrong", isPresented: errorShown, message: errorMessage, cancel: "OK", inPlace: true) { [] }
         .codyncOverlay(isPresented: Binding(get: { screenTarget.wrappedValue != nil }, set: { if !$0 { screenTarget.wrappedValue = nil } })) { close in
             if let target = screenTarget.wrappedValue, let store = accounts.store(for: target.computerId) {
                 ScreenView(watching: target.request.watching, close: close)
@@ -55,10 +55,16 @@ struct RootView: View {
             // Holds the pushes inside the sheet (Widgets, Live Activity); no bar shows.
             NavigationStack { SettingsView() }
         }
-        .codyncSheet(item: Binding(get: { app.marketplace.map(MarketplaceTarget.init) }, set: { app.marketplace = $0?.id })) { target in
-            if let store = accounts.store(for: target.id) {
-                MarketplaceView()
+        .codyncSheet(item: Binding(get: { app.marketplace.map(MarketplaceTarget.init) }, set: { app.marketplace = $0?.computerId })) { target in
+            // Switching computers inside keeps the sheet up and loads that computer's own marketplace.
+            let computerId = app.marketplace ?? target.computerId
+            if let store = accounts.store(for: computerId) {
+                MarketplaceView(computers: accounts.computers.compactMap { accounts.store(for: $0.id) }
+                                    .filter { $0.connection == .online }
+                                    .map { ($0.computer.id, $0.hostName) },
+                                computer: Binding(get: { computerId }, set: { app.marketplace = $0 }))
                     .environment(store)
+                    .id(computerId)
             }
         }
     }
@@ -339,5 +345,6 @@ private struct AccessBanners: View {
 
 /// The marketplace sheet's item, so it keeps its computer while sliding away.
 private struct MarketplaceTarget: Identifiable {
-    let id: ComputerID
+    let computerId: ComputerID
+    var id: String { "marketplace" }
 }

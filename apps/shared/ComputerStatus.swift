@@ -31,23 +31,3 @@ struct RouteIcon: View {
         }
     }
 }
-
-/// "MacBook · Online ☁︎": which computer a bot lives on and how that computer is doing.
-struct ComputerCaption: View {
-    let store: BotStore
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ComputerBadge(store.computer, size: 14)
-            Text(store.hostName).lineLimit(1)
-            if store.connection != .online {
-                Text("·")
-                Text(store.statusText).foregroundStyle(store.isOffline ? Palette.warning : Palette.tertiary)
-            }
-            if store.connection == .online { RouteIcon(route: store.hostRoute).imageScale(.small) }
-        }
-        .font(.caption2)
-        .foregroundStyle(Palette.tertiary)
-        .accessibilityElement(children: .combine)
-    }
-}
