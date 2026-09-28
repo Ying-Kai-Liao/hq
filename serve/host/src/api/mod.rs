@@ -410,6 +410,10 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
             hub.store.add_push_ticket(ticket, caller.device_key(), push_key, b["ctx"].as_str(), name)?;
             json!({})
         }
+        "unregisterDevice" => {
+            hub.store.remove_push_tickets(caller.device_key())?;
+            json!({})
+        }
         "registerActivity" => {
             let bot_id = str_arg(&b, "botId")?;
             let row = hub.store.bot(bot_id)?.filter(|row| !row.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
