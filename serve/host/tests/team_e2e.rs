@@ -30,6 +30,7 @@ impl Host {
         let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
         let child = Command::new(env!("CARGO_BIN_EXE_codync-host"))
             .args(["serve", "--bind", "127.0.0.1", "--port", &port.to_string()])
+            .env("CODYNC_CLOUD", "off")
             .env("CODYNC_HOME", &home)
             .stdout(Stdio::null())
             .stderr(Stdio::null())

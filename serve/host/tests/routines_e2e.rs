@@ -30,6 +30,7 @@ impl Host {
         let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
         let child = Command::new(env!("CARGO_BIN_EXE_codync-host"))
             .args(["serve", "--bind", "127.0.0.1", "--port", &port.to_string()])
+            .env("CODYNC_CLOUD", "off")
             .env("CODYNC_HOME", &home)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -53,6 +54,7 @@ impl Host {
         let port = self.base.rsplit(':').next().unwrap();
         self.child = Command::new(env!("CARGO_BIN_EXE_codync-host"))
             .args(["serve", "--bind", "127.0.0.1", "--port", port])
+            .env("CODYNC_CLOUD", "off")
             .env("CODYNC_HOME", &self.home)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -400,6 +402,7 @@ async fn only_one_host_can_own_a_data_directory_even_on_another_port() {
     let host = Host::start().await;
     let mut other = Command::new(env!("CARGO_BIN_EXE_codync-host"))
         .args(["serve", "--bind", "127.0.0.1", "--port", "0"])
+        .env("CODYNC_CLOUD", "off")
         .env("CODYNC_HOME", &host.home)
         .stdout(Stdio::null())
         .stderr(Stdio::null())

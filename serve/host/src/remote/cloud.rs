@@ -16,9 +16,15 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::watch;
 
-/// The production cloud, once it is deployed. `None`: without `CODYNC_CLOUD_URL` or a
-/// URL set with `codync-host cloud --url`, the cloud is off (QR + direct connections only).
-pub const DEFAULT_CLOUD_URL: Option<&str> = None;
+/// The cloud a fresh host uses, matching the app's environment: debug builds (Xcode Debug)
+/// use dev, release builds use main. Unit tests have none, so they never reach a real cloud.
+pub const DEFAULT_CLOUD_URL: Option<&str> = if cfg!(test) {
+    None
+} else if cfg!(debug_assertions) {
+    Some("https://dev-api.codync.dev")
+} else {
+    Some("https://api.codync.dev")
+};
 
 /// How long one successful state pull keeps an account device allowed.
 pub const LEASE_MS: i64 = 15 * 60 * 1000;
