@@ -13,6 +13,7 @@ struct SettingsView: View {
     @Environment(\.dismissModal) private var dismissModal
     @Environment(\.openURL) private var openURL
     @State private var notificationsAllowed: Bool?
+    @AppStorage("notificationsEnabled") private var notificationsEnabled = true
     @State private var addingComputer = false
     @State private var confirmForget: Computer?
     @State private var confirmRevoke: CloudComputer?
@@ -73,6 +74,9 @@ struct SettingsView: View {
             }
 
             CardSection("Notifications", footer: "Get a result summary, a request for input, or a failure notice. Notification previews follow your iOS settings.") {
+                Toggle("Push notifications", isOn: $notificationsEnabled)
+                    .toggleStyle(.codync)
+                    .onChange(of: notificationsEnabled) { PushRegistrar.shared.resync() }
                 notificationsRow
             }
 

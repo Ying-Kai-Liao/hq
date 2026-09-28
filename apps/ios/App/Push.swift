@@ -95,6 +95,13 @@ final class PushRegistrar {
 
     func didRegister(token: Data) {
         deviceToken = token
+        resync()
+    }
+
+    /// The in-app switch; off asks every computer to stop alerting this phone.
+    static var enabled: Bool { UserDefaults.standard.object(forKey: "notificationsEnabled") as? Bool ?? true }
+
+    func resync() {
         for entry in stores.values { if let store = entry.store { syncDevice(with: store) } }
     }
 
@@ -103,6 +110,15 @@ final class PushRegistrar {
         let id = store.computer.id
         stores[id] = WeakStore(store: store)
         LiveActivities.shared.resume(with: store)
+        guard Self.enabled else {
+            registrations[id]?.cancel()
+            registrations[id] = Task { [weak store] in
+                do { try await store?.client?.unregisterDevice() } catch {
+                    log.error("device unregistration failed: \(error.localizedDescription)")
+                }
+            }
+            return
+        }
         guard let token = deviceToken else {
             Task {
                 let settings = await UNUserNotificationCenter.current().notificationSettings()
