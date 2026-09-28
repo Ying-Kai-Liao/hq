@@ -28,6 +28,34 @@ enum AXTree {
         return ["app": app.localizedName ?? "", "tree": tree, "truncated": budget <= 0]
     }
 
+    /// The focused control of the frontmost app: whether it's a password field, and the
+    /// URL of the web page it sits in (if any), so the host types a login only where it belongs.
+    static func focusedField() throws -> [String: Any] {
+        guard AXIsProcessTrusted() else {
+            throw HelperError("Codync Screen isn't allowed to read the screen's controls yet. Allow it under Privacy & Security → Accessibility.")
+        }
+        guard let app = NSWorkspace.shared.frontmostApplication else { throw HelperError("No app is in front.") }
+        let root = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(root, 1)
+        // Chromium only exposes web content to assistive apps that ask for it.
+        AXUIElementSetAttributeValue(root, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        var out: [String: Any] = ["app": app.localizedName ?? "", "secure": false]
+        guard let focused: AXUIElement = attribute(root, kAXFocusedUIElementAttribute) else { return out }
+        let role: String? = attribute(focused, kAXRoleAttribute)
+        let subrole: String? = attribute(focused, kAXSubroleAttribute)
+        out["secure"] = role == "AXSecureTextField" || subrole == kAXSecureTextFieldSubrole
+        var el = focused
+        for _ in 0..<60 {
+            if (attribute(el, kAXRoleAttribute) as String?) == "AXWebArea" {
+                if let url: URL = attribute(el, "AXURL") { out["url"] = url.absoluteString }
+                break
+            }
+            guard let parent: AXUIElement = attribute(el, kAXParentAttribute) else { break }
+            el = parent
+        }
+        return out
+    }
+
     private static func node(_ el: AXUIElement, depth: Int, budget: inout Int, origin: CGPoint) -> [String: Any]? {
         guard budget > 0, depth < maxDepth else { return nil }
         budget -= 1

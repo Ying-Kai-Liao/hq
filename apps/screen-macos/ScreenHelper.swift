@@ -81,6 +81,8 @@ final class ScreenHelper {
             return [String: Any]()
         case "uiTree":
             return try AXTree.frontmost(display: display(p["display"]))
+        case "focusedField":
+            return try AXTree.focusedField()
         case "openApp":
             guard let name = p["name"] as? String, !name.isEmpty else { throw HelperError("name is required") }
             try await openApp(name)
