@@ -21,7 +21,7 @@ pub enum Server {
 const INSTRUCTIONS: &str = "Operate this computer's desktop like a person would. Start with `screenshot` \
 (or `ui_tree` to find controls precisely), then act; every action returns a fresh screenshot. \
 Coordinates are pixels in the latest screenshot. Prefer keyboard shortcuts and `open_app` over hunting with the mouse. \
-Don't type passwords or approve payments: ask the user to do that from their phone.";
+Never type a password yourself: use type_login with a saved login (request_login asks the user for one). Don't approve payments: ask the user to do that from their phone.";
 
 fn tools() -> Value {
     let display = json!({"type": "integer", "description": "Display id; defaults to the main display."});
@@ -91,6 +91,18 @@ fn tools() -> Value {
             "name": "key",
             "description": "Press a key or shortcut, e.g. `return`, `escape`, `tab`, `cmd+t`, `cmd+shift+4`, `ctrl+c`. On Linux `cmd` is Super. Returns a screenshot afterwards.",
             "inputSchema": {"type": "object", "properties": {"keys": {"type": "string"}}, "required": ["keys"]},
+        },
+        {
+            "name": "type_login",
+            "description": "Type a saved login (see list_logins / request_login) into the focused field. Works only while the login's website or app is in front; `password` only into a password field. You never see the value. Returns a screenshot afterwards.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "login": {"type": "string", "description": "The login's id."},
+                    "field": {"type": "string", "enum": ["username", "password"]},
+                },
+                "required": ["login", "field"],
+            },
         },
         {
             "name": "open_app",
@@ -522,7 +534,12 @@ mod tests {
             let mut args = json!({});
             for r in required {
                 let k = r.as_str().unwrap();
-                args[k] = if t["inputSchema"]["properties"][k]["type"] == "string" { json!("x") } else { json!(1) };
+                let prop = &t["inputSchema"]["properties"][k];
+                args[k] = match prop["enum"].get(0) {
+                    Some(first) => first.clone(),
+                    None if prop["type"] == "string" => json!("x"),
+                    None => json!(1),
+                };
             }
             let parsed =
                 serde_json::from_value::<crate::screen::ComputerTool>(json!({"name": name, "arguments": args}));

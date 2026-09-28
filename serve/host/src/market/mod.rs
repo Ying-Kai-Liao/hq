@@ -17,6 +17,7 @@
 //! on this computer; listings only say which keys are set.
 
 pub mod composio;
+pub mod logins;
 pub mod oauth;
 pub mod passwords;
 pub mod requests;

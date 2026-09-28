@@ -289,6 +289,18 @@ pub enum ComputerTool {
     OpenApp {
         name: String,
     },
+    TypeLogin {
+        login: String,
+        field: LoginField,
+    },
+}
+
+/// Which half of a saved login `type_login` types.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LoginField {
+    Username,
+    Password,
 }
 
 impl ComputerTool {
@@ -570,6 +582,34 @@ pub async fn computer(hub: &Arc<Hub>, bot: &str, tool: ComputerTool) -> Result<V
                 res["tree"]
             );
             Ok(json!([{"type": "text", "text": text}]))
+        }
+        ComputerTool::TypeLogin { login, field } => {
+            let login = crate::market::logins::get(&hub.store, &login)?;
+            // Type only into the login's own site, and a password only into a password field,
+            // so a misled bot can't paste it into a page or chat that would show it.
+            let focus = link.request("focusedField", json!({})).await?;
+            let app = focus["app"].as_str().unwrap_or_default();
+            let url = focus["url"].as_str();
+            if !crate::market::logins::matches(&login.site, url, app) {
+                bail!(
+                    "The focused window is {}, not {}. Open {} and focus its sign-in field first.",
+                    url.unwrap_or(app),
+                    login.site,
+                    login.site
+                );
+            }
+            let text = match field {
+                LoginField::Username => login.username,
+                LoginField::Password => {
+                    if focus["secure"] != true {
+                        bail!(
+                            "Click into the password field first; type_login types a password only into a password field."
+                        );
+                    }
+                    crate::market::passwords::resolve(&hub.store, &login.password).await?
+                }
+            };
+            act(None, InputEvent::Text { text }).await
         }
         ComputerTool::OpenApp { name } => {
             link.request("openApp", json!({"name": name})).await?;

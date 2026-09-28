@@ -11,13 +11,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-pub const INSTRUCTIONS: &str = "Connect external services with search_connectors, list_connectors and request_connection. To update an installed connector's key use request_secret. Requests appear as secure cards in the user's conversation. Never ask for passwords or keys in ordinary chat or tool arguments. After requesting, finish your turn and wait; Codync resumes you after the user completes setup.";
+pub const INSTRUCTIONS: &str = "Connect external services with search_connectors, list_connectors and request_connection. To update an installed connector's key use request_secret. To sign in to a website or app on the screen, check list_logins, ask with request_login if it's missing, then type it with the computer tool type_login. Requests appear as secure cards in the user's conversation. Never ask for passwords or keys in ordinary chat or tool arguments. After requesting, finish your turn and wait; Codync resumes you after the user completes setup.";
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 enum RequestKind {
     Connection,
     Secret,
     App,
+    Login,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -41,6 +42,8 @@ pub fn tools() -> Value {
         {"name":"list_connectors","description":"List installed connectors without credentials.","inputSchema":{"type":"object","properties":{}}},
         {"name":"request_connection","description":"Invite the user to install or authorize a connector. Supply either registryName from search or connectorId from the installed list.","inputSchema":{"type":"object","properties":{"registryName":{"type":"string"},"connectorId":{"type":"string"},"reason":{"type":"string"}},"required":["reason"]}},
         {"name":"request_app","description":"Invite the user to connect a hosted app through Composio, for example gmail or slack.","inputSchema":{"type":"object","properties":{"toolkit":{"type":"string"},"reason":{"type":"string"}},"required":["toolkit","reason"]}},
+        {"name":"list_logins","description":"List saved website and app logins (site and username; never passwords).","inputSchema":{"type":"object","properties":{}}},
+        {"name":"request_login","description":"Ask the user to save a login for a website or app, e.g. github.com. They fill it in on a secure card; you never see the password. Then use the computer tool type_login.","inputSchema":{"type":"object","properties":{"site":{"type":"string","description":"The website's domain, or the app's name."},"reason":{"type":"string"}},"required":["site","reason"]}},
         {"name":"request_secret","description":"Ask the user to securely provide a credential for an installed connector. The value goes directly to that connector and is never returned to you.","inputSchema":{"type":"object","properties":{"connectorId":{"type":"string"},"field":{"type":"string"},"location":{"type":"string","enum":["env","header"]},"reason":{"type":"string"}},"required":["connectorId","field","location","reason"]}}
     ])
 }
@@ -50,6 +53,24 @@ pub async fn call(hub: &Arc<Hub>, bot: &str, name: &str, args: &Value) -> Result
     match name {
         "search_connectors" => super::browse_connectors(&hub.store, text(args, "query")?, "").await,
         "list_connectors" => super::list_connectors(&hub.store),
+        "list_logins" => super::logins::list(&hub.store),
+        "request_login" => {
+            let site = super::logins::normalize_site(text(args, "site")?);
+            if site.is_empty() || site.len() > 200 {
+                bail!("Give the website's domain or the app's name");
+            }
+            let lane = hub.runtime(bot).lane.unwrap_or_else(|| Lane::main(bot));
+            let reason: String = text(args, "reason")?.chars().take(400).collect();
+            let entry = hub
+                .add_entry(
+                    &lane,
+                    EntryKind::Notice,
+                    hub.store.max_turn(bot),
+                    &json!({"text":reason,"connectionRequest":{"kind":RequestKind::Login,"status":RequestStatus::Pending,"title":site,"site":site,"botId":bot}}),
+                )
+                .ok_or_else(|| anyhow!("Could not save login request"))?;
+            Ok(json!({"requestId":entry.id,"status":"waitingForUser"}))
+        }
         "request_app" => {
             let toolkit = text(args, "toolkit")?.to_ascii_lowercase();
             if toolkit.len() > 100 || !toolkit.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-') {
@@ -141,6 +162,21 @@ pub async fn finish(hub: &Arc<Hub>, args: &Value) -> Result<Value> {
         data["connectionRequest"]["status"] = serde_json::to_value(RequestStatus::Cancelled)?;
         return Ok(json!({"entry":hub.set_entry(id, &data).ok_or_else(|| anyhow!("Could not cancel request"))?}));
     }
+    if kind == RequestKind::Login {
+        let login = super::logins::save(
+            &hub.store,
+            text(request, "site")?,
+            args["username"].as_str().unwrap_or_default(),
+            text(args, "value")?,
+        )?;
+        let note = format!(
+            "[Login for {} saved as `{}`{}. Type it with the computer tool type_login; the password is never shown to you. Continue the task.]",
+            login.site,
+            login.id,
+            if login.username.is_empty() { String::new() } else { format!(" (username {})", login.username) }
+        );
+        return complete(hub, &e, id, note);
+    }
     let connector_id = request["connectorId"]
         .as_str()
         .or(args["connectorId"].as_str())
@@ -179,22 +215,28 @@ pub async fn finish(hub: &Arc<Hub>, args: &Value) -> Result<Value> {
     }
     hub.update_bot(&json!({"id":bot,"connectors":enabled}))?;
     hub.send_cmd(bot, Cmd::RefreshTools)?;
-    let mut data = e.data.clone();
-    data["connectionRequest"]["status"] = serde_json::to_value(RequestStatus::Ready)?;
-    let entry = hub.set_entry(id, &data).ok_or_else(|| anyhow!("Could not complete request"))?;
-    let lane = Lane { chat: e.bot_id, thread: e.thread_id };
-    let text = format!(
+    let note = format!(
         "[Connection setup completed: {}. Credentials were submitted securely and are not in this conversation. Continue the task.]",
         request["title"].as_str().unwrap_or("Connector")
     );
+    complete(hub, &e, id, note)
+}
+
+/// Marks a request ready and resumes its bot once with `note`.
+fn complete(hub: &Arc<Hub>, e: &Entry, id: &str, note: String) -> Result<Value> {
+    let bot = text(&e.data["connectionRequest"], "botId")?.to_owned();
+    let mut data = e.data.clone();
+    data["connectionRequest"]["status"] = serde_json::to_value(RequestStatus::Ready)?;
+    let entry = hub.set_entry(id, &data).ok_or_else(|| anyhow!("Could not complete request"))?;
+    let lane = Lane { chat: e.bot_id.clone(), thread: e.thread_id.clone() };
     let (ack, added) = hub.add_entry_once(
         &format!("connection-ack-{id}"),
         &lane,
         EntryKind::User,
-        &json!({"text":text,"status":"queued"}),
+        &json!({"text":note,"status":"queued"}),
     )?;
     if added {
-        hub.send_cmd(bot, Cmd::Send { lane, entry_id: ack.id, text })?;
+        hub.send_cmd(&bot, Cmd::Send { lane, entry_id: ack.id, text: note })?;
     }
     Ok(json!({"entry":entry}))
 }
@@ -259,6 +301,32 @@ mod tests {
             assert!(crate::api::devices::permit(&caller, method).is_err());
         }
         assert!(crate::api::devices::permit(&caller, "connectorRequestFinish").is_ok());
+    }
+
+    #[tokio::test]
+    async fn saved_login_resumes_the_bot_without_its_password() {
+        let (hub, dir) = fixture();
+        let r = call(
+            &hub,
+            "bot",
+            "request_login",
+            &json!({"site":"https://www.GitHub.com/login","reason":"Sign in to open the PR"}),
+        )
+        .await
+        .unwrap();
+        let id = r["requestId"].as_str().unwrap();
+        let done = finish(&hub, &json!({"entryId":id,"username":"kevin","value":"hunter2-private"})).await.unwrap();
+        assert_eq!(done["entry"]["data"]["connectionRequest"]["status"], "ready");
+        let listed = call(&hub, "bot", "list_logins", &json!({})).await.unwrap();
+        assert_eq!(listed["items"][0]["site"], "github.com");
+        assert_eq!(listed["items"][0]["username"], "kevin");
+        assert!(!listed.to_string().contains("hunter2-private"));
+        assert!(!hub.store.kv_read("logins").unwrap().unwrap().contains("hunter2-private"));
+        let history = hub.store.history("bot", i64::MAX, 100).unwrap();
+        let history = serde_json::to_string(&history).unwrap();
+        assert!(history.contains("type_login") && !history.contains("hunter2-private"));
+        hub.shutdown().await;
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]

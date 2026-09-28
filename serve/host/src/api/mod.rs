@@ -214,6 +214,7 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
         || method.starts_with("composio")
         || method == "setComposioKey"
         || method.starts_with("credential")
+        || method == "computerCall"
         || matches!(method, "agentAuth" | "agentAuthenticate" | "setAgentEnv")
     {
         market::vault::unlock(hub.clone()).await?;
@@ -246,6 +247,20 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
             ready
         }
         "credentialStatus" => market::passwords::status(&hub.store)?,
+        "credentialLogins" => market::logins::list(&hub.store)?,
+        "credentialSaveLogin" => {
+            let login = market::logins::save(
+                &hub.store,
+                str_arg(&b, "site")?,
+                b["username"].as_str().unwrap_or_default(),
+                str_arg(&b, "password")?,
+            )?;
+            json!({"login": login.public()})
+        }
+        "credentialRemoveLogin" => {
+            market::logins::remove(&hub.store, str_arg(&b, "id")?)?;
+            json!({})
+        }
         "credentialSetOnePassword" => {
             market::passwords::set_token(&hub.store, b["token"].as_str().unwrap_or_default()).await?
         }
