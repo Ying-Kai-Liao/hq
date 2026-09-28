@@ -190,7 +190,7 @@ struct UsageWidget: Widget {
                 .containerBackground(Palette.surface, for: .widget)
         }
         .configurationDisplayName("Usage limits")
-        .description("Claude and Codex subscription limits from your computer.")
+        .description("Subscription limits your computer reports, for every provider.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular, .accessoryInline])
     }
 }
@@ -284,39 +284,57 @@ struct UsageWidgetView: View {
 
 // MARK: - One provider
 
-enum UsageProviderChoice: String, AppEnum {
-    case claude, codex
-
+/// Any provider a computer reports usage for, not a fixed list.
+struct UsageProviderEntity: AppEntity {
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Provider"
-    static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [.claude: "Claude", .codex: "Codex"]
+    static let defaultQuery = UsageProviderQuery()
+
+    let id: String
+    let name: String
+    var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(name)") }
+}
+
+struct UsageProviderQuery: EntityQuery {
+    private var all: [UsageProviderEntity] {
+        SharedStore.activeContext.usageProviders.map { UsageProviderEntity(id: $0.id, name: $0.name) }
+    }
+
+    func entities(for identifiers: [String]) async throws -> [UsageProviderEntity] {
+        let all = all
+        return identifiers.map { id in all.first { $0.id == id } ?? UsageProviderEntity(id: id, name: id.capitalized) }
+    }
+
+    func suggestedEntities() async throws -> [UsageProviderEntity] { all }
+
+    func defaultResult() async -> UsageProviderEntity? { all.first { $0.id == "claude" } ?? all.first }
 }
 
 struct ProviderUsageIntent: WidgetConfigurationIntent {
     static let title: LocalizedStringResource = "Provider usage"
 
-    @Parameter(title: "Provider", default: .claude)
-    var provider: UsageProviderChoice
+    @Parameter(title: "Provider")
+    var provider: UsageProviderEntity?
 }
 
 struct ProviderUsageEntry: TimelineEntry {
     let date: Date
     let usage: Usage
-    let provider: UsageProviderChoice
+    let provider: String
 }
 
 struct ProviderUsageTimeline: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> ProviderUsageEntry {
-        ProviderUsageEntry(date: .now, usage: .widgetPreview, provider: .claude)
+        ProviderUsageEntry(date: .now, usage: .widgetPreview, provider: "claude")
     }
 
     func snapshot(for configuration: ProviderUsageIntent, in context: Context) async -> ProviderUsageEntry {
         let usage = context.isPreview ? .widgetPreview : (UsageTimeline.cached ?? Usage())
-        return ProviderUsageEntry(date: .now, usage: usage, provider: configuration.provider)
+        return ProviderUsageEntry(date: .now, usage: usage, provider: configuration.provider?.id ?? "claude")
     }
 
     func timeline(for configuration: ProviderUsageIntent, in context: Context) async -> Timeline<ProviderUsageEntry> {
         let shared = await UsageTimeline.timeline()
-        return Timeline(entries: shared.entries.map { ProviderUsageEntry(date: $0.date, usage: $0.usage, provider: configuration.provider) },
+        return Timeline(entries: shared.entries.map { ProviderUsageEntry(date: $0.date, usage: $0.usage, provider: configuration.provider?.id ?? "claude") },
                         policy: shared.policy)
     }
 }
@@ -336,14 +354,14 @@ struct ProviderUsageWidget: Widget {
 struct ProviderUsageView: View {
     let entry: ProviderUsageEntry
     @Environment(\.widgetFamily) private var family
-    private var provider: UsageProvider? { entry.usage.providers.first { $0.id == entry.provider.rawValue } }
+    private var provider: UsageProvider? { entry.usage.providers.first { $0.id == entry.provider } }
 
     var body: some View {
         Group {
             if let provider, !provider.windows.isEmpty {
                 ProviderWidgetCard(provider: provider, layout: family == .systemSmall ? .small : family == .systemLarge ? .large : .medium, date: entry.date)
             } else {
-                EmptyWidget(text: "Open Codync to connect a computer and check \(entry.provider.rawValue.capitalized) usage.")
+                EmptyWidget(text: "Open Codync to connect a computer and check \(entry.provider.capitalized) usage.")
             }
         }
         .containerBackground(Palette.surface, for: .widget)

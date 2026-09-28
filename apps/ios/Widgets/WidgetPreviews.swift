@@ -9,16 +9,16 @@ import ActivityKit
 #Preview(as: .systemSmall) {
     ProviderUsageWidget()
 } timeline: {
-    ProviderUsageEntry(date: .now, usage: .widgetPreview, provider: .claude)
-    ProviderUsageEntry(date: .now, usage: .widgetPreview, provider: .codex)
-    ProviderUsageEntry(date: .now, usage: Usage(), provider: .claude)
+    ProviderUsageEntry(date: .now, usage: .widgetPreview, provider: "claude")
+    ProviderUsageEntry(date: .now, usage: .widgetPreview, provider: "codex")
+    ProviderUsageEntry(date: .now, usage: Usage(), provider: "claude")
 }
 
 #Preview(as: .systemMedium) {
     ProviderUsageWidget()
 } timeline: {
-    ProviderUsageEntry(date: .now, usage: .widgetPreview, provider: .claude)
-    ProviderUsageEntry(date: .now, usage: .widgetPreview, provider: .codex)
+    ProviderUsageEntry(date: .now, usage: .widgetPreview, provider: "claude")
+    ProviderUsageEntry(date: .now, usage: .widgetPreview, provider: "codex")
 }
 
 #Preview(as: .systemSmall) {
@@ -61,8 +61,8 @@ import ActivityKit
 #Preview(as: .systemLarge) {
     ProviderUsageWidget()
 } timeline: {
-    ProviderUsageEntry(date: .now, usage: .widgetPreview, provider: .claude)
-    ProviderUsageEntry(date: .now, usage: .widgetPreview, provider: .codex)
+    ProviderUsageEntry(date: .now, usage: .widgetPreview, provider: "claude")
+    ProviderUsageEntry(date: .now, usage: .widgetPreview, provider: "codex")
 }
 
 #Preview(as: .systemLarge) {

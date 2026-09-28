@@ -18,7 +18,13 @@ struct WidgetGalleryView: View {
     @AppStorage(SharedStore.usageIconStyleKey, store: UserDefaults(suiteName: SharedStore.appGroup))
     private var usageIconStyle = UsageIconStyle.character.rawValue
 
-    private var provider: UsageProvider? { Usage.widgetPreview.providers.first { $0.id == providerID } }
+    /// Sample data where there is some, else what the computer last reported.
+    private var provider: UsageProvider? {
+        (Usage.widgetPreview.providers + SharedStore.activeContext.usage.values.flatMap(\.providers)).first { $0.id == providerID }
+    }
+    private var providers: [(id: String, label: String)] {
+        SharedStore.activeContext.usageProviders.map { (id: $0.id, label: $0.name) }
+    }
 
     var body: some View {
         ScrollView {
@@ -69,11 +75,14 @@ struct WidgetGalleryView: View {
                     }
                     if typeSize.isAccessibilitySize {
                         ChoicePicker(selection: $kind, options: Self.kinds)
-                        if kind == "usage" { ChoicePicker(selection: $providerID, options: Self.providers) }
                     } else {
                         SegmentedChoice(selection: $kind, options: Self.kinds)
-                        if kind == "usage" {
-                            SegmentedChoice(selection: $providerID, options: Self.providers)
+                    }
+                    if kind == "usage" {
+                        if typeSize.isAccessibilitySize || providers.count > 3 {
+                            ChoicePicker(selection: $providerID, options: providers)
+                        } else {
+                            SegmentedChoice(selection: $providerID, options: providers)
                         }
                     }
                     ChoicePicker(selection: $size, options: [("small", "Small"), ("medium", "Medium"), ("large", "Large")])
@@ -131,7 +140,6 @@ struct WidgetGalleryView: View {
     private enum Page: Hashable { case lockScreen }
 
     private static let kinds: [(id: String, label: String)] = [("usage", "Provider usage"), ("bots", "Bots")]
-    private static let providers: [(id: String, label: String)] = [("claude", "Claude"), ("codex", "Codex")]
 
     private var previewDescription: some View {
         VStack(alignment: .leading, spacing: 6) {
