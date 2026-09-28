@@ -364,26 +364,21 @@ struct BotLiveActivity: Widget {
             let state = presentation(context)
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    HStack(spacing: 8) {
-                        avatar(context, size: 26)
-                        Text(context.attributes.name).font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.white).lineLimit(1)
-                    }
+                    avatar(context, size: 26).frame(maxHeight: .infinity)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    BotActivityIndicator(state: state).environment(\.colorScheme, .dark)
+                    BotActivityIndicator(state: state, size: 28).frame(maxHeight: .infinity)
                 }
-                DynamicIslandExpandedRegion(.bottom) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        BotActivityDetail(state: state)
-                        if let link = context.attributes.link {
-                            Link(destination: link) {
-                                Label(state.phase == .needsInput ? "Respond in Codync" : "Open conversation", systemImage: "arrow.up.right")
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .tint(.white)
-                        }
+                // Centered under the camera, between the avatar and the orb, so nothing reaches
+                // the island's 44 pt corners (HIG: concentric margins, wrap around the camera).
+                DynamicIslandExpandedRegion(.center) {
+                    VStack(spacing: 2) {
+                        Text(context.attributes.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                        Text(state.caption).font(.system(size: 12)).foregroundStyle(Palette.secondary)
                     }
+                    .lineLimit(1)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
                     .environment(\.colorScheme, .dark)
                 }
             } compactLeading: {
@@ -391,7 +386,7 @@ struct BotLiveActivity: Widget {
             } compactTrailing: {
                 BotActivityIndicator(state: state).environment(\.colorScheme, .dark)
             } minimal: {
-                BotActivityIndicator(state: state, minimal: true)
+                BotActivityIndicator(state: state)
                     .environment(\.colorScheme, .dark)
                     .accessibilityLabel("\(context.attributes.name), \(state.title)")
             }
@@ -400,8 +395,7 @@ struct BotLiveActivity: Widget {
     }
 
     private func presentation(_ context: ActivityViewContext<BotActivityAttributes>) -> BotActivityPresentation {
-        .init(status: context.state.status, activity: context.state.activity,
-              startedAt: context.state.startedAt, isStale: context.isStale)
+        .init(status: context.state.status, activity: context.state.activity, isStale: context.isStale)
     }
 
     private func avatar(_ context: ActivityViewContext<BotActivityAttributes>, size: CGFloat) -> some View {

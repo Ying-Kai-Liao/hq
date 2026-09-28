@@ -12,7 +12,8 @@ struct ActivityGalleryView: View {
     @State private var allowed = ActivityAuthorizationInfo().areActivitiesEnabled
     @State private var form: BotActivityPreview.Form?
     @State private var phase = BotActivityPresentation.Phase.working
-    @State private var start = Date.now - 154
+
+    private var island: Bool { !forms.contains(.lockScreen) }
 
     private var state: BotActivityPresentation {
         let status: String = switch phase {
@@ -23,17 +24,19 @@ struct ActivityGalleryView: View {
         case .waiting: "unknown"
         }
         return .init(status: status, activity: phase == .needsInput ? "Review the proposed changes." : "Running the test suite.",
-                     startedAt: start, isStale: phase == .stale)
+                     isStale: phase == .stale)
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Toggle("Show Live Activities", isOn: $enabled)
+                    Toggle(island ? "Show in Dynamic Island" : "Show Live Activities", isOn: $enabled)
                         .toggleStyle(.codync)
                         .font(.subheadline.weight(.medium))
-                    Text("Starts when you send a task from this iPhone. Follow its progress, then open the conversation when your bot needs you.")
+                    Text(island
+                         ? "The Dynamic Island shows the same Live Activity as the Lock Screen, so this switch turns off both."
+                         : "Starts when you send a task from this iPhone. Follow its progress, then open the conversation when your bot needs you.")
                         .font(.footnote).foregroundStyle(Palette.secondary)
                     if !allowed {
                         Text("Live Activities are turned off in iOS Settings.")
@@ -85,10 +88,10 @@ struct ActivityGalleryView: View {
 
     private func explanation(_ form: BotActivityPreview.Form) -> some View {
         let detail = switch form {
-        case .lockScreen: "A task card with the bot, current step and elapsed time. Tap it to return to the conversation."
-        case .compact: "The bot and timer appear beside the camera. The timer becomes a status icon when the task needs attention or ends."
-        case .minimal: "A small status icon when iOS displays multiple Live Activities."
-        case .expanded: "Touch and hold the Dynamic Island for the current step and a shortcut to the conversation."
+        case .lockScreen: "The bot, its current step and a thinking orb. Tap it to return to the conversation."
+        case .compact: "The bot and a thinking orb beside the camera. The orb becomes a check or warning when the task ends."
+        case .minimal: "Just the orb when iOS displays multiple Live Activities."
+        case .expanded: "Touch and hold the Dynamic Island for the current step. Tap to open the conversation."
         }
         return VStack(alignment: .leading, spacing: 4) {
             Text(form.rawValue).font(.subheadline.weight(.medium)).accessibilityAddTraits(.isHeader)
