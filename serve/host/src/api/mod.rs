@@ -207,6 +207,37 @@ fn str_arg<'a>(b: &'a Value, k: &str) -> Result<&'a str> {
     b[k].as_str().ok_or_else(|| anyhow!("`{k}` is required"))
 }
 
+/// Everything a bot can turn on: installed connectors and connected apps.
+fn connector_ids(store: &crate::store::Store) -> Result<Vec<String>> {
+    Ok(market::list_connectors(store)?["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|c| c["id"].as_str().map(str::to_owned))
+        .collect())
+}
+
+/// A connector installed on the computer is on for every bot; each bot can turn it off.
+fn enable_new_connectors(hub: &Hub, before: &[String]) -> Result<()> {
+    let new: Vec<String> = connector_ids(&hub.store)?.into_iter().filter(|id| !before.contains(id)).collect();
+    if new.is_empty() {
+        return Ok(());
+    }
+    for row in hub.store.bots()? {
+        if row.deleted || row.config.is_group() {
+            continue;
+        }
+        let mut on = row.config.connectors;
+        for id in &new {
+            if !on.contains(id) {
+                on.push(id.clone());
+            }
+        }
+        hub.update_bot(&json!({"id": row.config.id, "connectors": on}))?;
+    }
+    Ok(())
+}
+
 /// Runs one API method for `caller` (permissions per spec §6.6).
 pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<Value> {
     devices::permit(caller, method)?;
@@ -297,10 +328,23 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
         "composioConnect" => market::composio::connect(&hub.store, str_arg(&b, "toolkit")?).await?,
         "composioConnectFields" => {
             let fields = b["fields"].as_object().ok_or_else(|| anyhow!("`fields` is required"))?;
-            market::composio::connect_with_fields(&hub.store, str_arg(&b, "toolkit")?, str_arg(&b, "mode")?, fields)
-                .await?
+            let before = connector_ids(&hub.store)?;
+            let r = market::composio::connect_with_fields(
+                &hub.store,
+                str_arg(&b, "toolkit")?,
+                str_arg(&b, "mode")?,
+                fields,
+            )
+            .await?;
+            enable_new_connectors(hub, &before)?;
+            r
         }
-        "composioConnection" => market::composio::connection(&hub.store, str_arg(&b, "id")?).await?,
+        "composioConnection" => {
+            let before = connector_ids(&hub.store)?;
+            let r = market::composio::connection(&hub.store, str_arg(&b, "id")?).await?;
+            enable_new_connectors(hub, &before)?;
+            r
+        }
         "routineSchedule" => crate::routines::schedule_preview(&b, crate::store::now_ms())?,
         "routines" => hub.routines.list(str_arg(&b, "botId")?),
         "saveRoutine" => hub.routines.save(hub, str_arg(&b, "botId")?, &b)?,
@@ -366,6 +410,11 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
         "createBot" => {
             let mut b = b;
             b["id"] = "".into();
+            // Connectors are on for a new bot unless the client picked them.
+            if b["connectors"].is_null() && b["kind"] != "group" {
+                market::vault::unlock(hub.clone()).await?;
+                b["connectors"] = json!(connector_ids(&hub.store)?);
+            }
             let cfg: BotConfig = serde_json::from_value(b).context("invalid bot")?;
             let hub = hub.clone();
             json!({"bot": tokio::task::spawn_blocking(move || hub.create_bot(cfg)).await??})
@@ -647,8 +696,14 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
         }
         "marketSkills" => market::browse_skills(&hub.store).await?,
         "connectors" => market::list_connectors(&hub.store)?,
-        "importConnectors" => market::import_connectors(&hub.store, str_arg(&b, "config")?).await?,
+        "importConnectors" => {
+            let before = connector_ids(&hub.store)?;
+            let added = market::import_connectors(&hub.store, str_arg(&b, "config")?).await?;
+            enable_new_connectors(hub, &before)?;
+            added
+        }
         "installConnector" => {
+            let before = connector_ids(&hub.store)?;
             let c = if b["registryName"].is_string() {
                 market::install_connector(
                     &hub.store,
@@ -660,6 +715,7 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
             } else {
                 market::add_custom_connector(&hub.store, &b).await?
             };
+            enable_new_connectors(hub, &before)?;
             json!({"connector": c})
         }
         "connectorSignIn" => {
@@ -995,5 +1051,38 @@ mod tests {
         assert!(!is_loopback(ip("192.168.1.20")));
         assert!(!is_loopback(ip("::ffff:192.168.1.20")));
         assert!(!is_loopback(ip("100.101.102.103")));
+    }
+
+    #[tokio::test]
+    async fn new_connectors_turn_on_for_every_bot() {
+        let dir = std::env::temp_dir().join(format!("codync-connectors-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let store = crate::store::Store::open(std::path::Path::new(":memory:")).expect("memory store");
+        for (id, on) in [("a", json!([])), ("b", json!(["old"]))] {
+            let cfg: BotConfig = serde_json::from_value(
+                json!({"id": id, "name": id, "backend": "fixture", "command": "true", "cwd": dir, "connectors": on, "notify": false}),
+            )
+            .expect("bot config");
+            store.save_bot(&cfg).expect("save bot");
+        }
+        let connector = |id: &str| -> market::Connector {
+            serde_json::from_value(json!({"id": id, "name": id, "url": "https://example.com/mcp"})).expect("connector")
+        };
+        market::save_connectors(&store, &[connector("old")]).expect("save");
+        let hub = Hub::new(
+            store,
+            "test".into(),
+            crate::remote::identity::Identity::load_or_create(&dir).expect("identity"),
+            "test".into(),
+            19222,
+        );
+        hub.start().expect("start");
+        let before = connector_ids(&hub.store).expect("ids");
+        market::save_connectors(&hub.store, &[connector("old"), connector("linear")]).expect("save");
+        enable_new_connectors(&hub, &before).expect("enable");
+        let on = |id: &str| hub.store.bot(id).expect("read").expect("bot").config.connectors;
+        assert_eq!(on("a"), ["linear"], "the new connector is on; one turned off stays off");
+        assert_eq!(on("b"), ["old", "linear"]);
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -1126,9 +1126,10 @@ impl App {
                 for o in &mut self.overlays {
                     if let Overlay::Form(f) = o {
                         if connectors {
-                            merge_toggles(&mut f.connectors, &self.market.0);
+                            // Connectors start on for a new bot.
+                            merge_toggles(&mut f.connectors, &self.market.0, f.bot_id.is_none());
                         } else {
-                            merge_toggles(&mut f.skills, &self.market.1);
+                            merge_toggles(&mut f.skills, &self.market.1, false);
                         }
                     }
                 }
@@ -1753,8 +1754,8 @@ impl App {
             error: None,
             saving: false,
         };
-        merge_toggles(&mut f.connectors, &self.market.0);
-        merge_toggles(&mut f.skills, &self.market.1);
+        merge_toggles(&mut f.connectors, &self.market.0, false);
+        merge_toggles(&mut f.skills, &self.market.1, false);
         self.overlays.push(Overlay::Form(Box::new(f)));
         self.call("connectors", json!({}), After::Connectors);
         self.call("skills", json!({}), After::Skills);
@@ -2008,7 +2009,7 @@ impl App {
                 .market
                 .0
                 .iter()
-                .map(|t| Toggle { id: t.id.clone(), name: t.name.clone(), on: false })
+                .map(|t| Toggle { id: t.id.clone(), name: t.name.clone(), on: true })
                 .collect(),
             skills: self
                 .market
@@ -2214,11 +2215,11 @@ fn cycle(i: usize, d: isize, n: usize) -> usize {
     usize::try_from((isize::try_from(i).unwrap_or(0) + d).rem_euclid(n)).unwrap_or(0)
 }
 
-fn merge_toggles(have: &mut Vec<Toggle>, all: &[Toggle]) {
+fn merge_toggles(have: &mut Vec<Toggle>, all: &[Toggle], on: bool) {
     for t in all {
         match have.iter_mut().find(|h| h.id == t.id) {
             Some(h) => h.name.clone_from(&t.name),
-            None => have.push(Toggle { id: t.id.clone(), name: t.name.clone(), on: false }),
+            None => have.push(Toggle { id: t.id.clone(), name: t.name.clone(), on }),
         }
     }
 }
