@@ -80,17 +80,17 @@ fn env_slot(backend: &str) -> String {
 }
 
 /// Keys saved for `backend`, as environment for its process.
-pub fn env(store: &Store, backend: &str) -> Vec<(String, String)> {
-    store
-        .kv_get(&env_slot(backend))
-        .and_then(|s| serde_json::from_str::<BTreeMap<String, String>>(&s).ok())
-        .map(|m| m.into_iter().collect())
-        .unwrap_or_default()
+pub fn env(store: &Store, backend: &str) -> Result<Vec<(String, String)>> {
+    let Some(raw) = crate::market::vault::read(store, &env_slot(backend))? else {
+        return Ok(Vec::new());
+    };
+    let values: BTreeMap<String, String> = serde_json::from_str(&raw)?;
+    Ok(values.into_iter().collect())
 }
 
 /// Names of the saved keys (values never leave the host).
-fn saved_env(store: &Store, backend: &str) -> Vec<String> {
-    env(store, backend).into_iter().map(|(k, _)| k).collect()
+fn saved_env(store: &Store, backend: &str) -> Result<Vec<String>> {
+    Ok(env(store, backend)?.into_iter().map(|(k, _)| k).collect())
 }
 
 /// Runs a check and returns `{signedIn, detail, methods, savedEnv}`.
@@ -99,7 +99,7 @@ pub async fn check(store: &Store, backend: &str) -> Result<Value> {
     backends::set_signed_in(backend, status.signed_in);
     CHECKED.locked().insert(backend.to_owned(), status.clone());
     let mut v = serde_json::to_value(&status)?;
-    v["savedEnv"] = json!(saved_env(store, backend));
+    v["savedEnv"] = json!(saved_env(store, backend)?);
     // Codync's own sign-in command (phone-friendly device flows where the CLI has one).
     v["login"] = json!(backends::login_available(backend));
     Ok(v)
@@ -205,7 +205,7 @@ async fn start(store: &Store, backend: &str) -> Result<Started> {
         Some(local) => vec![local],
         None => backends::launch_candidates(backend, |_| {}).await?,
     };
-    let env = env(store, backend);
+    let env = env(store, backend)?;
     let dir = probe_dir();
     tokio::fs::create_dir_all(&dir).await?;
     let mut last = None;
@@ -349,7 +349,7 @@ pub async fn authenticate(store: &Store, backend: &str, method: &str) -> Result<
 
 /// Saves the keys for an env-var method (empty values remove them), then re-checks.
 pub async fn set_env(store: &Store, backend: &str, vars: &Map<String, Value>) -> Result<Value> {
-    let mut saved: BTreeMap<String, String> = env(store, backend).into_iter().collect();
+    let mut saved: BTreeMap<String, String> = env(store, backend)?.into_iter().collect();
     for (k, v) in vars {
         if !k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || k.is_empty() {
             bail!("`{k}` isn't an environment variable name");
@@ -359,7 +359,7 @@ pub async fn set_env(store: &Store, backend: &str, vars: &Map<String, Value>) ->
             None => saved.remove(k),
         };
     }
-    store.kv_set(&env_slot(backend), &serde_json::to_string(&saved)?)?;
+    crate::market::vault::write(store, &env_slot(backend), &serde_json::to_string(&saved)?)?;
     check(store, backend).await
 }
 

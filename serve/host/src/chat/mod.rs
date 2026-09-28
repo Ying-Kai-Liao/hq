@@ -5,3 +5,4 @@ pub mod context;
 pub mod group;
 pub mod memory;
 pub mod team;
+pub mod uploads;

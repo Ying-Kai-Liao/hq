@@ -643,7 +643,10 @@ async fn one_shot(hub: &Arc<Hub>, cfg: &BotConfig, system: &str, user: &str) -> 
     let cwd = crate::service::data_dir().join("memory-keeper");
     tokio::fs::create_dir_all(&cwd).await?;
     let cwd = cwd.to_string_lossy().into_owned();
-    let env = crate::agent::auth::env(&hub.store, &cfg.backend);
+    if hub.store.kv_read(&format!("agent-env:{}", cfg.backend))?.is_some() {
+        crate::market::vault::unlock(hub.clone()).await?;
+    }
+    let env = crate::agent::auth::env(&hub.store, &cfg.backend)?;
     let mut conn = None;
     let mut last_err = None;
     for command in crate::agent::bot::launch_commands(cfg, |_| {}).await? {

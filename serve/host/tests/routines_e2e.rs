@@ -434,3 +434,49 @@ async fn agent_discovers_and_calls_routine_tools_over_real_mcp_stdio() {
     host.wait_status(&bot, routine["id"].as_str().unwrap(), "succeeded").await;
     host.wait_event("mcp-setup", "finished", "MCP_TASK_RESULT").await;
 }
+
+#[tokio::test]
+async fn schedule_editor_preview_and_save_share_host_rules() {
+    let host = Host::start().await;
+    let bot = host.stable_bot("schedule-editor").await;
+    let preview = host
+        .call(
+            "routineSchedule",
+            json!({"draft": {
+                "calendarStyle":"days", "hour":23, "minute":47,
+                "selectedDays":[5,1,3], "zone":"Asia/Taipei"
+            }}),
+        )
+        .await;
+    assert_eq!(preview["triggers"][0]["expression"], "47 23 * * 1,3,5");
+    let saved = host
+        .call(
+            "saveRoutine",
+            json!({
+                "botId":bot,"name":"Calendar editor","instruction":"Do not execute this paused test.",
+                "enabled":false,"schedule":preview["draft"],"timeoutSeconds":"60"
+            }),
+        )
+        .await;
+    assert_eq!(saved["routine"]["triggers"], preview["triggers"]);
+    assert_eq!(saved["routine"]["timeoutSeconds"], 60);
+    let loaded = host.call("routineSchedule", json!({"triggers":saved["routine"]["triggers"]})).await;
+    assert_eq!(loaded["draft"]["calendarStyle"], "days");
+    assert_eq!(loaded["draft"]["zone"], "Asia/Taipei");
+    // Saving directly must validate even when a caller bypasses the preview UI.
+    for schedule in [
+        json!({"calendarStyle":"days","selectedDays":[]}),
+        json!({"calendarStyle":"custom","expression":"61 9 * * *"}),
+        json!({"zone":"invalid/zone"}),
+    ] {
+        let response = reqwest::Client::new()
+            .post(format!("{}/api/saveRoutine", host.base))
+            .bearer_auth(&host.token)
+            .json(&json!({"botId":bot,"name":"Invalid","instruction":"Never run", "schedule":schedule}))
+            .send()
+            .await
+            .unwrap();
+        assert!(!response.status().is_success());
+    }
+    assert!(host.call("routines", json!({"botId":bot})).await["runs"].as_array().unwrap().is_empty());
+}

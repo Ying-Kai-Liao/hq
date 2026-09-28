@@ -196,6 +196,8 @@ type RawBot = (String, String, i64, bool, Option<String>, i64);
 
 pub struct Store {
     db: Mutex<Connection>,
+    pub(crate) connector_lock: Mutex<()>,
+    pub(crate) secret_key: Mutex<Option<zeroize::Zeroizing<Vec<u8>>>>,
 }
 
 pub fn now_ms() -> i64 {
@@ -365,6 +367,7 @@ impl Store {
         c.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA synchronous=NORMAL;
+             PRAGMA secure_delete=ON;
              CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT NOT NULL);
              CREATE TABLE IF NOT EXISTS bots(
                 id TEXT PRIMARY KEY, rev INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0,
@@ -377,7 +380,14 @@ impl Store {
              CREATE INDEX IF NOT EXISTS entries_bot ON entries(bot_id, seq);",
         )?;
         migrate(&c)?;
-        Ok(Self { db: Mutex::new(c) })
+        let secret_key = if path == Path::new(":memory:") {
+            let mut key = vec![0; 32];
+            getrandom::fill(&mut key).map_err(|_| anyhow::anyhow!("random key unavailable"))?;
+            Some(zeroize::Zeroizing::new(key))
+        } else {
+            None
+        };
+        Ok(Self { db: Mutex::new(c), connector_lock: Mutex::new(()), secret_key: Mutex::new(secret_key) })
     }
 
     /// Durable control state must distinguish a missing key from a failed read.
@@ -548,7 +558,17 @@ impl Store {
                 let data: String = r.get(1)?;
                 let at: i64 = r.get(2)?;
                 let data = serde_json::from_str::<Value>(&data).unwrap_or_default();
-                let text = data["text"].as_str().unwrap_or_default().to_owned();
+                let mut text = data["text"].as_str().unwrap_or_default().to_owned();
+                // A files-only message previews as its file names.
+                if text.is_empty() {
+                    let names: Vec<&str> = data["attachments"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|a| a["name"].as_str())
+                        .collect();
+                    text = names.join(", ");
+                }
                 let author =
                     (kind != EntryKind::User.as_str()).then(|| data["author"].as_str().unwrap_or(id).to_owned());
                 Ok(LastMessage { text, at, author })

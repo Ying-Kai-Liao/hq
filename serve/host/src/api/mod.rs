@@ -210,11 +210,66 @@ fn str_arg<'a>(b: &'a Value, k: &str) -> Result<&'a str> {
 /// Runs one API method for `caller` (permissions per spec §6.6).
 pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<Value> {
     devices::permit(caller, method)?;
+    if method.contains("onnector")
+        || method.starts_with("composio")
+        || method == "setComposioKey"
+        || method.starts_with("credential")
+        || matches!(method, "agentAuth" | "agentAuthenticate" | "setAgentEnv")
+    {
+        market::vault::unlock(hub.clone()).await?;
+    }
     Ok(match method {
+        "credentialUpdateConnector" => {
+            let id = str_arg(&b, "id")?;
+            let fields = b["fields"].as_object().ok_or_else(|| anyhow!("Credential fields are required"))?;
+            market::update_connectors(&hub.store, |all| {
+                let c = all.iter_mut().find(|c| c.id == id).ok_or_else(|| anyhow!("Unknown connector"))?;
+                let values = if c.command.is_some() { &mut c.env } else { &mut c.headers };
+                for (key, value) in fields {
+                    if !values.contains_key(key) {
+                        bail!("Unknown credential field");
+                    }
+                    let value = value
+                        .as_str()
+                        .filter(|s| !s.is_empty() && s.len() <= 64 * 1024)
+                        .ok_or_else(|| anyhow!("Invalid credential value"))?;
+                    values.insert(key.clone(), value.to_owned());
+                }
+                Ok(())
+            })?;
+            let ready = market::verify::verify(&hub.store, id, hub.port).await?;
+            for row in hub.store.bots()? {
+                if !row.deleted && !row.config.is_group() && row.config.connectors.iter().any(|c| c == id) {
+                    hub.send_cmd(&row.config.id, Cmd::RefreshTools)?;
+                }
+            }
+            ready
+        }
+        "credentialStatus" => market::passwords::status(&hub.store)?,
+        "credentialSetOnePassword" => {
+            market::passwords::set_token(&hub.store, b["token"].as_str().unwrap_or_default()).await?
+        }
+        "connectorRuntime" => {
+            let c = market::connectors(&hub.store)?
+                .into_iter()
+                .find(|c| Some(c.id.as_str()) == b["id"].as_str())
+                .ok_or_else(|| anyhow!("Unknown connector"))?;
+            let mut env = serde_json::Map::new();
+            for (k, v) in &c.env {
+                env.insert(k.clone(), market::passwords::resolve(&hub.store, v).await?.into());
+            }
+            json!({"command":c.command,"args":c.args,"env":env})
+        }
+        "connectorCall" => {
+            market::requests::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?
+        }
+        "connectorInfo" => market::connector_info(&hub.store, str_arg(&b, "registryName")?).await?,
+        "connectorRequestFinish" => market::requests::finish(hub, &b).await?,
+        "connectorVerify" => market::verify::verify(&hub.store, str_arg(&b, "id")?, hub.port).await?,
         "composioCall" => {
             json!({"result": market::composio::call(&hub.store, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?})
         }
-        "composioStatus" => market::composio::status(&hub.store),
+        "composioStatus" => market::composio::status(&hub.store)?,
         "setComposioKey" => market::composio::set_key(&hub.store, b["key"].as_str().unwrap_or_default()).await?,
         "composioToolkits" => {
             market::composio::toolkits(
@@ -231,6 +286,7 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
                 .await?
         }
         "composioConnection" => market::composio::connection(&hub.store, str_arg(&b, "id")?).await?,
+        "routineSchedule" => crate::routines::schedule_preview(&b, crate::store::now_ms())?,
         "routines" => hub.routines.list(str_arg(&b, "botId")?),
         "saveRoutine" => hub.routines.save(hub, str_arg(&b, "botId")?, &b)?,
         "setRoutineEnabled" => hub.routines.set_enabled(
@@ -296,9 +352,13 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
             let mut b = b;
             b["id"] = "".into();
             let cfg: BotConfig = serde_json::from_value(b).context("invalid bot")?;
-            json!({"bot": hub.create_bot(cfg)?})
+            let hub = hub.clone();
+            json!({"bot": tokio::task::spawn_blocking(move || hub.create_bot(cfg)).await??})
         }
-        "updateBot" => json!({"bot": hub.update_bot(&b)?}),
+        "updateBot" => {
+            let hub = hub.clone();
+            json!({"bot": tokio::task::spawn_blocking(move || hub.update_bot(&b)).await??})
+        }
         "deleteBot" => {
             hub.delete_bot(str_arg(&b, "botId")?)?;
             json!({})
@@ -313,10 +373,39 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
             hub.mark_read(str_arg(&b, "botId")?, scope)?;
             json!({})
         }
+        // One chunk of a file for a later `send` (`attachments`); base64 `data` at `offset`.
+        "upload" => {
+            use base64::Engine as _;
+            let row = hub.store.bot(str_arg(&b, "botId")?)?.filter(|r| !r.deleted && !r.config.is_group());
+            let root = crate::chat::uploads::root(&row.ok_or_else(|| anyhow!("unknown bot"))?.config);
+            let (id, name) = (str_arg(&b, "uploadId")?.to_owned(), str_arg(&b, "name")?.to_owned());
+            let data =
+                base64::engine::general_purpose::STANDARD.decode(str_arg(&b, "data")?).context("invalid data")?;
+            let (offset, done) = (b["offset"].as_u64().unwrap_or(0), b["done"] == true);
+            let attachment = tokio::task::spawn_blocking(move || {
+                crate::chat::uploads::append(&root, &id, &name, offset, &data, done)
+            })
+            .await??;
+            json!({"attachment": attachment})
+        }
+        // A sent file, back in chunks (chat previews on other devices).
+        "readUpload" => {
+            use base64::Engine as _;
+            let row = hub.store.bot(str_arg(&b, "botId")?)?.filter(|r| !r.deleted && !r.config.is_group());
+            let root = crate::chat::uploads::root(&row.ok_or_else(|| anyhow!("unknown bot"))?.config);
+            let id = str_arg(&b, "uploadId")?.to_owned();
+            let offset = b["offset"].as_u64().unwrap_or(0);
+            let (data, size) =
+                tokio::task::spawn_blocking(move || crate::chat::uploads::read(&root, &id, offset, 384 * 1024))
+                    .await??;
+            json!({"data": base64::engine::general_purpose::STANDARD.encode(data), "size": size})
+        }
         "send" => {
             let bot = str_arg(&b, "botId")?;
-            let text = str_arg(&b, "text")?.trim();
-            if text.is_empty() {
+            let text = b["text"].as_str().unwrap_or_default().trim();
+            let uploads: Vec<&str> =
+                b["attachments"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+            if text.is_empty() && uploads.is_empty() {
                 bail!("empty message");
             }
             let nonce = b["clientNonce"].as_str().unwrap_or_default();
@@ -338,11 +427,33 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
                 None => None,
             };
             let lane = Lane { chat: bot.to_owned(), thread };
+            let (mut paths, mut attachments) = (Vec::new(), Vec::new());
+            if !uploads.is_empty() {
+                if row.config.is_group() {
+                    bail!("files can't be sent to a group");
+                }
+                let root = crate::chat::uploads::root(&row.config);
+                for id in uploads {
+                    let (path, meta) = crate::chat::uploads::resolve(&root, id)?;
+                    paths.push(path);
+                    attachments.push(meta);
+                }
+            }
+            let prompt = if paths.is_empty() {
+                text.to_owned()
+            } else {
+                format!("{text}{}", crate::chat::uploads::prompt_suffix(&paths))
+            };
             let turn = hub.store.max_turn(bot) + 1;
             // A group has no agent of its own to queue behind: its message is simply sent.
             let status = if row.config.is_group() { "sent" } else { "queued" };
             let e = hub
-                .add_entry(&lane, EntryKind::User, turn, &json!({"text": text, "clientNonce": nonce, "status": status}))
+                .add_entry(
+                    &lane,
+                    EntryKind::User,
+                    turn,
+                    &json!({"text": text, "clientNonce": nonce, "status": status, "attachments": attachments}),
+                )
                 .ok_or_else(|| anyhow!("couldn't save the message"))?;
             // Before the turn starts, so its reply lands unread.
             let scope = lane.thread.as_deref().map_or(ReadScope::Chat, ReadScope::Thread);
@@ -352,8 +463,17 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
             if row.config.is_group() {
                 crate::chat::group::start(hub, &row.config, lane);
             } else {
-                hub.send_cmd(bot, Cmd::Send { lane, entry_id: e.id.clone(), text: text.to_owned() })?;
+                hub.send_cmd(bot, Cmd::Send { lane, entry_id: e.id.clone(), text: prompt })?;
             }
+            json!({"entry": e})
+        }
+        // A finished voice call, as a line in the chat ("Voice chat · 0:16").
+        "logCall" => {
+            let bot = str_arg(&b, "botId")?;
+            hub.store.bot(bot)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
+            let seconds = b["seconds"].as_u64().unwrap_or(0);
+            let data = json!({"text": "Voice chat", "callSeconds": seconds});
+            let e = hub.add_entry(&Lane::main(bot), EntryKind::Notice, hub.store.max_turn(bot), &data);
             json!({"entry": e})
         }
         "stop" => {
@@ -502,9 +622,17 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
             serde_json::to_value(crate::remote::cloud::set_approval(hub, approval)?)?
         }
         "claimSign" => claim_sign(hub, &b).await?,
-        "marketConnectors" => market::browse_connectors(&hub.store, b["search"].as_str().unwrap_or_default()).await?,
+        "marketConnectors" => {
+            market::browse_connectors(
+                &hub.store,
+                b["search"].as_str().unwrap_or_default(),
+                b["cursor"].as_str().unwrap_or_default(),
+            )
+            .await?
+        }
         "marketSkills" => market::browse_skills(&hub.store).await?,
-        "connectors" => market::list_connectors(&hub.store),
+        "connectors" => market::list_connectors(&hub.store)?,
+        "importConnectors" => market::import_connectors(&hub.store, str_arg(&b, "config")?).await?,
         "installConnector" => {
             let c = if b["registryName"].is_string() {
                 market::install_connector(

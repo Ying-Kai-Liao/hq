@@ -154,6 +154,7 @@ impl Hub {
     pub fn bot_json(&self, row: &BotRow) -> Value {
         let cfg = &row.config;
         let mut v = serde_json::to_value(cfg).expect("BotConfig is plain data and always serializes");
+        v["managedWorkspace"] = crate::agent::workspace::is_managed(cfg).into();
         let rt = if cfg.is_group() {
             self.group_runtime(cfg)
         } else {
@@ -220,6 +221,7 @@ impl Hub {
             }
         }
         validate(&cfg)?;
+        crate::agent::workspace::prepare(&mut cfg)?;
         {
             let _g = self.emit_lock.locked();
             self.store.save_bot(&cfg)?;
@@ -248,6 +250,7 @@ impl Hub {
             cfg.members = crate::chat::group::valid_members(&self.store, &cfg.id, &cfg.members)?;
         }
         validate(&cfg)?;
+        crate::agent::workspace::prepare(&mut cfg)?;
         {
             let _g = self.emit_lock.locked();
             self.store.save_bot(&cfg)?;
@@ -534,7 +537,7 @@ fn validate(cfg: &BotConfig) -> Result<()> {
     if cfg.is_group() {
         return Ok(());
     }
-    if !std::path::Path::new(&cfg.cwd).is_dir() {
+    if !cfg.cwd.is_empty() && !std::path::Path::new(&cfg.cwd).is_dir() {
         bail!("workspace folder does not exist: {}", cfg.cwd);
     }
     if cfg.command.as_deref().map(str::trim).unwrap_or_default().is_empty()

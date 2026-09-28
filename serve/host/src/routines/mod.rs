@@ -1,4 +1,6 @@
 //! Durable bot routines, shared by API clients and the built-in MCP server.
+mod editor;
+pub use editor::preview as schedule_preview;
 mod runner;
 mod schedule;
 pub use runner::start;
@@ -159,15 +161,24 @@ impl Routines {
         if name.is_empty() || name.len() > 200 || instruction.is_empty() || instruction.len() > 32_000 {
             bail!("routine name or instruction is empty or too long");
         }
-        let triggers: Vec<Trigger> = serde_json::from_value(body["triggers"].clone()).context("invalid triggers")?;
+        let triggers: Vec<Trigger> = if let Some(draft) = body.get("schedule") {
+            serde_json::from_value::<editor::ScheduleDraft>(draft.clone()).context("invalid schedule")?.triggers()?
+        } else {
+            serde_json::from_value(body["triggers"].clone()).context("invalid triggers")?
+        };
         if triggers.is_empty() || triggers.len() > 20 {
             bail!("a routine requires 1 to 20 triggers");
         }
-        if let Some(value) = body.get("timeoutSeconds")
-            && value.as_u64().is_none_or(|n| !(1..=86_400).contains(&n))
-        {
-            bail!("timeoutSeconds must be an integer between 1 and 86400");
-        }
+        let timeout = body
+            .get("timeoutSeconds")
+            .map(|value| {
+                value
+                    .as_u64()
+                    .or_else(|| value.as_str()?.parse::<u64>().ok())
+                    .filter(|seconds| (1..=86_400).contains(seconds))
+                    .context("timeoutSeconds must be an integer between 1 and 86400")
+            })
+            .transpose()?;
         let now = now_ms();
         let id = body["id"].as_str().map_or_else(|| uuid::Uuid::new_v4().to_string(), str::to_owned);
         let updated = body["id"].is_string();
@@ -208,8 +219,7 @@ impl Routines {
                     |r| r.webhook_key.clone(),
                 ),
                 deleted: false,
-                timeout_seconds: body["timeoutSeconds"]
-                    .as_u64()
+                timeout_seconds: timeout
                     .unwrap_or_else(|| old.as_ref().map_or_else(default_timeout, |r| r.timeout_seconds)),
                 last_error: None,
             };
@@ -384,14 +394,14 @@ pub fn call(hub: &Arc<Hub>, bot: &str, name: &str, args: &Value) -> Result<Value
     }
 }
 
-pub const INSTRUCTIONS: &str = "Create and manage persistent Codync routines when the user asks for scheduled or event-driven work. Use the built-in routines tools (save_routine, list_routines, set_routine_enabled, delete_routine, run_routine, routine_webhook), not operating-system cron or an improvised background process. Before saving, resolve the task, trigger and intended timezone for calendar/one-time schedules from the conversation; ask only for missing or ambiguous details. If the request is already clear, create it without another confirmation. Check that tools, connector sign-ins and files needed by the task are available; describe any missing setup rather than promising the task will work. Use list_routines before creating or editing to avoid duplicates; preserve unrelated triggers, enabled state and instructions. Save returns the actual routine ID, trigger descriptions and nextRunAt: use these to report what was really saved, including timezone, next occurrence and enabled/paused state. Do not claim success if the tool failed. run_routine executes the real task immediately, including its side effects; use it when the user requested a test or immediate execution, not merely to validate a schedule. A routine runs locally in its own conversation; the host must be running and awake, results appear in the main chat, and (pass) stays silent. Webhooks use a per-routine bearer key; the returned URL is local to the host and does not configure a public tunnel or provider subscription. Establish the event source, reachable ingress and authentication separately. Never claim a third-party integration is connected until a real delivery has been verified; report a saved webhook as awaiting connection when that setup is missing. Keep secrets out of routine instructions and ordinary status summaries.";
+pub const INSTRUCTIONS: &str = "Create and manage persistent Codync routines when the user asks for scheduled or event-driven work. Use the built-in routines tools (save_routine, list_routines, set_routine_enabled, delete_routine, run_routine, routine_webhook), not operating-system cron or an improvised background process. For recurring clock schedules, always use a five-field cron trigger with an explicit IANA timezone, including minute/hour frequencies; do not create interval triggers for those requests. Preserve existing intervals when editing unrelated fields. Cron steps reset within their field: */7 minutes is not an exact seven-minute duration across hours. Use once for a single dated execution; never approximate a one-time task with an annually repeating cron expression. Before saving, resolve the task, trigger and intended timezone for calendar/one-time schedules from the conversation; ask only for missing or ambiguous details. If the request is already clear, create it without another confirmation. Check that tools, connector sign-ins and files needed by the task are available; describe any missing setup rather than promising the task will work. Use list_routines before creating or editing to avoid duplicates; preserve unrelated triggers, enabled state and instructions. Save returns the actual routine ID, trigger descriptions and nextRunAt: use these to report what was really saved, including timezone, next occurrence and enabled/paused state. Do not claim success if the tool failed. run_routine executes the real task immediately, including its side effects; use it when the user requested a test or immediate execution, not merely to validate a schedule. A routine runs locally in its own conversation; the host must be running and awake, results appear in the main chat, and (pass) stays silent. Webhooks use a per-routine bearer key; the returned URL is local to the host and does not configure a public tunnel or provider subscription. Establish the event source, reachable ingress and authentication separately. Never claim a third-party integration is connected until a real delivery has been verified; report a saved webhook as awaiting connection when that setup is missing. Keep secrets out of routine instructions and ordinary status summaries.";
 
 pub fn tools() -> Value {
     let id = json!({"type":"string"});
     let mut tools = vec![
         json!({"name":"list_routines","description":"List this bot's routines and run history.","inputSchema":{"type":"object","properties":{}}}),
     ];
-    tools.push(json!({"name":"save_routine","description":"Create or replace a routine. Omit id to create; include id to update. triggers is an OR list: interval {type:interval,seconds}; once {type:once,at:Unix milliseconds}; cron {type:cron,expression:five cron fields,timeZone:IANA zone}; webhook {type:webhook}; event {type:event,source:slack/github/origin/microsoftTeams/linear/sentry/pagerduty/email,event:event name or *,filters:field-to-value map}. Events require a configured webhook sender. Minimum interval is one second.","inputSchema":{"type":"object","properties":{"id":id,"name":{"type":"string"},"instruction":{"type":"string"},"enabled":{"type":"boolean"},"timeoutSeconds":{"type":"integer","minimum":1,"maximum":86400},"triggers":{"type":"array","items":{"type":"object"}}},"required":["name","instruction","triggers"]}}));
+    tools.push(json!({"name":"save_routine","description":"Create or replace a routine. Omit id to create; include id to update. triggers is an OR list. Use cron for recurring clock schedules; interval is for explicitly requested elapsed-duration semantics or existing schedules: interval {type:interval,seconds}; once {type:once,at:Unix milliseconds}; cron {type:cron,expression:five cron fields,timeZone:IANA zone}; webhook {type:webhook}; event {type:event,source:slack/github/origin/microsoftTeams/linear/sentry/pagerduty/email,event:event name or *,filters:field-to-value map}. Events require a configured webhook sender. Minimum interval is one second.","inputSchema":{"type":"object","properties":{"id":id,"name":{"type":"string"},"instruction":{"type":"string"},"enabled":{"type":"boolean"},"timeoutSeconds":{"type":"integer","minimum":1,"maximum":86400},"triggers":{"type":"array","items":{"type":"object"}}},"required":["name","instruction","triggers"]}}));
     for (name, description) in [
         ("set_routine_enabled", "Pause or resume a routine; enabled boolean is required."),
         ("delete_routine", "Delete a routine and cancel pending runs."),

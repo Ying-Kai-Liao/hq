@@ -56,21 +56,25 @@ impl Connection {
     }
 }
 
-fn load(store: &Store) -> Option<Config> {
-    store.kv_get(SLOT).and_then(|s| serde_json::from_str::<Config>(&s).ok()).filter(|c| !c.key.is_empty())
+fn load(store: &Store) -> Result<Option<Config>> {
+    let Some(raw) = super::vault::read(store, SLOT)?.filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let c: Config = serde_json::from_str(&raw)?;
+    Ok((!c.key.is_empty()).then_some(c))
 }
 
 fn save(store: &Store, c: &Config) -> Result<()> {
-    store.kv_set(SLOT, &serde_json::to_string(c)?)
+    super::vault::write(store, SLOT, &serde_json::to_string(c)?)
 }
 
 fn config(store: &Store) -> Result<Config> {
-    load(store).ok_or_else(|| anyhow!("Set up Composio in Marketplace first."))
+    load(store)?.ok_or_else(|| anyhow!("Set up Composio in Marketplace first."))
 }
 
 /// Cached connected apps (possibly stale; `refresh` updates them).
-pub fn connections(store: &Store) -> Vec<Connection> {
-    load(store).map(|c| c.connections).unwrap_or_default()
+pub fn connections(store: &Store) -> Result<Vec<Connection>> {
+    Ok(load(store)?.map(|c| c.connections).unwrap_or_default())
 }
 
 async fn request(
@@ -90,14 +94,10 @@ async fn request(
     let text = res.text().await.unwrap_or_default();
     let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
     if !status.is_success() {
-        let msg = v["error"]["message"]
-            .as_str()
-            .or(v["message"].as_str())
-            .map_or_else(|| text.chars().take(300).collect(), str::to_owned);
         if status.as_u16() == 401 {
-            bail!("Composio didn't accept the API key: {msg}");
+            bail!("Composio did not accept the API key. Reconnect in Marketplace.");
         }
-        bail!("Composio: {msg} ({status})");
+        bail!("Composio request failed ({status}). Check the connection and try again.");
     }
     Ok(v)
 }
@@ -134,26 +134,30 @@ fn title_case(s: &str) -> String {
 
 // MARK: setup
 
-pub fn status(store: &Store) -> Value {
-    json!({"configured": load(store).is_some(), "keyUrl": KEY_URL})
+pub fn status(store: &Store) -> Result<Value> {
+    Ok(json!({"configured": load(store)?.is_some(), "keyUrl": KEY_URL}))
 }
 
 /// Checks the key with Composio, then keeps it. An empty key forgets Composio.
 pub async fn set_key(store: &Store, key: &str) -> Result<Value> {
     let key = key.trim();
     if key.is_empty() {
-        store.kv_set(SLOT, "")?;
-        return Ok(status(store));
+        let _guard = store.connector_lock.lock().map_err(|_| anyhow!("connector storage is busy"))?;
+        super::vault::write(store, SLOT, "")?;
+        return status(store);
     }
     get(key, "/toolkits", &[("limit", "1")]).await?;
-    let mut c = load(store).unwrap_or_default();
-    c.key = key.to_owned();
-    if c.user_id.is_empty() {
-        c.user_id = format!("codync-{}", uuid::Uuid::new_v4());
+    {
+        let _guard = store.connector_lock.lock().map_err(|_| anyhow!("connector storage is busy"))?;
+        let mut c = load(store)?.unwrap_or_default();
+        key.clone_into(&mut c.key);
+        if c.user_id.is_empty() {
+            c.user_id = format!("codync-{}", uuid::Uuid::new_v4());
+        }
+        save(store, &c)?;
     }
-    save(store, &c)?;
     refresh(store).await?;
-    Ok(status(store))
+    status(store)
 }
 
 /// Re-reads this computer's connected accounts from Composio.
@@ -191,8 +195,17 @@ pub async fn refresh(store: &Store) -> Result<Vec<Connection>> {
         }
     }
     c.connections.clone_from(&list);
-    save(store, &c)?;
+    save_refresh(store, &c)?;
     Ok(list)
+}
+
+fn save_refresh(store: &Store, refreshed: &Config) -> Result<()> {
+    let _guard = store.connector_lock.lock().map_err(|_| anyhow!("connector storage is busy"))?;
+    let current = config(store)?;
+    if current.key != refreshed.key || current.user_id != refreshed.user_id {
+        bail!("Composio credentials changed. Refresh the connections again.");
+    }
+    save(store, refreshed)
 }
 
 /// Toolkits to connect: the popular ones, or matches for `search`.
@@ -416,16 +429,19 @@ pub fn tools() -> Value {
 fn allowed(store: &Store, bot: &str) -> Result<Vec<Connection>> {
     let row = store.bot(bot)?.ok_or_else(|| anyhow!("unknown bot"))?;
     let on: Vec<&str> = row.config.connectors.iter().filter_map(|id| id.strip_prefix(PREFIX)).collect();
-    Ok(connections(store).into_iter().filter(|c| c.active() && on.contains(&c.toolkit.as_str())).collect())
+    Ok(connections(store)?.into_iter().filter(|c| c.active() && on.contains(&c.toolkit.as_str())).collect())
 }
 
 /// Toolkits a bot has turned on, for its MCP server list (none: no server).
-pub fn enabled_for(store: &Store, connectors: &[String]) -> bool {
-    let conns = connections(store);
-    connectors
+pub fn enabled_for(store: &Store, connectors: &[String]) -> Result<bool> {
+    if !connectors.iter().any(|s| s.starts_with(PREFIX)) {
+        return Ok(false);
+    }
+    let conns = connections(store)?;
+    Ok(connectors
         .iter()
         .filter_map(|id| id.strip_prefix(PREFIX))
-        .any(|t| conns.iter().any(|c| c.active() && c.toolkit == t))
+        .any(|t| conns.iter().any(|c| c.active() && c.toolkit == t)))
 }
 
 /// A tool call from a bot's `composio` MCP server.
@@ -496,6 +512,20 @@ async fn tool(key: &str, slug: &str) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stale_refresh_cannot_restore_removed_or_replaced_credentials() {
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let old = Config { key: "old-key".into(), user_id: "user".into(), connections: vec![] };
+        save(&store, &old).unwrap();
+        super::super::vault::write(&store, SLOT, "").unwrap();
+        assert!(save_refresh(&store, &old).is_err());
+        assert!(load(&store).unwrap().is_none());
+        let new = Config { key: "new-key".into(), ..old.clone() };
+        save(&store, &new).unwrap();
+        assert!(save_refresh(&store, &old).is_err());
+        assert_eq!(load(&store).unwrap().unwrap().key, "new-key");
+    }
 
     #[test]
     fn reads_key_based_fields() {

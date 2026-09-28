@@ -40,6 +40,7 @@ pub enum NoticeStyle {
 }
 
 pub enum Cmd {
+    RefreshTools,
     Routine(String),
     /// The user wrote in the bot's chat or one of its threads.
     Send {
@@ -280,6 +281,9 @@ impl Actor {
 
     async fn on_cmd(&mut self, cmd: Cmd, done_tx: &mpsc::UnboundedSender<Done>) -> bool {
         match cmd {
+            Cmd::RefreshTools => {
+                self.tools_changed = true;
+            }
             Cmd::Routine(id) => {
                 self.queue.push_back(Queued::Routine(id));
                 if self.turn.is_none() {
@@ -806,20 +810,26 @@ impl Actor {
     }
 
     /// ACP connectors, team collaboration, and optional computer control.
-    fn mcp_servers(&self) -> Value {
+    fn mcp_servers(&self) -> Result<Value> {
         let Ok(exe) = std::env::current_exe() else {
             tracing::warn!("can't locate codync-host for MCP servers");
-            return json!([]);
+            return Ok(json!([]));
         };
         let port = self.hub.port;
-        let mut servers: Vec<Value> = crate::market::connectors(&self.hub.store)
-            .iter()
-            .filter(|c| self.cfg.connectors.contains(&c.id))
-            .filter_map(|c| c.acp(&exe, port))
-            .collect();
-        let composio = crate::market::composio::enabled_for(&self.hub.store, &self.cfg.connectors);
-        let builtin =
-            [Some("team"), Some("routines"), self.cfg.computer.then_some("computer"), composio.then_some("composio")];
+        let mut servers: Vec<Value> =
+            (if self.cfg.connectors.is_empty() { Vec::new() } else { crate::market::connectors(&self.hub.store)? })
+                .iter()
+                .filter(|c| self.cfg.connectors.contains(&c.id))
+                .filter_map(|c| c.acp(&exe, port))
+                .collect();
+        let composio = crate::market::composio::enabled_for(&self.hub.store, &self.cfg.connectors)?;
+        let builtin = [
+            Some("connectors"),
+            Some("team"),
+            Some("routines"),
+            self.cfg.computer.then_some("computer"),
+            composio.then_some("composio"),
+        ];
         for name in builtin.into_iter().flatten() {
             servers.push(json!({
                 "name": name, "command": exe,
@@ -827,12 +837,17 @@ impl Actor {
                 "env": [],
             }));
         }
-        Value::Array(servers)
+        Ok(Value::Array(servers))
     }
 
     /// Makes sure the agent runs and `slot`'s session (main, or a thread's) is live;
     /// sets `turn_session`. A thread without one forks the main session when it can.
     async fn ensure_session(&mut self, slot: Option<&str>) -> Result<()> {
+        if !self.cfg.connectors.is_empty()
+            || self.hub.store.kv_read(&format!("agent-env:{}", self.cfg.backend))?.is_some()
+        {
+            crate::market::vault::unlock(self.hub.clone()).await?;
+        }
         if self.tools_changed && self.turn.is_none() {
             self.tools_changed = false;
             if let Some(c) = self.conn.take() {
@@ -848,7 +863,7 @@ impl Actor {
             .await?;
             self.hub.set_runtime(&self.id(), |r| r.activity = "Starting agent…".into());
             // Keys saved from an "environment variable" sign-in.
-            let env = crate::agent::auth::env(&self.hub.store, &self.cfg.backend);
+            let env = crate::agent::auth::env(&self.hub.store, &self.cfg.backend)?;
             let mut last_err = None;
             for (i, command) in candidates.iter().enumerate() {
                 let fallback_left = i + 1 < candidates.len();
@@ -869,7 +884,7 @@ impl Actor {
                 return Err(last_err.unwrap_or_else(|| anyhow!("agent failed to start")));
             }
         }
-        let servers = self.mcp_servers();
+        let servers = self.mcp_servers()?;
         let claude = self.conn.as_ref().is_some_and(|c| c.claude);
         let mut forked = false;
         if let Some(root) = slot

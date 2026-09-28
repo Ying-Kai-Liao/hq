@@ -176,6 +176,20 @@ enum AccessAction {
 
 #[derive(Subcommand)]
 enum McpServer {
+    /// Launch a local connector without exposing its credentials in ACP config.
+    Local {
+        #[arg(long)]
+        connector: String,
+        #[arg(long, default_value_t = service::DEFAULT_PORT)]
+        port: u16,
+    },
+    /// Invite the user to connect services securely.
+    Connectors {
+        #[arg(long)]
+        bot: String,
+        #[arg(long, default_value_t = service::DEFAULT_PORT)]
+        port: u16,
+    },
     /// Scheduled and event-triggered bot routines.
     Routines {
         #[arg(long)]
@@ -353,10 +367,14 @@ async fn main() -> Result<()> {
             println!("Token rotated. Restart the host so local helpers pick it up.");
             Ok(())
         }
+        Sub::Mcp { server: McpServer::Connectors { bot, port } } => {
+            mcp::serve(bot, port, mcp::Server::Connectors).await
+        }
         Sub::Mcp { server: McpServer::Computer { bot, port } } => mcp::serve(bot, port, mcp::Server::Computer).await,
         Sub::Mcp { server: McpServer::Routines { bot, port } } => mcp::serve(bot, port, mcp::Server::Routines).await,
         Sub::Mcp { server: McpServer::Team { bot, port } } => mcp::serve(bot, port, mcp::Server::Team).await,
         Sub::Mcp { server: McpServer::Composio { bot, port } } => mcp::serve(bot, port, mcp::Server::Composio).await,
+        Sub::Mcp { server: McpServer::Local { connector, port } } => mcp::serve_local(connector, port).await,
         Sub::Mcp { server: McpServer::Remote { connector, port } } => mcp::serve_remote(connector, port).await,
         Sub::Tui { url, token, port } => {
             tui::run(url.unwrap_or_else(|| format!("http://127.0.0.1:{port}")), token).await

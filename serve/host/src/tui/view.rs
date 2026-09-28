@@ -717,7 +717,7 @@ fn chat(buf: &mut Buffer, r: Rect, app: &mut App, narrow: bool) {
         put(buf, x, r.y, room, &truncate(&format!("group · {}", names.join(", ")), usize::from(room)), t.secondary);
     } else if !narrow {
         let mode = if b.auto { "auto" } else { "ask" };
-        let cwd = truncate(&tilde(&b.cwd, &app.home), usize::from(room).saturating_sub(w(&b.backend) + w(mode) + 6));
+        let cwd = truncate(&b.folder(&app.home), usize::from(room).saturating_sub(w(&b.backend) + w(mode) + 6));
         put(buf, x, r.y, room, &format!("{} · {cwd} · {mode}", b.backend), t.secondary);
     }
     let mut top = r.y + 1;
@@ -745,13 +745,26 @@ fn chat(buf: &mut Buffer, r: Rect, app: &mut App, narrow: bool) {
     let inner = usize::from(r.width.saturating_sub(4)).max(1);
     let (clines, cursor) = composer_lines(&draft, inner);
     let ch = u(clines.len().clamp(1, 8));
-    let comp_top = r.bottom().saturating_sub(ch + 2);
+    // Attached files: one row of names above the text.
+    let files = app.draft_files();
+    let fh = u16::from(!files.is_empty());
+    let box_top = r.bottom().saturating_sub(ch + fh + 2);
     let typing = app.typing && app.overlays.is_empty();
     let rule = if typing { t.text } else { t.line };
-    hline(buf, r.x, comp_top, r.width, rule);
-    hline(buf, r.x, comp_top + ch + 1, r.width, rule);
+    hline(buf, r.x, box_top, r.width, rule);
+    hline(buf, r.x, box_top + fh + ch + 1, r.width, rule);
+    if fh > 0 {
+        let names: Vec<String> = files
+            .iter()
+            .map(|p| format!("▤ {}", p.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()))
+            .collect();
+        let hint = if draft.text.is_empty() { "⌫ removes" } else { "" };
+        put(buf, r.x + 3, box_top + 1, r.width.saturating_sub(u(w(hint)) + 6), &names.join("  "), t.secondary);
+        rput(buf, r.right() - 1, box_top + 1, hint, t.dim);
+    }
+    let comp_top = box_top + fh;
     put(buf, r.x + 1, comp_top + 1, 1, "›", if typing { t.bold } else { t.dim });
-    let comp_rect = Rect::new(r.x, comp_top, r.width, ch + 2);
+    let comp_rect = Rect::new(r.x, box_top, r.width, ch + fh + 2);
     app.hits.clicks.push((comp_rect, Click::Composer));
     let first = clines.len().saturating_sub(usize::from(ch)).min(cursor.1.saturating_sub(usize::from(ch) - 1));
     // Where the first composer line's text ends, so the chip on its right never covers it.
@@ -801,7 +814,7 @@ fn chat(buf: &mut Buffer, r: Rect, app: &mut App, narrow: bool) {
     }
 
     // Transcript.
-    let body = Rect::new(r.x, top + 1, r.width, comp_top.saturating_sub(top + 1));
+    let body = Rect::new(r.x, top + 1, r.width, box_top.saturating_sub(top + 1));
     app.chat_height = usize::from(body.height);
     let built = build_chat(app, &b, usize::from(body.width.saturating_sub(1)));
     let total = built.lines.len();
@@ -836,7 +849,7 @@ fn chat(buf: &mut Buffer, r: Rect, app: &mut App, narrow: bool) {
     }
     if app.chat_scroll > 0 {
         let s = format!(" ↓ {} more ", app.chat_scroll);
-        rput(buf, r.right() - 1, comp_top.saturating_sub(1), &s, t.btn);
+        rput(buf, r.right() - 1, box_top.saturating_sub(1), &s, t.btn);
     }
 }
 
@@ -1020,7 +1033,7 @@ fn intro(out: &mut Built, app: &App, b: &Bot, width: usize) {
         )
     } else {
         (
-            format!("{} · {}", b.backend, tilde(&b.cwd, &app.home)),
+            format!("{} · {}", b.backend, b.folder(&app.home)),
             format!("Say what you need. {} works in the background and pings you when it's done or needs you.", b.name),
         )
     };
@@ -1064,12 +1077,23 @@ fn entry_lines(
                 _ => {}
             }
             out.lines.push(Line::from(head));
-            let body = md::wrap(
-                &[Span::styled(e.text().to_owned(), t.text)],
-                width.saturating_sub(1),
-                &[Span::raw(" › ")],
-                &[Span::raw("   ")],
-            );
+            let mut body = if e.text().is_empty() {
+                vec![]
+            } else {
+                md::wrap(
+                    &[Span::styled(e.text().to_owned(), t.text)],
+                    width.saturating_sub(1),
+                    &[Span::raw(" › ")],
+                    &[Span::raw("   ")],
+                )
+            };
+            for (name, size) in e.attachments() {
+                body.push(Line::from(vec![
+                    Span::styled(" ▤ ", t.dim),
+                    Span::styled(truncate(name, width.saturating_sub(14)), t.text),
+                    Span::styled(format!("  {}", file_size(size)), t.dim),
+                ]));
+            }
             out.lines.extend(with_bg(body, width, t.band));
             out.messages.push((e.id.clone(), from, out.lines.len()));
             if main {
@@ -1114,7 +1138,7 @@ fn entry_lines(
             }
         }
         Kind::Notice => {
-            let text = e.text().to_owned();
+            let text = e.notice_text();
             gap(out);
             match e.data["style"].as_str() {
                 Some("divider") => {
@@ -1137,6 +1161,20 @@ fn entry_lines(
             }
         }
         _ => {}
+    }
+}
+
+/// A user message on one line: its text, then its files.
+fn user_line(e: &Entry) -> String {
+    let files = e.attachments().iter().map(|(n, _)| format!("▤ {n}")).collect::<Vec<_>>().join("  ");
+    [e.text(), files.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join("  ")
+}
+
+fn file_size(bytes: u64) -> String {
+    match bytes {
+        0..1024 => format!("{bytes} B"),
+        1024..1_048_576 => format!("{} KB", bytes / 1024),
+        _ => format!("{}.{} MB", bytes / 1_048_576, bytes % 1_048_576 * 10 / 1_048_576),
     }
 }
 
@@ -1412,7 +1450,7 @@ fn build_trace(app: &App, b: &Bot, turn: i64, width: usize, full: bool) -> Vec<L
             Kind::User => out.push(Line::from(vec![
                 Span::styled(" › ", t.dim),
                 label("you"),
-                Span::styled(truncate(e.text(), text_rest(width)), t.text),
+                Span::styled(truncate(&user_line(e), text_rest(width)), t.text),
             ])),
             Kind::Thought | Kind::Agent => {
                 let (g, lab) = if e.kind == Kind::Thought {
@@ -1535,7 +1573,7 @@ fn build_trace(app: &App, b: &Bot, turn: i64, width: usize, full: bool) -> Vec<L
             }
             Kind::Notice => out.push(Line::from(vec![
                 Span::styled(" · ", t.dim),
-                Span::styled(truncate(e.text(), width.saturating_sub(4)), t.dim),
+                Span::styled(truncate(&e.notice_text(), width.saturating_sub(4)), t.dim),
             ])),
             Kind::Other => {}
         }
@@ -1589,7 +1627,7 @@ fn overlay(buf: &mut Buffer, area: Rect, app: &mut App, top: &Overlay) {
             let group_row = App::agent_group_row(&a.query.text);
             let h = u(choices.len() + usize::from(group_row) + 8).min(area.height.saturating_sub(2)).max(10);
             let r = centered(area, 74, h);
-            let inner = frame_box(buf, r, t.text, t.panel, Some(("New bot · 1/3 agent", t.text)));
+            let inner = frame_box(buf, r, t.text, t.panel, Some(("New bot · 1/2 agent", t.text)));
             field_line(buf, inner, inner.y, &a.query, "type to filter", true);
             let list_h = usize::from(inner.height.saturating_sub(4));
             let off = a.cursor.saturating_sub(list_h.saturating_sub(1));
@@ -1656,8 +1694,7 @@ fn overlay(buf: &mut Buffer, area: Rect, app: &mut App, top: &Overlay) {
             let t = theme();
             let matches = App::folder_matches(p);
             let r = centered(area, 74, 22);
-            let title = if p.new_bot.is_some() { "New bot · 2/3 folder" } else { "Folder" };
-            let inner = frame_box(buf, r, t.text, t.panel, Some((title, t.text)));
+            let inner = frame_box(buf, r, t.text, t.panel, Some(("Folder", t.text)));
             let shown = tilde(&p.path, &app.home);
             let path = format!("{}/", shown.trim_end_matches('/'));
             let x = put(
@@ -1800,7 +1837,7 @@ fn goto(buf: &mut Buffer, area: Rect, app: &mut App, g: &super::app::Goto, items
                 put(buf, inner.x + 5, y, 10, &b.name, t.bold.patch(base));
                 put(buf, inner.x + 16, y, 10, if b.group { "group" } else { &b.backend }, t.secondary.patch(base));
                 let cwd =
-                    if b.group { format!("{} bots", b.members.len()) } else { truncate(&tilde(&b.cwd, &app.home), 18) };
+                    if b.group { format!("{} bots", b.members.len()) } else { truncate(&b.folder(&app.home), 18) };
                 put(buf, inner.x + 27, y, 19, &cwd, t.secondary.patch(base));
                 let (pv, ps) = preview(b);
                 let room = inner.width.saturating_sub(47);
@@ -1840,7 +1877,7 @@ fn goto(buf: &mut Buffer, area: Rect, app: &mut App, g: &super::app::Goto, items
             let names: Vec<String> = b.members.iter().map(|m| app.author_name(Some(m))).collect();
             format!("{} · group · {}", b.name, names.join(", "))
         } else {
-            format!("{} · {} · {}", b.name, b.backend, tilde(&b.cwd, &app.home))
+            format!("{} · {} · {}", b.name, b.backend, b.folder(&app.home))
         };
         put(buf, inner.x, inner.bottom() - 2, inner.width, &meta, t.secondary.patch(t.panel));
     }
@@ -1953,7 +1990,7 @@ fn form_view(buf: &mut Buffer, area: Rect, app: &App, f: &Form) {
     let r = centered(area, 88, 30);
     let title = match &f.bot_id {
         Some(_) => format!("Edit {}", f.name.text),
-        None => "New bot · 3/3 name and looks".into(),
+        None => "New bot · 2/2 name and looks".into(),
     };
     let inner = frame_box(buf, r, t.text, t.panel, Some((&title, t.text)));
     let wide = inner.width >= 70;
@@ -1984,7 +2021,7 @@ fn form_view(buf: &mut Buffer, area: Rect, app: &App, f: &Form) {
             Field::Instructions => "Instructions",
             Field::Agent => "Agent",
             Field::Model => "Model",
-            Field::Folder => "Folder",
+            Field::Folder => "Workspace",
             Field::Approvals => "Approvals",
             Field::Notify => "Notify",
             Field::Color => "Color",
@@ -2029,7 +2066,13 @@ fn form_view(buf: &mut Buffer, area: Rect, app: &App, f: &Form) {
                     vx,
                     y,
                     vw,
-                    &format!("{}  ▸", truncate(&tilde(&f.cwd, &app.home), usize::from(vw.saturating_sub(4)))),
+                    &format!(
+                        "{}  ▸",
+                        truncate(
+                            &if f.cwd.is_empty() { "Personal workspace".to_owned() } else { tilde(&f.cwd, &app.home) },
+                            usize::from(vw.saturating_sub(4))
+                        )
+                    ),
                     t.text.patch(base),
                 );
             }
@@ -2089,7 +2132,7 @@ fn form_view(buf: &mut Buffer, area: Rect, app: &App, f: &Form) {
     let x = put(buf, inner.x, by, 14, save, t.btn_primary) + 1;
     put(buf, x, by, 12, " esc Cancel ", t.text.patch(t.btn).add_modifier(Modifier::BOLD));
     let hint = match f.current() {
-        Field::Folder => "↵ browse · tab next field",
+        Field::Folder => "↵ project folder · backspace personal · tab next field",
         Field::Connectors | Field::Skills => "←→ move · space toggle · tab next",
         Field::Agent | Field::Color | Field::Shape | Field::Approvals | Field::Notify => "←→ change · tab next field",
         Field::Instructions => "⇧↵ new line · tab next field",
@@ -2144,8 +2187,11 @@ fn group_view(buf: &mut Buffer, area: Rect, app: &App, g: &GroupForm) {
         put(buf, inner.x, y, 2, if on { "☑" } else { "☐" }, if on { t.bold } else { t.dim }.patch(base));
         put_line(buf, inner.x + 2, y, 2, &avatar(app, b));
         put(buf, inner.x + 5, y, inner.width / 2, &b.name, if sel { t.bold } else { t.text }.patch(base));
-        let folder =
-            std::path::Path::new(&b.cwd).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+        let folder = if b.managed_workspace {
+            "personal".to_owned()
+        } else {
+            std::path::Path::new(&b.cwd).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default()
+        };
         rput(buf, inner.right(), y, &truncate(&folder, usize::from(inner.width / 3)), t.dim.patch(base));
     }
     let by = inner.bottom() - 1;

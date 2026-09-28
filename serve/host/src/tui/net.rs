@@ -1,7 +1,8 @@
 //! Host API over HTTP: JSON commands and the SSE event stream (same wire as the apps).
 
 use futures::StreamExt;
-use serde_json::Value;
+use serde_json::{Value, json};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
@@ -56,6 +57,48 @@ impl Client {
         tokio::spawn(async move {
             let r = c.call(method, &body).await;
             let _ = tx.send(Msg::Reply(after, r));
+        });
+    }
+
+    /// Uploads `files` in 384 KiB chunks (under the channel's message limit, like the apps), then sends
+    /// `body` with them attached. The reply comes back as `Msg::Reply(After::Nothing, …)`.
+    pub fn spawn_send_files(&self, mut body: Value, files: Vec<PathBuf>, tx: UnboundedSender<Msg>) {
+        use base64::Engine as _;
+        const CHUNK: usize = 384 * 1024;
+        const MAX: u64 = 100 * 1024 * 1024;
+        let c = self.clone();
+        tokio::spawn(async move {
+            let upload = async {
+                let mut ids = Vec::new();
+                for path in &files {
+                    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    let data = tokio::fs::read(path).await.map_err(|e| format!("Can't read {name}: {e}"))?;
+                    if data.len() as u64 > MAX {
+                        return Err(format!("{name} is over 100 MB."));
+                    }
+                    let id = uuid::Uuid::new_v4().to_string();
+                    let mut offset = 0;
+                    loop {
+                        let end = (offset + CHUNK).min(data.len());
+                        let chunk = base64::engine::general_purpose::STANDARD.encode(&data[offset..end]);
+                        let done = end == data.len();
+                        c.call(
+                            "upload",
+                            &json!({"botId": body["botId"], "uploadId": id, "name": name,
+                                    "offset": offset, "data": chunk, "done": done}),
+                        )
+                        .await?;
+                        if done {
+                            break;
+                        }
+                        offset = end;
+                    }
+                    ids.push(id);
+                }
+                body["attachments"] = ids.into();
+                c.call("send", &body).await
+            };
+            let _ = tx.send(Msg::Reply(After::Nothing, upload.await));
         });
     }
 

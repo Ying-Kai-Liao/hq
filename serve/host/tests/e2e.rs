@@ -289,3 +289,46 @@ async fn phone_pairs_and_chats_over_the_direct_channel() {
     assert_eq!(devices["devices"][0]["name"], "Test iPhone");
     assert_eq!(devices["devices"][0]["connected"], true);
 }
+
+#[tokio::test]
+async fn personal_workspaces_are_unique_persistent_and_optional() {
+    let host = start_host().await;
+    let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/workspace_agent.py");
+    let first = host
+        .call(
+            "createBot",
+            json!({"name": "One", "backend": "custom", "command": format!("python3 '{}'", agent.display())}),
+        )
+        .await;
+    let second = host.call("createBot", json!({"name": "Two", "backend": "claude", "cwd": ""})).await;
+    let first = &first["bot"];
+    let second = &second["bot"];
+    let dir = PathBuf::from(first["cwd"].as_str().unwrap());
+    assert_eq!(dir, host.home.join("bots").join(first["id"].as_str().unwrap()).join("workspace"));
+    assert!(dir.is_dir());
+    assert_ne!(first["cwd"], second["cwd"]);
+    assert_eq!(first["managedWorkspace"], true);
+    host.call("send", json!({"botId": first["id"], "text": "verify"})).await;
+    host.wait_for(first["id"].as_str().unwrap(), |e| e["kind"] == "agent" && e["data"]["final"] == true).await;
+    let execution: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("execution.json")).unwrap()).unwrap();
+    assert_eq!(
+        std::fs::canonicalize(execution["process"].as_str().unwrap()).unwrap(),
+        std::fs::canonicalize(&dir).unwrap()
+    );
+    assert_eq!(execution["session"], first["cwd"]);
+    std::fs::write(dir.join("keep.txt"), "persistent output").unwrap();
+    let renamed = host.call("updateBot", json!({"id": first["id"], "name": "Renamed", "cwd": ""})).await;
+    assert_eq!(renamed["bot"]["cwd"], first["cwd"]);
+    let project = host.home.join("project");
+    std::fs::create_dir(&project).unwrap();
+    let explicit = host.call("updateBot", json!({"id": first["id"], "cwd": project})).await;
+    assert_eq!(explicit["bot"]["managedWorkspace"], false);
+    let restored = host.call("updateBot", json!({"id": first["id"], "cwd": ""})).await;
+    assert_eq!(restored["bot"]["cwd"], first["cwd"]);
+    assert_eq!(std::fs::read_to_string(dir.join("keep.txt")).unwrap(), "persistent output");
+    host.call("deleteBot", json!({"botId": first["id"]})).await;
+    assert!(dir.join("keep.txt").is_file(), "deleting a bot must retain its files");
+    let group = host.call("createBot", json!({"name": "Group", "kind": "group", "members": [second["id"]]})).await;
+    assert_eq!(group["bot"]["cwd"], "");
+    assert_eq!(group["bot"]["managedWorkspace"], false);
+}

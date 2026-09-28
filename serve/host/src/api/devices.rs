@@ -37,6 +37,8 @@ const LOCAL_ONLY: &[&str] = &[
     "routineCall",
     "composioCall",
     "connectorTarget",
+    "connectorRuntime",
+    "connectorCall",
     "claimSign",
     "unclaim",
     "devices",

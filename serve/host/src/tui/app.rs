@@ -74,6 +74,7 @@ pub struct Bot {
     pub shape: String,
     pub backend: String,
     pub cwd: String,
+    pub managed_workspace: bool,
     pub auto: bool,
     pub model: Option<String>,
     pub pinned: bool,
@@ -100,6 +101,11 @@ fn strs(v: &Value) -> Vec<String> {
 }
 
 impl Bot {
+    /// Where it works, as the header shows it.
+    pub fn folder(&self, home: &str) -> String {
+        if self.managed_workspace { "personal workspace".to_owned() } else { tilde(&self.cwd, home) }
+    }
+
     fn parse(v: &Value) -> Option<Self> {
         let s = |k: &str| v[k].as_str().unwrap_or_default().to_owned();
         Some(Self {
@@ -110,6 +116,7 @@ impl Bot {
             shape: v["avatarShape"].as_str().unwrap_or("blob").to_owned(),
             backend: s("backend"),
             cwd: s("cwd"),
+            managed_workspace: v["managedWorkspace"] == true,
             auto: v["permission"] == "auto",
             model: v["model"].as_str().filter(|m| !m.is_empty()).map(str::to_owned),
             pinned: v["pinned"].as_bool().unwrap_or(false),
@@ -208,6 +215,24 @@ impl Entry {
 
     pub fn text(&self) -> &str {
         self.data["text"].as_str().unwrap_or_default()
+    }
+
+    /// Files sent with a user message: `(name, size)`.
+    pub fn attachments(&self) -> Vec<(&str, u64)> {
+        self.data["attachments"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|a| Some((a["name"].as_str()?, a["size"].as_u64().unwrap_or(0))))
+            .collect()
+    }
+
+    /// A notice's line; a voice call gets its length ("Voice chat · 00:16").
+    pub fn notice_text(&self) -> String {
+        match self.data["callSeconds"].as_u64() {
+            Some(s) => format!("{} · {:02}:{:02}", self.text(), s / 60, s % 60),
+            None => self.text().to_owned(),
+        }
     }
 
     pub fn is_final(&self) -> bool {
@@ -446,8 +471,6 @@ pub struct FolderPicker {
     pub query: Editor,
     pub cursor: usize,
     pub error: Option<String>,
-    /// `Some(backend)`: step 2 of a new bot. `None`: picking for the open form.
-    pub new_bot: Option<String>,
 }
 
 pub const COLORS: [&str; 11] =
@@ -609,6 +632,8 @@ pub struct App {
     /// Narrow layout: showing the chat page (else the roster page).
     pub chat_page: bool,
     pub drafts: HashMap<String, Editor>,
+    /// Files dropped on the composer (pasted paths), per draft like the text.
+    pub files: HashMap<String, Vec<std::path::PathBuf>>,
     /// Lines scrolled up from the bottom of the chat (0 = follow new messages).
     pub chat_scroll: usize,
     pub trace_scroll: usize,
@@ -656,6 +681,7 @@ impl App {
             typing: false,
             chat_page: false,
             drafts: HashMap::new(),
+            files: HashMap::new(),
             chat_scroll: 0,
             trace_scroll: 0,
             trace: TraceMode::Off,
@@ -737,6 +763,10 @@ impl App {
 
     pub fn draft(&self) -> Editor {
         self.draft_key().and_then(|k| self.drafts.get(&k).cloned()).unwrap_or_default()
+    }
+
+    pub fn draft_files(&self) -> &[std::path::PathBuf] {
+        self.draft_key().and_then(|k| self.files.get(&k)).map_or(&[], Vec::as_slice)
     }
 
     /// Name of an entry's author (a group reply's bot), as the apps show it.
@@ -1115,7 +1145,11 @@ impl App {
         } else if let Some(key) = self.draft_key() {
             self.typing = true;
             self.focus = Focus::Chat;
-            self.drafts.entry(key).or_default().insert(&s);
+            // A file dragged onto the terminal pastes its path: attach it (groups have no folder for files).
+            match dropped_files(&s).filter(|_| self.bot().is_some_and(|b| !b.group)) {
+                Some(paths) => self.files.entry(key).or_default().extend(paths),
+                None => self.drafts.entry(key).or_default().insert(&s),
+            }
         }
     }
 
@@ -1169,14 +1203,15 @@ impl App {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         let newline = k.modifiers.intersects(KeyModifiers::SHIFT | KeyModifiers::ALT);
         let thread = self.thread.clone();
-        let draft = self.drafts.entry(key).or_default();
+        let draft = self.drafts.entry(key.clone()).or_default();
         match k.code {
             KeyCode::Esc => self.typing = false,
             KeyCode::Enter if newline => draft.insert("\n"),
             KeyCode::Char('j') if ctrl => draft.insert("\n"),
             KeyCode::Enter => {
                 let text = draft.text.trim().to_owned();
-                if text.is_empty() {
+                let files = self.files.remove(&key).unwrap_or_default();
+                if text.is_empty() && files.is_empty() {
                     return;
                 }
                 draft.clear();
@@ -1186,7 +1221,17 @@ impl App {
                 if let Some(root) = thread {
                     body["threadId"] = root.into();
                 }
-                self.call("send", body, After::Nothing);
+                if files.is_empty() {
+                    self.call("send", body, After::Nothing);
+                } else {
+                    self.flash(&format!("uploading {} file{}…", files.len(), if files.len() == 1 { "" } else { "s" }));
+                    self.client.spawn_send_files(body, files, self.tx.clone());
+                }
+            }
+            KeyCode::Backspace if draft.text.is_empty() => {
+                if let Some(files) = self.files.get_mut(&key) {
+                    files.pop();
+                }
             }
             KeyCode::Char('c') if ctrl => {
                 if draft.text.is_empty() {
@@ -1572,7 +1617,8 @@ impl App {
         };
         // OSC 52: the terminal puts it on the clipboard, over SSH too.
         let mut out = std::io::stdout();
-        let _ = write!(out, "\x1b]52;c;{}\x07", base64(text.as_bytes()));
+        let _ =
+            write!(out, "\x1b]52;c;{}\x07", base64::Engine::encode(&base64::engine::general_purpose::STANDARD, text));
         let _ = out.flush();
         self.flash("Copied the last reply");
     }
@@ -1695,7 +1741,7 @@ impl App {
             instructions: Editor::with(&b.description),
             backend: b.backend.clone(),
             model: Editor::with(b.model.as_deref().unwrap_or_default()),
-            cwd: b.cwd.clone(),
+            cwd: if b.managed_workspace { String::new() } else { b.cwd.clone() },
             auto: b.auto,
             notify: b.notify,
             color: COLORS.iter().position(|c| *c == b.color).unwrap_or(7),
@@ -1862,9 +1908,8 @@ impl App {
                 let backend =
                     self.agent_choices(&a.query.text).get(a.cursor).and_then(|b| b["id"].as_str()).map(str::to_owned);
                 if let Some(backend) = backend {
-                    let start = self.bot().map(|b| parent_dir(&b.cwd)).unwrap_or_default();
                     self.overlays.push(Overlay::Agents(a));
-                    self.open_folder(Some(backend), &start);
+                    self.new_bot_form(backend);
                     return None;
                 }
             }
@@ -1877,7 +1922,7 @@ impl App {
         Some(Overlay::Agents(a))
     }
 
-    fn open_folder(&mut self, new_bot: Option<String>, start: &str) {
+    fn open_folder(&mut self, start: &str) {
         self.overlays.push(Overlay::Folder(FolderPicker {
             path: start.to_owned(),
             parent: None,
@@ -1885,7 +1930,6 @@ impl App {
             query: Editor::default(),
             cursor: 0,
             error: None,
-            new_bot,
         }));
         let body = if start.is_empty() { json!({}) } else { json!({"path": start}) };
         self.call("listDirs", body, After::Dirs);
@@ -1919,12 +1963,12 @@ impl App {
                 } else {
                     matches.get(p.cursor).map_or_else(|| p.path.clone(), |d| d.path.clone())
                 };
-                self.folder_chosen(p.new_bot.take(), chosen);
+                self.folder_chosen(chosen);
                 return None;
             }
             KeyCode::Char('.') if p.query.text.is_empty() => {
                 let chosen = p.path.clone();
-                self.folder_chosen(p.new_bot.take(), chosen);
+                self.folder_chosen(chosen);
                 return None;
             }
             _ => {
@@ -1936,48 +1980,50 @@ impl App {
         Some(Overlay::Folder(p))
     }
 
-    fn folder_chosen(&mut self, new_bot: Option<String>, path: String) {
-        if let Some(backend) = new_bot {
-            // Step 3: name and looks, prefilled.
-            if let Some(i) = self.overlays.iter().rposition(|o| matches!(o, Overlay::Agents(_))) {
-                self.overlays.truncate(i);
-            }
-            let n = self.bots.len() + usize::try_from(crate::store::now_ms() % 97).unwrap_or(0);
-            let name = NAMES[n % NAMES.len()].to_owned();
-            let f = Form {
-                bot_id: None,
-                name: Editor::with(&name),
-                instructions: Editor::default(),
-                backend,
-                model: Editor::default(),
-                cwd: path,
-                auto: false,
-                notify: true,
-                color: (n * 7) % COLORS.len(),
-                shape: n % SHAPES.len(),
-                connectors: self
-                    .market
-                    .0
-                    .iter()
-                    .map(|t| Toggle { id: t.id.clone(), name: t.name.clone(), on: false })
-                    .collect(),
-                skills: self
-                    .market
-                    .1
-                    .iter()
-                    .map(|t| Toggle { id: t.id.clone(), name: t.name.clone(), on: false })
-                    .collect(),
-                field: 0,
-                sub: 0,
-                error: None,
-                saving: false,
-            };
-            self.overlays.push(Overlay::Form(Box::new(f)));
-            self.call("connectors", json!({}), After::Connectors);
-            self.call("skills", json!({}), After::Skills);
-        } else if let Some(Overlay::Form(f)) = self.overlays.last_mut() {
+    fn folder_chosen(&mut self, path: String) {
+        if let Some(Overlay::Form(f)) = self.overlays.last_mut() {
             f.cwd = path;
         }
+    }
+
+    /// Step 2 of a new bot: name and looks, prefilled, in a personal workspace.
+    fn new_bot_form(&mut self, backend: String) {
+        if let Some(i) = self.overlays.iter().rposition(|o| matches!(o, Overlay::Agents(_))) {
+            self.overlays.truncate(i);
+        }
+        let n = self.bots.len() + usize::try_from(crate::store::now_ms() % 97).unwrap_or(0);
+        let name = NAMES[n % NAMES.len()].to_owned();
+        let f = Form {
+            bot_id: None,
+            name: Editor::with(&name),
+            instructions: Editor::default(),
+            backend,
+            model: Editor::default(),
+            cwd: String::new(),
+            auto: false,
+            notify: true,
+            color: (n * 7) % COLORS.len(),
+            shape: n % SHAPES.len(),
+            connectors: self
+                .market
+                .0
+                .iter()
+                .map(|t| Toggle { id: t.id.clone(), name: t.name.clone(), on: false })
+                .collect(),
+            skills: self
+                .market
+                .1
+                .iter()
+                .map(|t| Toggle { id: t.id.clone(), name: t.name.clone(), on: false })
+                .collect(),
+            field: 0,
+            sub: 0,
+            error: None,
+            saving: false,
+        };
+        self.overlays.push(Overlay::Form(Box::new(f)));
+        self.call("connectors", json!({}), After::Connectors);
+        self.call("skills", json!({}), After::Skills);
     }
 
     fn form_key(&mut self, mut f: Box<Form>, k: KeyEvent) -> Option<Overlay> {
@@ -2002,10 +2048,11 @@ impl App {
                 f.instructions.insert("\n");
             }
             KeyCode::Char('j') if ctrl && field == Field::Instructions => f.instructions.insert("\n"),
+            KeyCode::Backspace | KeyCode::Delete if field == Field::Folder => f.cwd.clear(),
             KeyCode::Enter if field == Field::Folder => {
                 let start = f.cwd.clone();
                 self.overlays.push(Overlay::Form(f));
-                self.open_folder(None, &start);
+                self.open_folder(&start);
                 return None;
             }
             KeyCode::Enter => self.save_form(&mut f),
@@ -2217,6 +2264,19 @@ pub fn fuzzy(query: &str, fields: &[&str]) -> bool {
     })
 }
 
+/// Paths a terminal pastes for dropped files (shell-escaped, quoted or `file://`), when every one is a file.
+fn dropped_files(s: &str) -> Option<Vec<std::path::PathBuf>> {
+    let paths: Vec<std::path::PathBuf> = shlex::split(s.trim())?
+        .into_iter()
+        .map(|p| match p.strip_prefix("file://") {
+            Some(url) => url.replace("%20", " "),
+            None => p,
+        })
+        .map(std::path::PathBuf::from)
+        .collect();
+    (!paths.is_empty() && paths.iter().all(|p| p.is_absolute() && p.is_file())).then_some(paths)
+}
+
 pub fn tilde(path: &str, home: &str) -> String {
     match path.strip_prefix(home) {
         Some(rest) if !home.is_empty() => format!("~{rest}"),
@@ -2224,38 +2284,23 @@ pub fn tilde(path: &str, home: &str) -> String {
     }
 }
 
-fn parent_dir(path: &str) -> String {
-    std::path::Path::new(path).parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
-}
-
-fn base64(data: &[u8]) -> String {
-    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
-        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-        for i in 0..4 {
-            if i <= chunk.len() {
-                out.push(char::from(T[((n >> (18 - 6 * i)) & 63) as usize]));
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn base64_matches_rfc4648() {
-        assert_eq!(base64(b""), "");
-        assert_eq!(base64(b"f"), "Zg==");
-        assert_eq!(base64(b"fo"), "Zm8=");
-        assert_eq!(base64(b"foo"), "Zm9v");
-        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+    fn dropped_paths_are_files_only() {
+        let dir = std::env::temp_dir().join(format!("codync-drop-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let a = dir.join("a b.txt");
+        std::fs::write(&a, "x").expect("write");
+        let esc = a.to_string_lossy().replace(' ', "\\ ");
+        assert_eq!(dropped_files(&esc), Some(vec![a.clone()]));
+        assert_eq!(dropped_files(&format!("'{}'", a.display())), Some(vec![a.clone()]));
+        assert_eq!(dropped_files(&format!("file://{}", a.to_string_lossy().replace(' ', "%20"))), Some(vec![a]));
+        assert_eq!(dropped_files(&dir.to_string_lossy()), None);
+        assert_eq!(dropped_files("hello world"), None);
+        std::fs::remove_dir_all(&dir).expect("cleanup");
     }
 
     #[test]

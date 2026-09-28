@@ -107,6 +107,15 @@ pub async fn required(url: &str, headers: &std::collections::BTreeMap<String, St
     for (k, v) in headers {
         req = req.header(k, v);
     }
+    let Ok(res) = req.send().await else { return false };
+    if !matches!(res.status().as_u16(), 400 | 404 | 405) {
+        return res.status() == reqwest::StatusCode::UNAUTHORIZED;
+    }
+    // Not streamable HTTP: ask the older SSE endpoint instead (the stream is dropped unread).
+    let mut req = crate::http().get(url).header("accept", "text/event-stream").timeout(TIMEOUT);
+    for (k, v) in headers {
+        req = req.header(k, v);
+    }
     req.send().await.is_ok_and(|r| r.status() == reqwest::StatusCode::UNAUTHORIZED)
 }
 
@@ -171,17 +180,16 @@ fn text(v: &Value) -> Option<String> {
 }
 
 fn update(store: &Store, id: &str, f: impl FnOnce(&mut Connector)) -> Result<Connector> {
-    let mut all = market::connectors(store);
-    let c = all.iter_mut().find(|c| c.id == id).ok_or_else(|| anyhow!("unknown connector"))?;
-    f(c);
-    let out = c.clone();
-    market::save_connectors(store, &all)?;
-    Ok(out)
+    market::update_connectors(store, |all| {
+        let c = all.iter_mut().find(|c| c.id == id).ok_or_else(|| anyhow!("unknown connector"))?;
+        f(c);
+        Ok(c.clone())
+    })
 }
 
 /// Starts signing in to connector `id`: the page to open.
 pub async fn start(store: &Store, port: u16, id: &str, callback: Callback) -> Result<Value> {
-    let c = market::connectors(store).into_iter().find(|c| c.id == id).ok_or_else(|| anyhow!("unknown connector"))?;
+    let c = market::connectors(store)?.into_iter().find(|c| c.id == id).ok_or_else(|| anyhow!("unknown connector"))?;
     let url = c.url.clone().ok_or_else(|| anyhow!("{} runs on this computer; it has nothing to sign in to", c.name))?;
     let app = app_uri(store);
     let redirect_uri = match callback {
@@ -278,7 +286,7 @@ pub async fn finish(store: &Store, state: &str, code: Option<&str>, error: Optio
         bail!("Sign-in didn't finish: {error}");
     }
     let code = code.ok_or_else(|| anyhow!("Sign-in didn't return a code"))?;
-    let c = market::connectors(store)
+    let c = market::connectors(store)?
         .into_iter()
         .find(|c| c.id == p.connector)
         .ok_or_else(|| anyhow!("unknown connector"))?;
@@ -316,8 +324,7 @@ async fn token_request(oauth: &OAuth, form: &[(&str, &str)]) -> Result<Value> {
     let status = res.status();
     let v: Value = res.json().await.unwrap_or(Value::Null);
     if !status.is_success() || !v["access_token"].is_string() {
-        let why = text(&v["error_description"]).or_else(|| text(&v["error"])).unwrap_or_else(|| status.to_string());
-        bail!("the sign-in server refused: {why}");
+        bail!("The sign-in server refused the request ({status}). Reopen sign-in and try again.");
     }
     Ok(v)
 }
@@ -352,9 +359,12 @@ pub fn sign_out(store: &Store, id: &str) -> Result<Connector> {
 /// What the `remote` MCP proxy sends to connector `id`: its URL and headers, with a fresh token.
 /// `stale`: the server just said 401, so refresh even if the token looks valid.
 pub async fn target(store: &Store, id: &str, stale: bool) -> Result<Value> {
-    let c = market::connectors(store).into_iter().find(|c| c.id == id).ok_or_else(|| anyhow!("unknown connector"))?;
+    let c = market::connectors(store)?.into_iter().find(|c| c.id == id).ok_or_else(|| anyhow!("unknown connector"))?;
     let url = c.url.clone().ok_or_else(|| anyhow!("{} isn't a remote connector", c.name))?;
-    let mut headers = c.headers.clone();
+    let mut headers = std::collections::BTreeMap::new();
+    for (k, v) in &c.headers {
+        headers.insert(k.clone(), market::passwords::resolve(store, v).await?);
+    }
     if let Some(o) = &c.oauth {
         let o = fresh(store, &c, o, stale).await?;
         headers.insert("Authorization".into(), format!("Bearer {}", o.access_token));
@@ -373,7 +383,7 @@ async fn fresh(store: &Store, c: &Connector, o: &OAuth, stale: bool) -> Result<O
     }
     let _one = REFRESH.lock().await;
     // Someone else may have refreshed while we waited.
-    let current = market::connectors(store).into_iter().find(|x| x.id == c.id).and_then(|x| x.oauth);
+    let current = market::connectors(store)?.into_iter().find(|x| x.id == c.id).and_then(|x| x.oauth);
     if let Some(cur) = &current
         && cur.access_token != o.access_token
         && cur.signed_in()

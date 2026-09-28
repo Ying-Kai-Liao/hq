@@ -136,6 +136,22 @@ mod tests {
         assert_eq!(t.next(now).unwrap(), Some(expected));
     }
     #[test]
+    fn calendar_presets_follow_clock_boundaries() {
+        let now = DateTime::parse_from_rfc3339("2026-09-27T01:07:00Z").unwrap().timestamp_millis();
+        for (expression, expected) in [
+            ("*/15 * * * *", "2026-09-27T01:15:00Z"),
+            ("37 * * * *", "2026-09-27T01:37:00Z"),
+            ("0 9 * * 1,3,5", "2026-09-28T01:00:00Z"),
+            ("0 9 31 * *", "2026-10-31T01:00:00Z"),
+        ] {
+            let trigger = Trigger::Cron { expression: expression.into(), time_zone: "Asia/Taipei".into() };
+            trigger.validate(now).unwrap();
+            let expected = DateTime::parse_from_rfc3339(expected).unwrap().timestamp_millis();
+            assert_eq!(trigger.next(now).unwrap(), Some(expected), "{expression}");
+        }
+    }
+
+    #[test]
     fn event_filters_require_all_fields() {
         let t = Trigger::Event {
             source: "github".into(),

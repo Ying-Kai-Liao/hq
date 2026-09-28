@@ -18,6 +18,10 @@
 
 pub mod composio;
 pub mod oauth;
+pub mod passwords;
+pub mod requests;
+pub mod vault;
+pub mod verify;
 
 use crate::LockExt;
 use anyhow::{Context, Result, anyhow, bail};
@@ -69,9 +73,10 @@ impl Connector {
     /// which keeps sign-in tokens fresh and works with agents that only speak stdio.
     /// A remote server still waiting for sign-in is left out.
     pub fn acp(&self, exe: &std::path::Path, port: u16) -> Option<Value> {
-        if let Some(command) = &self.command {
-            let env: Vec<Value> = self.env.iter().map(|(k, v)| json!({"name": k, "value": v})).collect();
-            return Some(json!({"name": self.id, "command": command, "args": self.args, "env": env}));
+        if self.command.is_some() {
+            return Some(
+                json!({"name":self.id,"command":exe,"args":["mcp","local","--connector",self.id,"--port",port.to_string()],"env":[]}),
+            );
         }
         self.url.as_ref()?;
         if self.oauth.as_ref().is_some_and(|o| !o.signed_in()) {
@@ -92,8 +97,11 @@ impl Connector {
             "description": self.description,
             "registryName": self.registry_name,
             "kind": if self.command.is_some() { "local" } else { "remote" },
-            "command": self.command.as_ref().map(|c| std::iter::once(c.clone()).chain(self.args.iter().cloned()).collect::<Vec<_>>().join(" ")),
-            "url": self.url,
+            "command": self.command.clone(),
+            "url": self.url.as_deref().and_then(|raw| reqwest::Url::parse(raw).ok()).map(|mut url| {
+                let _ = url.set_username(""); let _ = url.set_password(None);
+                url.set_query(None); url.set_fragment(None); url.to_string()
+            }),
             "keys": self.env.keys().chain(self.headers.keys()).collect::<Vec<_>>(),
             "auth": match &self.oauth {
                 None => "none",
@@ -149,8 +157,8 @@ fn load<T: for<'de> Deserialize<'de>>(store: &crate::store::Store, key: &str) ->
     store.kv_get(key).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
-pub fn connectors(store: &crate::store::Store) -> Vec<Connector> {
-    load(store, "connectors")
+pub fn connectors(store: &crate::store::Store) -> Result<Vec<Connector>> {
+    vault::read(store, "connectors")?.map_or_else(|| Ok(Vec::new()), |s| serde_json::from_str(&s).map_err(Into::into))
 }
 
 pub fn skills(store: &crate::store::Store) -> Vec<Skill> {
@@ -162,7 +170,33 @@ fn save<T: Serialize>(store: &crate::store::Store, key: &str, items: &[T]) -> Re
 }
 
 pub fn save_connectors(store: &crate::store::Store, items: &[Connector]) -> Result<()> {
-    save(store, "connectors", items)
+    vault::write(store, "connectors", &serde_json::to_string(items)?)
+}
+
+/// Serialize read/modify/write so OAuth refreshes and installations cannot replace each other.
+pub fn update_connectors<T>(
+    store: &crate::store::Store,
+    change: impl FnOnce(&mut Vec<Connector>) -> Result<T>,
+) -> Result<T> {
+    let _guard = store.connector_lock.locked();
+    let mut all = connectors(store)?;
+    let result = change(&mut all)?;
+    save_connectors(store, &all)?;
+    Ok(result)
+}
+
+fn add_connector(store: &crate::store::Store, mut c: Connector) -> Result<Value> {
+    update_connectors(store, |all| {
+        if let Some(name) = c.registry_name.as_deref()
+            && let Some(existing) = all.iter().find(|x| x.registry_name.as_deref() == Some(name))
+        {
+            return Ok(existing.public());
+        }
+        c.id = unique_id(&c.name, &all.iter().map(|c| c.id.clone()).collect::<Vec<_>>());
+        let public = c.public();
+        all.push(c);
+        Ok(public)
+    })
 }
 
 fn unique_id(base: &str, taken: &[String]) -> String {
@@ -206,14 +240,20 @@ async fn get_json_within(url: &str, timeout: Duration) -> Result<Value> {
     Ok(res.json().await?)
 }
 
-async fn registry_search(search: &str, limit: usize) -> Result<Vec<Value>> {
+/// One page of the registry (a search, or everything), with the cursor for the next page.
+async fn registry_page(search: &str, cursor: &str, limit: usize) -> Result<(Vec<Value>, Option<String>)> {
     let mut url = reqwest::Url::parse(MCP_REGISTRY)?;
     url.query_pairs_mut().append_pair("version", "latest").append_pair("limit", &limit.to_string());
     if !search.is_empty() {
         url.query_pairs_mut().append_pair("search", search);
     }
+    if !cursor.is_empty() {
+        url.query_pairs_mut().append_pair("cursor", cursor);
+    }
     let v = get_json_within(url.as_str(), SEARCH_TIMEOUT).await.context("searching the MCP Registry")?;
-    Ok(v["servers"].as_array().cloned().unwrap_or_default().into_iter().map(|s| s["server"].clone()).collect())
+    let servers =
+        v["servers"].as_array().cloned().unwrap_or_default().into_iter().map(|s| s["server"].clone()).collect();
+    Ok((servers, v["metadata"]["nextCursor"].as_str().filter(|c| !c.is_empty()).map(str::to_owned)))
 }
 
 /// One registry server by exact name (its latest version).
@@ -229,39 +269,96 @@ fn install_options(server: &Value) -> Vec<Value> {
     let mut out = vec![];
     for (i, p) in server["packages"].as_array().into_iter().flatten().enumerate() {
         let kind = p["registryType"].as_str().unwrap_or_default();
-        if !matches!(kind, "npm" | "pypi" | "oci") || p["transport"]["type"].as_str().is_some_and(|t| t != "stdio") {
+        if !matches!(kind, "npm" | "pypi" | "oci" | "nuget")
+            || p["transport"]["type"].as_str().is_some_and(|t| t != "stdio")
+        {
             continue;
         }
-        let inputs: Vec<Value> = p["environmentVariables"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|e| {
-                json!({"name": e["name"], "description": e["description"], "secret": e["isSecret"].as_bool().unwrap_or(false),
-                       "required": e["isRequired"].as_bool().unwrap_or(false), "default": e["default"]})
-            })
-            .collect();
+        let env = p["environmentVariables"].as_array().into_iter().flatten().map(|e| {
+            json!({"name": e["name"], "description": e["description"], "secret": e["isSecret"].as_bool().unwrap_or(false),
+                   "required": e["isRequired"].as_bool().unwrap_or(false), "default": e["default"]})
+        });
+        let args = ["runtimeArguments", "packageArguments"]
+            .iter()
+            .flat_map(|k| p[*k].as_array().into_iter().flatten())
+            .filter_map(|a| {
+                let key = argument_input(a)?;
+                Some(json!({"name": key, "description": a["description"], "secret": a["isSecret"].as_bool().unwrap_or(false),
+                            "required": a["isRequired"].as_bool().unwrap_or(false), "default": a["default"],
+                            "placeholder": a["valueHint"]}))
+            });
+        let inputs: Vec<Value> = env.chain(args).collect();
         out.push(json!({"id": format!("package:{i}"), "kind": kind, "label": format!("{kind} · {}", p["identifier"].as_str().unwrap_or_default()), "inputs": inputs}));
     }
     for (i, r) in server["remotes"].as_array().into_iter().flatten().enumerate() {
-        if r["type"] != "streamable-http" || r["url"].as_str().is_none_or(|u| u.contains('{')) {
+        if !matches!(r["type"].as_str(), Some("streamable-http" | "sse")) || r["url"].as_str().is_none() {
             continue;
         }
-        let inputs: Vec<Value> = r["headers"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|h| {
-                json!({"name": h["name"], "description": h["description"], "secret": h["isSecret"].as_bool().unwrap_or(true),
-                       "required": h["isRequired"].as_bool().unwrap_or(false), "placeholder": h["value"]})
-            })
-            .collect();
+        // `{name}` parts of the URL are the user's to fill in.
+        let variables = r["variables"].as_object().into_iter().flatten().map(|(k, v)| {
+            json!({"name": k, "description": v["description"], "secret": v["isSecret"].as_bool().unwrap_or(false),
+                   "required": v["isRequired"].as_bool().unwrap_or(false), "default": v["default"]})
+        });
+        let headers = r["headers"].as_array().into_iter().flatten().map(|h| {
+            json!({"name": h["name"], "description": h["description"], "secret": h["isSecret"].as_bool().unwrap_or(true),
+                   "required": h["isRequired"].as_bool().unwrap_or(false), "placeholder": h["value"]})
+        });
+        let inputs: Vec<Value> = variables.chain(headers).collect();
         out.push(json!({"id": format!("remote:{i}"), "kind": "remote", "label": "Hosted", "inputs": inputs}));
     }
     // Some servers list a remote per region; one of each kind is enough.
     let mut kinds = std::collections::HashSet::new();
     out.retain(|o| kinds.insert(o["kind"].as_str().unwrap_or_default().to_owned()));
     out
+}
+
+/// The input a registry argument asks the user for: a positional's hint, or a named
+/// option's name. None when the registry fixes it (a set value, or a bare flag).
+fn argument_input(a: &Value) -> Option<String> {
+    if a["value"].is_string() {
+        return None;
+    }
+    let text = |k: &str| a[k].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+    match a["type"].as_str() {
+        Some("named") => text("name").filter(|_| a["valueHint"].is_string() || a["default"].is_string()),
+        _ => text("valueHint").or_else(|| text("name")).or_else(|| Some("value".into())),
+    }
+}
+
+/// A registry argument list as command-line words, taking values from the user's inputs.
+fn arguments(list: &Value, input: &dyn Fn(&str) -> Option<String>) -> Result<Vec<String>> {
+    let mut out = vec![];
+    for a in list.as_array().into_iter().flatten() {
+        let named = a["type"] == "named";
+        let name = a["name"].as_str().unwrap_or_default();
+        let value = match argument_input(a) {
+            None => a["value"].as_str().map(str::to_owned),
+            Some(key) => match input(&key).or_else(|| a["default"].as_str().map(str::to_owned)) {
+                Some(v) => Some(v),
+                None if a["isRequired"].as_bool().unwrap_or(false) => bail!("{key} is required"),
+                None => continue,
+            },
+        };
+        if named && !name.is_empty() {
+            out.push(name.to_owned());
+        }
+        out.extend(value);
+    }
+    Ok(out)
+}
+
+/// Puts the user's values into a URL's `{name}` parts, or their defaults.
+fn fill_url(url: &str, variables: &Value, input: &dyn Fn(&str) -> Option<String>) -> Result<String> {
+    let mut url = url.to_owned();
+    for (k, v) in variables.as_object().into_iter().flatten() {
+        let value =
+            input(k).or_else(|| v["default"].as_str().map(str::to_owned)).ok_or_else(|| anyhow!("{k} is required"))?;
+        url = url.replace(&format!("{{{k}}}"), &value);
+    }
+    if url.contains('{') {
+        bail!("this server's URL has parts the registry doesn't describe; add it as a custom connector");
+    }
+    Ok(url)
 }
 
 /// "com.notion/mcp" -> "Notion", "io.github.microsoft/playwright-mcp" -> "Playwright".
@@ -306,22 +403,30 @@ fn listing(server: &Value, installed: &[Connector]) -> Option<Value> {
     }))
 }
 
-/// Browse the MCP Registry: featured connectors, or a search.
-pub async fn browse_connectors(store: &crate::store::Store, search: &str) -> Result<Value> {
-    let installed = connectors(store);
-    let servers = if search.trim().is_empty() {
+/// Browse the whole MCP Registry a page at a time (featured connectors lead the first
+/// page of the unfiltered list), or search it. `nextCursor` fetches the following page.
+pub async fn browse_connectors(store: &crate::store::Store, search: &str, cursor: &str) -> Result<Value> {
+    let installed = connectors(store)?;
+    let search = search.trim();
+    let mut servers: Vec<Value> = if search.is_empty() && cursor.is_empty() {
         let lookups = FEATURED.iter().map(|n| registry_server(n));
         futures::future::join_all(lookups).await.into_iter().filter_map(Result::ok).collect()
     } else {
-        registry_search(search.trim(), 60).await?
+        vec![]
     };
+    let (page, next) = registry_page(search, cursor, 60).await?;
+    // Later pages of the unfiltered list skip the featured servers the first page led with.
+    let shown_already = |s: &Value| {
+        search.is_empty() && !cursor.is_empty() && FEATURED.contains(&s["name"].as_str().unwrap_or_default())
+    };
+    servers.extend(page.into_iter().filter(|s| !shown_already(s)));
     let mut seen = std::collections::HashSet::new();
     let items: Vec<Value> = servers
         .iter()
         .filter(|s| seen.insert(s["name"].as_str().unwrap_or_default().to_owned()))
         .filter_map(|s| listing(s, &installed))
         .collect();
-    Ok(json!({"items": items}))
+    Ok(json!({"items": items, "nextCursor": next}))
 }
 
 /// Fills `{placeholder}` in a header template with the user's value, or uses it as-is.
@@ -336,13 +441,21 @@ fn fill(template: Option<&str>, value: &str) -> String {
     }
 }
 
+pub async fn connector_info(store: &crate::store::Store, name: &str) -> Result<Value> {
+    let server = registry_server(name).await?;
+    listing(&server, &connectors(store)?).ok_or_else(|| anyhow!("No supported installation option"))
+}
+
 /// Installs a registry server with the user's inputs (`{NAME: value}`).
 pub async fn install_connector(store: &crate::store::Store, name: &str, option: &str, inputs: &Value) -> Result<Value> {
     let server = registry_server(name).await?;
-    let input = |k: &str| inputs[k].as_str().map(str::trim).filter(|v| !v.is_empty()).map(str::to_owned);
+    let input = |k: &str| inputs[k].as_str().filter(|v| !v.is_empty()).map(str::to_owned);
     let (kind, index) = option.split_once(':').ok_or_else(|| anyhow!("unknown install option"))?;
     let index: usize = index.parse()?;
-    let mut all = connectors(store);
+    let all = connectors(store)?;
+    if let Some(c) = all.iter().find(|c| c.registry_name.as_deref() == Some(name)) {
+        return Ok(c.public());
+    }
     let title =
         listing(&server, &all).and_then(|l| l["title"].as_str().map(str::to_owned)).unwrap_or_else(|| name.into());
     let mut c = Connector {
@@ -378,29 +491,42 @@ pub async fn install_connector(store: &crate::store::Store, name: &str, option: 
                     None => {}
                 }
             }
-            match p["registryType"].as_str() {
-                Some("npm") => {
-                    c.command = Some("npx".into());
-                    c.args = vec!["-y".into(), format!("{id}@{version}")];
-                }
-                Some("pypi") => {
-                    c.command = Some("uvx".into());
-                    c.args = vec![format!("{id}=={version}")];
-                }
+            let runtime = arguments(&p["runtimeArguments"], &input)?;
+            let package = arguments(&p["packageArguments"], &input)?;
+            let (command, mut args) = match p["registryType"].as_str() {
+                Some("npm") => ("npx", vec!["-y".to_owned()]),
+                Some("pypi") => ("uvx", vec![]),
                 Some("oci") => {
-                    c.command = Some("docker".into());
-                    c.args = vec!["run".into(), "-i".into(), "--rm".into()];
+                    let mut args = vec!["run".to_owned(), "-i".into(), "--rm".into()];
                     for k in c.env.keys() {
-                        c.args.extend(["-e".into(), k.clone()]);
+                        args.extend(["-e".into(), k.clone()]);
                     }
-                    c.args.push(id.to_owned());
+                    ("docker", args)
                 }
+                Some("nuget") => ("dnx", vec![]),
                 _ => bail!("this package type isn't supported"),
+            };
+            // Runtime arguments come before the package; skip flags we already pass.
+            for a in runtime {
+                if !a.starts_with('-') || !args.contains(&a) {
+                    args.push(a);
+                }
             }
+            args.push(match p["registryType"].as_str() {
+                Some("pypi") => format!("{id}=={version}"),
+                Some("oci") => id.to_owned(),
+                _ => format!("{id}@{version}"),
+            });
+            if p["registryType"] == "nuget" {
+                args.push("--yes".into());
+            }
+            args.extend(package);
+            c.command = Some(command.into());
+            c.args = args;
         }
         "remote" => {
             let r = server["remotes"].get(index).ok_or_else(|| anyhow!("unknown remote"))?;
-            c.url = r["url"].as_str().map(str::to_owned);
+            c.url = Some(fill_url(r["url"].as_str().unwrap_or_default(), &r["variables"], &input)?);
             for h in r["headers"].as_array().into_iter().flatten() {
                 let Some(k) = h["name"].as_str() else { continue };
                 match input(k) {
@@ -419,16 +545,63 @@ pub async fn install_connector(store: &crate::store::Store, name: &str, option: 
     {
         c.oauth = Some(oauth::OAuth::default());
     }
-    all.push(c.clone());
-    save(store, "connectors", &all)?;
-    Ok(c.public())
+    add_connector(store, c)
 }
 
 /// A connector you describe yourself: a command line or an https URL.
 pub async fn add_custom_connector(store: &crate::store::Store, b: &Value) -> Result<Value> {
     let name =
         b["name"].as_str().map(str::trim).filter(|s| !s.is_empty()).ok_or_else(|| anyhow!("`name` is required"))?;
-    let mut all = connectors(store);
+    let all = connectors(store)?;
+    let c = custom(name, b, &all).await?;
+    add_connector(store, c)
+}
+
+/// Adds every server in a pasted MCP config: the `mcpServers` / `servers` JSON that
+/// Claude, Cursor, VS Code and most READMEs use, or one server's own entry.
+pub async fn import_connectors(store: &crate::store::Store, config: &str) -> Result<Value> {
+    let v: Value = serde_json::from_str(config.trim()).context("that isn't JSON")?;
+    let servers = config_servers(&v);
+    if servers.is_empty() {
+        bail!("no MCP servers in that config");
+    }
+    let all = connectors(store)?;
+    let mut pending = vec![];
+    for (name, entry) in servers {
+        pending.push(custom(&name, &entry, &all).await.with_context(|| name.clone())?);
+    }
+    update_connectors(store, |all| {
+        let mut added = vec![];
+        for mut c in pending {
+            c.id = unique_id(&c.name, &all.iter().map(|c| c.id.clone()).collect::<Vec<_>>());
+            added.push(c.public());
+            all.push(c);
+        }
+        Ok(json!({"items":added}))
+    })
+}
+
+/// The named server entries in a pasted config.
+fn config_servers(v: &Value) -> Vec<(String, Value)> {
+    match ["mcpServers", "servers", "context_servers"].iter().find_map(|k| v[*k].as_object()) {
+        Some(map) => map.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        None if v["command"].is_string() || v["url"].is_string() => {
+            vec![(v["name"].as_str().unwrap_or("Custom").to_owned(), v.clone())]
+        }
+        // `{"github": {"command": …}}`: the map without its wrapper.
+        None => v
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(_, e)| e.is_object())
+            .map(|(k, e)| (k.clone(), e.clone()))
+            .collect(),
+    }
+}
+
+/// A connector from `{command, args?, env?}` or `{url, headers?}`. A command without
+/// `args` is split like a shell would (quotes work).
+async fn custom(name: &str, b: &Value, all: &[Connector]) -> Result<Connector> {
     let map = |v: &Value| -> BTreeMap<String, String> {
         v.as_object().into_iter().flatten().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect()
     };
@@ -444,34 +617,40 @@ pub async fn add_custom_connector(store: &crate::store::Store, b: &Value) -> Res
         headers: map(&b["headers"]),
         oauth: None,
     };
-    if let Some(url) = b["url"].as_str().map(str::trim).filter(|s| !s.is_empty()) {
-        if !url.starts_with("https://") && !url.starts_with("http://localhost") && !url.starts_with("http://127.0.0.1")
-        {
+    let url =
+        ["url", "serverUrl", "httpUrl"].iter().find_map(|k| b[*k].as_str()).map(str::trim).filter(|s| !s.is_empty());
+    if let Some(url) = url {
+        let local = ["http://localhost", "http://127.0.0.1", "http://[::1]"].iter().any(|p| url.starts_with(p));
+        if !url.starts_with("https://") && !local {
             bail!("remote connectors need an https URL");
         }
         if oauth::required(url, &c.headers).await {
             c.oauth = Some(oauth::OAuth::default());
         }
         c.url = Some(url.to_owned());
-    } else {
-        let line = b["command"]
-            .as_str()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| anyhow!("give a command or a URL"))?;
-        let mut parts = line.split_whitespace().map(str::to_owned);
-        c.command = parts.next();
-        c.args = parts.collect();
+        return Ok(c);
     }
-    all.push(c.clone());
-    save(store, "connectors", &all)?;
-    Ok(c.public())
+    let line = b["command"]
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow!("give a command or a URL"))?;
+    let mut words = match b["args"].as_array() {
+        Some(args) => {
+            std::iter::once(line.to_owned()).chain(args.iter().filter_map(|a| a.as_str().map(str::to_owned))).collect()
+        }
+        None => shlex::split(line).ok_or_else(|| anyhow!("the command has an unclosed quote"))?,
+    }
+    .into_iter();
+    c.command = words.next();
+    c.args = words.collect();
+    Ok(c)
 }
 
 /// Installed MCP servers, then the apps connected through Composio.
-pub fn list_connectors(store: &crate::store::Store) -> Value {
-    let mut items: Vec<Value> = connectors(store).iter().map(Connector::public).collect();
-    items.extend(composio::connections(store).iter().filter(|c| c.active()).map(|c| {
+pub fn list_connectors(store: &crate::store::Store) -> Result<Value> {
+    let mut items: Vec<Value> = connectors(store)?.iter().map(Connector::public).collect();
+    items.extend(composio::connections(store)?.iter().filter(|c| c.active()).map(|c| {
         json!({
             "id": format!("{}{}", composio::PREFIX, c.toolkit),
             "name": c.name,
@@ -484,13 +663,14 @@ pub fn list_connectors(store: &crate::store::Store) -> Value {
             "logo": c.logo,
         })
     }));
-    json!({"items": items})
+    Ok(json!({"items": items}))
 }
 
 pub fn remove_connector(store: &crate::store::Store, id: &str) -> Result<()> {
-    let mut all = connectors(store);
-    all.retain(|c| c.id != id);
-    save(store, "connectors", &all)
+    update_connectors(store, |all| {
+        all.retain(|c| c.id != id);
+        Ok(())
+    })
 }
 
 // MARK: skills
@@ -662,6 +842,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn registry_arguments_become_words() {
+        let list = json!([
+            {"type": "named", "name": "--rm"},
+            {"type": "named", "name": "--db", "valueHint": "path", "isRequired": true},
+            {"type": "named", "name": "--mode", "value": "ro"},
+            {"type": "positional", "valueHint": "source", "isRequired": false},
+        ]);
+        let input = |k: &str| (k == "--db").then(|| "/tmp/a.db".to_owned());
+        assert_eq!(arguments(&list, &input).unwrap(), ["--rm", "--db", "/tmp/a.db", "--mode", "ro"]);
+        assert!(arguments(&list, &|_: &str| None).is_err(), "--db is required");
+        assert_eq!(argument_input(&list[0]), None);
+        assert_eq!(argument_input(&list[3]).as_deref(), Some("source"));
+    }
+
+    #[test]
+    fn url_templates_fill_in() {
+        let vars = json!({"agent_id": {"isRequired": true}, "region": {"default": "us"}});
+        let input = |k: &str| (k == "agent_id").then(|| "a1".to_owned());
+        assert_eq!(fill_url("https://x/{region}/{agent_id}/mcp", &vars, &input).unwrap(), "https://x/us/a1/mcp");
+        assert!(fill_url("https://x/{agent_id}", &vars, &|_: &str| None).is_err());
+        assert!(fill_url("https://x/{other}", &json!({}), &|_: &str| None).is_err());
+    }
+
+    #[test]
+    fn pasted_configs_list_their_servers() {
+        let claude = json!({"mcpServers": {"github": {"command": "npx", "args": ["-y", "x"]}, "linear": {"url": "https://l/mcp"}}});
+        assert_eq!(config_servers(&claude).len(), 2);
+        let vscode = json!({"servers": {"a": {"type": "sse", "url": "https://a/sse"}}});
+        assert_eq!(config_servers(&vscode)[0].0, "a");
+        let one = json!({"command": "uvx", "args": ["y"]});
+        assert_eq!(config_servers(&one)[0].0, "Custom");
+        let bare = json!({"fs": {"command": "npx"}});
+        assert_eq!(config_servers(&bare)[0].0, "fs");
+    }
+
+    #[test]
     fn slugs_are_safe() {
         assert_eq!(slug("GitHub MCP Server"), "github-mcp-server");
         assert_eq!(slug("../../etc/passwd"), "etc-passwd");
@@ -704,7 +920,10 @@ mod tests {
             oauth: None,
         };
         let exe = std::path::Path::new("/bin/codync-host");
-        assert_eq!(c.acp(exe, 1).unwrap()["env"][0]["name"], "TOKEN");
+        let config = c.acp(exe, 1).unwrap();
+        assert_eq!(config["args"][1], "local");
+        assert_eq!(config["env"], json!([]));
+        assert!(!config.to_string().contains("secret"));
         assert!(c.public().get("env").is_none(), "secrets never leave the host");
         c.command = None;
         c.url = Some("https://example.com/mcp".into());
