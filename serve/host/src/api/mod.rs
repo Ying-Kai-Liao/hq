@@ -411,9 +411,18 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
             let mut b = b;
             b["id"] = "".into();
             // Connectors are on for a new bot unless the client picked them.
+            // Without a credential store (headless Linux) no connector can run, so the bot starts with none.
             if b["connectors"].is_null() && b["kind"] != "group" {
-                market::vault::unlock(hub.clone()).await?;
-                b["connectors"] = json!(connector_ids(&hub.store)?);
+                b["connectors"] = match market::vault::unlock(hub.clone()).await {
+                    Ok(()) => json!(connector_ids(&hub.store)?),
+                    Err(e) => {
+                        tracing::warn!(
+                            error = format!("{e:#}"),
+                            "credential store unavailable; new bot starts without connectors"
+                        );
+                        json!([])
+                    }
+                };
             }
             let cfg: BotConfig = serde_json::from_value(b).context("invalid bot")?;
             let hub = hub.clone();
