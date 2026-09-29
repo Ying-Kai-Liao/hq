@@ -213,6 +213,11 @@ impl Hub {
     pub fn create_bot(self: &Arc<Self>, mut cfg: BotConfig) -> Result<Value> {
         cfg.id = uuid::Uuid::new_v4().to_string();
         cfg.created_at = crate::store::now_ms();
+        // No name yet (Grok Bot's flow): it gets one after its first few conversations.
+        cfg.auto_name = !cfg.is_group() && cfg.name.trim().is_empty();
+        if cfg.auto_name {
+            crate::chat::naming::PLACEHOLDER.clone_into(&mut cfg.name);
+        }
         if cfg.is_group() {
             cfg.members = crate::chat::group::valid_members(&self.store, &cfg.id, &cfg.members)?;
             // The same bots again: open the group they already share (Grok Bot's rule).
@@ -243,6 +248,13 @@ impl Hub {
             }
         }
         let mut cfg: BotConfig = serde_json::from_value(merged)?;
+        if cfg.name.trim().is_empty() {
+            cfg.name.clone_from(&row.config.name);
+        }
+        // A name the user picked ends automatic naming; the namer passes `autoName` itself.
+        if cfg.name != row.config.name && patch.get("autoName").is_none() {
+            cfg.auto_name = false;
+        }
         if cfg.kind != row.config.kind {
             bail!("a bot can't become a group, or a group a bot");
         }

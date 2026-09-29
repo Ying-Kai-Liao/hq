@@ -1,8 +1,9 @@
 //! Conversation features on top of bots: group room turns, bot-to-bot
-//! requests, prompt snapshots and long-term memory.
+//! requests, prompt snapshots, long-term memory and automatic bot names.
 
 pub mod context;
 pub mod group;
 pub mod memory;
+pub mod naming;
 pub mod team;
 pub mod uploads;

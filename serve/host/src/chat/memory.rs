@@ -583,11 +583,19 @@ pub struct Exchange {
 }
 
 /// Starts the bot's keeper: exchanges are remembered one at a time, in the
-/// background. It stops when the bot actor drops the sender.
+/// background, and an unnamed bot is named from them (see `naming`). It stops when the bot actor drops the sender.
 pub fn spawn_keeper(hub: Arc<Hub>, bot_id: String) -> mpsc::UnboundedSender<Exchange> {
     let (tx, mut rx) = mpsc::unbounded_channel::<Exchange>();
     tokio::spawn(async move {
         while let Some(x) = rx.recv().await {
+            let turn = EpisodeTurn {
+                ts: x.at,
+                user: acp::truncate(&x.user, EXCHANGE_CHARS),
+                agent: acp::truncate(&x.agent, EXCHANGE_CHARS),
+            };
+            if let Err(e) = crate::chat::naming::observe(&hub, &bot_id, turn).await {
+                tracing::warn!(bot = %bot_id, error = format!("{e:#}"), "naming the bot failed");
+            }
             if let Err(e) = remember(&hub, &bot_id, x).await {
                 tracing::warn!(bot = %bot_id, error = format!("{e:#}"), "memory keeper failed");
             }
@@ -639,7 +647,7 @@ async fn remember(hub: &Arc<Hub>, bot_id: &str, x: Exchange) -> Result<()> {
 /// Runs one prompt on a throwaway agent of the bot's harness and returns its reply.
 /// Claude gets a real system prompt, no tools, no settings and no saved session;
 /// other harnesses get the instructions inline.
-async fn one_shot(hub: &Arc<Hub>, cfg: &BotConfig, system: &str, user: &str) -> Result<String> {
+pub(crate) async fn one_shot(hub: &Arc<Hub>, cfg: &BotConfig, system: &str, user: &str) -> Result<String> {
     let cwd = crate::service::data_dir().join("memory-keeper");
     tokio::fs::create_dir_all(&cwd).await?;
     let cwd = cwd.to_string_lossy().into_owned();

@@ -62,6 +62,7 @@ pub enum BotKind {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
+#[expect(clippy::struct_excessive_bools, reason = "independent user settings stored as plain JSON flags")]
 pub struct BotConfig {
     pub id: String,
     #[serde(default)]
@@ -104,6 +105,10 @@ pub struct BotConfig {
     /// The bot gets the built-in `computer` MCP server (see `screen`).
     #[serde(default)]
     pub computer: bool,
+    /// Created without a name: the host names it from its first conversations (see `naming`)
+    /// until the user renames it.
+    #[serde(default)]
+    pub auto_name: bool,
     #[serde(default)]
     pub created_at: i64,
 }
@@ -957,6 +962,7 @@ mod tests {
             connectors: vec![],
             skills: vec![],
             computer: false,
+            auto_name: false,
             created_at: 0,
         };
         s.save_bot(&cfg).unwrap();

@@ -2116,7 +2116,7 @@ impl App {
         if f.saving {
             return;
         }
-        if f.name.text.trim().is_empty() {
+        if f.bot_id.is_some() && f.name.text.trim().is_empty() {
             f.error = Some("Give the bot a name.".into());
             return;
         }

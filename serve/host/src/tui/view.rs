@@ -2052,7 +2052,11 @@ fn form_view(buf: &mut Buffer, area: Rect, app: &App, f: &Form) {
             }
         };
         match field {
-            Field::Name => text_field(buf, &f.name, "Name", y),
+            Field::Name => {
+                // A new bot may stay unnamed: the host names it after its first conversations.
+                let placeholder = if f.bot_id.is_none() { "Named after a few chats" } else { "Name" };
+                text_field(buf, &f.name, placeholder, y);
+            }
             Field::Instructions => {
                 text_field(buf, &f.instructions, "e.g. Reviews PRs. Never pushes without asking.", y);
             }
