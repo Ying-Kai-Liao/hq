@@ -2,8 +2,10 @@
 //! same HTTP + SSE API as the phone and desktop apps (locally: no pairing needed).
 
 mod app;
+mod manage;
 mod md;
 mod net;
+mod sheets;
 mod view;
 
 use anyhow::{Context, Result};
@@ -17,6 +19,7 @@ use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use futures::StreamExt;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+use std::io::Write as _;
 use std::time::Duration;
 
 /// Puts the terminal back however we leave (including a panic).
@@ -64,8 +67,26 @@ pub async fn run(url: String, token: Option<String>) -> Result<()> {
     let mut tick = tokio::time::interval(Duration::from_millis(100));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut dirty = true;
+    // A setup terminal has the real screen (not the alternate one) while it runs.
+    let mut in_shell = false;
     loop {
-        if dirty {
+        if app.shell.is_some() != in_shell {
+            in_shell = !in_shell;
+            let out = term.backend_mut();
+            if in_shell {
+                execute!(out, DisableMouseCapture, LeaveAlternateScreen)?;
+                write!(out, "\x1b[2J\x1b[H\x1b[2m^] closes the terminal and goes back to Codync\x1b[0m\r\n")?;
+            } else {
+                execute!(out, EnterAlternateScreen, EnableMouseCapture)?;
+                term.clear()?;
+            }
+        }
+        if let Some(sh) = app.shell.as_mut().filter(|s| !s.out.is_empty()) {
+            let out = term.backend_mut();
+            out.write_all(&std::mem::take(&mut sh.out))?;
+            out.flush()?;
+        }
+        if dirty && !in_shell {
             app.tick();
             term.draw(|f| view::draw(f, &mut app))?;
             dirty = false;
@@ -77,6 +98,7 @@ pub async fn run(url: String, token: Option<String>) -> Result<()> {
                 Some(Ok(Event::Mouse(m))) => app.on_mouse(m),
                 Some(Ok(Event::FocusGained)) => app.term_focused = true,
                 Some(Ok(Event::FocusLost)) => app.term_focused = false,
+                Some(Ok(Event::Resize(cols, rows))) => app.on_resize(cols, rows),
                 Some(Ok(_)) => {}
                 Some(Err(_)) | None => break,
             },

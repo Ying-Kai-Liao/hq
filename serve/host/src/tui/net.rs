@@ -9,6 +9,18 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::app::{After, Msg};
+use super::manage::Reply;
+
+/// Methods that start an agent or download something: they can take minutes.
+const SLOW: [&str; 7] = [
+    "agentAuth",
+    "agentAuthenticate",
+    "agentModels",
+    "setAgentEnv",
+    "installConnector",
+    "installSkill",
+    "importConnectors",
+];
 
 pub const NOT_INSTALLED: &str = "The Codync host isn't set up on this computer yet.";
 
@@ -42,10 +54,16 @@ impl Client {
             .post(format!("{}/api/{method}", self.base))
             .bearer_auth(token)
             .json(body)
-            .timeout(Duration::from_secs(60))
+            .timeout(Duration::from_secs(if SLOW.contains(&method) { 11 * 60 } else { 60 }))
             .send()
             .await
-            .map_err(|_| format!("Can't reach codync-host at {}. Is it running?", self.base))?;
+            .map_err(|e| {
+                if e.is_timeout() {
+                    "The host took too long to answer.".to_owned()
+                } else {
+                    format!("Can't reach codync-host at {}. Is it running?", self.base)
+                }
+            })?;
         let ok = res.status().is_success();
         let v: Value = res.json().await.unwrap_or(Value::Null);
         if ok { Ok(v) } else { Err(v["error"].as_str().unwrap_or("The host refused that.").to_owned()) }
@@ -102,6 +120,80 @@ impl Client {
         });
     }
 
+    /// Streams a setup terminal's output (scrollback first) until it exits; returns where its
+    /// keys go, sent in order with whatever piled up meanwhile.
+    pub fn spawn_term(&self, id: String, tx: UnboundedSender<Msg>) -> UnboundedSender<Vec<u8>> {
+        let (keys, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+        let c = self.clone();
+        let term = id.clone();
+        tokio::spawn(async move {
+            use base64::Engine as _;
+            while let Some(mut bytes) = rx.recv().await {
+                while let Ok(more) = rx.try_recv() {
+                    bytes.extend(more);
+                }
+                let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                let _ = c.call("termInput", &json!({"term": term, "data": data})).await;
+            }
+        });
+        let c = self.clone();
+        tokio::spawn(async move {
+            let Some(token) = c.token() else { return };
+            let res = crate::http().get(format!("{}/term/{id}", c.base)).bearer_auth(token).send().await;
+            let Ok(res) = res.and_then(reqwest::Response::error_for_status) else {
+                let _ = tx.send(Msg::Term(id, json!({"type": "exit", "code": -1})));
+                return;
+            };
+            let mut body = res.bytes_stream();
+            let mut buf = Vec::new();
+            while let Some(Ok(chunk)) = body.next().await {
+                buf.extend_from_slice(&chunk);
+                while let Some(i) = buf.iter().position(|&b| b == b'\n') {
+                    let line: Vec<u8> = buf.drain(..=i).collect();
+                    let line = String::from_utf8_lossy(&line);
+                    let Some(data) = line.trim_end().strip_prefix("data:") else { continue };
+                    if let Ok(v) = serde_json::from_str::<Value>(data.trim_start())
+                        && tx.send(Msg::Term(id.clone(), v)).is_err()
+                    {
+                        return;
+                    }
+                }
+            }
+        });
+        keys
+    }
+
+    /// Saves sent files (`(upload id, name)`) to Downloads, 384 KiB at a time.
+    pub fn spawn_download(&self, bot: String, files: Vec<(String, String)>, tx: UnboundedSender<Msg>) {
+        use base64::Engine as _;
+        let c = self.clone();
+        tokio::spawn(async move {
+            let save = async {
+                let dir = dirs::download_dir().or_else(dirs::home_dir).ok_or("No Downloads folder")?;
+                let mut paths = vec![];
+                for (id, name) in files {
+                    let mut data = Vec::new();
+                    loop {
+                        let r =
+                            c.call("readUpload", &json!({"botId": bot, "uploadId": id, "offset": data.len()})).await?;
+                        let chunk = base64::engine::general_purpose::STANDARD
+                            .decode(r["data"].as_str().unwrap_or_default())
+                            .map_err(|e| e.to_string())?;
+                        data.extend_from_slice(&chunk);
+                        if chunk.is_empty() || data.len() as u64 >= r["size"].as_u64().unwrap_or(0) {
+                            break;
+                        }
+                    }
+                    let path = free_path(&dir, &name);
+                    tokio::fs::write(&path, data).await.map_err(|e| format!("Can't save {name}: {e}"))?;
+                    paths.push(path.to_string_lossy().into_owned());
+                }
+                Ok(json!({"paths": paths}))
+            };
+            let _ = tx.send(Msg::Reply(After::Sheet(Reply::Downloaded), save.await));
+        });
+    }
+
     /// Streams host events forever, reconnecting with `since = last rev`.
     pub fn spawn_stream(&self, tx: UnboundedSender<Msg>) {
         let c = self.clone();
@@ -147,5 +239,32 @@ impl Client {
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
         });
+    }
+}
+
+/// `dir/name`, or `name (2)` … when that's taken. The name is only its last part (no `../`).
+fn free_path(dir: &std::path::Path, name: &str) -> PathBuf {
+    let name =
+        std::path::Path::new(name).file_name().map_or_else(|| "file".into(), |n| n.to_string_lossy().into_owned());
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s.to_owned(), format!(".{e}")),
+        _ => (name.clone(), String::new()),
+    };
+    (1..10_000)
+        .map(|i| dir.join(if i == 1 { name.clone() } else { format!("{stem} ({i}){ext}") }))
+        .find(|p| !p.exists())
+        .unwrap_or_else(|| dir.join(&name))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn saved_files_never_overwrite_or_escape() {
+        let dir = std::env::temp_dir().join(format!("codync-dl-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(super::free_path(&dir, "../a.txt"), dir.join("a.txt"));
+        std::fs::write(dir.join("a.txt"), "").unwrap();
+        assert_eq!(super::free_path(&dir, "a.txt"), dir.join("a (2).txt"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

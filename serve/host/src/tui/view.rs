@@ -285,7 +285,7 @@ pub fn elapsed(start: Option<i64>) -> String {
 
 // ---------- buffer helpers ----------
 
-fn put(buf: &mut Buffer, x: u16, y: u16, max: u16, s: &str, style: Style) -> u16 {
+pub(super) fn put(buf: &mut Buffer, x: u16, y: u16, max: u16, s: &str, style: Style) -> u16 {
     if max == 0 || y >= buf.area.bottom() {
         return x;
     }
@@ -301,7 +301,7 @@ fn put_line(buf: &mut Buffer, x: u16, y: u16, max: u16, line: &Line<'_>) -> u16 
     end
 }
 
-fn rput(buf: &mut Buffer, right: u16, y: u16, s: &str, style: Style) -> u16 {
+pub(super) fn rput(buf: &mut Buffer, right: u16, y: u16, s: &str, style: Style) -> u16 {
     let width = u16::try_from(w(s)).unwrap_or(0);
     let x = right.saturating_sub(width);
     put(buf, x, y, width, s, style);
@@ -319,11 +319,11 @@ fn fill(buf: &mut Buffer, r: Rect, style: Style) {
     }
 }
 
-fn restyle(buf: &mut Buffer, r: Rect, style: Style) {
+pub(super) fn restyle(buf: &mut Buffer, r: Rect, style: Style) {
     buf.set_style(r, style);
 }
 
-fn hline(buf: &mut Buffer, x: u16, y: u16, width: u16, style: Style) {
+pub(super) fn hline(buf: &mut Buffer, x: u16, y: u16, width: u16, style: Style) {
     put(buf, x, y, width, &"─".repeat(usize::from(width)), style);
 }
 
@@ -333,7 +333,7 @@ fn vline(buf: &mut Buffer, x: u16, y: u16, h: u16, style: Style) {
     }
 }
 
-fn frame_box(buf: &mut Buffer, r: Rect, border: Style, bg: Style, title: Option<(&str, Style)>) -> Rect {
+pub(super) fn frame_box(buf: &mut Buffer, r: Rect, border: Style, bg: Style, title: Option<(&str, Style)>) -> Rect {
     fill(buf, r, bg);
     if r.width < 2 || r.height < 2 {
         return r;
@@ -359,13 +359,13 @@ fn dim_all(buf: &mut Buffer) {
     }
 }
 
-fn centered(area: Rect, width: u16, height: u16) -> Rect {
+pub(super) fn centered(area: Rect, width: u16, height: u16) -> Rect {
     let wd = width.min(area.width.saturating_sub(2));
     let h = height.min(area.height.saturating_sub(2));
     Rect::new(area.x + (area.width - wd) / 2, area.y + (area.height - h) / 3, wd, h)
 }
 
-fn u(n: usize) -> u16 {
+pub(super) fn u(n: usize) -> u16 {
     u16::try_from(n).unwrap_or(u16::MAX)
 }
 
@@ -439,7 +439,7 @@ thread_local! {
     static CURSOR: std::cell::Cell<Option<Position>> = const { std::cell::Cell::new(None) };
 }
 
-fn set_cursor(p: Position) {
+pub(super) fn set_cursor(p: Position) {
     CURSOR.with(|c| c.set(Some(p)));
 }
 
@@ -471,11 +471,9 @@ fn status_line(buf: &mut Buffer, r: Rect, app: &mut App) {
     if !app.online {
         x = put(buf, x, r.y, 20, "offline", t.amber.patch(t.panel)) + 2;
     }
-    if let Some((h, _)) = &app.hint {
-        put(buf, x, r.y, r.right().saturating_sub(x), h, t.amber.patch(t.panel));
-    }
     let hint = if insert { "↵ send · esc nav" } else { "? keys" };
     let mut right = rput(buf, r.right() - 1, r.y, hint, t.dim.patch(t.panel)).saturating_sub(3);
+    let mut edge = right;
     // Usage: the first provider that has numbers, narrowest windows first.
     if r.width >= 100
         && let Some(p) = app.usage["providers"]
@@ -497,7 +495,12 @@ fn status_line(buf: &mut Buffer, r: Rect, app: &mut App) {
             right = sx.saturating_sub(3);
         }
         let name = p["name"].as_str().unwrap_or_default().to_lowercase();
-        rput(buf, right + 1, r.y, &name, t.dim.patch(t.panel));
+        edge = rput(buf, right + 1, r.y, &name, t.dim.patch(t.panel)).saturating_sub(2);
+    }
+    // A flash gets the room between the host and the usage, cut short to fit.
+    if let Some((h, _)) = &app.hint {
+        let room = edge.saturating_sub(x);
+        put(buf, x, r.y, room, &truncate(h, usize::from(room)), t.amber.patch(t.panel));
     }
 }
 
@@ -772,7 +775,8 @@ fn chat(buf: &mut Buffer, r: Rect, app: &mut App, narrow: bool) {
     if draft.text.is_empty() {
         // The apps' wording.
         let placeholder = if app.pick.is_some() {
-            "Reply in thread: j k pick a message · ↵ open · esc cancel".to_owned()
+            let reply = if app.thread.is_some() { "↵ reply" } else { "↵ thread" };
+            format!("j k pick · {reply} · 1–6 react · f save files · c copy · esc")
         } else if app.thread.is_some() {
             "Reply…".to_owned()
         } else if b.group {
@@ -780,6 +784,7 @@ fn chat(buf: &mut Buffer, r: Rect, app: &mut App, narrow: bool) {
         } else {
             format!("Message {}…", b.name)
         };
+        let placeholder = truncate(&placeholder, usize::from(r.width.saturating_sub(5)));
         put(buf, r.x + 3, comp_top + 1, r.width.saturating_sub(4), &placeholder, t.dim);
         used = w(&placeholder);
     } else {
@@ -854,7 +859,7 @@ fn chat(buf: &mut Buffer, r: Rect, app: &mut App, narrow: bool) {
 }
 
 /// Wraps the draft; returns display lines and the cursor's (column, line).
-fn composer_lines(e: &Editor, width: usize) -> (Vec<String>, (usize, usize)) {
+pub(super) fn composer_lines(e: &Editor, width: usize) -> (Vec<String>, (usize, usize)) {
     let mut lines = vec![String::new()];
     let mut col = 0;
     let mut cur = (0, 0);
@@ -1095,6 +1100,7 @@ fn entry_lines(
                 ]));
             }
             out.lines.extend(with_bg(body, width, t.band));
+            reactions(out, e);
             out.messages.push((e.id.clone(), from, out.lines.len()));
             if main {
                 thread_line(out, app, e);
@@ -1112,6 +1118,7 @@ fn entry_lines(
                 Span::styled(format!(" {}", clock(e.created_at)), t.dim),
             ]));
             out.lines.extend(md::render(e.text(), width, 1));
+            reactions(out, e);
             out.messages.push((e.id.clone(), from, out.lines.len()));
             if let Some(ti) = info.get(&e.turn).filter(|ti| ti.steps > 0) {
                 let files = if ti.files.is_empty() {
@@ -1161,6 +1168,14 @@ fn entry_lines(
             }
         }
         _ => {}
+    }
+}
+
+/// A message's reactions, under it.
+fn reactions(out: &mut Built, e: &Entry) {
+    let r: Vec<&str> = e.data["reactions"].as_array().into_iter().flatten().filter_map(|r| r.as_str()).collect();
+    if !r.is_empty() {
+        out.lines.push(Line::from(Span::raw(format!("   {}", r.join(" ")))));
     }
 }
 
@@ -1755,16 +1770,22 @@ fn overlay(buf: &mut Buffer, area: Rect, app: &mut App, top: &Overlay) {
         Overlay::Group(g) => group_view(buf, area, app, g),
         Overlay::Usage => usage(buf, area, app),
         Overlay::Pair(url) => pair(buf, area, url.as_deref()),
+        Overlay::Memory(m) => super::sheets::memory(buf, area, app, m),
+        Overlay::Routines(l) => super::sheets::routines(buf, area, app, l),
+        Overlay::Routine(f) => super::sheets::routine(buf, area, f),
+        Overlay::Market(m) => super::sheets::market(buf, area, app, m),
+        Overlay::Agent(a) => super::sheets::agent(buf, area, app, a),
+        Overlay::Fields(f) => super::sheets::fields(buf, area, f),
     }
 }
 
 /// A one-line text field. A search shows "/ " first, unless the caller drew its own prefix
 /// (the folder path, with an empty placeholder).
-fn field_line(buf: &mut Buffer, r: Rect, y: u16, e: &Editor, placeholder: &str, active: bool) {
+pub(super) fn field_line(buf: &mut Buffer, r: Rect, y: u16, e: &Editor, placeholder: &str, active: bool) {
     input_line(buf, r, y, e, placeholder, active, !placeholder.is_empty());
 }
 
-fn input_line(buf: &mut Buffer, r: Rect, y: u16, e: &Editor, placeholder: &str, active: bool, search: bool) {
+pub(super) fn input_line(buf: &mut Buffer, r: Rect, y: u16, e: &Editor, placeholder: &str, active: bool, search: bool) {
     let t = theme();
     let x = if search { put(buf, r.x, y, 2, "/ ", t.dim.patch(t.panel)) } else { r.x };
     if e.text.is_empty() {
@@ -1891,7 +1912,7 @@ fn goto(buf: &mut Buffer, area: Rect, app: &mut App, g: &super::app::Goto, items
     );
 }
 
-const HELP: [(&str, &str, &str); 45] = [
+const HELP: [(&str, &str, &str); 51] = [
     ("MOVE", "j k  ↑ ↓", "next / previous bot"),
     ("MOVE", "[ ]", "previous / next bot"),
     ("MOVE", "1…9", "jump to bot 1–9"),
@@ -1911,7 +1932,10 @@ const HELP: [(&str, &str, &str); 45] = [
     ("CHAT", "o", "last turn's steps"),
     ("CHAT", "c", "copy the last reply"),
     ("CHAT", "r", "reply in a thread"),
+    ("CHAT", "v", "pick a message"),
     ("CHAT", "j k  ↵", "picking: move / open"),
+    ("CHAT", "1…6", "picking: react"),
+    ("CHAT", "f", "picking: save its files"),
     ("CHAT", "esc", "close the thread"),
     ("TYPE", "↵", "send"),
     ("TYPE", "⇧↵ alt↵ ^j", "new line"),
@@ -1926,6 +1950,9 @@ const HELP: [(&str, &str, &str); 45] = [
     ("BOTS", "e", "edit bot or group"),
     ("BOTS", "p", "pin / unpin"),
     ("BOTS", "S", "new session"),
+    ("BOTS", "M", "memory"),
+    ("BOTS", "R", "routines"),
+    ("BOTS", "A", "marketplace, sign-in"),
     ("BOTS", "x", "delete bot or group"),
     ("VIEW", "t", "trace pane"),
     ("VIEW", "T", "trace full screen"),
@@ -1941,8 +1968,8 @@ const HELP: [(&str, &str, &str); 45] = [
 
 fn help(buf: &mut Buffer, area: Rect, filter: &Editor) {
     let t = theme();
-    // Two columns fit everything from 36 rows up; shorter windows get a third.
-    let r = centered(area, if area.height >= 36 { 80 } else { 120 }, 34);
+    // Two columns fit everything from 42 rows up; shorter windows get a third.
+    let r = centered(area, if area.height >= 42 { 80 } else { 120 }, 40);
     let inner = frame_box(buf, r, t.text, t.panel, Some(("Keys", t.text)));
     field_line(buf, inner, inner.y, filter, "filter actions and keys", true);
     let q = filter.text.to_lowercase();
@@ -2060,7 +2087,22 @@ fn form_view(buf: &mut Buffer, area: Rect, app: &App, f: &Form) {
             Field::Instructions => {
                 text_field(buf, &f.instructions, "e.g. Reviews PRs. Never pushes without asking.", y);
             }
-            Field::Model => text_field(buf, &f.model, "default", y),
+            Field::Model => {
+                text_field(buf, &f.model, "default", y);
+                let hint = match app.models.get(&f.backend) {
+                    Some(None) => "loading models…".to_owned(),
+                    Some(Some(list)) if !list.is_empty() => {
+                        let id = f.model.text.trim();
+                        list.iter()
+                            .find(|(m, _)| m == id)
+                            .map_or_else(|| format!("‹ › {} models", list.len()), |(_, name)| format!("‹ {name} ›"))
+                    }
+                    _ => String::new(),
+                };
+                if !hint.is_empty() && w(&f.model.text) + w(&hint) + 2 < usize::from(vw) {
+                    rput(buf, inner.right(), y, &hint, t.dim.patch(base));
+                }
+            }
             Field::Agent => {
                 put(buf, vx, y, vw, &format!("‹ {agent_name} ›"), t.text.patch(base));
             }
@@ -2138,9 +2180,11 @@ fn form_view(buf: &mut Buffer, area: Rect, app: &App, f: &Form) {
     let hint = match f.current() {
         Field::Folder => "↵ project folder · backspace personal · tab next field",
         Field::Connectors | Field::Skills => "←→ move · space toggle · tab next",
-        Field::Agent | Field::Color | Field::Shape | Field::Approvals | Field::Notify => "←→ change · tab next field",
+        Field::Agent => "←→ change · ↵ install / sign in · tab next",
+        Field::Model => "←→ pick a model · or type its id",
+        Field::Color | Field::Shape | Field::Approvals | Field::Notify => "←→ change · tab next field",
         Field::Instructions => "⇧↵ new line · tab next field",
-        _ => "tab next field · ^s save",
+        Field::Name => "tab next field · ^s save",
     };
     rput(buf, inner.right(), by, hint, t.dim.patch(t.panel));
 }
@@ -2279,7 +2323,7 @@ fn usage(buf: &mut Buffer, area: Rect, app: &App) {
     put(buf, inner.x, inner.bottom() - 1, inner.width, "From your local installs. esc close", t.dim.patch(t.panel));
 }
 
-fn when_future(ms: i64) -> String {
+pub(super) fn when_future(ms: i64) -> String {
     let (day, _) = local(ms);
     let (today, _) = local(now_ms());
     if day == today {

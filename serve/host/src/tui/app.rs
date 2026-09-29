@@ -8,6 +8,7 @@ use std::io::Write as _;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::UnboundedSender;
 
+use super::manage::{AgentSetup, Fields, Market, MemorySheet, Reply, RoutineForm, RoutineList, Shell};
 use super::net::Client;
 
 pub enum Msg {
@@ -16,6 +17,8 @@ pub enum Msg {
     Reply(After, Result<Value, String>),
     /// The stream is starting over from rev 0: drop what we have.
     Rewind,
+    /// A setup terminal's output or exit.
+    Term(String, Value),
 }
 
 /// What to do with a command's reply.
@@ -32,6 +35,8 @@ pub enum After {
     Connectors,
     Skills,
     Installed,
+    /// Memory, routines, marketplace, sign-in (`manage`).
+    Sheet(Reply),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -411,6 +416,9 @@ pub const FILTERS: [(&str, Option<Mark>); 5] = [
 pub enum Action {
     NewBot,
     NewGroup,
+    Market,
+    Memory,
+    Routines,
     RefreshAgents,
     Pair,
     Usage,
@@ -419,9 +427,12 @@ pub enum Action {
 
 pub const NEW_GROUP: &str = "New group chat";
 
-pub const ACTIONS: [(&str, &str, Action); 6] = [
+pub const ACTIONS: [(&str, &str, Action); 9] = [
     ("New bot…", "n", Action::NewBot),
     ("New group chat…", "m", Action::NewGroup),
+    ("Marketplace: agents, connectors, skills…", "A", Action::Market),
+    ("Memory of this bot…", "M", Action::Memory),
+    ("Routines of this bot…", "R", Action::Routines),
     ("Refresh agents", "", Action::RefreshAgents),
     ("Pair a phone…", "P", Action::Pair),
     ("Usage", "U", Action::Usage),
@@ -442,6 +453,10 @@ pub struct Goto {
 pub enum ConfirmAct {
     Delete(String),
     NewSession(String),
+    ClearMemory(String),
+    DeleteRoutine(String, String),
+    RemoveConnector(String),
+    RemoveSkill(String),
 }
 
 pub struct Confirm {
@@ -584,6 +599,12 @@ pub enum Overlay {
     Group(GroupForm),
     Usage,
     Pair(Option<String>),
+    Memory(MemorySheet),
+    Routines(RoutineList),
+    Routine(Box<RoutineForm>),
+    Market(Box<Market>),
+    Agent(AgentSetup),
+    Fields(Box<Fields>),
 }
 
 pub struct Toast {
@@ -616,7 +637,7 @@ pub struct Hits {
 #[allow(clippy::struct_excessive_bools, reason = "independent UI flags, not a state machine")]
 pub struct App {
     pub client: Client,
-    tx: UnboundedSender<Msg>,
+    pub(super) tx: UnboundedSender<Msg>,
     pub url: String,
     pub host: String,
     pub home: String,
@@ -656,6 +677,12 @@ pub struct App {
     /// A main-chat message picked to reply to in its thread (`r`, then j/k and ↵).
     pub pick: Option<String>,
     pub market: (Vec<Toggle>, Vec<Toggle>),
+    /// Installed connectors and skills as the host lists them.
+    pub plugins: (Vec<Value>, Vec<Value>),
+    /// Models each agent offers (`None` while loading).
+    pub models: HashMap<String, Option<Vec<(String, String)>>>,
+    /// A setup terminal holding the screen.
+    pub shell: Option<Shell>,
     reading: HashSet<String>,
     history_busy: HashSet<String>,
     history_done: HashSet<String>,
@@ -699,6 +726,9 @@ impl App {
             thread: None,
             pick: None,
             market: (vec![], vec![]),
+            plugins: (vec![], vec![]),
+            models: HashMap::new(),
+            shell: None,
             reading: HashSet::new(),
             history_busy: HashSet::new(),
             history_done: HashSet::new(),
@@ -943,6 +973,7 @@ impl App {
             }
             Msg::Event(v) => self.on_event(&v),
             Msg::Reply(after, r) => self.on_reply(after, r),
+            Msg::Term(id, v) => self.on_term(&id, &v),
         }
     }
 
@@ -996,6 +1027,10 @@ impl App {
     }
 
     fn on_reply(&mut self, after: After, r: Result<Value, String>) {
+        if let After::Sheet(s) = after {
+            self.on_sheet_reply(s, r);
+            return;
+        }
         let v = match r {
             Ok(v) => v,
             Err(e) => {
@@ -1026,7 +1061,7 @@ impl App {
             }
         };
         match after {
-            After::Nothing => {}
+            After::Nothing | After::Sheet(_) => {}
             After::Installed => {
                 self.error = None;
                 self.flash("Host installed; connecting…");
@@ -1107,17 +1142,8 @@ impl App {
                 }
             }
             After::Connectors | After::Skills => {
-                let list: Vec<Toggle> = v["items"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|c| {
-                        let id = c["id"].as_str()?.to_owned();
-                        let name = c["name"].as_str().unwrap_or(&id).to_owned();
-                        Some(Toggle { id, name, on: false })
-                    })
-                    .collect();
                 let connectors = matches!(after, After::Connectors);
+                let list = self.set_plugins(connectors, v["items"].as_array().cloned().unwrap_or_default());
                 if connectors {
                     self.market.0 = list;
                 } else {
@@ -1140,6 +1166,10 @@ impl App {
     // ---------- input ----------
 
     pub fn on_paste(&mut self, s: &str) {
+        if let Some(sh) = self.shell.as_ref().filter(|s| s.exited.is_none()) {
+            let _ = sh.input.send(s.as_bytes().to_vec());
+            return;
+        }
         let s = s.replace("\r\n", "\n").replace('\r', "\n");
         if let Some(ed) = self.top_editor() {
             ed.insert(&s);
@@ -1171,11 +1201,22 @@ impl App {
                 Field::Model => Some(&mut f.model),
                 _ => None,
             },
+            Overlay::Market(m) => Some(&mut m.query),
+            Overlay::Fields(f) => f.current().map(|i| &mut i.ed),
+            Overlay::Routine(f) => Some(match f.field {
+                super::manage::RoutineField::Name => &mut f.name,
+                super::manage::RoutineField::Instruction => &mut f.instruction,
+                super::manage::RoutineField::When => &mut f.when,
+            }),
             _ => None,
         }
     }
 
     pub fn on_key(&mut self, k: KeyEvent) {
+        if self.shell.is_some() {
+            self.shell_key(k);
+            return;
+        }
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         if ctrl && k.code == KeyCode::Char('k') {
             if matches!(self.overlays.last(), Some(Overlay::Goto(_))) {
@@ -1395,6 +1436,14 @@ impl App {
             }
             KeyCode::Char('b') => self.compact = !self.compact,
             KeyCode::Char('U') => self.overlays.push(Overlay::Usage),
+            KeyCode::Char('M') => self.open_memory(),
+            KeyCode::Char('R') => self.open_routines(),
+            KeyCode::Char('A') => self.open_market(),
+            KeyCode::Char('v') if !roster_page && self.selected.is_some() => {
+                self.chat_page = true;
+                self.focus = Focus::Chat;
+                self.step_pick(0);
+            }
             KeyCode::Char('P') => self.open_pair(),
             KeyCode::Char('s') => {
                 if let Some(b) = self.bot() {
@@ -1580,13 +1629,35 @@ impl App {
 
     /// Keys while a message is picked. Returns whether the key was used.
     fn pick_key(&mut self, k: KeyEvent) -> bool {
+        let Some(id) = self.selected.clone() else { return false };
+        let picked = self.pick.as_ref().and_then(|p| self.lane(&id).into_iter().find(|e| &e.id == p).cloned());
         match k.code {
             KeyCode::Char('j') | KeyCode::Down => self.step_pick(1),
             KeyCode::Char('k') | KeyCode::Up => self.step_pick(-1),
+            KeyCode::Enter | KeyCode::Char('r') if self.thread.is_some() => {
+                self.pick = None;
+                self.start_typing();
+            }
             KeyCode::Enter | KeyCode::Char('r') => {
                 if let Some(root) = self.pick.take() {
                     self.open_thread(root);
                     self.start_typing();
+                }
+            }
+            KeyCode::Char(c @ '1'..='6') => {
+                if let Some(e) = picked {
+                    self.react(&e.id, (c as usize) - ('1' as usize));
+                }
+            }
+            KeyCode::Char('f') => {
+                if let Some(e) = picked {
+                    self.save_files(&id, &e.data);
+                }
+            }
+            KeyCode::Char('c') => {
+                if let Some(e) = picked {
+                    copy(e.text());
+                    self.flash("Copied");
                 }
             }
             KeyCode::Esc => self.pick = None,
@@ -1616,11 +1687,7 @@ impl App {
             self.flash("No reply to copy");
             return;
         };
-        // OSC 52: the terminal puts it on the clipboard, over SSH too.
-        let mut out = std::io::stdout();
-        let _ =
-            write!(out, "\x1b]52;c;{}\x07", base64::Engine::encode(&base64::engine::general_purpose::STANDARD, text));
-        let _ = out.flush();
+        copy(&text);
         self.flash("Copied the last reply");
     }
 
@@ -1756,6 +1823,7 @@ impl App {
         };
         merge_toggles(&mut f.connectors, &self.market.0, false);
         merge_toggles(&mut f.skills, &self.market.1, false);
+        self.want_models(&b.backend);
         self.overlays.push(Overlay::Form(Box::new(f)));
         self.call("connectors", json!({}), After::Connectors);
         self.call("skills", json!({}), After::Skills);
@@ -1798,6 +1866,9 @@ impl App {
         match a {
             Action::NewBot => self.new_bot(),
             Action::NewGroup => self.new_group(),
+            Action::Market => self.open_market(),
+            Action::Memory => self.open_memory(),
+            Action::Routines => self.open_routines(),
             Action::RefreshAgents => self.call("refreshBackends", json!({}), After::Backends),
             Action::Pair => self.open_pair(),
             Action::Usage => self.overlays.push(Overlay::Usage),
@@ -1822,9 +1893,16 @@ impl App {
             }
             Overlay::Confirm(c) => match k.code {
                 KeyCode::Enter => {
+                    let changed = After::Sheet(Reply::Changed);
                     match &c.act {
                         ConfirmAct::Delete(id) => self.call("deleteBot", json!({"botId": id}), After::Nothing),
                         ConfirmAct::NewSession(id) => self.call("newSession", json!({"botId": id}), After::Nothing),
+                        ConfirmAct::ClearMemory(id) => self.call("clearMemory", json!({"botId": id}), changed),
+                        ConfirmAct::DeleteRoutine(bot, id) => {
+                            self.call("deleteRoutine", json!({"botId": bot, "id": id}), changed);
+                        }
+                        ConfirmAct::RemoveConnector(id) => self.call("removeConnector", json!({"id": id}), changed),
+                        ConfirmAct::RemoveSkill(id) => self.call("removeSkill", json!({"id": id}), changed),
                     }
                     None
                 }
@@ -1835,6 +1913,12 @@ impl App {
             Overlay::Folder(p) => self.folder_key(p, k),
             Overlay::Form(f) => self.form_key(f, k),
             Overlay::Group(g) => self.group_key(g, k),
+            Overlay::Memory(m) => self.memory_key(m, k),
+            Overlay::Routines(l) => self.routines_key(l, k),
+            Overlay::Routine(f) => self.routine_key(f, k),
+            Overlay::Market(m) => self.market_key(m, k),
+            Overlay::Agent(a) => self.agent_key(a, k),
+            Overlay::Fields(f) => self.fields_key(f, k),
             o @ (Overlay::Usage | Overlay::Pair(_)) => {
                 if matches!(k.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q' | 'U' | 'P')) {
                     None
@@ -2022,6 +2106,7 @@ impl App {
             error: None,
             saving: false,
         };
+        self.want_models(&f.backend);
         self.overlays.push(Overlay::Form(Box::new(f)));
         self.call("connectors", json!({}), After::Connectors);
         self.call("skills", json!({}), After::Skills);
@@ -2056,6 +2141,19 @@ impl App {
                 self.open_folder(&start);
                 return None;
             }
+            KeyCode::Enter if field == Field::Agent => {
+                let backend = f.backend.clone();
+                self.overlays.push(Overlay::Form(f));
+                self.open_agent(&backend);
+                return None;
+            }
+            KeyCode::Left | KeyCode::Right if field == Field::Model => {
+                let d: isize = if k.code == KeyCode::Left { -1 } else { 1 };
+                self.want_models(&f.backend);
+                if let Some(m) = self.cycle_model(&f.backend, f.model.text.trim(), d) {
+                    f.model = Editor::with(&m);
+                }
+            }
             KeyCode::Enter => self.save_form(&mut f),
             KeyCode::Left | KeyCode::Right | KeyCode::Char(' ')
                 if matches!(
@@ -2078,6 +2176,9 @@ impl App {
                         if !ids.is_empty() {
                             let i = ids.iter().position(|x| *x == f.backend).unwrap_or(0);
                             f.backend.clone_from(&ids[cycle(i, d, ids.len())]);
+                            // Another agent's model ids mean nothing here.
+                            f.model.clear();
+                            self.want_models(&f.backend);
                         }
                     }
                     Field::Approvals => f.auto = !f.auto,
@@ -2206,11 +2307,18 @@ const NAMES: [&str; 24] = [
     "Gus", "Hal", "Ida", "Jin", "Kai", "Lux", "Nia", "Otto",
 ];
 
+/// OSC 52: the terminal puts it on the clipboard, over SSH too.
+pub fn copy(text: &str) {
+    let mut out = std::io::stdout();
+    let _ = write!(out, "\x1b]52;c;{}\x07", base64::Engine::encode(&base64::engine::general_purpose::STANDARD, text));
+    let _ = out.flush();
+}
+
 fn page(h: usize) -> isize {
     isize::try_from(h.max(4)).unwrap_or(20) - 2
 }
 
-fn cycle(i: usize, d: isize, n: usize) -> usize {
+pub(super) fn cycle(i: usize, d: isize, n: usize) -> usize {
     let n = isize::try_from(n).unwrap_or(1).max(1);
     usize::try_from((isize::try_from(i).unwrap_or(0) + d).rem_euclid(n)).unwrap_or(0)
 }
