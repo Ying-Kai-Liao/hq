@@ -87,7 +87,8 @@ pub fn install(port: u16) -> Result<()> {
         create_parent(&file)?;
         let uid = current_uid();
         // Not loaded yet is the normal case here.
-        let _ = Command::new("launchctl").args(["bootout", &format!("gui/{uid}/{LABEL}")]).status();
+        let _ =
+            Command::new("launchctl").args(["bootout", &format!("gui/{uid}/{LABEL}")]).stderr(Stdio::null()).status();
         std::fs::write(&file, plist).with_context(|| format!("writing {}", file.display()))?;
         run("launchctl", &["bootstrap", &format!("gui/{uid}"), &file.to_string_lossy()])?;
     } else {
@@ -107,7 +108,10 @@ pub fn install(port: u16) -> Result<()> {
 /// Best effort: every step tolerates "already gone".
 pub fn uninstall() {
     if cfg!(target_os = "macos") {
-        let _ = Command::new("launchctl").args(["bootout", &format!("gui/{}/{LABEL}", current_uid())]).status();
+        let _ = Command::new("launchctl")
+            .args(["bootout", &format!("gui/{}/{LABEL}", current_uid())])
+            .stderr(Stdio::null())
+            .status();
         let _ = std::fs::remove_file(launchd_plist());
     } else {
         let _ = run("systemctl", &["--user", "disable", "--now", "codync-host.service"]);
