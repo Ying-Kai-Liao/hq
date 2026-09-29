@@ -686,15 +686,21 @@ fn front_matter(md: &str) -> (Option<String>, Option<String>) {
     if lines.next().map(str::trim) != Some("---") {
         return (None, None);
     }
-    for line in lines {
-        if line.trim() == "---" {
-            break;
+    let mut lines = lines.take_while(|l| l.trim() != "---").peekable();
+    while let Some(line) = lines.next() {
+        let Some((key, v)) = line.split_once(':').filter(|(k, _)| matches!(*k, "name" | "description")) else {
+            continue;
+        };
+        let mut v = v.trim().trim_matches('"').to_owned();
+        // A YAML block (`>`, `|-`, …): the indented lines under it.
+        if matches!(v.as_str(), ">" | "|" | ">-" | "|-" | ">+" | "|+") {
+            let mut parts = vec![];
+            while let Some(next) = lines.next_if(|l| l.starts_with([' ', '\t']) || l.trim().is_empty()) {
+                parts.push(next.trim());
+            }
+            v = parts.into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join(" ");
         }
-        if let Some(v) = line.strip_prefix("name:") {
-            name = Some(v.trim().trim_matches('"').to_owned());
-        } else if let Some(v) = line.strip_prefix("description:") {
-            description = Some(v.trim().trim_matches('"').to_owned());
-        }
+        if key == "name" { name = Some(v) } else { description = Some(v) }
     }
     (name, description)
 }
@@ -904,6 +910,8 @@ mod tests {
         let md = "---\nname: pdf\ndescription: \"Work with PDFs\"\n---\n# PDF";
         assert_eq!(front_matter(md), (Some("pdf".into()), Some("Work with PDFs".into())));
         assert_eq!(front_matter("# no front matter"), (None, None));
+        let folded = "---\nname: guide\ndescription: >\n  Walks you\n  through it.\nlicense: MIT\n---\n";
+        assert_eq!(front_matter(folded), (Some("guide".into()), Some("Walks you through it.".into())));
     }
 
     #[test]
