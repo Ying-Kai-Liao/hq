@@ -88,7 +88,8 @@ fn purge_dead_tickets(hub: &Hub) {
     }
 }
 
-pub fn notify(hub: &Hub, bot: &BotConfig, title: &str, body: &str, kind: AlertKind) {
+/// `bot` is the chat the alert opens; `from` is the member bot speaking when that chat is a group.
+pub fn notify(hub: &Hub, bot: &BotConfig, from: Option<&str>, title: &str, body: &str, kind: AlertKind) {
     purge_dead_tickets(hub);
     if bot.notify == Some(false) || bot.hidden || hub.ios_connected() {
         return;
@@ -108,9 +109,12 @@ pub fn notify(hub: &Hub, bot: &BotConfig, title: &str, body: &str, kind: AlertKi
         AlertKind::NeedsInput => "Response needed",
         AlertKind::Failed => "Task failed",
     };
-    let secret = json!({"title": crate::agent::acp::truncate(title, 80), "subtitle": subtitle,
-        "body": crate::agent::acp::truncate(body, 400)})
-    .to_string();
+    let mut secret = json!({"title": crate::agent::acp::truncate(title, 80), "subtitle": subtitle,
+        "body": crate::agent::acp::truncate(body, 400)});
+    if let Some(from) = from.filter(|f| *f != bot.id) {
+        secret["from"] = from.into();
+    }
+    let secret = secret.to_string();
     let computer_id = hub.identity.computer_id();
     let mut notifications = Vec::new();
     for t in hub.store.push_tickets() {

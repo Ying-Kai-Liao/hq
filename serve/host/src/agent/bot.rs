@@ -1124,6 +1124,7 @@ impl Actor {
             push::notify(
                 &self.hub,
                 &self.cfg,
+                None,
                 &self.cfg.name,
                 &body,
                 if failed { AlertKind::Failed } else { AlertKind::Done },
@@ -1305,7 +1306,14 @@ impl Actor {
         });
         // Tapping it opens where the card is: the group, for a room turn.
         let target = self.hub.store.bot(&self.lane.chat).ok().flatten().map_or_else(|| self.cfg.clone(), |r| r.config);
-        push::notify(&self.hub, &target, &format!("{} needs you", self.cfg.name), &title, AlertKind::NeedsInput);
+        push::notify(
+            &self.hub,
+            &target,
+            Some(&self.cfg.id),
+            &format!("{} needs you", self.cfg.name),
+            &title,
+            AlertKind::NeedsInput,
+        );
     }
 
     async fn answer_permission(&mut self, entry_id: &str, option_id: Option<String>) {

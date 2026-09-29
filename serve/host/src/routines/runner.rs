@@ -176,6 +176,7 @@ impl Routines {
                 crate::remote::push::notify(
                     hub,
                     &bot.config,
+                    None,
                     &bot.config.name,
                     data["text"].as_str().unwrap_or_default(),
                     crate::remote::push::AlertKind::Done,

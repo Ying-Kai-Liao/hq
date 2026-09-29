@@ -118,7 +118,7 @@ pub fn start(hub: &Arc<Hub>, group: &BotConfig, lane: Lane) {
 
 async fn run(hub: &Arc<Hub>, group_id: &str, lane: &Lane, epoch: u64) -> Result<()> {
     let mut replies = 0;
-    let mut last_reply: Option<(String, String)> = None;
+    let mut last_reply: Option<(String, String, String)> = None;
     for round in 0..MAX_ROUNDS {
         let group = hub.store.bot(group_id)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("group deleted"))?.config;
         let members = members(hub, &group);
@@ -143,17 +143,17 @@ async fn run(hub: &Arc<Hub>, group_id: &str, lane: &Lane, epoch: u64) -> Result<
             if let Ok(Ok(Ok(Some(text)))) = tokio::time::timeout(crate::chat::team::ASK_TIMEOUT, answer).await {
                 spoke += 1;
                 replies += 1;
-                last_reply = Some((member.name.clone(), text));
+                last_reply = Some((member.id.clone(), member.name.clone(), text));
             }
         }
         if spoke == 0 {
             break;
         }
     }
-    if let Some((name, text)) = last_reply
+    if let Some((from, name, text)) = last_reply
         && let Some(group) = hub.store.bot(group_id)?.map(|r| r.config)
     {
-        push::notify(hub, &group, &format!("{name} in {}", group.name), &text, AlertKind::Done);
+        push::notify(hub, &group, Some(&from), &format!("{name} in {}", group.name), &text, AlertKind::Done);
     }
     Ok(())
 }
