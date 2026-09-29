@@ -35,8 +35,11 @@ struct BotListView: View {
 
     /// Computers that can take a new bot right now.
     private var onlineStores: [BotStore] {
+        allStores.filter { $0.connection == .online }
+    }
+
+    private var allStores: [BotStore] {
         accounts.computers.compactMap { accounts.store(for: $0.id) }
-            .filter { shownIDs.contains($0.computer.id) && $0.connection == .online }
     }
 
     var body: some View {
@@ -44,7 +47,7 @@ struct BotListView: View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 if roster.isEmpty {
-                    EmptyRoster(canCreate: !onlineStores.isEmpty, hasComputer: !accounts.computers.isEmpty,
+                    EmptyRoster(canCreate: !allStores.isEmpty, hasComputer: !accounts.computers.isEmpty,
                                 create: newBot, showComputers: { app.showComputers = true })
                 }
 
@@ -92,8 +95,9 @@ struct BotListView: View {
                 Menu("New", systemImage: "plus") {
                     Button("New bot", systemImage: "plus", action: newBot)
                     Button("New group chat", systemImage: "person.2", action: newGroup)
+                        .disabled(onlineStores.isEmpty)
                 }
-                .disabled(onlineStores.isEmpty)
+                .disabled(allStores.isEmpty)
             }
         }
         .refreshable {
@@ -105,7 +109,9 @@ struct BotListView: View {
             let computerId = editing?.computerId ?? target.computerId
             if let store = accounts.store(for: computerId) {
                 BotEditorView(draft: target.draft,
-                              computers: onlineStores.map { ($0.computer.id, $0.hostName) },
+                              computers: allStores.map {
+                                  ($0.computer.id, $0.connection == .online ? $0.hostName : "\($0.hostName) (offline)")
+                              },
                               computer: target.draft.id == nil
                                   ? Binding(get: { computerId }, set: { editing?.computerId = $0 })
                                   : nil)
@@ -173,7 +179,7 @@ struct BotListView: View {
 
     /// A new bot starts on the first computer online; the editor's Computer row can move it.
     private func newBot() {
-        guard let store = onlineStores.first else { return }
+        guard let store = onlineStores.first ?? allStores.first else { return }
         editing = EditTarget(computerId: store.computer.id, draft: BotDraft())
     }
 }
