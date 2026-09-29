@@ -365,6 +365,9 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
         )?,
         "routineWebhook" => hub.routines.credentials(hub, str_arg(&b, "botId")?, str_arg(&b, "id")?)?,
         "routineCall" => crate::routines::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"])?,
+        "memoryCall" => {
+            crate::chat::memory::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?
+        }
         "teamCall" => {
             crate::chat::team::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?
         }

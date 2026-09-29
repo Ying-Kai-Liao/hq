@@ -3,10 +3,12 @@
 //! every turn) and `log/YYYY-MM.md` (dated history), one `- (YYYY-MM-DD) fact`
 //! per line, so the user and the agent can read, grep and edit them.
 //!
-//! After each memorable exchange the bot's *keeper* runs a one-shot agent of the
-//! same harness that extracts facts (`profile:` / `log:` / `note:` / `remove:`);
-//! every [`EPISODE_INTERVAL`] exchanges it also writes a one-line `[episode]`
-//! journal entry. The bot sees memory through its frozen prompt (`context`).
+//! Memorable exchanges queue up for the bot's *keeper*, which runs a one-shot agent
+//! of the same harness over them once the bot goes quiet and extracts facts
+//! (`profile:` / `log:` / `note:` / `remove:`); every [`EPISODE_INTERVAL`]
+//! exchanges it also writes a one-line `[episode]` journal entry, and a profile
+//! that outgrows the prompt is consolidated. The bot sees memory through its
+//! frozen prompt (`context`) and searches its full chat with `search_history`.
 
 use crate::LockExt;
 use crate::agent::acp::{self, Acp, Incoming};
@@ -28,8 +30,10 @@ const PROFILE_HEADER: &str =
     "# About the user\n\n<!-- Enduring facts, one per line as \"- (YYYY-MM-DD) <fact>\". -->\n\n";
 const LOG_HEADER: &str = "# Memory log\n\n<!-- Dated facts, one per line as \"- (YYYY-MM-DD) <fact>\". -->\n\n";
 
-/// Profile facts shown in the prompt.
+/// Profile facts shown in the prompt; past this the keeper consolidates the profile.
 const PROFILE_PROMPT_LIMIT: usize = 100;
+/// What a consolidation merges the profile down to, leaving room to grow.
+const PROFILE_TARGET: usize = 60;
 /// Log facts shown in the prompt (newest first), within [`RECENT_CHAR_BUDGET`].
 pub const RECENT_PROMPT_LIMIT: usize = 30;
 const RECENT_CHAR_BUDGET: usize = 4_000;
@@ -42,6 +46,10 @@ pub const EPISODE_INTERVAL: usize = 6;
 /// An exchange side is cut to this before it goes to the keeper.
 const EXCHANGE_CHARS: usize = 8_000;
 const KEEPER_TIMEOUT: Duration = Duration::from_secs(180);
+/// Quiet time after the last exchange before the keeper runs over the queued ones.
+const KEEPER_IDLE: Duration = Duration::from_secs(5 * 60);
+/// Queued exchanges that make the keeper run without waiting.
+const KEEPER_BATCH: usize = 8;
 
 const EPISODE_PREFIX: &str = "[episode] ";
 const NOTE_PREFIX: &str = "[note] ";
@@ -152,6 +160,28 @@ impl Memory {
         facts
     }
 
+    pub fn profile_facts(&self) -> Vec<Fact> {
+        parse_facts(&read(&self.profile_path()), Kind::Profile, &self.profile_path(), 0)
+    }
+
+    fn log_path(&self, at_ms: i64) -> PathBuf {
+        self.dir.join(LOG_DIR).join(format!("{}.md", &ymd(at_ms)[..7]))
+    }
+
+    /// Replaces the profile with `keep`, moving `demote` to the log first (a crash
+    /// in between leaves a duplicate, never a lost fact).
+    pub fn rewrite_profile(&self, keep: &[(String, i64)], demote: &[(String, i64)]) -> Result<()> {
+        let _g = WRITES.locked();
+        for (content, at) in demote {
+            append(&self.log_path(*at), LOG_HEADER, &normalize(content), *at)?;
+        }
+        let mut body = PROFILE_HEADER.to_owned();
+        for (content, at) in keep {
+            let _ = writeln!(body, "- ({}) {}", ymd(*at), normalize(content));
+        }
+        write_atomic(&self.profile_path(), &body)
+    }
+
     /// Records a fact unless an equal one exists. Returns whether it was added.
     pub fn add(&self, content: &str, kind: Kind, at_ms: i64) -> Result<bool> {
         let content = normalize(content);
@@ -164,15 +194,9 @@ impl Memory {
         }
         let (path, header) = match kind {
             Kind::Profile => (self.profile_path(), PROFILE_HEADER),
-            Kind::Log => (self.dir.join(LOG_DIR).join(format!("{}.md", &ymd(at_ms)[..7])), LOG_HEADER),
+            Kind::Log => (self.log_path(at_ms), LOG_HEADER),
         };
-        let raw = read(&path);
-        let mut body = if raw.is_empty() { header.to_owned() } else { raw };
-        if !body.ends_with('\n') {
-            body.push('\n');
-        }
-        let _ = writeln!(body, "- ({}) {content}", ymd(at_ms));
-        write_atomic(&path, &body)?;
+        append(&path, header, &content, at_ms)?;
         Ok(true)
     }
 
@@ -201,6 +225,16 @@ impl Memory {
         }
         write_atomic(&self.profile_path(), PROFILE_HEADER)
     }
+}
+
+fn append(path: &Path, header: &str, content: &str, at_ms: i64) -> Result<()> {
+    let raw = read(path);
+    let mut body = if raw.is_empty() { header.to_owned() } else { raw };
+    if !body.ends_with('\n') {
+        body.push('\n');
+    }
+    let _ = writeln!(body, "- ({}) {content}", ymd(at_ms));
+    write_atomic(path, &body)
 }
 
 fn read(path: &Path) -> String {
@@ -304,7 +338,7 @@ pub fn render(recall: &Recall, location: &Path) -> (String, bool) {
             "Your memory lives in a folder at {}: {PROFILE_FILE} holds who the user is (kept in mind every turn) and {LOG_DIR}/ holds dated history.",
             location.display()
         ),
-        "Read or grep those files when you need older facts that are not listed here. Memory is updated automatically after each exchange: when the user asks you to remember or forget something, just confirm it in your reply and it will be recorded.".to_owned(),
+        "Read or grep those files when you need older facts that are not listed here, and use the search_history tool to find what was actually said in past chats. Memory is updated automatically in the background shortly after each conversation: when the user asks you to remember or forget something, just confirm it in your reply and it will be recorded.".to_owned(),
     ];
     if !recall.profile.is_empty() {
         lines.push("About the user:".into());
@@ -388,7 +422,7 @@ pub fn is_memorable(user: &str) -> bool {
 
 pub fn extraction_system_prompt() -> String {
     [
-        "You maintain the long-term memory of a personal assistant. Read the latest exchange and decide what — if anything — is worth remembering for future, unrelated conversations.",
+        "You maintain the long-term memory of a personal assistant. Read the latest exchanges and decide what — if anything — is worth remembering for future, unrelated conversations.",
         "",
         "Tag each fact you keep with a category:",
         "- \"profile\": enduring facts about who the user is and how to work with them — their name and how to address them, role, location, languages, lasting preferences and constraints, and important people or relationships. These are remembered indefinitely.",
@@ -397,7 +431,7 @@ pub fn extraction_system_prompt() -> String {
         "",
         "Do NOT record one-off request mechanics, what the assistant did this turn, general knowledge, or anything already present in the existing memory list.",
         "",
-        "If the new exchange updates or contradicts a fact in the existing memory list (e.g. the user moved, changed jobs, or renamed something), drop anything clearly superseded: output a line \"remove: <the exact existing fact text>\" and then add the corrected fact. Only remove facts that appear verbatim in the existing list — never invent removals.",
+        "If a new exchange updates or contradicts a fact in the existing memory list (e.g. the user moved, changed jobs, or renamed something), drop anything clearly superseded: output a line \"remove: <the exact existing fact text>\" and then add the corrected fact. Only remove facts that appear verbatim in the existing list — never invent removals.",
         "",
         "Write each fact as a self-contained statement, one per line: \"profile: <fact>\", \"log: <fact>\", or \"note: <fact>\" to add (e.g. \"profile: The user's name is Ian\", \"log: Planning a trip to Tokyo in October 2025\"), or \"remove: <existing fact>\" to drop a superseded one.",
         "Output exactly NONE (and nothing else) when there is nothing to add or remove.",
@@ -405,14 +439,36 @@ pub fn extraction_system_prompt() -> String {
     .join("\n")
 }
 
-pub fn extraction_user_prompt(user: &str, agent: &str, existing: &[String]) -> String {
+pub fn extraction_user_prompt(turns: &[EpisodeTurn], existing: &[String]) -> String {
     let existing = if existing.is_empty() {
         "(empty)".to_owned()
     } else {
         existing.iter().map(|m| format!("- {m}")).collect::<Vec<_>>().join("\n")
     };
     let side = |s: &str| if s.trim().is_empty() { "(no message)".to_owned() } else { s.trim().to_owned() };
-    format!("Existing memory:\n{existing}\n\nLatest exchange:\nUser: {}\nAssistant: {}", side(user), side(agent))
+    let body = turns
+        .iter()
+        .map(|t| format!("({})\nUser: {}\nAssistant: {}", ymd(t.ts), side(&t.user), side(&t.agent)))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    format!("Existing memory:\n{existing}\n\nLatest exchanges, oldest first:\n\n{body}")
+}
+
+pub fn consolidation_system_prompt() -> String {
+    [
+        format!("You maintain the long-term memory of a personal assistant. Its profile of the user (enduring facts about who they are and how to work with them) has grown past {PROFILE_PROMPT_LIMIT} facts and must be merged down to at most {PROFILE_TARGET}."),
+        "Merge duplicates and near-duplicates into one self-contained statement, drop facts clearly superseded by a newer one (each fact shows the date it was learned), and move anything that is history rather than who the user is (projects, events, one-off details) to the log.".to_owned(),
+        "Keep every distinct enduring fact and keep the user's wording where you can. Never invent facts.".to_owned(),
+        "Output one fact per line: \"profile: <fact>\" for the new profile, \"log: <fact>\" for what moves to the log. Output nothing else.".to_owned(),
+    ]
+    .join("\n")
+}
+
+pub fn consolidation_user_prompt(facts: &[Fact]) -> String {
+    let mut facts: Vec<&Fact> = facts.iter().collect();
+    facts.sort_by_key(|f| f.created_at);
+    let body = facts.iter().map(|f| format!("- ({}) {}", ymd(f.created_at), f.content)).collect::<Vec<_>>().join("\n");
+    format!("Profile, oldest first:\n{body}")
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -582,21 +638,58 @@ pub struct Exchange {
     pub at: i64,
 }
 
-/// Starts the bot's keeper: exchanges are remembered one at a time, in the
-/// background, and an unnamed bot is named from them (see `naming`). It stops when the bot actor drops the sender.
+fn unprocessed_key(bot_id: &str) -> String {
+    format!("memory.unprocessed.{bot_id}")
+}
+
+fn unprocessed(store: &Store, bot_id: &str) -> Vec<EpisodeTurn> {
+    store.kv_get(&unprocessed_key(bot_id)).and_then(|v| serde_json::from_str(&v).ok()).unwrap_or_default()
+}
+
+/// Starts the bot's keeper. Exchanges queue up (persisted, so a restart keeps them)
+/// and are remembered together once the bot has been quiet for [`KEEPER_IDLE`] or
+/// [`KEEPER_BATCH`] have piled up: the frozen prompt only picks facts up at the next
+/// compaction or session anyway, and one run over several exchanges sees their
+/// context. An unnamed bot is named right away (see `naming`). It stops when the
+/// bot actor drops the sender; what's queued is picked up by the next keeper.
 pub fn spawn_keeper(hub: Arc<Hub>, bot_id: String) -> mpsc::UnboundedSender<Exchange> {
     let (tx, mut rx) = mpsc::unbounded_channel::<Exchange>();
     tokio::spawn(async move {
-        while let Some(x) = rx.recv().await {
-            let turn = EpisodeTurn {
-                ts: x.at,
-                user: acp::truncate(&x.user, EXCHANGE_CHARS),
-                agent: acp::truncate(&x.agent, EXCHANGE_CHARS),
+        let mut queued = unprocessed(&hub.store, &bot_id);
+        let idle = tokio::time::sleep(KEEPER_IDLE);
+        tokio::pin!(idle);
+        loop {
+            let flush = tokio::select! {
+                x = rx.recv() => {
+                    let Some(x) = x else { break };
+                    let turn = EpisodeTurn {
+                        ts: x.at,
+                        user: acp::truncate(&x.user, EXCHANGE_CHARS),
+                        agent: acp::truncate(&x.agent, EXCHANGE_CHARS),
+                    };
+                    if let Err(e) = crate::chat::naming::observe(&hub, &bot_id, turn.clone()).await {
+                        tracing::warn!(bot = %bot_id, error = format!("{e:#}"), "naming the bot failed");
+                    }
+                    // Re-read: another keeper of this bot (before a restart) may have flushed.
+                    queued = unprocessed(&hub.store, &bot_id);
+                    queued.push(turn);
+                    if let Err(e) = hub.store.kv_set(&unprocessed_key(&bot_id), &serde_json::to_string(&queued).unwrap_or_default()) {
+                        tracing::warn!(bot = %bot_id, error = format!("{e:#}"), "couldn't queue an exchange for memory");
+                    }
+                    idle.as_mut().reset(tokio::time::Instant::now() + KEEPER_IDLE);
+                    queued.len() >= KEEPER_BATCH
+                }
+                () = &mut idle, if !queued.is_empty() => true,
             };
-            if let Err(e) = crate::chat::naming::observe(&hub, &bot_id, turn).await {
-                tracing::warn!(bot = %bot_id, error = format!("{e:#}"), "naming the bot failed");
+            if !flush {
+                continue;
             }
-            if let Err(e) = remember(&hub, &bot_id, x).await {
+            let batch = std::mem::take(&mut queued);
+            // Cleared before the run: a failing agent must not retry the same batch forever.
+            if let Err(e) = hub.store.kv_set(&unprocessed_key(&bot_id), "[]") {
+                tracing::warn!(bot = %bot_id, error = format!("{e:#}"), "couldn't clear the memory queue");
+            }
+            if let Err(e) = remember(&hub, &bot_id, batch).await {
                 tracing::warn!(bot = %bot_id, error = format!("{e:#}"), "memory keeper failed");
             }
         }
@@ -604,29 +697,33 @@ pub fn spawn_keeper(hub: Arc<Hub>, bot_id: String) -> mpsc::UnboundedSender<Exch
     tx
 }
 
-async fn remember(hub: &Arc<Hub>, bot_id: &str, x: Exchange) -> Result<()> {
+async fn remember(hub: &Arc<Hub>, bot_id: &str, turns: Vec<EpisodeTurn>) -> Result<()> {
     let Some(cfg) = hub.store.bot(bot_id)?.filter(|b| !b.deleted).map(|b| b.config) else { return Ok(()) };
-    let user = acp::truncate(&x.user, EXCHANGE_CHARS);
-    let agent = acp::truncate(&x.agent, EXCHANGE_CHARS);
+    let Some(at) = turns.last().map(|t| t.ts) else { return Ok(()) };
 
     let id = bot_id.to_owned();
-    let exchange_text = format!("{user}\n{agent}");
+    let exchange_text = turns.iter().map(|t| format!("{}\n{}", t.user, t.agent)).collect::<Vec<_>>().join("\n");
     let existing = tokio::task::spawn_blocking(move || {
         Memory::for_bot(&id).map(|mem| existing_for_extraction(&mem, &exchange_text))
     })
     .await??;
-    let raw =
-        one_shot(hub, &cfg, &extraction_system_prompt(), &extraction_user_prompt(&user, &agent, &existing)).await?;
+    let raw = one_shot(hub, &cfg, &extraction_system_prompt(), &extraction_user_prompt(&turns, &existing)).await?;
     let extraction = parse_extraction(&raw, &existing);
     let id = bot_id.to_owned();
-    let (added, removed) = tokio::task::spawn_blocking(move || {
-        Memory::for_bot(&id).and_then(|mem| apply(&mem, &extraction, &existing, crate::store::now_ms()))
+    let (added, removed, crowded) = tokio::task::spawn_blocking(move || {
+        Memory::for_bot(&id).and_then(|mem| {
+            let (added, removed) = apply(&mem, &extraction, &existing, at)?;
+            Ok((added, removed, mem.profile_facts().len() > PROFILE_PROMPT_LIMIT))
+        })
     })
     .await??;
-    tracing::info!(bot = %bot_id, added, removed, "memory updated");
+    tracing::info!(bot = %bot_id, exchanges = turns.len(), added, removed, "memory updated");
+    if crowded && let Err(e) = consolidate(hub, &cfg).await {
+        tracing::warn!(bot = %bot_id, error = format!("{e:#}"), "consolidating the profile failed");
+    }
 
     let mut pending = pending_episode(&hub.store, bot_id);
-    pending.push(EpisodeTurn { ts: x.at, user, agent });
+    pending.extend(turns);
     if pending.len() < EPISODE_INTERVAL {
         return set_pending_episode(&hub.store, bot_id, &pending);
     }
@@ -634,13 +731,42 @@ async fn remember(hub: &Arc<Hub>, bot_id: &str, x: Exchange) -> Result<()> {
     let raw = one_shot(hub, &cfg, &episode_system_prompt(&cfg.name), &episode_user_prompt(&cfg.name, &pending)).await?;
     let narrative = normalize(&raw);
     if !narrative.is_empty() && !narrative.eq_ignore_ascii_case(NONE) {
-        let at = pending.last().map_or(x.at, |t| t.ts);
+        let at = pending.last().map_or(at, |t| t.ts);
         let id = bot_id.to_owned();
         tokio::task::spawn_blocking(move || {
             Memory::for_bot(&id).and_then(|mem| mem.add(&format!("{EPISODE_PREFIX}{narrative}"), Kind::Log, at))
         })
         .await??;
     }
+    Ok(())
+}
+
+/// The profile outgrew what the prompt shows: have the keeper merge it down to
+/// [`PROFILE_TARGET`] facts. Nothing is lost: facts it drops move to the log.
+async fn consolidate(hub: &Arc<Hub>, cfg: &BotConfig) -> Result<()> {
+    let id = cfg.id.clone();
+    let facts = tokio::task::spawn_blocking(move || Memory::for_bot(&id).map(|m| m.profile_facts())).await??;
+    let raw = one_shot(hub, cfg, &consolidation_system_prompt(), &consolidation_user_prompt(&facts)).await?;
+    let plan = parse_extraction(&raw, &[]);
+    let keep: Vec<&String> = plan.additions.iter().filter(|(_, k)| *k == Kind::Profile).map(|(c, _)| c).collect();
+    if keep.is_empty() || keep.len() > PROFILE_PROMPT_LIMIT {
+        bail!("the consolidated profile had {} facts", keep.len());
+    }
+    let now = crate::store::now_ms();
+    let dated = |c: &str| facts.iter().find(|f| dedupe_key(&f.content) == dedupe_key(c)).map_or(now, |f| f.created_at);
+    let kept: Vec<(String, i64)> = keep.iter().map(|c| ((*c).clone(), dated(c))).collect();
+    let kept_keys: HashSet<String> = kept.iter().map(|(c, _)| dedupe_key(c)).collect();
+    let mut demoted: Vec<(String, i64)> = facts
+        .iter()
+        .filter(|f| !kept_keys.contains(&dedupe_key(&f.content)))
+        .map(|f| (f.content.clone(), f.created_at))
+        .collect();
+    demoted.extend(plan.additions.iter().filter(|(_, k)| *k == Kind::Log).map(|(c, _)| (c.clone(), now)));
+    let id = cfg.id.clone();
+    let (before, after) = (facts.len(), kept.len());
+    tokio::task::spawn_blocking(move || Memory::for_bot(&id).and_then(|m| m.rewrite_profile(&kept, &demoted)))
+        .await??;
+    tracing::info!(bot = %cfg.id, before, after, "profile consolidated");
     Ok(())
 }
 
@@ -731,6 +857,61 @@ async fn collect(acp: &Acp, inc: Option<Incoming>, out: &mut String) -> bool {
     }
 }
 
+// MARK: history search (the built-in `memory` MCP server)
+
+const SEARCH_DEFAULT: i64 = 10;
+const SEARCH_MAX: i64 = 30;
+const SEARCH_TERMS: usize = 8;
+const SEARCH_TEXT_CHARS: usize = 1_500;
+
+pub const INSTRUCTIONS: &str = "Use search_history to find what was actually said in your past chats with the user \
+(their messages and your final replies, including threads), beyond what your memory notes kept. \
+Search for distinctive words; every word must appear. Results are newest first.";
+
+pub fn tools() -> Value {
+    json!([{
+        "name": "search_history",
+        "description": "Search your full chat history with the user for messages containing every given word (case-insensitive). Returns dated messages, newest first.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Words that must all appear, separated by spaces."},
+                "limit": {"type": "integer", "description": "Maximum results (default 10, at most 30)."},
+            },
+            "required": ["query"],
+        },
+        "annotations": {"readOnlyHint": true},
+    }])
+}
+
+pub async fn call(hub: &Arc<Hub>, bot_id: &str, name: &str, args: &Value) -> Result<Value> {
+    if name != "search_history" {
+        bail!("unknown memory tool: {name}");
+    }
+    let bot = hub.store.bot(bot_id)?.filter(|b| !b.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
+    let terms: Vec<String> =
+        args["query"].as_str().unwrap_or_default().split_whitespace().take(SEARCH_TERMS).map(str::to_owned).collect();
+    if terms.is_empty() {
+        bail!("query must contain at least one word");
+    }
+    let limit = args["limit"].as_i64().unwrap_or(SEARCH_DEFAULT).clamp(1, SEARCH_MAX);
+    let hub = hub.clone();
+    let id = bot.config.id.clone();
+    let rows = tokio::task::spawn_blocking(move || hub.store.search_messages(&id, &terms, limit)).await??;
+    let results: Vec<Value> = rows
+        .iter()
+        .map(|e| {
+            json!({
+                "date": ymd(e.created_at),
+                "from": if e.kind == crate::store::EntryKind::User.as_str() { "user" } else { "you" },
+                "inThread": e.thread_id.is_some(),
+                "text": acp::truncate(e.data["text"].as_str().unwrap_or_default(), SEARCH_TEXT_CHARS),
+            })
+        })
+        .collect();
+    Ok(json!({"results": results}))
+}
+
 /// `memory` API: the facts a bot has, for the Memory screen.
 pub fn describe(bot_id: &str) -> Result<Value> {
     let mem = Memory::for_bot(bot_id)?;
@@ -794,6 +975,40 @@ mod tests {
         );
         assert_eq!(ex.removals, vec!["Lives in Taipei".to_owned()]);
         assert_eq!(parse_extraction(" none ", &[]), Extraction::default());
+    }
+
+    #[test]
+    fn consolidation_moves_dropped_facts_to_the_log() {
+        let mem = temp();
+        let t = parse_ymd("2026-08-01").expect("valid date");
+        for fact in ["Name is Kai", "Is called Kai", "Lives in Taipei"] {
+            assert!(mem.add(fact, Kind::Profile, t).expect("add"));
+        }
+        let now = parse_ymd("2026-09-30").expect("valid date");
+        mem.rewrite_profile(
+            &[("The user's name is Kai".into(), now), ("Lives in Taipei".into(), t)],
+            &[("Name is Kai".into(), t), ("Is called Kai".into(), t)],
+        )
+        .expect("rewrite");
+        let profile: Vec<String> = mem.profile_facts().into_iter().map(|f| f.content).collect();
+        assert_eq!(profile, ["The user's name is Kai", "Lives in Taipei"]);
+        let log = read(&mem.dir.join("log/2026-08.md"));
+        assert!(log.contains("- (2026-08-01) Name is Kai") && log.contains("- (2026-08-01) Is called Kai"));
+        let _ = std::fs::remove_dir_all(&mem.dir);
+    }
+
+    #[test]
+    fn batched_exchanges_are_dated_in_order() {
+        let t = parse_ymd("2026-09-30").expect("valid date");
+        let turns = [
+            EpisodeTurn { ts: t, user: "I use Swift 6".into(), agent: "Noted".into() },
+            EpisodeTurn { ts: t, user: String::new(), agent: "Done".into() },
+        ];
+        let prompt = extraction_user_prompt(&turns, &[]);
+        assert!(prompt.contains("Existing memory:\n(empty)"));
+        assert!(
+            prompt.contains("(2026-09-30)\nUser: I use Swift 6\nAssistant: Noted\n\n(2026-09-30)\nUser: (no message)")
+        );
     }
 
     #[test]

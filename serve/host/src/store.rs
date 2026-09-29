@@ -3,13 +3,14 @@
 //!
 //! Calls are synchronous. They're single-row or indexed queries measured in
 //! microseconds, so async callers use them directly; the one bulk read (a fresh
-//! client's catch-up) is capped per bot.
+//! client's catch-up) is capped per bot, and the history search runs through `spawn_blocking`.
 
 use crate::LockExt;
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::fmt::Write as _;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -689,6 +690,25 @@ impl Store {
         Ok(rows)
     }
 
+    /// Chat-visible messages (the user's, final replies) in any of `bot_id`'s lanes that
+    /// contain every term (case-insensitive for ASCII), newest first.
+    // ponytail: substring scan, no index (CJK needs no tokenizer this way); an FTS5 trigram table if it gets slow.
+    pub fn search_messages(&self, bot_id: &str, terms: &[String], limit: i64) -> Result<Vec<Entry>> {
+        let mut sql = format!(
+            "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND
+               (kind = 'user' OR (kind = 'agent' AND json_extract(data, '$.final') = 1))"
+        );
+        for i in 0..terms.len() {
+            let _ = write!(sql, " AND instr(lower(json_extract(data, '$.text')), ?{}) > 0", i + 3);
+        }
+        sql.push_str(" ORDER BY seq DESC LIMIT ?2");
+        let mut args: Vec<rusqlite::types::Value> = vec![bot_id.to_owned().into(), limit.into()];
+        args.extend(terms.iter().map(|t| t.to_lowercase().into()));
+        let c = self.db.locked();
+        let mut st = c.prepare(&sql)?;
+        Ok(st.query_map(rusqlite::params_from_iter(args), row_entry)?.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// A thread's newest `limit` entries, oldest first.
     pub fn thread(&self, bot_id: &str, root: &str, limit: i64) -> Result<Vec<Entry>> {
         let c = self.db.locked();
@@ -933,11 +953,34 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn temp_store() -> Store {
         let dir = std::env::temp_dir().join(format!("codync-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         Store::open(&dir.join("t.db")).unwrap()
+    }
+
+    #[test]
+    fn history_search_matches_every_term_in_chat_messages() {
+        let s = temp_store();
+        let main = Lane::main("b1");
+        s.insert_entry(&main, EntryKind::User, 1, &json!({"text": "我們用 Swift 6 寫 Codync"})).unwrap();
+        s.insert_entry(&main, EntryKind::Agent, 1, &json!({"text": "swift narration", "final": false})).unwrap();
+        s.insert_entry(&main, EntryKind::Agent, 1, &json!({"text": "Swift 6 strict mode is on", "final": true}))
+            .unwrap();
+        s.insert_entry(&Lane::main("b2"), EntryKind::User, 1, &json!({"text": "Swift 6 elsewhere"})).unwrap();
+        let texts = |terms: &[&str]| -> Vec<String> {
+            let terms: Vec<String> = terms.iter().map(|t| (*t).to_owned()).collect();
+            s.search_messages("b1", &terms, 10)
+                .unwrap()
+                .into_iter()
+                .map(|e| e.data["text"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        assert_eq!(texts(&["SWIFT", "6"]), ["Swift 6 strict mode is on", "我們用 Swift 6 寫 Codync"]);
+        assert_eq!(texts(&["codync", "寫"]), ["我們用 Swift 6 寫 Codync"]);
+        assert!(texts(&["narration"]).is_empty());
     }
 
     #[test]

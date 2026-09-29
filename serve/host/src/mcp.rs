@@ -15,6 +15,7 @@ pub enum Server {
     Routines,
     Computer,
     Team,
+    Memory,
     Composio,
 }
 
@@ -125,6 +126,7 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
         Server::Computer => ("codync-computer", INSTRUCTIONS, tools()),
         Server::Routines => ("codync-routines", crate::routines::INSTRUCTIONS, crate::routines::tools()),
         Server::Team => ("codync-team", crate::chat::team::INSTRUCTIONS, crate::chat::team::tools()),
+        Server::Memory => ("codync-memory", crate::chat::memory::INSTRUCTIONS, crate::chat::memory::tools()),
         Server::Composio => {
             ("codync-composio", crate::market::composio::INSTRUCTIONS, crate::market::composio::tools())
         }
@@ -171,6 +173,7 @@ async fn call(port: u16, token: &str, bot: &str, params: &Value, server: Server)
         Server::Routines => ("routineCall", Duration::from_secs(30)),
         Server::Computer => ("computerCall", Duration::from_secs(60)),
         Server::Team => ("teamCall", crate::chat::team::ASK_TIMEOUT + Duration::from_secs(30)),
+        Server::Memory => ("memoryCall", Duration::from_secs(30)),
         Server::Composio => ("composioCall", Duration::from_secs(120)),
     };
     let res = crate::http()
@@ -187,7 +190,7 @@ async fn call(port: u16, token: &str, bot: &str, params: &Value, server: Server)
                 Ok(v) if ok => {
                     return match server {
                         Server::Computer => json!({"content": v["content"]}),
-                        Server::Team | Server::Routines | Server::Connectors => {
+                        Server::Team | Server::Memory | Server::Routines | Server::Connectors => {
                             json!({"content": [{"type": "text", "text": v.to_string()}]})
                         }
                         Server::Composio => json!({"content": [{"type": "text", "text": v["result"].to_string()}]}),

@@ -34,6 +34,7 @@ const LOCAL_ONLY: &[&str] = &[
     "pairing",
     "computerCall",
     "teamCall",
+    "memoryCall",
     "routineCall",
     "composioCall",
     "connectorTarget",

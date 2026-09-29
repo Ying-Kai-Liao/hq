@@ -826,6 +826,7 @@ impl Actor {
         let builtin = [
             Some("connectors"),
             Some("team"),
+            Some("memory"),
             Some("routines"),
             self.cfg.computer.then_some("computer"),
             composio.then_some("composio"),
