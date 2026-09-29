@@ -174,14 +174,10 @@ pub async fn command(agent: &Value, progress: impl Fn(&str)) -> Result<Cmd> {
                 args: args_of(target),
             })
         }
-        Some(Launch::Npx) => Ok(Cmd {
-            program: format!(
-                "{}npx -y {}",
-                env_prefix(&d["npx"]["env"]),
-                shell_quote(d["npx"]["package"].as_str().unwrap_or_default())
-            ),
-            args: args_of(&d["npx"]),
-        }),
+        Some(Launch::Npx) => {
+            prepare_npx(d["npx"]["package"].as_str().unwrap_or_default(), name, &progress).await?;
+            Ok(npx_cmd(&d["npx"]))
+        }
         Some(Launch::Uvx) => Ok(Cmd {
             program: format!(
                 "{}uvx {}",
@@ -195,6 +191,78 @@ pub async fn command(agent: &Value, progress: impl Fn(&str)) -> Result<Cmd> {
             if d["uvx"].is_object() { "uv" } else { "Node.js" }
         ),
     }
+}
+
+fn npx_cmd(npx: &Value) -> Cmd {
+    Cmd {
+        program: format!(
+            "{}npx -y {}",
+            env_prefix(&npx["env"]),
+            shell_quote(npx["package"].as_str().unwrap_or_default())
+        ),
+        args: args_of(npx),
+    }
+}
+
+/// npx installs a package into `<npm cache>/_npx/<hash>` and writes its `package.json` last.
+/// An install cut short (the first Codex download takes minutes, longer than the ACP handshake
+/// may) leaves the packages without their bin links, and npx then fails with "command not
+/// found" on every later run. So the download happens here, without the handshake's timeout,
+/// and a half-finished one is started over.
+async fn prepare_npx(package: &str, name: &str, progress: &impl Fn(&str)) -> Result<()> {
+    static INSTALLING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _one_at_a_time = INSTALLING.lock().await;
+    let dir = npm_cache().await?.join("_npx").join(npx_hash(package));
+    if tokio::fs::try_exists(dir.join("package.json")).await.unwrap_or(false) {
+        return Ok(());
+    }
+    let _ = tokio::fs::remove_dir_all(&dir).await;
+    progress(&format!("Downloading {name}…"));
+    let install = tokio::process::Command::new("npm")
+        .args(["exec", "--yes", "--package", package, "-c", "true"])
+        // Away from any project, so npx doesn't settle for a local node_modules.
+        .current_dir(crate::service::data_dir())
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    let failure = match tokio::time::timeout(Duration::from_secs(20 * 60), install).await {
+        Ok(Ok(out)) if out.status.success() => return Ok(()),
+        Ok(Ok(out)) => String::from_utf8_lossy(&out.stderr).trim().lines().last().unwrap_or_default().to_owned(),
+        Ok(Err(e)) => format!("{e}"),
+        Err(_) => "timed out".to_owned(),
+    };
+    let _ = tokio::fs::remove_dir_all(&dir).await;
+    bail!("couldn't download {name} with npm: {failure}")
+}
+
+/// `npm config get cache`, asked once.
+async fn npm_cache() -> Result<&'static Path> {
+    static DIR: tokio::sync::OnceCell<PathBuf> = tokio::sync::OnceCell::const_new();
+    let dir = DIR
+        .get_or_try_init(|| async {
+            let out = tokio::process::Command::new("npm")
+                .args(["config", "get", "cache"])
+                .stdin(std::process::Stdio::null())
+                .output()
+                .await
+                .context("running npm")?;
+            let dir = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+            if !out.status.success() || dir.is_empty() {
+                bail!("npm didn't report its cache directory");
+            }
+            Ok(PathBuf::from(dir))
+        })
+        .await?;
+    Ok(dir)
+}
+
+/// npx's cache key for one package spec (libnpmexec: the first 16 hex digits of its SHA-512).
+fn npx_hash(package: &str) -> String {
+    use std::fmt::Write as _;
+    sha2::Sha512::digest(package.as_bytes())[..8].iter().fold(String::with_capacity(16), |mut s, b| {
+        let _ = write!(s, "{b:02x}");
+        s
+    })
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -311,12 +379,16 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    #[tokio::test]
-    async fn npx_command_is_quoted() {
-        let a = json!({"id": "x", "name": "X", "distribution": {"npx": {"package": "@s/x@1.0.0", "args": ["--acp", "a b"], "env": {"K": "v", "BAD;rm": "x"}}}});
-        if crate::agent::backends::on_path("npx") {
-            assert_eq!(command(&a, |_| {}).await.unwrap().acp(), "env K=v npx -y @s/x@1.0.0 --acp 'a b'");
-        }
+    #[test]
+    fn npx_command_is_quoted() {
+        let npx = json!({"package": "@s/x@1.0.0", "args": ["--acp", "a b"], "env": {"K": "v", "BAD;rm": "x"}});
+        assert_eq!(npx_cmd(&npx).acp(), "env K=v npx -y @s/x@1.0.0 --acp 'a b'");
+    }
+
+    #[test]
+    fn npx_hash_matches_npm() {
+        // ~/.npm/_npx/317ff93dc6c5b519 after `npx -y @agentclientprotocol/codex-acp@2.0.0`.
+        assert_eq!(npx_hash("@agentclientprotocol/codex-acp@2.0.0"), "317ff93dc6c5b519");
     }
 
     #[test]
