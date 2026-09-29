@@ -30,6 +30,7 @@ struct WelcomeView: View {
                 Text("Give each one a name and a project. They work on your computer while you're away.")
                     .font(.body)
                     .foregroundStyle(Palette.secondary)
+                DemoButton().padding(.top, 4)
             }
             .rise(beat >= 3)
 
@@ -128,6 +129,17 @@ private struct ChatGlimpse: View {
                 try? await Task.sleep(for: .seconds(reduceMotion ? 0 : 1.6))
                 withAnimation(Motion.reduced(.spring(duration: 0.45, bounce: 0.2), reduceMotion)) { replied = true }
             }
+        }
+    }
+}
+
+/// Opens a short recording of the app in use on YouTube, for anyone who can't pair a computer yet.
+struct DemoButton: View {
+    var body: some View {
+        Link(destination: URL(string: "https://youtube.com/shorts/xtZ5WeyOewU")!) {
+            Label("Watch the demo", systemImage: "play.circle.fill")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Palette.text)
         }
     }
 }

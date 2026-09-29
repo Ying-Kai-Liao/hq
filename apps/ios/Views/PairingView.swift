@@ -103,6 +103,8 @@ private struct InstallPage: View {
                         }
                     }
                     .animation(Motion.layout, value: os)
+
+                    DemoButton()
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 16)
