@@ -49,6 +49,11 @@ struct CodyncApp: App {
                         _ = try? await app.pair(p)
                     }
                     if ProcessInfo.processInfo.environment["CODYNC_OPEN_USAGE"] != nil { app.tab = .state; app.showUsage = true }
+                    // Screenshots: CODYNC_OPEN_URL=codync://bot/<botId>?scope=local&computer=<id>, without the system prompt.
+                    if let s = ProcessInfo.processInfo.environment["CODYNC_OPEN_URL"], let url = URL(string: s) {
+                        try? await Task.sleep(for: .seconds(1))
+                        app.open(url)
+                    }
                     await LiveActivities.shared.previewIfRequested()
                     if ProcessInfo.processInfo.environment["CODYNC_OPEN_SCREEN"] != nil {
                         try? await Task.sleep(for: .seconds(2))
