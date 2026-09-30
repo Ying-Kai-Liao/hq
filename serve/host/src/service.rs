@@ -7,8 +7,93 @@
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
+
+static BINARY_IDENTITY: OnceLock<(String, String)> = OnceLock::new();
+
+/// Snapshot before serving: reading the path again after an update would identify
+/// the replacement on disk rather than this running process.
+pub fn capture_binary_identity() -> Result<()> {
+    let exe = std::env::current_exe()?.canonicalize()?;
+    let mut hash = String::with_capacity(64);
+    for byte in Sha256::digest(std::fs::read(&exe)?) {
+        write!(hash, "{byte:02x}")?;
+    }
+    let _ = BINARY_IDENTITY.set((exe.to_string_lossy().into_owned(), hash));
+    Ok(())
+}
+
+pub fn binary_identity() -> Option<&'static (String, String)> {
+    BINARY_IDENTITY.get()
+}
+
+/// Do not claim a restart succeeded while an old daemon still holds the data.
+fn wait_for_host_exit() -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        match lock_host() {
+            Ok(lock) => {
+                drop(lock);
+                return Ok(());
+            }
+            Err(error) if Instant::now() >= deadline => {
+                return Err(error.context("old host did not exit; stop any manually started host before reinstalling"));
+            }
+            Err(_) => std::thread::sleep(Duration::from_millis(100)),
+        }
+    }
+}
+
+/// Stops the installed job, preserving its configuration for a later start.
+/// A manually started daemon is never mistaken for the service we own.
+pub fn stop() -> Result<()> {
+    if cfg!(target_os = "macos") {
+        let _ = Command::new("launchctl")
+            .args(["bootout", &format!("gui/{}/{LABEL}", current_uid())])
+            .stderr(Stdio::null())
+            .status()?;
+    } else if installed() {
+        run("systemctl", &["--user", "stop", "codync-host.service"])?;
+    }
+    wait_for_host_exit()
+}
+
+pub fn start() -> Result<()> {
+    if cfg!(target_os = "macos") {
+        run("launchctl", &["bootstrap", &format!("gui/{}", current_uid()), &launchd_plist().to_string_lossy()])
+    } else {
+        run("systemctl", &["--user", "start", "codync-host.service"])
+    }
+}
+
+/// Refuse to replace one installation while restarting a service owned by another.
+pub fn require_executable(expected: &Path) -> Result<()> {
+    let configured = if cfg!(target_os = "macos") {
+        let output = Command::new("/usr/bin/plutil")
+            .args(["-extract", "ProgramArguments.0", "raw", "-o", "-"])
+            .arg(launchd_plist())
+            .output()?;
+        if !output.status.success() {
+            bail!("cannot read the installed host service");
+        }
+        PathBuf::from(String::from_utf8(output.stdout)?.trim())
+    } else {
+        let unit = std::fs::read_to_string(systemd_unit())?;
+        let command =
+            unit.lines().find_map(|line| line.strip_prefix("ExecStart=")).context("service has no ExecStart")?;
+        let args = shlex::split(command).context("invalid service ExecStart")?;
+        PathBuf::from(args.first().context("service has no executable")?)
+    };
+    if configured.canonicalize()? != expected.canonicalize()? {
+        bail!("the installed service runs another host binary; run that binary's update command");
+    }
+    Ok(())
+}
 
 pub const DEFAULT_PORT: u16 = 19222;
 const LABEL: &str = "com.pokai.codync.host";
@@ -89,6 +174,7 @@ pub fn install(port: u16) -> Result<()> {
         // Not loaded yet is the normal case here.
         let _ =
             Command::new("launchctl").args(["bootout", &format!("gui/{uid}/{LABEL}")]).stderr(Stdio::null()).status();
+        wait_for_host_exit()?;
         std::fs::write(&file, plist).with_context(|| format!("writing {}", file.display()))?;
         run("launchctl", &["bootstrap", &format!("gui/{uid}"), &file.to_string_lossy()])?;
     } else {
@@ -99,6 +185,8 @@ pub fn install(port: u16) -> Result<()> {
         create_parent(&file)?;
         std::fs::write(&file, unit).with_context(|| format!("writing {}", file.display()))?;
         run("systemctl", &["--user", "daemon-reload"])?;
+        run("systemctl", &["--user", "stop", "codync-host.service"])?;
+        wait_for_host_exit()?;
         run("systemctl", &["--user", "enable", "--now", "codync-host.service"])?;
         println!("Tip: `loginctl enable-linger $USER` keeps the host running while you're logged out.");
     }
@@ -233,7 +321,7 @@ pub enum Device {
 
 /// Detected once; on macOS from `system_profiler`'s model name.
 pub fn device() -> Device {
-    static DEVICE: std::sync::OnceLock<Device> = std::sync::OnceLock::new();
+    static DEVICE: OnceLock<Device> = OnceLock::new();
     *DEVICE.get_or_init(|| {
         if !cfg!(target_os = "macos") {
             return Device::Linux;

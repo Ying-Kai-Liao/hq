@@ -90,6 +90,7 @@ impl Acp {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
+            .process_group(0)
             .spawn()
             .with_context(|| format!("starting `{command}`"))?;
         let stdin = child.stdin.take().expect("stdin is piped");
@@ -201,8 +202,18 @@ impl Acp {
     }
 
     pub async fn kill(&self) {
+        let mut child = self.child.lock().await;
+        // ACP adapters spawn MCP servers and tools. Give each adapter its own
+        // group and stop that group before reaping its leader.
+        if let Some(pid) = child.id() {
+            let _ = Command::new("/bin/kill")
+                .args(["-KILL", "--", &format!("-{pid}")])
+                .stderr(Stdio::null())
+                .status()
+                .await;
+        }
         // Already exited is fine; anything else is worth a log line.
-        if let Err(error) = self.child.lock().await.kill().await
+        if let Err(error) = child.kill().await
             && error.kind() != std::io::ErrorKind::InvalidInput
         {
             tracing::debug!(%error, "couldn't kill agent process");
@@ -251,6 +262,22 @@ mod tests {
         ]);
         assert_eq!(content_text(&v), "a\nb");
         assert_eq!(truncate("héllo", 2), "h…");
+    }
+
+    #[tokio::test]
+    async fn stopping_an_agent_closes_its_descendants_pipes() {
+        let (acp, mut rx) = Acp::spawn(
+            r#"sh -c 'sleep 60 & echo "{\"jsonrpc\":\"2.0\",\"method\":\"ready\"}"; read line'"#,
+            "/tmp",
+            &[],
+        )
+        .unwrap();
+        let ready = tokio::time::timeout(std::time::Duration::from_secs(3), rx.recv()).await.unwrap();
+        assert!(matches!(ready, Some(Incoming::Notification { .. })));
+        acp.kill().await;
+        // Killing only the shell leaves sleep holding stdout for 60 seconds.
+        let closed = tokio::time::timeout(std::time::Duration::from_secs(3), rx.recv()).await.unwrap();
+        assert!(matches!(closed, Some(Incoming::Closed { .. })));
     }
 
     #[tokio::test]

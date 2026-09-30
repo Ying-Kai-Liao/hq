@@ -75,6 +75,11 @@ pub struct Hub {
 }
 
 impl Hub {
+    pub fn busy(&self) -> bool {
+        self.runtime.locked().values().any(|r| matches!(r.status, BotStatus::Working | BotStatus::NeedsInput))
+            || self.terms.busy()
+    }
+
     pub fn new(store: Store, host_id: String, identity: Identity, token: String, port: u16) -> Arc<Self> {
         let (events, _) = broadcast::channel(1024);
         let screen = Arc::new(Screen::new(Screen::load_enabled(&store), events.clone()));
