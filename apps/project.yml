@@ -6,6 +6,9 @@ options:
     iOS: "18.0"
     macOS: "14.0"
   createIntermediateGroups: true
+  fileTypes:
+    icon:
+      file: true
 packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
@@ -74,7 +77,6 @@ targets:
         INFOPLIST_FILE: macos/Resources/Info.plist
         # Sparkle compares this version; iOS retains its separate upload counter.
         CURRENT_PROJECT_VERSION: "$(MARKETING_VERSION)"
-        INFOPLIST_KEY_LSUIElement: YES
         INFOPLIST_KEY_CFBundleDisplayName: Codync
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
