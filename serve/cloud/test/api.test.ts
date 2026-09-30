@@ -110,6 +110,20 @@ describe("Clerk", () => {
     expect(r.body).toMatchObject({ userId, email: "kevin@example.com" });
   });
 
+  it.each([undefined, "hidden@privaterelay.appleid.com"])("registers a native device without a real email (%s)", async (email) => {
+    const userId = uid("apple");
+    const token = await clerkToken(userId, { email });
+    const key = ref.signKey();
+    const registered = await call("POST", "/v1/devices", {
+      token, key, body: { name: "iPhone", platform: "ios" },
+    });
+    expect(registered.status).toBe(200);
+    expect((await call("GET", "/v1/me", { token })).body).toMatchObject({ userId, email: email ?? null });
+    const computers = await call("GET", "/v1/computers", { token, key });
+    expect(computers.status).toBe(200);
+    expect(computers.body.computers).toEqual([]);
+  });
+
   it("rejects missing, foreign-issuer, session-less and tampered tokens", async () => {
     const userId = uid("bad");
     expect((await call("GET", "/v1/me")).body.error.code).toBe("unauthenticated");
