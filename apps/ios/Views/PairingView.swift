@@ -92,6 +92,12 @@ private struct InstallPage: View {
                     SegmentedChoice(selection: $os, options: [(.mac, "Mac"), (.linux, "Linux")])
 
                     VStack(alignment: .leading, spacing: 10) {
+                        if os == .mac {
+                            // Copied here, pasted on the Mac (Universal Clipboard or a message to yourself).
+                            Hint("Download the Mac app")
+                            CommandBlock("https://github.com/leepokai/Codync/releases/latest/download/codync-macos.dmg")
+                            Hint("or install it with Homebrew")
+                        }
                         CommandBlock(os == .mac
                                      ? "brew install --cask leepokai/codync/codync"
                                      : "brew install leepokai/codync/codync-host\ncodync-host install")
@@ -117,6 +123,16 @@ private struct InstallPage: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 12)
         }
+    }
+}
+
+/// A small label above a `CommandBlock`.
+private struct Hint: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text).font(.footnote).foregroundStyle(Palette.secondary).transition(.opacity)
     }
 }
 
