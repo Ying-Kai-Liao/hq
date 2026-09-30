@@ -36,6 +36,9 @@ final class AccountSession {
     var supportsMultipleAccounts: Bool { clerk?.environment?.authConfig.singleSessionMode == false }
 
     var isConfigured: Bool { clerk != nil }
+    /// Clerk restores the persisted Keychain session during configuration. Don't offer a fresh sign-in
+    /// until that restore has completed, or an update can briefly look like a signed-out install.
+    var isReady: Bool { clerk?.isLoaded ?? true }
     /// The Codync cloud (accounts and the encrypted relay); nil in builds without one.
     let cloudURL: URL?
     var isSignedIn: Bool { userID != nil }
@@ -86,7 +89,12 @@ final class AccountSession {
         var errorDescription: String? { "Sign in again to reach your account." }
     }
 
-    func signIn() async {
+    enum SignInProvider: String {
+        case google = "Google"
+        case apple = "Apple"
+    }
+
+    func signIn(provider: SignInProvider = .google) async {
         guard !isBusy else { return }
         guard let clerk else {
             errorMessage = "Sign-in setup isn't finished yet. You can continue using local pairing."
@@ -96,19 +104,33 @@ final class AccountSession {
         errorMessage = nil
         defer { isBusy = false }
         do {
-            // Start Google directly; Clerk transfers new users into sign-up.
-            let result = try await clerk.auth.signInWithOAuth(provider: .google, prefersEphemeralWebBrowserSession: isSignedIn)
+            // Both providers use Clerk's transfer flow and activate the same kind of session.
+            let result: TransferFlowResult
+            switch provider {
+            case .google:
+                result = try await clerk.auth.signInWithOAuth(provider: .google, prefersEphemeralWebBrowserSession: isSignedIn)
+            case .apple:
+                #if os(macOS)
+                // The desktop OAuth flow uses the Services ID grouped with our iOS App ID.
+                // Clerk therefore receives the same Apple identity, including Hide My Email.
+                result = try await clerk.auth.signInWithOAuth(provider: .apple, prefersEphemeralWebBrowserSession: isSignedIn)
+                #else
+                result = try await clerk.auth.signInWithApple()
+                #endif
+            }
             switch result {
             case .signIn(let signIn):
                 if signIn.status != .complete {
-                    errorMessage = "Google sign-in needs additional verification. Your account is not signed in yet."
+                    errorMessage = "\(provider.rawValue) sign-in needs additional verification. Your account is not signed in yet."
                 }
             case .signUp(let signUp):
                 if signUp.status != .complete {
-                    errorMessage = "Google sign-up needs additional account information. Your account is not signed in yet."
+                    errorMessage = "\(provider.rawValue) sign-up needs additional account information. Your account is not signed in yet."
                 }
             }
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
+            return
+        } catch let error as ASAuthorizationError where error.code == .canceled {
             return
         } catch is CancellationError {
             return

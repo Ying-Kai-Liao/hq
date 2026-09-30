@@ -11,6 +11,24 @@ struct WelcomeView: View {
     @State private var beat = 0
 
     var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                content
+                    .frame(minHeight: geometry.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .background(Palette.background)
+        .task {
+            if reduceMotion { beat = 4; return }
+            for next in 1...4 {
+                try? await Task.sleep(for: .milliseconds(next == 1 ? 150 : 280))
+                withAnimation(.spring(duration: 0.6, bounce: 0.25)) { beat = next }
+            }
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer(minLength: 24)
 
@@ -20,13 +38,14 @@ struct WelcomeView: View {
             Spacer(minLength: 24)
 
             ChatGlimpse(shown: beat >= 2)
-                .padding(.bottom, 32)
+                .padding(.bottom, 24)
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("Your coding agents,\nas teammates.")
                     .font(.system(size: 34, weight: .semibold))
                     .tracking(-0.6)
                     .foregroundStyle(Palette.text)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text("Give each one a name and a project. They work on your computer while you're away.")
                     .font(.body)
                     .foregroundStyle(Palette.secondary)
@@ -42,7 +61,7 @@ struct WelcomeView: View {
                 }
                 .buttonStyle(.primary)
                 // Signed in, the computers on the account show up without scanning a code.
-                if account.isConfigured { GoogleSignInButton() }
+                if account.isConfigured { SignInButtons() }
                 if let message = account.errorMessage {
                     Text(message).font(.footnote).foregroundStyle(Palette.danger)
                         .transition(.opacity)
@@ -52,14 +71,6 @@ struct WelcomeView: View {
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 12)
-        .background(Palette.background)
-        .task {
-            if reduceMotion { beat = 4; return }
-            for next in 1...4 {
-                try? await Task.sleep(for: .milliseconds(next == 1 ? 150 : 280))
-                withAnimation(.spring(duration: 0.6, bounce: 0.25)) { beat = next }
-            }
-        }
     }
 }
 
@@ -90,7 +101,7 @@ private struct Crew: View {
                 }
             }
         }
-        .frame(height: 200)
+        .frame(height: 170)
     }
 }
 

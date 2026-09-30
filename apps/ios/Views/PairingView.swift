@@ -231,8 +231,8 @@ private struct ScanPage: View {
                     .transition(.opacity)
                 }
 
-                // The other way in: computers on your Google account show up and ask for access themselves.
-                if account.isConfigured && !account.isSignedIn { GoogleSignInButton() }
+                // Signed in, account computers show up and ask for access themselves.
+                if account.isConfigured && !account.isSignedIn { SignInButtons() }
 
                 // How it connects is never a choice here: every paired computer gets every route.
                 VStack(alignment: .leading, spacing: 8) {
