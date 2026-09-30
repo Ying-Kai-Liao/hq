@@ -3,6 +3,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)] // test code: failing loudly is the point
 
+mod common;
+
 /// The host's wire crypto doubles as this test's device implementation.
 #[path = "../src/remote/crypto.rs"]
 #[allow(dead_code)]
@@ -24,7 +26,7 @@ struct Host {
 
 impl Drop for Host {
     fn drop(&mut self) {
-        let _ = self.child.kill();
+        common::stop(&mut self.child);
         let _ = std::fs::remove_dir_all(&self.home);
     }
 }

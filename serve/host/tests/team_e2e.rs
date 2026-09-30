@@ -3,6 +3,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+mod common;
+
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -17,8 +19,7 @@ struct Host {
 
 impl Drop for Host {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        common::stop(&mut self.child);
         let _ = std::fs::remove_dir_all(&self.home);
     }
 }
