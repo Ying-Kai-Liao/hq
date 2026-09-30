@@ -209,7 +209,6 @@ private struct ComputerRow: View {
     let remove: () -> Void
     @Environment(AccountStore.self) private var accounts
     @State private var coloring = false
-    @State private var routing = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -231,14 +230,20 @@ private struct ComputerRow: View {
                 IconButton("Screen", systemImage: "display", action: openScreen)
             }
             // Which route goes first, and whether Cloudflare is a fallback at all.
-            IconButton("Connection", systemImage: preference.icon, selected: routing) { routing = true }
-                .codyncMenu(isPresented: $routing) {
-                    ConnectionRoute.allCases.map { route in
-                        MenuItem(route.title, icon: route.icon, selected: route == preference) {
-                            accounts.setRoute(store.computer.id, route)
-                        }
+            DropdownMenu {
+                ConnectionRoute.allCases.map { route in
+                    MenuItem(route.title, icon: route.icon, selected: route == preference) {
+                        accounts.setRoute(store.computer.id, route)
                     }
                 }
+            } label: {
+                Image(systemName: preference.icon)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(Palette.secondary)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Connection")
             if inAccount != nil {
                 Image(systemName: "person.crop.circle.badge.checkmark")
                     .foregroundStyle(Palette.tertiary)
@@ -249,13 +254,7 @@ private struct ComputerRow: View {
         .contentShape(Rectangle())
         .contextActions {
             var items = [
-                MenuItem("Color", icon: "paintpalette") {
-                    // ponytail: waits for the menu to fade out before opening the swatches; one overlay at a time.
-                    Task {
-                        try? await Task.sleep(for: .milliseconds(350))
-                        coloring = true
-                    }
-                },
+                MenuItem("Color", icon: "paintpalette") { coloring = true },
             ]
             if store.connection == .online {
                 items.append(MenuItem("Marketplace", icon: "storefront", action: openMarketplace))
