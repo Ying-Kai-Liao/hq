@@ -106,6 +106,9 @@ async fn health(State(hub): State<Arc<Hub>>) -> Json<Value> {
         "hostId": hub.host_id,
         "computerId": hub.identity.computer_id(),
         "version": env!("CARGO_PKG_VERSION"),
+        "binaryPath": crate::service::binary_identity().map(|(path, _)| path),
+        "binaryHash": crate::service::binary_identity().map(|(_, hash)| hash),
+        "busy": hub.busy(),
     }))
 }
 
@@ -251,6 +254,20 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
         market::vault::unlock(hub.clone()).await?;
     }
     Ok(match method {
+        "hostUpdateStatus" => crate::update::status()?,
+        "checkHostUpdate" => crate::update::check().await?,
+        "setHostAutomaticUpdates" => {
+            crate::update::set_automatic(b["enabled"].as_bool().context("enabled must be a boolean")?)?
+        }
+        "installHostUpdate" => {
+            let port = hub.port;
+            let force = b["force"].as_bool().unwrap_or(false);
+            if !force && hub.busy() {
+                bail!("host is busy; retry when idle or explicitly allow interruption");
+            }
+            tokio::task::spawn_blocking(move || crate::update::spawn_worker(port, force)).await??;
+            json!({"scheduled": true})
+        }
         "credentialUpdateConnector" => {
             let id = str_arg(&b, "id")?;
             let fields = b["fields"].as_object().ok_or_else(|| anyhow!("Credential fields are required"))?;

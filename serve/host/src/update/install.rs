@@ -1,0 +1,175 @@
+use super::release;
+use crate::service;
+use anyhow::{Context, Result, bail, ensure};
+use std::{future::Future, path::Path, time::Duration};
+
+#[derive(Clone, Copy, Debug, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Method {
+    Standalone,
+    AppBundle,
+    Homebrew,
+    Development,
+}
+
+pub fn method(executable: &Path) -> Method {
+    let path = executable.to_string_lossy();
+    if path.contains(".app/Contents/") {
+        Method::AppBundle
+    } else if path.contains("/Cellar/") || path.contains("/linuxbrew/") {
+        Method::Homebrew
+    } else if path.contains("/target/debug/") || path.contains("/target/release/") || cfg!(debug_assertions) {
+        Method::Development
+    } else {
+        Method::Standalone
+    }
+}
+
+pub fn require_standalone(executable: &Path) -> Result<()> {
+    match method(executable) {
+        Method::Standalone => Ok(()),
+        Method::AppBundle => bail!("this host belongs to Codync.app; update the Mac app from Settings > Updates"),
+        Method::Homebrew => bail!(
+            "this host belongs to Homebrew; run `brew upgrade leepokai/codync/codync-host`, then `codync-host install`"
+        ),
+        Method::Development => bail!("this is a development build; rebuild it instead of replacing it with a release"),
+    }
+}
+
+pub async fn health(port: u16) -> Option<serde_json::Value> {
+    crate::http()
+        .get(format!("http://127.0.0.1:{port}/health"))
+        .timeout(Duration::from_secs(2))
+        .send()
+        .await
+        .ok()?
+        .error_for_status()
+        .ok()?
+        .json()
+        .await
+        .ok()
+}
+
+async fn verify_running(port: u16, version: &str, hash: &str, identity: Option<&str>) -> Result<()> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        if let Some(health) = health(port).await
+            && health["version"] == version
+            && health["binaryHash"] == hash
+            && identity.is_none_or(|id| health["computerId"] == id)
+        {
+            return Ok(());
+        }
+        ensure!(tokio::time::Instant::now() < deadline, "the updated host did not become healthy within 30 seconds");
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+/// The backup lives beside the executable, so replacement and rollback use
+/// atomic rename on the same filesystem. It is retained if rollback fails.
+pub async fn replace<Stop, Stopped, Verify, Verified, Restore, Restored>(
+    target: &Path,
+    candidate: &Path,
+    stop: Stop,
+    verify: Verify,
+    restore: Restore,
+) -> Result<()>
+where
+    Stop: FnOnce() -> Stopped,
+    Stopped: Future<Output = Result<()>>,
+    Verify: FnOnce() -> Verified,
+    Verified: Future<Output = Result<()>>,
+    Restore: FnOnce() -> Restored,
+    Restored: Future<Output = Result<()>>,
+{
+    let backup = target.with_file_name(format!(".codync-host-backup-{}", uuid::Uuid::new_v4()));
+    std::fs::hard_link(target, &backup).context("creating the rollback copy")?;
+    if let Err(error) = stop().await {
+        let _ = std::fs::remove_file(&backup);
+        return Err(error.context("old host could not be stopped; executable was not replaced"));
+    }
+    let update = async {
+        std::fs::rename(candidate, target).context("replacing the host executable")?;
+        verify().await
+    }
+    .await;
+    if let Err(error) = update {
+        // Renaming a live executable is safe on Unix; processes retain their
+        // original inode. restore() then stops the failed service and restarts it.
+        std::fs::rename(&backup, target)
+            .with_context(|| format!("update failed ({error:#}); restore the saved binary at {}", backup.display()))?;
+        restore()
+            .await
+            .with_context(|| format!("update failed ({error:#}); restored the old binary but could not restart it"))?;
+        bail!("update failed; restored the previous host: {error:#}");
+    }
+    std::fs::remove_file(backup)?;
+    Ok(())
+}
+
+pub async fn apply(release: &release::Release, target: &Path, port: u16, force: bool) -> Result<()> {
+    require_standalone(target)?;
+    let managed = service::installed();
+    if managed {
+        service::require_executable(target)?;
+    }
+    let old_health = health(port).await;
+    if !force {
+        ensure!(
+            old_health.as_ref().is_none_or(|h| h["busy"] == false),
+            "host is busy or its activity is unknown; retry when idle, or use --force"
+        );
+    }
+    if !managed {
+        drop(service::lock_host().context("stop the manually started host before updating its executable")?);
+    }
+    let bytes = release::archive(release).await?;
+    let stage = target.with_file_name(format!(".codync-host-update-{}", uuid::Uuid::new_v4()));
+    let result = async {
+        release::extract(&bytes, &release.platform, &stage)?;
+        let output = tokio::process::Command::new(&stage).arg("--version").kill_on_drop(true).output();
+        let output = tokio::time::timeout(Duration::from_secs(10), output).await??;
+        ensure!(
+            output.status.success()
+                && String::from_utf8_lossy(&output.stdout).trim() == format!("codync-host {}", release.version),
+            "downloaded executable reported the wrong version"
+        );
+        let old_hash = release::sha256(&std::fs::read(target)?);
+        let new_hash = release::sha256(&std::fs::read(&stage)?);
+        let identity = old_health.as_ref().and_then(|h| h["computerId"].as_str());
+        // Recheck immediately before stopping; downloads can take minutes.
+        if !force && managed {
+            let current = health(port).await.context("cannot confirm the running host is idle")?;
+            ensure!(current["busy"] == false, "host became busy while downloading; retry after its work finishes");
+        }
+        replace(
+            target,
+            &stage,
+            || async {
+                if managed {
+                    tokio::task::spawn_blocking(service::stop).await??;
+                }
+                Ok(())
+            },
+            || async {
+                if managed {
+                    tokio::task::spawn_blocking(service::start).await??;
+                    verify_running(port, &release.version, &new_hash, identity).await?;
+                }
+                Ok(())
+            },
+            || async {
+                if managed {
+                    tokio::task::spawn_blocking(service::stop).await??;
+                    tokio::task::spawn_blocking(service::start).await??;
+                    verify_running(port, env!("CARGO_PKG_VERSION"), &old_hash, identity).await?;
+                }
+                Ok(())
+            },
+        )
+        .await
+    }
+    .await;
+    let _ = std::fs::remove_file(stage);
+    result
+}

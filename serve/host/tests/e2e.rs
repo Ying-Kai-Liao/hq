@@ -87,6 +87,31 @@ impl Host {
 }
 
 #[tokio::test]
+async fn termination_exits_with_an_open_event_stream() {
+    let mut host = start_host().await;
+    let health: Value = reqwest::get(format!("{}/health", host.base)).await.unwrap().json().await.unwrap();
+    assert!(health["binaryHash"].as_str().is_some_and(|hash| hash.len() == 64));
+    assert_eq!(
+        health["binaryPath"],
+        std::fs::canonicalize(env!("CARGO_BIN_EXE_codync-host")).unwrap().to_str().unwrap()
+    );
+    let stream =
+        reqwest::Client::new().get(format!("{}/events", host.base)).bearer_auth(&host.token).send().await.unwrap();
+    assert!(stream.status().is_success());
+    assert!(Command::new("/bin/kill").args(["-TERM", &host.child.id().to_string()]).status().unwrap().success());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(status) = host.child.try_wait().unwrap() {
+            assert!(status.success());
+            break;
+        }
+        assert!(Instant::now() < deadline, "open SSE prevented host shutdown");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    drop(stream);
+}
+
+#[tokio::test]
 async fn turn_with_approval_reaches_a_final_reply() {
     if Command::new("python3").arg("--version").output().is_err() {
         eprintln!("skipping: python3 not available");

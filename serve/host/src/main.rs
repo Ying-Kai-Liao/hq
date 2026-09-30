@@ -12,6 +12,7 @@ mod screen;
 mod service;
 mod store;
 mod tui;
+mod update;
 mod usage;
 
 use agent::{backends, registry};
@@ -21,6 +22,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::json;
 use std::fmt::Write as _;
+use std::future::IntoFuture;
 use std::io::Read;
 use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -121,6 +123,27 @@ enum Sub {
     },
     /// Stop and remove the background service.
     Uninstall,
+    /// Stop the background service, keeping its configuration and all data.
+    Stop,
+    /// Update a standalone host, or inspect/configure its automatic updates.
+    Update {
+        #[arg(long, conflicts_with_all = ["status", "worker"])]
+        check: bool,
+        /// Read update progress without checking or installing a release.
+        #[arg(long, conflicts_with = "worker")]
+        status: bool,
+        #[arg(long, value_parser = ["on", "off"], conflicts_with_all = ["check", "status", "worker"])]
+        auto: Option<String>,
+        /// Allow a manual update to interrupt active bots (their sessions resume).
+        #[arg(long)]
+        force: bool,
+        #[arg(long, default_value_t = service::DEFAULT_PORT)]
+        port: u16,
+        #[arg(long)]
+        json: bool,
+        #[arg(long, hide = true)]
+        worker: bool,
+    },
     /// Show whether the host is installed and running.
     Status {
         #[arg(long, default_value_t = service::DEFAULT_PORT)]
@@ -340,6 +363,42 @@ async fn main() -> Result<()> {
             println!("Codync host installed and started on port {port}. Run `codync-host pair` to connect your phone.");
             Ok(())
         }
+        Sub::Update { check, status, auto, force, port, json, worker } => {
+            let status = if let Some(auto) = auto {
+                update::set_automatic(auto == "on")?
+            } else if status {
+                update::status()?
+            } else if check {
+                update::check().await?
+            } else if !worker && service::installed() {
+                tokio::task::spawn_blocking(move || update::spawn_worker(port, force)).await??;
+                update::status()?
+            } else {
+                update::apply(port, force, worker).await?
+            };
+            if json {
+                println!("{}", serde_json::to_string_pretty(&status)?);
+            } else {
+                println!(
+                    "Host {} · {}",
+                    status["currentVersion"].as_str().unwrap_or("unknown"),
+                    status["state"]["phase"].as_str().unwrap_or("ready")
+                );
+                println!("Automatic updates: {}", if status["automatic"] == true { "on" } else { "off" });
+                if let Some(version) = status["state"]["availableVersion"].as_str() {
+                    println!("Available version: {version}");
+                }
+                if let Some(error) = status["state"]["error"].as_str() {
+                    println!("Last error: {error}");
+                }
+            }
+            Ok(())
+        }
+        Sub::Stop => {
+            tokio::task::spawn_blocking(service::stop).await??;
+            println!("Codync host stopped.");
+            Ok(())
+        }
         Sub::Uninstall => {
             service::uninstall();
             if let Some(home) = dirs::home_dir()
@@ -403,6 +462,7 @@ fn cap_log() {
 
 async fn serve(bind: &str, port: u16) -> Result<()> {
     let _instance_lock = tokio::task::spawn_blocking(service::lock_host).await??;
+    tokio::task::spawn_blocking(service::capture_binary_identity).await??;
     let listener =
         tokio::net::TcpListener::bind((bind, port)).await.with_context(|| format!("binding {bind}:{port}"))?;
     cap_log();
@@ -420,6 +480,7 @@ async fn serve(bind: &str, port: u16) -> Result<()> {
     tokio::spawn(registry::refresh_loop());
     tokio::spawn(backends::refresh_sign_in());
     tokio::spawn(usage::poll(hub.clone()));
+    tokio::spawn(update::automatic_loop(hub.clone()));
     tokio::spawn(screen::serve_helpers(hub.screen.clone()));
     tokio::spawn(relay::run(hub.clone()));
     #[cfg(target_os = "linux")]
@@ -427,8 +488,14 @@ async fn serve(bind: &str, port: u16) -> Result<()> {
     tracing::info!(version = env!("CARGO_PKG_VERSION"), bind, port, "codync-host listening");
     // Peer addresses: some settings may only be changed from this computer.
     let app = api::router(hub.clone()).into_make_service_with_connect_info::<std::net::SocketAddr>();
-    axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
-    // launchd/systemd stop us with SIGTERM: stop every agent instead of orphaning it.
+    // SSE/WebSocket clients can stay connected forever. Stop agents immediately
+    // on the signal instead of waiting for those connections to finish.
+    let server = axum::serve(listener, app).into_future();
+    tokio::pin!(server);
+    tokio::select! {
+        result = &mut server => result?,
+        () = shutdown_signal() => {},
+    }
     hub.shutdown().await;
     tracing::info!("codync-host stopped");
     Ok(())

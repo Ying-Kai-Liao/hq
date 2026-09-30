@@ -81,6 +81,10 @@ impl Term {
 pub struct Terms(Mutex<HashMap<String, Arc<Term>>>);
 
 impl Terms {
+    pub fn busy(&self) -> bool {
+        self.0.locked().values().any(|term| term.output.locked().exit.is_none())
+    }
+
     pub fn get(&self, id: &str) -> Option<Arc<Term>> {
         self.0.locked().get(id).cloned()
     }
