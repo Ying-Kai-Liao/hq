@@ -19,6 +19,7 @@
 		2CC074683AE086D6C77CC1E8 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B274A0195CB3B2409EA4C194 /* WidgetKit.framework */; };
 		2CDF3DF16A13DAF83CA42168 /* CodyncWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAB9BDB52C3A9F7B2568A750 /* CodyncWidgets.swift */; };
 		3BCC04815E5CA8953E0DDCAD /* WidgetPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 305DDCC18BB8AA6CD9D19CEF /* WidgetPreviews.swift */; };
+		3C37D6D7D9C89E6AD3F5E04F /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 7549E88A01FD7650C5746C54 /* AppIcon.icon */; };
 		48DAAA1384E5B8D0BA27C895 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1E47C60032C326157E0386B8 /* SwiftUI.framework */; };
 		4DDC38E58D673047B332FDD5 /* AccessRequestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97102DEC6029268332DF901 /* AccessRequestView.swift */; };
 		501377099B6CF42761B230CB /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57A7C09154869DD84BACE19 /* WelcomeView.swift */; };
@@ -144,6 +145,7 @@
 		64888B10E98F19723500FBCA /* NotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NotificationService.entitlements; sourceTree = "<group>"; };
 		6D734BEE7CD3F84677B0218B /* Widgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = Widgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		741B706007BA1B91CB853699 /* Screen.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Screen.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7549E88A01FD7650C5746C54 /* AppIcon.icon */ = {isa = PBXFileReference; path = AppIcon.icon; sourceTree = "<group>"; };
 		772D2E6B5C5157077E504B35 /* ComputerStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerStatus.swift; sourceTree = "<group>"; };
 		7A2F5A7F5A648909D8CC5C19 /* kit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = kit; path = ../kit; sourceTree = SOURCE_ROOT; };
 		7AB018B7D7F8E8137E0A1012 /* CodyncMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodyncMacApp.swift; sourceTree = "<group>"; };
@@ -230,6 +232,7 @@
 		0C9ED805690F5F321E1C2C97 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				7549E88A01FD7650C5746C54 /* AppIcon.icon */,
 				5A6F0E1B9F75DA969F30E790 /* Assets.xcassets */,
 				5D8E24CB8B64ED897CAEC580 /* Info.plist */,
 			);
@@ -600,6 +603,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3C37D6D7D9C89E6AD3F5E04F /* AppIcon.icon in Resources */,
 				B7306D54C75E4A20E61142D0 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -853,7 +857,6 @@
 				INFOPLIST_FILE = macos/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Codync;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
-				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1137,7 +1140,6 @@
 				INFOPLIST_FILE = macos/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Codync;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
-				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
