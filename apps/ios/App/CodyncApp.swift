@@ -224,8 +224,10 @@ final class AppStore {
             Task { [weak accounts] in
                 do {
                     try await cloud.registerDevice(name: UIDevice.current.name, platform: "ios")
-                } catch {
+                } catch let error as CloudError {
                     accounts?.lastError = error.localizedDescription
+                } catch {
+                    // Transient (network, token not ready): the next launch registers again.
                 }
                 await accounts?.refreshCloud()
             }

@@ -19,13 +19,13 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if accounts.computers.isEmpty && accounts.cloudComputers.isEmpty {
-                if !onboardingCompleted && !welcomed && !account.isSignedIn {
+            if !onboardingCompleted && accounts.computers.isEmpty && accounts.cloudComputers.isEmpty {
+                if !welcomed && !account.isSignedIn {
                     WelcomeView { withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { welcomed = true } }
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 } else {
-                    PairingView {
-                        if onboardingCompleted || account.isSignedIn {
+                    PairingView(onSkip: { onboardingCompleted = true }) {
+                        if account.isSignedIn {
                             AccountSwitcherButton()
                         } else {
                             BackButton { withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { welcomed = false } }
@@ -39,7 +39,7 @@ struct RootView: View {
         }
         .background(Palette.background)
         .onChange(of: accounts.computers.isEmpty, initial: true) { _, empty in
-            // Existing installations have already completed setup. Keep this
+            // Pairing or explicitly skipping completes setup. Keep this
             // device-level milestone across account changes and unpairing.
             if !empty { onboardingCompleted = true }
         }

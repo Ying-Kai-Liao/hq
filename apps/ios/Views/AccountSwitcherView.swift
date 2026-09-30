@@ -26,6 +26,7 @@ struct AccountSwitcherView: View {
     @State private var showSettings = false
     @State private var confirmSignOut = false
     @State private var pairing = false
+    @State private var addingAccount = false
 
     var body: some View {
         CardForm {
@@ -49,6 +50,7 @@ struct AccountSwitcherView: View {
 
             if account.isSignedIn, account.supportsMultipleAccounts || account.accounts.count > 1 {
                 switcher
+                if addingAccount { SignInButtons().transition(.opacity.combined(with: .move(edge: .top))) }
             }
 
             CardSection {
@@ -85,6 +87,7 @@ struct AccountSwitcherView: View {
         }
         .animation(Motion.layout, value: account.userID)
         .animation(Motion.fade, value: account.errorMessage)
+        .onChange(of: account.userID) { _, _ in withAnimation(Motion.layout) { addingAccount = false } }
         .hidesSystemNavigationBar()
         .navigationDestination(isPresented: $showSettings) { SettingsView(pushed: true) }
         .codyncSheet(isPresented: $pairing) { PairingView(inModal: true) }
@@ -94,20 +97,11 @@ struct AccountSwitcherView: View {
         }
     }
 
-    /// The big picture: your face and address when signed in, the Google button when not.
+    /// The big picture: your face and address when signed in, both login options when not.
     @ViewBuilder private var profile: some View {
         if account.isSignedIn {
             VStack(spacing: 10) {
                 AccountAvatar(url: account.avatarURL, email: account.email, size: 76)
-                    .overlay(alignment: .bottomTrailing) {
-                        Image("google")
-                            .resizable()
-                            .frame(width: 16, height: 16)
-                            .padding(5)
-                            .background(Palette.background, in: Circle())
-                            .offset(x: 2, y: 2)
-                            .accessibilityHidden(true)
-                    }
                 Text(account.email ?? "")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Palette.text)
@@ -125,7 +119,7 @@ struct AccountSwitcherView: View {
                 }
                 .accessibilityHidden(true)
                 if account.isConfigured {
-                    GoogleSignInButton()
+                    SignInButtons()
                 } else {
                     Label("QR pairing only in this build", systemImage: "qrcode")
                         .font(.footnote)
@@ -153,7 +147,7 @@ struct AccountSwitcherView: View {
                     .accessibilityAddTraits(current ? .isSelected : [])
                 }
                 if account.supportsMultipleAccounts {
-                    Button { Task { await account.signIn() } } label: {
+                    Button { withAnimation(Motion.layout) { addingAccount.toggle() } } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 18, weight: .medium))
                             .foregroundStyle(Palette.secondary)
@@ -162,7 +156,7 @@ struct AccountSwitcherView: View {
                     }
                     .buttonStyle(PressScale())
                     .disabled(account.isBusy)
-                    .accessibilityLabel("Add Google account")
+                    .accessibilityLabel("Add account")
                 }
             }
             .padding(.horizontal, 4)
