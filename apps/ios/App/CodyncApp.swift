@@ -50,6 +50,7 @@ struct CodyncApp: App {
                         _ = try? await app.accounts.pair(p, deviceName: UIDevice.current.name, platform: "ios")
                     }
                     if ProcessInfo.processInfo.environment["CODYNC_OPEN_USAGE"] != nil { app.tab = .state; app.showUsage = true }
+                    if ProcessInfo.processInfo.environment["CODYNC_STATE_SURFACE"] != nil { app.tab = .state }
                     // Screenshots: CODYNC_OPEN_URL=codync://bot/<botId>?scope=local&computer=<id>, without the system prompt.
                     if let s = ProcessInfo.processInfo.environment["CODYNC_OPEN_URL"], let url = URL(string: s) {
                         try? await Task.sleep(for: .seconds(1))

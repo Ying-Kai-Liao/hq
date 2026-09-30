@@ -159,7 +159,18 @@ private struct StateTab: View {
 
     @Environment(AppStore.self) private var app
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var surface = Surface.widget
+    // Screenshots: CODYNC_STATE_SURFACE=widget|liveActivity|island opens the tab on that gallery.
+    @State private var surface: Surface = {
+        #if DEBUG
+            switch ProcessInfo.processInfo.environment["CODYNC_STATE_SURFACE"] {
+            case "liveActivity": return .liveActivity
+            case "island": return .island
+            default: return .widget
+            }
+        #else
+            return .widget
+        #endif
+    }()
 
     var body: some View {
         VStack(spacing: 0) {
