@@ -7,6 +7,9 @@ options:
     macOS: "14.0"
   createIntermediateGroups: true
 packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.0
   Clerk:
     url: https://github.com/clerk/clerk-ios
     exactVersion: 1.5.6
@@ -49,6 +52,8 @@ targets:
             destination: wrapper
             subpath: Contents/Library/LaunchAgents
     dependencies:
+      - package: Sparkle
+        product: Sparkle
       - package: Clerk
         product: ClerkKit
       - package: CodyncKit
@@ -66,6 +71,9 @@ targets:
         PRODUCT_NAME: Codync
         PRODUCT_BUNDLE_IDENTIFIER: com.pokai.Codync
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: macos/Resources/Info.plist
+        # Sparkle compares this version; iOS retains its separate upload counter.
+        CURRENT_PROJECT_VERSION: "$(MARKETING_VERSION)"
         INFOPLIST_KEY_LSUIElement: YES
         INFOPLIST_KEY_CFBundleDisplayName: Codync
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
