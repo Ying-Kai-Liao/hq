@@ -45,8 +45,9 @@ struct CodyncApp: App {
                 #if DEBUG
                 .task {
                     // Simulator/UI-test pairing: SIMCTL_CHILD_CODYNC_PAIR_URL=codync://pair?...
+                    // Skips the notification prompt, which nothing can dismiss in a headless simulator.
                     if let s = ProcessInfo.processInfo.environment["CODYNC_PAIR_URL"], let p = Pairing(string: s) {
-                        _ = try? await app.pair(p)
+                        _ = try? await app.accounts.pair(p, deviceName: UIDevice.current.name, platform: "ios")
                     }
                     if ProcessInfo.processInfo.environment["CODYNC_OPEN_USAGE"] != nil { app.tab = .state; app.showUsage = true }
                     // Screenshots: CODYNC_OPEN_URL=codync://bot/<botId>?scope=local&computer=<id>, without the system prompt.
