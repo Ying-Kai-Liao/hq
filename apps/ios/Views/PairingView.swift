@@ -7,6 +7,8 @@ import VisionKit
 struct PairingView<Leading: View>: View {
     /// Adding another computer from the computers sheet: has a close button; closes once paired.
     var inModal = false
+    /// Finish onboarding without pairing; modal pairing simply closes when skipped.
+    var onSkip: (() -> Void)? = nil
     /// Top-left on the first page (back to the welcome, the account switcher).
     @ViewBuilder var leading: Leading
 
@@ -43,6 +45,21 @@ struct PairingView<Leading: View>: View {
             }
             .frame(maxHeight: .infinity)
             .clipped()
+
+            if step == .scan {
+                Button {
+                    withAnimation(Motion.reduced(Motion.layout, reduceMotion)) {
+                        if inModal { dismissModal() } else { onSkip?() }
+                    }
+                } label: {
+                    Text("Skip").font(.headline).frame(maxWidth: .infinity, minHeight: 50)
+                }
+                .buttonStyle(.secondary)
+                .accessibilityHint("Pair a computer later from Computers & settings.")
+                .padding(.horizontal, 24)
+                .padding(.bottom, 12)
+                .transition(.opacity)
+            }
         }
         .background(Palette.background)
     }
