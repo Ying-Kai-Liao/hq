@@ -23,7 +23,13 @@ struct WidgetGalleryView: View {
         (Usage.widgetPreview.providers + SharedStore.activeContext.usage.values.flatMap(\.providers)).first { $0.id == providerID }
     }
     private var providers: [(id: String, label: String)] {
-        SharedStore.activeContext.usageProviders.map { (id: $0.id, label: $0.name) }
+        let reported = SharedStore.activeContext.usageProviders
+        var names = Dictionary(uniqueKeysWithValues: reported.map { ($0.id, $0.name) })
+        // Keep both built-in providers selectable even when the shared snapshot is empty/stale.
+        for provider in Usage.widgetPreview.providers where names[provider.id] == nil {
+            names[provider.id] = provider.name
+        }
+        return names.map { (id: $0.key, label: $0.value) }.sorted { $0.label < $1.label }
     }
 
     var body: some View {
