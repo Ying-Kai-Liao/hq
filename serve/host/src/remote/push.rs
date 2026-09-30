@@ -88,6 +88,22 @@ fn purge_dead_tickets(hub: &Hub) {
     }
 }
 
+/// The chat, its first two members (a group's avatar) and the speaker, just enough for the phone
+/// to draw their faces even when its roster copy is older than the bot.
+fn faces(hub: &Hub, bot: &BotConfig, from: Option<&str>) -> Vec<Value> {
+    let face = |c: &BotConfig| {
+        json!({"id": c.id, "kind": c.kind, "members": c.members, "name": c.name,
+            "avatarColor": c.avatar_color, "avatarShape": c.avatar_shape})
+    };
+    let mut ids: Vec<&str> = bot.members.iter().take(2).map(String::as_str).collect();
+    if let Some(from) = from.filter(|f| *f != bot.id && !ids.contains(f)) {
+        ids.push(from);
+    }
+    std::iter::once(face(bot))
+        .chain(ids.into_iter().filter_map(|id| hub.store.bot(id).ok().flatten()).map(|r| face(&r.config)))
+        .collect()
+}
+
 /// `bot` is the chat the alert opens; `from` is the member bot speaking when that chat is a group.
 pub fn notify(hub: &Hub, bot: &BotConfig, from: Option<&str>, title: &str, body: &str, kind: AlertKind) {
     purge_dead_tickets(hub);
@@ -114,6 +130,7 @@ pub fn notify(hub: &Hub, bot: &BotConfig, from: Option<&str>, title: &str, body:
     if let Some(from) = from.filter(|f| *f != bot.id) {
         secret["from"] = from.into();
     }
+    secret["faces"] = faces(hub, bot, from).into();
     let secret = secret.to_string();
     let computer_id = hub.identity.computer_id();
     let mut notifications = Vec::new();
