@@ -18,7 +18,7 @@ packages:
 settings:
   base:
     MARKETING_VERSION: 2.2.1
-    CURRENT_PROJECT_VERSION: 20
+    CURRENT_PROJECT_VERSION: 21
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     CODE_SIGN_STYLE: Automatic
