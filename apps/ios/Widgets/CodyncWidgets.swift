@@ -10,6 +10,8 @@ struct CodyncWidgets: WidgetBundle {
         BotsWidget()
         UsageWidget()
         ProviderUsageWidget()
+        ClaudeUsageWidget()
+        CodexUsageWidget()
         BotLiveActivity()
     }
 }
@@ -296,7 +298,13 @@ struct UsageProviderEntity: AppEntity {
 
 struct UsageProviderQuery: EntityQuery {
     private var all: [UsageProviderEntity] {
-        SharedStore.activeContext.usageProviders.map { UsageProviderEntity(id: $0.id, name: $0.name) }
+        var names = Dictionary(uniqueKeysWithValues: SharedStore.activeContext.usageProviders.map { ($0.id, $0.name) })
+        // The widget editor can ask the extension before it has a usable shared snapshot.
+        // Seed the built-in choices from the same sample data used by widget previews.
+        for provider in Usage.widgetPreview.providers where names[provider.id] == nil {
+            names[provider.id] = provider.name
+        }
+        return names.map { UsageProviderEntity(id: $0.key, name: $0.value) }.sorted { $0.name < $1.name }
     }
 
     func entities(for identifiers: [String]) async throws -> [UsageProviderEntity] {
@@ -347,6 +355,48 @@ struct ProviderUsageWidget: Widget {
         .configurationDisplayName("Provider usage")
         .description("Session and weekly limits in a compact, easy-to-read card.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+    }
+}
+
+/// Fixed-provider widgets appear as separate choices in the iOS widget gallery.
+struct ClaudeUsageWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "CodyncClaudeUsage", provider: FixedProviderUsageTimeline(providerID: "claude")) { entry in
+            ProviderUsageView(entry: entry)
+        }
+        .configurationDisplayName("Claude Code")
+        .description("Claude Code session and weekly usage limits.")
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+    }
+}
+
+struct CodexUsageWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "CodyncCodexUsage", provider: FixedProviderUsageTimeline(providerID: "codex")) { entry in
+            ProviderUsageView(entry: entry)
+        }
+        .configurationDisplayName("Codex")
+        .description("Codex session and weekly usage limits.")
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+    }
+}
+
+private struct FixedProviderUsageTimeline: TimelineProvider {
+    let providerID: String
+
+    func placeholder(in context: Context) -> ProviderUsageEntry {
+        ProviderUsageEntry(date: .now, usage: .widgetPreview, provider: providerID)
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (ProviderUsageEntry) -> Void) {
+        let usage = context.isPreview ? Usage.widgetPreview : (UsageTimeline.cached ?? Usage())
+        completion(ProviderUsageEntry(date: .now, usage: usage, provider: providerID))
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<ProviderUsageEntry>) -> Void) {
+        let usage = UsageTimeline.cached ?? Usage()
+        let entry = ProviderUsageEntry(date: .now, usage: usage, provider: providerID)
+        completion(Timeline(entries: [entry], policy: .after(.now + 30 * 60)))
     }
 }
 
