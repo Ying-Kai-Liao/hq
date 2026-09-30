@@ -29,14 +29,15 @@ final class NotificationService: UNNotificationServiceExtension {
     }
 
     /// A communication notification shows the bot's face in place of the app icon; a group
-    /// message shows the group's face with the speaking member's on it. Without the bot in this
-    /// account's snapshot (or if the system refuses), the plain notification stays.
+    /// message shows the group's face with the speaking member's on it. Faces come with the alert,
+    /// or (from an older host) from this account's snapshot; without either, or if the system
+    /// refuses, the plain notification stays.
     private static func fromBot(_ content: UNMutableNotificationContent, alert: PushAlert, botId: String?, computerId: String, ctx: String) -> UNNotificationContent {
         let store = SharedStore.activeContext
-        guard let botId, store.id == ctx else { return content }
-        let bots = store.bots.filter { $0.computerId == computerId }.map(\.bot)
-        guard let chat = bots.first(where: { $0.id == botId }) else { return content }
-        let members = bots.filter { chat.members.contains($0.id) }
+        let snapshot = store.id == ctx ? store.bots.filter { $0.computerId == computerId }.map(\.bot) : []
+        let bots = (alert.faces ?? []) + snapshot
+        guard let botId, let chat = bots.first(where: { $0.id == botId }) else { return content }
+        let members = chat.members.compactMap { id in bots.first { $0.id == id } }
         let conversation = "\(computerId)/\(chat.id)"
 
         let intent: INSendMessageIntent
