@@ -25,6 +25,8 @@ pub enum Msg {
 #[derive(Clone)]
 pub enum After {
     Nothing,
+    /// A permission card's answer arrived (or couldn't).
+    Answered(String),
     Sent(String),
     Connection(String, super::connections::Step),
     Hello,
@@ -702,6 +704,8 @@ pub struct App {
     pub shell: Option<Shell>,
     reading: HashSet<String>,
     history_busy: HashSet<String>,
+    /// Permission cards whose answer is on its way, with the chosen option.
+    pub answering: HashMap<String, String>,
     history_done: HashSet<String>,
     pub hint: Option<(String, Instant)>,
 }
@@ -749,6 +753,7 @@ impl App {
             shell: None,
             reading: HashSet::new(),
             history_busy: HashSet::new(),
+            answering: HashMap::new(),
             history_done: HashSet::new(),
             hint: None,
         }
@@ -846,7 +851,11 @@ impl App {
     }
 
     pub fn animating(&self) -> bool {
-        !self.toasts.is_empty() || self.hint.is_some() || self.bots.values().any(|b| b.status == Status::Working)
+        !self.toasts.is_empty()
+            || self.hint.is_some()
+            || !self.online
+            || !self.answering.is_empty()
+            || self.bots.values().any(|b| b.status == Status::Working)
     }
 
     fn select(&mut self, id: &str) {
@@ -1053,6 +1062,13 @@ impl App {
             self.sent(&key, r);
             return;
         }
+        if let After::Answered(entry) = after {
+            self.answering.remove(&entry);
+            if let Err(e) = r {
+                self.flash(&e);
+            }
+            return;
+        }
         if let After::Sheet(s) = after {
             self.on_sheet_reply(s, r);
             return;
@@ -1087,7 +1103,7 @@ impl App {
             }
         };
         match after {
-            After::Nothing | After::Sheet(_) | After::Sent(_) | After::Connection(_, _) => {}
+            After::Nothing | After::Answered(_) | After::Sheet(_) | After::Sent(_) | After::Connection(_, _) => {}
             After::Installed => {
                 self.error = None;
                 self.flash("Host installed; connecting…");
@@ -1647,7 +1663,16 @@ impl App {
     }
 
     fn answer(&mut self, entry: &str, option: &str) {
-        self.call("respondPermission", json!({"entryId": entry, "optionId": option}), After::Nothing);
+        // One answer per card: while it is on its way, the card spins and takes no other.
+        if self.answering.contains_key(entry) {
+            return;
+        }
+        self.answering.insert(entry.to_owned(), option.to_owned());
+        self.call(
+            "respondPermission",
+            json!({"entryId": entry, "optionId": option}),
+            After::Answered(entry.to_owned()),
+        );
     }
 
     fn answer_kind(&mut self, key: char) {

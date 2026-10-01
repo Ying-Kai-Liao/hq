@@ -1155,7 +1155,7 @@ fn entry_lines(
             gap(out);
             if e.pending() {
                 // A card in a group is its asking bot's.
-                permission_card(out, e, author.unwrap_or(b), width, &app.home);
+                permission_card(out, app, e, author.unwrap_or(b), width);
             } else {
                 decided_line(out, e);
             }
@@ -1276,8 +1276,11 @@ fn option_keys(opts: &[(String, String, String)]) -> Vec<String> {
         .collect()
 }
 
-fn permission_card(out: &mut Built, e: &Entry, b: &Bot, width: usize, home: &str) {
+fn permission_card(out: &mut Built, app: &App, e: &Entry, b: &Bot, width: usize) {
     let t = theme();
+    let home = app.home.as_str();
+    // The option whose answer is on its way: it spins, the others dim.
+    let answering = app.answering.get(&e.id);
     let bw = width.saturating_sub(1).max(20);
     let inner = bw.saturating_sub(4);
     let title = e.data["title"].as_str().unwrap_or("Use a tool");
@@ -1356,13 +1359,15 @@ fn permission_card(out: &mut Built, e: &Entry, b: &Bot, width: usize, home: &str
             *used = 0;
         };
     for (i, (id, name, kind)) in opts.iter().enumerate() {
-        let key = format!(" {} ", keys[i]);
+        let key = format!(" {} ", if answering == Some(id) { spin(app) } else { keys[i].as_str() });
         let label = format!("{name} ");
         let bw_ = w(&key) + w(&label);
         if used > 0 && used + bw_ + 1 > inner {
             flush(out, &mut line, &mut used, &mut pending);
         }
-        let style = if i == 0 {
+        let style = if answering.is_some_and(|a| a != id) {
+            t.dim.patch(t.btn)
+        } else if i == 0 {
             t.btn_primary
         } else if kind.starts_with("reject") {
             t.red.patch(t.btn)

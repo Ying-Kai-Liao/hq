@@ -24,6 +24,9 @@ const SLOW: [&str; 7] = [
 
 pub const NOT_INSTALLED: &str = "The Codync host isn't set up on this computer yet.";
 
+/// How long a command keeps trying while the host can't be reached (it is restarting, say).
+const PATIENCE: Duration = Duration::from_secs(20);
+
 #[derive(Clone)]
 pub struct Client {
     base: Arc<str>,
@@ -50,20 +53,26 @@ impl Client {
 
     pub async fn call(&self, method: &str, body: &Value) -> Result<Value, String> {
         let token = self.token().ok_or(NOT_INSTALLED)?;
-        let res = crate::http()
-            .post(format!("{}/api/{method}", self.base))
-            .bearer_auth(token)
-            .json(body)
-            .timeout(Duration::from_secs(if SLOW.contains(&method) { 11 * 60 } else { 60 }))
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    "The host took too long to answer.".to_owned()
-                } else {
-                    format!("Can't reach codync-host at {}. Is it running?", self.base)
+        let started = std::time::Instant::now();
+        let res = loop {
+            let sent = crate::http()
+                .post(format!("{}/api/{method}", self.base))
+                .bearer_auth(&token)
+                .json(body)
+                .timeout(Duration::from_secs(if SLOW.contains(&method) { 11 * 60 } else { 60 }))
+                .send()
+                .await;
+            match sent {
+                Ok(res) => break res,
+                // Nothing was sent, so any command is safe to repeat while the host comes back.
+                // `hello` is the probe that says why it can't be reached, so it answers at once.
+                Err(e) if e.is_connect() && method != "hello" && started.elapsed() < PATIENCE => {
+                    tokio::time::sleep(Duration::from_millis(500)).await;
                 }
-            })?;
+                Err(e) if e.is_timeout() => return Err("The host took too long to answer.".to_owned()),
+                Err(_) => return Err(format!("Can't reach codync-host at {}. Is it running?", self.base)),
+            }
+        };
         let ok = res.status().is_success();
         let v: Value = res.json().await.unwrap_or(Value::Null);
         if ok { Ok(v) } else { Err(v["error"].as_str().unwrap_or("The host refused that.").to_owned()) }
@@ -258,6 +267,22 @@ fn free_path(dir: &std::path::Path, name: &str) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn call_waits_for_a_restarting_host() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        // A free port with nothing listening yet: the host is restarting.
+        let addr = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+        let client = super::Client::new(&format!("http://{addr}"), Some("t"));
+        let call = tokio::spawn(async move { client.call("stop", &serde_json::json!({})).await });
+        tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+        assert!(!call.is_finished());
+        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let _ = socket.read(&mut [0; 4096]).await.unwrap();
+        socket.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\n{}").await.unwrap();
+        assert_eq!(call.await.unwrap(), Ok(serde_json::json!({})));
+    }
+
     #[test]
     fn saved_files_never_overwrite_or_escape() {
         let dir = std::env::temp_dir().join(format!("codync-dl-{}", uuid::Uuid::new_v4()));
