@@ -1118,17 +1118,17 @@ impl Actor {
         });
         self.hub.team.cancel_from(&self.cfg.id);
         // A room turn's news comes from the group once the room is done (see `group`).
-        if !self.stop_requested && !delegated && !grouped {
-            let body =
-                final_text.unwrap_or_else(|| if failed { "The agent failed.".into() } else { "Finished.".into() });
-            push::notify(
-                &self.hub,
-                &self.cfg,
-                None,
-                &self.cfg.name,
-                &body,
-                if failed { AlertKind::Failed } else { AlertKind::Done },
-            );
+        let more = self.queue.iter().any(|q| matches!(q, Queued::User { .. }));
+        if !self.stop_requested
+            && !delegated
+            && !grouped
+            && let Some(kind) = turn_alert(failed, &stop_reason, more)
+        {
+            let body = final_text.unwrap_or_else(|| match kind {
+                AlertKind::Done => "Finished.".into(),
+                _ => "The agent didn't finish.".into(),
+            });
+            push::notify(&self.hub, &self.cfg, None, &self.cfg.name, &body, kind);
         }
     }
 
@@ -1554,8 +1554,26 @@ pub fn diff_summary(path: &str, old: &str, new: &str) -> Value {
     })
 }
 
+/// A finished turn alerts once the user's work is done: not while their next message
+/// is already queued. A turn that ended short of `end_turn` always reports the failure.
+fn turn_alert(failed: bool, stop_reason: &str, more: bool) -> Option<AlertKind> {
+    if failed || !matches!(stop_reason, "end_turn" | "cancelled") {
+        return Some(AlertKind::Failed);
+    }
+    (stop_reason == "end_turn" && !more).then_some(AlertKind::Done)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_finished_tasks_alert() {
+        assert_eq!(turn_alert(false, "end_turn", false), Some(AlertKind::Done));
+        assert_eq!(turn_alert(false, "end_turn", true), None, "next message queued");
+        assert_eq!(turn_alert(false, "cancelled", false), None);
+        assert_eq!(turn_alert(false, "max_turn_requests", false), Some(AlertKind::Failed));
+        assert_eq!(turn_alert(true, "error", true), Some(AlertKind::Failed));
+    }
+
     use super::*;
 
     #[test]
