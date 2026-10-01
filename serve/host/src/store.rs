@@ -980,7 +980,7 @@ mod tests {
         };
         assert_eq!(texts(&["SWIFT", "6"]), ["Swift 6 strict mode is on", "我們用 Swift 6 寫 Codync"]);
         assert_eq!(texts(&["codync", "寫"]), ["我們用 Swift 6 寫 Codync"]);
-        assert!(texts(&["narration"]).is_empty());
+        assert_eq!(texts(&["narration"]).len(), 0);
     }
 
     #[test]
@@ -1068,7 +1068,7 @@ mod tests {
         assert_eq!(s.push_tickets().iter().map(|t| t.ticket.as_str()).collect::<Vec<_>>(), ["t2"]);
         assert_eq!(s.activity_tickets("b1"), ["a2"]);
         assert_eq!(s.take_activity_tickets("b1"), ["a2"]);
-        assert!(s.activity_tickets("b1").is_empty());
+        assert_eq!(s.activity_tickets("b1").len(), 0);
     }
 
     #[test]
@@ -1101,7 +1101,7 @@ mod tests {
         s.add_activity_ticket("other-bot", "bot2", "phone").unwrap();
         assert_eq!(s.activity_tickets("bot"), ["new-activity"]);
         s.remove_push_ticket("new-activity").unwrap();
-        assert!(s.activity_tickets("bot").is_empty());
+        assert_eq!(s.activity_tickets("bot").len(), 0);
         assert_eq!(s.activity_tickets("bot2"), ["other-bot"]);
     }
 

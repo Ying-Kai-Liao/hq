@@ -475,7 +475,7 @@ mod tests {
         assert!(f.request(" ").await.unwrap().is_err());
         f.hub.delete_bot("b").unwrap();
         assert!(f.request("deleted").await.unwrap().is_err());
-        assert!(f.prompts().is_empty());
+        assert_eq!(f.prompts().len(), 0);
         f.shutdown().await;
     }
 

@@ -362,7 +362,7 @@ mod tests {
         let id = r["requestId"].as_str().unwrap();
         assert!(finish(&hub, &json!({"entryId":id,"value":"wrong"})).await.is_err());
         assert_eq!(hub.store.entry(id).unwrap().data["connectionRequest"]["status"], "pending");
-        assert!(hub.store.bot("bot").unwrap().unwrap().config.connectors.is_empty());
+        assert_eq!(hub.store.bot("bot").unwrap().unwrap().config.connectors.len(), 0);
         assert!(hub.store.entry(&format!("connection-ack-{id}")).is_none());
         hub.shutdown().await;
         std::fs::remove_dir_all(dir).unwrap();
