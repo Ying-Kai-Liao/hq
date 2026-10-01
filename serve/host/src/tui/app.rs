@@ -35,6 +35,7 @@ pub enum After {
     Dirs,
     Pairing,
     Backends,
+    Update,
     Saved,
     Connectors,
     Skills,
@@ -428,12 +429,13 @@ pub enum Action {
     RefreshAgents,
     Pair,
     Usage,
+    CheckUpdate,
     Keys,
 }
 
 pub const NEW_GROUP: &str = "New group chat";
 
-pub const ACTIONS: [(&str, &str, Action); 9] = [
+pub const ACTIONS: [(&str, &str, Action); 10] = [
     ("New bot…", "n", Action::NewBot),
     ("New group chat…", "m", Action::NewGroup),
     ("Marketplace: agents, connectors, skills…", "A", Action::Market),
@@ -442,6 +444,7 @@ pub const ACTIONS: [(&str, &str, Action); 9] = [
     ("Refresh agents", "", Action::RefreshAgents),
     ("Pair a phone…", "P", Action::Pair),
     ("Usage", "U", Action::Usage),
+    ("Check for updates", "", Action::CheckUpdate),
     ("Keys", "?", Action::Keys),
 ];
 
@@ -1118,6 +1121,10 @@ impl App {
                 self.backends = v["backends"].as_array().cloned().unwrap_or_default();
                 self.flash("Agents refreshed");
             }
+            After::Update => match v["state"]["availableVersion"].as_str() {
+                Some(version) => self.flash(&format!("Version {version} is available: run codync-host update")),
+                None => self.flash("The host is up to date."),
+            },
             After::Thread => {
                 for e in v["entries"].as_array().into_iter().flatten() {
                     if let Some((bot, e)) = Entry::parse(e) {
@@ -1960,6 +1967,7 @@ impl App {
             Action::RefreshAgents => self.call("refreshBackends", json!({}), After::Backends),
             Action::Pair => self.open_pair(),
             Action::Usage => self.overlays.push(Overlay::Usage),
+            Action::CheckUpdate => self.call("checkHostUpdate", json!({}), After::Update),
             Action::Keys => self.overlays.push(Overlay::Help(Editor::default())),
         }
     }
