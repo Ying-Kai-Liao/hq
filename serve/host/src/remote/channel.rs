@@ -819,7 +819,7 @@ mod tests {
         assert_eq!(code, 4003);
         assert_eq!(reject["code"], "revoked");
         assert!(hub.store.push_tickets().is_empty());
-        assert!(hub.store.activity_tickets("b1").is_empty());
+        assert_eq!(hub.store.activity_tickets("b1").len(), 0);
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(!hub.ios_connected(), "the events subscription ended with the channel");
         assert!(hub.connected.locked().is_empty());

@@ -235,7 +235,7 @@ async fn routines_execute_pause_deduplicate_and_reject_wrong_webhook_keys() {
     assert_eq!(restored["routines"][0]["enabled"], false);
     assert_eq!(restored["runs"][0]["status"], "succeeded");
     host.call("deleteRoutine", json!({"botId":bot,"id":id})).await;
-    assert!(host.call("routines", json!({"botId":bot})).await["routines"].as_array().unwrap().is_empty());
+    assert_eq!(host.call("routines", json!({"botId":bot})).await["routines"].as_array().unwrap().len(), 0);
 }
 
 #[tokio::test]
@@ -481,5 +481,5 @@ async fn schedule_editor_preview_and_save_share_host_rules() {
             .unwrap();
         assert!(!response.status().is_success());
     }
-    assert!(host.call("routines", json!({"botId":bot})).await["runs"].as_array().unwrap().is_empty());
+    assert_eq!(host.call("routines", json!({"botId":bot})).await["runs"].as_array().unwrap().len(), 0);
 }

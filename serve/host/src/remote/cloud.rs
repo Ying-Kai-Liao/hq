@@ -761,7 +761,7 @@ mod tests {
         decide(&hub, "req_ok", true).await.unwrap();
         let d = hub.store.device(&b64(&dk)).unwrap();
         assert_eq!((d.source, d.grant_id.as_deref()), (DeviceSource::Account, Some("grt_new")));
-        assert!(hub.cloud.requests_json().is_empty());
+        assert_eq!(hub.cloud.requests_json().len(), 0);
     }
 
     #[tokio::test]
