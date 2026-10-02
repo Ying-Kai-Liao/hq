@@ -9,7 +9,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::{Value, json};
 use std::str::FromStr as _;
 
-use super::app::{After, App, Confirm, ConfirmAct, Editor, Overlay, Toggle, fuzzy};
+use super::app::{After, App, Confirm, ConfirmAct, Editor, Focus, Overlay, Toggle, fuzzy};
 
 /// Quick reactions, as the other apps offer them.
 pub const REACTIONS: [&str; 6] = ["👍", "❤️", "😂", "🎉", "👀", "✅"];
@@ -20,7 +20,6 @@ pub enum Reply {
     Memory(String),
     Routines(String),
     RoutineSaved,
-    Webhook,
     Registry {
         more: bool,
     },
@@ -257,19 +256,15 @@ impl App {
             (KeyCode::Down | KeyCode::Char('j'), _) => l.cursor = (l.cursor + 1).min(n.saturating_sub(1)),
             (KeyCode::Up | KeyCode::Char('k'), _) => l.cursor = l.cursor.saturating_sub(1),
             (KeyCode::Char('n'), _) => {
-                self.overlays.push(Overlay::Routines(l));
-                self.overlays.push(Overlay::Routine(Box::new(RoutineForm {
-                    bot,
-                    id: None,
-                    name: Editor::default(),
-                    instruction: Editor::default(),
-                    when: Editor::default(),
-                    original: Value::Null,
-                    original_text: String::new(),
-                    field: RoutineField::Name,
-                    error: None,
-                    saving: false,
-                })));
+                // New routines are set up by talking to the bot: start the ask in its chat.
+                let draft = self.drafts.entry(bot).or_default();
+                if !draft.text.is_empty() {
+                    draft.insert("\n");
+                }
+                draft.insert("I want a routine that ");
+                self.thread = None;
+                self.focus = Focus::Chat;
+                self.typing = true;
                 return None;
             }
             (KeyCode::Enter | KeyCode::Char('e'), Some(r)) => {
@@ -308,13 +303,6 @@ impl App {
             (KeyCode::Char('r'), Some(r)) => {
                 self.sheet("runRoutine", json!({"botId": bot, "id": r["id"]}), Reply::Routines(bot.clone()));
                 self.flash(&format!("Running {} now", s(&r, "name")));
-            }
-            (KeyCode::Char('w'), Some(r)) => {
-                if r["triggers"].as_array().into_iter().flatten().any(|t| t["type"] == "webhook") {
-                    self.sheet("routineWebhook", json!({"botId": bot, "id": r["id"]}), Reply::Webhook);
-                } else {
-                    self.flash("Only a routine whose When is webhook can be called");
-                }
             }
             (KeyCode::Char('x'), Some(r)) => {
                 let c = Confirm {
@@ -967,12 +955,6 @@ impl App {
                     self.overlays.truncate(i);
                 }
                 self.refresh_sheets();
-            }
-            Reply::Webhook => {
-                let text =
-                    format!("curl -X POST '{}' -H 'Authorization: Bearer {}' -d '{{}}'", s(&v, "url"), s(&v, "key"));
-                super::app::copy(&text);
-                self.flash("Copied a curl command that runs it (with its key)");
             }
             Reply::Registry { more } => {
                 if let Some(Overlay::Market(m)) =
