@@ -380,7 +380,12 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
             None,
             true,
         )?,
-        "routineWebhook" => hub.routines.credentials(hub, str_arg(&b, "botId")?, str_arg(&b, "id")?)?,
+        "routineWebhook" => hub.routines.credentials(
+            hub,
+            str_arg(&b, "botId")?,
+            str_arg(&b, "id")?,
+            b["rotate"].as_bool().unwrap_or(false),
+        )?,
         "routineCall" => crate::routines::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"])?,
         "memoryCall" => {
             crate::chat::memory::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?
@@ -1064,30 +1069,28 @@ async fn claim_sign(hub: &Arc<Hub>, b: &Value) -> Result<Value> {
 }
 
 /// A scoped webhook credential authorizes only firing its own routine.
+/// `POST /hooks/routines/:id`: a webhook delivery made on this computer (the public one
+/// arrives through the relay, `remote::relay`). Same checks and answers either way.
 async fn routine_hook(
     State(hub): State<Arc<Hub>>,
     Path(id): Path<String>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    if body.len() > 64_000 {
+    use crate::routines::hooks::{MAX_BODY, Refused};
+    if body.len() > MAX_BODY {
         return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, "event too large".into()));
     }
-    let key = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .unwrap_or_default();
-    let delivery = headers.get("x-delivery-id").and_then(|v| v.to_str().ok()).map(str::to_owned);
-    if delivery.as_ref().is_some_and(|v| v.len() > 200) {
-        return Err(ApiError(StatusCode::BAD_REQUEST, "delivery id too long".into()));
-    }
-    let event =
-        serde_json::from_slice(&body).map_err(|_| ApiError(StatusCode::BAD_REQUEST, "invalid event JSON".into()))?;
-    hub.routines
-        .webhook(&hub, &id, key, event, delivery)
-        .map(Json)
-        .map_err(|e| ApiError(StatusCode::BAD_REQUEST, e.to_string()))
+    let headers =
+        headers.iter().filter_map(|(k, v)| Some((k.as_str().to_owned(), v.to_str().ok()?.to_owned()))).collect();
+    hub.routines.receive(&hub, &id, &headers, &body).map(Json).map_err(|e| {
+        let status = match e {
+            Refused::Unauthorized => StatusCode::UNAUTHORIZED,
+            Refused::Paused | Refused::Busy => StatusCode::CONFLICT,
+            Refused::Invalid(_) => StatusCode::BAD_REQUEST,
+        };
+        ApiError(status, e.to_string())
+    })
 }
 
 #[cfg(test)]

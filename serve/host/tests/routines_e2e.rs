@@ -176,7 +176,8 @@ async fn routines_execute_pause_deduplicate_and_reject_wrong_webhook_keys() {
     let id = result["routine"]["id"].as_str().unwrap();
     assert!(result["routine"].get("webhookKey").is_none());
     let credentials = host.call("routineWebhook", json!({"botId":bot,"id":id})).await;
-    let url = credentials["url"].as_str().unwrap();
+    assert!(credentials["url"].is_null(), "no public URL while the cloud is off");
+    let url = credentials["localUrl"].as_str().unwrap();
     let client = reqwest::Client::new();
     assert!(!client.post(url).bearer_auth("wrong").json(&json!({})).send().await.unwrap().status().is_success());
     let first: Value = client

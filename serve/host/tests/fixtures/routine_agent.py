@@ -103,8 +103,11 @@ def verify_routine_tools():
         assert routine["enabled"] is False
         assert "webhookKey" not in routine
         credentials = call("routine_webhook", {"id": identifier_value})
-        assert credentials["url"].endswith("/hooks/routines/" + identifier_value)
+        assert credentials["url"] is None  # the test host runs with the cloud off
+        assert credentials["localUrl"].endswith("/hooks/routines/" + identifier_value)
         assert len(credentials["key"]) >= 32
+        rotated = call("routine_webhook", {"id": identifier_value, "rotate": True})
+        assert rotated["key"] != credentials["key"] and len(rotated["key"]) >= 32
         body.update({"id": identifier_value, "name": "Edited through MCP"})
         call("save_routine", body)
         call("set_routine_enabled", {"id": identifier_value, "enabled": True})
