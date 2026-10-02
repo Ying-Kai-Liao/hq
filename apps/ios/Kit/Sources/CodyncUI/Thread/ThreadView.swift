@@ -256,7 +256,14 @@ struct ChatItem: Identifiable {
             : entries.last.flatMap { $0.kind == "agent" && $0.data.final == false ? $0.id : nil }
         for e in entries where e.isChat || (e.id == live && !(e.data.text ?? "").isEmpty && e.data.text != "(pass)") {
             let date = e.date
-            var id = e.kind == "user" ? e.data.clientNonce.map { "user-\($0)" } ?? e.id : e.id
+            // Bot-originated messages carry an empty nonce. Their entry IDs
+            // distinguish them; only real nonces identify optimistic echoes.
+            var id: String
+            if e.kind == "user", let nonce = e.data.clientNonce, !nonce.isEmpty {
+                id = "user-\(nonce)"
+            } else {
+                id = e.id
+            }
             if steady, e.kind == "agent", !used.contains("reply-\(e.data.author ?? "")-\(e.turn)") {
                 id = "reply-\(e.data.author ?? "")-\(e.turn)"
             }
