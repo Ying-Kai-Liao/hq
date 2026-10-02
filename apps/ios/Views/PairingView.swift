@@ -122,7 +122,7 @@ private struct InstallPage: View {
                             CommandBlock("brew install leepokai/codync/codync-host\ncodync-host install")
                         }
                         Text(os == .mac
-                             ? "Open Codync and it sets up the host on its own."
+                             ? "Open Codync and click Install host in its window."
                              : "codync-host install keeps it running in the background.")
                             .font(.subheadline)
                             .foregroundStyle(Palette.secondary)
