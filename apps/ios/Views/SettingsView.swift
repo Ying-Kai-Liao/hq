@@ -216,7 +216,7 @@ private struct ComputerRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(store.hostName).font(.body.weight(.semibold)).foregroundStyle(Palette.text)
                 HStack(spacing: 4) {
-                    Text(detail).lineLimit(1)
+                    Text(detail).lineLimit(stale ? 2 : 1)
                     if store.connection == .online { RouteIcon(route: store.hostRoute) }
                 }
                 .font(.subheadline)
@@ -229,21 +229,26 @@ private struct ComputerRow: View {
             if store.screen != nil, store.connection == .online {
                 IconButton("Screen", systemImage: "display", action: openScreen)
             }
-            // Which route goes first, and whether Cloudflare is a fallback at all.
-            DropdownMenu {
-                ConnectionRoute.allCases.map { route in
-                    MenuItem(route.title, icon: route.icon, selected: route == preference) {
-                        accounts.setRoute(store.computer.id, route)
+            if stale {
+                // Revoked, or this computer under an earlier identity: nothing to do but remove it.
+                IconButton("Remove", systemImage: "trash", action: remove)
+            } else {
+                // Which route goes first, and whether Cloudflare is a fallback at all.
+                DropdownMenu {
+                    ConnectionRoute.allCases.map { route in
+                        MenuItem(route.title, icon: route.icon, selected: route == preference) {
+                            accounts.setRoute(store.computer.id, route)
+                        }
                     }
+                } label: {
+                    Image(systemName: preference.icon)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(Palette.secondary)
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
                 }
-            } label: {
-                Image(systemName: preference.icon)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(Palette.secondary)
-                    .frame(width: 36, height: 36)
-                    .contentShape(Rectangle())
+                .accessibilityLabel("Connection")
             }
-            .accessibilityLabel("Connection")
             if inAccount != nil {
                 Image(systemName: "person.crop.circle.badge.checkmark")
                     .foregroundStyle(Palette.tertiary)
@@ -284,8 +289,10 @@ private struct ComputerRow: View {
 
     private var preference: ConnectionRoute { store.computer.route ?? .automatic }
 
+    private var stale: Bool { accounts.isStale(store.computer.id) }
+
     private var detail: String {
-        guard store.connection == .online else { return store.statusText }
+        guard store.connection == .online else { return accounts.statusText(store) }
         let count = store.roster.count
         let route = switch store.hostRoute {
         case .direct: " · Wi-Fi/Tailscale"
