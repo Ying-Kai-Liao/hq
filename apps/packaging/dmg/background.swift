@@ -42,7 +42,7 @@ func render(scale: CGFloat) -> NSBitmapImageRep {
         .foregroundColor: NSColor(white: 0.15, alpha: 1),
     ])
     title.draw(at: NSPoint(x: (size.width - title.size().width) / 2, y: size.height - 72))
-    let hint = NSAttributedString(string: "Then open Codync and install the host from its window.", attributes: [
+    let hint = NSAttributedString(string: "Then open Codync. It sets up everything else.", attributes: [
         .font: NSFont.systemFont(ofSize: 12),
         .foregroundColor: NSColor(white: 0.45, alpha: 1),
     ])
