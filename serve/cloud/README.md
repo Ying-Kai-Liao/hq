@@ -4,10 +4,12 @@ Cloudflare Worker for accounts and the off-LAN relay (spec: [docs/reference/remo
 
 - **`/v1` API** (`src/api.ts`): Clerk-authenticated account routes (devices, claims, computers, access
   requests, grants), `Codync-Sig`-authenticated host routes (`/v1/host/*`), the Clerk webhook, and a
-  15-minute cron that expires requests and prunes nonces. D1 schema: `migrations/0001_init.sql`.
+  15-minute cron that expires requests and prunes nonces, and the public routine webhook route
+  `POST /v1/hooks/:computerId/:routineId` (spec §7.8). D1 schema: `migrations/0001_init.sql`.
 - **`ComputerRelay`** (`src/relay.ts`): one Durable Object per computer (SQLite storage, WebSocket
   Hibernation). It admits device sockets against the host-signed ACL, forwards channel frames it can't
-  read, reports presence, and holds the offline mailbox. It is reachable only through requests the Worker
+  read, reports presence, holds the offline mailbox, and queues routine webhook deliveries (`hookbox`,
+  checked against the keys the host registers; `src/hooks.ts`). It is reachable only through requests the Worker
   builds itself (`X-Codync-Internal: 1`); `/internal/*` has no public route.
 - **Auth** (`src/auth.ts`): Clerk session JWTs via `@clerk/backend` (`CLERK_SECRET_KEY` → JWKS fetched and
   cached per isolate; `CLERK_JWT_KEY` → networkless, dev/e2e only) and Ed25519 request signatures
@@ -63,6 +65,8 @@ npx wrangler deploy --env dev               # → https://dev-api.codync.dev
 
 New computers are limited to 10 per IP per minute with the Workers Rate Limiting binding
 `REGISTER_LIMITER` (`[[ratelimits]]`; each environment needs its own `namespace_id`).
+Public routine webhook deliveries are limited to 60 per sender IP and hook per minute with
+`HOOK_LIMITER` (same binding kind, its own `namespace_id` per environment).
 
 ## Remote screen relay
 

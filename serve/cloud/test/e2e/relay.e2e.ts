@@ -204,6 +204,47 @@ async function main() {
   });
   check(!history.entries.some((e: Json) => e.data?.clientNonce === "e2e-mbox-2"), "the cancelled message never ran");
 
+  step("5b. public routine webhooks through the cloud");
+  const hookRoutine = async (name: string) =>
+    (await loopback("saveRoutine", { botId: bot, name, instruction: "Summarize the delivery", triggers: [{ type: "webhook" }] })).routine.id as string;
+  const runFor = (routine: string, delivery: string) => async () =>
+    ((await loopback("routines", { botId: bot })).runs as Json[]).find((r) => r.routineId === routine && r.deliveryId === delivery);
+  const live = await hookRoutine("Live hook");
+  const creds = await loopback("routineWebhook", { botId: bot, id: live });
+  check(creds.url === `${CLOUD}/v1/hooks/${computerId}/${live}`, "public URL names this computer and routine");
+  // The host registers its hooks right after it comes online; give the set a moment to land.
+  const deliver = (url: string, headers: Record<string, string>, body: string) =>
+    fetch(url, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body });
+  await waitFor("hook registered", async () => (await deliver(creds.url, { Authorization: "Bearer nope" }, "{}")).status === 401 || undefined);
+  const accepted = await waitFor("bearer delivery accepted", async () => {
+    const res = await deliver(creds.url, { Authorization: `Bearer ${creds.key}`, "X-Delivery-Id": "e2e-hook-1" }, '{"text":"build failed"}');
+    return res.status === 202 ? res : undefined;
+  });
+  check(accepted.status === 202, "bearer delivery queued (202)");
+  const run1 = await waitFor("run from the public delivery", runFor(live, "e2e-hook-1"), 20_000);
+  check(run1.event?.text === "build failed", "the run carries the delivered event");
+  check((await deliver(creds.url, { Authorization: "Bearer wrong" }, "{}")).status === 401, "a wrong key is refused at the edge");
+
+  const offline = await hookRoutine("Offline hook");
+  const offCreds = await loopback("routineWebhook", { botId: bot, id: offline });
+  await waitFor("second hook registered", async () =>
+    (await deliver(offCreds.url, { Authorization: "Bearer nope" }, "{}")).status === 401 || undefined,
+  );
+  await stop(host!);
+  const ghBody = '{"action":"opened","pull_request":{"title":"Add hooks"},"repository":{"full_name":"o/r"}}';
+  const mac = await crypto.subtle.sign(
+    "HMAC",
+    await crypto.subtle.importKey("raw", ref.enc.encode(offCreds.key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]),
+    ref.enc.encode(ghBody),
+  );
+  const sig = `sha256=${Buffer.from(mac).toString("hex")}`;
+  const queued = await deliver(offCreds.url, { "X-GitHub-Event": "pull_request", "X-GitHub-Delivery": "e2e-gh-1", "X-Hub-Signature-256": sig }, ghBody);
+  check(queued.status === 202, "a signed GitHub delivery is queued while the host is down");
+  await startHost();
+  const run2 = await waitFor("run after the host came back", runFor(offline, "e2e-gh-1"), 30_000);
+  check(run2.event?.event === "pull_request.opened" && run2.event?.repo === "o/r", "delivered once the host is back, as a GitHub event");
+  ch = await Channel.open(ch.wire, phone.key, pairing.signKey, { relay: true });
+
   step("6. account: claim, access request with SAS, revocation");
   const userId = "user_e2e";
   const token = await clerkToken(userId);

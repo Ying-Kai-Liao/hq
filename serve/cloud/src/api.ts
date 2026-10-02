@@ -15,6 +15,7 @@ import {
   verifySig,
   type SignedRequest,
 } from "./auth";
+import { HOOK_ID, HOOK_MAX_BODY } from "./hooks";
 import type { Env } from "./index";
 
 export const VERSION = "2.2.0";
@@ -40,6 +41,7 @@ const STATUS: Record<string, number> = {
   claimExpired: 410,
   requestExpired: 410,
   upgradeRequired: 426,
+  tooLarge: 413,
   rateLimited: 429,
   internal: 500,
 };
@@ -897,6 +899,30 @@ export async function relayDevice(c: Ctx, [computerId]: string[]): Promise<Respo
   const row = await c.env.DB.prepare("SELECT status FROM computers WHERE id = ?").bind(computerId).first<{ status: string }>();
   if (!row || row.status !== "active") throw new ApiError("unknownComputer");
   return forward(c, computerId!, "device", s, pair);
+}
+
+// ---- routine webhooks (§7.8) ----
+
+/**
+ * `POST /v1/hooks/:computerId/:hookId`: a public delivery for one of the computer's routines. The
+ * computer's DO checks the key and queues it for the host; the host checks again before it runs.
+ */
+export async function routineHook(c: Ctx, [computerId, hookId]: string[]): Promise<Response> {
+  if (!COMPUTER_ID.test(computerId!) || !HOOK_ID.test(hookId!)) throw new ApiError("notFound");
+  if (c.raw.length > HOOK_MAX_BODY) throw new ApiError("tooLarge", "Deliveries are limited to 64 KB");
+  if (c.env.HOOK_LIMITER) {
+    const ip = c.req.headers.get("CF-Connecting-IP") ?? "unknown";
+    if (!(await c.env.HOOK_LIMITER.limit({ key: `${ip}|${computerId}/${hookId}` })).success) throw new ApiError("rateLimited");
+  }
+  // Only registered computers get a DO; random IDs never create one.
+  const row = await c.env.DB.prepare("SELECT status FROM computers WHERE id = ?").bind(computerId).first<{ status: string }>();
+  if (!row || row.status !== "active") throw new ApiError("notFound");
+  const headers = new Headers(c.req.headers);
+  headers.set("X-Codync-Internal", "1");
+  headers.set("X-Codync-Hook", hookId!);
+  return c.env.RELAY.get(c.env.RELAY.idFromName(computerId!)).fetch(
+    new Request("https://do/internal/hook", { method: "POST", headers, body: c.raw }),
+  );
 }
 
 // ---- webhooks ----
