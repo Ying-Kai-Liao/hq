@@ -1,11 +1,13 @@
 // ComputerRelay: one Durable Object per computer (spec §7, §8.5).
 //
 // Presence, ciphertext forwarding between the host socket and device sockets, ACL admission, and the
-// offline mailbox (device → host). It never parses channel frames and never stores chat. Reached only
-// through requests the Worker builds itself (`X-Codync-Internal: 1`), never a client's own request.
+// offline mailbox (device → host), and the queue of public routine webhook deliveries (§7.8). It never
+// parses channel frames and never stores chat. Reached only through requests the Worker builds itself
+// (`X-Codync-Internal: 1`), never a client's own request.
 
 import { DurableObject } from "cloudflare:workers";
 import { b64url, fromB64url, NONCE_TTL_MS, randomId, utf8, verifyEd25519 } from "./auth";
+import { authorized, deliveryId, forwarded, HOOK_ID, HOOK_MAX_BODY, parseHooks } from "./hooks";
 import type { Env } from "./index";
 
 const MAX_DEVICE_SOCKETS = 16;
@@ -20,6 +22,13 @@ const MBOX_PER_DEVICE = 50;
 const MBOX_PER_COMPUTER = 500;
 const MBOX_MAX_BYTES = 8 * 1024 * 1024;
 const MBOX_TTL_MS = 24 * 3600_000;
+const MAX_HOOKS = 1000;
+const HOOK_TTL_MS = 72 * 3600_000;
+const HOOK_PER_HOOK = 100;
+const HOOK_PER_COMPUTER = 1000;
+const HOOK_MAX_BYTES = 16 * 1024 * 1024;
+const HOOK_RETRY_MIN_MS = 30_000;
+const HOOK_RETRY_MAX_MS = 15 * 60_000;
 const HOST_TIMEOUT_MS = 90_000;
 const ALARM_MS = 60_000;
 /** epk(32) ‖ sig(64) ‖ ciphertext with at least its 16-byte tag (§6.4). */
@@ -108,6 +117,11 @@ export class ComputerRelay extends DurableObject<Env> {
         size INTEGER, exp INTEGER, state TEXT, UNIQUE(dk, nonce));
       CREATE TABLE IF NOT EXISTS nonces(kid TEXT, nonce TEXT, exp INTEGER, PRIMARY KEY(kid, nonce));
       CREATE TABLE IF NOT EXISTS blocked(dk TEXT PRIMARY KEY, grant_id TEXT, blocked_at INTEGER);
+      CREATE TABLE IF NOT EXISTS hooks(id TEXT PRIMARY KEY, key TEXT NOT NULL, enabled INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS hookbox(seq INTEGER PRIMARY KEY AUTOINCREMENT, hook TEXT NOT NULL,
+        delivery TEXT NOT NULL, headers TEXT NOT NULL, body BLOB NOT NULL, size INTEGER NOT NULL, at INTEGER NOT NULL,
+        exp INTEGER NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+        not_before INTEGER NOT NULL DEFAULT 0, UNIQUE(hook, delivery));
     `);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
   }
@@ -119,6 +133,7 @@ export class ComputerRelay extends DurableObject<Env> {
     const { pathname } = new URL(req.url);
     if (pathname === "/relay") return this.relay(req);
     if (pathname === "/internal/block" && req.method === "POST") return this.block(req);
+    if (pathname === "/internal/hook" && req.method === "POST") return this.hook(req);
     if (pathname === "/internal/changed" && req.method === "POST") {
       this.toHosts({ t: "cloud.changed" });
       return Response.json({});
@@ -219,6 +234,108 @@ export class ComputerRelay extends DurableObject<Env> {
     return Response.json({});
   }
 
+  // ---- routine webhooks (§7.8) ----
+
+  /**
+   * `POST /internal/hook` with the sender's body and forwarded headers, `X-Codync-Hook: <id>`.
+   * 401 for an unknown hook or a wrong key alike, so hook ids can't be probed.
+   */
+  private async hook(req: Request): Promise<Response> {
+    const id = req.headers.get("X-Codync-Hook") ?? "";
+    const body = new Uint8Array(await req.arrayBuffer());
+    if (!HOOK_ID.test(id)) return errorResponse(400, "badRequest");
+    if (body.length > HOOK_MAX_BODY) return errorResponse(413, "tooLarge");
+    const hook = this.sql.exec<{ key: string; enabled: number }>("SELECT key, enabled FROM hooks WHERE id = ?", id).toArray()[0];
+    if (!hook || !(await authorized(hook.key, req.headers, body))) return errorResponse(401, "unauthorized");
+    if (!hook.enabled) return errorResponse(409, "paused");
+    const delivery = deliveryId(req.headers);
+    if (delivery === null) return errorResponse(400, "badDeliveryId");
+    const now = Date.now();
+    const dup = this.sql.exec("SELECT 1 FROM hookbox WHERE hook = ? AND delivery = ?", id, delivery).toArray().length > 0;
+    if (dup) return Response.json({ delivery, queued: true, duplicate: true }, { status: 202 });
+    const mine = this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM hookbox WHERE hook = ?", id).one().n;
+    const all = this.sql.exec<{ n: number; b: number }>("SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS b FROM hookbox").one();
+    if (mine >= HOOK_PER_HOOK || all.n >= HOOK_PER_COMPUTER || all.b + body.length > HOOK_MAX_BYTES) {
+      return Response.json({ error: { code: "full" } }, { status: 429, headers: { "Retry-After": "60" } });
+    }
+    this.sql.exec(
+      "INSERT INTO hookbox(hook, delivery, headers, body, size, at, exp, state) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued')",
+      id,
+      delivery,
+      JSON.stringify(forwarded(req.headers)),
+      body.slice().buffer,
+      body.length,
+      now,
+      now + HOOK_TTL_MS,
+    );
+    const host = this.readyHost();
+    if (host) this.deliverHook(host, now);
+    await this.ensureAlarm(now + ALARM_MS);
+    return Response.json({ delivery, queued: true }, { status: 202 });
+  }
+
+  /** `{"t":"hooks","hooks":[{id,key,enabled}]}`: the host's whole current set replaces the stored one. */
+  private onHooks(ws: WebSocket, msg: Msg): void {
+    const hooks = parseHooks(msg.hooks, MAX_HOOKS);
+    if (!hooks) return send(ws, JSON.stringify({ t: "error", code: "badHooks" }));
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec("DELETE FROM hooks");
+      for (const h of hooks) this.sql.exec("INSERT INTO hooks(id, key, enabled) VALUES (?, ?, ?)", h.id, h.key, h.enabled ? 1 : 0);
+      // Deliveries for a removed hook can't run any more; in-flight ones finish with their ack.
+      this.sql.exec("DELETE FROM hookbox WHERE state = 'queued' AND hook NOT IN (SELECT id FROM hooks)");
+    });
+    send(ws, JSON.stringify({ t: "hooks.ok", n: hooks.length }));
+  }
+
+  /** `{"t":"hook.ack","seq","ok","retry"?}`: done, refused for good, or try again later. */
+  private async onHookAck(ws: WebSocket, msg: Msg, now: number): Promise<void> {
+    const row = this.sql
+      .exec<{ attempts: number }>("SELECT attempts FROM hookbox WHERE seq = ? AND state = 'delivering'", Number(msg.seq))
+      .toArray()[0];
+    if (row) {
+      if (msg.ok !== true && msg.retry === true) {
+        const wait = Math.min(HOOK_RETRY_MIN_MS * 2 ** row.attempts, HOOK_RETRY_MAX_MS);
+        this.sql.exec(
+          "UPDATE hookbox SET state = 'queued', attempts = attempts + 1, not_before = ? WHERE seq = ?",
+          now + wait,
+          Number(msg.seq),
+        );
+        await this.ensureAlarm(now + wait);
+      } else {
+        this.sql.exec("DELETE FROM hookbox WHERE seq = ?", Number(msg.seq));
+      }
+    }
+    this.deliverHook(ws, now);
+  }
+
+  /** One delivery in flight at a time, oldest first, skipping ones waiting out a retry. */
+  private deliverHook(host: WebSocket, now: number): void {
+    const a = host.deserializeAttachment() as HostAttachment;
+    if (!a.ready) return;
+    if (this.sql.exec("SELECT 1 FROM hookbox WHERE state = 'delivering'").toArray().length) return;
+    const row = this.sql
+      .exec<{ seq: number; hook: string; delivery: string; headers: string; body: ArrayBuffer; at: number }>(
+        "SELECT seq, hook, delivery, headers, body, at FROM hookbox WHERE state = 'queued' AND exp > ? AND not_before <= ? ORDER BY seq LIMIT 1",
+        now,
+        now,
+      )
+      .toArray()[0];
+    if (!row) return;
+    this.sql.exec("UPDATE hookbox SET state = 'delivering' WHERE seq = ?", row.seq);
+    send(
+      host,
+      JSON.stringify({
+        t: "hook.item",
+        seq: row.seq,
+        hook: row.hook,
+        delivery: row.delivery,
+        headers: JSON.parse(row.headers),
+        body: b64url(new Uint8Array(row.body)),
+        at: row.at,
+      }),
+    );
+  }
+
   // ---- messages ----
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
@@ -252,6 +369,7 @@ export class ComputerRelay extends DurableObject<Env> {
           send(ws, JSON.stringify({ t: "open", link: d.link, dk: d.dk, pair: d.pair }));
         }
         this.deliverNext(ws, now);
+        this.deliverHook(ws, now);
         return;
       }
       case "data": {
@@ -267,6 +385,10 @@ export class ComputerRelay extends DurableObject<Env> {
       }
       case "mbox.ack":
         return this.onAck(ws, msg, now);
+      case "hooks":
+        return this.onHooks(ws, msg);
+      case "hook.ack":
+        return this.onHookAck(ws, msg, now);
       case "ping":
         return send(ws, PONG);
       default:
@@ -470,7 +592,10 @@ export class ComputerRelay extends DurableObject<Env> {
       this.toDevice(row.dk, { t: "mbox.expired", nonce: row.nonce });
     }
     this.sql.exec("DELETE FROM mailbox WHERE exp <= ?", now);
+    this.sql.exec("DELETE FROM hookbox WHERE exp <= ? AND state = 'queued'", now);
     this.sql.exec("DELETE FROM nonces WHERE exp <= ?", now);
+    const host = this.readyHost();
+    if (host) this.deliverHook(host, now);
 
     const acl = this.acl();
     let next = now + ALARM_MS;
@@ -480,8 +605,15 @@ export class ComputerRelay extends DurableObject<Env> {
       if (exp <= now) this.safeClose(ws, 4410, "pairingExpired");
       else next = Math.min(next, exp);
     }
+    // A delivery waiting out its retry wakes the DO when it's due.
+    const due = this.sql
+      .exec<{ t: number | null }>("SELECT MIN(not_before) AS t FROM hookbox WHERE state = 'queued' AND not_before > ?", now)
+      .one().t;
+    if (due !== null) next = Math.min(next, due);
     const busy =
-      this.ctx.getWebSockets().length > 0 || this.sql.exec("SELECT 1 FROM mailbox LIMIT 1").toArray().length > 0;
+      this.ctx.getWebSockets().length > 0 ||
+      this.sql.exec("SELECT 1 FROM mailbox LIMIT 1").toArray().length > 0 ||
+      this.sql.exec("SELECT 1 FROM hookbox LIMIT 1").toArray().length > 0;
     if (busy) await this.ctx.storage.setAlarm(next);
   }
 
@@ -489,6 +621,7 @@ export class ComputerRelay extends DurableObject<Env> {
   private async hostOffline(now: number, exclude?: WebSocket): Promise<void> {
     this.setMeta("lastSeenAt", String(now));
     this.sql.exec("UPDATE mailbox SET state = 'queued' WHERE state = 'delivering'");
+    this.sql.exec("UPDATE hookbox SET state = 'queued' WHERE state = 'delivering'");
     if (!this.readyHost(exclude)) {
       const presence = JSON.stringify(this.presence(exclude));
       for (const [ws] of this.devices()) send(ws, presence);

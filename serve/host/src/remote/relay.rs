@@ -4,8 +4,9 @@
 //! `Codync-Sig` → pull the cloud state (≤ 10 s; account devices wait for it) → publish the
 //! signed ACL → `acl.ok` → `ready`. Then device links are multiplexed onto `channel::run`
 //! (the relay only ever sees ciphertext), queued mailbox sends are delivered in order and
-//! acknowledged, and every change to the device table republishes the ACL. A reconnect
-//! drops all link state.
+//! acknowledged, and every change to the device table republishes the ACL. Once ready, the
+//! routine webhooks are registered (and again whenever they change) and public webhook
+//! deliveries arrive one at a time for an ack (§7.8). A reconnect drops all link state.
 
 use crate::LockExt;
 use crate::api;
@@ -198,6 +199,8 @@ async fn session(hub: &Arc<Hub>, base: &str) -> Result<Option<u16>> {
     }
     let mut auth = hub.auth.subscribe();
     auth.mark_unchanged();
+    let mut hooks = hub.routines.subscribe_hooks();
+    hooks.mark_unchanged();
     s.publish_acl().await?;
     let mut ping = tokio::time::interval(PING_EVERY);
     ping.reset();
@@ -224,6 +227,14 @@ async fn session(hub: &Arc<Hub>, base: &str) -> Result<Option<u16>> {
                     return Ok(None);
                 }
                 s.publish_acl().await?;
+            }
+            changed = hooks.changed() => {
+                if changed.is_err() {
+                    return Ok(None);
+                }
+                if s.ready {
+                    s.publish_hooks().await?;
+                }
             }
             _ = ping.tick() => {
                 if heard.elapsed() > SILENT {
@@ -298,6 +309,12 @@ impl Session {
         self.send(&msg).await
     }
 
+    /// The whole webhook set; the relay replaces what it had.
+    async fn publish_hooks(&mut self) -> Result<()> {
+        let hooks = self.hub.routines.hooks();
+        self.send(&json!({"t": "hooks", "hooks": hooks})).await
+    }
+
     async fn link_out(&mut self, link: String, out: Out) -> Result<()> {
         let msg = match out {
             Out::Msg(m) => json!({"t": "data", "link": link, "m": m}),
@@ -369,17 +386,25 @@ impl Session {
                 let ack = mailbox_item(&self.hub, &v).await;
                 self.send(&ack).await?;
             }
+            "hook.item" => {
+                let ack = hook_item(&self.hub, &v);
+                self.send(&ack).await?;
+            }
             "cloud.changed" => self.pull(),
             "acl.ok" => {
                 self.retried = false;
                 if !self.ready {
                     self.ready = true;
                     self.send(&json!({"t": "ready"})).await?;
+                    self.publish_hooks().await?;
                     tracing::info!(computer_id = self.hub.identity.computer_id(), "relay ready");
                 }
             }
             "error" => {
                 let code = v["code"].as_str().unwrap_or_default();
+                if code == "badHooks" {
+                    tracing::error!("the relay refused this computer's webhook list");
+                }
                 if !matches!(code, "staleVersion" | "badAcl") {
                     return Ok(());
                 }
@@ -421,6 +446,29 @@ fn signed_acl(hub: &Hub) -> Result<Value> {
     })
     .to_string();
     Ok(json!({"t": "acl", "d": b64(acl.as_bytes()), "sig": b64(&hub.identity.sign(acl.as_bytes()))}))
+}
+
+// MARK: routine webhooks (§7.8)
+
+/// Runs one public webhook delivery and says how it went:
+/// `{"t":"hook.ack","seq","ok"}`, plus `retry` (try again later) and `code` when refused.
+fn hook_item(hub: &Arc<Hub>, item: &Value) -> Value {
+    let seq = item["seq"].clone();
+    let hook = item["hook"].as_str().unwrap_or_default();
+    let headers = item["headers"]
+        .as_object()
+        .map(|h| h.iter().filter_map(|(k, v)| Some((k.to_ascii_lowercase(), v.as_str()?.to_owned()))).collect())
+        .unwrap_or_default();
+    let Some(body) = item["body"].as_str().and_then(|b| crypto::unb64(b).ok()) else {
+        return json!({"t": "hook.ack", "seq": seq, "ok": false, "code": "invalid"});
+    };
+    match hub.routines.receive(hub, hook, &headers, &body) {
+        Ok(_) => json!({"t": "hook.ack", "seq": seq, "ok": true}),
+        Err(e) => {
+            tracing::info!(hook, code = e.code(), reason = %e, "refused a webhook delivery");
+            json!({"t": "hook.ack", "seq": seq, "ok": false, "retry": e.retry(), "code": e.code()})
+        }
+    }
 }
 
 // MARK: mailbox (§6.4, §7.7)
@@ -691,6 +739,70 @@ mod tests {
         let close = sent.iter().find(|v| v["t"] == "close").unwrap();
         assert_eq!(close["code"], 4002, "hello.dk must match the link's open.dk");
         assert!(hub.cloud.status().connected);
+    }
+
+    #[tokio::test]
+    async fn registers_webhooks_and_runs_public_deliveries_once() {
+        let hub = temp_hub();
+        let fake = Arc::new(Fake::default());
+        let cwd = std::env::temp_dir().to_string_lossy().into_owned();
+        let cfg: BotConfig =
+            serde_json::from_value(json!({"id": "", "name": "B", "cwd": cwd, "backend": "custom", "command": "true"}))
+                .unwrap();
+        let bot_id = hub.create_bot(cfg).unwrap()["id"].as_str().unwrap().to_owned();
+        let saved = hub
+            .routines
+            .save(
+                &hub,
+                &bot_id,
+                &json!({"name": "Hook", "instruction": "Report it", "triggers": [{"type": "webhook"}]}),
+            )
+            .unwrap();
+        let id = saved["routine"]["id"].as_str().unwrap().to_owned();
+        let key = hub.routines.hooks()[0].key.clone();
+        let body = b64(br#"{"text":"deploy failed"}"#);
+        let item = |seq: i64, auth: &str, delivery: &str| {
+            json!({"t": "hook.item", "seq": seq, "hook": id, "delivery": delivery,
+                "headers": {"Authorization": format!("Bearer {auth}"), "X-Delivery-Id": delivery}, "body": body, "at": now_ms()})
+        };
+        *fake.script.lock().unwrap() =
+            vec![item(1, &key, "d1"), item(2, &key, "d1"), item(3, "wrong", "d2"), item(4, &key, "d3")];
+
+        let base = fake_cloud(fake.clone(), hub.clone()).await;
+        hub.store.kv_set("cloud_url", &base).unwrap();
+        tokio::spawn(run(hub.clone()));
+
+        wait_for(&fake, |m| m.iter().filter(|v| v["t"] == "hook.ack").count() == 4).await;
+        let sent = fake.from_host.lock().unwrap().clone();
+        let hooks = sent.iter().find(|v| v["t"] == "hooks").unwrap();
+        assert_eq!(hooks["hooks"], json!([{"id": id, "key": key, "enabled": true}]), "registered right after ready");
+        let acks: Vec<(Option<bool>, Option<bool>, Option<&str>)> = sent
+            .iter()
+            .filter(|v| v["t"] == "hook.ack")
+            .map(|v| (v["ok"].as_bool(), v["retry"].as_bool(), v["code"].as_str()))
+            .collect();
+        assert_eq!(
+            acks,
+            [
+                (Some(true), None, None),
+                (Some(true), None, None),
+                (Some(false), Some(false), Some("unauthorized")),
+                (Some(false), Some(true), Some("busy")),
+            ],
+            "a redelivery reuses its run; a wrong key is dropped; a busy routine is retried later"
+        );
+        let runs = hub.routines.list(&bot_id)["runs"].as_array().unwrap().clone();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0]["event"], json!({"text": "deploy failed"}));
+        assert_eq!(runs[0]["deliveryId"], "d1");
+
+        // Pausing changes what the relay should refuse: the set goes out again.
+        hub.routines.set_enabled(&hub.store, &bot_id, &id, false).unwrap();
+        wait_for(&fake, |m| m.iter().any(|v| v["t"] == "hooks" && v["hooks"][0]["enabled"] == false)).await;
+        let creds = hub.routines.credentials(&hub, &bot_id, &id, true).unwrap();
+        assert_ne!(creds["key"], key, "rotate replaces the key");
+        assert_eq!(creds["url"], format!("{base}/v1/hooks/{}/{id}", hub.identity.computer_id()));
+        wait_for(&fake, |m| m.iter().any(|v| v["t"] == "hooks" && v["hooks"][0]["key"] == creds["key"])).await;
     }
 
     #[tokio::test]

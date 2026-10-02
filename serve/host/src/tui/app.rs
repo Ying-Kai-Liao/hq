@@ -464,6 +464,7 @@ pub enum ConfirmAct {
     NewSession(String),
     ClearMemory(String),
     DeleteRoutine(String, String),
+    RotateRoutineKey(String, String),
     RemoveConnector(String),
     RemoveSkill(String),
 }
@@ -1997,6 +1998,11 @@ impl App {
                         ConfirmAct::DeleteRoutine(bot, id) => {
                             self.call("deleteRoutine", json!({"botId": bot, "id": id}), changed);
                         }
+                        ConfirmAct::RotateRoutineKey(bot, id) => self.call(
+                            "routineWebhook",
+                            json!({"botId": bot, "id": id, "rotate": true}),
+                            After::Sheet(Reply::Webhook),
+                        ),
                         ConfirmAct::RemoveConnector(id) => self.call("removeConnector", json!({"id": id}), changed),
                         ConfirmAct::RemoveSkill(id) => self.call("removeSkill", json!({"id": id}), changed),
                     }

@@ -104,7 +104,8 @@ impl Trigger {
                 .map_or_else(|| "Once".into(), |d| format!("Once at {}", d.to_rfc3339())),
             Self::Cron { expression, time_zone } => format!(
                 "{} · {time_zone}",
-                Cron::from_str(expression).map_or_else(|_| expression.clone(), |cron| cron.describe())
+                Cron::from_str(expression)
+                    .map_or_else(|_| expression.clone(), |cron| cron.describe().trim_end_matches('.').to_owned())
             ),
             Self::Webhook => "When a webhook fires".into(),
             Self::Event { source, event, .. } => format!("{source} · {event}"),

@@ -17,6 +17,8 @@ export interface Env {
   TURN_KEY_ID?: string;
   TURN_KEY_API_TOKEN?: string;
   TURN_LIMITER?: RateLimit;
+  /** Public routine webhook deliveries per sender IP and hook. */
+  HOOK_LIMITER?: RateLimit;
   CLERK_ISSUER: string;
   CLERK_SECRET_KEY?: string;
   /** dev / e2e only: networkless verification with this public key. */
@@ -26,6 +28,9 @@ export interface Env {
 }
 
 type Handler = (c: Ctx, params: string[]) => Promise<unknown>;
+
+/** Above every route's own limit (64 KB bodies); the routes check theirs. */
+const MAX_REQUEST = 128 * 1024;
 
 const ID = "([A-Za-z0-9_-]{1,64})";
 const routes: [string, RegExp, Handler][] = [
@@ -57,6 +62,7 @@ const routes: [string, RegExp, Handler][] = [
   // Any segment reaches the handler so a malformed computerId gets its 400 (§7.1).
   ["GET", /^\/v1\/relay\/device\/([^/]+)$/, api.relayDevice],
   ["POST", /^\/v1\/webhooks\/clerk$/, api.clerkWebhook],
+  ["POST", new RegExp(`^/v1/hooks/${ID}/${ID}$`), api.routineHook],
 ];
 
 export default {
@@ -67,7 +73,10 @@ export default {
       for (const [method, pattern, handler] of routes) {
         const m = pattern.exec(url.pathname);
         if (!m || req.method !== method) continue;
+        // Every route takes small bodies; refuse a big one before reading it.
+        if (Number(req.headers.get("content-length") ?? 0) > MAX_REQUEST) throw new ApiError("tooLarge");
         const raw = new Uint8Array(await req.arrayBuffer());
+        if (raw.length > MAX_REQUEST) throw new ApiError("tooLarge");
         const out = await handler({ req, env, exec, url, raw, now: Date.now() }, m.slice(1));
         return out instanceof Response ? out : Response.json(out);
       }

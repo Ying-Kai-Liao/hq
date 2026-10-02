@@ -9,7 +9,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::{Value, json};
 use std::str::FromStr as _;
 
-use super::app::{After, App, Confirm, ConfirmAct, Editor, Overlay, Toggle, fuzzy};
+use super::app::{After, App, Confirm, ConfirmAct, Editor, Focus, Overlay, Toggle, fuzzy};
 
 /// Quick reactions, as the other apps offer them.
 pub const REACTIONS: [&str; 6] = ["👍", "❤️", "😂", "🎉", "👀", "✅"];
@@ -20,6 +20,7 @@ pub enum Reply {
     Memory(String),
     Routines(String),
     RoutineSaved,
+    /// A routine's webhook URL and key: copied as a ready-to-run curl.
     Webhook,
     Registry {
         more: bool,
@@ -272,6 +273,18 @@ impl App {
                 })));
                 return None;
             }
+            (KeyCode::Char('c'), _) => {
+                // Or ask the bot to set one up: start the ask in its chat.
+                let draft = self.drafts.entry(bot).or_default();
+                if !draft.text.is_empty() {
+                    draft.insert("\n");
+                }
+                draft.insert("I want a routine that ");
+                self.thread = None;
+                self.focus = Focus::Chat;
+                self.typing = true;
+                return None;
+            }
             (KeyCode::Enter | KeyCode::Char('e'), Some(r)) => {
                 let triggers = r["triggers"].clone();
                 let text = when_text(&triggers, &local_zone());
@@ -309,12 +322,23 @@ impl App {
                 self.sheet("runRoutine", json!({"botId": bot, "id": r["id"]}), Reply::Routines(bot.clone()));
                 self.flash(&format!("Running {} now", s(&r, "name")));
             }
+            (KeyCode::Char('w' | 'W'), Some(r)) if !has_webhook(&r) => {
+                self.flash("Only a routine that runs on a webhook has a URL and key");
+            }
             (KeyCode::Char('w'), Some(r)) => {
-                if r["triggers"].as_array().into_iter().flatten().any(|t| t["type"] == "webhook") {
-                    self.sheet("routineWebhook", json!({"botId": bot, "id": r["id"]}), Reply::Webhook);
-                } else {
-                    self.flash("Only a routine whose When is webhook can be called");
-                }
+                self.sheet("routineWebhook", json!({"botId": bot, "id": r["id"]}), Reply::Webhook);
+            }
+            (KeyCode::Char('W'), Some(r)) => {
+                let c = Confirm {
+                    title: format!("Replace the webhook key of {}?", s(&r, "name")),
+                    detail: "Senders using the current key stop working.".into(),
+                    note: "The new one is copied in a curl command.".into(),
+                    button: "Replace",
+                    act: ConfirmAct::RotateRoutineKey(bot, s(&r, "id")),
+                };
+                self.overlays.push(Overlay::Routines(l));
+                self.overlays.push(Overlay::Confirm(c));
+                return None;
             }
             (KeyCode::Char('x'), Some(r)) => {
                 let c = Confirm {
@@ -969,10 +993,17 @@ impl App {
                 self.refresh_sheets();
             }
             Reply::Webhook => {
-                let text =
-                    format!("curl -X POST '{}' -H 'Authorization: Bearer {}' -d '{{}}'", s(&v, "url"), s(&v, "key"));
+                let url = v["url"].as_str().or_else(|| v["localUrl"].as_str()).unwrap_or_default();
+                let text = format!(
+                    "curl -X POST '{url}' -H 'Authorization: Bearer {}' -H 'Content-Type: application/json' -d '{{}}'",
+                    s(&v, "key")
+                );
                 super::app::copy(&text);
-                self.flash("Copied a curl command that runs it (with its key)");
+                self.flash(if v["url"].is_string() {
+                    "Copied a curl command for the public URL (with its key)"
+                } else {
+                    "Copied a curl command (the cloud is off: this computer only)"
+                });
             }
             Reply::Registry { more } => {
                 if let Some(Overlay::Market(m)) =
@@ -1252,6 +1283,11 @@ pub fn key_bytes(k: KeyEvent) -> Vec<u8> {
         out.insert(0, 0x1b);
     }
     out
+}
+
+/// A routine with a webhook (or event) trigger, which has a URL and key.
+fn has_webhook(r: &Value) -> bool {
+    r["triggers"].as_array().into_iter().flatten().any(|t| matches!(t["type"].as_str(), Some("webhook" | "event")))
 }
 
 /// This computer's IANA time zone (routines run on the host's clock in it).

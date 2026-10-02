@@ -1,6 +1,8 @@
 //! Durable bot routines, shared by API clients and the built-in MCP server.
 mod editor;
 pub use editor::preview as schedule_preview;
+pub mod hooks;
+use hooks::Refused;
 mod runner;
 mod schedule;
 pub use runner::start;
@@ -91,12 +93,46 @@ struct State {
     runs: Vec<Run>,
 }
 
-#[derive(Default)]
 pub struct Routines {
     state: Mutex<State>,
     active: Mutex<HashSet<String>>,
     scheduler: Mutex<Option<tokio::task::JoinHandle<()>>>,
     stopping: std::sync::atomic::AtomicBool,
+    /// Bumped whenever the webhook set the relay registers (`hooks()`) changes.
+    hooks_rev: tokio::sync::watch::Sender<u64>,
+}
+
+impl Default for Routines {
+    fn default() -> Self {
+        Self {
+            state: Mutex::default(),
+            active: Mutex::default(),
+            scheduler: Mutex::default(),
+            stopping: std::sync::atomic::AtomicBool::default(),
+            hooks_rev: tokio::sync::watch::channel(0).0,
+        }
+    }
+}
+
+/// One routine's public webhook as the cloud stores it.
+#[derive(Clone, PartialEq, Eq, Serialize)]
+pub struct Hook {
+    pub id: String,
+    pub key: String,
+    pub enabled: bool,
+}
+
+fn hook_set(state: &State) -> Vec<Hook> {
+    state
+        .routines
+        .iter()
+        .filter(|r| !r.deleted && r.triggers.iter().any(|t| matches!(t, Trigger::Webhook | Trigger::Event { .. })))
+        .map(|r| Hook { id: r.id.clone(), key: r.webhook_key.clone(), enabled: r.enabled })
+        .collect()
+}
+
+fn webhook_key() -> String {
+    format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple())
 }
 
 impl Routines {
@@ -120,7 +156,17 @@ impl Routines {
         }
         store.kv_set(STATE_KEY, &serde_json::to_string(&state)?)?;
         *self.state.locked() = state;
+        self.hooks_rev.send_modify(|v| *v += 1);
         Ok(())
+    }
+
+    /// The webhook routines the relay registers with the cloud.
+    pub fn hooks(&self) -> Vec<Hook> {
+        hook_set(&self.state.locked())
+    }
+
+    pub fn subscribe_hooks(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.hooks_rev.subscribe()
     }
 
     fn change<T>(&self, store: &Store, update: impl FnOnce(&mut State) -> Result<T>) -> Result<T> {
@@ -140,7 +186,12 @@ impl Routines {
         next.routines
             .retain(|r| !r.deleted || next.runs.iter().any(|run| run.routine_id == r.id && run.status.active()));
         store.kv_set(STATE_KEY, &serde_json::to_string(&next)?)?;
+        let hooks_changed = hook_set(&guard) != hook_set(&next);
         *guard = next;
+        drop(guard);
+        if hooks_changed {
+            self.hooks_rev.send_modify(|v| *v += 1);
+        }
         Ok(result)
     }
 
@@ -214,10 +265,7 @@ impl Routines {
                     triggers.iter().map(|t| t.next(now)).collect::<Result<_>>()?
                 },
                 triggers,
-                webhook_key: old.as_ref().map_or_else(
-                    || format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple()),
-                    |r| r.webhook_key.clone(),
-                ),
+                webhook_key: old.as_ref().map_or_else(webhook_key, |r| r.webhook_key.clone()),
                 deleted: false,
                 timeout_seconds: timeout
                     .unwrap_or_else(|| old.as_ref().map_or_else(default_timeout, |r| r.timeout_seconds)),
@@ -293,7 +341,7 @@ impl Routines {
             let r =
                 s.routines.iter().find(|r| r.id == id && r.bot_id == bot && !r.deleted).context("routine not found")?;
             if !r.enabled && !test {
-                bail!("routine is paused");
+                bail!(Refused::Paused);
             }
             if let Some(key) = &delivery
                 && let Some(run) =
@@ -302,7 +350,7 @@ impl Routines {
                 return Ok(json!({"run":run}));
             }
             if s.runs.iter().any(|run| run.routine_id == id && run.status.active()) {
-                bail!("routine already has an active run");
+                bail!(Refused::Busy);
             }
             let run = new_run(r, event, delivery);
             let result = json!({"run":run});
@@ -311,28 +359,62 @@ impl Routines {
         })
     }
 
-    pub fn credentials(&self, hub: &Hub, bot: &str, id: &str) -> Result<Value> {
-        let s = self.state.locked();
-        let r = s.routines.iter().find(|r| r.id == id && r.bot_id == bot && !r.deleted).context("routine not found")?;
-        Ok(json!({"url":format!("http://127.0.0.1:{}/hooks/routines/{id}",hub.port),"key":r.webhook_key}))
+    /// The routine's webhook: the public URL through the Codync cloud (when it's on), the
+    /// local one, and the key. `rotate` replaces the key first, cutting off the old one.
+    pub fn credentials(&self, hub: &Hub, bot: &str, id: &str, rotate: bool) -> Result<Value> {
+        if rotate {
+            self.change(&hub.store, |s| {
+                let r = s
+                    .routines
+                    .iter_mut()
+                    .find(|r| r.id == id && r.bot_id == bot && !r.deleted)
+                    .context("routine not found")?;
+                r.webhook_key = webhook_key();
+                r.updated_at = now_ms();
+                Ok(())
+            })?;
+        }
+        let key = {
+            let s = self.state.locked();
+            s.routines
+                .iter()
+                .find(|r| r.id == id && r.bot_id == bot && !r.deleted)
+                .context("routine not found")?
+                .webhook_key
+                .clone()
+        };
+        let cloud = hub.cloud.status();
+        let url = crate::remote::cloud::url(&hub.store)
+            .map(|base| format!("{}/v1/hooks/{}/{id}", base.trim_end_matches('/'), hub.identity.computer_id()));
+        Ok(json!({
+            "url": url,
+            "localUrl": format!("http://127.0.0.1:{}/hooks/routines/{id}", hub.port),
+            "key": key,
+            "connected": url.is_some() && cloud.connected,
+        }))
     }
 
-    pub fn webhook(&self, hub: &Hub, id: &str, key: &str, event: Value, delivery: Option<String>) -> Result<Value> {
-        let r = self
-            .state
-            .locked()
-            .routines
-            .iter()
-            .find(|r| r.id == id && !r.deleted)
-            .cloned()
-            .context("unknown webhook")?;
-        if !crate::remote::crypto::ct_eq(r.webhook_key.as_bytes(), key.as_bytes()) {
-            bail!("invalid webhook key");
+    /// One delivery from the local endpoint or the cloud: checks the key or signature, then
+    /// queues a run when the event matches. Retries of a delivery id return its first run.
+    pub fn receive(&self, hub: &Hub, id: &str, headers: &hooks::Headers, body: &[u8]) -> Result<Value, Refused> {
+        let r = self.state.locked().routines.iter().find(|r| r.id == id && !r.deleted).cloned();
+        let Some(r) = r.filter(|r| hooks::authorized(&r.webhook_key, headers, body)) else {
+            return Err(Refused::Unauthorized);
+        };
+        let delivery = hooks::delivery_id(headers)?;
+        let Some(event) = hooks::event(headers, body)? else {
+            return Ok(json!({"ping": true}));
+        };
+        if !r.enabled {
+            return Err(Refused::Paused);
         }
         if !r.triggers.iter().any(|t| matches!(t, Trigger::Webhook) || t.matches(&event)) {
-            bail!("event does not match this routine");
+            return Ok(json!({"ignored": "event does not match this routine"}));
         }
-        self.enqueue(&hub.store, &r.bot_id, id, event, delivery, false)
+        self.enqueue(&hub.store, &r.bot_id, id, event, delivery, false).map_err(|e| match e.downcast::<Refused>() {
+            Ok(refused) => refused,
+            Err(e) => Refused::Invalid(format!("{e:#}")),
+        })
     }
 }
 
@@ -389,12 +471,14 @@ pub fn call(hub: &Arc<Hub>, bot: &str, name: &str, args: &Value) -> Result<Value
         "run_routine" => {
             hub.routines.enqueue(&hub.store, bot, required(args, "id")?, json!({"source":"test"}), None, true)
         }
-        "routine_webhook" => hub.routines.credentials(hub, bot, required(args, "id")?),
+        "routine_webhook" => {
+            hub.routines.credentials(hub, bot, required(args, "id")?, args["rotate"].as_bool().unwrap_or(false))
+        }
         _ => bail!("unknown routine tool"),
     }
 }
 
-pub const INSTRUCTIONS: &str = "Create and manage persistent Codync routines when the user asks for scheduled or event-driven work. Use the built-in routines tools (save_routine, list_routines, set_routine_enabled, delete_routine, run_routine, routine_webhook), not operating-system cron or an improvised background process. For recurring clock schedules, always use a five-field cron trigger with an explicit IANA timezone, including minute/hour frequencies; do not create interval triggers for those requests. Preserve existing intervals when editing unrelated fields. Cron steps reset within their field: */7 minutes is not an exact seven-minute duration across hours. Use once for a single dated execution; never approximate a one-time task with an annually repeating cron expression. Before saving, resolve the task, trigger and intended timezone for calendar/one-time schedules from the conversation; ask only for missing or ambiguous details. If the request is already clear, create it without another confirmation. Check that tools, connector sign-ins and files needed by the task are available; describe any missing setup rather than promising the task will work. Use list_routines before creating or editing to avoid duplicates; preserve unrelated triggers, enabled state and instructions. Save returns the actual routine ID, trigger descriptions and nextRunAt: use these to report what was really saved, including timezone, next occurrence and enabled/paused state. Do not claim success if the tool failed. run_routine executes the real task immediately, including its side effects; use it when the user requested a test or immediate execution, not merely to validate a schedule. A routine runs locally in its own conversation; the host must be running and awake, results appear in the main chat, and (pass) stays silent. Webhooks use a per-routine bearer key; the returned URL is local to the host and does not configure a public tunnel or provider subscription. Establish the event source, reachable ingress and authentication separately. Never claim a third-party integration is connected until a real delivery has been verified; report a saved webhook as awaiting connection when that setup is missing. Keep secrets out of routine instructions and ordinary status summaries.";
+pub const INSTRUCTIONS: &str = "Create and manage persistent Codync routines when the user asks for scheduled or event-driven work. Use the built-in routines tools (save_routine, list_routines, set_routine_enabled, delete_routine, run_routine, routine_webhook), not operating-system cron or an improvised background process. For recurring clock schedules, always use a five-field cron trigger with an explicit IANA timezone, including minute/hour frequencies; do not create interval triggers for those requests. Preserve existing intervals when editing unrelated fields. Cron steps reset within their field: */7 minutes is not an exact seven-minute duration across hours. Use once for a single dated execution; never approximate a one-time task with an annually repeating cron expression. Before saving, resolve the task, trigger and intended timezone for calendar/one-time schedules from the conversation; ask only for missing or ambiguous details. If the request is already clear, create it without another confirmation. Check that tools, connector sign-ins and files needed by the task are available; describe any missing setup rather than promising the task will work. Use list_routines before creating or editing to avoid duplicates; preserve unrelated triggers, enabled state and instructions. Save returns the actual routine ID, trigger descriptions and nextRunAt: use these to report what was really saved, including timezone, next occurrence and enabled/paused state. Do not claim success if the tool failed. run_routine executes the real task immediately, including its side effects; use it when the user requested a test or immediate execution, not merely to validate a schedule. A routine runs locally in its own conversation; the host must be running and awake, results appear in the main chat, and (pass) stays silent. Webhooks use a per-routine key: senders POST to the returned public url (through the Codync cloud; null when the cloud is off, then only localUrl on this computer works) with Authorization: Bearer <key>, or, for GitHub, set the webhook's content type to application/json and its secret to the key (deliveries are verified by their X-Hub-Signature-256). GitHub deliveries become events {source:github, event:<event>.<action>, repo, sender, text, url, payload} that event triggers can filter. Deliveries made while the computer is offline wait up to 72 hours in the cloud. The cloud sees delivery contents (they are not end-to-end encrypted). routine_webhook with rotate:true replaces the key; the old one stops working at once. This does not register a provider subscription: set that up with the user. Never claim a third-party integration is connected until a real delivery has been verified; report a saved webhook as awaiting connection when that setup is missing. Keep secrets out of routine instructions and ordinary status summaries.";
 
 pub fn tools() -> Value {
     let id = json!({"type":"string"});
@@ -406,10 +490,19 @@ pub fn tools() -> Value {
         ("set_routine_enabled", "Pause or resume a routine; enabled boolean is required."),
         ("delete_routine", "Delete a routine and cancel pending runs."),
         ("run_routine", "Start a test run, including for a paused routine."),
-        ("routine_webhook", "Get the local webhook URL and secret bearer key."),
+        (
+            "routine_webhook",
+            "Get the routine's public webhook URL (null when the Codync cloud is off), its local URL and secret key. rotate:true replaces the key.",
+        ),
     ] {
         let required = if name == "set_routine_enabled" { vec!["id", "enabled"] } else { vec!["id"] };
-        tools.push(json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":{"id":id,"enabled":{"type":"boolean"}},"required":required}}));
+        let mut properties = json!({"id": id});
+        match name {
+            "set_routine_enabled" => properties["enabled"] = json!({"type":"boolean"}),
+            "routine_webhook" => properties["rotate"] = json!({"type":"boolean"}),
+            _ => {}
+        }
+        tools.push(json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required}}));
     }
     json!(tools)
 }
