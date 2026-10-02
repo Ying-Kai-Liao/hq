@@ -109,21 +109,26 @@ private struct InstallPage: View {
                     SegmentedChoice(selection: $os, options: [(.mac, "Mac"), (.linux, "Linux")])
 
                     VStack(alignment: .leading, spacing: 10) {
+                        // Copied here, pasted on the computer (Universal Clipboard or a message to yourself).
                         if os == .mac {
-                            // Copied here, pasted on the Mac (Universal Clipboard or a message to yourself).
-                            Hint("Download the Mac app")
+                            Hint("Install with Homebrew")
+                            CommandBlock("brew install --cask leepokai/codync/codync")
+                            Hint("or download the Mac app")
                             CommandBlock("https://github.com/leepokai/Codync/releases/latest/download/codync-macos.dmg")
-                            Hint("or install it with Homebrew")
+                        } else {
+                            Hint("Run the installer")
+                            CommandBlock("curl -fsSL https://raw.githubusercontent.com/leepokai/Codync/main/packaging/install.sh | sh\ncodync-host install")
+                            Hint("or install with Homebrew")
+                            CommandBlock("brew install leepokai/codync/codync-host\ncodync-host install")
                         }
-                        CommandBlock(os == .mac
-                                     ? "brew install --cask leepokai/codync/codync"
-                                     : "brew install leepokai/codync/codync-host\ncodync-host install")
-                        if os == .mac {
-                            Text("Then open Codync in the menu bar and click Install host.")
-                                .font(.subheadline)
-                                .foregroundStyle(Palette.secondary)
-                                .transition(.opacity)
-                        }
+                        Text(os == .mac
+                             ? "Open Codync and it sets up the host on its own."
+                             : "codync-host install keeps it running in the background.")
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.secondary)
+                            .contentTransition(.opacity)
+                        Hint("Every install option")
+                        CommandBlock("https://www.codync.dev/#install")
                     }
                     .animation(Motion.layout, value: os)
 
