@@ -6,6 +6,7 @@ extension BotStore {
     /// One short line for a computer's connection, used next to its name.
     var statusText: String {
         switch connection {
+        case .online where mismatch != nil: "Needs update"
         case .online: "Online"
         case .connecting: "Connecting…"
         case let .computerOffline(lastSeen): lastSeen.map { "Offline · seen \(RelativeTime.day($0))" } ?? "Offline"

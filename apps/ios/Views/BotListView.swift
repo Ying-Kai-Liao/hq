@@ -35,7 +35,7 @@ struct BotListView: View {
 
     /// Computers that can take a new bot right now.
     private var onlineStores: [BotStore] {
-        allStores.filter { $0.connection == .online }
+        allStores.filter { $0.connection == .online && $0.mismatch == nil }
     }
 
     private var allStores: [BotStore] {
@@ -46,8 +46,13 @@ struct BotListView: View {
         let roster = accounts.roster.filter { shownIDs.contains($0.ref.computerId) }
         ScrollView {
             LazyVStack(spacing: 0) {
-                if roster.isEmpty {
-                    EmptyRoster(canCreate: !allStores.isEmpty, hasComputer: !accounts.computers.isEmpty,
+                if !grouped {
+                    // One computer: its update notice leads the list.
+                    ForEach(shownStores, id: \.computer.id) { updateCard($0) }
+                }
+                // A computer waiting for an update has its card instead; its bots aren't known yet.
+                if roster.isEmpty && shownStores.allSatisfy({ $0.mismatch == nil }) {
+                    EmptyRoster(canCreate: allStores.contains { $0.mismatch == nil }, hasComputer: !accounts.computers.isEmpty,
                                 create: newBot, showComputers: { app.showComputers = true })
                 }
 
@@ -56,8 +61,10 @@ struct BotListView: View {
                     ForEach(shownStores, id: \.computer.id) { store in
                         let id = store.computer.id
                         VStack(spacing: 0) {
-                            ComputerSection(store: store, empty: !roster.contains { $0.ref.computerId == id },
+                            // Not synced while it needs an update: "No bots yet" wouldn't be true.
+                            ComputerSection(store: store, empty: store.mismatch == nil && !roster.contains { $0.ref.computerId == id },
                                             targeted: dropTarget == id, move: move)
+                            updateCard(store)
                             ForEach(roster.filter { $0.ref.computerId == id }) { row($0, store: store) }
                         }
                         .dropDestination(for: String.self) { ids, _ in
@@ -97,7 +104,8 @@ struct BotListView: View {
                     Button("New group chat", systemImage: "person.2", action: newGroup)
                         .disabled(onlineStores.isEmpty)
                 }
-                .disabled(allStores.isEmpty)
+                // A computer that needs an update can't take a new bot.
+                .disabled(!allStores.contains { $0.mismatch == nil })
             }
         }
         .refreshable {
@@ -145,6 +153,14 @@ struct BotListView: View {
         }
     }
 
+    @ViewBuilder private func updateCard(_ store: BotStore) -> some View {
+        if let mismatch = store.mismatch {
+            UpdateNeededCard(store: store, mismatch: mismatch)
+                .padding(.vertical, 8)
+                .transition(.opacity)
+        }
+    }
+
     private func row(_ item: RosterItem, store: BotStore) -> some View {
         let bot = item.bot
         // A plain button instead of a NavigationLink: same push, no chevron.
@@ -179,7 +195,7 @@ struct BotListView: View {
 
     /// A new bot starts on the first computer online; the editor's Computer row can move it.
     private func newBot() {
-        guard let store = onlineStores.first ?? allStores.first else { return }
+        guard let store = onlineStores.first ?? allStores.first(where: { $0.mismatch == nil }) else { return }
         editing = EditTarget(computerId: store.computer.id, draft: BotDraft())
     }
 }

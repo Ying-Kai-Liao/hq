@@ -11,6 +11,7 @@ struct CodyncApp: App {
     @State private var app = AppStore.shared
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("onboardingCompleted") private var onboardingCompleted = false
+    private static let appStorePage = URL(string: "https://apps.apple.com/app/id6760984418")!
 
     var body: some Scene {
         WindowGroup {
@@ -19,6 +20,8 @@ struct CodyncApp: App {
                 .environment(app)
                 .environment(app.accounts)
                 .environment(app.account)
+                // A computer needs a newer app: its App Store page has the Update button.
+                .environment(\.appUpdate, AppUpdateAction { UIApplication.shared.open(Self.appStorePage) })
                 .tint(Palette.accent)
                 .codyncSheet(isPresented: Binding(
                     get: { (onboardingCompleted || app.account.isSignedIn) && app.account.showSwitcher },
