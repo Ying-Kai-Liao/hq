@@ -138,6 +138,16 @@ async fn staged_min_app(stage: &Path) -> Result<String> {
     compat["minApp"].as_str().map(str::to_owned).context("the downloaded host reported no minimum app version")
 }
 
+/// Whether a release needing `new_min_app` waits for the App Store (only if it raises the floor).
+async fn app_store_gate(new_min_app: &str, port: u16) -> crate::compat::Gate {
+    if !crate::compat::below(crate::compat::MIN_APP, new_min_app) {
+        return crate::compat::Gate::Proceed;
+    }
+    let iphones = iphones_paired(port).await;
+    let store = if iphones { crate::compat::app_store_version().await } else { Ok(None) };
+    crate::compat::gate(crate::compat::MIN_APP, new_min_app, iphones, &store)
+}
+
 pub async fn apply(
     release: &release::Release,
     target: &Path,
@@ -146,6 +156,15 @@ pub async fn apply(
     skip_app_check: bool,
 ) -> Result<crate::compat::Gate> {
     require_standalone(target)?;
+    // The release's signed compat file answers before anything is downloaded; releases
+    // without one are asked after download (below).
+    let early_min_app = if skip_app_check { None } else { release::min_app(release).await.ok() };
+    if let Some(min_app) = &early_min_app {
+        let gate = app_store_gate(min_app, port).await;
+        if gate != crate::compat::Gate::Proceed {
+            return Ok(gate);
+        }
+    }
     let managed = service::installed();
     if managed {
         service::require_executable(target)?;
@@ -173,15 +192,10 @@ pub async fn apply(
         );
         // Before anything stops: a release that needs a newer iPhone app than the App Store
         // has waits, so paired iPhones aren't asked for an update they can't get yet.
-        if !skip_app_check {
-            let new_min_app = staged_min_app(&stage).await?;
-            if crate::compat::below(crate::compat::MIN_APP, &new_min_app) {
-                let iphones = iphones_paired(port).await;
-                let store = if iphones { crate::compat::app_store_version().await } else { Ok(None) };
-                let gate = crate::compat::gate(crate::compat::MIN_APP, &new_min_app, iphones, &store);
-                if gate != crate::compat::Gate::Proceed {
-                    return Ok(gate);
-                }
+        if !skip_app_check && early_min_app.is_none() {
+            let gate = app_store_gate(&staged_min_app(&stage).await?, port).await;
+            if gate != crate::compat::Gate::Proceed {
+                return Ok(gate);
             }
         }
         let old_hash = release::sha256(&std::fs::read(target)?);

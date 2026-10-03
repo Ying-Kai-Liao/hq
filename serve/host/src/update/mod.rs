@@ -235,11 +235,26 @@ fn spawn_job(executable: &Path, args: &[String]) -> Result<()> {
 
 pub async fn automatic_loop(hub: Arc<Hub>) {
     let mut last_check = None;
+    let mut last_store_probe = None;
     loop {
         tokio::time::sleep(Duration::from_secs(60)).await;
         let enabled = read::<Config>("update-config.json").is_ok_and(|c| c.automatic);
         if !enabled || hub.busy() {
             continue;
+        }
+        // Waiting for the iPhone app: look at the App Store hourly and update as soon as it's
+        // there, instead of at the next daily check.
+        if let Ok(state) = read::<State>("update-state.json")
+            && state.phase == "waitingForApp"
+            && let Some(required) = state.required_app
+            && last_store_probe.is_none_or(|at: tokio::time::Instant| at.elapsed() >= Duration::from_secs(60 * 60))
+        {
+            last_store_probe = Some(tokio::time::Instant::now());
+            if let Ok(Some(store)) = crate::compat::app_store_version().await
+                && !crate::compat::below(&store, &required)
+            {
+                last_check = None;
+            }
         }
         if last_check.is_some_and(|at: tokio::time::Instant| at.elapsed() < Duration::from_secs(24 * 60 * 60)) {
             continue;
