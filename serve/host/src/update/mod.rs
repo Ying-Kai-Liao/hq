@@ -23,6 +23,10 @@ struct State {
     available_version: Option<String>,
     checked_at: Option<i64>,
     error: Option<String>,
+    /// `waitingForApp`: the iPhone app the available release needs.
+    required_app: Option<String>,
+    /// `waitingForApp`: what the App Store has (`None`: couldn't ask it).
+    app_store_version: Option<String>,
 }
 
 fn read<T: serde::de::DeserializeOwned + Default>(name: &str) -> Result<T> {
@@ -86,10 +90,17 @@ pub async fn check() -> Result<Value> {
     state.checked_at = Some(crate::store::now_ms());
     match release::latest().await {
         Ok(release) => {
-            state.available_version = (semver::Version::parse(&release.version)?
+            let available = (semver::Version::parse(&release.version)?
                 > semver::Version::parse(env!("CARGO_PKG_VERSION"))?)
             .then_some(release.version);
-            state.phase = if state.available_version.is_some() { "available" } else { "upToDate" }.into();
+            // Still the release that waits for the iPhone app: keep saying why.
+            let waiting = state.phase == "waitingForApp" && available.is_some() && available == state.available_version;
+            if !waiting {
+                state.phase = if available.is_some() { "available" } else { "upToDate" }.into();
+                state.required_app = None;
+                state.app_store_version = None;
+            }
+            state.available_version = available;
             state.error = None;
         }
         Err(error) => {
@@ -103,7 +114,7 @@ pub async fn check() -> Result<Value> {
     status()
 }
 
-pub async fn apply(port: u16, force: bool, worker: bool) -> Result<Value> {
+pub async fn apply(port: u16, force: bool, skip_app_check: bool, worker: bool) -> Result<Value> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     let _lock = loop {
         match lock() {
@@ -127,8 +138,15 @@ pub async fn apply(port: u16, force: bool, worker: bool) -> Result<Value> {
         state.available_version = Some(release.version.clone());
         state.phase = "installing".into();
         write("update-state.json", &state)?;
-        install::apply(&release, &target, port, force).await?;
-        state.phase = "complete".into();
+        match install::apply(&release, &target, port, force, skip_app_check).await? {
+            crate::compat::Gate::Proceed => state.phase = "complete".into(),
+            // Not a failure: the next check installs it once the App Store has that app.
+            crate::compat::Gate::WaitForApp { required, store } => {
+                state.phase = "waitingForApp".into();
+                state.required_app = Some(required);
+                state.app_store_version = store;
+            }
+        }
         Ok::<_, anyhow::Error>(())
     }
     .await;
@@ -149,7 +167,7 @@ pub async fn apply(port: u16, force: bool, worker: bool) -> Result<Value> {
 
 /// The updater must live outside the daemon's job/cgroup. Otherwise stopping
 /// the host would also kill the process responsible for starting its replacement.
-pub fn spawn_worker(port: u16, force: bool) -> Result<()> {
+pub fn spawn_worker(port: u16, force: bool, skip_app_check: bool) -> Result<()> {
     let _lock = lock()?;
     let previous: State = read("update-state.json")?;
     ensure!(!awaiting_worker(&previous), "a host update is already starting");
@@ -164,8 +182,13 @@ pub fn spawn_worker(port: u16, force: bool) -> Result<()> {
     if force {
         args.push("--force".to_owned());
     }
+    if skip_app_check {
+        args.push("--skip-app-check".to_owned());
+    }
     let mut state = State { phase: "scheduled".into(), checked_at: Some(crate::store::now_ms()), ..previous };
     state.error = None;
+    state.required_app = None;
+    state.app_store_version = None;
     write("update-state.json", &state)?;
     if let Err(error) = spawn_job(&executable, &args) {
         state.phase = "failed".into();
@@ -225,7 +248,7 @@ pub async fn automatic_loop(hub: Arc<Hub>) {
         match check().await {
             Ok(status) if status["state"]["availableVersion"].is_string() => {
                 let port = hub.port;
-                match tokio::task::spawn_blocking(move || spawn_worker(port, false)).await {
+                match tokio::task::spawn_blocking(move || spawn_worker(port, false, false)).await {
                     Ok(Ok(())) => {}
                     result => tracing::warn!(?result, "could not start automatic host update"),
                 }

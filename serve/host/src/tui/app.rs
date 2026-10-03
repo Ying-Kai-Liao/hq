@@ -1117,6 +1117,16 @@ impl App {
             }
             After::Hello => {
                 self.mismatch = crate::compat::check(env!("CARGO_PKG_VERSION"), crate::compat::MIN_HOST, &v);
+                // Still compatible but behind this client: there's a newer host release.
+                if self.mismatch.is_none()
+                    && let Some(version) = v["version"].as_str()
+                    && crate::compat::below(version, env!("CARGO_PKG_VERSION"))
+                {
+                    self.flash(&format!(
+                        "Codync {} is available for this host (it runs {version}): ^k → Check for updates",
+                        env!("CARGO_PKG_VERSION")
+                    ));
+                }
                 v["name"].as_str().unwrap_or("computer").clone_into(&mut self.host);
                 v["home"].as_str().unwrap_or_default().clone_into(&mut self.home);
                 self.backends = v["backends"].as_array().cloned().unwrap_or_default();
@@ -1125,9 +1135,18 @@ impl App {
                 self.backends = v["backends"].as_array().cloned().unwrap_or_default();
                 self.flash("Agents refreshed");
             }
-            After::Update => match v["state"]["availableVersion"].as_str() {
-                Some(version) => self.flash(&format!("Version {version} is available: run codync-host update")),
-                None => self.flash("The host is up to date."),
+            After::Update => match (v["state"]["availableVersion"].as_str(), v["state"]["requiredApp"].as_str()) {
+                (Some(version), Some(app)) => self.flash(&match v["state"]["appStoreVersion"].as_str() {
+                    Some(store) => format!(
+                        "Version {version} waits for the iPhone app {app} (App Store has {store}); it installs after review"
+                    ),
+                    None => format!(
+                        "Version {version} waits: couldn't check the App Store for the iPhone app {app}. \
+                         codync-host update --skip-app-check installs anyway"
+                    ),
+                }),
+                (Some(version), None) => self.flash(&format!("Version {version} is available: run codync-host update")),
+                (None, _) => self.flash("The host is up to date."),
             },
             After::Thread => {
                 for e in v["entries"].as_array().into_iter().flatten() {

@@ -138,6 +138,10 @@ enum Sub {
         /// Allow a manual update to interrupt active bots (their sessions resume).
         #[arg(long)]
         force: bool,
+        /// Install even if the App Store doesn't have the iPhone app this release needs yet
+        /// (paired iPhones then ask for an update they may not get until review is done).
+        #[arg(long)]
+        skip_app_check: bool,
         #[arg(long, default_value_t = service::DEFAULT_PORT)]
         port: u16,
         #[arg(long)]
@@ -145,6 +149,9 @@ enum Sub {
         #[arg(long, hide = true)]
         worker: bool,
     },
+    /// The versions this host works with (JSON), asked of a downloaded update before installing it.
+    #[command(hide = true)]
+    Compat,
     /// Show whether the host is installed and running.
     Status {
         #[arg(long, default_value_t = service::DEFAULT_PORT)]
@@ -364,7 +371,11 @@ async fn main() -> Result<()> {
             println!("Codync host installed and started on port {port}. Run `codync-host pair` to connect your phone.");
             Ok(())
         }
-        Sub::Update { check, status, auto, force, port, json, worker } => {
+        Sub::Compat => {
+            println!("{}", serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "minApp": compat::MIN_APP}));
+            Ok(())
+        }
+        Sub::Update { check, status, auto, force, skip_app_check, port, json, worker } => {
             let status = if let Some(auto) = auto {
                 update::set_automatic(auto == "on")?
             } else if status {
@@ -372,10 +383,10 @@ async fn main() -> Result<()> {
             } else if check {
                 update::check().await?
             } else if !worker && service::installed() {
-                tokio::task::spawn_blocking(move || update::spawn_worker(port, force)).await??;
+                tokio::task::spawn_blocking(move || update::spawn_worker(port, force, skip_app_check)).await??;
                 update::status()?
             } else {
-                update::apply(port, force, worker).await?
+                update::apply(port, force, skip_app_check, worker).await?
             };
             if json {
                 println!("{}", serde_json::to_string_pretty(&status)?);
@@ -388,6 +399,18 @@ async fn main() -> Result<()> {
                 println!("Automatic updates: {}", if status["automatic"] == true { "on" } else { "off" });
                 if let Some(version) = status["state"]["availableVersion"].as_str() {
                     println!("Available version: {version}");
+                }
+                if let Some(required) = status["state"]["requiredApp"].as_str() {
+                    match status["state"]["appStoreVersion"].as_str() {
+                        Some(store) => println!(
+                            "Waiting for the iPhone app {required} (the App Store has {store}); \
+                             it installs once that passes review"
+                        ),
+                        None => println!(
+                            "Waiting for the iPhone app {required}: couldn't check the App Store. \
+                             `codync-host update --skip-app-check` installs anyway"
+                        ),
+                    }
                 }
                 if let Some(error) = status["state"]["error"].as_str() {
                     println!("Last error: {error}");

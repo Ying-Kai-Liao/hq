@@ -107,7 +107,44 @@ where
     Ok(())
 }
 
-pub async fn apply(release: &release::Release, target: &Path, port: u16, force: bool) -> Result<()> {
+/// Whether iPhones use this host: asked of the running host, assumed when it can't answer.
+async fn iphones_paired(port: u16) -> bool {
+    let devices = async {
+        let token = std::fs::read_to_string(service::data_dir().join("token")).ok()?;
+        let res: serde_json::Value = crate::http()
+            .post(format!("http://127.0.0.1:{port}/api/devices"))
+            .bearer_auth(token.trim())
+            .json(&serde_json::json!({}))
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await
+            .ok()?
+            .error_for_status()
+            .ok()?
+            .json()
+            .await
+            .ok()?;
+        Some(res["devices"].as_array()?.iter().any(|d| d["platform"] == "ios"))
+    };
+    devices.await.unwrap_or(true)
+}
+
+/// The `minApp` a downloaded (verified) executable declares.
+async fn staged_min_app(stage: &Path) -> Result<String> {
+    let output = tokio::process::Command::new(stage).arg("compat").kill_on_drop(true).output();
+    let output = tokio::time::timeout(Duration::from_secs(10), output).await??;
+    ensure!(output.status.success(), "the downloaded host couldn't report the iPhone app it needs");
+    let compat: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    compat["minApp"].as_str().map(str::to_owned).context("the downloaded host reported no minimum app version")
+}
+
+pub async fn apply(
+    release: &release::Release,
+    target: &Path,
+    port: u16,
+    force: bool,
+    skip_app_check: bool,
+) -> Result<crate::compat::Gate> {
     require_standalone(target)?;
     let managed = service::installed();
     if managed {
@@ -134,6 +171,19 @@ pub async fn apply(release: &release::Release, target: &Path, port: u16, force: 
                 && String::from_utf8_lossy(&output.stdout).trim() == format!("codync-host {}", release.version),
             "downloaded executable reported the wrong version"
         );
+        // Before anything stops: a release that needs a newer iPhone app than the App Store
+        // has waits, so paired iPhones aren't asked for an update they can't get yet.
+        if !skip_app_check {
+            let new_min_app = staged_min_app(&stage).await?;
+            if crate::compat::below(crate::compat::MIN_APP, &new_min_app) {
+                let iphones = iphones_paired(port).await;
+                let store = if iphones { crate::compat::app_store_version().await } else { Ok(None) };
+                let gate = crate::compat::gate(crate::compat::MIN_APP, &new_min_app, iphones, &store);
+                if gate != crate::compat::Gate::Proceed {
+                    return Ok(gate);
+                }
+            }
+        }
         let old_hash = release::sha256(&std::fs::read(target)?);
         let new_hash = release::sha256(&std::fs::read(&stage)?);
         let identity = old_health.as_ref().and_then(|h| h["computerId"].as_str());
@@ -167,7 +217,8 @@ pub async fn apply(release: &release::Release, target: &Path, port: u16, force: 
                 Ok(())
             },
         )
-        .await
+        .await?;
+        Ok(crate::compat::Gate::Proceed)
     }
     .await;
     let _ = std::fs::remove_file(stage);
