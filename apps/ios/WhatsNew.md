@@ -5,13 +5,12 @@ listing what iPhone users notice. tools/asc-submit.py reads the released version
 a version without one gets a generic "Bug fixes and improvements" line. Delete old sections.
 -->
 
-## 2.4.1
+## 2.4.4
 
 ### zh-Hant
 
-- 在 iPad 遠端畫面上，可以用外接鍵盤以注音等輸入法打中文，也能用 Ctrl-Space 切換輸入法。
+- 對話往上捲時，訊息會在頂部標題列下方柔和地模糊淡出，標題與按鈕更清楚。
 
 ### en-US
 
-- On iPad remote screen, a hardware keyboard now types Chinese and other IME input, and Ctrl-Space switches input sources.
-
+- Messages now soften into a blur as they scroll under the conversation header, keeping the title and buttons easy to read.
