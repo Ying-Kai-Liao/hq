@@ -5,14 +5,12 @@ listing what iPhone users notice. tools/asc-submit.py reads the released version
 a version without one gets a generic "Bug fixes and improvements" line. Delete old sections.
 -->
 
-## 2.5.0
+## 2.5.1
 
 ### zh-Hant
 
-- App Store 有新版 Codync，或電腦上的 Codync 比 App 舊時，列表頂端會出現更新提醒，可以直接關掉。
-- 電腦需要的新版 App 還在 App Store 審核時，更新按鈕會先變灰並說明原因。
+- 新建立的 bot 預設會自動核准工具請求；想逐一確認的話，可以在 bot 設定裡改成「Ask me」。
 
 ### en-US
 
-- A dismissible reminder at the top of your bots tells you when a newer Codync is in the App Store, or when Codync on a computer is behind this app.
-- If a computer needs an app version that's still in App Store review, the update button waits and says why.
+- New bots approve tool requests automatically. Switch a bot to "Ask me" in its settings to review each one.
