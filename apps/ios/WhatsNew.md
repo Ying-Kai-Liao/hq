@@ -5,12 +5,14 @@ listing what iPhone users notice. tools/asc-submit.py reads the released version
 a version without one gets a generic "Bug fixes and improvements" line. Delete old sections.
 -->
 
-## 2.4.4
+## 2.5.0
 
 ### zh-Hant
 
-- 對話往上捲時，訊息會在頂部標題列下方柔和地模糊淡出，標題與按鈕更清楚。
+- App Store 有新版 Codync，或電腦上的 Codync 比 App 舊時，列表頂端會出現更新提醒，可以直接關掉。
+- 電腦需要的新版 App 還在 App Store 審核時，更新按鈕會先變灰並說明原因。
 
 ### en-US
 
-- Messages now soften into a blur as they scroll under the conversation header, keeping the title and buttons easy to read.
+- A dismissible reminder at the top of your bots tells you when a newer Codync is in the App Store, or when Codync on a computer is behind this app.
+- If a computer needs an app version that's still in App Store review, the update button waits and says why.
