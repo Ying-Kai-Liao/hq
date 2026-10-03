@@ -46,6 +46,12 @@ struct BotListView: View {
         let roster = accounts.roster.filter { shownIDs.contains($0.ref.computerId) }
         ScrollView {
             LazyVStack(spacing: 0) {
+                // Newer releases (dismissible; everything still works): this app here, a computer's
+                // host under its heading, or here when there's no heading.
+                AppUpdateReminder()
+                if !grouped {
+                    ForEach(shownStores, id: \.computer.id) { HostUpdateReminder(store: $0) }
+                }
                 if !grouped {
                     // One computer: its update notice leads the list.
                     ForEach(shownStores, id: \.computer.id) { updateCard($0) }
@@ -65,6 +71,7 @@ struct BotListView: View {
                             ComputerSection(store: store, empty: store.mismatch == nil && !roster.contains { $0.ref.computerId == id },
                                             targeted: dropTarget == id, move: move)
                             updateCard(store)
+                            HostUpdateReminder(store: store)
                             ForEach(roster.filter { $0.ref.computerId == id }) { row($0, store: store) }
                         }
                         .dropDestination(for: String.self) { ids, _ in

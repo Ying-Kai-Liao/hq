@@ -9,9 +9,10 @@ import WidgetKit
 struct CodyncApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var app = AppStore.shared
+    /// What the App Store has: greys out an update it doesn't have yet, reminds of newer ones.
+    @State private var updates = AppUpdates()
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("onboardingCompleted") private var onboardingCompleted = false
-    private static let appStorePage = URL(string: "https://apps.apple.com/app/id6760984418")!
 
     var body: some Scene {
         WindowGroup {
@@ -21,7 +22,8 @@ struct CodyncApp: App {
                 .environment(app.accounts)
                 .environment(app.account)
                 // A computer needs a newer app: its App Store page has the Update button.
-                .environment(\.appUpdate, AppUpdateAction { UIApplication.shared.open(Self.appStorePage) })
+                .environment(\.appUpdate, AppUpdateAction { UIApplication.shared.open(AppStoreRelease.page) })
+                .environment(updates)
                 .tint(Palette.accent)
                 .codyncSheet(isPresented: Binding(
                     get: { (onboardingCompleted || app.account.isSignedIn) && app.account.showSwitcher },
@@ -43,7 +45,10 @@ struct CodyncApp: App {
                     // app switcher, system prompts) comes and goes too often to drop the link.
                     app.accounts.setActive(phase != .background)
                     // Back in the app: a computer may have joined the account meanwhile.
-                    if phase == .active { Task { await app.accounts.refreshCloud() } }
+                    if phase == .active {
+                        Task { await app.accounts.refreshCloud() }
+                        Task { await updates.refresh() }
+                    }
                 }
                 #if DEBUG
                 .task {
