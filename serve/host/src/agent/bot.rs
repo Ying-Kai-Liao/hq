@@ -974,23 +974,7 @@ impl Actor {
         let res = conn.acp.request("session/new", params).await?;
         let sid = res["sessionId"].as_str().ok_or_else(|| anyhow!("agent returned no sessionId"))?.to_owned();
         conn.loaded.insert(sid.clone());
-        if let Some(model) = self.cfg.model.clone().filter(|m| !m.is_empty()) {
-            let config_id = crate::agent::auth::model_config(&res).and_then(|c| c["id"].as_str());
-            let r = if let Some(config_id) = config_id {
-                conn.acp
-                    .request(
-                        "session/set_config_option",
-                        json!({"sessionId": sid, "configId": config_id, "value": model}),
-                    )
-                    .await
-            } else {
-                conn.acp.request("session/set_model", json!({"sessionId": sid, "modelId": model})).await
-            };
-            if let Err(e) = r {
-                tracing::warn!(model, error = format!("{e:#}"), "couldn't set model");
-                bail!("Couldn't select model {model}: {e:#}");
-            }
-        }
+        select_model(&conn.acp, &res, &sid, &self.cfg).await?;
         self.set_session(slot, Some(&sid));
         self.session_fresh = true;
         self.turn_session = Some(sid.clone());
@@ -1447,6 +1431,23 @@ pub(crate) async fn launch_commands(cfg: &BotConfig, progress: impl Fn(&str)) ->
             .map(crate::agent::registry::Cmd::acp)
             .collect(),
     })
+}
+
+/// Switches a new session (`session/new` answered `res`) to the bot's chosen model.
+pub(crate) async fn select_model(acp: &Acp, res: &Value, sid: &str, cfg: &BotConfig) -> Result<()> {
+    let Some(model) = cfg.model.as_deref().filter(|m| !m.is_empty()) else { return Ok(()) };
+    let r = match crate::agent::auth::model_config(res).and_then(|c| c["id"].as_str()) {
+        Some(config_id) => {
+            acp.request("session/set_config_option", json!({"sessionId": sid, "configId": config_id, "value": model}))
+                .await
+        }
+        None => acp.request("session/set_model", json!({"sessionId": sid, "modelId": model})).await,
+    };
+    if let Err(e) = r {
+        tracing::warn!(model, error = format!("{e:#}"), "couldn't set model");
+        bail!("Couldn't select model {model}: {e:#}");
+    }
+    Ok(())
 }
 
 /// Spawns an ACP agent and completes the `initialize` handshake.
