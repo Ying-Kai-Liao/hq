@@ -470,6 +470,8 @@ fn status_line(buf: &mut Buffer, r: Rect, app: &mut App) {
     }
     if !app.online {
         x = put(buf, x, r.y, 20, "offline", t.amber.patch(t.panel)) + 2;
+    } else if app.mismatch.is_some() {
+        x = put(buf, x, r.y, 20, "needs update", t.red.patch(t.panel)) + 2;
     }
     let hint = if insert { "↵ send · esc nav" } else { "? keys" };
     let mut right = rput(buf, r.right() - 1, r.y, hint, t.dim.patch(t.panel)).saturating_sub(3);
@@ -498,9 +500,11 @@ fn status_line(buf: &mut Buffer, r: Rect, app: &mut App) {
         edge = rput(buf, right + 1, r.y, &name, t.dim.patch(t.panel)).saturating_sub(2);
     }
     // A flash gets the room between the host and the usage, cut short to fit.
-    if let Some((h, _)) = &app.hint {
+    // Otherwise what to update stays in view until it's done.
+    let standing = app.mismatch.as_ref().filter(|_| app.online).map(|m| super::app::mismatch_text(m, &app.host));
+    if let Some(h) = app.hint.as_ref().map(|(h, _)| h.clone()).or(standing) {
         let room = edge.saturating_sub(x);
-        put(buf, x, r.y, room, &truncate(h, usize::from(room)), t.amber.patch(t.panel));
+        put(buf, x, r.y, room, &truncate(&h, usize::from(room)), t.amber.patch(t.panel));
     }
 }
 
