@@ -286,6 +286,8 @@ async fn phone_pairs_and_chats_over_the_direct_channel() {
     let mut phone = Phone::connect(&host, &key, &sk, false).await;
     let hello = phone.call(1, "hello", json!({})).await;
     assert_eq!(hello["boxKey"], query_param(url, "bk"));
+    // Phones check themselves against it (docs/reference/compatibility.md).
+    assert!(hello["minApp"].as_str().is_some_and(|v| !v.is_empty()));
     let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fake_agent.py");
     let bot = phone
         .call(

@@ -3,6 +3,7 @@
 mod agent;
 mod api;
 mod chat;
+mod compat;
 mod hub;
 mod market;
 mod mcp;

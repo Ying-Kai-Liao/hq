@@ -665,6 +665,8 @@ pub struct App {
     pub home: String,
     pub online: bool,
     pub error: Option<String>,
+    /// This client and the host can't work together until one of them updates.
+    pub mismatch: Option<crate::compat::Mismatch>,
     pub bots: HashMap<String, Bot>,
     pub entries: HashMap<String, BTreeMap<i64, Entry>>,
     pub usage: Value,
@@ -724,6 +726,7 @@ impl App {
             home: String::new(),
             online: false,
             error: None,
+            mismatch: None,
             bots: HashMap::new(),
             entries: HashMap::new(),
             usage: Value::Null,
@@ -988,9 +991,8 @@ impl App {
                 }
                 if on {
                     self.error = None;
-                    if self.host.is_empty() {
-                        self.call("hello", json!({}), After::Hello);
-                    }
+                    // Every reconnect: the host may have been updated (or replaced) meanwhile.
+                    self.call("hello", json!({}), After::Hello);
                 }
             }
             Msg::Rewind => {
@@ -1114,6 +1116,7 @@ impl App {
                 self.call("hello", json!({}), After::Hello);
             }
             After::Hello => {
+                self.mismatch = crate::compat::check(env!("CARGO_PKG_VERSION"), crate::compat::MIN_HOST, &v);
                 v["name"].as_str().unwrap_or("computer").clone_into(&mut self.host);
                 v["home"].as_str().unwrap_or_default().clone_into(&mut self.home);
                 self.backends = v["backends"].as_array().cloned().unwrap_or_default();
@@ -1304,6 +1307,12 @@ impl App {
                 let text = draft.text.trim().to_owned();
                 let files = self.files.get(&key).cloned().unwrap_or_default();
                 if text.is_empty() && files.is_empty() {
+                    return;
+                }
+                if let Some(m) = &self.mismatch {
+                    // The draft stays; it sends once the update is done.
+                    let why = mismatch_text(m, &self.host);
+                    self.flash(&why);
                     return;
                 }
                 if self.sends.get(&key).is_some_and(|s| s.busy) {
@@ -2412,6 +2421,19 @@ const NAMES: [&str; 24] = [
     "Ada", "Rex", "Mia", "Sol", "Kit", "Oli", "Ivy", "Max", "Zoe", "Leo", "Ari", "Bea", "Cal", "Dot", "Eli", "Fay",
     "Gus", "Hal", "Ida", "Jin", "Kai", "Lux", "Nia", "Otto",
 ];
+
+/// What to update, in the words every client uses (docs/reference/compatibility.md).
+pub fn mismatch_text(m: &crate::compat::Mismatch, host: &str) -> String {
+    let host = if host.is_empty() { "the computer" } else { host };
+    match m {
+        crate::compat::Mismatch::UpdateApp { minimum } => {
+            format!("Update this app: {host} needs Codync {minimum} or newer here.")
+        }
+        crate::compat::Mismatch::UpdateHost { version, minimum } => format!(
+            "Update Codync on {host}: it runs {version}, this app needs {minimum} or newer. ^k → Check for updates."
+        ),
+    }
+}
 
 /// OSC 52: the terminal puts it on the clipboard, over SSH too.
 pub fn copy(text: &str) {
