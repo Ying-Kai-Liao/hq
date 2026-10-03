@@ -19,9 +19,9 @@ use std::sync::Mutex;
 #[serde(rename_all = "lowercase")]
 pub enum Permission {
     /// Every request becomes an approval card on the phone.
-    #[default]
     Ask,
-    /// Requests are approved once, automatically.
+    /// Requests are approved once, automatically. New bots start here.
+    #[default]
     Auto,
 }
 

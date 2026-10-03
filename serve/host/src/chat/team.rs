@@ -307,7 +307,7 @@ mod tests {
                 let cfg: BotConfig = serde_json::from_value(json!({
                     "id": id, "name": id, "backend": "fixture", "cwd": cwd,
                     "command": format!("python3 -u '{}'", agent.display().to_string().replace('\'', "'\\''")),
-                    "notify": false,
+                    "notify": false, "permission": "ask",
                 }))
                 .unwrap();
                 store.save_bot(&cfg).unwrap();

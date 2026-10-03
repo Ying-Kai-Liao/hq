@@ -2215,7 +2215,7 @@ impl App {
             backend,
             model: Editor::default(),
             cwd: String::new(),
-            auto: false,
+            auto: true,
             notify: true,
             computer: false,
             color: (n * 7) % COLORS.len(),
