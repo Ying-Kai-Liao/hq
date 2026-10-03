@@ -23,7 +23,7 @@ packages:
     exactVersion: 153.0.0
 settings:
   base:
-    MARKETING_VERSION: 2.4.0
+    MARKETING_VERSION: 2.4.1
     CURRENT_PROJECT_VERSION: 24
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
@@ -155,6 +155,7 @@ targets:
         excludes:
           - Widgets
           - NotificationService
+          - WhatsNew.md
     dependencies:
       - package: Clerk
         product: ClerkKit
