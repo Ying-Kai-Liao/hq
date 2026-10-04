@@ -170,6 +170,11 @@ function registerIPC(tray: Tray) {
     return app.getLoginItemSettings().openAtLogin
   })
   ipcMain.handle('app:resetAllData', async () => {
+    // Tell paired devices first: connected ones see "No access" at once, and the account drops
+    // this computer instead of keeping an unreachable older copy of it.
+    await host.call('unclaim', {}, 30_000).catch(() => {})
+    const devices = await host.call<{ devices: { key: string }[] }>('devices').catch(() => ({ devices: [] }))
+    for (const device of devices.devices) await host.call('revokeDevice', { key: device.key }).catch(() => {})
     await account.signOutAll()
     await host.uninstall()
     const { rm } = await import('node:fs/promises')

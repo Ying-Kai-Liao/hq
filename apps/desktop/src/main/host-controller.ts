@@ -140,6 +140,20 @@ export class HostController extends EventEmitter {
     void this.install()
   }
 
+  /** One loopback API call from the main process; throws when the host isn't running. */
+  async call<T>(method: string, params: object = {}, timeoutMs = 5000): Promise<T> {
+    const local = this.local
+    if (!local) throw new Error('The host isn’t running')
+    const res = await fetch(`${local.baseURL}/api/${method}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${local.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (!res.ok) throw new Error(`${method}: HTTP ${res.status}`)
+    return (await res.json()) as T
+  }
+
   async uninstall() {
     const bin = this.binary
     if (!bin) return

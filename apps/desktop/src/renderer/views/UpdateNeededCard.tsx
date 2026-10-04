@@ -16,7 +16,7 @@ export const updateNeededText = {
     }
     const how =
       os === 'macos' ? 'Open Codync on that Mac and choose Check for Updates.'
-      : os === 'linux' ? 'Run codync-host update there, or use Check for updates in its Codync app.'
+      : os === 'linux' ? 'Run codync-host update there.'
       : 'Update Codync on that computer.'
     const needs = `${host} runs Codync ${m.version}; this app needs ${m.minimum} or newer.`
     return instructions ? `${needs} ${how}` : needs
@@ -32,11 +32,12 @@ export function UpdateNeededCard() {
   const store = useStore()
   const mismatch = store.mismatch
   if (!mismatch) return null
-  // This app updates itself; this computer's own host is put back on the app's bundled copy.
+  // This app updates itself; on macOS this computer's own host is put back on the app's bundled
+  // copy. Linux has no bundled host, so the card says how to update it instead.
   const action: [string, () => void] | null =
     mismatch.kind === 'updateApp'
       ? ['Update Codync', () => window.codync.updates.check()]
-      : store === app.local && !app.host.dev
+      : store === app.local && !app.host.dev && window.codync.platform === 'darwin'
         ? [`Update ${store.hostName}`, () => window.codync.host.restart()]
         : null
   return (

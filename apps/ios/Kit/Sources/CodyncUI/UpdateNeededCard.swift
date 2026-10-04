@@ -114,7 +114,7 @@ public enum UpdateNeededText {
         case let .updateHost(version, minimum):
             let how = switch os {
             case "macos": "Open Codync on that Mac and choose Check for Updates."
-            case "linux": "Run codync-host update there, or use Check for updates in its Codync app."
+            case "linux": "Run codync-host update there."
             default: "Update Codync on that computer."
             }
             let needs = "\(host) runs Codync \(version); this app needs \(minimum) or newer."

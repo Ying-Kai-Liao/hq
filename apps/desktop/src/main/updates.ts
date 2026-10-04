@@ -112,7 +112,8 @@ export class Updates extends EventEmitter {
 
   /**
    * A release that needs a newer iPhone app than the App Store has (still in review) waits,
-   * so paired iPhones aren't asked for an update they can't get yet.
+   * so paired iPhones aren't asked for an update they can't get yet. Without an answer from
+   * the App Store, background checks wait and a check the person started goes ahead.
    */
   private async available(info: UpdateInfo) {
     const required = (info as UpdateInfo & { minApp?: string }).minApp
@@ -121,7 +122,7 @@ export class Updates extends EventEmitter {
       const [hostMinApp, iphones] = await this.localHostFacts()
       this.appStoreVersion = (await appStoreVersion()) ?? this.appStoreVersion
       const storeHas = this.appStoreVersion && parseVersion(this.appStoreVersion) && !isBelow(this.appStoreVersion, required)
-      if (isBelow(hostMinApp ?? '0', required) && iphones !== false && !storeHas && !(this.appStoreVersion === null && !this.userInitiated)) {
+      if (isBelow(hostMinApp ?? '0', required) && iphones !== false && !storeHas && !(this.appStoreVersion === null && this.userInitiated)) {
         waiting = required
       }
     }
@@ -136,19 +137,11 @@ export class Updates extends EventEmitter {
 
   /** The local host's `minApp` and whether an iPhone is paired with it. */
   private async localHostFacts(): Promise<[string | null, boolean | null]> {
-    const local = this.host.local
-    if (!local) return [null, null]
-    const call = async <T>(method: string) => {
-      const res = await fetch(`${local.baseURL}/api/${method}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${local.token}`, 'Content-Type': 'application/json' },
-        body: '{}',
-        signal: AbortSignal.timeout(5000),
-      })
-      return (await res.json()) as T
-    }
     try {
-      const [hello, devices] = await Promise.all([call<{ minApp?: string }>('hello'), call<{ devices: { platform?: string }[] }>('devices')])
+      const [hello, devices] = await Promise.all([
+        this.host.call<{ minApp?: string }>('hello'),
+        this.host.call<{ devices: { platform?: string }[] }>('devices'),
+      ])
       return [hello.minApp ?? null, devices.devices.some((d) => d.platform === 'ios')]
     } catch {
       return [null, null]
