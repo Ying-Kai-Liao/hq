@@ -56,6 +56,7 @@
 		BF77DD7946621D8818EDAB9B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A87B0091DAF0E4807D62017 /* SettingsView.swift */; };
 		C263D5693212EB0812A232D9 /* CodyncMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AB018B7D7F8E8137E0A1012 /* CodyncMacApp.swift */; };
 		C7ED489193AC0934515D2E85 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D0DE72EEAEC947C1D3CA237F /* PrivacyInfo.xcprivacy */; };
+		D51C32451FB38C337707E3A5 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124AB371AB16E5E232DE0A07 /* SettingsView.swift */; };
 		EBB0417A5FB2CE6D514D21BE /* ClerkKit in Frameworks */ = {isa = PBXBuildFile; productRef = D9AB2F442A5F243653EAE936 /* ClerkKit */; };
 		EC14C7513A8D2999D97D5ABA /* Screen.app in Embed Dependencies */ = {isa = PBXBuildFile; fileRef = 741B706007BA1B91CB853699 /* Screen.app */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		F171F16563D1FF6308697173 /* CodyncUI in Frameworks */ = {isa = PBXBuildFile; productRef = 06C9F37C6502131CAF0F145E /* CodyncUI */; };
@@ -129,6 +130,7 @@
 		0829A4FCADAC108E8C2DB2F1 /* Widgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widgets.entitlements; sourceTree = "<group>"; };
 		08D070CB1CE05D4848C09C52 /* com.pokai.Codync.screen.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = com.pokai.Codync.screen.plist; sourceTree = "<group>"; };
 		0A87B0091DAF0E4807D62017 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		124AB371AB16E5E232DE0A07 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		1318104275E5BEC47B7088AD /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		14B7967A8F027FF28EAEA893 /* HostController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostController.swift; sourceTree = "<group>"; };
 		1E47C60032C326157E0386B8 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
@@ -413,6 +415,7 @@
 			children = (
 				B71D3227DAFDD03155870401 /* ChatWindow.swift */,
 				9F70117FA3097C5A6F28C89B /* ComputersView.swift */,
+				124AB371AB16E5E232DE0A07 /* SettingsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -759,6 +762,7 @@
 				8D83C54A832018932F7261DE /* ComputersView.swift in Sources */,
 				2244021EF712DF568374AB04 /* HostController.swift in Sources */,
 				B4373612F918A3158E69A8E3 /* SSHTunnel.swift in Sources */,
+				D51C32451FB38C337707E3A5 /* SettingsView.swift in Sources */,
 				AF21AAA6549D150D18C8927F /* UpdatesManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -857,11 +861,14 @@
 				CURRENT_PROJECT_VERSION = "$(MARKETING_VERSION)";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = macos/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Codync;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Talk to your bots in a voice call.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Your words are transcribed on this Mac and sent to your bot as a message.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -1142,11 +1149,14 @@
 				CURRENT_PROJECT_VERSION = "$(MARKETING_VERSION)";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = macos/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Codync;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Talk to your bots in a voice call.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Your words are transcribed on this Mac and sent to your bot as a message.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
