@@ -9,8 +9,8 @@ a version without one gets a generic "Bug fixes and improvements" line. Delete o
 
 ### zh-Hant
 
-- 語音通話的「語音轉文字」預設改用 OpenAI 最新的 gpt-transcribe，辨識更準，也更認得 bot 的名字。
+- 語音通話預設改用各家最新的模型（例如 OpenAI 的 gpt-transcribe，辨識更準、更認得 bot 的名字），之後有新模型推出也會自動換上，不用等 app 更新。
 
 ### en-US
 
-- Voice calls now use OpenAI's newest speech-to-text, gpt-transcribe, by default: more accurate, and better at your bots' names.
+- Voice calls now default to each provider's newest models (such as OpenAI's gpt-transcribe: more accurate, and better at your bots' names), and move to newer ones as they come out, without an app update.
