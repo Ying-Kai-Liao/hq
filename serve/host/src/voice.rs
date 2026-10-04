@@ -273,11 +273,29 @@ fn classify(p: Provider, models: &[Model]) -> (Vec<String>, Vec<String>, Vec<Str
     (realtime, transcribe, speech)
 }
 
+/// Names a speaker is likely to say that speech-to-text would otherwise misspell: the app and
+/// the bots on this computer.
+fn spoken_names(store: &Store) -> Vec<String> {
+    let mut names = vec!["Codync".to_owned()];
+    for bot in store.bots().unwrap_or_default() {
+        if !bot.deleted && !names.contains(&bot.config.name) {
+            names.push(bot.config.name);
+        }
+    }
+    names.truncate(50);
+    names
+}
+
+fn names_hint(names: &[String]) -> String {
+    format!("Names that may come up: {}.", names.join(", "))
+}
+
 /// Speech to text for one utterance (`audio`: base64 WAV, 16 kHz mono).
 pub async fn transcribe(store: &Store, p: Provider, model: &str, audio: &str) -> Result<Value> {
     let key = key(store, p)?;
     let model = checked(model)?;
     let wav = STANDARD.decode(audio).map_err(|_| anyhow!("audio must be base64"))?;
+    let names = spoken_names(store);
     let text = match p {
         Provider::OpenAi => {
             let boundary = format!("codync-{}", uuid::Uuid::new_v4().simple());
@@ -286,10 +304,19 @@ pub async fn transcribe(store: &Store, p: Provider, model: &str, audio: &str) ->
                 format!("--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n{model}\r\n").as_bytes(),
             );
             // Keeps Traditional Chinese from coming back Simplified, and code terms intact.
-            body.extend_from_slice(
-                format!("--{boundary}\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\n{TRANSCRIBE_HINT}\r\n")
-                    .as_bytes(),
-            );
+            let mut field = |name: &str, value: &str| {
+                body.extend_from_slice(
+                    format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n")
+                        .as_bytes(),
+                );
+            };
+            field("prompt", &format!("{TRANSCRIBE_HINT} {}", names_hint(&names)));
+            // Only gpt-transcribe takes keywords; the older models reject the field.
+            if model.starts_with("gpt-transcribe") {
+                for name in &names {
+                    field("keywords[]", name);
+                }
+            }
             body.extend_from_slice(
                 format!(
                     "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"speech.wav\"\r\nContent-Type: audio/wav\r\n\r\n"
@@ -307,7 +334,7 @@ pub async fn transcribe(store: &Store, p: Provider, model: &str, audio: &str) ->
         }
         Provider::Gemini => {
             let body = json!({"contents": [{"parts": [
-                {"text": format!("Transcribe this audio exactly as spoken. {TRANSCRIBE_HINT} Reply with the transcript only; reply with nothing if there is no speech.")},
+                {"text": format!("Transcribe this audio exactly as spoken. {TRANSCRIBE_HINT} {} Reply with the transcript only; reply with nothing if there is no speech.", names_hint(&names))},
                 {"inlineData": {"mimeType": "audio/wav", "data": audio}},
             ]}]});
             let v = send(p, gemini_generate(&key, model).json(&body)).await?;
