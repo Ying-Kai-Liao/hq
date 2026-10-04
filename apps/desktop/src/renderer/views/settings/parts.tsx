@@ -1,0 +1,68 @@
+import type { CSSProperties, ReactNode } from 'react'
+import { usePresence } from '../../components/Overlay'
+import { font } from '../../lib/fonts'
+import type { BotStore } from '../../store/bot-store'
+import './settings.css'
+
+export const isMac = window.codync.platform === 'darwin'
+/** "Mac" in the Mac app's copy; "computer" elsewhere. */
+export const thisMac = isMac ? 'this Mac' : 'this computer'
+
+/** Keeps `children` mounted while it fades and folds away. */
+export function Reveal({ show, children, style }: { show: boolean; children: ReactNode; style?: CSSProperties }) {
+  const { mounted, shown } = usePresence(show)
+  if (!mounted) return null
+  return (
+    <div className={`settings-reveal ${shown ? 'shown' : ''}`} style={style}>
+      <div>{children}</div>
+    </div>
+  )
+}
+
+/** A section's title row (the CardSection heading). */
+export function SectionHeader({ title, children }: { title: string; children?: ReactNode }) {
+  return (
+    <div className="settings-section-header">
+      <span role="heading" aria-level={3} style={{ ...font(13, 'semibold'), color: 'var(--text)' }}>{title}</span>
+      <span style={{ flex: 1 }} />
+      {children}
+    </div>
+  )
+}
+
+export const errorText = (e: unknown) => (e instanceof Error ? e.message : typeof e === 'object' && e && 'message' in e ? String(e.message) : String(e))
+
+/** "3:27 PM", "Yesterday", "Monday" or "Sep 16" (kit's `RelativeTime.day`). */
+export function relativeDay(date: Date, now = new Date()) {
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const days = Math.round((day(now) - day(date)) / 86_400_000)
+  if (days === 0) return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  if (days === 1) return 'Yesterday'
+  if (now.getTime() - date.getTime() < 6 * 86_400_000) return date.toLocaleDateString(undefined, { weekday: 'long' })
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+/** One short line for a computer's connection, used next to its name. */
+export function statusText(store: BotStore) {
+  const c = store.connection
+  switch (c.kind) {
+    case 'online':
+      return store.mismatch ? 'Needs update' : 'Online'
+    case 'connecting':
+      return 'Connecting…'
+    case 'computerOffline':
+      return c.lastSeen ? `Offline · seen ${relativeDay(new Date(c.lastSeen))}` : 'Offline'
+    case 'offline':
+      return "Can't reach"
+    case 'unauthorized':
+      return c.message
+    case 'unpaired':
+      return 'Not paired'
+  }
+}
+
+/** The live client, or null while the computer isn't connected (kit's `store.client`). */
+export const liveClient = (store: BotStore) => (store.connection.kind === 'online' ? store.client : null)
+
+/** "123 456" for a 6-digit code. */
+export const spacedCode = (code: string) => (code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code)

@@ -1,0 +1,191 @@
+.market-page {
+  position: relative;
+  height: 100%;
+  background: var(--background);
+}
+.market-scroll {
+  height: 100%;
+  overflow-y: auto;
+}
+.market-page-content {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 20px 44px;
+  max-width: 980px;
+  margin: 0 auto;
+}
+.market-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+/* Installed ⇄ page: slides like `.move(edge:)` + opacity. */
+.market-stack {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  background: var(--background);
+}
+.market-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  transition: transform var(--layout), opacity var(--layout);
+}
+.market-layer.off-leading {
+  transform: translateX(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+.market-layer.off-trailing {
+  transform: translateX(100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.market-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  height: 38px;
+  background: var(--bubble-agent);
+  border-radius: 999px;
+}
+.market-search input {
+  flex: 1;
+  min-width: 0;
+}
+
+.market-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.item-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  column-gap: 10px;
+  row-gap: 4px;
+}
+
+.agent-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 10px;
+  border-radius: 18px;
+  min-width: 0;
+  background: color-mix(in srgb, var(--bubble-agent) 45%, transparent);
+  transition: background-color var(--hover), transform var(--press);
+}
+.agent-card:hover {
+  background: color-mix(in srgb, var(--bubble-agent) 80%, transparent);
+}
+.agent-card:active {
+  transform: scale(0.98);
+}
+
+.market-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  min-width: 0;
+  transition: background-color var(--hover);
+}
+.market-row:hover {
+  background: color-mix(in srgb, var(--bubble-agent) 60%, transparent);
+}
+
+/* The quiet capsule action ("Add", "Install"). */
+.capsule-action {
+  font-weight: 600;
+  color: var(--text);
+  padding: 7px 16px;
+  background: var(--bubble-agent);
+  border-radius: 999px;
+  white-space: nowrap;
+  flex: none;
+  transition: transform var(--press), opacity var(--press);
+}
+.capsule-action:active:not(:disabled) {
+  transform: scale(0.98);
+  opacity: 0.85;
+}
+
+.skeleton {
+  animation: market-pulse 0.9s ease-in-out infinite alternate;
+}
+@keyframes market-pulse {
+  to {
+    opacity: 0.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+.plain-link {
+  color: var(--text);
+  text-decoration: underline;
+  text-align: left;
+}
+
+.option-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.option-row:disabled {
+  opacity: 0.5;
+}
+
+.plain-row-button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.market-field {
+  width: 100%;
+  display: block;
+}
+textarea.market-field {
+  field-sizing: content;
+}
+
+.setup-terminal {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 10px 0;
+}
+.setup-terminal .xterm {
+  height: 100%;
+}
+.setup-terminal .xterm-viewport {
+  background: transparent !important;
+}
+
+.fade-in {
+  animation: market-fade-in var(--fade) both;
+}
+@keyframes market-fade-in {
+  from {
+    opacity: 0;
+  }
+}

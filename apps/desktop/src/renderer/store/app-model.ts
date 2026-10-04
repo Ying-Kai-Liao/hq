@@ -3,6 +3,7 @@ import type { AccessRequest, Bot, Computer } from '@shared/models'
 import { LoopbackTransport } from '../client/host-client'
 import { Observable } from '../lib/observable'
 import { BotStore } from './bot-store'
+import { CloudModel } from './cloud'
 
 /** A bot on a computer: bot ids are only unique per computer. */
 export interface BotRef {
@@ -42,12 +43,25 @@ export class AppModel extends Observable {
   stores = new Map<string, BotStore>()
   selection: BotRef | null = null
   lastError: string | null = null
+  /** Codync Screen waits for the user to allow it in System Settings → Login Items. */
+  screenNeedsApproval = false
+  screenError: string | null = null
+  private screenSynced = false
   /** Approvals closed with "later"; they come back when the request changes (its code arrives). */
   private deferred = new Set<string>()
   private storeSubscriptions = new Map<string, () => void>()
 
+  /** The signed-in account's side of this computer (claims, cloud default, account computers). */
+  readonly cloud: CloudModel
+
   constructor(private mirrors = true) {
     super()
+    this.cloud = new CloudModel(this)
+  }
+
+  setError(message: string | null) {
+    this.lastError = message
+    this.changed()
   }
 
   async start() {
@@ -64,7 +78,9 @@ export class AppModel extends Observable {
       if (old && old.computerId !== local.computerId) this.detach(old.computerId)
       const cached = this.computers.find((c) => c.id === local.computerId)
       const computer: Computer = cached ?? { id: local.computerId, name: 'This computer', signKey: '', urls: [] }
-      this.attach(computer, new BotStore(computer, true, () => new LoopbackTransport(local.baseURL, local.token)))
+      const store = new BotStore(computer, true, () => new LoopbackTransport(local.baseURL, local.token))
+      this.attach(computer, store)
+      store.subscribe(() => this.syncScreen(store))
     } else if (!local && old) {
       this.detach(old.computerId)
     }
@@ -175,6 +191,30 @@ export class AppModel extends Observable {
     if (this.lastError) return this.lastError
     for (const store of this.stores.values()) if (store.lastError) return store.lastError
     return null
+  }
+
+  /** Remote screen: starts/stops Codync Screen and tells the host (it only accepts this from the computer itself). */
+  async setRemoteScreen(on: boolean) {
+    const local = this.local
+    if (!local) return
+    try {
+      this.screenNeedsApproval = (await window.codync.app.setScreenAgent(on)).needsApproval
+      await local.setScreenEnabled(on)
+      this.screenError = null
+    } catch (error) {
+      this.screenError = error instanceof Error ? error.message : String(error)
+    }
+    this.changed()
+  }
+
+  /** Once per launch, keeps the agent registered while the host has Remote screen on. */
+  private syncScreen(store: BotStore) {
+    if (this.screenSynced || !store.screen) return
+    this.screenSynced = true
+    void window.codync.app.syncScreenAgent(store.screen.enabled).then((r) => {
+      this.screenNeedsApproval = r.needsApproval
+      this.changed()
+    })
   }
 
   clearErrors() {

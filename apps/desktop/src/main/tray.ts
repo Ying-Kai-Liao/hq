@@ -2,12 +2,14 @@ import { join } from 'node:path'
 import { app, clipboard, Menu, nativeImage, shell, Tray as ElectronTray } from 'electron'
 import type { TraySummary, WindowCommand } from '../shared/ipc'
 import type { HostController } from './host-controller'
+import type { Updates } from './updates'
 
 interface Deps {
   openChat: () => unknown
   openPairing: () => void
   send: (command: WindowCommand, show?: boolean) => void
   host: HostController
+  updates: Updates
 }
 
 const resources = () => (app.isPackaged ? process.resourcesPath : join(__dirname, '../../resources'))
@@ -145,6 +147,27 @@ export class Tray {
     return items
   }
 
+  private updatesMenu(): Electron.MenuItemConstructorOptions[] {
+    const { updates } = this.deps
+    const u = updates.state
+    const items: Electron.MenuItemConstructorOptions[] = [
+      { label: u.availableVersion ? `Update to ${u.availableVersion}…` : 'Check for Updates…', enabled: u.canCheck || u.staged, click: () => updates.check() },
+    ]
+    // The release waits until paired iPhones can get the app it needs.
+    if (u.waitingForApp) items.push({ label: `Waiting for iPhone app ${u.waitingForApp} to pass App Store review`, enabled: false })
+    items.push(
+      { label: 'Automatically check for updates', type: 'checkbox', checked: u.autoCheck, enabled: u.supported, click: () => updates.emit('setAutoCheck', !u.autoCheck) },
+      { label: 'Automatically download and install', type: 'checkbox', checked: u.autoDownload, enabled: u.supported, click: () => updates.emit('setAutoDownload', !u.autoDownload) },
+    )
+    if (!u.supported) items.push({ label: 'Updates are available in release builds.', enabled: false })
+    if (u.lastCheck) items.push({ label: `Last checked: ${new Date(u.lastCheck).toLocaleString()}`, enabled: false })
+    if (u.error) {
+      items.push({ label: u.error, enabled: false })
+      items.push({ label: 'Retry installing update', click: () => updates.check() })
+    }
+    return items
+  }
+
   private settingsMenu(): Electron.MenuItemConstructorOptions[] {
     const { host, send } = this.deps
     const s = this.summary
@@ -177,6 +200,8 @@ export class Tray {
           this.rebuild()
         },
       },
+      { type: 'separator' },
+      { label: 'Updates', submenu: this.updatesMenu() },
       { type: 'separator' },
       { label: 'Restart host', click: () => host.restart() },
       { label: 'Open log', click: () => void shell.openPath(host.logPath) },

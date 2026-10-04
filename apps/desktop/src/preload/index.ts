@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { sshBridge } from './ssh'
 import type { CallError, CodyncBridge, HostSnapshot, TraySummary, WindowCommand } from '../shared/ipc'
 
 let streamId = 0
@@ -20,6 +21,7 @@ function listen<T>(channel: string, cb: (value: T) => void) {
 const bridge: CodyncBridge = {
   platform: process.platform as CodyncBridge['platform'],
   appVersion: ipcRenderer.sendSync('app:version') as string,
+  computerName: ipcRenderer.sendSync('app:computerName') as string,
   host: {
     snapshot: () => ipcRenderer.invoke('host:snapshot') as Promise<HostSnapshot>,
     onChange: (cb) => listen('host:change', cb),
@@ -58,6 +60,10 @@ const bridge: CodyncBridge = {
     stop: () => ipcRenderer.send('speech:stop'),
     onEvent: (cb) => listen('speech:event', cb),
   },
+  ssh: sshBridge,
+  cloud: {
+    request: (method, path, body, signed) => ipcRenderer.invoke('cloud:request', method, path, body, signed),
+  },
   updates: {
     state: () => ipcRenderer.invoke('updates:state'),
     onChange: (cb) => listen('updates:change', cb),
@@ -79,6 +85,8 @@ const bridge: CodyncBridge = {
     launchAtLogin: () => ipcRenderer.invoke('app:launchAtLogin'),
     openSettings: (url) => ipcRenderer.send('app:openSettings', url),
     authenticate: (url, scheme) => ipcRenderer.invoke('app:authenticate', url, scheme),
+    setScreenAgent: (on) => ipcRenderer.invoke('screen:setAgent', on),
+    syncScreenAgent: (enabled) => ipcRenderer.invoke('screen:syncAgent', enabled),
   },
 }
 

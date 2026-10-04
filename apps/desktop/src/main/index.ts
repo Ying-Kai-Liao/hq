@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process'
+import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
 import type { HostSnapshot, WindowCommand } from '../shared/ipc'
@@ -9,10 +11,23 @@ import { AccountService } from './account'
 import { Updates } from './updates'
 import { handleURL, registerAuthIPC, registerSchemes, urlFromArgv } from './auth'
 import { registerSpeech } from './speech'
+import { registerScreenIPC } from './screen'
+import { registerCloud } from './cloud'
+import { registerSSH } from './ssh'
+
+/** macOS's user-facing computer name, else the host name. */
+function computerName() {
+  if (process.platform === 'darwin') {
+    try {
+      return execFileSync('/usr/sbin/scutil', ['--get', 'ComputerName'], { encoding: 'utf8' }).trim()
+    } catch {}
+  }
+  return hostname()
+}
 
 const host = new HostController()
 const account = new AccountService()
-const updates = new Updates()
+const updates = new Updates(host)
 let chat: BrowserWindow | null = null
 let pairing: BrowserWindow | null = null
 let quitting = false
@@ -48,7 +63,8 @@ function openChat() {
     titleBarStyle: isMac ? 'hidden' : 'default',
     webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: true, contextIsolation: true },
   })
-  chat.on('ready-to-show', () => chat?.show())
+  // CODYNC_SHOW_INACTIVE: development and UI checks open the window without taking focus.
+  chat.on('ready-to-show', () => (process.env.CODYNC_SHOW_INACTIVE ? chat?.showInactive() : chat?.show()))
   // Closing hides: the window keeps the stores (and the menu bar's data) alive.
   chat.on('close', (e) => {
     if (quitting) return
@@ -119,6 +135,7 @@ function menu() {
 function registerIPC(tray: Tray) {
   registerHostProxy()
   ipcMain.on('app:version', (e) => (e.returnValue = app.getVersion()))
+  ipcMain.on('app:computerName', (e) => (e.returnValue = computerName()))
   ipcMain.handle('host:snapshot', () => snapshot())
   ipcMain.handle('host:health', (_e, url: string) => fetchHealth(url))
   ipcMain.on('host:install', () => void host.install())
@@ -149,6 +166,7 @@ function registerIPC(tray: Tray) {
     return app.getLoginItemSettings().openAtLogin
   })
   ipcMain.handle('app:resetAllData', async () => {
+    await account.signOutAll()
     await host.uninstall()
     const { rm } = await import('node:fs/promises')
     const { dataDir } = await import('./host-controller')
@@ -175,10 +193,14 @@ if (!app.requestSingleInstanceLock()) {
     // A menu bar app: it keeps running with no window.
   })
   void app.whenReady().then(() => {
-    const tray = new Tray({ openChat, openPairing, send, host })
+    const tray = new Tray({ openChat, openPairing, send, host, updates })
+    updates.on('change', () => tray.hostChanged())
     registerIPC(tray)
     registerAuthIPC()
     registerSpeech()
+    registerScreenIPC()
+    registerCloud(account)
+    registerSSH(() => BrowserWindow.getAllWindows())
     // Calls use the microphone (realtime voice); nothing else asks for permissions.
     session.defaultSession.setPermissionRequestHandler((_wc, permission, done) => done(permission === 'media' || permission === 'clipboard-sanitized-write'))
     account.register(() => BrowserWindow.getAllWindows())

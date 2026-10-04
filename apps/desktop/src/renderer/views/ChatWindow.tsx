@@ -22,6 +22,7 @@ import { ApprovalSheet } from './settings/ApprovalSheet'
 import { UpdateNeededCard } from './UpdateNeededCard'
 import { AccountWelcomeView } from './AccountWelcomeView'
 import { useTraySummary } from './tray-summary'
+import { useSSHAttachments } from './settings/ssh-model'
 import './chat-window.css'
 
 const isMac = window.codync.platform === 'darwin'
@@ -32,6 +33,7 @@ export function ChatWindow() {
   const [onboarded, setOnboarded] = usePref(prefs.onboardingDone)
   const [confirmReset, setConfirmReset] = useState(false)
   useTraySummary(app)
+  useSSHAttachments(app)
   const showsChat = app.host.state.kind === 'running' || app.computers.length > 0
 
   useEffect(
@@ -59,7 +61,7 @@ export function ChatWindow() {
             return
           }
           case 'setRemoteScreen':
-            void app.local?.setScreenEnabled(c.on).catch((e: unknown) => app.local?.setError(e instanceof Error ? e.message : String(e)))
+            void app.setRemoteScreen(c.on)
             return
         }
       }),

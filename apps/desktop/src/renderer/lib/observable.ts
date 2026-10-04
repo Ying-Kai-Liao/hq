@@ -2,27 +2,27 @@ import { useCallback, useRef, useSyncExternalStore } from 'react'
 
 /** A model object views follow: `changed()` re-renders every view that uses it. */
 export class Observable {
-  private listeners = new Set<() => void>()
-  private version = 0
-  private pending = false
+  #listeners = new Set<() => void>()
+  #version = 0
+  #scheduled = false
 
   /** Coalesced to one notification per microtask, like SwiftUI's batched updates. */
   protected changed() {
-    if (this.pending) return
-    this.pending = true
+    if (this.#scheduled) return
+    this.#scheduled = true
     queueMicrotask(() => {
-      this.pending = false
-      this.version++
-      for (const listener of [...this.listeners]) listener()
+      this.#scheduled = false
+      this.#version++
+      for (const listener of [...this.#listeners]) listener()
     })
   }
 
   subscribe = (listener: () => void) => {
-    this.listeners.add(listener)
-    return () => void this.listeners.delete(listener)
+    this.#listeners.add(listener)
+    return () => void this.#listeners.delete(listener)
   }
 
-  getVersion = () => this.version
+  getVersion = () => this.#version
 }
 
 /** Re-renders the component when `model` changes; returns it for convenience. */

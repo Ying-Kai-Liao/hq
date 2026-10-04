@@ -1,3 +1,5 @@
+import type { SSHBridge } from './ssh'
+
 // The bridge between the main process (host lifecycle, loopback HTTP, tray, windows)
 // and the renderer (stores and UI). Exposed as `window.codync` by the preload script.
 
@@ -101,6 +103,8 @@ export type SpeechEvent =
 export interface CodyncBridge {
   platform: 'darwin' | 'linux' | 'win32'
   appVersion: string
+  /** The computer's name ("Kevin's MacBook Pro"). */
+  computerName: string
   host: {
     snapshot(): Promise<HostSnapshot>
     onChange(cb: (s: HostSnapshot) => void): () => void
@@ -129,6 +133,11 @@ export interface CodyncBridge {
     stop(): void
     onEvent(cb: (e: SpeechEvent) => void): () => void
   }
+  ssh: SSHBridge
+  /** The Codync cloud's `/v1` API with the signed-in session (and the device key for `signed`). */
+  cloud: {
+    request(method: string, path: string, body: unknown, signed: boolean): Promise<{ ok: true; value: unknown } | { ok: false; error: { status: number; code: string; message: string | null } }>
+  }
   updates: {
     state(): Promise<UpdateState>
     onChange(cb: (s: UpdateState) => void): () => void
@@ -155,5 +164,8 @@ export interface CodyncBridge {
      * (`codync://…`), like ASWebAuthenticationSession. Rejects when cancelled or timed out.
      */
     authenticate(url: string, scheme: string): Promise<string>
+    /** macOS: registers or removes the Codync Screen agent (SMAppService). */
+    setScreenAgent(on: boolean): Promise<{ needsApproval: boolean }>
+    syncScreenAgent(enabled: boolean): Promise<{ needsApproval: boolean }>
   }
 }

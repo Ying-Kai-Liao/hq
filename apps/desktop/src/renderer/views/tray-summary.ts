@@ -112,10 +112,10 @@ export function useTraySummary(app: AppModel) {
           ? {
               enabled: screen.enabled,
               subtitle: screenSubtitle(app),
-              needsLoginItem: false,
+              needsLoginItem: app.screenNeedsApproval,
               needsCapture: screen.enabled && screen.connected && !screen.capture,
               needsInput: screen.enabled && screen.connected && !screen.input,
-              error: null,
+              error: app.screenError,
             }
           : null,
         version: local?.hello?.version ?? null,
@@ -133,6 +133,7 @@ function screenSubtitle(app: AppModel) {
   const local = app.local
   const screen = local?.screen
   if (!local || !screen || !screen.enabled) return `Control this ${isMac ? 'Mac' : 'computer'} from your iPhone`
+  if (app.screenNeedsApproval) return 'Needs approval in System Settings'
   if (!screen.connected) return 'Starting Codync Screen…'
   if (!screen.capture || !screen.input) return 'Needs permission'
   if (screen.viewers > 0) return screen.viewers === 1 ? 'Your iPhone is viewing' : `${screen.viewers} viewers`

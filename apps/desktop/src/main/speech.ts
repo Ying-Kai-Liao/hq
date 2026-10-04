@@ -18,6 +18,8 @@ function helperPath() {
 
 let child: ChildProcessWithoutNullStreams | null = null
 let listener: WebContents | null = null
+/** Bumped per start: a stopping process may still deliver its final result, an older one may not. */
+let generation = 0
 
 function emit(event: SpeechEvent) {
   if (listener && !listener.isDestroyed()) listener.send('speech:event', event)
@@ -29,6 +31,7 @@ function start(sender: WebContents, locale: string | null) {
   const path = helperPath()
   if (!path) return emit({ type: 'error', message: "On-device speech isn't available in this build." })
   const proc = spawn(path, locale ? ['--locale', locale] : [], { stdio: 'pipe' })
+  const mine = ++generation
   child = proc
   let buffer = ''
   proc.stdout.on('data', (chunk: Buffer) => {
@@ -38,15 +41,13 @@ function start(sender: WebContents, locale: string | null) {
       const line = buffer.slice(0, nl)
       buffer = buffer.slice(nl + 1)
       try {
-        if (child === proc) emit(JSON.parse(line) as SpeechEvent)
+        if (generation === mine) emit(JSON.parse(line) as SpeechEvent)
       } catch {}
     }
   })
   proc.on('exit', () => {
-    if (child === proc) {
-      child = null
-      emit({ type: 'stopped' })
-    }
+    if (child === proc) child = null
+    if (generation === mine) emit({ type: 'stopped' })
   })
   proc.on('error', (error) => emit({ type: 'error', message: error.message }))
 }

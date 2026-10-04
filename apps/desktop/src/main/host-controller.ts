@@ -6,6 +6,7 @@ import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { HostState, LocalHost } from '../shared/ipc'
+import { unregisterScreenAgent } from './screen'
 
 /** `CODYNC_PORT` / `CODYNC_HOME` point the app at a dev host started with `codync-host serve`. */
 export const devPort = process.env.CODYNC_PORT ? Number(process.env.CODYNC_PORT) : null
@@ -155,6 +156,7 @@ export class HostController extends EventEmitter {
     this.preparingForUpdate = true
     if (existsSync(serviceFile)) prefs.set('hostRestartAfterAppUpdate', true)
     this.stopLoop()
+    unregisterScreenAgent()
     const bin = this.binary
     if (!bin) throw new Error('The bundled host is missing.')
     const result = await run(bin, ['stop'])
