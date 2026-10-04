@@ -65,8 +65,9 @@ export class HostController extends EventEmitter {
 
   get binary(): string | null {
     const candidates = [
-      app.isPackaged ? join(process.resourcesPath, 'codync-host') : null,
+      app.isPackaged && isMac ? join(process.resourcesPath, 'codync-host') : null,
       process.env.CODYNC_HOST_BIN ?? null,
+      join(homedir(), '.local/bin/codync-host'),
       '/opt/homebrew/bin/codync-host',
       '/usr/local/bin/codync-host',
       '/usr/bin/codync-host',

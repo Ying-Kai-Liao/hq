@@ -13,8 +13,6 @@ files:
   - out/**
   - package.json
 extraResources:
-  - from: build/native/codync-host
-    to: codync-host
   - from: resources/account-config.json
     to: account-config.json
   - from: resources/tray
@@ -42,7 +40,11 @@ mac:
   extendInfo:
     NSMicrophoneUsageDescription: Talk to your bots in a voice call.
     NSSpeechRecognitionUsageDescription: Your words are transcribed on this Mac and sent to your bot as a message.
+  # The host ships inside the Mac app; Linux uses the installed codync-host (an AppImage's
+  # mount path changes every launch, so a service can't point into it).
   extraResources:
+    - from: build/native/codync-host
+      to: codync-host
     - from: build/native/codync-speech
       to: codync-speech
   extraFiles:
