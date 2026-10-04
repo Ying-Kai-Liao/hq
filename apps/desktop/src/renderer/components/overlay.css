@@ -1,0 +1,217 @@
+/* Sheets: a centered card over a dim, scaling in with the layout spring. */
+.modal-card {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+}
+.modal-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transition: opacity var(--layout);
+}
+.modal-content {
+  position: relative;
+  background: var(--background);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 12px 60px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  transform: scale(0.96);
+  transition: opacity var(--layout), transform var(--layout);
+  display: flex;
+  flex-direction: column;
+}
+.modal-card.shown .modal-dim {
+  opacity: 1;
+}
+.modal-card.shown .modal-content {
+  opacity: 1;
+  transform: none;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 10px 0 16px;
+  flex: none;
+}
+
+/* Dialogs */
+.dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transform: scale(0.98);
+  transition: opacity var(--fade), transform var(--fade);
+}
+.dialog.shown {
+  opacity: 1;
+  transform: none;
+}
+.dialog-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+}
+.dialog-card {
+  position: relative;
+  width: min(320px, calc(100vw - 48px));
+  padding: 18px;
+  background: var(--bubble-agent);
+  border-radius: 22px;
+  box-shadow: 0 10px 48px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.dialog-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: center;
+  color: var(--text);
+}
+.dialog-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dialog-button {
+  font-size: calc(12px * var(--scale));
+  font-weight: 500;
+  text-align: center;
+  padding: 8px 0;
+  border-radius: 999px;
+  background: var(--bubble-user);
+  color: var(--text);
+  transition: transform var(--press), opacity var(--press);
+}
+.dialog-button.prominent {
+  background: var(--accent-fill);
+  color: var(--on-accent);
+}
+.dialog-button.destructive {
+  background: var(--danger);
+  color: #fff;
+}
+.dialog-button:active {
+  transform: scale(0.98);
+  opacity: 0.85;
+}
+
+/* Menus */
+.anchored {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  opacity: 0;
+  transition: opacity var(--fade);
+}
+.anchored.shown {
+  opacity: 1;
+}
+.anchored-panel {
+  background: var(--bubble-agent);
+  border-radius: 14px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  transform: scale(0.98);
+  transition: transform var(--layout);
+}
+.anchored.shown .anchored-panel {
+  transform: none;
+}
+.menu-panel {
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  min-width: 160px;
+}
+.menu-divider {
+  height: 0.5px;
+  background: rgba(var(--text-rgb), 0.1);
+  margin: 4px 10px;
+}
+.menu-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: calc(12px * var(--scale));
+  color: var(--text);
+  transition: background-color var(--hover);
+}
+.menu-row.destructive {
+  color: var(--danger);
+}
+.menu-row.highlight {
+  background: rgba(var(--text-rgb), 0.07);
+}
+.menu-icon {
+  width: 18px;
+  display: flex;
+  justify-content: center;
+  flex: none;
+}
+.menu-title {
+  flex: 1;
+  margin-right: 16px;
+}
+
+.reaction-button {
+  display: grid;
+  place-items: center;
+  transition: background-color var(--hover), transform var(--press);
+}
+.reaction-button span {
+  transition: transform var(--hover);
+}
+.reaction-button:hover {
+  background: rgba(var(--text-rgb), 0.06);
+}
+.reaction-button:hover span {
+  transform: scale(1.15);
+}
+.reaction-button:active span {
+  transform: scale(0.85);
+}
+.reaction-button.chosen {
+  background: rgba(var(--text-rgb), 0.12);
+}
+
+/* Icon buttons */
+.icon-button {
+  display: grid;
+  place-items: center;
+  color: var(--secondary);
+  flex: none;
+  transition: background-color var(--hover), color var(--hover), transform var(--press);
+}
+.icon-button:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(var(--text-rgb), 0.08);
+}
+.icon-button:active:not(:disabled) {
+  background: rgba(var(--text-rgb), 0.14);
+  transform: scale(0.98);
+}
+.icon-button.selected {
+  background: var(--accent-fill);
+  color: var(--on-accent);
+}
+.icon-button:disabled {
+  opacity: 0.35;
+}

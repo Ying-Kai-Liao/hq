@@ -1,0 +1,236 @@
+.styled-button {
+  font-size: calc(12px * var(--scale));
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: transform var(--press), opacity var(--press);
+}
+.styled-button.primary {
+  background: var(--accent-fill);
+  color: var(--on-accent);
+}
+.styled-button.secondary {
+  background: var(--bubble-user);
+  color: var(--text);
+}
+.styled-button:active:not(:disabled) {
+  transform: scale(0.98);
+  opacity: 0.85;
+}
+.styled-button:disabled {
+  opacity: 0.4;
+}
+
+.spinner {
+  animation: spin 0.8s linear infinite;
+  flex: none;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.switch:disabled {
+  opacity: 0.4;
+}
+.switch-label {
+  flex: 1;
+  min-width: 0;
+}
+.switch-track {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--bubble-user);
+  flex: none;
+  transition: background-color var(--hover);
+}
+.switch-track.on {
+  background: var(--accent-fill);
+}
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform var(--hover), background-color var(--hover);
+}
+.switch-track.on .switch-knob {
+  transform: translateX(14px);
+  background: var(--on-accent);
+}
+
+.choice-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: calc(12px * var(--scale));
+  color: var(--text);
+  padding: 5px 9px;
+  border-radius: 10px;
+  max-width: 100%;
+}
+.choice-picker.outlined {
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.choice-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.segmented {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bubble-user);
+  border-radius: 999px;
+}
+.segmented-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  border-radius: 999px;
+  background: var(--background);
+  transition: transform var(--morph);
+}
+.segmented-option {
+  position: relative;
+  flex: 1;
+  text-align: center;
+  font-size: calc(11px * var(--scale));
+  font-weight: 500;
+  color: var(--secondary);
+  padding: 5px 0;
+  white-space: nowrap;
+}
+.segmented-option.on {
+  color: var(--text);
+}
+
+.choice-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.card-form {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--background);
+}
+.card-form-content {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 14px;
+  font-size: calc(12px * var(--scale));
+}
+
+.card-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+.card-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 2px;
+}
+.card-section-rows {
+  background: var(--surface);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+}
+.card-row {
+  min-height: 28px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+}
+.card-row > * {
+  flex: 1;
+  min-width: 0;
+}
+.card-section-footer {
+  font-size: calc(10px * var(--scale));
+  color: var(--secondary);
+  line-height: 1.4;
+  padding: 0 2px;
+}
+
+.hairline {
+  height: 1px;
+  background: var(--border);
+  flex: none;
+}
+@media (min-resolution: 2dppx) {
+  .hairline {
+    height: 0.5px;
+  }
+}
+.hairline.inset {
+  margin: 0 16px;
+}
+
+.value-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--bubble-agent);
+  border-radius: 999px;
+  font-size: calc(12px * var(--scale));
+}
+.search-field input {
+  flex: 1;
+  min-width: 0;
+}
+
+.disclosure-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border-radius: 10px;
+}

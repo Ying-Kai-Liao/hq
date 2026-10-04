@@ -1,0 +1,175 @@
+/* Black and white: a pure black (or white) ground, grey bubbles, and color that comes only
+   from the bots; amber marks "needs you" and red marks errors. (kit Palette) */
+:root {
+  color-scheme: light dark;
+  --background: #ffffff;
+  --surface: #f4f4f4;
+  --bubble-agent: #f0f0f0;
+  --bubble-user: #e2e2e2;
+  --border: #e6e6e6;
+  --text: #141414;
+  --text-rgb: 20, 20, 20;
+  --secondary: #6b6b6b;
+  --tertiary: #9b9b9b;
+  --accent-fill: #000000;
+  --accent: #000000;
+  --on-accent: #ffffff;
+  --accent-dim: #d9d9d9;
+  --danger: #c23a2b;
+  --warning: #f0a030;
+  --code-background: #f4f4f4;
+  --added: #2e7d32;
+  --removed: #c62828;
+  /* Floating menus and account panel. */
+  --panel: #fafafa;
+  /* Grok's frosted floating surfaces (title pill, call bar). */
+  --frosted: rgba(244, 244, 244, 0.82);
+
+  /* The Mac text preference: conversation size / 12 pt scales the chrome too. */
+  --scale: 1;
+  --conversation: 12px;
+
+  /* Grok Bot's motion. */
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --hover: 0.12s var(--ease);
+  --fade: 0.12s var(--ease);
+  --press: 0.05s var(--ease);
+  --morph: 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  /* Critically damped 0.3 s spring. */
+  --spring: linear(0, 0.0712, 0.2244, 0.3992, 0.5638, 0.7018, 0.8077, 0.8834, 0.9342, 0.9663, 0.9853, 0.9958, 1.0009, 1.0028, 1.0029, 1);
+  --layout: 0.3s var(--spring);
+  --conversation-motion: 0.42s var(--spring);
+
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, 'DejaVu Sans Mono', monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --surface: #141414;
+    --bubble-agent: #1c1c1c;
+    --bubble-user: #3a3a3a;
+    --border: #262626;
+    --text: #f2f2f2;
+    --text-rgb: 242, 242, 242;
+    --secondary: #9a9a9a;
+    --tertiary: #6e6e6e;
+    --accent-fill: #ffffff;
+    --accent: #ffffff;
+    --on-accent: #000000;
+    --accent-dim: #333333;
+    --danger: #f0a7a7;
+    --code-background: #111111;
+    --added: #8fd18b;
+    --removed: #f0a7a7;
+    --panel: #1b1b1b;
+    --frosted: rgba(35, 35, 35, 0.82);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --hover: 0s;
+    --fade: 0s;
+    --press: 0s;
+    --morph: 0s;
+    --layout: 0s;
+    --conversation-motion: 0s;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--background);
+  color: var(--text);
+  font-family: var(--font);
+  /* macOS .body */
+  font-size: calc(13px * var(--scale));
+  line-height: normal;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+/* No scroll bars anywhere. */
+::-webkit-scrollbar {
+  display: none;
+}
+* {
+  scrollbar-width: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: default;
+  text-align: inherit;
+}
+button:focus-visible {
+  outline: none;
+}
+button:disabled {
+  cursor: default;
+}
+
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  resize: none;
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--tertiary);
+}
+
+.selectable {
+  user-select: text;
+  cursor: text;
+}
+
+::selection {
+  background: rgba(var(--text-rgb), 0.2);
+}
+
+a {
+  color: inherit;
+}
+
+/* Hover/press feedback shared by plain buttons (PressScale). */
+.press {
+  transition: transform var(--press);
+}
+.press:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.drag {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
