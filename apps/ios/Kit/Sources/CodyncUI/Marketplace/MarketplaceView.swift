@@ -1,0 +1,1371 @@
+import CodyncKit
+import SwiftUI
+import UIKit
+/// The Marketplace (Grok Bot's layout): one page of agents, connectors and
+/// skills for the bots on one computer (the store in the environment). Installing happens on that
+/// computer; each bot turns connectors and skills on in its settings.
+public struct MarketplaceView: View {
+    @Environment(BotStore.self) private var model
+    @State private var search = ""
+    /// Bumped on each submitted search, so every section searches again.
+    @State private var searchToken = 0
+    @State private var connectors = MarketplacePage<MarketConnector>()
+    @State private var connectorRequest = UUID()
+    @State private var connectorQuery = ""
+    /// The registry page after the ones shown; nil at the end.
+    @State private var connectorCursor: String?
+    @State private var loadingMore = false
+    @State private var skills: [MarketSkill] = []
+    @State private var loadingConnectors = true
+    @State private var loadingSkills = true
+    @State private var error: String?
+    @State private var installing: MarketConnector?
+    @State private var busySkill: String?
+    @State private var addingConnector = false
+    @State private var writingSkill = false
+    @State private var agent: Backend?
+    /// Agents shown before "Load more agents" (two rows of the Mac grid).
+    @State private var agentLimit = 10
+    @State private var showInstalled = false
+    @State private var showCredentials = false
+    @Environment(\.dismissModal) private var dismiss
+
+    private let computers: [(id: ComputerID, label: String)]
+    private let computer: Binding<ComputerID>?
+
+    /// Each computer has its own marketplace; with `computer` set and more than one computer,
+    /// the header switches between them (the caller swaps the `BotStore`).
+    public init(computers: [(id: ComputerID, label: String)] = [], computer: Binding<ComputerID>? = nil) {
+        self.computers = computers
+        self.computer = computer
+    }
+
+    private var query: String { search.trimmingCharacters(in: .whitespaces) }
+
+    private var agents: [Backend] {
+        let all = (model.hello?.backends ?? []).filter { $0.available || $0.installed == true || $0.curated == true }
+        return query.isEmpty ? all : all.filter { $0.name.localizedCaseInsensitiveContains(query) }
+    }
+
+    private var shownSkills: [MarketSkill] {
+        query.isEmpty ? skills : skills.filter { $0.name.localizedCaseInsensitiveContains(query) || $0.description.localizedCaseInsensitiveContains(query) }
+    }
+
+    private var installedCount: Int { model.installedConnectors.count + model.installedSkills.count }
+
+    public var body: some View {
+        ZStack {
+            if showInstalled {
+                InstalledView { withAnimation(Motion.layout) { showInstalled = false } }
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else {
+                page.transition(.move(edge: .leading).combined(with: .opacity))
+            }
+        }
+        .background(Palette.background)
+        .task {
+            await model.refreshPlugins()
+        }
+        // Picks up CLIs installed or signed in outside Codync.
+        .task { await model.refreshBackends() }
+        .task { await loadConnectors() }
+        .task {
+            do { skills = try await model.marketSkills() } catch { self.error = error.localizedDescription }
+            loadingSkills = false
+        }
+        .codyncSheet(item: $installing) { item in
+            InstallConnectorSheet(item: item) { Task { await loadConnectors() } }
+        }
+        .codyncSheet(isPresented: $showCredentials) { CredentialsView() }
+        .codyncSheet(isPresented: $addingConnector) { CustomConnectorSheet() }
+        .codyncSheet(isPresented: $writingSkill) { NewSkillSheet() }
+        .codyncSheet(item: $agent) { b in AgentSheet(initial: b) }
+    }
+
+    private var page: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                header
+                searchField
+                if !agents.isEmpty {
+                    MarketSection(title: query.isEmpty ? "Agents" : "Agents matching “\(query)”") {
+                        // A swipeable row on the phone, a grid on the Mac.
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            LazyHStack(spacing: 10) {
+                                ForEach(agents.prefix(agentLimit)) { b in agentCard(b).frame(width: 128) }
+                            }
+                            .padding(.horizontal, 24)
+                        }
+                        .padding(.horizontal, -24)
+                        if agents.count > agentLimit {
+                            Button("Load more agents") {
+                                withAnimation(Motion.fade) { agentLimit += 10 }
+                            }
+                            .buttonStyle(SecondaryButtonStyle())
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+                MarketSection(title: query.isEmpty ? "Connectors" : "Connectors") {
+                    if loadingConnectors {
+                        SkeletonGrid()
+                    } else if connectors.isEmpty {
+                        Text(query.isEmpty ? "Couldn't load connectors." : "No connectors match “\(query)”.")
+                            .foregroundStyle(Palette.secondary)
+                    } else {
+                        ItemGrid {
+                            ForEach(connectors.visible) { c in
+                                MarketRow(title: c.title, subtitle: c.description ?? c.name, added: c.installed) {
+                                    ServiceLogo(website: c.website, name: c.title, registryName: c.name)
+                                } add: {
+                                    installing = c
+                                }
+                            }
+                        }
+                        if connectors.hasHiddenItems || connectorCursor != nil {
+                            Button(loadingMore ? "Loading…" : "Load more connectors") { Task { await loadMoreConnectors() } }
+                                .buttonStyle(SecondaryButtonStyle())
+                                .disabled(loadingMore)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+                ComposioSection(query: query, searchToken: searchToken)
+                MarketSection(title: "Skills") {
+                    if loadingSkills {
+                        SkeletonGrid()
+                    } else {
+                        ItemGrid {
+                            ForEach(shownSkills) { s in
+                                let added = s.installed || model.installedSkills.contains { $0.id == s.source.lowercased() }
+                                MarketRow(title: s.name, subtitle: s.description, added: added, busy: busySkill == s.source) {
+                                    SkillGlyph()
+                                } add: {
+                                    busySkill = s.source
+                                    Task {
+                                        do { try await model.installSkill(source: s.source) } catch { self.error = error.localizedDescription }
+                                        busySkill = nil
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Button { withAnimation(Motion.layout) { showCredentials = true } } label: {
+                    Label("Credentials", systemImage: "lock.shield")
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                MarketSection(title: "Make your own") {
+                    ItemGrid {
+                        MarketRow(title: "Custom connector", subtitle: "Any MCP server: a command or a URL", added: false, addLabel: "New") {
+                            TileIcon(systemName: "point.3.connected.trianglepath.dotted")
+                        } add: {
+                            addingConnector = true
+                        }
+                        MarketRow(title: "Your own skill", subtitle: "Write instructions a bot can follow", added: false, addLabel: "New") {
+                            TileIcon(systemName: "square.and.pencil")
+                        } add: {
+                            writingSkill = true
+                        }
+                    }
+                }
+                if let error {
+                    Text(error).appFont(.footnote).foregroundStyle(Palette.danger)
+                }
+                Text("Connectors come from the official MCP Registry, apps through Composio, skills from Anthropic, agents from the ACP registry. Everything installs on \(model.hostName).")
+                    .appFont(.footnote)
+                    .foregroundStyle(Palette.tertiary)
+            }
+            .padding(.horizontal, 44)
+            .padding(.vertical, 20)
+            .frame(maxWidth: 980)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Palette.background)
+        .overlay(alignment: .topTrailing) {
+            // dismissModal slides the sheet away; clearing the binding would cut it off.
+            IconButton("Close", systemImage: "xmark") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+                .padding(8)
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .center) {
+            // Everything here lives on one computer; say which.
+            HStack(spacing: 10) {
+                ComputerBadge(model.computer, size: 32)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Marketplace")
+                        .appFont(.title2.weight(.semibold))
+                        .foregroundStyle(Palette.text)
+                    if let computer, computers.count > 1 {
+                        DropdownMenu {
+                            computers.map { option in
+                                MenuItem(option.label, selected: option.id == computer.wrappedValue) { computer.wrappedValue = option.id }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(model.hostName)
+                                Image(systemName: "chevron.down").appFont(.caption2.weight(.semibold))
+                            }
+                            .appFont(.subheadline)
+                            .foregroundStyle(Palette.secondary)
+                            .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("Computer: \(model.hostName)")
+                        .help("Switch computer")
+                    } else {
+                        Text(model.hostName)
+                            .appFont(.subheadline)
+                            .foregroundStyle(Palette.secondary)
+                    }
+                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            }
+            .layoutPriority(1)
+            Spacer()
+            if installedCount > 0 {
+                Button { withAnimation(Motion.layout) { showInstalled = true } } label: {
+                    HStack(spacing: 8) {
+                        HStack(spacing: -8) {
+                            ForEach(model.installedConnectors.prefix(3)) { c in
+                                ServiceLogo(website: nil, name: c.name, registryName: c.registryName, size: 26)
+                            }
+                        }
+                        Text("\(installedCount) installed").foregroundStyle(Palette.secondary).lineLimit(1).fixedSize()
+                        Image(systemName: "chevron.right").appFont(.caption.weight(.semibold)).foregroundStyle(Palette.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.top, 28)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass").foregroundStyle(Palette.secondary)
+            TextField("Search agents, connectors and skills", text: $search)
+                .textFieldStyle(.plain)
+                .plainTextInput()
+                .onSubmit { searchToken += 1; Task { await loadConnectors() } }
+                .onChange(of: search) { agentLimit = 10 }
+            if !search.isEmpty {
+                Button { search = ""; searchToken += 1; Task { await loadConnectors() } } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 38)
+        .background(Palette.bubbleAgent, in: Capsule())
+    }
+
+    private func agentCard(_ b: Backend) -> some View {
+        AgentCard(backend: b) { agent = b }
+    }
+
+    private func loadConnectors() async {
+        let request = UUID()
+        connectorRequest = request
+        connectorQuery = query
+        loadingConnectors = true
+        loadingMore = false
+        defer { if connectorRequest == request { loadingConnectors = false } }
+        do {
+            let page = try await model.marketConnectors(search: connectorQuery)
+            guard !Task.isCancelled, connectorRequest == request else { return }
+            connectors.replace(with: page.items)
+            connectorCursor = page.next
+            error = nil
+        } catch {
+            guard !Task.isCancelled, connectorRequest == request else { return }
+            connectors.replace(with: [])
+            connectorCursor = nil
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func loadMoreConnectors() async {
+        guard !loadingMore, !loadingConnectors else { return }
+        if connectors.hasHiddenItems {
+            withAnimation(Motion.fade) { connectors.revealMore() }
+            return
+        }
+        guard let cursor = connectorCursor else { return }
+        let request = connectorRequest
+        loadingMore = true
+        defer { if connectorRequest == request { loadingMore = false } }
+        do {
+            let page = try await model.marketConnectors(search: connectorQuery, cursor: cursor)
+            guard !Task.isCancelled, connectorRequest == request else { return }
+            withAnimation(Motion.fade) {
+                connectors.append(page.items)
+                connectors.revealMore()
+            }
+            connectorCursor = page.next
+            error = nil
+        } catch {
+            guard !Task.isCancelled, connectorRequest == request else { return }
+            self.error = error.localizedDescription
+        }
+    }
+
+}
+
+// MARK: - Installed
+
+private struct InstalledView: View {
+    let back: () -> Void
+    @Environment(BotStore.self) private var model
+    @Environment(\.webAuthenticationSession) private var webAuthenticationSession
+    @Environment(\.openURL) private var openURL
+    @State private var removing: Removal?
+    @State private var signingIn: String?
+
+    private struct Removal: Identifiable {
+        let id: String
+        let name: String
+        let isSkill: Bool
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScreenHeader {
+                BackButton(action: back).keyboardShortcut(.cancelAction)
+            } title: {
+                Text("Installed").appFont(AppFont.compactBody.weight(.semibold)).foregroundStyle(Palette.text)
+            } trailing: {
+                EmptyView()
+            }
+            list
+        }
+        .background(Palette.background)
+    }
+
+    private var list: some View {
+        CardForm {
+            if model.installedConnectors.isEmpty && model.installedSkills.isEmpty {
+                EmptyState(icon: "shippingbox", title: "Nothing installed", detail: "Connectors and skills you add show up here.")
+            }
+            if !model.installedConnectors.isEmpty {
+                CardSection("Connectors") {
+                    ForEach(model.installedConnectors) { c in
+                        InstalledRow(title: c.name, subtitle: c.needsSignIn ? "Sign in so bots can use it" : c.command ?? c.url ?? c.description) {
+                            if c.kind == "composio" {
+                                AppLogo(url: c.logo, name: c.name, size: 32)
+                            } else {
+                                ServiceLogo(website: nil, name: c.name, registryName: c.registryName, size: 32)
+                            }
+                        } accessory: {
+                            if signingIn == c.id {
+                                Spinner()
+                            } else if c.needsSignIn {
+                                Button("Sign in") { signIn(c.id) }
+                                    .buttonStyle(PrimaryButtonStyle())
+                                    .controlSize(.small)
+                            }
+                        } remove: {
+                            removing = Removal(id: c.id, name: c.name, isSkill: false)
+                        }
+                    }
+                }
+            }
+            if !model.installedSkills.isEmpty {
+                CardSection("Skills") {
+                    ForEach(model.installedSkills) { s in
+                        InstalledRow(title: s.name, subtitle: s.description) {
+                            SkillGlyph().frame(width: 32, height: 32)
+                        } accessory: {
+                            EmptyView()
+                        } remove: {
+                            removing = Removal(id: s.id, name: s.name, isSkill: true)
+                        }
+                    }
+                }
+            }
+        }
+        .codyncDialog(
+            "Remove \(removing?.name ?? "")?",
+            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+            message: removing.map { $0.isSkill ? "Bots stop using this skill." : "Bots lose this connector, and the keys saved for it are deleted." }
+        ) {
+            guard let r = removing else { return [] }
+            return [DialogAction("Remove", destructive: true) {
+                Task {
+                    do {
+                        if r.isSkill { try await model.removeSkill(r.id) } else { try await model.removeConnector(r.id) }
+                    } catch {
+                        model.lastError = error.localizedDescription
+                    }
+                }
+            }]
+        }
+    }
+
+    private func signIn(_ id: String) {
+        signingIn = id
+        Task {
+            do {
+                try await ConnectorSignInFlow(model: model, webAuthenticationSession: webAuthenticationSession, openURL: openURL).signIn(id)
+            } catch {
+                model.lastError = error.localizedDescription
+            }
+            signingIn = nil
+        }
+    }
+}
+
+/// Text that opens a web page (replaces the system `Link`).
+struct WebLink: View {
+    let title: String
+    let url: URL
+    @Environment(\.openURL) private var openURL
+
+    init(_ title: String, url: URL) {
+        self.title = title
+        self.url = url
+    }
+
+    var body: some View {
+        Button(title) { openURL(url) }
+            .buttonStyle(.plain)
+            .foregroundStyle(Palette.text)
+            .underline()
+            .help(url.absoluteString)
+    }
+}
+
+/// A quiet "nothing here" message (replaces `ContentUnavailableView`).
+private struct EmptyState: View {
+    let icon: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon).appFont(.system(size: 28)).foregroundStyle(Palette.tertiary).accessibilityHidden(true)
+            Text(title).appFont(AppFont.compactBody.weight(.semibold)).foregroundStyle(Palette.text)
+            Text(detail).appFont(AppFont.compactSecondary).foregroundStyle(Palette.secondary).multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
+}
+
+private struct InstalledRow<Icon: View, Accessory: View>: View {
+    let title: String
+    let subtitle: String
+    @ViewBuilder let icon: Icon
+    @ViewBuilder let accessory: Accessory
+    let remove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            icon
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).foregroundStyle(Palette.text).lineLimit(1)
+                Text(subtitle).appFont(.caption).foregroundStyle(Palette.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 12)
+            accessory
+            Button("Remove \(title)", systemImage: "trash", role: .destructive, action: remove)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.plain)
+                .foregroundStyle(Palette.secondary)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+                .help("Remove")
+        }
+        .help(subtitle)
+    }
+}
+
+// MARK: - Pieces
+
+struct MarketSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title).appFont(.headline).foregroundStyle(Palette.text).padding(.leading, 4)
+            content
+        }
+    }
+}
+
+/// Two columns on wide screens, one on a phone.
+struct ItemGrid<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 10)], spacing: 4) { content }
+    }
+}
+
+private struct AgentCard: View {
+    let backend: Backend
+    let action: () -> Void
+    @State private var hovering = false
+
+    private var status: String {
+        switch (backend.installed == true, backend.signedIn) {
+        case (true, false?): "Not signed in"
+        case (true, _): "Installed"
+        case (false, _): backend.curated == true ? "Not installed" : "Sets up on first use"
+        }
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 12) {
+                AgentIcon(registry: backend.registry, size: 34)
+                    .frame(width: 64, height: 64)
+                    .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                VStack(spacing: 2) {
+                    Text(backend.name).appFont(.subheadline.weight(.semibold)).foregroundStyle(Palette.text).lineLimit(1)
+                    Text(status)
+                        .appFont(.caption)
+                        .foregroundStyle(Palette.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 18)
+            .padding(.horizontal, 10)
+            .background(Palette.bubbleAgent.opacity(hovering ? 0.8 : 0.45), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(PressScale())
+        .onHover { h in withAnimation(Motion.hover) { hovering = h } }
+        .help(backend.name)
+    }
+}
+
+/// Getting an agent ready on the computer: install it, then sign in. Sign-in
+/// options come from the agent itself (ACP), plus Codync's own command for
+/// CLIs it knows. Bots are made from New chat, not here.
+private struct AgentSheet: View {
+    let initial: Backend
+    @Environment(BotStore.self) private var model
+    @State private var route: SetupRoute?
+    @State private var auth: AgentAuth?
+    @State private var checking = false
+    @State private var authenticating: String?
+    @State private var error: String?
+
+    /// Live: an install or sign-in updates the host's list.
+    private var backend: Backend { model.hello?.backends.first { $0.id == initial.id } ?? initial }
+    private var installed: Bool { backend.installed == true }
+    private var curated: Bool { backend.curated == true }
+    private var signedIn: Bool? { auth?.signedIn ?? backend.signedIn }
+
+    var body: some View {
+        ZStack {
+            if let route {
+                routed(route).transition(.move(edge: .trailing).combined(with: .opacity))
+            } else {
+                VStack(spacing: 0) {
+                    ModalHeader(backend.name)
+                    overview
+                }
+                .transition(.move(edge: .leading).combined(with: .opacity))
+            }
+        }
+        .frame(minWidth: InterfaceMetrics.value(mac: 560, mobile: 0), minHeight: InterfaceMetrics.value(mac: 460, mobile: 0))
+        // A known "signed in" needs no agent start; everything else asks the agent.
+        .task { if backend.signedIn != true { await check() } }
+        .onChange(of: route) { old, new in
+            // Back from a terminal or key form: see what changed.
+            if new == nil, old != nil { Task { await check() } }
+        }
+    }
+
+    @ViewBuilder private func routed(_ route: SetupRoute) -> some View {
+        let back = { withAnimation(Motion.layout) { self.route = nil } }
+        switch route {
+        case .install: SetupTerminalView(backend: backend, step: .install, back: back)
+        case .terminal(let method): SetupTerminalView(backend: backend, step: .login, method: method, back: back)
+        case .keys(let method): AgentKeysForm(backend: backend, method: method, saved: auth?.savedEnv ?? [], back: back) { auth = $0 }
+        }
+    }
+
+    private func go(_ route: SetupRoute) {
+        withAnimation(Motion.layout) { self.route = route }
+    }
+
+    private var overview: some View {
+        CardForm {
+            CardSection {
+                HStack(spacing: 14) {
+                    AgentIcon(registry: backend.registry, size: 30)
+                        .frame(width: 52, height: 52)
+                        .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(backend.name).appFont(.title3.weight(.semibold))
+                        if let d = backend.description, !d.isEmpty {
+                            Text(d).appFont(.subheadline).foregroundStyle(Palette.secondary).lineLimit(3)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            if curated {
+                CardSection {
+                    SetupStepRow(
+                        number: 1,
+                        title: "Install",
+                        detail: installed
+                            ? "Installed on \(model.hostName)."
+                            : backend.canInstall == true ? "Runs the official installer on \(model.hostName)." : backend.installHint,
+                        done: installed,
+                        action: installed || backend.canInstall != true ? nil : ("Install", { go(.install) })
+                    )
+                }
+            }
+            signInSection
+            if let error {
+                CardSection { Text(error).foregroundStyle(Palette.danger).textSelection(.enabled) }
+            }
+        }
+    }
+
+    private var signInSection: some View {
+        CardSection(footer: signedIn != true && auth?.methods.contains(where: { $0.kind == .agent }) == true
+            ? "Browser sign-ins open on \(model.hostName) itself. Away from it? Use Remote screen to finish there."
+            : nil) {
+            HStack(spacing: 0) {
+                SetupStepRow(number: curated ? 2 : 1, title: "Sign in", detail: statusText, done: signedIn == true, action: nil)
+                if checking {
+                    ThinkingOrb(state: .connecting, size: 16, color: Palette.secondary)
+                } else {
+                    Button("Check again", systemImage: "arrow.clockwise") { Task { await check() } }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Palette.secondary)
+                        .help("Check again")
+                }
+            }
+            if signedIn != true, let detail = auth?.detail, !detail.isEmpty {
+                Text(detail).appFont(.footnote).foregroundStyle(Palette.secondary).textSelection(.enabled)
+            }
+            // Some CLIs drop the current sign-in the moment a new one starts: no options once signed in.
+            if signedIn != true, !checking {
+                if auth?.login == true {
+                    optionRow("Sign in", detail: "In a terminal on \(model.hostName). Links open here.", icon: "terminal") {
+                        go(.terminal(nil))
+                    }
+                }
+                ForEach(auth?.methods ?? []) { m in
+                    switch m.kind {
+                    case .terminal?:
+                        optionRow(m.name, detail: m.description ?? "In a terminal on \(model.hostName).", icon: "terminal") {
+                            go(.terminal(m))
+                        }
+                    case .envVar?:
+                        optionRow(m.name, detail: m.description ?? "Saved on \(model.hostName) only.", icon: "key") {
+                            go(.keys(m))
+                        }
+                    case .agent?, nil:
+                        optionRow(
+                            m.name,
+                            detail: authenticating == m.id
+                                ? "Finish signing in in the browser on \(model.hostName)…"
+                                : m.description ?? "Opens a browser on \(model.hostName).",
+                            icon: "safari",
+                            busy: authenticating == m.id
+                        ) {
+                            Task { await authenticate(m) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var statusText: String {
+        if checking { return auth == nil ? "Checking with \(backend.name)… The first check can download it." : "Checking…" }
+        switch signedIn {
+        case true?: return "Signed in."
+        case false?: return "Not signed in yet."
+        case nil: return "Couldn't tell. Skip this if you've already signed in on \(model.hostName)."
+        }
+    }
+
+    private func optionRow(_ title: String, detail: String, icon: String, busy: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .appFont(.body)
+                    .foregroundStyle(Palette.secondary)
+                    .frame(width: 26)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).appFont(.body.weight(.medium)).foregroundStyle(Palette.text)
+                    Text(detail).appFont(.subheadline).foregroundStyle(Palette.secondary).lineLimit(3)
+                }
+                Spacer(minLength: 8)
+                if busy {
+                    ThinkingOrb(size: 16, color: Palette.secondary)
+                } else {
+                    Image(systemName: "chevron.right").appFont(.caption.weight(.semibold)).foregroundStyle(Palette.tertiary)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(authenticating != nil)
+    }
+
+    private func check() async {
+        guard let client = model.client, !checking else { return }
+        checking = true
+        defer { checking = false }
+        do {
+            auth = try await client.agentAuth(backend.id)
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+        await model.refreshBackends()
+    }
+
+    private func authenticate(_ m: AuthMethod) async {
+        guard let client = model.client else { return }
+        authenticating = m.id
+        defer { authenticating = nil }
+        do {
+            auth = try await client.agentAuthenticate(backend.id, method: m.id)
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+        await model.refreshBackends()
+    }
+}
+
+private enum SetupRoute: Hashable {
+    case install
+    case terminal(AuthMethod?)
+    case keys(AuthMethod)
+}
+
+/// Keys an agent reads from its environment, kept on the computer.
+private struct AgentKeysForm: View {
+    let backend: Backend
+    let method: AuthMethod
+    let saved: [String]
+    let back: () -> Void
+    let done: (AgentAuth) -> Void
+    @Environment(BotStore.self) private var model
+    @State private var values: [String: String] = [:]
+    @State private var saving = false
+    @State private var error: String?
+
+    private var vars: [AuthMethod.Var] { method.vars ?? [] }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScreenHeader {
+                BackButton(action: back).keyboardShortcut(.cancelAction)
+            } title: {
+                Text(method.name).appFont(AppFont.compactBody.weight(.semibold)).foregroundStyle(Palette.text).lineLimit(1)
+            } trailing: {
+                if saving {
+                    Spinner()
+                } else {
+                    IconButton("Save", systemImage: "checkmark") { save(values.filter { !$0.value.isEmpty }) }
+                        .disabled(vars.contains { !$0.optional && (values[$0.name] ?? "").isEmpty && !saved.contains($0.name) })
+                }
+            }
+            form
+        }
+        .background(Palette.background)
+    }
+
+    private var form: some View {
+        CardForm {
+            VStack(alignment: .leading, spacing: 6) {
+                CardSection(method.name) {
+                    ForEach(vars, id: \.name) { v in
+                        VStack(alignment: .leading, spacing: 4) {
+                            let prompt = Text(saved.contains(v.name) ? "Saved (type to replace)" : v.name)
+                            Group {
+                                if v.secret {
+                                    SecureField(v.label, text: binding(v.name), prompt: prompt)
+                                } else {
+                                    TextField(v.label, text: binding(v.name), prompt: prompt)
+                                }
+                            }
+                            .plainTextInput()
+                            Text(v.label + (v.optional ? " (optional)" : "")).appFont(.caption).foregroundStyle(Palette.secondary)
+                        }
+                    }
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    if let d = method.description { Text(d) }
+                    Text("Saved on \(model.hostName) only and given to \(backend.name) when it starts.")
+                    if let link = method.link, let url = URL(string: link) {
+                        WebLink("Get a key", url: url)
+                    }
+                }
+                .appFont(.caption)
+                .foregroundStyle(Palette.tertiary)
+                .padding(.horizontal, 4)
+            }
+            if !saved.isEmpty {
+                CardSection {
+                    Button("Remove saved keys", role: .destructive) {
+                        save(Dictionary(uniqueKeysWithValues: vars.map { ($0.name, "") }))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Palette.danger)
+                }
+            }
+            if let error {
+                CardSection { Text(error).foregroundStyle(Palette.danger) }
+            }
+        }
+        .textFieldStyle(.plain)
+    }
+
+    private func binding(_ name: String) -> Binding<String> {
+        Binding(get: { values[name] ?? "" }, set: { values[name] = $0 })
+    }
+
+    private func save(_ vars: [String: String]) {
+        guard let client = model.client else { return }
+        saving = true
+        Task {
+            defer { saving = false }
+            do {
+                done(try await client.setAgentEnv(backend.id, vars: vars))
+                back()
+            } catch {
+                self.error = error.localizedDescription
+            }
+        }
+    }
+}
+
+private struct SetupStepRow: View {
+    let number: Int
+    let title: String
+    let detail: String
+    let done: Bool
+    let action: (label: String, run: () -> Void)?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(done ? Palette.accentFill : Palette.bubbleAgent)
+                if done {
+                    Image(systemName: "checkmark").appFont(.caption.weight(.bold)).foregroundStyle(Palette.onAccent)
+                } else {
+                    Text("\(number)").appFont(.caption.weight(.semibold)).foregroundStyle(Palette.secondary)
+                }
+            }
+            .frame(width: 26, height: 26)
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).appFont(.body.weight(.medium)).foregroundStyle(Palette.text)
+                Text(detail).appFont(.subheadline).foregroundStyle(Palette.secondary).textSelection(.enabled)
+            }
+            Spacer(minLength: 8)
+            if let action {
+                Button(action.label, action: action.run)
+                    .buttonStyle(.plain)
+                    .appFont(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.text)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(Palette.bubbleAgent, in: Capsule())
+                    .fixedSize()
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(done ? "Done" : "")
+    }
+}
+
+struct MarketRow<Icon: View>: View {
+    let title: String
+    let subtitle: String
+    let added: Bool
+    var busy = false
+    var addLabel = "Add"
+    @ViewBuilder let icon: Icon
+    let add: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 14) {
+            icon.frame(width: 46, height: 46)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).appFont(.body.weight(.medium)).foregroundStyle(Palette.text).lineLimit(1)
+                Text(subtitle).appFont(.subheadline).foregroundStyle(Palette.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if busy {
+                ThinkingOrb(size: 18, color: Palette.secondary).frame(width: 60)
+            } else if added {
+                Label("Added", systemImage: "checkmark")
+                    .labelStyle(.iconOnly)
+                    .appFont(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.secondary)
+                    .frame(width: 60)
+                    .accessibilityLabel("Added")
+            } else {
+                Button(addLabel, action: add)
+                    .buttonStyle(.plain)
+                    .appFont(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.text)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 7)
+                    .background(Palette.bubbleAgent, in: Capsule())
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(hovering ? Palette.bubbleAgent.opacity(0.6) : .clear, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onHover { h in withAnimation(Motion.hover) { hovering = h } }
+    }
+}
+
+/// Placeholder rows while a list loads, shaped like the real ones.
+struct SkeletonGrid: View {
+    @State private var dim = false
+
+    var body: some View {
+        ItemGrid {
+            ForEach(0..<4, id: \.self) { _ in
+                HStack(spacing: 14) {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous).frame(width: 46, height: 46)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Capsule().frame(width: 120, height: 12)
+                        Capsule().frame(width: 190, height: 10)
+                    }
+                    Spacer()
+                }
+                .foregroundStyle(Palette.bubbleAgent)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+            }
+        }
+        .opacity(dim ? 0.5 : 1)
+        .animation(.easeInOut(duration: 0.9).repeatForever(), value: dim)
+        .onAppear { dim = true }
+    }
+}
+
+/// A service's logo from its website favicon, on a white tile; its initial otherwise.
+private struct ServiceLogo: View {
+    let website: String?
+    let name: String
+    /// MCP Registry names are reverse-DNS ("com.notion/mcp"): the owner's domain.
+    var registryName: String?
+    var size: CGFloat = 46
+
+    private var domain: String? {
+        if let website, let host = URL(string: website)?.host(), host != "github.com" { return host }
+        guard let owner = registryName?.split(separator: "/").first else { return nil }
+        let labels = owner.split(separator: ".")
+        // io.github.<user> is a GitHub account, not the service's own site.
+        guard labels.count >= 2, !(labels[0] == "io" && labels[1] == "github") else {
+            return name.localizedCaseInsensitiveContains("github") ? "github.com" : nil
+        }
+        return "\(labels[1]).\(labels[0])"
+    }
+
+    private var faviconURL: URL? {
+        domain.flatMap { URL(string: "https://www.google.com/s2/favicons?domain=\($0)&sz=128") }
+    }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
+        ZStack {
+            shape.fill(Palette.bubbleAgent)
+            Text(name.first.map { String($0).uppercased() } ?? "?")
+                .appFont(.system(size: size * 0.4, weight: .semibold, design: .rounded))
+                .foregroundStyle(Palette.text)
+            if let faviconURL {
+                AsyncImage(url: faviconURL) { phase in
+                    if let image = phase.image {
+                        ZStack {
+                            shape.fill(.white)
+                            image.resizable().interpolation(.high).scaledToFit().padding(size * 0.2)
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(shape)
+    }
+}
+
+struct TileIcon: View {
+    let systemName: String
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Palette.bubbleAgent)
+            .overlay(Image(systemName: systemName).appFont(.system(size: 18, weight: .medium)).foregroundStyle(Palette.text))
+    }
+}
+
+struct InstallConnectorSheet: View {
+    let item: MarketConnector
+    var requestId: String? = nil
+    let done: () -> Void
+    @Environment(BotStore.self) private var model
+    @Environment(\.dismissModal) private var dismiss
+    @Environment(\.webAuthenticationSession) private var webAuthenticationSession
+    @Environment(\.openURL) private var openURL
+    @State private var optionId = ""
+    @State private var values: [String: String] = [:]
+    @State private var installed: InstalledConnector?
+    @State private var started = false
+    @State private var saving = false
+    @State private var error: String?
+
+    private var option: MarketConnector.InstallOption? {
+        item.options.first { $0.id == optionId } ?? item.options.first
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ModalHeader("Add connector") {
+                if saving {
+                    Spinner()
+                } else {
+                    IconButton("Add", systemImage: "plus") { install() }
+                        .disabled(installed == nil && (option?.inputs.contains { $0.required && (values[$0.name] ?? $0.default ?? "").isEmpty } ?? true))
+                }
+            }
+            form
+        }
+        .background(Palette.background)
+        .task {
+            guard !started else { return }
+            started = true
+            if item.options.count == 1 && item.options[0].inputs.isEmpty { install() }
+        }
+        .onDisappear { values.removeAll() }
+    }
+
+    private var form: some View {
+        CardForm {
+            CardSection {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(item.title).appFont(.title3.weight(.semibold))
+                    if let d = item.description { Text(d).foregroundStyle(Palette.secondary) }
+                    if let w = item.website, let url = URL(string: w) {
+                        WebLink(w, url: url).appFont(.footnote).lineLimit(1)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            if item.options.count > 1 {
+                CardSection("Runs") {
+                    ChoiceList(selection: $optionId, options: item.options.map { o in
+                        (id: o.id, label: o.kind == "remote" ? "Hosted by \(item.title)" : "On \(model.hostName) (\(o.kind))", detail: nil)
+                    })
+                }
+            }
+            if let option {
+                CardSection("Setup", footer: "Keys are saved on \(model.hostName) only.") {
+                    if option.inputs.isEmpty {
+                        Text(option.kind == "remote"
+                            ? "No keys needed here. If \(item.title) wants you to sign in, its sign-in page opens next."
+                            : "No setup needed.")
+                            .foregroundStyle(Palette.secondary)
+                    }
+                    ForEach(option.inputs) { input in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Group {
+                                if input.secret {
+                                    SecureField(input.name, text: binding(input))
+                                } else {
+                                    TextField(input.name, text: binding(input), prompt: Text(input.default ?? input.placeholder ?? input.name))
+                                }
+                            }
+                            .plainTextInput()
+                            if let d = input.description {
+                                Text(d + (input.required ? "" : " (optional)")).appFont(.caption).foregroundStyle(Palette.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+            if let error {
+                CardSection { Text(error).foregroundStyle(Palette.danger) }
+            }
+        }
+        .textFieldStyle(.plain)
+        .onAppear { optionId = item.options.first?.id ?? "" }
+    }
+
+    private func binding(_ input: MarketConnector.Input) -> Binding<String> {
+        Binding(get: { values[input.name] ?? "" }, set: { values[input.name] = $0 })
+    }
+
+    private func install() {
+        guard let option else { return }
+        saving = true
+        error = nil
+        Task {
+            do {
+                guard let client = model.client else { return }
+                let c: InstalledConnector
+                if let installed { c = try await client.connectors().first(where: { $0.id == installed.id }) ?? installed }
+                else {
+                    c = try await model.installConnector(item, option: option.id, inputs: values)
+                    installed = c
+                    values.removeAll()
+                }
+                if c.needsSignIn {
+                    try await ConnectorSignInFlow(model: model, webAuthenticationSession: webAuthenticationSession, openURL: openURL).signIn(c.id)
+                }
+                if let requestId {
+                    try await client.finishConnectionRequest(requestId, connectorId: c.id)
+                } else {
+                    try await client.verifyConnector(c.id)
+                }
+                await model.refreshPlugins()
+                done()
+                dismiss()
+            } catch {
+                self.error = error.localizedDescription
+            }
+            saving = false
+        }
+    }
+}
+
+private struct CustomConnectorSheet: View {
+    private enum Mode: Hashable { case command, url, config }
+
+    @Environment(BotStore.self) private var model
+    @Environment(\.dismissModal) private var dismiss
+    @Environment(\.webAuthenticationSession) private var webAuthenticationSession
+    @Environment(\.openURL) private var openURL
+    @State private var name = ""
+    @State private var mode = Mode.command
+    @State private var target = ""
+    @State private var envText = ""
+    @State private var config = ""
+    @State private var saving = false
+    @State private var error: String?
+
+    private var ready: Bool {
+        mode == .config
+            ? !config.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            : !name.trimmingCharacters(in: .whitespaces).isEmpty && !target.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ModalHeader("Custom connector") {
+                if saving {
+                    Spinner()
+                } else {
+                    IconButton("Add", systemImage: "plus") { save() }
+                        .disabled(!ready)
+                }
+            }
+            form
+        }
+        .background(Palette.background)
+    }
+
+    private var footer: String {
+        switch mode {
+        case .command: "Runs on \(model.hostName) in the bot's project folder. Quotes work like in a shell."
+        case .url: "A remote MCP server, streamable HTTP or SSE."
+        case .config: "Paste the MCP config from a README or another app (Claude, Cursor, VS Code). Every server in it is added. Saved on \(model.hostName) only."
+        }
+    }
+
+    private var form: some View {
+        CardForm {
+            CardSection(footer: footer) {
+                SegmentedChoice(selection: $mode, options: [(id: .command, label: "Command"), (id: .url, label: "URL"), (id: .config, label: "Config")])
+                if mode == .config {
+                    TextField("{ \"mcpServers\": { … } }", text: $config, axis: .vertical)
+                        .lineLimit(6...16)
+                        .appFont(.callout.monospaced())
+                        .plainTextInput()
+                } else {
+                    TextField("Name", text: $name)
+                    TextField(mode == .url ? "https://example.com/mcp" : "npx -y @scope/server", text: $target)
+                        .appFont(.callout.monospaced())
+                        .plainTextInput()
+                }
+            }
+            if mode == .url {
+                CardSection("Headers", footer: "Optional, one Name: value per line. Leave empty if the service has you sign in. Saved on \(model.hostName) only.") {
+                    TextField("Authorization: Bearer …", text: $envText, axis: .vertical)
+                        .lineLimit(2...6)
+                        .appFont(.callout.monospaced())
+                        .plainTextInput()
+                }
+            } else if mode == .command {
+                CardSection("Environment", footer: "One KEY=value per line. Saved on \(model.hostName) only.") {
+                    TextField("API_KEY=…", text: $envText, axis: .vertical)
+                        .lineLimit(2...6)
+                        .appFont(.callout.monospaced())
+                        .plainTextInput()
+                }
+            }
+            if let error {
+                CardSection { Text(error).foregroundStyle(Palette.danger) }
+            }
+        }
+        .textFieldStyle(.plain)
+        .animation(Motion.layout, value: mode)
+    }
+
+    private func save() {
+        saving = true
+        error = nil
+        let remote = mode == .url
+        var pairs: [String: String] = [:]
+        for line in envText.split(separator: "\n") {
+            let parts = line.split(separator: remote ? ":" : "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            if parts.count == 2, !parts[0].isEmpty { pairs[parts[0]] = parts[1] }
+        }
+        Task {
+            do {
+                let added = mode == .config
+                    ? try await model.importConnectors(config: config)
+                    : [try await model.addConnector(
+                        name: name, command: remote ? nil : target, url: remote ? target : nil,
+                        env: remote ? [:] : pairs, headers: remote ? pairs : [:]
+                    )]
+                let signIn = ConnectorSignInFlow(model: model, webAuthenticationSession: webAuthenticationSession, openURL: openURL)
+                for c in added where c.needsSignIn {
+                    try await signIn.signIn(c.id)
+                }
+                dismiss()
+            } catch {
+                self.error = error.localizedDescription
+            }
+            saving = false
+        }
+    }
+}
+
+private struct NewSkillSheet: View {
+    @Environment(BotStore.self) private var model
+    @Environment(\.dismissModal) private var dismiss
+    @State private var name = ""
+    @State private var summary = ""
+    @State private var instructions = ""
+    @State private var saving = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ModalHeader("New skill") {
+                if saving {
+                    Spinner()
+                } else {
+                    IconButton("Save", systemImage: "checkmark") {
+                        saving = true
+                        Task {
+                            do {
+                                try await model.addSkill(name: name, description: summary, instructions: instructions)
+                                dismiss()
+                            } catch {
+                                self.error = error.localizedDescription
+                            }
+                            saving = false
+                        }
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || instructions.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            form
+        }
+        .background(Palette.background)
+    }
+
+    private var form: some View {
+        CardForm {
+            CardSection(footer: "The bot sees the name and when to use it, and reads the instructions only when a task fits.") {
+                TextField("Name", text: $name)
+                TextField("When to use it", text: $summary, axis: .vertical).lineLimit(2...4)
+            }
+            CardSection("Instructions") {
+                TextField("Step by step, in plain words…", text: $instructions, axis: .vertical)
+                    .lineLimit(6...20)
+            }
+            if let error {
+                CardSection { Text(error).foregroundStyle(Palette.danger) }
+            }
+        }
+        .textFieldStyle(.plain)
+    }
+}
+
+private struct SkillGlyph: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Palette.bubbleAgent)
+            .overlay(Image(systemName: "book.pages").foregroundStyle(Palette.text))
+    }
+}
+
+/// A coding agent's logo from the ACP registry, tinted like text; a terminal glyph otherwise.
+public struct AgentIcon: View {
+    let registry: String?
+    let size: CGFloat
+
+    public init(registry: String?, size: CGFloat = 20) {
+        self.registry = registry
+        self.size = size
+    }
+
+    public var body: some View {
+        Group {
+            if let name = registry.map({ "agent-\($0)" }), Self.exists(name) {
+                Image(name, bundle: .module).resizable().scaledToFit()
+            } else {
+                Image(systemName: "terminal").resizable().scaledToFit().padding(size * 0.1)
+            }
+        }
+        .frame(width: size, height: size)
+        .foregroundStyle(tint)
+    }
+
+    /// Registry logos are one-color; paint the ones with a known brand color in it.
+    private var tint: AnyShapeStyle {
+        switch registry {
+        case "claude-acp": AnyShapeStyle(Color(red: 0.85, green: 0.47, blue: 0.34))
+        case "gemini": AnyShapeStyle(LinearGradient(colors: [Color(red: 0.28, green: 0.59, blue: 0.89), Color(red: 0.57, green: 0.47, blue: 0.78), Color(red: 0.79, green: 0.40, blue: 0.45)], startPoint: .bottomLeading, endPoint: .topTrailing))
+        case "antigravity-acp": AnyShapeStyle(Color(red: 0.26, green: 0.52, blue: 0.96))
+        case "mistral-vibe": AnyShapeStyle(Color(red: 0.98, green: 0.32, blue: 0.06))
+        case "qwen-code": AnyShapeStyle(Color(red: 0.38, green: 0.36, blue: 0.93))
+        case "amp-acp": AnyShapeStyle(Color(red: 0.95, green: 0.31, blue: 0.25))
+        case "kiro": AnyShapeStyle(Color(red: 0.56, green: 0.27, blue: 1.0))
+        case "cortex-code": AnyShapeStyle(Color(red: 0.16, green: 0.71, blue: 0.91))
+        default: AnyShapeStyle(Palette.text)
+        }
+    }
+
+    private static func exists(_ name: String) -> Bool {
+        UIImage(named: name, in: .module, with: nil) != nil
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}

@@ -1,0 +1,97 @@
+import CodyncKit
+import SwiftUI
+
+public struct BotRow: View {
+    let bot: Bot
+    let compact: Bool
+    @Environment(BotStore.self) private var model
+
+    public init(bot: Bot, compact: Bool = false) {
+        self.bot = bot
+        self.compact = compact
+    }
+
+    // A Mac sidebar row is denser than a phone row (Grok Bot's desktop sidebar).
+    private let avatar: CGFloat = 46
+    private let rowPadding: CGFloat = 10
+    private let lineSpacing: CGFloat = 4
+
+    public var body: some View {
+        HStack(spacing: compact ? 0 : InterfaceMetrics.value(mac: 8, mobile: 12)) {
+            AvatarWithStatus(bot: bot, members: model.members(of: bot), size: avatar)
+            VStack(alignment: .leading, spacing: lineSpacing) {
+                HStack(alignment: .firstTextBaseline) {
+                    if bot.pinned {
+                        Image(systemName: "pin.fill").appFont(.caption2).foregroundStyle(Palette.tertiary)
+                    }
+                    Text(bot.name)
+                        .appFont(AppFont.compactBody.weight(.semibold))
+                        .foregroundStyle(Palette.text)
+                        .lineLimit(1)
+                    if model.screen?.agentBot == bot.id {
+                        Image(systemName: "cursorarrow.motionlines")
+                            .appFont(.caption)
+                            .foregroundStyle(Palette.accent)
+                            .accessibilityLabel("Using the computer")
+                    }
+                    Spacer(minLength: 8)
+                    Text(RelativeTime.day(Date(milliseconds: bot.lastAt)))
+                        .appFont(AppFont.compactSecondary)
+                        .foregroundStyle(bot.unread > 0 ? Palette.text : Palette.tertiary)
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    preview
+                    Spacer(minLength: 4)
+                    if bot.unread > 0 {
+                        Text("\(bot.unread)")
+                            .appFont(.caption2.bold())
+                            .foregroundStyle(Palette.onAccent)
+                            .padding(.horizontal, 6)
+                            .frame(minWidth: 18, minHeight: 18)
+                            .background(Palette.accentFill, in: Capsule())
+                    }
+                }
+            }
+            .frame(width: compact ? 0 : nil, alignment: .leading)
+            .opacity(compact ? 0 : 1)
+            .clipped()
+            .accessibilityHidden(compact)
+        }
+        .frame(maxWidth: .infinity, alignment: compact ? .center : .leading)
+        .padding(.vertical, rowPadding)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Live activity while working, otherwise the last message (Grok Bot row behavior).
+    @ViewBuilder private var preview: some View {
+        if bot.needsInput {
+            Label {
+                Text(bot.activity.isEmpty ? "Needs your approval" : bot.activity)
+            } icon: {
+                ThinkingOrb(state: .listening, size: 16, color: Palette.warning)
+            }
+                .appFont(AppFont.compactSecondary)
+                .foregroundStyle(Palette.warning)
+                .lineLimit(1)
+        } else if bot.isWorking {
+            HStack(spacing: 6) {
+                ThinkingOrb(size: 13, color: Palette.secondary)
+                Text(bot.activity.isEmpty ? "Working…" : bot.activity)
+                    .lineLimit(1)
+            }
+            .appFont(AppFont.compactSecondary)
+            .foregroundStyle(Palette.secondary)
+        } else if bot.status == "error" {
+            Text(bot.lastMessage ?? "Something went wrong")
+                .appFont(AppFont.compactSecondary)
+                .foregroundStyle(Palette.danger)
+                .lineLimit(1)
+        } else {
+            Text(bot.lastMessage ?? "\(model.backendName(bot.backend)) · \(bot.folderName)")
+                .appFont(AppFont.compactSecondary)
+                .foregroundStyle(Palette.secondary)
+                .lineLimit(1)
+        }
+    }
+}
