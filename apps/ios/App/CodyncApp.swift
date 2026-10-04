@@ -25,6 +25,8 @@ struct CodyncApp: App {
                 .environment(\.appUpdate, AppUpdateAction { UIApplication.shared.open(AppStoreRelease.page) })
                 .environment(updates)
                 .tint(Palette.accent)
+                // No scroll indicators anywhere in the app.
+                .scrollIndicators(.never)
                 .codyncSheet(isPresented: Binding(
                     get: { (onboardingCompleted || app.account.isSignedIn) && app.account.showSwitcher },
                     set: { app.account.showSwitcher = $0 }
