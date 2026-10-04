@@ -15,6 +15,7 @@ mod store;
 mod tui;
 mod update;
 mod usage;
+mod voice;
 
 use agent::{backends, registry};
 use remote::{identity, relay};

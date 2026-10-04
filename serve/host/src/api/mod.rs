@@ -249,6 +249,8 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
         || method == "setComposioKey"
         || method.starts_with("credential")
         || method == "computerCall"
+        || method.starts_with("voice")
+        || method == "setVoiceKey"
         || matches!(method, "agentAuth" | "agentAuthenticate" | "setAgentEnv")
     {
         market::vault::unlock(hub.clone()).await?;
@@ -332,6 +334,33 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
         "connectorVerify" => market::verify::verify(&hub.store, str_arg(&b, "id")?, hub.port).await?,
         "composioCall" => {
             json!({"result": market::composio::call(&hub.store, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?})
+        }
+        "voiceStatus" => crate::voice::status(&hub.store)?,
+        "setVoiceKey" => {
+            let provider = crate::voice::Provider::parse(str_arg(&b, "provider")?)?;
+            crate::voice::set_key(&hub.store, provider, b["key"].as_str().unwrap_or_default()).await?
+        }
+        "voiceSession" => {
+            let provider = crate::voice::Provider::parse(str_arg(&b, "provider")?)?;
+            crate::voice::session(&hub.store, provider, str_arg(&b, "model")?, str_arg(&b, "voice")?).await?
+        }
+        "voiceModels" => {
+            crate::voice::models(&hub.store, crate::voice::Provider::parse(str_arg(&b, "provider")?)?).await?
+        }
+        "voiceTranscribe" => {
+            let provider = crate::voice::Provider::parse(str_arg(&b, "provider")?)?;
+            crate::voice::transcribe(&hub.store, provider, str_arg(&b, "model")?, str_arg(&b, "audio")?).await?
+        }
+        "voiceSpeak" => {
+            let provider = crate::voice::Provider::parse(str_arg(&b, "provider")?)?;
+            crate::voice::speak(
+                &hub.store,
+                provider,
+                str_arg(&b, "model")?,
+                str_arg(&b, "voice")?,
+                str_arg(&b, "text")?,
+            )
+            .await?
         }
         "composioStatus" => market::composio::status(&hub.store)?,
         "setComposioKey" => market::composio::set_key(&hub.store, b["key"].as_str().unwrap_or_default()).await?,
