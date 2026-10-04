@@ -1117,16 +1117,6 @@ impl App {
             }
             After::Hello => {
                 self.mismatch = crate::compat::check(env!("CARGO_PKG_VERSION"), crate::compat::MIN_HOST, &v);
-                // Still compatible but behind this client: there's a newer host release.
-                if self.mismatch.is_none()
-                    && let Some(version) = v["version"].as_str()
-                    && crate::compat::below(version, env!("CARGO_PKG_VERSION"))
-                {
-                    self.flash(&format!(
-                        "Codync {} is available for this host (it runs {version}): ^k → Check for updates",
-                        env!("CARGO_PKG_VERSION")
-                    ));
-                }
                 v["name"].as_str().unwrap_or("computer").clone_into(&mut self.host);
                 v["home"].as_str().unwrap_or_default().clone_into(&mut self.home);
                 self.backends = v["backends"].as_array().cloned().unwrap_or_default();

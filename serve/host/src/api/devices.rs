@@ -35,6 +35,8 @@ const LOCAL_ONLY: &[&str] = &[
     "installHostUpdate",
     "setHostAutomaticUpdates",
     "setScreenEnabled",
+    // Voice keys are entered on the computer itself; phones only use them.
+    "setVoiceKey",
     "pairing",
     "computerCall",
     "teamCall",
