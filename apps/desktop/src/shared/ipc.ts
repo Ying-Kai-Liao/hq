@@ -105,6 +105,8 @@ export interface CodyncBridge {
   appVersion: string
   /** The computer's name ("Kevin's MacBook Pro"). */
   computerName: string
+  /** Screenshot/UI checks: CODYNC_DEBUG_OPEN=compose | group | plugins | computers | <bot name>. */
+  debugOpen: string | null
   host: {
     snapshot(): Promise<HostSnapshot>
     onChange(cb: (s: HostSnapshot) => void): () => void

@@ -25,6 +25,9 @@ function computerName() {
   return hostname()
 }
 
+// UI checks drive the renderer over the DevTools protocol (development builds only).
+if (!app.isPackaged && process.env.CODYNC_REMOTE_DEBUG) app.commandLine.appendSwitch('remote-debugging-port', process.env.CODYNC_REMOTE_DEBUG)
+
 const host = new HostController()
 const account = new AccountService()
 const updates = new Updates(host)
@@ -136,6 +139,7 @@ function registerIPC(tray: Tray) {
   registerHostProxy()
   ipcMain.on('app:version', (e) => (e.returnValue = app.getVersion()))
   ipcMain.on('app:computerName', (e) => (e.returnValue = computerName()))
+  ipcMain.on('app:debugOpen', (e) => (e.returnValue = app.isPackaged ? null : (process.env.CODYNC_DEBUG_OPEN ?? null)))
   ipcMain.handle('host:snapshot', () => snapshot())
   ipcMain.handle('host:health', (_e, url: string) => fetchHealth(url))
   ipcMain.on('host:install', () => void host.install())

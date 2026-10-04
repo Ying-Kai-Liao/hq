@@ -44,6 +44,12 @@ export const BotRow = memo(function BotRow({ bot, store, compact, usingComputer,
   )
 })
 
+/** `lineLimit(1)`: the first line, with an ellipsis when there is more. */
+const firstLine = (text: string) => {
+  const nl = text.indexOf('\n')
+  return nl < 0 ? text : `${text.slice(0, nl)}…`
+}
+
 const line: React.CSSProperties = { ...font('compactSecondary'), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }
 
 /** Live activity while working, otherwise the last message (Grok Bot row behavior). */
@@ -64,6 +70,6 @@ function Preview({ bot, store }: { bot: Bot; store: BotStore }) {
       </span>
     )
   }
-  if (bot.status === 'error') return <span style={{ ...line, color: 'var(--danger)' }}>{bot.lastMessage ?? 'Something went wrong'}</span>
-  return <span style={{ ...line, color: 'var(--secondary)' }}>{bot.lastMessage ?? `${store.backendName(bot.backend)} · ${folderName(bot)}`}</span>
+  if (bot.status === 'error') return <span style={{ ...line, color: 'var(--danger)' }}>{firstLine(bot.lastMessage ?? 'Something went wrong')}</span>
+  return <span style={{ ...line, color: 'var(--secondary)' }}>{firstLine(bot.lastMessage ?? `${store.backendName(bot.backend)} · ${folderName(bot)}`)}</span>
 }

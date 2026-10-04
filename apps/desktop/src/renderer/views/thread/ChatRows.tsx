@@ -1,9 +1,9 @@
-import { memo, useEffect, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { isGroup, isWorking, needsInput, type Bot, type Entry, type ThreadSummary } from '@shared/models'
 import { BotAvatar } from '../../components/Avatar'
 import { IconButton } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
-import { AnchoredMenu, ReactionStrip, useContextMenu, type MenuItem, type ReactionPick } from '../../components/Overlay'
+import { AnchoredMenu, useContextMenu, type MenuItem, type ReactionPick } from '../../components/Overlay'
 import { ThinkingOrb } from '../../components/ThinkingOrb'
 import { font, px } from '../../lib/fonts'
 import { avatarColor } from '../../lib/theme'
@@ -126,35 +126,38 @@ function Bubble({ className, items, reactions, children }: { className: string; 
   )
 }
 
+const fullDate = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+
 export function UserBubble({ entry, botWorking, reply }: { entry: Entry; botWorking: boolean; reply?: () => void }) {
   const store = useStore()
   const [hovering, setHovering] = useState(false)
   const status = entry.data.status
   const copy = () => entry.data.text && window.codync.app.copy(entry.data.text)
   return (
-    <div className="message user" onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}>
-      {entry.data.attachments?.length ? <AttachmentList attachments={entry.data.attachments} botId={entry.botId} /> : null}
-      {entry.data.text ? (
-        <Bubble
-          className="bubble user selectable"
-          reactions={reactionPick(store, entry)}
-          items={() => [
-            { title: 'Copy', icon: 'square.on.square', action: copy },
-            ...(reply ? [{ title: 'Reply in thread', icon: 'arrowshape.turn.up.left', action: reply }] : []),
-          ]}
-        >
-          {entry.data.text}
-        </Bubble>
-      ) : null}
-      <div className="message-footer">
-        {hovering && (!status || status === 'sent') ? <MessageActions reactions={reactionPick(store, entry)} reply={reply} copy={copy} /> : null}
-        <UserStatus entry={entry} botWorking={botWorking} />
+    <div className="message user" title={fullDate.format(entry.createdAt)} onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}>
+      <div className="message-body">
+        {entry.data.attachments?.length ? <AttachmentList attachments={entry.data.attachments} botId={entry.botId} /> : null}
+        {entry.data.text ? (
+          <Bubble
+            className="bubble user selectable"
+            reactions={reactionPick(store, entry)}
+            items={() => [
+              { title: 'Copy', icon: 'square.on.square', action: copy },
+              ...(reply ? [{ title: 'Reply in thread', icon: 'arrowshape.turn.up.left', action: reply }] : []),
+            ]}
+          >
+            {entry.data.text}
+          </Bubble>
+        ) : null}
+        {status && status !== 'sent' ? <UserStatus entry={entry} botWorking={botWorking} hovering={hovering} /> : null}
+        {/* Beside the bubble, inside its hover region: showing them never changes the height. */}
+        <MessageActions className="leading" visible={hovering} reactions={reactionPick(store, entry)} reply={reply} copy={copy} />
       </div>
     </div>
   )
 }
 
-function UserStatus({ entry, botWorking }: { entry: Entry; botWorking: boolean }) {
+function UserStatus({ entry, botWorking, hovering }: { entry: Entry; botWorking: boolean; hovering: boolean }) {
   const store = useStore()
   const caption = { ...font('caption2'), color: 'var(--tertiary)' }
   switch (entry.data.status) {
@@ -188,7 +191,7 @@ function UserStatus({ entry, botWorking }: { entry: Entry; botWorking: boolean }
     case 'delivering':
       return <span style={caption}>Delivered to the computer</span>
     default:
-      return <span style={{ ...font(10), color: 'var(--tertiary)' }}>{relativeTime.time(entry.createdAt)}</span>
+      return <span style={{ ...font(10), color: 'var(--tertiary)', opacity: hovering ? 1 : 0, transition: 'opacity var(--hover)' }}>{relativeTime.time(entry.createdAt)}</span>
   }
 }
 
@@ -197,21 +200,20 @@ export function AgentBubble({ entry, openTrace, reply }: { entry: Entry; openTra
   const [hovering, setHovering] = useState(false)
   const copy = () => entry.data.text && window.codync.app.copy(entry.data.text)
   return (
-    <div className="message agent" onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}>
-      <Bubble
-        className="bubble agent"
-        reactions={reactionPick(store, entry)}
-        items={() => [
-          { title: 'Copy', icon: 'square.on.square', action: copy },
-          ...(reply ? [{ title: 'Reply in thread', icon: 'arrowshape.turn.up.left', action: reply }] : []),
-          { title: 'Show what it did', icon: 'list.bullet', action: openTrace },
-        ]}
-      >
-        <MarkdownText text={entry.data.text ?? ''} streaming={entry.data.final === false} />
-      </Bubble>
-      <div className="message-footer" style={{ paddingLeft: 12 }}>
-        <span style={{ ...font(10), color: 'var(--tertiary)' }}>{relativeTime.time(entry.createdAt)}</span>
-        {hovering ? <MessageActions reactions={reactionPick(store, entry)} reply={reply} trace={openTrace} copy={copy} /> : null}
+    <div className="message agent" title={fullDate.format(entry.createdAt)} onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}>
+      <div className="message-body">
+        <Bubble
+          className="bubble agent"
+          reactions={reactionPick(store, entry)}
+          items={() => [
+            { title: 'Copy', icon: 'square.on.square', action: copy },
+            ...(reply ? [{ title: 'Reply in thread', icon: 'arrowshape.turn.up.left', action: reply }] : []),
+            { title: 'Show what it did', icon: 'list.bullet', action: openTrace },
+          ]}
+        >
+          <MarkdownText text={entry.data.text ?? ''} streaming={entry.data.final === false} />
+        </Bubble>
+        <MessageActions className="trailing" visible={hovering} reactions={reactionPick(store, entry)} reply={reply} trace={openTrace} copy={copy} />
       </div>
     </div>
   )
@@ -311,18 +313,35 @@ export function ReactionsRow({ entry }: { entry: Entry }) {
   )
 }
 
-/**
- * A message's quick actions, in its footer beside the time while the pointer is over it:
- * reactions, reply in thread, what it did, copy.
- */
-function MessageActions({ reactions, reply, trace, copy }: { reactions: ReactionPick; reply?: () => void; trace?: () => void; copy: () => void }) {
+/** Compact actions beside the bubble: a reaction strip, reply in thread, and more (copy, what it did). */
+function MessageActions({ visible, className, reactions, reply, trace, copy }: {
+  visible: boolean
+  className: string
+  reactions: ReactionPick
+  reply?: () => void
+  trace?: () => void
+  copy: () => void
+}) {
+  const [menu, setMenu] = useState<'reactions' | 'more' | null>(null)
+  const smile = useRef<HTMLButtonElement>(null)
+  const more = useRef<HTMLButtonElement>(null)
+  const shown = visible || menu !== null
   return (
-    <div className="message-actions">
-      <ReactionStrip pick={reactions} />
-      <div style={{ width: 1, height: 12, background: 'rgba(var(--text-rgb), 0.12)', margin: '0 4px' }} />
+    <div className={`message-actions ${className}`} style={{ opacity: shown ? 1 : 0, pointerEvents: shown ? 'auto' : 'none' }} aria-hidden={!shown}>
+      <button ref={smile} className="message-action" title="Add reaction" aria-label="Add reaction" onClick={() => setMenu('reactions')}>
+        <Icon name="face.smiling" size={14} />
+      </button>
       {reply ? <IconButton title="Reply in thread" icon="arrowshape.turn.up.left" size={26} onClick={reply} /> : null}
-      {trace ? <IconButton title="Show what it did" icon="list.bullet" size={26} onClick={trace} /> : null}
-      <IconButton title="Copy" icon="square.on.square" size={26} onClick={copy} />
+      <button ref={more} className="message-action" title="More message actions" aria-label="More message actions" onClick={() => setMenu('more')}>
+        <Icon name="ellipsis" size={14} />
+      </button>
+      <AnchoredMenu open={menu === 'reactions'} onClose={() => setMenu(null)} anchor={smile} items={() => []} reactions={reactions} />
+      <AnchoredMenu
+        open={menu === 'more'}
+        onClose={() => setMenu(null)}
+        anchor={more}
+        items={() => [{ title: 'Copy', icon: 'square.on.square', action: copy }, ...(trace ? [{ title: 'Show what it did', icon: 'list.bullet', action: trace }] : [])]}
+      />
     </div>
   )
 }

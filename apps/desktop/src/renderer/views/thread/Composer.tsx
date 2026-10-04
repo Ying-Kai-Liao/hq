@@ -89,7 +89,7 @@ export function Composer({ botId, thread = null, onCall, onInterrupt }: {
     setFiles([])
   }
 
-  const trailing: Trailing = onInterrupt && !draft && !files.length ? 'interrupt' : working && !draft ? 'stop' : onCall && !draft && !files.length ? 'call' : 'send'
+  const trailing: Trailing = onInterrupt && !draft && !files.length ? 'interrupt' : working && !draft && !files.length ? 'stop' : onCall && !draft && !files.length ? 'call' : 'send'
   const [symbol, label, size] = ({
     interrupt: ['stop.fill', 'Interrupt', 12],
     stop: ['stop.fill', 'Stop', 12],
@@ -123,11 +123,6 @@ export function Composer({ botId, thread = null, onCall, onInterrupt }: {
           void Promise.all([...e.dataTransfer.files].map(async (f) => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()) }))).then(append)
         }}
       >
-        {canAttach ? (
-          <button className="press composer-add" aria-label="Add files" title="Add files" onClick={() => void window.codync.app.pickFiles().then(append)}>
-            <Icon name="plus" size={13} weight="medium" color="var(--text)" />
-          </button>
-        ) : null}
         <div className="composer-surface">
           {files.length ? (
             <div className="file-chips">
@@ -143,6 +138,12 @@ export function Composer({ botId, thread = null, onCall, onInterrupt }: {
             </div>
           ) : null}
           <div className="composer-box">
+            {/* One capsule: attachments, the field, and send / stop / call. */}
+            {canAttach ? (
+              <button className="press composer-add" aria-label="Add files" title="Add files" onClick={() => void window.codync.app.pickFiles().then(append)}>
+                <Icon name="plus" size={13} weight="medium" color="var(--text)" />
+              </button>
+            ) : null}
             <textarea
               ref={field}
               rows={1}
@@ -175,7 +176,7 @@ export function Composer({ botId, thread = null, onCall, onInterrupt }: {
               disabled={!enabled}
               aria-label={label}
               title={label}
-              style={{ background: fill, color: ink, width: trailing === 'call' ? 28 * 1.35 : 28 }}
+              style={{ background: fill, color: ink }}
               onClick={() => {
                 if (trailing === 'interrupt') onInterrupt?.()
                 else if (trailing === 'stop') store.stop(botId)

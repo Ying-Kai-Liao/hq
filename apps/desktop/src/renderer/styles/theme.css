@@ -22,12 +22,19 @@
   --removed: #c62828;
   /* Floating menus and account panel. */
   --panel: #fafafa;
+  /* The Mac chat's bubbles (a step stronger than the iPhone's). */
+  --chat-agent: #eeeeee;
+  --chat-user: #e2e2e2;
+  /* Floating transcript controls (chevrons, Jump to latest, inspector actions). */
+  --chat-button: #eeeeee;
   /* Grok's frosted floating surfaces (title pill, call bar). */
   --frosted: rgba(244, 244, 244, 0.82);
 
   /* The Mac text preference: conversation size / 12 pt scales the chrome too. */
   --scale: 1;
   --conversation: 12px;
+  /* Markdown headings and code follow the conversation's own text size. */
+  --md-scale: var(--scale);
 
   /* Grok Bot's motion. */
   --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
@@ -64,6 +71,9 @@
     --added: #8fd18b;
     --removed: #f0a7a7;
     --panel: #1b1b1b;
+    --chat-agent: #262626;
+    --chat-user: #545454;
+    --chat-button: #303030;
     --frosted: rgba(35, 35, 35, 0.82);
   }
 }

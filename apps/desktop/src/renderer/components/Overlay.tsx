@@ -193,7 +193,7 @@ export function MenuPanel({ items, reactions, dismiss, maxHeight }: { items: Men
   return (
     <div className="menu-panel" style={{ maxHeight }}>
       {reactions ? (
-        <div style={{ paddingBottom: 4 }}>
+        <div style={{ paddingBottom: items.length ? 4 : 0 }}>
           <ReactionStrip pick={reactions} dismiss={dismiss} />
         </div>
       ) : null}

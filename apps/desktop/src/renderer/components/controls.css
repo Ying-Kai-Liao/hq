@@ -171,7 +171,8 @@
   flex-direction: column;
 }
 .card-row {
-  min-height: 28px;
+  /* 28 pt of content plus the row's own padding. */
+  min-height: 52px;
   padding: 12px 16px;
   display: flex;
   align-items: center;

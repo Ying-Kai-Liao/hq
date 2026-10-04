@@ -9,6 +9,7 @@ import { useStore } from '../../store/context'
 import { BotSettingsPanel } from '../bots/BotEditorView'
 import { ComputerBadge } from '../ComputerBadge'
 import { RoutinesView } from '../routines/RoutinesView'
+import { MacChatButton } from './MacChatButton'
 
 const isMac = window.codync.platform === 'darwin'
 
@@ -82,13 +83,9 @@ function PanelTitle({ children }: { children: ReactNode }) {
   return <span style={{ ...font(15, 'semibold'), color: 'var(--text)', paddingLeft: 4 }}>{children}</span>
 }
 
-/** A round action in the panel's header, frosted like the chat's title pill (Grok's style). */
+/** A single circular surface, shared with the floating transcript controls. */
 function RoundButton({ label, symbol, action }: { label: string; symbol: string; action: () => void }) {
-  return (
-    <button className="press round-button" onClick={action} aria-label={label} title={label}>
-      <Icon name={symbol} size={13} weight="medium" color="var(--text)" />
-    </button>
-  )
+  return <MacChatButton title={label} icon={symbol} direction={symbol === 'chevron.right.2' ? [1, 0] : [0, 0]} onClick={action} />
 }
 
 /** A group's bots; clicking one opens its own chat. */

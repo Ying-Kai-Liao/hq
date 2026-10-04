@@ -22,6 +22,7 @@ const bridge: CodyncBridge = {
   platform: process.platform as CodyncBridge['platform'],
   appVersion: ipcRenderer.sendSync('app:version') as string,
   computerName: ipcRenderer.sendSync('app:computerName') as string,
+  debugOpen: ipcRenderer.sendSync('app:debugOpen') as string | null,
   host: {
     snapshot: () => ipcRenderer.invoke('host:snapshot') as Promise<HostSnapshot>,
     onChange: (cb) => listen('host:change', cb),

@@ -214,6 +214,30 @@ function ChatSplitView() {
       }),
   )
 
+  // Screenshot/UI checks (development builds): open a screen at launch.
+  const debugOpened = useRef(false)
+  useEffect(() => {
+    const target = window.codync.debugOpen
+    if (!target || debugOpened.current) return
+    if (target === 'compose' || target === 'group') {
+      if (!onlineStores.length) return
+      debugOpened.current = true
+      compose(target === 'group')
+    } else if (target === 'plugins') {
+      if (!app.local) return
+      debugOpened.current = true
+      setMarketplace(app.local.computer.id)
+    } else if (target === 'computers') {
+      debugOpened.current = true
+      setSettings('computers')
+    } else {
+      const item = app.roster.find((i) => i.bot.name === target)
+      if (!item) return
+      debugOpened.current = true
+      app.select(item.ref)
+    }
+  })
+
   const newItems = (): MenuItem[] => [
     { title: 'New chat', icon: 'square.and.pencil', action: () => compose() },
     { title: 'New group chat', icon: 'person.2', action: () => compose(true) },

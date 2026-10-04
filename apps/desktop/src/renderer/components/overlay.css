@@ -136,7 +136,6 @@
   flex-direction: column;
   gap: 2px;
   overflow-y: auto;
-  min-width: 160px;
 }
 .menu-divider {
   height: 0.5px;
@@ -214,4 +213,10 @@
 }
 .icon-button:disabled {
   opacity: 0.35;
+}
+
+/* SwiftUI centers modals below the hidden title bar (28 pt on macOS). */
+html[data-platform="darwin"] .modal-card,
+html[data-platform="darwin"] .dialog {
+  padding-top: 28px;
 }

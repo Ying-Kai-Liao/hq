@@ -9,15 +9,21 @@ export type ChatItem =
  * turn is running in this chat, so the text being generated right now (the lane's last entry,
  * still `final == false`) shows in place and never pops in later.
  */
-export function buildChat(entries: Entry[], streaming = false): ChatItem[] {
+export function buildChat(entries: Entry[], streaming = false, steady = false): ChatItem[] {
   const out: ChatItem[] = []
+  const used = new Set<string>()
   let lastDate: number | null = null
   let lastAuthor: string | null = null
   const lastEntry = entries[entries.length - 1]
-  const live = streaming && lastEntry && lastEntry.kind === 'agent' && lastEntry.data.final === false ? lastEntry.id : null
+  const live = !streaming ? null : steady ? liveText(entries) : lastEntry && lastEntry.kind === 'agent' && lastEntry.data.final === false ? lastEntry.id : null
   for (const e of entries) {
     if (!(isChat(e) || (e.id === live && e.data.text && e.data.text !== '(pass)'))) continue
-    const id = e.kind === 'user' && e.data.clientNonce ? `user-${e.data.clientNonce}` : e.id
+    let id = e.kind === 'user' && e.data.clientNonce ? `user-${e.data.clientNonce}` : e.id
+    // `steady`: a reply is one item per author and turn, from its first words to the final
+    // message, so its bubble never pops out and back in.
+    const reply = `reply-${e.data.author ?? ''}-${e.turn}`
+    if (steady && e.kind === 'agent' && !used.has(reply)) id = reply
+    used.add(id)
     if (lastDate === null || e.createdAt - lastDate > 3_600_000) {
       out.push({ id: `sep-${id}`, kind: 'separator', date: e.createdAt })
       lastAuthor = null
@@ -29,6 +35,16 @@ export function buildChat(entries: Entry[], streaming = false): ChatItem[] {
     lastDate = e.createdAt
   }
   return out
+}
+
+/** The running turn's newest text, if any since the last message or final reply. */
+function liveText(entries: Entry[]): string | null {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i]!
+    if (e.kind === 'user' || (e.kind === 'agent' && e.data.final === true)) return null
+    if (e.kind === 'agent' && e.data.text) return e.data.text === '(pass)' ? null : e.id
+  }
+  return null
 }
 
 const time = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })

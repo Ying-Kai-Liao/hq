@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { draftOf, isGroup, isWorkingIn, type Bot, type BotDraft } from '@shared/models'
 import { BotAvatar, GroupAvatar } from '../../components/Avatar'
-import { IconButton, Spinner } from '../../components/Controls'
+import { Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
-import { Dialog, Sheet } from '../../components/Overlay'
+import { Sheet } from '../../components/Overlay'
 import { font } from '../../lib/fonts'
 import { useStore } from '../../store/context'
 import { UpdateNeededCard } from '../UpdateNeededCard'
@@ -16,9 +16,10 @@ import { TraceView } from './TraceView'
 import { useReading } from './reading'
 import { GroupEditorView } from '../bots/GroupEditorView'
 import { BotTemplateView } from '../bots/BotTemplateView'
-import { RoutinesView } from '../routines/RoutinesView'
 import { CallView } from '../call/CallView'
+import { MacChatButton } from './MacChatButton'
 import './thread.css'
+import './chat-controls.css'
 
 const WIDE = 680
 
@@ -34,8 +35,6 @@ export function ThreadView({ botId }: { botId: string }) {
   const [openThread, setOpenThread] = useState<string | null>(null)
   const [editingGroup, setEditingGroup] = useState(false)
   const [templateDraft, setTemplateDraft] = useState<BotDraft | null>(null)
-  const [confirmNewSession, setConfirmNewSession] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState<Bot | null>(null)
   const [showSettings, setShowSettings] = useState(true)
   const [editingDetails, setEditingDetails] = useState(false)
   const [compactDetails, setCompactDetails] = useState(false)
@@ -44,8 +43,8 @@ export function ThreadView({ botId }: { botId: string }) {
   const interruptCall = useRef<(() => void) | null>(null)
   const [routineId, setRoutineId] = useState<string | null>(null)
   const [routineRequest, setRoutineRequest] = useState(0)
-  const [showRoutines, setShowRoutines] = useState(false)
   const root = useRef<HTMLDivElement>(null)
+  const dock = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(800)
   useReading(store, botId, null)
 
@@ -54,14 +53,30 @@ export function ThreadView({ botId }: { botId: string }) {
     if (!el) return
     const observer = new ResizeObserver(([e]) => setWidth(e!.contentRect.width))
     observer.observe(el)
-    return () => observer.disconnect()
+    // The composer floats over the transcript; its height becomes the transcript's bottom padding.
+    const docked = new ResizeObserver(([e]) => el.style.setProperty('--composer-height', `${Math.ceil(e!.borderBoxSize[0]!.blockSize)}px`))
+    if (dock.current) docked.observe(dock.current)
+    return () => {
+      observer.disconnect()
+      docked.disconnect()
+    }
   }, [])
 
   const wide = width >= WIDE
-  const toggleDetails = useCallback(() => {
-    if (!wide) setCompactDetails((c) => !c)
-    else setShowSettings((s) => !s)
+  // A compact Details presentation dismisses once the window is wide enough for the inspector.
+  useEffect(() => {
+    if (wide) setCompactDetails(false)
   }, [wide])
+  const toggleDetails = useCallback(() => {
+    if (!wide) {
+      setOpenThread(null)
+      setCompactDetails((c) => !c)
+    } else if (openThread) {
+      // The thread occupies the inspector slot: << shows details instead of toggling behind it.
+      setOpenThread(null)
+      setShowSettings(true)
+    } else setShowSettings((s) => !s)
+  }, [wide, openThread])
 
   useEffect(
     () =>
@@ -110,10 +125,8 @@ export function ThreadView({ botId }: { botId: string }) {
           <TopFade />
           <div className="top-chrome-row">
             <span style={{ flex: 1 }} />
-            {!showSettings || !wide ? (
-              <span className="frosted-circle">
-                <IconButton title="Conversation details" icon="chevron.left.2" onClick={toggleDetails} />
-              </span>
+            {(!showSettings || openThread || !wide) && !compactDetails ? (
+              <MacChatButton title="Conversation details" icon="chevron.left.2" direction={[-1, 0]} onClick={toggleDetails} />
             ) : null}
           </div>
           <button className="title-pill" onClick={toggleDetails} aria-label="View conversation details" title="View conversation details">
@@ -125,7 +138,8 @@ export function ThreadView({ botId }: { botId: string }) {
           </button>
         </div>
         <Transcript botId={botId} openTrace={openTrace} openThread={openThreadOn} openRoutine={presentRoutine} />
-        <div className="composer-dock">
+        <div className="composer-dock" ref={dock}>
+          <div className="composer-fade" />
           {store.mismatch ? (
             <div style={{ padding: '0 16px 8px' }}>
               <UpdateNeededCard />
@@ -167,25 +181,6 @@ export function ThreadView({ botId }: { botId: string }) {
       <Sheet open={editingGroup} onClose={() => setEditingGroup(false)} width={420} height={560}>
         <GroupEditorView group={bot} />
       </Sheet>
-      <Sheet open={showRoutines} onClose={() => setShowRoutines(false)} width={440} height={580}>
-        <div style={{ overflowY: 'auto', padding: 20 }}>
-          <RoutinesView botId={botId} initialId={routineId} onClose={() => setShowRoutines(false)} />
-        </div>
-      </Sheet>
-      <Dialog
-        open={confirmNewSession}
-        title="Start a new session?"
-        message="The conversation stays here, but the agent starts with a fresh context."
-        actions={[{ title: 'New session', action: () => store.newSession(botId) }]}
-        onClose={() => setConfirmNewSession(false)}
-      />
-      <Dialog
-        open={confirmDelete !== null}
-        title={`Delete ${confirmDelete?.name ?? 'bot'}?`}
-        message={confirmDelete && isGroup(confirmDelete) ? 'Its bots and their own chats stay.' : 'Files it changed on your computer stay as they are.'}
-        actions={confirmDelete ? [{ title: 'Delete bot and its conversation', destructive: true, action: () => store.delete(confirmDelete) }] : []}
-        onClose={() => setConfirmDelete(null)}
-      />
     </div>
   )
 }
@@ -233,78 +228,130 @@ function ConnectionSubtitle() {
 }
 
 /** The messages: every loaded message, brought to the newest as it changes while the reader is at the bottom. */
+const PAGE = 40
+
 function Transcript({ botId, openTrace, openThread, openRoutine }: { botId: string; openTrace: () => void; openThread: (e: { id: string }) => void; openRoutine: (id: string | null) => void }) {
   const store = useStore()
   const bot = store.bots.get(botId) ?? null
   const thread = store.chat(botId)
   const live = !!bot && isWorkingIn(bot, botId, null) && !store.isOffline
-  const items = buildChat(thread, live)
+  const all = buildChat(thread, live, true)
+  // The newest 40 items first; older pages come in near the top.
+  const [firstShown, setFirstShown] = useState<string | null>(null)
+  const [loadingEarlier, setLoadingEarlier] = useState(false)
+  const found = firstShown ? all.findIndex((i) => i.id === firstShown) : -1
+  const start = found >= 0 ? found : Math.max(0, all.length - PAGE)
+  const items = all.slice(start)
+  const more = start > 0 || (!store.historyComplete.has(botId) && thread.length >= 50)
+  // Following the newest message, or reading history: scrolling up releases the bottom,
+  // arriving back at the end (or Jump to latest) restores it. Content growth alone never changes it.
+  const [following, setFollowing] = useState(true)
+  const followingRef = useRef(true)
+  followingRef.current = following
   const scroller = useRef<HTMLDivElement>(null)
-  const atBottom = useRef(true)
-  const seen = useRef<Set<string> | null>(null)
+  const lastScrollTop = useRef(0)
+  const keepPlace = useRef<number | null>(null)
   const last = items[items.length - 1]
 
-  // New items (after the first render) slide up from the bottom.
-  const fresh = new Set<string>()
-  if (seen.current) for (const item of items) if (!seen.current.has(item.id)) fresh.add(item.id)
-  useEffect(() => {
-    seen.current = new Set(items.map((i) => i.id))
-  })
-
-  const toBottom = (smooth: boolean) => {
+  const toBottom = (smooth = false) => {
     const el = scroller.current
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
   }
 
-  useLayoutEffect(() => toBottom(false), [])
-  const lastText = last?.kind === 'entry' ? last.entry.data.text : undefined
-  const lastIsUser = last?.kind === 'entry' && last.entry.kind === 'user'
-  useLayoutEffect(() => {
-    if (atBottom.current || lastIsUser) toBottom(true)
-  }, [last?.id, lastIsUser])
-  useLayoutEffect(() => {
-    if (atBottom.current) toBottom(false)
-  }, [lastText, live])
+  useEffect(() => {
+    if (!firstShown && items[0]) setFirstShown(items[0].id)
+  }, [firstShown, items])
 
-  // The text size changes the layout: stay at the bottom if the reader was there.
+  const showEarlier = async () => {
+    if (loadingEarlier) return
+    setLoadingEarlier(true)
+    const el = scroller.current
+    keepPlace.current = el ? el.scrollHeight - el.scrollTop : null
+    let list = all
+    let at = start
+    if (at === 0) {
+      const anchor = list[0]?.id
+      await store.loadOlder(botId)
+      list = buildChat(store.chat(botId), live, true)
+      at = anchor ? Math.max(0, list.findIndex((i) => i.id === anchor)) : 0
+    }
+    if (at > 0) setFirstShown(list[Math.max(0, at - PAGE)]!.id)
+    setLoadingEarlier(false)
+  }
+
+  // Earlier messages going in above keep the reader's place; a follower stays at the bottom.
+  useLayoutEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    if (keepPlace.current !== null && !followingRef.current) {
+      el.scrollTop = el.scrollHeight - keepPlace.current
+      keepPlace.current = null
+    } else if (followingRef.current) toBottom()
+  })
+
+  // A message the user sends brings the chat back to the newest.
+  const lastIsUser = last?.kind === 'entry' && last.entry.kind === 'user'
+  useEffect(() => {
+    if (lastIsUser) setFollowing(true)
+  }, [last?.id, lastIsUser])
+
+  // Rows that grow after layout (images, the text size) keep a follower at the bottom.
   useEffect(() => {
     const el = scroller.current
     if (!el) return
     const observer = new ResizeObserver(() => {
-      if (atBottom.current) toBottom(false)
+      if (followingRef.current) toBottom()
     })
     observer.observe(el.firstElementChild!)
+    observer.observe(el)
     return () => observer.disconnect()
   }, [])
 
   return (
-    <div
-      className="transcript"
-      ref={scroller}
-      onScroll={(e) => {
-        const el = e.currentTarget
-        atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
-      }}
-    >
-      <div className="transcript-content">
-        {!store.historyComplete.has(botId) && thread.length >= 50 ? (
-          <button className="load-earlier" onClick={() => void store.loadOlder(botId)}>
-            Load earlier messages
-          </button>
-        ) : null}
-        {items.length === 0 && bot ? <div style={{ paddingTop: 40 }}>{isGroup(bot) ? <GroupIntroCard group={bot} /> : <IntroCard bot={bot} />}</div> : null}
-        {items.map((item) => (
-          <div key={item.id} className={fresh.has(item.id) && item.id === last?.id ? 'enter' : undefined}>
-            <Row item={item} chat={bot} openTrace={openTrace} openThread={openThread} openRoutine={openRoutine} />
-          </div>
-        ))}
-        {bot && live ? (
-          <div style={{ paddingTop: 6 }}>
-            <WorkingIndicator bot={bot} thinking={store.currentThinking(botId, null)} />
-          </div>
-        ) : null}
-        <div style={{ height: 8 }} />
+    <div className="transcript-frame">
+      <div
+        className="transcript"
+        ref={scroller}
+        onScroll={(e) => {
+          const el = e.currentTarget
+          const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 8
+          if (el.scrollTop < lastScrollTop.current - 1 && !atEnd) setFollowing(false)
+          else if (atEnd) setFollowing(true)
+          lastScrollTop.current = el.scrollTop
+          if (more && el.scrollTop < 200 && !loadingEarlier) void showEarlier()
+        }}
+      >
+        <div className="transcript-content">
+          {more ? (
+            <button className="load-earlier" disabled={loadingEarlier} onClick={() => void showEarlier()}>
+              {loadingEarlier ? <Spinner size={14} /> : 'Load earlier messages'}
+            </button>
+          ) : null}
+          {items.length === 0 && bot ? <div style={{ paddingTop: 40 }}>{isGroup(bot) ? <GroupIntroCard group={bot} /> : <IntroCard bot={bot} />}</div> : null}
+          {items.map((item) => (
+            <Row key={item.id} item={item} chat={bot} openTrace={openTrace} openThread={openThread} openRoutine={openRoutine} />
+          ))}
+          {bot && live ? (
+            <div style={{ paddingTop: 6 }}>
+              <WorkingIndicator bot={bot} thinking={store.currentThinking(botId, null)} />
+            </div>
+          ) : null}
+          <div style={{ height: 8 }} />
+        </div>
       </div>
+      {!following && items.length ? (
+        <div className="jump-to-latest" style={{ bottom: 'calc(var(--composer-height, 70px) + 10px)' }}>
+          <MacChatButton
+            title="Jump to latest"
+            icon="arrow.down"
+            direction={[0, 1]}
+            onClick={() => {
+              setFollowing(true)
+              toBottom(true)
+            }}
+          />
+        </div>
+      ) : null}
     </div>
   )
 }
