@@ -23,7 +23,7 @@ packages:
     exactVersion: 153.0.0
 settings:
   base:
-    MARKETING_VERSION: 2.6.1
+    MARKETING_VERSION: 2.6.2
     CURRENT_PROJECT_VERSION: 24
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
@@ -83,8 +83,9 @@ targets:
         INFOPLIST_KEY_NSMicrophoneUsageDescription: Talk to your bots in a voice call.
         INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Your words are transcribed on this Mac and sent to your bot as a message.
         ENABLE_HARDENED_RUNTIME: YES
-        # Voice calls: the hardened runtime blocks the microphone without this entitlement.
-        ENABLE_RESOURCE_ACCESS_AUDIO_INPUT: YES
+        # Voice calls: the hardened runtime blocks the microphone without audio-input.
+        # A file, not ENABLE_RESOURCE_ACCESS_AUDIO_INPUT, so the release re-sign can pass it too.
+        CODE_SIGN_ENTITLEMENTS: macos/Resources/macOS.entitlements
         ENABLE_APP_SANDBOX: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Black / white instead of the system blue wherever macOS draws the app's accent.
