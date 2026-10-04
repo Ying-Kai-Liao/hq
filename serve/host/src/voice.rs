@@ -49,12 +49,50 @@ impl Provider {
         }
     }
 
-    /// Used until the user picks one from the provider's list.
-    fn default_model(self) -> &'static str {
-        match self {
-            Self::OpenAi => "gpt-realtime-2.1",
-            Self::Gemini => "gemini-3.8-live",
+    /// The defaults until this computer has seen the provider's own list (`refresh_loop`).
+    fn fallback(self) -> Defaults {
+        let (realtime, transcribe, speech) = match self {
+            Self::OpenAi => ("gpt-realtime-2.1", "gpt-transcribe", "gpt-4o-mini-tts"),
+            Self::Gemini => ("gemini-3.8-live", "gemini-3.8-flash", "gemini-3.8-flash-tts"),
+        };
+        Defaults { realtime: realtime.into(), transcribe: transcribe.into(), speech: speech.into() }
+    }
+}
+
+/// The model each voice mode uses until the user picks one: the provider's newest, worked out
+/// from its model list once a day, so a new release becomes the default without an app update.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Defaults {
+    realtime: String,
+    transcribe: String,
+    speech: String,
+}
+
+const REFRESH_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
+
+fn defaults_key(p: Provider) -> String {
+    format!("voice-defaults.{}", p.id())
+}
+
+fn defaults(store: &Store, p: Provider) -> Defaults {
+    store.kv_get(&defaults_key(p)).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(|| p.fallback())
+}
+
+/// Looks at each keyed provider's model list once a day and keeps its newest models as the defaults.
+pub async fn refresh_loop(hub: std::sync::Arc<crate::hub::Hub>) {
+    loop {
+        for p in Provider::ALL {
+            if load(&hub.store).is_ok_and(|keys| !keys.get(p).is_empty())
+                && let Err(e) = models(&hub.store, p).await
+            {
+                tracing::info!(
+                    provider = p.id(),
+                    error = format!("{e:#}"),
+                    "voice model refresh failed; keeping the last defaults"
+                );
+            }
         }
+        tokio::time::sleep(REFRESH_EVERY).await;
     }
 }
 
@@ -166,7 +204,10 @@ pub fn status(store: &Store) -> Result<Value> {
     let keys = load(store)?;
     let providers: Vec<Value> = Provider::ALL
         .iter()
-        .map(|&p| json!({"provider": p.id(), "configured": !keys.get(p).is_empty(), "defaultModel": p.default_model()}))
+        .map(|&p| {
+            let defaults = defaults(store, p);
+            json!({"provider": p.id(), "configured": !keys.get(p).is_empty(), "defaultModel": defaults.realtime, "defaults": defaults})
+        })
         .collect();
     Ok(json!({"providers": providers}))
 }
@@ -179,13 +220,17 @@ pub async fn set_key(store: &Store, p: Provider, key: &str) -> Result<Value> {
             Provider::OpenAi => "marin",
             Provider::Gemini => "Kore",
         };
-        mint(p, key, p.default_model(), voice).await?;
+        mint(p, key, &defaults(store, p).realtime, voice).await?;
     }
     {
         let _guard = store.connector_lock.lock().map_err(|_| anyhow!("credential storage is busy"))?;
         let mut keys = load(store)?;
         keys.set(p, key.to_owned());
         vault::write(store, SLOT, &serde_json::to_string(&keys)?)?;
+    }
+    if !key.is_empty() {
+        // A new key may see newer models; the daily refresh would only get there tomorrow.
+        let _ = models(store, p).await;
     }
     status(store)
 }
@@ -207,8 +252,15 @@ pub async fn models(store: &Store, p: Provider) -> Result<Value> {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .filter_map(|m| m["id"].as_str())
-                .map(|id| Model { id: id.to_owned(), live: id.contains("realtime"), generate: true })
+                .filter_map(|m| {
+                    let id = m["id"].as_str()?;
+                    Some(Model {
+                        id: id.to_owned(),
+                        live: id.contains("realtime"),
+                        generate: true,
+                        created: m["created"].as_i64(),
+                    })
+                })
                 .collect()
         }
         Provider::Gemini => {
@@ -226,13 +278,62 @@ pub async fn models(store: &Store, p: Provider) -> Result<Value> {
                         id: m["name"].as_str()?.trim_start_matches("models/").to_owned(),
                         live: methods.iter().any(|x| x == "bidiGenerateContent"),
                         generate: methods.iter().any(|x| x == "generateContent"),
+                        created: None,
                     })
                 })
                 .collect()
         }
     };
     let (realtime, transcribe, speech) = classify(p, &entries);
-    Ok(json!({"models": realtime, "transcribe": transcribe, "speech": speech}))
+    let fallback = p.fallback();
+    let defaults = Defaults {
+        realtime: newest(p, &entries, &realtime).unwrap_or(fallback.realtime),
+        transcribe: newest(p, &entries, &transcribe).unwrap_or(fallback.transcribe),
+        speech: newest(p, &entries, &speech).unwrap_or(fallback.speech),
+    };
+    store.kv_set(&defaults_key(p), &serde_json::to_string(&defaults)?)?;
+    Ok(json!({"models": realtime, "transcribe": transcribe, "speech": speech, "defaults": defaults}))
+}
+
+/// The provider's current model among `ids`, skipping dated snapshots and previews.
+/// `OpenAI` dates every model (`created`): its latest generation is whatever came out within a
+/// few months of the newest release, and in it the full model beats `mini` (`gpt-realtime-2.1`
+/// over `gpt-realtime-2.1-mini`, yet `gpt-4o-mini-tts` over the older `tts-1`). Gemini's names
+/// carry the version (`gemini-3.8-flash`); within one version the full, plain name wins
+/// (`-flash` over `-flash-lite`, `-live` over `-live-extended-thinking`).
+fn newest(p: Provider, models: &[Model], ids: &[String]) -> Option<String> {
+    const GENERATION: i64 = 120 * 24 * 60 * 60;
+    let lesser = |id: &str| ["mini", "lite"].iter().any(|w| id.contains(w));
+    let pinned = |id: &str| {
+        ["preview", "exp", "latest"].iter().any(|w| id.contains(w))
+            || id
+                .split('-')
+                .any(|part| part.len() == 4 && part.starts_with("20") && part.bytes().all(|c| c.is_ascii_digit()))
+    };
+    let version = |id: &str| -> Vec<u32> {
+        id.split('-')
+            .find(|part| {
+                part.starts_with(|c: char| c.is_ascii_digit()) && part.split('.').all(|n| n.parse::<u32>().is_ok())
+            })
+            .map(|v| v.split('.').filter_map(|n| n.parse().ok()).collect())
+            .unwrap_or_default()
+    };
+    let created = |id: &str| models.iter().find(|m| m.id == id).and_then(|m| m.created).unwrap_or(0);
+    let stable: Vec<&String> = ids.iter().filter(|id| !pinned(id)).collect();
+    let pool = if stable.is_empty() { ids.iter().collect() } else { stable };
+    match p {
+        Provider::OpenAi => {
+            let latest = pool.iter().map(|id| created(id)).max()?;
+            pool.into_iter()
+                .filter(|id| created(id) >= latest - GENERATION)
+                .max_by_key(|id| (!lesser(id), created(id)))
+                .cloned()
+        }
+        Provider::Gemini => pool
+            .into_iter()
+            .max_by(|a, b| (version(a), !lesser(a)).cmp(&(version(b), !lesser(b))).then_with(|| b.len().cmp(&a.len())))
+            .cloned(),
+    }
 }
 
 struct Model {
@@ -240,6 +341,8 @@ struct Model {
     /// Holds a live conversation (`OpenAI` `realtime`, Gemini `bidiGenerateContent`).
     live: bool,
     generate: bool,
+    /// When `OpenAI` released it (Unix seconds); Gemini's list has no date.
+    created: Option<i64>,
 }
 
 /// Sorts a provider's model list into what each voice mode can use. Translation,
@@ -273,11 +376,29 @@ fn classify(p: Provider, models: &[Model]) -> (Vec<String>, Vec<String>, Vec<Str
     (realtime, transcribe, speech)
 }
 
+/// Names a speaker is likely to say that speech-to-text would otherwise misspell: the app and
+/// the bots on this computer.
+fn spoken_names(store: &Store) -> Vec<String> {
+    let mut names = vec!["Codync".to_owned()];
+    for bot in store.bots().unwrap_or_default() {
+        if !bot.deleted && !names.contains(&bot.config.name) {
+            names.push(bot.config.name);
+        }
+    }
+    names.truncate(50);
+    names
+}
+
+fn names_hint(names: &[String]) -> String {
+    format!("Names that may come up: {}.", names.join(", "))
+}
+
 /// Speech to text for one utterance (`audio`: base64 WAV, 16 kHz mono).
 pub async fn transcribe(store: &Store, p: Provider, model: &str, audio: &str) -> Result<Value> {
     let key = key(store, p)?;
     let model = checked(model)?;
     let wav = STANDARD.decode(audio).map_err(|_| anyhow!("audio must be base64"))?;
+    let names = spoken_names(store);
     let text = match p {
         Provider::OpenAi => {
             let boundary = format!("codync-{}", uuid::Uuid::new_v4().simple());
@@ -286,10 +407,19 @@ pub async fn transcribe(store: &Store, p: Provider, model: &str, audio: &str) ->
                 format!("--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n{model}\r\n").as_bytes(),
             );
             // Keeps Traditional Chinese from coming back Simplified, and code terms intact.
-            body.extend_from_slice(
-                format!("--{boundary}\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\n{TRANSCRIBE_HINT}\r\n")
-                    .as_bytes(),
-            );
+            let mut field = |name: &str, value: &str| {
+                body.extend_from_slice(
+                    format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n")
+                        .as_bytes(),
+                );
+            };
+            field("prompt", &format!("{TRANSCRIBE_HINT} {}", names_hint(&names)));
+            // Only gpt-transcribe takes keywords; the older models reject the field.
+            if model.starts_with("gpt-transcribe") {
+                for name in &names {
+                    field("keywords[]", name);
+                }
+            }
             body.extend_from_slice(
                 format!(
                     "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"speech.wav\"\r\nContent-Type: audio/wav\r\n\r\n"
@@ -307,7 +437,7 @@ pub async fn transcribe(store: &Store, p: Provider, model: &str, audio: &str) ->
         }
         Provider::Gemini => {
             let body = json!({"contents": [{"parts": [
-                {"text": format!("Transcribe this audio exactly as spoken. {TRANSCRIBE_HINT} Reply with the transcript only; reply with nothing if there is no speech.")},
+                {"text": format!("Transcribe this audio exactly as spoken. {TRANSCRIBE_HINT} {} Reply with the transcript only; reply with nothing if there is no speech.", names_hint(&names))},
                 {"inlineData": {"mimeType": "audio/wav", "data": audio}},
             ]}]});
             let v = send(p, gemini_generate(&key, model).json(&body)).await?;
@@ -407,7 +537,7 @@ mod tests {
     fn ids(p: Provider, ids: &[&str]) -> (Vec<String>, Vec<String>, Vec<String>) {
         let models: Vec<Model> = ids
             .iter()
-            .map(|id| Model { id: (*id).to_owned(), live: id.contains("realtime"), generate: true })
+            .map(|id| Model { id: (*id).to_owned(), live: id.contains("realtime"), generate: true, created: None })
             .collect();
         classify(p, &models)
     }
@@ -432,6 +562,61 @@ mod tests {
         assert_eq!(realtime, ["gpt-realtime", "gpt-realtime-2.1"]);
         assert_eq!(transcribe, ["gpt-4o-transcribe", "whisper-1"]);
         assert_eq!(speech, ["gpt-4o-mini-tts"]);
+    }
+
+    fn dated(id: &str, created: i64) -> Model {
+        Model { id: id.to_owned(), live: id.contains("realtime"), generate: true, created: Some(created) }
+    }
+
+    #[test]
+    fn newest_openai_models_are_the_defaults() {
+        let day = 24 * 60 * 60;
+        let models = [
+            dated("gpt-realtime", 1_756_000_000),
+            dated("gpt-realtime-2", 1_778_000_000),
+            dated("gpt-realtime-2.1", 1_786_000_000),
+            dated("gpt-realtime-2.1-mini", 1_786_000_000 + 5 * day),
+            dated("gpt-realtime-mini-2025-12-15", 1_765_000_000),
+            dated("gpt-4o-transcribe", 1_742_000_000),
+            dated("gpt-4o-mini-transcribe", 1_742_000_000),
+            dated("gpt-transcribe", 1_785_000_000),
+            dated("whisper-1", 1_677_000_000),
+            dated("tts-1-hd", 1_699_000_000),
+            dated("gpt-4o-mini-tts", 1_742_000_000),
+            dated("gpt-4o-mini-tts-2025-12-15", 1_765_000_000),
+        ];
+        let (realtime, transcribe, speech) = classify(Provider::OpenAi, &models);
+        let pick = |ids: &[String]| newest(Provider::OpenAi, &models, ids);
+        assert_eq!(pick(&realtime).as_deref(), Some("gpt-realtime-2.1"));
+        assert_eq!(pick(&transcribe).as_deref(), Some("gpt-transcribe"));
+        assert_eq!(pick(&speech).as_deref(), Some("gpt-4o-mini-tts"));
+    }
+
+    #[test]
+    fn newest_gemini_models_are_the_defaults() {
+        let pick = |ids: &[&str]| {
+            let ids: Vec<String> = ids.iter().map(|s| (*s).to_owned()).collect();
+            newest(Provider::Gemini, &[], &ids)
+        };
+        assert_eq!(
+            pick(&[
+                "gemini-3.1-flash-live-preview",
+                "gemini-3.8-live",
+                "gemini-3.8-live-extended-thinking",
+                "gemini-2.5-flash-live"
+            ])
+            .as_deref(),
+            Some("gemini-3.8-live")
+        );
+        assert_eq!(
+            pick(&["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3.9-flash-preview", "gemini-flash-latest"])
+                .as_deref(),
+            Some("gemini-3.8-flash")
+        );
+        assert_eq!(
+            pick(&["gemini-3.8-flash-lite-tts", "gemini-3.8-flash-tts", "gemini-3.1-flash-tts-preview"]).as_deref(),
+            Some("gemini-3.8-flash-tts")
+        );
     }
 
     #[test]
