@@ -20,6 +20,7 @@ struct SettingsView: View {
     @State private var access: AccessTarget?
     @State private var confirmStartOver = false
     @State private var confirmRemoveCopy: CloudComputer?
+    @State private var voice: VoiceTarget?
 
     var body: some View {
         CardForm {
@@ -53,6 +54,20 @@ struct SettingsView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+            }
+
+            let online = accounts.computers.compactMap { accounts.store(for: $0.id) }.filter { $0.connection == .online }
+            if !online.isEmpty {
+                CardSection("Voice chat", footer: "Apple speech on this iPhone, or OpenAI and Gemini on your own API key, kept on the computer.") {
+                    ForEach(online, id: \.computer.id) { store in
+                        Button { voice = VoiceTarget(store: store) } label: {
+                            LinkRow {
+                                Label(online.count > 1 ? "Voice chat on \(store.hostName)" : "Voice and API keys", systemImage: "waveform")
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
 
             CardSection("Notifications", footer: "Get a result summary, a request for input, or a failure notice. Notification previews follow your iOS settings.") {
@@ -114,6 +129,7 @@ struct SettingsView: View {
         .codyncSheet(isPresented: $addingComputer) {
             PairingView(inModal: true)
         }
+        .codyncSheet(item: $voice) { target in VoiceChatSettingsView().environment(target.store) }
         .codyncSheet(item: $access) { target in
             AccessRequestView(computer: target.computer, pending: accounts.pendingAccess[target.id] != nil)
         }
@@ -141,6 +157,16 @@ struct SettingsView: View {
         }
     }
 
+
+    private struct VoiceTarget: Identifiable {
+        let store: BotStore
+        let id: String
+
+        @MainActor init(store: BotStore) {
+            self.store = store
+            id = store.computer.id
+        }
+    }
 
     private struct AccessTarget: Identifiable {
         let computer: CloudComputer
@@ -209,6 +235,7 @@ private struct ComputerRow: View {
     let remove: () -> Void
     @Environment(AccountStore.self) private var accounts
     @State private var coloring = false
+    @State private var voiceSettings = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -263,6 +290,7 @@ private struct ComputerRow: View {
             ]
             if store.connection == .online {
                 items.append(MenuItem("Marketplace", icon: "storefront", action: openMarketplace))
+                items.append(MenuItem("Voice chat", icon: "waveform") { voiceSettings = true })
             }
             if store.screen != nil, store.connection == .online {
                 items.append(MenuItem("Screen", icon: "display", action: openScreen))
@@ -273,6 +301,7 @@ private struct ComputerRow: View {
             items.append(MenuItem("Remove", icon: "trash", destructive: true, divider: revoke == nil, action: remove))
             return items
         }
+        .codyncSheet(isPresented: $voiceSettings) { VoiceChatSettingsView().environment(store) }
         .codyncOverlay(isPresented: $coloring) { close in
             ZStack {
                 Color.black.opacity(0.35).ignoresSafeArea().onTapGesture(perform: close)
