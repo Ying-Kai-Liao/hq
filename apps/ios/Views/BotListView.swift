@@ -9,11 +9,23 @@ struct BotListView: View {
     @State private var editing: EditTarget?
     @State private var editingGroup: GroupTarget?
     @State private var confirmDelete: RosterItem?
-    /// The computer section a dragged heading is over.
-    @State private var dropTarget: ComputerID?
+    /// The computer section being dragged by its long-pressed heading.
+    @State private var drag: SectionDrag?
+    /// Each computer section's height, to work out where a dragged one lands.
+    @State private var sectionHeights: [ComputerID: CGFloat] = [:]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Computers left out of the list on this device, comma-separated IDs.
     @AppStorage("hiddenComputers") private var hiddenComputers = ""
+    /// Computers whose bots are folded away on this device, comma-separated IDs.
+    @AppStorage("collapsedComputers") private var collapsedComputers = ""
+
+    private var collapsedIDs: Set<ComputerID> { Set(collapsedComputers.split(separator: ",").map(String.init)) }
+
+    private func toggleCollapsed(_ id: ComputerID) {
+        var ids = collapsedIDs
+        if ids.remove(id) == nil { ids.insert(id) }
+        withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { collapsedComputers = ids.sorted().joined(separator: ",") }
+    }
 
     private var shownIDs: Set<ComputerID> {
         Set(ComputerSelection(all: accounts.computers.map(\.id), hidden: hiddenComputers).shown)
@@ -46,12 +58,9 @@ struct BotListView: View {
         let roster = accounts.roster.filter { shownIDs.contains($0.ref.computerId) }
         ScrollView {
             LazyVStack(spacing: 0) {
-                // Newer releases (dismissible; everything still works): this app here, a computer's
-                // host under its heading, or here when there's no heading.
+                // A newer app release (dismissible; everything still works). Computers update
+                // themselves, so a newer host gets no reminder here.
                 AppUpdateReminder()
-                if !grouped {
-                    ForEach(shownStores, id: \.computer.id) { HostUpdateReminder(store: $0) }
-                }
                 if !grouped {
                     // One computer: its update notice leads the list.
                     ForEach(shownStores, id: \.computer.id) { updateCard($0) }
@@ -64,23 +73,32 @@ struct BotListView: View {
 
                 if grouped {
                     // A light heading per computer, in the order the user dragged them into.
+                    let ids = shownStores.map(\.computer.id)
+                    let landing = drag.map { landingIndex(ids, $0) }
                     ForEach(shownStores, id: \.computer.id) { store in
                         let id = store.computer.id
+                        let collapsed = collapsedIDs.contains(id)
+                        let lifted = drag?.id == id
                         VStack(spacing: 0) {
                             // Not synced while it needs an update: "No bots yet" wouldn't be true.
                             ComputerSection(store: store, empty: store.mismatch == nil && !roster.contains { $0.ref.computerId == id },
-                                            targeted: dropTarget == id, move: move)
+                                            collapsed: collapsed, toggle: { toggleCollapsed(id) }, move: move)
+                                .gesture(SectionLongPress { state, y in dragSection(id, state, y) })
                             updateCard(store)
-                            HostUpdateReminder(store: store)
-                            ForEach(roster.filter { $0.ref.computerId == id }) { row($0, store: store) }
+                            if !collapsed {
+                                ForEach(roster.filter { $0.ref.computerId == id }) { row($0, store: store) }
+                            }
                         }
-                        .dropDestination(for: String.self) { ids, _ in
-                            guard let dragged = ids.first else { return false }
-                            withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { accounts.move(dragged, to: id) }
-                            return true
-                        } isTargeted: { on in
-                            withAnimation(Motion.hover) { dropTarget = on ? id : (dropTarget == id ? nil : dropTarget) }
-                        }
+                        .background(lifted ? Palette.background : .clear, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .scaleEffect(lifted ? 0.94 : 1)
+                        .shadow(color: .black.opacity(lifted ? 0.18 : 0), radius: 16, y: 6)
+                        .animation(Motion.reduced(Motion.layout, reduceMotion), value: lifted)
+                        .offset(y: sectionOffset(id, ids: ids, landing: landing))
+                        .zIndex(lifted ? 1 : 0)
+                        // The lifted section follows the finger; the others slide out of its way.
+                        .transaction { if lifted { $0.animation = nil } }
+                        .animation(Motion.reduced(Motion.layout, reduceMotion), value: landing)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { sectionHeights[id] = $0 }
                     }
                 } else {
                     ForEach(roster) { item in
@@ -92,6 +110,9 @@ struct BotListView: View {
             }
             .padding(.horizontal, 16)
         }
+        .scrollDisabled(drag != nil)
+        .sensoryFeedback(.impact(weight: .medium), trigger: drag?.id) { _, new in new != nil }
+        .sensoryFeedback(.selection, trigger: drag.map { landingIndex(shownStores.map(\.computer.id), $0) })
         .background(Palette.background)
         .navigationTitle("Bots")
         .navigationBarTitleDisplayMode(.inline)
@@ -160,6 +181,42 @@ struct BotListView: View {
         }
     }
 
+    /// Where the dragged section would land: past a neighbour once it's dragged over half of it.
+    private func landingIndex(_ ids: [ComputerID], _ drag: SectionDrag) -> Int {
+        guard let from = ids.firstIndex(of: drag.id) else { return 0 }
+        var to = from, rest = drag.translation
+        while to + 1 < ids.count, let h = sectionHeights[ids[to + 1]], rest > h / 2 { rest -= h; to += 1 }
+        while to > 0, let h = sectionHeights[ids[to - 1]], rest < -h / 2 { rest += h; to -= 1 }
+        return to
+    }
+
+    private func sectionOffset(_ id: ComputerID, ids: [ComputerID], landing: Int?) -> CGFloat {
+        guard let drag, let landing, let from = ids.firstIndex(of: drag.id), let i = ids.firstIndex(of: id) else { return 0 }
+        if id == drag.id { return drag.translation }
+        let h = sectionHeights[drag.id] ?? 0
+        if from < i && i <= landing { return -h }
+        if landing <= i && i < from { return h }
+        return 0
+    }
+
+    private func dragSection(_ id: ComputerID, _ state: UIGestureRecognizer.State, _ y: CGFloat) {
+        switch state {
+        case .began:
+            drag = SectionDrag(id: id, startY: y, y: y)
+        case .changed:
+            drag?.y = y
+        default:
+            guard let drag else { return }
+            let ids = shownStores.map(\.computer.id)
+            let to = landingIndex(ids, drag)
+            // The order changes as the offsets drop, so everything settles where it's shown.
+            withAnimation(Motion.reduced(Motion.layout, reduceMotion)) {
+                if ids[to] != id { accounts.move(id, to: ids[to]) }
+                self.drag = nil
+            }
+        }
+    }
+
     @ViewBuilder private func updateCard(_ store: BotStore) -> some View {
         if let mismatch = store.mismatch {
             UpdateNeededCard(store: store, mismatch: mismatch)
@@ -207,55 +264,26 @@ struct BotListView: View {
     }
 }
 
-/// A computer's heading above its bots: badge, name and connection. Long-press and drag it onto
-/// another computer's section to reorder.
+/// A computer's heading above its bots: badge, name and connection. Tap folds its bots away;
+/// long-press lifts the whole section to drag it up or down.
 private struct ComputerSection: View {
     let store: BotStore
     let empty: Bool
-    let targeted: Bool
+    let collapsed: Bool
+    let toggle: () -> Void
     let move: (ComputerID, Int) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                ComputerBadge(store.computer, size: 18)
-                Text(store.hostName)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Palette.secondary)
-                    .lineLimit(1)
-                Text(store.statusText)
-                    .font(.footnote)
-                    .foregroundStyle(store.isOffline ? Palette.warning : Palette.tertiary)
-                    .lineLimit(1)
-                    .contentTransition(.opacity)
-                if store.connection == .online {
-                    RouteIcon(route: store.hostRoute).font(.caption2).foregroundStyle(Palette.tertiary)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: "line.3.horizontal")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Palette.tertiary)
-                    .accessibilityHidden(true)
-            }
-            .padding(.vertical, 6)
-            .padding(.horizontal, 8)
-            .background(targeted ? Palette.bubbleAgent : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .contentShape(Rectangle())
-            .draggable(store.computer.id) {
-                HStack(spacing: 6) {
-                    ComputerBadge(store.computer, size: 18)
-                    Text(store.hostName).font(.footnote.weight(.semibold)).foregroundStyle(Palette.text)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Palette.bubbleAgent, in: Capsule())
-            }
-            if empty {
+            Button(action: toggle) { heading }
+                .buttonStyle(.plain)
+            if empty && !collapsed {
                 Text("No bots yet")
                     .font(.footnote)
                     .foregroundStyle(Palette.tertiary)
                     .padding(.horizontal, 8)
                     .padding(.bottom, 4)
+                    .transition(.opacity)
             }
         }
         .padding(.top, 14)
@@ -263,11 +291,62 @@ private struct ComputerSection: View {
         .padding(.horizontal, -8)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
-        .accessibilityHint("Drag to reorder computers")
+        .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
+        .accessibilityAction(named: collapsed ? "Expand" : "Collapse", toggle)
         .accessibilityActions {
             Button("Move up") { move(store.computer.id, -1) }
             Button("Move down") { move(store.computer.id, 1) }
         }
+    }
+
+    private var heading: some View {
+        HStack(spacing: 6) {
+            ComputerBadge(store.computer, size: 18)
+            Text(store.hostName)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Palette.secondary)
+                .lineLimit(1)
+            Text(store.statusText)
+                .font(.footnote)
+                .foregroundStyle(store.isOffline ? Palette.warning : Palette.tertiary)
+                .lineLimit(1)
+                .contentTransition(.opacity)
+            if store.connection == .online {
+                RouteIcon(route: store.hostRoute).font(.caption2).foregroundStyle(Palette.tertiary)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.down")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Palette.tertiary)
+                .rotationEffect(.degrees(collapsed ? -90 : 0))
+                .accessibilityHidden(true)
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct SectionDrag {
+    let id: ComputerID
+    let startY: CGFloat
+    var y: CGFloat
+    var translation: CGFloat { y - startY }
+}
+
+/// UIKit's long press: it waits for the hold, then reports the finger, and leaves the scroll
+/// view alone until then (a SwiftUI long-press-then-drag steals the scroll).
+private struct SectionLongPress: UIGestureRecognizerRepresentable {
+    let update: (UIGestureRecognizer.State, CGFloat) -> Void
+
+    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
+        let recognizer = UILongPressGestureRecognizer()
+        recognizer.minimumPressDuration = 0.35
+        return recognizer
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UILongPressGestureRecognizer, context: Context) {
+        update(recognizer.state, recognizer.location(in: nil).y)
     }
 }
 
