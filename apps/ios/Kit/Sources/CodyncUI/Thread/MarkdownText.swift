@@ -44,7 +44,6 @@ public struct MarkdownText: View, Equatable {
 private struct MarkdownBlock: View, @MainActor Equatable {
     let block: MarkdownBlocks.Block
     let writing: Bool
-    @Environment(\.conversationTypography) private var typography
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     nonisolated static func == (a: Self, b: Self) -> Bool { a.block == b.block && a.writing == b.writing }
@@ -60,18 +59,18 @@ private struct MarkdownBlock: View, @MainActor Equatable {
         switch block {
         case let .paragraph(t):
             Text(MarkdownText.inline(t))
-                .font(typography.body)
+                .font(.body)
                 .foregroundStyle(Palette.text)
         case let .heading(t, level):
             Text(MarkdownText.inline(t))
-                .font(typography.heading(level: level))
+                .font(level == 1 ? .title3.bold() : level == 2 ? .headline : .subheadline.bold())
                 .foregroundStyle(Palette.text)
         case let .bullet(t, marker, depth):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(marker).foregroundStyle(Palette.secondary).monospacedDigit()
                 Text(MarkdownText.inline(t)).foregroundStyle(Palette.text)
             }
-            .font(typography.body)
+            .font(.body)
             .padding(.leading, CGFloat(depth) * 16)
         case .rule:
             Rectangle().fill(Palette.border).frame(height: 1).padding(.vertical, 4)
@@ -79,14 +78,14 @@ private struct MarkdownBlock: View, @MainActor Equatable {
             MarkdownTable(header: header, rows: rows)
         case let .quote(t):
             Text(MarkdownText.inline(t))
-                .font(typography.body)
+                .font(.body)
                 .foregroundStyle(Palette.secondary)
                 .padding(.leading, 10)
                 .overlay(alignment: .leading) { Rectangle().fill(Palette.border).frame(width: 3) }
         case let .code(t, _):
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(t)
-                    .font(typography.code)
+                    .font(.system(.footnote, design: .monospaced))
                     .foregroundStyle(Palette.text)
                     .padding(10)
             }
@@ -99,7 +98,6 @@ private struct MarkdownBlock: View, @MainActor Equatable {
 private struct MarkdownTable: View {
     let header: [String]
     let rows: [[String]]
-    @Environment(\.conversationTypography) private var typography
 
     var body: some View {
         let columns = max(header.count, rows.map(\.count).max() ?? 0)
@@ -119,7 +117,7 @@ private struct MarkdownTable: View {
                     }
                 }
             }
-            .font(typography.body)
+            .font(.body)
             .foregroundStyle(Palette.text)
             .fixedSize()
             .padding(.vertical, 2)

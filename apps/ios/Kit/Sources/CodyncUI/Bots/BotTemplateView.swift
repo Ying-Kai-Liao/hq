@@ -23,13 +23,13 @@ struct BotTemplateView: View {
         VStack(spacing: 0) {
         ModalHeader("Create template")
         VStack(alignment: .leading, spacing: 20) {
-            Text(template.name).appFont(.subheadline).foregroundStyle(Palette.secondary)
+            Text(template.name).font(.subheadline).foregroundStyle(Palette.secondary)
             Text("Copy this bot’s settings to reuse as a template. Conversation history and conversation ID are excluded.")
-                .appFont(.callout)
+                .font(.callout)
                 .foregroundStyle(Palette.secondary)
             ScrollView {
                 Text(encoded ?? "Unable to create this template.")
-                    .appFont(.system(size: 12, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
@@ -37,14 +37,14 @@ struct BotTemplateView: View {
             .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
             HStack {
                 Text("Includes workspace preferences and agent configuration.")
-                    .appFont(.caption).foregroundStyle(Palette.secondary)
+                    .font(.caption).foregroundStyle(Palette.secondary)
                 Spacer()
                 Button {
                     Pasteboard.copy(encoded)
                     withAnimation(Motion.reduced(Motion.morph, reduceMotion)) { copied = true }
                 } label: {
                     Label(copied ? "Copied" : "Copy template", systemImage: copied ? "checkmark" : "square.on.square")
-                        .appFont(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .padding(.horizontal, 14).padding(.vertical, 9)
                         .foregroundStyle(Palette.onAccent)
                         .background(Palette.accentFill, in: RoundedRectangle(cornerRadius: 9))

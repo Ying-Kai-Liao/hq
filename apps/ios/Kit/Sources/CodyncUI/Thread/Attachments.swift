@@ -47,7 +47,6 @@ struct PickedFile: Transferable {
     }
 }
 
-/// ImageIO works the same on iPhone and Mac.
 enum ImageData {
     static func isImage(_ data: Data) -> Bool {
         CGImageSourceCreateWithData(data as CFData, nil).map { CGImageSourceGetCount($0) > 0 } ?? false
@@ -126,16 +125,16 @@ struct AttachmentList: View {
     private func card(_ file: Attachment) -> some View {
         HStack(spacing: 8) {
             Image(systemName: AttachmentIcon.symbol(file.name))
-                .appFont(.system(size: 16))
+                .font(.system(size: 16))
                 .foregroundStyle(Palette.secondary)
             VStack(alignment: .leading, spacing: 1) {
                 Text(file.name)
-                    .appFont(.subheadline)
+                    .font(.subheadline)
                     .foregroundStyle(Palette.text)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
-                    .appFont(.caption2)
+                    .font(.caption2)
                     .foregroundStyle(Palette.tertiary)
             }
         }

@@ -193,7 +193,7 @@ public struct GroupAvatar: View {
             switch members.count {
             case 0:
                 Image(systemName: "person.2")
-                    .appFont(.system(size: size * 0.4))
+                    .font(.system(size: size * 0.4))
                     .foregroundStyle(.secondary)
             case 1:
                 CharacterAvatar(bot: members[0], size: size, animated: animated)
@@ -212,7 +212,7 @@ public struct GroupAvatar: View {
                     place(members[3], size * 0.5, .bottomTrailing)
                 } else {
                     Text("+\(members.count - 3)")
-                        .appFont(.system(size: size * 0.24, weight: .bold, design: .rounded))
+                        .font(.system(size: size * 0.24, weight: .bold, design: .rounded))
                         .foregroundStyle(.secondary)
                         .frame(width: size * 0.5, height: size * 0.5)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
@@ -249,7 +249,7 @@ public struct AvatarWithStatus: View {
             .overlay(alignment: .bottomTrailing) {
                 if bot.needsInput {
                     Image(systemName: "exclamationmark")
-                        .appFont(.system(size: size * 0.2, weight: .black))
+                        .font(.system(size: size * 0.2, weight: .black))
                         .foregroundStyle(.white)
                         .frame(width: size * 0.36, height: size * 0.36)
                         .background(Palette.warning, in: Circle())

@@ -65,13 +65,13 @@ struct ComposioSection: View {
                     .frame(maxWidth: .infinity)
                 }
                 if let error {
-                    Text(error).appFont(.footnote).foregroundStyle(Palette.danger)
+                    Text(error).font(.footnote).foregroundStyle(Palette.danger)
                 }
                 if status?.configured == true {
                     Button("Composio settings", systemImage: "key") { withAnimation(Motion.layout) { settingUp = true } }
                         .labelStyle(.titleAndIcon)
                         .buttonStyle(.plain)
-                        .appFont(.footnote)
+                        .font(.footnote)
                         .foregroundStyle(Palette.tertiary)
                 }
             }
@@ -121,7 +121,7 @@ struct AppLogo: View {
             image.resizable().scaledToFit().padding(size * 0.18)
         } placeholder: {
             Text(name.prefix(1).uppercased())
-                .appFont(.system(size: size * 0.4, weight: .semibold))
+                .font(.system(size: size * 0.4, weight: .semibold))
                 .foregroundStyle(Palette.secondary)
         }
         .frame(width: size, height: size)
@@ -163,7 +163,7 @@ struct ComposioKeySheet: View {
                 SecureField("API key", text: $key, prompt: Text(status?.configured == true ? "Saved (paste to replace)" : "ak_…"))
                     .plainTextInput()
                 if let url = URL(string: status?.keyUrl ?? "https://platform.composio.dev") {
-                    WebLink("Get a key from Composio", url: url).appFont(.footnote)
+                    WebLink("Get a key from Composio", url: url).font(.footnote)
                 }
             }
             if status?.configured == true {
@@ -236,9 +236,9 @@ struct ComposioConnectSheet: View {
                 HStack(spacing: 14) {
                     AppLogo(url: app.logo, name: app.name, size: 52)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(app.name).appFont(.title3.weight(.semibold))
+                        Text(app.name).font(.title3.weight(.semibold))
                         if let d = app.description {
-                            Text(d).appFont(.subheadline).foregroundStyle(Palette.secondary).lineLimit(3)
+                            Text(d).font(.subheadline).foregroundStyle(Palette.secondary).lineLimit(3)
                         }
                     }
                 }
@@ -261,7 +261,7 @@ struct ComposioConnectSheet: View {
                             }
                             .plainTextInput()
                             if let d = f.description {
-                                Text(d + (f.required ? "" : " (optional)")).appFont(.caption).foregroundStyle(Palette.secondary)
+                                Text(d + (f.required ? "" : " (optional)")).font(.caption).foregroundStyle(Palette.secondary)
                             }
                         }
                     }

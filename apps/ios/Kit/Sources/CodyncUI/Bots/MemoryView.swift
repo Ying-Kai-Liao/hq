@@ -52,7 +52,7 @@ struct MemoryCard: View {
             ForEach(facts) { fact in
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Image(systemName: fact.kind == "profile" ? "person" : "clock")
-                        .appFont(.caption)
+                        .font(.caption)
                         .foregroundStyle(Palette.tertiary)
                         .help(fact.kind == "profile" ? "About you" : "History")
                     Text(fact.content)
@@ -61,7 +61,7 @@ struct MemoryCard: View {
                     Button("Forget", systemImage: "xmark") { forget(fact) }
                         .labelStyle(.iconOnly)
                         .buttonStyle(.plain)
-                        .appFont(.caption)
+                        .font(.caption)
                         .foregroundStyle(Palette.tertiary)
                         .help("Forget")
                 }

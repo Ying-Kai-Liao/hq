@@ -56,7 +56,7 @@ struct AgentModelPicker: View {
                             .plainTextInput()
                             .multilineTextAlignment(.trailing)
                             .textFieldStyle(.plain)
-                            .frame(minWidth: 0, maxWidth: InterfaceMetrics.value(mac: 160, mobile: 180))
+                            .frame(minWidth: 0, maxWidth: 180)
                             .outlinedPill()
                     } else {
                         ChoicePicker(selection: value, options: options, fitsAvailableWidth: true)
@@ -66,16 +66,16 @@ struct AgentModelPicker: View {
             if backend != "custom", !loading {
                 if let failure {
                     Text(failure)
-                        .appFont(.caption)
+                        .font(.caption)
                         .foregroundStyle(Palette.warning)
                 } else if catalog?.models.isEmpty == true {
                     Text("This agent doesn't advertise a model list. Leave Default or enter a model ID.")
-                        .appFont(.caption)
+                        .font(.caption)
                         .foregroundStyle(Palette.secondary)
                 }
             }
             Text("Changing the model starts a new agent session. Chat history is kept.")
-                .appFont(.caption)
+                .font(.caption)
                 .foregroundStyle(Palette.secondary)
         }
         .onChange(of: backend) { _, _ in selection = nil }
@@ -97,7 +97,7 @@ struct AgentModelPicker: View {
                     .transition(.opacity)
             }
         }
-        .frame(width: InterfaceMetrics.value(mac: 28, mobile: 36), height: InterfaceMetrics.value(mac: 28, mobile: 36))
+        .frame(width: 36, height: 36)
         .animation(Motion.reduced(Motion.fade, reduceMotion), value: loading)
     }
 

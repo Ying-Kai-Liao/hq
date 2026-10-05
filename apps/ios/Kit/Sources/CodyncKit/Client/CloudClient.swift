@@ -77,10 +77,6 @@ public struct CloudClient: Sendable {
         return res.computers
     }
 
-    public func renameComputer(_ id: ComputerID, name: String) async throws {
-        try await send("PATCH", "v1/computers/\(id)", body: ["name": name])
-    }
-
     /// Removes the computer from the account; every device's access to it through the account ends.
     public func removeComputer(_ id: ComputerID) async throws {
         try await send("DELETE", "v1/computers/\(id)")
@@ -140,14 +136,6 @@ public struct CloudClient: Sendable {
     }
 
     // MARK: claims (§4.2 A)
-
-    public func createClaim() async throws -> ClaimChallenge { try await request("POST", "v1/claims", body: [String: String]()) }
-
-    public func completeClaim(_ claimId: String, signed: ClaimSignature) async throws -> CloudComputer {
-        struct Res: Decodable { var computer: CloudComputer }
-        let res: Res = try await request("POST", "v1/claims/\(claimId)/complete", body: signed)
-        return res.computer
-    }
 
     // MARK: plumbing
 

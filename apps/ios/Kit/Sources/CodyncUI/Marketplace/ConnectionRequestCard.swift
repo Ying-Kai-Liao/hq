@@ -18,7 +18,7 @@ struct ConnectionRequestCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(request.title, systemImage: "lock.shield")
-                .appFont(.headline)
+                .font(.headline)
             if let text = entry.data.text { Text(text).foregroundStyle(Palette.secondary) }
             if request.status == "pending" {
                 if request.kind == "login" {
@@ -27,14 +27,14 @@ struct ConnectionRequestCard: View {
                     SecureField("Password or op:// reference", text: $value)
                         .plainTextInput()
                     Text("Saved securely on this computer. The bot types it into the sign-in page but never sees it.")
-                        .appFont(.caption).foregroundStyle(Palette.secondary)
+                        .font(.caption).foregroundStyle(Palette.secondary)
                 } else if request.kind == "secret" {
                     Text("\(request.field ?? "Credential") · \(request.location ?? "")")
-                        .appFont(.caption).foregroundStyle(Palette.secondary)
+                        .font(.caption).foregroundStyle(Palette.secondary)
                     SecureField("Credential or op:// reference", text: $value)
                         .plainTextInput()
                     Text("Saved securely on this computer. Never added to the conversation.")
-                        .appFont(.caption).foregroundStyle(Palette.secondary)
+                        .font(.caption).foregroundStyle(Palette.secondary)
                 }
                 HStack {
                     Button(request.kind == "login" ? "Save login" : request.kind == "secret" ? "Save and connect" : "Connect") { connect() }
@@ -46,7 +46,7 @@ struct ConnectionRequestCard: View {
             } else {
                 Text(request.status == "ready" ? (request.kind == "login" ? "Saved" : "Connected") : "Cancelled").foregroundStyle(Palette.secondary)
             }
-            if let error { Text(error).appFont(.footnote).foregroundStyle(Palette.danger) }
+            if let error { Text(error).font(.footnote).foregroundStyle(Palette.danger) }
         }
         .padding(16)
         .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18))
@@ -125,7 +125,7 @@ struct CredentialsView: View {
                         .buttonStyle(.plain)
                     }
                     Text("Values stay hidden. Select a connection to replace its credentials.")
-                        .appFont(.caption).foregroundStyle(Palette.secondary)
+                        .font(.caption).foregroundStyle(Palette.secondary)
                 }
                 LoginsSection()
                 CardSection("1Password", footer: "Use a service account with read access only to a dedicated shared vault. The 1Password CLI must be installed on the computer.") {
@@ -136,7 +136,7 @@ struct CredentialsView: View {
                         Button("Disconnect") { save("") }.buttonStyle(SecondaryButtonStyle()).disabled(busy)
                     }
                     Text("Use op://vault/item/field in a connector's credential field. Codync retrieves the value when the connector runs.")
-                        .appFont(.footnote).foregroundStyle(Palette.secondary)
+                        .font(.footnote).foregroundStyle(Palette.secondary)
                 }
                 if busy { Spinner() }
                 if let error { Text(error).foregroundStyle(Palette.danger) }
@@ -181,7 +181,7 @@ private struct LoginsSection: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(login.site)
-                        if !login.username.isEmpty { Text(login.username).appFont(.caption).foregroundStyle(Palette.secondary) }
+                        if !login.username.isEmpty { Text(login.username).font(.caption).foregroundStyle(Palette.secondary) }
                     }
                     Spacer()
                     IconButton("Remove", systemImage: "trash") { remove(login) }
@@ -193,7 +193,7 @@ private struct LoginsSection: View {
             Button("Save sign-in") { save() }
                 .buttonStyle(PrimaryButtonStyle())
                 .disabled(busy || site.isEmpty || password.isEmpty)
-            if let error { Text(error).appFont(.footnote).foregroundStyle(Palette.danger) }
+            if let error { Text(error).font(.footnote).foregroundStyle(Palette.danger) }
         }
         .task { await load() }
         .onDisappear { password = "" }

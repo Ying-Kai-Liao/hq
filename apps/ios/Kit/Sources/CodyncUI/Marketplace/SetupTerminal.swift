@@ -22,7 +22,7 @@ struct SetupTerminalView: View {
                 BackButton(action: back).keyboardShortcut(.cancelAction)
             } title: {
                 Text(step == .install ? "Install \(backend.name)" : method?.name ?? "Sign in to \(backend.name)")
-                    .appFont(AppFont.compactBody.weight(.semibold))
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(Palette.text)
                     .lineLimit(1)
             } trailing: {
@@ -61,7 +61,7 @@ struct SetupTerminalView: View {
                 Button("Done", action: back).buttonStyle(.primary)
             }
         }
-        .appFont(.footnote)
+        .font(.footnote)
         .lineLimit(2)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

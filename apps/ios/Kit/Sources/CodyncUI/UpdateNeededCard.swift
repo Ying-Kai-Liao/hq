@@ -1,7 +1,7 @@
 import CodyncKit
 import SwiftUI
 
-/// Updates this app: the App Store on iPhone, Sparkle on the Mac.
+/// Updates this app (opens its App Store page).
 public struct AppUpdateAction: Sendable {
     let action: @MainActor @Sendable () -> Void
 
@@ -10,21 +10,8 @@ public struct AppUpdateAction: Sendable {
     @MainActor public func callAsFunction() { action() }
 }
 
-/// Updates a computer's host from this app, for the computers it can (the Mac's own host).
-public struct HostUpdateAction: Sendable {
-    let available: @MainActor @Sendable (BotStore) -> Bool
-    let action: @MainActor @Sendable (BotStore) -> Void
-
-    public init(available: @escaping @MainActor @Sendable (BotStore) -> Bool,
-                _ action: @escaping @MainActor @Sendable (BotStore) -> Void) {
-        self.available = available
-        self.action = action
-    }
-}
-
 public extension EnvironmentValues {
     @Entry var appUpdate: AppUpdateAction?
-    @Entry var hostUpdate: HostUpdateAction?
 }
 
 /// Says which side has to update before this app and a computer can work together, and offers
@@ -34,7 +21,6 @@ public struct UpdateNeededCard: View {
     let store: BotStore
     let mismatch: VersionMismatch
     @Environment(\.appUpdate) private var appUpdate
-    @Environment(\.hostUpdate) private var hostUpdate
     @Environment(AppUpdates.self) private var appUpdates: AppUpdates?
 
     public init(store: BotStore, mismatch: VersionMismatch) {
@@ -45,13 +31,13 @@ public struct UpdateNeededCard: View {
     public var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "arrow.down.circle")
-                .appFont(.title3)
+                .font(.title3)
                 .foregroundStyle(Palette.warning)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 6) {
-                Text(title).appFont(.subheadline.weight(.semibold)).foregroundStyle(Palette.text)
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.text)
                 Text(detail)
-                    .appFont(.footnote)
+                    .font(.footnote)
                     .foregroundStyle(Palette.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if let action {
@@ -89,13 +75,13 @@ public struct UpdateNeededCard: View {
             guard let appUpdate else { return nil }
             return ("Update Codync", { appUpdate() })
         case .updateHost:
-            guard let hostUpdate, hostUpdate.available(store) else { return nil }
-            return ("Update \(store.hostName)", { hostUpdate.action(store) })
+            // The computer updates itself; the card says how.
+            return nil
         }
     }
 }
 
-/// The words every client uses for a version mismatch (the Linux app and the terminal client
+/// The words every client uses for a version mismatch (the desktop app and the terminal client
 /// mirror them).
 public enum UpdateNeededText {
     public static func title(_ mismatch: VersionMismatch, host: String) -> String {
@@ -174,13 +160,13 @@ public struct UpdateReminderCard: View {
     public var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "sparkles")
-                .appFont(.title3)
+                .font(.title3)
                 .foregroundStyle(Palette.secondary)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 6) {
-                Text(title).appFont(.subheadline.weight(.semibold)).foregroundStyle(Palette.text)
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.text)
                 Text(detail)
-                    .appFont(.footnote)
+                    .font(.footnote)
                     .foregroundStyle(Palette.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if let actionTitle {

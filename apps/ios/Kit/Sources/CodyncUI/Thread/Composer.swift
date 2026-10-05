@@ -15,7 +15,6 @@ struct Composer: View {
     var onInterrupt: (() -> Void)?
     @Environment(BotStore.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.conversationTypography) private var typography
     @State private var draft = ""
     /// Files going out with the next message.
     @State private var files: [OutgoingFile] = []
@@ -27,7 +26,7 @@ struct Composer: View {
         @State private var clipboardTick = 0
     @FocusState private var focused: Bool
     /// One line of the field's text, following Dynamic Type: the send button centers on the last line.
-    @ScaledMetric(relativeTo: .body) private var lineHeight = InterfaceMetrics.value(mac: 15, mobile: 22)
+    @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
 
     private var bot: Bot? { model.bots[botId] }
     private var working: Bool { bot?.isWorking(in: botId, thread: thread) == true }
@@ -73,7 +72,7 @@ struct Composer: View {
                             Button { mention(member) } label: {
                                 HStack(spacing: 6) {
                                     CharacterAvatar(bot: member, size: 18, animated: false)
-                                    Text(member.name).appFont(.subheadline).foregroundStyle(Palette.text)
+                                    Text(member.name).font(.subheadline).foregroundStyle(Palette.text)
                                 }
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
@@ -91,9 +90,9 @@ struct Composer: View {
         .animation(Motion.layout, value: suggestions.map(\.id))
     }
 
-    private var fieldPadding: CGFloat { InterfaceMetrics.value(mac: 7, mobile: 10) }
-    private var buttonSize: CGFloat { InterfaceMetrics.value(mac: 28, mobile: 34) }
-    private var boxPadding: CGFloat { InterfaceMetrics.value(mac: 4, mobile: 6) }
+    private var fieldPadding: CGFloat { 10 }
+    private var buttonSize: CGFloat { 34 }
+    private var boxPadding: CGFloat { 6 }
     /// The one-line field's height; the + circle matches it.
     private var fieldHeight: CGFloat { max(textLineHeight + 2 * fieldPadding, buttonSize) + 2 * boxPadding }
     private var textLineHeight: CGFloat {
@@ -111,7 +110,7 @@ struct Composer: View {
                 }
                 box
             }
-            .composerSurface(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .glass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             .animation(Motion.layout, value: draft)
         }
         .animation(Motion.layout, value: files.map(\.id))
@@ -179,7 +178,7 @@ struct Composer: View {
             }
         } label: {
             Image(systemName: symbol)
-                .appFont(.system(size: size, weight: .bold))
+                .font(.system(size: size, weight: .bold))
                 .contentTransition(.symbolEffect(.replace))
                 .foregroundStyle(ink)
                 .frame(width: state == .call ? buttonSize * 1.35 : buttonSize, height: buttonSize)
@@ -198,16 +197,15 @@ struct Composer: View {
         HStack(alignment: .bottom, spacing: 8) {
             TextField(placeholder, text: $draft, axis: .vertical)
                 .lineLimit(1...8)
-                .font(typography.body)
+                .font(.body)
                 .textFieldStyle(.plain)
                 .focused($focused)
                 .padding(.vertical, fieldPadding)
-                .sendOnReturn(submit)
             trailingButton
                 .padding(.bottom, max(0, (textLineHeight + 2 * fieldPadding - buttonSize) / 2))
                 .animation(Motion.layout, value: isEmpty)
         }
-        .padding(.leading, InterfaceMetrics.value(mac: 14, mobile: 18))
+        .padding(.leading, 18)
         .padding(.trailing, 6)
         .padding(.vertical, boxPadding)
         .onChange(of: model.routineDrafts[botId]) { _, value in
@@ -218,7 +216,7 @@ struct Composer: View {
         }
     }
 
-    /// Photos or files (iPhone, a system menu), files (Mac); dropping files on the box works too.
+    /// Photos, files or the clipboard, from a system menu; dropping files on the box works too.
     @ViewBuilder private var addButton: some View {
             DropdownMenu {
                 var items = [MenuItem("Photos", icon: "photo.on.rectangle") { pickingPhotos = true },
@@ -233,10 +231,10 @@ struct Composer: View {
 
     private var addLabel: some View {
         Image(systemName: "plus")
-            .appFont(.system(size: InterfaceMetrics.value(mac: 13, mobile: 18), weight: .medium))
+            .font(.system(size: 18, weight: .medium))
             .foregroundStyle(Palette.text)
             .frame(width: fieldHeight, height: fieldHeight)
-            .composerSurface(in: Circle())
+            .glass(in: Circle())
             .contentShape(Circle())
     }
 
@@ -244,7 +242,7 @@ struct Composer: View {
             HStack(spacing: 6) {
                 Button(action: pasteFiles) {
                     Label("Paste image", systemImage: "doc.on.clipboard")
-                        .appFont(.footnote.weight(.medium))
+                        .font(.footnote.weight(.medium))
                         .foregroundStyle(Palette.text)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
@@ -252,7 +250,7 @@ struct Composer: View {
                 }
                 .buttonStyle(PressScale())
                 Button { pasteCount = UIPasteboard.general.changeCount } label: {
-                    Image(systemName: "xmark").appFont(.system(size: 10, weight: .bold)).foregroundStyle(Palette.secondary)
+                    Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(Palette.secondary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Don't paste")
@@ -269,7 +267,7 @@ struct Composer: View {
                         Image(systemName: AttachmentIcon.symbol(file.name))
                             .foregroundStyle(Palette.secondary)
                         Text(file.name)
-                            .appFont(.footnote)
+                            .font(.footnote)
                             .foregroundStyle(Palette.text)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -277,7 +275,7 @@ struct Composer: View {
                         Button {
                             files.removeAll { $0.id == file.id }
                         } label: {
-                            Image(systemName: "xmark").appFont(.system(size: 10, weight: .bold)).foregroundStyle(Palette.secondary)
+                            Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(Palette.secondary)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Remove \(file.name)")

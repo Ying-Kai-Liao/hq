@@ -6,17 +6,15 @@ import SwiftUI
 /// user's own key kept by the computer), the mode, models and voice. Opened from a call's gear and
 /// from the computer's row in settings; the computer is the `BotStore` in the environment.
 public struct VoiceChatSettingsView: View {
-    /// False inside the Mac's Settings window, which titles the page itself.
-    var showsHeader: Bool
     @AppStorage(VoiceSettings.engineKey) private var engine = "device"
     @AppStorage(OnDeviceEngine.rateKey) private var rate = Double(AVSpeechUtteranceDefaultSpeechRate)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    public init(showsHeader: Bool = true) { self.showsHeader = showsHeader }
+    public init() {}
 
     public var body: some View {
         VStack(spacing: 0) {
-            if showsHeader { ModalHeader("Voice chat") }
+            ModalHeader("Voice chat")
             CardForm {
                 CardSection("Voice", footer: engineFooter) {
                     ValueRow("Engine") {
@@ -117,7 +115,7 @@ private struct ProviderVoiceSettings: View {
                 }
                 if let result {
                     Label(result.text, systemImage: result.ok ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                        .appFont(.footnote)
+                        .font(.footnote)
                         .foregroundStyle(result.ok ? Palette.secondary : Palette.danger)
                         .transition(.opacity)
                 }
@@ -158,7 +156,7 @@ private struct ProviderVoiceSettings: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Key saved").foregroundStyle(Palette.text).lineLimit(1)
-                Text("Stays on \(store.hostName)").appFont(.caption).foregroundStyle(Palette.tertiary).lineLimit(1)
+                Text("Stays on \(store.hostName)").font(.caption).foregroundStyle(Palette.tertiary).lineLimit(1)
             }
             Spacer(minLength: 8)
             if busy {
@@ -185,7 +183,7 @@ private struct ProviderVoiceSettings: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("No \(provider.name) key on \(store.hostName)").foregroundStyle(Palette.text)
                 Text("Add it in Codync on that computer: Computers & devices, then Voice chat.")
-                    .appFont(.caption)
+                    .font(.caption)
                     .foregroundStyle(Palette.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -194,7 +192,7 @@ private struct ProviderVoiceSettings: View {
 
     /// Paste a key; the computer checks it with the provider before keeping it.
     private var keyEntry: some View {
-        VStack(alignment: .leading, spacing: InterfaceMetrics.value(mac: 10, mobile: 12)) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 SecureField("API key", text: $key, prompt: Text(provider.keyPrompt))
                     .plainTextInput()
@@ -209,12 +207,12 @@ private struct ProviderVoiceSettings: View {
                 }
             }
             HStack {
-                WebLink("Get a key from \(provider.name)", url: provider.keyPage).appFont(.footnote)
+                WebLink("Get a key from \(provider.name)", url: provider.keyPage).font(.footnote)
                 Spacer()
                 if replacing {
                     Button("Cancel") { replacing = false; key = ""; result = nil }
                         .buttonStyle(.plain)
-                        .appFont(.footnote)
+                        .font(.footnote)
                         .foregroundStyle(Palette.secondary)
                 }
             }

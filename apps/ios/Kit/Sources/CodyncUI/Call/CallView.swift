@@ -125,7 +125,7 @@ struct CallView: View {
             .multilineTextAlignment(.center)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .composerSurface(in: Capsule())
+            .glass(in: Capsule())
             .transition(.opacity)
     }
 
@@ -139,7 +139,7 @@ struct CallView: View {
             // Audio leaves the phone: say where.
             if let provider = session?.provider {
                 Text(provider.name)
-                    .appFont(.caption2.weight(.semibold))
+                    .font(.caption2.weight(.semibold))
                     .foregroundStyle(Palette.secondary)
                     .accessibilityLabel("Voice by \(provider.name)")
             }
@@ -157,9 +157,9 @@ struct CallView: View {
             .accessibilityLabel("End call")
             .help("End call")
         }
-        .padding(.leading, InterfaceMetrics.value(mac: 18, mobile: 14))
-        .padding(.trailing, InterfaceMetrics.value(mac: 10, mobile: 7))
-        .padding(.vertical, InterfaceMetrics.value(mac: 10, mobile: 7))
+        .padding(.leading, 14)
+        .padding(.trailing, 7)
+        .padding(.vertical, 7)
             .glass(in: Capsule())
             .shadow(color: .black.opacity(0.08), radius: 16, y: 6)
     }
@@ -192,12 +192,12 @@ struct CallView: View {
         .help(label)
     }
 
-    // The phone's bar spans the screen; the Mac's is a compact panel (Grok's desktop call bar).
-    private static let buttonSize = InterfaceMetrics.value(mac: 40, mobile: 46)
-    private static let iconSize = InterfaceMetrics.value(mac: 16, mobile: 17)
-    private static let dotsHeight = InterfaceMetrics.value(mac: 16, mobile: 20)
-    private static let dotsWidth = InterfaceMetrics.value(mac: 120, mobile: 0)
-    private static let dotsMaxWidth: CGFloat = InterfaceMetrics.value(mac: 120, mobile: .infinity)
+    // The bar spans the screen.
+    private static let buttonSize: CGFloat = 46
+    private static let iconSize: CGFloat = 17
+    private static let dotsHeight: CGFloat = 20
+    private static let dotsWidth: CGFloat = 0
+    private static let dotsMaxWidth: CGFloat = .infinity
         private static let buttonFill = Palette.background
         private static let buttonInk = Palette.text
 

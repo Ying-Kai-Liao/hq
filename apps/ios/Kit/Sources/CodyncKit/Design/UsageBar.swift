@@ -15,41 +15,11 @@ public extension SharedStore {
     }
 }
 
-/// One place for "how full is this limit" colors, shared by the apps, the menu bar and widgets.
+/// "How full is this limit" colors, shared by the app and its widgets.
 public extension Palette {
-    /// Fill for bars: ink, amber from 70%, red from 90%.
-    static func usageFill(_ percent: Double) -> Color {
-        percent >= 90 ? danger : percent >= 70 ? warning : accentFill
-    }
-
-    /// Tint for gauges and progress views .
+    /// Tint for gauges and progress views.
     static func usageTint(_ percent: Double) -> Color {
         percent >= 90 ? danger : percent >= 70 ? warning : accent
-    }
-}
-
-public struct UsageBar: View {
-    let percent: Double
-    let height: CGFloat
-    let tint: Color?
-
-    /// `tint` is the provider's color below 70%; amber and red still take over above.
-    public init(percent: Double, height: CGFloat = 6, tint: Color? = nil) {
-        self.percent = percent
-        self.height = height
-        self.tint = tint
-    }
-
-    public var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Palette.bubbleAgent)
-                Capsule()
-                    .fill(percent < 70 ? tint ?? Palette.usageFill(percent) : Palette.usageFill(percent))
-                    .frame(width: geo.size.width * min(1, max(0.02, percent / 100)))
-            }
-        }
-        .frame(height: height)
     }
 }
 
@@ -73,11 +43,6 @@ public extension UsageWindow {
         if label == "5-hour" { return "Session" }
         if let model = label.split(separator: " · ").dropFirst().first { return String(model) }
         return label
-    }
-
-    /// Window length, when the label says it: "5h", "7d".
-    var span: String? {
-        label == "5-hour" ? "5h" : label.hasPrefix("Weekly") ? "7d" : nil
     }
 
     /// "resets 3h 20m" / "resets Sep 26 at 12pm", compact for widgets and cards.
@@ -111,7 +76,7 @@ public struct ProviderMascot: View {
                     .overlay(alignment: .topTrailing) {
                         if full {
                             Image(systemName: "exclamationmark.circle.fill")
-                                .appFont(.system(size: size * 0.34, weight: .bold))
+                                .font(.system(size: size * 0.34, weight: .bold))
                                 .symbolRenderingMode(.palette)
                                 .foregroundStyle(.white, Palette.danger)
                                 .offset(x: size * 0.12, y: -size * 0.12)

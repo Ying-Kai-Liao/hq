@@ -37,7 +37,7 @@ public struct IconButtonStyle: ButtonStyle {
 
     public init(selected: Bool = false, size: CGFloat? = nil) {
         self.selected = selected
-        self.size = size ?? InterfaceMetrics.value(mac: 28, mobile: 36)
+        self.size = size ?? 36
     }
 
     public func makeBody(configuration: Configuration) -> some View {
@@ -53,7 +53,7 @@ public struct IconButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .appFont(.system(size: size / 2, weight: .medium))
+                .font(.system(size: size / 2, weight: .medium))
                 .foregroundStyle(selected ? Palette.onAccent : hovering ? Palette.text : Palette.secondary)
                 .frame(width: size, height: size)
                 .background(
@@ -87,7 +87,7 @@ public struct ModalHeader<Trailing: View>: View {
     public var body: some View {
         HStack(spacing: 8) {
             Text(title)
-                .appFont(AppFont.compactBody.weight(.semibold))
+                .font(.body.weight(.semibold))
                 .foregroundStyle(Palette.text)
                 .lineLimit(1)
             Spacer(minLength: 8)
@@ -95,9 +95,9 @@ public struct ModalHeader<Trailing: View>: View {
             IconButton("Close", systemImage: "xmark") { dismiss() }
                 .keyboardShortcut(.cancelAction)
         }
-        .padding(.leading, InterfaceMetrics.value(mac: 16, mobile: 20))
-        .padding(.trailing, InterfaceMetrics.value(mac: 10, mobile: 12))
-        .frame(height: InterfaceMetrics.value(mac: 48, mobile: 56))
+        .padding(.leading, 20)
+        .padding(.trailing, 12)
+        .frame(height: 56)
     }
 }
 
@@ -126,8 +126,8 @@ public struct ScreenHeader<Leading: View, Title: View, Trailing: View>: View {
                 trailing
             }
         }
-        .padding(.horizontal, InterfaceMetrics.value(mac: 12, mobile: 12))
-        .frame(height: InterfaceMetrics.value(mac: 44, mobile: 52))
+        .padding(.horizontal, 12)
+        .frame(height: 52)
         .background(Palette.background)
     }
 }
@@ -159,7 +159,7 @@ public extension EnvironmentValues {
 }
 
 public extension View {
-    /// Presents a Codync modal: a centered card on the Mac, a bottom sheet on iPhone.
+    /// Presents a Codync modal as the system bottom sheet.
     /// Content titles itself with `ModalHeader` and closes with `\.dismissModal`.
     func codyncSheet<Sheet: View>(isPresented: Binding<Bool>, @ViewBuilder content: @escaping () -> Sheet) -> some View {
         modifier(CodyncSheet(isPresented: isPresented, sheet: content))
@@ -175,11 +175,6 @@ public extension View {
         modifier(CodyncOverlay(isPresented: isPresented, layer: content))
     }
 
-    /// Mac: the window root that hosts every `.codyncSheet` below it, so modals cover the
-    /// whole window rather than the column that opened them.
-    @ViewBuilder func modalHost() -> some View {
-        self
-    }
 }
 
 /// Keeps the last item on screen while the sheet slides away after the item is cleared.
@@ -298,8 +293,8 @@ public struct TabBar<ID: Hashable>: View {
                     withAnimation(Motion.reduced(Motion.morph, reduceMotion)) { selection = tab.id }
                 } label: {
                     VStack(spacing: 3) {
-                        Image(systemName: tab.icon).appFont(.system(size: 18, weight: .medium))
-                        Text(tab.title).appFont(.caption2.weight(.medium))
+                        Image(systemName: tab.icon).font(.system(size: 18, weight: .medium))
+                        Text(tab.title).font(.caption2.weight(.medium))
                     }
                     .foregroundStyle(on ? Palette.text : Palette.secondary)
                     .frame(width: 76, height: 50)

@@ -72,7 +72,7 @@ struct AuthorLabel: View {
         HStack(spacing: 8) {
             if let bot { CharacterAvatar(bot: bot, size: 26, animated: false) }
             Text(model.authorName(botId))
-                .appFont(.subheadline.weight(.medium))
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(bot.map { AvatarPalette.color($0.avatarColor) } ?? Palette.secondary)
         }
     }
@@ -94,19 +94,19 @@ struct ThreadChip: View {
                     }
                 }
                 Text(summary.count == 1 ? "1 reply" : "\(summary.count) replies")
-                    .appFont(.footnote.weight(.semibold))
+                    .font(.footnote.weight(.semibold))
                     .foregroundStyle(Palette.accent)
                 if let unread = summary.unread, unread > 0 {
                     Text("\(unread) new")
-                        .appFont(.footnote.weight(.semibold))
+                        .font(.footnote.weight(.semibold))
                         .foregroundStyle(Palette.text)
                         .transition(.opacity)
                 } else {
                     Text(RelativeTime.day(Date(milliseconds: summary.lastAt)))
-                        .appFont(.footnote)
+                        .font(.footnote)
                         .foregroundStyle(Palette.tertiary)
                 }
-                Image(systemName: "chevron.right").appFont(.caption2).foregroundStyle(Palette.tertiary)
+                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Palette.tertiary)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
@@ -128,8 +128,6 @@ struct UserBubble: View {
     let botWorking: Bool
     var reply: (() -> Void)?
     @Environment(BotStore.self) private var model
-    @Environment(\.conversationTypography) private var typography
-    @State private var hovering = false
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
@@ -139,18 +137,17 @@ struct UserBubble: View {
             if !(entry.data.text ?? "").isEmpty { text }
                 status
         }
-        .hoverTracking($hovering)
         .frame(maxWidth: .infinity, alignment: .trailing)
         .padding(.leading, 56)
     }
 
     private var text: some View {
             Text(entry.data.text ?? "")
-                .font(typography.body)
+                .font(.body)
                 .foregroundStyle(Palette.text)
                 .textSelection(.enabled)
-                .padding(.horizontal, InterfaceMetrics.value(mac: 12, mobile: 16))
-                .padding(.vertical, InterfaceMetrics.value(mac: 8, mobile: 10))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
                 .background(Palette.bubbleUser, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 .contextActions(reactions: model.reactionPick(entry)) {
                     var items = [MenuItem("Copy", icon: "square.on.square") { Pasteboard.copy(entry.data.text) }]
@@ -162,10 +159,10 @@ struct UserBubble: View {
     @ViewBuilder private var status: some View {
         switch entry.data.status {
         case "sending":
-            Text("Sending…").appFont(.caption2).foregroundStyle(Palette.tertiary)
+            Text("Sending…").font(.caption2).foregroundStyle(Palette.tertiary)
         case "queued":
             Text(botWorking ? "Queued until this response finishes" : "Queued")
-                .appFont(.caption2)
+                .font(.caption2)
                 .foregroundStyle(Palette.tertiary)
         case "failed":
             HStack(spacing: 10) {
@@ -174,9 +171,9 @@ struct UserBubble: View {
                 Button("Delete", systemImage: "trash") { model.discard(entry) }.labelStyle(.iconOnly).help("Delete")
             }
             .buttonStyle(.plain)
-            .appFont(.caption2.bold())
+            .font(.caption2.bold())
         case "cancelled":
-            Text("Not sent — stopped").appFont(.caption2).foregroundStyle(Palette.tertiary)
+            Text("Not sent — stopped").font(.caption2).foregroundStyle(Palette.tertiary)
         case "waiting":
             HStack(spacing: 10) {
                 Text("Waiting for the computer to come online").foregroundStyle(Palette.tertiary)
@@ -186,9 +183,9 @@ struct UserBubble: View {
                     .accessibilityLabel("Don't send")
             }
             .buttonStyle(.plain)
-            .appFont(.caption2)
+            .font(.caption2)
         case "delivering":
-            Text("Delivered to the computer").appFont(.caption2).foregroundStyle(Palette.tertiary)
+            Text("Delivered to the computer").font(.caption2).foregroundStyle(Palette.tertiary)
         default:
                 EmptyView()
         }
@@ -200,7 +197,6 @@ struct AgentBubble: View {
     let openTrace: () -> Void
     var reply: (() -> Void)?
     @Environment(BotStore.self) private var model
-    @State private var hovering = false
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The reply's text. iPhone: revealed steadily as it's written; the turn's next text
@@ -214,8 +210,8 @@ struct AgentBubble: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             text
-                .padding(.horizontal, InterfaceMetrics.value(mac: 12, mobile: 16))
-                .padding(.vertical, InterfaceMetrics.value(mac: 8, mobile: 10))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
                 .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 .contextActions(reactions: model.reactionPick(entry)) {
                     var items = [
@@ -239,7 +235,7 @@ struct NoticeRow: View {
         let text = entry.data.text ?? ""
         if let seconds = entry.data.callSeconds {
             Label("\(text) · \(String(format: "%02d:%02d", seconds / 60, seconds % 60))", systemImage: "waveform")
-                .appFont(.footnote.monospacedDigit())
+                .font(.footnote.monospacedDigit())
                 .foregroundStyle(Palette.secondary)
                 .frame(maxWidth: .infinity)
         } else {
@@ -253,7 +249,7 @@ struct NoticeRow: View {
             HStack(spacing: 10) {
                 Rectangle().fill(Palette.border).frame(height: 1)
                 Text(text)
-                    .appFont(.caption2)
+                    .font(.caption2)
                     .foregroundStyle(Palette.tertiary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -264,7 +260,7 @@ struct NoticeRow: View {
             .padding(.vertical, 6)
         case "error":
             Label {
-                Text(text).appFont(.footnote).foregroundStyle(Palette.text).textSelection(.enabled)
+                Text(text).font(.footnote).foregroundStyle(Palette.text).textSelection(.enabled)
             } icon: {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.danger)
             }
@@ -273,7 +269,7 @@ struct NoticeRow: View {
             .background(Palette.danger.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
         default:
             Text(text)
-                .appFont(.footnote)
+                .font(.footnote)
                 .foregroundStyle(Palette.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
@@ -299,17 +295,17 @@ struct WorkingIndicator: View {
                     HStack(spacing: 8) {
                         ThinkingOrb(state: bot.needsInput ? .listening : .working, size: 16, color: bot.needsInput ? Palette.warning : Palette.secondary)
                         Text(bot.activity.isEmpty ? "Working…" : bot.activity)
-                            .appFont(.subheadline)
+                            .font(.subheadline)
                             .foregroundStyle(bot.needsInput ? Palette.warning : Palette.secondary)
                             .lineLimit(1)
                         if let started = bot.startedAt {
                             Text(Date(milliseconds: started), style: .timer)
-                                .appFont(.footnote.monospacedDigit())
+                                .font(.footnote.monospacedDigit())
                                 .foregroundStyle(Palette.tertiary)
                         }
                         if thinking != nil {
                             Image(systemName: "chevron.down")
-                                .appFont(.caption2.weight(.semibold))
+                                .font(.caption2.weight(.semibold))
                                 .foregroundStyle(Palette.tertiary)
                                 .rotationEffect(.degrees(expanded ? 180 : 0))
                         }
@@ -317,7 +313,7 @@ struct WorkingIndicator: View {
                     if expanded, let thinking {
                         ScrollView {
                             Text(thinking)
-                                .appFont(.footnote)
+                                .font(.footnote)
                                 .foregroundStyle(Palette.secondary)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -328,7 +324,7 @@ struct WorkingIndicator: View {
                         .transition(.opacity)
                     }
                 }
-                .padding(.horizontal, InterfaceMetrics.value(mac: 12, mobile: 16))
+                .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             }
@@ -370,7 +366,7 @@ struct ReactionsRow: View {
                 ForEach(reactions, id: \.self) { emoji in
                     Button { model.react(entry, emoji) } label: {
                         Text(emoji)
-                            .appFont(.system(size: InterfaceMetrics.value(mac: 13, mobile: 15)))
+                            .font(.system(size: 15))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
                             .background(Palette.surface, in: Capsule())
@@ -386,47 +382,70 @@ struct ReactionsRow: View {
     }
 }
 
-extension View {
-    /// Mac: follows the pointer over the message (bubble and its footer), animated.
-    func hoverTracking(_ hovering: Binding<Bool>) -> some View {
-        modifier(HoverTracking(hovering: hovering))
+/// iPhone: a row renders again only when what it shows changed, so a reply being written
+/// elsewhere in the chat skips it.
+extension ChatRow: @MainActor Equatable {
+    static func == (a: Self, b: Self) -> Bool {
+        a.entry == b.entry && a.groupStart == b.groupStart && a.chat?.isGroup == b.chat?.isGroup
+            && a.chat?.isWorking == b.chat?.isWorking && (a.openThread == nil) == (b.openThread == nil)
     }
 }
 
-private struct HoverTracking: ViewModifier {
-    @Binding var hovering: Bool
+/// A reply as it's written. The host sends text in bursts; in between, what arrived is
+/// revealed at a steady pace, so the reply flows instead of jumping a line at a time.
+struct StreamingMarkdown: View {
+    let text: String
+    /// Still being written (`final == false`).
+    let live: Bool
+    /// Characters shown while revealing; nil shows all of it.
+    @State private var shown: Int?
+    /// Text is surfacing right now (caught up, the fade settles).
+    @State private var revealing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.conversationScrolling) private var scrolling
 
-    func body(content: Content) -> some View {
-            content
-    }
-}
-
-/// Mac: a message's quick actions, in its footer beside the time while the pointer is over it
-/// (next to the bubble, never on it): reactions, reply in thread, what it did, copy.
-struct MessageActions: View {
-    static let height: CGFloat = 26
-    let reactions: ReactionPick
-    let reply: (() -> Void)?
-    var trace: (() -> Void)?
-    let copy: () -> Void
+    /// How long a burst takes to reveal: a bit over the host's flush interval, so bursts join up.
+    private static let window = 0.32
+    private static let frame = 1.0 / 60
 
     var body: some View {
-        HStack(spacing: 0) {
-            ReactionStrip(pick: reactions)
-            Rectangle().fill(Palette.text.opacity(0.12)).frame(width: 1, height: 12).padding(.horizontal, 4)
-            if let reply { action("Reply in thread", "arrowshape.turn.up.left", reply) }
-            if let trace { action("Show what it did", "list.bullet", trace) }
-            action("Copy", "square.on.square", copy)
-        }
-        .fixedSize()
-        .transition(.opacity)
+        MarkdownText(shown.map { String(text.prefix($0)) } ?? text, streaming: live, revealing: revealing)
+            .equatable()
+            .onAppear {
+                // A reply already well under way when it scrolls in shows as it is.
+                if live, !reduceMotion, shown == nil { shown = text.count > 280 ? text.count : 0 }
+            }
+            .task(id: RevealTarget(text: text, live: live, paused: scrolling)) { await reveal() }
     }
 
-    private func action(_ title: String, _ icon: String, _ run: @escaping () -> Void) -> some View {
-        Button(title, systemImage: icon, action: run)
-            .labelStyle(.iconOnly)
-            .buttonStyle(IconButtonStyle(size: Self.height))
-            .help(title)
+    private func reveal() async {
+        // While the reader scrolls, the text holds still: scrolling never competes with layout.
+        guard let start = shown, !scrolling else { return }
+        let total = text.count
+        var position = Double(min(start, total))
+        let step = max((Double(total) - position) / (Self.window / Self.frame), 0.5)
+        revealing = position < Double(total)
+        defer { if !Task.isCancelled { revealing = false } }
+        while position < Double(total) {
+            try? await Task.sleep(for: .seconds(Self.frame))
+            if Task.isCancelled { return }
+            position = min(Double(total), position + step)
+            shown = Int(position)
+        }
+        // Between bursts the open end keeps its fade a moment, so it doesn't flicker.
+        if live { try? await Task.sleep(for: .seconds(0.6)) }
+        if Task.isCancelled { return }
+        if !live { shown = nil }
     }
+
+    private struct RevealTarget: Equatable {
+        let text: String
+        let live: Bool
+        let paused: Bool
+    }
+}
+
+extension EnvironmentValues {
+    /// The reader is scrolling the conversation: streamed text holds still until they stop.
+    @Entry var conversationScrolling = false
 }

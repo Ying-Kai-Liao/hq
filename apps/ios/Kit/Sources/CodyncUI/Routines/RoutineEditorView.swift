@@ -54,7 +54,7 @@ struct RoutineEditorView: View {
             .disabled(busy || !loaded)
             footer
         }
-        .appFont(.system(size: InterfaceMetrics.value(mac: 13, mobile: 16)))
+        .font(.system(size: 16))
         .foregroundStyle(Palette.text)
         .background(Palette.background)
         .codyncDialog("Delete routine?", isPresented: $confirmDelete, message: "This deletes the routine and stops its future runs. This can't be undone.") {
@@ -108,12 +108,12 @@ struct RoutineEditorView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Text("Run settings")
-                            Image(systemName: "chevron.down").appFont(.caption2.weight(.semibold))
+                            Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
                                 .rotationEffect(.degrees(advanced ? 180 : 0))
                             Spacer()
                             if !advanced { Text("Timeout \(timeout)s").foregroundStyle(Palette.tertiary) }
                         }
-                        .appFont(AppFont.compactSecondary)
+                        .font(.subheadline)
                         .foregroundStyle(Palette.secondary)
                         .padding(.leading, 4)
                         .contentShape(Rectangle())
@@ -123,7 +123,7 @@ struct RoutineEditorView: View {
                     if advanced {
                         Field("Timeout (seconds)") { TextField("3600", text: $timeout).routineInput().focused($typing) }
                         Text("A run is stopped after this long. 1 second to 24 hours.")
-                            .appFont(.caption).foregroundStyle(Palette.secondary).padding(.leading, 4)
+                            .font(.caption).foregroundStyle(Palette.secondary).padding(.leading, 4)
                     }
                 }
             }
@@ -172,12 +172,12 @@ struct RoutineEditorView: View {
                 RoutineWebhookPanel(botId: botId, routineId: routine.id)
             } else {
                 Text("Runs each time something is posted to its URL. Save to get the URL and key.")
-                    .appFont(.caption).foregroundStyle(Palette.secondary).padding(.leading, 4)
+                    .font(.caption).foregroundStyle(Palette.secondary).padding(.leading, 4)
                     .fixedSize(horizontal: false, vertical: true)
             }
         default:
             Text("Set up by the bot. Pick Schedule or Webhook to replace it.")
-                .appFont(.caption).foregroundStyle(Palette.secondary).padding(.leading, 4)
+                .font(.caption).foregroundStyle(Palette.secondary).padding(.leading, 4)
         }
     }
 
@@ -195,7 +195,7 @@ struct RoutineEditorView: View {
     private var expressionField: some View {
         Field("Cron") {
             TextField("Cron", text: $schedule.expression, prompt: Text("0 9 * * 1-5").foregroundStyle(Palette.secondary))
-                .appFont(.body.monospaced()).autocorrectionDisabled().routineInput().focused($typing)
+                .font(.body.monospaced()).autocorrectionDisabled().routineInput().focused($typing)
                 .frame(minWidth: 220)
         }
     }
@@ -211,21 +211,21 @@ struct RoutineEditorView: View {
     @ViewBuilder private var schedulePreview: some View {
         let preview = checkedSchedule == schedule ? preview : nil
         if let previewError {
-            Text(previewError).appFont(.caption).foregroundStyle(Palette.danger)
+            Text(previewError).font(.caption).foregroundStyle(Palette.danger)
                 .fixedSize(horizontal: false, vertical: true)
         } else if let preview {
             VStack(alignment: .leading, spacing: 2) {
-                Text(preview.summary).appFont(.caption.weight(.medium))
+                Text(preview.summary).font(.caption.weight(.medium))
                 if let next = preview.nextRunAt {
                     Text("Next \(Date(milliseconds: next).formatted(date: .abbreviated, time: .shortened))")
-                        .appFont(.caption).foregroundStyle(Palette.secondary)
+                        .font(.caption).foregroundStyle(Palette.secondary)
                 }
                 if let warning = preview.warning {
-                    Text(warning).appFont(.caption).foregroundStyle(Palette.secondary)
+                    Text(warning).font(.caption).foregroundStyle(Palette.secondary)
                 }
             }
         } else {
-            Text("minute  hour  day  month  weekday").appFont(.caption.monospaced()).foregroundStyle(Palette.tertiary)
+            Text("minute  hour  day  month  weekday").font(.caption.monospaced()).foregroundStyle(Palette.tertiary)
         }
     }
 
@@ -239,21 +239,21 @@ struct RoutineEditorView: View {
                 Button("Retry loading schedule") { Task { await loadSchedule() } }.buttonStyle(.plain)
             }
             if schedule.kind != "cron", let previewError {
-                Text(previewError).appFont(.caption).foregroundStyle(Palette.danger)
+                Text(previewError).font(.caption).foregroundStyle(Palette.danger)
             }
             if let error {
                 Label(error, systemImage: "exclamationmark.circle")
-                    .appFont(.callout).foregroundStyle(Palette.danger).textSelection(.enabled)
+                    .font(.callout).foregroundStyle(Palette.danger).textSelection(.enabled)
             }
             if model.isOffline {
                 Label("Connect to this computer to save your routine.", systemImage: "wifi.slash")
-                    .appFont(.caption).foregroundStyle(Palette.danger)
+                    .font(.caption).foregroundStyle(Palette.danger)
             }
             if loaded, !model.isOffline,
                name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text("Enter a name and instruction above to save.")
-                    .appFont(.caption).foregroundStyle(Palette.secondary)
+                    .font(.caption).foregroundStyle(Palette.secondary)
             }
             HStack(spacing: 16) { routineActions; saveButton }
         }

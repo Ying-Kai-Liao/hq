@@ -43,7 +43,7 @@ public struct GroupEditorView: View {
                 }
             }
             ScrollView {
-                VStack(alignment: .leading, spacing: InterfaceMetrics.value(mac: 12, mobile: 18)) {
+                VStack(alignment: .leading, spacing: 18) {
                     GroupAvatar(members: picked, size: 72)
                         .frame(maxWidth: .infinity)
                         .animation(Motion.layout, value: members)
@@ -68,7 +68,7 @@ public struct GroupEditorView: View {
                         }
                         .animation(Motion.layout, value: members)
                         Text("Everyone answers in turn unless you @mention someone. Each bot works in its own folder with its own tools.")
-                            .appFont(.caption)
+                            .font(.caption)
                             .foregroundStyle(Palette.tertiary)
                     }
                     Field("Name") {
@@ -80,7 +80,7 @@ public struct GroupEditorView: View {
                             .fieldBox()
                     }
                     if let error {
-                        Text(error).appFont(.footnote).foregroundStyle(Palette.danger).transition(.opacity)
+                        Text(error).font(.footnote).foregroundStyle(Palette.danger).transition(.opacity)
                     }
                     if let group = groupId.flatMap({ model.bots[$0] }) {
                         Button("Delete group chat", role: .destructive) { confirmDelete = group }
@@ -88,7 +88,7 @@ public struct GroupEditorView: View {
                             .padding(.top, 8)
                     }
                 }
-                .padding(InterfaceMetrics.value(mac: 16, mobile: 20))
+                .padding(20)
             }
             .scrollDismissesKeyboard(.interactively)
         }
@@ -112,14 +112,14 @@ public struct GroupEditorView: View {
     private func candidateRow(_ bot: Bot) -> some View {
         Button { toggle(bot.id) } label: {
             HStack(spacing: 12) {
-                CharacterAvatar(bot: bot, size: InterfaceMetrics.value(mac: 26, mobile: 34), animated: false)
+                CharacterAvatar(bot: bot, size: 34, animated: false)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(bot.name).foregroundStyle(Palette.text).lineLimit(1)
-                    Text(bot.folderName).appFont(.caption).foregroundStyle(Palette.tertiary).lineLimit(1)
+                    Text(bot.folderName).font(.caption).foregroundStyle(Palette.tertiary).lineLimit(1)
                 }
                 Spacer()
                 Image(systemName: "plus.circle")
-                    .appFont(.system(size: 20))
+                    .font(.system(size: 20))
                     .foregroundStyle(Palette.tertiary)
             }
             .padding(.horizontal, 12)
@@ -164,14 +164,14 @@ struct BotChip: View {
         HStack(spacing: 6) {
             CharacterAvatar(bot: bot, size: 20, animated: false)
             Text(bot.name)
-                .appFont(.body)
+                .font(.body)
                 .foregroundStyle(Palette.text)
                 .lineLimit(1)
                 .frame(maxWidth: 220, alignment: .leading)
                 .fixedSize(horizontal: true, vertical: false)
             Button(action: remove) {
                 Image(systemName: "xmark")
-                    .appFont(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Palette.secondary)
                     .frame(width: 18, height: 18)
                     .contentShape(Rectangle())

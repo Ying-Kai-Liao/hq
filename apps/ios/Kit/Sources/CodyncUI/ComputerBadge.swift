@@ -23,7 +23,7 @@ public struct ComputerBadge: View {
         switch computer?.device {
         // SF Symbols has no penguin.
         case "linux": Image("computer-linux", bundle: .module).resizable().scaledToFit().frame(width: size * 0.55)
-        case let device: Image(systemName: Self.symbol(device)).appFont(.system(size: size * 0.5, weight: .medium))
+        case let device: Image(systemName: Self.symbol(device)).font(.system(size: size * 0.5, weight: .medium))
         }
     }
 

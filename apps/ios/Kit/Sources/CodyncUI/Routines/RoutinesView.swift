@@ -1,7 +1,7 @@
 import CodyncKit
 import SwiftUI
 
-/// The same routine list in the Mac sidebar and the phone's modal; a row opens its editor.
+/// A bot's routines; a row opens its editor.
 struct RoutinesView: View {
     let botId: String
     var initialId: String?
@@ -21,7 +21,7 @@ struct RoutinesView: View {
         VStack(alignment: .leading, spacing: close == nil ? 10 : 16) {
             HStack {
                 Text("Routines")
-                    .appFont(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Palette.text)
                     .padding(.leading, 2)
                 Spacer(minLength: 0)
@@ -30,12 +30,12 @@ struct RoutinesView: View {
                     .disabled(model.isOffline)
                 if let close { IconButton("Close routines", systemImage: "xmark", action: close) }
             }
-            if let loadError { Text(loadError).appFont(.caption).foregroundStyle(Palette.danger) }
-            if let error { Text(error).appFont(.caption).foregroundStyle(.red).textSelection(.enabled) }
+            if let loadError { Text(loadError).font(.caption).foregroundStyle(Palette.danger) }
+            if let error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
             listing
         }
         .foregroundStyle(Palette.text)
-        .appFont(.system(size: 13))
+        .font(.system(size: 13))
         .onChange(of: initialId) { _, id in
             if let id { open(id) }
         }
@@ -66,7 +66,7 @@ struct RoutinesView: View {
         VStack(alignment: .leading, spacing: 0) {
             if routines.isEmpty {
                 Text(loaded ? "No routines yet. Ask the bot for one, or set it up yourself with +." : "Loading routines…")
-                    .appFont(.system(size: 12))
+                    .font(.system(size: 12))
                     .lineSpacing(3)
                     .foregroundStyle(Palette.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -92,7 +92,7 @@ struct RoutinesView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(routine.name).foregroundStyle(Palette.text)
                     Text(summary(routine))
-                        .appFont(.caption)
+                        .font(.caption)
                         .foregroundStyle(routine.lastError == nil ? Palette.secondary : Palette.danger)
                 }
                 .padding(.vertical, 10)

@@ -12,7 +12,6 @@ public enum Motion {
     public static let press = Animation.timingCurve(0.25, 0.1, 0.25, 1, duration: 0.05)
     /// Icon and glyph swaps, the sidebar rail morph: `.2s cubic-bezier(.22,1,.36,1)`.
     public static let morph = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.2)
-    public static let morphCurve = UnitCurve.bezier(startControlPoint: UnitPoint(x: 0.22, y: 1), endControlPoint: UnitPoint(x: 0.36, y: 1))
     /// Size and layout changes (panels growing, cards resizing): the critically damped
     /// `.3s` spring Grok writes as a `linear()` curve.
     public static let layout = Animation.spring(duration: 0.3, bounce: 0)

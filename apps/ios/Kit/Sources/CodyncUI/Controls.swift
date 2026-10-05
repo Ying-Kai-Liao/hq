@@ -5,10 +5,9 @@ import UIKit
 // Codync's own controls. Never use the stock ones (Picker, .switch toggles,
 // Form/List styling, confirmationDialog/alert, ProgressView, DisclosureGroup,
 // .bordered buttons, swipeActions): build from these instead.
-// Menus are the one exception on iOS: `DropdownMenu`/`ChoicePicker` open the system
-// `Menu` and `.contextActions` the system `contextMenu`. A hand-built overlay anchored
-// by global frame lands in the wrong place there (sheets, scroll views, the composer),
-// so `.codyncMenu` is macOS-only.
+// Menus are the one exception: `DropdownMenu`/`ChoicePicker` open the system `Menu` and
+// `.contextActions` the system `contextMenu`. A hand-built overlay anchored by global
+// frame lands in the wrong place (sheets, scroll views, the composer).
 // Anything with a background fill gets no border line.
 
 // MARK: - Switch
@@ -82,10 +81,10 @@ private struct StyledButton: View {
 
     var body: some View {
         configuration.label
-            .appFont(AppFont.compactBody.weight(.medium))
+            .font(.body.weight(.medium))
             .foregroundStyle(foreground)
-            .padding(.horizontal, InterfaceMetrics.value(mac: 12, mobile: 18))
-            .padding(.vertical, InterfaceMetrics.value(mac: 6, mobile: 11))
+            .padding(.horizontal, 18)
+            .padding(.vertical, 11)
             .background(fill, in: Capsule())
             .opacity(isEnabled ? (configuration.isPressed ? 0.85 : 1) : 0.4)
             .scaleEffect(configuration.isPressed ? Motion.pressScale : 1)
@@ -160,171 +159,8 @@ public struct ReactionPick {
     }
 }
 
-private struct MenuAvailableSizeKey: EnvironmentKey {
-    static let defaultValue = CGSize(width: 320, height: 420)
-}
-
-private extension EnvironmentValues {
-    var menuAvailableSize: CGSize {
-        get { self[MenuAvailableSizeKey.self] }
-        set { self[MenuAvailableSizeKey.self] = newValue }
-    }
-}
-
-/// The floating panel of menu rows (used by every menu, popover or overlay).
-public struct MenuPanel: View {
-    let items: [MenuItem]
-    var reactions: ReactionPick?
-    let dismiss: () -> Void
-    @Environment(\.menuAvailableSize) private var availableSize
-    @State private var contentHeight: CGFloat?
-    @State private var positionedSelection = false
-
-    public init(items: [MenuItem], reactions: ReactionPick? = nil, dismiss: @escaping () -> Void) {
-        self.items = items
-        self.reactions = reactions
-        self.dismiss = dismiss
-    }
-
-    public var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 2) {
-                    if let reactions {
-                        ReactionStrip(pick: reactions, dismiss: dismiss)
-                            .padding(.bottom, 4)
-                    }
-                    ForEach(items) { item in
-                        if item.divider {
-                            Rectangle().fill(Palette.text.opacity(0.1)).frame(height: 0.5)
-                                .padding(.horizontal, 10).padding(.vertical, 4)
-                        }
-                        MenuRow(item: item) {
-                            dismiss()
-                            item.action()
-                        }
-                        .id(item.id)
-                    }
-                }
-                .padding(6)
-                .fixedSize(horizontal: false, vertical: true)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
-            }
-            .scrollBounceBehavior(.basedOnSize)
-            .frame(width: min(320, availableSize.width),
-                   height: min(contentHeight ?? estimatedHeight, availableSize.height))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .onChange(of: contentHeight) { _, height in
-                guard height != nil, !positionedSelection,
-                      let selected = items.first(where: { $0.selected == true }) else { return }
-                positionedSelection = true
-                proxy.scrollTo(selected.id, anchor: .center)
-            }
-        }
-    }
-
-    private var estimatedHeight: CGFloat {
-        CGFloat(items.count) * InterfaceMetrics.value(mac: 32, mobile: 46) + 12
-            + (reactions == nil ? 0 : InterfaceMetrics.value(mac: 32, mobile: 46))
-    }
-
-}
-
-/// Quick-reaction buttons; a chosen one is highlighted and tapping it takes it back.
-struct ReactionStrip: View {
-    let pick: ReactionPick
-    var dismiss: () -> Void = {}
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(pick.emoji, id: \.self) { emoji in
-                let chosen = pick.chosen.contains(emoji)
-                Button {
-                    dismiss()
-                    pick.toggle(emoji)
-                } label: {
-                    Text(emoji).appFont(.system(size: InterfaceMetrics.value(mac: 14, mobile: 24)))
-                }
-                .buttonStyle(ReactionButtonStyle(chosen: chosen))
-                .help(chosen ? "Remove \(emoji)" : "React \(emoji)")
-                .accessibilityLabel(chosen ? "Remove reaction \(emoji)" : "React \(emoji)")
-            }
-        }
-    }
-}
-
-/// One emoji in a reaction row: grows a little under the pointer, tinted once chosen.
-private struct ReactionButtonStyle: ButtonStyle {
-    let chosen: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        ReactionButton(configuration: configuration, chosen: chosen)
-    }
-
-    private struct ReactionButton: View {
-        let configuration: Configuration
-        let chosen: Bool
-        @State private var hovering = false
-
-        var body: some View {
-            let size = InterfaceMetrics.value(mac: 26, mobile: 40)
-            configuration.label
-                .scaleEffect(configuration.isPressed ? 0.85 : hovering ? 1.15 : 1)
-                .frame(width: size, height: size)
-                .background(
-                    Palette.text.opacity(chosen ? 0.12 : hovering ? 0.06 : 0),
-                    in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-                )
-                .contentShape(Rectangle())
-                .animation(Motion.press, value: configuration.isPressed)
-                .animation(Motion.hover, value: hovering)
-                .onHover { hovering = $0 }
-        }
-    }
-}
-
-private struct MenuRow: View {
-    let item: MenuItem
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                if let icon = item.icon {
-                    Image(systemName: icon).frame(width: 18)
-                }
-                // Wraps rather than truncates: a cut-off choice can't be read.
-                Text(item.title).fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 16)
-                if let selected = item.selected {
-                    Image(systemName: "checkmark").appFont(.caption.weight(.semibold)).opacity(selected ? 1 : 0)
-                }
-            }
-            .appFont(AppFont.compactBody)
-            .foregroundStyle(item.destructive ? Palette.danger : Palette.text)
-            .padding(.horizontal, 10)
-            .padding(.vertical, InterfaceMetrics.value(mac: 6, mobile: 11))
-            .background(hovering ? Palette.text.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { h in withAnimation(Motion.hover) { hovering = h } }
-        .help(item.title)
-        .accessibilityAddTraits(item.selected == true ? .isSelected : [])
-    }
-}
-
 public extension View {
-    /// Mac only: shows a Codync menu under (or above) this view while `isPresented` is true.
-    /// iOS menus are the system ones (`DropdownMenu`, `.contextActions`).
-    @available(iOS, unavailable, message: "iOS menus are the system Menu: use DropdownMenu")
-    func codyncMenu(isPresented: Binding<Bool>, items: @escaping () -> [MenuItem]) -> some View {
-        modifier(AnchoredMenu(isPresented: isPresented, point: nil, items: items))
-    }
-
-    /// Right-click (Mac) opens a Codync menu; long-press (iPhone) the system context menu.
-    /// `reactions` puts a quick-reaction row on top.
+    /// Long-press opens the system context menu; `reactions` puts a quick-reaction row on top.
     func contextActions(reactions: ReactionPick? = nil, _ items: @escaping () -> [MenuItem]) -> some View {
         modifier(ContextActions(items: items, reactions: reactions))
     }
@@ -367,64 +203,10 @@ private struct ContextActions: ViewModifier {
     }
 }
 
-/// Presents `MenuPanel` next to the view (or at `point` inside it, for right-clicks).
-private struct AnchoredMenu: ViewModifier {
-    @Binding var isPresented: Bool
-    let point: CGPoint?
-    let items: () -> [MenuItem]
-    var reactions: ReactionPick?
-    @State private var frame: CGRect = .zero
-
-    func body(content: Content) -> some View {
-        content
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame = $0 }
-            .codyncOverlay(isPresented: $isPresented) { close in
-                let anchor = point.map { CGRect(x: frame.minX + $0.x, y: frame.minY + $0.y, width: 0, height: 0) } ?? frame
-                AnchoredPanel(anchor: anchor, close: close) {
-                    MenuPanel(items: items(), reactions: reactions, dismiss: close)
-                }
-            }
-    }
-}
-
-/// Places a floating panel beside `anchor` (global coordinates), flipping to stay on screen;
-/// a tap anywhere else closes it.
-struct AnchoredPanel<Panel: View>: View {
-    let anchor: CGRect
-    let close: () -> Void
-    @ViewBuilder let panel: () -> Panel
-
-    var body: some View {
-        GeometryReader { geo in
-            let space = geo.frame(in: .global)
-            let a = anchor.offsetBy(dx: -space.minX, dy: -space.minY)
-            let roomBelow = max(0, space.height - a.maxY - 14)
-            let roomAbove = max(0, a.minY - 14)
-            let below = roomBelow >= roomAbove
-            let leading = a.midX < space.width * 0.6
-            let horizontalInset = max(8, space.width - min(320, space.width - 16) - 8)
-            ZStack(alignment: Alignment(horizontal: leading ? .leading : .trailing, vertical: below ? .top : .bottom)) {
-                Color.clear.contentShape(Rectangle()).onTapGesture(perform: close)
-                panel()
-                    .environment(\.menuAvailableSize, CGSize(
-                        width: max(1, space.width - 16),
-                        height: max(1, min(420, below ? roomBelow : roomAbove))
-                    ))
-                    .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .shadow(color: .black.opacity(0.25), radius: 20, y: 8)
-                    .offset(x: leading ? min(max(8, a.minX), horizontalInset) : -min(max(8, space.width - a.maxX), horizontalInset),
-                            y: below ? a.maxY + 6 : -(space.height - a.minY + 6))
-            }
-        }
-        .ignoresSafeArea()
-    }
-}
-
-/// A button that opens a Codync menu.
+/// A button that opens the system menu.
 public struct DropdownMenu<Label: View>: View {
     let items: () -> [MenuItem]
     let label: Label
-    @State private var open = false
 
     public init(items: @escaping () -> [MenuItem], @ViewBuilder label: () -> Label) {
         self.items = items
@@ -444,7 +226,7 @@ public struct DropdownMenu<Label: View>: View {
     }
 }
 
-/// Picks one value: shows the current choice in a pill with a chevron, opens a Codync menu.
+/// Picks one value: shows the current choice in a pill with a chevron, opens the system menu.
 public struct ChoicePicker<ID: Hashable>: View {
     @Binding var selection: ID
     let options: [(id: ID, label: String)]
@@ -464,9 +246,9 @@ public struct ChoicePicker<ID: Hashable>: View {
         } label: {
             HStack(spacing: 6) {
                 Text(options.first { $0.id == selection }?.label ?? "Choose").lineLimit(1)
-                Image(systemName: "chevron.down").appFont(.caption2.weight(.semibold)).foregroundStyle(Palette.secondary)
+                Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(Palette.secondary)
             }
-            .appFont(AppFont.compactBody)
+            .font(.body)
             .foregroundStyle(Palette.text)
             .pill(fill: fill)
             .overlay {
@@ -498,11 +280,11 @@ public struct SegmentedChoice<ID: Hashable>: View {
                     withAnimation(Motion.reduced(Motion.morph, reduceMotion)) { selection = option.id }
                 } label: {
                     Text(option.label)
-                        .appFont(AppFont.compactSecondary.weight(.medium))
+                        .font(.subheadline.weight(.medium))
                         .foregroundStyle(on ? Palette.text : Palette.secondary)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, InterfaceMetrics.value(mac: 5, mobile: 8))
+                        .padding(.vertical, 8)
                         .background {
                             if on {
                                 Capsule().fill(Palette.background).matchedGeometryEffect(id: "thumb", in: thumb)
@@ -530,19 +312,19 @@ public struct ChoiceList<ID: Hashable>: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: InterfaceMetrics.value(mac: 10, mobile: 14)) {
+        VStack(alignment: .leading, spacing: 14) {
             ForEach(options, id: \.id) { option in
                 Button { selection = option.id } label: {
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(option.label).foregroundStyle(Palette.text)
                             if let detail = option.detail, !detail.isEmpty {
-                                Text(detail).appFont(AppFont.compactSecondary).foregroundStyle(Palette.secondary)
+                                Text(detail).font(.subheadline).foregroundStyle(Palette.secondary)
                             }
                         }
                         Spacer(minLength: 8)
                         Image(systemName: "checkmark")
-                            .appFont(.caption.weight(.semibold))
+                            .font(.caption.weight(.semibold))
                             .foregroundStyle(Palette.text)
                             .opacity(option.id == selection ? 1 : 0)
                     }
@@ -565,11 +347,11 @@ public struct CardForm<Content: View>: View {
 
     public var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: InterfaceMetrics.value(mac: 28, mobile: 32)) {
+            VStack(alignment: .leading, spacing: 32) {
                 content
             }
-            .appFont(AppFont.compactBody)
-            .padding(InterfaceMetrics.value(mac: 14, mobile: 20))
+            .font(.body)
+            .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollDismissesKeyboard(.interactively)
@@ -596,11 +378,11 @@ public struct CardSection<Content: View, Accessory: View>: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: InterfaceMetrics.value(mac: 10, mobile: 10)) {
+        VStack(alignment: .leading, spacing: 10) {
             if let title {
                 HStack(spacing: 8) {
                     Text(title)
-                        .appFont(.system(size: InterfaceMetrics.value(mac: 13, mobile: 15), weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Palette.text)
                         .accessibilityAddTraits(.isHeader)
                     Spacer(minLength: 0)
@@ -615,7 +397,7 @@ public struct CardSection<Content: View, Accessory: View>: View {
             .background(Palette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             if let footer {
                 Text(footer)
-                    .appFont(.caption)
+                    .font(.caption)
                     .foregroundStyle(Palette.secondary)
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -646,12 +428,12 @@ public struct Hairline: View {
 /// Lays a section's rows out one under another with an inset hairline between each pair.
 private struct HairlineRows: _VariadicView_MultiViewRoot {
     func body(children: _VariadicView.Children) -> some View {
-        let inset = InterfaceMetrics.value(mac: 16, mobile: 16)
+        let inset: CGFloat = 16
         ForEach(children) { child in
             child
-                .frame(maxWidth: .infinity, minHeight: InterfaceMetrics.value(mac: 28, mobile: 32), alignment: .leading)
+                .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
                 .padding(.horizontal, inset)
-                .padding(.vertical, InterfaceMetrics.value(mac: 12, mobile: 14))
+                .padding(.vertical, 14)
             if child.id != children.last?.id { Hairline().padding(.horizontal, inset) }
         }
     }
@@ -681,7 +463,7 @@ public struct ValueRow<Value: View>: View {
                 Text(label).foregroundStyle(Palette.text)
                 if let detail {
                     Text(detail)
-                        .appFont(.caption)
+                        .font(.caption)
                         .foregroundStyle(Palette.secondary)
                         .lineSpacing(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -715,9 +497,9 @@ public struct SearchField: View {
                 .accessibilityLabel("Clear search")
             }
         }
-        .appFont(AppFont.compactBody)
-        .padding(.horizontal, InterfaceMetrics.value(mac: 10, mobile: 14))
-        .padding(.vertical, InterfaceMetrics.value(mac: 7, mobile: 10))
+        .font(.body)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         .background(Palette.bubbleAgent, in: Capsule())
     }
 }
@@ -744,7 +526,7 @@ public struct Disclosure<Label: View, Content: View>: View {
                     label
                     Spacer(minLength: 8)
                     Image(systemName: "chevron.right")
-                        .appFont(.caption2.weight(.semibold))
+                        .font(.caption2.weight(.semibold))
                         .foregroundStyle(Palette.secondary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
@@ -834,9 +616,9 @@ private struct DialogCard: View {
                 .onTapGesture { if cancel != nil { dismiss() } }
             VStack(spacing: 14) {
                 VStack(spacing: 6) {
-                    Text(title).appFont(.headline).foregroundStyle(Palette.text)
+                    Text(title).font(.headline).foregroundStyle(Palette.text)
                     if let message, !message.isEmpty {
-                        Text(message).appFont(AppFont.compactSecondary).foregroundStyle(Palette.secondary)
+                        Text(message).font(.subheadline).foregroundStyle(Palette.secondary)
                     }
                 }
                 .multilineTextAlignment(.center)
@@ -873,9 +655,9 @@ private struct DialogButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .appFont(AppFont.compactBody.weight(.medium))
+            .font(.body.weight(.medium))
             .foregroundStyle(destructive ? Color.white : (prominent ? Palette.onAccent : Palette.text))
-            .padding(.vertical, InterfaceMetrics.value(mac: 8, mobile: 12))
+            .padding(.vertical, 12)
             .background(destructive ? Palette.danger : (prominent ? Palette.accentFill : Palette.bubbleUser), in: Capsule())
             .opacity(configuration.isPressed ? 0.85 : 1)
             .scaleEffect(configuration.isPressed ? Motion.pressScale : 1)
@@ -895,8 +677,8 @@ extension View {
     }
 
     func pill(fill: Color = Palette.background) -> some View {
-        padding(.horizontal, InterfaceMetrics.value(mac: 9, mobile: 12))
-            .padding(.vertical, InterfaceMetrics.value(mac: 5, mobile: 7))
+        padding(.horizontal, 12)
+            .padding(.vertical, 7)
             .background(fill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }

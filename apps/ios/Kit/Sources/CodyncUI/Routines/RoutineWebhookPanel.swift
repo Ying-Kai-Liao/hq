@@ -30,12 +30,12 @@ struct RoutineWebhookPanel: View {
                     }
                 }
                 Text(note(webhook))
-                    .appFont(.caption).foregroundStyle(Palette.secondary).padding(.leading, 4)
+                    .font(.caption).foregroundStyle(Palette.secondary).padding(.leading, 4)
                     .fixedSize(horizontal: false, vertical: true)
             } else if let error {
-                Text(error).appFont(.caption).foregroundStyle(Palette.danger).padding(.leading, 4)
+                Text(error).font(.caption).foregroundStyle(Palette.danger).padding(.leading, 4)
             } else {
-                Text("Loading webhook…").appFont(.caption).foregroundStyle(Palette.secondary).padding(.leading, 4)
+                Text("Loading webhook…").font(.caption).foregroundStyle(Palette.secondary).padding(.leading, 4)
             }
         }
         .task(id: routineId) { await load(rotate: false) }
@@ -57,7 +57,7 @@ struct RoutineWebhookPanel: View {
     private func value(_ text: String, copy: String, @ViewBuilder extra: () -> some View = { EmptyView() }) -> some View {
         HStack(alignment: .center, spacing: 8) {
             Text(text)
-                .appFont(.callout.monospaced())
+                .font(.callout.monospaced())
                 .lineLimit(2)
                 .truncationMode(.middle)
                 .textSelection(.enabled)

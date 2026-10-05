@@ -20,7 +20,7 @@ public struct TraceView: View {
         VStack(spacing: 0) {
             ModalHeader("Full conversation")
             ScrollView {
-            LazyVStack(alignment: .leading, spacing: InterfaceMetrics.value(mac: 14, mobile: 22)) {
+            LazyVStack(alignment: .leading, spacing: 22) {
                 if turns.isEmpty {
                     Text("Nothing yet.").foregroundStyle(Palette.tertiary)
                 }
@@ -29,7 +29,7 @@ public struct TraceView: View {
                         // A plain one-line turn header (CardSection's own title wraps).
                         Text(entries.first { $0.kind == "user" }?.data.text ?? "Turn \(turn)")
                             .lineLimit(1)
-                            .appFont(AppFont.compactSecondary.weight(.semibold))
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Palette.text)
                             .padding(.leading, 4)
                         CardSection {
@@ -38,7 +38,7 @@ public struct TraceView: View {
                     }
                 }
             }
-            .padding(InterfaceMetrics.value(mac: 14, mobile: 20))
+            .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
             }
             .defaultScrollAnchor(.bottom)
@@ -56,25 +56,25 @@ private struct TraceRow: View {
         switch entry.kind {
         case "user":
             Label { Text(d.text ?? "").foregroundStyle(Palette.text) } icon: { Image(systemName: "person.fill").foregroundStyle(Palette.secondary) }
-                .appFont(.subheadline)
+                .font(.subheadline)
         case "agent":
             VStack(alignment: .leading, spacing: 4) {
-                Text(d.final == true ? "Reply" : "Said").appFont(.caption2.bold()).foregroundStyle(Palette.tertiary)
+                Text(d.final == true ? "Reply" : "Said").font(.caption2.bold()).foregroundStyle(Palette.tertiary)
                 MarkdownText(d.text ?? "")
             }
         case "thought":
             Disclosure(isExpanded: $expanded) {
-                Text(d.text ?? "").appFont(.footnote).foregroundStyle(Palette.secondary).textSelection(.enabled)
+                Text(d.text ?? "").font(.footnote).foregroundStyle(Palette.secondary).textSelection(.enabled)
             } label: {
                 Label { Text("Thinking") } icon: {
                     ThinkingOrb(size: 16, color: Palette.secondary, animated: false)
-                }.appFont(.subheadline).foregroundStyle(Palette.secondary)
+                }.font(.subheadline).foregroundStyle(Palette.secondary)
             }
         case "tool":
             ToolRow(data: d)
         case "plan":
             VStack(alignment: .leading, spacing: 6) {
-                Label("Plan", systemImage: "checklist").appFont(.subheadline.bold())
+                Label("Plan", systemImage: "checklist").font(.subheadline.bold())
                 ForEach(Array((d.entries ?? []).enumerated()), id: \.offset) { _, item in
                     Label {
                         Text(item.content).strikethrough(item.status == "completed").foregroundStyle(Palette.text)
@@ -82,15 +82,15 @@ private struct TraceRow: View {
                         Image(systemName: item.status == "completed" ? "checkmark.circle.fill" : item.status == "in_progress" ? "circle.dotted" : "circle")
                             .foregroundStyle(item.status == "completed" ? Palette.accent : Palette.tertiary)
                     }
-                    .appFont(.footnote)
+                    .font(.footnote)
                 }
             }
         case "permission":
             Label(d.title ?? "Approval", systemImage: "hand.raised")
-                .appFont(.subheadline)
+                .font(.subheadline)
                 .foregroundStyle(Palette.secondary)
         default:
-            Text(d.text ?? "").appFont(.footnote).foregroundStyle(Palette.tertiary)
+            Text(d.text ?? "").font(.footnote).foregroundStyle(Palette.tertiary)
         }
     }
 }
@@ -133,7 +133,7 @@ struct ToolRow: View {
     private var label: some View {
         HStack(spacing: 8) {
             Image(systemName: icon).frame(width: 18).foregroundStyle(Palette.secondary)
-            Text(data.title ?? "Tool").appFont(.subheadline).foregroundStyle(Palette.text).lineLimit(2)
+            Text(data.title ?? "Tool").font(.subheadline).foregroundStyle(Palette.text).lineLimit(2)
             Spacer(minLength: 4)
             switch data.status {
             case "completed": Image(systemName: "checkmark").foregroundStyle(Palette.accent)
@@ -141,6 +141,6 @@ struct ToolRow: View {
             default: ThinkingOrb(state: data.toolKind == "search" ? .searching : data.toolKind == "fetch" ? .connecting : .working, size: 16, color: Palette.secondary)
             }
         }
-        .appFont(.caption)
+        .font(.caption)
     }
 }

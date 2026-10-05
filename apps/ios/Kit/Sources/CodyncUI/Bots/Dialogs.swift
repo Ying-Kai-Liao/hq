@@ -8,12 +8,6 @@ public extension View {
         modifier(DeleteBotConfirmation(bot: bot, onDeleted: onDeleted))
     }
 
-    /// Shows `BotStore.lastError` in a dialog.
-    func storeErrorAlert(_ model: BotStore) -> some View {
-        codyncDialog("Something went wrong",
-                     isPresented: Binding(get: { model.lastError != nil }, set: { if !$0 { model.lastError = nil } }),
-                     message: model.lastError, cancel: "OK") { [] }
-    }
 }
 
 private struct DeleteBotConfirmation: ViewModifier {

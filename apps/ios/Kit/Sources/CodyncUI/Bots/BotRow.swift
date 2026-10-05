@@ -3,40 +3,35 @@ import SwiftUI
 
 public struct BotRow: View {
     let bot: Bot
-    let compact: Bool
     @Environment(BotStore.self) private var model
 
-    public init(bot: Bot, compact: Bool = false) {
-        self.bot = bot
-        self.compact = compact
-    }
+    public init(bot: Bot) { self.bot = bot }
 
-    // A Mac sidebar row is denser than a phone row (Grok Bot's desktop sidebar).
     private let avatar: CGFloat = 46
     private let rowPadding: CGFloat = 10
     private let lineSpacing: CGFloat = 4
 
     public var body: some View {
-        HStack(spacing: compact ? 0 : InterfaceMetrics.value(mac: 8, mobile: 12)) {
+        HStack(spacing: 12) {
             AvatarWithStatus(bot: bot, members: model.members(of: bot), size: avatar)
             VStack(alignment: .leading, spacing: lineSpacing) {
                 HStack(alignment: .firstTextBaseline) {
                     if bot.pinned {
-                        Image(systemName: "pin.fill").appFont(.caption2).foregroundStyle(Palette.tertiary)
+                        Image(systemName: "pin.fill").font(.caption2).foregroundStyle(Palette.tertiary)
                     }
                     Text(bot.name)
-                        .appFont(AppFont.compactBody.weight(.semibold))
+                        .font(.body.weight(.semibold))
                         .foregroundStyle(Palette.text)
                         .lineLimit(1)
                     if model.screen?.agentBot == bot.id {
                         Image(systemName: "cursorarrow.motionlines")
-                            .appFont(.caption)
+                            .font(.caption)
                             .foregroundStyle(Palette.accent)
                             .accessibilityLabel("Using the computer")
                     }
                     Spacer(minLength: 8)
                     Text(RelativeTime.day(Date(milliseconds: bot.lastAt)))
-                        .appFont(AppFont.compactSecondary)
+                        .font(.subheadline)
                         .foregroundStyle(bot.unread > 0 ? Palette.text : Palette.tertiary)
                 }
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -44,7 +39,7 @@ public struct BotRow: View {
                     Spacer(minLength: 4)
                     if bot.unread > 0 {
                         Text("\(bot.unread)")
-                            .appFont(.caption2.bold())
+                            .font(.caption2.bold())
                             .foregroundStyle(Palette.onAccent)
                             .padding(.horizontal, 6)
                             .frame(minWidth: 18, minHeight: 18)
@@ -52,12 +47,8 @@ public struct BotRow: View {
                     }
                 }
             }
-            .frame(width: compact ? 0 : nil, alignment: .leading)
-            .opacity(compact ? 0 : 1)
-            .clipped()
-            .accessibilityHidden(compact)
         }
-        .frame(maxWidth: .infinity, alignment: compact ? .center : .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, rowPadding)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
@@ -71,7 +62,7 @@ public struct BotRow: View {
             } icon: {
                 ThinkingOrb(state: .listening, size: 16, color: Palette.warning)
             }
-                .appFont(AppFont.compactSecondary)
+                .font(.subheadline)
                 .foregroundStyle(Palette.warning)
                 .lineLimit(1)
         } else if bot.isWorking {
@@ -80,16 +71,16 @@ public struct BotRow: View {
                 Text(bot.activity.isEmpty ? "Working…" : bot.activity)
                     .lineLimit(1)
             }
-            .appFont(AppFont.compactSecondary)
+            .font(.subheadline)
             .foregroundStyle(Palette.secondary)
         } else if bot.status == "error" {
             Text(bot.lastMessage ?? "Something went wrong")
-                .appFont(AppFont.compactSecondary)
+                .font(.subheadline)
                 .foregroundStyle(Palette.danger)
                 .lineLimit(1)
         } else {
             Text(bot.lastMessage ?? "\(model.backendName(bot.backend)) · \(bot.folderName)")
-                .appFont(AppFont.compactSecondary)
+                .font(.subheadline)
                 .foregroundStyle(Palette.secondary)
                 .lineLimit(1)
         }

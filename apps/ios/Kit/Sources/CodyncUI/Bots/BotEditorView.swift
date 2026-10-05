@@ -68,41 +68,6 @@ public struct BotEditorView: View {
     }
 }
 
-/// The desktop inspector next to a conversation: the same form, saved as you edit.
-public struct BotSettingsPanel: View {
-    let botId: String
-    @Environment(BotStore.self) private var model
-    @State private var draft: BotDraft?
-    @State private var error: String?
-
-    public init(botId: String) { self.botId = botId }
-
-    public var body: some View {
-        Group {
-            if let binding = Binding($draft) {
-                BotSettingsForm(draft: binding, error: error)
-            } else {
-                Color.clear
-            }
-        }
-        .task(id: botId) {
-            draft = model.bots[botId].map(BotDraft.init)
-        }
-        .task(id: draft) {
-            // Autosave a moment after the last change.
-            guard let draft, let bot = model.bots[botId], draft != BotDraft(bot), draft.isValid else { return }
-            try? await Task.sleep(for: .milliseconds(600))
-            guard !Task.isCancelled else { return }
-            do {
-                _ = try await model.save(draft.normalized)
-                error = nil
-            } catch {
-                self.error = error.localizedDescription
-            }
-        }
-    }
-}
-
 /// Bot settings: a big avatar (Grok Bot's), then sections in the Settings style (`CardSection`).
 struct BotSettingsForm: View {
     @Binding var draft: BotDraft
@@ -112,13 +77,11 @@ struct BotSettingsForm: View {
     @Environment(BotStore.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pickingFolder = false
-    @State private var pickingAvatar = false
-    @State private var avatarFrame: CGRect = .zero
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: InterfaceMetrics.value(mac: 24, mobile: 30)) {
-                VStack(spacing: InterfaceMetrics.value(mac: 12, mobile: 16)) {
+            VStack(alignment: .leading, spacing: 30) {
+                VStack(spacing: 16) {
                     CharacterAvatar(shape: draft.avatarShape, color: draft.avatarColor, size: 96)
                         .padding(18)
                         .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -152,7 +115,7 @@ struct BotSettingsForm: View {
                         }
                         if computer != nil, model.connection != .online {
                             Text("Connect this computer to create the bot, or choose another computer.")
-                                .appFont(.caption).foregroundStyle(Palette.warning)
+                                .font(.caption).foregroundStyle(Palette.warning)
                         }
                     }
                     VStack(alignment: .leading, spacing: 8) {
@@ -161,12 +124,12 @@ struct BotSettingsForm: View {
                                          options: (model.hello?.backends ?? []).map { ($0.id, $0.available ? $0.name : "\($0.name) (not installed)") } + [("custom", "Custom command")])
                         }
                         if let b = model.hello?.backends.first(where: { $0.id == draft.backend }), !b.available {
-                            Text(b.installHint).appFont(.caption).foregroundStyle(Palette.warning)
+                            Text(b.installHint).font(.caption).foregroundStyle(Palette.warning)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         if draft.backend == "custom" {
                             TextField("ACP command, e.g. my-agent --acp", text: Binding(get: { draft.command ?? "" }, set: { draft.command = $0.isEmpty ? nil : $0 }))
-                                .appFont(.callout.monospaced())
+                                .font(.callout.monospaced())
                                 .plainTextInput()
                                 .fieldBox()
                         }
@@ -187,7 +150,7 @@ struct BotSettingsForm: View {
                         } label: {
                             HStack(spacing: 6) {
                                 Text(draft.cwd.isEmpty ? "Personal" : (draft.cwd as NSString).lastPathComponent).lineLimit(1)
-                                Image(systemName: "chevron.down").appFont(.caption2.weight(.semibold)).foregroundStyle(Palette.secondary)
+                                Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(Palette.secondary)
                             }
                             .foregroundStyle(Palette.text)
                             .outlinedPill()
@@ -229,12 +192,12 @@ struct BotSettingsForm: View {
                 }
 
                 if let error {
-                    Text(error).appFont(.footnote).foregroundStyle(Palette.danger)
+                    Text(error).font(.footnote).foregroundStyle(Palette.danger)
                 }
             }
-            .padding(InterfaceMetrics.value(mac: 14, mobile: 20))
+            .padding(20)
         }
-        .appFont(AppFont.compactBody)
+        .font(.body)
         .scrollDismissesKeyboard(.interactively)
         .background(Palette.background)
         .task { await model.refreshPlugins() }
@@ -264,7 +227,7 @@ struct Field<Content: View>: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(label).foregroundStyle(Palette.text)
                 if let detail {
-                    Text(detail).appFont(.caption).foregroundStyle(Palette.secondary).lineSpacing(2)
+                    Text(detail).font(.caption).foregroundStyle(Palette.secondary).lineSpacing(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -290,7 +253,7 @@ struct SwitchRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).foregroundStyle(Palette.text)
                 if let detail {
-                    Text(detail).appFont(.caption).foregroundStyle(Palette.secondary).lineSpacing(2)
+                    Text(detail).font(.caption).foregroundStyle(Palette.secondary).lineSpacing(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -328,8 +291,8 @@ extension View {
     /// A rounded input box.
     func fieldBox() -> some View {
         textFieldStyle(.plain)
-            .padding(.horizontal, InterfaceMetrics.value(mac: 10, mobile: 14))
-            .padding(.vertical, InterfaceMetrics.value(mac: 8, mobile: 11))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
             .background(Palette.background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
@@ -357,15 +320,6 @@ public extension BotStore {
         if draft.connectors == nil, !installedConnectors.isEmpty {
             draft.connectors = installedConnectors.map(\.id)
         }
-    }
-
-    /// Creates an unnamed bot with sensible defaults and opens it (desktop compose flow).
-    func createDefaultBot() async throws -> Bot {
-        var draft = BotDraft()
-        fillDefaults(&draft)
-        let bot = try await save(draft)
-        selection = bot.id
-        return bot
     }
 }
 
@@ -428,7 +382,7 @@ struct FolderPicker: View {
             HStack(spacing: 0) {
                 if stack.count > 1 {
                     BackButton { go(forward: false) { stack.removeLast() } }
-                        .padding(.leading, InterfaceMetrics.value(mac: 10, mobile: 12))
+                        .padding(.leading, 12)
                         .transition(.opacity)
                 }
                 ModalHeader(current.map { ($0 as NSString).lastPathComponent } ?? "Folders")
@@ -468,7 +422,7 @@ private struct FolderLevel: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: InterfaceMetrics.value(mac: 14, mobile: 22)) {
+            LazyVStack(alignment: .leading, spacing: 22) {
                 SearchField(text: $filter)
                 if let listing {
                     CardSection(footer: listing.path) {
@@ -476,7 +430,7 @@ private struct FolderLevel: View {
                             onPick(listing.path)
                         } label: {
                             Label("Use “\((listing.path as NSString).lastPathComponent)”", systemImage: "checkmark.circle.fill")
-                                .appFont(.headline)
+                                .font(.headline)
                                 .foregroundStyle(Palette.accent)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())
@@ -497,7 +451,7 @@ private struct FolderLevel: View {
                                         Text(dir.name).foregroundStyle(Palette.text).lineLimit(1)
                                         Spacer(minLength: 8)
                                         Image(systemName: "chevron.right")
-                                            .appFont(.caption2.weight(.semibold))
+                                            .font(.caption2.weight(.semibold))
                                             .foregroundStyle(Palette.tertiary)
                                     }
                                     .contentShape(Rectangle())
@@ -512,8 +466,8 @@ private struct FolderLevel: View {
                     Spinner(size: 20).frame(maxWidth: .infinity)
                 }
             }
-            .appFont(AppFont.compactBody)
-            .padding(InterfaceMetrics.value(mac: 14, mobile: 20))
+            .font(.body)
+            .padding(20)
         }
         .scrollDismissesKeyboard(.interactively)
         .background(Palette.background)
