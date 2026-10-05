@@ -1,5 +1,5 @@
 // Builds the host the Mac app bundles (build/native/codync-host, universal) for the same
-// environment as the app: CODYNC_ENV (dev | main, default dev) is compiled into the host's cloud.
+// environment as the app: node tools/native-host.mjs dev|main compiles it in as CODYNC_ENV.
 // Built on every package so a host made for another environment is never shipped. Linux apps
 // use the installed host, so there's nothing to do there.
 import { execFileSync } from 'node:child_process'
@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 if (process.platform !== 'darwin') process.exit(0)
-const env = process.env.CODYNC_ENV ?? 'dev'
+const env = process.argv[2]
 if (!['dev', 'main'].includes(env)) throw new Error(`unknown environment ${env}`)
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const host = join(root, '../../host')
