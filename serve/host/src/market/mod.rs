@@ -409,18 +409,8 @@ fn listing(server: &Value, installed: &[Connector]) -> Option<Value> {
 pub async fn browse_connectors(store: &crate::store::Store, search: &str, cursor: &str) -> Result<Value> {
     let installed = connectors(store)?;
     let search = search.trim();
-    let mut servers: Vec<Value> = if search.is_empty() && cursor.is_empty() {
-        let lookups = FEATURED.iter().map(|n| registry_server(n));
-        futures::future::join_all(lookups).await.into_iter().filter_map(Result::ok).collect()
-    } else {
-        vec![]
-    };
-    let (page, next) = registry_page(search, cursor, 60).await?;
-    // Later pages of the unfiltered list skip the featured servers the first page led with.
-    let shown_already = |s: &Value| {
-        search.is_empty() && !cursor.is_empty() && FEATURED.contains(&s["name"].as_str().unwrap_or_default())
-    };
-    servers.extend(page.into_iter().filter(|s| !shown_already(s)));
+    let (servers, next) =
+        if search.is_empty() && cursor.is_empty() { first_page().await? } else { later_page(search, cursor).await? };
     let mut seen = std::collections::HashSet::new();
     let items: Vec<Value> = servers
         .iter()
@@ -428,6 +418,64 @@ pub async fn browse_connectors(store: &crate::store::Store, search: &str, cursor
         .filter_map(|s| listing(s, &installed))
         .collect();
     Ok(json!({"items": items, "nextCursor": next}))
+}
+
+type Page = (Vec<Value>, Option<String>);
+
+/// The unfiltered first page (featured servers, then the registry's first page), kept in memory
+/// because the registry often takes 15-45 s to answer.
+static FIRST_PAGE: Mutex<Option<(Instant, Page)>> = Mutex::new(None);
+const FIRST_PAGE_FRESH: Duration = Duration::from_secs(600);
+
+/// Serves the cached first page at once (refreshing it in the background when stale).
+async fn first_page() -> Result<Page> {
+    let cached = FIRST_PAGE.locked().clone();
+    match cached {
+        Some((at, page)) => {
+            if at.elapsed() > FIRST_PAGE_FRESH {
+                tokio::spawn(refresh_first_page());
+            }
+            Ok(page)
+        }
+        None => fetch_first_page().await,
+    }
+}
+
+/// Fetches the first page into the cache; the host runs it at launch so the Marketplace opens warm.
+pub async fn refresh_first_page() {
+    if let Err(e) = fetch_first_page().await {
+        tracing::debug!(error = format!("{e:#}"), "MCP Registry first page");
+    }
+}
+
+async fn fetch_first_page() -> Result<Page> {
+    let lookups = FEATURED.iter().map(|n| registry_server(n));
+    let (featured, page) = tokio::join!(futures::future::join_all(lookups), registry_page("", "", 60));
+    let mut servers: Vec<Value> = featured.into_iter().filter_map(Result::ok).collect();
+    let complete = servers.len() == FEATURED.len();
+    let next = match page {
+        Ok((page, next)) => {
+            servers.extend(page);
+            next
+        }
+        // The featured servers alone still beat an error; nothing is cached so the next open retries.
+        Err(e) if !servers.is_empty() => {
+            tracing::debug!(error = format!("{e:#}"), "MCP Registry first page");
+            return Ok((servers, None));
+        }
+        Err(e) => return Err(e),
+    };
+    if complete {
+        *FIRST_PAGE.locked() = Some((Instant::now(), (servers.clone(), next.clone())));
+    }
+    Ok((servers, next))
+}
+
+/// A search, or a later page of the unfiltered list (which skips the featured servers the first page led with).
+async fn later_page(search: &str, cursor: &str) -> Result<Page> {
+    let (page, next) = registry_page(search, cursor, 60).await?;
+    let shown_already = |s: &Value| search.is_empty() && FEATURED.contains(&s["name"].as_str().unwrap_or_default());
+    Ok((page.into_iter().filter(|s| !shown_already(s)).collect(), next))
 }
 
 /// Fills `{placeholder}` in a header template with the user's value, or uses it as-is.

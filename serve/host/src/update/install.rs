@@ -181,8 +181,10 @@ pub async fn apply(
     }
     let bytes = release::archive(release).await?;
     let stage = target.with_file_name(format!(".codync-host-update-{}", uuid::Uuid::new_v4()));
+    let helper = Helper::new(target);
     let result = async {
         release::extract(&bytes, &release.platform, &stage)?;
+        let has_helper = release::extract_file(&bytes, &release.platform, HELPER, &helper.stage)?;
         let output = tokio::process::Command::new(&stage).arg("--version").kill_on_drop(true).output();
         let output = tokio::time::timeout(Duration::from_secs(10), output).await??;
         ensure!(
@@ -213,6 +215,11 @@ pub async fn apply(
                 if managed {
                     tokio::task::spawn_blocking(service::stop).await??;
                 }
+                // Swapped while the host is stopped, so the new host never starts the old helper.
+                // A failed swap keeps the old helper rather than leaving the host stopped.
+                if has_helper && let Err(error) = helper.swap() {
+                    tracing::warn!(error = format!("{error:#}"), "screen helper not updated");
+                }
                 Ok(())
             },
             || async {
@@ -223,6 +230,7 @@ pub async fn apply(
                 Ok(())
             },
             || async {
+                helper.restore();
                 if managed {
                     tokio::task::spawn_blocking(service::stop).await??;
                     tokio::task::spawn_blocking(service::start).await??;
@@ -236,5 +244,56 @@ pub async fn apply(
     }
     .await;
     let _ = std::fs::remove_file(stage);
+    helper.finish();
     result
+}
+
+/// The Linux Remote screen helper ships in the host's archive; the host starts it from beside
+/// itself, so an update replaces it there too.
+const HELPER: &str = "codync-screen";
+
+/// Swaps the helper beside the host for the staged one, keeping a copy to roll back to.
+struct Helper {
+    path: std::path::PathBuf,
+    stage: std::path::PathBuf,
+    backup: std::path::PathBuf,
+    swapped: std::sync::atomic::AtomicBool,
+}
+
+impl Helper {
+    fn new(target: &Path) -> Self {
+        let id = uuid::Uuid::new_v4();
+        Self {
+            path: target.with_file_name(HELPER),
+            stage: target.with_file_name(format!(".{HELPER}-update-{id}")),
+            backup: target.with_file_name(format!(".{HELPER}-backup-{id}")),
+            swapped: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    fn swap(&self) -> Result<()> {
+        if self.path.exists() {
+            std::fs::hard_link(&self.path, &self.backup).context("saving the screen helper")?;
+        }
+        std::fs::rename(&self.stage, &self.path).context("replacing the screen helper")?;
+        self.swapped.store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Puts the previous helper back (or removes a new one that had none before).
+    fn restore(&self) {
+        if !self.swapped.load(std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        if self.backup.exists() {
+            let _ = std::fs::rename(&self.backup, &self.path);
+        } else {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    fn finish(&self) {
+        let _ = std::fs::remove_file(&self.stage);
+        let _ = std::fs::remove_file(&self.backup);
+    }
 }

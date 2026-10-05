@@ -109,9 +109,6 @@ enum Sub {
         enable: bool,
         #[arg(long)]
         disable: bool,
-        /// Cloud base URL (https://…); turns the cloud on unless --disable.
-        #[arg(long)]
-        url: Option<String>,
         /// How devices on this computer's account get in: `code` (compare the 6-digit code,
         /// the default) or `auto` (no check: anyone who gets into the account, or controls
         /// the cloud, can then add a device).
@@ -335,12 +332,12 @@ async fn main() -> Result<()> {
             }
         },
         Sub::Access { port, action } => access(port, action.unwrap_or(AccessAction::List)).await,
-        Sub::Cloud { port, enable, disable, url, approval } => {
+        Sub::Cloud { port, enable, disable, approval } => {
             if let Some(approval) = approval {
                 local_call(port, "setApproval", json!({ "approval": approval })).await?;
             }
-            let status = if enable || disable || url.is_some() {
-                local_call(port, "setCloud", json!({"enabled": !disable, "url": url})).await?
+            let status = if enable || disable {
+                local_call(port, "setCloud", json!({"enabled": !disable})).await?
             } else {
                 local_call(port, "cloudStatus", json!({})).await?
             };
@@ -503,6 +500,7 @@ async fn serve(bind: &str, port: u16) -> Result<()> {
     let hub = hub::Hub::new(store, host_id, identity, token, port);
     hub.start()?;
     tokio::spawn(registry::refresh_loop());
+    tokio::spawn(market::refresh_first_page());
     tokio::spawn(voice::refresh_loop(hub.clone()));
     tokio::spawn(backends::refresh_sign_in());
     tokio::spawn(usage::poll(hub.clone()));
