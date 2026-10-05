@@ -409,7 +409,7 @@ impl Screen {
     }
 
     pub fn load_enabled(store: &crate::store::Store) -> bool {
-        store.kv_get(KV_ENABLED).as_deref() == Some("1")
+        store.kv_get(KV_ENABLED).as_deref() != Some("0")
     }
 
     pub fn enabled(&self) -> bool {
