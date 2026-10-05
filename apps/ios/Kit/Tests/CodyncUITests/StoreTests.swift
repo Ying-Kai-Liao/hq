@@ -689,3 +689,45 @@ private func helloJSON(version: String, minApp: String? = nil, backends: String 
         store.retire()
     }
 }
+
+@MainActor @Test func composerDraftsRestoreSeparatelyForEachBotAndThread() {
+    let (storage, suite) = context()
+    defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage) {
+        FakeRemote(.connecting)
+    }
+    defer { store.retire() }
+    let text = "  Unfinished message\nnext line 🐱\n"
+    store.selection = "first"
+    store.setComposerDraft(text, for: "first")
+    store.selection = "second"
+    #expect(store.composerDraft(for: "second").isEmpty)
+    store.setComposerDraft("Other bot's draft", for: "second")
+    store.setComposerDraft("Thread reply", for: "first", thread: "root")
+    store.selection = "first"
+    #expect(store.composerDraft(for: "first") == text)
+    #expect(store.composerDraft(for: "second") == "Other bot's draft")
+    #expect(store.composerDraft(for: "first", thread: "root") == "Thread reply")
+}
+
+@MainActor @Test func sendingComposerDraftClearsOnlyThatConversation() async {
+    let (storage, suite) = context()
+    defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+    let fake = FakeRemote(.ready(.direct))
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage) { fake }
+    defer { store.retire() }
+    store.setActive(true)
+    #expect(await until { await fake.subscribed })
+    await fake.emit(botEvent("first", name: "First", rev: 1))
+    #expect(await until { store.connection == .online })
+    store.setComposerDraft("First message", for: "first")
+    store.setComposerDraft("Other bot's draft", for: "second")
+    store.setComposerDraft("Thread reply", for: "first", thread: "root")
+    #expect(store.sendComposerDraft(to: "first"))
+    #expect(store.composerDraft(for: "first").isEmpty)
+    #expect(store.composerDraft(for: "second") == "Other bot's draft")
+    #expect(store.composerDraft(for: "first", thread: "root") == "Thread reply")
+    store.setComposerDraft("Next unfinished message", for: "first")
+    #expect(await until { store.chat("first").last?.id == "e1" })
+    #expect(store.composerDraft(for: "first") == "Next unfinished message")
+}

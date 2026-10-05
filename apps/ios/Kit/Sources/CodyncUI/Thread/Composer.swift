@@ -15,7 +15,10 @@ struct Composer: View {
     var onInterrupt: (() -> Void)?
     @Environment(BotStore.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var draft = ""
+    private var draft: String {
+        get { model.composerDraft(for: botId, thread: thread) }
+        nonmutating set { model.setComposerDraft(newValue, for: botId, thread: thread) }
+    }
     /// Files going out with the next message.
     @State private var files: [OutgoingFile] = []
     @State private var pickingFiles = false
@@ -195,7 +198,7 @@ struct Composer: View {
 
     private var box: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField(placeholder, text: $draft, axis: .vertical)
+            TextField(placeholder, text: Binding(get: { draft }, set: { draft = $0 }), axis: .vertical)
                 .lineLimit(1...8)
                 .font(.body)
                 .textFieldStyle(.plain)
@@ -327,8 +330,7 @@ struct Composer: View {
     private func submit() {
         guard canSend else { return }
         withAnimation(Motion.reduced(Motion.conversation, reduceMotion)) {
-            model.send(draft, to: botId, thread: thread, files: files)
-            draft = ""
+            guard model.sendComposerDraft(to: botId, thread: thread, files: files) else { return }
             files = []
         }
     }

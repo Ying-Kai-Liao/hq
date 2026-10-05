@@ -59,6 +59,12 @@ public final class BotStore {
     /// Bots whose older history has been fully paged in.
     public private(set) var historyComplete: Set<String> = []
     public var routineDrafts: [String: String] = [:]
+    /// Unsent composer text belongs to a conversation, not the view displaying it.
+    private struct ComposerDestination: Hashable {
+        let botId: String
+        let thread: String?
+    }
+    private var composerDrafts: [ComposerDestination: String] = [:]
     public var lastError: String?
     /// The open conversation (iOS navigation path / Mac sidebar selection).
     public var selection: String?
@@ -209,6 +215,7 @@ public final class BotStore {
 
     private func resetMirror() {
         bots = [:]
+        composerDrafts = [:]
         entries = entries.mapValues { $0.filter { $0.id.hasPrefix("local-") } }.filter { !$0.value.isEmpty }
         selection = nil
         onRosterChanged?()
@@ -228,6 +235,7 @@ public final class BotStore {
         voiceCalls.removeAll()
         setActive(false)
         retired = true
+        composerDrafts = [:]
         for call in calls { call.end() }
         saveTask?.cancel()
         dropTimer?.cancel()
@@ -516,6 +524,7 @@ public final class BotStore {
                 }
             }
         case let .botDeleted(id, r):
+            composerDrafts = composerDrafts.filter { $0.key.botId != id }
             bots[id] = nil
             entries[id] = nil
             bump(r)
@@ -646,6 +655,26 @@ public final class BotStore {
                 try await Task.sleep(for: .milliseconds(500))
             }
         }
+    }
+
+    func composerDraft(for botId: String, thread: String? = nil) -> String {
+        composerDrafts[ComposerDestination(botId: botId, thread: thread)] ?? ""
+    }
+
+    func setComposerDraft(_ text: String, for botId: String, thread: String? = nil) {
+        guard !retired else { return }
+        let destination = ComposerDestination(botId: botId, thread: thread)
+        composerDrafts[destination] = text.isEmpty ? nil : text
+    }
+
+    /// Submission moves the text to the local message/outbox; later delivery never clears a new draft.
+    @discardableResult
+    func sendComposerDraft(to botId: String, thread: String? = nil, files: [OutgoingFile] = []) -> Bool {
+        let text = composerDraft(for: botId, thread: thread)
+        guard !retired, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty else { return false }
+        send(text, to: botId, thread: thread, files: files)
+        setComposerDraft("", for: botId, thread: thread)
+        return true
     }
 
     /// `thread`: reply in the thread on that main-chat message.
@@ -949,6 +978,7 @@ public final class BotStore {
     }
 
     public func delete(_ bot: Bot) {
+        composerDrafts = composerDrafts.filter { $0.key.botId != bot.id }
         bots[bot.id] = nil
         entries[bot.id] = nil
         perform(replay: true) { try await $0.deleteBot(bot.id) }
