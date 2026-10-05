@@ -13,6 +13,8 @@ struct CodyncApp: App {
     @State private var updates = AppUpdates()
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("onboardingCompleted") private var onboardingCompleted = false
+    /// Cold launch with a computer to reach: the splash covers its connect and catch-up.
+    @State private var launching = !AppStore.shared.accounts.computers.isEmpty
 
     var body: some Scene {
         WindowGroup {
@@ -40,6 +42,13 @@ struct CodyncApp: App {
                 }
                 .onChange(of: app.account.userID, initial: true) { _, userID in
                     app.switchAccount(to: userID)
+                }
+                .overlay {
+                    if launching {
+                        LaunchSplash(stores: app.accounts.computers.compactMap { app.accounts.store(for: $0.id) }) {
+                            withAnimation(.easeOut(duration: 0.35)) { launching = false }
+                        }
+                    }
                 }
                 .onOpenURL { url in app.open(url) }
                 .onChange(of: scenePhase, initial: true) { _, phase in

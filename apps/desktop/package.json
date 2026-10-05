@@ -1,0 +1,47 @@
+{
+  "name": "codync-desktop",
+  "productName": "Codync",
+  "version": "2.7.0",
+  "description": "Codync for macOS and Linux: your coding agents as teammates.",
+  "author": {
+    "name": "leepokai",
+    "email": "109857817+leepokai@users.noreply.github.com"
+  },
+  "homepage": "https://www.codync.dev",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "node tools/account-config.mjs dev && electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test --experimental-strip-types src/shared/*.test.ts src/renderer/views/thread/*.test.ts",
+    "icons": "swift tools/export-symbols.swift",
+    "dist:mac:dev": "node tools/account-config.mjs dev && node tools/native-host.mjs dev && node tools/native-screen.mjs && electron-vite build && CSC_NAME=\"Pokai Lee (6KFK5J2LB4)\" electron-builder --mac",
+    "dist:mac:main": "node tools/account-config.mjs main && node tools/native-host.mjs main && node tools/native-screen.mjs && electron-vite build && electron-builder --mac",
+    "dist:linux:dev": "node tools/account-config.mjs dev && electron-vite build && electron-builder --linux",
+    "dist:linux:main": "node tools/account-config.mjs main && electron-vite build && electron-builder --linux"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/xterm": "^6.0.0",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "lucide": "^1.52.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.6"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  }
+}

@@ -10,69 +10,46 @@
 		00F78E3DAAF66E8E0933D091 /* ActivityGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD3DE9A4EEB369C4F75C9448 /* ActivityGalleryView.swift */; };
 		01A1F820EFEE49A8FCCFC3F3 /* BotListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0582B6169BFC36E4BCD51C0D /* BotListView.swift */; };
 		0631979397E0D6822747E03A /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6E13F8EA6C7B0DA4D899FEE /* RootView.swift */; };
-		0CFB5009A2A90DAA9DAF3293 /* ComputerStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 772D2E6B5C5157077E504B35 /* ComputerStatus.swift */; };
 		17DD96A91B1EC2AE699F4A2F /* ViewingBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C0E04490F5C56FD070539E6 /* ViewingBadge.swift */; };
-		2244021EF712DF568374AB04 /* HostController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B7967A8F027FF28EAEA893 /* HostController.swift */; };
-		2299EC1A2CE18A03C8AF9A0A /* ComputerStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 772D2E6B5C5157077E504B35 /* ComputerStatus.swift */; };
-		24DF3CB466CC877FCB8BAED6 /* ClerkKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7D524C19E9D41C0CF635A619 /* ClerkKit */; };
+		2002C16E427B4E4E7279E1C4 /* ComputerStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC00039A6C2C0D3F39A5F67 /* ComputerStatus.swift */; };
 		25667EBFCCC64B96FDCE95A9 /* CodyncKit in Frameworks */ = {isa = PBXBuildFile; productRef = 59F5D19A417A7A50596902FA /* CodyncKit */; };
 		2CC074683AE086D6C77CC1E8 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B274A0195CB3B2409EA4C194 /* WidgetKit.framework */; };
 		2CDF3DF16A13DAF83CA42168 /* CodyncWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAB9BDB52C3A9F7B2568A750 /* CodyncWidgets.swift */; };
+		35CFB641A4F10C0EBD21CB14 /* LaunchSplash.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FC76D28AB02DF1427D530ED /* LaunchSplash.swift */; };
 		3BCC04815E5CA8953E0DDCAD /* WidgetPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 305DDCC18BB8AA6CD9D19CEF /* WidgetPreviews.swift */; };
-		3C37D6D7D9C89E6AD3F5E04F /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 7549E88A01FD7650C5746C54 /* AppIcon.icon */; };
 		48DAAA1384E5B8D0BA27C895 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1E47C60032C326157E0386B8 /* SwiftUI.framework */; };
 		4DDC38E58D673047B332FDD5 /* AccessRequestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97102DEC6029268332DF901 /* AccessRequestView.swift */; };
 		501377099B6CF42761B230CB /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57A7C09154869DD84BACE19 /* WelcomeView.swift */; };
 		52CF04B855C6AAEC47B75B8F /* CodyncKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1285DDFA0390A76ECDAAD6C0 /* CodyncKit */; };
 		54CEEA0734C2940E2D9FAC7D /* AXTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D13418ABB5FD7CFC087677 /* AXTree.swift */; };
-		56D1B234EB2E4DE200BCA764 /* ChatWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B71D3227DAFDD03155870401 /* ChatWindow.swift */; };
 		674BCFBAC7022359FB673FDB /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AD18A04CD014230F1B7B0535 /* PrivacyInfo.xcprivacy */; };
 		684F7F77EECBA0BD95BDD658 /* UsageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFEBE2E6A9D0AF0A0D89FFE7 /* UsageView.swift */; };
-		68C9357B769268E8FA5BC746 /* AccountSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DF2F130F22D2672B7747474 /* AccountSession.swift */; };
 		719EABCBBAC0A973D729363A /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECD0B4EA4BBA2BB2826C4362 /* PairingView.swift */; };
 		72A907055F1AAEF8F10EAD72 /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7B7E845BA1B8696B266CF578 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		75C4B7F344DF1E52A1EADEFC /* Capture.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE63C84233B14A2D63640EAA /* Capture.swift */; };
 		76E77CC8A2B7C74213512FAB /* SignInButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AD0BD16672E128A4F26272B /* SignInButtons.swift */; };
 		7C20764DC05D499075BC5E8C /* CodyncApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65FE0504B741D0B44DB2516 /* CodyncApp.swift */; };
+		7E5F670CFFA0E4373F44DB41 /* AccountSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31BFDAD6DCCE1CC98642ACDD /* AccountSession.swift */; };
 		8157F3E9CFB390CBCB1A9F9A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4815867922559696EDCA47FD /* Assets.xcassets */; };
 		8517F8FC5AFAFF1527369829 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6932F782C1B87C9608359A6 /* NotificationService.swift */; };
 		89CA3972915769DBA315876F /* Push.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3BF4D3B82FE8274F610C703 /* Push.swift */; };
 		8BB3FC79EB798CE4347E6FD3 /* CodyncKit in Frameworks */ = {isa = PBXBuildFile; productRef = 50F314172CC2AD1C5CDC916A /* CodyncKit */; };
-		8D83C54A832018932F7261DE /* ComputersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F70117FA3097C5A6F28C89B /* ComputersView.swift */; };
 		921ED46A1643AB90BB3D4CF7 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = F99C11684BFBEB49006600A9 /* Session.swift */; };
-		92AA18FF5A35A96864AE1184 /* com.pokai.Codync.screen.plist in CopyFiles */ = {isa = PBXBuildFile; fileRef = 08D070CB1CE05D4848C09C52 /* com.pokai.Codync.screen.plist */; };
 		9638BAA981354C4CE72884A0 /* HostLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CC3E47D480A5F15CA95C504 /* HostLink.swift */; };
 		974A5D8D89758A61E7D8D1B6 /* Input.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BA06CEE98A7CDED62678522 /* Input.swift */; };
 		9BBB2FAEDBD35A83EAB02981 /* AccountSwitcherView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB282B31FBC94EE70D07638 /* AccountSwitcherView.swift */; };
-		A81CCD9288B1F54D9BB145EC /* AccountSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DF2F130F22D2672B7747474 /* AccountSession.swift */; };
 		AA601649E43A5AF73DCF5B5E /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 2D9748E611692583AFC5A152 /* WebRTC */; };
-		ADA06AC9F6CD98F58F77D364 /* CodyncUI in Frameworks */ = {isa = PBXBuildFile; productRef = BEE30A9D5C73E5A151F34180 /* CodyncUI */; };
-		AF21AAA6549D150D18C8927F /* UpdatesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B08914B44558AFBF93C2E671 /* UpdatesManager.swift */; };
 		B3554D38F39916698E961A37 /* WidgetGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B22589689593E0089118FDB /* WidgetGalleryView.swift */; };
-		B4373612F918A3158E69A8E3 /* SSHTunnel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0DEB8851CB0D546BF93F830 /* SSHTunnel.swift */; };
-		B7306D54C75E4A20E61142D0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5A6F0E1B9F75DA969F30E790 /* Assets.xcassets */; };
-		B8B86B2B7F8D9EE8639A9E09 /* CodyncKit in Frameworks */ = {isa = PBXBuildFile; productRef = 80868F96B9905FF52DCDFAE2 /* CodyncKit */; };
 		BA978F06CB1E58511FFB541B /* WidgetSetupDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D8961FADA8810B6CC479705 /* WidgetSetupDemo.swift */; };
 		BF77DD7946621D8818EDAB9B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A87B0091DAF0E4807D62017 /* SettingsView.swift */; };
-		C263D5693212EB0812A232D9 /* CodyncMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AB018B7D7F8E8137E0A1012 /* CodyncMacApp.swift */; };
 		C7ED489193AC0934515D2E85 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D0DE72EEAEC947C1D3CA237F /* PrivacyInfo.xcprivacy */; };
-		D51C32451FB38C337707E3A5 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124AB371AB16E5E232DE0A07 /* SettingsView.swift */; };
 		EBB0417A5FB2CE6D514D21BE /* ClerkKit in Frameworks */ = {isa = PBXBuildFile; productRef = D9AB2F442A5F243653EAE936 /* ClerkKit */; };
-		EC14C7513A8D2999D97D5ABA /* Screen.app in Embed Dependencies */ = {isa = PBXBuildFile; fileRef = 741B706007BA1B91CB853699 /* Screen.app */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		F171F16563D1FF6308697173 /* CodyncUI in Frameworks */ = {isa = PBXBuildFile; productRef = 06C9F37C6502131CAF0F145E /* CodyncUI */; };
 		F842AE1C5ED96AF9A7F5D16C /* Widgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6D734BEE7CD3F84677B0218B /* Widgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		F93D9960F7C20B2E629C1736 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AF460014351882D22C34DAA7 /* Sparkle */; };
 		F97C489DDB806224CEFCEB57 /* ScreenHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B2CB561A43ED9F2F1A4391 /* ScreenHelper.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		2E0B0CAFDFEF730B8269AE49 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 5B6351DD20AF4506794D6460 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 907F1F4A709111FC7178EAE9;
-			remoteInfo = Screen;
-		};
 		D40A213F2C1B900F886F95EB /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 5B6351DD20AF4506794D6460 /* Project object */;
@@ -102,71 +79,38 @@
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A39B341E188CE8DB0A29ACC0 /* Embed Dependencies */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = Contents/Library/LoginItems;
-			dstSubfolderSpec = 1;
-			files = (
-				EC14C7513A8D2999D97D5ABA /* Screen.app in Embed Dependencies */,
-			);
-			name = "Embed Dependencies";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		F03A20C030394F9A65472B30 /* CopyFiles */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = Contents/Library/LaunchAgents;
-			dstSubfolderSpec = 1;
-			files = (
-				92AA18FF5A35A96864AE1184 /* com.pokai.Codync.screen.plist in CopyFiles */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		0582B6169BFC36E4BCD51C0D /* BotListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotListView.swift; sourceTree = "<group>"; };
 		0829A4FCADAC108E8C2DB2F1 /* Widgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widgets.entitlements; sourceTree = "<group>"; };
-		08D070CB1CE05D4848C09C52 /* com.pokai.Codync.screen.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = com.pokai.Codync.screen.plist; sourceTree = "<group>"; };
 		0A87B0091DAF0E4807D62017 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		124AB371AB16E5E232DE0A07 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		1318104275E5BEC47B7088AD /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		14B7967A8F027FF28EAEA893 /* HostController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostController.swift; sourceTree = "<group>"; };
 		1E47C60032C326157E0386B8 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		28B2CB561A43ED9F2F1A4391 /* ScreenHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenHelper.swift; sourceTree = "<group>"; };
 		2C0E04490F5C56FD070539E6 /* ViewingBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewingBadge.swift; sourceTree = "<group>"; };
-		2DF2F130F22D2672B7747474 /* AccountSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSession.swift; sourceTree = "<group>"; };
 		305DDCC18BB8AA6CD9D19CEF /* WidgetPreviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetPreviews.swift; sourceTree = "<group>"; };
+		31BFDAD6DCCE1CC98642ACDD /* AccountSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSession.swift; sourceTree = "<group>"; };
+		3F4C4D3B64C608AEF2F85F91 /* Kit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Kit; path = ios/Kit; sourceTree = SOURCE_ROOT; };
 		4815867922559696EDCA47FD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		4EB282B31FBC94EE70D07638 /* AccountSwitcherView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSwitcherView.swift; sourceTree = "<group>"; };
 		52A96030D47F1B9678095909 /* iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iOS.entitlements; sourceTree = "<group>"; };
-		5A6F0E1B9F75DA969F30E790 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		5B22589689593E0089118FDB /* WidgetGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetGalleryView.swift; sourceTree = "<group>"; };
-		5D8E24CB8B64ED897CAEC580 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		60422D3CA8FEBCDC5AC465E0 /* iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = iOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		64888B10E98F19723500FBCA /* NotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NotificationService.entitlements; sourceTree = "<group>"; };
+		6BC00039A6C2C0D3F39A5F67 /* ComputerStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerStatus.swift; sourceTree = "<group>"; };
 		6D734BEE7CD3F84677B0218B /* Widgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = Widgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		6FC76D28AB02DF1427D530ED /* LaunchSplash.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchSplash.swift; sourceTree = "<group>"; };
 		741B706007BA1B91CB853699 /* Screen.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Screen.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		7549E88A01FD7650C5746C54 /* AppIcon.icon */ = {isa = PBXFileReference; path = AppIcon.icon; sourceTree = "<group>"; };
-		772D2E6B5C5157077E504B35 /* ComputerStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerStatus.swift; sourceTree = "<group>"; };
-		7A2F5A7F5A648909D8CC5C19 /* kit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = kit; path = ../kit; sourceTree = SOURCE_ROOT; };
-		7AB018B7D7F8E8137E0A1012 /* CodyncMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodyncMacApp.swift; sourceTree = "<group>"; };
 		7B7E845BA1B8696B266CF578 /* NotificationService.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		7D8961FADA8810B6CC479705 /* WidgetSetupDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSetupDemo.swift; sourceTree = "<group>"; };
 		8BA06CEE98A7CDED62678522 /* Input.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Input.swift; sourceTree = "<group>"; };
 		8CC3E47D480A5F15CA95C504 /* HostLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostLink.swift; sourceTree = "<group>"; };
-		991A0FD3EAAD4B446F3BF14E /* macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = macOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9AD0BD16672E128A4F26272B /* SignInButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInButtons.swift; sourceTree = "<group>"; };
-		9F70117FA3097C5A6F28C89B /* ComputersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputersView.swift; sourceTree = "<group>"; };
 		A65FE0504B741D0B44DB2516 /* CodyncApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodyncApp.swift; sourceTree = "<group>"; };
 		AD18A04CD014230F1B7B0535 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		B08914B44558AFBF93C2E671 /* UpdatesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatesManager.swift; sourceTree = "<group>"; };
-		B0DEB8851CB0D546BF93F830 /* SSHTunnel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHTunnel.swift; sourceTree = "<group>"; };
-		B19BCCF4FC316502CA90AF3F /* macOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = macOS.entitlements; sourceTree = "<group>"; };
 		B274A0195CB3B2409EA4C194 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		B6E13F8EA6C7B0DA4D899FEE /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
-		B71D3227DAFDD03155870401 /* ChatWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatWindow.swift; sourceTree = "<group>"; };
 		B97102DEC6029268332DF901 /* AccessRequestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessRequestView.swift; sourceTree = "<group>"; };
 		CE63C84233B14A2D63640EAA /* Capture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Capture.swift; sourceTree = "<group>"; };
 		CFEBE2E6A9D0AF0A0D89FFE7 /* UsageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageView.swift; sourceTree = "<group>"; };
@@ -184,17 +128,6 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		1AC8A5FB72DF4C3DAEDBA56F /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				F93D9960F7C20B2E629C1736 /* Sparkle in Frameworks */,
-				24DF3CB466CC877FCB8BAED6 /* ClerkKit in Frameworks */,
-				B8B86B2B7F8D9EE8639A9E09 /* CodyncKit in Frameworks */,
-				ADA06AC9F6CD98F58F77D364 /* CodyncUI in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		9BF4C7DD5C26BAD44BD453BF /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -234,28 +167,6 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		0C9ED805690F5F321E1C2C97 /* Resources */ = {
-			isa = PBXGroup;
-			children = (
-				7549E88A01FD7650C5746C54 /* AppIcon.icon */,
-				5A6F0E1B9F75DA969F30E790 /* Assets.xcassets */,
-				5D8E24CB8B64ED897CAEC580 /* Info.plist */,
-				B19BCCF4FC316502CA90AF3F /* macOS.entitlements */,
-			);
-			path = Resources;
-			sourceTree = "<group>";
-		};
-		1783562DCB0F9E8E2186F4A0 /* App */ = {
-			isa = PBXGroup;
-			children = (
-				7AB018B7D7F8E8137E0A1012 /* CodyncMacApp.swift */,
-				14B7967A8F027FF28EAEA893 /* HostController.swift */,
-				B0DEB8851CB0D546BF93F830 /* SSHTunnel.swift */,
-				B08914B44558AFBF93C2E671 /* UpdatesManager.swift */,
-			);
-			path = App;
-			sourceTree = "<group>";
-		};
 		39BD6D06FC3DE74E5AA24856 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
@@ -279,21 +190,11 @@
 			isa = PBXGroup;
 			children = (
 				60422D3CA8FEBCDC5AC465E0 /* iOS.app */,
-				991A0FD3EAAD4B446F3BF14E /* macOS.app */,
 				7B7E845BA1B8696B266CF578 /* NotificationService.appex */,
 				741B706007BA1B91CB853699 /* Screen.app */,
 				6D734BEE7CD3F84677B0218B /* Widgets.appex */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		53A9086E104FF26B9CE6C08F /* shared */ = {
-			isa = PBXGroup;
-			children = (
-				2DF2F130F22D2672B7747474 /* AccountSession.swift */,
-				772D2E6B5C5157077E504B35 /* ComputerStatus.swift */,
-			);
-			path = shared;
 			sourceTree = "<group>";
 		};
 		5756AB2A238F70069A04CA65 /* Widgets */ = {
@@ -306,14 +207,6 @@
 			path = Widgets;
 			sourceTree = "<group>";
 		};
-		618253CDFCE9BBB7DF5C4C3E /* LaunchAgents */ = {
-			isa = PBXGroup;
-			children = (
-				08D070CB1CE05D4848C09C52 /* com.pokai.Codync.screen.plist */,
-			);
-			path = LaunchAgents;
-			sourceTree = "<group>";
-		};
 		64D176A915A00A2E5FB10F5B /* Views */ = {
 			isa = PBXGroup;
 			children = (
@@ -321,6 +214,8 @@
 				4EB282B31FBC94EE70D07638 /* AccountSwitcherView.swift */,
 				DD3DE9A4EEB369C4F75C9448 /* ActivityGalleryView.swift */,
 				0582B6169BFC36E4BCD51C0D /* BotListView.swift */,
+				6BC00039A6C2C0D3F39A5F67 /* ComputerStatus.swift */,
+				6FC76D28AB02DF1427D530ED /* LaunchSplash.swift */,
 				ECD0B4EA4BBA2BB2826C4362 /* PairingView.swift */,
 				B6E13F8EA6C7B0DA4D899FEE /* RootView.swift */,
 				0A87B0091DAF0E4807D62017 /* SettingsView.swift */,
@@ -331,17 +226,6 @@
 				7D8961FADA8810B6CC479705 /* WidgetSetupDemo.swift */,
 			);
 			path = Views;
-			sourceTree = "<group>";
-		};
-		655004E37EA6A354229431F0 /* macos */ = {
-			isa = PBXGroup;
-			children = (
-				1783562DCB0F9E8E2186F4A0 /* App */,
-				618253CDFCE9BBB7DF5C4C3E /* LaunchAgents */,
-				0C9ED805690F5F321E1C2C97 /* Resources */,
-				EAAB62E0536250B727076FAD /* Views */,
-			);
-			path = macos;
 			sourceTree = "<group>";
 		};
 		75D64C75DA194CAF10294493 /* ios */ = {
@@ -383,7 +267,7 @@
 		AD54741A2330C502CD3BB628 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
-				7A2F5A7F5A648909D8CC5C19 /* kit */,
+				3F4C4D3B64C608AEF2F85F91 /* Kit */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -403,28 +287,17 @@
 			isa = PBXGroup;
 			children = (
 				75D64C75DA194CAF10294493 /* ios */,
-				655004E37EA6A354229431F0 /* macos */,
 				AD54741A2330C502CD3BB628 /* Packages */,
 				95C8CE71ADF48ACFE026A1AF /* screen-macos */,
-				53A9086E104FF26B9CE6C08F /* shared */,
 				3B3D0635CC47A804415E49C9 /* Frameworks */,
 				3EC1FDCCFFFB4BA1A23FDDB0 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		EAAB62E0536250B727076FAD /* Views */ = {
-			isa = PBXGroup;
-			children = (
-				B71D3227DAFDD03155870401 /* ChatWindow.swift */,
-				9F70117FA3097C5A6F28C89B /* ComputersView.swift */,
-				124AB371AB16E5E232DE0A07 /* SettingsView.swift */,
-			);
-			path = Views;
-			sourceTree = "<group>";
-		};
 		F25D9D57F88C5EFD30A30920 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				31BFDAD6DCCE1CC98642ACDD /* AccountSession.swift */,
 				A65FE0504B741D0B44DB2516 /* CodyncApp.swift */,
 				E3BF4D3B82FE8274F610C703 /* Push.swift */,
 			);
@@ -434,34 +307,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		72F29E7EBE9A88B16B4E608A /* macOS */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 7C0003BA8C173EC41757B9B4 /* Build configuration list for PBXNativeTarget "macOS" */;
-			buildPhases = (
-				FD97D0661DD7AA54EB7DE077 /* Sources */,
-				14FEC4FC6C72AC9A2596C04C /* Resources */,
-				F03A20C030394F9A65472B30 /* CopyFiles */,
-				1AC8A5FB72DF4C3DAEDBA56F /* Frameworks */,
-				A39B341E188CE8DB0A29ACC0 /* Embed Dependencies */,
-				7471650ADCC84E2BBDF4E47C /* Codync environment */,
-				C0A14ED49FC6A533FEABD5B2 /* Embed codync-host */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				403D98EE1C95EF3BA01D41CB /* PBXTargetDependency */,
-			);
-			name = macOS;
-			packageProductDependencies = (
-				AF460014351882D22C34DAA7 /* Sparkle */,
-				7D524C19E9D41C0CF635A619 /* ClerkKit */,
-				80868F96B9905FF52DCDFAE2 /* CodyncKit */,
-				BEE30A9D5C73E5A151F34180 /* CodyncUI */,
-			);
-			productName = macOS;
-			productReference = 991A0FD3EAAD4B446F3BF14E /* macOS.app */;
-			productType = "com.apple.product-type.application";
-		};
 		907F1F4A709111FC7178EAE9 /* Screen */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = EC3A304F5821443C1DD50876 /* Build configuration list for PBXNativeTarget "Screen" */;
@@ -555,10 +400,6 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
-					72F29E7EBE9A88B16B4E608A = {
-						DevelopmentTeam = 7FUM8A8H72;
-						ProvisioningStyle = Automatic;
-					};
 					907F1F4A709111FC7178EAE9 = {
 						DevelopmentTeam = 7FUM8A8H72;
 						ProvisioningStyle = Automatic;
@@ -589,9 +430,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				2C830647014432C6F20C557C /* XCRemoteSwiftPackageReference "clerk-ios" */,
-				3A835D8D18E836C121D811E0 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				979123F21565A4068586B502 /* XCRemoteSwiftPackageReference "WebRTC" */,
-				4821371032224740E592D19C /* XCLocalSwiftPackageReference "../kit" */,
+				1971A679A8497DA8D0C8B77A /* XCLocalSwiftPackageReference "ios/Kit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
@@ -601,21 +441,11 @@
 				907F1F4A709111FC7178EAE9 /* Screen */,
 				A27E4E88D6A5B9850734B594 /* Widgets */,
 				913BDA9F79CE8C35A9E35830 /* iOS */,
-				72F29E7EBE9A88B16B4E608A /* macOS */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		14FEC4FC6C72AC9A2596C04C /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				3C37D6D7D9C89E6AD3F5E04F /* AppIcon.icon in Resources */,
-				B7306D54C75E4A20E61142D0 /* Assets.xcassets in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		8C91DA62A73BD91999C1FD70 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -636,26 +466,6 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		7471650ADCC84E2BBDF4E47C /* Codync environment */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Codync environment";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# Debug builds use dev (dev-api.codync.dev), Release builds use main (api.codync.dev).\ncp \"$SRCROOT/shared/Config/$CODYNC_ENV.plist\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AccountConfig.plist\"\n";
-			showEnvVarsInLog = 0;
-		};
 		9900BE8858E71975C4052787 /* Codync environment */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -674,26 +484,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "# Debug builds use dev (dev-api.codync.dev), Release builds use main (api.codync.dev).\ncp \"$SRCROOT/shared/Config/$CODYNC_ENV.plist\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AccountConfig.plist\"\n";
-			showEnvVarsInLog = 0;
-		};
-		C0A14ED49FC6A533FEABD5B2 /* Embed codync-host */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Embed codync-host";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# Builds the Rust host and ships it inside Codync.app/Contents/MacOS.\nexport PATH=\"$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\nif ! command -v cargo >/dev/null; then\n  echo \"warning: cargo not found; Codync.app will look for codync-host on PATH instead\"\n  exit 0\nfi\nPROFILE=release\n[ \"$CONFIGURATION\" = \"Debug\" ] && PROFILE=debug\nFLAGS=\"\"\n[ \"$PROFILE\" = \"release\" ] && FLAGS=\"--release\"\nif [ \"$PROFILE\" = \"release\" ]; then\n  rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null 2>&1 || true\n  cargo build --release --manifest-path \"$SRCROOT/../host/Cargo.toml\" --target aarch64-apple-darwin &&\n  cargo build --release --manifest-path \"$SRCROOT/../host/Cargo.toml\" --target x86_64-apple-darwin &&\n  lipo -create -output \"$SRCROOT/../host/target/codync-host-universal\" \\\n    \"$SRCROOT/../host/target/aarch64-apple-darwin/release/codync-host\" \\\n    \"$SRCROOT/../host/target/x86_64-apple-darwin/release/codync-host\" &&\n  BIN=\"$SRCROOT/../host/target/codync-host-universal\" ||\n  { cargo build --release --manifest-path \"$SRCROOT/../host/Cargo.toml\" && BIN=\"$SRCROOT/../host/target/release/codync-host\"; }\nelse\n  cargo build --manifest-path \"$SRCROOT/../host/Cargo.toml\" && BIN=\"$SRCROOT/../host/target/debug/codync-host\"\nfi\n[ -n \"$BIN\" ] || { echo \"error: building codync-host failed\"; exit 1; }\nDEST=\"$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/codync-host\"\ncp \"$BIN\" \"$DEST\"\nif [ -n \"$EXPANDED_CODE_SIGN_IDENTITY\" ] && [ \"$CODE_SIGNING_ALLOWED\" != \"NO\" ]; then\n  codesign --force --options runtime --timestamp=none --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" \"$DEST\"\nfi\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
@@ -727,12 +517,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				4DDC38E58D673047B332FDD5 /* AccessRequestView.swift in Sources */,
-				A81CCD9288B1F54D9BB145EC /* AccountSession.swift in Sources */,
+				7E5F670CFFA0E4373F44DB41 /* AccountSession.swift in Sources */,
 				9BBB2FAEDBD35A83EAB02981 /* AccountSwitcherView.swift in Sources */,
 				00F78E3DAAF66E8E0933D091 /* ActivityGalleryView.swift in Sources */,
 				01A1F820EFEE49A8FCCFC3F3 /* BotListView.swift in Sources */,
 				7C20764DC05D499075BC5E8C /* CodyncApp.swift in Sources */,
-				0CFB5009A2A90DAA9DAF3293 /* ComputerStatus.swift in Sources */,
+				2002C16E427B4E4E7279E1C4 /* ComputerStatus.swift in Sources */,
+				35CFB641A4F10C0EBD21CB14 /* LaunchSplash.swift in Sources */,
 				719EABCBBAC0A973D729363A /* PairingView.swift in Sources */,
 				89CA3972915769DBA315876F /* Push.swift in Sources */,
 				0631979397E0D6822747E03A /* RootView.swift in Sources */,
@@ -753,22 +544,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		FD97D0661DD7AA54EB7DE077 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				68C9357B769268E8FA5BC746 /* AccountSession.swift in Sources */,
-				56D1B234EB2E4DE200BCA764 /* ChatWindow.swift in Sources */,
-				C263D5693212EB0812A232D9 /* CodyncMacApp.swift in Sources */,
-				2299EC1A2CE18A03C8AF9A0A /* ComputerStatus.swift in Sources */,
-				8D83C54A832018932F7261DE /* ComputersView.swift in Sources */,
-				2244021EF712DF568374AB04 /* HostController.swift in Sources */,
-				B4373612F918A3158E69A8E3 /* SSHTunnel.swift in Sources */,
-				D51C32451FB38C337707E3A5 /* SettingsView.swift in Sources */,
-				AF21AAA6549D150D18C8927F /* UpdatesManager.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -776,11 +551,6 @@
 			isa = PBXTargetDependency;
 			target = C42E5E078332C6C2B35AF5FA /* NotificationService */;
 			targetProxy = DA04088A6786CD5F92C67AED /* PBXContainerItemProxy */;
-		};
-		403D98EE1C95EF3BA01D41CB /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 907F1F4A709111FC7178EAE9 /* Screen */;
-			targetProxy = 2E0B0CAFDFEF730B8269AE49 /* PBXContainerItemProxy */;
 		};
 		40DF4BEA40A82C095F51AB76 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -843,7 +613,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 2.6.4;
+				MARKETING_VERSION = 2.7.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -853,33 +623,6 @@
 				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
-		};
-		57C9A2C8FA6B1E9F990016F9 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = macos/Resources/macOS.entitlements;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = "$(MARKETING_VERSION)";
-				ENABLE_APP_SANDBOX = NO;
-				ENABLE_HARDENED_RUNTIME = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = macos/Resources/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Codync;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Talk to your bots in a voice call.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Your words are transcribed on this Mac and sent to your bot as a message.";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.pokai.Codync;
-				PRODUCT_NAME = Codync;
-				SDKROOT = macosx;
-			};
-			name = Debug;
 		};
 		6377E0B7DC2015DD92AB6550 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -1024,7 +767,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 2.6.4;
+				MARKETING_VERSION = 2.7.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -1055,7 +798,6 @@
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1108,7 +850,6 @@
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1142,33 +883,6 @@
 			};
 			name = Release;
 		};
-		F1C857613730023CBDC70E38 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = macos/Resources/macOS.entitlements;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = "$(MARKETING_VERSION)";
-				ENABLE_APP_SANDBOX = NO;
-				ENABLE_HARDENED_RUNTIME = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = macos/Resources/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Codync;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Talk to your bots in a voice call.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Your words are transcribed on this Mac and sent to your bot as a message.";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.pokai.Codync;
-				PRODUCT_NAME = Codync;
-				SDKROOT = macosx;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1177,15 +891,6 @@
 			buildConfigurations = (
 				AA5DD179E0A7875E9EC22904 /* Debug */,
 				D8FAD997F1279E25370608C5 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
-		};
-		7C0003BA8C173EC41757B9B4 /* Build configuration list for PBXNativeTarget "macOS" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				57C9A2C8FA6B1E9F990016F9 /* Debug */,
-				F1C857613730023CBDC70E38 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
@@ -1229,9 +934,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		4821371032224740E592D19C /* XCLocalSwiftPackageReference "../kit" */ = {
+		1971A679A8497DA8D0C8B77A /* XCLocalSwiftPackageReference "ios/Kit" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../kit;
+			relativePath = ios/Kit;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -1242,14 +947,6 @@
 			requirement = {
 				kind = exactVersion;
 				version = 1.5.6;
-			};
-		};
-		3A835D8D18E836C121D811E0 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/sparkle-project/Sparkle";
-			requirement = {
-				kind = exactVersion;
-				version = 2.10.0;
 			};
 		};
 		979123F21565A4068586B502 /* XCRemoteSwiftPackageReference "WebRTC" */ = {
@@ -1283,24 +980,6 @@
 		59F5D19A417A7A50596902FA /* CodyncKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CodyncKit;
-		};
-		7D524C19E9D41C0CF635A619 /* ClerkKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 2C830647014432C6F20C557C /* XCRemoteSwiftPackageReference "clerk-ios" */;
-			productName = ClerkKit;
-		};
-		80868F96B9905FF52DCDFAE2 /* CodyncKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = CodyncKit;
-		};
-		AF460014351882D22C34DAA7 /* Sparkle */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 3A835D8D18E836C121D811E0 /* XCRemoteSwiftPackageReference "Sparkle" */;
-			productName = Sparkle;
-		};
-		BEE30A9D5C73E5A151F34180 /* CodyncUI */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = CodyncUI;
 		};
 		D9AB2F442A5F243653EAE936 /* ClerkKit */ = {
 			isa = XCSwiftPackageProductDependency;

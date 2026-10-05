@@ -110,13 +110,7 @@ final class AccountSession {
             case .google:
                 result = try await clerk.auth.signInWithOAuth(provider: .google, prefersEphemeralWebBrowserSession: isSignedIn)
             case .apple:
-                #if os(macOS)
-                // The desktop OAuth flow uses the Services ID grouped with our iOS App ID.
-                // Clerk therefore receives the same Apple identity, including Hide My Email.
-                result = try await clerk.auth.signInWithOAuth(provider: .apple, prefersEphemeralWebBrowserSession: isSignedIn)
-                #else
                 result = try await clerk.auth.signInWithApple()
-                #endif
             }
             switch result {
             case .signIn(let signIn):

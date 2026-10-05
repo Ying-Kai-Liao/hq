@@ -1,0 +1,79 @@
+# Packaging for macOS (DMG + zip for updates) and Linux (AppImage, deb, tar.gz).
+# CI puts the native pieces in place first (see .github/workflows/release-desktop.yml):
+#   build/native/codync-host        the host for this platform (macOS: universal)
+#   build/native/codync-speech      macOS on-device speech helper
+#   build/native/CodyncScreen.app   macOS screen helper (Xcode `Screen` target)
+appId: com.pokai.Codync
+productName: Codync
+copyright: ""
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+extraResources:
+  - from: resources/account-config.json
+    to: account-config.json
+  - from: resources/tray
+    to: tray
+protocols:
+  - name: Codync
+    schemes: [codync, com.pokai.Codync]
+publish:
+  provider: github
+  owner: leepokai
+  repo: Codync
+  releaseType: release
+
+mac:
+  category: public.app-category.developer-tools
+  # The Mac app's Icon Composer icon: Assets.car for macOS 26 (no gray icon frame) plus an icns.
+  icon: resources/AppIcon.icon
+  target:
+    - target: dmg
+      arch: universal
+    - target: zip
+      arch: universal
+  # The zip (update feed) takes this name; the DMG sets its own.
+  artifactName: codync-macos.${ext}
+  hardenedRuntime: true
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: Talk to your bots in a voice call.
+    NSSpeechRecognitionUsageDescription: Your words are transcribed on this Mac and sent to your bot as a message.
+  # The host ships inside the Mac app; Linux uses the installed codync-host (an AppImage's
+  # mount path changes every launch, so a service can't point into it).
+  extraResources:
+    - from: build/native/codync-host
+      to: codync-host
+    - from: build/native/codync-speech
+      to: codync-speech
+  extraFiles:
+    # Registered with SMAppService.agent when Remote screen is turned on.
+    - from: build/native/CodyncScreen.app
+      to: Library/LoginItems/CodyncScreen.app
+    - from: resources/mac/com.pokai.Codync.screen.plist
+      to: Library/LaunchAgents/com.pokai.Codync.screen.plist
+  notarize: true
+dmg:
+  artifactName: codync-macos.dmg
+  background: build/dmg-background.tiff
+  window: { width: 660, height: 400 }
+  iconSize: 128
+  iconTextSize: 13
+  contents:
+    - { x: 170, y: 200, type: file }
+    - { x: 490, y: 200, type: link, path: /Applications }
+
+linux:
+  category: Development
+  icon: resources/icon.png
+  executableName: codync
+  synopsis: Your coding agents as teammates
+  target: [AppImage, deb, tar.gz]
+  artifactName: codync-linux-${arch}.${ext}
+  desktop:
+    entry:
+      StartupWMClass: Codync

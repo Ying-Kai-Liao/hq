@@ -1,0 +1,80 @@
+/* A routine form's text field: plain, filled, rounded (kit `routineInput`). */
+.routine-input {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  outline: none;
+  border-radius: 12px;
+  background: var(--bubble-user);
+  color: var(--text);
+  font: inherit;
+  user-select: text;
+  resize: none;
+}
+.routine-input::placeholder {
+  color: var(--secondary);
+}
+textarea.routine-input {
+  field-sizing: content;
+  min-height: calc(3lh + 24px);
+  max-height: calc(8lh + 24px);
+}
+
+.routine-form {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.routine-form:disabled {
+  opacity: 0.6;
+}
+
+/* Cron and time zone side by side, stacked when the card is narrow. */
+.routine-cron {
+  container-type: inline-size;
+}
+.routine-cron-fields {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.routine-cron-fields > :first-child {
+  flex: 1;
+  min-width: 220px;
+}
+.routine-cron-fields > :last-child {
+  width: 170px;
+  flex: none;
+}
+@container (max-width: 400px) {
+  .routine-cron-fields {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+  .routine-cron-fields > :first-child,
+  .routine-cron-fields > :last-child {
+    width: auto;
+    min-width: 0;
+  }
+}
+
+.routine-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 0;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.routine-fade {
+  animation: routine-fade var(--hover) both;
+}
+@keyframes routine-fade {
+  from {
+    opacity: 0;
+  }
+}

@@ -1,0 +1,81 @@
+.call {
+  /* This floating control overlaps the title bar's native window-drag region. */
+  -webkit-app-region: no-drag;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  max-width: 100%;
+}
+
+/* Floats over the chat like the title pill: frosted, raised, sized to its content. */
+.call-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 10px 18px;
+  border-radius: 999px;
+  background: var(--frosted);
+  backdrop-filter: blur(24px) saturate(1.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.25);
+}
+
+.call-avatar {
+  display: flex;
+  transition: transform var(--layout);
+}
+.call-avatar.speaking {
+  animation: call-pulse 0.6s ease-in-out infinite alternate;
+}
+@keyframes call-pulse {
+  to {
+    transform: scale(1.1);
+  }
+}
+
+.call-round {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--bubble-user);
+  color: var(--secondary);
+  transition: background-color var(--hover), color var(--hover), transform var(--press);
+}
+.call-round.on {
+  background: var(--accent-fill);
+  color: var(--on-accent);
+}
+.call-round.end {
+  background: var(--danger);
+  color: #fff;
+}
+.call-round:active {
+  transform: scale(0.98);
+}
+
+/* One line under the bar: why the call fell back, or why it can't listen. */
+.call-line {
+  font-size: calc(10px * var(--scale));
+  text-align: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--bubble-user);
+  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.06);
+  animation: call-line-in var(--fade) both;
+}
+@keyframes call-line-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .call-avatar.speaking {
+    animation: none;
+  }
+}
