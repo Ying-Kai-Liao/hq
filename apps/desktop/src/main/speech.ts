@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, ipcMain, type WebContents } from 'electron'
@@ -58,8 +58,23 @@ function stop() {
   if (proc && !proc.killed) proc.kill('SIGTERM')
 }
 
+let supported: string[] | null = null
+
+/** The languages the recognizer can transcribe (identifiers like `zh-TW`), asked once. */
+function locales() {
+  if (supported) return supported
+  const path = helperPath()
+  try {
+    supported = path ? (JSON.parse(execFileSync(path, ['--locales'], { encoding: 'utf8', timeout: 5000 })) as string[]) : []
+  } catch {
+    supported = []
+  }
+  return supported
+}
+
 export function registerSpeech() {
   ipcMain.on('speech:available', (e) => (e.returnValue = process.platform === 'darwin' && helperPath() !== null))
+  ipcMain.on('speech:locales', (e) => (e.returnValue = locales()))
   ipcMain.on('speech:start', (e, locale: string | null) => start(e.sender, locale))
   ipcMain.on('speech:stop', () => stop())
   app.on('before-quit', stop)

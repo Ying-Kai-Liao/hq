@@ -117,7 +117,7 @@ export class OnDeviceEngine extends VoiceEngine {
     if (this.muted || this.ended) return
     this.recognizing = true
     this.started = false
-    window.codync.speech.start(null)
+    window.codync.speech.start(VoiceSettings.language() || null)
   }
 
   private stopListening() {

@@ -15,6 +15,7 @@ a version without one gets a generic "Bug fixes and improvements" line. Delete o
 - 進聊天室先顯示最新的訊息，往上捲再接上更早的；更新 app 之後也不用等對話重新載入。
 - 回覆裡的表格、分隔線、巢狀清單和行內程式碼都會正確排版。
 - 開啟 app 時會有 bot 動畫陪你等連線，畫面出現時新訊息已經同步好了。
+- 裝置上的語音通話可以選擇你說的語言（語音聊天設定 → 語言），不再只跟著系統的第一語言。
 
 ### en-US
 
@@ -24,3 +25,4 @@ a version without one gets a generic "Bug fixes and improvements" line. Delete o
 - A chat opens on its newest messages and brings in earlier ones as you scroll up, and no longer reloads after an app update.
 - Tables, dividers, nested lists and inline code in replies are now formatted properly.
 - Opening the app now shows an animated bot while it connects, so new messages are already in when the list appears.
+- On-device voice calls let you choose the language you speak (Voice chat settings → Language) instead of always following the system's first language.

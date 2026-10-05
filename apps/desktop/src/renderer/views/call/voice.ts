@@ -5,6 +5,7 @@ import {
   chosenVoice,
   engine,
   isVoiceProvider,
+  language,
   mode,
   pause,
   rate,
@@ -44,6 +45,8 @@ export const VoiceSettings = {
   pause: () => (pause.get() > 0 ? pause.get() : 1.5),
   /** AVSpeechUtterance's rate (0…1, 0.5 normal), as the Mac stores it. */
   rate: () => rate.get(),
+  /** The on-device recognizer's language; '' is the computer's. */
+  language: () => language.get(),
 }
 
 /** This month's realtime minutes, counted on this device. */

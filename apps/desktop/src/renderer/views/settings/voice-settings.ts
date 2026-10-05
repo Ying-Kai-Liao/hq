@@ -61,6 +61,24 @@ export const DEFAULT_RATE = 0.5
 export const rate = pref('callRate', DEFAULT_RATE)
 /** Seconds of silence that end what you say. */
 export const pause = pref('callPause', 1.5)
+/** On-device recognition language (a locale identifier); '' follows the system. */
+export const language = pref('callLanguage', '')
+
+/** Picker options: the system's language, then every language the recognizer supports, by name. */
+export function languageOptions(supported: string[]) {
+  const names = new Intl.DisplayNames([navigator.language], { type: 'language' })
+  const name = (id: string) => {
+    try {
+      return names.of(id.replace('_', '-')) ?? id
+    } catch {
+      return id
+    }
+  }
+  return [
+    { id: '', label: 'System' },
+    ...supported.map((id) => ({ id, label: name(id) })).sort((a, b) => a.label.localeCompare(b.label)),
+  ]
+}
 
 const cache = new Map<string, Pref<unknown>>()
 function keyed<T>(key: string, fallback: T): Pref<T> {

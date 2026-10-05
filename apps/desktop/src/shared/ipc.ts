@@ -131,6 +131,9 @@ export interface CodyncBridge {
   /** On-device speech recognition (macOS: SFSpeechRecognizer in a helper; unavailable on Linux). */
   speech: {
     available: boolean
+    /** The languages it can transcribe, as locale identifiers. */
+    locales(): string[]
+    /** `locale` null: the computer's language. */
     start(locale: string | null): void
     stop(): void
     onEvent(cb: (e: SpeechEvent) => void): () => void

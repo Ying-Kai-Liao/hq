@@ -1,5 +1,5 @@
 import { onDeviceUnavailableReason } from '../call/voice'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { HostClient } from '../../client/host-client'
 import { Button, CardForm, CardSection, ChoicePicker, IconButton, Spinner, ValueRow } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
@@ -19,6 +19,8 @@ import type { VoiceModels, VoiceProvider } from './voice-settings'
 export function VoiceChatSettingsView({ showsHeader = true }: { showsHeader?: boolean }) {
   const [engine, setEngine] = usePref(voice.engine)
   const [rate, setRate] = usePref(voice.rate)
+  const [language, setLanguage] = usePref(voice.language)
+  const languages = useMemo(() => voice.languageOptions(window.codync.speech.locales()), [])
   const provider = voice.isVoiceProvider(engine) ? engine : null
   const [mode, setMode] = usePref(voice.mode(provider ?? 'openai'))
   const footer = provider
@@ -48,6 +50,9 @@ export function VoiceChatSettingsView({ showsHeader = true }: { showsHeader?: bo
                     ...(mode === 'speech' ? [<PauseRow key="pause" />] : []),
                   ]
                 : [
+                    <ValueRow key="language" label="Language" detail="The language you speak in calls.">
+                      <ChoicePicker selection={language} options={languages} onChange={setLanguage} />
+                    </ValueRow>,
                     <ValueRow key="rate" label="Reading speed">
                       <ChoicePicker
                         selection={rate}

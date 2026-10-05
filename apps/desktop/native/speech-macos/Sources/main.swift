@@ -5,7 +5,7 @@ import Speech
 // codync-speech: transcribes the microphone on device with SFSpeechRecognizer and prints one
 // JSON event per line: {"type":"started"}, {"type":"partial"|"final","text":…},
 // {"type":"level","value":0…1}, {"type":"error","message":…}. It runs until stdin closes or
-// SIGTERM. The desktop app (src/main/speech.ts) owns endpointing: it stops this process when
+// SIGTERM. `--locales` prints the languages it can transcribe (a JSON array) and exits. The desktop app (src/main/speech.ts) owns endpointing: it stops this process when
 // the speaker pauses.
 
 @MainActor
@@ -99,6 +99,11 @@ final class Recognizer {
 }
 
 let arguments = CommandLine.arguments
+if arguments.contains("--locales") {
+    let ids = SFSpeechRecognizer.supportedLocales().map(\.identifier).sorted()
+    FileHandle.standardOutput.write((try? JSONSerialization.data(withJSONObject: ids)) ?? Data("[]".utf8))
+    exit(0)
+}
 let locale = arguments.firstIndex(of: "--locale").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
 
 signal(SIGTERM, SIG_IGN)

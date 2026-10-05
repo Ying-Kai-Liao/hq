@@ -32,7 +32,9 @@ final class OnDeviceEngine: VoiceEngine {
     }
 
     private let send: (String) -> Void
-    private let recognizer = SFSpeechRecognizer()
+    /// The language picked in the call settings, else the phone's.
+    private let recognizer = UserDefaults.standard.string(forKey: OnDeviceEngine.languageKey)
+        .flatMap { $0.isEmpty ? nil : SFSpeechRecognizer(locale: Locale(identifier: $0)) } ?? SFSpeechRecognizer()
     private let engine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
@@ -46,6 +48,14 @@ final class OnDeviceEngine: VoiceEngine {
     /// Call settings (the gear), kept across calls.
     static let pauseKey = "callPause"
     static let rateKey = "callRate"
+    /// On-device recognition language (a locale identifier); empty follows the system.
+    static let languageKey = "callLanguage"
+
+    /// Settings options: the system's language, then every language the recognizer supports, by name.
+    static var languageOptions: [(String, String)] {
+        let named = SFSpeechRecognizer.supportedLocales().map { ($0.identifier, Locale.current.localizedString(forIdentifier: $0.identifier) ?? $0.identifier) }
+        return [("", "System")] + named.sorted { $0.1.localizedStandardCompare($1.1) == .orderedAscending }
+    }
 
     /// A pause this long ends what you're saying and sends it.
     private var endOfUtterance: Duration {

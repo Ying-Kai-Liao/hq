@@ -8,6 +8,8 @@ import SwiftUI
 public struct VoiceChatSettingsView: View {
     @AppStorage(VoiceSettings.engineKey) private var engine = "device"
     @AppStorage(OnDeviceEngine.rateKey) private var rate = Double(AVSpeechUtteranceDefaultSpeechRate)
+    @AppStorage(OnDeviceEngine.languageKey) private var language = ""
+    @State private var languages = OnDeviceEngine.languageOptions
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init() {}
@@ -24,6 +26,9 @@ public struct VoiceChatSettingsView: View {
                     if let provider = VoiceProvider(rawValue: engine) {
                         ModeRows(provider: provider).id(provider)
                     } else {
+                        ValueRow("Language", detail: "The language you speak in calls.") {
+                            ChoicePicker(selection: $language, options: languages)
+                        }
                         ValueRow("Reading speed") {
                             ChoicePicker(selection: $rate, options: [
                                 (0.42, "Slower"), (Double(AVSpeechUtteranceDefaultSpeechRate), "Normal"), (0.56, "Faster"),
