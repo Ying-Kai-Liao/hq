@@ -35,7 +35,7 @@ struct RouteIcon: View {
             Image(systemName: "wifi").accessibilityLabel("Wi-Fi or Tailscale")
         case .relay:
             Image(systemName: "cloud").accessibilityLabel("Through Cloudflare")
-        case .loopback, nil:
+        case nil:
             EmptyView()
         }
     }

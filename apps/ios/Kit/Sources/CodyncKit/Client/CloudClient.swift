@@ -64,10 +64,6 @@ public struct CloudClient: Sendable {
         return res.devices
     }
 
-    public func revokeDevice(_ deviceId: String) async throws {
-        try await send("DELETE", "v1/devices/\(deviceId)")
-    }
-
     // MARK: computers
 
     /// With a device identity, each computer says whether this device has access.

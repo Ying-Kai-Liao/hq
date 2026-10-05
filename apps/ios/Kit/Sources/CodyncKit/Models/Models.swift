@@ -389,14 +389,6 @@ public struct SyncResponse: Codable, Sendable {
     public var usage: Usage
 }
 
-/// A fresh pairing code to show as a QR on this computer (loopback `pairing`).
-public struct PairingInfo: Codable, Sendable {
-    public var pairingUrl: String
-    public var urls: [String]
-    public var svg: String?
-    public var expiresAt: Int64?
-}
-
 public struct DirListing: Codable, Sendable {
     public var path: String
     public var parent: String?

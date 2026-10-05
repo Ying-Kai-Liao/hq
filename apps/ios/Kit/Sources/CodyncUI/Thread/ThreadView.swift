@@ -164,7 +164,6 @@ public struct ThreadView: View {
         switch model.hostRoute {
         case .relay: return "cloud"
         case .direct: return "wifi"
-        case .loopback: return "desktopcomputer"
         case nil: return "network"
         }
     }
@@ -181,7 +180,6 @@ public struct ThreadView: View {
         switch model.hostRoute {
         case .relay: return "Connected through Cloudflare"
         case .direct: return "Connected over Wi-Fi or Tailscale"
-        case .loopback: return "Connected locally"
         case nil: return "Connected"
         }
     }

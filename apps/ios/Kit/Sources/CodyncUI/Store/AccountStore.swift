@@ -14,7 +14,7 @@ public struct RosterItem: Identifiable, Sendable {
 }
 
 /// Account → computers → bots: one `BotStore` per computer this context can reach
-/// (QR-paired, approved through the account, or attached over loopback / SSH on the Mac),
+/// (QR-paired or approved through the account),
 /// plus the account's computers from the cloud that this device can still ask access to.
 ///
 /// Multiple computers are a future direction, not a current priority: the product targets one
@@ -25,7 +25,6 @@ public struct RosterItem: Identifiable, Sendable {
 public final class AccountStore {
     public let storage: SharedStore.Context
     public var accountId: String? { storage.accountID }
-    /// Attached (loopback) computers first, then the saved ones.
     public private(set) var computers: [Computer] = []
     public private(set) var stores: [ComputerID: BotStore] = [:]
     /// Everything in the account, including computers this device isn't authorized on yet.
@@ -48,11 +47,9 @@ public final class AccountStore {
 
     private let clientKind: String
     private let cloud: CloudClient?
-    private let makeStore: @MainActor (Computer, BotStore.Route) -> BotStore
+    private let makeStore: @MainActor (Computer) -> BotStore
     /// Persisted in the context (channel route).
     private var saved: [Computer]
-    /// This session only: the Mac's own host and SSH tunnels.
-    private var attached: [Computer] = []
     private var accessPolls: [ComputerID: Task<Void, Never>] = [:]
     private var isActive = true
     private var retired = false
@@ -60,19 +57,19 @@ public final class AccountStore {
     private var asked: Set<ComputerID> = []
 
     public convenience init(storage: SharedStore.Context, clientKind: String, cloud: CloudClient?) {
-        self.init(storage: storage, clientKind: clientKind, cloud: cloud) { computer, route in
-            BotStore(computer: computer, route: route, clientKind: clientKind, storage: storage)
+        self.init(storage: storage, clientKind: clientKind, cloud: cloud) { computer in
+            BotStore(computer: computer, clientKind: clientKind, storage: storage)
         }
     }
 
     init(storage: SharedStore.Context, clientKind: String, cloud: CloudClient?,
-         makeStore: @escaping @MainActor (Computer, BotStore.Route) -> BotStore) {
+         makeStore: @escaping @MainActor (Computer) -> BotStore) {
         self.storage = storage
         self.clientKind = clientKind
         self.cloud = cloud
         self.makeStore = makeStore
         saved = storage.computers.filter(\.isConsistent)
-        for computer in saved { open(computer, route: .channel) }
+        for computer in saved { open(computer) }
         refreshList()
     }
 
@@ -103,29 +100,11 @@ public final class AccountStore {
         guard !retired else { throw CancellationError() }
         computer.color = saved.first { $0.id == computer.id }?.color
         save(computer)
-        if !attached.contains(where: { $0.id == computer.id }) { open(computer, route: .channel) }
+        open(computer)
         return computer
     }
 
-    /// The Mac's own host or an SSH tunnel: not saved, it lasts until `detach`.
-    public func attach(_ computer: Computer, route: BotStore.Route) {
-        guard !retired else { return }
-        attached.removeAll { $0.id == computer.id }
-        attached.append(computer)
-        open(computer, route: route)
-        refreshList()
-    }
-
-    /// Ends an attachment; a saved computer with the same ID goes back to the channel.
-    public func detach(_ id: ComputerID) {
-        attached.removeAll { $0.id == id }
-        close(id)
-        if let computer = saved.first(where: { $0.id == id }), !retired { open(computer, route: .channel) }
-        refreshList()
-    }
-
     public func forget(_ id: ComputerID) {
-        attached.removeAll { $0.id == id }
         saved.removeAll { $0.id == id }
         persist()
         close(id)
@@ -142,7 +121,6 @@ public final class AccountStore {
             saved[i].route = value
             persist()
         }
-        if let i = attached.firstIndex(where: { $0.id == id }) { attached[i].route = value }
         stores[id]?.updateComputer { $0.route = value }
         stores[id]?.restartStream()
         refreshList()
@@ -153,7 +131,6 @@ public final class AccountStore {
             saved[i].color = color
             persist()
         }
-        if let i = attached.firstIndex(where: { $0.id == id }) { attached[i].color = color }
         stores[id]?.updateComputer { $0.color = color }
         refreshList()
     }
@@ -293,7 +270,7 @@ public final class AccountStore {
                 let computer = Computer(id: ticket.computerId, name: target.name, signKey: ticket.signKey,
                                         cloud: cloud.baseURL, device: target.device)
                 save(computer)
-                if !attached.contains(where: { $0.id == computer.id }) { open(computer, route: .channel) }
+                open(computer)
                 await refreshCloud()
                 return
             case .denied, .expired, .cancelled:
@@ -327,9 +304,9 @@ public final class AccountStore {
 
     // MARK: plumbing
 
-    private func open(_ computer: Computer, route: BotStore.Route) {
+    private func open(_ computer: Computer) {
         close(computer.id)
-        let store = makeStore(computer, route)
+        let store = makeStore(computer)
         let id = computer.id
         store.onBotUpdated = { [weak self] bot in
             guard let self, !self.retired else { return }
@@ -355,11 +332,10 @@ public final class AccountStore {
 
     private func computerChanged(_ computer: Computer) {
         guard !retired else { return }
-        if let i = saved.firstIndex(where: { $0.id == computer.id }), stores[computer.id]?.route == .channel {
+        if let i = saved.firstIndex(where: { $0.id == computer.id }) {
             saved[i] = computer
             persist()
         }
-        if let i = attached.firstIndex(where: { $0.id == computer.id }) { attached[i] = computer }
         refreshList()
     }
 
@@ -376,8 +352,7 @@ public final class AccountStore {
     }
 
     private func refreshList() {
-        let merged = attached + saved.filter { c in !attached.contains { $0.id == c.id } }
-        if merged != computers { Motion.animate { computers = merged } }
+        if saved != computers { Motion.animate { computers = saved } }
         rosterChanged()
     }
 

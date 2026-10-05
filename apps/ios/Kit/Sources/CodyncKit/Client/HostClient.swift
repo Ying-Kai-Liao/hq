@@ -47,11 +47,6 @@ public struct HostClient: Sendable {
         self.transport = transport
     }
 
-    /// Loopback: the Mac's own host, or one reached through an SSH tunnel.
-    public init(baseURL: URL, token: String) {
-        self.init(transport: LoopbackTransport(baseURL: baseURL, token: token))
-    }
-
     static let decoder = JSONDecoder()
     static let encoder = JSONEncoder()
 
@@ -276,9 +271,6 @@ public extension HostClient {
         try await call("usage", ["refresh": refresh])
     }
 
-    /// Pairing link + candidate addresses for showing a QR code on this computer.
-    func pairing() async throws -> PairingInfo { try await call("pairing") }
-
     func listDirs(_ path: String?) async throws -> DirListing {
         struct Body: Encodable { var path: String? }
         return try await call("listDirs", Body(path: path))
@@ -309,10 +301,6 @@ public extension HostClient {
         try await call("screenTakeover", ["on": on])
     }
 
-    /// Only accepted from the computer itself.
-    func setScreenEnabled(_ on: Bool) async throws -> ScreenState {
-        try await call("setScreenEnabled", ["enabled": on])
-    }
 }
 
 // MARK: - Agent setup
@@ -371,53 +359,4 @@ public extension HostClient {
 public struct ScreenAnswer: Codable, Sendable {
     public var session: String
     public var sdp: String
-}
-
-// MARK: - Loopback-only: this computer's devices and account (Mac)
-
-public extension HostClient {
-    /// The host signs a claim so the cloud can make this computer part of `userId`'s account (§4.2 A).
-    func claimSign(claimId: String, nonce: String, userId: String) async throws -> ClaimSignature {
-        try await call("claimSign", ["claimId": claimId, "nonce": nonce, "userId": userId])
-    }
-
-    func accessRequests() async throws -> [AccessRequest] {
-        struct Res: Decodable { var requests: [AccessRequest] }
-        let res: Res = try await call("accessRequests")
-        return res.requests
-    }
-
-    func decideAccessRequest(_ id: String, approve: Bool) async throws {
-        struct Body: Encodable { var requestId: String; var approve: Bool }
-        let _: Empty = try await call("decideAccessRequest", Body(requestId: id, approve: approve), timeout: 30)
-    }
-
-    func devices() async throws -> [AuthorizedDevice] {
-        struct Res: Decodable { var devices: [AuthorizedDevice] }
-        let res: Res = try await call("devices")
-        return res.devices
-    }
-
-    func revokeDevice(_ key: String) async throws {
-        let _: Empty = try await call("revokeDevice", ["key": key])
-    }
-
-    func cloudStatus() async throws -> CloudStatus { try await call("cloudStatus") }
-
-    func setCloud(enabled: Bool) async throws -> CloudStatus {
-        try await call("setCloud", ["enabled": enabled], timeout: 30)
-    }
-
-    func setCloud(enabled: Bool, url: URL?) async throws -> CloudStatus {
-        struct Body: Encodable { var enabled: Bool; var url: String? }
-        return try await call("setCloud", Body(enabled: enabled, url: url?.absoluteString), timeout: 30)
-    }
-
-    func setApproval(_ approval: AccountApproval) async throws -> CloudStatus {
-        try await call("setApproval", ["approval": approval.rawValue])
-    }
-
-    func unclaim() async throws {
-        let _: Empty = try await call("unclaim", timeout: 30)
-    }
 }

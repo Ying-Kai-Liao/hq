@@ -148,7 +148,7 @@ private func botEvent(_ id: String, name: String, rev: Int) -> String {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.direct))
-    let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage) { fake }
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage) { fake }
     defer { store.retire() }
     store.setActive(true)
     #expect(await until { await fake.subscribed })
@@ -187,7 +187,7 @@ private func botEvent(_ id: String, name: String, rev: Int) -> String {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.relay))
-    let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage) { fake }
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage) { fake }
     defer { store.retire() }
     store.setActive(true)
     #expect(await until { await fake.subscribed })
@@ -208,7 +208,7 @@ private func botEvent(_ id: String, name: String, rev: Int) -> String {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.direct))
-    let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage) { fake }
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage) { fake }
     store.setActive(true)
     #expect(await until { await fake.subscribed })
     await fake.emit(botEvent("b1", name: "Bot", rev: 1))
@@ -230,7 +230,7 @@ private func botEvent(_ id: String, name: String, rev: Int) -> String {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.hostOffline(lastSeen: nil))
-    let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage) { fake }
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage) { fake }
     store.setActive(true)
     #expect(await until { store.connection == .computerOffline(lastSeen: nil) })
     #expect(store.canQueue && store.isOffline)
@@ -278,8 +278,8 @@ private func botEvent(_ id: String, name: String, rev: Int) -> String {
     let c2 = randomComputer("Linux box")
     storage.computers = [c1, c2]
     let fakes = [c1.id: FakeRemote(.ready(.direct)), c2.id: FakeRemote(.ready(.relay))]
-    let account = AccountStore(storage: storage, clientKind: "ios", cloud: nil) { computer, route in
-        BotStore(computer: computer, route: route, clientKind: "ios", storage: storage) { fakes[computer.id]! }
+    let account = AccountStore(storage: storage, clientKind: "ios", cloud: nil) { computer in
+        BotStore(computer: computer, clientKind: "ios", storage: storage) { fakes[computer.id]! }
     }
     var updates: [BotReference] = []
     account.onBotUpdated = { ref, _ in updates.append(ref) }
@@ -318,8 +318,8 @@ private func botEvent(_ id: String, name: String, rev: Int) -> String {
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let a = randomComputer("A"), b = randomComputer("B"), c = randomComputer("C")
     storage.computers = [a, b, c]
-    let account = AccountStore(storage: storage, clientKind: "ios", cloud: nil) { computer, route in
-        BotStore(computer: computer, route: route, clientKind: "ios", storage: storage) { FakeRemote(.ready(.direct)) }
+    let account = AccountStore(storage: storage, clientKind: "ios", cloud: nil) { computer in
+        BotStore(computer: computer, clientKind: "ios", storage: storage) { FakeRemote(.ready(.direct)) }
     }
     account.move(a.id, to: c.id)
     #expect(account.computers.map(\.id) == [b.id, c.id, a.id])
@@ -330,23 +330,16 @@ private func botEvent(_ id: String, name: String, rev: Int) -> String {
     account.retire()
 }
 
-@MainActor @Test func attachedComputersAreNotSaved() async throws {
+@MainActor @Test func savedComputersKeepTheirColorAndCanBeForgotten() async throws {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let saved = randomComputer("Saved")
     storage.computers = [saved]
-    let fake = FakeRemote(.ready(.loopback))
-    let account = AccountStore(storage: storage, clientKind: "mac", cloud: nil) { _, _ in
-        BotStore(computer: saved, route: .channel, clientKind: "mac", storage: storage) { fake }
+    let account = AccountStore(storage: storage, clientKind: "ios", cloud: nil) { _ in
+        BotStore(computer: saved, clientKind: "ios", storage: storage) { FakeRemote(.ready(.direct)) }
     }
-    let local = randomComputer("This Mac")
-    account.attach(local, route: .loopback(baseURL: URL(string: "http://127.0.0.1:19222")!, token: "t"))
-    #expect(account.computers.map(\.id) == [local.id, saved.id])
-    #expect(storage.computers.map(\.id) == [saved.id])
     account.setColor(saved.id, "red")
     #expect(storage.computers.first?.color == "red")
-    account.detach(local.id)
-    #expect(account.computers.map(\.id) == [saved.id])
     account.forget(saved.id)
     #expect(storage.computers.isEmpty && account.stores.isEmpty)
     account.retire()
@@ -361,7 +354,7 @@ extension FakeRemote {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.direct))
-    let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage) { fake }
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage) { fake }
     store.setActive(true)
     defer { store.setActive(false) }
     #expect(await until { await fake.subscribed })
@@ -394,7 +387,7 @@ extension FakeRemote {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.direct))
-    let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "mac", storage: storage) { fake }
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "mac", storage: storage) { fake }
     store.setActive(true)
     defer { store.setActive(false) }
     #expect(await until { await fake.subscribed })
@@ -420,7 +413,7 @@ extension FakeRemote {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.hostOffline(lastSeen: nil))
-    let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage) { fake }
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage) { fake }
     defer { store.retire() }
     store.setActive(true)
     try await Task.sleep(for: .milliseconds(200))
@@ -438,7 +431,7 @@ extension FakeRemote {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.failed("Can't reach"))
-    let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage) { fake }
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage) { fake }
     defer { store.retire() }
     store.setActive(true)
     try await Task.sleep(for: .milliseconds(200))
@@ -451,7 +444,7 @@ extension FakeRemote {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.direct))
-    let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage) { fake }
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage) { fake }
     defer { store.retire() }
     store.setActive(true)
     #expect(await until { await fake.subscribed })
@@ -479,7 +472,7 @@ extension FakeRemote {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.direct))
-    let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage) { fake }
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage) { fake }
     defer { store.retire() }
     store.setActive(true)
     #expect(await until { await fake.subscribed })
@@ -503,7 +496,7 @@ extension FakeRemote {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.direct))
-    let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage) { fake }
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage) { fake }
     defer { store.retire() }
     store.setActive(true)
     #expect(await until { await fake.subscribed })
@@ -527,7 +520,7 @@ extension FakeRemote {
     let down = FakeRemote(.failed("Can't reach"))
     let up = FakeRemote(.ready(.relay))
     var made = 0
-    let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage) {
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage) {
         made += 1
         return made == 1 ? down : up
     }
@@ -545,7 +538,7 @@ extension FakeRemote {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.direct))
-    let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage) { fake }
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage) { fake }
     defer { store.retire() }
     store.setActive(true)
     #expect(await until { await fake.subscribed })
@@ -568,7 +561,7 @@ extension FakeRemote {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.direct))
-    let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage) { fake }
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage) { fake }
     defer { store.retire() }
     store.setActive(true)
     #expect(await until { await fake.subscribed })
@@ -604,7 +597,7 @@ extension FakeRemote {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.direct))
-    let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage) { fake }
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage) { fake }
     defer { store.retire() }
     store.setActive(true)
     #expect(await until { await fake.subscribed })
@@ -630,7 +623,7 @@ private func helloJSON(version: String, minApp: String? = nil, backends: String 
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.relay))
     await fake.setHello(helloJSON(version: "2.6.0", minApp: "2.5.0"))
-    let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage, appVersion: "2.4.0") { fake }
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage, appVersion: "2.4.0") { fake }
     defer { store.retire() }
     store.setActive(true)
     #expect(await until { store.mismatch == .updateApp(minimum: "2.5.0") })
@@ -645,7 +638,7 @@ private func helloJSON(version: String, minApp: String? = nil, backends: String 
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.relay))
     await fake.setHello(helloJSON(version: "2.2.0"))
-    let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage, appVersion: "2.4.0") { fake }
+    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage, appVersion: "2.4.0") { fake }
     defer { store.retire() }
     store.setActive(true)
     #expect(await until { store.mismatch == .updateHost(version: "2.2.0", minimum: VersionMismatch.minHost) })
@@ -665,7 +658,7 @@ private func helloJSON(version: String, minApp: String? = nil, backends: String 
     for minApp in ["2.6.0", "2.0.0"] {
         let fake = FakeRemote(.ready(.relay))
         await fake.setHello(helloJSON(version: "2.6.0", minApp: minApp, backends: #""changed shape""#))
-        let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage, appVersion: "2.4.0") { fake }
+        let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage, appVersion: "2.4.0") { fake }
         store.setActive(true)
         #expect(await until { store.mismatch == .updateApp(minimum: "2.6.0") }, "minApp \(minApp)")
         #expect(store.hello == nil)
@@ -679,7 +672,7 @@ private func helloJSON(version: String, minApp: String? = nil, backends: String 
     for (hostVersion, appIsBehind) in [("2.6.0", true), ("2.4.0", false)] {
         let fake = FakeRemote(.ready(.relay))
         await fake.setHello(helloJSON(version: hostVersion, minApp: "2.3.0"))
-        let store = BotStore(computer: randomComputer("Mac"), route: .channel, clientKind: "ios", storage: storage, appVersion: "2.4.0") { fake }
+        let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage, appVersion: "2.4.0") { fake }
         store.setActive(true)
         let broken = #"{"type":"bot","bot":{"id":"b1","name":7}}"#
         #expect(await until { await fake.eventSubscriptionCount == 1 })

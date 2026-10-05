@@ -13,7 +13,7 @@ public struct ScreenRequest: Identifiable, Hashable, Sendable {
 }
 
 /// One computer's mirror (bots, transcripts) for a client (iPhone app, Mac window), kept by one
-/// events stream (catch-up since `rev`, then live) over loopback or the encrypted channel.
+/// events stream (catch-up since `rev`, then live) over the encrypted channel.
 /// `AccountStore` holds one per computer.
 @MainActor
 @Observable
@@ -30,16 +30,7 @@ public final class BotStore {
         case unauthorized(String)
     }
 
-    /// How this store reaches its computer.
-    public enum Route: Sendable, Hashable {
-        /// The Mac's own host, or one through an SSH tunnel.
-        case loopback(baseURL: URL, token: String)
-        /// The end-to-end encrypted channel (direct or relay), with this context's device key.
-        case channel
-    }
-
     public private(set) var computer: Computer
-    public let route: Route
     public private(set) var connection: Connection = .connecting
     private static let dropGrace: Duration = .seconds(5)
     private static let initialConnectionGrace: Duration = .seconds(1)
@@ -59,10 +50,6 @@ public final class BotStore {
     public private(set) var usage: Usage
     /// The computer's remote screen (`nil`: the host predates it).
     public private(set) var screen: ScreenState?
-    /// Devices asking this computer for access (loopback only: the Mac approves them).
-    public private(set) var accessRequests: [AccessRequest] = []
-    /// The host's cloud connection (loopback only).
-    public private(set) var cloud: CloudStatus?
     /// Installed on the computer, for the Plugins screen and bot settings.
     public private(set) var installedConnectors: [InstalledConnector] = []
     public private(set) var installedSkills: [InstalledSkill] = []
@@ -80,7 +67,7 @@ public final class BotStore {
     public var screenRequest: ScreenRequest?
 
     // Platform hooks (push registration, Live Activities, widgets).
-    /// Each time the channel (or loopback) becomes ready.
+    /// Each time the channel becomes ready.
     public var onConnected: (@MainActor (BotStore) -> Void)?
     public var onBotUpdated: (@MainActor (Bot) -> Void)?
     public var onUsageChanged: (@MainActor (ComputerID, Usage) -> Void)?
@@ -122,23 +109,18 @@ public final class BotStore {
     /// While one side needs an update there's nothing to sync; `hello` is asked again this often.
     private static let mismatchRecheck: Duration = .seconds(30)
 
-    /// `.channel` loads this context's `DeviceIdentity` itself.
-    public convenience init(computer: Computer, route: Route, clientKind: String, storage: SharedStore.Context) {
-        let make: @MainActor () async throws -> any HostTransport = switch route {
-        case let .loopback(baseURL, token):
-            { LoopbackTransport(baseURL: baseURL, token: token) }
-        case .channel:
-            { try await HostConnector.connect(computer, identity: try DeviceIdentity.load(context: storage)) }
+    /// Loads this context's `DeviceIdentity` itself.
+    public convenience init(computer: Computer, clientKind: String, storage: SharedStore.Context) {
+        self.init(computer: computer, clientKind: clientKind, storage: storage) {
+            try await HostConnector.connect(computer, identity: try DeviceIdentity.load(context: storage))
         }
-        self.init(computer: computer, route: route, clientKind: clientKind, storage: storage, transport: make)
     }
 
-    init(computer: Computer, route: Route, clientKind: String, storage: SharedStore.Context,
+    init(computer: Computer, clientKind: String, storage: SharedStore.Context,
          appVersion: String = AppVersion.current,
          transport: @escaping @MainActor () async throws -> any HostTransport) {
         self.appVersion = appVersion
         self.computer = computer
-        self.route = route
         self.clientKind = clientKind
         self.storage = storage
         makeTransport = transport
@@ -450,10 +432,6 @@ public final class BotStore {
                     try await Task.sleep(for: Self.mismatchRecheck)
                     continue
                 }
-                if case .loopback = route {
-                    accessRequests = (try? await client.accessRequests()) ?? accessRequests
-                    cloud = (try? await client.cloudStatus()) ?? cloud
-                }
                 for try await event in client.events(since: rev, client: clientKind) {
                     guard !Task.isCancelled, !retired else { return }
                     setConnection(.online)
@@ -468,14 +446,6 @@ public final class BotStore {
                 if case let HostError.unauthorized(message) = error {
                     setConnection(.unauthorized(message))
                     return
-                }
-                // On the channel the link state speaks for itself; loopback has no other signal.
-                if case .loopback = route {
-                    if case HostError.http(401, _) = error {
-                        setConnection(.offline(error.localizedDescription))
-                        return
-                    }
-                    setConnection(.offline(error.localizedDescription))
                 }
             }
             try? await Task.sleep(for: .seconds(backoff))
@@ -502,12 +472,6 @@ public final class BotStore {
         // hello first: whatever the version change shows (notices, reminders) reads it.
         hello = h
         noteHostVersion(HostVersion(version: h.version, minApp: h.minApp))
-        if case .loopback = route {
-            updateComputer { c in
-                c.name = h.name
-                if let device = h.device { c.device = device }
-            }
-        }
     }
 
     private func noteHostVersion(_ new: HostVersion) {
@@ -566,10 +530,8 @@ public final class BotStore {
             setUsage(u)
         case let .screen(s):
             screen = s
-        case let .accessRequests(requests):
-            accessRequests = requests
-        case let .cloud(status):
-            cloud = status
+        case .accessRequests, .cloud:
+            break // The computer's own screens only (loopback).
         case .resync:
             restartEvents()
         case let .undecodable(type):
@@ -873,11 +835,6 @@ public final class BotStore {
     /// Takes control from bots (they can still look) or hands it back.
     public func screenTakeover(_ on: Bool) {
         perform(replay: true) { [weak self] in self?.screen = try await $0.screenTakeover(on) }
-    }
-
-    /// Only the computer itself may turn remote screen on (the Mac menu).
-    public func setScreenEnabled(_ on: Bool) async throws {
-        screen = try await ready().setScreenEnabled(on)
     }
 
     /// Quick reactions offered on every message (Slack's hover bar).

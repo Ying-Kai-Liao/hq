@@ -84,21 +84,6 @@ public struct AccessRequest: Codable, Hashable, Sendable, Identifiable {
     public var id: String { requestId }
 }
 
-/// A device the host authorized (loopback `devices`).
-public struct AuthorizedDevice: Codable, Hashable, Sendable, Identifiable {
-    public var key: String
-    public var name: String
-    public var platform: String?
-    /// `local` (QR) or `account`.
-    public var source: String
-    public var scopes: [String]?
-    public var leaseUntil: Int64?
-    public var createdAt: Int64?
-    public var lastSeenAt: Int64?
-    public var connected: Bool?
-    public var id: String { key }
-}
-
 public struct CloudOwner: Codable, Hashable, Sendable {
     public var userId: String
     public var email: String?
@@ -126,25 +111,6 @@ public enum AccountApproval: String, Codable, Hashable, Sendable {
     public init(from decoder: any Decoder) throws {
         self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .code
     }
-}
-
-/// `POST /v1/claims`.
-public struct ClaimChallenge: Codable, Hashable, Sendable {
-    public var claimId: String
-    public var nonce: String
-    public var expiresAt: Int64
-}
-
-/// What the host signs for a claim (loopback `claimSign`), passed on to `/v1/claims/{id}/complete`.
-public struct ClaimSignature: Codable, Hashable, Sendable {
-    public var computerId: ComputerID
-    public var signKey: String
-    public var boxKey: String
-    public var name: String
-    public var platform: String
-    public var device: String?
-    public var version: String
-    public var sig: String
 }
 
 /// `GET /v1/devices`.
