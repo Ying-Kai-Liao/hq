@@ -5,7 +5,7 @@ import { Icon } from '../../components/Icon'
 import { font } from '../../lib/fonts'
 import { useStore } from '../../store/context'
 import { MAX_FILE_SIZE, type OutgoingFile } from '../../store/bot-store'
-import { attachmentSymbol } from './Attachments'
+import { ComposerAttachment } from './ComposerAttachment'
 
 type Trailing = 'interrupt' | 'stop' | 'call' | 'send'
 
@@ -127,13 +127,7 @@ export function Composer({ botId, thread = null, onCall, onInterrupt }: {
           {files.length ? (
             <div className="file-chips">
               {files.map((f) => (
-                <span key={f.id} className="file-chip">
-                  <Icon name={attachmentSymbol(f.name)} size={10} color="var(--secondary)" />
-                  <span style={{ ...font('footnote'), color: 'var(--text)', maxWidth: 160, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
-                  <button aria-label={`Remove ${f.name}`} title="Remove" style={{ display: 'flex' }} onClick={() => setFiles((list) => list.filter((x) => x.id !== f.id))}>
-                    <Icon name="xmark" size={10} weight="bold" color="var(--secondary)" />
-                  </button>
-                </span>
+                <ComposerAttachment key={f.id} file={f} remove={() => setFiles((list) => list.filter((x) => x.id !== f.id))} />
               ))}
             </div>
           ) : null}
