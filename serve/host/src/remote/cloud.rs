@@ -16,17 +16,11 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::watch;
 
-/// The cloud a fresh host uses: main only for builds made with `CODYNC_ENV=main` (the release
-/// workflows), dev for every local build, debug or release, like the apps built next to it.
-/// Unit tests have none, so they never reach a real cloud.
-fn default_cloud_url() -> Option<&'static str> {
-    if cfg!(test) {
-        None
-    } else if option_env!("CODYNC_ENV") == Some("main") {
-        Some("https://api.codync.dev")
-    } else {
-        Some("https://dev-api.codync.dev")
-    }
+/// The cloud this build belongs to: main only for builds made with `CODYNC_ENV=main` (the
+/// release workflows), dev for every local build, debug or release, like the apps built next
+/// to it.
+fn build_cloud_url() -> &'static str {
+    if option_env!("CODYNC_ENV") == Some("main") { "https://api.codync.dev" } else { "https://dev-api.codync.dev" }
 }
 
 /// How long one successful state pull keeps an account device allowed.
@@ -49,19 +43,23 @@ const SAS_NONCES_PER_HOUR: usize = 5;
 const HOUR_MS: i64 = 60 * 60 * 1000;
 
 /// The cloud base URL in use, or `None` when the cloud is off.
-/// `CODYNC_CLOUD=off` > turned off here > `CODYNC_CLOUD_URL` > kv `cloud_url` > the default.
+/// `CODYNC_CLOUD=off` > turned off here > `CODYNC_CLOUD_URL` (a cloud you're developing) > the
+/// build's cloud. Which cloud is never saved here: on/off is the only stored cloud setting.
+/// Unit tests point at a fake cloud through kv `test_cloud_url`, so they never reach a real one.
 pub fn url(store: &Store) -> Option<String> {
     if std::env::var("CODYNC_CLOUD").is_ok_and(|v| v == "off")
         || store.kv_get("cloud_enabled").as_deref() == Some("false")
     {
         return None;
     }
-    std::env::var("CODYNC_CLOUD_URL")
+    if cfg!(test) {
+        return store.kv_get("test_cloud_url");
+    }
+    let custom = std::env::var("CODYNC_CLOUD_URL")
         .ok()
-        .or_else(|| store.kv_get("cloud_url"))
-        .or_else(|| default_cloud_url().map(str::to_owned))
-        .map(|u| u.trim_end_matches('/').to_owned())
-        .filter(|u| !u.is_empty())
+        .map(|u| u.trim().trim_end_matches('/').to_owned())
+        .filter(|u| valid_url(&format!("{u}/")));
+    Some(custom.unwrap_or_else(|| build_cloud_url().to_owned()))
 }
 
 /// A cloud URL this host may be pointed at: https, or plain http to this computer (local dev).
@@ -607,15 +605,8 @@ pub async fn unclaim(hub: &Hub) -> Result<()> {
     pull(hub, &base).await
 }
 
-/// `setCloud`: turns the cloud on or off (optionally pointing it elsewhere); the relay restarts.
-pub fn set_cloud(hub: &Hub, enabled: bool, new_url: Option<&str>) -> Result<CloudStatus> {
-    if let Some(u) = new_url {
-        let u = u.trim().trim_end_matches('/');
-        if !valid_url(&format!("{u}/")) {
-            bail!("The cloud URL must be https://… (or http:// to this computer).");
-        }
-        hub.store.kv_set("cloud_url", u)?;
-    }
+/// `setCloud`: turns the cloud on or off; the relay restarts.
+pub fn set_cloud(hub: &Hub, enabled: bool) -> Result<CloudStatus> {
     hub.store.kv_set("cloud_enabled", if enabled { "true" } else { "false" })?;
     let now = url(&hub.store);
     update_status(hub, |s| {
@@ -726,7 +717,7 @@ mod tests {
         let hub = temp_hub();
         let fake = Arc::new(FakeCloud::default());
         let base = fake_cloud(fake.clone()).await;
-        hub.store.kv_set("cloud_url", &base).unwrap();
+        hub.store.kv_set("test_cloud_url", &base).unwrap();
         let (dk, other_dk): ([u8; 32], [u8; 32]) = (crypto::random(), crypto::random());
         let (nd, wrong): ([u8; 32], [u8; 32]) = (crypto::random(), crypto::random());
         let request = |id: &str, host_nonce: Option<String>, device_nonce: Option<[u8; 32]>| {
@@ -772,7 +763,7 @@ mod tests {
         let hub = temp_hub();
         let fake = Arc::new(FakeCloud::default());
         let base = fake_cloud(fake.clone()).await;
-        hub.store.kv_set("cloud_url", &base).unwrap();
+        hub.store.kv_set("test_cloud_url", &base).unwrap();
         set_approval(&hub, Approval::Auto).unwrap();
         let (dk, nd): ([u8; 32], [u8; 32]) = (crypto::random(), crypto::random());
         let request = |host_nonce: Option<String>, device_nonce: Option<[u8; 32]>| {

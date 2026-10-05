@@ -709,7 +709,7 @@ mod tests {
         ];
 
         let base = fake_cloud(fake.clone(), hub.clone()).await;
-        hub.store.kv_set("cloud_url", &base).unwrap();
+        hub.store.kv_set("test_cloud_url", &base).unwrap();
         tokio::spawn(run(hub.clone()));
 
         wait_for(&fake, |m| m.iter().filter(|v| v["t"] == "mbox.ack").count() == 3).await;
@@ -769,7 +769,7 @@ mod tests {
             vec![item(1, &key, "d1"), item(2, &key, "d1"), item(3, "wrong", "d2"), item(4, &key, "d3")];
 
         let base = fake_cloud(fake.clone(), hub.clone()).await;
-        hub.store.kv_set("cloud_url", &base).unwrap();
+        hub.store.kv_set("test_cloud_url", &base).unwrap();
         tokio::spawn(run(hub.clone()));
 
         wait_for(&fake, |m| m.iter().filter(|v| v["t"] == "hook.ack").count() == 4).await;
@@ -840,7 +840,7 @@ mod tests {
             vec![json!({"t": "mbox.item", "seq": 1, "from": dk, "nonce": nonce, "d": blob, "exp": now_ms() + 1000})];
 
         let base = fake_cloud(fake.clone(), hub.clone()).await;
-        hub.store.kv_set("cloud_url", &base).unwrap();
+        hub.store.kv_set("test_cloud_url", &base).unwrap();
         tokio::spawn(run(hub.clone()));
 
         wait_for(&fake, |m| m.iter().any(|v| v["t"] == "mbox.ack")).await;

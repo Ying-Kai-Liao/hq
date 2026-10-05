@@ -743,7 +743,7 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
         "cloudStatus" => serde_json::to_value(hub.cloud.status())?,
         "setCloud" => {
             let enabled = b["enabled"].as_bool().ok_or_else(|| anyhow!("`enabled` is required"))?;
-            serde_json::to_value(crate::remote::cloud::set_cloud(hub, enabled, b["url"].as_str())?)?
+            serde_json::to_value(crate::remote::cloud::set_cloud(hub, enabled)?)?
         }
         "setApproval" => {
             let approval = serde_json::from_value(b["approval"].clone()).context("`approval` is code or auto")?;
