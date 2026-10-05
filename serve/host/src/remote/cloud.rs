@@ -16,15 +16,18 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::watch;
 
-/// The cloud a fresh host uses, matching the app's environment: debug builds (Xcode Debug)
-/// use dev, release builds use main. Unit tests have none, so they never reach a real cloud.
-pub const DEFAULT_CLOUD_URL: Option<&str> = if cfg!(test) {
-    None
-} else if cfg!(debug_assertions) {
-    Some("https://dev-api.codync.dev")
-} else {
-    Some("https://api.codync.dev")
-};
+/// The cloud a fresh host uses: main only for builds made with `CODYNC_ENV=main` (the release
+/// workflows), dev for every local build, debug or release, like the apps built next to it.
+/// Unit tests have none, so they never reach a real cloud.
+fn default_cloud_url() -> Option<&'static str> {
+    if cfg!(test) {
+        None
+    } else if option_env!("CODYNC_ENV") == Some("main") {
+        Some("https://api.codync.dev")
+    } else {
+        Some("https://dev-api.codync.dev")
+    }
+}
 
 /// How long one successful state pull keeps an account device allowed.
 pub const LEASE_MS: i64 = 15 * 60 * 1000;
@@ -56,7 +59,7 @@ pub fn url(store: &Store) -> Option<String> {
     std::env::var("CODYNC_CLOUD_URL")
         .ok()
         .or_else(|| store.kv_get("cloud_url"))
-        .or_else(|| DEFAULT_CLOUD_URL.map(str::to_owned))
+        .or_else(|| default_cloud_url().map(str::to_owned))
         .map(|u| u.trim_end_matches('/').to_owned())
         .filter(|u| !u.is_empty())
 }
