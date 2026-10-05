@@ -7,6 +7,7 @@ import { devPort, fetchHealth, HostController } from './host-controller'
 import { registerHostProxy } from './host-proxy'
 import { readClipboardFiles, readFiles } from './files'
 import { Tray } from './tray'
+import { applyDockVisibility, setShowInDock, showInDock } from './dock'
 import { AccountService } from './account'
 import { Updates } from './updates'
 import { handleURL, registerAuthIPC, registerSchemes, urlFromArgv } from './auth'
@@ -164,6 +165,12 @@ function registerIPC(tray: Tray) {
   ipcMain.on('app:traySummary', (_e, summary) => tray.update(summary))
   ipcMain.on('app:openPairing', () => openPairing())
   ipcMain.on('app:quit', () => app.quit())
+  ipcMain.handle('app:showInDock', () => showInDock())
+  ipcMain.handle('app:setShowInDock', (_e, on: boolean) => {
+    const visible = setShowInDock(on)
+    tray.hostChanged()
+    return visible
+  })
   ipcMain.handle('app:launchAtLogin', () => app.getLoginItemSettings().openAtLogin)
   ipcMain.handle('app:setLaunchAtLogin', (_e, on: boolean) => {
     app.setLoginItemSettings({ openAtLogin: on })
@@ -205,6 +212,7 @@ if (!app.requestSingleInstanceLock()) {
     // Packaged builds take the icon from the bundle (resources/AppIcon.icon); a development run
     // would otherwise show Electron's.
     if (isMac && !app.isPackaged) app.dock?.setIcon(join(__dirname, '../../resources/icon.png'))
+    applyDockVisibility()
     const tray = new Tray({ openChat, openPairing, send, host, updates })
     updates.on('change', () => tray.hostChanged())
     registerIPC(tray)

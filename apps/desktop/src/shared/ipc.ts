@@ -162,6 +162,8 @@ export interface CodyncBridge {
     quit(): void
     resetAllData(): Promise<void>
     setLaunchAtLogin(on: boolean): Promise<boolean>
+    showInDock(): Promise<boolean>
+    setShowInDock(on: boolean): Promise<boolean>
     launchAtLogin(): Promise<boolean>
     openSettings(url: string): void
     /**
