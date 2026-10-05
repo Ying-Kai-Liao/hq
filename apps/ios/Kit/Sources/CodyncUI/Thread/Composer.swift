@@ -143,7 +143,7 @@ struct Composer: View {
 
     private var trailing: Trailing {
         if onInterrupt != nil, draft.isEmpty, files.isEmpty { return .interrupt }
-        if working, draft.isEmpty { return .stop }
+        if working, draft.isEmpty, files.isEmpty { return .stop }
         if onCall != nil, draft.isEmpty, files.isEmpty { return .call }
         return .send
     }
@@ -263,27 +263,11 @@ struct Composer: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(files) { file in
-                    HStack(spacing: 6) {
-                        Image(systemName: AttachmentIcon.symbol(file.name))
-                            .foregroundStyle(Palette.secondary)
-                        Text(file.name)
-                            .font(.footnote)
-                            .foregroundStyle(Palette.text)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(maxWidth: 160, alignment: .leading)
-                        Button {
+                    ComposerAttachment(file: file) {
+                        withAnimation(Motion.reduced(Motion.layout, reduceMotion)) {
                             files.removeAll { $0.id == file.id }
-                        } label: {
-                            Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(Palette.secondary)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Remove \(file.name)")
-                        .help("Remove")
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Palette.surface, in: Capsule())
                 }
             }
             .padding(.horizontal, 10)
