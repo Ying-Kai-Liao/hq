@@ -45,8 +45,12 @@
   -webkit-app-region: no-drag;
 }
 .top-fade {
+  /* Placed in grid area 1/1 its box would start inside the chrome's padding and leave hard
+     edges; auto placement makes it cover the whole chrome. It fades out 24px below the
+     chrome, as the Mac app did. */
+  grid-area: auto !important;
   position: absolute;
-  inset: 0;
+  inset: 0 0 -24px;
   pointer-events: none;
   background: linear-gradient(to bottom, var(--background) 0%, color-mix(in srgb, var(--background) 60%, transparent) 35%, transparent 100%);
 }
