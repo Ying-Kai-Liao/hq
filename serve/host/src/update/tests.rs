@@ -99,6 +99,25 @@ fn extraction_refuses_symlinks_and_only_creates_the_expected_binary() {
     assert!(release::extract(&archive(false), "linux-arm64", &target).is_err());
 }
 
+#[test]
+fn the_screen_helper_is_extracted_only_when_the_archive_carries_it() {
+    let dir = Directory::new();
+    let gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    let mut tar = tar::Builder::new(gzip);
+    for (name, contents) in [("codync-host", b"new"), ("codync-screen", b"scr")] {
+        let mut header = tar::Header::new_gnu();
+        header.set_mode(0o755);
+        header.set_size(3);
+        header.set_cksum();
+        tar.append_data(&mut header, format!("codync-host-linux-arm64/{name}"), &contents[..]).unwrap();
+    }
+    let with_helper = tar.into_inner().unwrap().finish().unwrap();
+    let helper = dir.0.join("helper");
+    assert!(release::extract_file(&with_helper, "linux-arm64", "codync-screen", &helper).unwrap());
+    assert_eq!(std::fs::read(&helper).unwrap(), b"scr");
+    assert!(!release::extract_file(&archive(false), "linux-arm64", "codync-screen", &dir.0.join("none")).unwrap());
+}
+
 #[tokio::test]
 async fn a_failed_health_check_restores_the_previous_binary_and_service() {
     let dir = Directory::new();

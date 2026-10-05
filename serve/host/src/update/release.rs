@@ -139,10 +139,20 @@ pub async fn archive(release: &Release) -> Result<Vec<u8>> {
 /// Extract just the expected regular executable. Never unpack archive paths,
 /// symlinks, permissions or other files into the user's installation.
 pub fn extract(bytes: &[u8], platform: &str, destination: &Path) -> Result<()> {
+    ensure!(
+        extract_file(bytes, platform, "codync-host", destination)?,
+        "release archive does not contain its host executable"
+    );
+    Ok(())
+}
+
+/// Extracts one executable shipped beside the host (`codync-screen` on Linux), with the same
+/// rules as [`extract`]. `false` when the archive doesn't carry it.
+pub fn extract_file(bytes: &[u8], platform: &str, name: &str, destination: &Path) -> Result<bool> {
     use std::os::unix::fs::PermissionsExt as _;
     let decoder = flate2::read::GzDecoder::new(bytes).take(MAX_UNPACKED);
     let mut archive = tar::Archive::new(decoder);
-    let expected = format!("codync-host-{platform}/codync-host");
+    let expected = format!("codync-host-{platform}/{name}");
     let mut found = false;
     for entry in archive.entries()? {
         let mut entry = entry?;
@@ -157,6 +167,5 @@ pub fn extract(bytes: &[u8], platform: &str, destination: &Path) -> Result<()> {
         file.sync_all()?;
         found = true;
     }
-    ensure!(found, "release archive does not contain its host executable");
-    Ok(())
+    Ok(found)
 }
