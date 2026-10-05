@@ -167,9 +167,13 @@ export class HostController extends EventEmitter {
     this.setState({ kind: 'notInstalled' })
   }
 
-  /** Stops the service before the app replaces itself; `resumeAfterCancelledUpdate` undoes it. */
+  /**
+   * Stops the service before the app replaces itself; `resumeAfterCancelledUpdate` undoes it.
+   * macOS only: there the host runs from inside the app. Linux uses the installed host, which an
+   * app update leaves alone.
+   */
   async prepareForUpdate() {
-    if (devPort !== null) return
+    if (devPort !== null || !isMac) return
     if (this.installing) throw new Error('The host is being installed. Try again when it finishes.')
     this.preparingForUpdate = true
     if (existsSync(serviceFile)) prefs.set('hostRestartAfterAppUpdate', true)

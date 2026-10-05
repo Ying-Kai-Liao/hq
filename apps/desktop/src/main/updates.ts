@@ -3,19 +3,23 @@ import { app, BrowserWindow, ipcMain, powerMonitor } from 'electron'
 import electronUpdater, { type UpdateInfo } from 'electron-updater'
 import { isBelow, parseVersion } from '../shared/compat'
 import type { UpdateState } from '../shared/ipc'
+import { isMainEnvironment } from './account'
 import { prefs, type HostController } from './host-controller'
 
 const { autoUpdater } = electronUpdater
 
 /**
- * The app's own updates (electron-updater, GitHub releases; release builds only). Codync
+ * The app's own updates (electron-updater, GitHub releases; packaged `main` builds only, so a
+ * local `dev` build never replaces itself with a release). Codync
  * coordinates its background services before the installer replaces the app: the host is
  * stopped first, and a restart marker makes the next launch reinstall it from the new bundle.
  */
+const enabled = app.isPackaged && isMainEnvironment()
+
 export class Updates extends EventEmitter {
   state: UpdateState = {
-    supported: app.isPackaged,
-    canCheck: app.isPackaged,
+    supported: enabled,
+    canCheck: enabled,
     checking: false,
     availableVersion: null,
     staged: false,
@@ -44,7 +48,7 @@ export class Updates extends EventEmitter {
     this.on('change', () => {
       for (const w of windows()) w.webContents.send('updates:change', this.state)
     })
-    if (!app.isPackaged) return
+    if (!enabled) return
 
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true
@@ -57,7 +61,12 @@ export class Updates extends EventEmitter {
       else this.installWhenIdle()
     })
     autoUpdater.on('error', (error) => {
-      this.checked({ error: this.userInitiated ? error.message : null })
+      // An install that failed after the host was stopped puts the host back.
+      if (this.prepared) {
+        this.prepared = false
+        this.host.resumeAfterCancelledUpdate()
+      }
+      this.checked({ error: this.userInitiated || this.state.staged ? error.message : null })
       this.userInitiated = false
     })
 
@@ -103,7 +112,7 @@ export class Updates extends EventEmitter {
   }
 
   check() {
-    if (!app.isPackaged) return
+    if (!enabled) return
     if (this.state.staged) return void this.install()
     this.userInitiated = true
     this.set({ error: null })

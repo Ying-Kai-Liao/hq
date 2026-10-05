@@ -20,9 +20,9 @@ interface Config {
   cloudURL: string | null
 }
 
-/** `CODYNC_CLERK_PUBLISHABLE_KEY` / `CODYNC_CLOUD_URL`, else the build's account config. */
-function loadConfig(): Config {
-  let file: Partial<Config> = {}
+/** The build's account config (`tools/account-config.mjs`). */
+function configFile(): Partial<Config> & { environment?: string } {
+  let file: Partial<Config> & { environment?: string } = {}
   const candidates = [
     app.isPackaged ? join(process.resourcesPath, 'account-config.json') : null,
     join(__dirname, '../../resources/account-config.json'),
@@ -30,11 +30,20 @@ function loadConfig(): Config {
   for (const path of candidates) {
     if (path && existsSync(path)) {
       try {
-        file = JSON.parse(readFileSync(path, 'utf8')) as Partial<Config>
+        file = JSON.parse(readFileSync(path, 'utf8')) as typeof file
         break
       } catch {}
     }
   }
+  return file
+}
+
+/** Release builds are made for `main`; a `dev` build never replaces itself with one. */
+export const isMainEnvironment = () => configFile().environment === 'main'
+
+/** `CODYNC_CLERK_PUBLISHABLE_KEY` / `CODYNC_CLOUD_URL`, else the build's account config. */
+function loadConfig(): Config {
+  const file = configFile()
   const key = (process.env.CODYNC_CLERK_PUBLISHABLE_KEY ?? file.clerkPublishableKey ?? '').trim()
   const cloud = (process.env.CODYNC_CLOUD_URL ?? file.cloudURL ?? '').trim()
   return {

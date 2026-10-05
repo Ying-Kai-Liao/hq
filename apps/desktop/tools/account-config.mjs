@@ -11,6 +11,6 @@ const plist = readFileSync(join(root, '../shared/Config', `${env}.plist`), 'utf8
 const value = (key) => new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`).exec(plist)?.[1] ?? null
 writeFileSync(
   join(root, 'resources/account-config.json'),
-  `${JSON.stringify({ clerkPublishableKey: value('clerkPublishableKey'), cloudURL: value('cloudURL') }, null, 2)}\n`,
+  `${JSON.stringify({ environment: env, clerkPublishableKey: value('clerkPublishableKey'), cloudURL: value('cloudURL') }, null, 2)}\n`,
 )
 console.log(`account config: ${env}`)
