@@ -202,6 +202,9 @@ if (!app.requestSingleInstanceLock()) {
     // A menu bar app: it keeps running with no window.
   })
   void app.whenReady().then(() => {
+    // Packaged builds take the icon from the bundle (resources/AppIcon.icon); a development run
+    // would otherwise show Electron's.
+    if (isMac && !app.isPackaged) app.dock?.setIcon(join(__dirname, '../../resources/icon.png'))
     const tray = new Tray({ openChat, openPairing, send, host, updates })
     updates.on('change', () => tray.hostChanged())
     registerIPC(tray)

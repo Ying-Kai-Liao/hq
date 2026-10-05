@@ -28,7 +28,8 @@ publish:
 
 mac:
   category: public.app-category.developer-tools
-  icon: resources/icon.icns
+  # The Mac app's Icon Composer icon: Assets.car for macOS 26 (no gray icon frame) plus an icns.
+  icon: resources/AppIcon.icon
   target:
     - target: dmg
       arch: universal
