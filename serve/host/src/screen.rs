@@ -5,8 +5,8 @@
 //! that connects to `~/.codync/screen.sock` — on macOS `CodyncScreen.app`
 //! (a signed bundle, so Screen Recording / Accessibility grants stick), on
 //! Linux `codync-screen` (xdg portals + `GStreamer`). The host stays the only
-//! network-facing process: it relays WebRTC signaling, gates access (off by
-//! default, enabled only from this computer) and arbitrates control between
+//! network-facing process: it relays WebRTC signaling, gates access (on by
+//! default where there is a desktop, toggled only from this computer) and arbitrates control between
 //! the user and bots.
 //!
 //! Helper protocol: newline-delimited JSON-RPC 2.0 over the socket.
@@ -37,7 +37,7 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
@@ -386,7 +386,8 @@ struct Viewer {
 }
 
 pub struct Screen {
-    enabled: AtomicBool,
+    /// The user's choice; `None` until they make one (see [`Screen::enabled`]).
+    enabled: Mutex<Option<bool>>,
     events: broadcast::Sender<Value>,
     link: Mutex<Option<Arc<Link>>>,
     status: Mutex<HelperStatus>,
@@ -396,9 +397,9 @@ pub struct Screen {
 }
 
 impl Screen {
-    pub fn new(enabled: bool, events: broadcast::Sender<Value>) -> Self {
+    pub fn new(enabled: Option<bool>, events: broadcast::Sender<Value>) -> Self {
         Self {
-            enabled: AtomicBool::new(enabled),
+            enabled: Mutex::new(enabled),
             events,
             link: Mutex::default(),
             status: Mutex::default(),
@@ -408,12 +409,19 @@ impl Screen {
         }
     }
 
-    pub fn load_enabled(store: &crate::store::Store) -> bool {
-        store.kv_get(KV_ENABLED).as_deref() != Some("0")
+    pub fn load_enabled(store: &crate::store::Store) -> Option<bool> {
+        match store.kv_get(KV_ENABLED).as_deref() {
+            Some("1") => Some(true),
+            Some("0") => Some(false),
+            _ => None,
+        }
     }
 
+    /// On by default wherever there is a screen to share: always on macOS, and on Linux
+    /// only while a graphical session is up (checked live, so a headless server stays off
+    /// and a desktop that logs in after the host started turns on).
     pub fn enabled(&self) -> bool {
-        self.enabled.load(Ordering::Relaxed)
+        (*self.enabled.locked()).unwrap_or_else(graphical_session)
     }
 
     /// What clients show: availability, permissions, displays, who's in control.
@@ -572,7 +580,7 @@ impl Screen {
     /// Only callable from this computer (see `api/mod.rs`).
     pub async fn set_enabled(&self, store: &crate::store::Store, on: bool) -> Result<()> {
         store.kv_set(KV_ENABLED, if on { "1" } else { "0" })?;
-        self.enabled.store(on, Ordering::Relaxed);
+        *self.enabled.locked() = Some(on);
         if !on {
             let link = self.link.locked().clone();
             if let Some(link) = link
@@ -801,6 +809,22 @@ pub async fn serve_helpers(screen: Arc<Screen>) {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn graphical_session() -> bool {
+    true
+}
+
+/// A Wayland socket in this user's runtime dir, or a running X server.
+#[cfg(not(target_os = "macos"))]
+fn graphical_session() -> bool {
+    let has = |dir: &std::path::Path, prefix: &str| {
+        std::fs::read_dir(dir)
+            .is_ok_and(|entries| entries.flatten().any(|e| e.file_name().to_string_lossy().starts_with(prefix)))
+    };
+    std::env::var_os("XDG_RUNTIME_DIR").is_some_and(|dir| has(dir.as_ref(), "wayland-"))
+        || has(std::path::Path::new("/tmp/.X11-unix"), "X")
+}
+
 /// Linux: the host runs `codync-screen` itself while Remote screen is on (on macOS
 /// launchd runs Codync Screen for the app). Restarts it if it exits; stops it when turned off.
 #[cfg(target_os = "linux")]
@@ -956,7 +980,7 @@ mod tests {
     #[test]
     fn user_takeover_blocks_bot_actions_but_not_looking() {
         let (tx, _) = broadcast::channel(8);
-        let s = Screen::new(true, tx);
+        let s = Screen::new(Some(true), tx);
         assert!(s.claim("a", false).unwrap());
         assert!(!s.claim("a", false).unwrap());
         assert!(s.claim("b", true).is_err(), "one bot at a time");
@@ -976,7 +1000,7 @@ mod tests {
     #[test]
     fn prepared_sessions_are_bounded_and_do_not_count_as_viewers() {
         let (tx, _) = broadcast::channel(8);
-        let screen = Screen::new(true, tx);
+        let screen = Screen::new(Some(true), tx);
         let (tx, _) = mpsc::unbounded_channel();
         *screen.link.locked() =
             Some(Arc::new(Link { id: 1, tx, pending: Mutex::default(), next_id: AtomicI64::new(1) }));
@@ -1003,14 +1027,14 @@ mod tests {
             viewer.pending_until = 0;
         }
         assert!(screen.prepare("phone", IceConfig::default()).is_ok());
-        screen.enabled.store(false, Ordering::Relaxed);
+        *screen.enabled.locked() = Some(false);
         assert!(screen.prepare("phone", IceConfig::default()).is_err());
     }
 
     #[tokio::test]
     async fn helper_roundtrip_over_the_socket() {
         let (tx, _) = broadcast::channel(8);
-        let screen = Arc::new(Screen::new(true, tx));
+        let screen = Arc::new(Screen::new(Some(true), tx));
         let (a, b) = UnixStream::pair().unwrap();
         let (observed_tx, mut observed_rx) = mpsc::unbounded_channel();
         // Fake helper reports a display and records the host's ICE configuration.
