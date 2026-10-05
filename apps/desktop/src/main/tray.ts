@@ -44,9 +44,11 @@ export class Tray {
     this.rebuild()
   }
 
+  /** The renderer draws menu images at 2× (`tray-summary.ts`): shown at half their pixel size. */
   private image(dataURL: string | null) {
     if (!dataURL) return undefined
-    const image = nativeImage.createFromDataURL(dataURL)
+    const image = nativeImage.createEmpty()
+    image.addRepresentation({ scaleFactor: 2, dataURL })
     return image.isEmpty() ? undefined : image
   }
 
