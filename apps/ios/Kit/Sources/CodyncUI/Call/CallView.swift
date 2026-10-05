@@ -63,6 +63,10 @@ struct CallView: View {
 
     /// Starts the engine: a realtime provider on the key kept by the computer, or on-device speech.
     private func begin(cloud provider: VoiceProvider?) {
+        // Picks up the computer's newest models for the next call; this one starts right away.
+        if provider != nil, let client = model.client {
+            Task { if let status = try? await client.voiceStatus() { VoiceSettings.remember(status) } }
+        }
         let op = CallOperator(model: model, botId: botId)
         let engine: any VoiceEngine
         if let provider, VoiceSettings.isSpeechMode(provider) {
@@ -78,10 +82,6 @@ struct CallView: View {
                 speak: { try await client().voiceSpeak(provider, model: speechModel, voice: voice, text: $0) },
                 send: { [model, botId] in model.send($0, to: botId) }
             ))
-        // Picks up the computer's newest models for the next call; this one starts right away.
-        if provider != nil, let client = model.client {
-            Task { if let status = try? await client.voiceStatus() { VoiceSettings.remember(status) } }
-        }
             cloudStartedAt = .now
         } else if let provider {
             let chosen = VoiceSettings.model(provider)
