@@ -32,6 +32,9 @@ public final class BotStore {
 
     public private(set) var computer: Computer
     public private(set) var connection: Connection = .connecting
+    /// The first catch-up has arrived: everything up to the host's rev when this app connected.
+    public private(set) var caughtUp = false
+    private var catchUpRev = Int64.max
     private static let dropGrace: Duration = .seconds(5)
     private static let initialConnectionGrace: Duration = .seconds(1)
     private var heldDrop: Connection?
@@ -498,6 +501,8 @@ public final class BotStore {
             setUsage(newUsage)
             screen = newScreen
             if hostRev < rev { rev = 0 }
+            catchUpRev = hostRev
+            bump(rev)
         case let .bot(bot):
             let neededInput = bots[bot.id]?.needsInput == true
             bots[bot.id] = bot
@@ -557,7 +562,10 @@ public final class BotStore {
         eventsTask = Task { [weak self] in await self?.runEvents(client) }
     }
 
-    private func bump(_ r: Int64) { rev = max(rev, r) }
+    private func bump(_ r: Int64) {
+        rev = max(rev, r)
+        if !caughtUp && rev >= catchUpRev { caughtUp = true }
+    }
 
     private func upsert(_ e: Entry) {
         var list = entries[e.botId] ?? []

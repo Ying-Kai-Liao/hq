@@ -15,6 +15,7 @@
 		25667EBFCCC64B96FDCE95A9 /* CodyncKit in Frameworks */ = {isa = PBXBuildFile; productRef = 59F5D19A417A7A50596902FA /* CodyncKit */; };
 		2CC074683AE086D6C77CC1E8 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B274A0195CB3B2409EA4C194 /* WidgetKit.framework */; };
 		2CDF3DF16A13DAF83CA42168 /* CodyncWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAB9BDB52C3A9F7B2568A750 /* CodyncWidgets.swift */; };
+		35CFB641A4F10C0EBD21CB14 /* LaunchSplash.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FC76D28AB02DF1427D530ED /* LaunchSplash.swift */; };
 		3BCC04815E5CA8953E0DDCAD /* WidgetPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 305DDCC18BB8AA6CD9D19CEF /* WidgetPreviews.swift */; };
 		48DAAA1384E5B8D0BA27C895 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1E47C60032C326157E0386B8 /* SwiftUI.framework */; };
 		4DDC38E58D673047B332FDD5 /* AccessRequestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97102DEC6029268332DF901 /* AccessRequestView.swift */; };
@@ -99,6 +100,7 @@
 		64888B10E98F19723500FBCA /* NotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NotificationService.entitlements; sourceTree = "<group>"; };
 		6BC00039A6C2C0D3F39A5F67 /* ComputerStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerStatus.swift; sourceTree = "<group>"; };
 		6D734BEE7CD3F84677B0218B /* Widgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = Widgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		6FC76D28AB02DF1427D530ED /* LaunchSplash.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchSplash.swift; sourceTree = "<group>"; };
 		741B706007BA1B91CB853699 /* Screen.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Screen.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7B7E845BA1B8696B266CF578 /* NotificationService.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		7D8961FADA8810B6CC479705 /* WidgetSetupDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSetupDemo.swift; sourceTree = "<group>"; };
@@ -213,6 +215,7 @@
 				DD3DE9A4EEB369C4F75C9448 /* ActivityGalleryView.swift */,
 				0582B6169BFC36E4BCD51C0D /* BotListView.swift */,
 				6BC00039A6C2C0D3F39A5F67 /* ComputerStatus.swift */,
+				6FC76D28AB02DF1427D530ED /* LaunchSplash.swift */,
 				ECD0B4EA4BBA2BB2826C4362 /* PairingView.swift */,
 				B6E13F8EA6C7B0DA4D899FEE /* RootView.swift */,
 				0A87B0091DAF0E4807D62017 /* SettingsView.swift */,
@@ -520,6 +523,7 @@
 				01A1F820EFEE49A8FCCFC3F3 /* BotListView.swift in Sources */,
 				7C20764DC05D499075BC5E8C /* CodyncApp.swift in Sources */,
 				2002C16E427B4E4E7279E1C4 /* ComputerStatus.swift in Sources */,
+				35CFB641A4F10C0EBD21CB14 /* LaunchSplash.swift in Sources */,
 				719EABCBBAC0A973D729363A /* PairingView.swift in Sources */,
 				89CA3972915769DBA315876F /* Push.swift in Sources */,
 				0631979397E0D6822747E03A /* RootView.swift in Sources */,
@@ -794,7 +798,6 @@
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -847,7 +850,6 @@
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (

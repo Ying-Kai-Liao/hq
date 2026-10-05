@@ -20,6 +20,12 @@
 	<array>
 		<string>INSendMessageIntent</string>
 	</array>
+	<key>UILaunchScreen</key>
+	<dict>
+		<!-- Palette.background, so the splash bot appears on the same canvas. -->
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
