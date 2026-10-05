@@ -74,6 +74,13 @@
   box-shadow: 0 4px 32px rgba(0, 0, 0, 0.12);
   max-width: 60%;
 }
+.title-pill {
+  transition: opacity var(--layout), transform var(--layout);
+}
+.title-pill.hidden-by-call {
+  opacity: 0;
+  transform: translateY(-8px);
+}
 .frosted-circle {
   border-radius: 50%;
   background: var(--frosted);

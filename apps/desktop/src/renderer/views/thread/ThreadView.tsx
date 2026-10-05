@@ -129,7 +129,8 @@ export function ThreadView({ botId }: { botId: string }) {
               <MacChatButton title="Conversation details" icon="chevron.left.2" direction={[-1, 0]} onClick={toggleDetails} />
             ) : null}
           </div>
-          <button className="title-pill" onClick={toggleDetails} aria-label="View conversation details" title="View conversation details">
+          {/* The call bar takes the pill's place; its frosted glass would show the name blurred. */}
+          <button className={`title-pill ${calling ? 'hidden-by-call' : ''}`} inert={calling} onClick={toggleDetails} aria-label="View conversation details" title="View conversation details">
             <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               {bot ? isGroup(bot) ? <GroupAvatar members={store.members(bot)} size={22} /> : <BotAvatar bot={bot} size={22} /> : null}
               <span style={{ ...font(14, 'semibold'), color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{bot?.name ?? ''}</span>
