@@ -3,7 +3,11 @@
   "productName": "Codync",
   "version": "2.7.0",
   "description": "Codync for macOS and Linux: your coding agents as teammates.",
-  "author": "leepokai",
+  "author": {
+    "name": "leepokai",
+    "email": "109857817+leepokai@users.noreply.github.com"
+  },
+  "homepage": "https://www.codync.dev",
   "license": "UNLICENSED",
   "private": true,
   "main": "out/main/index.js",
