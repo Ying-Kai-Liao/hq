@@ -83,8 +83,6 @@ export class CloudModel extends Observable {
   computers: CloudComputer[] = []
   private registeredFor: string | null = null
   private enablingCloud = false
-  /** Hosts already pointed at this app's cloud this run (a host-side env override can't be moved). */
-  private aligned = new Set<string>()
   private autoClaiming = false
 
   constructor(private app: AppModel) {
@@ -104,7 +102,6 @@ export class CloudModel extends Observable {
 
   /** Re-evaluated on every account or store change. */
   private tick() {
-    this.alignCloud()
     const user = this.userId
     if (!user) {
       if (this.computers.length) {
@@ -156,19 +153,6 @@ export class CloudModel extends Observable {
     void this.enableCloud(store)
       .catch(() => {})
       .finally(() => (this.enablingCloud = false))
-  }
-
-  /**
-   * The host this app manages uses this build's cloud: a release host bundled into a dev app
-   * would otherwise sit on main while the app and a Debug iPhone sign in to dev.
-   */
-  private alignCloud() {
-    const store = this.app.local
-    const status = store?.cloud
-    if (!account.cloudURL || !store || store.connection.kind !== 'online' || !status?.enabled) return
-    if (status.url === account.cloudURL || this.aligned.has(store.computer.id)) return
-    this.aligned.add(store.computer.id)
-    void this.enableCloud(store).catch(() => {})
   }
 
   /** Signed in, this computer joins the account on its own, unless the user took it out of it. */
@@ -259,9 +243,9 @@ export class CloudModel extends Observable {
     }
   }
 
-  /** The host gets this app's cloud; a build without one keeps the host's. */
+  /** A host without a cloud URL of its own gets this app's. */
   private async enableCloud(store: BotStore) {
-    const url = account.cloudURL
+    const url = store.cloud?.url ? null : account.cloudURL
     if (!store.cloud?.url && !url) throw new CloudError(400, 'badRequest', 'This build of Codync has no cloud to connect to.')
     return (await store.ready()).call<CloudStatus>('setCloud', { enabled: true, url }, 30_000)
   }
