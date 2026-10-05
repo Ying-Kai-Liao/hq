@@ -2,13 +2,15 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { WindowCommand } from '@shared/ipc'
 import { draftOf, isGroup, type Bot, type BotDraft } from '@shared/models'
 import { CharacterAvatar } from '../components/Avatar'
-import { Button, ChoicePicker, IconButton } from '../components/Controls'
+import { Button, ChoicePicker, IconButton, Spinner } from '../components/Controls'
 import { Icon } from '../components/Icon'
 import { AnchoredMenu, Dialog, Sheet, type MenuItem } from '../components/Overlay'
 import { font } from '../lib/fonts'
 import { useModels } from '../lib/observable'
 import { prefs, stepTextSize, usePref, DEFAULT_TEXT_SIZE } from '../lib/prefs'
 import { useApp, StoreContext } from '../store/context'
+import { account, useAccount } from '../store/account'
+import googleLogo from '../assets/google.svg'
 import { refKey, sameRef, parseRef, type BotRef } from '../store/app-model'
 import type { BotStore } from '../store/bot-store'
 import { BotRow } from './BotRow'
@@ -514,9 +516,19 @@ function ComputerPicker({ stores, value, onChange }: { stores: BotStore[]; value
 }
 
 function ProfileAvatar() {
+  const { user, isBusy } = useAccount()
   return (
-    <span className="profile-avatar" aria-hidden>
-      <Icon name="person.fill" size={15} weight="medium" color="var(--secondary)" />
+    <span className="profile-avatar" aria-hidden style={{ position: 'relative', overflow: 'hidden' }}>
+      {user?.avatarURL ? (
+        <img src={user.avatarURL} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      ) : (
+        <Icon name="person.fill" size={15} weight="medium" color="var(--secondary)" />
+      )}
+      {isBusy ? (
+        <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Spinner size={14} />
+        </span>
+      ) : null}
     </span>
   )
 }
@@ -525,6 +537,8 @@ interface PanelItem {
   title: string
   icon: string
   detail?: string | null
+  /** A bundled image in place of the symbol (the Google logo). */
+  image?: string
   chevron?: boolean
   disabled?: boolean
   destructive?: boolean
@@ -540,6 +554,14 @@ function AccountPanelLayer({ compact, approvals, onDismiss, onUsage, onSettings 
   onSettings: () => void
 }) {
   const [page, setPage] = useState<'main' | 'support'>('main')
+  const { user, isBusy, errorMessage } = useAccount()
+  const signedIn = user !== null
+  const auth: PanelItem[] = signedIn
+    ? [{ title: isBusy ? 'Please wait…' : 'Sign out', icon: 'rectangle.portrait.and.arrow.right', disabled: isBusy, action: () => { onDismiss(); void account.signOut() } }]
+    : [
+        { title: 'Continue with Apple', icon: 'apple.logo', disabled: isBusy, action: () => { onDismiss(); void account.signIn('apple') } },
+        { title: 'Continue with Google', icon: 'person.crop.circle.badge.plus', image: googleLogo, disabled: isBusy, action: () => { onDismiss(); void account.signIn('google') } },
+      ]
   const open = (url: string) => {
     onDismiss()
     window.codync.app.openExternal(url)
@@ -556,6 +578,7 @@ function AccountPanelLayer({ compact, approvals, onDismiss, onUsage, onSettings 
           { title: 'Get Codync for mobile', icon: 'iphone', action: () => open('https://apps.apple.com/app/id6760984418') },
           { title: 'Support', icon: 'book.closed', chevron: true, action: () => setPage('support') },
           { title: 'Settings', icon: 'gearshape', detail: approvals > 0 ? String(approvals) : null, action: onSettings },
+          ...auth,
         ]
   return (
     <div className="context-layer" onMouseDown={(e) => e.target === e.currentTarget && onDismiss()}>
@@ -569,8 +592,8 @@ function AccountPanelLayer({ compact, approvals, onDismiss, onUsage, onSettings 
                 <div className="panel-divider" />
                 <div className="panel-identity">
                   <Icon name="person.crop.circle" size={15} />
-                  <span style={{ ...font(12), flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Account</span>
-                  <span style={font(11)}>Not signed in</span>
+                  <span style={{ ...font(12), flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.email ?? 'Account'}</span>
+                  {signedIn ? null : <span style={font(11)}>Not signed in</span>}
                 </div>
               </>
             ) : page === 'support' && i === 0 ? (
@@ -578,6 +601,9 @@ function AccountPanelLayer({ compact, approvals, onDismiss, onUsage, onSettings 
             ) : null
           }
         />
+        {page === 'main' && errorMessage ? (
+          <div style={{ ...font(12), color: 'var(--warning)', padding: '8px 10px' }}>{errorMessage}</div>
+        ) : null}
       </div>
     </div>
   )
@@ -623,7 +649,7 @@ function PanelRows({ items, onDismiss, after, dismissOnActivate = false }: { ite
             }}
           >
             <span style={{ width: 20, display: 'flex', justifyContent: 'center' }}>
-              <Icon name={item.icon} size={14} />
+              {item.image ? <img src={item.image} alt="" width={14} height={14} /> : <Icon name={item.icon} size={14} />}
             </span>
             <span style={{ ...font(12), flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.title}</span>
             {item.detail ? <span style={{ ...font(13), color: 'var(--secondary)' }}>{item.detail}</span> : null}
