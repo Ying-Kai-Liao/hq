@@ -1,10 +1,11 @@
-// Writes resources/account-config.json from apps/shared/Config/<env>.plist (dev | main):
-// the Clerk publishable key and the cloud URL the build talks to. Usage: node tools/account-config.mjs dev
+// Writes resources/account-config.json from apps/shared/Config/<env>.plist: the Clerk publishable
+// key and the cloud URL the build talks to. Usage: node tools/account-config.mjs dev|main
+// (the `npm run dev` / `dist:*:<env>` scripts run it).
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const env = process.argv[2] ?? 'dev'
+const env = process.argv[2]
 if (!['dev', 'main'].includes(env)) throw new Error(`unknown environment ${env}`)
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const plist = readFileSync(join(root, '../shared/Config', `${env}.plist`), 'utf8')

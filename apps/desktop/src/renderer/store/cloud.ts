@@ -243,11 +243,9 @@ export class CloudModel extends Observable {
     }
   }
 
-  /** A host without a cloud URL of its own gets this app's. */
+  /** The host's cloud comes with its build; this only turns it on. */
   private async enableCloud(store: BotStore) {
-    const url = store.cloud?.url ? null : account.cloudURL
-    if (!store.cloud?.url && !url) throw new CloudError(400, 'badRequest', 'This build of Codync has no cloud to connect to.')
-    return (await store.ready()).call<CloudStatus>('setCloud', { enabled: true, url }, 30_000)
+    return (await store.ready()).call<CloudStatus>('setCloud', { enabled: true }, 30_000)
   }
 
   async removeFromAccount(computerId: string) {
