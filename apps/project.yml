@@ -59,9 +59,6 @@ targets:
     type: application
     platform: iOS
     sources:
-      - path: shared
-        excludes:
-          - Config
       - path: ios
         excludes:
           - Widgets
