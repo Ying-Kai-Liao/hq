@@ -107,6 +107,9 @@ export class HostController extends EventEmitter {
       if (this.uninstalled()) return this.setState({ kind: 'notInstalled' })
       return this.install()
     }
+    // A service left by another copy of the app (moved, deleted or replaced) can't start this
+    // app's host; the health check only catches that once something answers.
+    if (devPort === null && this.binary && !serviceRuns(this.binary) && !this.uninstalled()) return this.install()
     this.connect()
   }
 
@@ -270,6 +273,16 @@ function resolved(path: string) {
     return realpathSync(path)
   } catch {
     return path
+  }
+}
+
+/** Whether the installed service starts this binary. */
+function serviceRuns(bin: string) {
+  try {
+    const service = readFileSync(serviceFile, 'utf8')
+    return service.includes(bin) || service.includes(resolved(bin))
+  } catch {
+    return false
   }
 }
 
