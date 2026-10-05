@@ -1,5 +1,5 @@
 import { isWorking } from '@shared/models'
-import { useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { BotAvatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { Sheet } from '../../components/Overlay'
@@ -9,6 +9,12 @@ import { avatarColor, useDark, useReduceMotion, withAlpha } from '../../lib/them
 import { useStore } from '../../store/context'
 import { VoiceChatSettingsView } from '../settings/VoiceChatSettingsView'
 import { CallOperator } from './call-operator'
+
+/**
+ * Opens the window's own Settings at Voice chat; without it (no Settings screen around) the
+ * call bar shows the voice settings in their own sheet.
+ */
+export const OpenVoiceSettings = createContext<(() => void) | null>(null)
 import { CloudSpeechEngine } from './CloudSpeechEngine'
 import { GeminiLiveEngine } from './GeminiLiveEngine'
 import { OnDeviceEngine } from './OnDeviceEngine'
@@ -36,6 +42,7 @@ export function CallView({ botId, onSpeaking, interrupt, onEnd }: {
   /** No engine could start at all. */
   const [blocked, setBlocked] = useState<string | null>(null)
   const [settings, setSettings] = useState(false)
+  const openVoiceSettings = useContext(OpenVoiceSettings)
   const engine = useRef<VoiceEngine | null>(null)
   /** When the current cloud engine started, for this month's minutes. */
   const cloudStartedAt = useRef<number | null>(null)
@@ -188,7 +195,7 @@ export function CallView({ botId, onSpeaking, interrupt, onEnd }: {
             {providerName(session.provider)}
           </span>
         ) : null}
-        <button className="call-round" title="Call settings" aria-label="Call settings" onClick={() => setSettings(true)}>
+        <button className="call-round" title="Call settings" aria-label="Call settings" onClick={() => (openVoiceSettings ? openVoiceSettings() : setSettings(true))}>
           <Icon name="gearshape" size={16} weight="medium" scaled={false} />
         </button>
         <button

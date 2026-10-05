@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { WindowCommand } from '@shared/ipc'
 import { draftOf, isGroup, type Bot, type BotDraft } from '@shared/models'
 import { CharacterAvatar } from '../components/Avatar'
@@ -23,6 +23,7 @@ import { SettingsView, type SettingsPage } from './settings/SettingsView'
 import { ApprovalSheet } from './settings/ApprovalSheet'
 import { UpdateNeededCard } from './UpdateNeededCard'
 import { AccountWelcomeView } from './AccountWelcomeView'
+import { OpenVoiceSettings } from './call/CallView'
 import { useTraySummary } from './tray-summary'
 import { useSSHAttachments } from './settings/ssh-model'
 import './chat-window.css'
@@ -159,6 +160,7 @@ function ChatSplitView() {
   const [newSessionBot, setNewSessionBot] = useState<BotTarget | null>(null)
   const [marketplace, setMarketplace] = useState<string | null>(null)
   const [settings, setSettings] = useState<SettingsPage | null>(null)
+  const openVoiceSettings = useCallback(() => setSettings('voice'), [])
   const [showAccount, setShowAccount] = useState(false)
   const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight })
   const searchRef = useRef<HTMLInputElement>(null)
@@ -439,7 +441,10 @@ function ChatSplitView() {
         )}
       </aside>
       <div className="sidebar-divider" onPointerDown={onDividerDown} onPointerMove={onDividerMove} onPointerUp={() => (dragStart.current = null)} role="separator" aria-label="Resize sidebar" aria-valuenow={width} />
-      <main className="detail">{detail}</main>
+      <main className="detail">
+        {/* The call bar's settings open this window's Settings at Voice chat. */}
+        <OpenVoiceSettings.Provider value={openVoiceSettings}>{detail}</OpenVoiceSettings.Provider>
+      </main>
 
       {showAccount ? (
         <AccountPanelLayer
