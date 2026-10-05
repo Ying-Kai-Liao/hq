@@ -34,6 +34,8 @@ mac:
       arch: universal
     - target: zip
       arch: universal
+  # The zip (update feed) takes this name; the DMG sets its own.
+  artifactName: codync-macos.${ext}
   hardenedRuntime: true
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
@@ -63,8 +65,6 @@ dmg:
   contents:
     - { x: 170, y: 200, type: file }
     - { x: 490, y: 200, type: link, path: /Applications }
-zip:
-  artifactName: codync-macos.zip
 
 linux:
   category: Development
