@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { isGroup, isWorkingIn, type Bot } from '@shared/models'
 import { BotAvatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
@@ -23,7 +23,8 @@ export function Composer({ botId, thread = null, onCall, onInterrupt }: {
 }) {
   const store = useStore()
   const bot = store.bots.get(botId) ?? null
-  const [draft, setDraft] = useState('')
+  const draft = useSyncExternalStore(store.subscribeComposerDrafts, () => store.composerDraft(botId, thread))
+  const setDraft = (text: string) => store.setComposerDraft(text, botId, thread)
   const [files, setFiles] = useState<OutgoingFile[]>([])
   const field = useRef<HTMLTextAreaElement>(null)
   const working = !!bot && isWorkingIn(bot, botId, thread)
@@ -37,7 +38,8 @@ export function Composer({ botId, thread = null, onCall, onInterrupt }: {
   const routineDraft = store.routineDrafts.get(botId)
   useEffect(() => {
     if (thread || routineDraft === undefined) return
-    setDraft((d) => (d ? `${d}\n${routineDraft}` : routineDraft))
+    const current = store.composerDraft(botId, thread)
+    store.setComposerDraft(current ? `${current}\n${routineDraft}` : routineDraft, botId, thread)
     store.consumeRoutineDraft(botId)
     field.current?.focus()
   }, [routineDraft, thread, botId, store])
@@ -84,9 +86,7 @@ export function Composer({ botId, thread = null, onCall, onInterrupt }: {
 
   const submit = () => {
     if (!canSend) return
-    store.send(draft, botId, thread, files)
-    setDraft('')
-    setFiles([])
+    if (store.sendComposerDraft(botId, thread, files)) setFiles([])
   }
 
   const trailing: Trailing = onInterrupt && !draft && !files.length ? 'interrupt' : working && !draft && !files.length ? 'stop' : onCall && !draft && !files.length ? 'call' : 'send'

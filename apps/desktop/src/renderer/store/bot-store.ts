@@ -17,6 +17,7 @@ import {
 } from '@shared/models'
 import { HostClient, HostError, type HostEvent, type HostRoute, type HostTransport } from '../client/host-client'
 import { Observable } from '../lib/observable'
+import { ComposerDrafts } from './composer-drafts'
 
 export type Connection =
   | { kind: 'unpaired' }
@@ -65,6 +66,8 @@ export class BotStore extends Observable {
   cloud: CloudStatus | null = null
   historyComplete = new Set<string>()
   routineDrafts = new Map<string, string>()
+  private composerDrafts = new ComposerDrafts()
+  subscribeComposerDrafts = this.composerDrafts.subscribe
   lastError: string | null = null
   /** A kit view selected a bot on this store (new chat, editor); the account picks it up. */
   selection: string | null = null
@@ -205,6 +208,7 @@ export class BotStore extends Observable {
 
   retire() {
     this.retired = true
+    this.composerDrafts.clear()
     this.stopTransport()
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.onRosterChanged = null
@@ -365,6 +369,7 @@ export class BotStore extends Observable {
       case 'botDeleted':
         this.bots.delete(event.id)
         this.entries.delete(event.id)
+        this.composerDrafts.deleteBot(event.id)
         this.bump(event.rev)
         if (this.selection === event.id) this.selection = null
         this.onRosterChanged?.()
@@ -407,6 +412,7 @@ export class BotStore extends Observable {
 
   private resetMirror() {
     this.bots = new Map()
+    this.composerDrafts.clear()
     const kept = new Map<string, Entry[]>()
     for (const [id, list] of this.entries) {
       const local = list.filter((e) => e.id.startsWith('local-'))
@@ -520,6 +526,22 @@ export class BotStore extends Observable {
       this.lastError = error instanceof Error ? error.message : String(error)
       this.changed()
     })
+  }
+
+  composerDraft(botId: string, thread: string | null = null) {
+    return this.composerDrafts.get(botId, thread)
+  }
+
+  setComposerDraft(text: string, botId: string, thread: string | null = null) {
+    if (!this.retired) this.composerDrafts.set(botId, thread, text)
+  }
+
+  sendComposerDraft(botId: string, thread: string | null = null, files: OutgoingFile[] = []) {
+    if (this.retired) return false
+    const text = this.composerDrafts.take(botId, thread, files.length > 0)
+    if (text === null) return false
+    this.send(text, botId, thread, files)
+    return true
   }
 
   send(text: string, botId: string, thread: string | null = null, files: OutgoingFile[] = [], nonce: string = crypto.randomUUID()) {
@@ -732,6 +754,7 @@ export class BotStore extends Observable {
   delete(bot: Bot) {
     this.bots.delete(bot.id)
     this.entries.delete(bot.id)
+    this.composerDrafts.deleteBot(bot.id)
     this.onRosterChanged?.()
     this.changed()
     this.perform((c) => c.call('deleteBot', { botId: bot.id }), true)
