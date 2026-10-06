@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { existsSync, promises as fs, readFileSync, realpathSync } from 'node:fs'
@@ -34,7 +34,7 @@ export async function fetchHealth(url = baseURL, timeoutMs = 2000): Promise<Heal
 
 export function run(bin: string, args: string[]): Promise<{ status: number; output: string }> {
   return new Promise((resolve) => {
-    execFile(bin, args, { maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
+    execFile(bin, args, { maxBuffer: 8 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
       const status = error ? (typeof error.code === 'number' ? error.code : 1) : 0
       resolve({ status, output: `${stdout}${stderr}`.trim() })
     })
@@ -42,11 +42,28 @@ export function run(bin: string, args: string[]): Promise<{ status: number; outp
 }
 
 const isMac = platform() === 'darwin'
+const isWindows = platform() === 'win32'
+/** macOS and Windows ship the host inside the app; Linux uses the installed one. */
+export const bundlesHost = isMac || isWindows
 
-/** The service definition `codync-host install` writes. */
-const serviceFile = isMac
-  ? join(homedir(), 'Library/LaunchAgents/com.pokai.codync.host.plist')
-  : join(homedir(), '.config/systemd/user/codync-host.service')
+/** The service definition `codync-host install` wrote (`null`: not installed). */
+function serviceDefinition(): string | null {
+  try {
+    if (isWindows) {
+      // The per-user Run key that starts the host at sign-in.
+      const key = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
+      return execFileSync('reg', ['query', key, '/v', 'CodyncHost'], { encoding: 'utf8', windowsHide: true })
+    }
+    const file = isMac
+      ? join(homedir(), 'Library/LaunchAgents/com.pokai.codync.host.plist')
+      : join(homedir(), '.config/systemd/user/codync-host.service')
+    return readFileSync(file, 'utf8')
+  } catch {
+    return null
+  }
+}
+
+const serviceInstalled = () => serviceDefinition() !== null
 
 /**
  * Manages the local codync-host (binary, background service, health) the way the native
@@ -66,6 +83,7 @@ export class HostController extends EventEmitter {
   get binary(): string | null {
     const candidates = [
       app.isPackaged && isMac ? join(process.resourcesPath, 'codync-host') : null,
+      app.isPackaged && isWindows ? join(process.resourcesPath, 'codync-host.exe') : null,
       process.env.CODYNC_HOST_BIN ?? null,
       join(homedir(), '.local/bin/codync-host'),
       '/opt/homebrew/bin/codync-host',
@@ -101,8 +119,8 @@ export class HostController extends EventEmitter {
   async refresh() {
     if (this.preparingForUpdate) return
     if (!this.binary && devPort === null) return this.setState({ kind: 'missingBinary' })
-    if (devPort === null && prefs.get('hostRestartAfterAppUpdate') === true && existsSync(serviceFile)) return this.install()
-    if (devPort === null && !existsSync(serviceFile)) {
+    if (devPort === null && prefs.get('hostRestartAfterAppUpdate') === true && serviceInstalled()) return this.install()
+    if (devPort === null && !serviceInstalled()) {
       // The app is the way to run the host: set it up right away, unless the user took it out.
       if (this.uninstalled()) return this.setState({ kind: 'notInstalled' })
       return this.install()
@@ -169,14 +187,14 @@ export class HostController extends EventEmitter {
 
   /**
    * Stops the service before the app replaces itself; `resumeAfterCancelledUpdate` undoes it.
-   * macOS only: there the host runs from inside the app. Linux uses the installed host, which an
-   * app update leaves alone.
+   * macOS and Windows: there the host runs from inside the app (and Windows can't replace a
+   * running program). Linux uses the installed host, which an app update leaves alone.
    */
   async prepareForUpdate() {
-    if (devPort !== null || !isMac) return
+    if (devPort !== null || !bundlesHost) return
     if (this.installing) throw new Error('The host is being installed. Try again when it finishes.')
     this.preparingForUpdate = true
-    if (existsSync(serviceFile)) prefs.set('hostRestartAfterAppUpdate', true)
+    if (serviceInstalled()) prefs.set('hostRestartAfterAppUpdate', true)
     this.stopLoop()
     unregisterScreenAgent()
     const bin = this.binary
@@ -188,13 +206,13 @@ export class HostController extends EventEmitter {
   resumeAfterCancelledUpdate() {
     if (!this.preparingForUpdate) return
     this.preparingForUpdate = false
-    if (existsSync(serviceFile)) void this.install()
+    if (serviceInstalled()) void this.install()
     else void this.refresh()
   }
 
   async isIdleForUpdate(): Promise<boolean> {
     if (this.installing || this.preparingForUpdate || devPort !== null) return false
-    if (!existsSync(serviceFile)) return true
+    if (!serviceInstalled()) return true
     const health = await fetchHealth()
     return health?.busy === false
   }
@@ -282,12 +300,11 @@ function resolved(path: string) {
 
 /** Whether the installed service starts this binary. */
 function serviceRuns(bin: string) {
-  try {
-    const service = readFileSync(serviceFile, 'utf8')
-    return service.includes(bin) || service.includes(resolved(bin))
-  } catch {
-    return false
-  }
+  const service = serviceDefinition()
+  if (service === null) return false
+  // Windows' service starts the launcher next to the host (codync-hostw.exe).
+  const runs = (path: string) => service.includes(isWindows ? path.replace(/codync-host\.exe$/, 'codync-hostw.exe') : path)
+  return runs(bin) || runs(resolved(bin))
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))

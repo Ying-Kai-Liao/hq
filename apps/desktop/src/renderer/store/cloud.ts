@@ -288,5 +288,5 @@ export class CloudModel extends Observable {
 
 /** This computer's name for the account's device list. */
 async function deviceName() {
-  return window.codync.computerName || (window.codync.platform === 'darwin' ? 'Mac' : 'Linux')
+  return window.codync.computerName || { darwin: 'Mac', linux: 'Linux', win32: 'Windows' }[window.codync.platform]
 }

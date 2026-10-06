@@ -1,8 +1,8 @@
 {
   "name": "codync-desktop",
   "productName": "Codync",
-  "version": "2.8.1",
-  "description": "Codync for macOS and Linux: your coding agents as teammates.",
+  "version": "2.9.0",
+  "description": "Codync for macOS, Linux and Windows: your coding agents as teammates.",
   "author": {
     "name": "leepokai",
     "email": "109857817+leepokai@users.noreply.github.com"
@@ -21,7 +21,9 @@
     "dist:mac:dev": "node tools/account-config.mjs dev && node tools/native-host.mjs dev && node tools/native-screen.mjs && electron-vite build && CSC_NAME=\"Pokai Lee (6KFK5J2LB4)\" electron-builder --mac",
     "dist:mac:main": "node tools/account-config.mjs main && node tools/native-host.mjs main && node tools/native-screen.mjs && electron-vite build && electron-builder --mac",
     "dist:linux:dev": "node tools/account-config.mjs dev && electron-vite build && electron-builder --linux",
-    "dist:linux:main": "node tools/account-config.mjs main && electron-vite build && electron-builder --linux"
+    "dist:linux:main": "node tools/account-config.mjs main && electron-vite build && electron-builder --linux",
+    "dist:win:dev": "node tools/account-config.mjs dev && node tools/native-host.mjs dev && electron-vite build && electron-builder --win",
+    "dist:win:main": "node tools/account-config.mjs main && node tools/native-host.mjs main && electron-vite build && electron-builder --win"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
