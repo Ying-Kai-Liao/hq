@@ -87,6 +87,15 @@ final class PushRegistrar {
         stores = [:]
     }
 
+    /// nil until asked; false once turned off in the Settings app.
+    func isAllowed() async -> Bool? {
+        switch await UNUserNotificationCenter.current().notificationSettings().authorizationStatus {
+        case .authorized, .provisional, .ephemeral: true
+        case .denied: false
+        default: nil
+        }
+    }
+
     func requestAuthorization() async -> Bool {
         let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false
         if granted { UIApplication.shared.registerForRemoteNotifications() }

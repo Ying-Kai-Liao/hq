@@ -64,9 +64,8 @@ struct CodyncApp: App {
                 #if DEBUG
                 .task {
                     // Simulator/UI-test pairing: SIMCTL_CHILD_CODYNC_PAIR_URL=codync://pair?...
-                    // Skips the notification prompt, which nothing can dismiss in a headless simulator.
                     if let s = ProcessInfo.processInfo.environment["CODYNC_PAIR_URL"], let p = Pairing(string: s) {
-                        _ = try? await app.accounts.pair(p, deviceName: UIDevice.current.name, platform: "ios")
+                        _ = try? await app.pair(p)
                     }
                     if ProcessInfo.processInfo.environment["CODYNC_OPEN_USAGE"] != nil { app.tab = .state; app.showUsage = true }
                     if ProcessInfo.processInfo.environment["CODYNC_STATE_SURFACE"] != nil { app.tab = .state }
@@ -177,9 +176,7 @@ final class AppStore {
     }
 
     func pair(_ pairing: Pairing) async throws -> Computer {
-        let computer = try await accounts.pair(pairing, deviceName: UIDevice.current.name, platform: "ios")
-        Task { _ = await PushRegistrar.shared.requestAuthorization() }
-        return computer
+        try await accounts.pair(pairing, deviceName: UIDevice.current.name, platform: "ios")
     }
 
     func open(_ url: URL) {

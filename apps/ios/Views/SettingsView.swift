@@ -1,7 +1,6 @@
 import CodyncKit
 import CodyncUI
 import SwiftUI
-import UserNotifications
 
 /// Every computer this iPhone can use or ask for — paired here and in the account, merged by
 /// computer ID — plus settings for the selected account.
@@ -147,14 +146,7 @@ struct SettingsView: View {
                 if let c = confirmRevoke { Task { await app.revokeAccess(c.computerId) } }
             }]
         }
-        .task {
-            let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
-            notificationsAllowed = switch status {
-            case .authorized, .provisional, .ephemeral: true
-            case .denied: false
-            default: nil
-            }
-        }
+        .task { notificationsAllowed = await PushRegistrar.shared.isAllowed() }
     }
 
 

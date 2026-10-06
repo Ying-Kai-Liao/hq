@@ -15,6 +15,8 @@ struct WidgetGalleryView: View {
     @State private var size = "medium"
     @State private var hasWidget: Bool?
     @State private var widgetCheckFailed = false
+    /// nil until asked, false once turned off in the Settings app. Not asked during onboarding: offered here.
+    @State private var notificationsAllowed: Bool?
     @AppStorage(SharedStore.usageIconStyleKey, store: UserDefaults(suiteName: SharedStore.appGroup))
     private var usageIconStyle = UsageIconStyle.character.rawValue
 
@@ -57,6 +59,15 @@ struct WidgetGalleryView: View {
                         Rectangle().fill(Palette.border).frame(height: 0.5).padding(.leading, 42)
                         setupRow("Add a Codync widget", complete: hasWidget == true,
                                  status: hasWidget == nil ? (widgetCheckFailed ? "Unable to check" : "Checking") : nil)
+                        Rectangle().fill(Palette.border).frame(height: 0.5).padding(.leading, 42)
+                        Button(action: turnOnNotifications) {
+                            setupRow(notificationsAllowed == false ? "Turn on notifications in Settings" : "Turn on notifications",
+                                     complete: notificationsAllowed == true)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(notificationsAllowed == true)
+                        .accessibilityHint("Know when a bot is done or needs you.")
                     }
                     .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18))
                     if widgetCheckFailed {
@@ -139,8 +150,15 @@ struct WidgetGalleryView: View {
             case .lockScreen: LockWidgetGalleryView()
             }
         }
-        .task { checkWidgets() }
-        .onChange(of: scenePhase) { _, phase in if phase == .active { checkWidgets() } }
+        .task {
+            checkWidgets()
+            await checkNotifications()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            checkWidgets()
+            Task { await checkNotifications() }
+        }
     }
 
     private enum Page: Hashable { case lockScreen }
@@ -187,6 +205,23 @@ struct WidgetGalleryView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
         .accessibilityValue(status ?? (complete ? "Complete" : "Not complete"))
+    }
+
+    private func checkNotifications() async {
+        let allowed = await PushRegistrar.shared.isAllowed()
+        withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { notificationsAllowed = allowed }
+    }
+
+    /// Asks once; after a no, only the Settings app can turn them on.
+    private func turnOnNotifications() {
+        if notificationsAllowed == false {
+            UIApplication.shared.open(URL(string: UIApplication.openNotificationSettingsURLString)!)
+        } else {
+            Task {
+                _ = await PushRegistrar.shared.requestAuthorization()
+                await checkNotifications()
+            }
+        }
     }
 
     private func checkWidgets() {

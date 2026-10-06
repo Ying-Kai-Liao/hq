@@ -38,9 +38,9 @@ struct RootView: View {
             }
         }
         .background(Palette.background)
-        .onChange(of: accounts.computers.isEmpty, initial: true) { _, empty in
-            // Pairing or explicitly skipping completes setup. Keep this
-            // device-level milestone across account changes and unpairing.
+        .onChange(of: accounts.computers.isEmpty && accounts.cloudComputers.isEmpty, initial: true) { _, empty in
+            // Pairing, signing in to an account that has computers, or explicitly skipping completes
+            // setup. Keep this device-level milestone across account changes and unpairing.
             if !empty { onboardingCompleted = true }
         }
         .codyncDialog("Something went wrong", isPresented: errorShown, message: errorMessage, cancel: "OK", inPlace: true) { [] }
