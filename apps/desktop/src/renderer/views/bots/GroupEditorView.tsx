@@ -1,13 +1,13 @@
 import { useState } from 'react'
-import { folderName, isGroup, type Bot } from '@shared/models'
+import { isGroup, type Bot } from '@shared/models'
 import { BotAvatar, GroupAvatar } from '../../components/Avatar'
-import { Button, IconButton, Spinner } from '../../components/Controls'
+import { IconButton, Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { Dialog, ModalHeader, useDismiss } from '../../components/Overlay'
 import { font } from '../../lib/fonts'
 import { useStore } from '../../store/context'
 import { errorText } from './drafts'
-import { AutoTextArea, BotChip, Field } from './parts'
+import { AutoTextArea } from './parts'
 import './bots.css'
 
 /**
@@ -23,6 +23,8 @@ export function GroupEditorView({ group, members: initialMembers = [] }: { group
   const [about, setAbout] = useState(group?.description ?? '')
   const [members, setMembers] = useState<string[]>(group?.members ?? initialMembers)
   const [query, setQuery] = useState('')
+  // A new group starts in the picker; an existing one shows its members first.
+  const [adding, setAdding] = useState(group === null && initialMembers.length === 0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<Bot | null>(null)
@@ -61,56 +63,58 @@ export function GroupEditorView({ group, members: initialMembers = [] }: { group
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--background)' }}>
       <ModalHeader title={isNew ? 'New group chat' : 'Group chat'} trailing={saving ? <Spinner /> : <IconButton title={isNew ? 'Create' : 'Save'} icon="checkmark" disabled={!canSave} onClick={save} />} />
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16, ...font('body') }}>
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <GroupAvatar members={picked} size={72} />
+        <div className="group-form">
+          <div className="group-identity">
+            <GroupAvatar members={picked} size={84} />
+            <input className="group-name" value={name} placeholder={defaultName} aria-label="Name" onChange={(e) => setName(e.target.value)} />
+            <AutoTextArea className="group-about" value={about} placeholder="What this group works on" minRows={1} maxRows={4} onChange={setAbout} />
           </div>
-          <Field label={`Bots · ${members.length}`}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {picked.length ? (
-                <div className="chip-row">
-                  {picked.map((bot) => (
-                    <BotChip key={bot.id} bot={bot} onRemove={() => toggle(bot.id)} />
-                  ))}
-                </div>
-              ) : null}
-              <input
-                className="field-box"
-                value={query}
-                placeholder={picked.length ? 'Add another bot' : 'Search bots'}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.nativeEvent.isComposing && candidates[0]) toggle(candidates[0].id)
-                }}
-              />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="group-section-title">Members</div>
+            {picked.map((bot) => (
+              <div key={bot.id} className="member-row fade-in">
+                <BotAvatar bot={bot} size={32} animated={false} />
+                <span className="member-name">{bot.name}</span>
+                <IconButton title={`Remove ${bot.name}`} icon="xmark" onClick={() => toggle(bot.id)} />
+              </div>
+            ))}
+            {adding ? (
+              <>
+                <input
+                  className="field-box fade-in"
+                  style={{ margin: '6px 0', background: 'var(--surface)' }}
+                  autoFocus
+                  value={query}
+                  placeholder="Search bots"
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.nativeEvent.isComposing && candidates[0]) toggle(candidates[0].id)
+                    if (e.key === 'Escape') setAdding(false)
+                  }}
+                />
                 {candidates.map((bot) => (
-                  <button key={bot.id} className="press pick-row fade-in" aria-label={`Add ${bot.name}`} onClick={() => toggle(bot.id)}>
-                    <BotAvatar bot={bot} size={26} animated={false} />
-                    <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                      <span style={{ color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{bot.name}</span>
-                      <span style={{ ...font('caption'), color: 'var(--tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{folderName(bot)}</span>
-                    </span>
-                    <Icon name="plus.circle" size={20} color="var(--tertiary)" />
+                  <button key={bot.id} className="member-row press fade-in" aria-label={`Add ${bot.name}`} onClick={() => toggle(bot.id)}>
+                    <BotAvatar bot={bot} size={32} animated={false} />
+                    <span className="member-name" style={{ color: 'var(--secondary)' }}>{bot.name}</span>
+                    <Icon name="plus.circle" size={18} color="var(--secondary)" />
                   </button>
                 ))}
-              </div>
-            </div>
-            <span style={{ ...font('caption'), color: 'var(--tertiary)' }}>Everyone answers in turn unless you @mention someone. Each bot works in its own folder with its own tools.</span>
-          </Field>
-          <Field label="Name">
-            <input className="field-box" value={name} placeholder={defaultName} onChange={(e) => setName(e.target.value)} />
-          </Field>
-          <Field label="About">
-            <AutoTextArea className="field-box" value={about} placeholder="What this group works on (optional)" minRows={2} maxRows={5} onChange={setAbout} />
-          </Field>
+              </>
+            ) : candidates.length ? (
+              <button className="member-row press" onClick={() => setAdding(true)}>
+                <span style={{ width: 32, display: 'grid', placeItems: 'center' }}>
+                  <Icon name="plus" size={16} color="var(--secondary)" />
+                </span>
+                <span className="member-name" style={{ color: 'var(--secondary)' }}>Add Member</span>
+              </button>
+            ) : null}
+            <div style={{ ...font('caption'), color: 'var(--tertiary)', padding: '10px 0 0' }}>Everyone answers in turn unless you @mention someone.</div>
+          </div>
           {error ? <span className="fade-in" style={{ ...font('footnote'), color: 'var(--danger)' }}>{error}</span> : null}
           {current ? (
-            <div style={{ paddingTop: 8 }}>
-              <Button kind="secondary" onClick={() => setConfirmDelete(current)}>
-                Delete group chat
-              </Button>
-            </div>
+            <button className="press" style={{ ...font('body'), color: 'var(--danger)', alignSelf: 'flex-start' }} onClick={() => setConfirmDelete(current)}>
+              Delete group chat
+            </button>
           ) : null}
         </div>
       </div>

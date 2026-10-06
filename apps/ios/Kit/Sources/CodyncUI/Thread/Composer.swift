@@ -38,13 +38,12 @@ struct Composer: View {
         !isEmpty && (model.connection == .online || (model.canQueue && files.isEmpty))
     }
 
-    /// Groups have no folder of their own to put files in.
-    private var canAttach: Bool { bot?.isGroup == false }
+    private var canAttach: Bool { bot != nil }
 
     private var placeholder: String {
         let name = bot?.name ?? ""
         if thread != nil { return "Reply…" }
-        if bot?.isGroup == true { return "Message \(name) · @ to ask one bot" }
+        if bot?.isGroup == true { return "Message everyone · @ to ask one bot" }
         return working ? "Queue a message for \(name)" : "Ask \(name)"
     }
 

@@ -13,9 +13,16 @@ struct CallOperator {
         let bot = model.bots[botId]
         let name = bot?.name ?? "the bot"
         let about = bot.map { $0.description.isEmpty ? "" : " (\($0.description))" } ?? ""
+        let who = if let bot, bot.isGroup {
+            "the group chat \(name)\(about) on the user's computer, where the bots "
+                + model.members(of: bot).map(\.name).joined(separator: ", ")
+                + " answer in turn (a message that @-mentions one of them asks just that bot). "
+                + "The bots do all the actual work; you relay"
+        } else {
+            "\(name)\(about), a coding agent running on the user's computer. \(name) does all the actual work; you relay"
+        }
         return """
-        You are the voice on a phone call between the user and \(name)\(about), a coding agent \
-        running on the user's computer. \(name) does all the actual work; you relay.
+        You are the voice on a phone call between the user and \(who).
         - When the user asks for something to be done, changed, checked or answered about their \
         code or computer, call send_to_bot with their request in their own words (keep details, \
         names and code terms exactly). Don't do the work or invent results yourself.
@@ -83,7 +90,7 @@ struct CallOperator {
         let messages = model.chat(botId).filter(\.isChat).suffix(min(max(count, 1), 20)).map { e -> [String: String] in
             let from = switch e.kind {
             case "user": "user"
-            case "agent": name
+            case "agent": e.data.author.flatMap { model.bots[$0]?.name } ?? name
             case "permission": "approval request"
             default: "notice"
             }

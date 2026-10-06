@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { folderName, isGroup, isWorking, type Bot } from '@shared/models'
 import { AgentIcon } from '../../components/AgentIcon'
 import { BotAvatar } from '../../components/Avatar'
-import { CardSection } from '../../components/Controls'
+import { CardSection, IconButton } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { font } from '../../lib/fonts'
 import { useStore } from '../../store/context'
@@ -10,6 +10,7 @@ import { BotSettingsPanel } from '../bots/BotEditorView'
 import { ComputerBadge } from '../ComputerBadge'
 import { RoutinesView } from '../routines/RoutinesView'
 import { MacChatButton } from './MacChatButton'
+import '../bots/bots.css'
 
 const isMac = window.codync.platform === 'darwin'
 
@@ -42,8 +43,7 @@ export function DetailsPanel({ botId, routineId, editing, setEditing, editGroup,
     header = (
       <>
         <PanelTitle>Members</PanelTitle>
-        <span style={{ flex: 1 }} />
-        <RoundButton label="Edit group" symbol="gearshape" action={editGroup} />
+        <span style={{ ...font(13), color: 'var(--tertiary)', flex: 1 }}>{bot.members.length}</span>
       </>
     )
   } else {
@@ -64,7 +64,7 @@ export function DetailsPanel({ botId, routineId, editing, setEditing, editGroup,
       </div>
       <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
         {bot && isGroup(bot) ? (
-          <GroupMembersList group={bot} />
+          <GroupMembersList group={bot} editGroup={editGroup} />
         ) : editing ? (
           <div className="panel-slide from-trailing" style={{ height: '100%' }}>
             <BotSettingsPanel botId={botId} />
@@ -92,21 +92,29 @@ function RoundButton({ label, symbol, action }: { label: string; symbol: string;
   return <MacChatButton title={label} icon={symbol} direction={symbol === 'chevron.right.2' ? [1, 0] : [0, 0]} onClick={action} />
 }
 
-/** A group's bots; clicking one opens its own chat. */
-function GroupMembersList({ group }: { group: Bot }) {
+/** A group's bots (Grok Bot's member list); clicking one opens its own chat. */
+function GroupMembersList({ group, editGroup }: { group: Bot; editGroup: () => void }) {
   const store = useStore()
   return (
-    <div style={{ height: '100%', overflowY: 'auto', padding: '0 16px' }}>
-      <div style={{ ...font(13, 'semibold'), paddingBottom: 6 }}>{group.members.length} bots</div>
+    <div style={{ height: '100%', overflowY: 'auto', padding: '0 20px' }}>
       {store.members(group).map((bot) => (
-        <button key={bot.id} className="press" title={`Open ${bot.name}'s own chat`} onClick={() => store.setSelection(bot.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', width: '100%' }}>
-          <BotAvatar bot={bot} size={26} />
-          <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0, flex: 1 }}>
-            <span style={{ ...font(13), color: 'var(--text)' }}>{bot.name}</span>
-            <span style={{ ...font(11), color: 'var(--tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{isWorking(bot) ? bot.activity || 'Working…' : folderName(bot)}</span>
-          </span>
-        </button>
+        <div key={bot.id} className="member-row removable">
+          <button className="member-open press" title={`Open ${bot.name}'s own chat`} onClick={() => store.setSelection(bot.id)}>
+            <BotAvatar bot={bot} size={32} />
+            <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0, flex: 1 }}>
+              <span className="member-name">{bot.name}</span>
+              {isWorking(bot) ? <span className="member-name" style={{ ...font('compactSecondary'), color: 'var(--secondary)' }}>{bot.activity || 'Working…'}</span> : null}
+            </span>
+          </button>
+          {group.members.length > 1 ? <IconButton title={`Remove ${bot.name} from the group`} icon="xmark" onClick={() => store.removeMember(group, bot.id)} /> : null}
+        </div>
       ))}
+      <button className="member-row press" onClick={editGroup}>
+        <span style={{ width: 32, display: 'grid', placeItems: 'center' }}>
+          <Icon name="plus" size={16} color="var(--secondary)" />
+        </span>
+        <span className="member-name" style={{ color: 'var(--secondary)' }}>Add Member</span>
+      </button>
     </div>
   )
 }

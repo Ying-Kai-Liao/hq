@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { folderName, isWorking, needsInput, type Bot } from '@shared/models'
+import { folderName, isGroup, isWorking, needsInput, type Bot } from '@shared/models'
 import { AvatarWithStatus } from '../components/Avatar'
 import { Icon } from '../components/Icon'
 import { ThinkingOrb } from '../components/ThinkingOrb'
@@ -71,5 +71,5 @@ function Preview({ bot, store }: { bot: Bot; store: BotStore }) {
     )
   }
   if (bot.status === 'error') return <span style={{ ...line, color: 'var(--danger)' }}>{firstLine(bot.lastMessage ?? 'Something went wrong')}</span>
-  return <span style={{ ...line, color: 'var(--secondary)' }}>{firstLine(bot.lastMessage ?? `${store.backendName(bot.backend)} · ${folderName(bot)}`)}</span>
+  return <span style={{ ...line, color: 'var(--secondary)' }}>{firstLine(bot.lastMessage ?? (isGroup(bot) ? `${bot.members.length} bots` : `${store.backendName(bot.backend)} · ${folderName(bot)}`))}</span>
 }

@@ -14,7 +14,8 @@ const alwaysDark: Plugin = {
 export default defineConfig({
   root: resolve('src/renderer/demo'),
   publicDir: resolve('src/renderer/public'),
-  base: './',
+  // Absolute, so assets resolve however the host serves the page (folder URL or index.html).
+  base: '/demo/desktop/',
   resolve: { alias: { '@shared': resolve('src/shared') } },
   plugins: [react(), alwaysDark],
   build: { outDir: resolve('../../web/public/demo/desktop'), emptyOutDir: true, chunkSizeWarningLimit: 1500 },
