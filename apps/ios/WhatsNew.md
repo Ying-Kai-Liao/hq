@@ -5,16 +5,16 @@ listing what iPhone users notice. tools/asc-submit.py reads the released version
 a version without one gets a generic "Bug fixes and improvements" line. Delete old sections.
 -->
 
-## 2.7.4
+## 2.7.5
 
 ### zh-Hant
 
-- 未送出的文字會依 bot 和討論串自動保存，切換對話或重新開啟 app 都能接著寫。
-- 配對後不再馬上跳出通知權限；改在設定頁的「開啟通知」一鍵打開，關掉了也會帶你到「設定」重新開啟。
-- 登入已經有電腦的帳號時，會直接完成設定，不用再走一次配對引導。
+- 對話捲動與送出訊息更順暢，長對話也不會卡頓。
+- 送出後「思考中」的狀態會出現在輸入框上方，不再被擋住。
+- 輸入框不再跳出「貼上圖片」提示；要貼上圖片請用「+」選單裡的「貼上」。
 
 ### en-US
 
-- Unsent text is saved separately for each bot and thread, so you can continue after switching chats or reopening the app.
-- Pairing no longer asks for notifications right away. Turn them on from the setup page, which takes you to Settings if you turned them off.
-- Signing in to an account that already has computers finishes setup without the pairing walkthrough.
+- Scrolling and sending feel smoother, even in long chats.
+- After you send, the thinking indicator shows above the message box instead of behind it.
+- The message box no longer pops up a "Paste image" chip; use Paste in the + menu instead.
