@@ -49,6 +49,11 @@ pub enum Cmd {
         text: String,
     },
     Ask(crate::chat::team::Ask),
+    /// `send_message` from the bot's `chat` MCP server: a message for the user, now.
+    SendToUser {
+        text: String,
+        reply: tokio::sync::oneshot::Sender<Result<()>>,
+    },
     CancelAsk {
         id: String,
     },
@@ -120,6 +125,7 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig) -> BotHandle {
         tools: HashMap::new(),
         plan_entry: None,
         last_text: None,
+        sent: Vec::new(),
         perms: HashMap::new(),
         stop_requested: false,
         exit_tail: None,
@@ -127,6 +133,11 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig) -> BotHandle {
     };
     let task = tokio::spawn(actor.run(rx, interrupted));
     BotHandle { tx, task }
+}
+
+/// The working line for a tool call: composing a message reads as typing.
+fn activity(title: &str) -> &str {
+    if title.contains("send_message") { "Typing…" } else { title }
 }
 
 /// What the agent can do with sessions besides creating them.
@@ -196,6 +207,8 @@ struct Actor {
     tools: HashMap<String, String>,
     plan_entry: Option<String>,
     last_text: Option<String>,
+    /// Messages the bot sent the user this turn (`send_message`); none: its last text is the reply.
+    sent: Vec<String>,
     /// permission entry id -> JSON-RPC request id
     perms: HashMap<String, Value>,
     stop_requested: bool,
@@ -326,6 +339,9 @@ impl Actor {
                         c.acp.kill().await;
                     }
                 }
+            }
+            Cmd::SendToUser { text, reply } => {
+                let _ = reply.send(self.send_to_user(text));
             }
             Cmd::Stop => self.stop().await,
             Cmd::Permission { entry_id, option_id } => self.answer_permission(&entry_id, option_id).await,
@@ -640,6 +656,7 @@ impl Actor {
         self.tools.clear();
         self.plan_entry = None;
         self.last_text = None;
+        self.sent.clear();
         // A delegated or group turn has no live waiter after a host restart. Its persisted
         // notices are marked interrupted instead of silently repeating work.
         self.set_inflight(self.active_ask.is_none() && self.active_group.is_none() && self.active_routine.is_none());
@@ -825,6 +842,7 @@ impl Actor {
         let composio = crate::market::composio::enabled_for(&self.hub.store, &self.cfg.connectors)?;
         let builtin = [
             Some("connectors"),
+            Some("chat"),
             Some("team"),
             Some("memory"),
             Some("routines"),
@@ -1015,6 +1033,12 @@ impl Actor {
         let mut final_text = None;
         let routine = self.active_routine.is_some();
         let grouped = self.active_group.is_some() || routine;
+        let sent = std::mem::take(&mut self.sent);
+        if !sent.is_empty() {
+            // The bot talked through send_message: what it wrote as its reply stays in the trace.
+            self.last_text = None;
+            final_text = Some(sent.join("\n\n"));
+        }
         if let Some(id) = self.last_text.take().filter(|_| !stopped)
             && let Some(mut e) = self.hub.store.entry(&id)
         {
@@ -1179,7 +1203,7 @@ impl Actor {
                 if let Some(e) = self.add(EntryKind::Tool, turn, data) {
                     self.tools.insert(tool_id, e.id);
                 }
-                self.set_activity(&title);
+                self.set_activity(activity(&title));
             }
             "tool_call_update" => {
                 let tool_id = u["toolCallId"].as_str().unwrap_or_default();
@@ -1198,7 +1222,7 @@ impl Actor {
                 let title = e.data["title"].as_str().unwrap_or_default().to_owned();
                 self.hub.set_entry(&entry_id, &e.data);
                 if status == "in_progress" {
-                    self.set_activity(&title);
+                    self.set_activity(activity(&title));
                 }
             }
             // The agent summarized its context: the next turn gets freshly rendered
@@ -1320,6 +1344,21 @@ impl Actor {
                 r.activity = "Continuing…".into();
             });
         }
+    }
+
+    /// A `send_message`: the user's next bubble, in the turn's lane, right away. Only in the
+    /// bot's own chat and threads; a room, a teammate or a routine reads the turn's reply.
+    fn send_to_user(&mut self, text: String) -> Result<()> {
+        let Some(turn) = self.turn else { bail!("no turn is running") };
+        if self.active_group.is_some() || self.active_ask.is_some() || self.active_routine.is_some() {
+            bail!("send_message isn't available in this turn: write your answer as your reply");
+        }
+        self.close_seg();
+        self.add(EntryKind::Agent, turn, json!({"text": text, "final": true}))
+            .ok_or_else(|| anyhow!("couldn't save the message"))?;
+        self.sent.push(text);
+        self.set_activity("Working…");
+        Ok(())
     }
 
     // MARK: streaming text segments

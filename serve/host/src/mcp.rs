@@ -1,4 +1,4 @@
-//! Built-in stdio MCP servers: `team` discovers and asks other bots; `computer`
+//! Built-in stdio MCP servers: `chat` sends the user messages; `team` discovers and asks other bots; `computer`
 //! operates the desktop when enabled. Calls go through authenticated loopback
 //! HTTP to the running host, which owns delegation and screen control.
 
@@ -11,6 +11,7 @@ pub const PROTOCOL_VERSION: &str = "2025-06-18";
 
 #[derive(Clone, Copy)]
 pub enum Server {
+    Chat,
     Connectors,
     Routines,
     Computer,
@@ -125,6 +126,7 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
         }
         Server::Computer => ("codync-computer", INSTRUCTIONS, tools()),
         Server::Routines => ("codync-routines", crate::routines::INSTRUCTIONS, crate::routines::tools()),
+        Server::Chat => ("codync-chat", crate::chat::outbox::INSTRUCTIONS, crate::chat::outbox::tools()),
         Server::Team => ("codync-team", crate::chat::team::INSTRUCTIONS, crate::chat::team::tools()),
         Server::Memory => ("codync-memory", crate::chat::memory::INSTRUCTIONS, crate::chat::memory::tools()),
         Server::Composio => {
@@ -172,6 +174,7 @@ async fn call(port: u16, token: &str, bot: &str, params: &Value, server: Server)
         Server::Connectors => ("connectorCall", Duration::from_secs(90)),
         Server::Routines => ("routineCall", Duration::from_secs(30)),
         Server::Computer => ("computerCall", Duration::from_secs(60)),
+        Server::Chat => ("chatCall", Duration::from_secs(30)),
         Server::Team => ("teamCall", crate::chat::team::ASK_TIMEOUT + Duration::from_secs(30)),
         Server::Memory => ("memoryCall", Duration::from_secs(30)),
         Server::Composio => ("composioCall", Duration::from_secs(120)),
@@ -190,7 +193,7 @@ async fn call(port: u16, token: &str, bot: &str, params: &Value, server: Server)
                 Ok(v) if ok => {
                     return match server {
                         Server::Computer => json!({"content": v["content"]}),
-                        Server::Team | Server::Memory | Server::Routines | Server::Connectors => {
+                        Server::Chat | Server::Team | Server::Memory | Server::Routines | Server::Connectors => {
                             json!({"content": [{"type": "text", "text": v.to_string()}]})
                         }
                         Server::Composio => json!({"content": [{"type": "text", "text": v["result"].to_string()}]}),

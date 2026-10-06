@@ -161,6 +161,64 @@ async fn turn_with_approval_reaches_a_final_reply() {
 }
 
 #[tokio::test]
+async fn sent_messages_are_the_reply() {
+    if Command::new("python3").arg("--version").output().is_err() {
+        eprintln!("skipping: python3 not available");
+        return;
+    }
+    let host = start_host().await;
+    let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fake_agent.py");
+    let bot = host
+        .call(
+            "createBot",
+            json!({
+                "name": "Tester", "backend": "custom", "command": format!("python3 '{}'", agent.display()),
+                "cwd": host.home.to_string_lossy(), "permission": "ask",
+            }),
+        )
+        .await["bot"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let send = |text: &str| json!({"botId": bot, "name": "send_message", "arguments": {"text": text}});
+
+    // Between turns there's no one to talk to.
+    let idle = reqwest::Client::new()
+        .post(format!("{}/api/chatCall", host.base))
+        .bearer_auth(&host.token)
+        .json(&send("hello?"))
+        .send()
+        .await
+        .unwrap();
+    assert!(!idle.status().is_success());
+
+    host.call("send", json!({"botId": bot, "text": "go", "clientNonce": "n1"})).await;
+    let card = host.wait_for(&bot, |e| e["kind"] == "permission" && e["data"]["status"] == "pending").await;
+    // Mid-turn (the agent waits on the approval), each message is its own chat bubble at once.
+    host.call("chatCall", send("Found it.")).await;
+    host.call("chatCall", send("Fixing the typo now.")).await;
+    let first = host.wait_for(&bot, |e| e["kind"] == "agent" && e["data"]["text"] == "Found it.").await;
+    assert_eq!(first["data"]["final"], true);
+
+    host.call("respondPermission", json!({"entryId": card["id"], "optionId": "allow"})).await;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while host.call("sync", json!({"since": 0})).await["bots"][0]["status"] != "idle" {
+        assert!(Instant::now() < deadline, "turn didn't finish");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    // What the agent wrote as its reply stays in the trace.
+    let history = host.call("history", json!({"botId": bot})).await;
+    let entries = history["entries"].as_array().unwrap();
+    assert!(entries.iter().any(|e| e["data"]["text"].as_str().is_some_and(|t| t.starts_with("Done"))));
+    let finals: Vec<&str> = entries
+        .iter()
+        .filter(|e| e["kind"] == "agent" && e["data"]["final"] == true)
+        .map(|e| e["data"]["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(finals, ["Found it.", "Fixing the typo now."]);
+}
+
+#[tokio::test]
 async fn rejects_requests_without_the_token() {
     let host = start_host().await;
     let res = reqwest::Client::new().post(format!("{}/api/hello", host.base)).json(&json!({})).send().await.unwrap();
