@@ -76,11 +76,12 @@ public struct ActivityCaption: View {
             Text(state.caption)
                 .foregroundStyle(state.captionTint)
                 .contentTransition(.interpolate)
-            // The step truncates first; the time always stays whole.
+                .layoutPriority(1)
+            // No fixedSize on a timer Text: a Live Activity can't lay one out at its ideal width
+            // and draws the whole card black. Unconstrained, it takes the width left over.
             if let since = state.elapsedStart(startedAt) {
                 Text("·").foregroundStyle(Palette.tertiary)
                 Text(since, style: .timer).monospacedDigit().foregroundStyle(Palette.secondary)
-                    .fixedSize().layoutPriority(1)
             }
         }
         .font(.system(size: 12))
