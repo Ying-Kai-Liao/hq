@@ -52,6 +52,7 @@ private struct FollowConversation: ViewModifier {
         var offset: CGFloat
         var content: CGFloat
         var viewport: CGFloat
+        var inset: CGFloat
         var distanceToEnd: CGFloat
     }
 
@@ -63,12 +64,15 @@ private struct FollowConversation: ViewModifier {
             .onScrollGeometryChange(for: Place.self) { geometry in
                 let end = geometry.contentSize.height + geometry.contentInsets.bottom - geometry.containerSize.height
                 return Place(offset: geometry.contentOffset.y, content: geometry.contentSize.height,
-                             viewport: geometry.containerSize.height,
+                             viewport: geometry.containerSize.height, inset: geometry.contentInsets.bottom,
                              distanceToEnd: max(end, -geometry.contentInsets.top) - geometry.contentOffset.y)
             } action: { old, raw in
                 // Geometry's offsets and insets don't always add up to the real end; where a pin
-                // to the end actually lands says how far off they are.
-                if state.pinned, !readerScrolling, raw.content == old.content {
+                // to the end actually lands says how far off they are. Only on a still layout: a
+                // pin landing while the composer resizes (sending clears it) is short for real, and
+                // taking that as the error would leave the working row hidden under the composer.
+                if state.pinned, !readerScrolling, raw.content == old.content,
+                   raw.viewport == old.viewport, raw.inset == old.inset {
                     state.correction = raw.distanceToEnd
                 }
                 state.pinned = false
