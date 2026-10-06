@@ -161,3 +161,90 @@ textarea.field-box {
     opacity: 0;
   }
 }
+
+/* Group editor (Grok Bot's group details): identity on top, then a plain member list. */
+.group-form {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 8px 20px 24px;
+}
+.group-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.group-name,
+.group-about {
+  width: 100%;
+  text-align: center;
+  background: transparent;
+  color: var(--text);
+  resize: none;
+}
+.group-name {
+  font-size: calc(22px * var(--scale));
+  font-weight: 600;
+  margin-top: 6px;
+}
+.group-about {
+  font-size: calc(13px * var(--scale));
+  color: var(--secondary);
+  line-height: 1.35;
+}
+.group-name::placeholder,
+.group-about::placeholder {
+  color: var(--tertiary);
+}
+.group-section-title {
+  font-size: calc(13px * var(--scale));
+  font-weight: 600;
+  color: var(--secondary);
+  padding-bottom: 4px;
+}
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: calc(100% + 16px);
+  min-height: 48px;
+  margin: 0 -8px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  text-align: left;
+  transition: background-color var(--hover), transform var(--press);
+}
+button.member-row:hover {
+  background: var(--bubble-agent);
+}
+.member-name {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A member row that opens the bot's chat, with a remove button shown on hover. */
+.member-row.removable:hover {
+  background: var(--bubble-agent);
+}
+.member-open {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  text-align: left;
+}
+.member-row.removable > :last-child:not(.member-open) {
+  opacity: 0;
+  transition: opacity var(--hover);
+}
+.member-row.removable:hover > :last-child,
+.member-row.removable:focus-within > :last-child {
+  opacity: 1;
+}

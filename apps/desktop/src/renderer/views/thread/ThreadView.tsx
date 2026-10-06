@@ -367,13 +367,14 @@ function Row({ item, chat, openTrace, openThread, openRoutine }: { item: ChatIte
 function GroupIntroCard({ group }: { group: Bot }) {
   const store = useStore()
   const members = store.members(group)
+  const names = members.map((m) => m.name)
   return (
     <div className="intro-card">
       <GroupAvatar members={members} size={72} />
       <div style={{ ...font('title2', 'semibold'), color: 'var(--text)' }}>{group.name}</div>
-      <div style={{ ...font('subheadline'), color: 'var(--secondary)' }}>{members.map((m) => m.name).join(' · ')}</div>
+      {group.name !== names.join(', ') ? <div style={{ ...font('subheadline'), color: 'var(--secondary)' }}>{names.join(' · ')}</div> : null}
       {group.description ? <div style={{ ...font('subheadline'), color: 'var(--secondary)' }}>{group.description}</div> : null}
-      <div style={{ ...font('footnote'), color: 'var(--tertiary)', paddingTop: 4 }}>Everyone answers in turn. @mention a bot to ask just that one. Each bot works in its own folder.</div>
+      <div style={{ ...font('footnote'), color: 'var(--tertiary)', paddingTop: 4, maxWidth: 360, textWrap: 'balance' }}>Everyone answers in turn. @mention a bot to ask just that one.</div>
     </div>
   )
 }

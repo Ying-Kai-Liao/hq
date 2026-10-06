@@ -12,6 +12,8 @@ public struct GroupEditorView: View {
     @State private var about: String
     @State private var members: [String]
     @State private var query = ""
+    /// A new group starts in the picker; an existing one shows its members first.
+    @State private var adding: Bool
     @State private var saving = false
     @State private var error: String?
     @State private var confirmDelete: Bot?
@@ -21,6 +23,7 @@ public struct GroupEditorView: View {
         _name = State(initialValue: group?.name ?? "")
         _about = State(initialValue: group?.description ?? "")
         _members = State(initialValue: group?.members ?? members)
+        _adding = State(initialValue: group == nil && members.isEmpty)
     }
 
     private var picked: [Bot] { members.compactMap { model.bots[$0] } }
@@ -43,52 +46,79 @@ public struct GroupEditorView: View {
                 }
             }
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    GroupAvatar(members: picked, size: 72)
-                        .frame(maxWidth: .infinity)
-                        .animation(Motion.layout, value: members)
-                    Field("Bots · \(members.count)") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            if !picked.isEmpty {
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 6) {
-                                        ForEach(picked) { bot in
-                                            BotChip(bot: bot) { toggle(bot.id) }
-                                                .transition(.scale(scale: 0.85).combined(with: .opacity))
-                                        }
+                VStack(alignment: .leading, spacing: 28) {
+                    VStack(spacing: 10) {
+                        GroupAvatar(members: picked, size: 84)
+                            .animation(Motion.layout, value: members)
+                        TextField(defaultName, text: $name)
+                            .textFieldStyle(.plain)
+                            .font(.title2.weight(.semibold))
+                            .foregroundStyle(Palette.text)
+                            .multilineTextAlignment(.center)
+                            .padding(.top, 6)
+                        TextField("What this group works on", text: $about, axis: .vertical)
+                            .textFieldStyle(.plain)
+                            .lineLimit(1...4)
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("Members")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Palette.secondary)
+                            .padding(.bottom, 4)
+                        ForEach(picked) { bot in
+                            memberRow(bot) {
+                                IconButton("Remove \(bot.name)", systemImage: "xmark") { toggle(bot.id) }
+                            }
+                            .transition(.opacity)
+                        }
+                        if adding {
+                            TextField("Search bots", text: $query)
+                                .fieldBox(fill: Palette.surface)
+                                .onSubmit { if let first = candidates.first { toggle(first.id) } }
+                                .padding(.vertical, 6)
+                            ForEach(candidates) { bot in
+                                Button { toggle(bot.id) } label: {
+                                    memberRow(bot, dimmed: true) {
+                                        Image(systemName: "plus.circle").font(.system(size: 18)).foregroundStyle(Palette.secondary)
                                     }
                                 }
+                                .buttonStyle(PressScale())
+                                .accessibilityLabel("Add \(bot.name)")
                             }
-                            TextField(picked.isEmpty ? "Search bots" : "Add another bot", text: $query)
-                                .fieldBox()
-                                .onSubmit { if let first = candidates.first { toggle(first.id) } }
-                            VStack(spacing: 2) {
-                                ForEach(candidates) { bot in candidateRow(bot) }
+                        } else if !candidates.isEmpty {
+                            Button { withAnimation(Motion.layout) { adding = true } } label: {
+                                HStack(spacing: 14) {
+                                    Image(systemName: "plus").font(.system(size: 16)).foregroundStyle(Palette.secondary).frame(width: 32)
+                                    Text("Add Member").foregroundStyle(Palette.secondary)
+                                    Spacer(minLength: 0)
+                                }
+                                .frame(minHeight: 48)
+                                .contentShape(Rectangle())
                             }
+                            .buttonStyle(PressScale())
                         }
-                        .animation(Motion.layout, value: members)
-                        Text("Everyone answers in turn unless you @mention someone. Each bot works in its own folder with its own tools.")
+                        Text("Everyone answers in turn unless you @mention someone.")
                             .font(.caption)
                             .foregroundStyle(Palette.tertiary)
+                            .padding(.top, 10)
                     }
-                    Field("Name") {
-                        TextField(defaultName, text: $name).fieldBox()
-                    }
-                    Field("About") {
-                        TextField("What this group works on (optional)", text: $about, axis: .vertical)
-                            .lineLimit(2...5)
-                            .fieldBox()
-                    }
+                    .animation(Motion.layout, value: members)
                     if let error {
                         Text(error).font(.footnote).foregroundStyle(Palette.danger).transition(.opacity)
                     }
                     if let group = groupId.flatMap({ model.bots[$0] }) {
                         Button("Delete group chat", role: .destructive) { confirmDelete = group }
-                            .buttonStyle(.secondary)
-                            .padding(.top, 8)
+                            .foregroundStyle(Palette.danger)
+                            .buttonStyle(PressScale())
                     }
                 }
-                .padding(20)
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
             }
             .scrollDismissesKeyboard(.interactively)
         }
@@ -109,25 +139,16 @@ public struct GroupEditorView: View {
         query = ""
     }
 
-    private func candidateRow(_ bot: Bot) -> some View {
-        Button { toggle(bot.id) } label: {
-            HStack(spacing: 12) {
-                CharacterAvatar(bot: bot, size: 34, animated: false)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(bot.name).foregroundStyle(Palette.text).lineLimit(1)
-                    Text(bot.folderName).font(.caption).foregroundStyle(Palette.tertiary).lineLimit(1)
-                }
-                Spacer()
-                Image(systemName: "plus.circle")
-                    .font(.system(size: 20))
-                    .foregroundStyle(Palette.tertiary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
+    /// A member or candidate: avatar, name, and a trailing control (Grok Bot's member list).
+    private func memberRow(_ bot: Bot, dimmed: Bool = false, @ViewBuilder trailing: () -> some View) -> some View {
+        HStack(spacing: 14) {
+            CharacterAvatar(bot: bot, size: 32, animated: false)
+            Text(bot.name).foregroundStyle(dimmed ? Palette.secondary : Palette.text).lineLimit(1)
+            Spacer(minLength: 0)
+            trailing()
         }
-        .buttonStyle(PressScale())
-        .accessibilityLabel("Add \(bot.name)")
+        .frame(minHeight: 48)
+        .contentShape(Rectangle())
     }
 
     private func save() {
@@ -154,36 +175,3 @@ public struct GroupEditorView: View {
         }
     }
 }
-
-/// A picked bot (To: field, group editor); its x takes it back out.
-struct BotChip: View {
-    let bot: Bot
-    let remove: () -> Void
-
-    var body: some View {
-        HStack(spacing: 6) {
-            CharacterAvatar(bot: bot, size: 20, animated: false)
-            Text(bot.name)
-                .font(.body)
-                .foregroundStyle(Palette.text)
-                .lineLimit(1)
-                .frame(maxWidth: 220, alignment: .leading)
-                .fixedSize(horizontal: true, vertical: false)
-            Button(action: remove) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Palette.secondary)
-                    .frame(width: 18, height: 18)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Remove \(bot.name)")
-            .help("Remove \(bot.name)")
-        }
-        .padding(.leading, 8)
-        .padding(.trailing, 6)
-        .padding(.vertical, 5)
-        .background(Palette.bubbleAgent, in: Capsule())
-    }
-}
-
