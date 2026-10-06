@@ -240,11 +240,11 @@ fn member_prompt(hub: &Hub, group: &BotConfig, members: &[BotConfig], me: &BotCo
     if let Some(root) = lane.thread.as_deref().and_then(|r| hub.store.entry(r)) {
         header = format!("[Group chat: \"{}\", in a thread - with {peer_names}]", group.name);
         if seen == 0 {
-            lines.push(format!("(thread started on) {}", line(hub, &root, me)));
+            lines.push(format!("(thread started on) {}", line(hub, group, &root, me)));
         }
     }
     for e in hub.store.messages_after(lane, seen, HISTORY_LINES)? {
-        lines.push(line(hub, &e, me));
+        lines.push(line(hub, group, &e, me));
     }
     out.push(header);
     if lines.is_empty() {
@@ -261,10 +261,18 @@ fn member_prompt(hub: &Hub, group: &BotConfig, members: &[BotConfig], me: &BotCo
     Ok(out.join("\n"))
 }
 
-fn line(hub: &Hub, e: &Entry, me: &BotConfig) -> String {
+fn line(hub: &Hub, group: &BotConfig, e: &Entry, me: &BotConfig) -> String {
     let text = e.data["text"].as_str().unwrap_or_default();
     if e.kind == EntryKind::User.as_str() {
-        return format!("User: {text}");
+        let root = crate::chat::uploads::root(group);
+        let files: Vec<_> = e.data["attachments"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|a| crate::chat::uploads::path_of(&root, a))
+            .collect();
+        let files = if files.is_empty() { String::new() } else { crate::chat::uploads::prompt_suffix(&files) };
+        return format!("User: {text}{files}");
     }
     let author = e.data["author"].as_str().unwrap_or_default();
     let text = crate::agent::acp::truncate(text, LINE_CHARS);

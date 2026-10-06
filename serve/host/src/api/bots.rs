@@ -97,7 +97,7 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
         // One chunk of a file for a later `send` (`attachments`); base64 `data` at `offset`.
         "upload" => {
             use base64::Engine as _;
-            let row = hub.store.bot(str_arg(&b, "botId")?)?.filter(|r| !r.deleted && !r.config.is_group());
+            let row = hub.store.bot(str_arg(&b, "botId")?)?.filter(|r| !r.deleted);
             let root = crate::chat::uploads::root(&row.ok_or_else(|| anyhow!("unknown bot"))?.config);
             let (id, name) = (str_arg(&b, "uploadId")?.to_owned(), str_arg(&b, "name")?.to_owned());
             let data =
@@ -112,7 +112,7 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
         // A sent file, back in chunks (chat previews on other devices).
         "readUpload" => {
             use base64::Engine as _;
-            let row = hub.store.bot(str_arg(&b, "botId")?)?.filter(|r| !r.deleted && !r.config.is_group());
+            let row = hub.store.bot(str_arg(&b, "botId")?)?.filter(|r| !r.deleted);
             let root = crate::chat::uploads::root(&row.ok_or_else(|| anyhow!("unknown bot"))?.config);
             let id = str_arg(&b, "uploadId")?.to_owned();
             let offset = b["offset"].as_u64().unwrap_or(0);
@@ -150,9 +150,6 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             let lane = Lane { chat: bot.to_owned(), thread };
             let (mut paths, mut attachments) = (Vec::new(), Vec::new());
             if !uploads.is_empty() {
-                if row.config.is_group() {
-                    bail!("files can't be sent to a group");
-                }
                 let root = crate::chat::uploads::root(&row.config);
                 for id in uploads {
                     let (path, meta) = crate::chat::uploads::resolve(&root, id)?;

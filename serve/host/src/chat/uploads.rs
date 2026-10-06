@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 pub const MAX_FILE: u64 = 100 * 1024 * 1024;
 
 /// Inside a personal workspace, so reading an upload needs no extra approval.
+/// A group (no workspace) keeps its members' shared files in its data folder.
 pub fn root(cfg: &BotConfig) -> PathBuf {
     if workspace::is_managed(cfg) {
         Path::new(&cfg.cwd).join("uploads")
@@ -70,6 +71,12 @@ pub fn resolve(root: &Path, upload: &str) -> Result<(PathBuf, Value)> {
     Ok((file.path(), json!({"id": upload, "name": name, "size": size})))
 }
 
+/// Where a sent attachment (`{id, name}` chat metadata) lives, without touching the disk.
+pub fn path_of(root: &Path, meta: &Value) -> Option<PathBuf> {
+    let name = clean_name(meta["name"].as_str()?).ok()?;
+    Some(dir(root, meta["id"].as_str()?).ok()?.join(name))
+}
+
 /// Up to `len` bytes of a finished upload from `offset`, and its full size.
 pub fn read(root: &Path, upload: &str, offset: u64, len: usize) -> Result<(Vec<u8>, u64)> {
     use std::io::{Read as _, Seek as _, SeekFrom};
@@ -117,6 +124,7 @@ mod tests {
         assert_eq!(meta["name"], "a.txt");
         assert_eq!(read(root, &id, 6, 100).expect("read"), (b"world".to_vec(), 11));
         assert!(path.starts_with(root));
+        assert_eq!(path_of(root, &done), Some(path));
         let _ = std::fs::remove_dir_all(root);
     }
 }
