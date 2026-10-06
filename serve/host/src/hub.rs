@@ -42,6 +42,7 @@ pub struct Runtime {
 const MAX_REACTIONS: usize = 8;
 
 pub struct Hub {
+    pub analytics: crate::analytics::Analytics,
     pub routines: crate::routines::Routines,
     pub team: crate::chat::team::Requests,
     pub groups: crate::chat::group::Rooms,
@@ -84,6 +85,7 @@ impl Hub {
         let (events, _) = broadcast::channel(1024);
         let screen = Arc::new(Screen::new(Screen::load_enabled(&store), events.clone()));
         Arc::new(Self {
+            analytics: crate::analytics::Analytics::load(&store),
             routines: crate::routines::Routines::default(),
             team: crate::chat::team::Requests::default(),
             groups: crate::chat::group::Rooms::default(),
@@ -121,6 +123,7 @@ impl Hub {
             }
         }
         crate::routines::start(self);
+        crate::analytics::start(self);
         Ok(())
     }
 

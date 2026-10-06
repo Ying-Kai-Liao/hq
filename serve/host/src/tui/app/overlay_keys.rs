@@ -54,6 +54,7 @@ impl App {
             Action::Pair => self.open_pair(),
             Action::Usage => self.overlays.push(Overlay::Usage),
             Action::CheckUpdate => self.call("checkHostUpdate", json!({}), After::Update),
+            Action::Analytics => self.toggle_analytics(),
             Action::Keys => self.overlays.push(Overlay::Help(Editor::default())),
         }
     }
@@ -106,6 +107,7 @@ impl App {
             Overlay::Market(m) => self.market_key(m, k),
             Overlay::Agent(a) => self.agent_key(a, k),
             Overlay::Fields(f) => self.fields_key(f, k),
+            Overlay::Consent(share) => self.consent_key(share, k),
             o @ (Overlay::Usage | Overlay::Pair(_)) => {
                 if matches!(k.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q' | 'U' | 'P')) {
                     None

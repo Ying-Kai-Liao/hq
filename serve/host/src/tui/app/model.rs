@@ -24,6 +24,9 @@ pub enum After {
     Sent(String),
     Connection(String, super::super::connections::Step),
     Hello,
+    /// `track`: fire and forget (an older host doesn't know it).
+    Tracked,
+    Analytics,
     History(String),
     Thread,
     Dirs,
