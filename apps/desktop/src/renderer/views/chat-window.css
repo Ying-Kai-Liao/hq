@@ -40,26 +40,6 @@
   transition: opacity var(--layout), padding var(--layout);
 }
 
-.search {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  margin: 4px 12px 8px;
-  padding: 0 9px;
-  border-radius: 8px;
-  background: var(--bubble-agent);
-  font-size: calc(13px * var(--scale));
-  flex: none;
-}
-.search input {
-  flex: 1;
-  min-width: 0;
-}
-.search-clear {
-  display: flex;
-}
-
 .roster {
   flex: 1;
   overflow-y: auto;

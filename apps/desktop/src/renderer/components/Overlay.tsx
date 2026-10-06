@@ -61,9 +61,11 @@ function useEscape(active: boolean, onEscape: () => void) {
 }
 
 /** The Mac modal (`.codyncSheet`): a centered card over a dim; the content sizes it. */
-export function Sheet({ open, onClose, width, height, children }: {
+export function Sheet({ open, onClose, width, height, dismissOnDim = false, children }: {
   open: boolean
   onClose: () => void
+  /** A click outside the card closes it (transient pickers, not forms). */
+  dismissOnDim?: boolean
   width?: number | string
   height?: number | string
   children: ReactNode
@@ -76,7 +78,7 @@ export function Sheet({ open, onClose, width, height, children }: {
   return createPortal(
     <DismissContext.Provider value={onClose}>
       <div className={`modal-card ${shown ? 'shown' : ''}`} role="dialog" aria-modal>
-        <div className="modal-dim" />
+        <div className="modal-dim" onClick={dismissOnDim ? onClose : undefined} />
         <div className="modal-content" style={{ width, height, maxWidth: 'calc(100vw - 48px)', maxHeight: 'calc(100vh - 48px)' }}>
           {open ? children : last.current}
         </div>

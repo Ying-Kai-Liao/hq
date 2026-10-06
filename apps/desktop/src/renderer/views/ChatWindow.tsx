@@ -20,6 +20,7 @@ import { MarketplaceView } from './marketplace/MarketplaceView'
 import { SettingsView, type SettingsPage } from './settings/SettingsView'
 import { ApprovalSheet } from './settings/ApprovalSheet'
 import { UpdateNeededCard } from './UpdateNeededCard'
+import { SearchPalette } from './SearchPalette'
 import { AccountWelcomeView } from './AccountWelcomeView'
 import { AnalyticsPrompt } from './AnalyticsPrompt'
 import { OpenVoiceSettings } from './call/CallView'
@@ -147,7 +148,7 @@ function ChatSplitView() {
   const [compact, setCompact] = usePref(prefs.sidebarCompact)
   const [sidebarWidth, setSidebarWidth] = usePref(prefs.sidebarWidth)
   const [hidden, setHidden] = usePref(prefs.hiddenComputers)
-  const [search, setSearch] = useState('')
+  const [searching, setSearching] = useState(false)
   const [composing, setComposing] = useState(false)
   const [composingGroup, setComposingGroup] = useState(false)
   const [composeComputer, setComposeComputer] = useState<string | null>(null)
@@ -164,7 +165,6 @@ function ChatSplitView() {
   const openVoiceSettings = useCallback(() => setSettings('voice'), [])
   const [showAccount, setShowAccount] = useState(false)
   const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight })
-  const searchRef = useRef<HTMLInputElement>(null)
   const newButton = useRef<HTMLButtonElement>(null)
   const railNewButton = useRef<HTMLButtonElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -185,12 +185,7 @@ function ChatSplitView() {
   const onlineStores = stores.filter((s) => shown.has(s.computer.id) && s.connection.kind === 'online' && !s.mismatch)
   const selectedStore = app.selectedStore
   const composeStore = composeComputer ? app.store(composeComputer) : null
-  const query = search.trim().toLowerCase()
-  const visibleRoster = app.roster.filter(
-    (item) =>
-      shown.has(item.ref.computerId) &&
-      (compact || !query || item.bot.name.toLowerCase().includes(query) || (item.bot.lastMessage ?? '').toLowerCase().includes(query)),
-  )
+  const visibleRoster = app.roster.filter((item) => shown.has(item.ref.computerId))
 
   const compose = (group = false) => {
     setComposingGroup(group)
@@ -211,10 +206,7 @@ function ChatSplitView() {
     () =>
       window.codync.app.onCommand((c) => {
         if (c.kind === 'newChat' && onlineStores.length) compose()
-        if (c.kind === 'search') {
-          setCompact(false)
-          setTimeout(() => searchRef.current?.focus(), 0)
-        }
+        if (c.kind === 'search') setSearching(true)
         if (c.kind === 'toggleSidebar') setCompact(!prefs.sidebarCompact.get())
       }),
   )
@@ -339,6 +331,7 @@ function ChatSplitView() {
           <span style={{ flex: 1 }} />
           <div className="no-drag" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <ComputerFilterHeader hidden={hidden} setHidden={setHidden} manage={() => setSettings('computers')} />
+            <IconButton title="Search" icon="magnifyingglass" onClick={() => setSearching(true)} />
             <IconButton title="New" icon="plus" buttonRef={newButton} onClick={() => setNewMenu((o) => !o)} disabled={!onlineStores.length} />
           </div>
           <AnchoredMenu open={newMenu} onClose={() => setNewMenu(false)} anchor={newButton} items={newItems} />
@@ -348,30 +341,6 @@ function ChatSplitView() {
             <div className="no-drag" style={{ display: 'flex', justifyContent: 'center' }}>
               <ComputerFilterHeader hidden={hidden} setHidden={setHidden} manage={() => setSettings('computers')} compact />
             </div>
-          </div>
-        ) : null}
-        {!compact ? (
-          <div className="search">
-            <Icon name="magnifyingglass" size={13} color="var(--secondary)" />
-            <input
-              ref={searchRef}
-              value={search}
-              placeholder="Search"
-              aria-label="Search bots"
-              spellCheck={false}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  setSearch('')
-                  searchRef.current?.blur()
-                }
-              }}
-            />
-            {search ? (
-              <button className="search-clear" aria-label="Clear search" title="Clear search" onClick={() => setSearch('')}>
-                <Icon name="xmark.circle.fill" size={13} color="var(--secondary)" />
-              </button>
-            ) : null}
           </div>
         ) : null}
         <div className="roster" ref={listRef} tabIndex={0} onKeyDown={onListKey}>
@@ -412,13 +381,14 @@ function ChatSplitView() {
           })}
           {visibleRoster.length === 0 && !compact && mismatchStores.length === 0 ? (
             <div className="roster-empty">
-              <div style={font(13, 'medium')}>{search ? 'No matching bots' : 'No bots yet'}</div>
-              <div style={{ ...font(12), color: 'var(--secondary)' }}>{search ? 'Try another name or message.' : 'Use + to start a new chat.'}</div>
+              <div style={font(13, 'medium')}>No bots yet</div>
+              <div style={{ ...font(12), color: 'var(--secondary)' }}>Use + to start a new chat.</div>
             </div>
           ) : null}
         </div>
         {compact ? (
           <div className="rail-actions">
+            <IconButton title="Search" icon="magnifyingglass" onClick={() => setSearching(true)} />
             <IconButton title="New" icon="plus" size={36} buttonRef={railNewButton} disabled={!onlineStores.length} onClick={() => setRailNewMenu((o) => !o)} />
             <AnchoredMenu open={railNewMenu} onClose={() => setRailNewMenu(false)} anchor={railNewButton} items={newItems} />
             <IconButton title="Marketplace" icon="square.grid.2x2" size={36} onClick={openMarketplace} />
@@ -472,6 +442,7 @@ function ChatSplitView() {
         </div>
       ) : null}
 
+      <SearchPalette open={searching} items={visibleRoster} onPick={(ref) => app.select(ref)} onClose={() => setSearching(false)} />
       <Sheet open={editing !== null} onClose={() => setEditing(null)} width={520} height={Math.min(680, sheetHeight)}>
         {editing ? (
           <StoreContext.Provider value={editing.store}>
