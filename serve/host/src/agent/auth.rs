@@ -13,7 +13,8 @@
 use crate::LockExt;
 use crate::agent::acp::{AUTH_REQUIRED, Acp, Incoming, RpcError};
 use crate::agent::backends;
-use crate::agent::registry::{Cmd, env_prefix, shell_quote};
+use crate::agent::registry::{Cmd, env_prefix};
+use crate::shell::quote as shell_quote;
 use crate::store::Store;
 use anyhow::{Context, Result, anyhow, bail};
 use serde::Serialize;
@@ -425,7 +426,9 @@ mod tests {
         ]});
         let m = methods("x", &init, &cmd());
         let kinds: Vec<_> = m.iter().map(|m| (m.id.as_str(), &m.kind)).collect();
-        assert!(matches!(kinds[0], ("a", MethodKind::Terminal { command }) if command == "/bin/tool login '--x y'"));
+        assert!(
+            matches!(kinds[0], ("a", MethodKind::Terminal { command }) if command == &format!("/bin/tool login {}", shell_quote("--x y")))
+        );
         assert!(
             matches!(kinds[1], ("b", MethodKind::Terminal { command }) if command == "npx -y pkg@1 --terminal-login")
         );

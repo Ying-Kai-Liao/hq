@@ -8,6 +8,7 @@
 
 use crate::LockExt;
 use crate::agent::registry;
+use crate::shell;
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -35,19 +36,27 @@ pub struct Harness {
 
 #[derive(Clone, Copy)]
 pub enum Install {
-    /// A vendor install script (`curl … | bash`).
+    /// A vendor install script (`curl … | bash`), Unix only.
     Script(&'static str),
+    /// Vendor install scripts for Unix and for Windows (PowerShell).
+    Scripts { unix: &'static str, windows: &'static str },
     /// A global npm package.
     Npm(&'static str),
 }
 
 impl Install {
-    pub fn command(self) -> String {
+    /// `None`: nothing Codync can run on this platform.
+    pub fn command(self) -> Option<String> {
         match self {
-            Self::Script(s) => s.to_owned(),
-            Self::Npm(pkg) => format!(
+            Self::Script(s) | Self::Scripts { unix: s, .. } if cfg!(unix) => Some(s.to_owned()),
+            Self::Script(_) => None,
+            Self::Scripts { windows, .. } => Some(windows.to_owned()),
+            Self::Npm(pkg) if cfg!(windows) => Some(format!(
+                "where npm >nul 2>nul || (echo This needs Node.js first: https://nodejs.org & exit /b 1) & npm install -g {pkg}"
+            )),
+            Self::Npm(pkg) => Some(format!(
                 "command -v npm >/dev/null || {{ echo 'This needs Node.js first: https://nodejs.org'; exit 1; }}; npm install -g {pkg}"
-            ),
+            )),
         }
     }
 }
@@ -84,7 +93,10 @@ pub const HARNESSES: &[Harness] = &[
         local: None,
         registry: Some("claude-acp"),
         setup: "Install Claude Code and run `claude auth login`.",
-        install: Some(Install::Script("curl -fsSL https://claude.ai/install.sh | bash")),
+        install: Some(Install::Scripts {
+            unix: "curl -fsSL https://claude.ai/install.sh | bash",
+            windows: "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://claude.ai/install.ps1 | iex\"",
+        }),
         login: "{bin} auth login",
         signed_in: Some(SignInCheck { args: "auth status", ok: claude_signed_in }),
     },
@@ -376,8 +388,12 @@ pub fn harness(id: &str) -> Option<&'static Harness> {
 static SEARCH_PATH: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
 /// Login-shell PATH, via `$SHELL -ilc` with a timeout (nvm/conda can make shells slow).
+/// Windows has no login shell: every process already gets the user's PATH.
 fn login_shell_path() -> Option<String> {
     const MARK: &str = "__CODYNC_PATH__";
+    if cfg!(windows) {
+        return None;
+    }
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
     let mut child = std::process::Command::new(shell)
         .args(["-ilc", &format!("printf '%s%s%s' '{MARK}' \"$PATH\" '{MARK}'")])
@@ -419,6 +435,11 @@ fn well_known_dirs() -> Vec<PathBuf> {
             .iter()
             .map(PathBuf::from)
             .collect();
+    if cfg!(windows) {
+        // Global npm CLIs (%APPDATA%\npm), and Node itself.
+        dirs.extend(dirs::data_dir().map(|d| d.join("npm")));
+        dirs.extend(std::env::var_os("ProgramFiles").map(|d| PathBuf::from(d).join("nodejs")));
+    }
     for rel in [
         ".local/bin",
         ".bun/bin",
@@ -477,7 +498,14 @@ pub fn which(bin: &str) -> Option<PathBuf> {
             cached.clone()
         }
     };
-    dirs.into_iter().map(|d| d.join(bin)).find(|p| is_executable(p))
+    dirs.into_iter().flat_map(|d| executable_names(bin).map(move |name| d.join(name))).find(|p| is_executable(p))
+}
+
+/// What `bin` can be called on disk: Windows adds the extensions it runs.
+fn executable_names(bin: &str) -> impl Iterator<Item = String> + '_ {
+    let extensions: &[&str] =
+        if cfg!(windows) && Path::new(bin).extension().is_none() { &[".exe", ".cmd", ".bat"] } else { &[""] };
+    extensions.iter().map(move |e| format!("{bin}{e}"))
 }
 
 fn is_executable(p: &Path) -> bool {
@@ -517,7 +545,7 @@ pub fn list() -> Vec<Value> {
                 "description": reg.and_then(|a| a["description"].as_str()).unwrap_or_default(),
                 "installHint": h.setup,
                 "signedIn": signed_in(h.id),
-                "canInstall": h.install.is_some(),
+                "canInstall": h.install.and_then(Install::command).is_some(),
                 "command": h.local.unwrap_or_default(),
                 "registry": h.registry,
                 "curated": true,
@@ -647,7 +675,7 @@ pub fn login_available(id: &str) -> bool {
 pub async fn login_command(id: &str) -> anyhow::Result<String> {
     let h = harness(id).ok_or_else(|| anyhow::anyhow!("no sign-in command for {id}"))?;
     let bin = match h.bins.iter().find_map(|b| which(b)) {
-        Some(p) => shell_quote(&p.to_string_lossy()),
+        Some(p) => shell::quote(&p.to_string_lossy()),
         None => match registry_cli(h) {
             Some(agent) => registry::command(&agent, |_| {}).await?.program,
             None if !h.login.contains("{bin}") => String::new(),
@@ -663,21 +691,14 @@ pub fn local_candidate(id: &str) -> Option<registry::Cmd> {
     let template = h.local?;
     let path = h.bins.iter().find_map(|b| which(b))?;
     let args = template.strip_prefix("{bin}").unwrap_or(template).trim().to_owned();
-    Some(registry::Cmd { program: shell_quote(&path.to_string_lossy()), args })
-}
-
-fn shell_quote(s: &str) -> String {
-    if s.chars().all(|c| c.is_ascii_alphanumeric() || "-_./".contains(c)) {
-        s.to_owned()
-    } else {
-        format!("'{}'", s.replace('\'', "'\\''"))
-    }
+    Some(registry::Cmd { program: shell::quote(&path.to_string_lossy()), args })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn detects_executables_on_search_path() {
         let dir = std::env::temp_dir().join(format!("codync-bin-{}", uuid::Uuid::new_v4()));

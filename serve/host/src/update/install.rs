@@ -14,7 +14,8 @@ pub enum Method {
 
 pub fn method(executable: &Path) -> Method {
     let path = executable.to_string_lossy();
-    if path.contains(".app/Contents/") {
+    // The Mac app's bundle, or the Windows app's `resources` folder.
+    if path.contains(".app/Contents/") || (cfg!(windows) && path.contains("\\resources\\")) {
         Method::AppBundle
     } else if path.contains("/Cellar/") || path.contains("/linuxbrew/") {
         Method::Homebrew
@@ -28,7 +29,7 @@ pub fn method(executable: &Path) -> Method {
 pub fn require_standalone(executable: &Path) -> Result<()> {
     match method(executable) {
         Method::Standalone => Ok(()),
-        Method::AppBundle => bail!("this host belongs to Codync.app; update the Mac app from Settings > Updates"),
+        Method::AppBundle => bail!("this host belongs to the Codync app; update the app from Settings > Updates"),
         Method::Homebrew => bail!(
             "this host belongs to Homebrew; run `brew upgrade leepokai/codync/codync-host`, then `codync-host install`"
         ),

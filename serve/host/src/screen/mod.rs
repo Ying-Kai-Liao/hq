@@ -88,6 +88,7 @@ pub struct Screen {
     status: Mutex<HelperStatus>,
     control: Mutex<Control>,
     sessions: Mutex<HashMap<String, Viewer>>,
+    #[cfg_attr(windows, expect(dead_code, reason = "Windows has no screen helper yet"))]
     next_link: AtomicU64,
 }
 

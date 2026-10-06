@@ -6,6 +6,7 @@
 //! disk, so they're checked before use.
 
 use crate::LockExt;
+use crate::shell;
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -77,6 +78,8 @@ pub fn platform() -> Option<&'static str> {
         ("macos", "x86_64") => "darwin-x86_64",
         ("linux", "aarch64") => "linux-aarch64",
         ("linux", "x86_64") => "linux-x86_64",
+        ("windows", "aarch64") => "windows-aarch64",
+        ("windows", "x86_64") => "windows-x86_64",
         _ => return None,
     })
 }
@@ -98,34 +101,16 @@ pub fn launch_kind(agent: &Value) -> Option<Launch> {
     None
 }
 
-pub fn shell_quote(s: &str) -> String {
-    if !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_./=@:+,".contains(c)) {
-        s.to_owned()
-    } else {
-        format!("'{}'", s.replace('\'', "'\\''"))
-    }
-}
-
 fn args_of(v: &Value) -> String {
     v["args"]
         .as_array()
-        .map(|a| a.iter().filter_map(Value::as_str).map(shell_quote).collect::<Vec<_>>().join(" "))
+        .map(|a| a.iter().filter_map(Value::as_str).map(shell::quote).collect::<Vec<_>>().join(" "))
         .unwrap_or_default()
 }
 
-/// `KEY=value ` pairs; keys that aren't plain identifiers are dropped (they'd be shell syntax).
-/// Goes through `env` so the result still works after `exec`.
+/// `KEY=value ` pairs from a registry `env` object.
 pub fn env_prefix(env: &Value) -> String {
-    let pairs = env
-        .as_object()
-        .map(|m| {
-            m.iter()
-                .filter(|(k, _)| !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
-                .filter_map(|(k, v)| Some(format!("{k}={} ", shell_quote(v.as_str()?))))
-                .collect::<String>()
-        })
-        .unwrap_or_default();
-    if pairs.is_empty() { pairs } else { format!("env {pairs}") }
+    shell::env_prefix(env.as_object().into_iter().flatten().filter_map(|(k, v)| Some((k.as_str(), v.as_str()?))))
 }
 
 /// One path component made only of `[A-Za-z0-9._-]` and not `.`/`..`.
@@ -170,7 +155,7 @@ pub async fn command(agent: &Value, progress: impl Fn(&str)) -> Result<Cmd> {
                 target["cmd"].as_str().and_then(contained).ok_or_else(|| anyhow!("registry entry has a bad cmd"))?;
             let dir = install_binary(agent, target, cmd, &progress).await?;
             Ok(Cmd {
-                program: format!("{}{}", env_prefix(&target["env"]), shell_quote(&dir.join(cmd).to_string_lossy())),
+                program: format!("{}{}", env_prefix(&target["env"]), shell::quote(&dir.join(cmd).to_string_lossy())),
                 args: args_of(target),
             })
         }
@@ -182,7 +167,7 @@ pub async fn command(agent: &Value, progress: impl Fn(&str)) -> Result<Cmd> {
             program: format!(
                 "{}uvx {}",
                 env_prefix(&d["uvx"]["env"]),
-                shell_quote(d["uvx"]["package"].as_str().unwrap_or_default())
+                shell::quote(d["uvx"]["package"].as_str().unwrap_or_default())
             ),
             args: args_of(&d["uvx"]),
         }),
@@ -198,7 +183,7 @@ fn npx_cmd(npx: &Value) -> Cmd {
         program: format!(
             "{}npx -y {}",
             env_prefix(&npx["env"]),
-            shell_quote(npx["package"].as_str().unwrap_or_default())
+            shell::quote(npx["package"].as_str().unwrap_or_default())
         ),
         args: args_of(npx),
     }
@@ -218,7 +203,7 @@ async fn prepare_npx(package: &str, name: &str, progress: &impl Fn(&str)) -> Res
     }
     let _ = tokio::fs::remove_dir_all(&dir).await;
     progress(&format!("Downloading {name}…"));
-    let install = tokio::process::Command::new("npm")
+    let install = tokio::process::Command::new(shell::program("npm"))
         .args(["exec", "--yes", "--package", package, "-c", "true"])
         // Away from any project, so npx doesn't settle for a local node_modules.
         .current_dir(crate::service::data_dir())
@@ -240,7 +225,7 @@ async fn npm_cache() -> Result<&'static Path> {
     static DIR: tokio::sync::OnceCell<PathBuf> = tokio::sync::OnceCell::const_new();
     let dir = DIR
         .get_or_try_init(|| async {
-            let out = tokio::process::Command::new("npm")
+            let out = tokio::process::Command::new(shell::program("npm"))
                 .args(["config", "get", "cache"])
                 .stdin(std::process::Stdio::null())
                 .output()
@@ -336,9 +321,10 @@ fn extract(archive: &Path, dir: &Path, cmd: &Path) -> Result<()> {
     let name = archive.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
     // Multi-part extensions (`.tar.gz`) rule out `Path::extension`; `name` is already lowercased.
     #[allow(clippy::case_sensitive_file_extension_comparisons)]
-    let status = if name.ends_with(".zip") {
+    // Windows' bsdtar (`tar.exe`) reads zips too; it has no `unzip`.
+    let status = if name.ends_with(".zip") && cfg!(unix) {
         std::process::Command::new("unzip").arg("-q").arg("-o").arg(archive).arg("-d").arg(dir).status()
-    } else if [".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".tar"].iter().any(|e| name.ends_with(e)) {
+    } else if [".zip", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".tar"].iter().any(|e| name.ends_with(e)) {
         // Both GNU tar and bsdtar refuse `..` members by default.
         std::process::Command::new("tar").arg("-xf").arg(archive).arg("-C").arg(dir).status()
     } else {
@@ -348,6 +334,7 @@ fn extract(archive: &Path, dir: &Path, cmd: &Path) -> Result<()> {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::rename(archive, &exe)?;
+        #[cfg(unix)]
         chmod_x(&exe)?;
         return Ok(());
     }
@@ -356,21 +343,19 @@ fn extract(archive: &Path, dir: &Path, cmd: &Path) -> Result<()> {
         bail!("couldn't extract {}", archive.display());
     }
     let _ = std::fs::remove_file(archive);
-    let exe = dir.join(cmd);
-    if exe.exists() {
-        chmod_x(&exe)?;
+    #[cfg(unix)]
+    if dir.join(cmd).exists() {
+        chmod_x(&dir.join(cmd))?;
     }
     Ok(())
 }
 
+#[cfg(unix)]
 fn chmod_x(path: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut p = std::fs::metadata(path)?.permissions();
-        p.set_mode(p.mode() | 0o755);
-        std::fs::set_permissions(path, p)?;
-    }
+    use std::os::unix::fs::PermissionsExt;
+    let mut p = std::fs::metadata(path)?.permissions();
+    p.set_mode(p.mode() | 0o755);
+    std::fs::set_permissions(path, p)?;
     Ok(())
 }
 
@@ -382,7 +367,9 @@ mod tests {
     #[test]
     fn npx_command_is_quoted() {
         let npx = json!({"package": "@s/x@1.0.0", "args": ["--acp", "a b"], "env": {"K": "v", "BAD;rm": "x"}});
-        assert_eq!(npx_cmd(&npx).acp(), "env K=v npx -y @s/x@1.0.0 --acp 'a b'");
+        let expected =
+            if cfg!(windows) { "K=v npx -y @s/x@1.0.0 --acp \"a b\"" } else { "env K=v npx -y @s/x@1.0.0 --acp 'a b'" };
+        assert_eq!(npx_cmd(&npx).acp(), expected);
     }
 
     #[test]
@@ -402,6 +389,7 @@ mod tests {
         assert!(root.join("1.1.0").exists());
     }
 
+    #[cfg(unix)]
     #[test]
     fn raw_binary_extract_marks_executable() {
         let dir = std::env::temp_dir().join(format!("codync-reg-{}", uuid::Uuid::new_v4()));

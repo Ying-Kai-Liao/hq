@@ -147,6 +147,9 @@ impl Screen {
 
     /// Only callable from this computer (see `api/devices.rs`).
     pub async fn set_enabled(&self, store: &crate::store::Store, on: bool) -> Result<()> {
+        if on && cfg!(windows) {
+            anyhow::bail!("Remote screen isn't available on Windows yet.");
+        }
         store.kv_set(KV_ENABLED, if on { "1" } else { "0" })?;
         *self.enabled.locked() = Some(on);
         if !on {
