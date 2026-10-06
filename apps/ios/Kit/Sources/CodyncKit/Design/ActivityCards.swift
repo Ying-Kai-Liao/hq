@@ -38,21 +38,14 @@ public extension BotActivityPresentation {
 }
 
 public extension AnyTransition {
-    /// The bot's face and the state mark on a phase change: the old one bursts out larger
-    /// while the new one grows in from small and overshoots (with `Motion.activityPop`).
-    /// Built-in transitions only: Live Activities don't run custom ones.
-    static var activityFace: AnyTransition {
-        .asymmetric(insertion: .scale(scale: 0.2).combined(with: .opacity),
-                    removal: .scale(scale: 1.6).combined(with: .opacity))
-    }
-
     /// Rows a new phase brings (the Review button, the timer): rise and fade in.
     static var activityRow: AnyTransition {
         .asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity)
     }
 }
 
-/// The bot's face in its phase's mood, swapped with a pop when the phase changes.
+/// The bot's face in its phase's mood. On a phase change the bot itself moves: the halftone
+/// highlight sweeps to the new side and the eyes glance over (or the ripple appears).
 public struct ActivityAvatar: View {
     let shape: String
     let color: String
@@ -64,13 +57,8 @@ public struct ActivityAvatar: View {
     }
 
     public var body: some View {
-        ZStack {
-            CharacterAvatar(shape: shape, color: color, size: size, mood: state.mood, still: true)
-                .id(state.phase)
-                .transition(.activityFace)
-        }
-        .frame(width: size, height: size)
-        .animation(Motion.activityPop, value: state.phase)
+        CharacterAvatar(shape: shape, color: color, size: size, mood: state.mood, still: true)
+            .animation(Motion.activityPhase, value: state.mood)
     }
 }
 
@@ -178,7 +166,7 @@ public struct BotActivityIndicator: View {
     }
 
     public var body: some View {
-        // A new mark per phase (orb → orb too: working → needs you), so every change pops.
+        // The orb and the end symbols cross-fade; the bot beside it carries the motion.
         ZStack {
             Group {
                 if let orb = state.orbState {
@@ -188,11 +176,11 @@ public struct BotActivityIndicator: View {
                 }
             }
             .id(state.phase)
-            .transition(.activityFace)
+            .transition(.opacity)
         }
         .frame(width: size, height: size)
         .foregroundStyle(state.tint)
-        .animation(Motion.activityPop, value: state.phase)
+        .animation(Motion.activityPhase, value: state.phase)
         .accessibilityElement()
         .accessibilityLabel(state.title)
     }

@@ -13,8 +13,8 @@ public struct CharacterAvatar: View {
     let mood: Mood
     let still: Bool
 
-    /// `still` draws the mood's face without animating it (widgets and Live Activities,
-    /// which render one frame).
+    /// `still` draws one frame of the mood (widgets and Live Activities render one frame);
+    /// a change of mood then moves the halftone highlight and the eyes, animatable dot by dot.
     public init(shape: String, color: String, size: CGFloat = 40, mood: Mood = .idle, still: Bool = false) {
         self.init(shape: shape, tint: AvatarPalette.color(color), size: size, mood: mood, still: still)
     }
@@ -69,42 +69,95 @@ private struct DottedBody: View {
     let paused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Where the light sits and where the eyes look.
+    struct Pose: Equatable {
+        var yaw: Double
+        var glance: Int
+        var blinking = false
+        /// The needs-you ripple's phase, nil without one.
+        var ripple: Double?
+
+        /// One frame of the mood: in widgets and Live Activities, which render one frame, a
+        /// change of mood moves the halftone highlight and the eyes to the new pose.
+        static func still(_ mood: CharacterAvatar.Mood) -> Pose {
+            switch mood {
+            case .idle: Pose(yaw: -0.7, glance: 0)
+            case .working: Pose(yaw: 1.1, glance: 1)
+            case .needsInput: Pose(yaw: 0, glance: 0, ripple: 0.6)
+            }
+        }
+    }
+
+    /// One dot's look for a pose: radius, grey ink, and how much of the bot's color shows.
+    struct Ink {
+        let dot: Dot
+        let radius: CGFloat
+        let ink: Double
+        let tint: Double
+        let eye: Bool
+    }
+
     var body: some View {
         let grid = Grid(size: size)
         let step = size / CGFloat(grid.cells)
         let dots = Self.grid(shape: shape, size: size, step: step, cells: grid.cells)
-        let still = mood == .idle || reduceMotion || paused
-        TimelineView(.animation(paused: still)) { timeline in
-            let t = still ? 0 : timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 3600)
-            // Glance: whole-cell steps left / center / right, like a small display.
-            let glance = mood == .working ? Int((sin(t * 2 * .pi / 3.2) * 1.4).rounded()) : 0
-            let blinking = !still && (t / 4.7).truncatingRemainder(dividingBy: 1) < 0.035
-            let eyeRows = blinking ? Array(grid.eyeRows.suffix(1)) : grid.eyeRows
-            let eyeCols = grid.eyeColumns.map { $0 + glance }
-            Canvas { ctx, _ in
-                let half = size / 2
-                let yaw = mood == .working ? t * 1.4 : -0.7
-                let lx = sin(yaw) * 0.8, ly = 0.55, lz = cos(yaw) * 0.5 + 0.6  // never fully behind
-                let ll = (lx * lx + ly * ly + lz * lz).squareRoot()
-                for d in dots where !(eyeCols.contains(d.col) && eyeRows.contains(d.row)) {
-                    let p = d.center
-                    let u = (p.x - half) / half, v = (half - p.y) / half
-                    let z = max(0.2, 1 - u * u - v * v).squareRoot()
-                    let nl = (u * u + v * v + z * z).squareRoot()
-                    var shade = 0.3 + 0.7 * max(0, (u * lx + v * ly + z * lz) / (nl * ll))
-                    if mood == .needsInput {
-                        let ripple = 0.5 + 0.5 * sin((u * u + v * v).squareRoot() * 9 - t * 5)
-                        shade *= 0.6 + 0.4 * ripple
-                    }
-                    let r = step * 0.42 * (0.55 + 0.45 * shade)
-                    let dot = Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
-                    let ink = grid.cells < 13 ? 0.4 + 0.4 * shade : 0.2 + 0.4 * min(1, shade / 0.7)
-                    ctx.fill(dot, with: .color(Palette.text.opacity(ink)))
-                    if shade > 0.6 {
-                        ctx.fill(dot, with: .color(color.opacity((shade - 0.6) / 0.4)))
+        if paused {
+            // One view per dot (not a Canvas), so the system interpolates each dot's size and
+            // color between two poses, also inside a Live Activity.
+            ZStack(alignment: .topLeading) {
+                ForEach(Self.inks(dots, grid: grid, step: step, size: size, pose: .still(mood)), id: \.dot.id) { d in
+                    Circle()
+                        .fill(Palette.text.opacity(d.ink))
+                        .overlay(Circle().fill(color.opacity(d.tint)))
+                        .frame(width: d.radius * 2, height: d.radius * 2)
+                        .position(d.dot.center)
+                        .opacity(d.eye ? 0 : 1)
+                }
+            }
+            .frame(width: size, height: size)
+        } else {
+            let still = mood == .idle || reduceMotion
+            TimelineView(.animation(paused: still)) { timeline in
+                let t = still ? 0 : timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 3600)
+                // Glance: whole-cell steps left / center / right, like a small display.
+                let pose = Pose(yaw: mood == .working ? t * 1.4 : -0.7,
+                                glance: mood == .working ? Int((sin(t * 2 * .pi / 3.2) * 1.4).rounded()) : 0,
+                                blinking: !still && (t / 4.7).truncatingRemainder(dividingBy: 1) < 0.035,
+                                ripple: mood == .needsInput ? t * 5 : nil)
+                Canvas { ctx, _ in
+                    for d in Self.inks(dots, grid: grid, step: step, size: size, pose: pose) where !d.eye {
+                        let p = d.dot.center, r = d.radius
+                        let dot = Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
+                        ctx.fill(dot, with: .color(Palette.text.opacity(d.ink)))
+                        if d.tint > 0 { ctx.fill(dot, with: .color(color.opacity(d.tint))) }
                     }
                 }
             }
+        }
+    }
+
+    /// Shades the dots as a lit ball; the eyes stay hollow.
+    static func inks(_ dots: [Dot], grid: Grid, step: CGFloat, size: CGFloat, pose: Pose) -> [Ink] {
+        let eyeRows = pose.blinking ? Array(grid.eyeRows.suffix(1)) : grid.eyeRows
+        let eyeCols = grid.eyeColumns.map { $0 + pose.glance }
+        let half = size / 2
+        let lx = sin(pose.yaw) * 0.8, ly = 0.55, lz = cos(pose.yaw) * 0.5 + 0.6  // never fully behind
+        let ll = (lx * lx + ly * ly + lz * lz).squareRoot()
+        return dots.map { d in
+            let p = d.center
+            let u = (p.x - half) / half, v = (half - p.y) / half
+            let z = max(0.2, 1 - u * u - v * v).squareRoot()
+            let nl = (u * u + v * v + z * z).squareRoot()
+            var shade = 0.3 + 0.7 * max(0, (u * lx + v * ly + z * lz) / (nl * ll))
+            if let phase = pose.ripple {
+                let ripple = 0.5 + 0.5 * sin((u * u + v * v).squareRoot() * 9 - phase)
+                shade *= 0.6 + 0.4 * ripple
+            }
+            return Ink(dot: d,
+                       radius: step * 0.42 * (0.55 + 0.45 * shade),
+                       ink: grid.cells < 13 ? 0.4 + 0.4 * shade : 0.2 + 0.4 * min(1, shade / 0.7),
+                       tint: shade > 0.6 ? (shade - 0.6) / 0.4 : 0,
+                       eye: eyeCols.contains(d.col) && eyeRows.contains(d.row))
         }
     }
 
@@ -112,6 +165,7 @@ private struct DottedBody: View {
         let row: Int
         let col: Int
         let center: CGPoint
+        var id: Int { row * 100 + col }
     }
 
     /// Square-grid dot centers that fall inside the silhouette.
