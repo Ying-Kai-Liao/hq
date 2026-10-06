@@ -146,7 +146,7 @@ export async function completeClaim(c: Ctx, [claimId]: string[]) {
   const sig = fromB64url(b.sig, 64);
   const computerId = str(b, "computerId", 22);
   const name = str(b, "name");
-  const platform = oneOf(b, "platform", ["macos", "linux"] as const);
+  const platform = oneOf(b, "platform", ["macos", "linux", "windows"] as const);
   const device = optStr(b, "device", 32);
   const version = str(b, "version", 32);
   if (!sig) throw new ApiError("badRequest", "Invalid sig");
