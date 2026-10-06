@@ -299,9 +299,23 @@ private final class ConversationCollectionView: UICollectionView {
     }
 
     func scrollToEnd(animated: Bool) {
-        let end = endOffset
-        guard animated, abs(contentOffset.y - end) > 1 else { return pinToEnd() }
+        guard animated, abs(contentOffset.y - endOffset) > 1 else { return pinToEnd() }
         scrollingToEnd = true
+        // Rows off screen are still estimates: sized mid-scroll they make the move jerk and the
+        // end snap. Size the last screen first (it shifts the end), then start at most one
+        // screen above it, so every row the move crosses is already real (all before a frame draws).
+        let from = contentOffset.y
+        for _ in 0..<3 {
+            contentOffset.y = endOffset
+            layoutIfNeeded()
+        }
+        contentOffset.y = max(from, endOffset - bounds.height)
+        layoutIfNeeded()
+        let end = endOffset
+        guard abs(contentOffset.y - end) > 1 else {
+            scrollingToEnd = false
+            return pinToEnd()
+        }
         setContentOffset(CGPoint(x: contentOffset.x, y: end), animated: true)
     }
 }
