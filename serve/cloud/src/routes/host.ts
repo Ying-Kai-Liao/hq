@@ -25,7 +25,7 @@ export async function hostRegister(c: Ctx) {
   const b = body(c);
   const boxKey = key(b, "boxKey", 32);
   const name = str(b, "name");
-  const platform = oneOf(b, "platform", ["macos", "linux"] as const);
+  const platform = oneOf(b, "platform", ["macos", "linux", "windows"] as const);
   const device = optStr(b, "device", 32);
   const version = str(b, "version", 32);
   const id = await computerIdFor(fromB64url(s.kid, 32)!);

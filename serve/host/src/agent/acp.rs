@@ -74,25 +74,25 @@ pub struct Acp {
 }
 
 impl Acp {
-    /// Spawns `command` through `sh -c` so user-provided commands (npx, env vars) just work.
+    /// Spawns `command` through the shell so user-provided commands (npx, env vars) just work.
     /// `env` stays out of the command line (it can hold API keys).
     pub fn spawn(
         command: &str,
         cwd: &str,
         env: &[(String, String)],
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
-        let mut child = Command::new("/bin/sh")
-            .arg("-c")
-            .arg(format!("exec {command}"))
+        let mut process = crate::shell::exec(command).tokio();
+        process
             .envs(env.iter().map(|(k, v)| (k, v)))
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .process_group(0)
-            .spawn()
-            .with_context(|| format!("starting `{command}`"))?;
+            .kill_on_drop(true);
+        // Its own group, so `kill` can stop everything it started.
+        #[cfg(unix)]
+        process.process_group(0);
+        let mut child = process.spawn().with_context(|| format!("starting `{command}`"))?;
         let stdin = child.stdin.take().expect("stdin is piped");
         let stdout = child.stdout.take().expect("stdout is piped");
         let stderr = child.stderr.take().expect("stderr is piped");
@@ -203,14 +203,19 @@ impl Acp {
 
     pub async fn kill(&self) {
         let mut child = self.child.lock().await;
-        // ACP adapters spawn MCP servers and tools. Give each adapter its own
-        // group and stop that group before reaping its leader.
+        // ACP adapters spawn MCP servers and tools. Stop the adapter's whole
+        // process group (Windows: process tree) before reaping its leader.
         if let Some(pid) = child.id() {
-            let _ = Command::new("/bin/kill")
-                .args(["-KILL", "--", &format!("-{pid}")])
-                .stderr(Stdio::null())
-                .status()
-                .await;
+            let mut tree = if cfg!(windows) {
+                let mut c = Command::new("taskkill");
+                c.args(["/T", "/F", "/PID", &pid.to_string()]);
+                c
+            } else {
+                let mut c = Command::new("/bin/kill");
+                c.args(["-KILL", "--", &format!("-{pid}")]);
+                c
+            };
+            let _ = tree.stdout(Stdio::null()).stderr(Stdio::null()).status().await;
         }
         // Already exited is fine; anything else is worth a log line.
         if let Err(error) = child.kill().await
@@ -264,6 +269,7 @@ mod tests {
         assert_eq!(truncate("héllo", 2), "h…");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn stopping_an_agent_closes_its_descendants_pipes() {
         let (acp, mut rx) = Acp::spawn(
@@ -280,6 +286,7 @@ mod tests {
         assert!(matches!(closed, Some(Incoming::Closed { .. })));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn request_response_roundtrip() {
         // A fake agent: answers `initialize`, then sends a notification and exits.

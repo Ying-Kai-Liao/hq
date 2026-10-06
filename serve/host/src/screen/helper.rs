@@ -1,5 +1,7 @@
 //! The screen helper's socket: accepting helpers, JSON-RPC requests to them, and the Linux helper process.
+//! Windows has no screen helper yet, so nothing listens there.
 
+#[cfg(unix)]
 use super::protocol::HelperStatus;
 use super::{HELPER_TIMEOUT, Screen};
 use crate::LockExt;
@@ -8,8 +10,11 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
+#[cfg(unix)]
 use std::time::Duration;
+#[cfg(unix)]
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(unix)]
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{mpsc, oneshot};
 
@@ -17,6 +22,7 @@ pub(super) type Pending = Mutex<HashMap<i64, oneshot::Sender<Result<Value, Strin
 
 /// One connected screen helper.
 pub(super) struct Link {
+    #[cfg_attr(windows, expect(dead_code, reason = "Windows has no screen helper yet"))]
     pub(super) id: u64,
     pub(super) tx: mpsc::UnboundedSender<String>,
     pub(super) pending: Pending,
@@ -45,7 +51,11 @@ impl Link {
     }
 }
 
+#[cfg(windows)]
+pub async fn serve_helpers(_screen: Arc<Screen>) {}
+
 /// Accepts screen helpers on `~/.codync/screen.sock`. The newest connection wins.
+#[cfg(unix)]
 pub async fn serve_helpers(screen: Arc<Screen>) {
     let path = crate::service::data_dir().join("screen.sock");
     let _ = std::fs::remove_file(&path);
@@ -80,8 +90,13 @@ pub(super) fn graphical_session() -> bool {
     true
 }
 
+#[cfg(windows)]
+pub(super) fn graphical_session() -> bool {
+    false
+}
+
 /// A Wayland socket in this user's runtime dir, or a running X server.
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 pub(super) fn graphical_session() -> bool {
     let has = |dir: &std::path::Path, prefix: &str| {
         std::fs::read_dir(dir)
@@ -122,6 +137,7 @@ pub async fn supervise_linux_helper(screen: Arc<Screen>) {
     }
 }
 
+#[cfg(unix)]
 async fn run_link(screen: Arc<Screen>, stream: UnixStream) {
     let (rd, mut wr) = stream.into_split();
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
@@ -194,7 +210,7 @@ async fn run_link(screen: Arc<Screen>, stream: UnixStream) {
     tracing::info!("screen helper disconnected");
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use crate::screen::tests::retina;

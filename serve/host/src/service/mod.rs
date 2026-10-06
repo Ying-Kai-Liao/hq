@@ -1,4 +1,5 @@
-//! Platform glue: data dir, background service install (launchd / systemd),
+//! Platform glue: data dir, background service install (launchd / systemd /
+//! the Windows Run key, in `unix.rs` and `windows.rs`),
 //! keeping the machine awake during turns, pairing addresses, and the Claude
 //! Code status line we route through the host.
 //!
@@ -6,6 +7,7 @@
 //! through `spawn_blocking`.
 
 use anyhow::{Context, Result, bail};
+use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
@@ -14,18 +16,37 @@ use std::process::{Child, Command, Stdio};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
+#[cfg(unix)]
+mod unix;
+#[cfg(unix)]
+pub use unix::{install, installed, require_executable, start, stop, uninstall};
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+pub use windows::{install, installed, require_executable, start, stop, uninstall};
+
 static BINARY_IDENTITY: OnceLock<(String, String)> = OnceLock::new();
 
 /// Snapshot before serving: reading the path again after an update would identify
 /// the replacement on disk rather than this running process.
 pub fn capture_binary_identity() -> Result<()> {
-    let exe = std::env::current_exe()?.canonicalize()?;
+    let exe = current_exe()?;
     let mut hash = String::with_capacity(64);
     for byte in Sha256::digest(std::fs::read(&exe)?) {
         write!(hash, "{byte:02x}")?;
     }
     let _ = BINARY_IDENTITY.set((exe.to_string_lossy().into_owned(), hash));
     Ok(())
+}
+
+/// This binary's resolved path, in the form other programs print it: Windows'
+/// `canonicalize` adds a `\\?\` prefix that the apps' paths and shells don't have.
+pub fn current_exe() -> std::io::Result<PathBuf> {
+    let exe = std::env::current_exe()?.canonicalize()?;
+    Ok(match exe.to_str().and_then(|p| p.strip_prefix(r"\\?\")) {
+        Some(plain) if cfg!(windows) => PathBuf::from(plain),
+        _ => exe,
+    })
 }
 
 pub fn binary_identity() -> Option<&'static (String, String)> {
@@ -49,76 +70,17 @@ fn wait_for_host_exit() -> Result<()> {
     }
 }
 
-/// Stops the installed job, preserving its configuration for a later start.
-/// A manually started daemon is never mistaken for the service we own.
-pub fn stop() -> Result<()> {
-    if cfg!(target_os = "macos") {
-        let _ = Command::new("launchctl")
-            .args(["bootout", &format!("gui/{}/{LABEL}", current_uid())])
-            .stderr(Stdio::null())
-            .status()?;
-    } else if installed() {
-        run("systemctl", &["--user", "stop", "codync-host.service"])?;
-    }
-    wait_for_host_exit()
-}
-
-pub fn start() -> Result<()> {
-    if cfg!(target_os = "macos") {
-        run("launchctl", &["bootstrap", &format!("gui/{}", current_uid()), &launchd_plist().to_string_lossy()])
-    } else {
-        run("systemctl", &["--user", "start", "codync-host.service"])
-    }
-}
-
-/// Refuse to replace one installation while restarting a service owned by another.
-pub fn require_executable(expected: &Path) -> Result<()> {
-    let configured = if cfg!(target_os = "macos") {
-        let output = Command::new("/usr/bin/plutil")
-            .args(["-extract", "ProgramArguments.0", "raw", "-o", "-"])
-            .arg(launchd_plist())
-            .output()?;
-        if !output.status.success() {
-            bail!("cannot read the installed host service");
-        }
-        PathBuf::from(String::from_utf8(output.stdout)?.trim())
-    } else {
-        let unit = std::fs::read_to_string(systemd_unit())?;
-        let command =
-            unit.lines().find_map(|line| line.strip_prefix("ExecStart=")).context("service has no ExecStart")?;
-        let args = shlex::split(command).context("invalid service ExecStart")?;
-        PathBuf::from(args.first().context("service has no executable")?)
-    };
-    if configured.canonicalize()? != expected.canonicalize()? {
-        bail!("the installed service runs another host binary; run that binary's update command");
-    }
-    Ok(())
-}
-
 pub const DEFAULT_PORT: u16 = 19222;
-const LABEL: &str = "com.pokai.codync.host";
 /// Marker between our command and a wrapped user status line.
 const STATUSLINE_MARK: &str = " statusline --";
 
 /// The user's home. Codync can't do anything useful without one, so its absence is fatal.
-fn home() -> PathBuf {
+pub(crate) fn home() -> PathBuf {
     dirs::home_dir().expect("HOME must be set: Codync keeps its data and agent settings there")
 }
 
 pub fn data_dir() -> PathBuf {
     std::env::var_os("CODYNC_HOME").map_or_else(|| home().join(".codync"), PathBuf::from)
-}
-
-fn launchd_plist() -> PathBuf {
-    home().join(format!("Library/LaunchAgents/{LABEL}.plist"))
-}
-
-fn systemd_unit() -> PathBuf {
-    dirs::config_dir().unwrap_or_else(|| home().join(".config")).join("systemd/user/codync-host.service")
-}
-
-fn xml_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
 fn create_parent(file: &Path) -> Result<()> {
@@ -139,94 +101,12 @@ pub fn lock_host() -> Result<std::fs::File> {
     Ok(file)
 }
 
-/// Installs and starts the host as a per-user background service. The current
-/// PATH is captured so the service finds `npx`, `claude`, `codex`, …
-pub fn install(port: u16) -> Result<()> {
-    let exe = std::env::current_exe()?.canonicalize().context("locating the codync-host binary")?;
-    let exe = exe.to_string_lossy();
-    let path = std::env::var("PATH").unwrap_or_default();
-    let log = data_dir().join("host.log");
-    std::fs::create_dir_all(data_dir()).context("creating the data directory")?;
-    if cfg!(target_os = "macos") {
-        let plist = format!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>{LABEL}</string>
-  <key>ProgramArguments</key><array><string>{exe}</string><string>serve</string><string>--port</string><string>{port}</string></array>
-  <key>EnvironmentVariables</key><dict><key>PATH</key><string>{path}</string></dict>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>ProcessType</key><string>Interactive</string>
-  <key>StandardOutPath</key><string>{log}</string>
-  <key>StandardErrorPath</key><string>{log}</string>
-</dict>
-</plist>
-"#,
-            exe = xml_escape(&exe),
-            path = xml_escape(&path),
-            log = xml_escape(&log.to_string_lossy()),
-        );
-        let file = launchd_plist();
-        create_parent(&file)?;
-        let uid = current_uid();
-        // Not loaded yet is the normal case here.
-        let _ =
-            Command::new("launchctl").args(["bootout", &format!("gui/{uid}/{LABEL}")]).stderr(Stdio::null()).status();
-        wait_for_host_exit()?;
-        std::fs::write(&file, plist).with_context(|| format!("writing {}", file.display()))?;
-        run("launchctl", &["bootstrap", &format!("gui/{uid}"), &file.to_string_lossy()])?;
-    } else {
-        let unit = format!(
-            "[Unit]\nDescription=Codync host\nAfter=network-online.target\n\n[Service]\nExecStart={exe} serve --port {port}\nEnvironment=PATH={path}\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n"
-        );
-        let file = systemd_unit();
-        create_parent(&file)?;
-        std::fs::write(&file, unit).with_context(|| format!("writing {}", file.display()))?;
-        run("systemctl", &["--user", "daemon-reload"])?;
-        run("systemctl", &["--user", "stop", "codync-host.service"])?;
-        wait_for_host_exit()?;
-        run("systemctl", &["--user", "enable", "--now", "codync-host.service"])?;
-        println!("Tip: `loginctl enable-linger $USER` keeps the host running while you're logged out.");
-    }
-    Ok(())
-}
-
-/// Best effort: every step tolerates "already gone".
-pub fn uninstall() {
-    if cfg!(target_os = "macos") {
-        let _ = Command::new("launchctl")
-            .args(["bootout", &format!("gui/{}/{LABEL}", current_uid())])
-            .stderr(Stdio::null())
-            .status();
-        let _ = std::fs::remove_file(launchd_plist());
-    } else {
-        let _ = run("systemctl", &["--user", "disable", "--now", "codync-host.service"]);
-        let _ = std::fs::remove_file(systemd_unit());
-        let _ = run("systemctl", &["--user", "daemon-reload"]);
-    }
-}
-
-pub fn installed() -> bool {
-    if cfg!(target_os = "macos") { launchd_plist().exists() } else { systemd_unit().exists() }
-}
-
 fn run(cmd: &str, args: &[&str]) -> Result<()> {
     let ok = Command::new(cmd).args(args).status().with_context(|| format!("running {cmd}"))?.success();
     if !ok {
         bail!("{cmd} {} failed", args.join(" "));
     }
     Ok(())
-}
-
-fn current_uid() -> String {
-    Command::new("id")
-        .arg("-u")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map_or_else(|| "501".into(), |s| s.trim().to_owned())
 }
 
 /// Holds a sleep inhibitor while any bot is working.
@@ -240,6 +120,17 @@ impl KeepAwake {
                 let pid = std::process::id().to_string();
                 let child = if cfg!(target_os = "macos") {
                     Command::new("caffeinate").args(["-i", "-w", &pid]).stdout(Stdio::null()).spawn()
+                } else if cfg!(windows) {
+                    // The request lasts as long as the PowerShell holding it.
+                    let script = format!(
+                        "$k = Add-Type -Name P -Namespace W -PassThru -MemberDefinition '[DllImport(\"kernel32.dll\")] public static extern uint SetThreadExecutionState(uint f);'; $null = $k::SetThreadExecutionState(0x80000001); Wait-Process -Id {pid}"
+                    );
+                    let utf16: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+                    Command::new("powershell")
+                        .args(["-NoProfile", "-NonInteractive", "-EncodedCommand", &B64.encode(utf16)])
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .spawn()
                 } else {
                     Command::new("systemd-inhibit")
                         .args([
@@ -306,7 +197,8 @@ pub fn host_name() -> String {
     n.trim_end_matches(".local").to_owned()
 }
 
-/// What the computer is, so phones can draw the right icon (Linux gets its penguin).
+/// What the computer is, so phones can draw the right icon (Linux gets its penguin;
+/// Windows counts as a desktop).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Device {
@@ -323,6 +215,9 @@ pub enum Device {
 pub fn device() -> Device {
     static DEVICE: OnceLock<Device> = OnceLock::new();
     *DEVICE.get_or_init(|| {
+        if cfg!(windows) {
+            return Device::Desktop;
+        }
         if !cfg!(target_os = "macos") {
             return Device::Linux;
         }
@@ -409,7 +304,7 @@ pub fn ensure_statusline(settings: &Path) -> Result<bool> {
     if v.get("statusLine").is_some() && current.is_none() {
         return Ok(false); // not a command status line; leave it alone
     }
-    let exe = std::env::current_exe()?.canonicalize()?;
+    let exe = current_exe()?;
     let ours = format!("'{}' statusline", exe.to_string_lossy());
     if let Some(cmd) = current.as_deref() {
         if cmd.starts_with(&ours) {

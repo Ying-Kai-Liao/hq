@@ -154,6 +154,16 @@ describe("Codync-Sig over HTTP", () => {
     expect(again.body.error.code).toBe("badSignature");
   });
 
+  it("registers Windows computers, and no unknown platform", async () => {
+    const as = (platform: string) =>
+      call("POST", "/v1/host/register", {
+        key: ref.signKey(),
+        body: { boxKey: ref.b64url(ref.boxKey().pub), name: "PC", platform, version: "2.9.0" },
+      });
+    expect((await as("windows")).status).toBe(200);
+    expect((await as("beos")).status).toBe(400);
+  });
+
   it("rejects timestamps outside ±5 minutes and other authorities", async () => {
     const key = ref.signKey();
     expect((await register(key, { ts: Date.now() - 301_000 })).status).toBe(401);

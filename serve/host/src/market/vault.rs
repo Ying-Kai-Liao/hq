@@ -50,7 +50,7 @@ pub async fn unlock(hub: Arc<crate::hub::Hub>) -> Result<()> {
 
 fn unavailable() -> anyhow::Error {
     anyhow!(
-        "Secure credential storage is locked or unavailable. Unlock Keychain on macOS, or start and unlock a Secret Service keyring in this Linux user's D-Bus session. Credentials are never saved as plain text."
+        "Secure credential storage is locked or unavailable. Unlock Keychain on macOS, or start and unlock a Secret Service keyring in this Linux user's D-Bus session (Windows keeps it in Credential Manager). Credentials are never saved as plain text."
     )
 }
 

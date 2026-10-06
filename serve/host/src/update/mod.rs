@@ -59,7 +59,7 @@ fn lock() -> Result<std::fs::File> {
 }
 
 pub fn status() -> Result<Value> {
-    let executable = std::env::current_exe()?.canonicalize()?;
+    let executable = service::current_exe()?;
     status_at(&executable)
 }
 
@@ -73,7 +73,7 @@ fn status_at(executable: &Path) -> Result<Value> {
 }
 
 pub fn set_automatic(enabled: bool) -> Result<Value> {
-    let executable = std::env::current_exe()?.canonicalize()?;
+    let executable = service::current_exe()?;
     if enabled {
         install::require_standalone(&executable)?;
         ensure!(service::installed(), "install the background host service before enabling automatic updates");
@@ -125,7 +125,7 @@ pub async fn apply(port: u16, force: bool, skip_app_check: bool, worker: bool) -
             Err(error) => return Err(error),
         }
     };
-    let target = std::env::current_exe()?.canonicalize()?;
+    let target = service::current_exe()?;
     install::require_standalone(&target)?;
     let mut state = State { phase: "checking".into(), checked_at: Some(crate::store::now_ms()), ..State::default() };
     write("update-state.json", &state)?;
@@ -171,7 +171,7 @@ pub fn spawn_worker(port: u16, force: bool, skip_app_check: bool) -> Result<()> 
     let _lock = lock()?;
     let previous: State = read("update-state.json")?;
     ensure!(!awaiting_worker(&previous), "a host update is already starting");
-    let executable = std::env::current_exe()?.canonicalize()?;
+    let executable = service::current_exe()?;
     install::require_standalone(&executable)?;
     ensure!(
         service::installed(),

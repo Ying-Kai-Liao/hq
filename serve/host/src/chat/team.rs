@@ -306,7 +306,7 @@ mod tests {
                 std::fs::create_dir_all(&cwd).unwrap();
                 let cfg: BotConfig = serde_json::from_value(json!({
                     "id": id, "name": id, "backend": "fixture", "cwd": cwd,
-                    "command": format!("python3 -u '{}'", agent.display().to_string().replace('\'', "'\\''")),
+                    "command": crate::shell::python(&agent),
                     "notify": false, "permission": "ask",
                 }))
                 .unwrap();
@@ -361,7 +361,8 @@ mod tests {
 
         async fn shutdown(self) {
             self.hub.shutdown().await;
-            std::fs::remove_dir_all(self.dir).unwrap();
+            // Windows may still hold files of an agent that just exited.
+            let _ = std::fs::remove_dir_all(self.dir);
         }
     }
 
@@ -517,7 +518,7 @@ mod tests {
         assert!(f.request("start failure").await.unwrap().unwrap_err().to_string().contains("couldn't start"));
         assert!(f.hub.team.0.locked().pending.is_empty());
         let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/team_agent.py");
-        f.hub.update_bot(&json!({"id": "b", "command": format!("python3 -u '{}'", agent.display())})).unwrap();
+        f.hub.update_bot(&json!({"id": "b", "command": crate::shell::python(&agent)})).unwrap();
         let request = f.request("BLOCK delete while working");
         f.until(|| f.prompts().len() == 1).await;
         f.hub.delete_bot("b").unwrap();

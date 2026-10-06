@@ -6,19 +6,9 @@ pub(super) fn now_ms() -> i64 {
     crate::store::now_ms()
 }
 
-/// Local UTC offset in seconds, read once from `date +%z` (no tz database needed).
+/// Local UTC offset in seconds, read once.
 fn utc_offset() -> i64 {
-    static OFF: LazyLock<i64> = LazyLock::new(|| {
-        let out = std::process::Command::new("date").arg("+%z").output().ok();
-        let s = out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned()).unwrap_or_default();
-        if s.len() != 5 {
-            return 0;
-        }
-        let sign = if s.starts_with('-') { -1 } else { 1 };
-        let h: i64 = s[1..3].parse().unwrap_or(0);
-        let m: i64 = s[3..5].parse().unwrap_or(0);
-        sign * (h * 3600 + m * 60)
-    });
+    static OFF: LazyLock<i64> = LazyLock::new(|| i64::from(chrono::Local::now().offset().local_minus_utc()));
     *OFF
 }
 

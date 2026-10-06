@@ -87,14 +87,21 @@ impl Host {
 }
 
 #[tokio::test]
-async fn termination_exits_with_an_open_event_stream() {
-    let mut host = start_host().await;
+async fn health_names_this_binary() {
+    let host = start_host().await;
     let health: Value = reqwest::get(format!("{}/health", host.base)).await.unwrap().json().await.unwrap();
     assert!(health["binaryHash"].as_str().is_some_and(|hash| hash.len() == 64));
-    assert_eq!(
-        health["binaryPath"],
-        std::fs::canonicalize(env!("CARGO_BIN_EXE_codync-host")).unwrap().to_str().unwrap()
-    );
+    // The apps compare it with the path they resolve, which on Windows has no `\\?\` prefix.
+    let exe = std::fs::canonicalize(env!("CARGO_BIN_EXE_codync-host")).unwrap();
+    let exe = exe.to_str().unwrap();
+    assert_eq!(health["binaryPath"], exe.strip_prefix(r"\\?\").unwrap_or(exe));
+}
+
+// SIGTERM is Unix only; Windows stops the host by ending its process.
+#[cfg(unix)]
+#[tokio::test]
+async fn termination_exits_with_an_open_event_stream() {
+    let mut host = start_host().await;
     let stream =
         reqwest::Client::new().get(format!("{}/events", host.base)).bearer_auth(&host.token).send().await.unwrap();
     assert!(stream.status().is_success());
@@ -113,8 +120,8 @@ async fn termination_exits_with_an_open_event_stream() {
 
 #[tokio::test]
 async fn turn_with_approval_reaches_a_final_reply() {
-    if Command::new("python3").arg("--version").output().is_err() {
-        eprintln!("skipping: python3 not available");
+    if Command::new(common::python()).arg("--version").output().is_err() {
+        eprintln!("skipping: Python not available");
         return;
     }
     let host = start_host().await;
@@ -123,7 +130,7 @@ async fn turn_with_approval_reaches_a_final_reply() {
         .call(
             "createBot",
             json!({
-                "name": "Tester", "backend": "custom", "command": format!("python3 '{}'", agent.display()),
+                "name": "Tester", "backend": "custom", "command": common::python_agent(&agent),
                 "cwd": host.home.to_string_lossy(), "permission": "ask",
             }),
         )
@@ -162,8 +169,8 @@ async fn turn_with_approval_reaches_a_final_reply() {
 
 #[tokio::test]
 async fn sent_messages_are_the_reply() {
-    if Command::new("python3").arg("--version").output().is_err() {
-        eprintln!("skipping: python3 not available");
+    if Command::new(common::python()).arg("--version").output().is_err() {
+        eprintln!("skipping: Python not available");
         return;
     }
     let host = start_host().await;
@@ -172,7 +179,7 @@ async fn sent_messages_are_the_reply() {
         .call(
             "createBot",
             json!({
-                "name": "Tester", "backend": "custom", "command": format!("python3 '{}'", agent.display()),
+                "name": "Tester", "backend": "custom", "command": common::python_agent(&agent),
                 "cwd": host.home.to_string_lossy(), "permission": "ask",
             }),
         )
@@ -318,8 +325,8 @@ fn query_param(url: &str, name: &str) -> String {
 
 #[tokio::test]
 async fn phone_pairs_and_chats_over_the_direct_channel() {
-    if Command::new("python3").arg("--version").output().is_err() {
-        eprintln!("skipping: python3 not available");
+    if Command::new(common::python()).arg("--version").output().is_err() {
+        eprintln!("skipping: Python not available");
         return;
     }
     let host = start_host().await;
@@ -352,7 +359,7 @@ async fn phone_pairs_and_chats_over_the_direct_channel() {
             2,
             "createBot",
             json!({
-                "name": "Tester", "backend": "custom", "command": format!("python3 '{}'", agent.display()),
+                "name": "Tester", "backend": "custom", "command": common::python_agent(&agent),
                 "cwd": host.home.to_string_lossy(), "permission": "auto",
             }),
         )
@@ -382,10 +389,7 @@ async fn personal_workspaces_are_unique_persistent_and_optional() {
     let host = start_host().await;
     let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/workspace_agent.py");
     let first = host
-        .call(
-            "createBot",
-            json!({"name": "One", "backend": "custom", "command": format!("python3 '{}'", agent.display())}),
-        )
+        .call("createBot", json!({"name": "One", "backend": "custom", "command": common::python_agent(&agent)}))
         .await;
     let second = host.call("createBot", json!({"name": "Two", "backend": "claude", "cwd": ""})).await;
     let first = &first["bot"];
@@ -534,8 +538,8 @@ async fn catch_up(host: &Host) -> Vec<Value> {
 /// re-recorded. New fields only need recording (`CODYNC_UPDATE_WIRE_SHAPE=1`).
 #[tokio::test]
 async fn wire_shape_matches_the_snapshot() {
-    if Command::new("python3").arg("--version").output().is_err() {
-        eprintln!("skipping: python3 not available");
+    if Command::new(common::python()).arg("--version").output().is_err() {
+        eprintln!("skipping: Python not available");
         return;
     }
     let host = start_host().await;
@@ -544,7 +548,7 @@ async fn wire_shape_matches_the_snapshot() {
         .call(
             "createBot",
             json!({
-                "name": "Tester", "backend": "custom", "command": format!("python3 '{}'", agent.display()),
+                "name": "Tester", "backend": "custom", "command": common::python_agent(&agent),
                 "cwd": host.home.to_string_lossy(), "permission": "ask",
             }),
         )

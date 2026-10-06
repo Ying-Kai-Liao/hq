@@ -252,11 +252,12 @@ pub(super) fn open_browser(url: &str, host: &str) -> bool {
     if !local || url.is_empty() {
         return false;
     }
-    let cmd = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-    std::process::Command::new(cmd)
-        .arg(url)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .is_ok()
+    let mut command = if cfg!(windows) {
+        let mut c = std::process::Command::new("rundll32");
+        c.arg("url.dll,FileProtocolHandler");
+        c
+    } else {
+        std::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" })
+    };
+    command.arg(url).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().is_ok()
 }

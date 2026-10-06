@@ -149,7 +149,6 @@ pub fn extract(bytes: &[u8], platform: &str, destination: &Path) -> Result<()> {
 /// Extracts one executable shipped beside the host (`codync-screen` on Linux), with the same
 /// rules as [`extract`]. `false` when the archive doesn't carry it.
 pub fn extract_file(bytes: &[u8], platform: &str, name: &str, destination: &Path) -> Result<bool> {
-    use std::os::unix::fs::PermissionsExt as _;
     let decoder = flate2::read::GzDecoder::new(bytes).take(MAX_UNPACKED);
     let mut archive = tar::Archive::new(decoder);
     let expected = format!("codync-host-{platform}/{name}");
@@ -163,7 +162,11 @@ pub fn extract_file(bytes: &[u8], platform: &str, name: &str, destination: &Path
         ensure!(entry.size() > 0 && entry.size() < MAX_UNPACKED, "invalid update executable size");
         let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(destination)?;
         std::io::copy(&mut entry, &mut file)?;
-        file.set_permissions(std::fs::Permissions::from_mode(0o755))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            file.set_permissions(std::fs::Permissions::from_mode(0o755))?;
+        }
         file.sync_all()?;
         found = true;
     }

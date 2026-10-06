@@ -18,3 +18,18 @@ pub fn stop(child: &mut Child) {
     let _ = child.kill();
     let _ = child.wait();
 }
+
+/// Python as the test machine names it.
+pub fn python() -> &'static str {
+    if cfg!(windows) { "python" } else { "python3" }
+}
+
+/// The agent command that runs a Python fixture (quoted for `sh -c` / `cmd /c`).
+pub fn python_agent(script: &std::path::Path) -> String {
+    let path = script.display().to_string();
+    if cfg!(windows) {
+        format!("{} -u \"{path}\"", python())
+    } else {
+        format!("{} -u '{}'", python(), path.replace('\'', "'\\''"))
+    }
+}

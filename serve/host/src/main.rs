@@ -12,6 +12,7 @@ mod remote;
 mod routines;
 mod screen;
 mod service;
+mod shell;
 mod store;
 mod tui;
 mod update;
@@ -364,7 +365,11 @@ async fn main() -> Result<()> {
         }
         Sub::Install { port } => {
             open_store()?;
-            if let Some(home) = dirs::home_dir() {
+            // Windows: the shell Claude Code runs status lines in varies (Git Bash, PowerShell), so
+            // the line stays the user's; usage still comes from `claude -p /usage` and ACP.
+            if cfg!(unix)
+                && let Some(home) = dirs::home_dir()
+            {
                 match service::ensure_statusline(&home.join(".claude/settings.json")) {
                     Ok(true) => println!(
                         "Claude Code's status line now also reports usage limits to Codync (your own status line still shows)."
@@ -701,9 +706,7 @@ async fn statusline(port: u16, wrapped: String) {
     if !wrapped.trim().is_empty() {
         // The user's own status line gets the same JSON on stdin.
         use std::io::Write;
-        if let Ok(mut child) =
-            std::process::Command::new("/bin/sh").arg("-c").arg(&wrapped).stdin(std::process::Stdio::piped()).spawn()
-        {
+        if let Ok(mut child) = shell::line(&wrapped).std().stdin(std::process::Stdio::piped()).spawn() {
             if let Some(mut stdin) = child.stdin.take() {
                 let _ = stdin.write_all(input.as_bytes());
             }
