@@ -14,7 +14,7 @@ interface Metrics {
 let manifest: Record<string, Metrics> | null = null
 const listeners = new Set<() => void>()
 if (window.codync?.platform === 'darwin') {
-  void fetch('./symbols/manifest.json')
+  void fetch(`${import.meta.env.BASE_URL}symbols/manifest.json`)
     .then((r) => (r.ok ? r.json() : {}))
     .then((m: Record<string, Metrics>) => {
       manifest = m
@@ -58,7 +58,7 @@ export function Icon({ name, size, weight = 'regular', color, style, className, 
   const metrics = m?.[name]
   const unit = scaled ? `${size}px * var(--scale)` : `${size}px`
   if (metrics) {
-    const url = `url("./symbols/${name}.${weight}.png")`
+    const url = `url("${import.meta.env.BASE_URL}symbols/${name}.${weight}.png")`
     return (
       <span
         className={className}
