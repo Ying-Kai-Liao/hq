@@ -1,6 +1,6 @@
 import Foundation
 
-// Marketplace wire types (host/src/market/mod.rs): connectors are MCP servers,
+// Marketplace wire types (host/src/market/): connectors are MCP servers,
 // skills are instruction folders; agents come from `Hello.backends`.
 
 public struct InstalledConnector: Codable, Hashable, Sendable, Identifiable {

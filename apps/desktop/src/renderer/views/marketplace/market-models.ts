@@ -1,6 +1,6 @@
 import type { HostClient } from '../../client/host-client'
 
-// Marketplace wire types (host/src/market/mod.rs): connectors are MCP servers,
+// Marketplace wire types (host/src/market/): connectors are MCP servers,
 // skills are instruction folders; agents come from `Hello.backends`. (kit Market.swift)
 
 export interface InstalledConnector {
