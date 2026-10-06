@@ -58,6 +58,9 @@ impl Actor {
                     }
                 }
             }
+            Cmd::SendToUser { text, reply } => {
+                let _ = reply.send(self.send_to_user(text));
+            }
             Cmd::Stop => self.stop().await,
             Cmd::Permission { entry_id, option_id } => self.answer_permission(&entry_id, option_id).await,
             Cmd::NewSession => {

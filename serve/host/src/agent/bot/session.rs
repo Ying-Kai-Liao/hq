@@ -108,6 +108,7 @@ impl Actor {
         let composio = crate::market::composio::enabled_for(&self.hub.store, &self.cfg.connectors)?;
         let builtin = [
             Some("connectors"),
+            Some("chat"),
             Some("team"),
             Some("memory"),
             Some("routines"),

@@ -71,7 +71,7 @@ impl Actor {
                 if let Some(e) = self.add(EntryKind::Tool, turn, data) {
                     self.tools.insert(tool_id, e.id);
                 }
-                self.set_activity(&title);
+                self.set_activity(super::activity(&title));
             }
             "tool_call_update" => {
                 let tool_id = u["toolCallId"].as_str().unwrap_or_default();
@@ -90,7 +90,7 @@ impl Actor {
                 let title = e.data["title"].as_str().unwrap_or_default().to_owned();
                 self.hub.set_entry(&entry_id, &e.data);
                 if status == "in_progress" {
-                    self.set_activity(&title);
+                    self.set_activity(super::activity(&title));
                 }
             }
             // The agent summarized its context: the next turn gets freshly rendered
@@ -212,6 +212,21 @@ impl Actor {
                 r.activity = "Continuing…".into();
             });
         }
+    }
+
+    /// A `send_message`: the user's next bubble, in the turn's lane, right away. Only in the
+    /// bot's own chat and threads; a room, a teammate or a routine reads the turn's reply.
+    pub(super) fn send_to_user(&mut self, text: String) -> anyhow::Result<()> {
+        let Some(turn) = self.turn else { anyhow::bail!("no turn is running") };
+        if self.active_group.is_some() || self.active_ask.is_some() || self.active_routine.is_some() {
+            anyhow::bail!("send_message isn't available in this turn: write your answer as your reply");
+        }
+        self.close_seg();
+        self.add(EntryKind::Agent, turn, json!({"text": text, "final": true}))
+            .ok_or_else(|| anyhow::anyhow!("couldn't save the message"))?;
+        self.sent.push(text);
+        self.set_activity("Working…");
+        Ok(())
     }
 
     // MARK: streaming text segments

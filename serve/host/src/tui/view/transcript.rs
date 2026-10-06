@@ -23,13 +23,14 @@ pub(super) struct Built {
 struct TurnInfo {
     steps: usize,
     files: BTreeSet<String>,
-    has_final: bool,
+    /// The turn's last message to the user: the steps line goes under it.
+    last_message: Option<String>,
 }
 
 fn turn_info(entries: &[&Entry]) -> HashMap<i64, TurnInfo> {
     let mut m: HashMap<i64, TurnInfo> = HashMap::new();
     for e in entries {
-        let ti = m.entry(e.turn).or_insert_with(|| TurnInfo { steps: 0, files: BTreeSet::new(), has_final: false });
+        let ti = m.entry(e.turn).or_insert_with(|| TurnInfo { steps: 0, files: BTreeSet::new(), last_message: None });
         match e.kind {
             Kind::Tool => {
                 ti.steps += 1;
@@ -39,7 +40,7 @@ fn turn_info(entries: &[&Entry]) -> HashMap<i64, TurnInfo> {
                     }
                 }
             }
-            Kind::Agent if e.is_final() => ti.has_final = true,
+            Kind::Agent if e.is_final() => ti.last_message = Some(e.id.clone()),
             _ => {}
         }
     }
@@ -60,16 +61,6 @@ pub(super) fn name_style(color: &str) -> Style {
 /// "3 replies", "1 reply".
 fn replies(n: i64) -> String {
     if n == 1 { "1 reply".into() } else { format!("{n} replies") }
-}
-
-fn live_entry<'a>(app: &App, bot: &Bot, entries: &[&'a Entry]) -> Option<&'a str> {
-    if !app.online || bot.status != Status::Working || !bot.works_in(app.thread.as_deref()) {
-        return None;
-    }
-    entries
-        .last()
-        .filter(|e| e.kind == Kind::Agent && e.data["final"] == false && !e.text().is_empty() && e.text() != "(pass)")
-        .map(|e| e.id.as_str())
 }
 
 pub(super) fn build_chat(app: &App, b: &Bot, width: usize) -> Built {
@@ -100,20 +91,14 @@ pub(super) fn build_chat(app: &App, b: &Bot, width: usize) -> Built {
         let side = width.saturating_sub(w(&label) + 4);
         out.lines.push(Line::from(Span::styled(format!(" ───{label}{}", "─".repeat(side)), t.dim)));
     }
-    let live = live_entry(app, b, &entries);
+    // A bot's messages arrive whole (Grok Bot's `send_message`); what it writes along the way is trace.
     for e in &entries {
-        let mut visible = (*e).clone();
-        if live == Some(e.id.as_str()) {
-            visible.data["final"] = true.into();
-        }
-        let e = &visible;
         entry_lines(&mut out, app, b, e, &info, thread.is_none(), width);
     }
     // A turn in flight: who's on it and what they're doing.
     let last_turn = entries.iter().map(|e| e.turn).max().unwrap_or(0);
-    // A group's members each reply in the room turn, so a reply doesn't end it.
-    let in_flight = b.group || info.get(&last_turn).is_none_or(|ti| !ti.has_final);
-    if b.status == Status::Working && b.works_in(thread) && in_flight {
+    // A message doesn't end the turn: the bot may send several.
+    if b.status == Status::Working && b.works_in(thread) {
         gap(&mut out);
         out.lines.push(Line::from(Span::styled(format!(" {}", b.name), name_style(&b.color))));
         let act = if b.activity.is_empty() { "Working…".to_owned() } else { b.activity.clone() };
@@ -248,7 +233,7 @@ fn entry_lines(
             out.lines.extend(md::render(e.text(), width, 1));
             reactions(out, e);
             out.messages.push((e.id.clone(), from, out.lines.len()));
-            if let Some(ti) = info.get(&e.turn).filter(|ti| ti.steps > 0) {
+            if let Some(ti) = info.get(&e.turn).filter(|ti| ti.steps > 0 && ti.last_message.as_ref() == Some(&e.id)) {
                 let files = if ti.files.is_empty() {
                     String::new()
                 } else {
@@ -366,33 +351,6 @@ fn thread_summary(v: &serde_json::Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn live_text_stays_in_its_lane_and_disappears_after_a_tool() {
-        use serde_json::json;
-        let (tx, _) = tokio::sync::mpsc::unbounded_channel();
-        let mut app = App::new(super::super::super::net::Client::new("http://127.0.0.1:1", None), tx, String::new());
-        app.on_msg(super::super::super::app::Msg::Event(json!({"type":"bot","bot":{"id":"b","status":"working"}})));
-        app.online = true;
-        let entry = Entry {
-            id: "live".into(),
-            seq: 1,
-            turn: 1,
-            kind: Kind::Agent,
-            data: json!({"text":"answer","final":false}),
-            created_at: 0,
-            thread_id: None,
-        };
-        let bot = &app.bots["b"];
-        assert_eq!(live_entry(&app, bot, &[&entry]), Some("live"));
-        let tool = Entry { kind: Kind::Tool, ..entry.clone() };
-        assert_eq!(live_entry(&app, bot, &[&entry, &tool]), None);
-        app.thread = Some("thread".into());
-        assert_eq!(live_entry(&app, &app.bots["b"], &[&entry]), None);
-        app.thread = None;
-        app.online = false;
-        assert_eq!(live_entry(&app, &app.bots["b"], &[&entry]), None);
-    }
 
     #[test]
     fn thread_summary_counts_replies() {

@@ -52,6 +52,7 @@ impl Actor {
         self.tools.clear();
         self.plan_entry = None;
         self.last_text = None;
+        self.sent.clear();
         // A delegated or group turn has no live waiter after a host restart. Its persisted
         // notices are marked interrupted instead of silently repeating work.
         self.set_inflight(self.active_ask.is_none() && self.active_group.is_none() && self.active_routine.is_none());
@@ -166,6 +167,12 @@ impl Actor {
         let mut final_text = None;
         let routine = self.active_routine.is_some();
         let grouped = self.active_group.is_some() || routine;
+        let sent = std::mem::take(&mut self.sent);
+        if !sent.is_empty() {
+            // The bot talked through send_message: what it wrote as its reply stays in the trace.
+            self.last_text = None;
+            final_text = Some(sent.join("\n\n"));
+        }
         if let Some(id) = self.last_text.take().filter(|_| !stopped)
             && let Some(mut e) = self.hub.store.entry(&id)
         {

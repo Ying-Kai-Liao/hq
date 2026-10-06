@@ -55,6 +55,11 @@ pub enum Cmd {
         text: String,
     },
     Ask(crate::chat::team::Ask),
+    /// `send_message` from the bot's `chat` MCP server: a message for the user, now.
+    SendToUser {
+        text: String,
+        reply: tokio::sync::oneshot::Sender<Result<()>>,
+    },
     CancelAsk {
         id: String,
     },
@@ -126,6 +131,7 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig) -> BotHandle {
         tools: HashMap::new(),
         plan_entry: None,
         last_text: None,
+        sent: Vec::new(),
         perms: HashMap::new(),
         stop_requested: false,
         exit_tail: None,
@@ -133,6 +139,11 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig) -> BotHandle {
     };
     let task = tokio::spawn(actor.run(rx, interrupted));
     BotHandle { tx, task }
+}
+
+/// The working line for a tool call: composing a message reads as typing.
+fn activity(title: &str) -> &str {
+    if title.contains("send_message") { "Typing…" } else { title }
 }
 
 /// What the agent can do with sessions besides creating them.
@@ -202,6 +213,8 @@ struct Actor {
     tools: HashMap<String, String>,
     plan_entry: Option<String>,
     last_text: Option<String>,
+    /// Messages the bot sent the user this turn (`send_message`); none: its last text is the reply.
+    sent: Vec<String>,
     /// permission entry id -> JSON-RPC request id
     perms: HashMap<String, Value>,
     stop_requested: bool,
