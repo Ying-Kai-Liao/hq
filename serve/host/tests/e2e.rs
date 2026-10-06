@@ -87,14 +87,21 @@ impl Host {
 }
 
 #[tokio::test]
-async fn termination_exits_with_an_open_event_stream() {
-    let mut host = start_host().await;
+async fn health_names_this_binary() {
+    let host = start_host().await;
     let health: Value = reqwest::get(format!("{}/health", host.base)).await.unwrap().json().await.unwrap();
     assert!(health["binaryHash"].as_str().is_some_and(|hash| hash.len() == 64));
-    assert_eq!(
-        health["binaryPath"],
-        std::fs::canonicalize(env!("CARGO_BIN_EXE_codync-host")).unwrap().to_str().unwrap()
-    );
+    // The apps compare it with the path they resolve, which on Windows has no `\\?\` prefix.
+    let exe = std::fs::canonicalize(env!("CARGO_BIN_EXE_codync-host")).unwrap();
+    let exe = exe.to_str().unwrap();
+    assert_eq!(health["binaryPath"], exe.strip_prefix(r"\\?\").unwrap_or(exe));
+}
+
+// SIGTERM is Unix only; Windows stops the host by ending its process.
+#[cfg(unix)]
+#[tokio::test]
+async fn termination_exits_with_an_open_event_stream() {
+    let mut host = start_host().await;
     let stream =
         reqwest::Client::new().get(format!("{}/events", host.base)).bearer_auth(&host.token).send().await.unwrap();
     assert!(stream.status().is_success());
