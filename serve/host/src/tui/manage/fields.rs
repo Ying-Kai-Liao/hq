@@ -1,0 +1,90 @@
+//! The labeled text fields sheet: keys, connector setup, a pasted MCP config.
+
+use crossterm::event::{KeyCode, KeyEvent};
+use serde_json::{Value, json};
+
+use super::super::app::{After, App, Overlay};
+use super::market::connector_inputs;
+use super::{Fields, Reply, Submit, ctrl, newline};
+
+impl App {
+    pub(in crate::tui) fn fields_key(&mut self, mut f: Box<Fields>, k: KeyEvent) -> Option<Overlay> {
+        if f.saving {
+            return if k.code == KeyCode::Esc { None } else { Some(Overlay::Fields(f)) };
+        }
+        let rows = f.offset() + f.inputs.len();
+        let on_choice = f.offset() == 1 && f.cursor == 0;
+        let multiline = f.current().is_some_and(|i| i.multiline);
+        match k.code {
+            KeyCode::Esc => return None,
+            KeyCode::Char('x') if ctrl(k) && matches!(f.submit, Submit::Connection(_)) => {
+                if let Submit::Connection(c) = &f.submit {
+                    f.saving = true;
+                    self.call(
+                        "connectorRequestFinish",
+                        json!({"entryId":c.entry,"cancel":true}),
+                        After::Connection(c.entry.clone(), super::super::connections::Step::Finish),
+                    );
+                }
+            }
+            _ if newline(k) && multiline => {
+                if let Some(i) = f.current() {
+                    i.ed.insert("\n");
+                }
+            }
+            KeyCode::Enter => self.save_fields(&mut f),
+            KeyCode::Char('s') if ctrl(k) => self.save_fields(&mut f),
+            KeyCode::Tab | KeyCode::Down => f.cursor = (f.cursor + 1) % rows.max(1),
+            KeyCode::BackTab | KeyCode::Up => f.cursor = (f.cursor + rows.max(1) - 1) % rows.max(1),
+            KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') if on_choice => {
+                f.choice = (f.choice + 1) % f.choices.len();
+                connector_inputs(&mut f);
+                super::super::connections::option_fields(&mut f);
+            }
+            _ => {
+                if let Some(i) = f.current() {
+                    i.ed.key(k);
+                }
+            }
+        }
+        Some(Overlay::Fields(f))
+    }
+
+    fn save_fields(&mut self, f: &mut Fields) {
+        if f.saving {
+            return;
+        }
+        if let Some(i) = f.inputs.iter().find(|i| i.required && i.ed.text.trim().is_empty()) {
+            f.error = Some(format!("{} is required.", i.label));
+            return;
+        }
+        let values: serde_json::Map<String, Value> = f
+            .inputs
+            .iter()
+            .filter(|i| !i.ed.text.trim().is_empty())
+            .map(|i| (i.name.clone(), if i.secret { i.ed.text.as_str() } else { i.ed.text.trim() }.into()))
+            .collect();
+        f.saving = true;
+        f.error = None;
+        match &f.submit {
+            Submit::Connection(_) => self.submit_connection(f, &values),
+            Submit::AgentEnv(backend) => {
+                if values.is_empty() {
+                    f.saving = false;
+                    f.error = Some("Type at least one key.".into());
+                    return;
+                }
+                self.sheet("setAgentEnv", json!({"backend": backend, "vars": values}), Reply::FieldsSaved);
+            }
+            Submit::Connector(item) => {
+                let option = item["options"][f.choice]["id"].clone();
+                self.sheet(
+                    "installConnector",
+                    json!({"registryName": item["name"], "option": option, "inputs": values}),
+                    Reply::FieldsSaved,
+                );
+            }
+            Submit::Import => self.sheet("importConnectors", json!({"config": values["config"]}), Reply::FieldsSaved),
+        }
+    }
+}
