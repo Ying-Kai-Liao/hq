@@ -45,6 +45,12 @@ enum ThinkingOrbGeometry {
         return frame
     }
 
+    /// The working orb the Dynamic Island plays one frame per second (tools/timer-fonts.py):
+    /// ten frames 0.6 engine units apart, so each dot moves a short, readable step.
+    static func workingLoop(size: Double) -> [Frame] {
+        (0..<10).map { frame(state: .working, size: size, time: 0.6 + Double($0) * 0.6) }
+    }
+
     private static func projector(_ yaw: Double, _ tilt: Double, _ size: Double, _ scale: Double) -> (Point) -> Point {
         let sy = sin(yaw), cy = cos(yaw), st = sin(tilt), ct = cos(tilt)
         return { p in

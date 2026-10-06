@@ -22,7 +22,7 @@ struct CodyncWidgets: WidgetBundle {
 
 struct BotsEntry: TimelineEntry {
     let date: Date
-    let bots: [Bot]
+    var bots: [Bot]
     let paired: Bool
     var links: [String: URL] = [:]
 
@@ -39,6 +39,14 @@ struct BotsEntry: TimelineEntry {
             bots.append(bot)
         }
         return BotsEntry(date: .now, bots: bots, paired: !storage.computers.isEmpty, links: links)
+    }
+
+    /// Only one computer's bots; nil keeps every computer.
+    func on(_ computerId: ComputerID?) -> BotsEntry {
+        guard let computerId else { return self }
+        var entry = self
+        entry.bots = bots.filter { $0.id.hasPrefix("\(computerId)/") }
+        return entry
     }
 }
 
@@ -121,9 +129,32 @@ struct BotsTeamWidget: Widget {
             .containerBackground(Palette.surface, for: .widget)
         }
         .configurationDisplayName("Team")
-        .description("Four bots at a glance. Edit the widget to choose who sits in each spot.")
+        .description("Four bots at a glance. Edit the widget to choose the computer and who sits in each spot.")
         .supportedFamilies([.systemSmall])
     }
+}
+
+/// A computer of the selected account; the Team widget shows only its bots.
+struct ComputerEntity: AppEntity {
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Computer"
+    static let defaultQuery = ComputerEntityQuery()
+
+    let id: ComputerID
+    let name: String
+    var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(name)") }
+}
+
+struct ComputerEntityQuery: EntityQuery {
+    private var all: [ComputerEntity] {
+        SharedStore.activeContext.computers.map { ComputerEntity(id: $0.id, name: $0.name) }
+    }
+
+    func entities(for identifiers: [ComputerID]) async throws -> [ComputerEntity] {
+        let all = all
+        return identifiers.compactMap { id in all.first { $0.id == id } }
+    }
+
+    func suggestedEntities() async throws -> [ComputerEntity] { all }
 }
 
 /// A bot of the selected account, keyed `<computerId>/<botId>` like the widget snapshot.
@@ -137,8 +168,11 @@ struct BotEntity: AppEntity {
 }
 
 struct BotEntityQuery: EntityQuery {
+    /// The widget's computer: the spot pickers list only its bots.
+    @IntentParameterDependency<TeamIntent>(\.$computer) var team
+
     private var all: [BotEntity] {
-        BotsEntry.current.bots.filter { !$0.hidden }.map { BotEntity(id: $0.id, name: $0.name) }
+        BotsEntry.current.on(team?.computer.id).bots.filter { !$0.hidden }.map { BotEntity(id: $0.id, name: $0.name) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
@@ -152,8 +186,9 @@ struct BotEntityQuery: EntityQuery {
 
 struct TeamIntent: WidgetConfigurationIntent {
     static let title: LocalizedStringResource = "Team"
-    static let description = IntentDescription("Choose a bot for each spot; empty spots show the bots that need you.")
+    static let description = IntentDescription("Choose a computer and a bot for each spot; empty spots show the bots that need you.")
 
+    @Parameter(title: "Computer") var computer: ComputerEntity?
     @Parameter(title: "Top left") var first: BotEntity?
     @Parameter(title: "Top right") var second: BotEntity?
     @Parameter(title: "Bottom left") var third: BotEntity?
@@ -174,12 +209,12 @@ struct TeamTimeline: AppIntentTimelineProvider {
     }
 
     func snapshot(for configuration: TeamIntent, in context: Context) async -> TeamEntry {
-        context.isPreview ? placeholder(in: context) : TeamEntry(date: .now, bots: .current, picks: configuration.picks)
+        context.isPreview ? placeholder(in: context) : TeamEntry(date: .now, bots: BotsEntry.current.on(configuration.computer?.id), picks: configuration.picks)
     }
 
     /// The app writes the roster and reloads this widget when a bot's state changes.
     func timeline(for configuration: TeamIntent, in context: Context) async -> Timeline<TeamEntry> {
-        Timeline(entries: [TeamEntry(date: .now, bots: .current, picks: configuration.picks)], policy: .never)
+        Timeline(entries: [TeamEntry(date: .now, bots: BotsEntry.current.on(configuration.computer?.id), picks: configuration.picks)], policy: .never)
     }
 }
 
@@ -559,14 +594,14 @@ struct BotLiveActivity: Widget {
                     avatar(context, state: state, size: 26).frame(maxHeight: .infinity)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    BotActivityIndicator(state: state, size: 28).frame(maxHeight: .infinity)
+                    indicator(context, state: state, size: 28).frame(maxHeight: .infinity)
                 }
                 // Centered under the camera, between the avatar and the orb, so nothing reaches
                 // the island's 44 pt corners (HIG: concentric margins, wrap around the camera).
                 DynamicIslandExpandedRegion(.center) {
-                    VStack(spacing: 2) {
-                        Text(context.attributes.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text)
-                        Text(state.caption).font(.system(size: 12)).foregroundStyle(state.captionTint)
+                    VStack(spacing: 3) {
+                        Text(context.attributes.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(Palette.text)
+                        Text(state.caption).font(.system(size: 13)).foregroundStyle(state.captionTint)
                             .contentTransition(.interpolate)
                     }
                     .lineLimit(1)
@@ -581,7 +616,7 @@ struct BotLiveActivity: Widget {
             } compactLeading: {
                 avatar(context, state: state, size: 20)
             } compactTrailing: {
-                BotActivityIndicator(state: state)
+                indicator(context, state: state, size: 20)
             } minimal: {
                 BotActivityIndicator(state: state)
                     .accessibilityLabel("\(context.attributes.name), \(state.title)")
@@ -593,6 +628,22 @@ struct BotLiveActivity: Widget {
 
     private func presentation(_ context: ActivityViewContext<BotActivityAttributes>) -> BotActivityPresentation {
         .init(status: context.state.status, activity: context.state.activity, isStale: context.isStale)
+    }
+
+    /// While the bot works, the orb keeps orbiting (in step with the face); otherwise it holds
+    /// its state's mark.
+    @ViewBuilder
+    private func indicator(_ context: ActivityViewContext<BotActivityAttributes>, state: BotActivityPresentation, size: CGFloat) -> some View {
+        ZStack {
+            if state.phase == .working {
+                WorkingOrb(since: context.state.startedAt ?? .now, color: state.tint, size: size)
+                    .transition(.opacity)
+            } else {
+                BotActivityIndicator(state: state, size: size).transition(.opacity)
+            }
+        }
+        .animation(Motion.activityPhase, value: state.phase)
+        .accessibilityLabel(state.title)
     }
 
     /// While the bot works, the island's face plays its loop; otherwise it holds its mood.
@@ -614,7 +665,7 @@ struct BotLiveActivity: Widget {
 
 /// The working bot, alive in the Dynamic Island. A Live Activity draws one frame and only a
 /// timer keeps changing, so this is a timer drawn in fonts whose digits are the ten frames of
-/// the bot's loop (tools/bot-frame-fonts.py); only the seconds digit draws, one frame a second.
+/// the bot's loop (tools/timer-fonts.py); only the seconds digit draws, one frame a second.
 /// Two layers, like the app's avatar: every dot in grey ink, the lit ones in the bot's color.
 struct WorkingBotFace: View {
     let shape: String
@@ -627,22 +678,43 @@ struct WorkingBotFace: View {
     var body: some View {
         let shape = Self.shapes.contains(shape) ? shape : "blob"
         ZStack {
-            layer("CodyncBot-\(shape)-Ink").foregroundStyle(Palette.text.opacity(0.6))
-            layer("CodyncBot-\(shape)-Tint").foregroundStyle(AvatarPalette.color(color))
+            TimerFrames(font: "CodyncBot-\(shape)-Ink", since: since, size: size).foregroundStyle(Palette.text.opacity(0.6))
+            TimerFrames(font: "CodyncBot-\(shape)-Tint", since: since, size: size).foregroundStyle(AvatarPalette.color(color))
         }
-        .frame(width: size, height: size)
-        .clipped()
         .accessibilityHidden(true)
     }
+}
 
-    /// The font draws only the timer's last digit (every other character shapes to nothing),
-    /// so the text is one face wide however the system lays out timer text.
-    private func layer(_ font: String) -> some View {
+/// The thinking orb, orbiting in the Dynamic Island the same way: its faint orbit trails and
+/// its moving dots, one frame a second, in step with the working bot's face.
+struct WorkingOrb: View {
+    let since: Date
+    let color: Color
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            TimerFrames(font: "CodyncOrb-Ghost", since: since, size: size).foregroundStyle(color.opacity(0.25))
+            TimerFrames(font: "CodyncOrb-Dot", since: since, size: size).foregroundStyle(color)
+        }
+    }
+}
+
+/// A timer drawn in one of the loop fonts: the font draws only the timer's last digit (every
+/// other character shapes to nothing), so the text is one face wide however the system lays out
+/// timer text.
+private struct TimerFrames: View {
+    let font: String
+    let since: Date
+    let size: CGFloat
+
+    var body: some View {
         Text(since, style: .timer)
             .font(.custom(font, fixedSize: size))
             // Western digits whatever the region: the font only has those.
             .environment(\.locale, Locale(identifier: "en_US_POSIX"))
             .lineLimit(1)
             .frame(width: size, height: size)
+            .clipped()
     }
 }

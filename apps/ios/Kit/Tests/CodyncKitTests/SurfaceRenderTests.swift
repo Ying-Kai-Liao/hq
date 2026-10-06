@@ -70,21 +70,28 @@ import Testing
     try data.write(to: URL(fileURLWithPath: path))
 }
 
-/// Writes the Dynamic Island's working loop (every shape, 10 frames, in points of a 20 pt face)
-/// for tools/bot-frame-fonts.py: `TEST_RUNNER_CODYNC_FRAMES_FILE=<file.json> xcodebuild test …
-/// -only-testing:'CodyncKitTests/exportBotFrames()'`.
+/// Writes the Dynamic Island's working loops (the bot in every shape and the thinking orb,
+/// 10 frames each, in points of a 20 pt face) for tools/timer-fonts.py:
+/// `TEST_RUNNER_CODYNC_FRAMES_FILE=<file.json> xcodebuild test … -only-testing:'CodyncKitTests/exportBotFrames()'`.
+/// Each font is one layer: `Ink` every dot of the bot, `Tint` its lit dots (in its color),
+/// `Ghost` the orb's faint orbit trails, `Dot` its moving dots.
 @MainActor @Test func exportBotFrames() throws {
     guard let file = ProcessInfo.processInfo.environment["CODYNC_FRAMES_FILE"] else { return }
-    let shapes = ["blob", "pebble", "squircle", "tablet", "wedge", "hex", "cloud", "teardrop"]
-    var out: [String: [[[String: Double]]]] = [:]
-    for shape in shapes {
-        out[shape] = DottedBody.workingLoop(shape: shape, size: 20).map { frame in
-            frame.filter { !$0.eye }.map {
-                ["x": $0.dot.center.x, "y": $0.dot.center.y, "r": $0.radius, "ink": $0.ink, "tint": $0.tint]
-            }
+    func dots(_ list: [(x: Double, y: Double, r: Double)]) -> [[String: Double]] {
+        list.map { ["x": $0.x, "y": $0.y, "r": $0.r] }
+    }
+    var fonts: [String: [[[String: Double]]]] = [:]
+    for shape in ["blob", "pebble", "squircle", "tablet", "wedge", "hex", "cloud", "teardrop"] {
+        let loop = DottedBody.workingLoop(shape: shape, size: 20)
+        fonts["CodyncBot-\(shape)-Ink"] = loop.map { f in dots(f.filter { !$0.eye }.map { ($0.dot.center.x, $0.dot.center.y, $0.radius) }) }
+        fonts["CodyncBot-\(shape)-Tint"] = loop.map { f in
+            dots(f.filter { !$0.eye && $0.tint > 0.35 }.map { ($0.dot.center.x, $0.dot.center.y, $0.radius) })
         }
     }
-    let data = try JSONSerialization.data(withJSONObject: ["size": 20, "shapes": out], options: [.sortedKeys])
+    let orb = ThinkingOrbGeometry.workingLoop(size: 20)
+    fonts["CodyncOrb-Ghost"] = orb.map { f in dots(f.dots.filter { $0.alpha < 1 }.map { ($0.x, $0.y, $0.radius) }) }
+    fonts["CodyncOrb-Dot"] = orb.map { f in dots(f.dots.filter { $0.alpha >= 1 }.map { ($0.x, $0.y, $0.radius) }) }
+    let data = try JSONSerialization.data(withJSONObject: ["size": 20, "fonts": fonts], options: [.sortedKeys])
     try data.write(to: URL(fileURLWithPath: file))
 }
 

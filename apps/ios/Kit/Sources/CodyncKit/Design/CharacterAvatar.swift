@@ -137,7 +137,7 @@ struct DottedBody: View {
     }
 
     /// The working loop the Dynamic Island plays one frame per second (a timer Text in a font
-    /// whose digits are these frames; see tools/bot-frame-fonts.py): the light circles the ball
+    /// whose digits are these frames; see tools/timer-fonts.py): the light circles the ball
     /// once, the eyes look right, back, left, and blink on the last frame.
     static func workingLoop(shape: String, size: CGFloat) -> [[Ink]] {
         let cells = DotGrid(size: size)

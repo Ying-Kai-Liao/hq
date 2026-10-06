@@ -201,13 +201,13 @@ public struct ActivityIslandFooter: View {
             if state.phase == .needsInput {
                 ActivityReviewButton(state: state, link: link)
             } else if let since = state.elapsedStart(startedAt) {
-                // One centered Text: a timer Text claims its widest width, so as a Label it
-                // sat left of center.
-                Text("\(Image(systemName: "timer")) \(Text(since, style: .timer))")
+                // The timer alone, centered on its own: a timer Text reserves its widest width,
+                // so beside an icon (or interpolated with one) it sat off center.
+                Text(since, style: .timer)
+                    .font(.system(size: 13, weight: .medium))
                     .monospacedDigit()
+                    .foregroundStyle(Palette.tertiary)
                     .multilineTextAlignment(.center)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Palette.secondary)
                     .frame(maxWidth: .infinity)
             }
         }
