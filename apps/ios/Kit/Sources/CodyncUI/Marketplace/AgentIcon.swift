@@ -1,0 +1,45 @@
+import CodyncKit
+import SwiftUI
+import UIKit
+
+/// A coding agent's logo from the ACP registry, tinted like text; a terminal glyph otherwise.
+public struct AgentIcon: View {
+    let registry: String?
+    let size: CGFloat
+
+    public init(registry: String?, size: CGFloat = 20) {
+        self.registry = registry
+        self.size = size
+    }
+
+    public var body: some View {
+        Group {
+            if let name = registry.map({ "agent-\($0)" }), Self.exists(name) {
+                Image(name, bundle: .module).resizable().scaledToFit()
+            } else {
+                Image(systemName: "terminal").resizable().scaledToFit().padding(size * 0.1)
+            }
+        }
+        .frame(width: size, height: size)
+        .foregroundStyle(tint)
+    }
+
+    /// Registry logos are one-color; paint the ones with a known brand color in it.
+    private var tint: AnyShapeStyle {
+        switch registry {
+        case "claude-acp": AnyShapeStyle(Color(red: 0.85, green: 0.47, blue: 0.34))
+        case "gemini": AnyShapeStyle(LinearGradient(colors: [Color(red: 0.28, green: 0.59, blue: 0.89), Color(red: 0.57, green: 0.47, blue: 0.78), Color(red: 0.79, green: 0.40, blue: 0.45)], startPoint: .bottomLeading, endPoint: .topTrailing))
+        case "antigravity-acp": AnyShapeStyle(Color(red: 0.26, green: 0.52, blue: 0.96))
+        case "mistral-vibe": AnyShapeStyle(Color(red: 0.98, green: 0.32, blue: 0.06))
+        case "qwen-code": AnyShapeStyle(Color(red: 0.38, green: 0.36, blue: 0.93))
+        case "amp-acp": AnyShapeStyle(Color(red: 0.95, green: 0.31, blue: 0.25))
+        case "kiro": AnyShapeStyle(Color(red: 0.56, green: 0.27, blue: 1.0))
+        case "cortex-code": AnyShapeStyle(Color(red: 0.16, green: 0.71, blue: 0.91))
+        default: AnyShapeStyle(Palette.text)
+        }
+    }
+
+    private static func exists(_ name: String) -> Bool {
+        UIImage(named: name, in: .module, with: nil) != nil
+    }
+}
