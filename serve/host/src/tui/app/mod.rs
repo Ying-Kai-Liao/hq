@@ -1,5 +1,6 @@
 //! TUI state and everything that changes it: host events, keys, mouse, replies.
 
+mod analytics;
 mod editor;
 mod events;
 mod forms;
@@ -91,6 +92,10 @@ pub struct App {
     pub answering: HashMap<String, String>,
     history_done: HashSet<String>,
     pub hint: Option<(String, Instant)>,
+    /// Whether this computer shares usage analytics (`None`: nobody decided yet).
+    pub analytics: Option<bool>,
+    /// The first `hello` of this run was handled (`app_opened`, the analytics question).
+    opened: bool,
 }
 
 impl App {
@@ -140,6 +145,8 @@ impl App {
             answering: HashMap::new(),
             history_done: HashSet::new(),
             hint: None,
+            analytics: None,
+            opened: false,
         }
     }
 

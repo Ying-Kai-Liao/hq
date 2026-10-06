@@ -35,6 +35,9 @@ const LOCAL_ONLY: &[&str] = &[
     "installHostUpdate",
     "setHostAutomaticUpdates",
     "setScreenEnabled",
+    // Analytics is the computer owner's choice; phones decide only for themselves.
+    "setAnalytics",
+    "track",
     // Voice keys are entered on the computer itself; phones only use them.
     "setVoiceKey",
     "pairing",

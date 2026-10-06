@@ -52,12 +52,13 @@ pub enum Action {
     Pair,
     Usage,
     CheckUpdate,
+    Analytics,
     Keys,
 }
 
 pub const NEW_GROUP: &str = "New group chat";
 
-pub const ACTIONS: [(&str, &str, Action); 10] = [
+pub const ACTIONS: [(&str, &str, Action); 11] = [
     ("New bot…", "n", Action::NewBot),
     ("New group chat…", "m", Action::NewGroup),
     ("Marketplace: agents, connectors, skills…", "A", Action::Market),
@@ -67,6 +68,7 @@ pub const ACTIONS: [(&str, &str, Action); 10] = [
     ("Pair a phone…", "P", Action::Pair),
     ("Usage", "U", Action::Usage),
     ("Check for updates", "", Action::CheckUpdate),
+    ("Share usage analytics", "", Action::Analytics),
     ("Keys", "?", Action::Keys),
 ];
 
@@ -241,6 +243,8 @@ pub enum Overlay {
     Market(Box<Market>),
     Agent(AgentSetup),
     Fields(Box<Fields>),
+    /// The one-time analytics question; `true` highlights Share usage.
+    Consent(bool),
 }
 
 pub struct Toast {

@@ -8,6 +8,7 @@
 
 mod buffer;
 mod chat;
+mod consent;
 mod forms;
 mod goto;
 mod help;
