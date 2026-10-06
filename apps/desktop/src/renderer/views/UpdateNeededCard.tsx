@@ -32,12 +32,12 @@ export function UpdateNeededCard() {
   const store = useStore()
   const mismatch = store.mismatch
   if (!mismatch) return null
-  // This app updates itself; on macOS this computer's own host is put back on the app's bundled
-  // copy. Linux has no bundled host, so the card says how to update it instead.
+  // This app updates itself; on macOS and Windows this computer's own host is put back on the
+  // app's bundled copy. Linux has no bundled host, so the card says how to update it instead.
   const action: [string, () => void] | null =
     mismatch.kind === 'updateApp'
       ? ['Update Codync', () => window.codync.updates.check()]
-      : store === app.local && !app.host.dev && window.codync.platform === 'darwin'
+      : store === app.local && !app.host.dev && window.codync.platform !== 'linux'
         ? [`Update ${store.hostName}`, () => window.codync.host.restart()]
         : null
   return (

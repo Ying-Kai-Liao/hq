@@ -25,10 +25,14 @@ export class Tray {
   constructor(private deps: Deps) {
     this.tray = new ElectronTray(this.icon(false))
     this.tray.setToolTip('Codync')
+    // Windows opens a tray icon's menu on right-click; a left-click opens the chat.
+    if (process.platform === 'win32') this.tray.on('click', () => this.deps.openChat())
     this.rebuild()
   }
 
   private icon(alert: boolean) {
+    // Black template glyphs vanish on Windows' dark taskbar: the app icon reads on either theme.
+    if (process.platform === 'win32') return nativeImage.createFromPath(join(resources(), 'icon.png')).resize({ width: 16, height: 16 })
     const image = nativeImage.createFromPath(join(resources(), 'tray', alert ? 'trayAlertTemplate.png' : 'trayTemplate.png'))
     image.setTemplateImage(true)
     return image

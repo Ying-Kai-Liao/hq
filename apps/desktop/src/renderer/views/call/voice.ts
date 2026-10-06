@@ -27,7 +27,9 @@ export const SPEECH_CHUNK: Record<VoiceProvider, number> = { openai: 600, gemini
 /** Recognition through the Swift helper: macOS only. */
 export const onDeviceAvailable = () => window.codync.speech.available
 export const onDeviceUnavailableReason = () =>
-  window.codync.platform === 'darwin' ? "On-device speech isn't available in this build." : "On-device speech isn't available on Linux."
+  window.codync.platform === 'darwin'
+    ? "On-device speech isn't available in this build."
+    : `On-device speech isn't available on ${window.codync.platform === 'win32' ? 'Windows' : 'Linux'}.`
 
 export const VoiceSettings = {
   /** The provider picked in the call settings; null for on-device. */
