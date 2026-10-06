@@ -1,0 +1,196 @@
+import CodyncKit
+import Foundation
+import os
+
+private let log = Logger(subsystem: "com.pokai.Codync", category: "BotStore")
+
+extension BotStore {
+    /// Events (catch-up since `rev`, then live) for as long as the link stays ready.
+    func runEvents(_ client: HostClient) async {
+        var backoff: Double = 1
+        while !Task.isCancelled {
+            do {
+                try await refreshHello(client)
+                guard !Task.isCancelled, !retired else { return }
+                if mismatch != nil {
+                    // Reached, but nothing to sync until one side updates. A host update restarts
+                    // the link (and this loop) anyway; this catches one that doesn't.
+                    setConnection(.online)
+                    try await Task.sleep(for: Self.mismatchRecheck)
+                    continue
+                }
+                for try await event in client.events(since: rev, client: clientKind) {
+                    guard !Task.isCancelled, !retired else { return }
+                    setConnection(.online)
+                    backoff = 1
+                    apply(event)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                if Task.isCancelled || retired { return }
+                log.info("stream ended: \(error.localizedDescription)")
+                if case let HostError.unauthorized(message) = error {
+                    setConnection(.unauthorized(message))
+                    return
+                }
+            }
+            try? await Task.sleep(for: .seconds(backoff))
+            backoff = min(backoff * 2, 20)
+        }
+    }
+
+    /// Asked on every (re)connect: the host may have been updated while this app was away.
+    private func refreshHello(_ client: HostClient) async throws {
+        let h: Hello
+        do {
+            h = try await client.hello()
+        } catch let error as DecodingError {
+            // Its version and `minApp` still say which side to update.
+            let version: HostVersion = try await client.call("hello")
+            guard !Task.isCancelled, !retired else { return }
+            log.error("undecodable hello from host \(version.version)")
+            noteHostVersion(version)
+            Motion.animate { unreadable = true }
+            if mismatch == nil { throw error }
+            return
+        }
+        guard !Task.isCancelled, !retired else { return }
+        // hello first: whatever the version change shows (notices, reminders) reads it.
+        hello = h
+        noteHostVersion(HostVersion(version: h.version, minApp: h.minApp))
+    }
+
+    private func noteHostVersion(_ new: HostVersion) {
+        let cached = cacheStamp.map { $0 != "\(Self.appBuild)/\(new.version)" } ?? false
+        if cached || (hostVersion.map { $0.version != new.version } ?? false) {
+            // A different host version or app build: data may carry new fields, so fetch it all again.
+            rev = 0
+            rewound = false
+            unreadable = false
+        }
+        cacheStamp = nil
+        // An update notice may appear or go away with it.
+        if new != hostVersion { Motion.animate { hostVersion = new } }
+    }
+
+    private func apply(_ event: HostEvent) {
+        switch event {
+        case let .hello(id, hostRev, newUsage, newScreen):
+            if let hostId, hostId != id {
+                // Different host database: start over.
+                resetMirror()
+            }
+            hostId = id
+            setUsage(newUsage)
+            screen = newScreen
+            if hostRev < rev { rev = 0 }
+            catchUpRev = hostRev
+            bump(rev)
+        case let .bot(bot):
+            let neededInput = bots[bot.id]?.needsInput == true
+            bots[bot.id] = bot
+            bump(bot.rev)
+            onBotUpdated?(bot)
+            onRosterChanged?()
+            if bot.unread > 0 { acknowledgeVisibleConversations(bot.id) }
+            if bot.needsInput && !neededInput {
+                for call in Array(voiceCalls.values) where call.botId == bot.id {
+                    call.announce("\(bot.name) needs your approval in the chat.")
+                }
+            }
+        case let .botDeleted(id, r):
+            removeComposerDrafts(for: id)
+            bots[id] = nil
+            entries[id] = nil
+            bump(r)
+            if selection == id { selection = nil }
+            onRosterChanged?()
+        case let .entry(e):
+            let wasFinal = entries[e.botId]?.first(where: { $0.id == e.id })?.data.final == true
+            upsert(e)
+            bump(e.rev)
+            acknowledgeVisibleConversations(e.botId, entry: e)
+            if e.kind == "agent", e.threadId == nil, e.data.final == true, !wasFinal, let text = e.data.text {
+                for call in Array(voiceCalls.values) where call.botId == e.botId && e.rev > call.startRev {
+                    call.speak(text)
+                }
+            }
+        case let .usage(u):
+            setUsage(u)
+        case let .screen(s):
+            screen = s
+        case .accessRequests, .cloud:
+            break // The computer's own screens only (loopback).
+        case .resync:
+            restartEvents()
+        case let .undecodable(type):
+            // Never skip past data we couldn't read: rewind once and fetch everything again.
+            log.error("undecodable \(type) event")
+            if !rewound {
+                rewound = true
+                rev = 0
+                restartEvents()
+            } else if !unreadable {
+                Motion.animate { unreadable = true }
+                // A newer host this app can't follow: stop syncing and ask for an update.
+                if mismatch != nil { restartEvents() }
+            }
+        }
+        scheduleSave()
+    }
+
+    private func resetMirror() {
+        composerDrafts = [:]
+        persistComposerDrafts()
+        bots = [:]
+        entries = entries.mapValues { $0.filter { $0.id.hasPrefix("local-") } }.filter { !$0.value.isEmpty }
+        selection = nil
+        onRosterChanged?()
+        rev = 0
+        hostId = nil
+        historyComplete = []
+        screen = nil
+        saveCache()
+    }
+
+    /// Resubscribes from the current `rev` on the same link.
+    private func restartEvents() {
+        guard let client, eventsTask != nil else { return }
+        eventsTask?.cancel()
+        eventsTask = Task { [weak self] in await self?.runEvents(client) }
+    }
+
+    private func bump(_ r: Int64) {
+        rev = max(rev, r)
+        if !caughtUp && rev >= catchUpRev { caughtUp = true }
+    }
+
+    func upsert(_ e: Entry) {
+        var list = entries[e.botId] ?? []
+        if let i = list.firstIndex(where: { $0.id == e.id }) {
+            // A late API response mustn't undo a newer SSE update.
+            guard e.rev >= list[i].rev else { return }
+            list[i] = e
+        } else {
+            // Replace the optimistic copy of a message we sent.
+            if e.kind == "user", let nonce = e.data.clientNonce, !nonce.isEmpty {
+                list.removeAll { $0.id == "local-\(nonce)" }
+            }
+            if let last = list.last, last.seq > e.seq, e.seq > 0 {
+                let i = list.firstIndex { $0.seq > e.seq } ?? list.endIndex
+                list.insert(e, at: i)
+            } else {
+                list.append(e)
+            }
+        }
+        entries[e.botId] = list
+    }
+
+    func setUsage(_ u: Usage) {
+        guard u != usage, !retired else { return }
+        usage = u
+        storage.usage[computer.id] = u
+        onUsageChanged?(computer.id, u)
+    }
+}
