@@ -28,3 +28,12 @@ import Testing
     #expect(BotActivityPresentation(status: "working", activity: "").caption == "Working")
     #expect(BotActivityPresentation(status: "idle", activity: "Old step").caption == "Done")
 }
+
+@Test func teamWidgetKeepsPicksAndFillsTheRestByUrgency() {
+    let bots = Bot.widgetPreview  // review: needs you, build: working, docs: idle
+    #expect(BotsTeamCard.slots(bots: bots, picks: []).map { $0?.id } == ["preview-review", "preview-build", "preview-docs", nil])
+    let picked = BotsTeamCard.slots(bots: bots, picks: [nil, "preview-docs", nil, nil]).map { $0?.id }
+    #expect(picked == ["preview-review", "preview-docs", "preview-build", nil])
+    // A deleted pick falls back to automatic.
+    #expect(BotsTeamCard.slots(bots: bots, picks: ["gone"]).first??.id == "preview-review")
+}

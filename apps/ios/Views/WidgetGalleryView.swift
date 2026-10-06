@@ -171,7 +171,7 @@ struct WidgetGalleryView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(kind == "team" ? "Small widget" : "\(size.capitalized) widget").font(.subheadline.weight(.medium))
             Text(kind == "usage" ? "Small shows the tightest limit. Medium shows two windows. Large adds a summary and up to four limits."
-                 : kind == "team" ? "Four bots as characters; the ones that need you come first, with a dot for each one at work."
+                 : kind == "team" ? "Four bots as characters with a dot for each one at work. Touch and hold the widget, then Edit Widget to choose who sits in each spot; empty spots show the bots that need you first."
                  : "See who needs you and who's still working. Large shows up to six bots.")
                 .font(.caption).foregroundStyle(Palette.secondary)
         }

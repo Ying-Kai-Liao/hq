@@ -1,3 +1,4 @@
+import AppIntents
 import SwiftUI
 
 /// Shared by the widget extension and its in-app gallery so previews use the
@@ -267,16 +268,29 @@ public extension Bot {
     }
 }
 
-/// Four bots in a 2×2 grid, each in its mood with a dot for its state; the bots that
-/// need you come first, and empty spots hold a faded sleeping character.
+/// Four bots in a 2×2 grid, each in its mood with a dot for its state. Spots picked in the
+/// widget's settings keep their bot; the rest fill with the bots that need you first, and
+/// empty spots hold a faded sleeping character.
 public struct BotsTeamCard: View {
-    let bots: [Bot]
+    let slots: [Bot?]
+    let links: [String: URL]
 
-    public init(bots: [Bot]) {
-        self.bots = Array(bots.filter { !$0.hidden }.sorted {
+    /// `links` (bot id → its conversation) makes each spot open its own bot.
+    public init(bots: [Bot], picks: [String?] = [], links: [String: URL] = [:]) {
+        slots = Self.slots(bots: bots, picks: picks)
+        self.links = links
+    }
+
+    /// The bots in their four spots: picks first (a deleted pick falls back to automatic).
+    public static func slots(bots: [Bot], picks: [String?]) -> [Bot?] {
+        let byId = Dictionary(bots.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let picked = (0..<4).map { i in i < picks.count ? picks[i].flatMap { byId[$0] } : nil }
+        let taken = Set(picked.compactMap { $0?.id })
+        var queue = bots.filter { !$0.hidden && !taken.contains($0.id) }.sorted {
             let rank: (Bot) -> Int = { $0.needsInput ? 0 : $0.isWorking ? 1 : 2 }
             return rank($0) == rank($1) ? $0.lastAt > $1.lastAt : rank($0) < rank($1)
-        }.prefix(4))
+        }[...]
+        return picked.map { $0 ?? queue.popFirst() }
     }
 
     public var body: some View {
@@ -287,26 +301,14 @@ public struct BotsTeamCard: View {
     }
 
     @ViewBuilder private func tile(_ index: Int) -> some View {
-        if bots.indices.contains(index) {
-            let bot = bots[index]
-            VStack(spacing: 4) {
-                CharacterAvatar(bot: bot, size: 30, still: true)
-                Text(bot.name)
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Palette.text)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+        if let bot = slots[index] {
+            // A small widget has one tap target unless it uses buttons: each spot is a
+            // button that opens its bot's conversation.
+            if let url = links[bot.id] {
+                Button(intent: OpenURLIntent(url)) { botTile(bot) }.buttonStyle(.plain)
+            } else {
+                botTile(bot)
             }
-            .padding(.horizontal, 4)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 16))
-            .overlay(alignment: .topTrailing) {
-                if bot.isWorking || bot.status == "error" {
-                    Circle().fill(bot.widgetState.tint).frame(width: 7, height: 7).padding(7)
-                }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(bot.name), \(bot.widgetState.label)")
         } else {
             CharacterAvatar(shape: "blob", color: "gray", size: 26)
                 .opacity(0.18)
@@ -314,6 +316,27 @@ public struct BotsTeamCard: View {
                 .background(Palette.bubbleAgent.opacity(0.5), in: RoundedRectangle(cornerRadius: 16))
                 .accessibilityHidden(true)
         }
+    }
+
+    private func botTile(_ bot: Bot) -> some View {
+        VStack(spacing: 4) {
+            CharacterAvatar(bot: bot, size: 30, still: true)
+            Text(bot.name)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Palette.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .padding(.horizontal, 4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(alignment: .topTrailing) {
+            if bot.isWorking || bot.status == "error" {
+                Circle().fill(bot.widgetState.tint).frame(width: 7, height: 7).padding(7)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(bot.name), \(bot.widgetState.label)")
     }
 }
 

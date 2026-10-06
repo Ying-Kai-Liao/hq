@@ -40,8 +40,9 @@ import ActivityKit
 #Preview(as: .systemSmall) {
     BotsTeamWidget()
 } timeline: {
-    BotsEntry(date: .now, bots: Bot.widgetPreview, paired: true)
-    BotsEntry(date: .now, bots: [], paired: false)
+    TeamEntry(date: .now, bots: BotsEntry(date: .now, bots: Bot.widgetPreview, paired: true), picks: [])
+    TeamEntry(date: .now, bots: BotsEntry(date: .now, bots: Bot.widgetPreview, paired: true), picks: [nil, "preview-docs"])
+    TeamEntry(date: .now, bots: BotsEntry(date: .now, bots: [], paired: false), picks: [])
 }
 
 #Preview(as: .accessoryRectangular) {

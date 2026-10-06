@@ -106,14 +106,14 @@ struct BotsWidgetView: View {
 
 }
 
-/// Up to four bots as characters in a 2×2 grid.
+/// Up to four bots as characters in a 2×2 grid; Edit Widget picks the bot in each spot.
 struct BotsTeamWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "CodyncTeam", provider: BotsTimeline()) { entry in
+        AppIntentConfiguration(kind: "CodyncTeam", intent: TeamIntent.self, provider: TeamTimeline()) { entry in
             Group {
-                if entry.paired {
-                    BotsTeamCard(bots: entry.bots)
-                        .widgetURL(entry.lead.flatMap { entry.links[$0.id] })
+                if entry.bots.paired {
+                    // Each spot opens its own bot; the gaps between them open the app.
+                    BotsTeamCard(bots: entry.bots.bots, picks: entry.picks, links: entry.bots.links)
                 } else {
                     EmptyWidget(text: "Open Codync to pair with your computer.")
                 }
@@ -121,8 +121,65 @@ struct BotsTeamWidget: Widget {
             .containerBackground(Palette.surface, for: .widget)
         }
         .configurationDisplayName("Team")
-        .description("Four bots at a glance; the ones that need you come first.")
+        .description("Four bots at a glance. Edit the widget to choose who sits in each spot.")
         .supportedFamilies([.systemSmall])
+    }
+}
+
+/// A bot of the selected account, keyed `<computerId>/<botId>` like the widget snapshot.
+struct BotEntity: AppEntity {
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Bot"
+    static let defaultQuery = BotEntityQuery()
+
+    let id: String
+    let name: String
+    var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(name)") }
+}
+
+struct BotEntityQuery: EntityQuery {
+    private var all: [BotEntity] {
+        BotsEntry.current.bots.filter { !$0.hidden }.map { BotEntity(id: $0.id, name: $0.name) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    func entities(for identifiers: [String]) async throws -> [BotEntity] {
+        let all = all
+        return identifiers.compactMap { id in all.first { $0.id == id } }
+    }
+
+    func suggestedEntities() async throws -> [BotEntity] { all }
+}
+
+struct TeamIntent: WidgetConfigurationIntent {
+    static let title: LocalizedStringResource = "Team"
+    static let description = IntentDescription("Choose a bot for each spot; empty spots show the bots that need you.")
+
+    @Parameter(title: "Top left") var first: BotEntity?
+    @Parameter(title: "Top right") var second: BotEntity?
+    @Parameter(title: "Bottom left") var third: BotEntity?
+    @Parameter(title: "Bottom right") var fourth: BotEntity?
+
+    var picks: [String?] { [first?.id, second?.id, third?.id, fourth?.id] }
+}
+
+struct TeamEntry: TimelineEntry {
+    let date: Date
+    let bots: BotsEntry
+    let picks: [String?]
+}
+
+struct TeamTimeline: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> TeamEntry {
+        TeamEntry(date: .now, bots: BotsEntry(date: .now, bots: Bot.widgetPreview, paired: true), picks: [])
+    }
+
+    func snapshot(for configuration: TeamIntent, in context: Context) async -> TeamEntry {
+        context.isPreview ? placeholder(in: context) : TeamEntry(date: .now, bots: .current, picks: configuration.picks)
+    }
+
+    /// The app writes the roster and reloads this widget when a bot's state changes.
+    func timeline(for configuration: TeamIntent, in context: Context) async -> Timeline<TeamEntry> {
+        Timeline(entries: [TeamEntry(date: .now, bots: .current, picks: configuration.picks)], policy: .never)
     }
 }
 
@@ -508,28 +565,25 @@ struct BotLiveActivity: Widget {
                 // the island's 44 pt corners (HIG: concentric margins, wrap around the camera).
                 DynamicIslandExpandedRegion(.center) {
                     VStack(spacing: 2) {
-                        Text(context.attributes.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                        Text(context.attributes.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text)
                         Text(state.caption).font(.system(size: 12)).foregroundStyle(state.captionTint)
                             .contentTransition(.interpolate)
                     }
                     .lineLimit(1)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
-                    .environment(\.colorScheme, .dark)
                     .animation(Motion.activityPhase, value: state)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     ActivityIslandFooter(state: state, startedAt: context.state.startedAt, link: context.attributes.link)
                         .padding(.horizontal, 4)
-                        .environment(\.colorScheme, .dark)
                 }
             } compactLeading: {
                 avatar(context, state: state, size: 20)
             } compactTrailing: {
-                BotActivityIndicator(state: state).environment(\.colorScheme, .dark)
+                BotActivityIndicator(state: state)
             } minimal: {
                 BotActivityIndicator(state: state)
-                    .environment(\.colorScheme, .dark)
                     .accessibilityLabel("\(context.attributes.name), \(state.title)")
             }
             .keylineTint(state.tint)
