@@ -614,7 +614,7 @@ struct BotLiveActivity: Widget {
 
 /// The working bot, alive in the Dynamic Island. A Live Activity draws one frame and only a
 /// timer keeps changing, so this is a timer drawn in fonts whose digits are the ten frames of
-/// the bot's loop (tools/bot-frame-fonts.py); only the seconds digit shows, one frame a second.
+/// the bot's loop (tools/bot-frame-fonts.py); only the seconds digit draws, one frame a second.
 /// Two layers, like the app's avatar: every dot in grey ink, the lit ones in the bot's color.
 struct WorkingBotFace: View {
     let shape: String
@@ -635,14 +635,14 @@ struct WorkingBotFace: View {
         .accessibilityHidden(true)
     }
 
+    /// The font draws only the timer's last digit (every other character shapes to nothing),
+    /// so the text is one face wide however the system lays out timer text.
     private func layer(_ font: String) -> some View {
         Text(since, style: .timer)
             .font(.custom(font, fixedSize: size))
             // Western digits whatever the region: the font only has those.
             .environment(\.locale, Locale(identifier: "en_US_POSIX"))
-            .multilineTextAlignment(.trailing)
             .lineLimit(1)
-            .fixedSize()
-            .frame(width: size, height: size, alignment: .trailing)
+            .frame(width: size, height: size)
     }
 }
