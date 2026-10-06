@@ -17,6 +17,7 @@ a version without one gets a generic "Bug fixes and improvements" line. Delete o
 - 新增「Team」小工具：用 2×2 角色格一眼看四個 bot，需要你的排在最前面。
 - Bots 小工具每一列右側直接顯示上色的狀態。
 - 新增控制中心按鈕：顯示最需要你的 bot，一點就打開。
+- 群組聊天也能傳檔案和語音通話了：通話時會唸出是哪個 bot 在說話，成員需要你批准時也會提醒。
 
 ### en-US
 
@@ -28,3 +29,4 @@ a version without one gets a generic "Bug fixes and improvements" line. Delete o
 - New Team widget: four bots as characters in a 2×2 grid, the ones that need you first.
 - Each row of the Bots widget shows its state in color.
 - New Control Center control: the bot that needs you most, one tap to open it.
+- Group chats can now take files and voice calls: the call says which bot is speaking and tells you when one needs your approval.

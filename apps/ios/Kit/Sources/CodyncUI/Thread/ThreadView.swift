@@ -51,7 +51,7 @@ public struct ThreadView: View {
                         .transition(.opacity)
                 } else {
                     Composer(botId: botId,
-                             onCall: !calling && bot?.isGroup == false ? { calling = true } : nil,
+                             onCall: !calling && bot != nil ? { calling = true } : nil,
                              onInterrupt: callSpeaking ? interruptCall : nil)
                 }
             }

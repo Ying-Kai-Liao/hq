@@ -1,4 +1,4 @@
-import { isChat, type Entry } from '@shared/models'
+import { isChat, isGroup, type Entry } from '@shared/models'
 import type { BotStore } from '../../store/bot-store'
 import { spokenText } from './voice'
 
@@ -47,8 +47,11 @@ export class CallOperator {
     const bot = this.store.bots.get(this.botId)
     const name = bot?.name ?? 'the bot'
     const about = bot?.description ? ` (${bot.description})` : ''
+    const who = bot && isGroup(bot)
+      ? `the group chat ${name}${about} on the user's computer, where the bots ${this.store.members(bot).map((m) => m.name).join(', ')} answer in turn (a message that @-mentions one of them asks just that bot). The bots do all the actual work; you relay`
+      : `${name}${about}, a coding agent running on the user's computer. ${name} does all the actual work; you relay`
     return [
-      `You are the voice on a phone call between the user and ${name}${about}, a coding agent running on the user's computer. ${name} does all the actual work; you relay.`,
+      `You are the voice on a phone call between the user and ${who}.`,
       '- When the user asks for something to be done, changed, checked or answered about their code or computer, call send_to_bot with their request in their own words (keep details, names and code terms exactly). Don\'t do the work or invent results yourself.',
       '- Use bot_status and recent_messages for "what are you doing?" or "what did it say?".',
       '- Call answer_approval only after the user has clearly said which option to pick.',
@@ -112,7 +115,7 @@ export class CallOperator {
       .filter(isChat)
       .slice(-n)
       .map((e) => ({
-        from: e.kind === 'user' ? 'user' : e.kind === 'agent' ? name : e.kind === 'permission' ? 'approval request' : 'notice',
+        from: e.kind === 'user' ? 'user' : e.kind === 'agent' ? (e.data.author && this.store.bots.get(e.data.author)?.name) || name : e.kind === 'permission' ? 'approval request' : 'notice',
         text: spokenText(e.data.text ?? e.data.title ?? ''),
       }))
     return { messages }

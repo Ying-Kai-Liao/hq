@@ -44,7 +44,7 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
   const working = !!bot && isWorkingIn(bot, botId, thread)
   const empty = !draft.trim() && !files.length
   const canSend = !empty && (store.connection.kind === 'online' || (store.canQueue && !files.length))
-  const canAttach = !!bot && !isGroup(bot)
+  const canAttach = !!bot
 
   const placeholder = thread ? 'Reply…' : bot && isGroup(bot) ? `Message ${bot.name} · @ to ask one bot` : working ? `Queue a message for ${bot?.name ?? ''}` : `Ask ${bot?.name ?? ''}`
 

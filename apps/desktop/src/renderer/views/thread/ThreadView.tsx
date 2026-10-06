@@ -149,7 +149,7 @@ export function ThreadView({ botId }: { botId: string }) {
           ) : (
             <Composer
               botId={botId}
-              onCall={!calling && bot && !isGroup(bot) ? () => setCalling(true) : null}
+              onCall={!calling && bot ? () => setCalling(true) : null}
               onInterrupt={callSpeaking ? () => interruptCall.current?.() : null}
             />
           )}

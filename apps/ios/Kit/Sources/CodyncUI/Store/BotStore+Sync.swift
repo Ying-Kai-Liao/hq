@@ -107,14 +107,18 @@ extension BotStore {
             if selection == id { selection = nil }
             onRosterChanged?()
         case let .entry(e):
-            let wasFinal = entries[e.botId]?.first(where: { $0.id == e.id })?.data.final == true
+            let known = entries[e.botId]?.first(where: { $0.id == e.id })
             upsert(e)
             bump(e.rev)
             acknowledgeVisibleConversations(e.botId, entry: e)
-            if e.kind == "agent", e.threadId == nil, e.data.final == true, !wasFinal, let text = e.data.text {
-                for call in Array(voiceCalls.values) where call.botId == e.botId && e.rev > call.startRev {
-                    call.speak(text)
-                }
+            let calls = Array(voiceCalls.values).filter { $0.botId == e.botId && e.rev > $0.startRev }
+            if e.kind == "agent", e.threadId == nil, e.data.final == true, known?.data.final != true, let text = e.data.text {
+                calls.forEach { $0.speak(spokenReply(e, text)) }
+            }
+            // A group has no status of its own: its members' approvals arrive as cards.
+            if e.kind == "permission", known == nil, e.data.status == "pending", bots[e.botId]?.isGroup == true {
+                let name = e.data.author.flatMap { bots[$0]?.name } ?? "A bot"
+                calls.forEach { $0.announce("\(name) needs your approval in the chat.") }
             }
         case let .usage(u):
             setUsage(u)
@@ -138,6 +142,12 @@ extension BotStore {
             }
         }
         scheduleSave()
+    }
+
+    /// In a group, a reply is said with its speaker's name.
+    private func spokenReply(_ e: Entry, _ text: String) -> String {
+        guard bots[e.botId]?.isGroup == true, let name = e.data.author.flatMap({ bots[$0]?.name }) else { return text }
+        return "\(name): \(text)"
     }
 
     private func resetMirror() {
