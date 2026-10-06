@@ -38,10 +38,12 @@ public extension BotActivityPresentation {
 }
 
 public extension AnyTransition {
-    /// The bot's face on a phase change: the old one grows out, the new one grows in.
+    /// The bot's face and the state mark on a phase change: the old one bursts out larger
+    /// while the new one grows in from small and overshoots (with `Motion.activityPop`).
+    /// Built-in transitions only: Live Activities don't run custom ones.
     static var activityFace: AnyTransition {
-        .asymmetric(insertion: .scale(scale: 0.55).combined(with: .opacity),
-                    removal: .scale(scale: 1.15).combined(with: .opacity))
+        .asymmetric(insertion: .scale(scale: 0.2).combined(with: .opacity),
+                    removal: .scale(scale: 1.6).combined(with: .opacity))
     }
 
     /// Rows a new phase brings (the Review button, the timer): rise and fade in.
@@ -68,7 +70,7 @@ public struct ActivityAvatar: View {
                 .transition(.activityFace)
         }
         .frame(width: size, height: size)
-        .animation(Motion.activityPhase, value: state.phase)
+        .animation(Motion.activityPop, value: state.phase)
     }
 }
 
@@ -176,17 +178,21 @@ public struct BotActivityIndicator: View {
     }
 
     public var body: some View {
-        Group {
-            if let orb = state.orbState {
-                ThinkingOrb(state: orb, size: size, color: state.tint, animated: false)
-            } else {
-                Image(systemName: state.symbol).font(.system(size: size * 0.6, weight: .semibold))
-                    .transition(.activityFace)
+        // A new mark per phase (orb → orb too: working → needs you), so every change pops.
+        ZStack {
+            Group {
+                if let orb = state.orbState {
+                    ThinkingOrb(state: orb, size: size, color: state.tint, animated: false)
+                } else {
+                    Image(systemName: state.symbol).font(.system(size: size * 0.6, weight: .semibold))
+                }
             }
+            .id(state.phase)
+            .transition(.activityFace)
         }
         .frame(width: size, height: size)
         .foregroundStyle(state.tint)
-        .animation(Motion.activityPhase, value: state.phase)
+        .animation(Motion.activityPop, value: state.phase)
         .accessibilityElement()
         .accessibilityLabel(state.title)
     }
@@ -207,7 +213,11 @@ public struct ActivityIslandFooter: View {
             if state.phase == .needsInput {
                 ActivityReviewButton(state: state, link: link)
             } else if let since = state.elapsedStart(startedAt) {
-                Label { Text(since, style: .timer).monospacedDigit() } icon: { Image(systemName: "timer") }
+                // One centered Text: a timer Text claims its widest width, so as a Label it
+                // sat left of center.
+                Text("\(Image(systemName: "timer")) \(Text(since, style: .timer))")
+                    .monospacedDigit()
+                    .multilineTextAlignment(.center)
                     .font(.system(size: 12))
                     .foregroundStyle(Palette.secondary)
                     .frame(maxWidth: .infinity)

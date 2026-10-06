@@ -23,6 +23,9 @@ public enum Motion {
     /// A Live Activity's phase change (working → needs you → done): a soft spring that
     /// finishes well inside the 2 s iOS gives activity updates.
     public static let activityPhase = Animation.spring(duration: 0.6, bounce: 0.3)
+    /// The state mark and the bot's face swapping on a phase change: a bouncier spring so the
+    /// new one overshoots as it lands.
+    public static let activityPop = Animation.spring(duration: 0.7, bounce: 0.5)
 
     /// `--ui-press-scale`.
     public static let pressScale: CGFloat = 0.98
