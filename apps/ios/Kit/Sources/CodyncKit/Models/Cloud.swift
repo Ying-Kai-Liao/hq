@@ -1,7 +1,7 @@
 import Foundation
 
 // Wire types for the Codync cloud (`/v1`, cloud/src/api.ts), the host's loopback-only
-// account methods (host/src/api/mod.rs) and the relay mailbox. Times are epoch milliseconds.
+// account methods (host/src/api/) and the relay mailbox. Times are epoch milliseconds.
 // Decoding is lenient: unknown fields are ignored and anything the server may omit is optional.
 
 /// `GET /v1/me`.
