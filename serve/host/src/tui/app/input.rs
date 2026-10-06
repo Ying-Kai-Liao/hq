@@ -22,8 +22,8 @@ impl App {
         } else if let Some(key) = self.draft_key() {
             self.typing = true;
             self.focus = Focus::Chat;
-            // A file dragged onto the terminal pastes its path: attach it (groups have no folder for files).
-            match dropped_files(&s).filter(|_| self.bot().is_some_and(|b| !b.group)) {
+            // A file dragged onto the terminal pastes its path: attach it.
+            match dropped_files(&s) {
                 Some(paths) => self.files.entry(key).or_default().extend(paths),
                 None => self.drafts.entry(key).or_default().insert(&s),
             }
