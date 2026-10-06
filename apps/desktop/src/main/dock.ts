@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { prefs } from './host-controller'
 
-export const showInDock = () => prefs.get('showInDock') === true
+export const showInDock = () => prefs.get('showInDock') !== false
 
 export function setShowInDock(on: boolean) {
   prefs.set('showInDock', on)
