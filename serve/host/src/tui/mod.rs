@@ -3,6 +3,7 @@
 
 mod app;
 mod connections;
+mod drafts;
 mod manage;
 mod md;
 mod net;
@@ -47,6 +48,16 @@ pub async fn run(url: String, token: Option<String>) -> Result<()> {
     let client = net::Client::new(&url, token.as_deref());
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut app = app::App::new(client.clone(), tx.clone(), url);
+    let mut drafts = match drafts::Drafts::load(&app.url).await {
+        Ok(saved) => {
+            app.drafts = saved.restore();
+            Some(saved)
+        }
+        Err(error) => {
+            app.flash(&format!("Couldn't restore drafts: {error}"));
+            None
+        }
+    };
 
     terminal::enable_raw_mode().context("this needs an interactive terminal")?;
     let mut out = std::io::stdout();
@@ -118,6 +129,11 @@ pub async fn run(url: String, token: Option<String>) -> Result<()> {
             }
         }
         dirty = true;
+        if let Some(saved) = drafts.as_mut()
+            && let Err(error) = saved.save(&app.drafts).await
+        {
+            app.flash(&format!("Couldn't save drafts: {error}. Text stays in this session."));
+        }
         if app.quit {
             break;
         }

@@ -1029,6 +1029,9 @@ impl App {
         if v["deleted"].as_bool().unwrap_or(false) {
             self.bots.remove(id);
             self.entries.remove(id);
+            let prefix = format!("{id}#");
+            self.drafts.retain(|key, _| key != id && !key.starts_with(&prefix));
+            self.files.retain(|key, _| key != id && !key.starts_with(&prefix));
             if self.selected.as_deref() == Some(id) {
                 self.selected = None;
                 self.thread = None;
