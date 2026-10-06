@@ -10,7 +10,10 @@
 		00F78E3DAAF66E8E0933D091 /* ActivityGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD3DE9A4EEB369C4F75C9448 /* ActivityGalleryView.swift */; };
 		01A1F820EFEE49A8FCCFC3F3 /* BotListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0582B6169BFC36E4BCD51C0D /* BotListView.swift */; };
 		0631979397E0D6822747E03A /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6E13F8EA6C7B0DA4D899FEE /* RootView.swift */; };
+		0C920E4962F182ADF75670C5 /* CodyncBot-tablet-Ink.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 120FD9DBA315A6DD543463D8 /* CodyncBot-tablet-Ink.ttf */; };
 		17DD96A91B1EC2AE699F4A2F /* ViewingBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C0E04490F5C56FD070539E6 /* ViewingBadge.swift */; };
+		1855DC364C2F8E5B62878BD8 /* CodyncBot-teardrop-Ink.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 203A43D8DF8D3832F95FA837 /* CodyncBot-teardrop-Ink.ttf */; };
+		198096547EAA6C5FBB68558F /* CodyncBot-hex-Ink.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 89A0D530BEF30AF36F9DBEA8 /* CodyncBot-hex-Ink.ttf */; };
 		2002C16E427B4E4E7279E1C4 /* ComputerStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC00039A6C2C0D3F39A5F67 /* ComputerStatus.swift */; };
 		25667EBFCCC64B96FDCE95A9 /* CodyncKit in Frameworks */ = {isa = PBXBuildFile; productRef = 59F5D19A417A7A50596902FA /* CodyncKit */; };
 		2CC074683AE086D6C77CC1E8 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B274A0195CB3B2409EA4C194 /* WidgetKit.framework */; };
@@ -18,10 +21,14 @@
 		35CFB641A4F10C0EBD21CB14 /* LaunchSplash.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FC76D28AB02DF1427D530ED /* LaunchSplash.swift */; };
 		3BCC04815E5CA8953E0DDCAD /* WidgetPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 305DDCC18BB8AA6CD9D19CEF /* WidgetPreviews.swift */; };
 		48DAAA1384E5B8D0BA27C895 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1E47C60032C326157E0386B8 /* SwiftUI.framework */; };
+		4C9ADD8046382132129B1302 /* CodyncBot-squircle-Ink.ttf in Resources */ = {isa = PBXBuildFile; fileRef = CEF1A5792B9675FDA7E07740 /* CodyncBot-squircle-Ink.ttf */; };
 		4DDC38E58D673047B332FDD5 /* AccessRequestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B97102DEC6029268332DF901 /* AccessRequestView.swift */; };
 		501377099B6CF42761B230CB /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57A7C09154869DD84BACE19 /* WelcomeView.swift */; };
 		52CF04B855C6AAEC47B75B8F /* CodyncKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1285DDFA0390A76ECDAAD6C0 /* CodyncKit */; };
 		54CEEA0734C2940E2D9FAC7D /* AXTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D13418ABB5FD7CFC087677 /* AXTree.swift */; };
+		5CF8180C760CFAE49CF4B8C6 /* CodyncBot-cloud-Tint.ttf in Resources */ = {isa = PBXBuildFile; fileRef = AAD970B8394F4EDFB85A8936 /* CodyncBot-cloud-Tint.ttf */; };
+		5FD48874687C2D18B31C7C01 /* CodyncBot-pebble-Tint.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1FECC371F3CD98687C0B69FA /* CodyncBot-pebble-Tint.ttf */; };
+		646410F85B1110297E5F54B9 /* CodyncBot-squircle-Tint.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D5F23C3F9FCE63B4AFB4771A /* CodyncBot-squircle-Tint.ttf */; };
 		674BCFBAC7022359FB673FDB /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AD18A04CD014230F1B7B0535 /* PrivacyInfo.xcprivacy */; };
 		684F7F77EECBA0BD95BDD658 /* UsageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFEBE2E6A9D0AF0A0D89FFE7 /* UsageView.swift */; };
 		719EABCBBAC0A973D729363A /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECD0B4EA4BBA2BB2826C4362 /* PairingView.swift */; };
@@ -33,20 +40,29 @@
 		8157F3E9CFB390CBCB1A9F9A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4815867922559696EDCA47FD /* Assets.xcassets */; };
 		8517F8FC5AFAFF1527369829 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6932F782C1B87C9608359A6 /* NotificationService.swift */; };
 		89CA3972915769DBA315876F /* Push.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3BF4D3B82FE8274F610C703 /* Push.swift */; };
+		8B5CCF45DEE9149BB11333C4 /* CodyncBot-pebble-Ink.ttf in Resources */ = {isa = PBXBuildFile; fileRef = F4375A206703EC65F0D15BD6 /* CodyncBot-pebble-Ink.ttf */; };
+		8B78A34695AD94109AE82C0F /* CodyncBot-blob-Tint.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D0E552136D473567E0C25ED4 /* CodyncBot-blob-Tint.ttf */; };
 		8BB3FC79EB798CE4347E6FD3 /* CodyncKit in Frameworks */ = {isa = PBXBuildFile; productRef = 50F314172CC2AD1C5CDC916A /* CodyncKit */; };
 		921ED46A1643AB90BB3D4CF7 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = F99C11684BFBEB49006600A9 /* Session.swift */; };
 		9638BAA981354C4CE72884A0 /* HostLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CC3E47D480A5F15CA95C504 /* HostLink.swift */; };
 		974A5D8D89758A61E7D8D1B6 /* Input.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BA06CEE98A7CDED62678522 /* Input.swift */; };
+		980C29719BDE2E874C9AD53A /* CodyncBot-wedge-Tint.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C3BB9F034194450254CE14EC /* CodyncBot-wedge-Tint.ttf */; };
 		9BBB2FAEDBD35A83EAB02981 /* AccountSwitcherView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB282B31FBC94EE70D07638 /* AccountSwitcherView.swift */; };
 		AA601649E43A5AF73DCF5B5E /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 2D9748E611692583AFC5A152 /* WebRTC */; };
+		B09F6D6EDC6C6B0B9919D6BF /* CodyncBot-blob-Ink.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C484135603CEF437C27BE67B /* CodyncBot-blob-Ink.ttf */; };
+		B1815C13D0D78E99415C2DC2 /* CodyncBot-cloud-Ink.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 5A21538E748C62E82DF7B139 /* CodyncBot-cloud-Ink.ttf */; };
+		B3450CFD87D4096B3BCA7885 /* CodyncBot-wedge-Ink.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C6B96EE690FC5355C9E3D1B5 /* CodyncBot-wedge-Ink.ttf */; };
 		B3554D38F39916698E961A37 /* WidgetGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B22589689593E0089118FDB /* WidgetGalleryView.swift */; };
 		BA978F06CB1E58511FFB541B /* WidgetSetupDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D8961FADA8810B6CC479705 /* WidgetSetupDemo.swift */; };
+		BCB60463C96AF5725EC4A2C7 /* CodyncBot-hex-Tint.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D827E43025A592B41CB68EFD /* CodyncBot-hex-Tint.ttf */; };
 		BF77DD7946621D8818EDAB9B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A87B0091DAF0E4807D62017 /* SettingsView.swift */; };
 		C7ED489193AC0934515D2E85 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D0DE72EEAEC947C1D3CA237F /* PrivacyInfo.xcprivacy */; };
+		E78E3B5FAFEB79F31AAC104D /* CodyncBot-teardrop-Tint.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C8F46BD8301E7E2C83C35111 /* CodyncBot-teardrop-Tint.ttf */; };
 		EBB0417A5FB2CE6D514D21BE /* ClerkKit in Frameworks */ = {isa = PBXBuildFile; productRef = D9AB2F442A5F243653EAE936 /* ClerkKit */; };
 		F171F16563D1FF6308697173 /* CodyncUI in Frameworks */ = {isa = PBXBuildFile; productRef = 06C9F37C6502131CAF0F145E /* CodyncUI */; };
 		F842AE1C5ED96AF9A7F5D16C /* Widgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6D734BEE7CD3F84677B0218B /* Widgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F97C489DDB806224CEFCEB57 /* ScreenHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B2CB561A43ED9F2F1A4391 /* ScreenHelper.swift */; };
+		FCE6E509AEFC88C3D05D8E3D /* CodyncBot-tablet-Tint.ttf in Resources */ = {isa = PBXBuildFile; fileRef = F7CAD5C4F330637102B40288 /* CodyncBot-tablet-Tint.ttf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -85,8 +101,11 @@
 		0582B6169BFC36E4BCD51C0D /* BotListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotListView.swift; sourceTree = "<group>"; };
 		0829A4FCADAC108E8C2DB2F1 /* Widgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Widgets.entitlements; sourceTree = "<group>"; };
 		0A87B0091DAF0E4807D62017 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		120FD9DBA315A6DD543463D8 /* CodyncBot-tablet-Ink.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodyncBot-tablet-Ink.ttf"; sourceTree = "<group>"; };
 		1318104275E5BEC47B7088AD /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		1E47C60032C326157E0386B8 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		1FECC371F3CD98687C0B69FA /* CodyncBot-pebble-Tint.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodyncBot-pebble-Tint.ttf"; sourceTree = "<group>"; };
+		203A43D8DF8D3832F95FA837 /* CodyncBot-teardrop-Ink.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodyncBot-teardrop-Ink.ttf"; sourceTree = "<group>"; };
 		28B2CB561A43ED9F2F1A4391 /* ScreenHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenHelper.swift; sourceTree = "<group>"; };
 		2C0E04490F5C56FD070539E6 /* ViewingBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewingBadge.swift; sourceTree = "<group>"; };
 		305DDCC18BB8AA6CD9D19CEF /* WidgetPreviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetPreviews.swift; sourceTree = "<group>"; };
@@ -95,6 +114,7 @@
 		4815867922559696EDCA47FD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		4EB282B31FBC94EE70D07638 /* AccountSwitcherView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSwitcherView.swift; sourceTree = "<group>"; };
 		52A96030D47F1B9678095909 /* iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iOS.entitlements; sourceTree = "<group>"; };
+		5A21538E748C62E82DF7B139 /* CodyncBot-cloud-Ink.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodyncBot-cloud-Ink.ttf"; sourceTree = "<group>"; };
 		5B22589689593E0089118FDB /* WidgetGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetGalleryView.swift; sourceTree = "<group>"; };
 		60422D3CA8FEBCDC5AC465E0 /* iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = iOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		64888B10E98F19723500FBCA /* NotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NotificationService.entitlements; sourceTree = "<group>"; };
@@ -104,25 +124,37 @@
 		741B706007BA1B91CB853699 /* Screen.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Screen.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7B7E845BA1B8696B266CF578 /* NotificationService.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		7D8961FADA8810B6CC479705 /* WidgetSetupDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSetupDemo.swift; sourceTree = "<group>"; };
+		89A0D530BEF30AF36F9DBEA8 /* CodyncBot-hex-Ink.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodyncBot-hex-Ink.ttf"; sourceTree = "<group>"; };
 		8BA06CEE98A7CDED62678522 /* Input.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Input.swift; sourceTree = "<group>"; };
 		8CC3E47D480A5F15CA95C504 /* HostLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostLink.swift; sourceTree = "<group>"; };
 		9AD0BD16672E128A4F26272B /* SignInButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInButtons.swift; sourceTree = "<group>"; };
 		A65FE0504B741D0B44DB2516 /* CodyncApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodyncApp.swift; sourceTree = "<group>"; };
+		AAD970B8394F4EDFB85A8936 /* CodyncBot-cloud-Tint.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodyncBot-cloud-Tint.ttf"; sourceTree = "<group>"; };
 		AD18A04CD014230F1B7B0535 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		B274A0195CB3B2409EA4C194 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		B6E13F8EA6C7B0DA4D899FEE /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		B97102DEC6029268332DF901 /* AccessRequestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessRequestView.swift; sourceTree = "<group>"; };
+		C3BB9F034194450254CE14EC /* CodyncBot-wedge-Tint.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodyncBot-wedge-Tint.ttf"; sourceTree = "<group>"; };
+		C484135603CEF437C27BE67B /* CodyncBot-blob-Ink.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodyncBot-blob-Ink.ttf"; sourceTree = "<group>"; };
+		C6B96EE690FC5355C9E3D1B5 /* CodyncBot-wedge-Ink.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodyncBot-wedge-Ink.ttf"; sourceTree = "<group>"; };
+		C8F46BD8301E7E2C83C35111 /* CodyncBot-teardrop-Tint.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodyncBot-teardrop-Tint.ttf"; sourceTree = "<group>"; };
 		CE63C84233B14A2D63640EAA /* Capture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Capture.swift; sourceTree = "<group>"; };
+		CEF1A5792B9675FDA7E07740 /* CodyncBot-squircle-Ink.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodyncBot-squircle-Ink.ttf"; sourceTree = "<group>"; };
 		CFEBE2E6A9D0AF0A0D89FFE7 /* UsageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageView.swift; sourceTree = "<group>"; };
 		D0DE72EEAEC947C1D3CA237F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		D0E552136D473567E0C25ED4 /* CodyncBot-blob-Tint.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodyncBot-blob-Tint.ttf"; sourceTree = "<group>"; };
 		D4D13418ABB5FD7CFC087677 /* AXTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AXTree.swift; sourceTree = "<group>"; };
 		D57A7C09154869DD84BACE19 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
+		D5F23C3F9FCE63B4AFB4771A /* CodyncBot-squircle-Tint.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodyncBot-squircle-Tint.ttf"; sourceTree = "<group>"; };
+		D827E43025A592B41CB68EFD /* CodyncBot-hex-Tint.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodyncBot-hex-Tint.ttf"; sourceTree = "<group>"; };
 		DC3927FC6343A00B3970BC08 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		DD3DE9A4EEB369C4F75C9448 /* ActivityGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityGalleryView.swift; sourceTree = "<group>"; };
 		E3BF4D3B82FE8274F610C703 /* Push.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Push.swift; sourceTree = "<group>"; };
 		ECD0B4EA4BBA2BB2826C4362 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
 		F21AEC12DC761C28A997BEF3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		F4375A206703EC65F0D15BD6 /* CodyncBot-pebble-Ink.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodyncBot-pebble-Ink.ttf"; sourceTree = "<group>"; };
 		F6932F782C1B87C9608359A6 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		F7CAD5C4F330637102B40288 /* CodyncBot-tablet-Tint.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodyncBot-tablet-Tint.ttf"; sourceTree = "<group>"; };
 		F99C11684BFBEB49006600A9 /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
 		FAB9BDB52C3A9F7B2568A750 /* CodyncWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodyncWidgets.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -167,12 +199,36 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		05B4E1C6C8B1EEB62B4FFFD0 /* Fonts */ = {
+			isa = PBXGroup;
+			children = (
+				C484135603CEF437C27BE67B /* CodyncBot-blob-Ink.ttf */,
+				D0E552136D473567E0C25ED4 /* CodyncBot-blob-Tint.ttf */,
+				5A21538E748C62E82DF7B139 /* CodyncBot-cloud-Ink.ttf */,
+				AAD970B8394F4EDFB85A8936 /* CodyncBot-cloud-Tint.ttf */,
+				89A0D530BEF30AF36F9DBEA8 /* CodyncBot-hex-Ink.ttf */,
+				D827E43025A592B41CB68EFD /* CodyncBot-hex-Tint.ttf */,
+				F4375A206703EC65F0D15BD6 /* CodyncBot-pebble-Ink.ttf */,
+				1FECC371F3CD98687C0B69FA /* CodyncBot-pebble-Tint.ttf */,
+				CEF1A5792B9675FDA7E07740 /* CodyncBot-squircle-Ink.ttf */,
+				D5F23C3F9FCE63B4AFB4771A /* CodyncBot-squircle-Tint.ttf */,
+				120FD9DBA315A6DD543463D8 /* CodyncBot-tablet-Ink.ttf */,
+				F7CAD5C4F330637102B40288 /* CodyncBot-tablet-Tint.ttf */,
+				203A43D8DF8D3832F95FA837 /* CodyncBot-teardrop-Ink.ttf */,
+				C8F46BD8301E7E2C83C35111 /* CodyncBot-teardrop-Tint.ttf */,
+				C6B96EE690FC5355C9E3D1B5 /* CodyncBot-wedge-Ink.ttf */,
+				C3BB9F034194450254CE14EC /* CodyncBot-wedge-Tint.ttf */,
+			);
+			path = Fonts;
+			sourceTree = "<group>";
+		};
 		39BD6D06FC3DE74E5AA24856 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
 				1318104275E5BEC47B7088AD /* Info.plist */,
 				AD18A04CD014230F1B7B0535 /* PrivacyInfo.xcprivacy */,
 				0829A4FCADAC108E8C2DB2F1 /* Widgets.entitlements */,
+				05B4E1C6C8B1EEB62B4FFFD0 /* Fonts */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -459,6 +515,22 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B09F6D6EDC6C6B0B9919D6BF /* CodyncBot-blob-Ink.ttf in Resources */,
+				8B78A34695AD94109AE82C0F /* CodyncBot-blob-Tint.ttf in Resources */,
+				B1815C13D0D78E99415C2DC2 /* CodyncBot-cloud-Ink.ttf in Resources */,
+				5CF8180C760CFAE49CF4B8C6 /* CodyncBot-cloud-Tint.ttf in Resources */,
+				198096547EAA6C5FBB68558F /* CodyncBot-hex-Ink.ttf in Resources */,
+				BCB60463C96AF5725EC4A2C7 /* CodyncBot-hex-Tint.ttf in Resources */,
+				8B5CCF45DEE9149BB11333C4 /* CodyncBot-pebble-Ink.ttf in Resources */,
+				5FD48874687C2D18B31C7C01 /* CodyncBot-pebble-Tint.ttf in Resources */,
+				4C9ADD8046382132129B1302 /* CodyncBot-squircle-Ink.ttf in Resources */,
+				646410F85B1110297E5F54B9 /* CodyncBot-squircle-Tint.ttf in Resources */,
+				0C920E4962F182ADF75670C5 /* CodyncBot-tablet-Ink.ttf in Resources */,
+				FCE6E509AEFC88C3D05D8E3D /* CodyncBot-tablet-Tint.ttf in Resources */,
+				1855DC364C2F8E5B62878BD8 /* CodyncBot-teardrop-Ink.ttf in Resources */,
+				E78E3B5FAFEB79F31AAC104D /* CodyncBot-teardrop-Tint.ttf in Resources */,
+				B3450CFD87D4096B3BCA7885 /* CodyncBot-wedge-Ink.ttf in Resources */,
+				980C29719BDE2E874C9AD53A /* CodyncBot-wedge-Tint.ttf in Resources */,
 				674BCFBAC7022359FB673FDB /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -69,3 +69,28 @@ import Testing
     let data = try #require(renderer.uiImage?.pngData())
     try data.write(to: URL(fileURLWithPath: path))
 }
+
+/// Writes the Dynamic Island's working loop (every shape, 10 frames, in points of a 20 pt face)
+/// for tools/bot-frame-fonts.py: `TEST_RUNNER_CODYNC_FRAMES_FILE=<file.json> xcodebuild test …
+/// -only-testing:'CodyncKitTests/exportBotFrames()'`.
+@MainActor @Test func exportBotFrames() throws {
+    guard let file = ProcessInfo.processInfo.environment["CODYNC_FRAMES_FILE"] else { return }
+    let shapes = ["blob", "pebble", "squircle", "tablet", "wedge", "hex", "cloud", "teardrop"]
+    var out: [String: [[[String: Double]]]] = [:]
+    for shape in shapes {
+        out[shape] = DottedBody.workingLoop(shape: shape, size: 20).map { frame in
+            frame.filter { !$0.eye }.map {
+                ["x": $0.dot.center.x, "y": $0.dot.center.y, "r": $0.radius, "ink": $0.ink, "tint": $0.tint]
+            }
+        }
+    }
+    let data = try JSONSerialization.data(withJSONObject: ["size": 20, "shapes": out], options: [.sortedKeys])
+    try data.write(to: URL(fileURLWithPath: file))
+}
+
+/// The loop is ten frames (one per second of a timer digit) and actually moves.
+@MainActor @Test func workingLoopHasTenDistinctFrames() {
+    let frames = DottedBody.workingLoop(shape: "blob", size: 20)
+    #expect(frames.count == 10)
+    #expect(frames[0].map(\.radius) != frames[3].map(\.radius))
+}

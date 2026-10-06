@@ -29,7 +29,7 @@ import Testing
     #expect(BotActivityPresentation(status: "idle", activity: "Old step").caption == "Done")
 }
 
-@Test func teamWidgetKeepsPicksAndFillsTheRestByUrgency() {
+@MainActor @Test func teamWidgetKeepsPicksAndFillsTheRestByUrgency() {
     let bots = Bot.widgetPreview  // review: needs you, build: working, docs: idle
     #expect(BotsTeamCard.slots(bots: bots, picks: []).map { $0?.id } == ["preview-review", "preview-build", "preview-docs", nil])
     let picked = BotsTeamCard.slots(bots: bots, picks: [nil, "preview-docs", nil, nil]).map { $0?.id }

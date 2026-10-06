@@ -248,7 +248,7 @@ public struct BotActivityPreview: View {
         switch form {
         case .compact:
             HStack {
-                ActivityAvatar(shape: bot.avatarShape, color: bot.avatarColor, state: state, size: 20)
+                islandFace(20)
                 Spacer(minLength: 70)
                 BotActivityIndicator(state: state)
             }
@@ -260,7 +260,7 @@ public struct BotActivityPreview: View {
         case .expanded:
             VStack(spacing: 12) {
                 HStack(spacing: 10) {
-                    ActivityAvatar(shape: bot.avatarShape, color: bot.avatarColor, state: state, size: 26)
+                    islandFace(26)
                     VStack(spacing: 2) {
                         Text(bot.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
                         Text(state.caption).font(.system(size: 12)).foregroundStyle(state.captionTint)
@@ -273,6 +273,16 @@ public struct BotActivityPreview: View {
             }
             .padding(18).background(.black, in: RoundedRectangle(cornerRadius: 28))
         case .lockScreen: EmptyView()
+        }
+    }
+
+    /// The island plays the working bot's loop (WorkingBotFace in the widget); here the live
+    /// avatar stands in for it.
+    @ViewBuilder private func islandFace(_ size: CGFloat) -> some View {
+        if state.phase == .working {
+            CharacterAvatar(shape: bot.avatarShape, color: bot.avatarColor, size: size, mood: .working)
+        } else {
+            ActivityAvatar(shape: bot.avatarShape, color: bot.avatarColor, state: state, size: size)
         }
     }
 }

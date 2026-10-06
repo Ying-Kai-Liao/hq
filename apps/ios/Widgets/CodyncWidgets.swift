@@ -595,7 +595,54 @@ struct BotLiveActivity: Widget {
         .init(status: context.state.status, activity: context.state.activity, isStale: context.isStale)
     }
 
+    /// While the bot works, the island's face plays its loop; otherwise it holds its mood.
+    @ViewBuilder
     private func avatar(_ context: ActivityViewContext<BotActivityAttributes>, state: BotActivityPresentation, size: CGFloat) -> some View {
-        ActivityAvatar(shape: context.attributes.avatarShape, color: context.attributes.avatarColor, state: state, size: size)
+        ZStack {
+            if state.phase == .working {
+                WorkingBotFace(shape: context.attributes.avatarShape, color: context.attributes.avatarColor,
+                               since: context.state.startedAt ?? .now, size: size)
+                    .transition(.opacity)
+            } else {
+                ActivityAvatar(shape: context.attributes.avatarShape, color: context.attributes.avatarColor, state: state, size: size)
+                    .transition(.opacity)
+            }
+        }
+        .animation(Motion.activityPhase, value: state.phase)
+    }
+}
+
+/// The working bot, alive in the Dynamic Island. A Live Activity draws one frame and only a
+/// timer keeps changing, so this is a timer drawn in fonts whose digits are the ten frames of
+/// the bot's loop (tools/bot-frame-fonts.py); only the seconds digit shows, one frame a second.
+/// Two layers, like the app's avatar: every dot in grey ink, the lit ones in the bot's color.
+struct WorkingBotFace: View {
+    let shape: String
+    let color: String
+    let since: Date
+    let size: CGFloat
+
+    private static let shapes: Set = ["blob", "pebble", "squircle", "tablet", "wedge", "hex", "cloud", "teardrop"]
+
+    var body: some View {
+        let shape = Self.shapes.contains(shape) ? shape : "blob"
+        ZStack {
+            layer("CodyncBot-\(shape)-Ink").foregroundStyle(Palette.text.opacity(0.6))
+            layer("CodyncBot-\(shape)-Tint").foregroundStyle(AvatarPalette.color(color))
+        }
+        .frame(width: size, height: size)
+        .clipped()
+        .accessibilityHidden(true)
+    }
+
+    private func layer(_ font: String) -> some View {
+        Text(since, style: .timer)
+            .font(.custom(font, fixedSize: size))
+            // Western digits whatever the region: the font only has those.
+            .environment(\.locale, Locale(identifier: "en_US_POSIX"))
+            .multilineTextAlignment(.trailing)
+            .lineLimit(1)
+            .fixedSize()
+            .frame(width: size, height: size, alignment: .trailing)
     }
 }

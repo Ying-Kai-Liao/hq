@@ -4,6 +4,26 @@
 <dict>
 	<key>CodyncKeychainGroup</key>
 	<string>$(AppIdentifierPrefix)com.pokai.Codync</string>
+	<!-- The Dynamic Island's animated bot faces (tools/bot-frame-fonts.py). -->
+	<key>UIAppFonts</key>
+	<array>
+		<string>CodyncBot-blob-Ink.ttf</string>
+		<string>CodyncBot-blob-Tint.ttf</string>
+		<string>CodyncBot-cloud-Ink.ttf</string>
+		<string>CodyncBot-cloud-Tint.ttf</string>
+		<string>CodyncBot-hex-Ink.ttf</string>
+		<string>CodyncBot-hex-Tint.ttf</string>
+		<string>CodyncBot-pebble-Ink.ttf</string>
+		<string>CodyncBot-pebble-Tint.ttf</string>
+		<string>CodyncBot-squircle-Ink.ttf</string>
+		<string>CodyncBot-squircle-Tint.ttf</string>
+		<string>CodyncBot-tablet-Ink.ttf</string>
+		<string>CodyncBot-tablet-Tint.ttf</string>
+		<string>CodyncBot-teardrop-Ink.ttf</string>
+		<string>CodyncBot-teardrop-Tint.ttf</string>
+		<string>CodyncBot-wedge-Ink.ttf</string>
+		<string>CodyncBot-wedge-Tint.ttf</string>
+	</array>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>

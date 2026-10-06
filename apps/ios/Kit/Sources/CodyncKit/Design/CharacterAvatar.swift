@@ -54,14 +54,14 @@ public extension Bot {
 
 /// Keep the halftone at every size. Small icons use fewer, larger dots so the
 /// gaps and hollow eyes survive rasterization in widgets and the Dynamic Island.
-private struct Grid {
+struct DotGrid {
     let cells: Int
     init(size: CGFloat) { cells = size < 18 ? 7 : size < 28 ? 9 : 13 }
     var eyeColumns: [Int] { cells == 7 ? [2, 4] : cells == 9 ? [3, 6] : [4, 8] }
     var eyeRows: [Int] { cells == 13 ? [4, 5, 6] : cells == 9 ? [3, 4] : [2, 3] }
 }
 
-private struct DottedBody: View {
+struct DottedBody: View {
     let shape: String
     let color: Color
     let size: CGFloat
@@ -98,7 +98,7 @@ private struct DottedBody: View {
     }
 
     var body: some View {
-        let grid = Grid(size: size)
+        let grid = DotGrid(size: size)
         let step = size / CGFloat(grid.cells)
         let dots = Self.grid(shape: shape, size: size, step: step, cells: grid.cells)
         if paused {
@@ -136,8 +136,22 @@ private struct DottedBody: View {
         }
     }
 
+    /// The working loop the Dynamic Island plays one frame per second (a timer Text in a font
+    /// whose digits are these frames; see tools/bot-frame-fonts.py): the light circles the ball
+    /// once, the eyes look right, back, left, and blink on the last frame.
+    static func workingLoop(shape: String, size: CGFloat) -> [[Ink]] {
+        let cells = DotGrid(size: size)
+        let step = size / CGFloat(cells.cells)
+        let dots = grid(shape: shape, size: size, step: step, cells: cells.cells)
+        let glances = [0, 1, 1, 1, 0, -1, -1, -1, 0, 0]
+        return glances.indices.map { k in
+            let pose = Pose(yaw: -0.7 + Double(k) * 2 * .pi / 10, glance: glances[k], blinking: k == 9)
+            return inks(dots, grid: cells, step: step, size: size, pose: pose)
+        }
+    }
+
     /// Shades the dots as a lit ball; the eyes stay hollow.
-    static func inks(_ dots: [Dot], grid: Grid, step: CGFloat, size: CGFloat, pose: Pose) -> [Ink] {
+    static func inks(_ dots: [Dot], grid: DotGrid, step: CGFloat, size: CGFloat, pose: Pose) -> [Ink] {
         let eyeRows = pose.blinking ? Array(grid.eyeRows.suffix(1)) : grid.eyeRows
         let eyeCols = grid.eyeColumns.map { $0 + pose.glance }
         let half = size / 2
