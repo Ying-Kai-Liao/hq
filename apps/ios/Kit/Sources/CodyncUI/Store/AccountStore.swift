@@ -41,7 +41,7 @@ public final class AccountStore {
 
     public var onBotUpdated: (@MainActor (BotReference, Bot) -> Void)?
     public var onConnected: (@MainActor (BotStore) -> Void)?
-    public var onSent: (@MainActor (BotReference, Bot) -> Void)?
+    public var onSent: (@MainActor (BotReference, Bot, SendProgress) -> Void)?
     /// The combined roster changed: a bot came, changed or went, or a computer did.
     public var onRosterChanged: (@MainActor ([RosterItem]) -> Void)?
 
@@ -312,9 +312,9 @@ public final class AccountStore {
             guard let self, !self.retired else { return }
             self.onBotUpdated?(BotReference(accountId: self.accountId, computerId: id, botId: bot.id), bot)
         }
-        store.onSent = { [weak self] bot in
+        store.onSent = { [weak self] bot, progress in
             guard let self, !self.retired else { return }
-            self.onSent?(BotReference(accountId: self.accountId, computerId: id, botId: bot.id), bot)
+            self.onSent?(BotReference(accountId: self.accountId, computerId: id, botId: bot.id), bot, progress)
         }
         store.onConnected = { [weak self] store in
             guard let self, !self.retired else { return }

@@ -11,6 +11,8 @@ import Testing
     let bot = Bot.widgetPreview[0]
     let started = Date.now - 154
     let phases: [(String, BotActivityPresentation)] = [
+        ("Sending", .init(status: "sending", activity: "")),
+        ("Waiting for computer", .init(status: "queued", activity: "")),
         ("Working", .init(status: "working", activity: "Running the test suite.")),
         ("Needs you", .init(status: "needsInput", activity: "Review the proposed changes.")),
         ("Done", .init(status: "idle", activity: "")),

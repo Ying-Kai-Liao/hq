@@ -5,8 +5,8 @@ public extension BotActivityPresentation {
         switch phase {
         case .working: .working
         case .needsInput: .listening
-        case .waiting, .stale: .connecting
-        case .completed, .failed: nil
+        case .sending, .waiting, .stale: .connecting
+        case .queued, .completed, .failed: nil
         }
     }
 
@@ -15,7 +15,7 @@ public extension BotActivityPresentation {
         case .needsInput: Palette.attention
         case .failed: Palette.danger
         case .completed: Palette.added
-        case .stale, .waiting: Palette.secondary
+        case .sending, .queued, .stale, .waiting: Palette.secondary
         case .working: Palette.text
         }
     }
@@ -27,7 +27,7 @@ public extension BotActivityPresentation {
         switch phase {
         case .working: .working
         case .needsInput: .needsInput
-        case .completed, .failed, .stale, .waiting: .idle
+        case .sending, .queued, .completed, .failed, .stale, .waiting: .idle
         }
     }
 

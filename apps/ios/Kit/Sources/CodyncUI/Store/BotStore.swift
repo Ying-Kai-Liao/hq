@@ -12,6 +12,12 @@ public struct ScreenRequest: Identifiable, Hashable, Sendable {
     public init(watching: String? = nil) { self.watching = watching }
 }
 
+/// Where a message from this phone is: on its way, waiting in the relay mailbox for an offline
+/// computer, accepted by the computer, or not sent.
+public enum SendProgress: Sendable {
+    case sending, queued, delivered, failed, cancelled
+}
+
 /// One computer's mirror (bots, transcripts) for a client (iPhone app, Mac window), kept by one
 /// events stream (catch-up since `rev`, then live) over the encrypted channel.
 /// `AccountStore` holds one per computer.
@@ -75,7 +81,8 @@ public final class BotStore {
     public var onConnected: (@MainActor (BotStore) -> Void)?
     public var onBotUpdated: (@MainActor (Bot) -> Void)?
     public var onUsageChanged: (@MainActor (ComputerID, Usage) -> Void)?
-    public var onSent: (@MainActor (Bot) -> Void)?
+    /// A message to the bot from this phone moved along (the Live Activity follows it).
+    public var onSent: (@MainActor (Bot, SendProgress) -> Void)?
     /// A bot appeared, changed or went away.
     var onRosterChanged: (@MainActor () -> Void)?
     /// The computer's addresses or keys changed (merged from its `hello`); persist it.
@@ -709,6 +716,7 @@ public final class BotStore {
         )
         upsert(local)
         storage.lastComputerId = computer.id
+        if let bot = bots[botId] { onSent?(bot, .sending) }
         // The relay mailbox holds text only: files wait for the computer.
         if canQueue, files.isEmpty, let remote = transport as? any RemoteTransport {
             enqueue(remote, text: trimmed, botId: botId, thread: thread, nonce: nonce)
@@ -737,7 +745,7 @@ public final class BotStore {
                 }
                 outgoingFiles[nonce] = nil
                 upsert(e)
-                if let bot = bots[botId] { onSent?(bot) }
+                if let bot = bots[botId] { onSent?(bot, .delivered) }
             } catch {
                 if outgoingFiles[nonce] != nil { lastError = "Couldn't send the files: \(error.localizedDescription)" }
                 markLocal(nonce: nonce, botId: botId, status: "failed")
@@ -752,7 +760,7 @@ public final class BotStore {
         Task {
             do {
                 try await remote.enqueue(botId: botId, text: text, clientNonce: nonce, threadId: thread)
-                if let bot = bots[botId] { onSent?(bot) }
+                if let bot = bots[botId] { onSent?(bot, .queued) }
             } catch MailboxError.hostOnline {
                 // Presence can race the stream state. Wait for the host's events channel
                 // before trying the normal API, instead of turning that race into a failure.
@@ -789,6 +797,7 @@ public final class BotStore {
             switch await remote.cancelQueued(clientNonce: nonce) {
             case .cancelled:
                 discard(entry)
+                if let bot = bots[entry.botId] { onSent?(bot, .cancelled) }
             case .delivering:
                 markLocal(nonce: nonce, botId: entry.botId, status: "delivering")
             case .unknown:
@@ -874,6 +883,7 @@ public final class BotStore {
         list[i].data.status = status
         entries[botId] = list
         scheduleSave()
+        if status == "failed", let bot = bots[botId] { onSent?(bot, .failed) }
     }
 
     public func stop(_ botId: String) { perform(replay: true) { try await $0.stop(botId) } }

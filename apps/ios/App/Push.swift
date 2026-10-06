@@ -203,15 +203,36 @@ final class LiveActivities {
         Activity<BotActivityAttributes>.activities.first { $0.attributes.botId == ref.botId && $0.attributes.computerId == ref.computerId }
     }
 
-    func start(_ ref: BotReference, bot: Bot, store: BotStore) {
-        guard UserDefaults.standard.object(forKey: "liveActivitiesEnabled") as? Bool ?? true else { return }
-        guard ActivityAuthorizationInfo().areActivitiesEnabled, Self.find(ref) == nil, let client = store.client else { return }
+    /// Follows a message from this phone: the activity starts as it leaves (Sending), waits with
+    /// it in the relay mailbox while the computer is offline, then follows the bot's own status.
+    func sent(_ ref: BotReference, bot: Bot, progress: SendProgress, store: BotStore) {
+        let status: String
+        switch progress {
+        case .sending: status = "sending"
+        case .queued: status = "queued"
+        case .delivered: status = bot.needsInput ? "needsInput" : "working"
+        case .failed:
+            let state = BotActivityAttributes.ContentState(status: "error", activity: "Couldn't send", startedAt: nil)
+            Task.detached { await Self.apply(ref, state: state, end: true) }
+            return
+        case .cancelled:
+            Task.detached { await Self.find(ref)?.end(nil, dismissalPolicy: .immediate) }
+            return
+        }
+        let state = BotActivityAttributes.ContentState(status: status, activity: "", startedAt: progress == .delivered ? .now : nil)
+        // A mailbox message may wait hours for its computer: that isn't a delayed update.
+        let staleDate: Date? = progress == .queued ? nil : .now + 15 * 60
+        if Self.find(ref) != nil {
+            Task.detached { await Self.find(ref)?.update(.init(state: state, staleDate: staleDate)) }
+            return
+        }
+        guard UserDefaults.standard.object(forKey: "liveActivitiesEnabled") as? Bool ?? true,
+              ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let attributes = BotActivityAttributes(bot: bot, computerId: ref.computerId, link: store.storage.botURL(ref))
         do {
-            let state = BotActivityAttributes.ContentState(status: "working", activity: "", startedAt: .now)
-            let activity = try Activity.request(attributes: attributes,
-                content: .init(state: state, staleDate: .now + 15 * 60), pushType: .token)
-            observe(activity, client: client)
+            let activity = try Activity.request(attributes: attributes, content: .init(state: state, staleDate: staleDate), pushType: .token)
+            // Offline (mailbox): `resume(with:)` registers the push token once the computer connects.
+            if let client = store.client { observe(activity, client: client) }
         } catch {
             log.error("Live activity not started: \(error.localizedDescription)")
         }
@@ -259,7 +280,10 @@ final class LiveActivities {
 
     /// Local updates while the app is open; the computer pushes them otherwise.
     func update(_ ref: BotReference, bot: Bot) {
-        guard Self.find(ref) != nil else { return }
+        guard let current = Self.find(ref) else { return }
+        // Until the computer starts on the message, an idle bot just hasn't begun yet.
+        let local = ["sending", "queued"].contains(current.content.state.status)
+        guard !local || bot.isWorking else { return }
         let state = BotActivityAttributes.ContentState(
             status: bot.status,
             // ACP activity is already visible in the app. Show it in the local Live Activity

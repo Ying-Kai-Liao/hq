@@ -231,9 +231,9 @@ final class AppStore {
                 WidgetCenter.shared.reloadAllTimelines()
             }
         }
-        accounts.onSent = { [weak accounts] ref, bot in
+        accounts.onSent = { [weak accounts] ref, bot, progress in
             guard let store = accounts?.store(for: ref.computerId) else { return }
-            LiveActivities.shared.start(ref, bot: bot, store: store)
+            LiveActivities.shared.sent(ref, bot: bot, progress: progress, store: store)
         }
         if let cloud {
             // Signed in: make this iPhone known to the account, then list its computers.

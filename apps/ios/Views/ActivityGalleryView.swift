@@ -18,6 +18,8 @@ struct ActivityGalleryView: View {
 
     private var state: BotActivityPresentation {
         let status: String = switch phase {
+        case .sending: "sending"
+        case .queued: "queued"
         case .working, .stale: "working"
         case .needsInput: "needsInput"
         case .completed: "idle"
@@ -60,6 +62,7 @@ struct ActivityGalleryView: View {
                         ChoicePicker(selection: Binding(get: { form ?? forms[0] }, set: { form = $0 }), options: forms.map { ($0, $0.rawValue) })
                     }
                     ChoicePicker(selection: $phase, options: [
+                        (.sending, "Sending"), (.queued, "Waiting for computer"),
                         (.working, "Working"), (.needsInput, "Needs you"), (.completed, "Done"),
                         (.failed, "Error"), (.stale, "Update delayed"),
                     ])
