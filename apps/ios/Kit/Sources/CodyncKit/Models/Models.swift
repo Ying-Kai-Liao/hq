@@ -1,6 +1,6 @@
 import Foundation
 
-// Wire types for codync-host (see host/src/api/mod.rs). Field names match the
+// Wire types for codync-host (see host/src/api/). Field names match the
 // host's camelCase JSON. Timestamps are epoch milliseconds.
 
 public struct Bot: Codable, Identifiable, Hashable, Sendable {

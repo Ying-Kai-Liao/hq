@@ -118,7 +118,7 @@ export function parseEvent(line: string): HostEvent | null {
   }
 }
 
-/** Typed host calls (host/src/api/mod.rs); anything else goes through `call`. */
+/** Typed host calls (host/src/api/); anything else goes through `call`. */
 export class HostClient {
   constructor(readonly transport: HostTransport) {}
 
