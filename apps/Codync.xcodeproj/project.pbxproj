@@ -27,6 +27,7 @@
 		501377099B6CF42761B230CB /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57A7C09154869DD84BACE19 /* WelcomeView.swift */; };
 		52CF04B855C6AAEC47B75B8F /* CodyncKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1285DDFA0390A76ECDAAD6C0 /* CodyncKit */; };
 		54CEEA0734C2940E2D9FAC7D /* AXTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D13418ABB5FD7CFC087677 /* AXTree.swift */; };
+		5C9AE497DA83EB32AEC9057C /* OpenBotIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EB0DBA2F08CD7C0E25E30 /* OpenBotIntent.swift */; };
 		5CF8180C760CFAE49CF4B8C6 /* CodyncBot-cloud-Tint.ttf in Resources */ = {isa = PBXBuildFile; fileRef = AAD970B8394F4EDFB85A8936 /* CodyncBot-cloud-Tint.ttf */; };
 		5FD48874687C2D18B31C7C01 /* CodyncBot-pebble-Tint.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1FECC371F3CD98687C0B69FA /* CodyncBot-pebble-Tint.ttf */; };
 		646410F85B1110297E5F54B9 /* CodyncBot-squircle-Tint.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D5F23C3F9FCE63B4AFB4771A /* CodyncBot-squircle-Tint.ttf */; };
@@ -59,6 +60,7 @@
 		BCB60463C96AF5725EC4A2C7 /* CodyncBot-hex-Tint.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D827E43025A592B41CB68EFD /* CodyncBot-hex-Tint.ttf */; };
 		BF77DD7946621D8818EDAB9B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A87B0091DAF0E4807D62017 /* SettingsView.swift */; };
 		C7ED489193AC0934515D2E85 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D0DE72EEAEC947C1D3CA237F /* PrivacyInfo.xcprivacy */; };
+		E695251CFD06AC6F4E3396B7 /* OpenBotIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4EB0DBA2F08CD7C0E25E30 /* OpenBotIntent.swift */; };
 		E78E3B5FAFEB79F31AAC104D /* CodyncBot-teardrop-Tint.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C8F46BD8301E7E2C83C35111 /* CodyncBot-teardrop-Tint.ttf */; };
 		EBB0417A5FB2CE6D514D21BE /* ClerkKit in Frameworks */ = {isa = PBXBuildFile; productRef = D9AB2F442A5F243653EAE936 /* ClerkKit */; };
 		F171F16563D1FF6308697173 /* CodyncUI in Frameworks */ = {isa = PBXBuildFile; productRef = 06C9F37C6502131CAF0F145E /* CodyncUI */; };
@@ -119,6 +121,7 @@
 		52A96030D47F1B9678095909 /* iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iOS.entitlements; sourceTree = "<group>"; };
 		5A21538E748C62E82DF7B139 /* CodyncBot-cloud-Ink.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodyncBot-cloud-Ink.ttf"; sourceTree = "<group>"; };
 		5B22589689593E0089118FDB /* WidgetGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetGalleryView.swift; sourceTree = "<group>"; };
+		5C4EB0DBA2F08CD7C0E25E30 /* OpenBotIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenBotIntent.swift; sourceTree = "<group>"; };
 		60422D3CA8FEBCDC5AC465E0 /* iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = iOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		64888B10E98F19723500FBCA /* NotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NotificationService.entitlements; sourceTree = "<group>"; };
 		6BC00039A6C2C0D3F39A5F67 /* ComputerStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerStatus.swift; sourceTree = "<group>"; };
@@ -263,6 +266,7 @@
 			isa = PBXGroup;
 			children = (
 				FAB9BDB52C3A9F7B2568A750 /* CodyncWidgets.swift */,
+				5C4EB0DBA2F08CD7C0E25E30 /* OpenBotIntent.swift */,
 				305DDCC18BB8AA6CD9D19CEF /* WidgetPreviews.swift */,
 				39BD6D06FC3DE74E5AA24856 /* Resources */,
 			);
@@ -574,6 +578,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2CDF3DF16A13DAF83CA42168 /* CodyncWidgets.swift in Sources */,
+				5C9AE497DA83EB32AEC9057C /* OpenBotIntent.swift in Sources */,
 				3BCC04815E5CA8953E0DDCAD /* WidgetPreviews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -604,6 +609,7 @@
 				7C20764DC05D499075BC5E8C /* CodyncApp.swift in Sources */,
 				2002C16E427B4E4E7279E1C4 /* ComputerStatus.swift in Sources */,
 				35CFB641A4F10C0EBD21CB14 /* LaunchSplash.swift in Sources */,
+				E695251CFD06AC6F4E3396B7 /* OpenBotIntent.swift in Sources */,
 				719EABCBBAC0A973D729363A /* PairingView.swift in Sources */,
 				89CA3972915769DBA315876F /* Push.swift in Sources */,
 				0631979397E0D6822747E03A /* RootView.swift in Sources */,

@@ -16,6 +16,11 @@ struct CodyncApp: App {
     /// Cold launch with a computer to reach: the splash covers its connect and catch-up.
     @State private var launching = !AppStore.shared.accounts.computers.isEmpty
 
+    init() {
+        // A tapped widget bot arrives as an intent, not a URL.
+        OpenBotIntent.open = { AppStore.shared.open($0) }
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

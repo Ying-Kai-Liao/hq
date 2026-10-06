@@ -121,7 +121,7 @@ struct BotsTeamWidget: Widget {
             Group {
                 if entry.bots.paired {
                     // Each spot opens its own bot; the gaps between them open the app.
-                    BotsTeamCard(bots: entry.bots.bots, picks: entry.picks, links: entry.bots.links)
+                    BotsTeamCard(bots: entry.bots.bots, picks: entry.picks, opens: entry.bots.links.mapValues { OpenBotIntent($0) })
                 } else {
                     EmptyWidget(text: "Open Codync to pair with your computer.")
                 }

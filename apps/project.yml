@@ -66,6 +66,8 @@ targets:
           - WhatsNew.md
           # The app's shared Swift package (models, client, screens), added as a package below.
           - Kit
+      # The widget's bot buttons run this intent in the app.
+      - ios/Widgets/OpenBotIntent.swift
     dependencies:
       - package: Clerk
         product: ClerkKit

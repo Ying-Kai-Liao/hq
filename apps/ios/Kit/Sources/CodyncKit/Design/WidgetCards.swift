@@ -273,12 +273,12 @@ public extension Bot {
 /// empty spots hold a faded sleeping character.
 public struct BotsTeamCard: View {
     let slots: [Bot?]
-    let links: [String: URL]
+    let opens: [String: any AppIntent]
 
-    /// `links` (bot id → its conversation) makes each spot open its own bot.
-    public init(bots: [Bot], picks: [String?] = [], links: [String: URL] = [:]) {
+    /// `opens` (bot id → the intent that opens its conversation) makes each spot a button.
+    public init(bots: [Bot], picks: [String?] = [], opens: [String: any AppIntent] = [:]) {
         slots = Self.slots(bots: bots, picks: picks)
-        self.links = links
+        self.opens = opens
     }
 
     /// The bots in their four spots: picks first (a deleted pick falls back to automatic).
@@ -304,8 +304,8 @@ public struct BotsTeamCard: View {
         if let bot = slots[index] {
             // A small widget has one tap target unless it uses buttons: each spot is a
             // button that opens its bot's conversation.
-            if let url = links[bot.id] {
-                Button(intent: OpenURLIntent(url)) { botTile(bot) }.buttonStyle(.plain)
+            if let open = opens[bot.id] {
+                Button(intent: open) { botTile(bot) }.buttonStyle(.plain)
             } else {
                 botTile(bot)
             }
