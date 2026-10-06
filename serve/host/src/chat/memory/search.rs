@@ -13,7 +13,7 @@ const SEARCH_TERMS: usize = 8;
 const SEARCH_TEXT_CHARS: usize = 1_500;
 
 pub const INSTRUCTIONS: &str = "Use search_history to find what was actually said in your past chats with the user \
-(their messages and your final replies, including threads), beyond what your memory notes kept. \
+(their messages and yours, including threads), beyond what your memory notes kept. \
 Search for distinctive words; every word must appear. Results are newest first.";
 
 pub fn tools() -> Value {

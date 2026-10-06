@@ -76,7 +76,7 @@ pub fn render(recall: &Recall, location: &Path) -> (String, bool) {
             "Your memory lives in a folder at {}: {PROFILE_FILE} holds who the user is (kept in mind every turn) and {LOG_DIR}/ holds dated history.",
             location.display()
         ),
-        "Read or grep those files when you need older facts that are not listed here, and use the search_history tool to find what was actually said in past chats. Memory is updated automatically in the background shortly after each conversation: when the user asks you to remember or forget something, just confirm it in your reply and it will be recorded.".to_owned(),
+        "Read or grep those files when you need older facts that are not listed here, and use the search_history tool to find what was actually said in past chats. Memory is updated automatically in the background shortly after each conversation: when the user asks you to remember or forget something, just confirm it to them and it will be recorded.".to_owned(),
     ];
     if !recall.profile.is_empty() {
         lines.push("About the user:".into());
