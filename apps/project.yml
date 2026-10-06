@@ -36,7 +36,7 @@ settings:
       CODYNC_ENV: main
 targets:
   # Screen capture, input and WebRTC for Remote screen. A separate signed bundle so
-  # macOS's Screen Recording / Accessibility grants belong to it (see host/src/screen.rs).
+  # macOS's Screen Recording / Accessibility grants belong to it (see host/src/screen/).
   Screen:
     type: application
     platform: macOS

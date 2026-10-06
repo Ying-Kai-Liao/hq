@@ -4,7 +4,7 @@ import CoreGraphics
 
 /// Posts mouse and keyboard events. Coordinates are display-local points.
 /// Event JSON is shared by the host (bots) and the phone's data channels:
-/// `move`, `down`/`up`, `click`, `drag`, `scroll`, `text`, `key` (see `host/src/screen.rs`).
+/// `move`, `down`/`up`, `click`, `drag`, `scroll`, `text`, `key` (see `host/src/screen/mod.rs`).
 @MainActor
 final class InputInjector {
     private let source = CGEventSource(stateID: .hidSystemState)

@@ -3,7 +3,7 @@ import ApplicationServices
 import CoreGraphics
 @preconcurrency import WebRTC
 
-/// Serves the host's screen requests (see `host/src/screen.rs` for the protocol).
+/// Serves the host's screen requests (see `host/src/screen/mod.rs` for the protocol).
 @MainActor
 final class ScreenHelper {
     private let link = HostLink()
