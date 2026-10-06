@@ -3,26 +3,19 @@ import SwiftUI
 
 /// The iPhone's Markdown renderer for messages (`MarkdownBlocks`: tables, rules, nested lists
 /// too); inline styling comes from `AttributedString(markdown:)`.
-/// Equatable so a reply that didn't change skips its body; each block is equatable too, so
-/// while text streams only the block being written renders again.
+/// Equatable so a reply that didn't change skips its body.
 public struct MarkdownText: View, Equatable {
     let source: String
-    /// Text is still arriving: the open end hides half-written syntax.
-    let streaming: Bool
-    /// New text is surfacing right now: the open end fades in.
-    let revealing: Bool
 
-    public init(_ source: String, streaming: Bool = false, revealing: Bool = false) {
+    public init(_ source: String) {
         self.source = source
-        self.streaming = streaming
-        self.revealing = revealing
     }
 
     public var body: some View {
-        let blocks = MarkdownBlocks.parse(source, streaming: streaming)
+        let blocks = MarkdownBlocks.parse(source)
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { i, block in
-                MarkdownBlock(block: block, writing: revealing && i == blocks.count - 1).equatable()
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                MarkdownBlock(block: block)
             }
         }
         .textSelection(.enabled)
@@ -39,23 +32,11 @@ public struct MarkdownText: View, Equatable {
     }
 }
 
-/// One block of a reply. The block being written (`writing`) fades in toward its end, so
-/// new words surface instead of popping in; once it's done the fade settles.
-private struct MarkdownBlock: View, @MainActor Equatable {
+/// One block of a reply.
+private struct MarkdownBlock: View {
     let block: MarkdownBlocks.Block
-    let writing: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    nonisolated static func == (a: Self, b: Self) -> Bool { a.block == b.block && a.writing == b.writing }
-
-    var body: some View {
-        // The fade alone eases out; text and layout changes stay unanimated.
-        content.animation(Motion.reduced(.easeOut(duration: 0.35), reduceMotion)) {
-            $0.writingFade(writing && !reduceMotion && block.isText)
-        }
-    }
-
-    @ViewBuilder private var content: some View {
+    @ViewBuilder var body: some View {
         switch block {
         case let .paragraph(t):
             Text(MarkdownText.inline(t))
@@ -121,55 +102,6 @@ private struct MarkdownTable: View {
             .foregroundStyle(Palette.text)
             .fixedSize()
             .padding(.vertical, 2)
-        }
-    }
-}
-
-private extension View {
-    @ViewBuilder func writingFade(_ on: Bool) -> some View {
-        if #available(iOS 18, *) {
-            textRenderer(TrailingFade(length: on ? TrailingFade.writingLength : 0))
-        } else {
-            self
-        }
-    }
-}
-
-/// Draws text with its last `length` glyphs fading out toward the end, the soft edge of text
-/// being written. As more arrives, earlier glyphs move out of the fade and settle.
-@available(iOS 18, *)
-private struct TrailingFade: TextRenderer {
-    static let writingLength: Double = 28
-    var length: Double
-
-    var animatableData: Double {
-        get { length }
-        set { length = newValue }
-    }
-
-    func draw(layout: Text.Layout, in context: inout GraphicsContext) {
-        guard length > 0.5 else {
-            for line in layout { context.draw(line) }
-            return
-        }
-        let total = layout.reduce(0) { $0 + $1.reduce(0) { $0 + $1.count } }
-        var index = 0
-        for line in layout {
-            for run in line {
-                // Whole runs before the fade draw as they are.
-                if Double(total - index - run.count) >= length {
-                    context.draw(run)
-                    index += run.count
-                    continue
-                }
-                for slice in run {
-                    let fromEnd = Double(total - index)
-                    index += 1
-                    var glyph = context
-                    if fromEnd <= length { glyph.opacity = (fromEnd / (length + 1)) * 0.9 + 0.1 }
-                    glyph.draw(slice)
-                }
-            }
         }
     }
 }

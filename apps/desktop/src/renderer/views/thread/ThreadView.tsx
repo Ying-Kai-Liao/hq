@@ -7,7 +7,7 @@ import { Sheet } from '../../components/Overlay'
 import { font } from '../../lib/fonts'
 import { useStore } from '../../store/context'
 import { UpdateNeededCard } from '../UpdateNeededCard'
-import { buildChat, relativeTime, type ChatItem } from './chat-items'
+import { buildChat, relativeTime, rowIn, useArrivals, type ChatItem } from './chat-items'
 import { ChatRow, WorkingIndicator } from './ChatRows'
 import { Composer } from './Composer'
 import { ChatSidePanel } from './ChatSidePanel'
@@ -223,7 +223,7 @@ function Transcript({ botId, openTrace, openThread, openRoutine }: { botId: stri
   const bot = store.bots.get(botId) ?? null
   const thread = store.chat(botId)
   const live = !!bot && isWorkingIn(bot, botId, null) && !store.isOffline
-  const all = buildChat(thread, live, true)
+  const all = buildChat(thread)
   // The newest 40 items first; older pages come in near the top.
   const [firstShown, setFirstShown] = useState<string | null>(null)
   const [loadingEarlier, setLoadingEarlier] = useState(false)
@@ -240,6 +240,7 @@ function Transcript({ botId, openTrace, openThread, openRoutine }: { botId: stri
   const lastScrollTop = useRef(0)
   const keepPlace = useRef<number | null>(null)
   const last = items[items.length - 1]
+  const arrivals = useArrivals([...items.map((i) => i.id), ...(live ? ['working'] : [])], following)
 
   const toBottom = (smooth = false) => {
     const el = scroller.current
@@ -260,7 +261,7 @@ function Transcript({ botId, openTrace, openThread, openRoutine }: { botId: stri
     if (at === 0) {
       const anchor = list[0]?.id
       await store.loadOlder(botId)
-      list = buildChat(store.chat(botId), live, true)
+      list = buildChat(store.chat(botId))
       at = anchor ? Math.max(0, list.findIndex((i) => i.id === anchor)) : 0
     }
     if (at > 0) setFirstShown(list[Math.max(0, at - PAGE)]!.id)
@@ -317,10 +318,12 @@ function Transcript({ botId, openTrace, openThread, openRoutine }: { botId: stri
           ) : null}
           {items.length === 0 && bot ? <div style={{ paddingTop: 40 }}>{isGroup(bot) ? <GroupIntroCard group={bot} /> : <IntroCard bot={bot} />}</div> : null}
           {items.map((item) => (
-            <Row key={item.id} item={item} chat={bot} openTrace={openTrace} openThread={openThread} openRoutine={openRoutine} />
+            <div key={item.id} className={arrivals.has(item.id) ? rowIn(item) : undefined}>
+              <Row item={item} chat={bot} openTrace={openTrace} openThread={openThread} openRoutine={openRoutine} />
+            </div>
           ))}
           {bot && live ? (
-            <div style={{ paddingTop: 6 }}>
+            <div className={arrivals.has('working') ? 'row-in' : undefined} style={{ paddingTop: 6 }}>
               <WorkingIndicator bot={bot} thinking={store.currentThinking(botId, null)} />
             </div>
           ) : null}

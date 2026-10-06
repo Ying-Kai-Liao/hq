@@ -99,6 +99,8 @@ function GeneralSettings() {
   const [textSize, setTextSize] = usePref(prefs.textSize)
   const [usageIconStyle, setUsageIconStyle] = usePref(prefs.usageIconStyle)
   const [compact, setCompact] = usePref(prefs.sidebarCompact)
+  const [showInDock, setShowInDock] = useState(true)
+  useEffect(() => void window.codync.app.showInDock().then(setShowInDock), [])
   const [launchAtLogin, setLaunchAtLogin] = useState(false)
   useEffect(() => void window.codync.app.launchAtLogin().then(setLaunchAtLogin), [])
 
@@ -147,6 +149,7 @@ function GeneralSettings() {
         </Switch>
       </CardSection>
       <CardSection title="System">
+        {window.codync.platform === 'darwin' ? <Switch on={showInDock} onChange={(on) => void window.codync.app.setShowInDock(on).then(setShowInDock)}>Show in Dock</Switch> : null}
         <Switch on={launchAtLogin} onChange={(on) => void window.codync.app.setLaunchAtLogin(on).then(setLaunchAtLogin)}>
           Open at login
         </Switch>

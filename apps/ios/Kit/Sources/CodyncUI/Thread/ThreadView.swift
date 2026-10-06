@@ -24,15 +24,9 @@ public struct ThreadView: View {
     @State var showRoutines = false
     @State var routineId: String?
     @State var routineRequest = UUID()
-        /// iPhone: the chat stays on the newest message until the reader scrolls away.
-        @State var following = true
-        /// The oldest message rendered (nil: the latest page).
-        @State var firstShown: String?
-        @State var loadingEarlier = false
-        /// Earlier messages are going in above: this one keeps its place on screen.
-        @State var keepingPlace: String?
-        /// The top of the rendered messages is within reach.
-        @State var topVisible = false
+    /// The chat stays on the newest message until the reader scrolls away.
+    @State var following = true
+    @State var loadingEarlier = false
     @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     var bot: Bot? { model.bots[botId] }
@@ -239,28 +233,17 @@ struct ChatItem: Identifiable {
     let id: String
     let kind: Kind
 
-    /// Chat-visible entries plus time separators (gaps > 1 h) and author grouping.
-    /// `streaming`: a turn is running in this chat, so the text being generated right now
-    /// (the lane's last entry, still `final == false`) shows in place and never pops in later.
-    /// Earlier segments of the turn, tool calls in between, and a room pass stay trace-only.
-    /// `steady` (iPhone): the turn's newest text stays while the agent works on (tools,
-    /// thinking) until newer text replaces it, and a reply is one item per author and turn,
-    /// from its first words to the final message, so its bubble never pops out and back in.
-    static func build(_ entries: [Entry], streaming: Bool = false, steady: Bool = false) -> [ChatItem] {
+    /// Chat-visible entries plus time separators (gaps > 1 h) and author grouping. A bot's
+    /// messages arrive whole (Grok Bot's `send_message`); what it writes along the way is trace.
+    static func build(_ entries: [Entry]) -> [ChatItem] {
         var out: [ChatItem] = []
-        var used = Set<String>()
         var lastDate: Date?
         var lastAuthor: String?
-        let live = !streaming ? nil
-            : steady ? liveText(entries)
-            : entries.last.flatMap { $0.kind == "agent" && $0.data.final == false ? $0.id : nil }
-        for e in entries where e.isChat || (e.id == live && !(e.data.text ?? "").isEmpty && e.data.text != "(pass)") {
+        for e in entries where e.isChat {
             let date = e.date
-            var id = e.kind == "user" ? e.data.clientNonce.map { "user-\($0)" } ?? e.id : e.id
-            if steady, e.kind == "agent", !used.contains("reply-\(e.data.author ?? "")-\(e.turn)") {
-                id = "reply-\(e.data.author ?? "")-\(e.turn)"
-            }
-            used.insert(id)
+            // Bot-originated messages carry an empty nonce. Their entry IDs
+            // distinguish them; only real nonces identify optimistic echoes.
+            let id = if e.kind == "user", let nonce = e.data.clientNonce, !nonce.isEmpty { "user-\(nonce)" } else { e.id }
             if lastDate.map({ date.timeIntervalSince($0) > 3600 }) ?? true {
                 out.append(ChatItem(id: "sep-\(id)", kind: .separator(date)))
                 lastAuthor = nil
@@ -272,17 +255,6 @@ struct ChatItem: Identifiable {
             lastDate = date
         }
         return out
-    }
-
-    /// The running turn's newest text, if any since the last message or final reply.
-    static func liveText(_ entries: [Entry]) -> String? {
-        for e in entries.reversed() {
-            if e.kind == "user" || (e.kind == "agent" && e.data.final == true) { return nil }
-            if e.kind == "agent", let text = e.data.text, !text.isEmpty {
-                return text == "(pass)" ? nil : e.id
-            }
-        }
-        return nil
     }
 
     var isUserMessage: Bool {
@@ -350,17 +322,6 @@ struct IntroCard: View {
     }
 }
 
-extension View {
-
-    @ViewBuilder func conversationScrollEdges() -> some View {
-        if #available(iOS 26, *) {
-            scrollEdgeEffectStyle(.soft, for: .top)
-        } else {
-            self
-        }
-    }
-}
-
 extension ThreadView {
     public var body: some View {
         conversation
@@ -369,104 +330,50 @@ extension ThreadView {
             }
     }
 
-    /// Messages rendered per page, newest first.
-    static let page = 40
-    /// Paging needs to know when the reader nears the top (scroll geometry); before that, all render.
-    static var paged: Bool {
-        if #available(iOS 18, *) { true } else { false }
-    }
+    private var working: Bool { bot?.isWorking(in: botId, thread: nil) == true && !model.isOffline }
 
-    private var streaming: Bool { bot?.isWorking(in: botId, thread: nil) == true && !model.isOffline }
-
-    /// iPhone's messages: the newest page first, earlier ones as the reader scrolls up (from
-    /// this device, then from the computer); the chat follows the newest message until they
-    /// scroll away, and a reply is revealed steadily as it's written.
-    @ViewBuilder var transcript: some View {
+    /// iPhone's messages: all this device has, earlier ones from the computer as the reader
+    /// scrolls up; the chat follows the newest message until they scroll away, and a reply is
+    /// revealed steadily as it's written.
+    var transcript: some View {
         let thread = model.chat(botId)
-        let all = ChatItem.build(thread, streaming: streaming, steady: true)
-        let start = Self.paged ? firstShown.flatMap { id in all.firstIndex { $0.id == id } } ?? max(0, all.count - Self.page) : 0
-        let items = Array(all[start...])
-        let moreOnComputer = !model.historyComplete.contains(botId) && thread.count >= 50
-        ScrollView {
-            // Not lazy: only a page or a few render, and lazy rows of very different heights
-            // (long replies) mis-estimate on the way to the bottom and can leave it blank.
-            VStack(alignment: .leading, spacing: 0) {
-                if start > 0 || moreOnComputer {
-                    Spinner(size: 14)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .onChange(of: following) { _, _ in showEarlier() }
-                        .accessibilityLabel("Loading earlier messages")
-                }
-                if all.isEmpty, let bot {
-                    if bot.isGroup { GroupIntroCard(group: bot).padding(.top, 40) } else { IntroCard(bot: bot).padding(.top, 40) }
-                }
-                ForEach(items) { item in
-                    row(item)
-                        .id(item.id)
-                        .transition(item.id == items.last?.id
-                            ? .asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity)
-                            : .identity)
-                }
-                // Offline, "working" is only what the computer last said; don't show it as live.
-                if let bot, bot.isWorking(in: botId, thread: nil), !model.isOffline {
-                    WorkingIndicator(bot: bot, thinking: model.currentThinking(botId, thread: nil))
-                        .padding(.top, 6)
-                        .id("working")
-                        .transition(.opacity)
-                }
-                Color.clear.frame(height: 8).id("bottom")
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .animation(Motion.reduced(Motion.conversation, reduceMotion), value: items.last?.id)
-            .animation(Motion.reduced(Motion.layout, reduceMotion), value: bot?.isWorking(in: botId, thread: nil))
+        let items = ChatItem.build(thread)
+        var rows: [ConversationRow] = []
+        if moreOnComputer {
+            rows.append(ConversationRow("earlier") {
+                Spinner(size: 14)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .accessibilityLabel("Loading earlier messages")
+            })
         }
-        .scrollIndicators(.never)
-        .nearTop { near in
-            topVisible = near
-            showEarlier()
+        if items.isEmpty, let bot {
+            rows.append(ConversationRow("intro") {
+                if bot.isGroup { GroupIntroCard(group: bot).padding(.top, 40) } else { IntroCard(bot: bot).padding(.top, 40) }
+            })
         }
-        .followsConversation($following, keepingPlace: $keepingPlace)
-        .scrollDismissesKeyboard(.interactively)
-        .conversationScrollEdges()
-        .simultaneousGesture(TapGesture().onEnded { dismissChatKeyboard() })
-        .onChange(of: items.last?.id) { _, _ in
-            // Sending brings the chat back down to your message.
-            if items.last?.isUserMessage == true { following = true }
+        rows += items.map { item in ConversationRow(item.id, isUserMessage: item.isUserMessage) { row(item) } }
+        // Offline, "working" is only what the computer last said; don't show it as live.
+        if let bot, working {
+            rows.append(ConversationRow("working") {
+                WorkingIndicator(bot: bot, thinking: model.currentThinking(botId, thread: nil))
+                    .padding(.top, 6)
+            })
         }
-        .overlay(alignment: .bottom) {
-            JumpToLatest(visible: !following && !items.isEmpty) { following = true }
-        }
-        .onAppear { if firstShown == nil { firstShown = items.first?.id } }
+        return ConversationList(rows: rows, following: $following) { showEarlier() }
     }
 
-    /// The reader scrolled up to the top: render the previous page, fetching it from the
-    /// computer when this device has no more. The message they were on keeps its place.
+    private var moreOnComputer: Bool {
+        !model.historyComplete.contains(botId) && model.chat(botId).count >= 50
+    }
+
+    /// The reader scrolled up to the top: fetch earlier messages from the computer.
     private func showEarlier() {
-        guard topVisible, !following, !loadingEarlier else { return }
+        guard moreOnComputer, !loadingEarlier else { return }
         loadingEarlier = true
         Task {
-            var list = ChatItem.build(model.chat(botId), streaming: streaming, steady: true)
-            var start = firstShown.flatMap { id in list.firstIndex { $0.id == id } } ?? max(0, list.count - Self.page)
-            if start == 0 {
-                let anchor = list.first?.id
-                await model.loadOlder(botId)
-                list = ChatItem.build(model.chat(botId), streaming: streaming, steady: true)
-                start = anchor.flatMap { id in list.firstIndex { $0.id == id } } ?? 0
-            }
-            guard start > 0 else {
-                loadingEarlier = false
-                return
-            }
-            keepingPlace = list[start].id
-            firstShown = list[max(0, start - Self.page)].id
-            // Rows above settle over a few layout passes.
-            try? await Task.sleep(for: .milliseconds(400))
-            keepingPlace = nil
+            await model.loadOlder(botId)
             loadingEarlier = false
-            // Still at the top with more to show: keep going.
-            showEarlier()
         }
     }
 
@@ -518,10 +425,6 @@ extension ThreadView {
             model.screenRequest = operating ? ScreenRequest(watching: botId) : ScreenRequest()
         }
         .symbolEffect(.pulse, options: .repeating, isActive: operating)
-    }
-
-    func dismissChatKeyboard() {
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 
     func presentRoutine() {

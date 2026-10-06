@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from 'react'
-import { parseStreaming, type Block } from './markdown-blocks.ts'
+import { parseMarkdown, type Block } from './markdown-blocks.ts'
 
 // The Mac's Markdown for messages: the blocks from `markdown-blocks.ts`, with inline styling like
 // `AttributedString(markdown:)`.
@@ -104,12 +104,9 @@ const MarkdownBlock = memo(function MarkdownBlock({ block }: { block: Block }) {
   }
 }, (a, b) => JSON.stringify(a.block) === JSON.stringify(b.block))
 
-/**
- * The Mac's Markdown for messages. Completed blocks keep their rendering while text streams;
- * only the block being written renders again.
- */
-export const MarkdownText = memo(function MarkdownText({ text, streaming = false }: { text: string; streaming?: boolean }) {
-  const blocks = parseStreaming(text, streaming)
+/** The desktop's Markdown for messages; a block that didn't change keeps its rendering. */
+export const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
+  const blocks = parseMarkdown(text)
   return (
     <div className="markdown selectable" style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
       {blocks.map((b, i) => (

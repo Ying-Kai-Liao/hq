@@ -3,6 +3,7 @@ import { app, clipboard, Menu, nativeImage, shell, Tray as ElectronTray } from '
 import type { TraySummary, WindowCommand } from '../shared/ipc'
 import type { HostController } from './host-controller'
 import type { Updates } from './updates'
+import { setShowInDock, showInDock } from './dock'
 
 interface Deps {
   openChat: () => unknown
@@ -202,6 +203,7 @@ export class Tray {
           this.rebuild()
         },
       },
+      ...(process.platform === 'darwin' ? [{ label: 'Show in Dock', type: 'checkbox' as const, checked: showInDock(), click: () => { setShowInDock(!showInDock()); this.rebuild() } }] : []),
       { type: 'separator' },
       { label: 'Updates', submenu: this.updatesMenu() },
       { type: 'separator' },

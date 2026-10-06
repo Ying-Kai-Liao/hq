@@ -211,7 +211,7 @@ export function AgentBubble({ entry, openTrace, reply }: { entry: Entry; openTra
             { title: 'Show what it did', icon: 'list.bullet', action: openTrace },
           ]}
         >
-          <MarkdownText text={entry.data.text ?? ''} streaming={entry.data.final === false} />
+          <MarkdownText text={entry.data.text ?? ''} />
         </Bubble>
         <MessageActions className="trailing" visible={hovering} reactions={reactionPick(store, entry)} reply={reply} trace={openTrace} copy={copy} />
       </div>
