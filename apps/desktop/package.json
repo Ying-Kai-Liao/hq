@@ -14,6 +14,7 @@
   "scripts": {
     "dev": "node tools/account-config.mjs dev && electron-vite dev",
     "build": "electron-vite build",
+    "build:demo": "vite build --config vite.demo.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --test --experimental-strip-types src/shared/*.test.ts src/renderer/views/thread/*.test.ts",
     "icons": "swift tools/export-symbols.swift",
