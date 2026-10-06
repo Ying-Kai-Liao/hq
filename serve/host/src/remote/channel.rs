@@ -751,7 +751,16 @@ mod tests {
         assert!(hub.store.device(&p.dk()).unwrap().last_seen_at.is_some());
 
         // Loopback-only methods are refused over the channel.
-        for m in ["setScreenEnabled", "pairing", "devices", "revokeDevice", "claimSign", "computerCall"] {
+        for m in [
+            "setScreenEnabled",
+            "setAnalytics",
+            "track",
+            "pairing",
+            "devices",
+            "revokeDevice",
+            "claimSign",
+            "computerCall",
+        ] {
             assert_eq!(p.call(2, m, json!({})).await["err"]["status"], 403, "{m}");
         }
         assert_eq!(p.call(3, "pair", json!({})).await["err"]["status"], 403);

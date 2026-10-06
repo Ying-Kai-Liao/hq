@@ -4,7 +4,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Modifier;
 
-use super::super::app::{ACTIONS, App, Click, FILTERS, GotoItem, Mark};
+use super::super::app::{ACTIONS, Action, App, Click, FILTERS, GotoItem, Mark};
 use super::super::md::truncate;
 use super::buffer::{centered, frame_box, hline, put, put_line, restyle, rput};
 use super::overlay::field_line;
@@ -83,7 +83,13 @@ pub(super) fn goto(buf: &mut Buffer, area: Rect, app: &mut App, g: &super::super
                 }
                 if let Some((label, key, _)) = ACTIONS.iter().find(|x| x.2 == *a) {
                     put(buf, inner.x + 2, y, inner.width, label, if sel { t.bold } else { t.secondary }.patch(base));
-                    rput(buf, inner.right(), y, key, t.dim.patch(base));
+                    let hint = match (a, app.analytics) {
+                        (Action::Analytics, Some(true)) => "on",
+                        (Action::Analytics, Some(false)) => "off",
+                        (Action::Analytics, None) => "not set",
+                        _ => key,
+                    };
+                    rput(buf, inner.right(), y, hint, t.dim.patch(base));
                 }
             }
         }

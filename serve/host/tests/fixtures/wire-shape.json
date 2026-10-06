@@ -154,6 +154,7 @@
     "event:hello.rev": "number",
     "event:hello.type": "string",
     "hello": "object",
+    "hello.analytics": "null",
     "hello.boxKey": "string",
     "hello.cloud": "null",
     "hello.computerId": "string",

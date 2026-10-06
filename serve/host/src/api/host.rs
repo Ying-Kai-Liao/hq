@@ -74,6 +74,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
                 "backends": backends::list(),
                 "rev": hub.store.current_rev(),
                 "screen": hub.screen.state(),
+                "analytics": hub.analytics.state(),
                 // Shells out to `tailscale`: keep it off the async workers.
                 "urls": tokio::task::spawn_blocking(move || crate::service::addresses(port)).await?,
             })
@@ -166,6 +167,14 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
         "screenTakeover" => {
             hub.screen.takeover(b["on"].as_bool().unwrap_or(false));
             hub.screen.state()
+        }
+        "setAnalytics" => {
+            hub.analytics.set_enabled(&hub.store, b["enabled"].as_bool().unwrap_or(false))?;
+            json!({"enabled": hub.analytics.state()})
+        }
+        "track" => {
+            crate::analytics::track(hub, &b)?;
+            json!({})
         }
         "setScreenEnabled" => {
             hub.screen.set_enabled(&hub.store, b["enabled"].as_bool().unwrap_or(false)).await?;

@@ -1,6 +1,7 @@
 //! `codync-host`: runs coding-agent bots over ACP and serves the Codync apps.
 
 mod agent;
+mod analytics;
 mod api;
 mod chat;
 mod compat;

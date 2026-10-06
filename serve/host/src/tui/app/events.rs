@@ -111,6 +111,7 @@ impl App {
             Err(e) => {
                 match after {
                     After::Hello => self.error = Some(e),
+                    After::Tracked => {}
                     After::History(id) => {
                         self.history_busy.remove(&id);
                     }
@@ -136,7 +137,7 @@ impl App {
             }
         };
         match after {
-            After::Nothing | After::Answered(_) | After::Sheet(_) | After::Sent(_) | After::Connection(_, _) => {}
+            After::Nothing | After::Tracked | After::Answered(_) | After::Sheet(_) | After::Sent(_) | After::Connection(_, _) => {}
             After::Installed => {
                 self.error = None;
                 self.flash("Host installed; connecting…");
@@ -147,7 +148,9 @@ impl App {
                 v["name"].as_str().unwrap_or("computer").clone_into(&mut self.host);
                 v["home"].as_str().unwrap_or_default().clone_into(&mut self.home);
                 self.backends = v["backends"].as_array().cloned().unwrap_or_default();
+                self.analytics_hello(&v);
             }
+            After::Analytics => self.analytics_set(&v),
             After::Backends => {
                 self.backends = v["backends"].as_array().cloned().unwrap_or_default();
                 self.flash("Agents refreshed");
