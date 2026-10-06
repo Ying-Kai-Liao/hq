@@ -39,6 +39,7 @@ public struct ProviderWidgetCard: View {
                     HStack(alignment: .firstTextBaseline, spacing: 1) {
                         Text("\(Int(window.percent.rounded()))")
                             .font(.system(size: 32, weight: .semibold, design: .rounded))
+                            .contentTransition(.numericText(value: window.percent))
                         Text("%").font(.system(size: 17, weight: .medium))
                     }
                     .monospacedDigit()
@@ -54,6 +55,7 @@ public struct ProviderWidgetCard: View {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text("\(Int(top.percent.rounded()))%")
                             .font(.system(size: 36, weight: .semibold, design: .rounded)).monospacedDigit()
+                            .contentTransition(.numericText(value: top.percent))
                             .foregroundStyle(top.percent >= 90 ? Palette.danger : Palette.text)
                         Text("\(top.title) · highest usage").font(.system(size: 11)).foregroundStyle(Palette.secondary)
                             .lineLimit(2)
@@ -71,6 +73,7 @@ public struct ProviderWidgetCard: View {
                             Text("\(Int(window.percent.rounded()))%")
                                 .font(.system(size: 13, weight: .semibold))
                                 .monospacedDigit()
+                                .contentTransition(.numericText(value: window.percent))
                                 .foregroundStyle(window.percent >= 90 ? Palette.danger : Palette.text)
                         }
                         UsageTicks(percent: window.percent, tint: provider.widgetTint, height: 12)
@@ -84,6 +87,8 @@ public struct ProviderWidgetCard: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // A new timeline entry rolls the numbers and fills the ticks instead of swapping.
+        .animation(Motion.activityPhase, value: provider)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(provider.name) usage")
         .accessibilityValue(accessibleUsage)
@@ -210,14 +215,19 @@ public struct BotsWidgetCard: View {
         }
         .foregroundStyle(Palette.text)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // A new timeline entry moves rows into their new order and morphs counts and states.
+        .animation(Motion.activityPhase, value: bots)
     }
 
     private func botRows(limit: Int) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(ordered.prefix(limit)) { bot in
-                if let link = links[bot.id] {
-                    Link(destination: link) { row(bot) }
-                } else { row(bot) }
+                Group {
+                    if let link = links[bot.id] {
+                        Link(destination: link) { row(bot) }
+                    } else { row(bot) }
+                }
+                .transition(.activityRow)
             }
             if bots.isEmpty {
                 Text("Create your first bot in Codync.")
@@ -231,7 +241,9 @@ public struct BotsWidgetCard: View {
         VStack(alignment: .leading, spacing: 1) {
             Text("\(count)").font(.system(size: 36, weight: .semibold, design: .rounded))
                 .monospacedDigit().foregroundStyle(needs > 0 ? Palette.attention : Palette.text)
+                .contentTransition(.numericText(value: Double(count)))
             Text(label).font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.secondary)
+                .contentTransition(.interpolate)
         }
         .accessibilityElement(children: .combine)
     }
@@ -245,6 +257,7 @@ public struct BotsWidgetCard: View {
                 Text(bot.name).font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.text)
                 if bot.isWorking, !bot.activity.isEmpty {
                     Text(bot.activity).font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                        .contentTransition(.interpolate)
                 }
             }
             .lineLimit(1)
@@ -253,6 +266,7 @@ public struct BotsWidgetCard: View {
                 .font(.system(size: 10, weight: bot.needsInput ? .semibold : .regular))
                 .foregroundStyle(state.tint)
                 .lineLimit(1)
+                .contentTransition(.interpolate)
         }
         .accessibilityElement(children: .combine)
     }
@@ -298,6 +312,8 @@ public struct BotsTeamCard: View {
             GridRow { tile(0); tile(1) }
             GridRow { tile(2); tile(3) }
         }
+        // A new timeline entry lets each bot change its mood in place.
+        .animation(Motion.activityPhase, value: slots)
     }
 
     @ViewBuilder private func tile(_ index: Int) -> some View {
