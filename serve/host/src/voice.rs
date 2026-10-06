@@ -14,7 +14,7 @@ use std::time::Duration;
 const SLOT: &str = "voice";
 const TIMEOUT: Duration = Duration::from_secs(15);
 /// Speech to text: keep the speaker's language and script, and coding terms as written.
-const TRANSCRIBE_HINT: &str = "Keep the speaker's language and script (Traditional Chinese stays Traditional Chinese, 繁體中文). Keep code, file and product names as written.";
+const TRANSCRIBE_HINT: &str = "Keep the speaker's language and script. Keep code, file and product names as written.";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Provider {

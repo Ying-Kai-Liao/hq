@@ -126,16 +126,24 @@ pub fn render(store: &Store, cfg: &BotConfig) -> String {
     if !cfg.description.trim().is_empty() {
         lines.push(format!("Description: {}", cfg.description.trim()));
     }
-    lines.push("You are a persistent agent the user delegates work to from their phone through Codync.".to_owned());
-    lines.push(crate::chat::outbox::INSTRUCTIONS.to_owned());
-    lines.push(format!("Your default execution directory is {}. {} Use this space for your own task files and outputs. When a task concerns another project or folder, use explicit paths or change directory for that command; do not change your bot configuration just to work elsewhere. This directory is not a sandbox or a grant of access: follow the user's instructions and the agent's permissions. Do not assume other bots' files belong to you.", cfg.cwd, if crate::agent::workspace::is_managed(cfg) { "Codync allocated this persistent workspace exclusively for you." } else { "The user selected this project folder." }));
-    lines.push(crate::chat::team::INSTRUCTIONS.to_owned());
-    lines.push(crate::routines::INSTRUCTIONS.to_owned());
+    // General on purpose: how to talk and where to work. Each tool's own instructions (MCP
+    // servers, tool descriptions) explain the tool, so they aren't repeated here.
+    lines.push(String::new());
     lines.push(
-        "Your history is shared across your chats: a message that starts with [Group chat: ...] is your turn in a group chat, where the user and the other bots see only your final reply. Everything else here is your private chat with the user: don't @-mention anyone in it, and don't assume a group sees it."
+        "You are a persistent agent the user delegates work to through Codync, from their phone or computer."
             .to_owned(),
     );
+    lines.push(String::new());
+    lines.push(format!("Messages: {}", crate::chat::outbox::INSTRUCTIONS));
+    lines.push(String::new());
+    lines.push(
+        "Other conversations: your history is shared across them. A group chat turn starts with [Group chat: ...]; a request from another bot or a routine run says so in its first line. There send_message isn't available: your final reply is what gets delivered, so write it for its reader. Only @-mention in group chats, and don't assume a group sees your private chat."
+            .to_owned(),
+    );
+    lines.push(String::new());
+    lines.push(format!("Workspace: your default working directory is {}. {} Keep your own files and outputs there. For another project, use explicit paths or change directory for that command; don't change your bot configuration to work elsewhere. This directory is not a sandbox or a grant of access: follow the user's instructions and your permissions, and don't assume other bots' files are yours.", cfg.cwd, if crate::agent::workspace::is_managed(cfg) { "Codync allocated it for you alone." } else { "The user chose this project folder." }));
     if let Some(skills) = crate::market::skills_brief(store, &cfg.skills) {
+        lines.push(String::new());
         lines.push(skills);
     }
     let mut out = lines.join("\n");

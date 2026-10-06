@@ -10,11 +10,11 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
 
+/// How to talk to the user: part of every bot's instructions (`context`), and the `chat` server's.
 pub const INSTRUCTIONS: &str = "In your chat with the user and its threads, the user sees only what you send with send_message; \
 text you write as your reply never reaches them. Send a message whenever you have something worth telling them: \
-short, plain and phone-friendly, a sentence or a few, each message one thought. Lead with the result, then what needs the user. \
-Don't send just to acknowledge, to say you started or are still working, or to repeat yourself. \
-In a group chat, a teammate's request or a routine, send_message isn't available: write your answer as your reply.";
+short and plain, one thought per message, in the user's language. Lead with the result, then what needs the user. \
+Don't send just to acknowledge, to say you started or are still working, or to repeat yourself.";
 
 /// Longest message accepted, in bytes.
 const MAX_MESSAGE_BYTES: usize = 32 * 1024;

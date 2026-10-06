@@ -338,7 +338,7 @@ pub fn render(recall: &Recall, location: &Path) -> (String, bool) {
             "Your memory lives in a folder at {}: {PROFILE_FILE} holds who the user is (kept in mind every turn) and {LOG_DIR}/ holds dated history.",
             location.display()
         ),
-        "Read or grep those files when you need older facts that are not listed here, and use the search_history tool to find what was actually said in past chats. Memory is updated automatically in the background shortly after each conversation: when the user asks you to remember or forget something, just confirm it in your reply and it will be recorded.".to_owned(),
+        "Read or grep those files when you need older facts that are not listed here, and use the search_history tool to find what was actually said in past chats. Memory is updated automatically in the background shortly after each conversation: when the user asks you to remember or forget something, just confirm it to them and it will be recorded.".to_owned(),
     ];
     if !recall.profile.is_empty() {
         lines.push("About the user:".into());
@@ -868,7 +868,7 @@ const SEARCH_TERMS: usize = 8;
 const SEARCH_TEXT_CHARS: usize = 1_500;
 
 pub const INSTRUCTIONS: &str = "Use search_history to find what was actually said in your past chats with the user \
-(their messages and your final replies, including threads), beyond what your memory notes kept. \
+(their messages and yours, including threads), beyond what your memory notes kept. \
 Search for distinctive words; every word must appear. Results are newest first.";
 
 pub fn tools() -> Value {
