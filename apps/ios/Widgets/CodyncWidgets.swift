@@ -8,6 +8,8 @@ import WidgetKit
 struct CodyncWidgets: WidgetBundle {
     var body: some Widget {
         BotsWidget()
+        BotsTeamWidget()
+        LeadBotControl()
         UsageWidget()
         ProviderUsageWidget()
         ClaudeUsageWidget()
@@ -69,13 +71,6 @@ struct BotsWidgetView: View {
     let entry: BotsEntry
     @Environment(\.widgetFamily) private var family
 
-    /// Needs you first, then working, then most recent.
-    private var ordered: [Bot] {
-        entry.bots.filter { !$0.hidden }.sorted {
-            let rank = { (b: Bot) in b.needsInput ? 0 : b.isWorking ? 1 : 2 }
-            return rank($0) != rank($1) ? rank($0) < rank($1) : $0.lastAt > $1.lastAt
-        }
-    }
     var body: some View {
         if !entry.paired {
             switch family {
@@ -104,11 +99,82 @@ struct BotsWidgetView: View {
                 BotsWidgetCard(bots: entry.bots, wide: true, links: entry.links)
             default:
                 BotsWidgetCard(bots: entry.bots, wide: false)
-                    .widgetURL(ordered.first.flatMap { entry.links[$0.id] })
+                    .widgetURL(entry.lead.flatMap { entry.links[$0.id] })
             }
         }
     }
 
+}
+
+/// Up to four bots as characters in a 2×2 grid.
+struct BotsTeamWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "CodyncTeam", provider: BotsTimeline()) { entry in
+            Group {
+                if entry.paired {
+                    BotsTeamCard(bots: entry.bots)
+                        .widgetURL(entry.lead.flatMap { entry.links[$0.id] })
+                } else {
+                    EmptyWidget(text: "Open Codync to pair with your computer.")
+                }
+            }
+            .containerBackground(Palette.surface, for: .widget)
+        }
+        .configurationDisplayName("Team")
+        .description("Four bots at a glance; the ones that need you come first.")
+        .supportedFamilies([.systemSmall])
+    }
+}
+
+extension BotsEntry {
+    /// Needs you first, then working, then most recent.
+    var lead: Bot? {
+        bots.filter { !$0.hidden }.min {
+            let rank = { (b: Bot) in b.needsInput ? 0 : b.isWorking ? 1 : 2 }
+            return rank($0) != rank($1) ? rank($0) < rank($1) : $0.lastAt > $1.lastAt
+        }
+    }
+}
+
+// MARK: - Control Center
+
+/// A Control Center button: the bot that needs you most and its state; a tap opens it.
+struct LeadBotControl: ControlWidget {
+    var body: some ControlWidgetConfiguration {
+        StaticControlConfiguration(kind: "CodyncLeadBot", provider: LeadBotProvider()) { lead in
+            ControlWidgetButton(action: OpenURLIntent(lead.url)) {
+                Label(lead.text, systemImage: lead.symbol)
+            }
+        }
+        .displayName("Bots")
+        .description("The bot that needs you most. Tap to open it.")
+    }
+}
+
+struct LeadBot: Sendable {
+    let text: String
+    let symbol: String
+    let url: URL
+
+    static let home = URL(string: "codync://computers")!
+
+    init(text: String, symbol: String, url: URL = LeadBot.home) {
+        self.text = text; self.symbol = symbol; self.url = url
+    }
+
+    init(_ entry: BotsEntry) {
+        guard entry.paired else { self.init(text: "Connect a computer", symbol: "desktopcomputer"); return }
+        guard let bot = entry.lead, bot.isWorking else { self.init(text: "All quiet", symbol: "moon.zzz.fill"); return }
+        self.init(text: "\(bot.name): \(bot.widgetState.label)",
+                  symbol: bot.needsInput ? "hand.raised.fill" : "ellipsis.bubble.fill",
+                  url: entry.links[bot.id] ?? LeadBot.home)
+    }
+}
+
+struct LeadBotProvider: ControlValueProvider {
+    var previewValue: LeadBot { LeadBot(text: "Reviewer: Needs you", symbol: "hand.raised.fill") }
+
+    func currentValue() async throws -> LeadBot { LeadBot(.current) }
 }
 
 private struct EmptyWidget: View {
@@ -425,14 +491,15 @@ struct BotLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: BotActivityAttributes.self) { context in
             BotActivityCard(name: context.attributes.name, shape: context.attributes.avatarShape,
-                            color: context.attributes.avatarColor, state: presentation(context))
+                            color: context.attributes.avatarColor, state: presentation(context),
+                            startedAt: context.state.startedAt, link: context.attributes.link)
                 .activityBackgroundTint(Palette.surface)
                 .widgetURL(context.attributes.link ?? URL(string: "codync://computers"))
         } dynamicIsland: { context in
             let state = presentation(context)
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    avatar(context, size: 26).frame(maxHeight: .infinity)
+                    avatar(context, state: state, size: 26).frame(maxHeight: .infinity)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     BotActivityIndicator(state: state, size: 28).frame(maxHeight: .infinity)
@@ -442,15 +509,22 @@ struct BotLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.center) {
                     VStack(spacing: 2) {
                         Text(context.attributes.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
-                        Text(state.caption).font(.system(size: 12)).foregroundStyle(Palette.secondary)
+                        Text(state.caption).font(.system(size: 12)).foregroundStyle(state.captionTint)
+                            .contentTransition(.interpolate)
                     }
                     .lineLimit(1)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
                     .environment(\.colorScheme, .dark)
+                    .animation(Motion.activityPhase, value: state)
+                }
+                DynamicIslandExpandedRegion(.bottom) {
+                    ActivityIslandFooter(state: state, startedAt: context.state.startedAt, link: context.attributes.link)
+                        .padding(.horizontal, 4)
+                        .environment(\.colorScheme, .dark)
                 }
             } compactLeading: {
-                avatar(context, size: 20)
+                avatar(context, state: state, size: 20)
             } compactTrailing: {
                 BotActivityIndicator(state: state).environment(\.colorScheme, .dark)
             } minimal: {
@@ -458,6 +532,7 @@ struct BotLiveActivity: Widget {
                     .environment(\.colorScheme, .dark)
                     .accessibilityLabel("\(context.attributes.name), \(state.title)")
             }
+            .keylineTint(state.tint)
             .widgetURL(context.attributes.link ?? URL(string: "codync://computers"))
         }
     }
@@ -466,7 +541,7 @@ struct BotLiveActivity: Widget {
         .init(status: context.state.status, activity: context.state.activity, isStale: context.isStale)
     }
 
-    private func avatar(_ context: ActivityViewContext<BotActivityAttributes>, size: CGFloat) -> some View {
-        CharacterAvatar(shape: context.attributes.avatarShape, color: context.attributes.avatarColor, size: size)
+    private func avatar(_ context: ActivityViewContext<BotActivityAttributes>, state: BotActivityPresentation, size: CGFloat) -> some View {
+        ActivityAvatar(shape: context.attributes.avatarShape, color: context.attributes.avatarColor, state: state, size: size)
     }
 }

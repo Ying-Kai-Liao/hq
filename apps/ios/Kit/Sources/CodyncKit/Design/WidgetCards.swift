@@ -168,7 +168,6 @@ public struct BotsWidgetCard: View {
     private var working: Int { bots.filter { $0.isWorking && !$0.needsInput }.count }
     private var count: Int { needs > 0 ? needs : working > 0 ? working : bots.count }
     private var label: String { needs > 0 ? (needs == 1 ? "Needs you" : "Need you") : working > 0 ? "Working" : bots.isEmpty ? "No bots yet" : "All quiet" }
-    private var attention: Color { Color(light: 0x936000, dark: 0xECAF52) }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -199,7 +198,7 @@ public struct BotsWidgetCard: View {
                 summary
                 HStack(spacing: -4) {
                     ForEach(ordered.prefix(3)) { bot in
-                        CharacterAvatar(bot: bot, size: 23, animated: false)
+                        CharacterAvatar(bot: bot, size: 23, still: true)
                     }
                     Spacer(minLength: 0)
                     if working > 0 && needs > 0 {
@@ -230,23 +229,91 @@ public struct BotsWidgetCard: View {
     private var summary: some View {
         VStack(alignment: .leading, spacing: 1) {
             Text("\(count)").font(.system(size: 36, weight: .semibold, design: .rounded))
-                .monospacedDigit().foregroundStyle(needs > 0 ? attention : Palette.text)
+                .monospacedDigit().foregroundStyle(needs > 0 ? Palette.attention : Palette.text)
             Text(label).font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.secondary)
         }
         .accessibilityElement(children: .combine)
     }
 
+    /// Name and step on the left, the state on the right in its color.
     private func row(_ bot: Bot) -> some View {
-        HStack(spacing: 7) {
-            CharacterAvatar(bot: bot, size: 24, animated: false)
+        let state = bot.widgetState
+        return HStack(spacing: 7) {
+            CharacterAvatar(bot: bot, size: 24, still: true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(bot.name).font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.text)
-                Text(bot.needsInput ? "Needs you" : bot.isWorking ? (bot.activity.isEmpty ? "Working…" : bot.activity) : "Ready")
-                    .font(.system(size: 10)).foregroundStyle(bot.needsInput ? attention : Palette.secondary)
+                if bot.isWorking, !bot.activity.isEmpty {
+                    Text(bot.activity).font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                }
             }
             .lineLimit(1)
+            Spacer(minLength: 4)
+            Text(state.label)
+                .font(.system(size: 10, weight: bot.needsInput ? .semibold : .regular))
+                .foregroundStyle(state.tint)
+                .lineLimit(1)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+public extension Bot {
+    /// The state word the widgets show and its color: only what needs you (or failed) stands out.
+    var widgetState: (label: String, tint: Color) {
+        if needsInput { return ("Needs you", Palette.attention) }
+        if status == "error" { return ("Failed", Palette.danger) }
+        if isWorking { return ("Working", Palette.text) }
+        return ("Ready", Palette.secondary)
+    }
+}
+
+/// Four bots in a 2×2 grid, each in its mood with a dot for its state; the bots that
+/// need you come first, and empty spots hold a faded sleeping character.
+public struct BotsTeamCard: View {
+    let bots: [Bot]
+
+    public init(bots: [Bot]) {
+        self.bots = Array(bots.filter { !$0.hidden }.sorted {
+            let rank: (Bot) -> Int = { $0.needsInput ? 0 : $0.isWorking ? 1 : 2 }
+            return rank($0) == rank($1) ? $0.lastAt > $1.lastAt : rank($0) < rank($1)
+        }.prefix(4))
+    }
+
+    public var body: some View {
+        Grid(horizontalSpacing: 8, verticalSpacing: 8) {
+            GridRow { tile(0); tile(1) }
+            GridRow { tile(2); tile(3) }
+        }
+    }
+
+    @ViewBuilder private func tile(_ index: Int) -> some View {
+        if bots.indices.contains(index) {
+            let bot = bots[index]
+            VStack(spacing: 4) {
+                CharacterAvatar(bot: bot, size: 30, still: true)
+                Text(bot.name)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Palette.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .padding(.horizontal, 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(alignment: .topTrailing) {
+                if bot.isWorking || bot.status == "error" {
+                    Circle().fill(bot.widgetState.tint).frame(width: 7, height: 7).padding(7)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(bot.name), \(bot.widgetState.label)")
+        } else {
+            CharacterAvatar(shape: "blob", color: "gray", size: 26)
+                .opacity(0.18)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Palette.bubbleAgent.opacity(0.5), in: RoundedRectangle(cornerRadius: 16))
+                .accessibilityHidden(true)
+        }
     }
 }
 

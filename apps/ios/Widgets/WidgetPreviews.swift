@@ -37,6 +37,13 @@ import ActivityKit
     BotsEntry(date: .now, bots: [], paired: false)
 }
 
+#Preview(as: .systemSmall) {
+    BotsTeamWidget()
+} timeline: {
+    BotsEntry(date: .now, bots: Bot.widgetPreview, paired: true)
+    BotsEntry(date: .now, bots: [], paired: false)
+}
+
 #Preview(as: .accessoryRectangular) {
     BotsWidget()
 } timeline: {

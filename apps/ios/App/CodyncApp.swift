@@ -350,5 +350,7 @@ enum BotsWidgetFeed {
         shown = signature
         scope = currentScope
         WidgetCenter.shared.reloadTimelines(ofKind: "CodyncBots")
+        WidgetCenter.shared.reloadTimelines(ofKind: "CodyncTeam")
+        ControlCenter.shared.reloadControls(ofKind: "CodyncLeadBot")
     }
 }

@@ -20,6 +20,10 @@ public enum Motion {
     /// Tiles moving into place: `{type: "spring", stiffness: 1000, damping: 63}`.
     public static let tile = Animation.interpolatingSpring(mass: 1, stiffness: 1000, damping: 63)
 
+    /// A Live Activity's phase change (working → needs you → done): a soft spring that
+    /// finishes well inside the 2 s iOS gives activity updates.
+    public static let activityPhase = Animation.spring(duration: 0.6, bounce: 0.3)
+
     /// `--ui-press-scale`.
     public static let pressScale: CGFloat = 0.98
 

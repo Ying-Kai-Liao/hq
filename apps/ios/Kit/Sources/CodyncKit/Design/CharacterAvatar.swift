@@ -11,16 +11,20 @@ public struct CharacterAvatar: View {
     let color: Color
     let size: CGFloat
     let mood: Mood
+    let still: Bool
 
-    public init(shape: String, color: String, size: CGFloat = 40, mood: Mood = .idle) {
-        self.init(shape: shape, tint: AvatarPalette.color(color), size: size, mood: mood)
+    /// `still` draws the mood's face without animating it (widgets and Live Activities,
+    /// which render one frame).
+    public init(shape: String, color: String, size: CGFloat = 40, mood: Mood = .idle, still: Bool = false) {
+        self.init(shape: shape, tint: AvatarPalette.color(color), size: size, mood: mood, still: still)
     }
 
-    public init(shape: String, tint: Color, size: CGFloat = 40, mood: Mood = .idle) {
+    public init(shape: String, tint: Color, size: CGFloat = 40, mood: Mood = .idle, still: Bool = false) {
         self.shape = shape
         self.color = tint
         self.size = size
         self.mood = mood
+        self.still = still
     }
 
     public init(bot: Bot, size: CGFloat = 40, animated: Bool = true) {
@@ -28,15 +32,24 @@ public struct CharacterAvatar: View {
             shape: bot.avatarShape,
             color: bot.avatarColor,
             size: size,
-            mood: !animated ? .idle : bot.needsInput ? .needsInput : bot.isWorking ? .working : .idle
+            mood: animated ? bot.mood : .idle
         )
     }
 
+    /// The bot's current mood, drawn as one frame.
+    public init(bot: Bot, size: CGFloat = 40, still: Bool) {
+        self.init(shape: bot.avatarShape, color: bot.avatarColor, size: size, mood: bot.mood, still: still)
+    }
+
     public var body: some View {
-        DottedBody(shape: shape, color: color, size: size, mood: mood)
+        DottedBody(shape: shape, color: color, size: size, mood: mood, paused: still)
             .frame(width: size, height: size)
             .accessibilityHidden(true)
     }
+}
+
+public extension Bot {
+    var mood: CharacterAvatar.Mood { needsInput ? .needsInput : isWorking ? .working : .idle }
 }
 
 /// Keep the halftone at every size. Small icons use fewer, larger dots so the
@@ -53,13 +66,14 @@ private struct DottedBody: View {
     let color: Color
     let size: CGFloat
     let mood: CharacterAvatar.Mood
+    let paused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let grid = Grid(size: size)
         let step = size / CGFloat(grid.cells)
         let dots = Self.grid(shape: shape, size: size, step: step, cells: grid.cells)
-        let still = mood == .idle || reduceMotion
+        let still = mood == .idle || reduceMotion || paused
         TimelineView(.animation(paused: still)) { timeline in
             let t = still ? 0 : timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 3600)
             // Glance: whole-cell steps left / center / right, like a small display.

@@ -102,10 +102,12 @@ struct WidgetGalleryView: View {
                             SegmentedChoice(selection: $providerID, options: providers)
                         }
                     }
-                    ChoicePicker(selection: $size, options: [("small", "Small"), ("medium", "Medium"), ("large", "Large")])
+                    if kind != "team" {
+                        ChoicePicker(selection: $size, options: [("small", "Small"), ("medium", "Medium"), ("large", "Large")])
+                    }
                     VStack(spacing: 18) {
                         preview(wide: size != "small")
-                            .frame(width: size == "small" ? 158 : nil, height: size == "large" ? 338 : 158)
+                            .frame(width: size == "small" || kind == "team" ? 158 : nil, height: size == "large" && kind != "team" ? 338 : 158)
                         previewDescription
                     }
                     .padding(14)
@@ -163,12 +165,14 @@ struct WidgetGalleryView: View {
 
     private enum Page: Hashable { case lockScreen }
 
-    private static let kinds: [(id: String, label: String)] = [("usage", "Provider usage"), ("bots", "Bots")]
+    private static let kinds: [(id: String, label: String)] = [("usage", "Provider usage"), ("bots", "Bots"), ("team", "Team")]
 
     private var previewDescription: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("\(size.capitalized) widget").font(.subheadline.weight(.medium))
-            Text(kind == "usage" ? "Small shows the tightest limit. Medium shows two windows. Large adds a summary and up to four limits." : "See who needs you and who's still working. Large shows up to six bots.")
+            Text(kind == "team" ? "Small widget" : "\(size.capitalized) widget").font(.subheadline.weight(.medium))
+            Text(kind == "usage" ? "Small shows the tightest limit. Medium shows two windows. Large adds a summary and up to four limits."
+                 : kind == "team" ? "Four bots as characters; the ones that need you come first, with a dot for each one at work."
+                 : "See who needs you and who's still working. Large shows up to six bots.")
                 .font(.caption).foregroundStyle(Palette.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -178,6 +182,8 @@ struct WidgetGalleryView: View {
         Group {
             if kind == "usage", let provider {
                 ProviderWidgetCard(provider: provider, layout: size == "large" ? .large : wide ? .medium : .small)
+            } else if kind == "team" {
+                BotsTeamCard(bots: Bot.widgetPreview)
             } else {
                 BotsWidgetCard(bots: Bot.widgetPreview, wide: wide, large: size == "large")
             }
