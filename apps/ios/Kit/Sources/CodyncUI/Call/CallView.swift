@@ -38,6 +38,7 @@ struct CallView: View {
         .animation(Motion.reduced(Motion.fade, reduceMotion), value: notice)
         .onAppear {
             startedAt = .now
+            Analytics.shared.capture(.voiceCallStarted)
             begin(cloud: VoiceSettings.provider)
         }
         .onDisappear {

@@ -4,12 +4,13 @@ import { Button, CardForm, CardSection, ChoicePicker, IconButton, Switch, ValueR
 import { Icon } from '../../components/Icon'
 import { useDismiss } from '../../components/Overlay'
 import { font } from '../../lib/fonts'
+import { useModel } from '../../lib/observable'
 import { DEFAULT_TEXT_SIZE, prefs, TEXT_SIZES, usePref } from '../../lib/prefs'
 import { useAccount } from '../../store/account'
 import { StoreContext, useApp } from '../../store/context'
 import { ComputerBadge } from '../ComputerBadge'
 import { ComputersView } from './ComputersView'
-import { isMac, thisMac } from './parts'
+import { errorText, isMac, thisMac } from './parts'
 import { UsageLimits } from './UsageLimits'
 import { VoiceChatSettingsView } from './VoiceChatSettingsView'
 
@@ -154,7 +155,23 @@ function GeneralSettings() {
           Open at login
         </Switch>
       </CardSection>
+      <PrivacySettings />
     </CardForm>
+  )
+}
+
+/** Product analytics on this computer's host; only the computer itself may change it. */
+function PrivacySettings() {
+  const app = useApp()
+  const local = useModel(app.local)
+  const running = local !== null && local.connection.kind === 'online'
+  const setShared = (on: boolean) => void local?.setAnalytics(on).catch((e: unknown) => app.setError(errorText(e)))
+  return (
+    <CardSection title="Privacy" footer="Which features you use, never your messages, code or files. Private, used only to improve Codync.">
+      <Switch on={local?.analytics === true} onChange={setShared} disabled={!running}>
+        Share usage analytics
+      </Switch>
+    </CardSection>
   )
 }
 

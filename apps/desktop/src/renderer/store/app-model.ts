@@ -2,6 +2,7 @@ import type { HostSnapshot } from '@shared/ipc'
 import type { AccessRequest, Bot, Computer } from '@shared/models'
 import { LoopbackTransport } from '../client/host-client'
 import { Observable } from '../lib/observable'
+import { account } from './account'
 import { BotStore } from './bot-store'
 import { CloudModel } from './cloud'
 
@@ -47,6 +48,9 @@ export class AppModel extends Observable {
   screenNeedsApproval = false
   screenError: string | null = null
   private screenSynced = false
+  private opened = false
+  /** Whether the account was signed in when last seen; null until its state first arrives. */
+  private signedIn: boolean | null = null
   /** Approvals closed with "later"; they come back when the request changes (its code arrives). */
   private deferred = new Set<string>()
   private storeSubscriptions = new Map<string, () => void>()
@@ -57,6 +61,7 @@ export class AppModel extends Observable {
   constructor(private mirrors = true) {
     super()
     this.cloud = new CloudModel(this)
+    account.subscribe(() => this.noteAccount())
   }
 
   setError(message: string | null) {
@@ -80,7 +85,10 @@ export class AppModel extends Observable {
       const computer: Computer = cached ?? { id: local.computerId, name: 'This computer', signKey: '', urls: [] }
       const store = new BotStore(computer, true, () => new LoopbackTransport(local.baseURL, local.token))
       this.attach(computer, store)
-      store.subscribe(() => this.syncScreen(store))
+      store.subscribe(() => {
+        this.syncScreen(store)
+        this.noteOpened(store)
+      })
     } else if (!local && old) {
       this.detach(old.computerId)
     }
@@ -215,6 +223,21 @@ export class AppModel extends Observable {
       this.screenNeedsApproval = r.needsApproval
       this.changed()
     })
+  }
+
+  /** `app_opened` once per launch, when this computer's host first answers. */
+  private noteOpened(store: BotStore) {
+    if (this.opened || !store.hello) return
+    this.opened = true
+    store.track('app_opened')
+  }
+
+  /** Sign-in and sign-out, not the state restored at launch. */
+  private noteAccount() {
+    if (!account.isReady) return
+    const now = account.isSignedIn
+    if (this.signedIn !== null && now !== this.signedIn) this.local?.track(now ? 'signed_in' : 'signed_out')
+    this.signedIn = now
   }
 
   clearErrors() {

@@ -1,6 +1,7 @@
 import {
   isWorking,
   needsInput,
+  type AnalyticsEvent,
   type Bot,
   type BotDraft,
   type DirListing,
@@ -141,6 +142,23 @@ export class BotStore extends BotSync {
   async setScreenEnabled(on: boolean) {
     this.screen = await (await this.ready()).call<ScreenState>('setScreenEnabled', { enabled: on })
     this.changed()
+  }
+
+  /** Product analytics consent: null until the owner chose, undefined before hello or on older hosts. */
+  get analytics() {
+    return this.hello?.analytics
+  }
+
+  /** Only the computer itself may change analytics (the host accepts it from loopback). */
+  async setAnalytics(enabled: boolean) {
+    const res = await (await this.ready()).call<{ enabled: boolean }>('setAnalytics', { enabled })
+    if (this.hello) this.hello = { ...this.hello, analytics: res.enabled }
+    this.changed()
+  }
+
+  /** Fire-and-forget; the host drops it unless analytics is on. */
+  track(event: AnalyticsEvent) {
+    void this.withLink((c) => c.call('track', { event })).catch((error: unknown) => console.warn(`track ${event} failed`, error))
   }
 
   /** Toggles the user's reaction; shown at once, then replaced by the host's copy. */
