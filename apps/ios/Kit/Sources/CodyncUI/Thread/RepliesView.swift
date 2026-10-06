@@ -64,7 +64,7 @@ extension RepliesView {
     var messages: some View {
         let replies = model.replies(botId, root: rootId)
         let working = chat?.isWorking(in: botId, thread: rootId) == true && !model.isOffline
-        let items = ChatItem.build(replies, streaming: working, steady: true)
+        let items = ChatItem.build(replies)
         var rows: [ConversationRow] = []
         if let root {
             rows.append(ConversationRow("root") {

@@ -5,7 +5,7 @@ import { Sheet } from '../../components/Overlay'
 import { font } from '../../lib/fonts'
 import { useStore } from '../../store/context'
 import { UpdateNeededCard } from '../UpdateNeededCard'
-import { buildChat } from './chat-items'
+import { buildChat, rowIn, useArrivals } from './chat-items'
 import { ChatRow, WorkingIndicator } from './ChatRows'
 import { Composer } from './Composer'
 import { TraceView } from './TraceView'
@@ -22,6 +22,8 @@ export function RepliesView({ botId, rootId, close }: { botId: string; rootId: s
   const root = store.allEntries(botId).find((e) => e.id === rootId)
   const replies = store.replies(botId, rootId)
   const live = !!chat && isWorkingIn(chat, botId, rootId) && !store.isOffline
+  const items = buildChat(replies)
+  const arrivals = useArrivals([...items.map((i) => i.id), ...(live ? ['working'] : [])], true)
   const [showTrace, setShowTrace] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
   useReading(store, botId, rootId)
@@ -59,11 +61,15 @@ export function RepliesView({ botId, rootId, close }: { botId: string; rootId: s
               </div>
             </>
           ) : null}
-          {buildChat(replies, live).map((item) =>
-            item.kind === 'entry' ? <ChatRow key={item.id} entry={item.entry} groupStart={item.groupStart} chat={chat} openTrace={openTrace} /> : null,
+          {items.map((item) =>
+            item.kind === 'entry' ? (
+              <div key={item.id} className={arrivals.has(item.id) ? rowIn(item) : undefined}>
+                <ChatRow entry={item.entry} groupStart={item.groupStart} chat={chat} openTrace={openTrace} />
+              </div>
+            ) : null,
           )}
           {chat && live ? (
-            <div style={{ paddingTop: 6 }}>
+            <div className={arrivals.has('working') ? 'row-in' : undefined} style={{ paddingTop: 6 }}>
               <WorkingIndicator bot={chat} thinking={store.currentThinking(botId, rootId)} />
             </div>
           ) : null}

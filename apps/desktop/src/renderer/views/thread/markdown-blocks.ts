@@ -84,34 +84,3 @@ export function parseMarkdown(source: string): Block[] {
   flush()
   return blocks
 }
-
-/** Closes the inline markers left open at the end of text being written. */
-export function heal(text: string): string {
-  let t = text
-  // A link still being typed shows as its label: `[label](partial` or `[label`.
-  const open = t.lastIndexOf('[')
-  if (open >= 0) {
-    const rest = t.slice(open + 1)
-    const close = rest.indexOf(']')
-    if (close >= 0) {
-      const after = rest.slice(close + 1)
-      if (after.startsWith('(') && !after.includes(')')) t = t.slice(0, open) + rest.slice(0, close)
-    } else if (!rest.includes('\n') && rest.length < 120) {
-      t = t.slice(0, open) + rest
-    }
-  }
-  if ([...t].filter((c) => c === '`').length % 2 === 1) t += '`'
-  // Outside inline code only.
-  const plain = t.split('`').filter((_, i) => i % 2 === 0).join('')
-  for (const marker of ['**', '~~']) if (plain.split(marker).length % 2 === 0) t += marker
-  return t
-}
-
-/** Blocks of `source`; while `streaming`, the last one is healed so half-written syntax doesn't flash. */
-export function parseStreaming(source: string, streaming: boolean): Block[] {
-  const blocks = parseMarkdown(source)
-  const last = blocks[blocks.length - 1]
-  if (streaming && last && 'text' in last && last.kind !== 'code') blocks[blocks.length - 1] = { ...last, text: heal(last.text) }
-  return blocks
-}
-

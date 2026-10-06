@@ -12,53 +12,6 @@ enum MarkdownBlocks {
         case code(String, language: String)
         case table(header: [String], rows: [[String]])
         case rule
-
-        /// Flowing text (where a fading end reads as words arriving).
-        var isText: Bool {
-            switch self {
-            case .paragraph, .heading, .bullet, .quote: true
-            case .code, .table, .rule: false
-            }
-        }
-    }
-
-    /// Blocks of `source`; while `streaming`, the last one is healed so a marker that's only
-    /// half there (`**bo`, `` `co ``, `[link](ht`) doesn't flash as raw syntax.
-    static func parse(_ source: String, streaming: Bool) -> [Block] {
-        var blocks = parse(source)
-        guard streaming, let last = blocks.last else { return blocks }
-        switch last {
-        case let .paragraph(t): blocks[blocks.count - 1] = .paragraph(heal(t))
-        case let .heading(t, level): blocks[blocks.count - 1] = .heading(heal(t), level: level)
-        case let .bullet(t, marker, depth): blocks[blocks.count - 1] = .bullet(heal(t), marker: marker, depth: depth)
-        case let .quote(t): blocks[blocks.count - 1] = .quote(heal(t))
-        case .code, .table, .rule: break
-        }
-        return blocks
-    }
-
-    /// Closes the inline markers left open at the end of text being written.
-    static func heal(_ text: String) -> String {
-        var t = text
-        // A link still being typed shows as its label: `[label](partial` or `[label`.
-        if let open = t.lastIndex(of: "[") {
-            let rest = t[t.index(after: open)...]
-            if let close = rest.firstIndex(of: "]") {
-                let after = rest[rest.index(after: close)...]
-                if after.hasPrefix("("), !after.contains(")") { t = String(t[..<open]) + rest[..<close] }
-            } else if !rest.contains("\n"), rest.count < 120 {
-                t = String(t[..<open]) + rest
-            }
-        }
-        let ticks = t.count(where: { $0 == "`" })
-        if ticks % 2 == 1 { t += "`" }
-        // Outside inline code only.
-        let plain = t.split(separator: "`", omittingEmptySubsequences: false).enumerated()
-            .filter { $0.offset % 2 == 0 }.map(\.element).joined()
-        for marker in ["**", "~~"] where plain.components(separatedBy: marker).count % 2 == 0 {
-            t += marker
-        }
-        return t
     }
 
     static func parse(_ source: String) -> [Block] {

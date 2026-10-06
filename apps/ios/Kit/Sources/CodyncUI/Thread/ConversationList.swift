@@ -74,7 +74,6 @@ private struct ConversationCollection: UIViewRepresentable {
         private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
         private var contents: [String: AnyView] = [:]
         private var environment = EnvironmentValues()
-        private let scrolling = ScrollingFlag()
         private var parent: ConversationCollection?
         /// What the list is telling `following` (it reaches the binding after the update).
         private var pending: Bool?
@@ -87,7 +86,7 @@ private struct ConversationCollection: UIViewRepresentable {
             let group = NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)])
             let section = NSCollectionLayoutSection(group: group)
             section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0)
-            let view = ConversationCollectionView(frame: .zero, collectionViewLayout: UICollectionViewCompositionalLayout(section: section))
+            let view = ConversationCollectionView(frame: .zero, collectionViewLayout: ConversationLayout(section: section))
             view.backgroundColor = .clear
             view.contentInsetAdjustmentBehavior = .never
             view.showsVerticalScrollIndicator = false
@@ -106,7 +105,7 @@ private struct ConversationCollection: UIViewRepresentable {
                 guard let self else { return }
                 cell.backgroundConfiguration = .clear()
                 cell.contentConfiguration = UIHostingConfiguration {
-                    ConversationCell(scrolling: scrolling, content: contents[id] ?? AnyView(EmptyView()))
+                    ConversationCell(content: contents[id] ?? AnyView(EmptyView()))
                         .environment(\.self, environment)
                         // A reused cell starts fresh (no state carried over from another row).
                         .id(id)
@@ -162,12 +161,15 @@ private struct ConversationCollection: UIViewRepresentable {
             if old == ids || first {
                 dataSource.apply(snapshot, animatingDifferences: false)
             } else if view.following, !reduceMotion {
-                // New rows slide in as the list moves up to them, in one motion.
-                UIView.animate(springDuration: 0.42, bounce: 0) {
+                // New rows pop in as the list moves up to them, in one motion (Grok Bot's
+                // 0.24 s ease-out).
+                UIViewPropertyAnimator(duration: 0.24, controlPoint1: CGPoint(x: 0.23, y: 1),
+                                       controlPoint2: CGPoint(x: 0.32, y: 1)) {
                     self.dataSource.apply(snapshot, animatingDifferences: true)
                     self.view.layoutIfNeeded()
                     self.view.pinToEnd()
                 }
+                .startAnimation()
             } else {
                 applyKeepingPlace(snapshot)
             }
@@ -204,10 +206,6 @@ private struct ConversationCollection: UIViewRepresentable {
         }
 
         // MARK: scrolling
-
-        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-            scrolling.active = true
-        }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             let y = scrollView.contentOffset.y
@@ -248,10 +246,33 @@ private struct ConversationCollection: UIViewRepresentable {
 
         /// The reader stopped scrolling: resting at the end follows again; anywhere else stays put.
         private func settle() {
-            scrolling.active = false
             setFollowing(view.endOffset - view.contentOffset.y < ConversationCollectionView.nearEnd)
             if view.following { view.pinToEnd() }
         }
+    }
+}
+
+/// A row going in rises into place from slightly below and smaller (Grok Bot's message pop).
+private final class ConversationLayout: UICollectionViewCompositionalLayout {
+    private var inserted = Set<IndexPath>()
+
+    override func prepare(forCollectionViewUpdates updateItems: [UICollectionViewUpdateItem]) {
+        super.prepare(forCollectionViewUpdates: updateItems)
+        inserted = Set(updateItems.filter { $0.updateAction == .insert }.compactMap(\.indexPathAfterUpdate))
+    }
+
+    override func finalizeCollectionViewUpdates() {
+        super.finalizeCollectionViewUpdates()
+        inserted = []
+    }
+
+    override func initialLayoutAttributesForAppearingItem(at itemIndexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
+        let attributes = super.initialLayoutAttributesForAppearingItem(at: itemIndexPath)
+        guard inserted.contains(itemIndexPath), let attributes = attributes?.copy() as? UICollectionViewLayoutAttributes
+        else { return attributes }
+        attributes.alpha = 0
+        attributes.transform = CGAffineTransform(translationX: 0, y: 12).scaledBy(x: 0.94, y: 0.94)
+        return attributes
     }
 }
 
@@ -318,20 +339,13 @@ private final class ConversationContainer: UIView {
     }
 }
 
-/// The reader is scrolling: rows read it through `conversationScrolling`.
-@Observable @MainActor private final class ScrollingFlag {
-    var active = false
-}
-
 private struct ConversationCell: View {
-    let scrolling: ScrollingFlag
     let content: AnyView
 
     var body: some View {
         content
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .environment(\.conversationScrolling, scrolling.active)
     }
 }
 

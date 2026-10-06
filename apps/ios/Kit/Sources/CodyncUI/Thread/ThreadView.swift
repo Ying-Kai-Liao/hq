@@ -233,35 +233,17 @@ struct ChatItem: Identifiable {
     let id: String
     let kind: Kind
 
-    /// Chat-visible entries plus time separators (gaps > 1 h) and author grouping.
-    /// `streaming`: a turn is running in this chat, so the text being generated right now
-    /// (the lane's last entry, still `final == false`) shows in place and never pops in later.
-    /// Earlier segments of the turn, tool calls in between, and a room pass stay trace-only.
-    /// `steady` (iPhone): the turn's newest text stays while the agent works on (tools,
-    /// thinking) until newer text replaces it, and a reply is one item per author and turn,
-    /// from its first words to the final message, so its bubble never pops out and back in.
-    static func build(_ entries: [Entry], streaming: Bool = false, steady: Bool = false) -> [ChatItem] {
+    /// Chat-visible entries plus time separators (gaps > 1 h) and author grouping. A bot's
+    /// messages arrive whole (Grok Bot's `send_message`); what it writes along the way is trace.
+    static func build(_ entries: [Entry]) -> [ChatItem] {
         var out: [ChatItem] = []
-        var used = Set<String>()
         var lastDate: Date?
         var lastAuthor: String?
-        let live = !streaming ? nil
-            : steady ? liveText(entries)
-            : entries.last.flatMap { $0.kind == "agent" && $0.data.final == false ? $0.id : nil }
-        for e in entries where e.isChat || (e.id == live && !(e.data.text ?? "").isEmpty && e.data.text != "(pass)") {
+        for e in entries where e.isChat {
             let date = e.date
             // Bot-originated messages carry an empty nonce. Their entry IDs
             // distinguish them; only real nonces identify optimistic echoes.
-            var id: String
-            if e.kind == "user", let nonce = e.data.clientNonce, !nonce.isEmpty {
-                id = "user-\(nonce)"
-            } else {
-                id = e.id
-            }
-            if steady, e.kind == "agent", !used.contains("reply-\(e.data.author ?? "")-\(e.turn)") {
-                id = "reply-\(e.data.author ?? "")-\(e.turn)"
-            }
-            used.insert(id)
+            let id = if e.kind == "user", let nonce = e.data.clientNonce, !nonce.isEmpty { "user-\(nonce)" } else { e.id }
             if lastDate.map({ date.timeIntervalSince($0) > 3600 }) ?? true {
                 out.append(ChatItem(id: "sep-\(id)", kind: .separator(date)))
                 lastAuthor = nil
@@ -273,17 +255,6 @@ struct ChatItem: Identifiable {
             lastDate = date
         }
         return out
-    }
-
-    /// The running turn's newest text, if any since the last message or final reply.
-    static func liveText(_ entries: [Entry]) -> String? {
-        for e in entries.reversed() {
-            if e.kind == "user" || (e.kind == "agent" && e.data.final == true) { return nil }
-            if e.kind == "agent", let text = e.data.text, !text.isEmpty {
-                return text == "(pass)" ? nil : e.id
-            }
-        }
-        return nil
     }
 
     var isUserMessage: Bool {
@@ -359,14 +330,14 @@ extension ThreadView {
             }
     }
 
-    private var streaming: Bool { bot?.isWorking(in: botId, thread: nil) == true && !model.isOffline }
+    private var working: Bool { bot?.isWorking(in: botId, thread: nil) == true && !model.isOffline }
 
     /// iPhone's messages: all this device has, earlier ones from the computer as the reader
     /// scrolls up; the chat follows the newest message until they scroll away, and a reply is
     /// revealed steadily as it's written.
     var transcript: some View {
         let thread = model.chat(botId)
-        let items = ChatItem.build(thread, streaming: streaming, steady: true)
+        let items = ChatItem.build(thread)
         var rows: [ConversationRow] = []
         if moreOnComputer {
             rows.append(ConversationRow("earlier") {
@@ -383,7 +354,7 @@ extension ThreadView {
         }
         rows += items.map { item in ConversationRow(item.id, isUserMessage: item.isUserMessage) { row(item) } }
         // Offline, "working" is only what the computer last said; don't show it as live.
-        if let bot, streaming {
+        if let bot, working {
             rows.append(ConversationRow("working") {
                 WorkingIndicator(bot: bot, thinking: model.currentThinking(botId, thread: nil))
                     .padding(.top, 6)

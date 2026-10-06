@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { heal, parseMarkdown, parseStreaming } from './markdown-blocks.ts'
+import { parseMarkdown } from './markdown-blocks.ts'
 
 test('blocks: headings, nested lists, rules, tables and code', () => {
   const blocks = parseMarkdown('# Title\n- one\n  - two\n1. first\n---\n| A | B |\n|---|---|\n| 1 | 2 |\n```js\nx = 1\n```\n> quoted')
@@ -18,12 +18,4 @@ test('blocks: headings, nested lists, rules, tables and code', () => {
 
 test('a pipe line without its rule stays text', () => {
   assert.deepEqual(parseMarkdown('| not a table'), [{ kind: 'paragraph', text: '| not a table' }])
-})
-
-test('streaming heals half-written syntax', () => {
-  assert.equal(heal('so **bo'), 'so **bo**')
-  assert.equal(heal('run `co'), 'run `co`')
-  assert.equal(heal('see [docs](http'), 'see docs')
-  assert.equal(heal('`**` stays'), '`**` stays')
-  assert.deepEqual(parseStreaming('a ~~b', true), [{ kind: 'paragraph', text: 'a ~~b~~' }])
 })
