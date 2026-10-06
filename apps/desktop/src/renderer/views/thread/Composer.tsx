@@ -46,7 +46,7 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
   const canSend = !empty && (store.connection.kind === 'online' || (store.canQueue && !files.length))
   const canAttach = !!bot
 
-  const placeholder = thread ? 'Reply…' : bot && isGroup(bot) ? `Message ${bot.name} · @ to ask one bot` : working ? `Queue a message for ${bot?.name ?? ''}` : `Ask ${bot?.name ?? ''}`
+  const placeholder = thread ? 'Reply…' : bot && isGroup(bot) ? 'Message everyone · @ to ask one bot' : working ? `Queue a message for ${bot?.name ?? ''}` : `Ask ${bot?.name ?? ''}`
 
   // A routine's "Try it" fills the box.
   const routineDraft = store.routineDrafts.get(botId)

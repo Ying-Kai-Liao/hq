@@ -230,6 +230,17 @@ export class BotStore extends BotSync {
     this.changed()
   }
 
+  /** Takes one bot out of a group; an automatic "Alice, Bob" name follows the new roster. */
+  removeMember(group: Bot, memberId: string) {
+    const members = group.members.filter((m) => m !== memberId)
+    const autoName = (ids: string[]) => ids.map((id) => this.bots.get(id)?.name).join(', ')
+    const name = group.name === autoName(group.members) ? autoName(members) : group.name
+    this.bots.set(group.id, { ...group, name, members })
+    this.changed()
+    const draft: GroupDraft = { id: group.id, kind: 'group', name, description: group.description, members, pinned: group.pinned }
+    this.perform((c) => c.call('updateBot', draft), true)
+  }
+
   async loadThread(botId: string, root: string) {
     if (!this.client) return
     try {

@@ -289,11 +289,11 @@ private struct PluginToggles: View {
 
 extension View {
     /// A rounded input box.
-    func fieldBox() -> some View {
+    func fieldBox(fill: Color = Palette.background) -> some View {
         textFieldStyle(.plain)
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
-            .background(Palette.background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 

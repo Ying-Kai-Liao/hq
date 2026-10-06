@@ -272,17 +272,20 @@ struct GroupIntroCard: View {
         VStack(spacing: 12) {
             GroupAvatar(members: model.members(of: group), size: 72)
             Text(group.name).font(.title2.weight(.semibold)).foregroundStyle(Palette.text)
-            Text(model.members(of: group).map(\.name).joined(separator: " · "))
-                .font(.subheadline)
-                .foregroundStyle(Palette.secondary)
-                .multilineTextAlignment(.center)
+            let names = model.members(of: group).map(\.name)
+            if group.name != names.joined(separator: ", ") {
+                Text(names.joined(separator: " · "))
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.secondary)
+                    .multilineTextAlignment(.center)
+            }
             if !group.description.isEmpty {
                 Text(group.description)
                     .font(.subheadline)
                     .foregroundStyle(Palette.secondary)
                     .multilineTextAlignment(.center)
             }
-            Text("Everyone answers in turn. @mention a bot to ask just that one. Each bot works in its own folder.")
+            Text("Everyone answers in turn. @mention a bot to ask just that one.")
                 .font(.footnote)
                 .foregroundStyle(Palette.tertiary)
                 .multilineTextAlignment(.center)
