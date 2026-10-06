@@ -174,6 +174,18 @@ impl Terms {
     }
 }
 
+/// Windows' pseudo console asks where the cursor is (`ESC[6n`) before the program starts,
+/// and waits for the answer. The host answers it (the line under the `$ command` header) and
+/// keeps the question from clients, which would answer it a second time into the program.
+const CURSOR_QUERY: &[u8] = b"\x1b[6n";
+const CURSOR_REPLY: &[u8] = b"\x1b[2;1R";
+
+/// `chunk` without its cursor query, if it has one.
+fn without_cursor_query(chunk: &[u8]) -> Option<Vec<u8>> {
+    let at = chunk.windows(CURSOR_QUERY.len()).position(|w| w == CURSOR_QUERY)?;
+    Some([&chunk[..at], &chunk[at + CURSOR_QUERY.len()..]].concat())
+}
+
 fn size(cols: u16, rows: u16) -> PtySize {
     PtySize { rows: rows.max(4), cols: cols.max(20), pixel_width: 0, pixel_height: 0 }
 }
@@ -201,9 +213,17 @@ async fn run(
         let term = term.clone();
         tokio::task::spawn_blocking(move || {
             let mut buf = vec![0u8; 16 * 1024];
+            let mut answered = !cfg!(windows);
             // EOF or an error once the child and its children are gone.
             while let Ok(n @ 1..) = reader.read(&mut buf) {
-                term.push(&buf[..n]);
+                match without_cursor_query(&buf[..n]).filter(|_| !answered) {
+                    Some(rest) => {
+                        answered = true;
+                        let _ = term.input.send(Input::Data(CURSOR_REPLY.to_vec()));
+                        term.push(&rest);
+                    }
+                    None => term.push(&buf[..n]),
+                }
             }
         })
     };
@@ -244,6 +264,12 @@ async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn takes_out_the_cursor_query() {
+        assert_eq!(without_cursor_query(b"a\x1b[6nb").as_deref(), Some(&b"ab"[..]));
+        assert_eq!(without_cursor_query(b"plain"), None);
+    }
 
     #[tokio::test]
     async fn runs_in_a_pty_and_takes_input() {

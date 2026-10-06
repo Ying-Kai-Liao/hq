@@ -338,7 +338,7 @@ mod tests {
                 std::fs::create_dir_all(&cwd).unwrap();
                 let cfg: BotConfig = serde_json::from_value(json!({
                     "id": id, "name": id, "backend": "fixture", "cwd": cwd,
-                    "command": format!("python3 -u '{}'", agent.display()), "notify": false,
+                    "command": crate::shell::python(&agent), "notify": false,
                 }))
                 .unwrap();
                 store.save_bot(&cfg).unwrap();
@@ -405,7 +405,7 @@ mod tests {
 
         async fn shutdown(self) {
             self.hub.shutdown().await;
-            std::fs::remove_dir_all(self.dir).unwrap();
+            let _ = std::fs::remove_dir_all(self.dir);
         }
     }
 

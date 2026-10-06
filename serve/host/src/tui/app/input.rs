@@ -436,10 +436,11 @@ fn dropped_files(s: &str) -> Option<Vec<std::path::PathBuf>> {
     (!paths.is_empty() && paths.iter().all(|p| p.is_absolute() && p.is_file())).then_some(paths)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
+    // Terminals escape dropped paths the way Unix shells do.
     #[test]
     fn dropped_paths_are_files_only() {
         let dir = std::env::temp_dir().join(format!("codync-drop-{}", std::process::id()));

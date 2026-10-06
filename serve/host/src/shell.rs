@@ -84,6 +84,13 @@ pub fn program(name: &str) -> PathBuf {
     crate::agent::backends::which(name).unwrap_or_else(|| name.into())
 }
 
+/// The command that runs a Python test fixture.
+#[cfg(test)]
+pub fn python(script: &std::path::Path) -> String {
+    let python = if cfg!(windows) { "python" } else { "python3" };
+    format!("{python} -u {}", quote(&script.to_string_lossy()))
+}
+
 /// Leading `KEY=value` words (an optional `env` first), and the command after them.
 #[cfg(any(windows, test))]
 fn split_env(line: &str) -> (Vec<(String, String)>, &str) {

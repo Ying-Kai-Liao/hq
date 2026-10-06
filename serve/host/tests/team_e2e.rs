@@ -72,7 +72,7 @@ impl Host {
             "createBot",
             json!({
                 "name": name, "backend": "custom", "cwd": cwd, "permission": "ask", "notify": false,
-                "command": format!("python3 -u '{}'", agent.display().to_string().replace('\'', "'\\''")),
+                "command": common::python_agent(&agent),
             }),
         )
         .await["bot"]["id"]
