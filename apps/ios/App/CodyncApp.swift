@@ -15,6 +15,10 @@ struct CodyncApp: App {
     @AppStorage("onboardingCompleted") private var onboardingCompleted = false
     /// Cold launch with a computer to reach: the splash covers its connect and catch-up.
     @State private var launching = !AppStore.shared.accounts.computers.isEmpty
+    /// nil until this iPhone answers "Help improve Codync".
+    @AppStorage(Analytics.enabledKey) private var analyticsEnabled: Bool?
+    /// Setup finished during this launch: a yes to analytics also reports `onboarding_completed`.
+    @State private var onboardedNow = false
 
     init() {
         // A tapped widget bot arrives as an intent, not a URL.
@@ -45,6 +49,16 @@ struct CodyncApp: App {
                         .environment(app.account)
                         .tint(Palette.accent)
                 }
+                // Asked once per iPhone after setup, once the splash and the account sheet are gone.
+                .codyncDialog("Help improve Codync", isPresented: Binding(
+                    get: { onboardingCompleted && analyticsEnabled == nil && !launching && !app.account.showSwitcher },
+                    set: { shown in if !shown && analyticsEnabled == nil { Analytics.shared.setEnabled(false) } }
+                ), message: Self.analyticsQuestion, cancel: "Don't share", inPlace: true) {
+                    [DialogAction("Share usage") {
+                        Analytics.shared.setEnabled(true)
+                        if onboardedNow { Analytics.shared.capture(.onboardingCompleted) }
+                    }]
+                }
                 .onChange(of: app.account.userID, initial: true) { _, userID in
                     app.switchAccount(to: userID)
                 }
@@ -56,7 +70,13 @@ struct CodyncApp: App {
                     }
                 }
                 .onOpenURL { url in app.open(url) }
+                .onChange(of: onboardingCompleted) { _, done in if done { onboardedNow = true } }
                 .onChange(of: scenePhase, initial: true) { _, phase in
+                    switch phase {
+                    case .active: Analytics.shared.becameActive()
+                    case .background: Analytics.shared.enteredBackground()
+                    default: break
+                    }
                     // Only leaving for the background disconnects; `.inactive` (Control Center,
                     // app switcher, system prompts) comes and goes too often to drop the link.
                     app.accounts.setActive(phase != .background)
@@ -90,6 +110,10 @@ struct CodyncApp: App {
     }
 }
 
+extension CodyncApp {
+    static let analyticsQuestion = "Codync can record which features you use on this iPhone, like creating a bot or sending a message. It never collects your messages, code, files, prompts or bot names. Your data stays private: it's used only to understand how people use Codync, never sold and never used for ads. When you're signed in, it's linked to your Codync account. You can turn this off anytime in Settings."
+}
+
 enum AppTab: Hashable { case bots, state }
 
 /// One `AccountStore` per account context: switching accounts retires the old one so
@@ -117,6 +141,7 @@ final class AppStore {
         let storage = SharedStore.Context(accountID: session.userID)
         SharedStore.activeAccountID = session.userID
         account = session
+        Analytics.shared.userID = { [session] in session.userID }
         contextID = storage.id
         (accounts, cloud) = Self.makeAccounts(storage, session: session)
     }
@@ -148,6 +173,8 @@ final class AppStore {
     /// Signing out forgets this account on this iPhone: its device keys, computers and caches (spec §3.2).
     func signOut() async {
         guard let userID = account.userID else { return }
+        // Sent first so it still counts toward the account.
+        Analytics.shared.capture(.signedOut)
         await account.signOut()
         guard account.userID != userID, !account.accounts.contains(where: { $0.id == userID }) else { return }
         // Retire its stores first: a retiring store saves its cache one last time.
@@ -169,6 +196,7 @@ final class AppStore {
         storage.bots = []
         SharedStore.activeAccountID = nil
         UserDefaults.standard.set(false, forKey: "onboardingCompleted")
+        Analytics.shared.setEnabled(nil)
         showComputers = false
         account.showSwitcher = false
         marketplace = nil
@@ -181,7 +209,9 @@ final class AppStore {
     }
 
     func pair(_ pairing: Pairing) async throws -> Computer {
-        try await accounts.pair(pairing, deviceName: UIDevice.current.name, platform: "ios")
+        let computer = try await accounts.pair(pairing, deviceName: UIDevice.current.name, platform: "ios")
+        Analytics.shared.capture(.computerPaired)
+        return computer
     }
 
     func open(_ url: URL) {

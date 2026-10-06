@@ -21,6 +21,7 @@ import { SettingsView, type SettingsPage } from './settings/SettingsView'
 import { ApprovalSheet } from './settings/ApprovalSheet'
 import { UpdateNeededCard } from './UpdateNeededCard'
 import { AccountWelcomeView } from './AccountWelcomeView'
+import { AnalyticsPrompt } from './AnalyticsPrompt'
 import { OpenVoiceSettings } from './call/CallView'
 import { AccountPanelLayer, DesktopActionMenu, ProfileAvatar } from './PanelMenus'
 import { useTraySummary } from './tray-summary'
@@ -82,6 +83,7 @@ export function ChatWindow() {
       ) : (
         <AccountWelcomeView onContinue={() => setOnboarded(true)} />
       )}
+      <AnalyticsPrompt />
       <Dialog
         open={confirmReset}
         title="Reset all data?"

@@ -122,6 +122,7 @@ final class AccountSession {
                     errorMessage = "\(provider.rawValue) sign-up needs additional account information. Your account is not signed in yet."
                 }
             }
+            if errorMessage == nil { Analytics.shared.capture(.signedIn) }
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
             return
         } catch let error as ASAuthorizationError where error.code == .canceled {
