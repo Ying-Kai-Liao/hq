@@ -6,14 +6,23 @@ import { Icon } from './Icon'
 import './overlay.css'
 
 /** Keeps a layer mounted while it animates away; `shown` drives the CSS transition. */
-export function usePresence(open: boolean, exitMs = 300) {
+export function usePresence(open: boolean, exitMs = 300, animateOnMount = true) {
   const [mounted, setMounted] = useState(open)
-  const [shown, setShown] = useState(false)
+  const [shown, setShown] = useState(open && !animateOnMount)
   useLayoutEffect(() => {
+    if (reduceMotion()) {
+      setMounted(open)
+      setShown(open)
+      return
+    }
     if (open) {
       setMounted(true)
-      const frame = requestAnimationFrame(() => requestAnimationFrame(() => setShown(true)))
-      return () => cancelAnimationFrame(frame)
+      let reveal = 0
+      const frame = requestAnimationFrame(() => { reveal = requestAnimationFrame(() => setShown(true)) })
+      return () => {
+        cancelAnimationFrame(frame)
+        cancelAnimationFrame(reveal)
+      }
     }
     setShown(false)
     const timer = setTimeout(() => setMounted(false), reduceMotion() ? 0 : exitMs)

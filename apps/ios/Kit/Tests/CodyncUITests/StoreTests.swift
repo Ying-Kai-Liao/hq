@@ -690,27 +690,35 @@ private func helloJSON(version: String, minApp: String? = nil, backends: String 
     }
 }
 
-@MainActor @Test func composerDraftsRestoreSeparatelyForEachBotAndThread() {
+@MainActor @Test func composerDraftsPersistAcrossNavigationAndReopening() {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
-    let store = BotStore(computer: randomComputer("Mac"), clientKind: "ios", storage: storage) {
-        FakeRemote(.connecting)
-    }
-    defer { store.retire() }
-    let text = "  Unfinished message\nnext line 🐱\n"
-    store.selection = "first"
+    let computer = randomComputer("Mac")
+    let store = BotStore(computer: computer, clientKind: "ios", storage: storage) { FakeRemote(.connecting) }
+    let text = "  中文\nunfinished 🐱\n"
     store.setComposerDraft(text, for: "first")
+    store.setComposerDraft("Other draft", for: "second")
+    store.setComposerDraft("Reply", for: "first", thread: "root")
     store.selection = "second"
-    #expect(store.composerDraft(for: "second").isEmpty)
-    store.setComposerDraft("Other bot's draft", for: "second")
-    store.setComposerDraft("Thread reply", for: "first", thread: "root")
-    store.selection = "first"
     #expect(store.composerDraft(for: "first") == text)
-    #expect(store.composerDraft(for: "second") == "Other bot's draft")
-    #expect(store.composerDraft(for: "first", thread: "root") == "Thread reply")
+    store.retire()
+    store.setComposerDraft("late edit", for: "first")
+    let reopened = BotStore(computer: computer, clientKind: "ios", storage: storage) { FakeRemote(.connecting) }
+    defer { reopened.retire() }
+    #expect(reopened.composerDraft(for: "first") == text)
+    #expect(reopened.composerDraft(for: "first", thread: "root") == "Reply")
+    reopened.setComposerDraft("", for: "first")
+    #expect(reopened.composerDraft(for: "first").isEmpty)
+    #expect(reopened.composerDraft(for: "second") == "Other draft")
+    #expect(reopened.composerDraft(for: "first", thread: "root") == "Reply")
+    let other = BotStore(computer: randomComputer("Other"), clientKind: "ios", storage: storage) { FakeRemote(.connecting) }
+    defer { other.retire() }
+    #expect(other.composerDraft(for: "first").isEmpty)
+    storage.erase()
+    #expect(storage.composerDrafts.isEmpty)
 }
 
-@MainActor @Test func sendingComposerDraftClearsOnlyThatConversation() async {
+@MainActor @Test func sendingDraftNeverClearsAnotherConversationOrLaterText() async {
     let (storage, suite) = context()
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let fake = FakeRemote(.ready(.direct))
@@ -721,13 +729,15 @@ private func helloJSON(version: String, minApp: String? = nil, backends: String 
     await fake.emit(botEvent("first", name: "First", rev: 1))
     #expect(await until { store.connection == .online })
     store.setComposerDraft("First message", for: "first")
-    store.setComposerDraft("Other bot's draft", for: "second")
-    store.setComposerDraft("Thread reply", for: "first", thread: "root")
+    store.setComposerDraft("Other draft", for: "second")
+    store.setComposerDraft("Reply", for: "first", thread: "root")
     #expect(store.sendComposerDraft(to: "first"))
     #expect(store.composerDraft(for: "first").isEmpty)
-    #expect(store.composerDraft(for: "second") == "Other bot's draft")
-    #expect(store.composerDraft(for: "first", thread: "root") == "Thread reply")
     store.setComposerDraft("Next unfinished message", for: "first")
     #expect(await until { store.chat("first").last?.id == "e1" })
     #expect(store.composerDraft(for: "first") == "Next unfinished message")
+    #expect(store.composerDraft(for: "second") == "Other draft")
+    #expect(store.composerDraft(for: "first", thread: "root") == "Reply")
+    let anotherAccount = SharedStore.Context(accountID: "another-user", suite: suite)
+    #expect(anotherAccount.composerDrafts.isEmpty)
 }

@@ -244,7 +244,7 @@
 .mentions {
   display: flex;
   gap: 6px;
-  padding: 0 16px;
+  padding: 0 16px 6px;
   overflow-x: auto;
 }
 .mention {
@@ -291,7 +291,13 @@
   gap: 8px;
   padding: 4px 6px 4px 8px;
 }
-.composer-box textarea {
+.composer-field {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+.composer-box textarea,
+.composer-measure {
   flex: 1;
   min-width: 0;
   font-size: var(--conversation);
@@ -301,6 +307,37 @@
   user-select: text;
   cursor: text;
 }
+.composer-box textarea {
+  display: block;
+  width: 100%;
+  height: calc(round(up, calc(var(--conversation) * 1.25), 1px) + 14px);
+  transition: height var(--layout);
+}
+.composer-measure {
+  position: absolute;
+  inset: 0 0 auto;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.composer-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows var(--layout), opacity var(--morph);
+}
+.composer-reveal.shown { grid-template-rows: 1fr; opacity: 1; }
+.composer-reveal > div { min-height: 0; overflow: hidden; }
+.composer-symbol {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transform: scale(0.55) rotate(-35deg);
+  transition: opacity var(--morph), transform var(--morph);
+}
+.composer-symbol.active { opacity: 1; transform: scale(1) rotate(0); }
 .composer-send {
   width: 28px;
   height: 28px;
@@ -386,9 +423,11 @@
   height: 100%;
   display: flex;
   flex: none;
-  animation: panel-slide var(--morph) both;
+  opacity: 0;
+  transition: width var(--layout), opacity var(--morph);
   overflow: hidden;
 }
+.side-panel.shown { opacity: 1; }
 .side-panel-border {
   width: 1px;
   background: var(--border);

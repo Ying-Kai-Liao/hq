@@ -32,7 +32,7 @@ public enum SharedStore {
             self.suite = suite
         }
 
-        private static let names = ["computers", "bots", "usage", "lastComputerId"]
+        private static let names = ["computers", "bots", "usage", "lastComputerId", "composerDrafts"]
         private func key(_ name: String) -> String { accountID == nil ? name : "account.\(id).\(name)" }
         public static func digest(_ value: String) -> String {
             SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -58,6 +58,12 @@ public enum SharedStore {
             get { read([ComputerID: Usage].self, "usage") ?? [:] }
             nonmutating set { write(newValue, "usage") }
         }
+        /// Unsent text, isolated by account, computer, bot and thread; not a transcript cache.
+        public var composerDrafts: [ComputerID: [String: String]] {
+            get { read([ComputerID: [String: String]].self, "composerDrafts") ?? [:] }
+            nonmutating set { write(newValue, "composerDrafts") }
+        }
+
         /// The most recently active computer; the Usage widget shows only this one.
         public var lastComputerId: ComputerID? {
             get { defaults.string(forKey: key("lastComputerId")) }

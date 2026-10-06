@@ -58,13 +58,8 @@ public final class BotStore {
     public private(set) var installedSkills: [InstalledSkill] = []
     /// Bots whose older history has been fully paged in.
     public private(set) var historyComplete: Set<String> = []
+    private var composerDrafts: [String: String] = [:]
     public var routineDrafts: [String: String] = [:]
-    /// Unsent composer text belongs to a conversation, not the view displaying it.
-    private struct ComposerDestination: Hashable {
-        let botId: String
-        let thread: String?
-    }
-    private var composerDrafts: [ComposerDestination: String] = [:]
     public var lastError: String?
     /// The open conversation (iOS navigation path / Mac sidebar selection).
     public var selection: String?
@@ -134,6 +129,7 @@ public final class BotStore {
         self.storage = storage
         makeTransport = transport
         usage = storage.usage[computer.id] ?? Usage()
+        composerDrafts = storage.composerDrafts[computer.id] ?? [:]
         loadCache()
     }
 
@@ -214,8 +210,9 @@ public final class BotStore {
     }
 
     private func resetMirror() {
-        bots = [:]
         composerDrafts = [:]
+        persistComposerDrafts()
+        bots = [:]
         entries = entries.mapValues { $0.filter { $0.id.hasPrefix("local-") } }.filter { !$0.value.isEmpty }
         selection = nil
         onRosterChanged?()
@@ -235,7 +232,6 @@ public final class BotStore {
         voiceCalls.removeAll()
         setActive(false)
         retired = true
-        composerDrafts = [:]
         for call in calls { call.end() }
         saveTask?.cancel()
         dropTimer?.cancel()
@@ -524,7 +520,7 @@ public final class BotStore {
                 }
             }
         case let .botDeleted(id, r):
-            composerDrafts = composerDrafts.filter { $0.key.botId != id }
+            removeComposerDrafts(for: id)
             bots[id] = nil
             entries[id] = nil
             bump(r)
@@ -657,17 +653,34 @@ public final class BotStore {
         }
     }
 
+    private func composerKey(_ botId: String, _ thread: String?) -> String {
+        // Encode the tuple so a main chat cannot collide with a thread's ID.
+        String(decoding: (try? JSONEncoder().encode([botId, thread])) ?? Data(), as: UTF8.self)
+    }
+
     func composerDraft(for botId: String, thread: String? = nil) -> String {
-        composerDrafts[ComposerDestination(botId: botId, thread: thread)] ?? ""
+        composerDrafts[composerKey(botId, thread)] ?? ""
     }
 
     func setComposerDraft(_ text: String, for botId: String, thread: String? = nil) {
         guard !retired else { return }
-        let destination = ComposerDestination(botId: botId, thread: thread)
-        composerDrafts[destination] = text.isEmpty ? nil : text
+        composerDrafts[composerKey(botId, thread)] = text.isEmpty ? nil : text
+        persistComposerDrafts()
     }
 
-    /// Submission moves the text to the local message/outbox; later delivery never clears a new draft.
+    private func persistComposerDrafts() {
+        storage.composerDrafts[computer.id] = composerDrafts.isEmpty ? nil : composerDrafts
+    }
+
+    private func removeComposerDrafts(for botId: String) {
+        composerDrafts = composerDrafts.filter { key, _ in
+            let destination = try? JSONDecoder().decode([String?].self, from: Data(key.utf8))
+            return destination?.first != botId
+        }
+        persistComposerDrafts()
+    }
+
+    /// Transfer to the outbox now; an eventual acknowledgement must not erase a newer draft.
     @discardableResult
     func sendComposerDraft(to botId: String, thread: String? = nil, files: [OutgoingFile] = []) -> Bool {
         let text = composerDraft(for: botId, thread: thread)
@@ -978,7 +991,7 @@ public final class BotStore {
     }
 
     public func delete(_ bot: Bot) {
-        composerDrafts = composerDrafts.filter { $0.key.botId != bot.id }
+        removeComposerDrafts(for: bot.id)
         bots[bot.id] = nil
         entries[bot.id] = nil
         perform(replay: true) { try await $0.deleteBot(bot.id) }

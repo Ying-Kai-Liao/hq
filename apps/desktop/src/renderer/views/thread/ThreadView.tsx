@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { draftOf, isGroup, isWorkingIn, type Bot, type BotDraft } from '@shared/models'
 import { BotAvatar, GroupAvatar } from '../../components/Avatar'
 import { Spinner } from '../../components/Controls'
@@ -10,6 +10,7 @@ import { UpdateNeededCard } from '../UpdateNeededCard'
 import { buildChat, relativeTime, type ChatItem } from './chat-items'
 import { ChatRow, WorkingIndicator } from './ChatRows'
 import { Composer } from './Composer'
+import { ChatSidePanel } from './ChatSidePanel'
 import { DetailsPanel } from './DetailsPanel'
 import { RepliesView } from './RepliesView'
 import { TraceView } from './TraceView'
@@ -159,13 +160,9 @@ export function ThreadView({ botId }: { botId: string }) {
           </div>
         ) : null}
       </div>
-      {openThread && wide ? (
-        <SidePanel key={openThread} width={Math.min(420, width * 0.45)}>
-          <RepliesView botId={botId} rootId={openThread} close={closeThread} />
-        </SidePanel>
-      ) : showSettings && wide ? (
-        <SidePanel width={292}>{details}</SidePanel>
-      ) : null}
+      <ChatSidePanel open={wide && (!!openThread || showSettings)} width={openThread ? Math.min(420, width * 0.45) : 292}>
+        {openThread ? <RepliesView key={openThread} botId={botId} rootId={openThread} close={closeThread} /> : details}
+      </ChatSidePanel>
 
       <Sheet open={compactDetails} onClose={() => setCompactDetails(false)} width={340} height={600}>
         {details}
@@ -182,16 +179,6 @@ export function ThreadView({ botId }: { botId: string }) {
       <Sheet open={editingGroup} onClose={() => setEditingGroup(false)} width={420} height={560}>
         <GroupEditorView group={bot} />
       </Sheet>
-    </div>
-  )
-}
-
-/** The panel beside the chat (a thread, or the bot's details), sliding in from the trailing edge. */
-function SidePanel({ width, children }: { width: number; children: ReactNode }) {
-  return (
-    <div className="side-panel" style={{ width: width + 1 }}>
-      <div className="side-panel-border" />
-      <div style={{ width, height: '100%' }}>{children}</div>
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { folderName, isGroup, isWorking, type Bot } from '@shared/models'
 import { AgentIcon } from '../../components/AgentIcon'
 import { BotAvatar } from '../../components/Avatar'
@@ -25,11 +25,15 @@ export function DetailsPanel({ botId, routineId, editing, setEditing, editGroup,
 }) {
   const store = useStore()
   const bot = store.bots.get(botId) ?? null
+  const [returnedFromSettings, setReturnedFromSettings] = useState(false)
   let header: ReactNode
   if (editing) {
     header = (
       <>
-        <RoundButton label="Back to details" symbol="chevron.left" action={() => setEditing(false)} />
+        <RoundButton label="Back to details" symbol="chevron.left" action={() => {
+          setReturnedFromSettings(true)
+          setEditing(false)
+        }} />
         <PanelTitle>Settings</PanelTitle>
         <span style={{ flex: 1 }} />
       </>
@@ -66,7 +70,7 @@ export function DetailsPanel({ botId, routineId, editing, setEditing, editGroup,
             <BotSettingsPanel botId={botId} />
           </div>
         ) : (
-          <div className="panel-slide from-leading" style={{ height: '100%', overflowY: 'auto' }}>
+          <div className={returnedFromSettings ? 'panel-slide from-leading' : undefined} style={{ height: '100%', overflowY: 'auto' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 28, padding: '4px 16px 24px' }}>
               <ComputerSummary botId={botId} />
               <RoutinesView botId={botId} initialId={routineId} />
