@@ -19,6 +19,8 @@ export class FakeHost {
   private listeners = new Set<(line: string) => void>()
   private turns = new Map<string, number>()
   private nextReply = new Map<string, number>()
+  /** Already chosen, so the demo never asks for consent. */
+  private analytics = false
 
   constructor(
     readonly version: string,
@@ -181,7 +183,7 @@ export class FakeHost {
       case 'hello':
         return {
           hostId: this.hostId, computerId: story.COMPUTER_ID, signKey: '', boxKey: '', cloud: null, name: story.HOST_NAME,
-          version: this.version, minApp: this.version, os: 'macos', device: 'MacBookPro', home: '/Users/demo', rev: this.rev,
+          version: this.version, minApp: this.version, os: 'macos', device: 'MacBookPro', home: '/Users/demo', rev: this.rev, analytics: this.analytics,
           urls: [], backends: [
             { id: 'claude', name: 'Claude Code', available: true, installed: true, signedIn: true, command: 'claude', installHint: '' },
             { id: 'codex', name: 'Codex', available: true, installed: true, signedIn: true, command: 'codex', installHint: '' },
@@ -265,6 +267,11 @@ export class FakeHost {
         return { configured: false, keyUrl: '' }
       case 'credentialStatus':
         return { provider: '', onePasswordConnected: false }
+      case 'setAnalytics':
+        this.analytics = b.enabled === true
+        return { enabled: this.analytics }
+      case 'track':
+        return {}
       default:
         throw fail(DEMO_UNAVAILABLE)
     }

@@ -7,7 +7,21 @@
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>
 	<key>NSPrivacyCollectedDataTypes</key>
-	<array/>
+	<array>
+		<!-- Opt-in usage analytics (Settings → Share usage analytics), linked to the Codync account when signed in. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<dict>

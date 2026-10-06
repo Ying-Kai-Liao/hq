@@ -271,7 +271,12 @@ export interface Hello {
   boxKey?: string
   minApp?: string
   cloud?: string | null
+  /** Product analytics on this computer; null until its owner chose (absent on older hosts). */
+  analytics?: boolean | null
 }
+
+/** Events only the desktop app knows about; the host records everything else from API calls. */
+export type AnalyticsEvent = 'app_opened' | 'onboarding_completed' | 'signed_in' | 'signed_out'
 
 export interface PairingInfo {
   pairingUrl: string
