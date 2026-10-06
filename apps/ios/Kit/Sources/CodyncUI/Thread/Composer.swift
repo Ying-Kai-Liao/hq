@@ -24,9 +24,6 @@ struct Composer: View {
     @State private var pickingFiles = false
     @State private var pickingPhotos = false
     @State private var photoItems: [PhotosPickerItem] = []
-        /// The clipboard's `changeCount` last pasted (or passed on), so one copy is offered once.
-        @State private var pasteCount = -1
-        @State private var clipboardTick = 0
     @FocusState private var focused: Bool
     /// One line of the field's text, following Dynamic Type: the send button centers on the last line.
     @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
@@ -106,8 +103,6 @@ struct Composer: View {
         HStack(alignment: .bottom, spacing: 8) {
             if canAttach { addButton }
             VStack(alignment: .leading, spacing: 0) {
-                    let _ = clipboardTick
-                    if clipboardOffer { pasteOffer.transition(.move(edge: .bottom).combined(with: .opacity)) }
                 if !files.isEmpty {
                     fileChips.transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -117,10 +112,6 @@ struct Composer: View {
             .animation(Motion.layout, value: draft)
         }
         .animation(Motion.layout, value: files.map(\.id))
-            // The clipboard isn't observable: look again when typing starts or the app comes back.
-            .onChange(of: focused) { _, _ in clipboardTick += 1 }
-            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in clipboardTick += 1 }
-            .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in clipboardTick += 1 }
         .dropDestination(for: PickedFile.self) { picked, _ in
             guard canAttach else { return false }
             append(picked.map(\.file))
@@ -241,27 +232,6 @@ struct Composer: View {
             .contentShape(Circle())
     }
 
-        private var pasteOffer: some View {
-            HStack(spacing: 6) {
-                Button(action: pasteFiles) {
-                    Label("Paste image", systemImage: "doc.on.clipboard")
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(Palette.text)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Palette.surface, in: Capsule())
-                }
-                .buttonStyle(PressScale())
-                Button { pasteCount = UIPasteboard.general.changeCount } label: {
-                    Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(Palette.secondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Don't paste")
-            }
-            .padding(.horizontal, 10)
-            .padding(.top, 8)
-        }
-
     private var fileChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
@@ -299,8 +269,7 @@ struct Composer: View {
 
     /// Images (or files) on the clipboard become attachments.
     private func pasteFiles() {
-            let providers = UIPasteboard.general.itemProviders
-            pasteCount = UIPasteboard.general.changeCount
+        let providers = UIPasteboard.general.itemProviders
         Task { append(await PickedFile.load(providers)) }
     }
 
@@ -314,11 +283,6 @@ struct Composer: View {
                 picked.append(OutgoingFile(name: "photo-\(stamp)-\(i + 1).jpg", data: jpeg))
             }
             append(picked)
-        }
-
-        /// A copied image not offered yet: shown as a "Paste image" chip while typing.
-        private var clipboardOffer: Bool {
-            canAttach && focused && UIPasteboard.general.hasImages && UIPasteboard.general.changeCount != pasteCount
         }
 
     private func mention(_ member: Bot) {
