@@ -405,15 +405,21 @@ fn write_settings(settings: &Path, v: &Value) -> Result<()> {
 /// wrapped (`codync-host statusline -- <original>`) and restored on uninstall.
 pub fn ensure_statusline(settings: &Path) -> Result<bool> {
     let mut v = read_settings(settings)?.unwrap_or_else(|| json!({}));
-    let current = v["statusLine"]["command"].as_str().map(str::to_owned);
-    if current.as_deref().is_some_and(|c| c.contains(" statusline")) {
-        return Ok(false);
-    }
+    let mut current = v["statusLine"]["command"].as_str().map(str::to_owned);
     if v.get("statusLine").is_some() && current.is_none() {
         return Ok(false); // not a command status line; leave it alone
     }
     let exe = std::env::current_exe()?.canonicalize()?;
     let ours = format!("'{}' statusline", exe.to_string_lossy());
+    if let Some(cmd) = current.as_deref() {
+        if cmd.starts_with(&ours) {
+            return Ok(false);
+        }
+        // Wrapped by a host binary that moved or was deleted: re-point it.
+        if let Some(original) = unwrap_statusline(cmd) {
+            current = Some(original.to_owned()).filter(|o| !o.is_empty());
+        }
+    }
     let command = match current {
         Some(original) => format!("{ours} -- {original}"),
         None => ours,
@@ -427,19 +433,26 @@ pub fn ensure_statusline(settings: &Path) -> Result<bool> {
 pub fn restore_statusline(settings: &Path) -> Result<()> {
     let Some(mut v) = read_settings(settings)? else { return Ok(()) };
     let Some(cmd) = v["statusLine"]["command"].as_str().map(str::to_owned) else { return Ok(()) };
-    // Ours always starts with the quoted host path followed by ` statusline`.
-    if !cmd.starts_with('\'') || !cmd.contains("' statusline") {
-        return Ok(());
-    }
-    match cmd.split_once(STATUSLINE_MARK) {
-        Some((_, original)) => v["statusLine"]["command"] = original.trim().into(),
-        None => {
+    match unwrap_statusline(&cmd) {
+        None => return Ok(()),
+        Some("") => {
             if let Some(root) = v.as_object_mut() {
                 root.remove("statusLine");
             }
         }
+        Some(original) => v["statusLine"]["command"] = original.into(),
     }
     write_settings(settings, &v)
+}
+
+/// The command our wrapper wraps (empty when it wraps nothing), or `None`
+/// when `cmd` isn't ours.
+fn unwrap_statusline(cmd: &str) -> Option<&str> {
+    // Ours always starts with the quoted host path followed by ` statusline`.
+    if !cmd.starts_with('\'') || !cmd.contains("' statusline") {
+        return None;
+    }
+    Some(cmd.split_once(STATUSLINE_MARK).map_or("", |(_, original)| original.trim()))
 }
 
 #[cfg(test)]
@@ -495,6 +508,11 @@ mod tests {
         assert!(ensure_statusline(&f).unwrap());
         assert!(!ensure_statusline(&f).unwrap(), "idempotent");
         assert!(read(&f)["statusLine"]["command"].as_str().unwrap().ends_with("statusline -- sh ~/mine.sh"));
+        let stale = r#"{"statusLine":{"type":"command","command":"'/gone/codync-host' statusline -- sh ~/mine.sh"}}"#;
+        std::fs::write(&f, stale).unwrap();
+        assert!(ensure_statusline(&f).unwrap(), "re-points a moved host");
+        let cmd = read(&f)["statusLine"]["command"].as_str().unwrap().to_owned();
+        assert!(!cmd.contains("/gone/") && cmd.ends_with("statusline -- sh ~/mine.sh"));
         restore_statusline(&f).unwrap();
         assert_eq!(read(&f)["statusLine"]["command"], "sh ~/mine.sh");
     }
