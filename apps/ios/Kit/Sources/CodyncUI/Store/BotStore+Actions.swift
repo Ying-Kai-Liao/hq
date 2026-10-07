@@ -201,6 +201,17 @@ extension BotStore {
         for e in replies { upsert(e) }
     }
 
+    /// The bot-to-bot notices between a chat and a peer. Never `upsert`ed: old notices in the
+    /// mirror would break `loadOlder`, which pages from the oldest loaded `seq`.
+    public func botConversation(_ botId: String, peer: String) async -> [Entry] {
+        do {
+            return try await ready().botConversation(botId: botId, peerId: peer)
+        } catch {
+            log.error("botConversation failed: \(error.localizedDescription, privacy: .public)")
+            return []
+        }
+    }
+
     public func save(_ draft: BotDraft) async throws -> Bot {
         let client = try await ready()
         let bot = draft.id == nil ? try await client.createBot(draft) : try await client.updateBot(draft)

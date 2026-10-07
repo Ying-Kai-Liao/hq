@@ -10,6 +10,7 @@ const map: Record<string, IconNode> = {
   'arrow.down.circle': L.CircleArrowDown,
   'arrow.down.right.and.arrow.up.left': L.Minimize2,
   'arrow.left': L.ArrowLeft,
+  'arrow.left.arrow.right': L.ArrowLeftRight,
   'arrow.right': L.ArrowRight,
   'arrow.right.doc.on.clipboard': L.ClipboardCopy,
   'arrow.up.doc.on.clipboard': L.ClipboardPaste,

@@ -129,7 +129,21 @@ export interface ConnectionRequest {
   [key: string]: unknown
 }
 
+export interface BotMessage {
+  sourceBotId: string
+  targetBotId: string
+  text: string
+  reply?: string
+  detail?: string
+}
+
 export interface EntryData {
+  /** Structured conversation data added to the existing team-tool notice. */
+  botMessage?: BotMessage
+  heading?: string
+  delegationId?: string
+  sourceBotId?: string
+  targetBotId?: string
   connectionRequest?: ConnectionRequest
   routineId?: string
   runId?: string
