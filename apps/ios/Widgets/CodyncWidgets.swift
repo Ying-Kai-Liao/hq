@@ -582,10 +582,14 @@ struct ProviderUsageView: View {
 struct BotLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: BotActivityAttributes.self) { context in
-            BotActivityCard(name: context.attributes.name, shape: context.attributes.avatarShape,
-                            color: context.attributes.avatarColor, state: presentation(context),
-                            startedAt: context.state.startedAt, link: context.attributes.link)
-                .activityBackgroundTint(Palette.surface)
+            let state = presentation(context)
+            BotActivityCard(name: context.attributes.name, state: state,
+                            startedAt: context.state.startedAt, link: context.attributes.link) {
+                avatar(context, state: state, size: 32)
+            } mark: {
+                indicator(context, state: state, size: 28)
+            }
+            .modifier(SurfaceTint())
                 .widgetURL(context.attributes.link ?? URL(string: "codync://computers"))
         } dynamicIsland: { context in
             let state = presentation(context)
@@ -618,7 +622,7 @@ struct BotLiveActivity: Widget {
             } compactTrailing: {
                 indicator(context, state: state, size: 20)
             } minimal: {
-                BotActivityIndicator(state: state)
+                indicator(context, state: state, size: 20)
                     .accessibilityLabel("\(context.attributes.name), \(state.title)")
             }
             .keylineTint(state.tint)
@@ -660,6 +664,21 @@ struct BotLiveActivity: Widget {
             }
         }
         .animation(Motion.activityPhase, value: state.phase)
+    }
+}
+
+/// The Lock Screen card's ground, painted by the card itself in its own color scheme. The
+/// system's tint alone can draw light under dark text (the Mac's menu bar shows it that way),
+/// leaving the name white on white.
+private struct SurfaceTint: ViewModifier {
+    @Environment(\.self) private var environment
+
+    func body(content: Content) -> some View {
+        let surface = Color(Palette.surface.resolve(in: environment))
+        content
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(surface)
+            .activityBackgroundTint(surface)
     }
 }
 
