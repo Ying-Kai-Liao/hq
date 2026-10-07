@@ -217,6 +217,15 @@ describe("devices", () => {
     expect(revoked.status).toBe(403);
   });
 
+  it("registers the desktop app on every platform, and no unknown one", async () => {
+    const u = await newUser();
+    for (const platform of ["macos", "linux", "windows"]) {
+      const r = await call("POST", "/v1/devices", { token: u.token, key: ref.signKey(), body: { name: "Desktop", platform } });
+      expect(r.status, platform).toBe(200);
+    }
+    expect((await call("POST", "/v1/devices", { token: u.token, key: ref.signKey(), body: { name: "x", platform: "beos" } })).status).toBe(400);
+  });
+
   it("requires the device key's signature", async () => {
     const userId = uid("nosig");
     const r = await call("POST", "/v1/devices", { token: await clerkToken(userId), body: { name: "x", platform: "ios" } });
