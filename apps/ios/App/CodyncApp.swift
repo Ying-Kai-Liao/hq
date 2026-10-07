@@ -111,7 +111,13 @@ struct CodyncApp: App {
 }
 
 extension CodyncApp {
-    static let analyticsQuestion = "Codync can record which features you use on this iPhone, like creating a bot or sending a message. It never collects your messages, code, files, prompts or bot names. Your data stays private: it's used only to understand how people use Codync, never sold and never used for ads. When you're signed in, it's linked to your Codync account. You can turn this off anytime in Settings."
+    static let analyticsQuestion = """
+        Codync can record which features you use on this iPhone, like creating a bot or sending a message.
+
+        Never your messages, code, files, prompts or bot names.
+        Never sold or used for ads. Linked to your Codync account when you're signed in.
+        Turn it off anytime in Settings.
+        """
 }
 
 enum AppTab: Hashable { case bots, state }
