@@ -116,7 +116,7 @@ export class CloudModel extends Observable {
       // Signed in: make this computer known to the account, then list its computers.
       void (async () => {
         try {
-          await request('POST', 'v1/devices', { name: await deviceName(), platform: window.codync.platform === 'darwin' ? 'macos' : 'linux' }, true)
+          await request('POST', 'v1/devices', { name: await deviceName(), platform: { darwin: 'macos', linux: 'linux', win32: 'windows' }[window.codync.platform] }, true)
         } catch (error) {
           this.fail(error)
         }

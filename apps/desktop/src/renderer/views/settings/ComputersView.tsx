@@ -11,7 +11,7 @@ import { useAccount } from '../../store/account'
 import type { BotStore } from '../../store/bot-store'
 import { StoreContext, useApp } from '../../store/context'
 import { ComputerBadge } from '../ComputerBadge'
-import { errorText, liveClient, relativeDay, Reveal, SectionHeader, statusText, thisMac } from './parts'
+import { deviceIcon, errorText, liveClient, relativeDay, Reveal, SectionHeader, statusText, thisMac } from './parts'
 import { sshBridge, useSSH } from './ssh-model'
 import { VoiceChatSettingsView } from './VoiceChatSettingsView'
 
@@ -242,7 +242,7 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
               ...devices.map((device) => (
                 <div key={device.key} className="settings-row settings-appear" style={{ gap: 8 }}>
                   <span style={{ width: 18, display: 'flex', justifyContent: 'center', color: 'var(--secondary)' }}>
-                    <Icon name={device.platform === 'macos' ? 'laptopcomputer' : 'iphone'} size={13} />
+                    <Icon name={deviceIcon(device.platform)} size={13} />
                   </span>
                   <div className="settings-stack" style={{ flex: 1 }}>
                     <span>{device.name}</span>

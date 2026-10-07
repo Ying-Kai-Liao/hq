@@ -5,7 +5,7 @@ import { ModalHeader } from '../../components/Overlay'
 import { font } from '../../lib/fonts'
 import type { Approval } from '../../store/app-model'
 import { useApp } from '../../store/context'
-import { errorText, Reveal, spacedCode } from './parts'
+import { deviceIcon, errorText, Reveal, spacedCode } from './parts'
 
 /**
  * A device asks for access through the account (spec §4.2 B). The code is the only thing that
@@ -36,7 +36,7 @@ export function ApprovalSheet({ approval }: { approval: Approval }) {
     <div style={{ width: 420, display: 'flex', flexDirection: 'column' }}>
       <ModalHeader title="Access request" />
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '0 24px 24px' }}>
-        <Icon name={request.platform === 'macos' ? 'laptopcomputer' : 'iphone'} size={40} weight="light" color="var(--secondary)" />
+        <Icon name={deviceIcon(request.platform)} size={40} weight="light" color="var(--secondary)" />
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
           <div style={{ ...font('title3', 'semibold'), ...center }}>
             {request.deviceName} wants to use {approval.store.hostName}

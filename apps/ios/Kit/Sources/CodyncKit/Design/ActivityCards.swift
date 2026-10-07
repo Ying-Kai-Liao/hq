@@ -111,38 +111,36 @@ public struct ActivityReviewButton: View {
     }
 }
 
-/// Shared by the Lock Screen Live Activity and the in-app gallery.
-public struct BotActivityCard: View {
+/// Shared by the Lock Screen Live Activity and the in-app gallery. The Live Activity passes its
+/// own face and mark (the working loops drawn in timer fonts); the gallery uses the still ones.
+public struct BotActivityCard<Face: View, Mark: View>: View {
     let name: String
-    let shape: String
-    let color: String
     let state: BotActivityPresentation
     let startedAt: Date?
     let link: URL?
+    let face: Face
+    let mark: Mark
 
-    public init(bot: Bot, state: BotActivityPresentation, startedAt: Date? = nil) {
-        self.init(name: bot.name, shape: bot.avatarShape, color: bot.avatarColor, state: state, startedAt: startedAt)
-    }
-
-    public init(name: String, shape: String, color: String, state: BotActivityPresentation, startedAt: Date? = nil, link: URL? = nil) {
+    public init(name: String, state: BotActivityPresentation, startedAt: Date? = nil, link: URL? = nil,
+                @ViewBuilder face: () -> Face, @ViewBuilder mark: () -> Mark) {
         self.name = name
-        self.shape = shape
-        self.color = color
         self.state = state
         self.startedAt = startedAt
         self.link = link
+        self.face = face()
+        self.mark = mark()
     }
 
     public var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
-                ActivityAvatar(shape: shape, color: color, state: state, size: 32)
+                face
                 VStack(alignment: .leading, spacing: 2) {
                     Text(name).font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text).lineLimit(1)
                     ActivityCaption(state: state, startedAt: startedAt)
                 }
                 Spacer(minLength: 8)
-                BotActivityIndicator(state: state, size: 28)
+                mark
             }
             if state.phase == .needsInput {
                 ActivityReviewButton(state: state, link: link).transition(.activityRow)
@@ -152,6 +150,16 @@ public struct BotActivityCard: View {
         .animation(Motion.activityPhase, value: state)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(name), \(state.title). \(state.caption)")
+    }
+}
+
+public extension BotActivityCard where Face == ActivityAvatar, Mark == BotActivityIndicator {
+    init(bot: Bot, state: BotActivityPresentation, startedAt: Date? = nil) {
+        self.init(name: bot.name, state: state, startedAt: startedAt) {
+            ActivityAvatar(shape: bot.avatarShape, color: bot.avatarColor, state: state, size: 32)
+        } mark: {
+            BotActivityIndicator(state: state, size: 28)
+        }
     }
 }
 

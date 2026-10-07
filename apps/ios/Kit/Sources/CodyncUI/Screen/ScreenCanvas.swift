@@ -44,6 +44,7 @@ final class ScreenCanvas: UIView, UIGestureRecognizerDelegate {
         addSubview(video)
         keys.onText = { [weak self] in self?.typed($0) }
         keys.onKey = { [weak self] key, mods in self?.pressKey(key, mods) }
+        keys.onComposingChanged = { [weak self] in self?.setNeedsLayout() }
         addSubview(keys)
         installGestures()
     }
@@ -93,8 +94,21 @@ final class ScreenCanvas: UIView, UIGestureRecognizerDelegate {
             viewport.pan(by: .zero)
             scheduleViewRequest()
         }
-        keys.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        layoutKeys()
         layoutVideo()
+    }
+
+    /// Hidden while idle; while an IME composes, the field shows above the bottom bar so its
+    /// marked text and the candidate popup anchored to its caret are visible.
+    private func layoutKeys() {
+        guard keys.isComposing else {
+            keys.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+            return
+        }
+        let area = bounds.inset(by: safeAreaInsets).insetBy(dx: 16, dy: 16)
+        let fit = keys.sizeThatFits(CGSize(width: area.width, height: .greatestFiniteMagnitude))
+        let size = CGSize(width: min(max(fit.width + 28, 80), area.width), height: max(fit.height + 16, 40))
+        keys.frame = CGRect(x: area.midX - size.width / 2, y: area.maxY - size.height, width: size.width, height: size.height)
     }
 
     override func didMoveToWindow() {
@@ -304,6 +318,11 @@ final class ScreenCanvas: UIView, UIGestureRecognizerDelegate {
 private final class KeyProxyField: UITextField, UITextFieldDelegate {
     var onText: (String) -> Void = { _ in }
     var onKey: (String, [String]) -> Void = { _, _ in }
+    /// The composition started, changed or ended: the canvas places and sizes the field.
+    var onComposingChanged: () -> Void = {}
+    private(set) var isComposing = false {
+        didSet { alpha = isComposing ? 1 : 0.02 }
+    }
 
     /// With the soft keyboard hidden the field stays first responder, so hardware keys still arrive.
     var showsSoftKeyboard = false {
@@ -320,6 +339,11 @@ private final class KeyProxyField: UITextField, UITextFieldDelegate {
         delegate = self
         alpha = 0.02
         tintColor = .clear
+        textColor = .white
+        backgroundColor = UIColor(white: 0.12, alpha: 1)
+        layer.cornerRadius = 12
+        leftView = UIView(frame: CGRect(x: 0, y: 0, width: 14, height: 1))
+        leftViewMode = .always
         autocorrectionType = .no
         autocapitalizationType = .none
         spellCheckingType = .no
@@ -338,6 +362,8 @@ private final class KeyProxyField: UITextField, UITextFieldDelegate {
 
     /// Sends committed text; text still being composed by an IME waits.
     @objc private func changed() {
+        isComposing = markedTextRange != nil
+        onComposingChanged()
         guard markedTextRange == nil, let t = text, !t.isEmpty else { return }
         onText(t)
         text = ""
