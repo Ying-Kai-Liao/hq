@@ -15,10 +15,9 @@ struct Composer: View {
     var onInterrupt: (() -> Void)?
     @Environment(BotStore.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private var draft: String {
-        get { model.composerDraft(for: botId, thread: thread) }
-        nonmutating set { model.setComposerDraft(newValue, for: botId, thread: thread) }
-    }
+    /// The field owns its text; the store only keeps a copy. A field bound straight to the
+    /// store loses a hardware keyboard's IME composition (Zhuyin, Pinyin, Kana) on iPad.
+    @State private var draft = ""
     /// Files going out with the next message.
     @State private var files: [OutgoingFile] = []
     @State private var pickingFiles = false
@@ -108,7 +107,8 @@ struct Composer: View {
                 box
             }
             .glass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .animation(Motion.layout, value: draft)
+            // Lines, not the text: an animated transaction on every keystroke breaks IME composition.
+            .animation(Motion.layout, value: draft.count(where: \.isNewline))
         }
         .animation(Motion.layout, value: files.map(\.id))
         .dropDestination(for: PickedFile.self) { picked, _ in
@@ -188,7 +188,7 @@ struct Composer: View {
 
     private var box: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField(placeholder, text: Binding(get: { draft }, set: { draft = $0 }), axis: .vertical)
+            TextField(placeholder, text: $draft, axis: .vertical)
                 .lineLimit(1...8)
                 .font(.body)
                 .textFieldStyle(.plain)
@@ -201,6 +201,10 @@ struct Composer: View {
         .padding(.leading, 18)
         .padding(.trailing, 6)
         .padding(.vertical, boxPadding)
+        .onChange(of: [botId, thread], initial: true) {
+            draft = model.composerDraft(for: botId, thread: thread)
+        }
+        .onChange(of: draft) { _, value in model.setComposerDraft(value, for: botId, thread: thread) }
         .onChange(of: model.routineDrafts[botId]) { _, value in
             guard thread == nil, let value else { return }
             draft = draft.isEmpty ? value : draft + "\n" + value
@@ -294,6 +298,7 @@ struct Composer: View {
         guard canSend else { return }
         withAnimation(Motion.reduced(Motion.conversation, reduceMotion)) {
             guard model.sendComposerDraft(to: botId, thread: thread, files: files) else { return }
+            draft = ""
             files = []
         }
     }
