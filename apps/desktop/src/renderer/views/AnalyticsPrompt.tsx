@@ -9,6 +9,12 @@ import { useApp } from '../store/context'
 import { errorText } from './settings/parts'
 
 const device = window.codync.platform === 'darwin' ? 'Mac' : 'computer'
+/** What the answer covers; same points as the iPhone's and the terminal's question. */
+const points: [icon: string, text: string][] = [
+  ['eye.slash', 'Never your messages, code, files, prompts or bot names'],
+  ['lock.shield', "Never sold or used for ads. Linked to your Codync account when you're signed in"],
+  ['gearshape', 'Turn it off anytime in Settings'],
+]
 /** Read at launch: a welcome screen finished later was this launch's onboarding. */
 const onboardedAtLaunch = prefs.onboardingDone.get()
 
@@ -41,7 +47,15 @@ export function AnalyticsPrompt() {
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '0 24px 24px' }}>
           <Icon name="chart.bar" size={36} weight="light" color="var(--secondary)" />
           <div style={{ ...font('callout'), color: 'var(--secondary)', textAlign: 'center' }}>
-            Codync can record which features you use on this {device}, like creating a bot or sending a message. It never collects your messages, code, files, prompts or bot names. Your data stays private: it's used only to understand how people use Codync, never sold and never used for ads. When you're signed in, it's linked to your Codync account. You can turn this off anytime in Settings.
+            Codync can record which features you use on this {device}, like creating a bot or sending a message.
+          </div>
+          <div style={{ alignSelf: 'stretch', display: 'flex', flexDirection: 'column', gap: 10, padding: 14, borderRadius: 16, background: 'var(--surface)' }}>
+            {points.map(([icon, text]) => (
+              <div key={icon} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Icon name={icon} size={13} color="var(--tertiary)" style={{ width: 18, flexShrink: 0 }} />
+                <div style={{ ...font('callout'), color: 'var(--secondary)' }}>{text}</div>
+              </div>
+            ))}
           </div>
           <div style={{ display: 'flex', gap: 12 }}>
             <Button kind="secondary" onClick={() => void choose(false)}>
