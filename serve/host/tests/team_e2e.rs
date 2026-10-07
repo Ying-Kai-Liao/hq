@@ -113,6 +113,9 @@ async fn agent_uses_team_mcp_and_returns_the_reviewers_answer() {
     assert_eq!(requests.len(), 2);
     assert!(requests.iter().all(|e| e["data"]["status"] == "completed"));
     assert_eq!(requests[0]["data"]["delegationId"], requests[1]["data"]["delegationId"]);
+    assert!(requests.iter().all(|e| e["data"]["botMessage"]["reply"] == "reply: PERMISSION review the changes"));
+    let conversation = host.call("botConversation", json!({"botId": lead, "peerId": reviewer})).await;
+    assert_eq!(conversation["entries"].as_array().unwrap().len(), 1);
     assert!(sync["bots"].as_array().unwrap().iter().all(|b| b["status"] == "idle"));
 }
 

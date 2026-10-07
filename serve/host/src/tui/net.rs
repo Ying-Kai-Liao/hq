@@ -208,12 +208,13 @@ impl Client {
         let c = self.clone();
         tokio::spawn(async move {
             loop {
-                let url = format!("{}/events?since={}&client=tui", c.base, c.rev.load(Ordering::Relaxed));
+                let since = c.rev.load(Ordering::Relaxed);
+                let url = format!("{}/events?since={since}&client=tui", c.base);
                 if let Some(token) = c.token()
                     && let Ok(res) = crate::http().get(url).bearer_auth(token).send().await
                     && res.status().is_success()
                 {
-                    if tx.send(Msg::Online(true)).is_err() {
+                    if tx.send(Msg::Online(true)).is_err() || tx.send(Msg::Connected { since }).is_err() {
                         return;
                     }
                     let mut body = res.bytes_stream();

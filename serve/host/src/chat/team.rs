@@ -144,15 +144,23 @@ struct Pending {
 }
 
 impl Pending {
-    fn finish(&mut self, status: RequestStatus, detail: &str) {
-        finish_notices(&self.hub, &self.entries, status, detail);
+    fn finish(&mut self, status: RequestStatus, detail: &str, reply: Option<&str>) {
+        finish_notices(&self.hub, &self.entries, status, detail, reply);
         self.finished = true;
     }
 }
 
-fn finish_notices(hub: &Hub, entries: &[String], status: RequestStatus, detail: &str) {
+fn finish_notices(hub: &Hub, entries: &[String], status: RequestStatus, detail: &str, reply: Option<&str>) {
     for id in entries {
         if let Some(mut e) = hub.store.entry(id) {
+            if let Some(message) = e.data.get_mut("botMessage").and_then(Value::as_object_mut) {
+                if let Some(reply) = reply {
+                    message.insert("reply".into(), reply.into());
+                }
+                if matches!(status, RequestStatus::Failed | RequestStatus::Cancelled) {
+                    message.insert("detail".into(), detail.into());
+                }
+            }
             e.data["status"] = json!(status);
             let heading = e.data["heading"].as_str().unwrap_or("Bot request");
             e.data["text"] = format!("{heading}\n{detail}").into();
@@ -177,7 +185,7 @@ struct MessageLifetime {
 
 impl MessageLifetime {
     fn finish(&mut self, status: RequestStatus, detail: &str) {
-        finish_notices(&self.hub, &self.entries, status, detail);
+        finish_notices(&self.hub, &self.entries, status, detail, None);
         self.finished = true;
     }
 }
@@ -199,7 +207,7 @@ impl Drop for MessageLifetime {
 impl Drop for Pending {
     fn drop(&mut self) {
         if !self.finished {
-            self.finish(RequestStatus::Cancelled, "Request cancelled. Partial work may have happened.");
+            self.finish(RequestStatus::Cancelled, "Request cancelled. Partial work may have happened.", None);
         }
         self.hub.team.0.locked().pending.remove(&self.id);
         // Targeted cancellation never clears unrelated user messages or turns.
@@ -279,6 +287,7 @@ fn message_bot(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str) -> R
                     "text": format!("{heading}\nQueued. Outcome will appear in {}'s chat.", target.name),
                     "heading": heading, "style": "info", "status": RequestStatus::Queued, "delegationId": id,
                     "sourceBotId": source.id, "targetBotId": target.id,
+                    "botMessage": {"sourceBotId": source.id, "targetBotId": target.id, "text": message},
                 }),
             )
             .ok_or_else(|| anyhow!("couldn't save bot message"))?;
@@ -321,6 +330,7 @@ async fn ask(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str, timeou
                     "text": format!("{heading}\nWaiting for a reply…"), "heading": heading,
                     "style": "info", "status": RequestStatus::Queued, "delegationId": id,
                     "sourceBotId": source.id, "targetBotId": target.id,
+                    "botMessage": {"sourceBotId": source.id, "targetBotId": target.id, "text": message},
                 }),
             )
             .ok_or_else(|| anyhow!("couldn't save bot request"))?;
@@ -340,14 +350,12 @@ async fn ask(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str, timeou
     };
     match result {
         Ok(text) => {
-            pending.finish(
-                RequestStatus::Completed,
-                &format!("Reply from {}:\n{}", target.name, crate::agent::acp::truncate(&text, 4000)),
-            );
+            let reply = crate::agent::acp::truncate(&text, 4000);
+            pending.finish(RequestStatus::Completed, &format!("Reply from {}:\n{reply}", target.name), Some(&reply));
             Ok(json!({"requestId": id, "botId": target.id, "name": target.name, "reply": text}))
         }
         Err(error) => {
-            pending.finish(RequestStatus::Failed, &format!("{error:#}"));
+            pending.finish(RequestStatus::Failed, &format!("{error:#}"), None);
             Err(error)
         }
     }

@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use super::super::app::{After, App, Overlay, Toggle};
+use super::super::app::{After, App, Entry, Overlay, Toggle};
 use super::{Fact, Reply, Shell, open_browser, s};
 
 impl App {
@@ -28,6 +28,18 @@ impl App {
                             .collect();
                         m.cursor = m.cursor.min(facts.len().saturating_sub(1));
                         m.facts = Some(facts);
+                    }
+                }
+            }
+            Reply::BotChat { bot, peer } => {
+                let entries: Vec<Entry> =
+                    v["entries"].as_array().into_iter().flatten().filter_map(Entry::parse).map(|(_, e)| e).collect();
+                for o in &mut self.overlays {
+                    if let Overlay::BotChat(c) = o
+                        && c.bot == bot
+                        && c.peer == peer
+                    {
+                        c.fetched = Some(entries.clone());
                     }
                 }
             }
@@ -195,6 +207,17 @@ impl App {
                     m.skills.get_or_insert_with(Vec::new);
                     m.error = Some(e);
                 }
+            }
+            Reply::BotChat { bot, peer } => {
+                for o in &mut self.overlays {
+                    if let Overlay::BotChat(c) = o
+                        && c.bot == *bot
+                        && c.peer == *peer
+                    {
+                        c.fetched.get_or_insert_with(Vec::new);
+                    }
+                }
+                self.flash(&e);
             }
             Reply::Memory(_) | Reply::Routines(_) => {
                 for o in &mut self.overlays {
