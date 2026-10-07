@@ -23,6 +23,7 @@ import { UpdateNeededCard } from './UpdateNeededCard'
 import { SearchPalette } from './SearchPalette'
 import { AccountWelcomeView } from './AccountWelcomeView'
 import { AnalyticsPrompt } from './AnalyticsPrompt'
+import { StarPrompt } from './StarPrompt'
 import { OpenVoiceSettings } from './call/CallView'
 import { AccountPanelLayer, DesktopActionMenu, ProfileAvatar } from './PanelMenus'
 import { useTraySummary } from './tray-summary'
@@ -85,6 +86,7 @@ export function ChatWindow() {
         <AccountWelcomeView onContinue={() => setOnboarded(true)} />
       )}
       <AnalyticsPrompt />
+      <StarPrompt />
       <Dialog
         open={confirmReset}
         title="Reset all data?"

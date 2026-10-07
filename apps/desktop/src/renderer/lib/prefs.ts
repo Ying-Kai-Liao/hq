@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import type { StarAsk } from './star-ask'
 
 /** A per-window preference in localStorage (kit's `@AppStorage`), observable by views. */
 export function pref<T>(key: string, fallback: T) {
@@ -58,6 +59,7 @@ export const prefs = {
   hiddenComputers: pref('hiddenComputers', ''),
   usageIconStyle: pref<'character' | 'original'>('usageIconStyle', 'character'),
   onboardingDone: pref('macAccountOnboardingCompleted', false),
+  starAsk: pref<StarAsk>('githubStarAsk', { kind: 'never' }),
 }
 
 /** The Mac preference supplies one scale for conversation text and app chrome. */

@@ -90,10 +90,12 @@ const bridge: CodyncBridge = {
   },
 }
 
-// Every visit starts from the story: no mirror cache or drafts from a previous visit, onboarding done.
+// Every visit starts from the story: no mirror cache or drafts from a previous visit, onboarding done,
+// no GitHub star ask over the demo.
 try {
   for (const key of Object.keys(localStorage)) if (key.startsWith('codync-')) localStorage.removeItem(key)
   localStorage.setItem('macAccountOnboardingCompleted', 'true')
+  localStorage.setItem('githubStarAsk', JSON.stringify({ kind: 'done' }))
 } catch {}
 
 // The dark palette everywhere (vite.demo.config.ts does the same for the CSS).
