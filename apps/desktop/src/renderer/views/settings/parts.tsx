@@ -8,6 +8,11 @@ export const isMac = window.codync.platform === 'darwin'
 /** "Mac" in the Mac app's copy; "computer" elsewhere. */
 export const thisMac = isMac ? 'this Mac' : 'this computer'
 
+/** The icon for a device by its account platform: phones, Macs, and other desktops. */
+export function deviceIcon(platform: string | null | undefined) {
+  return platform === 'ios' ? 'iphone' : platform === 'macos' ? 'laptopcomputer' : 'desktopcomputer'
+}
+
 /** Keeps `children` mounted while it fades and folds away. */
 export function Reveal({ show, children, style }: { show: boolean; children: ReactNode; style?: CSSProperties }) {
   const { mounted, shown } = usePresence(show)
