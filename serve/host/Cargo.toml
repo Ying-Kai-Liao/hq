@@ -1,12 +1,12 @@
 [package]
 name = "codync-host"
-version = "2.11.0"
+version = "2.11.1"
 edition = "2024"
 # let-chains (`if let … && let …`) need 1.88.
 rust-version = "1.88"
 default-run = "codync-host"
 description = "Runs your coding-agent bots and serves the Codync apps"
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/leepokai/Codync"
 
 [dependencies]
