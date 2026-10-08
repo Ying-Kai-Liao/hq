@@ -25,7 +25,7 @@ const connectorId = (c: MarketConnector) => c.name
  * computer; each bot turns connectors and skills on in its settings.
  * With more than one computer, the header switches between them (the caller swaps the store).
  */
-export function MarketplaceView({ computers, computer, onComputer }: { computers: { id: string; name: string }[]; computer: string; onComputer: (id: string) => void }) {
+export function MarketplaceView({ computers, computer, onComputer, appsFirst = false }: { appsFirst?: boolean; computers: { id: string; name: string }[]; computer: string; onComputer: (id: string) => void }) {
   const store = useStore()
   const plugins = usePlugins(store)
   const dismiss = useDismiss()
@@ -140,7 +140,7 @@ export function MarketplaceView({ computers, computer, onComputer }: { computers
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
         <ComputerBadge computer={store.computer} size={32} />
         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, whiteSpace: 'nowrap' }}>
-          <span style={{ ...font('title2', 'semibold'), color: 'var(--text)' }}>Marketplace</span>
+          <span style={{ ...font('title2', 'semibold'), color: 'var(--text)' }}>{appsFirst ? 'Connect apps' : 'Marketplace'}</span>
           {computers.length > 1 ? (
             <DropdownMenu
               title="Switch computer"
@@ -213,6 +213,7 @@ export function MarketplaceView({ computers, computer, onComputer }: { computers
         <div className="market-page-content">
           {header}
           {searchField}
+          {appsFirst ? <ComposioSection query={query} searchToken={searchToken} /> : null}
           {agents.length > 0 ? (
             <MarketSection title={query ? `Agents matching “${query}”` : 'Agents'}>
               <div className="agent-grid">
@@ -250,7 +251,7 @@ export function MarketplaceView({ computers, computer, onComputer }: { computers
               </>
             )}
           </MarketSection>
-          <ComposioSection query={query} searchToken={searchToken} />
+          {!appsFirst ? <ComposioSection query={query} searchToken={searchToken} /> : null}
           <MarketSection title="Skills">
             {loadingSkills ? (
               <SkeletonGrid />

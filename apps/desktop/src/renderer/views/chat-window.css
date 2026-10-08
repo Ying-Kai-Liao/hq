@@ -22,6 +22,7 @@
 }
 
 .sidebar {
+  position: relative;
   flex: none;
   height: 100%;
   background: var(--surface);
@@ -34,8 +35,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 44px;
-  padding-right: 18px;
+  height: 54px;
+  padding-right: 14px;
   flex: none;
   transition: opacity var(--layout), padding var(--layout);
 }
@@ -43,7 +44,7 @@
 .roster {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 12px 0;
+  padding: 0 10px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -55,7 +56,7 @@
 }
 .roster-row {
   width: 100%;
-  border-radius: 10px;
+  border-radius: 12px;
   display: flex;
   transition: background-color var(--hover);
   flex: none;
@@ -71,41 +72,6 @@
   pointer-events: none;
 }
 
-.sidebar-footer {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 12px 10px;
-  font-size: calc(13px * var(--scale));
-  font-weight: 500;
-  color: var(--text);
-  flex: none;
-}
-.footer-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 36px;
-  padding: 0 8px;
-  border-radius: 10px;
-  transition: background-color var(--hover);
-}
-.footer-row.account {
-  height: 38px;
-}
-.footer-row:hover,
-.footer-row.active {
-  background: var(--bubble-agent);
-}
-.footer-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: rgba(var(--text-rgb), 0.025);
-  display: grid;
-  place-items: center;
-  flex: none;
-}
 .profile-avatar {
   width: 28px;
   height: 28px;

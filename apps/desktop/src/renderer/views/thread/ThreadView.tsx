@@ -20,6 +20,7 @@ import { BotTemplateView } from '../bots/BotTemplateView'
 import { CallView } from '../call/CallView'
 import { MacChatButton } from './MacChatButton'
 import './thread.css'
+import './composer.css'
 import './chat-controls.css'
 
 const WIDE = 680
@@ -36,7 +37,7 @@ export function ThreadView({ botId }: { botId: string }) {
   const [openThread, setOpenThread] = useState<string | null>(null)
   const [editingGroup, setEditingGroup] = useState(false)
   const [templateDraft, setTemplateDraft] = useState<BotDraft | null>(null)
-  const [showSettings, setShowSettings] = useState(true)
+  const [showSettings, setShowSettings] = useState(false)
   const [editingDetails, setEditingDetails] = useState(false)
   const [compactDetails, setCompactDetails] = useState(false)
   const [calling, setCalling] = useState(false)
@@ -134,7 +135,7 @@ export function ThreadView({ botId }: { botId: string }) {
           <button className={`title-pill ${calling ? 'hidden-by-call' : ''}`} inert={calling} onClick={toggleDetails} aria-label="View conversation details" title="View conversation details">
             <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               {bot ? isGroup(bot) ? <GroupAvatar members={store.members(bot)} size={22} /> : <BotAvatar bot={bot} size={22} /> : null}
-              <span style={{ ...font(14, 'semibold'), color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{bot?.name ?? ''}</span>
+              <span style={{ ...font(13, 'medium'), color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{bot?.name ?? ''}</span>
             </span>
             {store.shownConnection.kind !== 'online' || store.mismatch ? <ConnectionSubtitle /> : null}
           </button>
@@ -374,7 +375,7 @@ function GroupIntroCard({ group }: { group: Bot }) {
       <div style={{ ...font('title2', 'semibold'), color: 'var(--text)' }}>{group.name}</div>
       {group.name !== names.join(', ') ? <div style={{ ...font('subheadline'), color: 'var(--secondary)' }}>{names.join(' · ')}</div> : null}
       {group.description ? <div style={{ ...font('subheadline'), color: 'var(--secondary)' }}>{group.description}</div> : null}
-      <div style={{ ...font('footnote'), color: 'var(--tertiary)', paddingTop: 4, maxWidth: 360, textWrap: 'balance' }}>Everyone answers in turn. @mention a bot to ask just that one.</div>
+      <div style={{ ...font('callout'), color: 'var(--secondary)', paddingTop: 4, lineHeight: 1.5, maxWidth: 360, textWrap: 'balance' }}>Everyone answers in turn. @mention a bot to ask just that one.</div>
     </div>
   )
 }
@@ -385,11 +386,11 @@ function IntroCard({ bot }: { bot: Bot }) {
     <div className="intro-card">
       <BotAvatar bot={bot} size={72} />
       <div style={{ ...font('title2', 'semibold'), color: 'var(--text)' }}>{bot.name}</div>
-      <div style={{ ...font('footnote', undefined, 'monospaced'), color: 'var(--tertiary)' }}>
+      <div style={{ ...font('callout'), color: 'var(--secondary)', overflowWrap: 'anywhere' }}>
         {bot.managedWorkspace ? `${store.backendName(bot.backend)} · Personal workspace` : `${store.backendName(bot.backend)} in ${bot.cwd}`}
       </div>
       {bot.description ? <div style={{ ...font('subheadline'), color: 'var(--secondary)' }}>{bot.description}</div> : null}
-      <div style={{ ...font('footnote'), color: 'var(--tertiary)', paddingTop: 4 }}>Tell it what you need. You'll get a notification when it's done or needs you.</div>
+      <div style={{ ...font('callout'), color: 'var(--secondary)', paddingTop: 4, lineHeight: 1.5 }}>Tell it what you need. You'll get a notification when it's done or needs you.</div>
     </div>
   )
 }

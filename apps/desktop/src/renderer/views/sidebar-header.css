@@ -1,0 +1,34 @@
+/* The reference uses lightly outlined circular actions, not bare toolbar glyphs. */
+.sidebar:not(.compact) .sidebar-header {
+  position: absolute;
+  z-index: 3;
+  inset: 0 0 auto;
+  isolation: isolate;
+}
+.sidebar:not(.compact) .roster {
+  padding-top: 54px;
+  scroll-padding-top: 54px;
+}
+.sidebar:not(.compact) .sidebar-header::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0 0 -18px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, var(--surface) 50%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-mask-image: linear-gradient(to bottom, black 65%, transparent);
+  mask-image: linear-gradient(to bottom, black 65%, transparent);
+}
+.sidebar-header .sidebar-header-action {
+  border-radius: 50% !important;
+  border: 1px solid var(--chrome-stroke);
+  background: var(--chrome-fill);
+  color: var(--text);
+}
+.sidebar-header .sidebar-header-action:hover {
+  background: color-mix(in srgb, var(--text) 5%, var(--chrome-fill));
+}
+@media (prefers-reduced-transparency: reduce) {
+  .sidebar:not(.compact) .sidebar-header::before { backdrop-filter: none; }
+}

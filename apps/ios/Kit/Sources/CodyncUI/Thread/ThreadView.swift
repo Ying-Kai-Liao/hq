@@ -286,8 +286,8 @@ struct GroupIntroCard: View {
                     .multilineTextAlignment(.center)
             }
             Text("Everyone answers in turn. @mention a bot to ask just that one.")
-                .font(.footnote)
-                .foregroundStyle(Palette.tertiary)
+                .font(.subheadline)
+                .foregroundStyle(Palette.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.top, 4)
         }
@@ -305,8 +305,8 @@ struct IntroCard: View {
             CharacterAvatar(bot: bot, size: 72)
             Text(bot.name).font(.title2.weight(.semibold)).foregroundStyle(Palette.text)
             Text(bot.managedWorkspace ? "\(model.backendName(bot.backend)) · Personal workspace" : "\(model.backendName(bot.backend)) in \(bot.cwd)")
-                .font(.footnote.monospaced())
-                .foregroundStyle(Palette.tertiary)
+                .font(.subheadline)
+                .foregroundStyle(Palette.secondary)
                 .multilineTextAlignment(.center)
             if !bot.description.isEmpty {
                 Text(bot.description)
@@ -315,8 +315,8 @@ struct IntroCard: View {
                     .multilineTextAlignment(.center)
             }
             Text("Tell it what you need. You'll get a notification when it's done or needs you.")
-                .font(.footnote)
-                .foregroundStyle(Palette.tertiary)
+                .font(.subheadline)
+                .foregroundStyle(Palette.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.top, 4)
         }

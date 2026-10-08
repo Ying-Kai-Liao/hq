@@ -3,8 +3,7 @@ import { usePresence } from '../../components/Overlay'
 
 /** Animate the available conversation width on both opening and closing. */
 export function ChatSidePanel({ open, width, children }: { open: boolean; width: number; children: ReactNode }) {
-  // A new bot mounts a fresh conversation with details already open.
-  // Only subsequent open/close actions should animate the available width.
+  // Animate explicit open/close actions without animating the initial mount.
   const { mounted, shown } = usePresence(open, 300, false)
   const last = useRef({ width, children })
   if (open) last.current = { width, children }

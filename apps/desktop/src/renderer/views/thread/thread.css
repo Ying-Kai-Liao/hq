@@ -4,7 +4,7 @@
   overflow: hidden;
 }
 .conversation {
-  /* The chat reads two points larger than the chrome (ConversationTypography + 2). */
+  /* Chat text follows the selected size without an extra platform offset. */
   --conversation: var(--chat);
   --md-scale: var(--chat-scale);
   flex: 1;
@@ -68,8 +68,9 @@
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 9px 16px 9px 10px;
-  background: var(--surface);
+  padding: 6px 12px 6px 8px;
+  background: var(--chrome-fill);
+  border: 1px solid var(--chrome-stroke);
   border-radius: 999px;
   box-shadow: 0 4px 32px rgba(0, 0, 0, 0.12);
   max-width: 60%;
@@ -112,10 +113,10 @@
 }
 .transcript-content {
   container-type: inline-size;
-  max-width: 820px;
+  max-width: 1120px;
   margin: 0 auto;
   /* The floating title pill and composer sit over the list; messages pass underneath. */
-  padding: 72px 16px var(--composer-height, 70px);
+  padding: 64px 14px var(--composer-height, 70px);
 }
 .load-earlier {
   display: block;
@@ -129,7 +130,9 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
+  max-width: 440px;
+  margin: 0 auto;
   padding: 0 24px;
   text-align: center;
 }
@@ -171,8 +174,8 @@
   margin-right: 88px;
 }
 .bubble {
-  padding: 8px 12px;
-  border-radius: 22px;
+  padding: 8px 10px;
+  border-radius: 16px;
   max-width: 100%;
   min-width: 0;
 }
@@ -180,6 +183,7 @@
   background: var(--chat-user);
   color: var(--text);
   font-size: var(--conversation);
+  line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -260,93 +264,10 @@
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding: 6px 16px 16px;
-  max-width: 820px;
+  padding: 8px 14px 14px;
+  max-width: 1120px;
   margin: 0 auto;
   width: 100%;
-}
-.composer-add {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--bubble-user);
-  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.06);
-  display: grid;
-  place-items: center;
-  flex: none;
-  margin-bottom: calc(max(0px, (round(up, calc(var(--conversation) * 1.25), 1px) + 14px - 28px) / 2));
-}
-.composer-surface {
-  flex: 1;
-  min-width: 0;
-  background: var(--bubble-user);
-  border-radius: 24px;
-  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.06);
-  display: flex;
-  flex-direction: column;
-}
-.composer-box {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 4px 6px 4px 8px;
-}
-.composer-field {
-  flex: 1;
-  min-width: 0;
-  position: relative;
-}
-.composer-box textarea,
-.composer-measure {
-  flex: 1;
-  min-width: 0;
-  font-size: var(--conversation);
-  line-height: calc(round(up, calc(var(--conversation) * 1.25), 1px));
-  padding: 7px 0;
-  color: var(--text);
-  user-select: text;
-  cursor: text;
-}
-.composer-box textarea {
-  display: block;
-  width: 100%;
-  height: calc(round(up, calc(var(--conversation) * 1.25), 1px) + 14px);
-  transition: height var(--layout);
-}
-.composer-measure {
-  position: absolute;
-  inset: 0 0 auto;
-  visibility: hidden;
-  pointer-events: none;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-}
-.composer-reveal {
-  display: grid;
-  grid-template-rows: 0fr;
-  opacity: 0;
-  transition: grid-template-rows var(--layout), opacity var(--morph);
-}
-.composer-reveal.shown { grid-template-rows: 1fr; opacity: 1; }
-.composer-reveal > div { min-height: 0; overflow: hidden; }
-.composer-symbol {
-  grid-area: 1 / 1;
-  display: grid;
-  place-items: center;
-  opacity: 0;
-  transform: scale(0.55) rotate(-35deg);
-  transition: opacity var(--morph), transform var(--morph);
-}
-.composer-symbol.active { opacity: 1; transform: scale(1) rotate(0); }
-.composer-send {
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  display: grid;
-  place-items: center;
-  flex: none;
-  margin-bottom: calc(max(0px, (round(up, calc(var(--conversation) * 1.25), 1px) + 14px - 28px) / 2));
-  transition: background-color var(--morph), color var(--morph), transform var(--press);
 }
 .symbol-swap {
   animation: symbol-in var(--morph) both;

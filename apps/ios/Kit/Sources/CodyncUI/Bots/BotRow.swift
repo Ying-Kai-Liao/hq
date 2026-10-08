@@ -74,12 +74,12 @@ public struct BotRow: View {
             .font(.subheadline)
             .foregroundStyle(Palette.secondary)
         } else if bot.status == "error" {
-            Text(bot.lastMessage ?? "Something went wrong")
+            Text(MessagePreview.text(bot.lastMessage ?? "Something went wrong"))
                 .font(.subheadline)
                 .foregroundStyle(Palette.danger)
                 .lineLimit(1)
         } else {
-            Text(bot.lastMessage ?? (bot.isGroup ? "\(bot.members.count) bots" : "\(model.backendName(bot.backend)) · \(bot.folderName)"))
+            Text(MessagePreview.text(bot.lastMessage ?? (bot.isGroup ? "\(bot.members.count) bots" : "\(model.backendName(bot.backend)) · \(bot.folderName)")))
                 .font(.subheadline)
                 .foregroundStyle(Palette.secondary)
                 .lineLimit(1)
