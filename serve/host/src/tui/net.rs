@@ -1,5 +1,7 @@
 //! Host API over HTTP: JSON commands and the SSE event stream (same wire as the apps).
 
+pub mod files;
+
 use futures::StreamExt;
 use serde_json::{Value, json};
 use std::path::PathBuf;

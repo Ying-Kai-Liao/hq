@@ -53,6 +53,8 @@ impl Actor {
         self.plan_entry = None;
         self.last_text = None;
         self.sent.clear();
+        self.files.summary = None;
+        self.files.cancel();
         // A delegated or group turn has no live waiter after a host restart. Its persisted
         // notices are marked interrupted instead of silently repeating work.
         self.set_inflight(
@@ -108,6 +110,7 @@ impl Actor {
         let claude = self.conn.as_ref().is_some_and(|c| c.claude);
         let sid = self.turn_session.clone().ok_or_else(|| anyhow!("no session"))?;
         let snapshot = self.snapshot(&sid).await?;
+        let remind_files = !snapshot.system.contains("send_file");
         let mut prompt = text.to_owned();
         if let Some(intro) = self.thread_intro.take() {
             prompt = format!("{intro}\n\n{prompt}");
@@ -122,6 +125,9 @@ impl Actor {
         if let Some((update, identity)) = context::profile_update(&self.hub.store, &snapshot, &self.cfg) {
             prompt = format!("{prompt}\n\n{update}");
             self.announce = Some((snapshot, identity));
+        }
+        if remind_files && self.active_group.is_none() && self.active_ask.is_none() && self.active_routine.is_none() {
+            prompt.push_str("\n\n[Codync: send_file(path, name?) shares any regular file up to 100 MiB as a downloadable card. Use it instead of sending a local path.]");
         }
         self.hub.set_runtime(&self.id(), |r| r.activity = "Thinking…".into());
         let acp = self.conn.as_ref().ok_or_else(|| anyhow!("agent not running"))?.acp.clone();
@@ -146,6 +152,7 @@ impl Actor {
         if self.turn.is_none() {
             return;
         }
+        self.files.cancel();
         self.flush(true);
         self.seg = Seg::None;
         // Unanswered permission cards can't be answered after the turn.
@@ -185,6 +192,9 @@ impl Actor {
                 self.hub.set_entry(&id, &e.data);
                 final_text = text;
             }
+        }
+        if final_text.is_none() {
+            final_text = self.files.summary.take();
         }
         let stop_reason = match &done {
             Ok(v) => v["stopReason"].as_str().unwrap_or("end_turn").to_owned(),

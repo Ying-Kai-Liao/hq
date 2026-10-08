@@ -168,7 +168,7 @@ impl App {
             }
             KeyCode::Char('f') => {
                 if let Some(e) = picked {
-                    self.save_files(&id, &e.data);
+                    self.save_files(&id, &e.id, &e.data);
                 }
             }
             KeyCode::Char('c') => {
