@@ -30,6 +30,20 @@ const notice = (id: string, chat: string, seq: number, status: string, extra: Ex
 }
 const parsed = (e: Entry) => botExchange(e)!
 
+test('bot replies stay in the popup while independent reports stay in the main chat', () => {
+  const ask = notice('ask', 'owen', 1, 'completed', { intent: 'ask', reply: 'Answer for Egan' })
+  const trace: Entry = { ...ask, id: 'trace', seq: 2, kind: 'agent', data: { text: 'Answer for Egan' } }
+  const independent = notice('message', 'owen', 3, 'completed')
+  const report: Entry = { ...trace, id: 'report', seq: 4, data: { text: 'Report for the user', final: true } }
+  const entries = [ask, trace, independent, report]
+  const main = groupExchanges(entries)
+  assert.deepEqual(main.map((slot) => slot.entry.id), ['ask', 'report'])
+  const popup = buildBotConversation(botConversation([], entries, 'egan'))
+  assert.deepEqual(popup.filter((row) => row.kind === 'message').map((row) => row.text), [
+    'Inspect this.', 'Answer for Egan', 'Inspect this.',
+  ])
+})
+
 test('decodes the wire JSON and reads direction and verb from either chat', () => {
   const wire = JSON.parse('{"id":"n","seq":1,"botId":"egan","rev":3,"kind":"notice","turn":0,"createdAt":5,"updatedAt":5,"data":{"text":"Messaged Owen: Hi\\nQueued. Outcome will appear in Owen\'s chat.","heading":"Messaged Owen: Hi","style":"info","status":"queued","delegationId":"d","sourceBotId":"egan","targetBotId":"owen","botMessage":{"sourceBotId":"egan","targetBotId":"owen","text":"Hi"}}}') as Entry
   const out = botExchange(wire)!

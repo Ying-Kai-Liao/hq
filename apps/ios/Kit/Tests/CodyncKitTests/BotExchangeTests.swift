@@ -34,6 +34,28 @@ private func notice(_ id: String, chat: String = "egan", seq: Int64 = 1, rev: In
     #expect(x.text == "Review" && x.reply == "LGTM" && x.outcome == .done)
 }
 
+@Test func botRepliesStayInThePopupAndIndependentReportsStayInMainChat() {
+    let ask = notice("ask", chat: "owen", status: "completed", reply: "Answer for Egan", intent: "ask")
+    var trace = ask
+    trace.id = "trace"
+    trace.seq = 2
+    trace.kind = "agent"
+    trace.data = EntryData(text: "Answer for Egan")
+    let independent = notice("message", chat: "owen", seq: 3, status: "completed")
+    var report = trace
+    report.id = "report"
+    report.seq = 4
+    report.data = EntryData(text: "Report for the user")
+    report.data.final = true
+    let entries = [ask, trace, independent, report]
+    #expect(entries.filter(\.isChat).map(\.id) == ["ask", "message", "report"])
+    let rows = BotConversationRow.build(BotExchange.conversation(fetched: [], live: entries, peer: "egan"))
+    let bodies = rows.compactMap { row -> String? in
+        if case .message(_, _, let text, _) = row { text } else { nil }
+    }
+    #expect(bodies == ["Check this", "Answer for Egan", "Check this"])
+}
+
 @Test func structuredRequestIsIndependentOfDisplayedVerb() throws {
     for (intent, chat) in [("ask", "egan"), ("ask", "owen"), ("message", "egan"), ("message", "owen")] {
         let x = try #require(BotExchange(notice("a", chat: chat, request: "Do it", intent: intent)))
