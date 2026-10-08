@@ -113,6 +113,16 @@ async fn agent_uses_team_mcp_and_returns_the_reviewers_answer() {
     assert_eq!(requests.len(), 2);
     assert!(requests.iter().all(|e| e["data"]["status"] == "completed"));
     assert_eq!(requests[0]["data"]["delegationId"], requests[1]["data"]["delegationId"]);
+    let recipient_history = host.call("history", json!({"botId": reviewer})).await;
+    assert!(!recipient_history["entries"].as_array().unwrap().iter().any(|e| e["data"]["final"] == true));
+    assert!(
+        recipient_history["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| { e["kind"] == "agent" && e["data"]["text"] == "reply: PERMISSION review the changes" }),
+        "the reply remains available in the trace"
+    );
     assert!(sync["bots"].as_array().unwrap().iter().all(|b| b["status"] == "idle"));
 }
 
@@ -151,6 +161,64 @@ async fn agent_messages_another_bot_then_finishes_before_recipient_approval() {
     assert_eq!(history["entries"].as_array().unwrap().iter().filter(|e| e["data"]["final"] == true).count(), 1);
 }
 
+#[tokio::test]
+async fn ask_returns_only_the_bot_answer_and_does_not_publish_a_user_report() {
+    let host = Host::start().await;
+    let lead = host.bot("lead").await;
+    let reviewer = host.bot("reviewer").await;
+    host.call("send", json!({"botId": lead, "text": format!("ASK_REPORT {reviewer}")})).await;
+    let answer = host.wait_for(&lead, |e| e["kind"] == "agent" && e["data"]["final"] == true).await;
+    assert_eq!(answer["data"]["text"], "Team reply: Answer for the requesting bot");
+    for bot in [&lead, &reviewer] {
+        let history = host.call("history", json!({"botId": bot})).await;
+        let notices: Vec<_> = history["entries"].as_array().unwrap().iter().filter(|e| e["kind"] == "notice").collect();
+        assert_eq!(notices.len(), 1);
+        assert_eq!(notices[0]["data"]["status"], "completed");
+        assert!(notices[0]["data"]["text"].as_str().unwrap().contains("Answer for the requesting bot"));
+        assert!(!history["entries"].as_array().unwrap().iter().any(|e| e["data"]["text"] == "Report for the user"));
+        if bot == &reviewer {
+            assert!(
+                history["entries"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|e| e["kind"] == "agent")
+                    .all(|e| e["data"]["final"] != true)
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn independent_message_reports_to_the_user_without_a_bot_reply_or_duplicate_fallback() {
+    let host = Host::start().await;
+    let lead = host.bot("lead").await;
+    let reviewer = host.bot("reviewer").await;
+    host.call("send", json!({"botId": lead, "text": format!("MESSAGE_REPORT {reviewer}")})).await;
+    host.wait_for(&reviewer, |e| e["kind"] == "notice" && e["data"]["status"] == "completed").await;
+    let history = host.call("history", json!({"botId": reviewer})).await;
+    let reports: Vec<_> = history["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["kind"] == "agent" && e["data"]["final"] == true)
+        .map(|e| e["data"]["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(reports, ["Report for the user", "Second report for the user"]);
+    assert!(history["entries"].as_array().unwrap().iter().any(|e| {
+        e["kind"] == "agent" && e["data"]["final"] != true && e["data"]["text"] == "Private completion trace"
+    }));
+    for bot in [&lead, &reviewer] {
+        let history = host.call("history", json!({"botId": bot})).await;
+        let notices: Vec<_> = history["entries"].as_array().unwrap().iter().filter(|e| e["kind"] == "notice").collect();
+        assert_eq!(notices.len(), 1);
+        assert_eq!(notices[0]["data"]["status"], "completed");
+        let text = notices[0]["data"]["text"].as_str().unwrap();
+        assert!(!text.contains("Report for the user"));
+        assert!(!text.contains("Private completion trace"));
+    }
+}
+
 async fn exercise_bounded_chain(second_tool: &str) {
     let host = Host::start().await;
     let first = host.bot("first").await;
@@ -166,11 +234,12 @@ async fn exercise_bounded_chain(second_tool: &str) {
         let stopped = host
             .wait_for(&first, |e| {
                 e["rev"].as_i64().unwrap_or(0) > previous_rev
-                    && e["data"]["final"] == true
+                    && e["kind"] == "agent"
                     && e["data"]["text"].as_str().is_some_and(|s| s.contains("hop limit (8)"))
             })
             .await;
         assert!(stopped["data"]["text"].as_str().unwrap().contains("Chain stopped"));
+        assert_eq!(stopped["data"]["final"] == true, second_tool == "message_bot");
         let sync = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let sync = host.call("sync", json!({"since": 0})).await;

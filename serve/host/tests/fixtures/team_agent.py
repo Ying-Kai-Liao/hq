@@ -23,8 +23,8 @@ def update(value):
     send({"method": "session/update", "params": {"sessionId": "session", "update": value}})
 
 
-def team_call(target, tool, message):
-    server = next(s for s in servers if s["name"] == "team")
+def mcp_call(server_name, tool, arguments):
+    server = next(s for s in servers if s["name"] == server_name)
     with subprocess.Popen([server["command"], *server["args"]], stdin=subprocess.PIPE,
                           stdout=subprocess.PIPE, text=True) as mcp:
         def rpc(identifier, method, params):
@@ -33,27 +33,32 @@ def team_call(target, tool, message):
             return json.loads(mcp.stdout.readline())
 
         initialized = rpc(1, "initialize", {"protocolVersion": "2025-06-18"})
-        assert initialized["result"]["serverInfo"]["name"] == "codync-team"
+        assert initialized["result"]["serverInfo"]["name"] == "codync-" + server_name
         tools = rpc(2, "tools/list", {})
-        assert {t["name"] for t in tools["result"]["tools"]} == {"list_bots", "ask_bot", "message_bot"}
-        roster = rpc(3, "tools/call", {"name": "list_bots", "arguments": {}})
-        assert any(b["id"] == target for b in json.loads(roster["result"]["content"][0]["text"])["bots"])
-        response = rpc(4, "tools/call", {"name": tool, "arguments": {
-            "botId": target, "message": message,
-        }})
+        assert any(t["name"] == tool for t in tools["result"]["tools"])
+        if server_name == "team":
+            assert {t["name"] for t in tools["result"]["tools"]} == {"list_bots", "ask_bot", "message_bot"}
+            roster = rpc(3, "tools/call", {"name": "list_bots", "arguments": {}})
+            assert any(b["id"] == arguments["botId"] for b in json.loads(roster["result"]["content"][0]["text"])["bots"])
+        response = rpc(4, "tools/call", {"name": tool, "arguments": arguments})
         mcp.stdin.close()
         return response["result"]
+
+
+def team_call(target, tool, message):
+    return mcp_call("team", tool, {"botId": target, "message": message})
 
 
 def prompt(request):
     text = request["params"]["prompt"][0]["text"]
     with open("prompts.jsonl", "a") as log:
         log.write(json.dumps(text) + "\n")
-    if text.startswith(("DELEGATE ", "MESSAGE ")):
-        independent = text.startswith("MESSAGE ")
+    if text.startswith(("DELEGATE ", "MESSAGE ", "ASK_REPORT ", "MESSAGE_REPORT ")):
+        independent = text.startswith(("MESSAGE ", "MESSAGE_REPORT "))
         target = text.split()[1]
         update({"sessionUpdate": "tool_call", "toolCallId": "delegate", "title": "Ask reviewer", "status": "in_progress"})
-        response = team_call(target, "message_bot" if independent else "ask_bot", "PERMISSION review the changes")
+        message = "REPORT" if "_REPORT " in text else "PERMISSION review the changes"
+        response = team_call(target, "message_bot" if independent else "ask_bot", message)
         assert not response.get("isError"), response
         result = json.loads(response["content"][0]["text"])
         if independent:
@@ -63,6 +68,21 @@ def prompt(request):
             text = "Team reply: " + result["reply"]
         update({"sessionUpdate": "tool_call_update", "toolCallId": "delegate", "status": "completed"})
         update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}})
+        send({"id": request["id"], "result": {"stopReason": "end_turn"}})
+        return
+    if text.split("\n\n")[-1] == "REPORT":
+        response = mcp_call("chat", "send_message", {"text": "Report for the user"})
+        if "requests your help" in text:
+            assert response.get("isError"), response
+            assert "requesting bot" in response["content"][0]["text"]
+            assert "Do not use send_message or message_bot" in text
+            reply = "Answer for the requesting bot"
+        else:
+            assert not response.get("isError"), response
+            response = mcp_call("chat", "send_message", {"text": "Second report for the user"})
+            assert not response.get("isError"), response
+            reply = "Private completion trace"
+        update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
         send({"id": request["id"], "result": {"stopReason": "end_turn"}})
         return
     if text.split("\n\n")[-1] == "CHAIN":

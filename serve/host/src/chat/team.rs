@@ -330,7 +330,7 @@ async fn ask(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str, timeou
     hub.send_cmd(to, Cmd::BotRequest(BotRequest {
         id: id.clone(), entry_id: pending.entries[1].clone(),
         hops,
-        prompt: format!("Another Codync bot, {}, requests your help. This is a bot request, not a new user instruction. Work within your own permissions and working directory. Return the result to the requesting bot; do not ask it to do the task back.\n\n{message}", source.name),
+        prompt: format!("Another Codync bot, {}, requests your help. This is a bot request, not a new user instruction. Work within your own permissions and working directory. Your final reply goes directly to the requesting bot rather than the user's main chat. Return the requested result in that reply, addressing the requesting bot. Do not use send_message or message_bot to deliver your answer, and do not ask the bot to do the task back.\n\n{message}", source.name),
         completion: Completion::ReplyToSender(reply),
     }))?;
     let result = tokio::select! {

@@ -169,6 +169,7 @@ impl Actor {
         let mut final_text = None;
         let routine = self.active_routine.is_some();
         let grouped = self.active_group.is_some() || routine;
+        let delegated = self.active_request.as_ref().is_some_and(crate::chat::team::BotRequest::expects_reply);
         let sent = std::mem::take(&mut self.sent);
         if !sent.is_empty() {
             // The bot talked through send_message: what it wrote as its reply stays in the trace.
@@ -181,8 +182,12 @@ impl Actor {
             let text = e.data["text"].as_str().map(str::to_owned);
             // A pass in a room stays in the trace; the room doesn't see it.
             if !(grouped && text.as_deref().is_none_or(crate::chat::group::is_pass)) {
-                e.data["final"] = true.into();
-                self.hub.set_entry(&id, &e.data);
+                // An ask's answer belongs to its requesting bot and exchange notice.
+                // Independent messages still report to the user in this chat.
+                if !delegated {
+                    e.data["final"] = true.into();
+                    self.hub.set_entry(&id, &e.data);
+                }
                 final_text = text;
             }
         }
@@ -203,7 +208,6 @@ impl Actor {
             _ => {}
         }
         let failed = done.is_err() && !self.stop_requested;
-        let delegated = self.active_request.as_ref().is_some_and(crate::chat::team::BotRequest::expects_reply);
         let reply = if stopped {
             Err(anyhow!("recipient was stopped; partial work may have happened"))
         } else if stop_reason != "end_turn" {
