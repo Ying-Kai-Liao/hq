@@ -8,18 +8,23 @@ use crate::store::{BotConfig, EntryKind};
 use anyhow::{Result, anyhow, bail};
 use serde::Serialize;
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::oneshot;
+
+mod requests;
+pub use requests::Requests;
 
 pub const ASK_TIMEOUT: Duration = Duration::from_secs(600);
 const MAX_MESSAGE_BYTES: usize = 32_000;
+const MAX_PENDING_MESSAGES: usize = 64;
 
 pub const INSTRUCTIONS: &str = "Use list_bots to find the user's other Codync bots. \
 Use ask_bot when the user requests another bot's help or its specialty is useful. \
+Use message_bot for a handoff that should continue independently: it returns when queued, \
+and the recipient reports the outcome to the user in its own chat. Stopping you does not cancel it. \
 Provide a self-contained request: the recipient has its own conversation, working directory, \
-tools and permissions, not your context. It returns its final reply to you. \
+tools and permissions, not your context. ask_bot returns its final reply to you. \
 Coordinate file ownership before asking for edits in a shared project. \
 Do not ask a bot that is waiting for you. Native subagents are managed by your own harness; \
 these tools are for collaborating with the user's existing bots.";
@@ -44,91 +49,87 @@ pub fn tools() -> Value {
                 "required": ["botId", "message"],
             },
             "annotations": {"readOnlyHint": false, "idempotentHint": false},
+        },
+        {
+            "name": "message_bot",
+            "description": "Queue a self-contained request for another Codync bot and return immediately. The recipient reports the outcome to the user in its own chat; no reply is returned to you. It uses its own tools, folder and permissions. Stopping you does not cancel accepted work. Stopping the recipient cancels its queued requests and stops its running turn. No automatic retry or replay after host restart; check the chats before retrying an uncertain result.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "botId": {"type": "string", "description": "Recipient ID from list_bots."},
+                    "message": {"type": "string", "description": "Task, relevant context, file paths and expected outcome for the user."},
+                },
+                "required": ["botId", "message"],
+            },
+            "annotations": {"readOnlyHint": false, "idempotentHint": false},
         }
     ])
 }
 
-struct Request {
-    from: String,
-    to: String,
-    cancel: watch::Sender<bool>,
-}
-
-/// The wait graph includes queued requests, not only running recipients.
-/// Reserving an edge and checking for cycles happen under the same lock.
-#[derive(Default)]
-pub struct Requests(Mutex<RequestState>);
-
-#[derive(Default)]
-struct RequestState {
-    pending: HashMap<String, Request>,
-    active: HashSet<String>,
-}
-
-impl Requests {
-    fn begin(&self, id: &str, from: &str, to: &str) -> Result<watch::Receiver<bool>> {
-        let mut state = self.0.locked();
-        if !state.active.contains(from) {
-            bail!("the requesting bot is no longer working");
-        }
-        let requests = &mut state.pending;
-        if from == to {
-            bail!("a bot cannot ask itself");
-        }
-        if requests.len() >= 64 {
-            bail!("too many pending bot requests");
-        }
-        if requests.values().any(|r| r.from == from && r.to == to) {
-            bail!("already waiting for this bot");
-        }
-        let mut pending = vec![to];
-        let mut seen = HashSet::new();
-        while let Some(bot) = pending.pop() {
-            if bot == from {
-                bail!("this request would make bots wait for each other; finish the current request first");
-            }
-            if seen.insert(bot) {
-                pending.extend(requests.values().filter(|r| r.from == bot).map(|r| r.to.as_str()));
-            }
-        }
-        let (cancel, rx) = watch::channel(false);
-        requests.insert(id.to_owned(), Request { from: from.to_owned(), to: to.to_owned(), cancel });
-        Ok(rx)
-    }
-
-    pub fn cancel_from(&self, bot: &str) {
-        let mut state = self.0.locked();
-        state.active.remove(bot);
-        for request in state.pending.values().filter(|r| r.from == bot) {
-            request.cancel.send_replace(true);
-        }
-    }
-
-    pub fn start_turn(&self, bot: &str) {
-        self.0.locked().active.insert(bot.to_owned());
-    }
-
-    pub fn cancel_bot(&self, bot: &str) {
-        let mut state = self.0.locked();
-        state.active.remove(bot);
-        for request in state.pending.values().filter(|r| r.from == bot || r.to == bot) {
-            request.cancel.send_replace(true);
-        }
-    }
-}
-
 /// Sent through the recipient's normal actor queue, but never merged with user
-/// messages or another request. Only this turn can resolve its reply channel.
-pub struct Ask {
+/// messages or another request. Its completion mode owns reply delivery or the
+/// independent message's notice lifetime.
+pub struct BotRequest {
     pub id: String,
     pub entry_id: String,
     pub prompt: String,
-    pub reply: oneshot::Sender<Result<String>>,
+    /// Bound the whole chain, including independent handoffs after their sender finishes.
+    hops: u8,
+    completion: Completion,
+}
+
+enum Completion {
+    ReplyToSender(oneshot::Sender<Result<String>>),
+    ReportInRecipientChat(MessageLifetime),
+}
+
+impl BotRequest {
+    pub fn expects_reply(&self) -> bool {
+        matches!(self.completion, Completion::ReplyToSender(_))
+    }
+
+    pub fn reply_closed(&self) -> bool {
+        matches!(&self.completion, Completion::ReplyToSender(reply) if reply.is_closed())
+    }
+
+    pub fn mark_started(&mut self) {
+        if let Completion::ReportInRecipientChat(message) = &mut self.completion {
+            message.started = true;
+            for id in &message.entries {
+                if let Some(mut e) = message.hub.store.entry(id) {
+                    let heading = e.data["heading"].as_str().unwrap_or("Bot request");
+                    e.data["text"] = format!("{heading}\nRunning in {}'s chat…", message.target_name).into();
+                    e.data["status"] = json!(RequestStatus::Sent);
+                    message.hub.set_entry(id, &e.data);
+                }
+            }
+        }
+    }
+
+    pub fn complete(self, result: Result<String>, cancelled: bool) {
+        match self.completion {
+            Completion::ReplyToSender(reply) => {
+                let _ = reply.send(result);
+            }
+            Completion::ReportInRecipientChat(mut message) => {
+                if cancelled {
+                    message.finish(RequestStatus::Cancelled, "Recipient stopped. Partial work may have happened.");
+                } else {
+                    match result {
+                        Ok(_) => message.finish(RequestStatus::Completed, "Completed."),
+                        Err(error) => message.finish(RequestStatus::Failed, &format!("{error:#}")),
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
-enum Status {
+pub(crate) enum RequestStatus {
+    Queued,
+    Sent,
     Completed,
     Failed,
     Cancelled,
@@ -143,26 +144,62 @@ struct Pending {
 }
 
 impl Pending {
-    fn finish(&mut self, status: Status, detail: &str) {
-        for id in &self.entries {
-            if let Some(mut e) = self.hub.store.entry(id) {
-                e.data["status"] = json!(status);
-                let heading = e.data["heading"].as_str().unwrap_or("Bot request");
-                e.data["text"] = format!("{heading}\n{detail}").into();
-                if !matches!(status, Status::Completed) {
-                    e.data["style"] = "error".into();
-                }
-                self.hub.set_entry(id, &e.data);
-            }
-        }
+    fn finish(&mut self, status: RequestStatus, detail: &str) {
+        finish_notices(&self.hub, &self.entries, status, detail);
         self.finished = true;
+    }
+}
+
+fn finish_notices(hub: &Hub, entries: &[String], status: RequestStatus, detail: &str) {
+    for id in entries {
+        if let Some(mut e) = hub.store.entry(id) {
+            e.data["status"] = json!(status);
+            let heading = e.data["heading"].as_str().unwrap_or("Bot request");
+            e.data["text"] = format!("{heading}\n{detail}").into();
+            if !matches!(status, RequestStatus::Completed) {
+                e.data["style"] = "error".into();
+            }
+            hub.set_entry(id, &e.data);
+        }
+    }
+}
+
+/// Owned by the recipient's command/queue/turn after admission, never by a
+/// waiting sender. Drop also covers commands discarded during actor shutdown.
+struct MessageLifetime {
+    hub: Arc<Hub>,
+    sender: String,
+    entries: Vec<String>,
+    target_name: String,
+    started: bool,
+    finished: bool,
+}
+
+impl MessageLifetime {
+    fn finish(&mut self, status: RequestStatus, detail: &str) {
+        finish_notices(&self.hub, &self.entries, status, detail);
+        self.finished = true;
+    }
+}
+
+impl Drop for MessageLifetime {
+    fn drop(&mut self) {
+        if !self.finished {
+            let detail = if self.started {
+                "Recipient stopped. Partial work may have happened."
+            } else {
+                "Cancelled before execution."
+            };
+            self.finish(RequestStatus::Cancelled, detail);
+        }
+        self.hub.team.release_message(&self.sender);
     }
 }
 
 impl Drop for Pending {
     fn drop(&mut self) {
         if !self.finished {
-            self.finish(Status::Cancelled, "Request cancelled. Partial work may have happened.");
+            self.finish(RequestStatus::Cancelled, "Request cancelled. Partial work may have happened.");
         }
         self.hub.team.0.locked().pending.remove(&self.id);
         // Targeted cancellation never clears unrelated user messages or turns.
@@ -202,8 +239,58 @@ pub async fn call(hub: &Arc<Hub>, from: &str, name: &str, args: &Value) -> Resul
             let message = args["message"].as_str().unwrap_or_default().trim();
             ask(hub, &source, to, message, ASK_TIMEOUT).await
         }
+        "message_bot" => {
+            let to = args["botId"].as_str().ok_or_else(|| anyhow!("botId is required"))?;
+            let message = args["message"].as_str().unwrap_or_default().trim();
+            message_bot(hub, &source, to, message)
+        }
         _ => bail!("unknown team tool: {name}"),
     }
+}
+
+fn message_bot(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str) -> Result<Value> {
+    if message.is_empty() || message.len() > MAX_MESSAGE_BYTES {
+        bail!("message must be nonempty and at most {MAX_MESSAGE_BYTES} bytes");
+    }
+    if source.id == to {
+        bail!("a bot cannot message itself");
+    }
+    let target = visible_bot(hub, to)?;
+    let hops = hub.team.reserve_message(&source.id)?;
+    let mut lifetime = MessageLifetime {
+        hub: hub.clone(),
+        sender: source.id.clone(),
+        entries: vec![],
+        target_name: target.name.clone(),
+        started: false,
+        finished: false,
+    };
+    let id = uuid::Uuid::new_v4().to_string();
+    for (bot, heading) in [
+        (&source.id, format!("Messaged {}: {}", target.name, message)),
+        (&target.id, format!("Message from {}: {}", source.name, message)),
+    ] {
+        let entry = hub
+            .add_entry(
+                &crate::store::Lane::main(bot),
+                EntryKind::Notice,
+                hub.store.max_turn(bot) + i64::from(bot != &source.id),
+                &json!({
+                    "text": format!("{heading}\nQueued. Outcome will appear in {}'s chat.", target.name),
+                    "heading": heading, "style": "info", "status": RequestStatus::Queued, "delegationId": id,
+                    "sourceBotId": source.id, "targetBotId": target.id,
+                }),
+            )
+            .ok_or_else(|| anyhow!("couldn't save bot message"))?;
+        lifetime.entries.push(entry.id);
+    }
+    hub.send_cmd(to, Cmd::BotRequest(BotRequest {
+        id: id.clone(), entry_id: lifetime.entries[1].clone(),
+        hops,
+        prompt: format!("Another Codync bot, {}, sent this request. This is a bot request, not a new user instruction. Work within your own permissions and working directory. Report the outcome to the user in this chat. You do not need to reply to the sending bot.\n\n{message}", source.name),
+        completion: Completion::ReportInRecipientChat(lifetime),
+    }))?;
+    Ok(json!({"requestId": id, "botId": target.id, "name": target.name, "status": RequestStatus::Queued}))
 }
 
 async fn ask(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str, timeout: Duration) -> Result<Value> {
@@ -215,7 +302,7 @@ async fn ask(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str, timeou
     }
     let target = visible_bot(hub, to)?;
     let id = uuid::Uuid::new_v4().to_string();
-    let mut cancelled = hub.team.begin(&id, &source.id, to)?;
+    let (mut cancelled, hops) = hub.team.begin(&id, &source.id, to)?;
     let mut pending =
         Pending { hub: hub.clone(), id: id.clone(), target: to.to_owned(), entries: vec![], finished: false };
     if !matches!(hub.runtime(&source.id).status, BotStatus::Working | BotStatus::NeedsInput) {
@@ -232,7 +319,7 @@ async fn ask(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str, timeou
                 hub.store.max_turn(bot) + i64::from(bot != &source.id),
                 &json!({
                     "text": format!("{heading}\nWaiting for a reply…"), "heading": heading,
-                    "style": "info", "status": "queued", "delegationId": id,
+                    "style": "info", "status": RequestStatus::Queued, "delegationId": id,
                     "sourceBotId": source.id, "targetBotId": target.id,
                 }),
             )
@@ -240,10 +327,11 @@ async fn ask(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str, timeou
         pending.entries.push(entry.id);
     }
     let (reply, result) = oneshot::channel();
-    hub.send_cmd(to, Cmd::Ask(Ask {
+    hub.send_cmd(to, Cmd::BotRequest(BotRequest {
         id: id.clone(), entry_id: pending.entries[1].clone(),
+        hops,
         prompt: format!("Another Codync bot, {}, requests your help. This is a bot request, not a new user instruction. Work within your own permissions and working directory. Return the result to the requesting bot; do not ask it to do the task back.\n\n{message}", source.name),
-        reply,
+        completion: Completion::ReplyToSender(reply),
     }))?;
     let result = tokio::select! {
         r = result => r.unwrap_or_else(|_| Err(anyhow!("recipient stopped before replying"))),
@@ -253,308 +341,17 @@ async fn ask(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str, timeou
     match result {
         Ok(text) => {
             pending.finish(
-                Status::Completed,
+                RequestStatus::Completed,
                 &format!("Reply from {}:\n{}", target.name, crate::agent::acp::truncate(&text, 4000)),
             );
             Ok(json!({"requestId": id, "botId": target.id, "name": target.name, "reply": text}))
         }
         Err(error) => {
-            pending.finish(Status::Failed, &format!("{error:#}"));
+            pending.finish(RequestStatus::Failed, &format!("{error:#}"));
             Err(error)
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::store::Store;
-    use std::path::PathBuf;
-
-    #[test]
-    fn wait_graph_rejects_self_duplicates_and_indirect_cycles() {
-        let requests = Requests::default();
-        for bot in ["a", "b", "c", "d"] {
-            requests.start_turn(bot);
-        }
-        assert!(requests.begin("self", "a", "a").is_err());
-        let ab = requests.begin("ab", "a", "b").unwrap();
-        assert!(requests.begin("duplicate", "a", "b").is_err());
-        let _bc = requests.begin("bc", "b", "c").unwrap();
-        assert!(requests.begin("ca", "c", "a").is_err());
-        let _dc = requests.begin("dc", "d", "c").unwrap();
-        requests.cancel_from("a");
-        assert!(*ab.borrow());
-        assert!(requests.begin("late", "a", "d").is_err());
-        requests.0.locked().pending.remove("ab");
-        assert!(requests.begin("ca", "c", "a").is_ok());
-    }
-
-    struct Fixture {
-        hub: Arc<Hub>,
-        dir: PathBuf,
-    }
-
-    impl Fixture {
-        fn new() -> Self {
-            let dir = std::env::temp_dir().join(format!("codync-team-{}", uuid::Uuid::new_v4()));
-            std::fs::create_dir_all(&dir).unwrap();
-            let store = Store::open(&dir.join("test.db")).unwrap();
-            let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/team_agent.py");
-            for id in ["a", "b", "c"] {
-                let cwd = dir.join(id);
-                std::fs::create_dir_all(&cwd).unwrap();
-                let cfg: BotConfig = serde_json::from_value(json!({
-                    "id": id, "name": id, "backend": "fixture", "cwd": cwd,
-                    "command": crate::shell::python(&agent),
-                    "notify": false, "permission": "ask",
-                }))
-                .unwrap();
-                store.save_bot(&cfg).unwrap();
-            }
-            let hub = Hub::new(
-                store,
-                "test-host".into(),
-                crate::remote::identity::Identity::load_or_create(&dir).unwrap(),
-                "test-token".into(),
-                19222,
-            );
-            hub.start().unwrap();
-            hub.set_runtime("a", |r| r.status = BotStatus::Working);
-            hub.team.start_turn("a");
-            Self { hub, dir }
-        }
-
-        fn request(&self, message: &str) -> tokio::task::JoinHandle<Result<Value>> {
-            let hub = self.hub.clone();
-            let message = message.to_owned();
-            tokio::spawn(async move {
-                crate::api::dispatch(
-                    &hub,
-                    &crate::api::devices::Caller::Local,
-                    "teamCall",
-                    json!({
-                        "botId": "a", "name": "ask_bot", "arguments": {"botId": "b", "message": message},
-                    }),
-                )
-                .await
-            })
-        }
-
-        async fn until(&self, condition: impl Fn() -> bool) {
-            tokio::time::timeout(Duration::from_secs(5), async {
-                while !condition() {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                }
-            })
-            .await
-            .expect("fixture condition timed out");
-        }
-
-        fn prompts(&self) -> Vec<String> {
-            std::fs::read_to_string(self.dir.join("b/prompts.jsonl"))
-                .unwrap_or_default()
-                .lines()
-                .map(|l| serde_json::from_str(l).unwrap())
-                .collect()
-        }
-
-        async fn shutdown(self) {
-            self.hub.shutdown().await;
-            // Windows may still hold files of an agent that just exited.
-            let _ = std::fs::remove_dir_all(self.dir);
-        }
-    }
-
-    #[tokio::test]
-    async fn delegation_roundtrip_keeps_queued_user_messages_separate() {
-        let f = Fixture::new();
-        let request = f.request("BLOCK review these changes");
-        f.until(|| f.prompts().len() == 1).await;
-        let sent = crate::api::dispatch(
-            &f.hub,
-            &crate::api::devices::Caller::Local,
-            "send",
-            json!({"botId": "b", "text": "thanks"}),
-        )
-        .await
-        .unwrap();
-        let request_entry = f
-            .hub
-            .store
-            .history("b", i64::MAX, 100)
-            .unwrap()
-            .into_iter()
-            .find(|e| e.data["delegationId"].is_string())
-            .unwrap();
-        assert!(request_entry.data["text"].as_str().unwrap().contains("Request from a"));
-        assert!(f.hub.store.kv_get("turn.inflight.b").is_none_or(|v| v.is_empty()));
-        std::fs::write(f.dir.join("b/release"), "").unwrap();
-        let result = request.await.unwrap().unwrap();
-        assert_eq!(result["reply"], "reply: BLOCK review these changes");
-        f.until(|| f.prompts().len() == 2 && f.hub.runtime("b").status == BotStatus::Idle).await;
-        assert_eq!(f.prompts()[1], "thanks");
-        assert_eq!(f.hub.store.entry(sent["entry"]["id"].as_str().unwrap()).unwrap().data["status"], "sent");
-        assert_eq!(f.hub.store.entry(&request_entry.id).unwrap().data["status"], "completed");
-        assert!(f.hub.team.0.locked().pending.is_empty());
-        let servers: Value = serde_json::from_slice(&std::fs::read(f.dir.join("b/servers.json")).unwrap()).unwrap();
-        assert!(servers.as_array().unwrap().iter().any(|s| s["name"] == "team"));
-        f.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn permission_cards_still_require_the_recipients_approval() {
-        let f = Fixture::new();
-        let request = f.request("PERMISSION inspect the project");
-        f.until(|| f.hub.runtime("b").status == BotStatus::NeedsInput).await;
-        assert!(!request.is_finished());
-        let cycle = call(&f.hub, "b", "ask_bot", &json!({"botId": "a", "message": "help me back"})).await;
-        assert!(cycle.unwrap_err().to_string().contains("wait for each other"));
-        let card =
-            f.hub.store.history("b", i64::MAX, 100).unwrap().into_iter().find(|e| e.kind == "permission").unwrap();
-        crate::api::dispatch(
-            &f.hub,
-            &crate::api::devices::Caller::Local,
-            "respondPermission",
-            json!({"entryId": card.id, "optionId": "allow"}),
-        )
-        .await
-        .unwrap();
-        assert!(request.await.unwrap().is_ok());
-        f.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn stopping_requester_cancels_only_its_delegation() {
-        let f = Fixture::new();
-        let request = f.request("BLOCK waiting for cancellation");
-        f.until(|| f.prompts().len() == 1).await;
-        crate::api::dispatch(
-            &f.hub,
-            &crate::api::devices::Caller::Local,
-            "send",
-            json!({"botId": "b", "text": "thanks"}),
-        )
-        .await
-        .unwrap();
-        f.hub.send_cmd("a", Cmd::Stop).unwrap();
-        assert!(request.await.unwrap().unwrap_err().to_string().contains("cancelled"));
-        f.until(|| f.prompts().len() == 2 && f.hub.runtime("b").status == BotStatus::Idle).await;
-        assert_eq!(f.prompts()[1], "thanks");
-        assert!(f.hub.team.0.locked().pending.is_empty());
-        f.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn timeout_and_recipient_errors_release_waiters() {
-        let f = Fixture::new();
-        for message in ["FAIL requested failure", "EMPTY no text"] {
-            assert!(f.request(message).await.unwrap().is_err());
-            assert!(f.hub.team.0.locked().pending.is_empty());
-        }
-        let source = visible_bot(&f.hub, "a").unwrap();
-        let error = ask(&f.hub, &source, "b", "BLOCK timed request", Duration::from_millis(100)).await.unwrap_err();
-        assert!(error.to_string().contains("timed out"));
-        f.until(|| f.hub.runtime("b").status == BotStatus::Idle).await;
-        assert!(f.hub.team.0.locked().pending.is_empty());
-        assert!(f.request("after timeout").await.unwrap().is_ok());
-        f.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn invalid_hidden_and_deleted_targets_never_start() {
-        let f = Fixture::new();
-        let mut hidden = visible_bot(&f.hub, "c").unwrap();
-        hidden.hidden = true;
-        f.hub.store.save_bot(&hidden).unwrap();
-        let list = call(&f.hub, "a", "list_bots", &json!({})).await.unwrap();
-        assert_eq!(list["bots"].as_array().unwrap().len(), 1);
-        assert_eq!(list["bots"][0]["id"], "b");
-        for target in ["a", "c", "missing"] {
-            assert!(call(&f.hub, "a", "ask_bot", &json!({"botId": target, "message": "do work"})).await.is_err());
-        }
-        assert!(f.request(" ").await.unwrap().is_err());
-        f.hub.delete_bot("b").unwrap();
-        assert!(f.request("deleted").await.unwrap().is_err());
-        assert_eq!(f.prompts().len(), 0);
-        f.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn queued_requests_are_not_merged_and_cancelled_requests_never_execute() {
-        let f = Fixture::new();
-        f.hub.set_runtime("c", |r| r.status = BotStatus::Working);
-        f.hub.team.start_turn("c");
-        let first = f.request("BLOCK first request");
-        f.until(|| f.prompts().len() == 1).await;
-        let hub = f.hub.clone();
-        let second = tokio::spawn(async move {
-            call(&hub, "c", "ask_bot", &json!({"botId": "b", "message": "second request"})).await
-        });
-        f.until(|| f.hub.team.0.locked().pending.len() == 2).await;
-        assert_eq!(f.prompts().len(), 1);
-        std::fs::write(f.dir.join("b/release"), "").unwrap();
-        assert_eq!(first.await.unwrap().unwrap()["reply"], "reply: BLOCK first request");
-        assert_eq!(second.await.unwrap().unwrap()["reply"], "reply: second request");
-        assert_eq!(f.prompts().len(), 2);
-
-        std::fs::remove_file(f.dir.join("b/release")).unwrap();
-        let third = f.request("BLOCK third request");
-        f.until(|| f.prompts().len() == 3).await;
-        let source = visible_bot(&f.hub, "c").unwrap();
-        let error = ask(&f.hub, &source, "b", "must never run", Duration::from_millis(30)).await.unwrap_err();
-        assert!(error.to_string().contains("timed out"));
-        std::fs::write(f.dir.join("b/release"), "").unwrap();
-        assert!(third.await.unwrap().is_ok());
-        f.until(|| f.hub.runtime("b").status == BotStatus::Idle).await;
-        assert_eq!(f.prompts().len(), 3);
-        f.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn recipient_startup_failure_and_deletion_finish_the_request() {
-        let f = Fixture::new();
-        f.hub.update_bot(&json!({"id": "b", "command": "/codync-nonexistent-test-agent"})).unwrap();
-        assert!(f.request("start failure").await.unwrap().unwrap_err().to_string().contains("couldn't start"));
-        assert!(f.hub.team.0.locked().pending.is_empty());
-        let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/team_agent.py");
-        f.hub.update_bot(&json!({"id": "b", "command": crate::shell::python(&agent)})).unwrap();
-        let request = f.request("BLOCK delete while working");
-        f.until(|| f.prompts().len() == 1).await;
-        f.hub.delete_bot("b").unwrap();
-        assert!(request.await.unwrap().is_err());
-        assert!(f.hub.team.0.locked().pending.is_empty());
-        f.shutdown().await;
-    }
-
-    #[test]
-    fn restart_marks_requests_interrupted_without_replaying_them() {
-        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
-        let pending = store
-            .insert_entry(
-                &crate::store::Lane::main("b"),
-                EntryKind::Notice,
-                1,
-                &json!({
-                    "delegationId": "d", "status": "sent", "heading": "Request from a",
-                }),
-            )
-            .unwrap();
-        let complete = store
-            .insert_entry(
-                &crate::store::Lane::main("a"),
-                EntryKind::Notice,
-                1,
-                &json!({
-                    "delegationId": "done", "status": "completed",
-                }),
-            )
-            .unwrap();
-        store.expire_pending().unwrap();
-        let interrupted = store.entry(&pending.id).unwrap();
-        assert_eq!(interrupted.data["status"], "failed");
-        assert!(interrupted.data["text"].as_str().unwrap().contains("Interrupted by host restart"));
-        assert_eq!(store.entry(&complete.id).unwrap().data["status"], "completed");
-        assert!(interrupted.rev > pending.rev);
-    }
-}
+mod tests;
