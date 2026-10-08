@@ -291,6 +291,25 @@ mod tests {
     }
 
     #[test]
+    fn bot_replies_stay_in_the_popup_and_user_reports_stay_in_main_chat() {
+        let mut message = msg("a", "b", "question");
+        message["reply"] = "answer for a".into();
+        let ask = notice("ask", 1, 0, &message, "completed");
+        let mut trace = ask.clone();
+        trace.id = "trace".into();
+        trace.kind = Kind::Agent;
+        trace.data = json!({"text": "answer for a"});
+        let mut report = trace.clone();
+        report.id = "report".into();
+        report.data = json!({"text": "report for the user", "final": true});
+        let entries = [ask, trace, report];
+        assert_eq!(grouped("b", &entries, true), ["ask", "report"]);
+        let popup = conversation("b", &entries, None, "a");
+        assert_eq!(popup.len(), 1);
+        assert_eq!(popup[0].reply.as_deref(), Some("answer for a"));
+    }
+
+    #[test]
     fn status_maps_to_an_outcome() {
         let mut m = msg("a", "b", "hi");
         m["detail"] = "Recipient stopped.".into();
