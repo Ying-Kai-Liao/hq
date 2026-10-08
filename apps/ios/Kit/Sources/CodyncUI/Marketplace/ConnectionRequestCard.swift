@@ -114,7 +114,7 @@ struct CredentialsView: View {
             CardForm {
                 CardSection("Storage") {
                     Text(status?.provider ?? "System credential store")
-                    Text("Credentials are encrypted on the connected computer. Linux uses Secret Service; macOS uses Keychain.")
+                    Text("Encrypted on the connected computer.")
                         .foregroundStyle(Palette.secondary)
                 }
                 CardSection("Saved connections") {
@@ -124,13 +124,19 @@ struct CredentialsView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    if !model.installedConnectors.contains(where: { !$0.keys.isEmpty }) {
+                        Text("No saved connection credentials yet.")
+                            .font(.caption).foregroundStyle(Palette.secondary)
+                    }
                     Text("Values stay hidden. Select a connection to replace its credentials.")
                         .font(.caption).foregroundStyle(Palette.secondary)
                 }
                 LoginsSection()
                 CardSection("1Password", footer: "Use a service account with read access only to a dedicated shared vault. The 1Password CLI must be installed on the computer.") {
                     Text(status?.onePasswordConnected == true ? "Connected" : "Connect a shared vault")
-                    SecureField("Service account token", text: $token).plainTextInput()
+                    CredentialFieldRow("Service account token") {
+                        SecureField("Paste your token", text: $token).plainTextInput()
+                    }
                     Button("Connect") { save(token) }.buttonStyle(PrimaryButtonStyle()).disabled(busy || token.isEmpty)
                     if status?.onePasswordConnected == true {
                         Button("Disconnect") { save("") }.buttonStyle(SecondaryButtonStyle()).disabled(busy)
@@ -187,9 +193,15 @@ private struct LoginsSection: View {
                     IconButton("Remove", systemImage: "trash") { remove(login) }
                 }
             }
-            TextField("Website or app, e.g. github.com", text: $site).plainTextInput()
-            TextField("Username or email", text: $username).plainTextInput()
-            SecureField("Password or op:// reference", text: $password).plainTextInput()
+            CredentialFieldRow("Website or app") {
+                TextField("github.com", text: $site).plainTextInput()
+            }
+            CredentialFieldRow("Username or email") {
+                TextField("name@example.com", text: $username).plainTextInput()
+            }
+            CredentialFieldRow("Password") {
+                SecureField("Password or op:// reference", text: $password).plainTextInput()
+            }
             Button("Save sign-in") { save() }
                 .buttonStyle(PrimaryButtonStyle())
                 .disabled(busy || site.isEmpty || password.isEmpty)
@@ -266,6 +278,23 @@ private struct ConnectorCredentialEditor: View {
                 fields.removeAll()
                 dismiss()
             } catch { self.error = error.localizedDescription }
+        }
+    }
+}
+
+private struct CredentialFieldRow<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.caption).foregroundStyle(Palette.secondary)
+            content.accessibilityLabel(title)
         }
     }
 }

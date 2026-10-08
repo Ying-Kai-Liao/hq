@@ -32,3 +32,17 @@
 @media (prefers-reduced-transparency: reduce) {
   .sidebar:not(.compact) .sidebar-header::before { backdrop-filter: none; }
 }
+
+.computer-filter-action {
+  height: 32px;
+  min-width: 44px;
+  justify-content: center;
+  flex: none;
+  border: 1px solid var(--chrome-stroke);
+  border-radius: 999px;
+  background: var(--chrome-fill);
+  transition: background-color var(--hover);
+}
+.computer-filter-action:hover {
+  background: color-mix(in srgb, var(--text) 5%, var(--chrome-fill));
+}

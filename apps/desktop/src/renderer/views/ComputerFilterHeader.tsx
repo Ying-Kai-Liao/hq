@@ -58,7 +58,7 @@ export function ComputerFilterHeader({ hidden, setHidden, manage, compact = fals
     return list
   }
   return (
-    <DropdownMenu items={items} title={text} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 0', ...font(12, 'medium'), color: 'var(--secondary)' }}>
+    <DropdownMenu items={items} title={text} className={compact ? 'computer-filter-action' : undefined} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: compact ? '0 9px' : '6px 0', ...font(12, 'medium'), color: 'var(--secondary)' }}>
       {compact ? <Icon name="desktopcomputer" size={12} weight="medium" /> : <span style={{ whiteSpace: 'nowrap' }} aria-label={`Computers, ${text}. Filter conversations`}>{text}</span>}
       <Icon name="chevron.down" size={8} weight="semibold" />
     </DropdownMenu>

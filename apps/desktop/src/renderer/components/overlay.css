@@ -43,6 +43,17 @@
 }
 
 /* Dialogs */
+.modal-content::after,
+.dialog-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
+}
+
 .dialog {
   position: fixed;
   inset: 0;
