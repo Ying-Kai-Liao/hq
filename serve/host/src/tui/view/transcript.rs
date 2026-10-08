@@ -165,7 +165,7 @@ fn intro(out: &mut Built, app: &App, b: &Bot, width: usize) {
         ));
     }
     out.lines.push(Line::default());
-    out.lines.extend(md::wrap(&[Span::styled(hello, t.dim)], width, &[Span::raw("  ")], &[Span::raw("  ")]));
+    out.lines.extend(md::wrap(&[Span::styled(hello, t.secondary)], width, &[Span::raw("  ")], &[Span::raw("  ")]));
 }
 
 /// One chat entry. `main`: the main chat, where a message shows its thread's replies line.
