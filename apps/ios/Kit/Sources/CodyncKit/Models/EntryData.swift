@@ -30,6 +30,8 @@ public struct EntryData: Codable, Hashable, Sendable {
     public var reactions: [String]?
     /// Files sent with a user message.
     public var attachments: [Attachment]?
+    /// Immutable files explicitly sent by the bot.
+    public var files: [SharedFile]?
     /// notice: a finished voice call's length.
     public var callSeconds: Int?
 

@@ -1,3 +1,4 @@
+import type { SharedFile } from './models'
 import type { SSHBridge } from './ssh'
 
 // The bridge between the main process (host lifecycle, loopback HTTP, tray, windows)
@@ -149,6 +150,12 @@ export interface CodyncBridge {
     check(): void
     setAutoCheck(on: boolean): void
     setAutoDownload(on: boolean): void
+  }
+  files: {
+    begin(file: SharedFile): Promise<string | null>
+    write(id: string, offset: number, data: Uint8Array): Promise<void>
+    finish(id: string): Promise<void>
+    cancel(id: string): Promise<void>
   }
   app: {
     openExternal(url: string): void
