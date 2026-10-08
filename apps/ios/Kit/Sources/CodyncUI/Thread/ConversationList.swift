@@ -207,16 +207,16 @@ private struct ConversationCollection: UIViewRepresentable {
 
         // MARK: scrolling
 
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            lastOffset = scrollView.contentOffset.y
+        }
+
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             let y = scrollView.contentOffset.y
             defer { lastOffset = y }
             // Only the reader's own scrolling changes following; layout never does.
             guard scrollView.isTracking || scrollView.isDecelerating else { return }
-            if y < lastOffset - 0.5 {
-                setFollowing(false)
-            } else if y > lastOffset, view.endOffset - y < ConversationCollectionView.nearEnd {
-                setFollowing(true)
-            }
+            setFollowing(view.followingAfterScroll(from: lastOffset))
             if !view.following, y + scrollView.adjustedContentInset.top < scrollView.bounds.height / 2 {
                 parent?.nearTop?()
             }
@@ -278,7 +278,7 @@ private final class ConversationLayout: UICollectionViewCompositionalLayout {
 
 /// Holds the end in place: while following, every layout pass (a reply growing, a row going
 /// in, the keyboard) ends at the bottom, unless the reader has the list in hand.
-private final class ConversationCollectionView: UICollectionView {
+class ConversationCollectionView: UICollectionView {
     static let nearEnd: CGFloat = 32
     var following = true
     /// An animated scroll down is under way; layout leaves it alone.
@@ -290,12 +290,21 @@ private final class ConversationCollectionView: UICollectionView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if following, !isTracking, !isDecelerating, !scrollingToEnd { pinToEnd() }
+        if following { pinToEnd() }
     }
 
     func pinToEnd() {
+        // Every caller must yield to UIKit until the drag and its rubber-band return finish.
+        guard !scrollingToEnd, !isTracking, !isDragging, !isDecelerating else { return }
         let end = endOffset
         if abs(contentOffset.y - end) > 0.5 { contentOffset.y = end }
+    }
+
+    func followingAfterScroll(from previousOffset: CGFloat) -> Bool {
+        // Returning from overscroll moves upward too, but is not reading older messages.
+        if endOffset - contentOffset.y < Self.nearEnd { return true }
+        if contentOffset.y < previousOffset - 0.5 { return false }
+        return following
     }
 
     func scrollToEnd(animated: Bool) {
