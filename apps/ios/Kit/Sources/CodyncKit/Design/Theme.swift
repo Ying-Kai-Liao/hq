@@ -31,11 +31,11 @@ public enum Palette {
     public static let background = Color(light: 0xFFFFFF, dark: 0x0A0A0A)
     public static let surface = Color(light: 0xF4F4F4, dark: 0x141414)
     public static let bubbleAgent = Color(light: 0xF0F0F0, dark: 0x1C1C1C)
-    public static let bubbleUser = Color(light: 0xE2E2E2, dark: 0x3A3A3A)
+    public static let bubbleUser = Color(light: 0xE2E2E2, dark: 0x363636)
     public static let border = Color(light: 0xE6E6E6, dark: 0x262626)
     public static let text = Color(light: 0x141414, dark: 0xF2F2F2)
     public static let secondary = Color(light: 0x6B6B6B, dark: 0x9A9A9A)
-    public static let tertiary = Color(light: 0x9B9B9B, dark: 0x6E6E6E)
+    public static let tertiary = Color(light: 0x767676, dark: 0x929292)
     /// Ink used for fills (primary buttons, the send button, unread badges).
     public static let accentFill = Color(light: 0x000000, dark: 0xFFFFFF)
     /// Ink readable as text and tint on the background.

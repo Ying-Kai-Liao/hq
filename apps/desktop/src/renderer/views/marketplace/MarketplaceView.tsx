@@ -8,7 +8,7 @@ import { useStore } from '../../store/context'
 import { ComputerBadge } from '../ComputerBadge'
 import { AgentSheet, AgentTile } from './AgentSheet'
 import { ComposioSection } from './ComposioViews'
-import { CredentialsView } from './ConnectionRequestCard'
+import { CredentialsView } from './CredentialsView'
 import { CustomConnectorSheet, InstallConnectorSheet, NewSkillSheet } from './ConnectorSheets'
 import {
   appendPage, emptyPage, errorText, hasHiddenItems, market, needsSignIn, replacePage, revealMore, visible,
@@ -25,7 +25,7 @@ const connectorId = (c: MarketConnector) => c.name
  * computer; each bot turns connectors and skills on in its settings.
  * With more than one computer, the header switches between them (the caller swaps the store).
  */
-export function MarketplaceView({ computers, computer, onComputer }: { computers: { id: string; name: string }[]; computer: string; onComputer: (id: string) => void }) {
+export function MarketplaceView({ computers, computer, onComputer, appsFirst = false }: { appsFirst?: boolean; computers: { id: string; name: string }[]; computer: string; onComputer: (id: string) => void }) {
   const store = useStore()
   const plugins = usePlugins(store)
   const dismiss = useDismiss()
@@ -135,12 +135,12 @@ export function MarketplaceView({ computers, computer, onComputer }: { computers
   }
 
   const header = (
-    <div style={{ display: 'flex', alignItems: 'center', paddingTop: 28, gap: 8 }}>
+    <div className="market-heading">
       {/* Everything here lives on one computer; say which. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
         <ComputerBadge computer={store.computer} size={32} />
         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, whiteSpace: 'nowrap' }}>
-          <span style={{ ...font('title2', 'semibold'), color: 'var(--text)' }}>Marketplace</span>
+          <span style={{ ...font('title', 'semibold'), color: 'var(--text)' }}>{appsFirst ? 'Connect apps' : 'Marketplace'}</span>
           {computers.length > 1 ? (
             <DropdownMenu
               title="Switch computer"
@@ -156,6 +156,7 @@ export function MarketplaceView({ computers, computer, onComputer }: { computers
         </div>
       </div>
       <span style={{ flex: 1 }} />
+      <Button kind="secondary" onClick={() => setShowCredentials(true)}><Icon name="lock.shield" size={12} />Credentials</Button>
       {installedCount > 0 ? (
         <button className="press" style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 'none' }} onClick={() => setShowInstalled(true)}>
           <span style={{ display: 'flex' }}>
@@ -213,6 +214,7 @@ export function MarketplaceView({ computers, computer, onComputer }: { computers
         <div className="market-page-content">
           {header}
           {searchField}
+          {appsFirst ? <ComposioSection query={query} searchToken={searchToken} /> : null}
           {agents.length > 0 ? (
             <MarketSection title={query ? `Agents matching “${query}”` : 'Agents'}>
               <div className="agent-grid">
@@ -250,7 +252,7 @@ export function MarketplaceView({ computers, computer, onComputer }: { computers
               </>
             )}
           </MarketSection>
-          <ComposioSection query={query} searchToken={searchToken} />
+          {!appsFirst ? <ComposioSection query={query} searchToken={searchToken} /> : null}
           <MarketSection title="Skills">
             {loadingSkills ? (
               <SkeletonGrid />
@@ -270,12 +272,6 @@ export function MarketplaceView({ computers, computer, onComputer }: { computers
               </ItemGrid>
             )}
           </MarketSection>
-          <div>
-            <Button kind="secondary" onClick={() => setShowCredentials(true)}>
-              <Icon name="lock.shield" size={11} />
-              Credentials
-            </Button>
-          </div>
           <MarketSection title="Make your own">
             <ItemGrid>
               <MarketRow
@@ -311,12 +307,9 @@ export function MarketplaceView({ computers, computer, onComputer }: { computers
 
   return (
     <>
-      <SlideStack base={page} top={showInstalled ? <InstalledView back={() => setShowInstalled(false)} /> : null} />
+      <SlideStack base={page} top={showCredentials ? <CredentialsView onBack={() => setShowCredentials(false)} /> : showInstalled ? <InstalledView back={() => setShowInstalled(false)} /> : null} />
       <FormSheet open={installing !== null} onClose={() => setInstalling(null)}>
         {installing ? <InstallConnectorSheet key={installing.name} item={installing} done={() => void loadConnectors(connectorQuery.current)} /> : null}
-      </FormSheet>
-      <FormSheet open={showCredentials} onClose={() => setShowCredentials(false)} width={560} height={720}>
-        <CredentialsView />
       </FormSheet>
       <FormSheet open={addingConnector} onClose={() => setAddingConnector(false)}>
         <CustomConnectorSheet />
@@ -337,8 +330,8 @@ function AgentCard({ backend, onClick }: { backend: Backend; onClick: () => void
     : backend.curated === true ? 'Not installed' : 'Sets up on first use'
   return (
     <button className="agent-card" title={backend.name} onClick={onClick}>
-      <AgentTile registry={backend.registry} icon={34} tile={64} radius={18} />
-      <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, maxWidth: '100%' }}>
+      <AgentTile registry={backend.registry} icon={24} tile={40} radius={11} />
+      <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3, minWidth: 0 }}>
         <span style={{ ...font('subheadline', 'semibold'), color: 'var(--text)', ...ellipsis }}>{backend.name}</span>
         <span style={{ ...font('caption'), color: 'var(--secondary)', ...ellipsis }}>{status}</span>
       </span>

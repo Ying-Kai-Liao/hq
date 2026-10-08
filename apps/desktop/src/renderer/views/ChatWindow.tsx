@@ -12,6 +12,7 @@ import { useApp, StoreContext } from '../store/context'
 import { refKey, sameRef, parseRef, type BotRef } from '../store/app-model'
 import type { BotStore } from '../store/bot-store'
 import { BotRow } from './BotRow'
+import { SidebarFooter } from './SidebarFooter'
 import { ComputerFilterHeader, computerSelection } from './ComputerFilterHeader'
 import { ThreadView } from './thread/ThreadView'
 import { NewChatView } from './bots/NewChatView'
@@ -29,6 +30,7 @@ import { AccountPanelLayer, DesktopActionMenu, ProfileAvatar } from './PanelMenu
 import { useTraySummary } from './tray-summary'
 import { useSSHAttachments } from './settings/ssh-model'
 import './chat-window.css'
+import './sidebar-header.css'
 
 const isMac = window.codync.platform === 'darwin'
 
@@ -332,9 +334,9 @@ function ChatSplitView() {
         <div className="sidebar-header drag" style={{ paddingLeft: compact ? 0 : isMac ? 80 : 18, opacity: compact ? 0 : 1, pointerEvents: compact ? 'none' : undefined }} aria-hidden={compact}>
           <span style={{ flex: 1 }} />
           <div className="no-drag" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <ComputerFilterHeader hidden={hidden} setHidden={setHidden} manage={() => setSettings('computers')} />
-            <IconButton title="Search" icon="magnifyingglass" onClick={() => setSearching(true)} />
-            <IconButton title="New" icon="plus" buttonRef={newButton} onClick={() => setNewMenu((o) => !o)} disabled={!onlineStores.length} />
+            <ComputerFilterHeader hidden={hidden} setHidden={setHidden} manage={() => setSettings('computers')} compact />
+            <IconButton title="Search" icon="magnifyingglass" size={32} className="sidebar-header-action" onClick={() => setSearching(true)} />
+            <IconButton title="New" icon="plus" size={32} className="sidebar-header-action" buttonRef={newButton} onClick={() => setNewMenu((o) => !o)} disabled={!onlineStores.length} />
           </div>
           <AnchoredMenu open={newMenu} onClose={() => setNewMenu(false)} anchor={newButton} items={newItems} />
         </div>
@@ -364,7 +366,7 @@ function ChatSplitView() {
                 className="roster-row"
                 style={{
                   padding: compact ? 0 : '0 8px',
-                  background: isSelected ? 'var(--bubble-user)' : hovered === key ? 'var(--bubble-agent)' : 'transparent',
+                  background: isSelected ? 'var(--roster-selected)' : hovered === key ? 'var(--bubble-agent)' : 'transparent',
                 }}
                 aria-label={stores.length > 1 ? `${item.bot.name}, on ${item.store.hostName}` : item.bot.name}
                 aria-selected={isSelected}
@@ -393,24 +395,13 @@ function ChatSplitView() {
             <IconButton title="Search" icon="magnifyingglass" onClick={() => setSearching(true)} />
             <IconButton title="New" icon="plus" size={36} buttonRef={railNewButton} disabled={!onlineStores.length} onClick={() => setRailNewMenu((o) => !o)} />
             <AnchoredMenu open={railNewMenu} onClose={() => setRailNewMenu(false)} anchor={railNewButton} items={newItems} />
-            <IconButton title="Marketplace" icon="square.grid.2x2" size={36} onClick={openMarketplace} />
+            <IconButton title="Connect apps" icon="square.grid.2x2" size={36} onClick={openMarketplace} />
             <button className="rail-profile" style={{ background: showAccount ? 'var(--bubble-agent)' : undefined }} aria-label="Open account menu for Account" title="Account" onClick={() => setShowAccount((s) => !s)}>
               <ProfileAvatar />
             </button>
           </div>
         ) : (
-          <div className="sidebar-footer">
-            <button className="footer-row" onClick={openMarketplace}>
-              <span className="footer-icon">
-                <Icon name="square.grid.2x2" size={14} />
-              </span>
-              <span>Marketplace</span>
-            </button>
-            <button className={`footer-row account ${showAccount ? 'active' : ''}`} aria-label="Open account menu for Account" title="Account menu" onClick={() => setShowAccount((s) => !s)}>
-              <ProfileAvatar />
-              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Account</span>
-            </button>
-          </div>
+          <SidebarFooter accountOpen={showAccount} onAccount={() => setShowAccount((s) => !s)} onConnectApps={openMarketplace} />
         )}
       </aside>
       <div className="sidebar-divider" onPointerDown={onDividerDown} onPointerMove={onDividerMove} onPointerUp={() => (dragStart.current = null)} role="separator" aria-label="Resize sidebar" aria-valuenow={width} />
@@ -455,7 +446,7 @@ function ChatSplitView() {
       <Sheet open={marketplace !== null} onClose={() => setMarketplace(null)} width={Math.min(920, windowSize.width - 80)} height={sheetHeight}>
         {marketplace && app.store(marketplace) ? (
           <StoreContext.Provider value={app.store(marketplace)!}>
-            <MarketplaceView key={marketplace} computers={onlineStores.map((s) => ({ id: s.computer.id, name: s.hostName }))} computer={marketplace} onComputer={setMarketplace} />
+            <MarketplaceView appsFirst key={marketplace} computers={onlineStores.map((s) => ({ id: s.computer.id, name: s.hostName }))} computer={marketplace} onComputer={setMarketplace} />
           </StoreContext.Provider>
         ) : null}
       </Sheet>

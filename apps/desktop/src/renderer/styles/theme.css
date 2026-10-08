@@ -10,7 +10,7 @@
   --text: #141414;
   --text-rgb: 20, 20, 20;
   --secondary: #6b6b6b;
-  --tertiary: #9b9b9b;
+  --tertiary: #767676;
   --accent-fill: #000000;
   --accent: #000000;
   --on-accent: #ffffff;
@@ -27,6 +27,11 @@
   --chat-user: #e2e2e2;
   /* Floating transcript controls (chevrons, Jump to latest, inspector actions). */
   --chat-button: #eeeeee;
+  --composer-fill: #f3f3f3;
+  --chrome-fill: #fafafa;
+  --chrome-stroke: rgba(0, 0, 0, 0.09);
+  --composer-stroke: rgba(0, 0, 0, 0.14);
+  --roster-selected: #e7e7e7;
   /* Grok's frosted floating surfaces (title pill, call bar). */
   --frosted: rgba(244, 244, 244, 0.82);
 
@@ -53,15 +58,15 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --surface: #141414;
+    --background: #070707;
+    --surface: #111111;
     --bubble-agent: #1c1c1c;
     --bubble-user: #3a3a3a;
     --border: #262626;
-    --text: #f2f2f2;
-    --text-rgb: 242, 242, 242;
-    --secondary: #9a9a9a;
-    --tertiary: #6e6e6e;
+    --text: #fafafa;
+    --text-rgb: 250, 250, 250;
+    --secondary: #a0a0a0;
+    --tertiary: #929292;
     --accent-fill: #ffffff;
     --accent: #ffffff;
     --on-accent: #000000;
@@ -72,8 +77,13 @@
     --removed: #f0a7a7;
     --panel: #1b1b1b;
     --chat-agent: #262626;
-    --chat-user: #545454;
+    --chat-user: #363636;
     --chat-button: #303030;
+    --composer-fill: #2f2f2f;
+    --chrome-fill: #181818;
+    --chrome-stroke: rgba(255, 255, 255, 0.10);
+    --composer-stroke: rgba(255, 255, 255, 0.17);
+    --roster-selected: #292929;
     --frosted: rgba(35, 35, 35, 0.82);
   }
 }
@@ -133,8 +143,10 @@ button {
   cursor: default;
   text-align: inherit;
 }
-button:focus-visible {
-  outline: none;
+button:focus-visible,
+[role="separator"]:focus-visible {
+  outline: 2px solid var(--secondary);
+  outline-offset: -2px;
 }
 button:disabled {
   cursor: default;

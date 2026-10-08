@@ -5,6 +5,24 @@ listing what iPhone users notice. tools/asc-submit.py reads the released version
 a version without one gets a generic "Bug fixes and improvements" line. Delete old sections.
 -->
 
+## 2.11.2
+
+### zh-Hant
+
+- 憑證設定欄位保留清楚的標籤，並顯示尚未儲存連線憑證的狀態。
+- 對話捲到底後繼續拖動時保留自然回彈，不再突然跳回底部或閃現跳至最新訊息按鈕。
+- 改善跳至最新訊息的捲動動畫，避免長對話來回跳動，並可隨時用手勢中止。
+- 調整對話氣泡與文字對比，讓閱讀更清楚。
+- 對話列表摘要不再顯示粗體與程式碼的 Markdown 符號。
+
+### en-US
+
+- Credential fields keep their labels visible, with a clearer empty state for saved connections.
+- Chats bounce naturally when dragged past the bottom, without snapping back or flashing the jump-to-latest button.
+- Smoother jumps to the latest message, without back-and-forth movement in long chats; dragging interrupts immediately.
+- Refined chat bubbles and text contrast for clearer reading.
+- Conversation previews hide bold and code formatting markers.
+
 ## 2.10.0
 
 ### zh-Hant

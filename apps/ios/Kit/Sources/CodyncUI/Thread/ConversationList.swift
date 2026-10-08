@@ -128,24 +128,24 @@ private struct ConversationCollection: UIViewRepresentable {
             let rows = parent.rows.filter { seen.insert($0.id).inserted }
             contents = Dictionary(rows.map { ($0.id, $0.content) }, uniquingKeysWith: { a, _ in a })
 
+            // Reserve the offset before any snapshot or inset update can lay out the list.
+            // Otherwise enabling following pins it to the end before the animation starts.
+            let sent = lastId != nil && (rows.last.map { $0.id != lastId && $0.isUserMessage } ?? false)
+            let jump = pending == nil && parent.following && !view.following
+            if jump || sent { view.prepareToScrollToEnd(animated: !reduceMotion) }
+            if let pending {
+                if parent.following == pending { self.pending = nil }
+            } else if parent.following != view.following {
+                view.following = parent.following
+            }
+            if sent { setFollowing(true) }
+
             if let container = view.superview as? ConversationContainer, container.outsets != parent.outsets {
-                // The keyboard or the composer moved: the end moves with them.
                 animate(context.transaction.animation) {
                     container.outsets = parent.outsets
                     container.layoutIfNeeded()
                 }
             }
-
-            // "Jump to latest", or the reader's own message just went out.
-            let sent = rows.last.map { $0.id != lastId && $0.isUserMessage } ?? false
-            var jump = false
-            if let pending {
-                if parent.following == pending { self.pending = nil }
-            } else if parent.following != view.following {
-                view.following = parent.following
-                jump = parent.following
-            }
-            if sent { setFollowing(true) }
 
             let ids = rows.map(\.id)
             let old = dataSource.snapshot().itemIdentifiers
@@ -158,7 +158,7 @@ private struct ConversationCollection: UIViewRepresentable {
             let first = lastId == nil
             lastId = rows.last?.id
 
-            if old == ids || first {
+            if old == ids || first || view.scrollingToEnd || jump || sent {
                 dataSource.apply(snapshot, animatingDifferences: false)
             } else if view.following, !reduceMotion {
                 // New rows pop in as the list moves up to them, in one motion (Grok Bot's
@@ -207,16 +207,17 @@ private struct ConversationCollection: UIViewRepresentable {
 
         // MARK: scrolling
 
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            view.cancelScrollingToEnd()
+            lastOffset = scrollView.contentOffset.y
+        }
+
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             let y = scrollView.contentOffset.y
             defer { lastOffset = y }
             // Only the reader's own scrolling changes following; layout never does.
             guard scrollView.isTracking || scrollView.isDecelerating else { return }
-            if y < lastOffset - 0.5 {
-                setFollowing(false)
-            } else if y > lastOffset, view.endOffset - y < ConversationCollectionView.nearEnd {
-                setFollowing(true)
-            }
+            setFollowing(view.followingAfterScroll(from: lastOffset))
             if !view.following, y + scrollView.adjustedContentInset.top < scrollView.bounds.height / 2 {
                 parent?.nearTop?()
             }
@@ -231,6 +232,7 @@ private struct ConversationCollection: UIViewRepresentable {
         }
 
         func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+            view.cancelScrollingToEnd()
             setFollowing(false)
             return true
         }
@@ -240,7 +242,6 @@ private struct ConversationCollection: UIViewRepresentable {
         }
 
         func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-            view.scrollingToEnd = false
             if view.following { view.pinToEnd() }
         }
 
@@ -273,50 +274,6 @@ private final class ConversationLayout: UICollectionViewCompositionalLayout {
         attributes.alpha = 0
         attributes.transform = CGAffineTransform(translationX: 0, y: 12).scaledBy(x: 0.94, y: 0.94)
         return attributes
-    }
-}
-
-/// Holds the end in place: while following, every layout pass (a reply growing, a row going
-/// in, the keyboard) ends at the bottom, unless the reader has the list in hand.
-private final class ConversationCollectionView: UICollectionView {
-    static let nearEnd: CGFloat = 32
-    var following = true
-    /// An animated scroll down is under way; layout leaves it alone.
-    var scrollingToEnd = false
-
-    var endOffset: CGFloat {
-        max(contentSize.height + adjustedContentInset.bottom - bounds.height, -adjustedContentInset.top)
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        if following, !isTracking, !isDecelerating, !scrollingToEnd { pinToEnd() }
-    }
-
-    func pinToEnd() {
-        let end = endOffset
-        if abs(contentOffset.y - end) > 0.5 { contentOffset.y = end }
-    }
-
-    func scrollToEnd(animated: Bool) {
-        guard animated, abs(contentOffset.y - endOffset) > 1 else { return pinToEnd() }
-        scrollingToEnd = true
-        // Rows off screen are still estimates: sized mid-scroll they make the move jerk and the
-        // end snap. Size the last screen first (it shifts the end), then start at most one
-        // screen above it, so every row the move crosses is already real (all before a frame draws).
-        let from = contentOffset.y
-        for _ in 0..<3 {
-            contentOffset.y = endOffset
-            layoutIfNeeded()
-        }
-        contentOffset.y = max(from, endOffset - bounds.height)
-        layoutIfNeeded()
-        let end = endOffset
-        guard abs(contentOffset.y - end) > 1 else {
-            scrollingToEnd = false
-            return pinToEnd()
-        }
-        setContentOffset(CGPoint(x: contentOffset.x, y: end), animated: true)
     }
 }
 
@@ -385,4 +342,3 @@ struct JumpToLatest: View {
         .animation(Motion.reduced(Motion.layout, reduceMotion), value: visible)
     }
 }
-

@@ -10,9 +10,9 @@
 .market-page-content {
   display: flex;
   flex-direction: column;
-  gap: 28px;
-  padding: 20px 44px;
-  max-width: 980px;
+  gap: 24px;
+  padding: 30px 36px;
+  max-width: 860px;
   margin: 0 auto;
 }
 .market-close {
@@ -53,7 +53,7 @@
   padding: 0 14px;
   height: 38px;
   background: var(--bubble-agent);
-  border-radius: 999px;
+  border-radius: 12px;
 }
 .market-search input {
   flex: 1;
@@ -68,7 +68,7 @@
 
 .agent-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 12px;
 }
 .item-grid {
@@ -80,13 +80,14 @@
 
 .agent-card {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
+  text-align: left;
   gap: 12px;
-  padding: 18px 10px;
-  border-radius: 18px;
+  padding: 10px 12px;
+  border-radius: 12px;
   min-width: 0;
-  background: color-mix(in srgb, var(--bubble-agent) 45%, transparent);
+  background: transparent;
   transition: background-color var(--hover), transform var(--press);
 }
 .agent-card:hover {
@@ -188,4 +189,11 @@ textarea.market-field {
   from {
     opacity: 0;
   }
+}
+
+.market-heading { display: flex; align-items: center; gap: 12px; padding-right: 10px; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .market-page-content { padding: 28px 18px; }
+  .item-grid { grid-template-columns: minmax(0, 1fr); }
+  .agent-grid { grid-template-columns: minmax(0, 1fr); }
 }

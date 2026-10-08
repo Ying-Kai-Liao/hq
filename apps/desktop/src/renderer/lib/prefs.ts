@@ -55,7 +55,7 @@ export function stepTextSize(size: number, up: boolean) {
 export const prefs = {
   textSize: pref('conversationFontSize', DEFAULT_TEXT_SIZE),
   sidebarCompact: pref('sidebarCompact', false),
-  sidebarWidth: pref('desktopSidebarWidth', 296),
+  sidebarWidth: pref('desktopSidebarWidth', 266),
   hiddenComputers: pref('hiddenComputers', ''),
   usageIconStyle: pref<'character' | 'original'>('usageIconStyle', 'character'),
   onboardingDone: pref('macAccountOnboardingCompleted', false),
@@ -67,9 +67,9 @@ export function applyTextSize(size: number) {
   const clamped = Number.isFinite(size) ? Math.min(Math.max(size, 11), 18) : DEFAULT_TEXT_SIZE
   document.documentElement.style.setProperty('--scale', String(clamped / DEFAULT_TEXT_SIZE))
   document.documentElement.style.setProperty('--conversation', `${clamped}px`)
-  // The chat itself reads two points larger than the chrome (Grok's desktop chat).
-  document.documentElement.style.setProperty('--chat', `${clamped + 2}px`)
-  document.documentElement.style.setProperty('--chat-scale', String((clamped + 2) / DEFAULT_TEXT_SIZE))
+  // Match the reference chat at the selected size; keep larger text an explicit preference.
+  document.documentElement.style.setProperty('--chat', `${clamped}px`)
+  document.documentElement.style.setProperty('--chat-scale', String(clamped / DEFAULT_TEXT_SIZE))
 }
 
 prefs.textSize.subscribe(() => applyTextSize(prefs.textSize.get()))

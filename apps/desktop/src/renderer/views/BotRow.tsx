@@ -4,24 +4,25 @@ import { AvatarWithStatus } from '../components/Avatar'
 import { Icon } from '../components/Icon'
 import { ThinkingOrb } from '../components/ThinkingOrb'
 import { font } from '../lib/fonts'
+import { messagePreview } from '../lib/message-preview'
 import type { BotStore } from '../store/bot-store'
 
 /** A roster row: avatar with status, name, and the live activity or last message (Grok Bot's desktop sidebar). */
 export const BotRow = memo(function BotRow({ bot, store, compact, usingComputer, members }: { bot: Bot; store: BotStore; compact: boolean; usingComputer: boolean; members: Bot[] }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 0 : 8, padding: '6px 0', width: '100%', justifyContent: compact ? 'center' : 'flex-start' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 0 : 10, padding: '9px 0', width: '100%', justifyContent: compact ? 'center' : 'flex-start' }}>
       <AvatarWithStatus bot={bot} members={members} size={30} />
       <div
         aria-hidden={compact}
         style={{
-          display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0, overflow: 'hidden',
+          display: 'flex', flexDirection: 'column', gap: 2, lineHeight: 'calc(16px * var(--scale))', minWidth: 0, overflow: 'hidden',
           width: compact ? 0 : undefined, flex: compact ? 'none' : 1, opacity: compact ? 0 : 1,
           transition: 'opacity var(--layout)',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, minWidth: 0 }}>
           {bot.pinned ? <Icon name="pin.fill" size={10} color="var(--tertiary)" /> : null}
-          <span style={{ ...font('compactBody', 'semibold'), color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{bot.name}</span>
+          <span style={{ ...font('body', bot.unread > 0 ? 'semibold' : 'medium'), color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{bot.name}</span>
           {usingComputer ? <Icon name="cursorarrow.motionlines" size={10} color="var(--accent)" title="Using the computer" /> : null}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
@@ -44,13 +45,7 @@ export const BotRow = memo(function BotRow({ bot, store, compact, usingComputer,
   )
 })
 
-/** `lineLimit(1)`: the first line, with an ellipsis when there is more. */
-const firstLine = (text: string) => {
-  const nl = text.indexOf('\n')
-  return nl < 0 ? text : `${text.slice(0, nl)}…`
-}
-
-const line: React.CSSProperties = { ...font('compactSecondary'), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }
+const line: React.CSSProperties = { ...font('callout'), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }
 
 /** Live activity while working, otherwise the last message (Grok Bot row behavior). */
 function Preview({ bot, store }: { bot: Bot; store: BotStore }) {
@@ -70,6 +65,6 @@ function Preview({ bot, store }: { bot: Bot; store: BotStore }) {
       </span>
     )
   }
-  if (bot.status === 'error') return <span style={{ ...line, color: 'var(--danger)' }}>{firstLine(bot.lastMessage ?? 'Something went wrong')}</span>
-  return <span style={{ ...line, color: 'var(--secondary)' }}>{firstLine(bot.lastMessage ?? (isGroup(bot) ? `${bot.members.length} bots` : `${store.backendName(bot.backend)} · ${folderName(bot)}`))}</span>
+  if (bot.status === 'error') return <span style={{ ...line, color: 'var(--danger)' }}>{messagePreview(bot.lastMessage ?? 'Something went wrong')}</span>
+  return <span style={{ ...line, color: 'var(--secondary)' }}>{messagePreview(bot.lastMessage ?? (isGroup(bot) ? `${bot.members.length} bots` : `${store.backendName(bot.backend)} · ${folderName(bot)}`))}</span>
 }
