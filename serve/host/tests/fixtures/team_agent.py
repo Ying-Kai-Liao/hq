@@ -23,35 +23,57 @@ def update(value):
     send({"method": "session/update", "params": {"sessionId": "session", "update": value}})
 
 
+def team_call(target, tool, message):
+    server = next(s for s in servers if s["name"] == "team")
+    with subprocess.Popen([server["command"], *server["args"]], stdin=subprocess.PIPE,
+                          stdout=subprocess.PIPE, text=True) as mcp:
+        def rpc(identifier, method, params):
+            mcp.stdin.write(json.dumps({"jsonrpc": "2.0", "id": identifier, "method": method, "params": params}) + "\n")
+            mcp.stdin.flush()
+            return json.loads(mcp.stdout.readline())
+
+        initialized = rpc(1, "initialize", {"protocolVersion": "2025-06-18"})
+        assert initialized["result"]["serverInfo"]["name"] == "codync-team"
+        tools = rpc(2, "tools/list", {})
+        assert {t["name"] for t in tools["result"]["tools"]} == {"list_bots", "ask_bot", "message_bot"}
+        roster = rpc(3, "tools/call", {"name": "list_bots", "arguments": {}})
+        assert any(b["id"] == target for b in json.loads(roster["result"]["content"][0]["text"])["bots"])
+        response = rpc(4, "tools/call", {"name": tool, "arguments": {
+            "botId": target, "message": message,
+        }})
+        mcp.stdin.close()
+        return response["result"]
+
+
 def prompt(request):
     text = request["params"]["prompt"][0]["text"]
     with open("prompts.jsonl", "a") as log:
         log.write(json.dumps(text) + "\n")
-    if text.startswith("DELEGATE "):
+    if text.startswith(("DELEGATE ", "MESSAGE ")):
+        independent = text.startswith("MESSAGE ")
         target = text.split()[1]
-        server = next(s for s in servers if s["name"] == "team")
         update({"sessionUpdate": "tool_call", "toolCallId": "delegate", "title": "Ask reviewer", "status": "in_progress"})
-        with subprocess.Popen([server["command"], *server["args"]], stdin=subprocess.PIPE,
-                              stdout=subprocess.PIPE, text=True) as mcp:
-            def rpc(identifier, method, params):
-                mcp.stdin.write(json.dumps({"jsonrpc": "2.0", "id": identifier, "method": method, "params": params}) + "\n")
-                mcp.stdin.flush()
-                return json.loads(mcp.stdout.readline())
-
-            initialized = rpc(1, "initialize", {"protocolVersion": "2025-06-18"})
-            assert initialized["result"]["serverInfo"]["name"] == "codync-team"
-            tools = rpc(2, "tools/list", {})
-            assert {t["name"] for t in tools["result"]["tools"]} == {"list_bots", "ask_bot"}
-            roster = rpc(3, "tools/call", {"name": "list_bots", "arguments": {}})
-            assert any(b["id"] == target for b in json.loads(roster["result"]["content"][0]["text"])["bots"])
-            response = rpc(4, "tools/call", {"name": "ask_bot", "arguments": {
-                "botId": target, "message": "PERMISSION review the changes",
-            }})
-            assert not response["result"].get("isError"), response
-            text = json.loads(response["result"]["content"][0]["text"])["reply"]
-            mcp.stdin.close()
+        response = team_call(target, "message_bot" if independent else "ask_bot", "PERMISSION review the changes")
+        assert not response.get("isError"), response
+        result = json.loads(response["content"][0]["text"])
+        if independent:
+            assert result["status"] == "queued" and "reply" not in result
+            text = "Message queued"
+        else:
+            text = "Team reply: " + result["reply"]
         update({"sessionUpdate": "tool_call_update", "toolCallId": "delegate", "status": "completed"})
-        update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Team reply: " + text}})
+        update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}})
+        send({"id": request["id"], "result": {"stopReason": "end_turn"}})
+        return
+    if text.split("\n\n")[-1] == "CHAIN":
+        route = json.loads(pathlib.Path("handoff.json").read_text())
+        response = team_call(route["target"], route["tool"], "CHAIN")
+        if response.get("isError"):
+            reply = "Chain stopped: " + response["content"][0]["text"]
+        else:
+            result = json.loads(response["content"][0]["text"])
+            reply = result.get("reply", "Chain forwarded")
+        update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
         send({"id": request["id"], "result": {"stopReason": "end_turn"}})
         return
     if "PERMISSION" in text:
@@ -83,6 +105,8 @@ def prompt(request):
         send({"id": request["id"], "result": {"stopReason": "cancelled"}})
     elif "FAIL" in text:
         send({"id": request["id"], "error": {"code": -32000, "message": "fixture failure"}})
+    elif "REFUSE" in text:
+        send({"id": request["id"], "result": {"stopReason": "refusal"}})
     else:
         if "EMPTY" not in text:
             update({"sessionUpdate": "agent_message_chunk", "content": {
