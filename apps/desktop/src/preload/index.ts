@@ -92,6 +92,7 @@ const bridge: CodyncBridge = {
     launchAtLogin: () => ipcRenderer.invoke('app:launchAtLogin'),
     openSettings: (url) => ipcRenderer.send('app:openSettings', url),
     authenticate: (url, scheme) => ipcRenderer.invoke('app:authenticate', url, scheme),
+    screenAgentState: () => ipcRenderer.invoke('screen:state'),
     setScreenAgent: (on) => ipcRenderer.invoke('screen:setAgent', on),
     syncScreenAgent: (enabled) => ipcRenderer.invoke('screen:syncAgent', enabled),
   },

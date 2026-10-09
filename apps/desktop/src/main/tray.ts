@@ -147,14 +147,7 @@ export class Tray {
       },
       { label: screen.subtitle, enabled: false },
     ]
-    if (screen.enabled) {
-      if (screen.needsLoginItem) {
-        items.push({ label: `Allow ${app.getName()} Screen in Login Items…`, click: () => void shell.openExternal('x-apple.systempreferences:com.apple.LoginItems-Settings.extension') })
-      } else {
-        if (screen.needsCapture) items.push({ label: 'Allow Screen Recording…', click: () => void shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture') })
-        if (screen.needsInput) items.push({ label: 'Allow Accessibility…', click: () => void shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility') })
-      }
-    }
+    items.push({ label: 'Set up computer access…', click: () => this.deps.send({ kind: 'computerAccess' }, true) })
     if (screen.error) items.push({ label: screen.error, enabled: false })
     return items
   }

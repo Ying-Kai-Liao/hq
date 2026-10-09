@@ -32,7 +32,7 @@ public enum SharedStore {
             self.suite = suite
         }
 
-        private static let names = ["computers", "bots", "usage", "lastComputerId", "composerDrafts"]
+        private static let names = ["computers", "bots", "usage", "lastComputerId", "composerDrafts", "computerOrder"]
         private func key(_ name: String) -> String { accountID == nil ? name : "account.\(id).\(name)" }
         public static func digest(_ value: String) -> String {
             SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -48,6 +48,11 @@ public enum SharedStore {
         public var computers: [Computer] {
             get { read([Computer].self, "computers") ?? [] }
             nonmutating set { write(newValue, "computers") }
+        }
+        /// Device-local ordering, isolated by account.
+        public var computerOrder: ComputerOrder? {
+            get { read(ComputerOrder.self, "computerOrder") }
+            nonmutating set { write(newValue, "computerOrder") }
         }
         /// The widgets' snapshot of every computer's bots.
         public var bots: [BotSnapshot] {

@@ -88,6 +88,7 @@ const bridge: CodyncBridge = {
     launchAtLogin: async () => false,
     openSettings() {},
     authenticate: unavailable,
+    screenAgentState: async () => ({ available: false, needsApproval: false, registered: false }),
     setScreenAgent: unavailable,
     syncScreenAgent: async () => ({ needsApproval: false }),
   },
@@ -98,6 +99,7 @@ const bridge: CodyncBridge = {
 try {
   for (const key of Object.keys(localStorage)) if (key.startsWith('codync-')) localStorage.removeItem(key)
   localStorage.setItem('macAccountOnboardingCompleted', 'true')
+  localStorage.setItem('computerAccessSetup', JSON.stringify('later'))
   localStorage.setItem('githubStarAsk', JSON.stringify({ kind: 'done' }))
 } catch {}
 
