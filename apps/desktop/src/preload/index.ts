@@ -20,6 +20,9 @@ function listen<T>(channel: string, cb: (value: T) => void) {
 
 const bridge: CodyncBridge = {
   platform: process.platform as CodyncBridge['platform'],
+  appName: ipcRenderer.sendSync('app:name') as string,
+  appScheme: ipcRenderer.sendSync('app:scheme') as string,
+  hostPort: ipcRenderer.sendSync('app:hostPort') as number,
   appVersion: ipcRenderer.sendSync('app:version') as string,
   computerName: ipcRenderer.sendSync('app:computerName') as string,
   debugOpen: ipcRenderer.sendSync('app:debugOpen') as string | null,

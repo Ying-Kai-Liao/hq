@@ -4,7 +4,7 @@ import Foundation
 /// Values shared between the app, its widgets and its notification extension through the App Group,
 /// one namespace per account context so a signed-out account's data never shows in another.
 public enum SharedStore {
-    public static let appGroup = "group.com.pokai.Codync"
+    public static let appGroup = AppEnvironment.current.appGroup
     /// The APNs push relay (relay/ in this repo).
     public static let relayURL = "https://codync-relay.kevin2005ha.workers.dev"
 
@@ -74,19 +74,19 @@ public enum SharedStore {
         /// can't open another account's bot: `codync://bot/<botId>?scope=<id>&computer=<computerId>`.
         public func botURL(_ ref: BotReference) -> URL {
             var url = URLComponents()
-            url.scheme = "codync"
+            url.scheme = AppEnvironment.current.urlScheme
             url.host = "bot"
             url.path = "/" + ref.botId
             url.queryItems = [
                 URLQueryItem(name: "scope", value: id),
                 URLQueryItem(name: "computer", value: ref.computerId),
             ]
-            return url.url ?? URL(string: "codync://bot")!
+            return url.url ?? AppEnvironment.current.link("bot")
         }
 
         /// The bot a deep link points at, or nil when it belongs to another context or is malformed.
         public func reference(from url: URL) -> BotReference? {
-            guard url.scheme == "codync", url.host() == "bot",
+            guard url.scheme == AppEnvironment.current.urlScheme, url.host() == "bot",
                   let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
                   items.first(where: { $0.name == "scope" })?.value == id,
                   let computer = items.first(where: { $0.name == "computer" })?.value,

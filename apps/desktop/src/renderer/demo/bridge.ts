@@ -24,6 +24,9 @@ const updates: UpdateState = {
 
 const bridge: CodyncBridge = {
   platform: 'darwin',
+  appName: 'Codync',
+  appScheme: 'codync',
+  hostPort: 19222,
   appVersion: version,
   computerName: HOST_NAME,
   // Opens the group at launch, like the website's screenshot.

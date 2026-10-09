@@ -2,17 +2,18 @@ import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, ipcMain } from 'electron'
 import { prefs } from './host-controller'
+import { identity } from './environment'
 
 // Codync Screen (capture + input for Remote screen): on macOS a launchd agent inside the app
 // bundle (apps/screen-macos, registered through SMAppService), which owns the Screen Recording
 // and Accessibility grants. Linux starts its helper from the host, so nothing happens here.
 
-const serviceName = 'com.pokai.Codync.screen.plist'
+const serviceName = `${identity.screenLabel}.plist`
 const isMac = process.platform === 'darwin'
 
 /** Identifies the helper binary inside this app: its path and modification date. */
 function helperStamp() {
-  const path = join(process.resourcesPath, '..', 'Library/LoginItems/CodyncScreen.app/Contents/MacOS/CodyncScreen')
+  const path = join(process.resourcesPath, '..', `Library/LoginItems/${identity.screenName}.app/Contents/MacOS/${identity.screenName}`)
   try {
     return `${path}@${statSync(path).mtimeMs}`
   } catch {
