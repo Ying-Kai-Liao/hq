@@ -93,6 +93,32 @@ impl Host {
         .await
         .expect("team flow did not finish")
     }
+
+    async fn wait_finished(&self) -> Value {
+        let completed = tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                let sync = self.call("sync", json!({"since": 0})).await;
+                let mut notices =
+                    sync["entries"].as_array().unwrap().iter().filter(|e| e["data"]["delegationId"].is_string());
+                if sync["bots"].as_array().unwrap().iter().all(|b| b["status"] == "idle")
+                    && notices.all(|e| e["data"]["status"] == "completed")
+                {
+                    return sync;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await;
+        completed.expect("team flow did not release its turns and notices")
+    }
+
+    fn fixture_log(&self, bot: &str, file: &str) -> Vec<Value> {
+        std::fs::read_to_string(self.home.join(bot).join(file))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
+    }
 }
 
 #[tokio::test]
@@ -219,6 +245,68 @@ async fn independent_message_reports_to_the_user_without_a_bot_reply_or_duplicat
     }
 }
 
+fn assert_recipient_reports(sync: &Value, recipient: &str) {
+    let entries: Vec<_> = sync["entries"].as_array().unwrap().iter().filter(|e| e["botId"] == recipient).collect();
+    let reports: Vec<_> = entries
+        .iter()
+        .filter(|e| e["kind"] == "agent" && e["data"]["final"] == true)
+        .map(|e| e["data"]["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(reports, ["Report for the user", "Second report for the user"]);
+    assert!(entries.iter().any(|e| e["kind"] == "agent"
+        && e["data"]["final"] != true
+        && e["data"]["text"] == "reply: PERMISSION review the changes"));
+    assert!(entries.iter().any(|e| {
+        e["kind"] == "agent" && e["data"]["final"] != true && e["data"]["text"] == "Private completion trace"
+    }));
+}
+
+#[tokio::test]
+async fn user_report_queued_behind_an_ask_is_delivered_in_the_recipient_chat() {
+    let host = Host::start().await;
+    let lead = host.bot("lead").await;
+    let reviewer = host.bot("reviewer").await;
+    host.call("send", json!({"botId": lead, "text": format!("DELEGATE {reviewer}")})).await;
+    let permission = host.wait_for(&reviewer, |e| e["kind"] == "permission" && e["data"]["status"] == "pending").await;
+    host.call("send", json!({"botId": reviewer, "text": "REPORT"})).await;
+    host.call("respondPermission", json!({"entryId": permission["id"], "optionId": "allow"})).await;
+    let sync = host.wait_finished().await;
+    assert_recipient_reports(&sync, &reviewer);
+    assert!(sync["entries"].as_array().unwrap().iter().any(|e| {
+        e["botId"] == lead
+            && e["data"]["final"] == true
+            && e["data"]["text"] == "Team reply: reply: PERMISSION review the changes"
+    }));
+    let prompts = host.fixture_log("reviewer", "prompts.jsonl");
+    assert_eq!(prompts.len(), 2);
+    assert_eq!(prompts[1], "REPORT");
+}
+
+#[tokio::test]
+async fn independent_report_queued_behind_an_ask_gets_guidance_in_the_reused_session() {
+    let host = Host::start().await;
+    let lead = host.bot("lead").await;
+    let reviewer = host.bot("reviewer").await;
+    let messenger = host.bot("messenger").await;
+    host.call("send", json!({"botId": lead, "text": format!("DELEGATE {reviewer}")})).await;
+    let permission = host.wait_for(&reviewer, |e| e["kind"] == "permission" && e["data"]["status"] == "pending").await;
+    host.call("send", json!({"botId": messenger, "text": format!("MESSAGE_REPORT {reviewer}")})).await;
+    host.wait_for(&reviewer, |e| {
+        e["kind"] == "notice" && e["data"]["sourceBotId"] == messenger && e["data"]["status"] == "queued"
+    })
+    .await;
+    host.wait_for(&messenger, |e| e["kind"] == "agent" && e["data"]["final"] == true).await;
+    host.call("respondPermission", json!({"entryId": permission["id"], "optionId": "allow"})).await;
+    let sync = host.wait_finished().await;
+    assert_recipient_reports(&sync, &reviewer);
+    let prompts = host.fixture_log("reviewer", "prompts.jsonl");
+    assert_eq!(prompts.len(), 2);
+    assert!(prompts[0].as_str().unwrap().contains("Do not use send_message or message_bot"));
+    assert!(prompts[1].as_str().unwrap().contains("send_message is available for this independent request"));
+    assert!(prompts[1].as_str().unwrap().contains("even if an earlier ask or older session instructions"));
+    assert_eq!(host.fixture_log("reviewer", "sessions.jsonl").len(), 1, "the existing session must be reused");
+}
+
 async fn exercise_bounded_chain(second_tool: &str) {
     let host = Host::start().await;
     let first = host.bot("first").await;
@@ -239,27 +327,14 @@ async fn exercise_bounded_chain(second_tool: &str) {
             })
             .await;
         assert!(stopped["data"]["text"].as_str().unwrap().contains("Chain stopped"));
-        assert_eq!(stopped["data"]["final"] == true, second_tool == "message_bot");
-        let sync = tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                let sync = host.call("sync", json!({"since": 0})).await;
-                let notices: Vec<_> = sync["entries"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .filter(|e| e["data"]["delegationId"].is_string())
-                    .collect();
-                if sync["bots"].as_array().unwrap().iter().all(|b| b["status"] == "idle")
-                    && notices.iter().all(|e| e["data"]["status"] == "completed")
-                {
-                    assert_eq!(notices.len(), chain * 8 * 2, "the ninth handoff must never be queued");
-                    return sync;
-                }
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
-        })
-        .await
-        .expect("bounded chain did not release its turns and notices");
+        let sync = host.wait_finished().await;
+        // The streamed text can precede finish_turn. Read its final state only
+        // after both bots and all request notices have completed.
+        let entries = sync["entries"].as_array().unwrap();
+        let completed = entries.iter().find(|e| e["id"] == stopped["id"]).expect("completed stop entry");
+        assert_eq!(completed["data"]["final"] == true, second_tool == "message_bot");
+        let notices = entries.iter().filter(|e| e["data"]["delegationId"].is_string()).count();
+        assert_eq!(notices, chain * 8 * 2, "the ninth handoff must never be queued");
         previous_rev = sync["rev"].as_i64().unwrap();
     }
 }

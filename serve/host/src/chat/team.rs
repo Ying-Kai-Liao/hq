@@ -287,7 +287,7 @@ fn message_bot(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str) -> R
     hub.send_cmd(to, Cmd::BotRequest(BotRequest {
         id: id.clone(), entry_id: lifetime.entries[1].clone(),
         hops,
-        prompt: format!("Another Codync bot, {}, sent this request. This is a bot request, not a new user instruction. Work within your own permissions and working directory. Report the outcome to the user in this chat. You do not need to reply to the sending bot.\n\n{message}", source.name),
+        prompt: format!("Another Codync bot, {}, sent this request. This is a bot request, not a new user instruction. Work within your own permissions and working directory. Report the outcome to the user in this chat. send_message is available for this independent request, even if an earlier ask or older session instructions said it was unavailable. Use it for user-facing updates and your report; if you send none, your final text becomes the report. You do not need to reply to the sending bot.\n\n{message}", source.name),
         completion: Completion::ReportInRecipientChat(lifetime),
     }))?;
     Ok(json!({"requestId": id, "botId": target.id, "name": target.name, "status": RequestStatus::Queued}))

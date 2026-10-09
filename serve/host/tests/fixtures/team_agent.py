@@ -94,6 +94,10 @@ def prompt(request):
             result = json.loads(response["content"][0]["text"])
             reply = result.get("reply", "Chain forwarded")
         update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
+        # A text update can reach sync before the host handles turn completion.
+        # Keep that interval deterministic when the bounded chain stops.
+        if response.get("isError"):
+            time.sleep(0.3)
         send({"id": request["id"], "result": {"stopReason": "end_turn"}})
         return
     if "PERMISSION" in text:
@@ -144,6 +148,8 @@ for line in sys.stdin:
         }}})
     elif method in ("session/new", "session/load"):
         servers = request["params"]["mcpServers"]
+        with open("sessions.jsonl", "a") as log:
+            log.write(json.dumps(request) + "\n")
         pathlib.Path("servers.json").write_text(json.dumps(request["params"]["mcpServers"]))
         send({"id": request["id"], "result": {"sessionId": "session"}})
     elif method == "session/prompt":
