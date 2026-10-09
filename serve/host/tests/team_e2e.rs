@@ -270,6 +270,10 @@ async fn user_report_queued_behind_an_ask_is_delivered_in_the_recipient_chat() {
     let permission = host.wait_for(&reviewer, |e| e["kind"] == "permission" && e["data"]["status"] == "pending").await;
     host.call("send", json!({"botId": reviewer, "text": "REPORT"})).await;
     host.call("respondPermission", json!({"entryId": permission["id"], "optionId": "allow"})).await;
+    host.wait_for(&reviewer, |e| {
+        e["kind"] == "agent" && e["data"]["final"] == true && e["data"]["text"] == "Second report for the user"
+    })
+    .await;
     let sync = host.wait_finished().await;
     assert_recipient_reports(&sync, &reviewer);
     assert!(sync["entries"].as_array().unwrap().iter().any(|e| {
@@ -297,6 +301,10 @@ async fn independent_report_queued_behind_an_ask_gets_guidance_in_the_reused_ses
     .await;
     host.wait_for(&messenger, |e| e["kind"] == "agent" && e["data"]["final"] == true).await;
     host.call("respondPermission", json!({"entryId": permission["id"], "optionId": "allow"})).await;
+    host.wait_for(&reviewer, |e| {
+        e["kind"] == "agent" && e["data"]["final"] == true && e["data"]["text"] == "Second report for the user"
+    })
+    .await;
     let sync = host.wait_finished().await;
     assert_recipient_reports(&sync, &reviewer);
     let prompts = host.fixture_log("reviewer", "prompts.jsonl");
