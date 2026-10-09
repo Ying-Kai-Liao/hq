@@ -3,6 +3,7 @@
 mod agent;
 mod analytics;
 mod api;
+mod background;
 mod chat;
 mod compat;
 mod hub;
@@ -19,8 +20,8 @@ mod update;
 mod usage;
 mod voice;
 
-use agent::{backends, registry};
-use remote::{identity, relay};
+use agent::backends;
+use remote::identity;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -513,16 +514,7 @@ async fn serve(bind: &str, port: u16) -> Result<()> {
     tokio::task::spawn_blocking(backends::hydrate_path).await?;
     let hub = hub::Hub::new(store, host_id, identity, token, port);
     hub.start()?;
-    tokio::spawn(registry::refresh_loop());
-    tokio::spawn(market::refresh_first_page());
-    tokio::spawn(voice::refresh_loop(hub.clone()));
-    tokio::spawn(backends::refresh_sign_in());
-    tokio::spawn(usage::poll(hub.clone()));
-    tokio::spawn(update::automatic_loop(hub.clone()));
-    tokio::spawn(screen::serve_helpers(hub.screen.clone()));
-    tokio::spawn(relay::run(hub.clone()));
-    #[cfg(target_os = "linux")]
-    tokio::spawn(screen::supervise_linux_helper(hub.screen.clone()));
+    background::start(hub.clone());
     tracing::info!(version = env!("CARGO_PKG_VERSION"), bind, port, "codync-host listening");
     // Peer addresses: some settings may only be changed from this computer.
     let app = api::router(hub.clone()).into_make_service_with_connect_info::<std::net::SocketAddr>();
