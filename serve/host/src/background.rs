@@ -9,9 +9,10 @@ use crate::{
 };
 use std::sync::Arc;
 
-pub fn start(hub: Arc<Hub>) {
+pub fn start(hub: &Arc<Hub>) {
     tokio::spawn(registry::refresh_loop());
     tokio::spawn(market::refresh_first_page());
+    tokio::spawn(market::automatic_loop(hub.clone()));
     tokio::spawn(voice::refresh_loop(hub.clone()));
     tokio::spawn(backends::refresh_sign_in());
     tokio::spawn(usage::poll(hub.clone()));

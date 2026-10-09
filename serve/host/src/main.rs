@@ -514,7 +514,7 @@ async fn serve(bind: &str, port: u16) -> Result<()> {
     tokio::task::spawn_blocking(backends::hydrate_path).await?;
     let hub = hub::Hub::new(store, host_id, identity, token, port);
     hub.start()?;
-    background::start(hub.clone());
+    background::start(&hub);
     tracing::info!(version = env!("CARGO_PKG_VERSION"), bind, port, "codync-host listening");
     // Peer addresses: some settings may only be changed from this computer.
     let app = api::router(hub.clone()).into_make_service_with_connect_info::<std::net::SocketAddr>();
