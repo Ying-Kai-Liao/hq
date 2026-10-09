@@ -6,6 +6,7 @@ mod api;
 mod background;
 mod chat;
 mod compat;
+mod environment;
 mod hub;
 mod market;
 mod mcp;
@@ -369,6 +370,7 @@ async fn main() -> Result<()> {
             // Windows: the shell Claude Code runs status lines in varies (Git Bash, PowerShell), so
             // the line stays the user's; usage still comes from `claude -p /usage` and ACP.
             if cfg!(unix)
+                && environment::Environment::current() == environment::Environment::Main
                 && let Some(home) = dirs::home_dir()
             {
                 match service::ensure_statusline(&home.join(".claude/settings.json")) {
@@ -384,7 +386,10 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Sub::Compat => {
-            println!("{}", serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "minApp": compat::MIN_APP}));
+            println!(
+                "{}",
+                serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "minApp": compat::MIN_APP, "environment": environment::Environment::current().name()})
+            );
             Ok(())
         }
         Sub::Update { check, status, auto, force, skip_app_check, port, json, worker } => {
@@ -437,7 +442,8 @@ async fn main() -> Result<()> {
         }
         Sub::Uninstall => {
             service::uninstall();
-            if let Some(home) = dirs::home_dir()
+            if environment::Environment::current() == environment::Environment::Main
+                && let Some(home) = dirs::home_dir()
                 && let Err(e) = service::restore_statusline(&home.join(".claude/settings.json"))
             {
                 eprintln!("Couldn't restore Claude Code's status line: {e:#}");
