@@ -2,6 +2,14 @@ import CodyncKit
 import Foundation
 import Observation
 
+protocol FileDownloadWriting: Sendable {
+    func save(client: HostClient, entryId: String, file: SharedFile,
+              directory: URL, progress: @Sendable (Int64) async -> Void) async throws -> URL
+    func remove(_ url: URL) async throws
+}
+
+extension FileDownload: FileDownloadWriting {}
+
 @MainActor @Observable
 public final class FileDownloads {
     public enum State {
@@ -17,10 +25,12 @@ public final class FileDownloads {
     public var export: Export?
     @ObservationIgnored private var exported: Export?
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
-    @ObservationIgnored private let writer = FileDownload()
+    @ObservationIgnored private let writer: any FileDownloadWriting
     @ObservationIgnored private var retired = false
 
-    public init() {}
+    public init() { writer = FileDownload() }
+
+    init(writer: any FileDownloadWriting) { self.writer = writer }
 
     public func save(client: HostClient?, entry: Entry, file: SharedFile) {
         guard !retired else { return }
@@ -32,6 +42,7 @@ public final class FileDownloads {
         states[file.id] = .downloading(0)
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CodyncDownloads", isDirectory: true)
         tasks[file.id] = Task {
+            defer { tasks[file.id] = nil }
             do {
                 let url = try await writer.save(client: client, entryId: entry.id, file: file, directory: directory) { [weak self] received in
                     await self?.update(file.id, received: received)
@@ -46,7 +57,6 @@ public final class FileDownloads {
             } catch {
                 if !Task.isCancelled, !retired { states[file.id] = .failed(error.localizedDescription) }
             }
-            tasks[file.id] = nil
         }
     }
 
