@@ -126,7 +126,7 @@ impl Actor {
             prompt = format!("{prompt}\n\n{update}");
             self.announce = Some((snapshot, identity));
         }
-        if remind_files && self.active_group.is_none() && self.active_ask.is_none() && self.active_routine.is_none() {
+        if remind_files && self.active_group.is_none() && self.active_request.is_none() && self.active_routine.is_none() {
             prompt.push_str("\n\n[Codync: send_file(path, name?) shares any regular file up to 100 MiB as a downloadable card. Use it instead of sending a local path.]");
         }
         self.hub.set_runtime(&self.id(), |r| r.activity = "Thinking…".into());
