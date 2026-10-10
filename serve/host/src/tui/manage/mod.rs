@@ -6,18 +6,22 @@
 #![allow(clippy::many_single_char_names)]
 
 mod agent;
+mod bot_chat;
 mod fields;
 mod market;
 mod memory;
 mod replies;
 mod routines;
 
+pub use memory::{MemoryMode, MemorySheet};
 pub use routines::local_zone;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use serde_json::{Value, json};
 
-use super::app::{After, App, Editor};
+use std::cell::Cell;
+
+use super::app::{After, App, Editor, Entry};
 
 /// Quick reactions, as the other apps offer them.
 pub const REACTIONS: [&str; 6] = ["👍", "❤️", "😂", "🎉", "👀", "✅"];
@@ -26,10 +30,18 @@ pub const REACTIONS: [&str; 6] = ["👍", "❤️", "😂", "🎉", "👀", "✅
 #[derive(Clone)]
 pub enum Reply {
     Memory(String),
+    MemorySaved(String),
+    MemoryDetail(String),
+    MemoryExport(String),
     Routines(String),
     RoutineSaved,
     /// A routine's webhook URL and key: copied as a ready-to-run curl.
     Webhook,
+    /// A bot conversation's fetched history.
+    BotChat {
+        bot: String,
+        peer: String,
+    },
     Registry {
         more: bool,
     },
@@ -44,16 +56,17 @@ pub enum Reply {
     Changed,
 }
 
-pub struct Fact {
-    pub id: String,
-    pub content: String,
-    pub profile: bool,
-}
-
-pub struct MemorySheet {
+/// A read-only conversation between `bot` and `peer`, scrolled from the bottom.
+pub struct BotChatSheet {
     pub bot: String,
-    pub facts: Option<Vec<Fact>>,
-    pub cursor: usize,
+    pub peer: String,
+    /// The host's history; `None` while it loads.
+    pub fetched: Option<Vec<Entry>>,
+    /// Lines up from the bottom.
+    pub scroll: usize,
+    /// Set by the last draw, for clamping the scroll and paging.
+    pub max_scroll: Cell<usize>,
+    pub page: Cell<usize>,
 }
 
 pub struct RoutineList {

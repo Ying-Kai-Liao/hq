@@ -49,6 +49,7 @@ impl App {
             },
             Overlay::Market(m) => Some(&mut m.query),
             Overlay::Fields(f) => f.current().map(|i| &mut i.ed),
+            Overlay::Memory(m) => m.editor(),
             Overlay::Routine(f) => Some(match f.field {
                 super::super::manage::RoutineField::Name => &mut f.name,
                 super::super::manage::RoutineField::Instruction => &mut f.instruction,
@@ -405,6 +406,7 @@ impl App {
                     }
                     Some(Click::Composer) => self.start_typing(),
                     Some(Click::Thread(root)) => self.open_thread(root),
+                    Some(Click::BotChat(entry)) => self.open_bot_chat(&entry),
                     None => {
                         if self.overlays.is_empty() {
                             if self.hits.trace.contains(at) {

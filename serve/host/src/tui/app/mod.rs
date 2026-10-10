@@ -3,6 +3,7 @@
 mod analytics;
 mod editor;
 mod events;
+mod exchange;
 mod forms;
 mod input;
 mod model;
@@ -11,6 +12,7 @@ mod overlay_keys;
 mod ui;
 
 pub use editor::Editor;
+pub use exchange::{ConversationRow, Exchange, Item, Outcome, conversation, group, rows};
 pub use model::{After, Bot, Entry, Kind, Mark, Msg, Status};
 pub use ui::{
     ACTIONS, Action, AgentPicker, COLORS, Click, Confirm, ConfirmAct, Dir, FIELDS, FILTERS, Field, Focus, FolderPicker,
@@ -48,6 +50,7 @@ pub struct App {
     pub bots: HashMap<String, Bot>,
     pub entries: HashMap<String, BTreeMap<i64, Entry>>,
     pub usage: Value,
+    pub screen: Value,
     pub backends: Vec<Value>,
     pub selected: Option<String>,
     pub focus: Focus,
@@ -92,6 +95,11 @@ pub struct App {
     /// Permission cards whose answer is on its way, with the chosen option.
     pub answering: HashMap<String, String>,
     history_done: HashSet<String>,
+    /// The `since` the current events connection requested.
+    stream_since: i64,
+    /// Per bot, the lowest seq of its loaded main chat when this connection's catch-up began
+    /// (empty when it asked for everything): unknown entries below it are rewrites of old ones.
+    floors: HashMap<String, i64>,
     pub hint: Option<(String, Instant)>,
     /// Whether this computer shares usage analytics (`None`: nobody decided yet).
     pub analytics: Option<bool>,
@@ -114,6 +122,7 @@ impl App {
             bots: HashMap::new(),
             entries: HashMap::new(),
             usage: Value::Null,
+            screen: Value::Null,
             backends: vec![],
             selected: None,
             focus: Focus::Roster,
@@ -146,6 +155,8 @@ impl App {
             history_busy: HashSet::new(),
             answering: HashMap::new(),
             history_done: HashSet::new(),
+            stream_since: 0,
+            floors: HashMap::new(),
             hint: None,
             analytics: None,
             opened: false,
@@ -231,7 +242,9 @@ impl App {
 
     /// Whether every older entry of this bot is loaded.
     pub fn history_complete(&self, id: &str) -> bool {
-        self.history_done.contains(id) || self.oldest_main(id).is_none_or(|s| s <= 1)
+        self.history_done.contains(id)
+            || self.entries.get(id).is_none_or(BTreeMap::is_empty)
+            || self.oldest_main(id).is_some_and(|s| s <= 1)
     }
 
     /// Paging (`history`) covers the main chat only; thread replies don't count.
@@ -356,7 +369,7 @@ impl App {
         if self.history_busy.contains(&id) || self.history_done.contains(&id) {
             return;
         }
-        let Some(oldest) = self.oldest_main(&id) else { return };
+        let oldest = self.oldest_main(&id).unwrap_or(i64::MAX);
         if oldest <= 1 {
             self.history_done.insert(id);
             return;

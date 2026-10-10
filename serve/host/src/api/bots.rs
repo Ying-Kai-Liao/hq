@@ -39,8 +39,17 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
         )?,
         "routineCall" => crate::routines::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"])?,
         "memoryCall" => {
-            crate::chat::memory::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?
+            let bot = str_arg(&b, "botId")?;
+            let name = str_arg(&b, "name")?;
+            let args = if name.starts_with("mem_") {
+                crate::chat::memory::lifecycle::bound_args(hub, bot, b["memoryLane"].as_str(), name, &b["arguments"])
+                    .await?
+            } else {
+                b["arguments"].clone()
+            };
+            crate::chat::memory::call(hub, bot, name, &args).await?
         }
+        "memoryTools" => crate::chat::memory::available_tools(hub, str_arg(&b, "botId")?).await?,
         "chatCall" => {
             crate::chat::outbox::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?
         }
@@ -55,6 +64,10 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
         }
         // A thread's replies (its newest 500); the root is in the main chat.
         "thread" => json!({"entries": hub.store.thread(str_arg(&b, "botId")?, str_arg(&b, "rootId")?, 500)?}),
+        // Notices between a bot and one peer (the newest 200), for the read-only bot conversation sheet.
+        "botConversation" => {
+            json!({"entries": hub.store.bot_conversation(str_arg(&b, "botId")?, str_arg(&b, "peerId")?, 200)?})
+        }
         "createBot" => {
             let mut b = b;
             b["id"] = "".into();
@@ -206,22 +219,8 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             hub.send_cmd(str_arg(&b, "botId")?, Cmd::NewSession)?;
             json!({})
         }
-        "memory" => {
-            let bot = str_arg(&b, "botId")?.to_owned();
-            tokio::task::spawn_blocking(move || crate::chat::memory::describe(&bot)).await??
-        }
-        "forgetMemory" => {
-            let bot = str_arg(&b, "botId")?.to_owned();
-            let id = str_arg(&b, "id")?.to_owned();
-            let removed =
-                tokio::task::spawn_blocking(move || crate::chat::memory::Memory::for_bot(&bot)?.remove(&id)).await??;
-            json!({"removed": removed})
-        }
-        "clearMemory" => {
-            let bot = str_arg(&b, "botId")?.to_owned();
-            tokio::task::spawn_blocking(move || crate::chat::memory::Memory::for_bot(&bot)?.clear()).await??;
-            json!({})
-        }
+        "memory" | "saveMemory" | "memoryDetail" | "pinMemory" | "reviewMemory" | "forgetMemory" | "clearMemory"
+        | "exportMemory" | "importMemory" => crate::chat::memory::manage::call(hub, method, &b).await?,
         "react" => {
             let e = hub.react(str_arg(&b, "entryId")?, str_arg(&b, "emoji")?)?;
             json!({"entry": e})
