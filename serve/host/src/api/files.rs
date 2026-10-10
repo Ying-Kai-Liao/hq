@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 pub async fn read(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
     let entry = hub.store.entry(str_arg(body, "entryId")?).ok_or_else(|| anyhow!("unknown file message"))?;
-    ensure!(entry.kind == "agent" && entry.data["final"] == true, "not a file message");
+    ensure!(entry.kind == crate::store::EntryKind::Agent.as_str() && entry.data["final"] == true, "not a file message");
     let bot = entry.data["author"].as_str().ok_or_else(|| anyhow!("missing file author"))?;
     ensure!(entry.bot_id == bot, "not a bot chat file");
     ensure!(hub.store.bot(bot)?.is_some_and(|row| !row.deleted), "unknown bot");

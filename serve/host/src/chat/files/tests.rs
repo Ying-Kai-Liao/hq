@@ -102,3 +102,11 @@ fn cancellation_during_copy_stops_before_reading_the_next_chunk() {
     assert_eq!(reader.1, 1);
     assert_eq!(output, [42]);
 }
+
+#[test]
+fn names_never_carry_path_or_drive_syntax() {
+    for bad in ["", ".", "..", "a/b", "a\\b", "C:evil.bat", "line\nbreak"] {
+        assert!(name(bad).is_err(), "{bad:?}");
+    }
+    assert_eq!(name(".hidden").unwrap(), ".hidden");
+}

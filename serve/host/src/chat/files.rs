@@ -52,7 +52,7 @@ fn path(root: &Path, id: &str) -> Result<PathBuf> {
 pub fn name(value: &str) -> Result<String> {
     ensure!(!value.is_empty() && value.len() <= 200, "file name must be 1–200 bytes");
     ensure!(
-        value != "." && value != ".." && !value.contains(['/', '\\']) && !value.chars().any(char::is_control),
+        value != "." && value != ".." && !value.contains(['/', '\\', ':']) && !value.chars().any(char::is_control),
         "invalid file name"
     );
     Ok(value.to_owned())
