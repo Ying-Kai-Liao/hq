@@ -6,7 +6,7 @@ use crate::chat::context::{self, Snapshot};
 use crate::chat::memory;
 use crate::hub::BotStatus;
 use crate::remote::push::{self, AlertKind};
-use crate::store::{Lane, now_ms};
+use crate::store::{EntryKind, Lane, now_ms};
 use anyhow::{Context, Result, anyhow};
 use serde_json::json;
 use std::time::Duration;
@@ -36,7 +36,8 @@ impl Actor {
             |e| e.turn,
         );
         for id in entry_ids {
-            if let Some(mut e) = self.hub.store.entry(id) {
+            // Bot-message notices belong to `chat::team`; writing them here would race its final status.
+            if let Some(mut e) = self.hub.store.entry(id).filter(|e| e.kind == EntryKind::User.as_str()) {
                 e.data["status"] = json!(crate::chat::team::RequestStatus::Sent);
                 self.hub.set_entry(id, &e.data);
             }
