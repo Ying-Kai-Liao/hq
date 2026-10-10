@@ -1,3 +1,4 @@
+import { identity } from './environment'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, promises as fs, readFileSync, statSync } from 'node:fs'
@@ -6,6 +7,7 @@ import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { app, dialog, ipcMain, type BrowserWindow } from 'electron'
 import type { SSHAttachment, SSHProfile, SSHState, SSHStatus } from '../shared/ssh'
+import { infoArguments, knownHostsFiles, resolveArguments, tunnelArguments } from './ssh-command'
 
 // SSH computers (port of the Mac app's SSHTunnel.swift): profiles, host key checks and one
 // OpenSSH tunnel per connected profile. Arguments are always an argv array, never a shell string.
@@ -15,9 +17,6 @@ const KEYGEN = '/usr/bin/ssh-keygen'
 const KEYSCAN = '/usr/bin/ssh-keyscan'
 const LSOF = ['/usr/sbin/lsof', '/usr/bin/lsof'].find((p) => existsSync(p)) ?? null
 const home = homedir()
-
-/** Where `codync-host` lives when `sh -l` doesn't see it (Homebrew, install.sh, the Mac app's bundle). */
-const REMOTE_PATH = '$PATH:/opt/homebrew/bin:/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:/Applications/Codync.app/Contents/MacOS'
 
 // MARK: pure helpers
 
@@ -39,44 +38,6 @@ export function validate(p: SSHProfile): string | null {
   }
   return null
 }
-
-const knownHostsFiles = (h: string) => [`${h}/.ssh/known_hosts`, `${h}/.codync/ssh_known_hosts`]
-
-/** ssh's config tokenizer splits `UserKnownHostsFile` on spaces, so each path carries literal quotes. */
-export const hostKeyOptions = (h: string) => [
-  '-o', 'UserKnownHostsFile=' + knownHostsFiles(h).map((f) => `"${f}"`).join(' '),
-  '-o', 'StrictHostKeyChecking=yes',
-]
-
-function targetOptions(p: SSHProfile) {
-  const args: string[] = []
-  if (p.port !== null) args.push('-p', String(p.port))
-  if (p.identityFile !== null) args.push('-i', p.identityFile)
-  if (p.user !== null) args.push('-l', p.user)
-  return args
-}
-
-export function resolveArguments(p: SSHProfile) {
-  const args = ['-G']
-  if (p.port !== null) args.push('-p', String(p.port))
-  if (p.user !== null) args.push('-l', p.user)
-  return [...args, '--', p.host]
-}
-
-/** The remote command is fixed; only the validated port number goes into it. */
-export const infoArguments = (p: SSHProfile, h: string) => [
-  '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ForwardAgent=no', '-o', 'ForwardX11=no',
-  ...hostKeyOptions(h), ...targetOptions(p),
-  '--', p.host, `sh -lc 'PATH="${REMOTE_PATH}" codync-host info --json --port ${p.remotePort}'`,
-]
-
-export const tunnelArguments = (p: SSHProfile, localPort: number, h: string) => [
-  '-N', '-T', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3',
-  '-o', 'ForwardAgent=no', '-o', 'ForwardX11=no', '-o', 'BatchMode=yes',
-  ...hostKeyOptions(h),
-  '-L', `127.0.0.1:${localPort}:127.0.0.1:${p.remotePort}`,
-  ...targetOptions(p), '--', p.host,
-]
 
 /** The far side rejected our key (BatchMode never prompts, so a password or passphrase can't help). */
 export const authRefused = (stderr: string) => stderr.includes('Permission denied') || stderr.includes('Too many authentication failures')
@@ -173,7 +134,7 @@ function run(bin: string, args: string[], input?: string): Promise<Result> {
 }
 
 /** Tunnels a crashed or force-quit Codync left running: only Codync's tunnels carry this known_hosts file. */
-const killOrphanTunnels = () => run('/usr/bin/pkill', ['-f', '--', '^/usr/bin/ssh -N .*\\.codync/ssh_known_hosts'])
+const killOrphanTunnels = () => run('/usr/bin/pkill', ['-f', '--', `^/usr/bin/ssh -N .*\\${identity.dataFolder}/ssh_known_hosts`])
 
 /** Binds port 0 on loopback to learn a free port. */
 function freeLocalPort(): Promise<number | null> {
@@ -341,7 +302,7 @@ class SSHComputers {
     const lines = this.pendingKeys.get(id)
     if (this.status.get(id)?.kind !== 'confirmHostKey' || !lines) return
     try {
-      const dir = join(home, '.codync')
+      const dir = join(home, identity.dataFolder)
       await fs.mkdir(dir, { recursive: true, mode: 0o700 })
       await fs.appendFile(join(dir, 'ssh_known_hosts'), lines.join('\n') + '\n', { mode: 0o600 })
     } catch (e) {
@@ -409,7 +370,7 @@ class SSHComputers {
     }
 
     this.setStatus(id, { kind: 'connecting', step: 'Signing in…' })
-    const result = await run(SSH, infoArguments(profile, home))
+    const result = await run(SSH, infoArguments(profile, home, identity.dataFolder))
     if (token.cancelled) return idle
     if (result.status === 255) {
       if (authRefused(result.stderr)) return stop({ kind: 'failed', message: signInRefused(profile) })
@@ -498,7 +459,7 @@ class SSHComputers {
 
   private async recordedKeys(name: string, certAuthorities = true) {
     const keys = new Set<string>()
-    for (const file of knownHostsFiles(home)) {
+    for (const file of knownHostsFiles(home, identity.dataFolder)) {
       if (!existsSync(file)) continue
       const found = await run(KEYGEN, ['-F', name, '-f', file])
       if (found.status === 0) for (const k of hostKeys(found.stdout, certAuthorities)) keys.add(k)
@@ -512,7 +473,7 @@ class SSHComputers {
     let done = false
     let child: ChildProcess
     try {
-      child = spawn(SSH, tunnelArguments(profile, localPort, home), { stdio: ['ignore', 'ignore', 'pipe'] })
+      child = spawn(SSH, tunnelArguments(profile, localPort, home, identity.dataFolder), { stdio: ['ignore', 'ignore', 'pipe'] })
     } catch {
       return null
     }
