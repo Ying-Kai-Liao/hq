@@ -272,6 +272,11 @@ export class BotStore extends BotSync {
     } catch {}
   }
 
+  /** The history between a bot and one peer. Never upserted: old notices would break `loadOlder`'s paging. */
+  async botConversation(botId: string, peerId: string): Promise<Entry[]> {
+    return (await this.ready()).botConversation(botId, peerId)
+  }
+
   async save(draft: BotDraft) {
     const client = await this.ready()
     const res = draft.id

@@ -9,6 +9,8 @@ a version without one gets a generic "Bug fixes and improvements" line. Delete o
 
 ### zh-Hant
 
+- 開發測試版本現在使用獨立的 App 與資料空間，可和正式版本並存。
+
 - 憑證設定欄位保留清楚的標籤，並顯示尚未儲存連線憑證的狀態。
 - 對話捲到底後繼續拖動時保留自然回彈，不再突然跳回底部或閃現跳至最新訊息按鈕。
 - 改善跳至最新訊息的捲動動畫，避免長對話來回跳動，並可隨時用手勢中止。
@@ -16,6 +18,8 @@ a version without one gets a generic "Bug fixes and improvements" line. Delete o
 - 對話列表摘要不再顯示粗體與程式碼的 Markdown 符號。
 
 ### en-US
+
+- Development builds now use a separate app and data storage, so they can coexist with the production app.
 
 - Credential fields keep their labels visible, with a clearer empty state for saved connections.
 - Chats bounce naturally when dragged past the bottom, without snapping back or flashing the jump-to-latest button.

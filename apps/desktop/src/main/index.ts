@@ -1,7 +1,8 @@
+import { identity } from './environment'
 import { execFileSync } from 'node:child_process'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
+import { app, autoUpdater, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
 import type { HostSnapshot, WindowCommand } from '../shared/ipc'
 import { devPort, fetchHealth, HostController } from './host-controller'
 import { registerFileSaves } from './file-saves'
@@ -16,6 +17,7 @@ import { registerSpeech } from './speech'
 import { registerScreenIPC } from './screen'
 import { registerCloud } from './cloud'
 import { registerSSH } from './ssh'
+import { QuitLifecycle } from './quit-lifecycle'
 
 /** macOS's user-facing computer name, else the host name. */
 function computerName() {
@@ -35,7 +37,7 @@ const account = new AccountService()
 const updates = new Updates(host)
 let chat: BrowserWindow | null = null
 let pairing: BrowserWindow | null = null
-let quitting = false
+const quitLifecycle = new QuitLifecycle(app, autoUpdater)
 const isMac = process.platform === 'darwin'
 
 function rendererURL(page: string) {
@@ -62,7 +64,7 @@ function openChat() {
     height: 760,
     minWidth: 760,
     minHeight: 500,
-    title: 'Codync',
+    title: identity.name,
     show: false,
     backgroundColor: background(),
     titleBarStyle: isMac ? 'hidden' : 'default',
@@ -71,11 +73,7 @@ function openChat() {
   // CODYNC_SHOW_INACTIVE: development and UI checks open the window without taking focus.
   chat.on('ready-to-show', () => (process.env.CODYNC_SHOW_INACTIVE ? chat?.showInactive() : chat?.show()))
   // Closing hides: the window keeps the stores (and the menu bar's data) alive.
-  chat.on('close', (e) => {
-    if (quitting) return
-    e.preventDefault()
-    chat?.hide()
-  })
+  chat.on('close', (e) => quitLifecycle.closeToBackground(e, () => chat?.hide()))
   chat.on('closed', () => (chat = null))
   chat.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url)
@@ -139,6 +137,9 @@ function menu() {
 
 function registerIPC(tray: Tray) {
   registerHostProxy()
+  ipcMain.on('app:hostPort', (e) => (e.returnValue = identity.port))
+  ipcMain.on('app:name', (e) => (e.returnValue = identity.name))
+  ipcMain.on('app:scheme', (e) => (e.returnValue = identity.scheme))
   registerFileSaves()
   ipcMain.on('app:version', (e) => (e.returnValue = app.getVersion()))
   ipcMain.on('app:computerName', (e) => (e.returnValue = computerName()))
@@ -185,13 +186,13 @@ function registerIPC(tray: Tray) {
     const devices = await host.call<{ devices: { key: string }[] }>('devices').catch(() => ({ devices: [] }))
     for (const device of devices.devices) await host.call('revokeDevice', { key: device.key }).catch(() => {})
     await account.signOutAll()
-    await host.uninstall()
+    if (!(await host.uninstall())) throw new Error('The host could not be safely uninstalled. Data was preserved.')
     const { rm } = await import('node:fs/promises')
     const { dataDir } = await import('./host-controller')
     await rm(dataDir, { recursive: true, force: true })
     await rm(app.getPath('userData'), { recursive: true, force: true })
     app.relaunch()
-    quitting = true
+    quitLifecycle.beginQuit()
     app.exit(0)
   })
 }
@@ -205,7 +206,6 @@ if (!app.requestSingleInstanceLock()) {
     if (url) handleURL(url)
     else openChat()
   })
-  app.on('before-quit', () => (quitting = true))
   app.on('activate', () => openChat())
   app.on('window-all-closed', () => {
     // A menu bar app: it keeps running with no window.

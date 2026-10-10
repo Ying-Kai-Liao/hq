@@ -131,7 +131,21 @@ export interface ConnectionRequest {
   [key: string]: unknown
 }
 
+export interface BotMessage {
+  sourceBotId: string
+  targetBotId: string
+  text: string
+  reply?: string
+  detail?: string
+}
+
 export interface EntryData {
+  /** Structured conversation data added to the existing team-tool notice. */
+  botMessage?: BotMessage
+  heading?: string
+  delegationId?: string
+  sourceBotId?: string
+  targetBotId?: string
   connectionRequest?: ConnectionRequest
   routineId?: string
   runId?: string
@@ -232,6 +246,8 @@ export interface ScreenDisplay {
 }
 
 export interface ScreenState {
+  /** The helper's display name in operating-system permission settings. */
+  permissionApp?: string
   enabled: boolean
   connected: boolean
   platform: string
@@ -251,6 +267,7 @@ export function normalizeScreen(raw: Partial<ScreenState> | undefined | null): S
     enabled: raw.enabled ?? false,
     connected: raw.connected ?? false,
     platform: raw.platform ?? '',
+    permissionApp: raw.permissionApp,
     capture: raw.capture ?? false,
     input: raw.input ?? false,
     displays: raw.displays ?? [],

@@ -38,7 +38,9 @@ public final class FileDownloads {
             if tasks[file.id] == nil { states[file.id] = .failed("Finish the current download first.") }
             return
         }
-        // An export whose chat was left never showed its sheet; this tap replaces it.
+        // This file's export sheet is already waiting in its chat.
+        if export?.id == file.id { return }
+        // Another file's export whose chat was left never showed its sheet; this tap replaces it.
         dismissExport()
         guard let client else { states[file.id] = .failed("Connect to this computer to download the file."); return }
         states[file.id] = .downloading(0)

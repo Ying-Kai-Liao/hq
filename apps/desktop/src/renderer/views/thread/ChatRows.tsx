@@ -115,7 +115,7 @@ export function ThreadChip({ summary, open }: { summary: ThreadSummary; open: ()
 }
 
 /** A message's text with a right-click menu (with quick reactions on top). */
-function Bubble({ className, items, reactions, children }: { className: string; items: () => MenuItem[]; reactions: ReactionPick; children: React.ReactNode }) {
+export function Bubble({ className, items, reactions, children }: { className: string; items: () => MenuItem[]; reactions?: ReactionPick; children: React.ReactNode }) {
   const menu = useContextMenu()
   return (
     <>
@@ -125,6 +125,11 @@ function Bubble({ className, items, reactions, children }: { className: string; 
       <AnchoredMenu open={menu.open} onClose={menu.close} point={menu.point} items={items} reactions={reactions} />
     </>
   )
+}
+
+/** The centered time label between runs of messages. */
+export function TimeSeparator({ date }: { date: number }) {
+  return <div style={{ ...font('footnote'), color: 'var(--tertiary)', textAlign: 'center', padding: '18px 0 6px' }}>{relativeTime.separator(date)}</div>
 }
 
 const fullDate = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })

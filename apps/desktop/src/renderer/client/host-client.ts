@@ -151,6 +151,10 @@ export class HostClient {
     return (await this.call<{ entries: Entry[] }>('thread', { botId, rootId })).entries
   }
 
+  async botConversation(botId: string, peerId: string) {
+    return (await this.call<{ entries: Entry[] }>('botConversation', { botId, peerId })).entries
+  }
+
   async send(botId: string, text: string, clientNonce: string, threadId: string | null, attachments: string[] | null) {
     return (await this.call<{ entry: Entry }>('send', { botId, text, clientNonce, threadId, attachments })).entry
   }

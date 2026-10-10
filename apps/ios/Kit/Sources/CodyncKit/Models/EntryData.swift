@@ -22,6 +22,12 @@ public struct EntryData: Codable, Hashable, Sendable {
     public var entries: [PlanItem]?
     /// notice: info | error | divider
     public var style: String?
+    /// Structured conversation data added to the existing team-tool notice.
+    public var botMessage: BotMessage?
+    public var heading: String?
+    public var delegationId: String?
+    public var sourceBotId: String?
+    public var targetBotId: String?
     /// The bot that wrote it (a group shows who spoke).
     public var author: String?
     /// On a main-chat message that has a thread: its replies.

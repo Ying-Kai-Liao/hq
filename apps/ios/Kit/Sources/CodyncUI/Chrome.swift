@@ -74,19 +74,20 @@ public struct IconButtonStyle: ButtonStyle {
 // MARK: - Headers
 
 /// A modal's title row: title, optional trailing actions, and a close button.
-public struct ModalHeader<Trailing: View>: View {
-    let title: String
+public struct ModalHeader<Title: View, Trailing: View>: View {
+    let title: Title
     let trailing: Trailing
     @Environment(\.dismissModal) private var dismiss
 
-    public init(_ title: String, @ViewBuilder trailing: () -> Trailing) {
-        self.title = title
+    /// A header whose title is a view (a bot pair, say), set in the header's font.
+    public init(@ViewBuilder title: () -> Title, @ViewBuilder trailing: () -> Trailing) {
+        self.title = title()
         self.trailing = trailing()
     }
 
     public var body: some View {
         HStack(spacing: 8) {
-            Text(title)
+            title
                 .font(.body.weight(.semibold))
                 .foregroundStyle(Palette.text)
                 .lineLimit(1)
@@ -101,8 +102,18 @@ public struct ModalHeader<Trailing: View>: View {
     }
 }
 
-public extension ModalHeader where Trailing == EmptyView {
+public extension ModalHeader where Title == Text {
+    init(_ title: String, @ViewBuilder trailing: () -> Trailing) {
+        self.init(title: { Text(title) }, trailing: trailing)
+    }
+}
+
+public extension ModalHeader where Title == Text, Trailing == EmptyView {
     init(_ title: String) { self.init(title) { EmptyView() } }
+}
+
+public extension ModalHeader where Trailing == EmptyView {
+    init(@ViewBuilder title: () -> Title) { self.init(title: title) { EmptyView() } }
 }
 
 /// A full screen's top bar (replaces the navigation bar): leading, centered title, trailing.
@@ -226,11 +237,17 @@ private struct FadeLayer<Layer: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        layer(animateClose)
-            .environment(\.dismissModal, DismissModalAction { animateClose() })
-            .opacity(shown ? 1 : 0)
-            .scaleEffect(shown ? 1 : 0.98)
-            .onAppear { withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { shown = true } }
+        GeometryReader { geometry in
+            layer(animateClose)
+                .environment(\.dismissModal, DismissModalAction { animateClose() })
+                // Preserve safe areas for controls (including the screen viewer's toolbar),
+                // but composite the fade over the whole screen so the scrim cannot be clipped.
+                .safeAreaPadding(geometry.safeAreaInsets)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .opacity(shown ? 1 : 0)
+                .ignoresSafeArea(.container)
+        }
+        .onAppear { withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { shown = true } }
     }
 
     private func animateClose() {

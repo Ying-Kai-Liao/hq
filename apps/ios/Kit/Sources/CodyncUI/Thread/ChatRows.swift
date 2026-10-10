@@ -62,6 +62,20 @@ struct ChatRow: View {
     }
 }
 
+/// A chat's time separator: Today 3:27 AM.
+struct TimeSeparator: View {
+    let date: Date
+
+    var body: some View {
+        Text(RelativeTime.separator(date))
+            .font(.footnote)
+            .foregroundStyle(Palette.tertiary)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 18)
+            .padding(.bottom, 6)
+    }
+}
+
 /// Who wrote a message in a group: their avatar and name in their color.
 struct AuthorLabel: View {
     let botId: String?
@@ -223,6 +237,7 @@ struct AgentBubble: View {
         .padding(.trailing, 40)
     }
 }
+
 
 struct NoticeRow: View {
     let entry: Entry
