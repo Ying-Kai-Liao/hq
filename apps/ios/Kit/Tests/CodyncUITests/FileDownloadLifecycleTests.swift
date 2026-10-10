@@ -153,3 +153,23 @@ private func downloadEventually(_ condition: @MainActor () async -> Bool) async 
     let removed = await downloadEventually { !FileManager.default.fileExists(atPath: item.url.path) }
     #expect(removed)
 }
+
+@MainActor @Test func anUnshownExportIsReplacedByTheNextDownload() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let downloads = FileDownloads(writer: ControlledDownloadWriter(directory: directory, pauseCompletedFile: false))
+    defer { downloads.retire() }
+    let client = HostClient(transport: ControlledFileRead())
+    let entry = fileEntry()
+    // The first export's chat was left, so its sheet never showed or dismissed it.
+    downloads.save(client: client, entry: entry, file: emptyFile("stale"))
+    let staleReady = await downloadEventually { downloads.export?.id == "stale" }
+    try #require(staleReady)
+    let stale = try #require(downloads.export)
+
+    downloads.save(client: client, entry: entry, file: emptyFile("next"))
+    let replaced = await downloadEventually { downloads.export?.id == "next" }
+    #expect(replaced)
+    let staleRemoved = await downloadEventually { !FileManager.default.fileExists(atPath: stale.url.path) }
+    #expect(staleRemoved)
+}

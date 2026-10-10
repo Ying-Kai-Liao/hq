@@ -1,6 +1,7 @@
 import type { Entry, SharedFile } from '@shared/models'
 import { useStore } from '../../store/context'
 import { Icon } from '../../components/Icon'
+import { IconButtonBase } from '../../components/Overlay'
 import { font } from '../../lib/fonts'
 import { attachmentSymbol, byteCount } from './Attachments'
 
@@ -16,8 +17,6 @@ export function FileDownloadCard({ entry, file }: { entry: Entry; file: SharedFi
       <div style={{ ...font('subheadline', 'semibold'), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={file.name}>{file.name}</div>
       <div role={state?.kind === 'failed' ? 'alert' : 'status'} style={{ ...font('caption2'), color: state?.kind === 'failed' ? 'var(--danger)' : 'var(--secondary)', overflowWrap: 'anywhere' }}>{detail}</div>
     </div>
-    <button aria-label={`${action}: ${file.name}`} title={action} onClick={() => busy ? store.fileDownloads.cancel(file.id) : void store.fileDownloads.save(store.client, entry.id, file)} style={{ display: 'flex', padding: 8 }}>
-      <Icon name={busy ? 'xmark' : 'arrow.down.to.line'} size={20} />
-    </button>
+    <IconButtonBase title={action} icon={busy ? 'xmark' : 'arrow.down.to.line'} size={36} onClick={() => busy ? store.fileDownloads.cancel(file.id) : void store.fileDownloads.save(store.client, entry.id, file)} />
   </div>
 }

@@ -34,10 +34,12 @@ public final class FileDownloads {
 
     public func save(client: HostClient?, entry: Entry, file: SharedFile) {
         guard !retired else { return }
-        guard tasks.isEmpty, export == nil else {
-            if tasks[file.id] == nil { states[file.id] = .failed("Finish the current download or export first.") }
+        guard tasks.isEmpty else {
+            if tasks[file.id] == nil { states[file.id] = .failed("Finish the current download first.") }
             return
         }
+        // An export whose chat was left never showed its sheet; this tap replaces it.
+        dismissExport()
         guard let client else { states[file.id] = .failed("Connect to this computer to download the file."); return }
         states[file.id] = .downloading(0)
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CodyncDownloads", isDirectory: true)
