@@ -55,15 +55,25 @@ function BotPair({ botId, peerId }: { botId: string; peerId: string }) {
 /** Read-only history between a bot and one peer: the live chat merged with what the host returns. */
 export function BotConversationView({ botId, peerId }: { botId: string; peerId: string }) {
   const store = useStore()
-  const [fetched, setFetched] = useState<Entry[]>([])
+  // null while the host's history loads.
+  const [fetched, setFetched] = useState<Entry[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
-  const rows = buildBotConversation(botConversation(fetched, store.chat(botId), peerId))
+  const rows = buildBotConversation(botConversation(fetched ?? [], store.chat(botId), peerId))
 
   useEffect(() => {
     let current = true
-    void store.botConversation(botId, peerId).then((entries) => {
-      if (current) setFetched(entries)
-    })
+    store.botConversation(botId, peerId).then(
+      (entries) => {
+        if (current) setFetched(entries)
+      },
+      (reason: unknown) => {
+        console.warn('botConversation failed', reason)
+        if (!current) return
+        setFetched([])
+        setError(reason instanceof Error ? reason.message : String(reason))
+      },
+    )
     return () => {
       current = false
     }
@@ -79,7 +89,8 @@ export function BotConversationView({ botId, peerId }: { botId: string; peerId: 
       <ModalHeader title={<BotPair botId={botId} peerId={peerId} />} />
       <div className="bot-conversation-scroll" ref={scroller}>
         <div className="bot-conversation-rows">
-          {rows.length === 0 ? <div style={{ ...font('footnote'), color: 'var(--tertiary)', textAlign: 'center', paddingTop: 24 }}>No messages yet.</div> : null}
+          {error ? <div style={{ ...font('footnote'), color: 'var(--danger)', textAlign: 'center', paddingTop: 24 }}>{error}</div> : null}
+          {!error && fetched && rows.length === 0 ? <div style={{ ...font('footnote'), color: 'var(--tertiary)', textAlign: 'center', paddingTop: 24 }}>No messages yet.</div> : null}
           {rows.map((row) => <ConversationRow key={row.id} row={row} />)}
         </div>
       </div>

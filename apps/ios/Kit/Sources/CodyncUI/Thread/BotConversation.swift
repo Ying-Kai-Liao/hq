@@ -69,6 +69,7 @@ struct BotConversationView: View {
     let peerId: String
     @Environment(BotStore.self) private var model
     @State private var fetched: [Entry]?
+    @State private var error: String?
 
     private var rows: [BotConversationRow] {
         BotConversationRow.build(BotExchange.conversation(fetched: fetched ?? [], live: model.chat(botId), peer: peerId))
@@ -80,7 +81,10 @@ struct BotConversationView: View {
             ModalHeader { BotPairTitle(botId: botId, peerId: peerId) }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 4) {
-                    if rows.isEmpty, fetched != nil {
+                    if let error {
+                        Text(error).font(.footnote).foregroundStyle(Palette.danger)
+                            .frame(maxWidth: .infinity).padding(.top, 24)
+                    } else if rows.isEmpty, fetched != nil {
                         Text("No messages yet.").font(.footnote).foregroundStyle(Palette.tertiary)
                             .frame(maxWidth: .infinity).padding(.top, 24)
                     }
@@ -92,7 +96,14 @@ struct BotConversationView: View {
             .defaultScrollAnchor(.bottom)
         }
         .background(Palette.background)
-        .task(id: peerId) { fetched = await model.botConversation(botId, peer: peerId) }
+        .task(id: peerId) {
+            do {
+                fetched = try await model.botConversation(botId, peer: peerId)
+            } catch {
+                fetched = []
+                self.error = error.localizedDescription
+            }
+        }
     }
 
     @ViewBuilder private func rowView(_ row: BotConversationRow) -> some View {
