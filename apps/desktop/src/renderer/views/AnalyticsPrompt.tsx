@@ -15,9 +15,6 @@ const points: [icon: string, text: string][] = [
   ['lock.shield', "Never sold or used for ads. Linked to your Codync account when you're signed in"],
   ['gearshape', 'Turn it off anytime in Settings'],
 ]
-/** Read at launch: a welcome screen finished later was this launch's onboarding. */
-const onboardedAtLaunch = prefs.onboardingDone.get()
-
 /**
  * Asks this computer's owner once whether to share product analytics: after the welcome screen,
  * or on the first launch after updating. Closing without choosing asks again next launch.
@@ -34,7 +31,6 @@ export function AnalyticsPrompt() {
     if (!local) return
     try {
       await local.setAnalytics(share)
-      if (share && !onboardedAtLaunch) local.track('onboarding_completed')
     } catch (e) {
       app.setError(errorText(e))
     }

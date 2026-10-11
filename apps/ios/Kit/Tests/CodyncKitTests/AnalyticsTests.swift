@@ -7,17 +7,19 @@ import Testing
     let defaults = try #require(UserDefaults(suiteName: "AnalyticsTests-\(UUID())"))
     let analytics = Analytics(defaults: defaults) { _ in false }
 
-    // Not asked yet, then declined: nothing recorded.
+    // Not asked yet: held until the answer. Declined: dropped, and nothing more recorded.
     analytics.capture(.appOpened)
+    #expect(analytics.pending.map(\.event) == ["app_opened"])
     analytics.setEnabled(false)
     analytics.capture(.appOpened)
     #expect(analytics.pending.isEmpty)
 
     // Anonymous: the install ID, no person profile, the common properties.
     analytics.setEnabled(true)
-    analytics.capture(.computerPaired)
+    analytics.capture(.computerPaired, ["via": "qr"])
     let anon = try #require(analytics.pending.first)
     #expect(anon.event == "computer_paired")
+    #expect(anon.properties["via"] == .string("qr"))
     #expect(anon.properties["$process_person_profile"] == .bool(false))
     #expect(anon.properties["$lib"] == .string("codync-ios"))
     #expect(anon.properties["$os"] == .string("iOS"))

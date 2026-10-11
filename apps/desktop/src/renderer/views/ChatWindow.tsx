@@ -96,7 +96,12 @@ export function ChatWindow() {
           <HostStateView />
         )
       ) : (
-        <AccountWelcomeView onContinue={() => setOnboarded(true)} />
+        <AccountWelcomeView
+          onContinue={() => {
+            setOnboarded(true)
+            app.local?.track('onboarding_completed')
+          }}
+        />
       )}
       {onboarded && accessSetup !== null ? <><AnalyticsPrompt /><StarPrompt /></> : null}
       <Sheet open={showAccess} onClose={() => setShowAccess(false)} width={660} height={Math.min(820, window.innerHeight - 80)}>

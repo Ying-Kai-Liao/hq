@@ -69,27 +69,31 @@ public final class Analytics {
     /// nil until this iPhone answers the question.
     public var isEnabled: Bool? { defaults.object(forKey: Self.enabledKey) as? Bool }
 
-    /// Turning it off (or back to "not asked") drops everything not yet sent.
+    /// A yes sends what waited for the answer; turning it off (or back to "not asked") drops
+    /// everything not yet sent.
     public func setEnabled(_ enabled: Bool?) {
         defaults.set(enabled, forKey: Self.enabledKey)
-        guard enabled != true else { return }
+        guard enabled != true else { return flush() }
         pending = []
         timer?.cancel()
         timer = nil
     }
 
-    public func capture(_ event: AnalyticsEvent) {
-        guard isEnabled == true else { return }
+    /// Until this iPhone answers, events wait in memory (setup and pairing come before the
+    /// question) and leave only after a yes. `properties` are public names, never content.
+    public func capture(_ event: AnalyticsEvent, _ properties: [String: String] = [:]) {
+        guard isEnabled != false else { return }
+        let extra = properties.mapValues(Value.string)
         if let user = userID() {
             var identified = defaults.stringArray(forKey: Self.identifiedKey) ?? []
-            if !identified.contains(user) {
+            if isEnabled == true, !identified.contains(user) {
                 enqueue("$identify", user, ["$anon_distinct_id": .string(installID)])
                 identified.append(user)
                 defaults.set(identified, forKey: Self.identifiedKey)
             }
-            enqueue(event.rawValue, user, [:])
+            enqueue(event.rawValue, user, extra)
         } else {
-            enqueue(event.rawValue, installID, [:])
+            enqueue(event.rawValue, installID, extra)
         }
     }
 
@@ -148,10 +152,11 @@ public final class Analytics {
 
     static let common: [String: Value] = {
         let os = ProcessInfo.processInfo.operatingSystemVersion
+        // The Codync Dev app is a release build too: its environment, not DEBUG, says which.
         #if DEBUG
         let env = "dev"
         #else
-        let env = "main"
+        let env = AppEnvironment.current == .main ? "main" : "dev"
         #endif
         return [
             "$lib": .string("codync-ios"),

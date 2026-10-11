@@ -161,7 +161,7 @@ export class BotStore extends BotSync {
     this.changed()
   }
 
-  /** Fire-and-forget; the host drops it unless analytics is on. */
+  /** Fire-and-forget; the host holds it until this computer answers and drops it on a no. */
   track(event: AnalyticsEvent) {
     void this.withLink((c) => c.call('track', { event })).catch((error: unknown) => console.warn(`track ${event} failed`, error))
   }
