@@ -278,7 +278,7 @@ fn queue(hub: &Hub, event: &str, distinct_id: &str, mut properties: Map<String, 
         ("arch".into(), std::env::consts::ARCH.into()),
         ("$geoip_disable".into(), true.into()),
         // Joins this computer's events across accounts and with its phones' `computer_paired`.
-        ("host_id".into(), hub.host_id.clone().into()),
+        ("computer".into(), computer_tag(&hub.identity.computer_id()).into()),
     ]);
     let _ = hub.analytics.tx.send(Msg::Event(json!({
         "event": event,
@@ -288,6 +288,18 @@ fn queue(hub: &Hub, event: &str, distinct_id: &str, mut properties: Map<String, 
         "uuid": uuid::Uuid::new_v4().to_string(),
         "properties": properties,
     })));
+}
+
+/// A computer's analytics key: a hash of its id, so a phone's `computer_paired` joins the
+/// computer's events without revealing the id the relay knows it by.
+pub fn computer_tag(computer_id: &str) -> String {
+    use sha2::{Digest as _, Sha256};
+    use std::fmt::Write as _;
+    let hash = Sha256::digest(format!("codync-analytics:{computer_id}"));
+    hash[..8].iter().fold(String::new(), |mut s, b| {
+        let _ = write!(s, "{b:02x}");
+        s
+    })
 }
 
 /// Sends queued events in batches every `FLUSH_EVERY`; until the owner answers they wait,
@@ -391,6 +403,12 @@ mod tests {
             .unwrap();
         assert!(observe_call(&hub, &Caller::Local, "send", &send).is_none(), "a replay is the same message");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn computer_tag_matches_the_iphone() {
+        // Same vector as the iPhone's AnalyticsTests.
+        assert_eq!(computer_tag("AAECAwQFBgcICQoLDA0ODw"), "2d6878bee20aba04");
     }
 
     #[test]
