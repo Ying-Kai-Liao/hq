@@ -265,7 +265,7 @@ public final class AccountStore {
                                         cloud: cloud.baseURL, device: target.device)
                 save(computer)
                 open(computer)
-                Analytics.shared.capture(.computerPaired, ["via": "account"])
+                Analytics.shared.capture(.computerPaired, ["via": "account", "computer": Analytics.computerTag(computer.id)])
                 await refreshCloud()
                 return
             case .denied, .expired, .cancelled:

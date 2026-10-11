@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// What the iPhone reports. Bot and message events come from the computer's host instead.
@@ -95,6 +96,12 @@ public final class Analytics {
         } else {
             enqueue(event.rawValue, installID, extra)
         }
+    }
+
+    /// A computer's analytics key, the same hash its host sends: joins `computer_paired` with that
+    /// computer's events without revealing the id the relay knows it by.
+    public static func computerTag(_ id: ComputerID) -> String {
+        SHA256.hash(data: Data("codync-analytics:\(id)".utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
     /// `app_opened` once per trip to the foreground (`.inactive` blips don't count).
