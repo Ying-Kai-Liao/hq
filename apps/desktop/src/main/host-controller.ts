@@ -297,7 +297,7 @@ export class HostController extends EventEmitter {
       // A rebuild can change the host without changing the release version.
       const bin = this.binary
       if (!this.expectedHash || !bin) return false
-      const matches = health.binaryHash === this.expectedHash && health.binaryPath === resolved(bin)
+      const matches = health.binaryHash === this.expectedHash && samePath(health.binaryPath, resolved(bin))
       if (!matches) {
         if (!this.replacedStale) {
           this.replacedStale = true
@@ -328,13 +328,17 @@ async function hashFile(path: string): Promise<string | null> {
   }
 }
 
+/** The OS's own resolution, like the host's `canonicalize` (JS `realpathSync` keeps 8.3 names and the input's case). */
 function resolved(path: string) {
   try {
-    return realpathSync(path)
+    return realpathSync.native(path)
   } catch {
     return path
   }
 }
+
+/** Windows paths ignore case. */
+const samePath = (a: string | undefined, b: string) => (isWindows ? a?.toLowerCase() === b.toLowerCase() : a === b)
 
 /** Whether the installed service starts this binary. */
 function serviceRuns(bin: string) {
