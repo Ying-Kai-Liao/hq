@@ -11,9 +11,30 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{path::Path, sync::Arc, time::Duration};
 
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 struct Config {
+    /// On unless the owner turned it off; only a host that can update itself does.
+    #[serde(default = "on")]
     automatic: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { automatic: on() }
+    }
+}
+
+const fn on() -> bool {
+    true
+}
+
+/// A release build of a standalone binary that the installed service runs: the hosts that
+/// update themselves (app bundles and Homebrew own their binaries).
+fn self_updating(executable: &Path) -> bool {
+    crate::environment::Environment::current().require_release_updates().is_ok()
+        && install::require_standalone(executable).is_ok()
+        && service::installed()
+        && service::require_executable(executable).is_ok()
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -68,7 +89,7 @@ fn status_at(executable: &Path) -> Result<Value> {
     let config: Config = read("update-config.json")?;
     Ok(json!({
         "currentVersion": env!("CARGO_PKG_VERSION"), "method": install::method(executable),
-        "automatic": config.automatic, "state": state,
+        "automatic": config.automatic && self_updating(executable), "state": state,
     }))
 }
 
@@ -267,6 +288,9 @@ pub async fn automatic_loop(hub: Arc<Hub>) {
             continue;
         }
         last_check = Some(tokio::time::Instant::now());
+        if !service::current_exe().is_ok_and(|exe| self_updating(&exe)) {
+            continue;
+        }
         match check().await {
             Ok(status) if status["state"]["availableVersion"].is_string() => {
                 let port = hub.port;

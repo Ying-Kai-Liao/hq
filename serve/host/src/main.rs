@@ -533,6 +533,7 @@ async fn serve(bind: &str, port: u16) -> Result<()> {
         () = shutdown_signal() => {},
     }
     hub.shutdown().await;
+    analytics::flush_before_exit(&hub).await;
     tracing::info!("codync-host stopped");
     Ok(())
 }

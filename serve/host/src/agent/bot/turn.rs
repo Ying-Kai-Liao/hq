@@ -2,6 +2,7 @@
 
 use super::{Actor, Done, NoticeStyle, Queued, Seg};
 use crate::agent::acp::{self, Incoming};
+use crate::analytics::{self, TurnOutcome, TurnSource};
 use crate::chat::context::{self, Snapshot};
 use crate::chat::memory;
 use crate::hub::BotStatus;
@@ -245,6 +246,7 @@ impl Actor {
             _ => {}
         }
         let failed = done.is_err() && !self.stop_requested;
+        self.report_turn(stopped, failed, &stop_reason);
         let reply = if stopped {
             Err(anyhow!("recipient was stopped; partial work may have happened"))
         } else if stop_reason != "end_turn" {
@@ -323,6 +325,32 @@ impl Actor {
             });
             push::notify(&self.hub, &self.cfg, None, &self.cfg.name, &body, kind);
         }
+    }
+}
+
+impl Actor {
+    /// `turn_finished`, while the turn's start time is still in the runtime.
+    pub(super) fn report_turn(&self, stopped: bool, failed: bool, stop_reason: &str) {
+        let outcome = if stopped {
+            TurnOutcome::Stopped
+        } else if failed {
+            TurnOutcome::Failed
+        } else if stop_reason == "end_turn" {
+            TurnOutcome::Done
+        } else {
+            TurnOutcome::Incomplete
+        };
+        let source = if self.active_routine.is_some() {
+            TurnSource::Routine
+        } else if self.active_group.is_some() {
+            TurnSource::Group
+        } else if self.active_request.is_some() {
+            TurnSource::Bot
+        } else {
+            TurnSource::User
+        };
+        let started = self.hub.runtime(&self.id()).started_at.unwrap_or_else(now_ms);
+        analytics::turn_finished(&self.hub, &self.cfg.backend, outcome, stop_reason, source, now_ms() - started);
     }
 }
 

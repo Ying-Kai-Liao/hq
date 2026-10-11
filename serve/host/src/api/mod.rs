@@ -56,7 +56,7 @@ fn str_arg<'a>(b: &'a Value, k: &str) -> Result<&'a str> {
 /// Runs one API method for `caller` (permissions per spec §6.6).
 pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<Value> {
     devices::permit(caller, method)?;
-    let observed = crate::analytics::observe(caller, method, &b);
+    let observed = crate::analytics::observe_call(hub, caller, method, &b);
     let result = route(hub, caller, method, b).await;
     if result.is_ok()
         && let Some((event, properties)) = observed

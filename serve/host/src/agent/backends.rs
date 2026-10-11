@@ -388,36 +388,37 @@ pub fn harness(id: &str) -> Option<&'static Harness> {
 static SEARCH_PATH: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
 /// Login-shell PATH, via `$SHELL -ilc` with a timeout (nvm/conda can make shells slow).
-/// Windows has no login shell: every process already gets the user's PATH.
+/// The shell writes it to a file: a background job started by an rc file can hold a stdout
+/// pipe open long after the shell exits. Windows has no login shell: every process already
+/// gets the user's PATH.
 fn login_shell_path() -> Option<String> {
-    const MARK: &str = "__CODYNC_PATH__";
     if cfg!(windows) {
         return None;
     }
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let file = std::env::temp_dir().join(format!("codync-path-{}", uuid::Uuid::new_v4()));
+    let target = file.to_string_lossy().replace('\'', r"'\''");
     let mut child = std::process::Command::new(shell)
-        .args(["-ilc", &format!("printf '%s%s%s' '{MARK}' \"$PATH\" '{MARK}'")])
+        .args(["-ilc", &format!("printf '%s' \"$PATH\" > '{target}'")])
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
         .ok()?;
     let deadline = std::time::Instant::now() + Duration::from_secs(8);
-    loop {
+    let exited = loop {
         match child.try_wait() {
-            Ok(Some(_)) => break,
+            Ok(Some(_)) => break true,
             Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
             _ => {
                 let _ = child.kill();
-                return None;
+                break false;
             }
         }
-    }
-    let mut out = String::new();
-    std::io::Read::read_to_string(&mut child.stdout.take()?, &mut out).ok()?;
-    let start = out.find(MARK)? + MARK.len();
-    let end = start + out[start..].find(MARK)?;
-    Some(out[start..end].to_owned())
+    };
+    let path = std::fs::read_to_string(&file).ok().filter(|p| exited && !p.is_empty());
+    let _ = std::fs::remove_file(&file);
+    path
 }
 
 /// `…/v22.1.0` → `[22, 1, 0]` (unparseable parts count as 0).

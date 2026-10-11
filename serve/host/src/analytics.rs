@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 const KV_ENABLED: &str = "analytics_enabled";
 /// The account the install id was last merged into (one `$identify` per account).
@@ -34,9 +34,11 @@ pub enum Event {
     SignedOut,
     BotCreated,
     BotUpdated,
+    BotsReordered,
     BotDeleted,
     MessageSent,
     TurnStopped,
+    TurnFinished,
     SessionReset,
     PermissionAnswered,
     RoutineSaved,
@@ -57,9 +59,11 @@ impl Event {
             Self::SignedOut => "signed_out",
             Self::BotCreated => "bot_created",
             Self::BotUpdated => "bot_updated",
+            Self::BotsReordered => "bots_reordered",
             Self::BotDeleted => "bot_deleted",
             Self::MessageSent => "message_sent",
             Self::TurnStopped => "turn_stopped",
+            Self::TurnFinished => "turn_finished",
             Self::SessionReset => "session_reset",
             Self::PermissionAnswered => "permission_answered",
             Self::RoutineSaved => "routine_saved",
@@ -81,8 +85,14 @@ impl Event {
 pub struct Analytics {
     /// `None` until the owner has chosen.
     enabled: Mutex<Option<bool>>,
-    tx: mpsc::UnboundedSender<Value>,
-    rx: Mutex<Option<mpsc::UnboundedReceiver<Value>>>,
+    tx: mpsc::UnboundedSender<Msg>,
+    rx: Mutex<Option<mpsc::UnboundedReceiver<Msg>>>,
+}
+
+enum Msg {
+    Event(Value),
+    /// Send what's queued now and answer when done.
+    Flush(oneshot::Sender<()>),
 }
 
 impl Analytics {
@@ -105,10 +115,6 @@ impl Analytics {
         store.kv_set(KV_ENABLED, if on { "1" } else { "0" })?;
         *self.enabled.locked() = Some(on);
         Ok(())
-    }
-
-    fn enabled(&self) -> bool {
-        self.state() == Some(true)
     }
 }
 
@@ -136,6 +142,7 @@ pub fn observe(caller: &Caller, method: &str, b: &Value) -> Option<(Event, Map<S
             Event::BotCreated
         }
         "updateBot" => Event::BotUpdated,
+        "reorderBots" => Event::BotsReordered,
         "deleteBot" => Event::BotDeleted,
         "send" => {
             let in_thread = b["threadId"].as_str().is_some_and(|t| !t.is_empty());
@@ -171,14 +178,84 @@ pub fn observe(caller: &Caller, method: &str, b: &Value) -> Option<(Event, Map<S
     Some((event, p))
 }
 
-/// Queues one event when the owner said yes. Signed in to a Codync account, events are
+/// How an agent's turn ended (`turn_finished`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TurnOutcome {
+    /// `end_turn`: the agent finished.
+    Done,
+    /// The user stopped it.
+    Stopped,
+    /// The agent process or connection failed.
+    Failed,
+    /// It ended short of `end_turn` (output or step limit, refusal).
+    Incomplete,
+}
+
+/// What started the turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TurnSource {
+    User,
+    Routine,
+    Group,
+    Bot,
+}
+
+/// `turn_finished`: the agent, how the turn ended and how long it ran; never its text or error.
+pub fn turn_finished(hub: &Hub, agent: &str, outcome: TurnOutcome, stop_reason: &str, source: TurnSource, ms: i64) {
+    let outcome = match outcome {
+        TurnOutcome::Done => "done",
+        TurnOutcome::Stopped => "stopped",
+        TurnOutcome::Failed => "failed",
+        TurnOutcome::Incomplete => "incomplete",
+    };
+    // ACP's stop reasons plus ours; anything else an adapter invents is just `other`.
+    let stop_reason = match stop_reason {
+        "end_turn" | "cancelled" | "max_tokens" | "max_turn_requests" | "refusal" | "error" | "start_failed" => {
+            stop_reason
+        }
+        _ => "other",
+    };
+    let source = match source {
+        TurnSource::User => "user",
+        TurnSource::Routine => "routine",
+        TurnSource::Group => "group",
+        TurnSource::Bot => "bot",
+    };
+    let p = json!({"agent": agent, "outcome": outcome, "stop_reason": stop_reason, "source": source, "seconds": ms.max(0) / 1000});
+    capture(hub, Event::TurnFinished, p.as_object().cloned().unwrap_or_default());
+}
+
+/// `observe` plus what only the store knows: a resent message (same `clientNonce`) is
+/// not a new one, and a message names its bot's agent.
+pub fn observe_call(hub: &Hub, caller: &Caller, method: &str, b: &Value) -> Option<(Event, Map<String, Value>)> {
+    let (event, mut p) = observe(caller, method, b)?;
+    if event == Event::MessageSent {
+        let bot = b["botId"].as_str().unwrap_or_default();
+        let nonce = b["clientNonce"].as_str().unwrap_or_default();
+        if !nonce.is_empty() && hub.store.find_by_nonce(bot, nonce).is_some() {
+            return None;
+        }
+        if let Ok(Some(row)) = hub.store.bot(bot) {
+            p.insert("kind".into(), (if row.config.is_group() { "group" } else { "bot" }).into());
+            if !row.config.is_group() {
+                p.insert("agent".into(), row.config.backend.into());
+            }
+        }
+    }
+    Some((event, p))
+}
+
+/// Queues one event unless the owner said no. Until they answer, events wait in memory
+/// and leave only after a yes (see `start`). Signed in to a Codync account, events are
 /// linked to that account; otherwise to this install's random id, with no person profile.
 pub fn capture(hub: &Hub, event: Event, mut properties: Map<String, Value>) {
-    if !hub.analytics.enabled() {
+    let consent = hub.analytics.state();
+    if consent == Some(false) {
         return;
     }
     let account = hub.cloud.status().owner.map(|o| o.user_id);
-    if let Some(user) = &account
+    if consent == Some(true)
+        && let Some(user) = &account
         && hub.store.kv_get(KV_IDENTIFIED).as_deref() != Some(user.as_str())
     {
         // Merges this install's earlier, anonymous events into the account.
@@ -200,11 +277,33 @@ fn queue(hub: &Hub, event: &str, distinct_id: &str, mut properties: Map<String, 
         ("$os".into(), std::env::consts::OS.into()),
         ("arch".into(), std::env::consts::ARCH.into()),
         ("$geoip_disable".into(), true.into()),
+        // Joins this computer's events across accounts and with its phones' `computer_paired`.
+        ("computer".into(), computer_tag(&hub.identity.computer_id()).into()),
     ]);
-    let _ = hub.analytics.tx.send(json!({"event": event, "distinct_id": distinct_id, "properties": properties}));
+    let _ = hub.analytics.tx.send(Msg::Event(json!({
+        "event": event,
+        "distinct_id": distinct_id,
+        // When it happened, not when its batch left; the uuid makes a resent batch count once.
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "uuid": uuid::Uuid::new_v4().to_string(),
+        "properties": properties,
+    })));
 }
 
-/// Sends queued events in batches every `FLUSH_EVERY`; turning analytics off drops them.
+/// A computer's analytics key: a hash of its id, so a phone's `computer_paired` joins the
+/// computer's events without revealing the id the relay knows it by.
+pub fn computer_tag(computer_id: &str) -> String {
+    use sha2::{Digest as _, Sha256};
+    use std::fmt::Write as _;
+    let hash = Sha256::digest(format!("codync-analytics:{computer_id}"));
+    hash[..8].iter().fold(String::new(), |mut s, b| {
+        let _ = write!(s, "{b:02x}");
+        s
+    })
+}
+
+/// Sends queued events in batches every `FLUSH_EVERY`; until the owner answers they wait,
+/// and a no drops them.
 pub fn start(hub: &Arc<Hub>) {
     let Some(mut rx) = hub.analytics.rx.locked().take() else { return };
     let hub = hub.clone();
@@ -213,22 +312,37 @@ pub fn start(hub: &Arc<Hub>) {
         let mut tick = tokio::time::interval(FLUSH_EVERY);
         loop {
             tokio::select! {
-                event = rx.recv() => match event {
-                    Some(e) => pending.push(e),
+                msg = rx.recv() => match msg {
+                    Some(Msg::Event(e)) => pending.push(e),
+                    Some(Msg::Flush(done)) => {
+                        flush(&hub, &mut pending).await;
+                        let _ = done.send(());
+                    }
                     None => return,
                 },
-                _ = tick.tick() => {
-                    let sent = hub.analytics.enabled() && !pending.is_empty() && send(&pending).await;
-                    if sent || !hub.analytics.enabled() {
-                        pending.clear();
-                    }
-                }
+                _ = tick.tick() => flush(&hub, &mut pending).await,
             }
             if pending.len() > MAX_PENDING {
                 pending.drain(..pending.len() - MAX_PENDING);
             }
         }
     });
+}
+
+async fn flush(hub: &Hub, pending: &mut Vec<Value>) {
+    let consent = hub.analytics.state();
+    let sent = consent == Some(true) && !pending.is_empty() && send(pending).await;
+    if sent || consent == Some(false) {
+        pending.clear();
+    }
+}
+
+/// Sends what's queued before the host exits, so a restart or update loses nothing.
+pub async fn flush_before_exit(hub: &Hub) {
+    let (tx, rx) = oneshot::channel();
+    if hub.analytics.tx.send(Msg::Flush(tx)).is_ok() {
+        let _ = tokio::time::timeout(Duration::from_secs(3), rx).await;
+    }
 }
 
 async fn send(batch: &[Value]) -> bool {
@@ -263,6 +377,38 @@ mod tests {
         let (_, p) = observe(&Caller::Local, "installConnector", &custom).expect("tracked");
         assert_eq!(p["connector"], "custom");
         assert!(observe(&Caller::Local, "history", &json!({})).is_none());
+    }
+
+    #[tokio::test]
+    async fn a_resent_message_counts_once_and_names_its_agent() {
+        let dir = std::env::temp_dir().join(format!("codync-analytics-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let hub = Hub::new(
+            store,
+            "h".into(),
+            crate::remote::identity::Identity::load_or_create(&dir).unwrap(),
+            "t".into(),
+            0,
+        );
+        let cfg = serde_json::from_value(json!({"id": "b1", "name": "b", "backend": "codex", "cwd": "/tmp"})).unwrap();
+        hub.store.save_bot(&cfg).unwrap();
+        let send = json!({"botId": "b1", "text": "hi", "clientNonce": "n1"});
+
+        let (_, p) = observe_call(&hub, &Caller::Local, "send", &send).expect("a new message is tracked");
+        assert_eq!((p["agent"].as_str(), p["kind"].as_str()), (Some("codex"), Some("bot")));
+        let lane = crate::store::Lane::main("b1");
+        hub.store
+            .insert_entry(&lane, crate::store::EntryKind::User, 1, &json!({"text": "hi", "clientNonce": "n1"}))
+            .unwrap();
+        assert!(observe_call(&hub, &Caller::Local, "send", &send).is_none(), "a replay is the same message");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn computer_tag_matches_the_iphone() {
+        // Same vector as the iPhone's AnalyticsTests.
+        assert_eq!(computer_tag("AAECAwQFBgcICQoLDA0ODw"), "2d6878bee20aba04");
     }
 
     #[test]
