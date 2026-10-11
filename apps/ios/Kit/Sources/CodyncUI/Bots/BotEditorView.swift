@@ -314,10 +314,11 @@ extension BotDraft {
 }
 
 public extension BotStore {
-    /// Picks an installed agent; empty cwd requests a personal workspace from the host.
+    /// Picks an installed agent we know (a registry agent nobody chose is never the default);
+    /// empty cwd requests a personal workspace from the host.
     func fillDefaults(_ draft: inout BotDraft) {
         if hello?.backends.first(where: { $0.id == draft.backend })?.available != true,
-           let first = hello?.backends.first(where: \.available) {
+           let first = hello?.backends.first(where: { $0.available && $0.curated == true }) {
             draft.backend = first.id
         }
         // Connectors start on; left unset, the host turns on every one.
