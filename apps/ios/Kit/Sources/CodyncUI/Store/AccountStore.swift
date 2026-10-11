@@ -78,17 +78,13 @@ public final class AccountStore {
 
     // MARK: derived
 
-    /// Every computer's visible bots, pinned first, then most recent activity.
+    /// Every computer's visible bots, computer by computer, each in its roster order.
     public var roster: [RosterItem] {
         computers.flatMap { computer -> [RosterItem] in
             guard let store = stores[computer.id] else { return [] }
             return store.roster.map {
                 RosterItem(ref: BotReference(accountId: accountId, computerId: computer.id, botId: $0.id), bot: $0, computer: store.computer)
             }
-        }
-        .sorted {
-            if $0.bot.pinned != $1.bot.pinned { return $0.bot.pinned }
-            return $0.bot.lastAt > $1.bot.lastAt
         }
     }
 
@@ -269,6 +265,7 @@ public final class AccountStore {
                                         cloud: cloud.baseURL, device: target.device)
                 save(computer)
                 open(computer)
+                Analytics.shared.capture(.computerPaired, ["via": "account", "computer": Analytics.computerTag(computer.id)])
                 await refreshCloud()
                 return
             case .denied, .expired, .cancelled:

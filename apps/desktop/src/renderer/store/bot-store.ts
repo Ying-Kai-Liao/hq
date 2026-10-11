@@ -161,7 +161,7 @@ export class BotStore extends BotSync {
     this.changed()
   }
 
-  /** Fire-and-forget; the host drops it unless analytics is on. */
+  /** Fire-and-forget; the host holds it until this computer answers and drops it on a no. */
   track(event: AnalyticsEvent) {
     void this.withLink((c) => c.call('track', { event })).catch((error: unknown) => console.warn(`track ${event} failed`, error))
   }
@@ -225,6 +225,16 @@ export class BotStore extends BotSync {
 
   setHidden(bot: Bot, hidden: boolean) {
     this.patchBot(bot, { hidden })
+  }
+
+  /** The roster as the user dragged it, top first: shown at once, then saved on the host. */
+  reorder(ids: string[]) {
+    ids.forEach((id, position) => {
+      const bot = this.bots.get(id)
+      if (bot) this.bots.set(id, { ...bot, position })
+    })
+    this.changed()
+    this.perform((c) => c.call('reorderBots', { ids }), true)
   }
 
   delete(bot: Bot) {

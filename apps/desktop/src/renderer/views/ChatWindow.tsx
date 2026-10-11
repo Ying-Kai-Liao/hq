@@ -96,7 +96,12 @@ export function ChatWindow() {
           <HostStateView />
         )
       ) : (
-        <AccountWelcomeView onContinue={() => setOnboarded(true)} />
+        <AccountWelcomeView
+          onContinue={() => {
+            setOnboarded(true)
+            app.local?.track('onboarding_completed')
+          }}
+        />
       )}
       {onboarded && accessSetup !== null ? <><AnalyticsPrompt /><StarPrompt /></> : null}
       <Sheet open={showAccess} onClose={() => setShowAccess(false)} width={660} height={Math.min(820, window.innerHeight - 80)}>
@@ -240,10 +245,15 @@ function ChatSplitView() {
     { title: 'Delete', icon: 'trash', destructive: true, action: () => setConfirmDelete({ bot, store }) },
   ]
 
-  // ↑/↓ in the roster move the selection.
+  // ↑/↓ in the roster move the selection; Alt+↑/↓ moves the selected bot itself.
   const onListKey = (e: React.KeyboardEvent) => {
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
     if (e.target instanceof HTMLElement && e.target.closest('.computer-roster-heading')) return
+    if (e.altKey) {
+      e.preventDefault()
+      if (app.selection) roster.moveBot(app.selection, e.key === 'ArrowUp' ? -1 : 1)
+      return
+    }
     const refs = roster.navigable.map((i) => i.ref)
     if (!refs.length) return
     e.preventDefault()

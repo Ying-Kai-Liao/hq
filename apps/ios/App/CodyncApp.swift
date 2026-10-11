@@ -17,9 +17,6 @@ struct CodyncApp: App {
     @State private var launching = !AppStore.shared.accounts.computers.isEmpty
     /// nil until this iPhone answers "Help improve Codync".
     @AppStorage(Analytics.enabledKey) private var analyticsEnabled: Bool?
-    /// Setup finished during this launch: a yes to analytics also reports `onboarding_completed`.
-    @State private var onboardedNow = false
-
     init() {
         // A tapped widget bot arrives as an intent, not a URL.
         OpenBotIntent.open = { AppStore.shared.open($0) }
@@ -52,11 +49,15 @@ struct CodyncApp: App {
                 // Asked once per iPhone after setup, once the splash and the account sheet are gone.
                 .codyncDialog("Help improve Codync", isPresented: Binding(
                     get: { onboardingCompleted && analyticsEnabled == nil && !launching && !app.account.showSwitcher },
-                    set: { shown in if !shown && analyticsEnabled == nil { Analytics.shared.setEnabled(false) } }
+                    // Closing without choosing is a no. The dialog closes before a button's action
+                    // runs, so this waits for it: a yes must not first drop the waiting events.
+                    set: { shown in
+                        guard !shown else { return }
+                        Task { @MainActor in if Analytics.shared.isEnabled == nil { Analytics.shared.setEnabled(false) } }
+                    }
                 ), message: Self.analyticsQuestion, cancel: "Don't share", inPlace: true) {
                     [DialogAction("Share usage") {
                         Analytics.shared.setEnabled(true)
-                        if onboardedNow { Analytics.shared.capture(.onboardingCompleted) }
                     }]
                 }
                 .onChange(of: app.account.userID, initial: true) { _, userID in
@@ -70,7 +71,8 @@ struct CodyncApp: App {
                     }
                 }
                 .onOpenURL { url in app.open(url) }
-                .onChange(of: onboardingCompleted) { _, done in if done { onboardedNow = true } }
+                // Waits for the analytics answer, which is asked right after setup.
+                .onChange(of: onboardingCompleted) { _, done in if done { Analytics.shared.capture(.onboardingCompleted) } }
                 .onChange(of: scenePhase, initial: true) { _, phase in
                     switch phase {
                     case .active: Analytics.shared.becameActive()
@@ -216,7 +218,7 @@ final class AppStore {
 
     func pair(_ pairing: Pairing) async throws -> Computer {
         let computer = try await accounts.pair(pairing, deviceName: UIDevice.current.name, platform: "ios")
-        Analytics.shared.capture(.computerPaired)
+        Analytics.shared.capture(.computerPaired, ["via": "qr", "computer": Analytics.computerTag(computer.id)])
         return computer
     }
 

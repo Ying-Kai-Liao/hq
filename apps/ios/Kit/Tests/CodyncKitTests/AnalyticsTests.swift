@@ -7,17 +7,19 @@ import Testing
     let defaults = try #require(UserDefaults(suiteName: "AnalyticsTests-\(UUID())"))
     let analytics = Analytics(defaults: defaults) { _ in false }
 
-    // Not asked yet, then declined: nothing recorded.
+    // Not asked yet: held until the answer. Declined: dropped, and nothing more recorded.
     analytics.capture(.appOpened)
+    #expect(analytics.pending.map(\.event) == ["app_opened"])
     analytics.setEnabled(false)
     analytics.capture(.appOpened)
     #expect(analytics.pending.isEmpty)
 
     // Anonymous: the install ID, no person profile, the common properties.
     analytics.setEnabled(true)
-    analytics.capture(.computerPaired)
+    analytics.capture(.computerPaired, ["via": "qr"])
     let anon = try #require(analytics.pending.first)
     #expect(anon.event == "computer_paired")
+    #expect(anon.properties["via"] == .string("qr"))
     #expect(anon.properties["$process_person_profile"] == .bool(false))
     #expect(anon.properties["$lib"] == .string("codync-ios"))
     #expect(anon.properties["$os"] == .string("iOS"))
@@ -34,6 +36,9 @@ import Testing
     #expect(identify.distinct_id == "user_1")
     #expect(identify.properties["$anon_distinct_id"] == .string(anon.distinct_id))
     #expect(analytics.pending[2].properties["$process_person_profile"] == .bool(true))
+
+    // The computer key matches the host's (host/src/analytics.rs `computer_tag_matches_the_iphone`).
+    #expect(Analytics.computerTag("AAECAwQFBgcICQoLDA0ODw") == "2d6878bee20aba04")
 
     // Turning it off drops what wasn't sent.
     analytics.setEnabled(false)

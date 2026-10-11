@@ -38,11 +38,14 @@ export const isValid = (d: BotDraft) => !d.id ||d.name.trim() !== ''
 /** What the host should get: no stale command unless the agent is custom. */
 export const normalized = (d: BotDraft): BotDraft => (d.backend === 'custom' ? d : { ...d, command: null })
 
-/** Picks an installed agent; empty cwd requests a personal workspace from the host. */
+/**
+ * Picks an installed agent we know (a registry agent nobody chose is never the default);
+ * empty cwd requests a personal workspace from the host.
+ */
 export function fillDefaults(store: BotStore, draft: BotDraft, connectors: InstalledConnector[]): BotDraft {
   const next = { ...draft }
   const backends = store.hello?.backends ?? []
-  const first = backends.find((b) => b.available)
+  const first = backends.find((b) => b.available && b.curated === true)
   if (backends.find((b) => b.id === next.backend)?.available !== true && first) next.backend = first.id
   // Connectors start on; left unset, the host turns on every one.
   if (next.connectors === undefined && connectors.length) next.connectors = connectors.map((c) => c.id)
