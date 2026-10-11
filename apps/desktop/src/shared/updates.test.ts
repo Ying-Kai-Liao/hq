@@ -154,14 +154,14 @@ test('automatic checks respect opt-out and run daily after the startup check', a
   assert.equal(f.preferences.get('updatesAutoCheck'), false)
 })
 
-test('background discovery downloads only after automatic download is enabled', async () => {
+test('background discovery downloads by default and not once automatic download is off', async () => {
   const f = updaterFixture()
   await f.emit('update-available', release)
-  assert.equal(f.calls.download, 0)
-  f.ipc.emit('updates:autoDownload', {}, true)
+  assert.equal(f.calls.download, 1)
+  f.ipc.emit('updates:autoDownload', {}, false)
   await f.emit('update-available', release)
   assert.equal(f.calls.download, 1)
-  assert.equal(f.preferences.get('updatesAutoDownload'), true)
+  assert.equal(f.preferences.get('updatesAutoDownload'), false)
 })
 
 for (const block of ['disabled', 'focused', 'recentInput', 'busyHost'] as const) {

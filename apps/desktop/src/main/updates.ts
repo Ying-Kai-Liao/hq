@@ -24,7 +24,8 @@ export class Updates extends EventEmitter {
     availableVersion: null,
     staged: false,
     autoCheck: prefs.get('updatesAutoCheck') !== false,
-    autoDownload: prefs.get('updatesAutoDownload') === true,
+    // On unless turned off: installs still wait until Codync is idle.
+    autoDownload: prefs.get('updatesAutoDownload') !== false,
     lastCheck: (prefs.get('updatesLastCheck') as number | undefined) ?? null,
     error: null,
     waitingForApp: null,
