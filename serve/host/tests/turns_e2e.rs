@@ -111,7 +111,7 @@ async fn stop_ends_a_turn_whose_agent_ignores_the_cancel() {
     host.call("stop", json!({"botId": bot})).await;
     // The agent never answers: after the grace period its process is stopped and the turn ends.
     host.wait_for(&bot, Duration::from_secs(40), |e| e["kind"] == "notice" && e["data"]["text"] == "Stopped.").await;
-    let sync = host.call("sync", json!({"since": 0})).await;
+    let sync = common::snapshot(&host.base, &host.token).await;
     assert_eq!(sync["bots"][0]["status"], "idle");
 }
 

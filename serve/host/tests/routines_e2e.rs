@@ -3,6 +3,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+#[allow(dead_code)]
 mod common;
 
 use serde_json::{Value, json};
