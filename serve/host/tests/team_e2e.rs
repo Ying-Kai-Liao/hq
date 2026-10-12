@@ -98,7 +98,7 @@ impl Host {
     async fn wait_finished(&self) -> Value {
         let completed = tokio::time::timeout(Duration::from_secs(20), async {
             loop {
-                let sync = self.call("sync", json!({"since": 0})).await;
+                let sync = common::snapshot(&self.base, &self.token).await;
                 let mut notices =
                     sync["entries"].as_array().unwrap().iter().filter(|e| e["data"]["delegationId"].is_string());
                 if sync["bots"].as_array().unwrap().iter().all(|b| b["status"] == "idle")
@@ -134,7 +134,7 @@ async fn agent_uses_team_mcp_and_returns_the_reviewers_answer() {
     host.call("respondPermission", json!({"entryId": permission["id"], "optionId": "allow"})).await;
     let final_reply = host.wait_for(&lead, |e| e["kind"] == "agent" && e["data"]["final"] == true).await;
     assert_eq!(final_reply["data"]["text"], "Team reply: reply: PERMISSION review the changes");
-    let sync = host.call("sync", json!({"since": 0})).await;
+    let sync = common::snapshot(&host.base, &host.token).await;
     let requests: Vec<_> =
         sync["entries"].as_array().unwrap().iter().filter(|e| e["data"]["delegationId"].is_string()).collect();
     assert_eq!(requests.len(), 2);
@@ -175,7 +175,7 @@ async fn agent_messages_another_bot_then_finishes_before_recipient_approval() {
     let report = host.wait_for(&reviewer, |e| e["kind"] == "agent" && e["data"]["final"] == true).await;
     assert_eq!(report["data"]["text"], "reply: PERMISSION review the changes");
     host.wait_for(&reviewer, |e| e["kind"] == "notice" && e["data"]["status"] == "completed").await;
-    let sync = host.call("sync", json!({"since": 0})).await;
+    let sync = common::snapshot(&host.base, &host.token).await;
     let notices: Vec<_> =
         sync["entries"].as_array().unwrap().iter().filter(|e| e["data"]["delegationId"].is_string()).collect();
     assert_eq!(notices.len(), 2);

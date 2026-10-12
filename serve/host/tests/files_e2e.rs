@@ -307,7 +307,7 @@ async fn files_only_turns_finish_without_duplicate_text_and_input_uploads_still_
                 .iter()
                 .filter(|e| e["kind"] == "agent" && e["data"]["final"] == true)
                 .collect();
-            let sync = host.call("sync", json!({"since":0})).await;
+            let sync = common::snapshot(&host.base, &host.token).await;
             if final_entries.len() == 4
                 && sync["bots"].as_array().unwrap().iter().any(|b| b["id"] == bot && b["status"] == "idle")
             {
