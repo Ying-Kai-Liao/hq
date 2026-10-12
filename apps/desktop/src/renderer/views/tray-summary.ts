@@ -112,9 +112,6 @@ export function useTraySummary(app: AppModel) {
           ? {
               enabled: screen.enabled,
               subtitle: screenSubtitle(app),
-              needsLoginItem: app.screenNeedsApproval,
-              needsCapture: screen.enabled && screen.connected && !screen.capture,
-              needsInput: screen.enabled && screen.connected && !screen.input,
               error: app.screenError,
             }
           : null,

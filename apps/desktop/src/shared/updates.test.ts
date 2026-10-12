@@ -13,7 +13,6 @@ for (const options of [{ packaged: false }, { main: false }]) {
     f.updates.check()
     await f.emit('update-downloaded', release)
     assert.equal(f.updates.state.supported, false)
-    assert.equal(f.updates.state.canCheck, false)
     assert.equal(f.calls.check + f.calls.download + f.calls.install, 0)
     assert.equal(f.timers.size, 0)
   })

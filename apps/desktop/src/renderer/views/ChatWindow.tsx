@@ -27,7 +27,6 @@ import { ComputerAccessView } from './computer-access/ComputerAccessView'
 import { HostStateView } from './HostStateView'
 import { StartupRecovery } from './StartupRecovery'
 export { EmptyState } from './HostStateView'
-import { AnalyticsPrompt } from './AnalyticsPrompt'
 import { StarPrompt } from './StarPrompt'
 import { OpenVoiceSettings } from './call/CallView'
 import { AccountPanelLayer, DesktopActionMenu, ProfileAvatar } from './PanelMenus'
@@ -103,7 +102,7 @@ export function ChatWindow() {
           }}
         />
       )}
-      {onboarded && accessSetup !== null ? <><AnalyticsPrompt /><StarPrompt /></> : null}
+      {onboarded && accessSetup !== null ? <StarPrompt /> : null}
       <Sheet open={showAccess} onClose={() => setShowAccess(false)} width={660} height={Math.min(820, window.innerHeight - 80)}>
         <ModalHeader title="Computer access" />
         <ComputerAccessView onContinue={(ready) => { setAccessSetup(ready ? 'ready' : 'later'); setShowAccess(false) }} />

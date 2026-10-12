@@ -19,7 +19,6 @@ const enabled = app.isPackaged && isMainEnvironment()
 export class Updates extends EventEmitter {
   state: UpdateState = {
     supported: enabled,
-    canCheck: enabled,
     checking: false,
     availableVersion: null,
     staged: false,

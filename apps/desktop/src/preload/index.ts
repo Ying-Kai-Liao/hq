@@ -31,8 +31,6 @@ const bridge: CodyncBridge = {
     onChange: (cb) => listen('host:change', cb),
     install: () => ipcRenderer.send('host:install'),
     restart: () => ipcRenderer.send('host:restart'),
-    uninstall: () => ipcRenderer.send('host:uninstall'),
-    openLog: () => ipcRenderer.send('host:openLog'),
     async call(baseURL, token, method, body, timeoutMs) {
       const result = (await ipcRenderer.invoke('host:call', baseURL, token, method, body, timeoutMs)) as
         | { ok: true; value: unknown }
@@ -49,7 +47,6 @@ const bridge: CodyncBridge = {
         ipcRenderer.send('host:stream:close', id)
       }
     },
-    health: (baseURL) => ipcRenderer.invoke('host:health', baseURL),
   },
   account: {
     state: () => ipcRenderer.invoke('account:state'),
@@ -89,8 +86,6 @@ const bridge: CodyncBridge = {
     readClipboardFiles: () => ipcRenderer.invoke('app:clipboardFiles'),
     setTraySummary: (summary: TraySummary) => ipcRenderer.send('app:traySummary', summary),
     onCommand: (cb: (c: WindowCommand) => void) => listen('app:command', cb),
-    openPairing: () => ipcRenderer.send('app:openPairing'),
-    quit: () => ipcRenderer.send('app:quit'),
     resetAllData: () => ipcRenderer.invoke('app:resetAllData'),
     setLaunchAtLogin: (on) => ipcRenderer.invoke('app:setLaunchAtLogin', on),
     showInDock: () => ipcRenderer.invoke('app:showInDock'),

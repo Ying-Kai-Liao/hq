@@ -7,7 +7,7 @@ import Testing
     let suite = "RosterOrderTests.\(UUID().uuidString)"
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let storage = SharedStore.Context(accountID: UUID().uuidString, suite: suite)
-    let store = BotStore(computer: Computer(id: UUID().uuidString, name: "Mac", signKey: "test"), clientKind: "ios", storage: storage) {
+    let store = BotStore(computer: Computer(id: UUID().uuidString, name: "Mac", signKey: "test"), storage: storage) {
         FakeRemote(.connecting)
     }
     defer { store.retire() }
