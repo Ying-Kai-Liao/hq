@@ -171,7 +171,7 @@ function PrivacySettings() {
   const running = local !== null && local.connection.kind === 'online'
   const setShared = (on: boolean) => void local?.setAnalytics(on).catch((e: unknown) => app.setError(errorText(e)))
   return (
-    <CardSection title="Privacy" footer="Which features you use, never your messages, code or files. Private, used only to improve Codync.">
+    <CardSection title="Privacy" footer="Which features you use, never your messages, code or files. Helps us spot bugs sooner and make Codync better for you.">
       <Switch on={local?.analytics === true} onChange={setShared} disabled={!running}>
         Share usage analytics
       </Switch>
@@ -223,7 +223,7 @@ function UpdateSettings() {
           <ValueRow key="version" label="Version" detail={lastChecked}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span>{window.codync.appVersion}</span>
-              <Button kind="secondary" onClick={() => window.codync.updates.check()} disabled={!updates.canCheck && !updates.staged}>
+              <Button kind="secondary" onClick={() => window.codync.updates.check()} disabled={!updates.supported && !updates.staged}>
                 {updates.availableVersion ? `Update to ${updates.availableVersion}` : 'Check for updates'}
               </Button>
             </span>

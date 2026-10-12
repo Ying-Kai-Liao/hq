@@ -8,7 +8,7 @@
 	<array/>
 	<key>NSPrivacyCollectedDataTypes</key>
 	<array>
-		<!-- Opt-in usage analytics (Settings → Share usage analytics), linked to the Codync account when signed in. -->
+		<!-- Usage analytics, on unless turned off (Settings → Share usage analytics), linked to the Codync account when signed in. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeProductInteraction</string>

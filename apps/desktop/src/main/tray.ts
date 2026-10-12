@@ -156,7 +156,7 @@ export class Tray {
     const { updates } = this.deps
     const u = updates.state
     const items: Electron.MenuItemConstructorOptions[] = [
-      { label: u.availableVersion ? `Update to ${u.availableVersion}…` : 'Check for Updates…', enabled: u.canCheck || u.staged, click: () => updates.check() },
+      { label: u.availableVersion ? `Update to ${u.availableVersion}…` : 'Check for Updates…', enabled: u.supported || u.staged, click: () => updates.check() },
     ]
     // The release waits until paired iPhones can get the app it needs.
     if (u.waitingForApp) items.push({ label: `Waiting for iPhone app ${u.waitingForApp} to pass App Store review`, enabled: false })
