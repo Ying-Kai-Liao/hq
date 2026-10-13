@@ -26,7 +26,9 @@ history, so the user can roll it back with the rest of you.
    - `{{HOME_DIR}}/memory/projects/ID.md`: your own notes on this project
    - `{{HOME_DIR}}/memory/sessions/ID.md`: where your last call on this project left off
    - `{{AGENT_DIR}}/capabilities.yaml`: what you may use
-   Your long-term index (`memory/MEMORY.md`) is already in your context.
+   Your long-term index (`memory/MEMORY.md`) is already in your context. For anything older or not in the index,
+   search before you assume it isn't known: `{{HQ}}/bin/hq-memory search <words>` (your memory and `shared/`;
+   `--all` adds the other agents').
 3. **Freshness check** (only when the task touches the codebase). `codebase.md` starts with a `commit:` line. Compare
    it with `git rev-parse HEAD`.
    - Same commit: trust the map. Don't re-explore the codebase.

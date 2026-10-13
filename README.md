@@ -117,7 +117,8 @@ git clone https://github.com/Ying-Kai-Liao/hq ~/Workspace/hq && ~/Workspace/hq/i
 **Not in any repo**, so redo them by hand on a new Mac:
 - an agent you never shared: `agents.json` records it without a link, so `install.sh` skips it;
 - grants and profiles (`~/.config/hq/auth.json`), secrets (Keychain), `~/.config/hq/env`: `hq auth grant`, `hq auth set`;
-- scheduled jobs (`~/Library/LaunchAgents/dev.hq.*.plist`): each tool's `install` command, or `hq-bridge --install`.
+- LaunchAgents (`~/Library/LaunchAgents/dev.hq.*.plist`): `hq schedule --install`, `hq-bridge --install`, each
+  tool's own `install` command. The jobs themselves are in the state repo.
 
 ## Layout
 The repo holds the kernel. Agents live in the agents folder, each its own repo; what the agents and you accumulate
@@ -131,6 +132,8 @@ bin/hq-pkg                 agents: install, update, history, restore, share; ver
 bin/hq-new                 scaffold a new agent as its own repo
 bin/hq-auth                shared services: which agent may use which, as which account
 bin/hq-state               the state folder's git repo: path, dump (sqlite as text), commit
+bin/hq-memory              search the agents' memory and shared notes
+bin/hq-sched               scheduled agent jobs (cron, launchd)
 shared/
   PROTOCOL.md              memory rules, appended to every agent's prompt
   services/<name>.json     shared services (MCP servers, APIs, logins): how to start them, which secrets by name
@@ -233,6 +236,16 @@ transcript cleanup. Each session `hq` starts is tagged with the agent, package v
 compares agents; `hq cost agent video` shows one agent by day, by version/model/effort and its costliest runs;
 `hq-cost csv` exports every request with its agent for analysis elsewhere.
 
+## Schedules
+`hq schedule add house "0 8 * * *" "Check what expires this week and send the list"` gives an agent a job: at that
+time `bin/hq-sched` runs the same one-shot `hq house "…"` you would, tagged `via=schedule` in the cost ledger, and the
+agent delivers with `hq-send`. Jobs are kept with the agent's state (`~/.hq/agents/<name>/jobs.json`), so they are
+private, versioned with your memory and never part of a shared package. `hq schedule` lists jobs with their next run,
+`hq schedule log house <id>` shows the last run's output, `pause`/`resume`/`rm`/`run` do what they say. Run
+`hq schedule --install` once per Mac: a LaunchAgent ticks every minute, and a time missed while the Mac slept runs
+once on the next tick. Nobody approves tool calls in a scheduled run, so it uses `HQ_SCHED_PERMISSION_MODE`
+(default `bypassPermissions`, as Discord tasks do); the agent's own allow/deny rules still apply.
+
 ## Memory layers
 1. **Identity and skills:** `agent.md` + `skills/` (including the ones it learned) + `capabilities.yaml`.
 2. **Long-term:** `memory/MEMORY.md` and topic files: the craft, lessons. The user lives in
@@ -240,6 +253,10 @@ compares agents; `hq cost agent video` shows one agent by day, by version/model/
 3. **Project:** `shared/projects/<id>/` (shared by all agents) + `memory/projects/<id>.md` (private). The codebase map
    records its commit, so agents only re-read what changed since.
 4. **Session:** the live conversation, plus `memory/sessions/<id>.md` across calls.
+
+`hq memory search <words>` searches it all (every agent's memory and learned skills, and `shared/`) and prints
+`path:line` with the passage; agents use it for anything their index doesn't cover. It indexes the files afresh on
+each search, so the markdown stays the only copy.
 
 Memory is the agent's perspective, not the truth: code, specs and live data win. Current facts (expenses, calendar,
 infrastructure) are read from their source every time, never from memory.

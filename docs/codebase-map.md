@@ -14,6 +14,7 @@ hq/                               the kernel (this repo, public). No agents, no 
   shared/user.md                    who the user is, read by every agent
   shared/projects/<id>/             codebase.md, decisions.md: per-project notes shared by agents
   projects.json                     project registry (bin/project-id)
+  agents/<name>/jobs.json           its scheduled jobs (hq-sched)
   agents.json                       installed agents and their GitHub links (hq-pkg save / install --saved)
   private-words                     words hq-pkg check --share refuses in a package
   packages/                         the agents folder, $HQ_AGENTS (ignored by the state repo)
@@ -27,6 +28,7 @@ hq/                               the kernel (this repo, public). No agents, no 
   auth.json  auth.log               grants and profiles (hq-auth); every secret handed out
   env                               bridge and Telegram settings
   cost.db                           the cost ledger (hq-cost)
+  sched/                            last tick, last run per job, each run's output (hq-sched)
   bridge/                           Discord thread → session map, logs, attachments
   monitor/  house/  bin/hq-uv       the monitor's samples; house's job state; uv copy with Full Disk Access
 ```
@@ -42,6 +44,8 @@ layout). Agents: `$HQ_AGENTS`, else `<state>/packages`, then the repo's own `age
 | `bin/hq-pkg` | python | Packages: fingerprint → check → snapshot into `.store`; pin/rollback; auto-commit each good version to the agent's repo; install/update/share/search/restore; fetch third-party skills; `check --share` privacy scan | `bin/hq`, the adapter (`resolve --all --json`), `install.sh` |
 | `bin/hq-auth` | python | Services and grants: which agent may use which service as which account; builds `--mcp-config`; hands out secrets (`get`, `exec`) and logs them | `bin/hq`, agents' tools |
 | `bin/hq-cost` | python | Cost ledger: syncs request usage from `~/.claude/projects` into `cost.db`; `tag` records each hq session (SessionStart hook); reports by agent, version, model, effort | you, launchd `dev.hq.cost`, the hook `bin/hq` adds |
+| `bin/hq-memory` | python | Memory search: indexes the state folder's markdown (memory, learned skills, shared/) in an in-memory FTS5 table per search, prints `path:line` + passage | you, agents (PROTOCOL.md; allowed without a prompt in `hq` runs) |
+| `bin/hq-sched` | python | Scheduled jobs: cron parser, `jobs.json` per agent, `tick` starts due jobs as detached `hq <agent> "task"` runs (`HQ_VIA=schedule`), catches up once after sleep; launchd `dev.hq.sched` | you, launchd every minute |
 | `bin/hq-state` | python | The state repo: sqlite → text dumps, commit and push state, then push every agent | you |
 | `bin/hq-new` | bash | Scaffolds a new agent as its own repo in the agents folder, plus its state skeleton | you, the instructor agent |
 | `bin/project-id` | python | Directory → project ID from `projects.json` (remotes and paths as aliases); `--register` | `bin/hq`, the adapter, agents |
@@ -69,7 +73,7 @@ Packages never hold absolute paths. `bin/hq` and the adapter fill these in at ru
 | `{{USER_HOME}}` | `$HOME` | |
 
 Also set for a run: `HQ_AGENT_VERSION`, `HQ_MODEL`, `HQ_EFFORT`, `HQ_PROJECT` (read by `hq-cost tag`), and, from the
-bridge, `HQ_VIA=discord`, `HQ_DISCORD_WEBHOOK_URL`, `HQ_DISCORD_THREAD_ID` (read by `hq-send`), `HQ_CLAUDE_ARGS`
+bridge, `HQ_VIA=discord` (`schedule` from hq-sched, plus `HQ_SCHED_JOB`), `HQ_DISCORD_WEBHOOK_URL`, `HQ_DISCORD_THREAD_ID` (read by `hq-send`), `HQ_CLAUDE_ARGS`
 (extra `claude` flags; `bin/hq` clears it once read so helpers don't inherit it).
 
 ## Flows
@@ -96,6 +100,10 @@ bridge, `HQ_VIA=discord`, `HQ_DISCORD_WEBHOOK_URL`, `HQ_DISCORD_THREAD_ID` (read
 **State changes** (memory, data) → written straight to `~/.hq/agents/<name>/` → `hq-state commit` dumps the
 databases and commits and pushes the state repo.
 
+**A scheduled job** → launchd runs `hq-sched tick` every minute → for each `jobs.json` job whose cron time fell since
+the last tick (at most a day back) and that isn't still running: `hq <agent> "task + scheduled note"` detached, with
+`--permission-mode` from `HQ_SCHED_PERMISSION_MODE` → output in `~/.config/hq/sched/runs/<agent>/`, delivery by `hq-send`.
+
 **Cost** → Claude Code writes transcripts → `hq-cost sync` (every 6 h, and before each report) → `cost.db`;
 `runs` (from the hook) and `hq:` subagent types attribute requests to agents.
 
@@ -109,6 +117,8 @@ databases and commits and pushes the state repo.
 | A new placeholder | `bin/hq` `fill()`, `register.tsx` `fill`, `hq-pkg` `PLACEHOLDERS` |
 | Services, grants, secrets | `shared/services/`, `bin/hq-auth` |
 | Discord behaviour | `bin/hq-bridge`; delivery in `bin/hq-send` |
+| How memory is searched (what's indexed, ranking) | `bin/hq-memory` |
+| Scheduled jobs (cron syntax, catch-up, how a job runs) | `bin/hq-sched` |
 | Cost reports or prices | `bin/hq-cost` (`PRICES`) |
 | The scaffold for new agents | `bin/hq-new`, and the instructor agent's `new-agent` skill (in its own repo) |
 | One agent's behaviour, skills or tools | that agent's repo, `~/.hq/packages/<name>/` (not this repo) |

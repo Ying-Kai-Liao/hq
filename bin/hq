@@ -13,6 +13,8 @@
 #   hq search [words] [--mine]                         find agents on GitHub (repos tagged hq-agent)
 #   hq auth [ls|grant|revoke|set ...]                  which agent may use which service, as which account (hq-auth)
 #   hq cost [agents|agent <name>|...]                  what the agents cost, from the usage ledger (hq-cost)
+#   hq memory search <words> [--agent NAME|--all]      search what the agents wrote down (hq-memory)
+#   hq schedule [ls|add|rm|run|log|--install ...]      run agent tasks on a cron schedule (hq-sched)
 #
 # Every run is pinned to a snapshot of the agent's package (bin/hq-pkg): edits, by anyone, become the next run's
 # version once they pass checks; running sessions keep theirs. Shared services and their secrets come from
@@ -31,7 +33,7 @@ set -euo pipefail
 src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
 HQ="$(cd "$(dirname "$src")/.." && pwd)"
 
-[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,15p' "$0" | sed 's/^#   //'; exit 0; }
+[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,17p' "$0" | sed 's/^#   //'; exit 0; }
 export HQ_ROOT=$HQ
 # State (memory, data, learned skills, user.md, projects) lives apart from the packages: $HQ_STATE, else ~/.hq,
 # else the repo itself (before hq-migrate-state). Its tree mirrors the repo's paths: agents/<name>/memory, shared/…
@@ -45,6 +47,8 @@ case $1 in
   rollback)           shift; exec "$HQ/bin/hq-pkg" pin "$@" ;;
   auth)               shift; exec "$HQ/bin/hq-auth" "${@:-ls}" ;;
   cost)               shift; exec "$HQ/bin/hq-cost" "${@:-agents}" ;;
+  memory)             shift; exec "$HQ/bin/hq-memory" "${@:---help}" ;;
+  schedule)           shift; exec "$HQ/bin/hq-sched" "${@:-ls}" ;;
 esac
 
 # The package folder of an installed agent: the agents folder first, then the repo's own agents/.
@@ -152,7 +156,7 @@ dirs=(--add-dir "$HQ")
 hq_real=$(cd "$HQ" && pwd -P); [[ $hq_real != "$HQ" ]] && dirs+=(--add-dir "$hq_real")
 [[ $HQ_STATE != "$HQ" ]] && dirs+=(--add-dir "$HQ_STATE")
 [[ -d $HQ_AGENTS && $HQ_AGENTS != "$HQ_STATE"/* ]] && dirs+=(--add-dir "$HQ_AGENTS")
-args=(--append-system-prompt "$prompt" "${dirs[@]}" --settings "$runs/$$.settings.json" --allowedTools "Bash($HQ/bin/project-id)" "Bash($HQ/bin/project-id --list)")
+args=(--append-system-prompt "$prompt" "${dirs[@]}" --settings "$runs/$$.settings.json" --allowedTools "Bash($HQ/bin/project-id)" "Bash($HQ/bin/project-id --list)" "Bash($HQ/bin/hq-memory search:*)")
 # Each agent carries only its own tools: the shared services it needs and is granted (hq-auth), its own mcp.json
 # for servers no one else uses, and no global skills unless capabilities.yaml says global_skills: true. Its own
 # skills are files it reads on demand. A broken auth.json costs the agent its services, not the run.
