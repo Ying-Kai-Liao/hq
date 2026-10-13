@@ -6,6 +6,10 @@
 #   hq <agent> --print [...]      show the assembled system prompt, don't run
 #   hq <agent> --inspect          start one run and report what it loads (tools, MCP servers, skills, plugins)
 #   hq versions|pin|unpin|rollback <agent> [VERSION]   agent package versions (hq-pkg)
+#   hq install <github-link> [--as NAME]               add an agent; each agent is its own git repo
+#   hq update|push|commit <agent>|--all                pull from, push to or commit the agent's repo
+#   hq history <agent> | hq restore <agent> <commit>   every good version is committed; restore any of them
+#   hq share <agent> [--public]                        put it on GitHub as <you>/hq-agent-<name>
 #   hq auth [ls|grant|revoke|set ...]                  which agent may use which service, as which account (hq-auth)
 #   hq cost [agents|agent <name>|...]                  what the agents cost, from the usage ledger (hq-cost)
 #
@@ -26,32 +30,39 @@ set -euo pipefail
 src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
 HQ="$(cd "$(dirname "$src")/.." && pwd)"
 
-[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,11p' "$0" | sed 's/^#   //'; exit 0; }
+[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,15p' "$0" | sed 's/^#   //'; exit 0; }
 export HQ_ROOT=$HQ
 # State (memory, data, learned skills, user.md, projects) lives apart from the packages: $HQ_STATE, else ~/.hq,
 # else the repo itself (before hq-migrate-state). Its tree mirrors the repo's paths: agents/<name>/memory, shared/…
 if [[ -z ${HQ_STATE:-} ]]; then [[ -d $HOME/.hq ]] && HQ_STATE=$HOME/.hq || HQ_STATE=$HQ; fi
 export HQ_STATE
+# Installed agents, each its own git repo (bin/hq-pkg). The repo's own agents/ still works for older installs.
+export HQ_AGENTS=${HQ_AGENTS:-$HQ_STATE/packages}
 
 case $1 in
-  versions|pin|unpin) exec "$HQ/bin/hq-pkg" "$@" ;;
+  versions|pin|unpin|install|update|push|commit|history|restore|share) exec "$HQ/bin/hq-pkg" "$@" ;;
   rollback)           shift; exec "$HQ/bin/hq-pkg" pin "$@" ;;
   auth)               shift; exec "$HQ/bin/hq-auth" "${@:-ls}" ;;
   cost)               shift; exec "$HQ/bin/hq-cost" "${@:-agents}" ;;
 esac
 
+# The package folder of an installed agent: the agents folder first, then the repo's own agents/.
+agent_dir() { for d in "$HQ_AGENTS/$1" "$HQ/agents/$1"; do [[ -f $d/agent.md ]] && { echo "$d"; return; }; done; }
+
 if [[ $1 == ls ]]; then
-  for d in "$HQ"/agents/*/; do
-    printf '%-10s %s\n' "$(basename "$d")" "$(sed -n 's/^description: //p' "$d/agent.md" | cut -c1-110)"
-  done
+  "$HQ/bin/hq-pkg" list --json | python3 -c '
+import json, re, sys
+for name, o in json.load(sys.stdin).items():
+    m = re.search(r"^description:\s*(.*)$", open(o["dir"] + "/agent.md").read(), re.M)
+    print("%-10s %s" % (name, (m.group(1) if m else "")[:110]))'
   exit 0
 fi
 
 agent=$1; shift
-src_pkg="$HQ/agents/$agent"
-[[ -f $src_pkg/agent.md ]] || { echo "hq: no agent '$agent' (try: hq ls)" >&2; exit 1; }
+src_pkg=$(agent_dir "$agent")
+[[ -n $src_pkg ]] || { echo "hq: no agent '$agent' (try: hq ls, or hq install <github-link>)" >&2; exit 1; }
 home="$HQ_STATE/agents/$agent"
-mkdir -p "$home/memory/projects" "$home/memory/sessions" "$home/skills/learned"
+mkdir -p "$home/memory/projects" "$home/memory/sessions"
 
 # The pinned package (prompt.md = agent.md body + PROTOCOL.md). If versioning itself breaks, run the live folder
 # rather than not at all.
@@ -64,7 +75,7 @@ export HQ_AGENT=$agent HQ_AGENT_DIR=$pkg HQ_AGENT_HOME=$home HQ_AGENT_VERSION=${
 # {{HOME_REAL}}: the same folder with symlinks resolved. Permission rules match the resolved path, so a memory
 # Edit rule needs it when the repo sits behind a symlink (~/Workspace/hq -> the external SSD).
 home_real=$(cd "$home" && pwd -P)
-fill() { sed "s|{{AGENT_DIR}}|$pkg|g; s|{{HOME_DIR}}|$home|g; s|{{HOME_REAL}}|$home_real|g; s|{{STATE}}|$HQ_STATE|g; s|{{USER_HOME}}|$HOME|g; s|{{HQ}}|$HQ|g; s|{{AGENT}}|$agent|g"; }
+fill() { sed "s|{{AGENT_DIR}}|$pkg|g; s|{{HOME_DIR}}|$home|g; s|{{HOME_REAL}}|$home_real|g; s|{{STATE}}|$HQ_STATE|g; s|{{AGENTS}}|$HQ_AGENTS|g; s|{{PACKAGE}}|$src_pkg|g; s|{{USER_HOME}}|$HOME|g; s|{{HQ}}|$HQ|g; s|{{AGENT}}|$agent|g"; }
 template() {
   if [[ -f $pkg/prompt.md ]]; then cat "$pkg/prompt.md"
   else awk 'NR==1 && /^---$/ {fm=1; next} fm && /^---$/ {fm=0; next} !fm' "$src_pkg/agent.md"; echo; cat "$HQ/shared/PROTOCOL.md"; fi
@@ -139,6 +150,7 @@ json.dump(s, sys.stdout, indent=1)' > "$runs/$$.settings.json"
 dirs=(--add-dir "$HQ")
 hq_real=$(cd "$HQ" && pwd -P); [[ $hq_real != "$HQ" ]] && dirs+=(--add-dir "$hq_real")
 [[ $HQ_STATE != "$HQ" ]] && dirs+=(--add-dir "$HQ_STATE")
+[[ -d $HQ_AGENTS && $HQ_AGENTS != "$HQ_STATE"/* ]] && dirs+=(--add-dir "$HQ_AGENTS")
 args=(--append-system-prompt "$prompt" "${dirs[@]}" --settings "$runs/$$.settings.json" --allowedTools "Bash($HQ/bin/project-id)" "Bash($HQ/bin/project-id --list)")
 # Each agent carries only its own tools: the shared services it needs and is granted (hq-auth), its own mcp.json
 # for servers no one else uses, and no global skills unless capabilities.yaml says global_skills: true. Its own

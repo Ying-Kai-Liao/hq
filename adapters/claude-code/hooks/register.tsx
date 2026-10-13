@@ -1,8 +1,8 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-// Claude Code adapter for hq. The agents, their memory and the project registry
-// live in the hq repo; this plugin only reads them:
-//   session.start      register every agents/<name>/agent.md as `hq:<name>`, pinned for this session to the
+// Claude Code adapter for hq. The kernel (bin/, PROTOCOL.md) lives in the hq repo; the installed agents in the
+// agents folder (<state>/packages/<name>, each its own git repo; listed by bin/hq-pkg); this plugin only reads them:
+//   session.start      register every installed agent's agent.md as `hq:<name>`, pinned for this session to the
 //                      package version bin/hq-pkg resolves (edits made meanwhile apply to the next session)
 //   agent.spawn        resolve the project, prepend it and the agent's memory to the task
 //   turn.step          the agent's `effort:` (agent.md frontmatter) on its model requests; `model:` is set at register
@@ -53,15 +53,30 @@ export const register: Register = (on, options) => {
   let state = ''
   let stateReal = ''
   let userHome = ''
-  const fill = (text: string, hq: string, agent: string, agentDir = `${hq}/agents/${agent}`) =>
+  let agentsRoot = ''
+  let installed: Record<string, string> = {}
+  const fill = (text: string, hq: string, agent: string, agentDir = installed[agent] ?? `${hq}/agents/${agent}`) =>
     text
       .replaceAll('{{AGENT_DIR}}', agentDir)
+      .replaceAll('{{AGENTS}}', agentsRoot || `${state || hq}/packages`)
+      .replaceAll('{{PACKAGE}}', installed[agent] ?? `${hq}/agents/${agent}`)
       .replaceAll('{{HOME_DIR}}', `${state || hq}/agents/${agent}`)
       .replaceAll('{{HOME_REAL}}', `${stateReal || state || hq}/agents/${agent}`)
       .replaceAll('{{STATE}}', state || hq)
       .replaceAll('{{USER_HOME}}', userHome)
       .replaceAll('{{HQ}}', hq)
       .replaceAll('{{AGENT}}', agent)
+
+  // Installed agents, {name: package folder}: the agents folder first, then the repo's own agents/ (older installs).
+  const listAgents = async ($: EngineInterface, hq: string) => {
+    const run = await $.process.run([`${hq}/bin/hq-pkg`, 'list', '--json'], { timeoutMs: 30_000 })
+    try {
+      const out = run.exitCode === 0 ? (JSON.parse(run.stdout) as Record<string, { dir: string }>) : {}
+      return Object.fromEntries(Object.entries(out).map(([name, o]) => [name, o.dir]))
+    } catch {
+      return {}
+    }
+  }
 
   // One call pins every agent: {name: {dir, version, note}}. Empty when hq-pkg fails; agents then run live.
   const resolvePackages = async ($: EngineInterface, hq: string) => {
@@ -76,33 +91,34 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     const hq = await hqRoot($, options.hq_path)
-    if (!(await $.fs.exists(`${hq}/agents`))) {
-      $.ui.toast(`hq: no agents folder at ${hq}; set hq_path in /plugin config`)
+    if (!(await $.fs.exists(`${hq}/bin/hq-pkg`))) {
+      $.ui.toast(`hq: no hq repo at ${hq}; set hq_path in /plugin config`)
       return result
     }
     const protocol = await $.fs.read(`${hq}/shared/PROTOCOL.md`)
     state = await stateRoot($, options.state_path, hq)
+    agentsRoot = ((await $.env.get('HQ_AGENTS')) ?? '') || `${state}/packages`
+    installed = await listAgents($, hq)
     userHome = (await $.env.get('HOME')) ?? ''
     const real = await $.process.run(['/bin/realpath', state], { timeoutMs: 5_000 })
     stateReal = real.exitCode === 0 ? real.stdout.trim() : state
     const packages = await resolvePackages($, hq)
-    for (const entry of await $.fs.list(`${hq}/agents`)) {
-      if (entry.kind !== 'dir') continue
-      const file = `${hq}/agents/${entry.name}/agent.md`
+    for (const [name, dir] of Object.entries(installed)) {
+      const file = `${dir}/agent.md`
       if (!(await $.fs.exists(file))) continue
-      const pkg = packages[entry.name]
+      const pkg = packages[name]
       // The pinned agent.md, so model and effort change with the version like everything else.
       const pinned = pkg && (await $.fs.exists(`${pkg.dir}/agent.md`)) ? `${pkg.dir}/agent.md` : file
       const { fields, body } = frontmatter(await $.fs.read(pinned))
-      if (EFFORTS.has(fields.effort ?? '')) agentEffort.set(entry.name, fields.effort)
-      else agentEffort.delete(entry.name)
+      if (EFFORTS.has(fields.effort ?? '')) agentEffort.set(name, fields.effort)
+      else agentEffort.delete(name)
       const rendered = pkg && (await $.fs.exists(`${pkg.dir}/prompt.md`)) ? await $.fs.read(`${pkg.dir}/prompt.md`) : ''
       await $.agent.register({
-        name: entry.name,
-        description: fields.description ?? `hq specialist: ${entry.name}`,
+        name,
+        description: fields.description ?? `hq specialist: ${name}`,
         prompt: rendered
-          ? fill(rendered, hq, entry.name, pkg.dir)
-          : `${fill(body, hq, entry.name)}\n${fill(protocol, hq, entry.name)}`,
+          ? fill(rendered, hq, name, pkg.dir)
+          : `${fill(body, hq, name)}\n${fill(protocol, hq, name)}`,
         ...(fields.model ? { model: fields.model } : {}),
       })
     }
@@ -190,7 +206,8 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'hq' }, async ($, e) => {
     const hq = await hqRoot($, options.hq_path)
     const words = e.args.trim().split(/\s+/).filter(Boolean)
-    const agents = (await $.fs.list(`${hq}/agents`)).filter(a => a.kind === 'dir').map(a => a.name).sort()
+    if (!Object.keys(installed).length) installed = await listAgents($, hq)
+    const agents = Object.keys(installed).sort()
 
     if (words.length === 0) {
       const project = await $.process.run([`${hq}/bin/project-id`, await $.session.cwd()])

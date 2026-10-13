@@ -1,12 +1,13 @@
 # Memory protocol
 
-You are the `{{AGENT}}` agent, one of the user's persistent specialists. Your home (memory, data, learned skills) is `{{HOME_DIR}}/`.
+You are the `{{AGENT}}` agent, one of the user's persistent specialists. Your home (memory, data) is `{{HOME_DIR}}/`.
 Your identity and memory persist between calls; this session does not. Anything worth keeping must be written down
 before you finish.
 
 This run uses a pinned, read-only snapshot of your package (instructions, skills, tools): `{{AGENT_DIR}}`. Read
-skills and run tools from there. Write state (memory, data, learned skills) to your home, never into the snapshot or
-the package. Learned skills stay in your home; the user promotes one into the package when it has proved itself.
+skills and run tools from there. Write memory and data to your home, never into the snapshot. The one thing you write
+into your package is a learned skill, in `{{PACKAGE}}/skills/learned/`: the next run checks it and commits it to your
+history, so the user can roll it back with the rest of you.
 
 ## Start of every call (before doing the task)
 1. Find the project, first match wins. Call it `ID`.
@@ -38,7 +39,7 @@ the package. Learned skills stay in your home; the user promotes one into the pa
 | Layer | File | Write |
 |---|---|---|
 | Long-term: about the user, your craft, lessons that apply everywhere | `{{HOME_DIR}}/memory/MEMORY.md` (index, max 150 lines) + topic files in `memory/` | When you learn something durable. One line per entry in the index, linking to a topic file for detail |
-| Learned skills | `{{HOME_DIR}}/skills/learned/<name>/SKILL.md` | When you solve a non-trivial problem you'll meet again. Add it to the index in `MEMORY.md` |
+| Learned skills | `{{PACKAGE}}/skills/learned/<name>/SKILL.md` | When you solve a non-trivial problem you'll meet again. Add it to the index in `MEMORY.md`. It becomes part of you: checked, versioned and shared with your package, so keep the user's personal details in memory, not here |
 | Project, yours | `memory/projects/ID.md` | Your specialist knowledge of this project: decisions, assets, where your files are, open items |
 | Project, shared | `{{STATE}}/shared/projects/ID/codebase.md` | Facts any agent needs: purpose, stack, layout, commands, conventions. Edit only sections you verified |
 | Decisions, shared | `{{STATE}}/shared/projects/ID/decisions.md` | **Append only**, one line: `YYYY-MM-DD · {{AGENT}} · decision · why` |

@@ -3,7 +3,8 @@
 
   hq-state path      print the state folder ($HQ_STATE, else ~/.hq, else the repo)
   hq-state dump      write every agents/*/data/*.db as a text dump next to it (<name>.sql), for git
-  hq-state commit    dump, then commit everything that changed and push if there is a remote
+  hq-state commit    dump, then commit everything that changed and push if there is a remote; then commit and
+                     push every agent's own repo (hq-pkg push --all)
 
 Databases are committed as dumps, not binaries: they diff, merge by hand, and restore with
 `sqlite3 NEW.db < NAME.sql`. The state repo holds personal data; keep its remote private.
@@ -45,6 +46,8 @@ def git(*args, check=True):
 
 
 def commit():
+    # which agents this install has, and their links, so another Mac can install them (hq-pkg install --saved)
+    subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'save'], env={**os.environ, 'HQ_STATE': str(STATE)})
     if STATE.resolve() == HQ.resolve():
         sys.exit('hq-state: state is still inside the repo (run hq-migrate-state first)')
     if not (STATE / '.git').exists():
@@ -61,6 +64,11 @@ def commit():
         print('hq-state: pushed' if r.returncode == 0 else f'hq-state: push failed: {r.stderr.strip()}')
 
 
+def push_agents():
+    """Agents are their own repos (packages/, ignored here): commit and push each one along with the state."""
+    subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'push', '--all'], env={**os.environ, 'HQ_STATE': str(STATE)})
+
+
 def main(argv):
     cmd = argv[0] if argv else '-h'
     if cmd == 'path':
@@ -69,6 +77,7 @@ def main(argv):
         dump()
     elif cmd == 'commit':
         commit()
+        push_agents()
     else:
         print(__doc__.strip())
         return 0 if cmd in ('-h', '--help') else 2

@@ -34,6 +34,19 @@ LABEL = 'dev.hq.bridge'
 # versioned Homebrew path that `brew upgrade uv` replaces
 LAUNCHER = Path.home() / '.config' / 'hq' / 'bin' / 'hq-uv'
 
+# Installed agents: $HQ_AGENTS (default <state>/packages/<name>, each its own git repo), then the repo's own agents/.
+STATE_ROOT = Path(os.environ.get('HQ_STATE') or (Path.home() / '.hq' if (Path.home() / '.hq').is_dir() else HQ))
+AGENTS = Path(os.environ.get('HQ_AGENTS') or STATE_ROOT / 'packages')
+
+
+def agent_dirs():
+    out = {}
+    for root in (AGENTS, HQ / 'agents'):
+        for f in sorted(root.glob('*/agent.md')) if root.is_dir() else []:
+            if not f.parent.name.startswith('.'):
+                out.setdefault(f.parent.name, f.parent)
+    return out
+
 
 def load_env():
     f = Path.home() / '.config' / 'hq' / 'env'
@@ -45,16 +58,16 @@ def load_env():
 
 
 def agents():
-    return sorted(p.parent.name for p in (HQ / 'agents').glob('*/agent.md'))
+    return sorted(agent_dirs())
 
 
 def description(agent):
-    m = re.search(r'^description:\s*(.+)$', (HQ / 'agents' / agent / 'agent.md').read_text(), re.M)
+    m = re.search(r'^description:\s*(.+)$', (agent_dirs()[agent] / 'agent.md').read_text(), re.M)
     return (m.group(1) if m else f'hq {agent}')[:1024]
 
 
 def display_name(agent):
-    m = re.search(r'^display_name:\s*(.+)$', (HQ / 'agents' / agent / 'agent.md').read_text(), re.M)
+    m = re.search(r'^display_name:\s*(.+)$', (agent_dirs()[agent] / 'agent.md').read_text(), re.M)
     return m.group(1).strip() if m else agent
 
 

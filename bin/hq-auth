@@ -35,6 +35,19 @@ from pathlib import Path
 HQ = Path(os.environ.get('HQ_ROOT') or os.path.dirname(os.path.dirname(
     os.path.normpath(os.path.join(os.environ.get('PWD') or os.getcwd(), sys.argv[0])))))
 SERVICES = HQ / 'shared' / 'services'
+
+# Installed agents: $HQ_AGENTS (default <state>/packages/<name>, each its own git repo), then the repo's own agents/.
+STATE_ROOT = Path(os.environ.get('HQ_STATE') or (Path.home() / '.hq' if (Path.home() / '.hq').is_dir() else HQ))
+AGENTS = Path(os.environ.get('HQ_AGENTS') or STATE_ROOT / 'packages')
+
+
+def agent_dirs():
+    out = {}
+    for root in (AGENTS, HQ / 'agents'):
+        for f in sorted(root.glob('*/agent.md')) if root.is_dir() else []:
+            if not f.parent.name.startswith('.'):
+                out.setdefault(f.parent.name, f.parent)
+    return out
 AUTH = Path(os.environ.get('HQ_AUTH') or Path.home() / '.config' / 'hq' / 'auth.json')
 LOG = AUTH.with_name('auth.log')   # every secret handed out: when, to whom, for which service; never the value
 
@@ -72,13 +85,13 @@ def service(name):
 
 
 def needs(agent):
-    f = HQ / 'agents' / agent / 'capabilities.yaml'
+    f = agent_dirs().get(agent, AGENTS / agent) / 'capabilities.yaml'
     m = re.search(r'^needs:\s*\[([^\]]*)\]', f.read_text(), re.M) if f.exists() else None
     return [s.strip() for s in m.group(1).split(',') if s.strip()] if m else []
 
 
 def agents():
-    return sorted(p.parent.name for p in (HQ / 'agents').glob('*/agent.md'))
+    return sorted(agent_dirs())
 
 
 def grant_for(auth, agent, svc):

@@ -1,13 +1,10 @@
 .DS_Store
 __pycache__/
-agents/*/data/
+# agents are their own repos, in the agents folder ($HQ_AGENTS, default ~/.hq/packages); none live here
+agents/
 .store/
 # state lives in the state folder ($HQ_STATE, default ~/.hq); keep stray writes out of the repo
-agents/*/memory/
-agents/*/skills/learned/
 shared/user.md
 shared/projects/
 projects.json
-agents/*/.editing
-agents/*/skills/.*.part/
 .orca/

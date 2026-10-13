@@ -1,5 +1,0 @@
-# Declarations only. Credentials come from the runtime, never from here.
-# Add services as: - {name, kind, how-to-reach, access: read|write}
-tools: [shell, cli]
-services: []
-access: read        # write actions need explicit approval per session

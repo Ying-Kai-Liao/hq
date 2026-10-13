@@ -9,13 +9,31 @@
   hq-pkg check --share [agent...]         personal details a package must not carry before it is shared: home paths,
                                           email addresses, words listed in <state>/private-words (reports; never
                                           blocks a run)
-  hq-pkg promote <agent> <skill>          move a learned skill (state) into the package's skills/
+  hq-pkg promote <agent> <skill>          move a private skill (<state>/agents/<a>/skills/learned/) into the
+                                          package's skills/learned/, so it versions and shares with the agent
   hq-pkg fetch <agent>|--all [--force]    download the third-party skills skills.json names (a run does it on first
                                           use; install.sh does it for every agent)
+  hq-pkg list [--json]                    installed agents and where each one lives
 
-The package is agents/<name>/ minus state (memory/, data/, skills/learned/), which lives under the state folder. Whoever edits it (you, the agent learning a skill,
+History (each agent is its own git repo; a version that passes checks is committed there automatically):
+  hq-pkg install <github-link> [--as NAME]  clone an agent: owner/repo, a github.com URL, or .../tree/<ref>/<path>
+  hq-pkg install --saved                  install every agent <state>/agents.json lists that isn't here (a new Mac)
+  hq-pkg save                             write <state>/agents.json: each installed agent and its GitHub link
+  hq-pkg update <agent>|--all             pull the agent's upstream (fast-forward only; never touches local edits)
+  hq-pkg commit <agent>|--all [-m MSG]    commit the agent's pending edits now (runs do it for every good version)
+  hq-pkg push <agent>|--all               commit, then push every agent that has a remote
+  hq-pkg history <agent> [N]              the agent's commits, newest first
+  hq-pkg restore <agent> <commit>         make the package what it was at <commit>, as a new commit (undo with
+                                          another restore); the next run uses it
+  hq-pkg share <agent> [--public]         put the agent on GitHub as <you>/hq-agent-<name>, private unless --public;
+                                          --public refuses while the package or its history has personal details
+
+Agents live in the agents folder, $HQ_AGENTS (default <state>/packages/<name>/), each its own git repo; the hq repo
+holds only the kernel. The package is that folder, including the skills the agent learned (skills/learned/); memory
+and data are state and live under the state folder, never in the package. Skills the user keeps off the package
+(never shared) go in the state folder's agents/<name>/skills/learned/. Whoever edits it (you, the agent learning a skill,
 another code agent) changes the working copy; the next run sees a new fingerprint, validates it, and snapshots it
-into .store/<name>@<version>/ as an APFS clone. Running sessions keep the snapshot they started on, so upgrades
+into <agents folder>/.store/<name>@<version>/ as an APFS clone. Running sessions keep the snapshot they started on, so upgrades
 never wait for anyone. A version that fails validation is not used; the last good one runs instead.
 
 Third-party skills are links, not copies: agents/<name>/skills.json names each one's GitHub repo, path and pinned
@@ -26,7 +44,8 @@ Multi-file edits: touch agents/<name>/.editing while changing a package and dele
 the last good version meanwhile (the marker is ignored after an hour, so a forgotten one can't freeze an agent).
 
 Inside a snapshot: prompt.md (agent.md body + PROTOCOL.md) and settings.json, both still templates: bin/hq and the
-adapter fill {{HQ}} repo, {{AGENT}} name, {{AGENT_DIR}} the pinned package, {{HOME_DIR}} the live agent folder,
+adapter fill {{HQ}} repo, {{AGENTS}} the agents folder, {{PACKAGE}} the agent's live folder (where it
+writes learned skills), {{AGENT}} name, {{AGENT_DIR}} the pinned package, {{HOME_DIR}} the live agent folder,
 {{HOME_REAL}} that folder with symlinks resolved (for permission rules), {{STATE}} the state folder, {{USER_HOME}} $HOME at run time, so a snapshot doesn't depend on the path it was made through. .home names the live agent folder.
 """
 import hashlib
@@ -44,14 +63,18 @@ from pathlib import Path
 # os.path.abspath would resolve the cwd physically, and __file__ is already resolved: join argv[0] onto $PWD.
 HQ = Path(os.environ.get('HQ_ROOT') or os.path.dirname(os.path.dirname(
     os.path.normpath(os.path.join(os.environ.get('PWD') or os.getcwd(), sys.argv[0])))))
-STORE = HQ / '.store'
 # The state folder: $HQ_STATE, else ~/.hq, else the repo (before hq-migrate-state). Mirrors the repo's paths.
 STATE_ROOT = Path(os.environ.get('HQ_STATE') or (Path.home() / '.hq' if (Path.home() / '.hq').is_dir() else HQ))
+# Installed agents: $HQ_AGENTS, else <state>/packages. Each is a git checkout (or a symlink into one, for an agent
+# that lives in a folder of a bigger repo). The repo's own agents/ is still read, after these, for older installs.
+AGENTS = Path(os.environ.get('HQ_AGENTS') or STATE_ROOT / 'packages')
+# Snapshots sit next to the agents, on the same disk, so each one is an instant APFS clone.
+STORE = AGENTS / '.store'
 STATE = ('memory', 'data')                                   # live state, never snapshotted
-STATE_NESTED = {Path('skills') / 'learned'}                  # also state: what the agent writes itself
+STATE_NESTED = set()                                         # learned skills are package: they version with it
 FORMAT = '2'                                                 # bump when snapshot contents change (e.g. .home)
-SKIP = {'__pycache__', '.DS_Store', 'node_modules', '.editing'}
-PLACEHOLDERS = {'HQ', 'AGENT', 'AGENT_DIR', 'HOME_DIR', 'HOME_REAL', 'STATE', 'USER_HOME'}
+SKIP = {'__pycache__', '.DS_Store', 'node_modules', '.editing', '.git'}
+PLACEHOLDERS = {'HQ', 'AGENTS', 'PACKAGE', 'AGENT', 'AGENT_DIR', 'HOME_DIR', 'HOME_REAL', 'STATE', 'USER_HOME'}
 EDITING_MAX_AGE = 3600                                       # a stale .editing marker stops holding releases back
 KEEP = 5                                                     # old versions kept besides current/good/pinned/running
 
@@ -64,10 +87,20 @@ def die(msg, code=1):
     sys.exit(code)
 
 
+def installed():
+    """{name: package folder}: the agents folder first, then the repo's own agents/ (older installs)."""
+    out = {}
+    for root in (AGENTS, HQ / 'agents'):
+        for f in sorted(root.glob('*/agent.md')) if root.is_dir() else []:
+            if not f.parent.name.startswith('.'):
+                out.setdefault(f.parent.name, f.parent)
+    return out
+
+
 def agent_home(agent):
-    home = HQ / 'agents' / agent
-    if not (home / 'agent.md').is_file():
-        die(f"no agent '{agent}'")
+    home = installed().get(agent)
+    if not home:
+        die(f"no agent '{agent}' (hq-pkg list)")
     return home
 
 
@@ -83,9 +116,10 @@ def package_files(home):
 
 def fingerprint(home):
     h = hashlib.sha1(f'format {FORMAT}\nstate {STATE_ROOT}\n'.encode())   # .home names the state folder
-    for p in [*package_files(home), HQ / 'shared' / 'PROTOCOL.md']:
+    for p, label in [*((p, p.relative_to(home)) for p in package_files(home)),
+                     (HQ / 'shared' / 'PROTOCOL.md', 'PROTOCOL.md')]:
         st = p.stat()
-        h.update(f'{p.relative_to(HQ)}\0{st.st_size}\0{st.st_mtime_ns}\n'.encode())
+        h.update(f'{label}\0{st.st_size}\0{st.st_mtime_ns}\n'.encode())
     return h.hexdigest()[:10]
 
 
@@ -133,10 +167,7 @@ def problems(home):
             out.append(f'skills/{name} is not fetched at {src["ref"][:12]} (hq-pkg fetch {home.name})')
     for skill in re.findall(r'`([\w./-]+/SKILL\.md)`', body):
         skill = skill[len('skills/'):] if skill.startswith('skills/') else skill
-        if skill.startswith('learned/'):
-            out.append(f'agent.md names skills/{skill}: learned skills are state; hq-pkg promote {home.name} '
-                       f'{skill.split("/")[1]} to make it part of the package')
-        elif not (home / 'skills' / skill).is_file():
+        if not (home / 'skills' / skill).is_file():
             out.append(f'agent.md names skills/{skill}, which does not exist')
     for svc in needs(home):
         if not (HQ / 'shared' / 'services' / f'{svc}.json').is_file():
@@ -313,6 +344,7 @@ def resolve(agent):
     dest = snapshot(agent, home, version)
     write_atomic(good, version)
     gc(agent)
+    commit(home, f'{agent} {version}')   # every good version is in the agent's history, to restore later
     return dest, ''
 
 
@@ -385,14 +417,25 @@ def cmd_pin(agent, version):
     print(f'{agent} pinned to {version}; new runs use it, running ones keep theirs')
 
 
-def share_problems(home):
-    """Personal details in a package's text files. Not a run check: they only matter when the package is shared."""
+def private_patterns():
     words_file = STATE_ROOT / 'private-words'
     words = [w.strip() for w in (words_file.read_text().splitlines() if words_file.is_file() else [])
              if w.strip() and not w.startswith('#')]
     pats = [(re.compile(r'/Users/[A-Za-z0-9._-]+/'), 'home path'),
             (re.compile(r'[\w.+-]+@(?!example\.)[\w-]+(\.[\w-]+)*\.[A-Za-z]{2,}\b'), 'email address')]
-    pats += [(re.compile(r'(?<![\w-])' + re.escape(w) + r'(?![\w-])', re.I), 'private word') for w in words]
+    return pats + [(re.compile(r'(?<![\w-])' + re.escape(w) + r'(?![\w-])', re.I), 'private word') for w in words]
+
+
+def personal(line, pats):
+    for pat, kind in pats:
+        m = pat.search(line)
+        if m and not (kind == 'email address' and m.group().endswith(('.png', '.svg', '.js', '.css'))):
+            return f'{kind} {m.group()!r}'
+
+
+def share_problems(home):
+    """Personal details in a package's text files. Not a run check: they only matter when the package is shared."""
+    pats = private_patterns()
     out = []
     linked = set(external_skills(home)) if (home / 'skills.json').exists() else set()
     for f in package_files(home):
@@ -406,24 +449,294 @@ def share_problems(home):
         except (UnicodeDecodeError, OSError):
             continue
         for n, line in enumerate(text.splitlines(), 1):
-            for pat, kind in pats:
-                m = pat.search(line)
-                if m and not (kind == 'email address' and m.group().endswith(('.png', '.svg', '.js', '.css'))):
-                    out.append(f'{f.relative_to(HQ)}:{n}: {kind} {m.group()!r}')
+            hit = personal(line, pats)
+            if hit:
+                out.append(f'{home.name}/{f.relative_to(home)}:{n}: {hit}')
     return out
 
 
 def cmd_promote(agent, skill):
     home = agent_home(agent)
     src = STATE_ROOT / 'agents' / agent / 'skills' / 'learned' / skill
-    dest = home / 'skills' / skill
+    dest = home / 'skills' / 'learned' / skill
     if not (src / 'SKILL.md').is_file():
         die(f'no learned skill {src}/SKILL.md')
     if dest.exists():
         die(f'{dest} already exists')
+    dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(src), str(dest))
-    print(f'{agent}: {skill} is now a package skill (skills/{skill}/). Name it in agent.md\'s skill table, '
-          f'remove it from memory/MEMORY.md\'s learned list, and commit agents/{agent}/.')
+    print(f'{agent}: {skill} is now part of the package (skills/learned/{skill}/); the next good version is committed. '
+          f'Fix its path in memory/MEMORY.md\'s learned list.')
+
+
+# ---- history: each agent is its own git repo ----
+
+GITIGNORE = """# state lives in the state folder (hq-state), never in the package
+/memory/
+/data/
+.editing
+__pycache__/
+.DS_Store
+node_modules/
+"""
+
+
+def git(home, *args, check=False, timeout=120):
+    r = subprocess.run(['git', '-C', str(home), *args], capture_output=True, text=True, timeout=timeout,
+                       env={**os.environ, 'GIT_TERMINAL_PROMPT': '0'})
+    if check and r.returncode:
+        die(f'git {args[0]} in {home}: {(r.stderr or r.stdout).strip()}')
+    return r
+
+
+def owned(home):
+    """True when the agent has a history of its own: it lives in the agents folder and is inside a git repo.
+    The repo's legacy agents/ is never committed to (that is the public kernel repo)."""
+    return home.parent == AGENTS and git(home, 'rev-parse', '--is-inside-work-tree').stdout.strip() == 'true'
+
+
+def repo_root(home):
+    return Path(git(home, 'rev-parse', '--show-toplevel', check=True).stdout.strip())
+
+
+def commit(home, msg):
+    """Commit the package's pending edits (this folder only, for an agent inside a bigger repo). Never fails a run."""
+    try:
+        if not owned(home):
+            return False
+        git(home, 'add', '-A', '--', '.')
+        if git(home, 'diff', '--cached', '--quiet', '--', '.').returncode == 0:
+            return False
+        return git(home, 'commit', '-q', '-m', msg, '--', '.').returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def parse_link(link):
+    """(clone url, ref, path, default name) from owner/repo, a github.com URL, .../tree/<ref>/<path>, or a local repo."""
+    if os.path.isdir(os.path.expanduser(link)):
+        p = Path(os.path.expanduser(link)).resolve()
+        return str(p), '', '', p.name
+    m = re.fullmatch(r'(?:https?://)?(?:www\.)?(?:github\.com[/:])?([\w.-]+)/([\w.-]+?)(?:\.git)?'
+                     r'(?:/tree/([^/]+)(?:/(.+?))?)?/?(?:@([\w./-]+))?', link.replace('git@github.com:', ''))
+    if not m:
+        die(f'not a GitHub link: {link} (owner/repo, https://github.com/owner/repo[/tree/REF/PATH])', 2)
+    owner, repo, ref, path, at = m.groups()
+    path = (path or '').strip('/')
+    name = path.rsplit('/', 1)[-1] if path else re.sub(r'^hq-agent-', '', repo)
+    return f'https://github.com/{owner}/{repo}.git', ref or at or '', path, name
+
+
+def cmd_install(link, name=None):
+    url, ref, path, default = parse_link(link)
+    name = name or default
+    if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', name):
+        die(f'agent name {name!r}: use lowercase letters, digits and dashes (--as NAME)', 2)
+    if name in installed():
+        die(f"there is already an agent '{name}' at {installed()[name]}")
+    AGENTS.mkdir(parents=True, exist_ok=True)
+    if path:   # an agent in a folder of a bigger repo: clone the repo once, link the folder in
+        slug = re.sub(r'\W+', '-', url.split('github.com/')[-1].removesuffix('.git'))
+        checkout = AGENTS / '.repos' / slug
+        if not checkout.exists():
+            git(AGENTS, 'clone', '-q', url, str(checkout), check=True, timeout=600)
+        if ref:
+            git(checkout, 'checkout', '-q', ref, check=True)
+        if not (checkout / path / 'agent.md').is_file():
+            die(f'{link}: no agent.md in {path}/')
+        (AGENTS / name).symlink_to(checkout / path)
+    else:
+        git(AGENTS, 'clone', '-q', url, name, check=True, timeout=600)
+        home = AGENTS / name
+        if ref:
+            git(home, 'checkout', '-q', ref, check=True)
+        if not (home / 'agent.md').is_file():
+            shutil.rmtree(home)
+            die(f'{link} has no agent.md at its root; for an agent in a folder, link .../tree/<ref>/<folder>')
+        if not (home / '.gitignore').exists():
+            (home / '.gitignore').write_text(GITIGNORE)
+    home = AGENTS / name
+    state = STATE_ROOT / 'agents' / name
+    for d in ('memory/projects', 'memory/sessions'):
+        (state / d).mkdir(parents=True, exist_ok=True)
+    try:
+        fetch(home)
+    except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired) as e:
+        print(f'hq-pkg: {name}: {e} (the first run retries)', file=sys.stderr)
+    bad = problems(home)
+    print(f'installed {name} from {link} -> {home}' + (f'\n  checks: {"; ".join(bad)}' if bad else ''))
+    svc = needs(home)
+    if svc:
+        print(f'  it asks for: {", ".join(svc)} (grant with: hq auth grant {name} <service>)')
+
+
+def upstream(home):
+    remotes = git(home, 'remote').stdout.split()
+    return 'upstream' if 'upstream' in remotes else 'origin' if 'origin' in remotes else ''
+
+
+def cmd_update(agent):
+    home = agent_home(agent)
+    if not owned(home):
+        die(f'{agent} is not in the agents folder ({AGENTS}); nothing to update from')
+    remote = upstream(home)
+    if not remote:
+        print(f'{agent}: no remote, nothing to update')
+        return
+    commit(home, f'{agent}: local edits before update')
+    r = git(home, 'pull', '-q', '--ff-only', remote, git(home, 'branch', '--show-current').stdout.strip() or 'HEAD')
+    if r.returncode:
+        die(f'{agent}: could not fast-forward from {remote} (your edits and theirs differ: merge in {repo_root(home)}): '
+            f'{r.stderr.strip()}')
+    print(f'{agent}: {git(home, "log", "-1", "--format=%h %s").stdout.strip()}')
+
+
+def cmd_push(agent):
+    home = agent_home(agent)
+    if not owned(home):
+        return
+    commit(home, f'{agent}: edits')
+    if 'origin' not in git(home, 'remote').stdout.split():
+        print(f'{agent}: no remote (hq-pkg share {agent} puts it on GitHub)')
+        return
+    r = git(home, 'push', '-q', '-u', 'origin', 'HEAD')
+    print(f'{agent}: ' + ('pushed' if r.returncode == 0 else f'push failed: {r.stderr.strip()}'))
+    return r.returncode == 0
+
+
+def cmd_history(agent, n=20):
+    home = agent_home(agent)
+    if not owned(home):
+        die(f'{agent} has no history of its own (not a git repo in {AGENTS})')
+    print(git(home, 'log', f'-{n}', '--date=format:%Y-%m-%d %H:%M', '--format=%h  %ad  %s', '--', '.').stdout.rstrip())
+
+
+def cmd_restore(agent, ref):
+    home = agent_home(agent)
+    if not owned(home):
+        die(f'{agent} has no history of its own (not a git repo in {AGENTS})')
+    full = git(home, 'rev-parse', '--verify', '-q', f'{ref}^{{commit}}').stdout.strip()
+    if not full:
+        die(f'no commit {ref} in {agent} (hq-pkg history {agent})')
+    commit(home, f'{agent}: edits before restoring {ref}')
+    git(home, 'restore', f'--source={full}', '--staged', '--worktree', '--', '.', check=True)
+    if not commit(home, f'{agent}: restore to {full[:9]}'):
+        print(f'{agent} is already at {full[:9]}')
+        return
+    bad = problems(home)
+    print(f'{agent} restored to {full[:9]} as a new commit; new runs use it, running ones keep theirs'
+          + (f'\n  checks fail, so the last good version keeps running: {"; ".join(bad)}' if bad else ''))
+
+
+def history_problems(home):
+    """Personal details in lines the package's history ever added: a public repo shows every old commit."""
+    pats, out = private_patterns(), []
+    log = git(home, 'log', '-p', '--format=commit %h', '--', '.', timeout=300).stdout
+    sha = ''
+    for line in log.splitlines():
+        if line.startswith('commit '):
+            sha = line[7:]
+        elif line.startswith('+') and not line.startswith('+++'):
+            hit = personal(line[1:], pats)
+            if hit:
+                out.append(f'{sha}: {hit}')
+    return sorted(set(out))
+
+
+def cmd_share(agent, public):
+    home = agent_home(agent)
+    if not owned(home):
+        die(f'{agent} is not in the agents folder ({AGENTS})')
+    root = repo_root(home)
+    if root.resolve() != home.resolve():
+        die(f'{agent} lives in a folder of {root}; share that repo with git/gh directly')
+    commit(home, f'{agent}: edits')
+    if public:
+        bad = share_problems(home) + [f'history {x}' for x in history_problems(home)]
+        if bad:
+            die(f'{agent} still carries personal details, so it stays private:\n  ' + '\n  '.join(bad[:30])
+                + ('\n  ...' if len(bad) > 30 else '')
+                + '\nFix the files; for old commits, publish a fresh copy without the history instead.')
+    me = subprocess.run(['gh', 'api', 'user', '-q', '.login'], capture_output=True, text=True).stdout.strip()
+    if not me:
+        die('gh is not logged in (gh auth login)')
+    url = git(home, 'remote', 'get-url', 'origin').stdout.strip()
+    mine = re.search(rf'github\.com[/:]{re.escape(me)}/([\w.-]+?)(?:\.git)?$', url)
+    if url and not mine:   # installed from someone else: theirs becomes upstream, yours becomes origin
+        git(home, 'remote', 'rename', 'origin', 'upstream', check=True)
+    if mine:
+        repo = f'{me}/{mine.group(1)}'
+    else:
+        repo = f'{me}/hq-agent-{agent}'
+        r = subprocess.run(['gh', 'repo', 'create', repo, '--private', '--source', str(home), '--remote', 'origin',
+                            '--description', frontmatter((home / 'agent.md').read_text())[0].get('description', '')[:300]],
+                           capture_output=True, text=True)
+        if r.returncode:
+            die(f'gh repo create {repo}: {r.stderr.strip()}')
+    if not cmd_push(agent):
+        die(f'{agent}: created {repo} but the push failed')
+    if public:
+        subprocess.run(['gh', 'repo', 'edit', repo, '--visibility', 'public',
+                        '--accept-visibility-change-consequences'], check=True, capture_output=True)
+    print(f'{agent}: https://github.com/{repo} ({"public" if public else "private"}); '
+          f'others install it with: hq install {repo}')
+
+
+def cmd_save():
+    """<state>/agents.json: which agents this install has and where they come from, so the state repo can bring
+    them back on another Mac (install --saved)."""
+    out = {}
+    for name, home in installed().items():
+        if owned(home):
+            url = git(home, 'remote', 'get-url', 'origin').stdout.strip()
+            root = repo_root(home)
+            sub = '' if root.resolve() == home.resolve() else str(home.resolve().relative_to(root.resolve()))
+            out[name] = {'repo': url, **({'path': sub} if sub else {})} if url else {'repo': None}
+    f = STATE_ROOT / 'agents.json'
+    text = json.dumps({'agents': out}, indent=2) + '\n'
+    if read(f) + '\n' != text:
+        f.write_text(text)
+
+
+def cmd_install_saved():
+    f = STATE_ROOT / 'agents.json'
+    saved = json.loads(f.read_text()).get('agents', {}) if f.is_file() else {}
+    have = installed()
+    for name, src in saved.items():
+        if name in have:
+            continue
+        if not src.get('repo'):
+            print(f'{name}: no remote saved (it was local only); skipped', file=sys.stderr)
+            continue
+        link = src['repo'].removesuffix('.git') + (f'/tree/HEAD/{src["path"]}' if src.get('path') else '')
+        try:
+            cmd_install(link, name)
+        except SystemExit:
+            print(f'{name}: install failed; retry with hq install {link} --as {name}', file=sys.stderr)
+
+
+def cmd_list(as_json):
+    out = {}
+    for name, home in installed().items():
+        good = read(pointers(name)[0])
+        o = {'dir': str(home), 'version': good}
+        if owned(home):
+            o['remote'] = git(home, 'remote', 'get-url', 'origin').stdout.strip()
+            o['dirty'] = bool(git(home, 'status', '--porcelain', '--', '.').stdout.strip())
+            ahead = git(home, 'rev-list', '--count', '@{u}..HEAD').stdout.strip()
+            o['unpushed'] = int(ahead) if ahead.isdigit() else None
+        else:
+            o['legacy'] = True
+        out[name] = o
+    if as_json:
+        print(json.dumps(out))
+        return
+    for name, o in out.items():
+        where = 'in the hq repo (legacy)' if o.get('legacy') else (o['remote'].removeprefix('https://github.com/')
+                                                                   .removesuffix('.git') or 'local only')
+        flags = [f for f, on in (('edits', o.get('dirty')), (f'{o.get("unpushed")} unpushed', o.get('unpushed')))
+                 if on]
+        print(f'{name:<12} {o["version"] or "-":<11} {where}{"  (" + ", ".join(flags) + ")" if flags else ""}')
 
 
 def main(argv):
@@ -434,7 +747,7 @@ def main(argv):
     as_json = '--json' in rest
     rest = [a for a in rest if a != '--json']
     if cmd == 'resolve':
-        names = sorted(p.parent.name for p in (HQ / 'agents').glob('*/agent.md')) if rest == ['--all'] else rest[:1]
+        names = sorted(installed()) if rest == ['--all'] else rest[:1]
         if not names:
             die('resolve <agent>|--all', 2)
         out = {}
@@ -442,7 +755,7 @@ def main(argv):
             try:
                 pkg, note = resolve(name)
             except Exception as e:   # one broken agent must not block the others; run it live instead
-                pkg, note = HQ / 'agents' / name, f'snapshot failed ({e}); running the live folder'
+                pkg, note = installed()[name], f'snapshot failed ({e}); running the live folder'
             out[name] = {'dir': str(pkg), 'version': pkg.name.split('@', 1)[-1], 'note': note}
             if note and not as_json:
                 print(f'hq: {name}: {note}', file=sys.stderr)
@@ -456,7 +769,7 @@ def main(argv):
         pointers(rest[0])[1].unlink(missing_ok=True)
         print(f'{rest[0]} follows the latest edits again')
     elif cmd == 'fetch' and rest:
-        names = sorted(p.parent.name for p in (HQ / 'agents').glob('*/agent.md')) if rest[0] == '--all' else rest[:1]
+        names = sorted(installed()) if rest[0] == '--all' else rest[:1]
         failed = False
         for name in names:
             try:
@@ -470,10 +783,36 @@ def main(argv):
     elif cmd == 'promote' and len(rest) == 2:
         cmd_promote(*rest)
     elif cmd == 'check' and rest[:1] == ['--share']:
-        names = rest[1:] or sorted(p.parent.name for p in (HQ / 'agents').glob('*/agent.md'))
+        names = rest[1:] or sorted(installed())
         found = [x for name in names for x in share_problems(agent_home(name))]
         print('\n'.join(found) or 'ok: nothing personal found')
         sys.exit(1 if found else 0)
+    elif cmd == 'list':
+        cmd_list(as_json)
+    elif cmd == 'install' and rest == ['--saved']:
+        cmd_install_saved()
+    elif cmd == 'save':
+        cmd_save()
+    elif cmd == 'install' and rest:
+        name = rest[rest.index('--as') + 1] if '--as' in rest else None
+        cmd_install(rest[0], name)
+    elif cmd in ('update', 'commit', 'push') and rest:
+        msg = rest[rest.index('-m') + 1] if '-m' in rest else ''
+        names = sorted(installed()) if rest[0] == '--all' else rest[:1]
+        for name in names:
+            if cmd == 'update':
+                if owned(agent_home(name)) or rest[0] != '--all':
+                    cmd_update(name)
+            elif cmd == 'push':
+                cmd_push(name)
+            elif commit(agent_home(name), msg or f'{name}: edits'):
+                print(f'{name}: committed')
+    elif cmd == 'history' and rest:
+        cmd_history(rest[0], int(rest[1]) if len(rest) > 1 else 20)
+    elif cmd == 'restore' and len(rest) == 2:
+        cmd_restore(*rest)
+    elif cmd == 'share' and rest:
+        cmd_share(rest[0], '--public' in rest)
     elif cmd == 'check' and rest:
         bad = problems(agent_home(rest[0]))
         print('\n'.join(bad) or 'ok')

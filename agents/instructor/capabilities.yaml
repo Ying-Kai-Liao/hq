@@ -1,6 +1,0 @@
-# Declarations only. Credentials come from the runtime, never from here.
-tools: [bash, file edit, bin/hq-new, bin/hq (to verify agents)]
-state:
-  - agents/                 # the agents it builds (never their memory/)
-  - shared/PROTOCOL.md      # read; changes are proposed, not made
-access: write agents/<name>/ except memory/; propose kernel changes

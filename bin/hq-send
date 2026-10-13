@@ -13,7 +13,9 @@ set -euo pipefail
 as=${HQ_AGENT:-hq}
 [[ ${1:-} == --as ]] && { as=$2; shift 2; }
 # Discord shows the agent's display_name (agent.md frontmatter) when it has one
-card="$(dirname "$0")/../agents/$as/agent.md"
+state=${HQ_STATE:-$HOME/.hq}
+card="${HQ_AGENTS:-$state/packages}/$as/agent.md"
+[[ -f $card ]] || card="$(dirname "$0")/../agents/$as/agent.md"
 [[ -f $card ]] && name=$(sed -n 's/^display_name:[[:space:]]*//p' "$card" | head -1) && [[ -n $name ]] && as=$name
 caption=""
 [[ ${1:-} == --caption ]] && { caption=$2; shift 2; }

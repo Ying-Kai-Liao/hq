@@ -8,34 +8,46 @@ agent. How a run works step by step: `how-hq-runs.html`. Commands and file forma
 | Part | What it is | Lives in | Status |
 |---|---|---|---|
 | **Plugin** | A capability: a skill, the tools it drives, and the software they need | inside an agent's `skills/` + `tools/` today | partly: no manifest or `requires` yet |
-| **Package** | A whole agent: identity (`agent.md`), settings, capabilities, its plugins | `agents/<name>/` minus state | built: versioned and snapshotted |
-| **State** | What an agent and the user accumulate: memory, data, learned skills, user.md, projects | the state folder, `$HQ_STATE` or `~/.hq` (own private git repo) | built: never snapshotted |
+| **Package** | A whole agent: identity (`agent.md`), settings, capabilities, its plugins, the skills it learned | its own git repo, checked out in the agents folder (`$HQ_AGENTS`, default `~/.hq/packages/<name>/`) | built: versioned, snapshotted, committed |
+| **State** | What an agent and the user accumulate: memory, data, user.md, projects | the state folder, `$HQ_STATE` or `~/.hq` (own private git repo) | built: never snapshotted |
 | **Service** | Something several agents may use: an MCP server, an API, a login | `shared/services/<name>.json` | built |
 | **Grant** | Which agent may use which service, as which account | `~/.config/hq/auth.json` (local, never in the repo) | built |
 | **Environment** | The installed software a package's plugins need, built per machine | not yet | planned |
-| **Kernel** | Runs agents and connects them: `bin/hq`, `hq-pkg`, `hq-auth`, the bridge, the adapter | `bin/`, `adapters/` | built |
+| **Kernel** | Runs agents and connects them: `bin/hq`, `hq-pkg`, `hq-auth`, the bridge, the adapter | this repo: `bin/`, `adapters/`, `shared/`; no agents | built |
 
 Rules that follow from it:
 - **A package holds no state.** Sharing or upgrading an agent never touches anyone's memory or data.
 - **A package holds no credentials.** It says what it needs (`needs:`); the user decides what it gets (grants).
 - **Each capability has one owning agent** and is loaded only there; the split exists to save context tokens. Other
   agents call the owner as a helper instead of copying the capability.
-- **Agents refer to the kernel through placeholders** (`{{AGENT_DIR}}`, `{{HOME_DIR}}`, `{{HQ}}`) and env vars
+- **An agent is a repo.** Installed from a GitHub link, changed by anyone, every good version committed; restore,
+  share or keep private per agent. The kernel finds agents only through `hq-pkg` (`installed()`, `hq-pkg list`).
+- **Agents refer to the kernel through placeholders** (`{{AGENT_DIR}}`, `{{PACKAGE}}`, `{{AGENTS}}`, `{{HOME_DIR}}`, `{{HQ}}`) and env vars
   (`HQ_AGENT_HOME`), never hard-coded paths, so kernel changes don't require editing every agent.
 
 ## Built
 
-**State folder** (2026-10-14). Memory, data, learned skills, `user.md`, projects and `projects.json` live in
+**State folder** (2026-10-14). Memory, data, `user.md`, projects and `projects.json` live in
 `$HQ_STATE` (default `~/.hq`), a git repo of its own with the same relative paths as the repo had. Databases are
 committed as text dumps (`hq-state dump`). Without a state folder everything falls back to the repo, which is how
-`bin/hq-migrate-state` moved it without downtime. Learned skills are state; `hq-pkg promote` moves a proven one
-into the package. Personal details moved out of the packages too (2026-10-14); `hq-pkg check --share` guards it.
-Third-party skills are linked from their repos (skills.json), never copied. Published 2026-10-14 with fresh history (MIT).
+`bin/hq-migrate-state` moved it without downtime. Personal details moved out of the packages too (2026-10-14);
+`hq-pkg check --share` guards it. Third-party skills are linked from their repos (skills.json), never copied.
+Published 2026-10-14 with fresh history (MIT).
+
+**Agents as repos** (2026-10-14). The kernel repo ships no agents. Each agent is a git repo in the agents folder
+(`<state>/packages/`, ignored by the state repo; `<state>/agents.json` records each one's link so `install.sh` brings
+them back on another Mac). `hq install <link>` clones one (a repo, or a folder of one via `/tree/<ref>/<path>`);
+`hq-pkg resolve` commits every version that passes its checks, so the agent's git log is its version history and
+`hq restore <agent> <commit>` brings any of them back as a new commit. Learned skills are part of the package
+(`{{PACKAGE}}/skills/learned/`): they version, restore and share with the agent; a skill the user won't share stays
+in the state folder. `hq share` creates `<you>/hq-agent-<name>` (private); `--public` refuses while the package or
+any old commit carries personal details. The author's agents were split out of this repo's old history with it.
 
 **Versions** (`bin/hq-pkg`). Agents change all the time: an agent learns a skill, the user asks it to change, or a
 code agent edits it. None of that waits for running sessions. Every run is pinned to a read-only snapshot,
-`.store/<name>@<version>/`; a changed package is checked first, and a failing version never runs (the last good
-one does). `.editing` holds back a change that spans several files. `hq versions | pin | rollback | unpin`.
+`<agents folder>/.store/<name>@<version>/` (same disk as the agents, so APFS clones); a changed package is checked first, and a failing version never runs (the last good
+one does), and the version is committed to the agent's repo. `.editing` holds back a change that spans several
+files. `hq versions | pin | rollback | unpin` for snapshots on disk; `hq history | restore` for every version ever.
 
 **Services and auth** (`bin/hq-auth`). Service definitions live in the repo, needs in the package, grants on the
 user's machine. MCP services start only when needed and granted, with secrets in the server process alone; tools
@@ -53,9 +65,8 @@ apply to full `hq <agent>` runs.
 
 ## Planned
 
-**Per-agent commits.** One repo holding every agent means unrelated changes pile up together and have to be
-untangled at commit time. Plan: when a new version passes its checks, `hq-pkg` commits only `agents/<name>/`, so
-each agent's history is small and its own.
+**Publishing an agent with a past.** `hq share --public` refuses an agent whose old commits name the user. Next:
+`--fresh`, a public repo from the current version alone, kept in step from the private one.
 
 **Environments.** Skills increasingly need installed software (image: uv, rembg models, mermaid-cli, Chrome,
 codex; video: Node kits; transcription: whisper models). Plan:
@@ -76,8 +87,9 @@ this applies to hq runs only or to everything on the machine.
 
 ## Later
 
-- **Installable packages:** a `package.yaml` with a version and plugin dependencies; install and update agents
-  separately; local customizations as an overlay so updates still apply.
+- **Installable packages:** agents install, update and share separately now (repos). Still to come: plugin
+  dependencies, and local customizations as an overlay so upstream updates still apply after you've edited one
+  (today `hq update` only fast-forwards; diverged edits are merged by hand).
 - **Scheduler:** launchd running agents' jobs, with tools allowed per job.
 - **At scale:** one router entry instead of a description per agent; learned skills promoted only after they're
   used.
