@@ -18,7 +18,7 @@ const snapshot: HostSnapshot = {
 }
 const account: AccountState = { ready: true, configured: false, busy: false, error: null, user: null, cloudURL: null }
 const updates: UpdateState = {
-  supported: false, checking: false, availableVersion: null, staged: false,
+  supported: false, checking: false, availableVersion: null, downloadPercent: null, staged: false, installing: false,
   autoCheck: false, autoDownload: false, lastCheck: null, error: null, waitingForApp: null,
 }
 
