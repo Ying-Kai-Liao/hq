@@ -211,7 +211,7 @@ if (!app.requestSingleInstanceLock()) {
     // would otherwise show Electron's.
     if (isMac && !app.isPackaged) app.dock?.setIcon(join(__dirname, '../../resources/icon.png'))
     applyDockVisibility()
-    const island = new Island({ url: rendererURL('island'), preload: join(__dirname, '../preload/index.js'), send, changed: () => tray.hostChanged() })
+    const island = new Island({ url: rendererURL('island'), preload: join(__dirname, '../preload/index.js'), send, openApp: openChat, changed: () => tray.hostChanged() })
     const tray = new Tray({ openChat, openPairing, send, host, updates, island })
     updates.on('change', () => tray.hostChanged())
     registerIPC(tray)

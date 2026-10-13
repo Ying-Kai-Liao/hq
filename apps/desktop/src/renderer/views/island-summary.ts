@@ -1,10 +1,14 @@
 import { useEffect } from 'react'
-import type { IslandPermission, IslandSummary } from '@shared/island'
-import { isGroup } from '@shared/models'
+import type { IslandBot, IslandPermission, IslandSummary } from '@shared/island'
+import { folderName, isGroup, isWorking, type Bot, type Entry } from '@shared/models'
 import { useModels } from '../lib/observable'
 import { refKey, type AppModel, type RosterItem } from '../store/app-model'
+import type { BotStore } from '../store/bot-store'
 import { botDetail } from './tray-summary'
 import { optionLabel, permissionHeadline, sortedOptions } from './thread/PermissionCard'
+
+/** Tool calls in the island's ticker. */
+const STEPS = 3
 
 let sent = ''
 let pending: ReturnType<typeof setTimeout> | null = null
@@ -33,17 +37,32 @@ function islandSummary(app: AppModel): IslandSummary {
   return {
     bots: app.roster
       .filter((i) => !isGroup(i.bot))
-      .map((i) => ({
-        ref: refKey(i.ref),
-        name: many ? `${i.bot.name} · ${i.computer.name}` : i.bot.name,
-        shape: i.bot.avatarShape,
-        color: i.bot.avatarColor,
-        status: i.bot.status,
-        detail: botDetail(i.bot),
-      })),
+      .map((i) => islandBot(i.store, i.bot, refKey(i.ref), many ? `${i.bot.name} · ${i.computer.name}` : i.bot.name)),
     permissions: app.roster.flatMap(pendingCards),
+    usage: app.local?.usage.providers ?? [],
   }
 }
+
+function islandBot(store: BotStore, bot: Bot, ref: string, name: string): IslandBot {
+  const entries = store.allEntries(bot.id)
+  return {
+    ref,
+    name,
+    shape: bot.avatarShape,
+    color: bot.avatarColor,
+    status: bot.status,
+    backend: store.backendName(bot.backend),
+    folder: folderName(bot),
+    detail: botDetail(bot),
+    steps: isWorking(bot)
+      ? entries.filter((e) => e.kind === 'tool').slice(-STEPS).map((e) => ({ title: e.data.title || 'Use a tool', kind: e.data.toolKind ?? 'other' }))
+      : [],
+    error: bot.status === 'error' ? (lastError(entries) ?? null) : null,
+  }
+}
+
+/** The text of the conversation's last error notice. */
+const lastError = (entries: Entry[]) => entries.findLast((e) => e.kind === 'notice' && e.data.style === 'error')?.data.text
 
 /** A conversation's unanswered approval cards; in a group, the member that asks. */
 function pendingCards({ ref, bot, store }: RosterItem): IslandPermission[] {
@@ -55,10 +74,10 @@ function pendingCards({ ref, bot, store }: RosterItem): IslandPermission[] {
       return {
         ref: refKey(ref),
         entryId: e.id,
-        bot: { name: author.name, shape: author.avatarShape, color: author.avatarColor },
+        bot: { name: author.name, shape: author.avatarShape, color: author.avatarColor, backend: store.backendName(author.backend) },
         headline: permissionHeadline(e.data.toolKind),
         title: e.data.title ?? '',
-        options: sortedOptions(e.data.options ?? []).map((o) => ({ id: o.optionId, label: optionLabel(o), allow: o.kind.startsWith('allow') })),
+        options: sortedOptions(e.data.options ?? []).map((o) => ({ id: o.optionId, label: optionLabel(o), kind: o.kind })),
         answering: store.answering.get(e.id) ?? null,
       }
     })

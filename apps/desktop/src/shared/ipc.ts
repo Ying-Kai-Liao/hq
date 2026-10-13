@@ -67,6 +67,7 @@ export type WindowCommand =
   | { kind: 'toggleSidebar' }
   | { kind: 'toggleDetails' }
   | { kind: 'respondPermission'; ref: string; entryId: string; optionId: string }
+  | { kind: 'sendMessage'; ref: string; text: string }
 
 /** The app's own updates (electron-updater, release builds only). */
 export interface UpdateState {
@@ -153,8 +154,16 @@ export interface CodyncBridge {
     /** The pointer reached or left the shape. */
     onHover(cb: (inside: boolean) => void): () => void
     setShape(rect: IslandRect): void
+    /** The message field takes the keyboard (the island never does otherwise). */
+    setFocusable(on: boolean): void
+    /** ⌥Y / ⌥N answer the approval on screen, from any app, while it shows. */
+    setKeys(on: boolean): void
+    onKey(cb: (answer: 'allow' | 'deny') => void): () => void
     respond(ref: string, entryId: string, optionId: string): void
+    send(ref: string, text: string): void
     openBot(ref: string): void
+    newBot(): void
+    openApp(): void
   }
   /** The Codync cloud's `/v1` API with the signed-in session (and the device key for `signed`). */
   cloud: {

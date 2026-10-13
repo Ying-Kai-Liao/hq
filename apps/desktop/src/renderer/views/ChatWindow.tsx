@@ -87,6 +87,11 @@ export function ChatWindow() {
             if (store && entry) store.respond(entry, c.optionId)
             return
           }
+          case 'sendMessage': {
+            const ref = parseRef(c.ref)
+            if (ref) app.store(ref.computerId)?.send(c.text, ref.botId)
+            return
+          }
         }
       }),
     [app],

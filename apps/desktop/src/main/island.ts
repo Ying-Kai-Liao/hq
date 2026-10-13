@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { BrowserWindow, ipcMain, screen } from 'electron'
+import { BrowserWindow, globalShortcut, ipcMain, screen } from 'electron'
 import type { WindowCommand } from '../shared/ipc'
 import { hitRect, hits, notchOf, PANEL, type IslandRect, type IslandScreen, type IslandSummary, type NotchScreen } from '../shared/island'
 import { prefs } from './host-controller'
@@ -40,10 +40,14 @@ function readScreens(): Promise<NotchScreen[]> {
   })
 }
 
+/** Answers the approval on screen from any app while it shows. */
+const KEYS = { 'Alt+Y': 'allow', 'Alt+N': 'deny' } as const
+
 interface Deps {
   url: string
   preload: string
   send: (command: WindowCommand, show?: boolean) => void
+  openApp: () => void
   /** The setting changed (the tray's Settings menu shows it). */
   changed: () => void
 }
@@ -55,7 +59,7 @@ interface Deps {
  */
 export class Island {
   private window: BrowserWindow | null = null
-  private summary: IslandSummary = { bots: [], permissions: [] }
+  private summary: IslandSummary = { bots: [], permissions: [], usage: [] }
   private screen: IslandScreen = { notch: null }
   private rect: IslandRect = { x: 0, y: 0, width: 0, height: 0 }
   private inside = false
@@ -64,8 +68,9 @@ export class Island {
 
   constructor(private deps: Deps) {}
 
+  /** Off until turned on: the island is still experimental. */
   get enabled() {
-    return islandSupported && prefs.get('showIsland') !== false
+    return islandSupported && prefs.get('showIsland') === true
   }
 
   setEnabled(on: boolean) {
@@ -92,6 +97,11 @@ export class Island {
       this.deps.send({ kind: 'respondPermission', ref, entryId, optionId }, false),
     )
     ipcMain.on('island:openBot', (_e, ref: string) => this.deps.send({ kind: 'openBot', ref }))
+    ipcMain.on('island:send', (_e, ref: string, text: string) => this.deps.send({ kind: 'sendMessage', ref, text }, false))
+    ipcMain.on('island:newBot', () => this.deps.send({ kind: 'newChat' }))
+    ipcMain.on('island:openApp', () => this.deps.openApp())
+    ipcMain.on('island:focusable', (_e, on: boolean) => this.setFocusable(on))
+    ipcMain.on('island:keys', (_e, on: boolean) => this.setKeys(on))
     screen.on('display-added', () => void this.place())
     screen.on('display-removed', () => void this.place())
     screen.on('display-metrics-changed', () => void this.place())
@@ -147,10 +157,33 @@ export class Island {
   }
 
   private close() {
+    this.setKeys(false)
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
     this.window?.destroy()
     this.window = null
+  }
+
+  /** Only the message field takes the keyboard; a panel takes it without bringing the app forward. */
+  private setFocusable(on: boolean) {
+    const win = this.window
+    if (!win) return
+    win.setFocusable(on)
+    if (on) win.focus()
+    else win.blur()
+  }
+
+  private setKeys(on: boolean) {
+    for (const [accelerator, answer] of Object.entries(KEYS)) {
+      if (!on) {
+        globalShortcut.unregister(accelerator)
+        continue
+      }
+      if (globalShortcut.isRegistered(accelerator)) continue
+      if (!globalShortcut.register(accelerator, () => this.window?.webContents.send('island:key', answer))) {
+        console.error(`island: ${accelerator} is taken by another app`)
+      }
+    }
   }
 
   /** Top center of the display with the notch, else the main display. */

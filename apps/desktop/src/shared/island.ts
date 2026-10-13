@@ -1,32 +1,49 @@
-import type { BotStatus } from './models'
+import type { BotStatus, UsageProvider } from './models'
 
-// The notch island: a black shape at the top of the screen (in the notch on a MacBook) that
-// shows working bots and takes approvals. The chat window owns the stores and sends an
-// `IslandSummary`; the island window only draws it (main/island.ts, views/island/).
+// The notch island: a black shape at the top of the screen (in the notch on a
+// MacBook) that shows working bots and takes approvals. The chat window owns the stores and
+// sends an `IslandSummary`; the island window only draws it (main/island.ts, views/island/).
+
+/** One tool call in a bot's ticker. */
+export interface IslandStep {
+  title: string
+  /** The ACP tool kind: execute | edit | read | search | fetch | … */
+  kind: string
+}
 
 /** One bot as the island shows it (`ref` = computerId/botId). */
 export interface IslandBot {
   ref: string
   name: string
   shape: string
+  /** Its avatar palette id. */
   color: string
   /** A `BotStatus`, or a newer one this app doesn't know. */
   status: BotStatus | string
+  /** The agent it runs, as the app names it ("Claude Code"). */
+  backend: string
+  /** Its working folder's name. */
+  folder: string
   /** What it's doing, that it needs you, or its last message. */
   detail: string
+  /** Its latest tool calls, oldest first (only while it works). */
+  steps: IslandStep[]
+  /** Why it stopped, when it failed. */
+  error: string | null
 }
 
 export interface IslandOption {
   id: string
   label: string
-  allow: boolean
+  /** allow_once | allow_always | reject_once | reject_always, or another the agent sent. */
+  kind: string
 }
 
 /** A pending approval card: the conversation holding it and the bot asking. */
 export interface IslandPermission {
   ref: string
   entryId: string
-  bot: Pick<IslandBot, 'name' | 'shape' | 'color'>
+  bot: Pick<IslandBot, 'name' | 'shape' | 'color' | 'backend'>
   headline: string
   title: string
   options: IslandOption[]
@@ -37,6 +54,8 @@ export interface IslandPermission {
 export interface IslandSummary {
   bots: IslandBot[]
   permissions: IslandPermission[]
+  /** This computer's plan limits (Claude, Codex), as the menu bar shows them. */
+  usage: UsageProvider[]
 }
 
 /** The display the island sits on: the notch's size in points, or null at a plain top edge. */
@@ -61,59 +80,92 @@ export interface NotchScreen {
   right: number
 }
 
-export type IslandMode = 'hidden' | 'compact' | 'bots' | 'approval' | 'finished'
+/** Closed shapes, then the open views (640 pt wide, under a header of tabs). */
+export type IslandMode = 'hidden' | 'peek' | 'compact' | 'overview' | 'empty' | 'approval' | 'finished' | 'failed' | 'message' | 'usage'
+/** The header's choice: `auto` shows what needs you first (an approval, a finished or failed bot). */
+export type IslandTab = 'auto' | 'bots' | 'message' | 'usage'
+/** A bot that just stopped, shown until it times out (done) or is dismissed (failed). */
+export interface IslandNotice {
+  kind: 'finished' | 'failed'
+  ref: string
+}
 
 /** How long a bot that just finished stays in the island. */
-export const FINISHED_MS = 4000
+export const FINISHED_MS = 5200
 /** Extra room around the shape that still counts as on it, so a click at its edge is never lost. */
 export const HIT_MARGIN = 8
 /** The window holding the island: the largest shape fits, the rest is transparent and lets clicks through. */
-export const PANEL = { width: 720, height: 360 }
+export const PANEL = { width: 720, height: 300 }
+/** The open island's width. */
+export const OPEN_WIDTH = 640
 
-const WING = 36
-const BAR = 28
+/** Height of each open view for a 32 pt notch (a taller notch adds its extra height). */
+const OPEN_HEIGHT = { overview: 196, empty: 150, approval: 206, finished: 170, failed: 190, message: 156, usage: 196 }
+/** The resting bar at a plain top edge (no notch). */
+const BAR = 26
 
 export const isActive = (b: Pick<IslandBot, 'status'>) => b.status === 'working' || b.status === 'needsInput'
+export const isOpenMode = (mode: IslandMode) => mode !== 'hidden' && mode !== 'peek' && mode !== 'compact'
 
 export function islandMode(
   summary: IslandSummary,
-  { open, deferred, finished }: { open: boolean; deferred: ReadonlySet<string>; finished: boolean },
+  { open, peek, tab, deferred, notice }: { open: boolean; peek: boolean; tab: IslandTab; deferred: ReadonlySet<string>; notice: IslandNotice | null },
 ): IslandMode {
-  if (summary.permissions.some((p) => open || !deferred.has(p.entryId))) return 'approval'
-  if (open) return 'bots'
-  if (finished) return 'finished'
-  return summary.bots.some(isActive) ? 'compact' : 'hidden'
+  if (!open) {
+    // Alerts open the island by themselves.
+    if (summary.permissions.some((p) => !deferred.has(p.entryId))) return 'approval'
+    if (notice) return notice.kind
+    if (peek) return 'peek'
+    return summary.bots.some(isActive) ? 'compact' : 'hidden'
+  }
+  if (tab === 'message' || tab === 'usage') return tab
+  if (tab === 'auto') {
+    if (summary.permissions.length) return 'approval'
+    if (notice) return notice.kind
+  }
+  return summary.bots.some(isActive) ? 'overview' : 'empty'
 }
 
-/** Bots that stopped working since `before` (their last statuses by ref). */
-export function justFinished(before: ReadonlyMap<string, string>, bots: IslandBot[]): IslandBot[] {
-  return bots.filter((b) => {
+/** Bots that just stopped working since `before` (their last statuses by ref): done or failed. */
+export function transitions(before: ReadonlyMap<string, string>, bots: IslandBot[]): IslandNotice[] {
+  return bots.flatMap((b): IslandNotice[] => {
     const was = before.get(b.ref)
-    return (was === 'working' || was === 'needsInput') && (b.status === 'idle' || b.status === 'error')
+    if (was !== 'working' && was !== 'needsInput') return []
+    if (b.status === 'idle') return [{ kind: 'finished', ref: b.ref }]
+    if (b.status === 'error') return [{ kind: 'failed', ref: b.ref }]
+    return []
   })
 }
 
-/** Where content starts below the top edge: under the notch, never behind the camera. */
-export const contentTop = (screen: IslandScreen) => screen.notch?.height ?? 10
+/** The bot in the big slot: one that needs you, else one working, else the first. */
+export function focusOf(bots: IslandBot[]) {
+  return bots.find((b) => b.status === 'needsInput') ?? bots.find(isActive) ?? bots[0] ?? null
+}
 
-/** The shape's size for `mode`; `content` is the measured height of an open view's content. */
-export function islandFrame(mode: IslandMode, screen: IslandScreen, content: number) {
+/** The other bots, working and waiting first, at most `limit`. */
+export function othersOf(bots: IslandBot[], focus: IslandBot | null, limit: number) {
+  const rest = bots.filter((b) => b.ref !== focus?.ref)
+  return [...rest.filter(isActive), ...rest.filter((b) => !isActive(b))].slice(0, limit)
+}
+
+/** The header's height: a taller notch pushes the content down so nothing sits behind the camera. */
+export const contentTop = (screen: IslandScreen) => 36 + Math.max(0, (screen.notch?.height ?? 32) - 32)
+
+/** The shape's size and bottom corner radius for `mode`. */
+export function islandFrame(mode: IslandMode, screen: IslandScreen) {
   const notch = screen.notch
-  const gap = notch?.width ?? 0
   const bar = notch?.height ?? BAR
-  const open = (min: number) => ({ width: Math.max(gap + 2 * WING, min), height: contentTop(screen) + content + 14, radius: 24 })
+  const closedRadius = notch ? 14 : bar / 2
   switch (mode) {
     case 'hidden':
       // At a plain top edge only a thin strip under the edge wakes it.
-      return notch ? { width: notch.width, height: notch.height, radius: 10 } : { width: 160, height: 0, radius: 0 }
+      return notch ? { width: notch.width, height: notch.height, radius: closedRadius } : { width: 160, height: 0, radius: 0 }
+    case 'peek':
+      return { width: notch ? notch.width + 64 : 120, height: bar, radius: closedRadius }
     case 'compact':
-      return { width: gap + 2 * WING, height: bar, radius: notch ? 10 : bar / 2 }
-    case 'finished':
-      return open(340)
-    case 'bots':
-      return open(380)
-    case 'approval':
-      return open(440)
+      return { width: notch ? notch.width + 104 : 240, height: bar, radius: closedRadius }
+    default:
+      return { width: OPEN_WIDTH, height: OPEN_HEIGHT[mode] + contentTop(screen) - 36, radius: 30 }
   }
 }
 
