@@ -25,6 +25,10 @@ through the same tool (they show `added_by: personal`). Treat them like any othe
 - Optional ingredients are never added. Mention them as "if you see it".
 - On Telegram or phone, keep the list scannable: one item per line, no explanations.
 
+## Someone orders a dish ("can you make the three-cup chicken on Thursday?")
+They pick from the cookbook in Notion and ask in chat. Run `house cook need "<dish>" --add` and reply with what
+was added to the shopping list (or "you've got everything"). Nothing else to record until it's cooked.
+
 ## "We cooked X" / "made the pasta tonight, 4/5"
 - `house dish cooked "X" --by <person> [--rating 4] [--note "less salt next time"]`. If the dish is new, the tool adds it.
   If the result has `todo` (no ingredients), ask once for the main ingredients or infer them from the dish name
@@ -40,6 +44,12 @@ not "500g boneless chicken thigh, diced"). That's what matching against the pant
   (`hq:personal`) to save it, then put its URL on the dish.
 - Things you always have, like salt, oil and soy sauce, are staples and never count as missing. Show them with
   `house config staples`; to change them, `house config staples "salt, pepper, oil, soy sauce, …"`.
+
+## The cookbook (Notion)
+Each dish is a page in the "Dishes" table on the Notion House page: ingredients and method as the page body, the
+photo as its cover. The tool writes it; nobody edits it there (edits get overwritten). To fill a recipe in, add
+`--steps` (one step per line) and, if there's an image link, `--photo` with `house dish edit`. Keep steps short,
+5–8 lines, the way you'd tell someone in the kitchen.
 
 ## Browsing
 `house dish list --tried` (cooked before), `--to-try`, `--tag T`, `--search garlic`; `house dish show NAME` gives

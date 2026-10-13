@@ -28,7 +28,8 @@ receipt, guessing shelf life, deciding which group a cost belongs to.
   house bill edit ID [--amount …] [--due …] [--every …] | house bill drop ID
 
   house dish add NAME --ingredients "chicken thigh, soy sauce" [--optional "spring onion"] [--tags quick,chinese]
-                     [--minutes N] [--url U] [--note N] [--by P|personal] [--cooked [DATE]] [--rating 1-5]
+                     [--minutes N] [--url U] [--note N] [--steps "1. …\n2. …"] [--photo IMAGE_URL]
+                     [--by P|personal] [--cooked [DATE]] [--rating 1-5]
   house dish cooked NAME|ID [--date D] [--by P] [--rating 1-5] [--note N]   adds the dish if it's new
   house dish list [--tag T] [--search Q] [--tried|--to-try] | house dish show NAME|ID | house dish edit ID … | drop ID
   house cook suggest [--limit 5] [--tag T]    ranked by what's in stock, what's expiring, and not cooked lately
@@ -132,6 +133,9 @@ def db():
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
+    for col in ('steps', 'photo', 'notion_body'):  # added after the first release
+        if col not in [c[1] for c in con.execute('PRAGMA table_info(dishes)')]:
+            con.execute(f'ALTER TABLE dishes ADD COLUMN {col} TEXT')
     # A new database starts with the household from config.json, if it names one:
     # {"people": [["key", "Name"], ...], "groups": [["key", "Name", "key1,key2"], ...]}; else `house person/group add`.
     if not con.execute('SELECT 1 FROM people').fetchone():
@@ -756,18 +760,24 @@ def dish_row(con, r, full=False):
          'optional': split_list(r['optional']) or None, 'tags': split_list(r['tags']) or None, 'minutes': r['minutes'],
          'times_cooked': ck['n'], 'last_cooked': ck['last'] and day(ck['last']),
          'days_since': ck['last'] and -days_until(ck['last']), 'rating': ck['avg'] and round(ck['avg'], 1),
-         'url': r['url'], 'note': r['note'], 'added_by': r['added_by']}
+         'url': r['url'], 'note': r['note'], 'added_by': r['added_by'], 'photo': r['photo']}
     if r['status'] != 'active':
         d['status'] = r['status']
     if full:
+        d['steps'] = steps_of(r)
         d['history'] = [{k: v for k, v in dict(h, date=day(h['date'])).items() if v is not None and k not in ('id', 'dish_id', 'added_at')}
                         for h in con.execute('SELECT * FROM cooked WHERE dish_id = ? ORDER BY date DESC LIMIT 10', (r['id'],))]
     return {k: v for k, v in d.items() if v not in (None, [], '')}
 
 
+def steps_of(r):
+    """Method steps: one per line (or separated by ' | '), numbering stripped."""
+    return [re.sub(r'^\s*(\d+[.)]|[-*•])\s*', '', x).strip() for x in re.split(r'\n| \| ', r['steps'] or '') if x.strip()]
+
+
 def dish_set(con, r, a):
     sets = {}
-    for k in ('ingredients', 'optional', 'tags', 'url', 'note'):
+    for k in ('ingredients', 'optional', 'tags', 'url', 'note', 'steps', 'photo'):
         v = getattr(a, k, None)
         if v is not None:
             sets[k] = ', '.join(split_list(v)) if k in ('ingredients', 'optional', 'tags') else v
@@ -1070,6 +1080,25 @@ def dish_props(r):
             'Note': {'rich_text': rt(r['note'])}, 'Local ID': {'number': r['id']}}
 
 
+def dish_page(con, r, nid):
+    """The cookbook page: ingredients and method as the page body. Rewritten only when they change."""
+    def block(kind, text):
+        return {'object': 'block', 'type': kind, kind: {'rich_text': rt(text)}}
+    blocks = [block('heading_2', 'Ingredients')] + [block('bulleted_list_item', i) for i in split_list(r['ingredients'])]
+    blocks += [block('bulleted_list_item', f'{i} (optional)') for i in split_list(r['optional'])]
+    if steps_of(r):
+        blocks += [block('heading_2', 'Method')] + [block('numbered_list_item', x) for x in steps_of(r)]
+    if r['note']:
+        blocks += [block('quote', r['note'])]
+    digest = __import__('hashlib').sha1(json.dumps(blocks).encode()).hexdigest()
+    if digest == r['notion_body']:
+        return
+    for b in notion('GET', f'blocks/{nid}/children?page_size=100').get('results', []):
+        notion('DELETE', f"blocks/{b['id']}")
+    notion('PATCH', f'blocks/{nid}/children', {'children': blocks[:100]})
+    con.execute('UPDATE dishes SET notion_body = ? WHERE id = ?', (digest, r['id']))
+
+
 @__import__('functools').lru_cache(maxsize=None)
 def notion_key():
     """From the environment, else hq-auth (house's grant for the notion service, ~/.config/hq/auth.json)."""
@@ -1127,6 +1156,8 @@ def notion_sync(con, parent=None, everything=False):
         done, failed = 0, []
         for r in con.execute(f'SELECT * FROM {table} WHERE {where} ORDER BY id').fetchall():
             body = {'properties': props(r, ppl)}
+            if table == 'dishes' and (r['photo'] or '').startswith('http'):
+                body['cover'] = {'type': 'external', 'external': {'url': r['photo']}}
             try:
                 if r['notion_id']:
                     notion('PATCH', f"pages/{r['notion_id']}", dict(body, archived=archived(r)))
@@ -1135,6 +1166,8 @@ def notion_sync(con, parent=None, everything=False):
                     nid = None
                 else:
                     nid = notion('POST', 'pages', dict(body, parent={'database_id': nc[table]['id']}))['id']
+                if table == 'dishes' and nid and not archived(r):
+                    dish_page(con, r, nid)
             except RuntimeError as e:
                 failed.append({'id': r['id'], 'error': str(e)[:200]})
                 continue
@@ -1260,7 +1293,7 @@ def main():
     for name, fn in (('add', cmd_dish_add), ('edit', cmd_dish_edit)):
         x = cmd(name, fn, s, write=True)
         x.add_argument('name' if name == 'add' else 'dish')
-        for f in ('--ingredients', '--optional', '--tags', '--url', '--note'):
+        for f in ('--ingredients', '--optional', '--tags', '--url', '--note', '--steps', '--photo'):
             x.add_argument(f)
         x.add_argument('--minutes', type=int)
         if name == 'add':
