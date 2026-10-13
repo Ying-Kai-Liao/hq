@@ -40,7 +40,8 @@ one left off.
   not a platform.
 
 How it fits together and where it's going: [docs/architecture.md](docs/architecture.md); one run, drawn:
-[docs/how-hq-runs.html](docs/how-hq-runs.html).
+[docs/how-hq-runs.html](docs/how-hq-runs.html); every file and which one to open for a change:
+[docs/codebase-map.md](docs/codebase-map.md).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/how-hq-runs-dark.png">
