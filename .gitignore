@@ -10,3 +10,4 @@ shared/projects/
 projects.json
 agents/*/.editing
 agents/*/skills/.*.part/
+.orca/
