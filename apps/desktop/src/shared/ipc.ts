@@ -1,6 +1,7 @@
 import type { SharedFile } from './models'
 import type { SSHBridge } from './ssh'
 import type { ScreenAgentState } from './computer-access'
+import type { IslandRect, IslandScreen, IslandSummary } from './island'
 
 // The bridge between the main process (host lifecycle, loopback HTTP, tray, windows)
 // and the renderer (stores and UI). Exposed as `window.codync` by the preload script.
@@ -65,6 +66,8 @@ export type WindowCommand =
   | { kind: 'search' }
   | { kind: 'toggleSidebar' }
   | { kind: 'toggleDetails' }
+  | { kind: 'respondPermission'; ref: string; entryId: string; optionId: string }
+  | { kind: 'sendMessage'; ref: string; text: string }
 
 /** The app's own updates (electron-updater, release builds only). */
 export interface UpdateState {
@@ -138,6 +141,30 @@ export interface CodyncBridge {
     onEvent(cb: (e: SpeechEvent) => void): () => void
   }
   ssh: SSHBridge
+  /** The notch island (shared/island.ts): its setting, the chat window's summary, and the island window's side. */
+  island: {
+    /** False where a window can't place itself at the top of the screen (Linux on Wayland). */
+    supported: boolean
+    enabled(): Promise<boolean>
+    setEnabled(on: boolean): Promise<boolean>
+    setSummary(summary: IslandSummary): void
+    state(): Promise<{ screen: IslandScreen; summary: IslandSummary }>
+    onSummary(cb: (summary: IslandSummary) => void): () => void
+    onScreen(cb: (screen: IslandScreen) => void): () => void
+    /** The pointer reached or left the shape. */
+    onHover(cb: (inside: boolean) => void): () => void
+    setShape(rect: IslandRect): void
+    /** The message field takes the keyboard (the island never does otherwise). */
+    setFocusable(on: boolean): void
+    /** ⌥Y / ⌥N answer the approval on screen, from any app, while it shows. */
+    setKeys(on: boolean): void
+    onKey(cb: (answer: 'allow' | 'deny') => void): () => void
+    respond(ref: string, entryId: string, optionId: string): void
+    send(ref: string, text: string): void
+    openBot(ref: string): void
+    newBot(): void
+    openApp(): void
+  }
   /** The Codync cloud's `/v1` API with the signed-in session (and the device key for `signed`). */
   cloud: {
     request(method: string, path: string, body: unknown, signed: boolean): Promise<{ ok: true; value: unknown } | { ok: false; error: { status: number; code: string; message: string | null } }>

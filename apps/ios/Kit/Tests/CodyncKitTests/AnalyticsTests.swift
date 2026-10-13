@@ -24,7 +24,7 @@ import Testing
     #expect(anon.properties["$process_person_profile"] == .bool(true))
     #expect(anon.properties["$lib"] == .string("codync-ios"))
     #expect(anon.properties["$os"] == .string("iOS"))
-    #expect(anon.properties["$geoip_disable"] == .bool(true))
+    #expect(anon.properties["$geoip_disable"] == nil)
     #expect(anon.properties["env"] != nil && anon.properties["app_version"] != nil)
 
     // Signed in: $identify links the install ID once, then events carry the user ID.

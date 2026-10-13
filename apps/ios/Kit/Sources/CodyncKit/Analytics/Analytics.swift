@@ -168,7 +168,6 @@ public final class Analytics {
             "env": .string(env),
             "$os": .string("iOS"),
             "$os_version": .string("\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)"),
-            "$geoip_disable": .bool(true),
         ]
     }()
 

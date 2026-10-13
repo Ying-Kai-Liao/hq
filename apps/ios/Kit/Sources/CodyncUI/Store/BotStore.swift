@@ -68,8 +68,6 @@ public final class BotStore {
     /// Bots whose older history has been fully paged in.
     public internal(set) var historyComplete: Set<String> = []
     var composerDrafts: [String: String] = [:]
-    /// A dragged order not sent yet (see `reorder`).
-    var orderSave: Task<Void, Never>?
     public var routineDrafts: [String: String] = [:]
     public let fileDownloads = FileDownloads()
     public var lastError: String?

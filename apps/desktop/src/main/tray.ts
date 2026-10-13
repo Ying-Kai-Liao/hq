@@ -5,6 +5,8 @@ import type { HostController } from './host-controller'
 import type { Updates } from './updates'
 import { setShowInDock, showInDock } from './dock'
 import { identity } from './environment'
+import { islandSupported, type Island } from './island'
+import { islandLabel } from '../shared/island'
 
 interface Deps {
   openChat: () => unknown
@@ -12,6 +14,7 @@ interface Deps {
   send: (command: WindowCommand, show?: boolean) => void
   host: HostController
   updates: Updates
+  island: Island
 }
 
 const resources = () => (app.isPackaged ? process.resourcesPath : join(__dirname, '../../resources'))
@@ -174,7 +177,7 @@ export class Tray {
   }
 
   private settingsMenu(): Electron.MenuItemConstructorOptions[] {
-    const { host, send } = this.deps
+    const { host, send, island } = this.deps
     const s = this.summary
     const style = s?.usageIconStyle ?? 'character'
     const size = s?.textSize ?? 12
@@ -206,6 +209,7 @@ export class Tray {
         },
       },
       ...(process.platform === 'darwin' ? [{ label: 'Show in Dock', type: 'checkbox' as const, checked: showInDock(), click: () => { setShowInDock(!showInDock()); this.rebuild() } }] : []),
+      ...(islandSupported ? [{ label: islandLabel(process.platform), type: 'checkbox' as const, checked: island.enabled, click: () => island.setEnabled(!island.enabled) }] : []),
       { type: 'separator' },
       { label: 'Updates', submenu: this.updatesMenu() },
       { type: 'separator' },

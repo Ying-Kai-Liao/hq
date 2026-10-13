@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { UpdateState } from '@shared/ipc'
+import { islandLabel } from '@shared/island'
 import { Button, CardForm, CardSection, ChoicePicker, IconButton, Switch, ValueRow } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { useDismiss } from '../../components/Overlay'
@@ -108,6 +109,8 @@ function GeneralSettings() {
   useEffect(() => void window.codync.app.showInDock().then(setShowInDock), [])
   const [launchAtLogin, setLaunchAtLogin] = useState(false)
   useEffect(() => void window.codync.app.launchAtLogin().then(setLaunchAtLogin), [])
+  const [island, setIsland] = useState(false)
+  useEffect(() => void window.codync.island.enabled().then(setIsland), [])
 
   return (
     <CardForm>
@@ -155,6 +158,11 @@ function GeneralSettings() {
       </CardSection>
       <CardSection title="System">
         {window.codync.platform === 'darwin' ? <Switch on={showInDock} onChange={(on) => void window.codync.app.setShowInDock(on).then(setShowInDock)}>Show in Dock</Switch> : null}
+        {window.codync.island.supported ? (
+          <Switch on={island} onChange={(on) => void window.codync.island.setEnabled(on).then(setIsland)}>
+            {islandLabel(window.codync.platform)}
+          </Switch>
+        ) : null}
         <Switch on={launchAtLogin} onChange={(on) => void window.codync.app.setLaunchAtLogin(on).then(setLaunchAtLogin)}>
           Open at login
         </Switch>
