@@ -302,11 +302,12 @@ def fetch(home, force=False):
                 (part / '.source').write_text(source_line(skills[name]) + '\n')
                 shutil.rmtree(dest, ignore_errors=True)
                 part.rename(dest)
-    if skills:   # fetched folders are not part of the repo
-        names = sorted(skills)
-        (home / 'skills' / '.gitignore').write_text(
-            '# third-party skills fetched from skills.json (hq-pkg fetch); not committed\n'
-            + ''.join(f'/{n}/\n' for n in names))
+    if skills:   # fetched folders are not part of the repo; rewritten only on change (its mtime is in the fingerprint)
+        ignore = home / 'skills' / '.gitignore'
+        text = ('# third-party skills fetched from skills.json (hq-pkg fetch); not committed\n'
+                + ''.join(f'/{n}/\n' for n in sorted(skills)))
+        if read(ignore) != text.strip():
+            ignore.write_text(text)
     return sorted(todo)
 
 
