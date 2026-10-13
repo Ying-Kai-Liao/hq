@@ -1,5 +1,12 @@
 # hq
 
+**Want a personal agent like Grok bots, Muse or Dots, but on your own computer, working with your files?**<br>
+**Want each agent kept separate, with its own skills, tools, memory and accounts?**<br>
+**Want one place to manage them all, with a history you can roll back?**<br>
+**Rather start from an agent someone already built than from scratch?**
+
+That's what hq is built for.
+
 Persistent specialist agents you can call from any repo. Each has its own skills and layered memory, and each is its
 own git repo: install one from a GitHub link, change it, roll it back, share it or keep it private. Persistent means
 durable identity and memory, not a long-running process: every call is a fresh session that picks up where the last
