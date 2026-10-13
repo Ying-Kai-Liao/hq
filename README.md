@@ -15,7 +15,7 @@ one left off.
 - **What it is and what it knows are kept apart.** The package (instructions, skills, tools) is shareable; memory
   and data live in your private state folder. Sharing an agent never shares your life, and upgrading one never
   touches its memory.
-- **It needs no accounts.** An agent says which services it needs; you grant it an account. Secrets reach only the
+- **Agents carry no accounts.** An agent says which services it needs; you grant it one of your accounts. Secrets reach only the
   process that uses them. Two people can run the same agent with their own logins.
 - **Specialists stay cheap.** Each capability belongs to one agent and loads only when that agent runs, so your main
   session sees one line per agent, and adding agents doesn't make every session heavier.
