@@ -48,9 +48,12 @@
   flex: none;
 }
 
-/* Dialogs */
+/* Sheets, dialogs and menus: one subtle outline over the fill. */
 .modal-content::after,
-.dialog-card::after {
+.dialog-card::after,
+.anchored-panel::after,
+.account-panel::after,
+.action-menu::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -60,6 +63,7 @@
   z-index: 1;
 }
 
+/* Dialogs */
 .dialog {
   position: fixed;
   inset: 0;
