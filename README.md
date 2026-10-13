@@ -5,6 +5,33 @@ own git repo: install one from a GitHub link, change it, roll it back, share it 
 durable identity and memory, not a long-running process: every call is a fresh session that picks up where the last
 one left off.
 
+## What makes it different
+- **An agent is a folder on your computer, not a container or a hosted service.** A personal agent's abilities come
+  from its machine: your browser profile, Keychain, GPU, local models, the CLIs you're logged in to. hq runs agents
+  where those are, as plain Claude Code sessions, instead of rebuilding them somewhere else.
+- **An agent is a git repo.** Install one from a GitHub link, change it however you like, and every version that
+  passes its checks is committed. Roll back to any of them, share one, or keep it private. The agent learning a new
+  skill is a change like any other: versioned, and undone the same way.
+- **What it is and what it knows are kept apart.** The package (instructions, skills, tools) is shareable; memory
+  and data live in your private state folder. Sharing an agent never shares your life, and upgrading one never
+  touches its memory.
+- **It needs no accounts.** An agent says which services it needs; you grant it an account. Secrets reach only the
+  process that uses them. Two people can run the same agent with their own logins.
+- **Specialists stay cheap.** Each capability belongs to one agent and loads only when that agent runs, so your main
+  session sees one line per agent, and adding agents doesn't make every session heavier.
+
+## Core idea: simple, stable, scalable
+- **Simple.** An agent is markdown plus a few tools in a folder. The kernel is a handful of scripts (bash and Python
+  standard library) on top of Claude Code and git: no server, database, daemon or container. If you can read a
+  folder, you can read an agent.
+- **Stable.** Every run is pinned to a read-only snapshot, so an agent can change mid-session without breaking a run
+  in progress. A version that fails its checks never runs (the last good one does), every good version is in git,
+  and a missing secret or broken service costs a run that service, never the run itself.
+- **Scalable.** Adding an agent is adding a repo; nothing central grows. Because each agent loads only its own
+  skills, context stays flat as you add more. Agents travel by GitHub link and are found by topic, so going from
+  one person's agents to everyone's is sharing a repo, and serving many people is one machine per person running hq,
+  not a platform.
+
 How it fits together and where it's going: [docs/architecture.md](docs/architecture.md); one run, drawn:
 [docs/how-hq-runs.html](docs/how-hq-runs.html).
 
