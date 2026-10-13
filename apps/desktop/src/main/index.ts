@@ -232,7 +232,8 @@ if (!app.requestSingleInstanceLock()) {
       tray.hostChanged()
     })
     nativeTheme.on('updated', () => {
-      for (const w of BrowserWindow.getAllWindows()) w.setBackgroundColor(background())
+      // Only the opaque windows: a color on the transparent notch island paints its whole panel.
+      for (const w of [chat, pairing]) w?.setBackgroundColor(background())
     })
     host.start()
     openChat()
