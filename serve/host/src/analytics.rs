@@ -268,7 +268,6 @@ fn queue(hub: &Hub, event: &str, distinct_id: &str, mut properties: Map<String, 
         ("env".into(), (if option_env!("CODYNC_ENV") == Some("main") { "main" } else { "dev" }).into()),
         ("$os".into(), std::env::consts::OS.into()),
         ("arch".into(), std::env::consts::ARCH.into()),
-        ("$geoip_disable".into(), true.into()),
         // Joins this computer's events across accounts and with its phones' `computer_paired`.
         ("computer".into(), computer_tag(&hub.identity.computer_id()).into()),
     ]);
