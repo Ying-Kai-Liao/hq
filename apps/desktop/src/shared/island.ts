@@ -99,8 +99,11 @@ export const PANEL = { width: 720, height: 300 }
 /** The open island's width. */
 export const OPEN_WIDTH = 640
 
-/** Height of each open view for a 32 pt notch (a taller notch adds its extra height). */
-const OPEN_HEIGHT = { overview: 196, empty: 150, approval: 206, finished: 170, failed: 190, message: 156, usage: 196 }
+/**
+ * Every open view has the same height (for a 32 pt notch; a taller one adds its extra), so
+ * switching tabs or alerts never moves the black shape: only what's inside changes.
+ */
+const OPEN_HEIGHT = 196
 /** The resting bar at a plain top edge (no notch). */
 const BAR = 26
 
@@ -165,7 +168,7 @@ export function islandFrame(mode: IslandMode, screen: IslandScreen) {
     case 'compact':
       return { width: notch ? notch.width + 104 : 240, height: bar, radius: closedRadius }
     default:
-      return { width: OPEN_WIDTH, height: OPEN_HEIGHT[mode] + contentTop(screen) - 36, radius: 30 }
+      return { width: OPEN_WIDTH, height: OPEN_HEIGHT + contentTop(screen) - 36, radius: 30 }
   }
 }
 

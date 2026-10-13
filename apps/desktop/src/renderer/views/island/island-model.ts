@@ -34,6 +34,8 @@ export class IslandModel extends Observable {
   private noticeTimer: ReturnType<typeof setTimeout> | undefined
   private shape = { width: 0, height: 0 }
   private keys = false
+  /** The window took the keyboard for the message field; it keeps it until the island closes. */
+  private keyboard = false
 
   start() {
     const island = window.codync.island
@@ -106,7 +108,6 @@ export class IslandModel extends Observable {
 
   /** The header's tabs. Bots puts the approvals on screen off until another arrives. */
   setTab(tab: IslandTab) {
-    const typing = this.tab === 'message'
     this.update(() => {
       if (tab === 'bots') for (const p of this.summary.permissions) this.deferred.add(p.entryId)
       if (tab === 'message' && !this.messageRef) this.messageRef = this.focus?.ref ?? null
@@ -114,8 +115,12 @@ export class IslandModel extends Observable {
       this.open = true
       this.pinned = true
     })
-    // Only the message field takes the keyboard; giving it back is the only reason to touch focus.
-    if (typing !== (tab === 'message')) window.codync.island.setFocusable(tab === 'message')
+    // Only the message field takes the keyboard. It goes back when the island closes, not on the
+    // next tab: giving it back blinks the window on macOS.
+    if (tab === 'message') {
+      this.keyboard = true
+      window.codync.island.setFocusable(true)
+    }
     this.foldWhenAway()
   }
 
@@ -162,7 +167,6 @@ export class IslandModel extends Observable {
 
   close() {
     clearTimeout(this.hoverTimer)
-    const typing = this.tab === 'message'
     this.update(() => {
       this.open = false
       this.pinned = false
@@ -170,7 +174,8 @@ export class IslandModel extends Observable {
       this.closing = false
       this.tab = 'auto'
     })
-    if (typing) window.codync.island.setFocusable(false)
+    if (this.keyboard) window.codync.island.setFocusable(false)
+    this.keyboard = false
   }
 
   private answerByKey(answer: 'allow' | 'deny') {

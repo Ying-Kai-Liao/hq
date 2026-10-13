@@ -65,6 +65,7 @@ export class Island {
   private inside = false
   private timer: NodeJS.Timeout | null = null
   private shaped: IslandRect = { x: 0, y: 0, width: 0, height: 0 }
+  private unfocus: NodeJS.Timeout | undefined
 
   constructor(private deps: Deps) {}
 
@@ -162,6 +163,7 @@ export class Island {
 
   private close() {
     this.setKeys(false)
+    clearTimeout(this.unfocus)
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
     this.window?.destroy()
@@ -172,12 +174,18 @@ export class Island {
   private setFocusable(on: boolean) {
     const win = this.window
     if (!win) return
+    clearTimeout(this.unfocus)
     win.setFocusable(on)
     if (on) win.focus()
     else if (win.isFocused()) {
-      // Giving the keyboard back sends the window to the back of its level on macOS: bring it forward again.
-      win.blur()
-      win.moveTop()
+      // Giving the keyboard back takes the window off screen for a moment on macOS (and to the back
+      // of its level): wait until the shape has folded, then bring it forward again.
+      this.unfocus = setTimeout(() => {
+        if (!win.isDestroyed() && win.isFocused()) {
+          win.blur()
+          win.moveTop()
+        }
+      }, SHRINK_MS)
     }
   }
 

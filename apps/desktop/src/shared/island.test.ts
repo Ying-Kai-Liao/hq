@@ -70,9 +70,12 @@ test('shapes follow the notch, and a plain top edge keeps a thin strip that wake
   assert.deepEqual(islandFrame('hidden', notch), { width: 185, height: 32, radius: 14 })
   assert.equal(islandFrame('peek', notch).width, 185 + 64)
   assert.equal(islandFrame('compact', notch).width, 185 + 104)
-  assert.deepEqual(islandFrame('approval', notch), { width: 640, height: 206, radius: 30 })
+  // Every open view has one size: switching tabs never moves the shape.
+  for (const mode of ['overview', 'empty', 'approval', 'finished', 'failed', 'message', 'usage'] as const) {
+    assert.deepEqual(islandFrame(mode, notch), { width: 640, height: 196, radius: 30 })
+  }
   // A taller notch pushes the content down.
-  assert.equal(islandFrame('approval', { notch: { width: 200, height: 38 } }).height, 212)
+  assert.equal(islandFrame('approval', { notch: { width: 200, height: 38 } }).height, 202)
   const edge = islandRect(islandFrame('hidden', { notch: null }), 720)
   assert.equal(hits(edge, 360, 0), true)
   assert.equal(hits(edge, 360, 12), false)

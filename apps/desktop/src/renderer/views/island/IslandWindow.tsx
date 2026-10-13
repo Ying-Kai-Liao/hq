@@ -4,6 +4,7 @@ import { Icon } from '../../components/Icon'
 import { usePresence } from '../../components/Overlay'
 import { useModel } from '../../lib/observable'
 import { PINNED_LEAVE_MS, type IslandModel } from './island-model'
+import { useCrossFade } from './island-motion'
 import { Approval, Empty, Message, Notice, Overview, Wings } from './IslandViews'
 import { UsageMeter, UsageView } from './IslandUsage'
 import './island.css'
@@ -43,16 +44,34 @@ export function IslandWindow({ model }: { model: IslandModel }) {
           </div>
         ) : null}
         {views.mounted ? (
-          <div className={`island-layer ${views.shown ? '' : 'leaving'}`}>
-            <Header model={model} mode={lastOpen.current} />
-            <div key={lastOpen.current} className="island-content" style={{ top: contentTop(model.screen) }}>
-              <View model={model} mode={lastOpen.current} />
-            </div>
+          <div className={`island-layer island-views ${views.shown ? '' : 'leaving'}`}>
+            <OpenViews model={model} mode={lastOpen.current} />
           </div>
         ) : null}
         {open && model.closing ? <span className="island-countdown" style={{ animationDuration: `${PINNED_LEAVE_MS}ms` }} /> : null}
       </div>
     </div>
+  )
+}
+
+/** How long the view a tab switch replaced takes to fade while the next one fades in. */
+const SWITCH_MS = 220
+
+/**
+ * The header and the view under it. Switching tabs (or an alert taking over) only cross-fades
+ * the view: the shape keeps its size.
+ */
+function OpenViews({ model, mode }: { model: IslandModel; mode: IslandMode }) {
+  const previous = useCrossFade(mode, SWITCH_MS)
+  return (
+    <>
+      <Header model={model} mode={mode} />
+      {(previous ? [previous, mode] : [mode]).map((m) => (
+        <div key={m} className={`island-content ${m === previous ? 'leaving' : ''}`} style={{ top: contentTop(model.screen) }}>
+          <View model={model} mode={m} />
+        </div>
+      ))}
+    </>
   )
 }
 

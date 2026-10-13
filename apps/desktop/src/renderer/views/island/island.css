@@ -180,12 +180,54 @@ html[data-window='island'] #root {
   margin-right: 4px;
 }
 
+/* Another bot takes a slot (or joins a row): it springs in out of a blur. */
+.island-swap {
+  animation: island-swap 0.38s cubic-bezier(0.32, 1.22, 0.42, 1) both;
+}
+@keyframes island-swap {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+    transform: translateY(6px) scale(0.92);
+  }
+}
+/* The bot's part of a card, as one piece that can swap. */
+.island-swap-slot {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: inherit;
+}
+.island-message-bot {
+  display: block;
+  flex: none;
+}
+
+/* Opening, the views arrive once the shape has grown; switching tabs, the next view fades in
+   over the one leaving (the shape keeps its size). */
+.island-views {
+  animation: island-in 0.3s 0.16s var(--ease) backwards;
+}
 .island-content {
   position: absolute;
   left: 10px;
   right: 10px;
   bottom: 10px;
-  animation: island-in 0.3s 0.16s var(--ease) backwards;
+  animation: island-switch 0.24s var(--ease) backwards;
+}
+.island-content.leaving {
+  opacity: 0;
+  filter: blur(3px);
+  transition: opacity 0.14s var(--ease), filter 0.14s var(--ease);
+  pointer-events: none;
+}
+@keyframes island-switch {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+  }
 }
 @keyframes island-in {
   from {
@@ -651,11 +693,14 @@ html[data-window='island'] #root {
   .island-body {
     transition: none;
   }
+  .island-views,
   .island-content,
-  .island-header {
+  .island-header,
+  .island-swap {
     animation: none;
   }
-  .island-layer.leaving {
+  .island-layer.leaving,
+  .island-content.leaving {
     transition: none;
   }
 }
