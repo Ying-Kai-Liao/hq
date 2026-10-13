@@ -46,6 +46,29 @@ async function stateRoot($: EngineInterface, configured: unknown, hq: string): P
   return (await $.fs.exists(`${home}/.hq`)) ? `${home}/.hq` : hq
 }
 
+// Helpers that take $ must be top-level functions: the hooks loader refuses the whole module otherwise.
+
+// Installed agents, {name: package folder}: the agents folder first, then the repo's own agents/ (older installs).
+async function listAgents($: EngineInterface, hq: string): Promise<Record<string, string>> {
+  const run = await $.process.run([`${hq}/bin/hq-pkg`, 'list', '--json'], { timeoutMs: 30_000 })
+  try {
+    const out = run.exitCode === 0 ? (JSON.parse(run.stdout) as Record<string, { dir: string }>) : {}
+    return Object.fromEntries(Object.entries(out).map(([name, o]) => [name, o.dir]))
+  } catch {
+    return {}
+  }
+}
+
+// One call pins every agent: {name: {dir, version, note}}. Empty when hq-pkg fails; agents then run live.
+async function resolvePackages($: EngineInterface, hq: string): Promise<Record<string, { dir: string; note: string }>> {
+  const run = await $.process.run([`${hq}/bin/hq-pkg`, 'resolve', '--all', '--json'], { timeoutMs: 30_000 })
+  try {
+    return run.exitCode === 0 ? (JSON.parse(run.stdout) as Record<string, { dir: string; note: string }>) : {}
+  } catch {
+    return {}
+  }
+}
+
 export const register: Register = (on, options) => {
 
   // agentDir: the pinned snapshot from hq-pkg (or the live folder when versioning is unavailable).
@@ -66,27 +89,6 @@ export const register: Register = (on, options) => {
       .replaceAll('{{USER_HOME}}', userHome)
       .replaceAll('{{HQ}}', hq)
       .replaceAll('{{AGENT}}', agent)
-
-  // Installed agents, {name: package folder}: the agents folder first, then the repo's own agents/ (older installs).
-  const listAgents = async ($: EngineInterface, hq: string) => {
-    const run = await $.process.run([`${hq}/bin/hq-pkg`, 'list', '--json'], { timeoutMs: 30_000 })
-    try {
-      const out = run.exitCode === 0 ? (JSON.parse(run.stdout) as Record<string, { dir: string }>) : {}
-      return Object.fromEntries(Object.entries(out).map(([name, o]) => [name, o.dir]))
-    } catch {
-      return {}
-    }
-  }
-
-  // One call pins every agent: {name: {dir, version, note}}. Empty when hq-pkg fails; agents then run live.
-  const resolvePackages = async ($: EngineInterface, hq: string) => {
-    const run = await $.process.run([`${hq}/bin/hq-pkg`, 'resolve', '--all', '--json'], { timeoutMs: 30_000 })
-    try {
-      return run.exitCode === 0 ? (JSON.parse(run.stdout) as Record<string, { dir: string; note: string }>) : {}
-    } catch {
-      return {}
-    }
-  }
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
