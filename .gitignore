@@ -1,0 +1,12 @@
+.DS_Store
+__pycache__/
+agents/*/data/
+.store/
+# state lives in the state folder ($HQ_STATE, default ~/.hq); keep stray writes out of the repo
+agents/*/memory/
+agents/*/skills/learned/
+shared/user.md
+shared/projects/
+projects.json
+agents/*/.editing
+agents/*/skills/.*.part/

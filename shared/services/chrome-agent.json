@@ -1,0 +1,5 @@
+{
+  "description": "The dedicated Chrome profile \"Agent\" (logged in to Facebook and Instagram), for yt-dlp cookies",
+  "kind": "login",
+  "secrets": []
+}

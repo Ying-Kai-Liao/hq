@@ -1,0 +1,247 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["discord.py>=2.4,<3"]
+# ///
+"""hq-bridge — talk to hq agents from Discord. One bot, one channel per agent, one thread per task.
+
+  hq-bridge            run the bridge (foreground; launchd keeps it alive with --install)
+  hq-bridge --install  install the macOS LaunchAgent so it starts at login and restarts if it dies
+  hq-bridge --status   show channels and open threads
+  hq-bridge --launcher copy uv to ~/.config/hq/bin/hq-uv; give that file Full Disk Access once, then --install
+
+A message in #<agent> starts a thread and runs `hq <agent> "<message>"`; that agent owns the task. It may call
+other agents as helpers; they post status in the same thread through `hq-send --as <name>`. Replies in a thread
+resume the same Claude session. Only the owner's messages are acted on.
+
+Config (env or ~/.config/hq/env): HQ_DISCORD_BOT_TOKEN (required), HQ_DISCORD_OWNER_ID (your Discord user ID;
+default: the server owner), HQ_DISCORD_GUILD (server name or ID; default: the bot's only server),
+HQ_BRIDGE_PERMISSION_MODE (claude --permission-mode for agent runs; default bypassPermissions).
+State: ~/.config/hq/bridge/ (webhooks, thread → session map, logs, downloaded attachments).
+"""
+import asyncio
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+HQ = Path(__file__).resolve().parent.parent
+STATE_DIR = Path.home() / '.config' / 'hq' / 'bridge'
+STATE = STATE_DIR / 'state.json'
+LABEL = 'dev.hq.bridge'
+# launchd can't read the external SSD without Full Disk Access; grant it to this fixed copy of uv, not the
+# versioned Homebrew path that `brew upgrade uv` replaces
+LAUNCHER = Path.home() / '.config' / 'hq' / 'bin' / 'hq-uv'
+
+
+def load_env():
+    f = Path.home() / '.config' / 'hq' / 'env'
+    if f.exists():
+        for line in f.read_text().splitlines():
+            k, sep, v = line.strip().partition('=')
+            if sep and not k.startswith('#'):
+                os.environ.setdefault(k.strip(), v.strip().strip('"\''))
+
+
+def agents():
+    return sorted(p.parent.name for p in (HQ / 'agents').glob('*/agent.md'))
+
+
+def description(agent):
+    m = re.search(r'^description:\s*(.+)$', (HQ / 'agents' / agent / 'agent.md').read_text(), re.M)
+    return (m.group(1) if m else f'hq {agent}')[:1024]
+
+
+def display_name(agent):
+    m = re.search(r'^display_name:\s*(.+)$', (HQ / 'agents' / agent / 'agent.md').read_text(), re.M)
+    return m.group(1).strip() if m else agent
+
+
+def read_state():
+    try:
+        return json.loads(STATE.read_text())
+    except (OSError, ValueError):
+        return {'webhooks': {}, 'threads': {}}
+
+
+def write_state(st):
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = STATE.with_suffix('.tmp')
+    tmp.write_text(json.dumps(st, indent=2))
+    tmp.replace(STATE)
+
+
+def launcher():
+    import shutil
+    uv = shutil.which('uv')
+    if not uv:
+        sys.exit('uv not found on PATH')
+    LAUNCHER.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(os.path.realpath(uv), LAUNCHER)
+    print(f'copied {os.path.realpath(uv)} → {LAUNCHER}\n'
+          f'Grant it Full Disk Access (System Settings → Privacy & Security → Full Disk Access → +, Cmd+Shift+G, '
+          f'paste the path), then run hq-bridge --install. A new copy needs granting again.')
+
+
+def install():
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    argv = [LAUNCHER, 'run', '--quiet', '--script', HQ / 'bin' / 'hq-bridge'] if LAUNCHER.exists() else [HQ / 'bin' / 'hq-bridge']
+    args = ''.join(f'<string>{a}</string>' for a in argv)
+    plist = Path.home() / 'Library' / 'LaunchAgents' / f'{LABEL}.plist'
+    path = f"{Path.home()}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+    plist.write_text(f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>{LABEL}</string>
+  <key>ProgramArguments</key><array>{args}</array>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>{path}</string><key>HOME</key><string>{Path.home()}</string></dict>
+  <key>WorkingDirectory</key><string>{Path.home()}</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardOutPath</key><string>{STATE_DIR}/bridge.log</string>
+  <key>StandardErrorPath</key><string>{STATE_DIR}/bridge.log</string>
+</dict></plist>
+""")
+    os.system(f'launchctl bootout gui/{os.getuid()}/{LABEL} 2>/dev/null; launchctl bootstrap gui/{os.getuid()} "{plist}"')
+    print(f'installed {plist}; logs in {STATE_DIR}/bridge.log')
+
+
+def chunks(text, n=1900):
+    text = text.strip() or '(no reply)'
+    while text:
+        cut = text.rfind('\n', 0, n) if len(text) > n else len(text)
+        cut = cut if cut > n // 2 else min(n, len(text))
+        yield text[:cut]
+        text = text[cut:].lstrip('\n')
+
+
+def main():
+    load_env()
+    if '--launcher' in sys.argv:
+        return launcher()
+    if '--install' in sys.argv:
+        return install()
+    if '--status' in sys.argv:
+        st = read_state()
+        print(json.dumps({'channels': sorted(st['webhooks']), 'threads': st['threads']}, indent=2))
+        return
+    token = os.environ.get('HQ_DISCORD_BOT_TOKEN')
+    if not token:
+        sys.exit('hq-bridge: set HQ_DISCORD_BOT_TOKEN in ~/.config/hq/env')
+
+    import discord
+
+    intents = discord.Intents.default()
+    intents.message_content = True
+    client = discord.Client(intents=intents)
+    st = read_state()
+    locks: dict[str, asyncio.Lock] = {}
+    hooks: dict[str, discord.Webhook] = {}
+    owner_id = int(os.environ['HQ_DISCORD_OWNER_ID']) if os.environ.get('HQ_DISCORD_OWNER_ID') else None
+
+    async def setup(guild):
+        nonlocal owner_id
+        owner_id = owner_id or guild.owner_id
+        category = discord.utils.get(guild.categories, name='hq') or await guild.create_category('hq')
+        for agent in agents():
+            ch = discord.utils.get(guild.text_channels, name=agent)
+            if ch is None:
+                ch = await guild.create_text_channel(agent, category=category, topic=description(agent))
+            wh = next((w for w in await ch.webhooks() if w.name == 'hq'), None) or await ch.create_webhook(name='hq')
+            st['webhooks'][agent] = {'channel_id': ch.id, 'url': wh.url}
+            hooks[agent] = discord.Webhook.from_url(wh.url, client=client)
+        write_state(st)
+        print(f'hq-bridge: ready in {guild.name}: {", ".join(agents())}; acting on messages from user {owner_id}', flush=True)
+
+    @client.event
+    async def on_ready():
+        squash = lambda x: re.sub(r'\s+', '', x).lower()
+        want = squash(os.environ.get('HQ_DISCORD_GUILD', ''))
+        guilds = [g for g in client.guilds if not want or want in (squash(g.name), str(g.id))]
+        if len(guilds) != 1:
+            print(f'hq-bridge: expected one server, found {[g.name for g in client.guilds]}; set HQ_DISCORD_GUILD', flush=True)
+            await client.close()
+            return
+        await setup(guilds[0])
+        if not getattr(client, 'rescanning', False):  # on_ready fires again after reconnects
+            client.rescanning = True
+            asyncio.create_task(rescan(guilds[0]))
+
+    async def rescan(guild):
+        # New agents (from the builder or hq-new) get their channel within a minute, no restart needed.
+        while True:
+            await asyncio.sleep(60)
+            try:
+                if set(agents()) - set(st['webhooks']):
+                    await setup(guild)
+            except Exception as e:  # a failed rescan must never take the bridge down
+                print(f'hq-bridge: rescan failed: {e}', flush=True)
+
+    async def run(agent, thread, task, reply_to):
+        key = str(thread.id)
+        lock = locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            session = st['threads'].get(key, {}).get('session_id')
+            hook = st['webhooks'][agent]
+            claude_args = ['--output-format', 'json',
+                           '--permission-mode', os.environ.get('HQ_BRIDGE_PERMISSION_MODE', 'bypassPermissions')]
+            if session:
+                claude_args += ['--resume', session]
+            env = dict(os.environ, HQ_AGENT=agent, HQ_VIA='discord', HQ_DISCORD_WEBHOOK_URL=hook['url'], HQ_DISCORD_THREAD_ID=key,
+                       HQ_CLAUDE_ARGS=' '.join(claude_args))
+            env.pop('HQ_DISCORD_BOT_TOKEN', None)  # agents never see the bot token
+            async with thread.typing():
+                proc = await asyncio.create_subprocess_exec(
+                    str(HQ / 'bin' / 'hq'), agent, task, cwd=str(Path.home()), env=env,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                try:
+                    out, err = await asyncio.wait_for(proc.communicate(), timeout=3600)
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    out, err = b'', b'timed out after 60 min'
+            try:
+                res = json.loads(out.decode())
+                text, sid = res.get('result') or '', res.get('session_id')
+                if res.get('is_error'):
+                    text = f'⚠️ {text or res.get("subtype", "error")}'
+            except ValueError:
+                text, sid = f'⚠️ {agent} failed:\n```\n{(err or out).decode(errors="replace")[-1500:]}\n```', None
+            if sid:
+                st['threads'][key] = {'agent': agent, 'session_id': sid}
+                write_state(st)
+            for part in chunks(text):
+                await hooks[agent].send(part, username=display_name(agent), thread=thread, wait=True)
+
+    @client.event
+    async def on_message(msg):
+        if msg.author.bot or msg.webhook_id or msg.author.id != owner_id:
+            return
+        if isinstance(msg.channel, discord.Thread) and msg.channel.parent and msg.channel.parent.name in st['webhooks']:
+            agent, thread = msg.channel.parent.name, msg.channel
+        elif getattr(msg.channel, 'name', None) in st['webhooks']:
+            agent = msg.channel.name
+            title = re.sub(r'\s+', ' ', msg.content).strip()[:90] or 'task'
+            thread = await msg.create_thread(name=title, auto_archive_duration=1440)
+        else:
+            return
+        task = msg.content
+        if msg.attachments:
+            folder = STATE_DIR / 'attachments' / str(thread.id)
+            folder.mkdir(parents=True, exist_ok=True)
+            paths = []
+            for a in msg.attachments:
+                p = folder / a.filename
+                await a.save(p)
+                paths.append(str(p))
+            task += '\n\nAttached files: ' + ', '.join(paths)
+        task += ('\n\n(From Discord: this thread is your task. Your final answer is posted here automatically; use '
+                 'hq-send for images and files. Helpers you call post status with `hq-send --as <their name>`.)')
+        asyncio.create_task(run(agent, thread, task, msg))
+
+    client.run(token, log_handler=None)
+
+
+if __name__ == '__main__':
+    main()

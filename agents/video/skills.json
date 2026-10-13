@@ -1,0 +1,41 @@
+{
+  "$comment": "Third-party skills, linked rather than copied: hq-pkg fetch downloads each folder at its pinned commit into skills/<name>/ (git-ignored). Change ref to upgrade; the next run checks and snapshots it.",
+  "skills": {
+    "gsap": {
+      "repo": "heygen-com/hyperframes",
+      "ref": "a262ad59f3c14803ce04b1405a9f3aeac036a47b",
+      "path": "skills/gsap",
+      "license": "Apache-2.0"
+    },
+    "hyperframes": {
+      "repo": "heygen-com/hyperframes",
+      "ref": "87f4c77e2fa555017c4c8938d03cc61ee9d6d14a",
+      "path": "skills/hyperframes",
+      "license": "Apache-2.0"
+    },
+    "hyperframes-cli": {
+      "repo": "heygen-com/hyperframes",
+      "ref": "08fb1de61ff14e73e00fcc9c046e3865c9c40b04",
+      "path": "skills/hyperframes-cli",
+      "license": "Apache-2.0"
+    },
+    "hyperframes-registry": {
+      "repo": "heygen-com/hyperframes",
+      "ref": "994309124771069decac3fbf0dc81ceb01ac5bc0",
+      "path": "skills/hyperframes-registry",
+      "license": "Apache-2.0"
+    },
+    "remotion-best-practices": {
+      "repo": "remotion-dev/skills",
+      "ref": "d41d2eb8d9616ca132546cbb64008e39ad04ee99",
+      "path": "skills/remotion",
+      "license": "see repo (no SPDX licence detected)"
+    },
+    "website-to-hyperframes": {
+      "repo": "heygen-com/hyperframes",
+      "ref": "87f4c77e2fa555017c4c8938d03cc61ee9d6d14a",
+      "path": "skills/website-to-hyperframes",
+      "license": "Apache-2.0"
+    }
+  }
+}

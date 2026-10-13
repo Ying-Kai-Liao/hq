@@ -1,0 +1,5 @@
+# Declarations only. Credentials come from the runtime, never from here.
+tools: [video-generation, image-generation, ffmpeg, tts]
+state: []
+writes: [project-assets]   # renders inside the current project, with approval
+global_skills: true   # keeps ~/.claude/skills (UI, animation) in hq runs

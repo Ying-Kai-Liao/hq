@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# hq-new — scaffold a new hq agent with the repo's conventions; the builder agent fills in the judgement parts.
+#
+#   hq-new <name> "<description>"     create agents/<name>/ (fails if it exists)
+#
+# Creates agent.md (frontmatter + section skeleton), capabilities.yaml, settings.json (every installed plugin off
+# except hq: an agent carries only its own tools), and its state (memory/, skills/learned/) in the state folder
+# ($HQ_STATE, else ~/.hq, else the repo). No mcp.json: add one only if the
+# agent needs MCP servers. The Discord bridge creates #<name> within a minute.
+set -euo pipefail
+
+# Follow the script's own symlinks but keep the repo's logical path (it may be a symlink to a path with spaces).
+src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
+HQ="$(cd "$(dirname "$src")/.." && pwd)"
+name=${1:-}; desc=${2:-}
+[[ $name =~ ^[a-z][a-z0-9-]{1,30}$ ]] || { echo "hq-new: name must be lowercase letters, digits, dashes (got '$name')" >&2; exit 2; }
+[[ -n $desc && $desc != *": "* ]] || { echo "hq-new: give a one-line description without ': ' in it" >&2; exit 2; }
+home="$HQ/agents/$name"
+[[ -e $home ]] && { echo "hq-new: agents/$name already exists" >&2; exit 1; }
+if [[ -z ${HQ_STATE:-} ]]; then [[ -d $HOME/.hq ]] && HQ_STATE=$HOME/.hq || HQ_STATE=$HQ; fi
+state="$HQ_STATE/agents/$name"
+
+mkdir -p "$home/skills" "$state/memory/projects" "$state/memory/sessions" "$state/skills/learned"
+
+cat > "$home/agent.md" <<EOF
+---
+name: $name
+description: $desc
+memory: user
+---
+
+You are the user's $name specialist. TODO(builder): one paragraph on who you are and what you are for.
+
+## How you work
+- TODO(builder): 3–6 bullets: how you approach the work, what is state (read from source every time) vs memory,
+  what needs the user's approval.
+
+## Your skills
+Your skills are not installed globally. Read a skill's \`SKILL.md\` when the task needs it, then follow it. Paths are
+relative to \`{{AGENT_DIR}}/skills/\`.
+
+| Task | Skill |
+|---|---|
+| Skills you wrote yourself | \`{{HOME_DIR}}/skills/learned/\` (listed in your MEMORY.md) |
+
+## Not yours
+TODO(builder): what belongs to other agents (name them), and what you never do.
+EOF
+
+cat > "$home/capabilities.yaml" <<'EOF'
+# Declarations only. Credentials come from the runtime, never from here.
+needs: []          # shared services (shared/services/), e.g. [jev-browser, notion]; grant with hq-auth grant
+tools: []          # e.g. web-fetch, sqlite
+state: []          # where its data lives; read from the source every time
+access: read       # what it may change without asking
+EOF
+
+python3 - "$home/settings.json" <<'EOF'
+import json, re, subprocess, sys
+try:
+    listing = subprocess.run(['claude', 'plugin', 'list'], capture_output=True, text=True, timeout=30).stdout
+except (OSError, subprocess.TimeoutExpired):
+    listing = ''
+plugins = sorted(set(re.findall(r'([a-z0-9][\w.-]*@[\w.-]+)', listing)) - {'hq@hq'})
+json.dump({
+    '$comment': "Merged over your global ~/.claude/settings.json for this agent's runs (hq --settings). Narrow here: "
+                "model, plugins, permissions. MCP servers come from shared services in capabilities.yaml needs "
+                "(granted with hq-auth), or mcp.json next to this file. Placeholders: {{HQ}}, {{AGENT_DIR}} "
+                "(pinned package), {{HOME_DIR}} (memory, data), {{HOME_REAL}} (same, symlinks resolved: use in permission rules), "
+                "{{STATE}} (the state folder: shared/user.md, shared/projects/), {{USER_HOME}} ($HOME).",
+    'autoMemoryEnabled': False,
+    'enabledPlugins': {p: False for p in plugins},
+    'permissions': {'allow': [f'Edit(/{{{{{h}}}}}/{d}/**)' for d in ('memory', 'skills/learned') for h in ('HOME_DIR', 'HOME_REAL')]},
+}, open(sys.argv[1], 'w'), indent=2)
+open(sys.argv[1], 'a').write('\n')
+EOF
+
+cat > "$state/memory/MEMORY.md" <<EOF
+# $name: long-term memory index
+
+## Lessons
+(none yet)
+
+## Learned skills
+(none yet; add \`skills/learned/<name>/SKILL.md\` entries here)
+EOF
+
+echo "created agents/$name: agent.md (TODOs for the builder), capabilities.yaml, settings.json, skills/; state in $state"

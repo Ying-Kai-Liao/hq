@@ -1,0 +1,5 @@
+# Declarations only. Credentials come from the runtime, never from here.
+tools: [image-generation, svg, web-fetch, browser]
+state: []
+writes: [project-assets]   # design files inside the current project, with approval
+global_skills: true   # keeps ~/.claude/skills (UI, animation) in hq runs

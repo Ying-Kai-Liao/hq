@@ -1,0 +1,31 @@
+#!/bin/sh
+# img — one entry point for the image agent's tools. `img help` lists everything; `img recipes` shows ready pipelines.
+T=$(cd "$(dirname "$0")" && pwd)
+cmd=$1; [ $# -gt 0 ] && shift
+case "$cmd" in
+  gen)       exec /usr/bin/python3 "$T/imagegen.py" "$@" ;;                       # "<prompt>" --out F [--n N] [--ref I] [--transparent]
+  edit)      p=$1; src=$2; shift 2; exec /usr/bin/python3 "$T/imagegen.py" "$p" --edit "$src" --out "$src" "$@" ;;
+  chart)     exec uv run -q "$T/chart.py" "$@" ;;                                 # quick bar|hbar|line|area|donut|scatter … | spec F.json …
+  ig)        exec /usr/bin/python3 "$T/infographic.py" "$@" ;;                    # TEMPLATE content.json --out F --preset P
+  templates) exec /usr/bin/python3 "$T/infographic.py" templates ;;
+  diagram)   exec "$T/diagram.sh" "$@" ;;                                         # IN.mmd OUT.png [WIDTH]
+  fit|text|sheet|info|presets) exec uv run -q "$T/finish.py" "$cmd" "$@" ;;
+  cutout)    exec uvx -q --from "rembg[cpu,cli]==2.0.67" rembg i "$@" ;;          # IN OUT [-m isnet-general-use]
+  recipes)   cat "$T/../skills/recipes/RECIPES.md"                                  # plus the agent's own, in its home
+             H=$(cat "$T/../.home" 2>/dev/null || (cd "$T/.." && pwd)); [ -f "$H/recipes.md" ] && { echo; cat "$H/recipes.md"; }; exit 0 ;;
+  ""|help|-h|--help) cat <<'H'
+img gen "<prompt>" --out F.png [--n 1-4] [--ref I] [--transparent]   generate (Codex image_gen, ~60 s)
+img edit "<change; keep>" SRC.png                                     edit, saved as SRC-v2.png
+img chart quick hbar --data F.csv --x COL --y COL [--sort desc] [--format '$,.0f'] --title … --source … --out F.png --preset P
+img chart spec F.vl.json [--data F.csv] --title … --out F.png        any Vega-Lite chart
+img ig TEMPLATE content.json --out F.png --preset P                   infographic (img templates lists them)
+img diagram F.mmd F.png                                               Mermaid diagram
+img fit F --preset og --out F.webp [--max-kb 200]                     exact size / format
+img text F --out F.png --title "Exact words" [--sub …] [--scrim]      exact text on an image
+img sheet A B C --labels --out compare.jpg                            contact sheet
+img cutout IN.png OUT.png                                             remove background (photos)
+img info F… · img presets · img templates · img recipes
+H
+  ;;
+  *) echo "img: unknown command '$cmd' (img help)" >&2; exit 2 ;;
+esac

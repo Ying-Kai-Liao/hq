@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# hq-send — deliver an agent's result to the user.
+#
+#   hq-send "text"                         a message
+#   hq-send --caption "text" FILE...       images show inline, anything else (html, pdf) as files
+#   hq-send --as image "🎨 generating…"    post as another agent (helpers reporting into the owner's thread)
+#
+# Inside a Discord task (hq-bridge sets HQ_DISCORD_WEBHOOK_URL + HQ_DISCORD_THREAD_ID) it posts into that thread,
+# named after the agent. Otherwise it goes to Telegram: HQ_TELEGRAM_BOT_TOKEN / HQ_TELEGRAM_CHAT_ID from the
+# environment or ~/.config/hq/env (or the file HQ_TELEGRAM_ENV_FILE names there). Never prints a token.
+set -euo pipefail
+
+as=${HQ_AGENT:-hq}
+[[ ${1:-} == --as ]] && { as=$2; shift 2; }
+# Discord shows the agent's display_name (agent.md frontmatter) when it has one
+card="$(dirname "$0")/../agents/$as/agent.md"
+[[ -f $card ]] && name=$(sed -n 's/^display_name:[[:space:]]*//p' "$card" | head -1) && [[ -n $name ]] && as=$name
+caption=""
+[[ ${1:-} == --caption ]] && { caption=$2; shift 2; }
+[[ $# -gt 0 ]] || { echo 'usage: hq-send [--as AGENT] "text" | hq-send [--as AGENT] --caption "text" FILE...' >&2; exit 2; }
+
+if [[ -n ${HQ_DISCORD_WEBHOOK_URL:-} && -n ${HQ_DISCORD_THREAD_ID:-} ]]; then
+  url="$HQ_DISCORD_WEBHOOK_URL?wait=true&thread_id=$HQ_DISCORD_THREAD_ID"
+  json() { python3 -c 'import json,sys; print(json.dumps({"username": sys.argv[1], "content": sys.argv[2][:2000]}))' "$as" "$1"; }
+  if [[ ! -f $1 ]]; then
+    curl -s --fail-with-body --max-time 30 -H 'Content-Type: application/json' -d "$(json "$*")" "$url" >/dev/null
+    echo "sent message to thread as $as"; exit 0
+  fi
+  form=(-F "payload_json=$(json "$caption")"); i=0
+  for f in "$@"; do form+=(-F "files[$i]=@$f"); i=$((i + 1)); done
+  curl -s --fail-with-body --max-time 120 "${form[@]}" "$url" >/dev/null
+  echo "sent $i file(s) to thread as $as"; exit 0
+fi
+
+[[ -f ~/.config/hq/env ]] && { set -a; . ~/.config/hq/env; set +a; }
+# Or borrow a bot from another tool's env file (e.g. a Hermes profile): HQ_TELEGRAM_ENV_FILE names a file with
+# TELEGRAM_BOT_TOKEN and TELEGRAM_HOME_CHANNEL.
+tg_file=${HQ_TELEGRAM_ENV_FILE:-}
+if [[ -z ${HQ_TELEGRAM_BOT_TOKEN:-} && -n $tg_file && -f $tg_file ]]; then
+  HQ_TELEGRAM_BOT_TOKEN=$(sed -n 's/^TELEGRAM_BOT_TOKEN=//p' "$tg_file" | tr -d '"'"'"'')
+  HQ_TELEGRAM_CHAT_ID=${HQ_TELEGRAM_CHAT_ID:-$(sed -n 's/^TELEGRAM_HOME_CHANNEL=//p' "$tg_file" | tr -d '"'"'"'')}
+fi
+[[ -n ${HQ_TELEGRAM_BOT_TOKEN:-} && -n ${HQ_TELEGRAM_CHAT_ID:-} ]] || { echo "hq-send: no Telegram bot configured" >&2; exit 1; }
+api="https://api.telegram.org/bot$HQ_TELEGRAM_BOT_TOKEN"
+
+check() { python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("ok") else print("hq-send:", d.get("description"), file=sys.stderr) or 1)'; }
+
+if [[ ! -f $1 ]]; then
+  curl -s --max-time 30 --data-urlencode "chat_id=$HQ_TELEGRAM_CHAT_ID" --data-urlencode "text=$*" "$api/sendMessage" | check
+  echo "sent message"; exit 0
+fi
+for f in "$@"; do
+  case $(printf %s "$f" | tr "[:upper:]" "[:lower:]") in
+    *.png|*.jpg|*.jpeg|*.webp) method=sendPhoto field=photo ;;
+    *) method=sendDocument field=document ;;
+  esac
+  curl -s --max-time 120 -F "chat_id=$HQ_TELEGRAM_CHAT_ID" -F "$field=@$f" ${caption:+-F "caption=$caption"} "$api/$method" | check
+  echo "sent $(basename "$f")"
+  caption=""   # caption on the first item only
+done

@@ -1,0 +1,233 @@
+<title>flow Video Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a lab notebook. One column of numbered takes, each a clip beside its verdict controls; summary strip on top. */
+:root {
+  --bg: #EEEDE8; --surface: #F7F6F2; --fg: #15171C; --muted: #5E636C; --line: rgba(21,23,28,.12);
+  --decide: #0B9A68; --decide-ink: #FFFFFF; --maybe: #9A6B0B; --drop: #9A2F2F; --chip: rgba(21,23,28,.06);
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #15171C; --surface: #1C1F25; --fg: #ECEDEF; --muted: #9AA0AA; --line: rgba(255,255,255,.10);
+  --decide: #2FD18F; --decide-ink: #15171C; --maybe: #E3B341; --drop: #F07171; --chip: rgba(255,255,255,.06); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #15171C; --surface: #1C1F25; --fg: #ECEDEF; --muted: #9AA0AA; --line: rgba(255,255,255,.10);
+  --decide: #2FD18F; --decide-ink: #15171C; --maybe: #E3B341; --drop: #F07171; --chip: rgba(255,255,255,.06); color-scheme: dark; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--font-body); }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 40px 80px; display: flex; flex-direction: column; gap: 40px; }
+header { display: flex; flex-direction: column; gap: 12px; }
+.eyebrow { font: 500 12px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-size: clamp(30px, 5vw, 46px); line-height: 1.05; letter-spacing: -.03em; margin: 0; text-wrap: balance; font-weight: 700; }
+h1 .bar { color: var(--decide); }
+.lede { max-width: 65ch; color: var(--muted); margin: 0; }
+.tally { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill { font: 500 13px var(--font-mono); padding: 6px 12px; border-radius: 999px; background: var(--chip); }
+.pill b { font-weight: 600; }
+.pill.keep b { color: var(--decide); } .pill.maybe b { color: var(--maybe); } .pill.drop b { color: var(--drop); }
+h2 { font-size: 20px; letter-spacing: -.01em; margin: 0; }
+section { display: flex; flex-direction: column; gap: 18px; }
+.take { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 22px; padding: 18px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 14px; }
+.take.v { grid-template-columns: minmax(0, .55fr) minmax(0, 1fr); }
+.take video { width: 100%; max-width: 100%; border-radius: 8px; background: #000; display: block; }
+.meta { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.meta .id { font: 500 12px var(--font-mono); color: var(--muted); }
+.meta h3 { margin: 0; font-size: 18px; letter-spacing: -.01em; }
+.meta p { margin: 0; }
+.meta ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+.verdict { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; }
+.verdict button { font: 600 13px var(--font-body); padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line);
+  background: transparent; color: var(--fg); cursor: pointer; }
+.verdict button:focus-visible, textarea:focus-visible { outline: 2px solid var(--decide); outline-offset: 2px; }
+.verdict button[aria-pressed="true"][data-v="keep"] { background: var(--decide); color: var(--decide-ink); border-color: var(--decide); }
+.verdict button[aria-pressed="true"][data-v="maybe"] { background: var(--maybe); color: var(--bg); border-color: var(--maybe); }
+.verdict button[aria-pressed="true"][data-v="drop"] { background: var(--drop); color: var(--bg); border-color: var(--drop); }
+textarea { width: 100%; box-sizing: border-box; min-height: 56px; resize: vertical; font: 14px/1.4 var(--font-body); color: var(--fg);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.status { font: 12px var(--font-mono); color: var(--muted); min-height: 1em; }
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.note { padding: 16px; border-radius: 12px; border: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.note h4 { margin: 0; font-size: 15px; }
+.note p { margin: 0; color: var(--muted); font-size: 14px; }
+.sub { margin: 4px 0 0; font: 600 13px var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.vlist { display: flex; flex-direction: column; gap: 10px; }
+.vrow { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 1.4fr); gap: 16px; align-items: center; padding: 14px 16px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.vrow audio { width: 100%; }
+.vrow .eng { font-weight: 600; } .vrow .sm { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.vrow .bad { color: var(--drop); } .vrow .good { color: var(--decide); }
+.vrow .act { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.vrow textarea { min-height: 36px; }
+@media (max-width: 760px) { .vrow { grid-template-columns: minmax(0, 1fr); } }
+.cmp { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.pending { padding: 18px; border-radius: 12px; border: 1px dashed var(--line); color: var(--muted); }
+code { font: 13px var(--font-mono); background: var(--chip); padding: 1px 5px; border-radius: 4px; }
+@media (max-width: 760px) { .take, .take.v { grid-template-columns: minmax(0, 1fr); } .take.v video { max-width: 320px; } }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">video agent · lab · rounds 1–2 · source: your 67 s flow recording</div>
+    <h1>Which treatments make the cut<span class="bar">.</span></h1>
+    <p class="lede">Six takes made from the same screen recording, each testing one idea, plus 15 voice samples. Mark each one keep, maybe or drop and add a
+      note if something's off. I read your picks from here and build the video agent's defaults from what you keep.</p>
+    <div class="tally" id="tally"><span class="pill keep"><b id="n-keep">0</b> keep</span><span class="pill maybe"><b id="n-maybe">0</b> maybe</span><span class="pill drop"><b id="n-drop">0</b> drop</span><span class="pill"><b id="n-open">24</b> undecided</span></div>
+  </header>
+
+  <section>
+    <h2>Edit treatments</h2>
+    <div id="takes"></div>
+  </section>
+
+  <section>
+    <h2>Round 2: footage or frame by frame?</h2>
+    <p class="lede">The T5 storyboard built three ways: the mark, run the whole crew, answer only what matters, done, then the lockup. Same timing, same headlines.</p>
+    <div class="cmp">
+      <div class="note"><h4>B · Edited footage (T5)</h4><p>Your real recording with the camera and overlays. Honest and quick: about 10 minutes for a new product, given a recording. It's limited by what's on screen: small terminal text, a burned-in cursor, and a layout we can't change.</p></div>
+      <div class="note"><h4>A · Frame by frame</h4><p>No footage. I rebuilt the flow pane in HTML from your recording and animated every row, counter, key press and toast. Crisp at any size, and the layout serves the story (headline column, larger text). It's a re-enactment, though, and each new screen has to be rebuilt by hand, which took about 40 minutes here.</p></div>
+      <div class="note"><h4>C · Hybrid</h4><p>Real footage for context, with the moments that matter rebuilt and lifted above it: the question card with the key press, and the answer toast. The footage is still the proof, and the hero moments read clearly. It costs one or two rebuilt components per video.</p></div>
+    </div>
+    <div id="takes2"></div>
+  </section>
+
+  <section id="voices">
+    <h2>Voices</h2>
+    <p class="lede">Same line, read by each engine. English: “Five managers. Seven workers. One reviewer. Flow runs your Claude Code agents in parallel, and only asks you when it matters.” 中文 is the same line in Traditional Chinese. Each take is transcribed with Whisper and compared with the script. Gemini isn't here because your AI Studio prepaid credits are used up.</p>
+    <h3 class="sub">English</h3><div class="vlist" id="v-en"></div>
+    <h3 class="sub">中文</h3><div class="vlist" id="v-zh"></div>
+  </section>
+
+  <section>
+    <h2>What the clips are built from</h2>
+    <div class="notes">
+      <div class="note"><h4>HyperFrames + a camera rig</h4><p>Each take is an HTML composition rendered frame by frame. The camera is one transform, so callouts and the cursor move with the footage. A move lasts 0.35 s plus 1.35 ms per pixel travelled, between 0.6 and 2.4 s (the rule comes from Cinetic).</p></div>
+      <div class="note"><h4>Your brand, not a template</h4><p>Ink, paper and Inter, from the flow brand. Green appears only where there's a decision, the same job the crossbar does in the mark.</p></div>
+      <div class="note"><h4>Zoom limit</h4><p>Zooms stop at 1.7× of the retina source, so terminal text stays readable. In round 1 the zoom targets are placed by hand. Next round they come from your clicks (Cap) or from detecting where the screen changes.</p></div>
+      <div class="note"><h4>Render speed</h4><p>12–23 s per clip on the Mac mini, at 1080p and 30 fps. A 90 s demo should take about 3–4 minutes.</p></div>
+    </div>
+  </section>
+</div>
+
+<script>
+const TAKES = [
+  { id: 't1-raw', n: 'T1', title: 'Raw recording', what: 'The control. Five seconds of the recording, untouched.', how: ['No edit, letterboxed to 16:9', 'Everything else is measured against this'] },
+  { id: 't2-framed', n: 'T2', title: 'Framed on paper', what: 'The same footage as a floating window on a light, grainy stage.', how: ['Rounded window and soft shadow', 'Entrance rise, no zoom'] },
+  { id: 't3-autozoom', n: 'T3', title: 'Auto-zoom camera', what: 'The camera follows the action: the agent tree, the header counts, then the question and its options.', how: ['Four camera moves with eased timing', 'Crossfade between two moments of the recording', 'No text added'] },
+  { id: 't4-callouts', n: 'T4', title: 'Callouts and captions', what: 'The answer moment, explained: a green box marks the waiting question, then the camera follows to the confirmation toast.', how: ['Green outline and "needs your decision" chip', 'Two captions, under 6 words each', 'Ink stage'] },
+  { id: 't5-launch', n: 'T5', title: 'Launch sting', what: 'A 9 s launch cut: the mark draws itself, then three beats of real footage, then the lockup.', how: ['Lanes wipe up, then the green crossbar slides in', 'Headlines on ink panels over zoomed footage', 'Hard-paced cuts, no voice'] },
+  { id: 't6-vertical', n: 'T6', title: 'Vertical (9:16)', what: 'The same story reframed for Reels, Shorts and Threads.', how: ['Re-aimed at the flow pane, not centre-cropped', 'Large captions with room for the platform UI'], vertical: true },
+];
+const TAKES2 = [
+  { id: 'r2-footage', file: 't5-launch', n: 'B', title: 'Edited footage', what: 'T5 again, for side-by-side viewing.', how: ['Real recording', 'Camera, headline panels, mark and lockup'] },
+  { id: 'r2-synthetic', file: 't7-synthetic', n: 'A', title: 'Frame by frame', what: 'The flow pane rebuilt in HTML and animated: rows stagger in, bars and token counts climb, the y key is pressed, and the count drops from 2 questions to 1.', how: ['No footage at all', 'Headline in its own column', 'Every number is animated, so it can be changed'] },
+  { id: 'r2-hybrid', file: 't8-hybrid', n: 'C', title: 'Hybrid', what: 'Real footage, with the question card and the answer toast rebuilt and lifted above it.', how: ['Footage dims while the card is up', 'Key press and green selection on the rebuilt card', 'Camera ends on the real 1 question count'] },
+];
+const VOICES = [{"id": "voice-chatterbox-default-en", "file": "chatterbox-default-en.mp3", "lang": "en", "engine": "Chatterbox (local)", "voice": "default (built-in conds)", "secs": 6.84, "gen": 75.0, "cost": "$0", "ok": true, "check": "Reads the script exactly"}, {"id": "voice-chatterboxturbo-default-en", "file": "chatterboxturbo-default-en.mp3", "lang": "en", "engine": "Chatterbox Turbo (local)", "voice": "default (built-in conds)", "secs": 9.32, "gen": 57.0, "cost": "$0", "ok": true, "check": "Reads the script exactly"}, {"id": "voice-openrouter-gptaudio-cedar-en", "file": "openrouter-gptaudio-cedar-en.mp3", "lang": "en", "engine": "GPT-audio (OpenRouter)", "voice": "cedar", "secs": 12.45, "gen": 3.67, "cost": "$0.017", "ok": true, "check": "Reads the script exactly"}, {"id": "voice-openrouter-gptaudiomini-ash-en", "file": "openrouter-gptaudiomini-ash-en.mp3", "lang": "en", "engine": "GPT-audio mini (OpenRouter)", "voice": "ash", "secs": 10.15, "gen": 2.33, "cost": "$0.0006", "ok": true, "check": "Reads the script exactly"}, {"id": "voice-kokoro-af_heart-en", "file": "kokoro-af_heart-en.mp3", "lang": "en", "engine": "Kokoro 82M (local)", "voice": "af_heart", "secs": 8.75, "gen": 8.0, "cost": "$0", "ok": true, "check": "Reads the script exactly"}, {"id": "voice-kokoro-am_michael-en", "file": "kokoro-am_michael-en.mp3", "lang": "en", "engine": "Kokoro 82M (local)", "voice": "am_michael", "secs": 9.78, "gen": 33.0, "cost": "$0", "ok": true, "check": "Reads the script exactly"}, {"id": "voice-bailian-qwenaudio3plus-longanlufeng-en", "file": "bailian-qwenaudio3plus-longanlufeng-en.mp3", "lang": "en", "engine": "Qwen-Audio 3 (Alibaba API)", "voice": "longanlufeng", "secs": 10.32, "gen": 6.59, "cost": "~$0.003", "ok": true, "check": "Reads the script exactly"}, {"id": "voice-qwen3tts-ryan-en", "file": "qwen3tts-ryan-en.mp3", "lang": "en", "engine": "Qwen3-TTS (local)", "voice": "Ryan", "secs": 10.0, "gen": 28.9, "cost": "$0", "ok": true, "check": "Reads the script exactly"}, {"id": "voice-qwen3tts-design-en", "file": "qwen3tts-design-en.mp3", "lang": "en", "engine": "Qwen3-TTS VoiceDesign (local)", "voice": "designed: warm low male narrator", "secs": 9.6, "gen": 18.49, "cost": "$0", "ok": true, "check": "Reads the script exactly"}, {"id": "voice-openrouter-gptaudio-marin-zh", "file": "openrouter-gptaudio-marin-zh.mp3", "lang": "zh", "engine": "GPT-audio (OpenRouter)", "voice": "marin", "secs": 12.5, "gen": 3.67, "cost": "$0.017", "ok": true, "check": "Reads the script exactly"}, {"id": "voice-bailian-qwenaudio3plus-longanlingxin-zh", "file": "bailian-qwenaudio3plus-longanlingxin-zh.mp3", "lang": "zh", "engine": "Qwen-Audio 3 (Alibaba API)", "voice": "longanlingxin", "secs": 10.0, "gen": 6.28, "cost": "~$0.001", "ok": true, "check": "Reads the script exactly"}, {"id": "voice-bailian-qwenaudio3plus-longanlufeng-zh", "file": "bailian-qwenaudio3plus-longanlufeng-zh.mp3", "lang": "zh", "engine": "Qwen-Audio 3 (Alibaba API)", "voice": "longanlufeng", "secs": 9.68, "gen": 5.99, "cost": "~$0.001", "ok": true, "check": "Reads the script exactly"}, {"id": "voice-kokoro-zm_yunjian-zh", "file": "kokoro-zm_yunjian-zh.mp3", "lang": "zh", "engine": "Kokoro 82M (local)", "voice": "zm_yunjian", "secs": 8.97, "gen": 7.0, "cost": "$0", "ok": false, "check": "Misreads: says 都 for \"Flow\" and 老德欧的 for \"Claude Code\""}, {"id": "voice-qwen3tts-vivian-zh", "file": "qwen3tts-vivian-zh.mp3", "lang": "zh", "engine": "Qwen3-TTS (local)", "voice": "Vivian", "secs": 11.6, "gen": 18.53, "cost": "$0", "ok": false, "check": "Misreads 12.8% of characters: 者 → 节, 審 garbled, 讓 → 用"}, {"id": "voice-qwen3tts-design_tw-zh", "file": "qwen3tts-design_tw-zh.mp3", "lang": "zh", "engine": "Qwen3-TTS VoiceDesign (local)", "voice": "designed: Taiwanese male narrator, 30s", "secs": 8.08, "gen": 12.73, "cost": "$0", "ok": false, "check": "Misreads 7.7% of characters: 者 → 节, \"Flow 讓\" garbled"}];
+const host = document.getElementById('takes');
+for (const t of TAKES) {
+  const el = document.createElement('article');
+  el.className = 'take' + (t.vertical ? ' v' : '');
+  el.innerHTML = `
+    <video src="media/${t.id}.mp4" poster="media/${t.id}.jpg" controls muted loop playsinline preload="metadata"></video>
+    <div class="meta">
+      <div class="id">${t.n} · ${t.id}</div>
+      <h3>${t.title}</h3>
+      <p>${t.what}</p>
+      <ul>${t.how.map(h => `<li>${h}</li>`).join('')}</ul>
+      <div class="verdict" role="group" aria-label="Verdict for ${t.title}">
+        <button type="button" data-v="keep" aria-pressed="false">Keep</button>
+        <button type="button" data-v="maybe" aria-pressed="false">Maybe</button>
+        <button type="button" data-v="drop" aria-pressed="false">Drop</button>
+      </div>
+      <textarea id="note-${t.id}" placeholder="What to change (optional)"></textarea>
+      <div class="status" id="st-${t.id}"></div>
+    </div>`;
+  host.appendChild(el);
+  t.el = el;
+}
+for (const t of TAKES2) {
+  const el = document.createElement('article');
+  el.className = 'take';
+  el.innerHTML = `
+    <video src="media/${t.file}.mp4" poster="media/${t.file}.jpg" controls muted loop playsinline preload="metadata"></video>
+    <div class="meta">
+      <div class="id">${t.n} · ${t.file}</div>
+      <h3>${t.title}</h3>
+      <p>${t.what}</p>
+      <ul>${t.how.map(h => `<li>${h}</li>`).join('')}</ul>
+      <div class="verdict" role="group" aria-label="Verdict for ${t.title}">
+        <button type="button" data-v="keep" aria-pressed="false">Keep</button>
+        <button type="button" data-v="maybe" aria-pressed="false">Maybe</button>
+        <button type="button" data-v="drop" aria-pressed="false">Drop</button>
+      </div>
+      <textarea id="note-${t.id}" placeholder="What to change (optional)"></textarea>
+      <div class="status" id="st-${t.id}"></div>
+    </div>`;
+  document.getElementById('takes2').appendChild(el);
+  t.el = el;
+  TAKES.push(t);
+}
+for (const v of VOICES) {
+  const el = document.createElement('div');
+  el.className = 'vrow';
+  el.innerHTML = `
+    <div><div class="eng">${v.engine}</div><div class="sm">${v.voice} · ${v.secs.toFixed(1)} s · ${v.cost === '$0' ? 'free' : v.cost}</div>
+      <div class="sm ${v.ok ? 'good' : 'bad'}">${v.check}</div></div>
+    <audio src="media/voices/${v.file}" controls preload="none"></audio>
+    <div class="act"><div class="verdict" role="group" aria-label="Verdict for ${v.engine} ${v.voice}">
+        <button type="button" data-v="keep" aria-pressed="false">Keep</button>
+        <button type="button" data-v="maybe" aria-pressed="false">Maybe</button>
+        <button type="button" data-v="drop" aria-pressed="false">Drop</button></div>
+      <textarea id="note-${v.id}" placeholder="Note (optional)"></textarea><div class="status" id="st-${v.id}"></div></div>`;
+  document.getElementById('v-' + v.lang).appendChild(el);
+  v.el = el;
+  TAKES.push(v);
+}
+
+const state = {};
+function render() {
+  const c = { keep: 0, maybe: 0, drop: 0 };
+  for (const t of TAKES) {
+    const v = state[t.id]?.verdict;
+    if (v) c[v]++;
+    t.el.querySelectorAll('.verdict button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+    const ta = t.el.querySelector('textarea');
+    if (document.activeElement !== ta && state[t.id]?.note !== undefined) ta.value = state[t.id].note;
+  }
+  for (const k of ['keep', 'maybe', 'drop']) document.getElementById('n-' + k).textContent = c[k];
+  document.getElementById('n-open').textContent = TAKES.length - c.keep - c.maybe - c.drop;
+}
+
+(async () => {
+  const db = await window.claude?.use?.('db');
+  if (!db) {
+    for (const t of TAKES) {
+      t.el.querySelectorAll('button, textarea').forEach(x => x.disabled = true);
+      document.getElementById('st-' + t.id).textContent = 'Sign in to claude.ai to save picks.';
+    }
+    return;
+  }
+  db.collection('picks').onSnapshot(snap => {
+    for (const d of snap.docs) state[d.id] = d.data();
+    render();
+  });
+  for (const t of TAKES) {
+    const st = document.getElementById('st-' + t.id);
+    const save = async patch => {
+      state[t.id] = { ...(state[t.id] || {}), ...patch };
+      render();
+      try { await db.doc('picks/' + t.id).set({ ...state[t.id], updatedAt: new Date().toISOString() }); st.textContent = 'Saved'; }
+      catch (e) { st.textContent = 'Not saved: ' + (e?.message || 'try again'); }
+    };
+    t.el.querySelectorAll('.verdict button').forEach(b => b.addEventListener('click', () =>
+      save({ verdict: state[t.id]?.verdict === b.dataset.v ? null : b.dataset.v })));
+    const ta = t.el.querySelector('textarea');
+    let timer;
+    ta.addEventListener('input', () => { clearTimeout(timer); st.textContent = '…'; timer = setTimeout(() => save({ note: ta.value }), 700); });
+  }
+})();
+render();
+</script>

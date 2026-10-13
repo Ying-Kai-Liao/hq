@@ -1,0 +1,5 @@
+{
+  "description": "A Telegram bot that posts into a chat (the bot must be a member); tools ask hq-auth for its token",
+  "kind": "cli",
+  "secrets": ["TELEGRAM_BOT_TOKEN"]
+}

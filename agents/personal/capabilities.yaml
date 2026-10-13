@@ -1,0 +1,22 @@
+# Declarations only. Credentials come from the runtime, never from here.
+needs: [jev-browser, notion, chrome-agent]   # shared/services; grants in ~/.config/hq/auth.json (hq-auth ls)
+tools:
+  - house.py dish (house's tool, live path)   # writes to house's dish book; house owns it
+  - calendar
+  - web-fetch, web-search
+  - sqlite                      # agents/personal/tools/links.py
+  - jev-browser (MCP)           # Google Maps lookups, login-walled pages
+  - yt-dlp + mlx-whisper (uvx)  # reel/video audio → local transcript
+  - open-meteo                  # weather, no key
+  - nominatim                   # OpenStreetMap geocoding, fallback only
+state:
+  - google-calendar
+  - agents/personal/data/links.db      # links and places library (owned, read-write; source of truth)
+  - notion: Library → Links database   # one-way mirror, ids in agents/personal/data/notion.json
+  - ~/.hermes/places.db                # older places list (read-only; imported 2026-10-13)
+inbox: ~/Library/Mobile Documents/com~apple~CloudDocs/hq/inbox.txt
+credentials (by name, from the runtime):
+  - NOTION_API_KEY        # ~/.hermes/.env (Hermes integration, shared with the Library page only)
+  - TYPESAFE_API_KEY      # jev-browser MCP config, from ~/.config/jev/env
+  - chrome:Agent          # dedicated Chrome profile logged in to Facebook + Instagram, for yt-dlp cookies
+access: read        # creating events or messages needs approval; saving to the library and Notion mirror is fine

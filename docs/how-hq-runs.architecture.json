@@ -1,0 +1,372 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "How an hq agent runs",
+    "output": "how-hq-runs.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1120,
+      600
+    ],
+    "views": [
+      {
+        "id": "versions",
+        "label": "Versions",
+        "focus": [
+          "workcopy",
+          "hqpkg",
+          "store",
+          "pointers",
+          "home"
+        ],
+        "note": "Edits by anyone become the next run's version once checks pass; running sessions keep theirs."
+      },
+      {
+        "id": "launch",
+        "label": "One run",
+        "focus": [
+          "entry",
+          "hqpkg",
+          "store",
+          "launch",
+          "claude"
+        ],
+        "note": "Resolve a pinned snapshot, fill placeholders at run time, start Claude Code."
+      },
+      {
+        "id": "auth",
+        "label": "Services and auth",
+        "focus": [
+          "launch",
+          "hqauth",
+          "services",
+          "authjson",
+          "mcp"
+        ],
+        "note": "Only needed and granted services start; secrets live only in the server process."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "entry",
+      "type": "external",
+      "label": "Entry points",
+      "sublabel": "hq · hq:<name> · Discord",
+      "pos": [
+        40,
+        210
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "workcopy",
+      "type": "frontend",
+      "label": "agents/<name>/",
+      "sublabel": "package working copy",
+      "pos": [
+        260,
+        60
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": ".editing holds"
+    },
+    {
+      "id": "hqpkg",
+      "type": "backend",
+      "label": "hq-pkg resolve",
+      "sublabel": "fingerprint · check",
+      "pos": [
+        260,
+        210
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "pointers",
+      "type": "database",
+      "label": "Pointers",
+      "sublabel": "good · pin",
+      "pos": [
+        260,
+        360
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "hq rollback"
+    },
+    {
+      "id": "store",
+      "type": "database",
+      "label": ".store/<name>@<ver>",
+      "sublabel": "read-only APFS clone",
+      "pos": [
+        480,
+        210
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "services",
+      "type": "database",
+      "label": "shared/services",
+      "sublabel": "mcp · cli · login",
+      "pos": [
+        480,
+        360
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "launch",
+      "type": "backend",
+      "label": "bin/hq",
+      "sublabel": "fill placeholders",
+      "pos": [
+        710,
+        210
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "hqauth",
+      "type": "security",
+      "label": "hq-auth",
+      "sublabel": "mcp-config · exec · get",
+      "pos": [
+        710,
+        360
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "auth.log"
+    },
+    {
+      "id": "authjson",
+      "type": "security",
+      "label": "auth.json",
+      "sublabel": "profiles · grants",
+      "pos": [
+        710,
+        510
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "claude",
+      "type": "cloud",
+      "label": "Claude Code run",
+      "sublabel": "pinned agent",
+      "pos": [
+        930,
+        210
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "home",
+      "type": "database",
+      "label": "Agent home",
+      "sublabel": "memory · data · learned/",
+      "pos": [
+        930,
+        60
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "mcp",
+      "type": "external",
+      "label": "MCP server",
+      "sublabel": "secrets in its env only",
+      "pos": [
+        930,
+        360
+      ],
+      "size": [
+        160,
+        64
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "~/.config/hq",
+      "wraps": [
+        "authjson"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "resolve",
+      "from": "entry",
+      "to": "hqpkg",
+      "label": "resolve",
+      "variant": "emphasis"
+    },
+    {
+      "id": "fingerprint",
+      "from": "workcopy",
+      "to": "hqpkg",
+      "label": "edits",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "snapshot",
+      "from": "hqpkg",
+      "to": "store",
+      "label": "new version",
+      "variant": "emphasis"
+    },
+    {
+      "id": "good-pin",
+      "from": "hqpkg",
+      "to": "pointers",
+      "label": "last good",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "template",
+      "from": "store",
+      "to": "launch",
+      "label": "template",
+      "variant": "emphasis"
+    },
+    {
+      "id": "start",
+      "from": "launch",
+      "to": "claude",
+      "label": "start",
+      "variant": "emphasis"
+    },
+    {
+      "id": "writes",
+      "from": "claude",
+      "to": "home",
+      "label": "writes state",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "learned",
+      "from": "home",
+      "to": "workcopy",
+      "label": "learned skills → next version",
+      "variant": "dashed",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "id": "mcpconfig",
+      "from": "launch",
+      "to": "hqauth",
+      "label": "needs",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "id": "defs",
+      "from": "services",
+      "to": "hqauth",
+      "label": "definitions"
+    },
+    {
+      "id": "grants",
+      "from": "authjson",
+      "to": "hqauth",
+      "label": "grant",
+      "variant": "security",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "labelAt": [
+        790,
+        450
+      ]
+    },
+    {
+      "id": "inject",
+      "from": "hqauth",
+      "to": "mcp",
+      "label": "secrets",
+      "variant": "security"
+    },
+    {
+      "id": "stdio",
+      "from": "claude",
+      "to": "mcp",
+      "label": "tools",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Versions",
+      "items": [
+        "Every run pins a snapshot; edits never wait",
+        "Failed checks → last good version runs",
+        "hq versions · pin · rollback · unpin"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Auth",
+      "items": [
+        "Service (repo) · need (package) · grant (yours)",
+        "Secrets: Keychain, env file or env, by reference",
+        "Every secret handed out is logged"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Safety nets",
+      "items": [
+        "Versioning breaks → live folder runs",
+        "auth.json breaks → run without services",
+        "Least privilege, not a sandbox"
+      ]
+    }
+  ]
+}

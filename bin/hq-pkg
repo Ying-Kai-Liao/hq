@@ -1,0 +1,486 @@
+#!/usr/bin/env python3
+"""hq-pkg — versioned agent packages. Every run is pinned to a snapshot; edits become a new version for the next run.
+
+  hq-pkg resolve <agent>|--all [--json]   the pinned package dir to run (makes the snapshot if the agent changed)
+  hq-pkg versions <agent>                 versions on disk, newest first (marks current, good, pinned)
+  hq-pkg pin <agent> [VERSION]            run this version until unpinned (default: the previous good one)
+  hq-pkg unpin <agent>                    back to following the latest edits
+  hq-pkg check <agent>                    validate the working copy without snapshotting it
+  hq-pkg check --share [agent...]         personal details a package must not carry before it is shared: home paths,
+                                          email addresses, words listed in <state>/private-words (reports; never
+                                          blocks a run)
+  hq-pkg promote <agent> <skill>          move a learned skill (state) into the package's skills/
+  hq-pkg fetch <agent>|--all [--force]    download the third-party skills skills.json names (a run does it on first
+                                          use; install.sh does it for every agent)
+
+The package is agents/<name>/ minus state (memory/, data/, skills/learned/), which lives under the state folder. Whoever edits it (you, the agent learning a skill,
+another code agent) changes the working copy; the next run sees a new fingerprint, validates it, and snapshots it
+into .store/<name>@<version>/ as an APFS clone. Running sessions keep the snapshot they started on, so upgrades
+never wait for anyone. A version that fails validation is not used; the last good one runs instead.
+
+Third-party skills are links, not copies: agents/<name>/skills.json names each one's GitHub repo, path and pinned
+commit, and fetch downloads just that folder into skills/<name>/ (git-ignored; .source records what is there). A
+package whose linked skills aren't fetched fails its checks like any other problem; changing a pin is a new version.
+
+Multi-file edits: touch agents/<name>/.editing while changing a package and delete it when done; runs keep using
+the last good version meanwhile (the marker is ignored after an hour, so a forgotten one can't freeze an agent).
+
+Inside a snapshot: prompt.md (agent.md body + PROTOCOL.md) and settings.json, both still templates: bin/hq and the
+adapter fill {{HQ}} repo, {{AGENT}} name, {{AGENT_DIR}} the pinned package, {{HOME_DIR}} the live agent folder,
+{{HOME_REAL}} that folder with symlinks resolved (for permission rules), {{STATE}} the state folder, {{USER_HOME}} $HOME at run time, so a snapshot doesn't depend on the path it was made through. .home names the live agent folder.
+"""
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+# The repo's logical path (not resolved): it may be a symlink to a path with spaces, which agents should never see.
+# os.path.abspath would resolve the cwd physically, and __file__ is already resolved: join argv[0] onto $PWD.
+HQ = Path(os.environ.get('HQ_ROOT') or os.path.dirname(os.path.dirname(
+    os.path.normpath(os.path.join(os.environ.get('PWD') or os.getcwd(), sys.argv[0])))))
+STORE = HQ / '.store'
+# The state folder: $HQ_STATE, else ~/.hq, else the repo (before hq-migrate-state). Mirrors the repo's paths.
+STATE_ROOT = Path(os.environ.get('HQ_STATE') or (Path.home() / '.hq' if (Path.home() / '.hq').is_dir() else HQ))
+STATE = ('memory', 'data')                                   # live state, never snapshotted
+STATE_NESTED = {Path('skills') / 'learned'}                  # also state: what the agent writes itself
+FORMAT = '2'                                                 # bump when snapshot contents change (e.g. .home)
+SKIP = {'__pycache__', '.DS_Store', 'node_modules', '.editing'}
+PLACEHOLDERS = {'HQ', 'AGENT', 'AGENT_DIR', 'HOME_DIR', 'HOME_REAL', 'STATE', 'USER_HOME'}
+EDITING_MAX_AGE = 3600                                       # a stale .editing marker stops holding releases back
+KEEP = 5                                                     # old versions kept besides current/good/pinned/running
+
+
+EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')
+
+
+def die(msg, code=1):
+    print(f'hq-pkg: {msg}', file=sys.stderr)
+    sys.exit(code)
+
+
+def agent_home(agent):
+    home = HQ / 'agents' / agent
+    if not (home / 'agent.md').is_file():
+        die(f"no agent '{agent}'")
+    return home
+
+
+def package_files(home):
+    for root, dirs, files in os.walk(home):
+        rel = Path(root).relative_to(home)
+        dirs[:] = sorted(d for d in dirs if d not in SKIP and not (rel == Path('.') and d in STATE)
+                         and rel / d not in STATE_NESTED)
+        for f in sorted(files):
+            if f not in SKIP:
+                yield Path(root) / f
+
+
+def fingerprint(home):
+    h = hashlib.sha1(f'format {FORMAT}\nstate {STATE_ROOT}\n'.encode())   # .home names the state folder
+    for p in [*package_files(home), HQ / 'shared' / 'PROTOCOL.md']:
+        st = p.stat()
+        h.update(f'{p.relative_to(HQ)}\0{st.st_size}\0{st.st_mtime_ns}\n'.encode())
+    return h.hexdigest()[:10]
+
+
+def frontmatter(text):
+    m = re.match(r'^---\n(.*?)\n---\n?', text, re.S)
+    if not m:
+        return {}, text
+    fields = dict(re.findall(r'^([A-Za-z_-]+):\s*(.*)$', m.group(1), re.M))
+    return fields, text[m.end():]
+
+
+def problems(home):
+    """Reasons a working copy must not become the running version. Empty list = good."""
+    out = []
+    fields, body = frontmatter((home / 'agent.md').read_text())
+    if not fields.get('description'):
+        out.append('agent.md: frontmatter has no description')
+    if fields.get('effort') and fields['effort'] not in EFFORTS:
+        out.append(f'agent.md: effort {fields["effort"]!r} is not one of {", ".join(EFFORTS)}')
+    if fields.get('model') and not re.fullmatch(r'[\w.\[\]-]+', fields['model']):
+        out.append(f'agent.md: model {fields["model"]!r} is not a model name or alias')
+    for name in ('settings.json', 'mcp.json'):
+        f = home / name
+        if f.exists():
+            try:
+                json.loads(f.read_text())
+            except ValueError as e:
+                out.append(f'{name}: invalid JSON ({e})')
+    for name in ('agent.md', 'settings.json'):
+        f = home / name
+        unknown = set(re.findall(r'\{\{([A-Z_]+)\}\}', f.read_text())) - PLACEHOLDERS if f.exists() else set()
+        if unknown:
+            out.append(f'{name}: unknown placeholder(s) {", ".join(sorted(unknown))}')
+    caps = home / 'capabilities.yaml'
+    if caps.exists() and re.search(r'^needs:', caps.read_text(), re.M) and \
+            not re.search(r'^needs:\s*\[[^\]]*\]', caps.read_text(), re.M):
+        out.append('capabilities.yaml: write needs as a one-line list, needs: [a, b]')
+    try:
+        linked = external_skills(home)
+    except ValueError as e:
+        out.append(str(e))
+        linked = {}
+    for name, src in linked.items():
+        if read(home / 'skills' / name / '.source') != source_line(src):
+            out.append(f'skills/{name} is not fetched at {src["ref"][:12]} (hq-pkg fetch {home.name})')
+    for skill in re.findall(r'`([\w./-]+/SKILL\.md)`', body):
+        skill = skill[len('skills/'):] if skill.startswith('skills/') else skill
+        if skill.startswith('learned/'):
+            out.append(f'agent.md names skills/{skill}: learned skills are state; hq-pkg promote {home.name} '
+                       f'{skill.split("/")[1]} to make it part of the package')
+        elif not (home / 'skills' / skill).is_file():
+            out.append(f'agent.md names skills/{skill}, which does not exist')
+    for svc in needs(home):
+        if not (HQ / 'shared' / 'services' / f'{svc}.json').is_file():
+            out.append(f'capabilities.yaml needs service {svc!r}, not in shared/services/')
+    return out
+
+
+def needs(home):
+    """`needs: [a, b]` from capabilities.yaml: the shared services this agent asks for (granted in auth.json)."""
+    f = home / 'capabilities.yaml'
+    m = re.search(r'^needs:\s*\[([^\]]*)\]', f.read_text(), re.M) if f.exists() else None
+    return [s.strip() for s in m.group(1).split(',') if s.strip()] if m else []
+
+
+def snapshot(agent, home, version):
+    dest = STORE / f'{agent}@{version}'
+    if dest.exists():
+        return dest
+    STORE.mkdir(exist_ok=True)
+    tmp = STORE / f'.tmp-{agent}-{version}-{os.getpid()}'
+    tmp.mkdir()
+    # APFS clones, one cp per top-level entry: instant and copy-on-write, so a snapshot never changes when the
+    # working copy does. Then drop what the fingerprint ignores.
+    entries = [str(e) for e in sorted(home.iterdir()) if e.name not in STATE and e.name not in SKIP]
+    cloned = subprocess.run(['cp', '-c', '-R', '-p', *entries, str(tmp)], capture_output=True).returncode == 0
+    if not cloned:
+        for p in package_files(home):
+            target = tmp / p.relative_to(home)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(p, target)
+    for nested in STATE_NESTED:
+        shutil.rmtree(tmp / nested, ignore_errors=True)
+    for root, dirs, files in os.walk(tmp):
+        for d in [d for d in dirs if d in SKIP]:
+            shutil.rmtree(os.path.join(root, d), ignore_errors=True)
+            dirs.remove(d)
+        for f in [f for f in files if f in SKIP]:
+            os.unlink(os.path.join(root, f))
+    _, body = frontmatter((home / 'agent.md').read_text())
+    protocol = (HQ / 'shared' / 'PROTOCOL.md').read_text()
+    (tmp / 'prompt.md').write_text(f'{body.strip()}\n\n{protocol}')
+    if not (tmp / 'settings.json').exists():
+        (tmp / 'settings.json').write_text('{}\n')
+    (tmp / '.home').write_text(f'{STATE_ROOT}/agents/{agent}\n')
+    (tmp / '.meta.json').write_text(json.dumps({'agent': agent, 'version': version, 'made': time.time(),
+                                                'needs': needs(home)}))
+    for root, _, files in os.walk(tmp):   # read-only files: a run can't edit its own snapshot by accident
+        for f in files:                   # (executables keep their execute bit, so tools/<x> still runs)
+            p = os.path.join(root, f)
+            os.chmod(p, 0o555 if os.stat(p).st_mode & 0o111 else 0o444)
+    try:
+        tmp.rename(dest)
+    except OSError:                       # another run made the same version first
+        shutil.rmtree(tmp, ignore_errors=True)
+    return dest
+
+
+def pointers(agent):
+    d = STORE / '.pointers'
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f'{agent}.good', d / f'{agent}.pin'
+
+
+def read(p):
+    try:
+        return p.read_text().strip()
+    except OSError:
+        return ''
+
+
+def write_atomic(p, text):
+    tmp = p.with_name(f'.{p.name}.{os.getpid()}')
+    tmp.write_text(text + '\n')
+    tmp.rename(p)
+
+
+def external_skills(home):
+    """{folder name: {repo, path, ref, license}} from skills.json: third-party skills linked, not copied."""
+    f = home / 'skills.json'
+    if not f.exists():
+        return {}
+    try:
+        skills = json.loads(f.read_text()).get('skills', {})
+    except ValueError as e:
+        raise ValueError(f'skills.json: invalid JSON ({e})')
+    for name, src in skills.items():
+        if not re.fullmatch(r'[a-z0-9][\w.-]*', name):
+            raise ValueError(f'skills.json: bad skill folder name {name!r}')
+        if not re.fullmatch(r'[\w.-]+/[\w.-]+', src.get('repo', '')):
+            raise ValueError(f'skills.json: {name}: repo must be owner/name')
+        if not re.fullmatch(r'[0-9a-f]{40}', src.get('ref', '')):
+            raise ValueError(f'skills.json: {name}: ref must be a full commit sha (pinned, never a branch)')
+        if not src.get('path') or '..' in src['path'].split('/'):
+            raise ValueError(f'skills.json: {name}: path must be a folder in the repo ("." for the repo itself)')
+    return skills
+
+
+def source_line(src):
+    return f'{src["repo"]}@{src["ref"]}:{src["path"].strip("/") or "."}'
+
+
+def fetch(home, force=False):
+    """Download each linked skill that isn't already there at its pinned commit. Returns the names fetched."""
+    skills = external_skills(home)
+    todo = {n: s for n, s in skills.items() if force or read(home / 'skills' / n / '.source') != source_line(s)}
+    groups = {}
+    for name, src in todo.items():
+        groups.setdefault((src['repo'], src['ref']), []).append((name, src['path'].strip('/') or '.'))
+    env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
+    for (repo, ref), items in groups.items():
+        # A shallow, blob-less, sparse fetch of one commit: only these folders' files come down, however big the repo.
+        with tempfile.TemporaryDirectory(prefix='hq-fetch-') as tmp:
+            git = lambda *a: subprocess.run(['git', '-C', tmp, *a], env=env, capture_output=True, text=True,
+                                            timeout=300)
+            whole = any(p == '.' for _, p in items)     # a repo that is itself the skill
+            steps = [('init', '-q'), ('remote', 'add', 'origin', f'https://github.com/{repo}.git'),
+                     *([] if whole else [('sparse-checkout', 'set', '--no-cone', *[f'/{p}/' for _, p in items])]),
+                     ('fetch', '-q', '--depth', '1', '--filter=blob:none', 'origin', ref),
+                     ('checkout', '-q', 'FETCH_HEAD')]
+            for step in steps:
+                r = git(*step)
+                if r.returncode:
+                    raise RuntimeError(f'fetching {repo}@{ref[:12]}: git {step[0]} failed: {r.stderr.strip()}')
+            for name, path in items:
+                src = Path(tmp) / path
+                if not (src / 'SKILL.md').is_file():
+                    raise RuntimeError(f'{repo}@{ref[:12]} has no {path}/SKILL.md')
+                dest = home / 'skills' / name
+                part = home / 'skills' / f'.{name}.part'
+                shutil.rmtree(part, ignore_errors=True)
+                shutil.copytree(src, part, ignore=shutil.ignore_patterns('.git'))
+                (part / '.source').write_text(source_line(skills[name]) + '\n')
+                shutil.rmtree(dest, ignore_errors=True)
+                part.rename(dest)
+    if skills:   # fetched folders are not part of the repo
+        names = sorted(skills)
+        (home / 'skills' / '.gitignore').write_text(
+            '# third-party skills fetched from skills.json (hq-pkg fetch); not committed\n'
+            + ''.join(f'/{n}/\n' for n in names))
+    return sorted(todo)
+
+
+def resolve(agent):
+    """Returns (package dir, note). note is set when the run doesn't use the latest edits."""
+    home = agent_home(agent)
+    good, pin = pointers(agent)
+    pinned = read(pin)
+    if pinned and (STORE / f'{agent}@{pinned}').is_dir():
+        return STORE / f'{agent}@{pinned}', f'pinned to {pinned} (hq unpin {agent} to follow edits)'
+    last = read(good)
+    editing = home / '.editing'
+    if editing.exists() and time.time() - editing.stat().st_mtime < EDITING_MAX_AGE and \
+            last and (STORE / f'{agent}@{last}').is_dir():
+        return STORE / f'{agent}@{last}', f'being edited (.editing), running {last}'
+    try:
+        fetch(home)       # first run after install, or a changed pin: download what skills.json links
+    except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired) as e:
+        print(f'hq: {agent}: {e}', file=sys.stderr)   # the checks below then fail and the last good version runs
+    version = fingerprint(home)
+    if (STORE / f'{agent}@{version}').is_dir():
+        running(STORE / f'{agent}@{version}')   # clears records of finished runs
+        if (STORE / f'{agent}@{version}' / '.unchecked').exists():
+            return STORE / f'{agent}@{version}', 'no good version yet, running unchecked edits'
+        write_atomic(good, version)
+        return STORE / f'{agent}@{version}', ''
+    bad = problems(home)
+    if bad:
+        detail = '; '.join(bad)
+        if last and (STORE / f'{agent}@{last}').is_dir():
+            return STORE / f'{agent}@{last}', f'latest edits fail checks, running {last}: {detail}'
+        dest = snapshot(agent, home, version)
+        (dest / '.unchecked').write_text(detail + '\n')
+        return dest, f'no good version yet, running unchecked edits: {detail}'
+    dest = snapshot(agent, home, version)
+    write_atomic(good, version)
+    gc(agent)
+    return dest, ''
+
+
+def running(pkg):
+    """True while a run started from this snapshot is alive; clears records of finished runs."""
+    alive = False
+    runs = pkg / '.runs'
+    for f in runs.glob('*') if runs.is_dir() else []:
+        pid = f.name.split('.', 1)[0]
+        try:
+            os.kill(int(pid), 0)
+            alive = True
+        except (ValueError, ProcessLookupError):
+            f.unlink(missing_ok=True)
+        except PermissionError:
+            alive = True
+    return alive
+
+
+def made(d):
+    """When a version was made. Not the folder's mtime: that moves whenever a run is recorded in it."""
+    try:
+        return json.loads((d / '.meta.json').read_text())['made']
+    except (OSError, ValueError, KeyError):
+        return d.stat().st_mtime
+
+
+def all_versions(agent):
+    dirs = [d for d in STORE.glob(f'{agent}@*') if d.is_dir()]
+    return sorted(dirs, key=made, reverse=True)
+
+
+def gc(agent):
+    good, pin = pointers(agent)
+    keep = {read(good), read(pin)}
+    for d in all_versions(agent)[KEEP:]:
+        # Subagent sessions don't record runs, so anything made in the last two days stays too.
+        recent = time.time() - made(d) < 2 * 86400
+        if d.name.split('@', 1)[1] not in keep and not recent and not running(d):
+            shutil.rmtree(d, ignore_errors=True)
+
+
+def cmd_versions(agent):
+    agent_home(agent)
+    good, pin = pointers(agent)
+    current = fingerprint(agent_home(agent))
+    for d in all_versions(agent):
+        v = d.name.split('@', 1)[1]
+        tags = [t for t, on in (('latest', v == current), ('good', v == read(good)), ('pinned', v == read(pin)),
+                                ('running', running(d))) if on]
+        when = time.strftime('%Y-%m-%d %H:%M', time.localtime(made(d)))
+        print(f'{v}  {when}  {" ".join(tags)}')
+    if not (STORE / f'{agent}@{current}').is_dir():
+        print(f'{current}  (unreleased edits; the next run checks and snapshots them)')
+
+
+def cmd_pin(agent, version):
+    agent_home(agent)
+    good, pin = pointers(agent)
+    if not version:
+        versions = [d.name.split('@', 1)[1] for d in all_versions(agent)]
+        current = read(pin) or read(good)
+        older = versions[versions.index(current) + 1:] if current in versions else versions[1:]
+        if not older:
+            die(f'no older version of {agent} to roll back to')
+        version = older[0]
+    if not (STORE / f'{agent}@{version}').is_dir():
+        die(f'no version {version} of {agent} (hq-pkg versions {agent})')
+    write_atomic(pin, version)
+    print(f'{agent} pinned to {version}; new runs use it, running ones keep theirs')
+
+
+def share_problems(home):
+    """Personal details in a package's text files. Not a run check: they only matter when the package is shared."""
+    words_file = STATE_ROOT / 'private-words'
+    words = [w.strip() for w in (words_file.read_text().splitlines() if words_file.is_file() else [])
+             if w.strip() and not w.startswith('#')]
+    pats = [(re.compile(r'/Users/[A-Za-z0-9._-]+/'), 'home path'),
+            (re.compile(r'[\w.+-]+@(?!example\.)[\w-]+(\.[\w-]+)*\.[A-Za-z]{2,}\b'), 'email address')]
+    pats += [(re.compile(r'(?<![\w-])' + re.escape(w) + r'(?![\w-])', re.I), 'private word') for w in words]
+    out = []
+    linked = set(external_skills(home)) if (home / 'skills.json').exists() else set()
+    for f in package_files(home):
+        rel = f.relative_to(home).parts
+        if len(rel) > 2 and rel[0] == 'skills' and rel[1] in linked:
+            continue      # third-party, fetched from its source; not part of what is shared
+        if f.stat().st_size > 2_000_000:
+            continue
+        try:
+            text = f.read_text()
+        except (UnicodeDecodeError, OSError):
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            for pat, kind in pats:
+                m = pat.search(line)
+                if m and not (kind == 'email address' and m.group().endswith(('.png', '.svg', '.js', '.css'))):
+                    out.append(f'{f.relative_to(HQ)}:{n}: {kind} {m.group()!r}')
+    return out
+
+
+def cmd_promote(agent, skill):
+    home = agent_home(agent)
+    src = STATE_ROOT / 'agents' / agent / 'skills' / 'learned' / skill
+    dest = home / 'skills' / skill
+    if not (src / 'SKILL.md').is_file():
+        die(f'no learned skill {src}/SKILL.md')
+    if dest.exists():
+        die(f'{dest} already exists')
+    shutil.move(str(src), str(dest))
+    print(f'{agent}: {skill} is now a package skill (skills/{skill}/). Name it in agent.md\'s skill table, '
+          f'remove it from memory/MEMORY.md\'s learned list, and commit agents/{agent}/.')
+
+
+def main(argv):
+    if not argv or argv[0] in ('-h', '--help'):
+        print(__doc__.strip())
+        return
+    cmd, rest = argv[0], argv[1:]
+    as_json = '--json' in rest
+    rest = [a for a in rest if a != '--json']
+    if cmd == 'resolve':
+        names = sorted(p.parent.name for p in (HQ / 'agents').glob('*/agent.md')) if rest == ['--all'] else rest[:1]
+        if not names:
+            die('resolve <agent>|--all', 2)
+        out = {}
+        for name in names:
+            try:
+                pkg, note = resolve(name)
+            except Exception as e:   # one broken agent must not block the others; run it live instead
+                pkg, note = HQ / 'agents' / name, f'snapshot failed ({e}); running the live folder'
+            out[name] = {'dir': str(pkg), 'version': pkg.name.split('@', 1)[-1], 'note': note}
+            if note and not as_json:
+                print(f'hq: {name}: {note}', file=sys.stderr)
+        print(json.dumps(out) if as_json else '\n'.join(v['dir'] for v in out.values()))
+    elif cmd == 'versions' and rest:
+        cmd_versions(rest[0])
+    elif cmd == 'pin' and rest:
+        cmd_pin(rest[0], rest[1] if len(rest) > 1 else '')
+    elif cmd == 'unpin' and rest:
+        agent_home(rest[0])
+        pointers(rest[0])[1].unlink(missing_ok=True)
+        print(f'{rest[0]} follows the latest edits again')
+    elif cmd == 'fetch' and rest:
+        names = sorted(p.parent.name for p in (HQ / 'agents').glob('*/agent.md')) if rest[0] == '--all' else rest[:1]
+        failed = False
+        for name in names:
+            try:
+                got = fetch(agent_home(name), force='--force' in rest)
+                if got:
+                    print(f'{name}: fetched {", ".join(got)}')
+            except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired) as e:
+                print(f'hq-pkg: {name}: {e}', file=sys.stderr)
+                failed = True
+        sys.exit(1 if failed else 0)
+    elif cmd == 'promote' and len(rest) == 2:
+        cmd_promote(*rest)
+    elif cmd == 'check' and rest[:1] == ['--share']:
+        names = rest[1:] or sorted(p.parent.name for p in (HQ / 'agents').glob('*/agent.md'))
+        found = [x for name in names for x in share_problems(agent_home(name))]
+        print('\n'.join(found) or 'ok: nothing personal found')
+        sys.exit(1 if found else 0)
+    elif cmd == 'check' and rest:
+        bad = problems(agent_home(rest[0]))
+        print('\n'.join(bad) or 'ok')
+        sys.exit(1 if bad else 0)
+    else:
+        die(f'unknown command: {" ".join(argv)} (hq-pkg --help)', 2)
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

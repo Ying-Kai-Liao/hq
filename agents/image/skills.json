@@ -1,0 +1,11 @@
+{
+  "$comment": "Third-party skills, linked rather than copied: hq-pkg fetch downloads each folder at its pinned commit into skills/<name>/ (git-ignored). Change ref to upgrade; the next run checks and snapshots it.",
+  "skills": {
+    "anatomy": {
+      "repo": "wheresryan22/anatomy",
+      "ref": "454a0ef801b6d9b905f08309d094491c7085b3dd",
+      "path": ".",
+      "license": "MIT"
+    }
+  }
+}

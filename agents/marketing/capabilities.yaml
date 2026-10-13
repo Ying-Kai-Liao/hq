@@ -1,0 +1,4 @@
+# Declarations only. Credentials come from the runtime, never from here.
+tools: [web-search, web-fetch]
+state: []
+writes: []          # nothing outside its own memory without approval

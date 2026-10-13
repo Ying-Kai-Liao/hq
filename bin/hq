@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# hq — run a specialist directly, in a fresh session.
+#
+#   hq ls                         list agents
+#   hq <agent> [-p ID] [-m MODEL] [-e EFFORT] [task...]  interactive without a task, one-shot with one
+#   hq <agent> --print [...]      show the assembled system prompt, don't run
+#   hq <agent> --inspect          start one run and report what it loads (tools, MCP servers, skills, plugins)
+#   hq versions|pin|unpin|rollback <agent> [VERSION]   agent package versions (hq-pkg)
+#   hq auth [ls|grant|revoke|set ...]                  which agent may use which service, as which account (hq-auth)
+#   hq cost [agents|agent <name>|...]                  what the agents cost, from the usage ledger (hq-cost)
+#
+# Every run is pinned to a snapshot of the agent's package (bin/hq-pkg): edits, by anyone, become the next run's
+# version once they pass checks; running sessions keep theirs. Shared services and their secrets come from
+# bin/hq-auth: only the ones the agent needs and is granted, secrets injected into the server process only.
+#
+# Same prompt the Claude Code plugin gives hq:<agent>: agent.md + shared/PROTOCOL.md, plus the
+# agent's MEMORY.md and the project:
+# -p ID, else the project whose remote/path matches the current directory, else none.
+# agents/<name>/settings.json is merged over your global Claude Code settings.
+# Model and effort: `model:` and `effort:` in agent.md's frontmatter (the same fields the hq:<name> subagent uses),
+# overridden by -m/-e or HQ_MODEL/HQ_EFFORT; unset means your global setting. Every session is tagged in the cost
+# ledger (hq-cost tag) with the agent, version, model and effort.
+set -euo pipefail
+
+# Follow the script's own symlinks but keep the repo's logical path (it may be a symlink to a path with spaces).
+src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
+HQ="$(cd "$(dirname "$src")/.." && pwd)"
+
+[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,11p' "$0" | sed 's/^#   //'; exit 0; }
+export HQ_ROOT=$HQ
+# State (memory, data, learned skills, user.md, projects) lives apart from the packages: $HQ_STATE, else ~/.hq,
+# else the repo itself (before hq-migrate-state). Its tree mirrors the repo's paths: agents/<name>/memory, shared/…
+if [[ -z ${HQ_STATE:-} ]]; then [[ -d $HOME/.hq ]] && HQ_STATE=$HOME/.hq || HQ_STATE=$HQ; fi
+export HQ_STATE
+
+case $1 in
+  versions|pin|unpin) exec "$HQ/bin/hq-pkg" "$@" ;;
+  rollback)           shift; exec "$HQ/bin/hq-pkg" pin "$@" ;;
+  auth)               shift; exec "$HQ/bin/hq-auth" "${@:-ls}" ;;
+  cost)               shift; exec "$HQ/bin/hq-cost" "${@:-agents}" ;;
+esac
+
+if [[ $1 == ls ]]; then
+  for d in "$HQ"/agents/*/; do
+    printf '%-10s %s\n' "$(basename "$d")" "$(sed -n 's/^description: //p' "$d/agent.md" | cut -c1-110)"
+  done
+  exit 0
+fi
+
+agent=$1; shift
+src_pkg="$HQ/agents/$agent"
+[[ -f $src_pkg/agent.md ]] || { echo "hq: no agent '$agent' (try: hq ls)" >&2; exit 1; }
+home="$HQ_STATE/agents/$agent"
+mkdir -p "$home/memory/projects" "$home/memory/sessions" "$home/skills/learned"
+
+# The pinned package (prompt.md = agent.md body + PROTOCOL.md). If versioning itself breaks, run the live folder
+# rather than not at all.
+pkg=$("$HQ/bin/hq-pkg" resolve "$agent") && [[ -f $pkg/prompt.md ]] \
+  || { echo "hq: $agent: package snapshot failed; running the live folder" >&2; pkg=$src_pkg; }
+export HQ_AGENT=$agent HQ_AGENT_DIR=$pkg HQ_AGENT_HOME=$home HQ_AGENT_VERSION=${pkg##*@}
+[[ $pkg == "$src_pkg" ]] && HQ_AGENT_VERSION=live
+
+# Placeholders are filled here, at run time, so a snapshot doesn't depend on the path it was made through.
+# {{HOME_REAL}}: the same folder with symlinks resolved. Permission rules match the resolved path, so a memory
+# Edit rule needs it when the repo sits behind a symlink (~/Workspace/hq -> the external SSD).
+home_real=$(cd "$home" && pwd -P)
+fill() { sed "s|{{AGENT_DIR}}|$pkg|g; s|{{HOME_DIR}}|$home|g; s|{{HOME_REAL}}|$home_real|g; s|{{STATE}}|$HQ_STATE|g; s|{{USER_HOME}}|$HOME|g; s|{{HQ}}|$HQ|g; s|{{AGENT}}|$agent|g"; }
+template() {
+  if [[ -f $pkg/prompt.md ]]; then cat "$pkg/prompt.md"
+  else awk 'NR==1 && /^---$/ {fm=1; next} fm && /^---$/ {fm=0; next} !fm' "$src_pkg/agent.md"; echo; cat "$HQ/shared/PROTOCOL.md"; fi
+}
+
+[[ ${1:-} == --render ]] && { template | fill; exit 0; }
+if [[ ${1:-} == --inspect ]]; then
+  HQ_CLAUDE_ARGS="--output-format stream-json --verbose --max-turns 1 --permission-mode bypassPermissions" \
+    "$0" "$agent" "Reply: ok" 2>/dev/null | python3 -c '
+import collections, json, sys
+for line in sys.stdin:
+    try: d = json.loads(line)
+    except ValueError: continue
+    if d.get("type") == "system" and d.get("subtype") == "init": break
+else: sys.exit("hq: no init event (did the run start?)")
+t = d.get("tools", [])
+groups = collections.Counter(x.split("__")[1] if x.startswith("mcp__") else "built-in" for x in t)
+name = lambda x: x if isinstance(x, str) else x.get("name")
+servers = ["%s (%s)" % (x["name"], x["status"]) for x in d.get("mcp_servers", [])]
+print("tools    %d  %s" % (len(t), ", ".join("%s %d" % gn for gn in groups.most_common())))
+print("mcp      " + (", ".join(servers) or "none"))
+print("skills   %d" % len(d.get("skills") or []))
+print("plugins  " + ", ".join(name(p) for p in d.get("plugins") or []))
+bad = [x["name"] for x in d.get("mcp_servers", []) if x["status"] != "connected"]
+sys.exit("hq: MCP servers not connected: %s" % bad if bad else 0)'
+  exit $?
+fi
+
+print=0 project=""
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --print)      print=1; shift ;;
+    -p|--project) project=$2; shift 2 ;;
+    -m|--model)   HQ_MODEL=$2; shift 2 ;;
+    -e|--effort)  HQ_EFFORT=$2; shift 2 ;;
+    --)           shift; break ;;
+    *)            break ;;
+  esac
+done
+if [[ -n $project ]]; then
+  "$HQ/bin/project-id" --list | cut -f1 | cut -d' ' -f1 | grep -qx -- "$project" \
+    || { echo "hq: unknown project '$project'. Known: $("$HQ/bin/project-id" --list | cut -f1 | cut -d' ' -f1 | tr '\n' ' ')" >&2
+         echo "    register one with: $HQ/bin/project-id --register $project [dir]" >&2; exit 1; }
+else
+  project=$("$HQ/bin/project-id" || true)
+fi
+
+# Body without frontmatter, then long-term memory.
+prompt="$(template | fill)
+<long-term-memory path=\"$home/memory/MEMORY.md\">
+$(cat "$home/memory/MEMORY.md" 2>/dev/null)
+</long-term-memory>
+<session project=\"${project:-none}\" cwd=\"$PWD\" date=\"$(date +%F)\"/>"
+
+if [[ $print -eq 1 ]]; then printf '%s\n' "$prompt"; [[ $# -gt 0 ]] && printf '\n[task] %s\n' "$*"; exit 0; fi
+
+# Run files: in the snapshot (so cleanup sees the run), or a temp dir when running the live folder.
+if [[ $pkg == "$src_pkg" ]]; then runs=$(mktemp -d); else runs=$pkg/.runs; mkdir -p "$runs"; : > "$runs/$$"; fi
+# Model and effort from the pinned agent.md unless the caller chose (-m/-e, HQ_MODEL/HQ_EFFORT).
+field() { awk -v k="$1" 'NR==1 && /^---$/ {fm=1; next} fm && /^---$/ {exit} fm && $1 == k":" {sub(/^[^:]*:[ \t]*/, ""); print; exit}' "$pkg/agent.md" 2>/dev/null || true; }
+export HQ_MODEL=${HQ_MODEL:-$(field model)} HQ_EFFORT=${HQ_EFFORT:-$(field effort)} HQ_PROJECT=$project
+# The agent's settings plus a SessionStart hook that tags each session (new, resumed, /clear) in the cost ledger.
+fill < "$pkg/settings.json" | HOOK="\"$HQ/bin/hq-cost\" tag" python3 -c '
+import json, os, sys
+s = json.load(sys.stdin)
+s.setdefault("hooks", {}).setdefault("SessionStart", []).append(
+    {"hooks": [{"type": "command", "command": os.environ["HOOK"], "timeout": 10}]})
+json.dump(s, sys.stdout, indent=1)' > "$runs/$$.settings.json"
+
+# Directories the agent may use: the repo (snapshots, tools) under both its logical and its resolved path (Claude Code
+# checks resolved paths), and the state folder (memory, data).
+dirs=(--add-dir "$HQ")
+hq_real=$(cd "$HQ" && pwd -P); [[ $hq_real != "$HQ" ]] && dirs+=(--add-dir "$hq_real")
+[[ $HQ_STATE != "$HQ" ]] && dirs+=(--add-dir "$HQ_STATE")
+args=(--append-system-prompt "$prompt" "${dirs[@]}" --settings "$runs/$$.settings.json" --allowedTools "Bash($HQ/bin/project-id)" "Bash($HQ/bin/project-id --list)")
+# Each agent carries only its own tools: the shared services it needs and is granted (hq-auth), its own mcp.json
+# for servers no one else uses, and no global skills unless capabilities.yaml says global_skills: true. Its own
+# skills are files it reads on demand. A broken auth.json costs the agent its services, not the run.
+"$HQ/bin/hq-auth" mcp-config "$agent" > "$runs/$$.mcp.json" \
+  || { echo "hq: $agent: no shared services this run (hq-auth failed)" >&2; echo '{"mcpServers": {}}' > "$runs/$$.mcp.json"; }
+args+=(--strict-mcp-config --mcp-config "$runs/$$.mcp.json")
+[[ -f $pkg/mcp.json ]] && args+=(--mcp-config "$pkg/mcp.json")
+grep -q '^global_skills: *true' "$pkg/capabilities.yaml" 2>/dev/null || args+=(--disable-slash-commands)
+[[ -n $HQ_MODEL ]] && args+=(--model "$HQ_MODEL")
+[[ -n $HQ_EFFORT ]] && args+=(--effort "$HQ_EFFORT")
+# Extra claude flags from a caller such as hq-bridge (e.g. --output-format json --resume <session>).
+if [[ -n ${HQ_CLAUDE_ARGS:-} ]]; then read -r -a extra <<< "$HQ_CLAUDE_ARGS"; args+=("${extra[@]}"); fi
+# They are for this run only: a helper this agent starts with `hq <other>` must not resume this session.
+unset HQ_CLAUDE_ARGS
+if [[ $# -gt 0 ]]; then exec claude "${args[@]}" -p "$*"; fi
+[[ -t 0 && -t 1 ]] || { echo "hq: no terminal for an interactive session; give a task (hq $agent \"...\") or run it in a terminal" >&2; exit 1; }
+exec claude "${args[@]}"

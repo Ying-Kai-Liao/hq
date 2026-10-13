@@ -1,0 +1,114 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>t7-synthetic</title>
+<style>
+html,body{margin:0;background:#000}
+[data-composition-id]{position:relative;width:1920px;height:1080px;overflow:hidden;background:#15171C;font-family:'Inter',system-ui,sans-serif;color:#fff}
+.grain{position:absolute;inset:-50%;z-index:40;pointer-events:none;opacity:.05;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>")}
+/* layout: headline column left, rebuilt flow pane right */
+.headcol{position:absolute;left:110px;top:0;bottom:0;width:600px;display:flex;flex-direction:column;justify-content:center;z-index:20}
+.head{position:absolute;left:0;width:600px;font:700 84px/1.02 'Inter';letter-spacing:-.035em;color:#fff}
+.head .g{color:#2FD18F}
+.sub{position:absolute;left:0;top:calc(50% + 120px);font:500 30px/1.35 'Inter';color:#9AA0AA;width:560px}
+#pane{position:absolute;left:740px;top:110px;width:1110px;height:860px;background:#1F2023;border-radius:16px;overflow:hidden;z-index:10;
+  box-shadow:0 40px 100px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.07);transform-origin:50% 40%}
+.scr{position:absolute;inset:0;padding:40px 44px;font:400 29px/1.4 'JetBrains Mono',ui-monospace,monospace;color:#D4D5D8;white-space:pre}
+.dim{color:#8E9199}.y{color:#F5B800}.gr{color:#4CC46A}.lav{color:#A9A6F2}.b{font-weight:700;color:#ECEDEF}
+.box{border:1px solid #3A3C42;border-radius:8px;padding:10px 16px;margin:12px 0 10px}
+.row{display:block}
+.bar{display:inline-block;vertical-align:-4px;height:27px;width:200px;background:#3A3C42;position:relative;margin-right:14px}
+.bar i{position:absolute;left:0;top:0;bottom:0;background:#4CC46A}
+.bar.big{width:170px}
+.sel{background:#34355A;color:#ECEDEF}
+.opt{display:block;padding:6px 10px;margin:4px -10px;border-radius:6px;white-space:normal}
+.opt.on{background:#2FD18F;color:#15171C}
+.key{position:absolute;right:56px;bottom:56px;font:700 64px 'JetBrains Mono',monospace;color:#15171C;background:#fff;border-radius:10px;padding:14px 40px;
+  box-shadow:0 10px 0 #9AA0AA}
+#toast{position:absolute;left:1210px;top:560px;width:640px;z-index:15;background:#FFFFFF;color:#15171C;border-radius:16px;padding:20px 28px;
+  font:400 27px/1.4 'JetBrains Mono',monospace;box-shadow:0 30px 80px rgba(0,0,0,.5)}
+#toast .t{font:600 22px 'Inter';color:#5E636C;margin-bottom:4px}
+.card-scene{position:absolute;inset:0;z-index:50;background:#15171C;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:43px}
+.card-scene .tag{font:500 43px 'Inter';color:#C9CCD2}
+</style></head>
+<body>
+<div id="root" data-composition-id="t7-synthetic" data-start="0" data-duration="9.4" data-width="1920" data-height="1080">
+  <div class="grain"></div>
+
+  <div id="pane">
+    <!-- screen 1: the agent tree -->
+    <div class="scr" id="s1"><span class="row" id="h1"><span class="dim">≡</span> <span id="nag">11</span> agents · <span id="nlive">11</span> live · <span id="npr">146</span> PRs with the reviewer</span><span class="row" id="h2"><span class="dim">▸</span> <span class="y">?</span> <span id="nq">2 questions</span> · 17 decisions</span><span class="row y" id="h3">⚠ 4 PRs nobody handed over: #188 #184 #182</span>
+<div class="box" id="mainbox"><span class="row b">◆ main  super manager · opus</span><span class="row"><span class="bar"><i id="bm" style="width:10%"></i></span>10%   2h 28m · ↓ <span id="tk0">104.8</span>k tokens</span></div><span class="row" id="r1">  <span class="y">◐</span> <span class="b">recovery-tests</span> (+2)  manager · opus</span><span class="row" id="r2">     <span class="lav">●</span> <span class="b sel">recovery-tests-resume-route-2</span>  worker</span><span class="row dim" id="r2b">       running tests</span><span class="row" id="r2c">       <span class="bar"><i id="b1" style="width:6%"></i></span>6%  19m 32s · ↓ <span id="tk1">56.6</span>k</span><span class="row" id="r3">     <span class="lav">●</span> <span class="b">recovery-tests-usage-command-2</span>  worker</span><span class="row dim" id="r3b">       running tests</span><span class="row" id="r3c">       <span class="bar"><i id="b2" style="width:7%"></i></span>7%  17m 40s · ↓ <span id="tk2">65.0</span>k</span><span class="row" id="r4">  <span class="y">◐</span> <span class="b">reviewer-batching</span> (+2)  manager · opus</span><span class="row" id="r5">  <span class="y">◐</span> <span class="b">best-of-n</span> (+1)  manager · opus</span><span class="row" id="r6">  <span class="y">◐</span> <span class="b">inbox-autoresolve</span> (+1)  manager · opus</span><span class="row" id="r7">  <span class="lav">●</span> <span class="b">load-control</span>  manager · opus</span><span class="row" id="r8">  <span class="b">Reviewer</span>  0 pending · 0 taken · <span id="ndone">145</span> done</span></div>
+
+    <!-- screen 2: the question -->
+    <div class="scr" id="s2" style="opacity:0;white-space:normal"><span class="row"><span class="b">q43</span> · inbox-autoresolve · 25 min</span><span class="row dim">inbox-autoresolve is waiting</span>
+<p style="margin:22px 0;color:#D4D5D8">Existing standing rules may answer deploy approvals or env changes when you wrote a rule naming that kind. Your hard rule says these always go to you. Keep that explicit opt-in, or remove it so no rule can ever answer them?</p>
+<span class="opt b" id="o1">1) Keep the explicit opt-in: new mechanisms never touch these kinds (default)</span>
+<span class="opt b" id="o2">2) Remove it: no rule can answer deploy approvals or env changes</span>
+<div class="key" id="key">y</div></div>
+  </div>
+
+  <div id="toast" style="opacity:0"><div class="t">flow</div>q43: Keep the explicit opt-in (only a rule you wrote naming the kind)</div>
+
+  <div class="headcol">
+    <div class="head clip" id="hd0" data-start="1.7" data-duration="2.0" data-track-index="7">run the whole crew.</div>
+    <div class="head clip" id="hd1" data-start="3.8" data-duration="1.9" data-track-index="8">answer only what <span class="g">matters</span>.</div>
+    <div class="head clip" id="hd2" data-start="5.8" data-duration="1.6" data-track-index="7"><span class="g">done.</span> everyone keeps going.</div>
+  </div>
+
+  <div class="card-scene clip" id="cd0" data-start="0" data-duration="1.6" data-track-index="9"><svg width="345" height="345" viewBox="0 0 256 256"><defs><clipPath id="lc0"><rect id="lr0" x="0" y="256" width="256" height="256"/></clipPath></defs><g clip-path="url(#lc0)"><path fill="#FFFFFF" d="M87.5 218.94L87.5 117.94Q87.5 99.13 94.77 81.93Q101.79 65.33 114.59 52.53Q127.39 39.73 143.99 32.71Q161.19 25.44 180 25.44L190 25.44Q192.69 25.44 194.6 27.34Q196.5 29.25 196.5 31.94Q196.5 34.63 194.6 36.54Q192.69 38.44 190 38.44L180 38.44Q147.07 38.44 123.78 61.73Q100.5 85.01 100.5 117.94L100.5 218.94Q100.5 221.63 98.6 223.54Q96.69 225.44 94 225.44Q91.31 225.44 89.4 223.54Q87.5 221.63 87.5 218.94ZM110.5 218.94L110.5 117.94Q110.5 89.15 130.86 68.8Q151.21 48.44 180 48.44L190 48.44Q192.69 48.44 194.6 50.34Q196.5 52.25 196.5 54.94Q196.5 57.63 194.6 59.54Q192.69 61.44 190 61.44L180 61.44Q156.6 61.44 140.05 77.99Q123.5 94.54 123.5 117.94L123.5 218.94Q123.5 221.63 121.6 223.54Q119.69 225.44 117 225.44Q114.31 225.44 112.4 223.54Q110.5 221.63 110.5 218.94ZM133.5 218.94L133.5 117.94Q133.5 98.68 147.12 85.06Q160.74 71.44 180 71.44L190 71.44Q192.69 71.44 194.6 73.34Q196.5 75.25 196.5 77.94Q196.5 80.63 194.6 82.54Q192.69 84.44 190 84.44L180 84.44Q166.12 84.44 156.31 94.25Q146.5 104.06 146.5 117.94L146.5 218.94Q146.5 221.63 144.6 223.54Q142.69 225.44 140 225.44Q137.31 225.44 135.4 223.54Q133.5 221.63 133.5 218.94Z"/></g><g id="bar0"><path fill="#2FD18F" d="M66 129.44L180 129.44Q182.69 129.44 184.6 131.34Q186.5 133.25 186.5 135.94Q186.5 138.63 184.6 140.54Q182.69 142.44 180 142.44L66 142.44Q63.31 142.44 61.4 140.54Q59.5 138.63 59.5 135.94Q59.5 133.25 61.4 131.34Q63.31 129.44 66 129.44Z"/>
+</g></svg></div>
+  <div class="card-scene clip" id="cd1" style="opacity:0" data-start="7.4" data-duration="2.0" data-track-index="10"><div id="lk1"><svg width="614" xmlns="http://www.w3.org/2000/svg" viewBox="59.5 25.44 480 200"><title>flow</title><path fill="#FFFFFF" d="M442.5 145Q442.5 163.23 429.61 176.11Q416.73 189 398.5 189Q380.27 189 367.39 176.11Q354.5 163.23 354.5 145Q354.5 126.77 367.39 113.89Q380.27 101 398.5 101Q416.73 101 429.61 113.89Q442.5 126.77 442.5 145ZM469.5 110L469.5 162.5Q469.5 166.43 472.28 169.22Q475.07 172 479 172Q482.93 172 485.72 169.22Q488.5 166.43 488.5 162.5L488.5 122Q488.5 118.69 490.84 116.34Q493.19 114 496.5 114Q499.81 114 502.16 116.34Q504.5 118.69 504.5 122L504.5 162.5Q504.5 166.43 507.28 169.22Q510.07 172 514 172Q517.93 172 520.72 169.22Q523.5 166.43 523.5 162.5L523.5 110Q523.5 106.69 525.84 104.34Q528.19 102 531.5 102Q534.81 102 537.16 104.34Q539.5 106.69 539.5 110L539.5 162.5Q539.5 173.06 532.03 180.53Q524.56 188 514 188Q503.81 188 496.5 181.05Q489.19 188 479 188Q468.44 188 460.97 180.53Q453.5 173.06 453.5 162.5L453.5 110Q453.5 106.69 455.84 104.34Q458.19 102 461.5 102Q464.81 102 467.16 104.34Q469.5 106.69 469.5 110ZM87.5 218.94L87.5 117.94Q87.5 99.13 94.77 81.93Q101.79 65.33 114.59 52.53Q127.39 39.73 143.99 32.71Q161.19 25.44 180 25.44L190 25.44Q192.69 25.44 194.6 27.34Q196.5 29.25 196.5 31.94Q196.5 34.63 194.6 36.54Q192.69 38.44 190 38.44L180 38.44Q147.07 38.44 123.79 61.73Q100.5 85.01 100.5 117.94L100.5 218.94Q100.5 221.63 98.6 223.54Q96.69 225.44 94 225.44Q91.31 225.44 89.4 223.54Q87.5 221.63 87.5 218.94ZM268.5 180L268.5 120L260.5 120Q257.19 120 254.84 117.66Q252.5 115.31 252.5 112Q252.5 108.69 254.84 106.34Q257.19 104 260.5 104L268.5 104L268.5 100Q268.5 84.26 279.63 73.13Q290.76 62 306.5 62L312.5 62Q315.81 62 318.16 64.34Q320.5 66.69 320.5 70Q320.5 73.31 318.16 75.66Q315.81 78 312.5 78L306.5 78Q297.39 78 290.94 84.44Q284.5 90.89 284.5 100L284.5 104L300.5 104Q303.81 104 306.16 106.34Q308.5 108.69 308.5 112Q308.5 115.31 306.16 117.66Q303.81 120 300.5 120L284.5 120L284.5 180Q284.5 183.31 282.16 185.66Q279.81 188 276.5 188Q273.19 188 270.84 185.66Q268.5 183.31 268.5 180ZM110.5 218.94L110.5 117.94Q110.5 89.15 130.86 68.8Q151.21 48.44 180 48.44L190 48.44Q192.69 48.44 194.6 50.34Q196.5 52.25 196.5 54.94Q196.5 57.63 194.6 59.54Q192.69 61.44 190 61.44L180 61.44Q156.6 61.44 140.05 77.99Q123.5 94.54 123.5 117.94L123.5 218.94Q123.5 221.63 121.6 223.54Q119.69 225.44 117 225.44Q114.31 225.44 112.4 223.54Q110.5 221.63 110.5 218.94ZM426.5 145Q426.5 133.4 418.3 125.2Q410.1 117 398.5 117Q386.9 117 378.7 125.2Q370.5 133.4 370.5 145Q370.5 156.6 378.7 164.8Q386.9 173 398.5 173Q410.1 173 418.3 164.8Q426.5 156.6 426.5 145ZM133.5 218.94L133.5 117.94Q133.5 98.68 147.12 85.06Q160.74 71.44 180 71.44L190 71.44Q192.69 71.44 194.6 73.34Q196.5 75.25 196.5 77.94Q196.5 80.63 194.6 82.54Q192.69 84.44 190 84.44L180 84.44Q166.12 84.44 156.31 94.25Q146.5 104.06 146.5 117.94L146.5 218.94Q146.5 221.63 144.6 223.54Q142.69 225.44 140 225.44Q137.31 225.44 135.4 223.54Q133.5 221.63 133.5 218.94ZM342.5 70L342.5 180Q342.5 183.31 340.16 185.66Q337.81 188 334.5 188Q331.19 188 328.84 185.66Q326.5 183.31 326.5 180L326.5 70Q326.5 66.69 328.84 64.34Q331.19 62 334.5 62Q337.81 62 340.16 64.34Q342.5 66.69 342.5 70Z"/><path fill="#2FD18F" d="M66 129.44L180 129.44Q182.69 129.44 184.6 131.34Q186.5 133.25 186.5 135.94Q186.5 138.63 184.6 140.54Q182.69 142.44 180 142.44L66 142.44Q63.31 142.44 61.4 140.54Q59.5 138.63 59.5 135.94Q59.5 133.25 61.4 131.34Q63.31 129.44 66 129.44Z"/></svg>
+</div><div class="tag" id="tg1">parallel claude code agents. one decision-maker.</div></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    window.__timelines = window.__timelines || {};
+    const tl = gsap.timeline({ paused: true });
+    const count = (id, from, to, dec, at, dur) => {
+      const o = { v: from };
+      tl.to(o, { v: to, duration: dur, ease: "none", onUpdate: () => { document.getElementById(id).textContent = o.v.toFixed(dec); } }, at);
+    };
+    // mark
+    tl.to("#lr0", { attr: { y: 0 }, duration: .9, ease: "power2.inOut" }, .15);
+    tl.from("#bar0", { x: -140, opacity: 0, duration: .55, ease: "expo.out" }, .85);
+    tl.to("#cd0", { opacity: 0, duration: .3, ease: "power1.in" }, 1.3);
+    // beat 1: the tree assembles and keeps working
+    tl.from("#pane", { y: 60, opacity: 0, duration: .7, ease: "power3.out" }, 1.25);
+    tl.from(["#h1", "#h2", "#h3"], { opacity: 0, x: -16, duration: .3, stagger: .06, ease: "power2.out" }, 1.45);
+    tl.from("#mainbox", { opacity: 0, y: 14, duration: .35, ease: "back.out(1.4)" }, 1.65);
+    tl.from(["#r1", "#r2", "#r2b", "#r2c", "#r3", "#r3b", "#r3c", "#r4", "#r5", "#r6", "#r7", "#r8"], { opacity: 0, x: -20, duration: .28, stagger: .045, ease: "power3.out" }, 1.8);
+    tl.to("#bm", { width: "14%", duration: 5.5, ease: "none" }, 1.8);
+    tl.to("#b1", { width: "42%", duration: 5.5, ease: "power1.out" }, 2.0);
+    tl.to("#b2", { width: "55%", duration: 5.5, ease: "power1.out" }, 2.0);
+    count("tk0", 104.8, 109.6, 1, 1.8, 5.5);
+    count("tk1", 56.6, 61.2, 1, 2.0, 5.3);
+    count("tk2", 65.0, 70.4, 1, 2.0, 5.3);
+    tl.from("#hd0", { opacity: 0, y: 30, duration: .5, ease: "expo.out" }, 1.7);
+    tl.to("#pane", { scale: 1.03, duration: 2.0, ease: "power1.inOut" }, 1.7);
+    // beat 2: the question
+    tl.to("#s1", { opacity: 0, y: -30, duration: .3, ease: "power2.in" }, 3.65);
+    tl.fromTo("#s2", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: .35, ease: "power3.out", immediateRender: false }, 3.8);
+    tl.from("#hd1", { opacity: 0, y: 30, duration: .5, ease: "expo.out" }, 3.8);
+    tl.to("#pane", { scale: 1.06, duration: 1.9, ease: "power1.inOut" }, 3.8);
+    tl.from("#key", { opacity: 0, scale: .6, duration: .3, ease: "back.out(2)" }, 4.7);
+    tl.to("#key", { y: 10, boxShadow: "0 0 0 #9AA0AA", duration: .08, ease: "power1.in" }, 5.1);
+    tl.to("#key", { y: 0, boxShadow: "0 10px 0 #9AA0AA", duration: .12, ease: "power1.out" }, 5.18);
+    tl.set("#o1", { className: "opt b on" }, 5.12);
+    tl.from("#o1", { scale: .98, duration: .25, ease: "back.out(2)" }, 5.12);
+    // beat 3: answered, back to work
+    tl.to("#s2", { opacity: 0, y: -30, duration: .3, ease: "power2.in" }, 5.6);
+    tl.fromTo("#s1", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: .35, ease: "power3.out", immediateRender: false }, 5.75);
+    tl.set("#nq", { textContent: "1 question" }, 6.0);
+    tl.fromTo("#nq", { color: "#2FD18F" }, { color: "#D4D5D8", duration: 1.2, ease: "power1.in" }, 6.0);
+    tl.set("#ndone", { textContent: "146" }, 6.6);
+    tl.fromTo("#toast", { x: 120, opacity: 0 }, { x: 0, opacity: 1, duration: .5, ease: "expo.out" }, 5.9);
+    tl.from("#hd2", { opacity: 0, y: 30, duration: .5, ease: "expo.out" }, 5.8);
+    tl.to("#pane", { scale: 1.0, duration: 1.6, ease: "power1.inOut" }, 5.8);
+    // lockup
+    tl.to("#cd1", { opacity: 1, duration: .35, ease: "power1.out" }, 7.4);
+    tl.from("#lk1", { scale: .92, opacity: 0, duration: .6, ease: "expo.out" }, 7.5);
+    tl.from("#tg1", { y: 16, opacity: 0, duration: .45, ease: "power3.out" }, 7.85);
+    tl.to("#cd1", { opacity: 0, duration: .4 }, 9.0);
+    window.__timelines["t7-synthetic"] = tl;
+  </script>
+</div>
+</body></html>

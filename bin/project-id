@@ -1,0 +1,94 @@
+#!/usr/bin/python3
+"""Resolve the hq project for a directory. Never registers anything on its own.
+
+  project-id [dir]                 print the ID whose remotes/paths match dir (default: cwd);
+                                   print nothing and exit 1 when no project matches
+  project-id --list                print every project ID with its aliases
+  project-id --register ID [dir]   add dir's git remote (or its path, without a remote) to project ID,
+                                   creating ID if new. Only after the user has named the project.
+
+A project is a named thing; remotes and paths are aliases that point to it. Add a remote or path to
+keep a project's memory after a rename, move or re-clone.
+"""
+import json, os, re, subprocess, sys
+
+HOME = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+# The registry is state: $HQ_STATE, else ~/.hq, else the repo (before hq-migrate-state).
+_dot = os.path.expanduser("~/.hq")
+STATE = os.environ.get("HQ_STATE") or (_dot if os.path.isdir(_dot) else HOME)
+REG = os.path.join(STATE, "projects.json")
+
+
+def git(*args, cwd):
+    try:
+        return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True,
+                              check=True).stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError, NotADirectoryError):
+        return ""
+
+
+def normalize(url):
+    """git@github.com:Owner/Repo.git, https://github.com/Owner/Repo -> github.com/owner/repo"""
+    url = re.sub(r"^(\w+://)?([^@/]+@)?", "", url.strip())
+    url = url.replace(":", "/", 1) if re.match(r"^[^/]+:[^/]", url) else url
+    return re.sub(r"\.git$", "", url).rstrip("/").lower()
+
+
+def locate(cwd):
+    """(remote, root) for a directory; worktrees map to their main checkout."""
+    remote = git("remote", "get-url", "origin", cwd=cwd)
+    remote = normalize(remote) if remote else ""
+    common = git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=cwd)
+    root = os.path.dirname(common) if common.endswith("/.git") else (git("rev-parse", "--show-toplevel", cwd=cwd) or cwd)
+    return remote, root
+
+
+def load():
+    try:
+        with open(REG) as fh:
+            return json.load(fh)
+    except FileNotFoundError:
+        return {"projects": {}}
+
+
+def save(reg):
+    with open(REG, "w") as fh:
+        json.dump(reg, fh, indent=2)
+        fh.write("\n")
+
+
+def main(argv):
+    reg = load()
+    projects = reg.setdefault("projects", {})
+
+    if argv[:1] == ["--list"]:
+        for pid, p in sorted(projects.items()):
+            was = f" (formerly {p['formerly']})" if p.get("formerly") else ""
+            print(f"{pid}{was}\t" + " ".join(p.get("remotes", []) + p.get("paths", [])))
+        return 0
+
+    if argv[:1] == ["--register"]:
+        if len(argv) < 2 or not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", argv[1]):
+            print("project-id: --register needs an ID of lowercase letters, digits, . _ -", file=sys.stderr)
+            return 2
+        pid = argv[1]
+        remote, root = locate(os.path.realpath(argv[2] if len(argv) > 2 else os.getcwd()))
+        p = projects.setdefault(pid, {"remotes": [], "paths": []})
+        key, alias = ("remotes", remote) if remote else ("paths", root)
+        if alias not in p.setdefault(key, []):
+            p[key].append(alias)
+        save(reg)
+        print(pid)
+        return 0
+
+    remote, root = locate(os.path.realpath(argv[0] if argv else os.getcwd()))
+    for pid, p in projects.items():
+        if remote and remote in p.get("remotes", []):
+            print(pid); return 0
+    for pid, p in projects.items():
+        if root in p.get("paths", []):
+            print(pid); return 0
+    return 1
+
+
+sys.exit(main(sys.argv[1:]))

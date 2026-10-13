@@ -1,0 +1,17 @@
+{
+  "$comment": "House style (from shared/user.md taste: flat muted colour, off-white shapes, black line, light grain). Copy this file to ~/Workspace/design/<project>/images/theme.json and change it to match a project's brand.",
+  "name": "hq",
+  "bg": "#efede6",
+  "panel": "#f8f7f2",
+  "ink": "#1f2320",
+  "muted": "#6b716c",
+  "line": "#d6d3c9",
+  "accent": "#c0694a",
+  "series": ["#6f8a76", "#c0694a", "#d9b44a", "#4f7f86", "#9a7aa0", "#8a8f5a"],
+  "positive": "#4f7f5c",
+  "negative": "#b5523b",
+  "font_display": "Avenir Next, Helvetica Neue, Arial, sans-serif",
+  "font_body": "Helvetica Neue, Helvetica, Arial, sans-serif",
+  "font_mono": "SF Mono, Menlo, monospace",
+  "grain": 0.06
+}

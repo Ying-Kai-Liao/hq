@@ -1,0 +1,4 @@
+# Declarations only. Credentials come from the runtime, never from here.
+tools: [image-generation, svg, web-fetch]
+state: []
+writes: [project-assets]   # brand files inside the current project, with approval

@@ -1,0 +1,22 @@
+{
+  "name": "hq",
+  "version": "0.2.1",
+  "description": "Claude Code adapter for hq: your persistent specialist agents, with their memory and projects, as subagents in every session.",
+  "author": {
+    "name": "Ying-Kai Liao"
+  },
+  "userConfig": {
+    "hq_path": {
+      "type": "string",
+      "title": "hq folder",
+      "description": "Where your hq repo lives. Empty: ~/Workspace/hq.",
+      "default": ""
+    },
+    "state_path": {
+      "type": "string",
+      "title": "hq state folder",
+      "description": "Where agents' memory and data live. Empty: $HQ_STATE, else ~/.hq, else the hq folder itself.",
+      "default": ""
+    }
+  }
+}

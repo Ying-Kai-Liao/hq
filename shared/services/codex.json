@@ -1,0 +1,5 @@
+{
+  "description": "Codex CLI with its own ChatGPT login (~/.codex/auth.json via `codex login`); used for image_gen",
+  "kind": "login",
+  "secrets": []
+}

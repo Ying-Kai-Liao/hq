@@ -1,0 +1,11 @@
+tl.to("#dim", {opacity:.55, duration:.3, ease:"power1.out"}, 4.15);
+tl.fromTo("#qcard", {opacity:0, y:40, scale:.94}, {opacity:1, y:0, scale:1, duration:.45, ease:"expo.out"}, 4.2);
+tl.from("#key", {opacity:0, scale:.6, duration:.25, ease:"back.out(2)"}, 4.6);
+tl.to("#key", {y:10, boxShadow:"0 0 0 #9AA0AA", duration:.08, ease:"power1.in"}, 5.0);
+tl.to("#key", {y:0, boxShadow:"0 10px 0 #9AA0AA", duration:.12, ease:"power1.out"}, 5.08);
+tl.set("#o1", {className:"opt on"}, 5.02);
+tl.from("#o1", {scale:.97, duration:.25, ease:"back.out(2)"}, 5.02);
+tl.to("#qcard", {opacity:0, y:-30, duration:.25, ease:"power2.in"}, 5.5);
+tl.to("#dim", {opacity:.35, duration:.3}, 5.7);
+tl.fromTo("#toast", {opacity:0, x:140}, {opacity:1, x:0, duration:.5, ease:"expo.out", immediateRender:false}, 6.0);
+tl.to("#dim", {opacity:0, duration:.3}, 7.1);

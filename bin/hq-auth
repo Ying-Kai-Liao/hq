@@ -1,0 +1,288 @@
+#!/usr/bin/env python3
+"""hq-auth — which agent may use which shared service, and with which account.
+
+  hq-auth ls                              every agent: the services it needs, its grant, whether the secrets resolve
+  hq-auth grant <agent> <service> <profile>   let an agent use a service as that profile (e.g. notion/library)
+  hq-auth revoke <agent> <service>
+  hq-auth set <profile> <VAR>             store a secret in the macOS Keychain (prompts; never echoed) and point
+                                          the profile at it
+  hq-auth mcp-config <agent>              the --mcp-config JSON for an agent's granted MCP services (bin/hq uses it)
+  hq-auth exec [--for AGENT] <service> -- CMD...   run CMD with that service's secrets in its environment only
+  hq-auth get  [--for AGENT] <service> <VAR>       print one secret, for an agent's own tool to call
+
+Three layers, so sharing an agent never shares an account:
+  shared/services/<name>.json   what a service is: kind (mcp | cli | login), how to start it, which env vars it needs.
+                                In the repo; no secrets.
+  agents/<a>/capabilities.yaml  `needs: [service, ...]`: what the agent asks for. Part of the agent package.
+  ~/.config/hq/auth.json        profiles (an account: where each secret comes from) and grants (agent → service →
+                                profile). Yours alone, never in the repo. Holds references, not secret values.
+
+Secret sources in a profile: "keychain:SERVICE#ACCOUNT", "env-file:PATH#VAR", "env:VAR". A `login` service (codex,
+a Chrome profile) has no secrets here: the tool keeps its own login, and the grant only says who may use it.
+
+The agent comes from HQ_AGENT (set by bin/hq) or --for (an agent's own tool naming its owner). This is least
+privilege between cooperating agents, not a sandbox: an agent with a shell can still read files it can see.
+"""
+import getpass
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+HQ = Path(os.environ.get('HQ_ROOT') or os.path.dirname(os.path.dirname(
+    os.path.normpath(os.path.join(os.environ.get('PWD') or os.getcwd(), sys.argv[0])))))
+SERVICES = HQ / 'shared' / 'services'
+AUTH = Path(os.environ.get('HQ_AUTH') or Path.home() / '.config' / 'hq' / 'auth.json')
+LOG = AUTH.with_name('auth.log')   # every secret handed out: when, to whom, for which service; never the value
+
+
+def die(msg, code=1):
+    print(f'hq-auth: {msg}', file=sys.stderr)
+    sys.exit(code)
+
+
+def load_auth():
+    try:
+        data = json.loads(AUTH.read_text())
+    except FileNotFoundError:
+        data = {}
+    except ValueError as e:
+        die(f'{AUTH}: invalid JSON ({e})')
+    data.setdefault('profiles', {})
+    data.setdefault('grants', {})
+    return data
+
+
+def save_auth(data):
+    AUTH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = AUTH.with_name(AUTH.name + '.tmp')
+    tmp.write_text(json.dumps(data, indent=2) + '\n')
+    os.chmod(tmp, 0o600)
+    tmp.rename(AUTH)
+
+
+def service(name):
+    f = SERVICES / f'{name}.json'
+    if not f.is_file():
+        die(f"no service '{name}' (shared/services/)")
+    return json.loads(f.read_text())
+
+
+def needs(agent):
+    f = HQ / 'agents' / agent / 'capabilities.yaml'
+    m = re.search(r'^needs:\s*\[([^\]]*)\]', f.read_text(), re.M) if f.exists() else None
+    return [s.strip() for s in m.group(1).split(',') if s.strip()] if m else []
+
+
+def agents():
+    return sorted(p.parent.name for p in (HQ / 'agents').glob('*/agent.md'))
+
+
+def grant_for(auth, agent, svc):
+    """The profile name this agent may use for svc, or exit with why not."""
+    if not agent:
+        die(f'who is asking for {svc}? (HQ_AGENT is not set; tools pass --for <agent>)')
+    profile = auth['grants'].get(agent, {}).get(svc)
+    if not profile:
+        die(f'{agent} has no grant for {svc} (hq-auth grant {agent} {svc} <profile>)')
+    return profile
+
+
+def resolve_ref(ref):
+    kind, _, rest = ref.partition(':')
+    if kind == 'env':
+        return os.environ.get(rest)
+    if kind == 'env-file':
+        path, _, var = rest.partition('#')
+        try:
+            for line in Path(os.path.expanduser(path)).read_text().splitlines():
+                k, sep, v = re.sub(r'^export\s+', '', line.strip()).partition('=')
+                if sep and k.strip() == var:
+                    return v.strip().strip('"\'')
+        except OSError:
+            return None
+        return None
+    if kind == 'keychain':
+        svc, _, account = rest.partition('#')
+        try:   # a locked keychain or an access prompt must not hang a headless run
+            r = subprocess.run(['security', 'find-generic-password', '-s', svc, '-a', account, '-w'],
+                               capture_output=True, text=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            return None
+        return r.stdout.rstrip('\n') if r.returncode == 0 else None
+    return None
+
+
+def secrets(auth, svc, profile):
+    """{VAR: value} for every secret the service needs, from the profile. Exits if one is missing."""
+    refs = auth['profiles'].get(profile)
+    if refs is None:
+        die(f"no profile '{profile}' in {AUTH}")
+    out = {}
+    for var in service(svc).get('secrets', []):
+        ref = refs.get(var)
+        value = resolve_ref(ref) if ref else None
+        if not value:
+            die(f'{profile}: {var} does not resolve ({ref or "not set"}; hq-auth set {profile} {var})')
+        out[var] = value
+    return out
+
+
+def audit(agent, svc, profile, how):
+    """One line per secret handed out. --for can name any agent, so the log records who was really running too."""
+    try:
+        with open(LOG, 'a') as f:
+            f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')}\t{how}\t{svc}\t{profile}\tfor={agent}"
+                    f"\trun={os.environ.get('HQ_AGENT', '-')}\tppid={os.getppid()}\n")
+    except OSError:
+        pass
+
+
+def expand(text):
+    return os.path.expandvars(os.path.expanduser(text)) if isinstance(text, str) else text
+
+
+def take_for(args):
+    agent = os.environ.get('HQ_AGENT', '')
+    if args[:1] == ['--for']:
+        agent, args = args[1], args[2:]
+    return agent, args
+
+
+def cmd_ls():
+    auth = load_auth()
+    for agent in agents():
+        wanted = needs(agent)
+        granted = auth['grants'].get(agent, {})
+        if not wanted and not granted:
+            continue
+        print(agent)
+        for svc in sorted(set(wanted) | set(granted)):
+            profile = granted.get(svc)
+            if not profile:
+                print(f'  {svc:<14} NOT GRANTED')
+                continue
+            note = '' if svc in wanted else '  (granted, not in needs)'
+            refs = auth['profiles'].get(profile)
+            try:
+                missing = [v for v in service(svc).get('secrets', [])
+                           if not (refs and refs.get(v) and resolve_ref(refs[v]))]
+            except SystemExit:
+                missing = ['unknown service']
+            status = 'ok' if refs is not None and not missing else \
+                'no such profile' if refs is None else 'missing ' + ', '.join(missing)
+            print(f'  {svc:<14} {profile:<24} {status}{note}')
+
+
+def cmd_mcp_config(agent):
+    auth = load_auth()
+    servers = {}
+    for svc in needs(agent):
+        spec = service(svc)
+        if spec.get('kind') != 'mcp':
+            continue
+        profile = auth['grants'].get(agent, {}).get(svc)
+        if not profile:
+            print(f'hq: {agent} needs {svc} but has no grant; running without it '
+                  f'(hq-auth grant {agent} {svc} <profile>)', file=sys.stderr)
+            continue
+        try:
+            secrets(auth, svc, profile)    # skip a server whose secrets don't resolve instead of failing at start
+        except SystemExit:
+            print(f'hq: {agent}: {svc} skipped this run, its secrets don\'t resolve (hq-auth ls)', file=sys.stderr)
+            continue
+        mcp = spec['mcp']
+        # Secrets are resolved when the server starts, inside hq-auth exec, so they never land in a config file
+        # or in the agent's own environment.
+        servers[svc] = {
+            'command': str(HQ / 'bin' / 'hq-auth'),
+            'args': ['exec', '--for', agent, svc, '--', mcp['command'], *[expand(a) for a in mcp.get('args', [])]],
+            'env': {k: expand(v) for k, v in mcp.get('env', {}).items()},
+        }
+    print(json.dumps({'mcpServers': servers}))
+
+
+def cmd_exec(args):
+    agent, args = take_for(args)
+    if len(args) < 3 or args[1] != '--':
+        die('exec [--for AGENT] <service> -- CMD...', 2)
+    svc, cmd = args[0], args[2:]
+    auth = load_auth()
+    profile = grant_for(auth, agent, svc)
+    env = {**os.environ, **secrets(auth, svc, profile)}
+    audit(agent, svc, profile, 'exec')
+    os.execvpe(cmd[0], cmd, env)
+
+
+def cmd_get(args):
+    agent, args = take_for(args)
+    if len(args) != 2:
+        die('get [--for AGENT] <service> <VAR>', 2)
+    svc, var = args
+    auth = load_auth()
+    if var not in service(svc).get('secrets', []):
+        die(f'{svc} declares no secret {var}')
+    profile = grant_for(auth, agent, svc)
+    value = secrets(auth, svc, profile)[var]
+    audit(agent, svc, profile, f'get {var}')
+    print(value)
+
+
+def cmd_set(profile, var):
+    if '/' not in profile:
+        die('profiles are named <service>/<account>, e.g. notion/library', 2)
+    if var not in service(profile.split('/', 1)[0]).get('secrets', []):
+        die(f'{profile.split("/", 1)[0]} declares no secret {var}')
+    value = getpass.getpass(f'{profile} {var}: ')
+    if not value:
+        die('nothing entered; unchanged')
+    kc = f'hq/{profile}'
+    r = subprocess.run(['security', 'add-generic-password', '-U', '-s', kc, '-a', var, '-w', value],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        die(f'keychain: {r.stderr.strip()}')
+    auth = load_auth()
+    auth['profiles'].setdefault(profile, {})[var] = f'keychain:{kc}#{var}'
+    save_auth(auth)
+    print(f'stored in Keychain as {kc} / {var}; {profile} now reads it from there')
+
+
+def main(argv):
+    if not argv or argv[0] in ('-h', '--help'):
+        print(__doc__.strip())
+        return
+    cmd, rest = argv[0], argv[1:]
+    if cmd == 'ls':
+        cmd_ls()
+    elif cmd == 'grant' and len(rest) == 3:
+        agent, svc, profile = rest
+        service(svc)
+        if not profile.startswith(svc + '/'):
+            die(f'a {svc} grant takes a {svc}/<account> profile', 2)
+        auth = load_auth()
+        auth['profiles'].setdefault(profile, {})
+        auth['grants'].setdefault(agent, {})[svc] = profile
+        save_auth(auth)
+        print(f'{agent} may use {svc} as {profile}')
+    elif cmd == 'revoke' and len(rest) == 2:
+        auth = load_auth()
+        auth['grants'].get(rest[0], {}).pop(rest[1], None)
+        save_auth(auth)
+        print(f'{rest[0]} may no longer use {rest[1]}')
+    elif cmd == 'set' and len(rest) == 2:
+        cmd_set(*rest)
+    elif cmd == 'mcp-config' and len(rest) == 1:
+        cmd_mcp_config(rest[0])
+    elif cmd == 'exec':
+        cmd_exec(rest)
+    elif cmd == 'get':
+        cmd_get(rest)
+    else:
+        die(f'unknown command: {" ".join(argv)} (hq-auth --help)', 2)
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

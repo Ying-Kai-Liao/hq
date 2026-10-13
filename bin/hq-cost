@@ -1,0 +1,261 @@
+#!/usr/bin/env python3
+"""hq-cost — what Claude Code usage costs, at API prices, kept over time.
+
+  hq-cost [today|week|month|all]   totals, by day, by project and the top sessions (syncs first)
+  hq-cost agents [period]          hq agents side by side: cost, runs, cost per run, models (default: month)
+  hq-cost agent <name> [period]    one hq agent: by day, by version, by model and effort, its costliest runs
+  hq-cost session <id-prefix>      one session turn by turn, plus its subagents
+  hq-cost sync                     copy new usage from ~/.claude/projects into the ledger
+  hq-cost csv [since YYYY-MM-DD]   every request as CSV with its hq agent, for a spreadsheet
+  hq-cost tag                      (SessionStart hook in hq runs) record the session as a run of $HQ_AGENT
+
+The ledger (~/.config/hq/cost.db) keeps one row per API request, so it outlives Claude Code's transcript cleanup
+(30 days by default). Prices are list API prices per million tokens; on a subscription this is usage, not a bill.
+
+hq attribution: bin/hq runs `hq-cost tag` as a SessionStart hook, so each session it starts (including resumes and
+/clear) is recorded in `runs` with the agent, package version, model, effort and caller. A request belongs to an hq
+agent when its session is such a run, or when it was made by an `hq:<name>` subagent in any session; a helper agent
+called from inside a run counts for the helper.
+"""
+import csv, datetime as dt, glob, json, os, sqlite3, sys
+from pathlib import Path
+
+DB = Path.home() / '.config/hq/cost.db'
+PROJECTS = Path.home() / '.claude/projects'
+BRIDGE_STATE = Path.home() / '.config/hq/bridge/state.json'  # thread -> {agent, session_id}: Discord runs before tagging
+
+# $ per MTok: input, output, cache read, cache write 5m, cache write 1h. First matching key wins.
+PRICES = [
+    ('fable', (10, 50, 0.25, 12.5, 20)), ('mythos', (10, 50, 0.25, 12.5, 20)),
+    ('opus-5-5', (4, 20, 0.20, 5, 8)), ('opus', (5, 25, 0.50, 6.25, 10)),
+    ('sonnet-5', (2, 10, 0.20, 2.5, 4)), ('sonnet', (3, 15, 0.30, 3.75, 6)),
+    ('haiku-5', (0.10, 0.50, 0.01, 0.125, 0.20)), ('haiku', (1, 5, 0.10, 1.25, 2)),
+]
+
+
+def price(model, u):
+    p = next((v for k, v in PRICES if k in (model or '')), None)
+    if not p:
+        return None
+    cc = u.get('cache_creation') or {}
+    w1h = cc.get('ephemeral_1h_input_tokens', 0)
+    w5m = cc.get('ephemeral_5m_input_tokens', u.get('cache_creation_input_tokens', 0) - w1h)
+    c = (u.get('input_tokens', 0) * p[0] + u.get('output_tokens', 0) * p[1] + u.get('cache_read_input_tokens', 0) * p[2]
+         + w5m * p[3] + w1h * p[4]) / 1e6
+    return c * (2 if u.get('speed') == 'fast' else 1)
+
+
+def db():
+    DB.parent.mkdir(parents=True, exist_ok=True)
+    c = sqlite3.connect(DB)
+    c.executescript('''
+      create table if not exists req (id text primary key, session text, ts text, project text, model text,
+        agent text, turn text, input int, output int, cache_read int, cache_write int, cost real);
+      create table if not exists seen (path text primary key, size int);
+      create index if not exists req_ts on req(ts);
+      create index if not exists req_session on req(session);
+      create table if not exists runs (session text primary key, agent text, version text, model text, effort text,
+        via text, project text, started text);
+      create view if not exists hq_req as
+        select req.*, case when req.agent like 'hq:%' then substr(req.agent, 4, instr(substr(req.agent, 4) || ':', ':') - 1)
+                           else runs.agent end as hq_agent,
+               case when req.agent like 'hq:%' then null else runs.version end as version,
+               case when req.agent like 'hq:%' then 'subagent' else runs.via end as via,
+               case when req.agent like 'hq:%' then null else runs.effort end as effort
+        from req left join runs using (session);''')
+    return c
+
+
+def sync(c, quiet=False):
+    seen = dict(c.execute('select path, size from seen'))
+    files = glob.glob(str(PROJECTS / '*/*.jsonl')) + glob.glob(str(PROJECTS / '*/*/subagents/*.jsonl'))
+    n = 0
+    for f in files:
+        try:
+            size = os.path.getsize(f)
+        except OSError:
+            continue
+        if seen.get(f) == size:
+            continue
+        sub = '/subagents/' in f
+        agent = 'main'
+        if sub:
+            try:
+                m = json.load(open(f[:-6] + '.meta.json'))
+                agent = f"{m.get('agentType', 'agent')}: {m.get('description', '')}"
+            except (OSError, ValueError):
+                agent = 'subagent'
+        turn, rows = None, {}
+        for line in open(f, errors='replace'):
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            m = d.get('message') or {}
+            if d.get('type') == 'user' and not d.get('isMeta') and not sub:
+                t = m.get('content')
+                if isinstance(t, list):
+                    t = next((b.get('text') for b in t if isinstance(b, dict) and b.get('type') == 'text'), None)
+                if isinstance(t, str) and t.strip() and not t.lstrip().startswith('<'):
+                    turn = ' '.join(t.split())[:100]
+            u = m.get('usage')
+            if d.get('type') != 'assistant' or not u or not m.get('id') or m.get('model') == '<synthetic>':
+                continue
+            # streamed messages are logged once per content block; the last copy has the final usage
+            proj = d.get('cwd') or ''
+            rows[m['id']] = (m['id'], d.get('sessionId'), d.get('timestamp'), proj, m.get('model'), agent, turn,
+                             u.get('input_tokens', 0), u.get('output_tokens', 0), u.get('cache_read_input_tokens', 0),
+                             u.get('cache_creation_input_tokens', 0), price(m.get('model'), u))
+        c.executemany('insert or replace into req values (?,?,?,?,?,?,?,?,?,?,?,?)', rows.values())
+        c.execute('insert or replace into seen values (?, ?)', (f, size))
+        n += len(rows)
+    try:
+        threads = json.loads(BRIDGE_STATE.read_text()).get('threads', {}).values()
+        c.executemany("insert or ignore into runs (session, agent, via) values (?, ?, 'discord')",
+                      [(t['session_id'], t['agent']) for t in threads if t.get('session_id') and t.get('agent')])
+    except (OSError, ValueError, AttributeError):
+        pass
+    c.commit()
+    if not quiet:
+        print(f'synced {len(files)} transcripts, {n} requests updated')
+
+
+def money(x):
+    return f'${x:,.2f}' if x is not None else '   n/a'
+
+
+def report(c, period):
+    since = since_of(period)
+    q = lambda sql, *a: c.execute(sql, (since, *a)).fetchall()
+    tot = q('select sum(cost), count(*), sum(output), sum(cache_read) from req where ts >= ?')[0]
+    print(f'\n{period}: {money(tot[0] or 0)} over {tot[1]} requests '
+          f'({(tot[2] or 0)/1e6:.2f}M output tokens, {(tot[3] or 0)/1e6:.0f}M cache reads)\n')
+    print('by day')
+    for day, cost, n in q("select substr(datetime(ts,'localtime'),1,10) d, sum(cost), count(*) from req where ts >= ? group by d order by d desc limit 14"):
+        print(f'  {day}  {money(cost):>9}  {n:5d} req')
+    print('\nby project')
+    for p, cost, n in q('select project, sum(cost) s, count(*) from req where ts >= ? group by project order by s desc limit 10'):
+        print(f'  {money(cost):>9}  {n:5d} req  {p.replace(str(Path.home()), "~") or "?"}')
+    print('\nby model')
+    for m, cost, n in q('select model, sum(cost) s, count(*) from req where ts >= ? group by model order by s desc'):
+        print(f'  {money(cost):>9}  {n:5d} req  {m}')
+    print('\ntop sessions  (hq-cost session <id> for turns)')
+    for s, cost, first, turn in q("""select session, sum(cost) s, min(datetime(ts,'localtime')),
+            (select turn from req r2 where r2.session = req.session and turn is not null order by ts limit 1)
+            from req where ts >= ? group by session order by s desc limit 8"""):
+        print(f'  {money(cost):>9}  {s[:8]}  {first[:16]}  {(turn or "")[:60]}')
+    print()
+
+
+def tag(c):
+    """SessionStart hook: the session on stdin is a run of $HQ_AGENT. Never fails the session."""
+    try:
+        hook = json.load(sys.stdin)
+        env = os.environ.get
+        if hook.get('session_id') and env('HQ_AGENT'):
+            c.execute('insert or replace into runs values (?,?,?,?,?,?,?,?)', (
+                hook['session_id'], env('HQ_AGENT'), env('HQ_AGENT_VERSION'), env('HQ_MODEL') or None,
+                env('HQ_EFFORT') or None, env('HQ_VIA', 'terminal'), env('HQ_PROJECT') or None,
+                dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')))
+            c.commit()
+    except Exception as e:  # noqa: BLE001 — cost tracking must never block a run
+        print(f'hq-cost tag: {e}', file=sys.stderr)
+
+
+def since_of(period):
+    now = dt.datetime.now(dt.timezone.utc).astimezone()
+    start = {'today': now.replace(hour=0, minute=0, second=0, microsecond=0),
+             'week': now - dt.timedelta(days=7), 'month': now - dt.timedelta(days=30)}.get(period)
+    return start.astimezone(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S') if start else '0'
+
+
+def agents(c, period):
+    since = since_of(period)
+    rows = c.execute('''select hq_agent, sum(cost) s, count(distinct session), count(*), sum(output),
+                              group_concat(distinct model) from hq_req where hq_agent is not null and ts >= ?
+                       group by hq_agent order by s desc''', (since,)).fetchall()
+    total = c.execute('select sum(cost) from req where ts >= ?', (since,)).fetchone()[0] or 0
+    hq = sum(r[1] or 0 for r in rows)
+    print(f'\nhq agents, {period}: {money(hq)} of {money(total)} total Claude Code usage\n')
+    print(f'  {"agent":<12}{"cost":>10}{"runs":>6}{"per run":>10}{"req":>7}{"out tok":>9}  models')
+    for a, cost, runs, n, out, models in rows:
+        short = ', '.join(sorted({m.replace('claude-', '') for m in (models or '').split(',') if m}))
+        print(f'  {a:<12}{money(cost):>10}{runs:>6}{money((cost or 0) / runs):>10}{n:>7}{out / 1e3:>8.0f}k  {short}')
+    if not rows:
+        print('  no hq runs recorded yet (runs are tagged from now on; hq:<name> subagents count from the start)')
+    print('\n  runs = sessions started by `hq <agent>` plus sessions that called it as an hq:<name> subagent\n')
+
+
+def agent(c, name, period):
+    since = since_of(period)
+    q = lambda sql: c.execute(sql, (name, since)).fetchall()
+    where = 'from hq_req where hq_agent = ? and ts >= ?'
+    tot = q(f'select sum(cost), count(distinct session), count(*), sum(output) {where}')[0]
+    if not tot[2]:
+        sys.exit(f'no usage recorded for hq agent {name!r} ({period})')
+    print(f'\n{name}, {period}: {money(tot[0])} over {tot[1]} runs, {tot[2]} requests, {(tot[3] or 0) / 1e3:.0f}k output tokens\n')
+    print('by day')
+    for day, cost, runs in q(f"select substr(datetime(ts,'localtime'),1,10) d, sum(cost), count(distinct session) {where} group by d order by d desc limit 14"):
+        print(f'  {day}  {money(cost):>9}  {runs:3d} runs')
+    print('\nby version, model and effort  (version and effort are known for `hq <agent>` runs only)')
+    for ver, model, eff, via, cost, runs in q(f'''select coalesce(version, '-'), model, coalesce(effort, '-'), via, sum(cost) s,
+            count(distinct session) {where} group by 1, 2, 3, 4 order by s desc limit 15'''):
+        print(f'  {money(cost):>9}  {runs:3d} runs  {ver:<11} {model:<22} {eff:<7} {via}')
+    print('\ncostliest runs  (hq-cost session <id> for turns)')
+    for s, cost, first, turn in q(f'''select session, sum(cost) s, min(datetime(ts,'localtime')),
+            (select turn from req r2 where r2.session = hq_req.session and turn is not null order by ts limit 1)
+            {where} group by session order by s desc limit 10'''):
+        print(f'  {money(cost):>9}  {s[:8]}  {first[:16]}  {(turn or "")[:60]}')
+    print()
+
+
+def session(c, prefix):
+    ids = [r[0] for r in c.execute('select distinct session from req where session like ?', (prefix + '%',))]
+    if len(ids) != 1:
+        sys.exit(f'{len(ids)} sessions match {prefix!r}')
+    sid = ids[0]
+    print(f'\nsession {sid}\n\nturns (main conversation; cost of everything until the next prompt)')
+    rows = c.execute('''select turn, sum(cost), count(*), sum(output), sum(cache_read), min(datetime(ts,'localtime'))
+                        from req where session = ? and agent = 'main' group by turn order by min(ts)''', (sid,)).fetchall()
+    for turn, cost, n, out, cr, t in rows:
+        print(f'  {money(cost):>8}  {n:4d} req  {out/1e3:6.1f}k out  {cr/1e6:5.1f}M cached  {t[5:16]}  {(turn or "(start)")[:60]}')
+    subs = c.execute('''select agent, sum(cost) s, count(*) from req where session = ? and agent != 'main'
+                        group by agent order by s desc''', (sid,)).fetchall()
+    if subs:
+        print('\nsubagents')
+        for a, cost, n in subs:
+            print(f'  {money(cost):>8}  {n:4d} req  {a[:80]}')
+    total = c.execute('select sum(cost) from req where session = ?', (sid,)).fetchone()[0]
+    print(f'\ntotal {money(total)}\n')
+
+
+def main():
+    a = sys.argv[1:] or ['week']
+    if a[0] in ('-h', '--help'):
+        sys.exit(print(__doc__))
+    c = db()
+    if a[0] == 'tag':
+        return tag(c)
+    if a[0] == 'sync':
+        return sync(c)
+    sync(c, quiet=True)
+    if a[0] == 'session' and len(a) > 1:
+        session(c, a[1])
+    elif a[0] == 'agents':
+        agents(c, a[1] if len(a) > 1 else 'month')
+    elif a[0] == 'agent' and len(a) > 1:
+        agent(c, a[1], a[2] if len(a) > 2 else 'month')
+    elif a[0] == 'csv':
+        since = a[2] if len(a) > 2 else '0'
+        w = csv.writer(sys.stdout)
+        w.writerow(['id', 'session', 'ts', 'project', 'model', 'agent', 'turn', 'input', 'output', 'cache_read', 'cache_write',
+                    'cost', 'hq_agent', 'version', 'via', 'effort'])
+        w.writerows(c.execute('select * from hq_req where ts >= ? order by ts', (since,)))
+    elif a[0] in ('today', 'week', 'month', 'all'):
+        report(c, a[0])
+    else:
+        sys.exit(__doc__)
+
+
+if __name__ == '__main__':
+    main()

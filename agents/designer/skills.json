@@ -1,0 +1,47 @@
+{
+  "$comment": "Third-party skills, linked rather than copied: hq-pkg fetch downloads each folder at its pinned commit into skills/<name>/ (git-ignored). Change ref to upgrade; the next run checks and snapshots it.",
+  "skills": {
+    "animate": {
+      "repo": "emilkowalski/skills",
+      "ref": "2d228630ba1446365f614a108cb8252f1feda202",
+      "path": "skills/animate",
+      "license": "MIT"
+    },
+    "composition-patterns": {
+      "repo": "vercel-labs/agent-skills",
+      "ref": "063bee94c3f4df8453406c830b0a7df0f2860278",
+      "path": "skills/composition-patterns",
+      "license": "MIT (declared in SKILL.md; the repo has no LICENSE file)"
+    },
+    "frontend-slides": {
+      "repo": "zarazhangrui/frontend-slides",
+      "ref": "9906a34d640d2111f724544cbc50f7f130569ae1",
+      "path": ".",
+      "license": "MIT"
+    },
+    "impeccable": {
+      "repo": "pbakaus/impeccable",
+      "ref": "245ad82def45831dc56a21b683c7a1ff530b06cc",
+      "path": "plugin/skills/impeccable",
+      "license": "Apache-2.0"
+    },
+    "pptx-generator": {
+      "repo": "MiniMax-AI/skills",
+      "ref": "60aaae52bb2af8162732751a4332f62a5fef518b",
+      "path": "skills/pptx-generator",
+      "license": "MIT"
+    },
+    "react-best-practices": {
+      "repo": "vercel-labs/agent-skills",
+      "ref": "063bee94c3f4df8453406c830b0a7df0f2860278",
+      "path": "skills/react-best-practices",
+      "license": "MIT (declared in SKILL.md; the repo has no LICENSE file)"
+    },
+    "shadcn": {
+      "repo": "shadcn-ui/ui",
+      "ref": "30a58d4498f270af1c1e981a7d78a15cf5740841",
+      "path": "skills/shadcn",
+      "license": "MIT"
+    }
+  }
+}

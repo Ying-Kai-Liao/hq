@@ -1,0 +1,14 @@
+{
+  "source": [1952, 1478],
+  "max_mag": 1.7,
+  "font": "Inter",
+  "colors": {"ink": "#15171C", "paper": "#EEEDE8", "accent_light": "#0B9A68", "accent_dark": "#2FD18F"},
+  "brand": {"mark": "~/Workspace/flow/docs/brand/flow-symbol-reversed.svg",
+            "lockup": "~/Workspace/flow/docs/brand/flow-horizontal-reversed.svg"},
+  "regions": {
+    "pane": [1003, 0, 945, 1256], "tree": [1015, 250, 935, 760], "header": [1003, 20, 945, 260],
+    "question": [1005, 30, 940, 740], "options": [1005, 560, 940, 230], "card": [1010, 90, 935, 300],
+    "toast": [295, 18, 720, 190], "answerbar": [1003, 1030, 945, 220], "inboxtop": [1003, 0, 945, 420]
+  },
+  "specs_file": "specs.json"
+}

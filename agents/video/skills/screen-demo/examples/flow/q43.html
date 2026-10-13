@@ -1,0 +1,17 @@
+<style>
+  #dim { position:absolute; inset:0; background:#15171C; opacity:0; z-index:11; }
+  .lift { position:absolute; z-index:20; background:#1F2023; border-radius:16px; padding:30px 36px; color:#D4D5D8;
+    font:400 30px/1.4 'JetBrains Mono',monospace; box-shadow:0 40px 100px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.08); opacity:0; }
+  .lift .b { font-weight:700; color:#ECEDEF; } .lift .dim2 { color:#8E9199; }
+  .opt { display:block; padding:8px 12px; margin:8px -12px; border-radius:8px; font-weight:700; color:#ECEDEF; }
+  .opt.on { background:#2FD18F; color:#15171C; }
+  .key { position:absolute; right:-28px; bottom:-34px; font:700 60px 'JetBrains Mono',monospace; color:#15171C; background:#fff; border-radius:12px;
+    padding:12px 38px; box-shadow:0 10px 0 #9AA0AA; }
+  #toast { position:absolute; z-index:20; left:880px; top:420px; width:820px; background:#fff; color:#15171C; border-radius:18px; padding:24px 32px;
+    font:400 32px/1.4 'JetBrains Mono',monospace; box-shadow:0 40px 100px rgba(0,0,0,.6); opacity:0; }
+  #toast .t { font:600 24px 'Inter'; color:#5E636C; margin-bottom:6px; }
+</style>
+  <div id="dim"></div>
+  <div class="lift" id="qcard" style="left:820px;top:330px;width:900px"><div><span class="b">q43</span> <span class="dim2">· inbox-autoresolve is waiting</span></div>
+    <span class="opt" id="o1">1) Keep the explicit opt-in (default)</span><span class="opt" id="o2">2) Remove it: no rule can answer deploys</span><div class="key" id="key">y</div></div>
+  <div id="toast"><div class="t">flow</div>q43: Keep the explicit opt-in (only a rule you wrote naming the kind)</div>

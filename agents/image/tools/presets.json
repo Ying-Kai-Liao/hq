@@ -1,0 +1,67 @@
+{
+  "og": {
+    "w": 1200,
+    "h": 630,
+    "use": "Open Graph / link preview (Facebook, LinkedIn, Slack, Discord)"
+  },
+  "x-card": {
+    "w": 1600,
+    "h": 900,
+    "use": "X/Twitter large summary card, 16:9"
+  },
+  "blog-hero": {
+    "w": 1920,
+    "h": 1080,
+    "use": "Blog or site hero, 16:9"
+  },
+  "yt-thumb": {
+    "w": 1280,
+    "h": 720,
+    "use": "YouTube thumbnail"
+  },
+  "ig-square": {
+    "w": 1080,
+    "h": 1080,
+    "use": "Instagram / Threads square post"
+  },
+  "ig-portrait": {
+    "w": 1080,
+    "h": 1350,
+    "use": "Instagram portrait post, 4:5"
+  },
+  "story": {
+    "w": 1080,
+    "h": 1920,
+    "use": "Instagram/TikTok story or reel cover, 9:16"
+  },
+  "linkedin-post": {
+    "w": 1200,
+    "h": 1200,
+    "use": "LinkedIn square image post"
+  },
+  "linkedin-banner": {
+    "w": 1584,
+    "h": 396,
+    "use": "LinkedIn profile banner"
+  },
+  "gh-social": {
+    "w": 1280,
+    "h": 640,
+    "use": "GitHub repository social preview"
+  },
+  "readme-tile": {
+    "w": 1200,
+    "h": 1200,
+    "use": "Square tile for a README or project page"
+  },
+  "a4-portrait": {
+    "w": 1240,
+    "h": 1754,
+    "use": "A4 page at 150 dpi (printable infographic)"
+  },
+  "slide": {
+    "w": 1920,
+    "h": 1080,
+    "use": "16:9 slide or presentation image"
+  }
+}

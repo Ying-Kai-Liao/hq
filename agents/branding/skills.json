@@ -1,0 +1,11 @@
+{
+  "$comment": "Third-party skills, linked rather than copied: hq-pkg fetch downloads each folder at its pinned commit into skills/<name>/ (git-ignored). Change ref to upgrade; the next run checks and snapshots it.",
+  "skills": {
+    "logo-design": {
+      "repo": "kaankiziltug/logo-design-skill",
+      "ref": "5a02a1ab650e7dfd0d1d06f4fd303e730311ce80",
+      "path": "skills/logo-design",
+      "license": "MIT"
+    }
+  }
+}

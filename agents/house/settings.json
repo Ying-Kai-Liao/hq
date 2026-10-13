@@ -1,0 +1,37 @@
+{
+  "$comment": "Merged over your global ~/.claude/settings.json for this agent's runs (hq --settings). Narrow here: model, plugins, permissions. MCP servers come from shared services in capabilities.yaml needs (granted with hq-auth), or mcp.json next to this file. Placeholders: {{HQ}}, {{AGENT_DIR}} (pinned package), {{HOME_DIR}} (memory, data).",
+  "autoMemoryEnabled": false,
+  "enabledPlugins": {
+    "cowork-plugin-management@synced": false,
+    "data@synced": false,
+    "engineering@synced": false,
+    "enterprise-search@synced": false,
+    "flow@flow": false,
+    "impeccable@impeccable": false,
+    "plugin-dev@claude-plugins-official": false,
+    "productivity@synced": false,
+    "skill-creator@claude-plugins-official": false,
+    "vercel@claude-plugins-official": false
+  },
+  "permissions": {
+    "allow": [
+      "Bash(python3 {{AGENT_DIR}}/tools/house.py:*)",
+      "Bash({{HQ}}/bin/hq-send:*)",
+      "Bash({{HQ}}/bin/hq-send --as house:*)",
+      "Edit(/{{HOME_DIR}}/memory/**)",
+      "Edit(/{{HOME_REAL}}/memory/**)",
+      "Edit(/{{HOME_DIR}}/skills/learned/**)",
+      "Edit(/{{HOME_REAL}}/skills/learned/**)",
+      "Read(~/.config/hq/bridge/attachments/**)",
+      "Read(~/Downloads/**)"
+    ],
+    "deny": [
+      "Edit(~/.hermes/**)",
+      "Edit(/{{HOME_DIR}}/data/**)",
+      "Read(~/.codex/auth.json)",
+      "Read(~/.hermes/**/.env)",
+      "Read(~/.config/hq/env)",
+      "Read(~/.config/hq/auth.json)"
+    ]
+  }
+}

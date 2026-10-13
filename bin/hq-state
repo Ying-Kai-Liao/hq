@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""hq-state — the state folder's own git repo: memory, data, learned skills, user.md, projects.
+
+  hq-state path      print the state folder ($HQ_STATE, else ~/.hq, else the repo)
+  hq-state dump      write every agents/*/data/*.db as a text dump next to it (<name>.sql), for git
+  hq-state commit    dump, then commit everything that changed and push if there is a remote
+
+Databases are committed as dumps, not binaries: they diff, merge by hand, and restore with
+`sqlite3 NEW.db < NAME.sql`. The state repo holds personal data; keep its remote private.
+"""
+import datetime as dt
+import os
+import sqlite3
+import subprocess
+import sys
+from pathlib import Path
+
+HQ = Path(os.environ.get('HQ_ROOT') or os.path.dirname(os.path.dirname(
+    os.path.normpath(os.path.join(os.environ.get('PWD') or os.getcwd(), sys.argv[0])))))
+DOT = Path.home() / '.hq'
+STATE = Path(os.environ.get('HQ_STATE') or (DOT if DOT.is_dir() else HQ))
+
+
+def dump():
+    n = 0
+    for db in sorted(STATE.glob('agents/*/data/*.db')):
+        out = db.with_suffix('.sql')
+        src = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
+        snap = sqlite3.connect(':memory:')
+        src.backup(snap)                        # a consistent copy even while a tool is writing
+        src.close()
+        tmp = out.with_name(f'.{out.name}.tmp')
+        with open(tmp, 'w') as f:
+            for line in snap.iterdump():
+                f.write(line + '\n')
+        snap.close()
+        tmp.replace(out)
+        n += 1
+        print(f'dumped {db.relative_to(STATE)} -> {out.name}')
+    return n
+
+
+def git(*args, check=True):
+    return subprocess.run(['git', *args], cwd=STATE, capture_output=True, text=True, check=check)
+
+
+def commit():
+    if STATE.resolve() == HQ.resolve():
+        sys.exit('hq-state: state is still inside the repo (run hq-migrate-state first)')
+    if not (STATE / '.git').exists():
+        sys.exit(f'hq-state: {STATE} is not a git repo')
+    dump()
+    git('add', '-A')
+    if git('diff', '--cached', '--quiet', check=False).returncode == 0:
+        print('hq-state: nothing changed')
+        return
+    git('commit', '-q', '-m', f'state: {dt.datetime.now():%Y-%m-%d %H:%M}')
+    print('hq-state: committed')
+    if git('remote', check=False).stdout.strip():
+        r = git('push', '-q', check=False)
+        print('hq-state: pushed' if r.returncode == 0 else f'hq-state: push failed: {r.stderr.strip()}')
+
+
+def main(argv):
+    cmd = argv[0] if argv else '-h'
+    if cmd == 'path':
+        print(STATE)
+    elif cmd == 'dump':
+        dump()
+    elif cmd == 'commit':
+        commit()
+    else:
+        print(__doc__.strip())
+        return 0 if cmd in ('-h', '--help') else 2
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))
