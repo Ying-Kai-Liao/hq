@@ -106,6 +106,7 @@ export class IslandModel extends Observable {
 
   /** The header's tabs. Bots puts the approvals on screen off until another arrives. */
   setTab(tab: IslandTab) {
+    const typing = this.tab === 'message'
     this.update(() => {
       if (tab === 'bots') for (const p of this.summary.permissions) this.deferred.add(p.entryId)
       if (tab === 'message' && !this.messageRef) this.messageRef = this.focus?.ref ?? null
@@ -113,7 +114,8 @@ export class IslandModel extends Observable {
       this.open = true
       this.pinned = true
     })
-    window.codync.island.setFocusable(tab === 'message')
+    // Only the message field takes the keyboard; giving it back is the only reason to touch focus.
+    if (typing !== (tab === 'message')) window.codync.island.setFocusable(tab === 'message')
     this.foldWhenAway()
   }
 
@@ -160,6 +162,7 @@ export class IslandModel extends Observable {
 
   close() {
     clearTimeout(this.hoverTimer)
+    const typing = this.tab === 'message'
     this.update(() => {
       this.open = false
       this.pinned = false
@@ -167,7 +170,7 @@ export class IslandModel extends Observable {
       this.closing = false
       this.tab = 'auto'
     })
-    window.codync.island.setFocusable(false)
+    if (typing) window.codync.island.setFocusable(false)
   }
 
   private answerByKey(answer: 'allow' | 'deny') {

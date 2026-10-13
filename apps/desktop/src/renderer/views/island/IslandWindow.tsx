@@ -1,17 +1,30 @@
+import { useRef } from 'react'
 import { contentTop, isOpenMode, type IslandMode, type IslandTab } from '@shared/island'
 import { Icon } from '../../components/Icon'
+import { usePresence } from '../../components/Overlay'
 import { useModel } from '../../lib/observable'
 import { PINNED_LEAVE_MS, type IslandModel } from './island-model'
 import { Approval, Empty, Message, Notice, Overview, Wings } from './IslandViews'
 import { UsageMeter, UsageView } from './IslandUsage'
 import './island.css'
 
-/** The notch island: a black shape that grows out of the notch. */
+/** How long the views stay on screen while the shape folds back into the notch (its 0.34 s close). */
+const FOLD_MS = 340
+
+/** The notch island: a black shape that grows out of the notch and folds back into it. */
 export function IslandWindow({ model }: { model: IslandModel }) {
   useModel(model)
   const { mode, frame } = model
   const open = isOpenMode(mode)
-  const closed = mode === 'compact' || mode === 'hidden' || mode === 'peek'
+  const winged = mode === 'compact' || mode === 'peek'
+  const closed = winged || mode === 'hidden'
+  // What was on screen stays (fading) while the shape shrinks, so folding away is animated too.
+  const lastOpen = useRef<IslandMode>(mode)
+  const lastWings = useRef<IslandMode>(mode)
+  if (open) lastOpen.current = mode
+  if (winged) lastWings.current = mode
+  const views = usePresence(open, FOLD_MS, false)
+  const wings = usePresence(winged, FOLD_MS, false)
   return (
     <div
       className={`island ${model.growing ? 'growing' : 'shrinking'} ${model.screen.notch ? '' : 'edge'}`}
@@ -24,14 +37,18 @@ export function IslandWindow({ model }: { model: IslandModel }) {
       <span className="island-ear left" />
       <span className="island-ear right" />
       <div className="island-body" style={{ borderBottomLeftRadius: frame.radius, borderBottomRightRadius: frame.radius }}>
-        {mode === 'compact' || mode === 'peek' ? <Wings model={model} peek={mode === 'peek'} /> : null}
-        {open ? (
-          <>
-            <Header model={model} mode={mode} />
-            <div key={mode} className="island-content" style={{ top: contentTop(model.screen) }}>
-              <View model={model} mode={mode} />
+        {wings.mounted ? (
+          <div className={`island-layer ${wings.shown ? '' : 'leaving'}`}>
+            <Wings model={model} peek={lastWings.current === 'peek'} />
+          </div>
+        ) : null}
+        {views.mounted ? (
+          <div className={`island-layer ${views.shown ? '' : 'leaving'}`}>
+            <Header model={model} mode={lastOpen.current} />
+            <div key={lastOpen.current} className="island-content" style={{ top: contentTop(model.screen) }}>
+              <View model={model} mode={lastOpen.current} />
             </div>
-          </>
+          </div>
         ) : null}
         {open && model.closing ? <span className="island-countdown" style={{ animationDuration: `${PINNED_LEAVE_MS}ms` }} /> : null}
       </div>

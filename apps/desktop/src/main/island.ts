@@ -116,8 +116,12 @@ export class Island {
   private open() {
     if (this.window) return
     const isMac = process.platform === 'darwin'
+    // Top center of the main display until the notch is measured (place() moves it if needed).
+    const main = screen.getPrimaryDisplay().bounds
     const win = new BrowserWindow({
       ...PANEL,
+      x: Math.round(main.x + (main.width - PANEL.width) / 2),
+      y: main.y,
       show: false,
       frame: false,
       transparent: true,
@@ -170,7 +174,11 @@ export class Island {
     if (!win) return
     win.setFocusable(on)
     if (on) win.focus()
-    else win.blur()
+    else if (win.isFocused()) {
+      // Giving the keyboard back sends the window to the back of its level on macOS: bring it forward again.
+      win.blur()
+      win.moveTop()
+    }
   }
 
   private setKeys(on: boolean) {

@@ -20,7 +20,7 @@ export function Wings({ model, peek }: { model: IslandModel; peek: boolean }) {
   if (!focus) return null
   const label = focus.status === 'needsInput' ? 'Needs you' : `${model.activeCount} working`
   return (
-    <div className="island-wings">
+    <div className={`island-wings ${peek ? 'peeking' : ''}`}>
       {model.screen.notch || peek ? null : <span className="island-wings-label">{label}</span>}
       <span className="island-wing-left">
         <span className="island-wing-avatar">

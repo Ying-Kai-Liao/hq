@@ -31,9 +31,26 @@ html[data-window='island'] #root {
 .island.shrinking {
   transition: width 0.34s cubic-bezier(0.45, 0, 0.2, 1), height 0.34s cubic-bezier(0.45, 0, 0.2, 1), opacity 0.2s var(--ease);
 }
-/* Resting over the notch (or as a strip at a plain top edge): nothing to see. */
+/* Resting over the notch (or as a strip at a plain top edge): nothing to see. Folding into it,
+   the shape shrinks first and only then fades, so it visibly goes back into the notch. */
 .island[data-mode='hidden'] {
   opacity: 0;
+}
+.island.shrinking[data-mode='hidden'] {
+  transition: width 0.34s cubic-bezier(0.45, 0, 0.2, 1), height 0.34s cubic-bezier(0.45, 0, 0.2, 1), opacity 0.16s var(--ease) 0.3s;
+}
+
+/* The wings or the open views; leaving, they blur away while the shape folds. */
+.island-layer {
+  position: absolute;
+  inset: 0;
+}
+.island-layer.leaving {
+  opacity: 0;
+  filter: blur(8px);
+  transform: scale(0.97);
+  transition: opacity 0.16s var(--ease), filter 0.16s var(--ease), transform 0.16s var(--ease);
+  pointer-events: none;
 }
 
 .island-body {
@@ -95,9 +112,10 @@ html[data-window='island'] #root {
   display: grid;
   place-items: center;
 }
-.island[data-mode='peek'] .island-wing-left {
-  width: 38px;
-  justify-items: end;
+/* Peeking, the notch is only 32 pt wider on each side: the whole character sits in that strip,
+   never half behind the camera. */
+.island-wings.peeking .island-wing-left {
+  width: 32px;
 }
 .island-wings-label {
   position: absolute;
@@ -123,6 +141,7 @@ html[data-window='island'] #root {
 
 /* Open: the header beside the notch. */
 .island-header {
+  animation: island-in 0.3s 0.3s var(--ease) backwards;
   position: absolute;
   top: 2px;
   left: 14px;
@@ -632,7 +651,11 @@ html[data-window='island'] #root {
   .island-body {
     transition: none;
   }
-  .island-content {
+  .island-content,
+  .island-header {
     animation: none;
+  }
+  .island-layer.leaving {
+    transition: none;
   }
 }
