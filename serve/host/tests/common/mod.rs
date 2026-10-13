@@ -1,6 +1,6 @@
 //! Shared by the end-to-end tests.
 
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 /// Use the checksum-verified release fixture so isolated hosts don't each download it.
@@ -12,6 +12,33 @@ pub fn seed_memory_runtime(home: &std::path::Path) {
     std::fs::create_dir_all(&dir).expect("memory runtime folder");
     std::fs::copy(binary, dir.join(if cfg!(windows) { "engram.exe" } else { "engram" })).expect("copy Engram fixture");
     std::fs::write(dir.join(".installed"), "3.2.1").expect("mark fixture installed");
+}
+
+/// Runs `codync-host serve` for `home` until it answers: the process and its base URL. A port
+/// picked here is only free for a moment; when something else takes it before the host binds, the
+/// host exits and this starts it again on another one.
+pub async fn serve(home: &std::path::Path) -> (Child, String) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let port = std::net::TcpListener::bind("127.0.0.1:0").expect("free port").local_addr().expect("port").port();
+        let base = format!("http://127.0.0.1:{port}");
+        let mut child = Command::new(env!("CARGO_BIN_EXE_codync-host"))
+            .args(["serve", "--bind", "127.0.0.1", "--port", &port.to_string()])
+            .env("CODYNC_HOME", home)
+            .env("CODYNC_CLOUD", "off")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start the host");
+        while child.try_wait().expect("host state").is_none() {
+            if reqwest::get(format!("{base}/health")).await.is_ok() {
+                return (child, base);
+            }
+            assert!(Instant::now() < deadline, "host didn't start");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(Instant::now() < deadline, "host didn't start");
+    }
 }
 
 /// Stops a test host the way launchd does (SIGTERM), so it shuts down its own
