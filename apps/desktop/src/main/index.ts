@@ -18,6 +18,7 @@ import { registerScreenIPC } from './screen'
 import { registerCloud } from './cloud'
 import { registerSSH } from './ssh'
 import { QuitLifecycle } from './quit-lifecycle'
+import { Island } from './island'
 
 /** macOS's user-facing computer name, else the host name. */
 function computerName() {
@@ -210,9 +211,11 @@ if (!app.requestSingleInstanceLock()) {
     // would otherwise show Electron's.
     if (isMac && !app.isPackaged) app.dock?.setIcon(join(__dirname, '../../resources/icon.png'))
     applyDockVisibility()
-    const tray = new Tray({ openChat, openPairing, send, host, updates })
+    const island = new Island({ url: rendererURL('island'), preload: join(__dirname, '../preload/index.js'), send, changed: () => tray.hostChanged() })
+    const tray = new Tray({ openChat, openPairing, send, host, updates, island })
     updates.on('change', () => tray.hostChanged())
     registerIPC(tray)
+    island.register()
     registerAuthIPC()
     registerSpeech()
     registerScreenIPC()

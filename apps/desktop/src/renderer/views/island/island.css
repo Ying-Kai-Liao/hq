@@ -1,0 +1,189 @@
+/* The island window is a transparent panel: only the black shape is drawn. */
+html[data-window='island'],
+html[data-window='island'] body,
+html[data-window='island'] #root {
+  background: transparent;
+}
+
+/* Always black like the notch, so always the dark palette, at the default text size. */
+.island {
+  --text: #fafafa;
+  --text-rgb: 250, 250, 250;
+  --secondary: #a0a0a0;
+  --tertiary: #929292;
+  --accent-fill: #ffffff;
+  --on-accent: #000000;
+  --bubble-user: #2c2c2c;
+  --danger: #f0a7a7;
+  --scale: 1;
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--text);
+  font-size: 12px;
+  /* A spring with a little overshoot to open, none to close. */
+  transition: width 0.52s cubic-bezier(0.32, 1.22, 0.42, 1), height 0.52s cubic-bezier(0.32, 1.22, 0.42, 1), opacity 0.2s var(--ease);
+}
+.island.shrinking {
+  transition: width 0.34s cubic-bezier(0.45, 0, 0.2, 1), height 0.34s cubic-bezier(0.45, 0, 0.2, 1), opacity 0.2s var(--ease);
+}
+/* Resting over the notch (or as a strip at a plain top edge): nothing to see. */
+.island[data-mode='hidden'] {
+  opacity: 0;
+}
+
+.island-body {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+  transition: border-radius 0.34s var(--ease);
+}
+
+/* Concave corners where the shape meets the top edge, so it flows out of the screen's border. */
+.island-ear {
+  position: absolute;
+  top: 0;
+  width: 8px;
+  height: 8px;
+}
+.island-ear.left {
+  left: -8px;
+  background: radial-gradient(circle at 0 100%, transparent 7.5px, #000 8px);
+}
+.island-ear.right {
+  right: -8px;
+  background: radial-gradient(circle at 100% 100%, transparent 7.5px, #000 8px);
+}
+
+.island-compact {
+  position: absolute;
+  inset: 0 0 auto 0;
+  display: flex;
+  justify-content: space-between;
+}
+.island-wing {
+  width: 36px;
+  display: grid;
+  place-items: center;
+}
+.island-count {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.island-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning);
+  flex: none;
+}
+.island-dot.error {
+  background: var(--danger);
+}
+
+.island-content {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px 0;
+}
+.island-content > * {
+  animation: island-in 0.3s 0.16s var(--ease) backwards;
+}
+@keyframes island-in {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+    transform: scale(0.97);
+  }
+}
+
+.island-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.island-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 8px;
+  border-radius: 12px;
+  text-align: left;
+  transition: background-color var(--hover);
+}
+.island-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.island-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.island-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.island-detail {
+  color: var(--secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.island-empty {
+  color: var(--secondary);
+  text-align: center;
+  padding: 10px 0;
+}
+
+.island-approval {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.island-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.island-command {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--secondary);
+  background: #141414;
+  border-radius: 10px;
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.island-options {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.island-options .island-deny {
+  color: var(--danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .island,
+  .island.shrinking,
+  .island-body {
+    transition: none;
+  }
+  .island-content > * {
+    animation: none;
+  }
+}

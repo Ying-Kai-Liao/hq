@@ -31,6 +31,7 @@ import { StarPrompt } from './StarPrompt'
 import { OpenVoiceSettings } from './call/CallView'
 import { AccountPanelLayer, DesktopActionMenu, ProfileAvatar } from './PanelMenus'
 import { useTraySummary } from './tray-summary'
+import { useIslandSummary } from './island-summary'
 import { useSSH, useSSHAttachments } from './settings/ssh-model'
 import './chat-window.css'
 import './sidebar-header.css'
@@ -45,6 +46,7 @@ export function ChatWindow() {
   const [showAccess, setShowAccess] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
   useTraySummary(app)
+  useIslandSummary(app)
   useSSHAttachments(app)
   const ssh = useSSH()
   const showsChat = shouldShowChat(app.host.state.kind, app.computers.length, ssh.state)
@@ -78,6 +80,13 @@ export function ChatWindow() {
           case 'setRemoteScreen':
             void app.setRemoteScreen(c.on)
             return
+          case 'respondPermission': {
+            const ref = parseRef(c.ref)
+            const store = ref ? app.store(ref.computerId) : null
+            const entry = ref ? store?.allEntries(ref.botId).find((e) => e.id === c.entryId) : undefined
+            if (store && entry) store.respond(entry, c.optionId)
+            return
+          }
         }
       }),
     [app],
