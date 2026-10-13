@@ -10,13 +10,18 @@ import { AgentRow, AMBER, badgeOf, BigCharacter, GREEN, KeyHint, MiniColumn, moo
 
 const veil = (color: string, alpha: number) => `radial-gradient(120% 90% at 50% 130%, ${withAlpha(color, alpha)}, ${withAlpha(color, 0)} 70%)`
 
-/** Closed over the notch: the bot in focus on the left wing; the others (or its state) on the right. */
+/**
+ * Closed over the notch: the bot in focus on the left wing; the others (or its state) on the
+ * right. With no notch to hide, the middle says what's going on.
+ */
 export function Wings({ model, peek }: { model: IslandModel; peek: boolean }) {
   const focus = model.focus
   const others = model.others(4)
   if (!focus) return null
+  const label = focus.status === 'needsInput' ? 'Needs you' : `${model.activeCount} working`
   return (
     <div className="island-wings">
+      {model.screen.notch || peek ? null : <span className="island-wings-label">{label}</span>}
       <span className="island-wing-left">
         <span className="island-wing-avatar">
           <CharacterAvatar shape={focus.shape} color={focus.color} size={peek ? 18 : 20} mood={moodOf(focus)} dark />
