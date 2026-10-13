@@ -17,7 +17,8 @@ language.
 - Working files go in `~/Workspace/design/<project-id>/video/`.
 - Log every video you deliver: note the UTC time when you start it; when it's delivered run
   `python3 {{AGENT_DIR}}/tools/log_cost.py <working-dir> <video> <start-utc> --kind <kind> [--mode ..] [--api $]` and tell
-  the user the cost in one line.
+  the user the cost in one line. It reads your requests from the hq cost ledger; `hq cost agent video` shows your
+  totals by day, version and model.
 
 ## Your skills
 Your skills are not installed globally. Read a skill's `SKILL.md` when the task needs it, then follow it. Paths are
