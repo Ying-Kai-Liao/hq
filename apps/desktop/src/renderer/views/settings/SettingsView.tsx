@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { UpdateState } from '@shared/ipc'
 import { islandLabel } from '@shared/island'
-import { Button, CardForm, CardSection, ChoicePicker, IconButton, Switch, ValueRow } from '../../components/Controls'
+import { Button, CardForm, CardSection, ChoicePicker, IconButton, ProgressBar, Switch, ValueRow } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { useDismiss } from '../../components/Overlay'
 import { font } from '../../lib/fonts'
@@ -10,6 +9,7 @@ import { DEFAULT_TEXT_SIZE, prefs, TEXT_SIZES, usePref } from '../../lib/prefs'
 import { useAccount } from '../../store/account'
 import { StoreContext, useApp } from '../../store/context'
 import { ComputerBadge } from '../ComputerBadge'
+import { UpdateButton, useUpdates } from '../UpdateButton'
 import { ComputersView } from './ComputersView'
 import { errorText, isMac, thisMac } from './parts'
 import { UsageLimits } from './UsageLimits'
@@ -210,11 +210,7 @@ function UsageLimitsList() {
 
 /** The app's update check and preferences, the same as the menu bar's Updates menu. */
 function UpdateSettings() {
-  const [updates, setUpdates] = useState<UpdateState | null>(null)
-  useEffect(() => {
-    void window.codync.updates.state().then(setUpdates)
-    return window.codync.updates.onChange(setUpdates)
-  }, [])
+  const updates = useUpdates()
   if (!updates) return null
   const footer = !updates.supported
     ? 'Updates are available in release builds.'
@@ -231,11 +227,16 @@ function UpdateSettings() {
           <ValueRow key="version" label="Version" detail={lastChecked}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span>{window.codync.appVersion}</span>
-              <Button kind="secondary" onClick={() => window.codync.updates.check()} disabled={!updates.supported && !updates.staged}>
-                {updates.availableVersion ? `Update to ${updates.availableVersion}` : 'Check for updates'}
-              </Button>
+              <UpdateButton updates={updates} />
             </span>
           </ValueRow>,
+          ...(updates.downloadPercent !== null
+            ? [
+                <div key="progress" className="settings-row settings-appear">
+                  <ProgressBar value={updates.downloadPercent / 100} label={`Downloading Codync ${updates.availableVersion ?? ''}`} />
+                </div>,
+              ]
+            : []),
           <Switch key="check" on={updates.autoCheck} onChange={(on) => window.codync.updates.setAutoCheck(on)} disabled={!updates.supported}>
             Automatically check for updates
           </Switch>,
