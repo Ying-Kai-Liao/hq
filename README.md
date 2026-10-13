@@ -45,6 +45,40 @@ hq push <agent>|--all                          # push committed versions (hq-sta
 public repo shows every old commit. An agent installed from someone else keeps their repo as `upstream`; `hq share`
 makes yours `origin`, so `hq update` still pulls their changes.
 
+## Repos, and where each change goes
+Running hq takes **2 + N repos**: this kernel, your state repo, and one per agent you've shared. Agents installed
+from someone else stay in their repo (+0 until you `hq share` your own copy); third-party skills are fetched from
+their authors' repos (+0). Several agents can share one repo, installed by folder (`hq install
+<owner>/<repo>/tree/main/<folder>`), though `hq share` makes one repo per agent.
+
+| Repo | Holds | Visibility |
+|---|---|---|
+| `hq` (this one) | the kernel: `bin/`, `shared/PROTOCOL.md`, `shared/services/`, the plugin | public |
+| `<you>/hq-state`, cloned to `~/.hq` | memory, data (as text dumps), `user.md`, projects, `agents.json` | **private** |
+| `<you>/hq-agent-<name>`, in `~/.hq/packages/<name>` | one agent: `agent.md`, settings, skills, tools, learned skills | private unless you share it |
+
+| You change | It goes to | Saved by |
+|---|---|---|
+| An agent (you edit it, ask it to change, or it learns a skill) | that agent's repo | committed automatically on its next run; pushed by `hq-state commit` or `hq push <name>` |
+| A new agent (`hq-new`, or ask the instructor) | a new local repo in the agents folder | `hq share <name>` once creates its GitHub repo; from then on as above |
+| The kernel or `PROTOCOL.md` | this repo | a normal commit and push; it's public, so `hq-pkg check --share` first |
+| A service (`shared/services/<name>.json`) | this repo | as the kernel; it names its secrets, never their values |
+| Memory and data | the state repo | `hq-state commit` |
+
+A kernel change reaches every agent on its next run without touching their repos. An agent that starts to `need:` a
+new service only passes its checks where that service exists, so push the service with the kernel.
+
+**On a new Mac**, clone the state repo first (it lists your agents), then the kernel:
+```
+git clone https://github.com/<you>/hq-state ~/.hq
+git clone https://github.com/Ying-Kai-Liao/hq ~/Workspace/hq && ~/Workspace/hq/install.sh   # reinstalls agents.json's agents
+```
+
+**Not in any repo**, so redo them by hand on a new Mac:
+- an agent you never shared: `agents.json` records it without a link, so `install.sh` skips it;
+- grants and profiles (`~/.config/hq/auth.json`), secrets (Keychain), `~/.config/hq/env`: `hq auth grant`, `hq auth set`;
+- scheduled jobs (`~/Library/LaunchAgents/dev.hq.*.plist`): each tool's `install` command, or `hq-bridge --install`.
+
 ## Layout
 The repo holds the kernel. Agents live in the agents folder, each its own repo; what the agents and you accumulate
 (memory, data) lives in the **state folder**, `$HQ_STATE` or `~/.hq` (its own private git repo; `hq-state commit`).
