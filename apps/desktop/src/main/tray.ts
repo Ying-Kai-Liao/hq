@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { app, clipboard, Menu, nativeImage, shell, Tray as ElectronTray } from 'electron'
 import type { TraySummary, WindowCommand } from '../shared/ipc'
+import { updateMenuEnabled, updateMenuLabel } from '../shared/update-control'
 import type { HostController } from './host-controller'
 import type { Updates } from './updates'
 import { setShowInDock, showInDock } from './dock'
@@ -159,7 +160,7 @@ export class Tray {
     const { updates } = this.deps
     const u = updates.state
     const items: Electron.MenuItemConstructorOptions[] = [
-      { label: u.availableVersion ? `Update to ${u.availableVersion}…` : 'Check for Updates…', enabled: u.supported || u.staged, click: () => updates.check() },
+      { label: updateMenuLabel(u), enabled: updateMenuEnabled(u), click: () => updates.check() },
     ]
     // The release waits until paired iPhones can get the app it needs.
     if (u.waitingForApp) items.push({ label: `Waiting for iPhone app ${u.waitingForApp} to pass App Store review`, enabled: false })

@@ -90,13 +90,47 @@ test('download errors are visible for manual checks without restarting a running
   const f = updaterFixture()
   f.updates.check()
   await f.emit('update-available', release)
+  await f.emit('download-progress', { percent: 15 })
+  assert.equal(f.updates.state.downloadPercent, 15)
   await f.emit('error', new Error('network disconnected'))
   assert.equal(f.updates.state.error, 'network disconnected')
+  assert.equal(f.updates.state.downloadPercent, null)
   assert.equal(f.updates.state.checking, false)
   assert.equal(f.calls.prepare + f.calls.resume + f.calls.install, 0)
   f.updates.check()
   assert.equal(f.updates.state.error, null)
   assert.equal(f.calls.check, 2)
+})
+
+test('manual download without automatic install reports percent and waits for restart', async () => {
+  const f = updaterFixture({ prefs: { updatesAutoDownload: false } })
+  f.updates.check()
+  await f.emit('update-available', release)
+  assert.equal(f.calls.download, 1)
+  assert.equal(f.updates.state.downloadPercent, 0)
+  const at42 = () => f.sent.filter((s) => s.state.downloadPercent === 42).length
+  await f.emit('download-progress', { percent: 41.6 })
+  assert.equal(f.updates.state.downloadPercent, 42)
+  assert.equal(at42(), 2)
+  await f.emit('download-progress', { percent: 42.4 })
+  assert.equal(at42(), 2)
+  await f.emit('update-downloaded', release)
+  assert.equal(f.updates.state.staged, true)
+  assert.equal(f.updates.state.downloadPercent, null)
+  assert.equal(f.calls.prepare + f.calls.install, 0)
+  f.updates.check()
+  await settle()
+  assert.equal(f.calls.install, 1)
+})
+
+test('a check while a download is in progress does not start another check', async () => {
+  const f = updaterFixture({ prefs: { updatesAutoDownload: false } })
+  f.updates.check()
+  await f.emit('update-available', release)
+  const checks = f.calls.check
+  f.updates.check()
+  assert.equal(f.calls.check, checks)
+  assert.equal(f.updates.state.downloadPercent, 0)
 })
 
 test('normal Quit without a staged update leaves the host alone', () => {

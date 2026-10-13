@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import type { UpdateState } from '@shared/ipc'
+import { updateControl } from '@shared/update-control'
 import { islandLabel } from '@shared/island'
 import { Button, CardForm, CardSection, ChoicePicker, IconButton, Switch, ValueRow } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
@@ -231,9 +232,7 @@ function UpdateSettings() {
           <ValueRow key="version" label="Version" detail={lastChecked}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span>{window.codync.appVersion}</span>
-              <Button kind="secondary" onClick={() => window.codync.updates.check()} disabled={!updates.supported && !updates.staged}>
-                {updates.availableVersion ? `Update to ${updates.availableVersion}` : 'Check for updates'}
-              </Button>
+              <UpdateAction updates={updates} />
             </span>
           </ValueRow>,
           <Switch key="check" on={updates.autoCheck} onChange={(on) => window.codync.updates.setAutoCheck(on)} disabled={!updates.supported}>
@@ -255,5 +254,34 @@ function UpdateSettings() {
         ]}
       </CardSection>
     </CardForm>
+  )
+}
+
+function UpdateAction({ updates }: { updates: UpdateState }) {
+  const control = updateControl(updates)
+  if (control.kind === 'progress') return <UpdateProgress percent={control.percent} />
+  const label = control.kind === 'restart' ? 'Restart' : control.kind === 'install' ? `Update to ${control.version}` : 'Check for updates'
+  return (
+    <span className="settings-appear" key={control.kind}>
+      <Button
+        kind="secondary"
+        onClick={() => window.codync.updates.check()}
+        disabled={updates.checking || (!updates.supported && !updates.staged)}
+        style={control.kind === 'restart' ? { minWidth: 148 } : undefined}
+      >
+        {label}
+      </Button>
+    </span>
+  )
+}
+
+function UpdateProgress({ percent }: { percent: number }) {
+  const value = Math.max(0, Math.min(100, percent))
+  return (
+    <span className="update-progress settings-appear" role="progressbar" aria-valuenow={value} aria-valuemin={0} aria-valuemax={100} aria-label={`Downloading update, ${value}%`} style={{ '--update-percent': `${value}%` } as CSSProperties}>
+      <span className="update-progress-fill" />
+      <span className="update-progress-label">{value}%</span>
+      <span className="update-progress-label on-fill" aria-hidden="true">{value}%</span>
+    </span>
   )
 }

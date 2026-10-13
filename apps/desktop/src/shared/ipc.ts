@@ -75,6 +75,8 @@ export interface UpdateState {
   availableVersion: string | null
   /** Downloaded and ready: installs on restart. */
   staged: boolean
+  /** 0-100 while a release is downloading. Null when no download is in progress. */
+  downloadPercent: number | null
   autoCheck: boolean
   autoDownload: boolean
   lastCheck: number | null

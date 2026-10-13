@@ -22,6 +22,7 @@ export class Updates extends EventEmitter {
     checking: false,
     availableVersion: null,
     staged: false,
+    downloadPercent: null,
     autoCheck: prefs.get('updatesAutoCheck') !== false,
     // On unless turned off: installs still wait until Codync is idle.
     autoDownload: prefs.get('updatesAutoDownload') !== false,
@@ -57,9 +58,13 @@ export class Updates extends EventEmitter {
     autoUpdater.on('checking-for-update', () => this.set({ checking: true, error: null }))
     autoUpdater.on('update-not-available', () => this.checked({ availableVersion: null }))
     autoUpdater.on('update-available', (info) => void this.available(info))
+    autoUpdater.on('download-progress', (progress: { percent?: number }) => this.reportProgress(progress.percent))
     autoUpdater.on('update-downloaded', (info) => {
-      this.set({ staged: true, availableVersion: info.version })
-      if (this.userInitiated) void this.install()
+      // Automatic install restarts by itself. Without it, a finished download waits for Restart.
+      const installNow = this.userInitiated && this.state.autoDownload
+      this.userInitiated = false
+      this.set({ staged: true, availableVersion: info.version, downloadPercent: null })
+      if (installNow) void this.install()
       else this.installWhenIdle()
     })
     autoUpdater.on('error', (error) => this.failed(error))
@@ -105,13 +110,13 @@ export class Updates extends EventEmitter {
       this.host.resumeAfterCancelledUpdate()
     }
     const message = error instanceof Error ? error.message : String(error)
-    this.checked({ error: this.userInitiated || this.state.staged ? message : null })
+    this.checked({ error: this.userInitiated || this.state.staged ? message : null, downloadPercent: null })
     this.userInitiated = false
   }
 
   /** Daily, or hourly while a release waits for the iPhone app to pass review. */
   private scheduled() {
-    if (!this.state.autoCheck || this.state.checking || this.state.staged) return
+    if (!this.state.autoCheck || this.state.checking || this.state.staged || this.state.downloadPercent !== null) return
     const interval = this.state.waitingForApp ? 3600_000 : 24 * 3600_000
     if (this.state.lastCheck && Date.now() - this.state.lastCheck < interval - 60_000) return
     this.userInitiated = false
@@ -121,9 +126,17 @@ export class Updates extends EventEmitter {
   check() {
     if (!enabled) return
     if (this.state.staged) return void this.install()
+    if (this.state.downloadPercent !== null) return
     this.userInitiated = true
     this.set({ error: null })
     void autoUpdater.checkForUpdates().catch(() => {})
+  }
+
+  private reportProgress(raw: number | undefined) {
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || this.state.staged) return
+    const percent = Math.max(0, Math.min(100, Math.round(raw)))
+    if (this.state.downloadPercent === percent) return
+    this.set({ downloadPercent: percent })
   }
 
   /**
@@ -148,7 +161,10 @@ export class Updates extends EventEmitter {
       this.userInitiated = false
       return
     }
-    if (this.userInitiated || this.state.autoDownload) void autoUpdater.downloadUpdate().catch(() => {})
+    if (this.userInitiated || this.state.autoDownload) {
+      if (this.state.downloadPercent === null) this.set({ downloadPercent: 0 })
+      void autoUpdater.downloadUpdate().catch(() => {})
+    }
   }
 
   /** The local host's `minApp` and whether an iPhone is paired with it. */
