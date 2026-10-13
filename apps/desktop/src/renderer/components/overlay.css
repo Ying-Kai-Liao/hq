@@ -128,6 +128,15 @@
   opacity: 0.85;
 }
 
+/* Floating layers cover the title bar's drag regions (sidebar header, thread chrome), which
+   would turn clicks on them into window drags. A menu takes the whole window, so a click
+   anywhere closes it; sheets and dialogs only their card, so the window still moves. */
+.anchored,
+.modal-content,
+.dialog-card {
+  -webkit-app-region: no-drag;
+}
+
 /* Menus */
 .anchored {
   position: fixed;
