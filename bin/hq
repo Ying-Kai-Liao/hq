@@ -10,6 +10,7 @@
 #   hq update|push|commit <agent>|--all                pull from, push to or commit the agent's repo
 #   hq history <agent> | hq restore <agent> <commit>   every good version is committed; restore any of them
 #   hq share <agent> [--public]                        put it on GitHub as <you>/hq-agent-<name>
+#   hq search [words] [--mine]                         find agents on GitHub (repos tagged hq-agent)
 #   hq auth [ls|grant|revoke|set ...]                  which agent may use which service, as which account (hq-auth)
 #   hq cost [agents|agent <name>|...]                  what the agents cost, from the usage ledger (hq-cost)
 #
@@ -40,7 +41,7 @@ export HQ_STATE
 export HQ_AGENTS=${HQ_AGENTS:-$HQ_STATE/packages}
 
 case $1 in
-  versions|pin|unpin|install|update|push|commit|history|restore|share) exec "$HQ/bin/hq-pkg" "$@" ;;
+  versions|pin|unpin|install|update|push|commit|history|restore|share|search) exec "$HQ/bin/hq-pkg" "$@" ;;
   rollback)           shift; exec "$HQ/bin/hq-pkg" pin "$@" ;;
   auth)               shift; exec "$HQ/bin/hq-auth" "${@:-ls}" ;;
   cost)               shift; exec "$HQ/bin/hq-cost" "${@:-agents}" ;;

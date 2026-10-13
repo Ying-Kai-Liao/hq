@@ -25,7 +25,9 @@ History (each agent is its own git repo; a version that passes checks is committ
   hq-pkg history <agent> [N]              the agent's commits, newest first
   hq-pkg restore <agent> <commit>         make the package what it was at <commit>, as a new commit (undo with
                                           another restore); the next run uses it
-  hq-pkg share <agent> [--public]         put the agent on GitHub as <you>/hq-agent-<name>, private unless --public;
+  hq-pkg search [WORDS] [--mine]          agents on GitHub (repos tagged hq-agent): yours, private ones included, and
+                                          public ones from anyone; --mine for yours only
+  hq-pkg share <agent> [--public]         put the agent on GitHub as <you>/hq-agent-<name> (tagged hq-agent), private unless --public;
                                           --public refuses while the package or its history has personal details
 
 Agents live in the agents folder, $HQ_AGENTS (default <state>/packages/<name>/), each its own git repo; the hq repo
@@ -676,6 +678,8 @@ def cmd_share(agent, public):
             die(f'gh repo create {repo}: {r.stderr.strip()}')
     if not cmd_push(agent):
         die(f'{agent}: created {repo} but the push failed')
+    # the topic is how agents are found: hq-pkg search, github.com/topics/hq-agent
+    subprocess.run(['gh', 'repo', 'edit', repo, '--add-topic', TOPIC], capture_output=True)
     if public:
         subprocess.run(['gh', 'repo', 'edit', repo, '--visibility', 'public',
                         '--accept-visibility-change-consequences'], check=True, capture_output=True)
@@ -714,6 +718,34 @@ def cmd_install_saved():
             cmd_install(link, name)
         except SystemExit:
             print(f'{name}: install failed; retry with hq install {link} --as {name}', file=sys.stderr)
+
+
+TOPIC = 'hq-agent'
+
+
+def cmd_search(words, mine):
+    """Repos tagged hq-agent: the agent catalogue. GitHub search includes the private repos you can see."""
+    args = ['gh', 'search', 'repos', *words, '--topic', TOPIC, '--limit', '100', '--sort', 'updated',
+            '--json', 'fullName,description,visibility,updatedAt']
+    if mine:
+        me = subprocess.run(['gh', 'api', 'user', '-q', '.login'], capture_output=True, text=True).stdout.strip()
+        args += ['--owner', me]
+    r = subprocess.run(args, capture_output=True, text=True)
+    if r.returncode:
+        die(f'gh search failed: {r.stderr.strip() or "is gh logged in? (gh auth login)"}')
+    have = {}
+    for name, home in installed().items():
+        url = git(home, 'remote', 'get-url', 'origin').stdout.strip() if owned(home) else ''
+        m = re.search(r'github\.com[/:]([\w.-]+/[\w.-]+?)(?:\.git)?$', url)
+        if m:
+            have[m.group(1).lower()] = name
+    found = json.loads(r.stdout)
+    if not found:
+        print(f'no repos tagged {TOPIC}' + (f' matching {" ".join(words)}' if words else ''))
+    for x in found:
+        mark = f'installed as {have[x["fullName"].lower()]}' if x['fullName'].lower() in have else 'hq install ' + x['fullName']
+        vis = '' if x['visibility'] == 'public' else f' ({x["visibility"]})'
+        print(f'{x["fullName"]}{vis}  {mark}\n    {(x["description"] or "").strip()[:110]}')
 
 
 def cmd_list(as_json):
@@ -808,6 +840,8 @@ def main(argv):
                 cmd_push(name)
             elif commit(agent_home(name), msg or f'{name}: edits'):
                 print(f'{name}: committed')
+    elif cmd == 'search':
+        cmd_search([w for w in rest if w != '--mine'], '--mine' in rest)
     elif cmd == 'history' and rest:
         cmd_history(rest[0], int(rest[1]) if len(rest) > 1 else 20)
     elif cmd == 'restore' and len(rest) == 2:

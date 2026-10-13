@@ -39,6 +39,7 @@ hq update <agent>|--all                        # pull upstream (fast-forward onl
 hq history <agent>                             # every committed version
 hq restore <agent> <commit>                    # bring one back, as a new commit (undo with another restore)
 hq share <agent> [--public]                    # put it on GitHub as <you>/hq-agent-<name>, private unless --public
+hq search [words] [--mine]                     # find agents: GitHub repos tagged hq-agent (yours incl. private, anyone's public)
 hq push <agent>|--all                          # push committed versions (hq-state commit does this for every agent)
 ```
 `--public` runs the privacy check over the package *and its whole history* and refuses while either names you: a
@@ -46,6 +47,10 @@ public repo shows every old commit. An agent installed from someone else keeps t
 makes yours `origin`, so `hq update` still pulls their changes.
 
 ## Repos, and where each change goes
+Agent repos carry the GitHub topic `hq-agent` (`hq share` adds it) and the kernel `hq`, so they group without an
+organization: `hq search --mine` lists yours, private ones included, and public agents from anyone show up in
+`hq search` and at github.com/topics/hq-agent. To publish an agent of your own made outside `hq share`, add the topic.
+
 Running hq takes **2 + N repos**: this kernel, your state repo, and one per agent you've shared. Agents installed
 from someone else stay in their repo (+0 until you `hq share` your own copy); third-party skills are fetched from
 their authors' repos (+0). Several agents can share one repo, installed by folder (`hq install
