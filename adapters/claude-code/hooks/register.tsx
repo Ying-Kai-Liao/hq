@@ -1,7 +1,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 // Claude Code adapter for hq. The kernel (bin/, PROTOCOL.md) lives in the hq repo; the installed agents in the
-// agents folder (<state>/packages/<name>, each its own git repo; listed by bin/hq-pkg); this plugin only reads them:
+// agents folder (<hq>/agents/<name> or <state>/packages/<name>, each its own git repo; listed by bin/hq-pkg); this plugin only reads them:
 //   session.start      register every installed agent's agent.md as `hq:<name>`, pinned for this session to the
 //                      package version bin/hq-pkg resolves (edits made meanwhile apply to the next session)
 //   agent.spawn        resolve the project, prepend it and the agent's memory to the task
@@ -9,7 +9,7 @@ import type { EngineInterface, Register } from 'claude-code'
 //   classic.SubagentStop  nudge once if the agent didn't write its session file
 //   /hq, mcp__hq__invoke  list agents; call one with an explicit project
 // Packages come from hq_path (default ~/Workspace/hq); memory and data from state_path (default $HQ_STATE or ~/.hq;
-// bin/hq-pkg and bin/project-id read $HQ_STATE / ~/.hq, so set HQ_STATE rather than a different state_path).
+// bin/hq-pkg and bin/project-id read $HQ_STATE / <hq>/state / ~/.hq, so set HQ_STATE rather than a different state_path).
 
 type Spawned = { agent: string; project: string; startedMs: number; isNudged: boolean }
 
@@ -37,12 +37,13 @@ async function hqRoot($: EngineInterface, configured: unknown): Promise<string> 
   return (set || `${home}/Workspace/hq`).replace(/^~(?=\/)/, home)
 }
 
-// State (memory, data, learned skills, user.md, projects): the state_path option, else $HQ_STATE, else ~/.hq,
-// else the repo itself (before hq-migrate-state). Its tree mirrors the repo's: agents/<name>/memory, shared/…
+// State (memory, data, learned skills, user.md, projects): the state_path option, else $HQ_STATE, else <hq>/state,
+// else ~/.hq, else the repo itself (before hq-migrate-state). Its tree mirrors the repo's: agents/<name>/memory, shared/…
 async function stateRoot($: EngineInterface, configured: unknown, hq: string): Promise<string> {
   const home = (await $.env.get('HOME')) ?? ''
   const set = (typeof configured === 'string' ? configured.trim() : '') || ((await $.env.get('HQ_STATE')) ?? '')
   if (set) return set.replace(/^~(?=\/)/, home)
+  if (await $.fs.exists(`${hq}/state`)) return `${hq}/state`
   return (await $.fs.exists(`${home}/.hq`)) ? `${home}/.hq` : hq
 }
 
@@ -99,7 +100,8 @@ export const register: Register = (on, options) => {
     }
     const protocol = await $.fs.read(`${hq}/shared/PROTOCOL.md`)
     state = await stateRoot($, options.state_path, hq)
-    agentsRoot = ((await $.env.get('HQ_AGENTS')) ?? '') || `${state}/packages`
+    agentsRoot =
+      ((await $.env.get('HQ_AGENTS')) ?? '') || ((await $.fs.exists(`${hq}/agents`)) ? `${hq}/agents` : `${state}/packages`)
     installed = await listAgents($, hq)
     userHome = (await $.env.get('HOME')) ?? ''
     const real = await $.process.run(['/bin/realpath', state], { timeoutMs: 5_000 })

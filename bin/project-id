@@ -13,9 +13,9 @@ keep a project's memory after a rename, move or re-clone.
 import json, os, re, subprocess, sys
 
 HOME = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-# The registry is state: $HQ_STATE, else ~/.hq, else the repo (before hq-migrate-state).
-_dot = os.path.expanduser("~/.hq")
-STATE = os.environ.get("HQ_STATE") or (_dot if os.path.isdir(_dot) else HOME)
+# The registry is state: $HQ_STATE, else <hq>/state, else ~/.hq, else the repo (before hq-migrate-state).
+STATE = os.environ.get("HQ_STATE") or next(
+    p for p in (os.path.join(HOME, "state"), os.path.expanduser("~/.hq"), HOME) if os.path.isdir(p))
 REG = os.path.join(STATE, "projects.json")
 
 

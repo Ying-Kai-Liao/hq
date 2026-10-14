@@ -30,7 +30,7 @@ History (each agent is its own git repo; a version that passes checks is committ
   hq-pkg share <agent> [--public]         put the agent on GitHub as <you>/hq-agent-<name> (tagged hq-agent), private unless --public;
                                           --public refuses while the package or its history has personal details
 
-Agents live in the agents folder, $HQ_AGENTS (default <state>/packages/<name>/), each its own git repo; the hq repo
+Agents live in the agents folder, $HQ_AGENTS (default <hq>/agents/<name>/, or <state>/packages/<name>/), each its own git repo; the hq repo
 holds only the kernel. The package is that folder, including the skills the agent learned (skills/learned/); memory
 and data are state and live under the state folder, never in the package. Skills the user keeps off the package
 (never shared) go in the state folder's agents/<name>/skills/learned/. Whoever edits it (you, the agent learning a skill,
@@ -65,11 +65,11 @@ from pathlib import Path
 # os.path.abspath would resolve the cwd physically, and __file__ is already resolved: join argv[0] onto $PWD.
 HQ = Path(os.environ.get('HQ_ROOT') or os.path.dirname(os.path.dirname(
     os.path.normpath(os.path.join(os.environ.get('PWD') or os.getcwd(), sys.argv[0])))))
-# The state folder: $HQ_STATE, else ~/.hq, else the repo (before hq-migrate-state). Mirrors the repo's paths.
-STATE_ROOT = Path(os.environ.get('HQ_STATE') or (Path.home() / '.hq' if (Path.home() / '.hq').is_dir() else HQ))
-# Installed agents: $HQ_AGENTS, else <state>/packages. Each is a git checkout (or a symlink into one, for an agent
+# The state folder: $HQ_STATE, else <hq>/state, else ~/.hq, else the repo (before hq-migrate-state). Mirrors the repo's paths.
+STATE_ROOT = Path(os.environ.get('HQ_STATE') or next(p for p in (HQ / 'state', Path.home() / '.hq', HQ) if p.is_dir()))
+# Installed agents: $HQ_AGENTS, else <hq>/agents, else <state>/packages. Each is a git checkout (or a symlink into one, for an agent
 # that lives in a folder of a bigger repo). The repo's own agents/ is still read, after these, for older installs.
-AGENTS = Path(os.environ.get('HQ_AGENTS') or STATE_ROOT / 'packages')
+AGENTS = Path(os.environ.get('HQ_AGENTS') or (HQ / 'agents' if (HQ / 'agents').is_dir() else STATE_ROOT / 'packages'))
 # Snapshots sit next to the agents, on the same disk, so each one is an instant APFS clone.
 STORE = AGENTS / '.store'
 STATE = ('memory', 'data')                                   # live state, never snapshotted

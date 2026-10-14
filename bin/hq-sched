@@ -27,7 +27,7 @@ import datetime as dt, json, os, plistlib, re, subprocess, sys
 from pathlib import Path
 
 HQ = Path(__file__).resolve().parent.parent
-STATE = Path(os.environ.get('HQ_STATE') or (Path.home() / '.hq' if (Path.home() / '.hq').is_dir() else HQ))
+STATE = Path(os.environ.get('HQ_STATE') or next(p for p in (HQ / 'state', Path.home() / '.hq', HQ) if p.is_dir()))
 MACHINE = Path.home() / '.config/hq/sched'
 LABEL = 'dev.hq.sched'
 PLIST = Path.home() / 'Library/LaunchAgents' / (LABEL + '.plist')
@@ -92,8 +92,7 @@ def next_time(c, after, limit=dt.timedelta(days=366)):
 # --- jobs -------------------------------------------------------------------------------------------------------------
 
 def agents():
-    root = STATE / 'packages'
-    pkgs = Path(os.environ.get('HQ_AGENTS') or root)
+    pkgs = Path(os.environ.get('HQ_AGENTS') or (HQ / 'agents' if (HQ / 'agents').is_dir() else STATE / 'packages'))
     return sorted(p.name for p in pkgs.iterdir() if (p / 'agent.md').is_file()) if pkgs.is_dir() else []
 
 

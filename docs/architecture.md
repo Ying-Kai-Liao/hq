@@ -8,8 +8,8 @@ agent. How a run works step by step: `how-hq-runs.html`. Commands and file forma
 | Part | What it is | Lives in | Status |
 |---|---|---|---|
 | **Plugin** | A capability: a skill, the tools it drives, and the software they need | inside an agent's `skills/` + `tools/` today | partly: no manifest or `requires` yet |
-| **Package** | A whole agent: identity (`agent.md`), settings, capabilities, its plugins, the skills it learned | its own git repo, checked out in the agents folder (`$HQ_AGENTS`, default `~/.hq/packages/<name>/`) | built: versioned, snapshotted, committed |
-| **State** | What an agent and the user accumulate: memory, data, user.md, projects | the state folder, `$HQ_STATE` or `~/.hq` (own private git repo) | built: never snapshotted |
+| **Package** | A whole agent: identity (`agent.md`), settings, capabilities, its plugins, the skills it learned | its own git repo, checked out in the agents folder (`$HQ_AGENTS`, default `agents/<name>/` in the hq folder) | built: versioned, snapshotted, committed |
+| **State** | What an agent and the user accumulate: memory, data, user.md, projects | the state folder, `$HQ_STATE` or `state/` in the hq folder (own private git repo) | built: never snapshotted |
 | **Service** | Something several agents may use: an MCP server, an API, a login | `shared/services/<name>.json` | built |
 | **Grant** | Which agent may use which service, as which account | `~/.config/hq/auth.json` (local, never in the repo) | built |
 | **Environment** | The installed software a package's plugins need, built per machine | not yet | planned |
@@ -34,8 +34,12 @@ committed as text dumps (`hq-state dump`). Without a state folder everything fal
 `hq-pkg check --share` guards it. Third-party skills are linked from their repos (skills.json), never copied.
 Published 2026-10-14 with fresh history (MIT).
 
+**One folder** (2026-10-14). Agents and state moved into the hq folder, `agents/` and `state/`, each still its own
+repo and ignored by the kernel: one place to manage, the same repo boundaries. `~/.hq` stays as a link to `state/`
+and `state/packages` as one to `../agents`, for paths that still name them (launchd jobs, agents' own tools).
+
 **Agents as repos** (2026-10-14). The kernel repo ships no agents. Each agent is a git repo in the agents folder
-(`<state>/packages/`, ignored by the state repo; `<state>/agents.json` records each one's link so `install.sh` brings
+(`agents/` in the hq folder, ignored by the kernel; `<state>/agents.json` records each one's link so `install.sh` brings
 them back on another Mac). `hq install <link>` clones one (a repo, or a folder of one via `/tree/<ref>/<path>`);
 `hq-pkg resolve` commits every version that passes its checks, so the agent's git log is its version history and
 `hq restore <agent> <commit>` brings any of them back as a new commit. Learned skills are part of the package

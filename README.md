@@ -64,7 +64,7 @@ On every spawn it resolves the project, puts it and the agent's long-term memory
 agent stops without writing its session file, asks it to once.
 
 ## Agents
-Each agent is a git repo, checked out in the **agents folder** (`$HQ_AGENTS`, default `~/.hq/packages/<name>/`).
+Each agent is a git repo, checked out in the **agents folder** (`$HQ_AGENTS`, default `agents/<name>/` in the hq folder).
 Whoever changes it (you, a code agent, or the agent itself writing a learned skill) changes that checkout; every
 version that passes its checks is committed there automatically, so its history is the agent's history.
 ```
@@ -94,8 +94,8 @@ their authors' repos (+0). Several agents can share one repo, installed by folde
 | Repo | Holds | Visibility |
 |---|---|---|
 | `hq` (this one) | the kernel: `bin/`, `shared/PROTOCOL.md`, `shared/services/`, the plugin | public |
-| `<you>/hq-state`, cloned to `~/.hq` | memory, data (as text dumps), `user.md`, projects, `agents.json` | **private** |
-| `<you>/hq-agent-<name>`, in `~/.hq/packages/<name>` | one agent: `agent.md`, settings, skills, tools, learned skills | private unless you share it |
+| `<you>/hq-state`, cloned to `state/` | memory, data (as text dumps), `user.md`, projects, `agents.json` | **private** |
+| `<you>/hq-agent-<name>`, in `agents/<name>` | one agent: `agent.md`, settings, skills, tools, learned skills | private unless you share it |
 
 | You change | It goes to | Saved by |
 |---|---|---|
@@ -108,10 +108,11 @@ their authors' repos (+0). Several agents can share one repo, installed by folde
 A kernel change reaches every agent on its next run without touching their repos. An agent that starts to `need:` a
 new service only passes its checks where that service exists, so push the service with the kernel.
 
-**On a new Mac**, clone the state repo first (it lists your agents), then the kernel:
+**On a new Mac**, clone the kernel, your state repo into it (it lists your agents), then install:
 ```
-git clone https://github.com/<you>/hq-state ~/.hq
-git clone https://github.com/Ying-Kai-Liao/hq ~/Workspace/hq && ~/Workspace/hq/install.sh   # reinstalls agents.json's agents
+git clone https://github.com/Ying-Kai-Liao/hq ~/Workspace/hq
+git clone https://github.com/<you>/hq-state ~/Workspace/hq/state
+~/Workspace/hq/install.sh   # reinstalls agents.json's agents into agents/
 ```
 
 **Not in any repo**, so redo them by hand on a new Mac:
@@ -121,8 +122,11 @@ git clone https://github.com/Ying-Kai-Liao/hq ~/Workspace/hq && ~/Workspace/hq/i
   tool's own `install` command. The jobs themselves are in the state repo.
 
 ## Layout
-The repo holds the kernel. Agents live in the agents folder, each its own repo; what the agents and you accumulate
-(memory, data) lives in the **state folder**, `$HQ_STATE` or `~/.hq` (its own private git repo; `hq-state commit`).
+Everything is in the hq folder, in three kinds of repo. The kernel is this repo. `agents/` holds the agents, each its
+own repo. `state/` is the **state folder**: what the agents and you accumulate (memory, data), your private hq-state
+repo (`hq-state commit`). The kernel ignores both, so `git pull` only ever touches the kernel. `$HQ_AGENTS` and
+`$HQ_STATE` put them elsewhere; installs from before the move keep `~/.hq`, and `~/.hq` may stay as a link to `state/`
+for tools that still name it.
 ```
 install.sh                 links ~/.local/bin/hq and installs the Claude Code plugin
 adapters/claude-code/      the Claude Code adapter (plugin); .claude-plugin/marketplace.json serves it
@@ -140,7 +144,7 @@ shared/
   PROTOCOL.md              memory rules, appended to every agent's prompt
   services/<name>.json     shared services (MCP servers, APIs, logins): how to start them, which secrets by name
 
-~/.hq/packages/            the agents folder ($HQ_AGENTS; git-ignored by the state repo)
+agents/                    the agents folder ($HQ_AGENTS; ignored by the kernel)
   <name>/                  one agent, its own git repo
     agent.md               identity, how it works, skill index
     capabilities.yaml      tools and data sources it may use, by name only — never credentials
@@ -149,7 +153,7 @@ shared/
     skills/learned/        skills it wrote itself; versioned and shared with it
   .store/                  snapshots, one per version (same disk as the agents, so each is an APFS clone)
 
-~/.hq/                     the state folder
+state/                     the state folder ($HQ_STATE; ignored by the kernel; your hq-state repo)
   projects.json            project IDs → the git remotes / paths that belong to them
   shared/user.md           about the user (incl. visual taste), read by every agent
   shared/projects/<id>/    codebase.md (shared project map) + decisions.md (append-only log)
@@ -185,7 +189,7 @@ In prompts and settings: `{{AGENT_DIR}}` is the pinned package (read skills and 
 agent's tools: `{{AGENTS}}/house/tools/house.py`), `{{HOME_DIR}}` the agent's folder in the state folder (memory, data), `{{HOME_REAL}}` the same with
 symlinks resolved (use it in permission rules: Claude Code matches resolved paths), `{{STATE}}` the state folder,
 `{{HQ}}` the kernel repo, `{{USER_HOME}}` your home folder (for permission rules, instead of `/Users/<name>`). Tools find their data through the snapshot's `.home` file; run from the live package (launchd,
-another agent), they use `$HQ_STATE/agents/<name>`, else `~/.hq/agents/<name>`.
+another agent), they use `$HQ_STATE/agents/<name>`, else `~/.hq/agents/<name>` (keep `~/.hq` as a link to `state/` for them).
 
 ## Third-party skills
 Skills from public GitHub repos are linked, not copied. An agent's `skills.json` names each one's `repo`, `path`
@@ -260,7 +264,7 @@ sessions. Details: `hq remote --help`.
 ## Schedules
 `hq schedule add house "0 8 * * *" "Check what expires this week and send the list"` gives an agent a job: at that
 time `bin/hq-sched` runs the same one-shot `hq house "…"` you would, tagged `via=schedule` in the cost ledger, and the
-agent delivers with `hq-send`. Jobs are kept with the agent's state (`~/.hq/agents/<name>/jobs.json`), so they are
+agent delivers with `hq-send`. Jobs are kept with the agent's state (`state/agents/<name>/jobs.json`), so they are
 private, versioned with your memory and never part of a shared package. `hq schedule` lists jobs with their next run,
 `hq schedule log house <id>` shows the last run's output, `pause`/`resume`/`rm`/`run` do what they say. Run
 `hq schedule --install` once per Mac: a LaunchAgent ticks every minute, and a time missed while the Mac slept runs
@@ -308,7 +312,7 @@ its skills in `skills/`. New sessions pick it up; `hq share <name>` puts it on G
 - The state folder holds personal data: keep its remote **private**. `hq-state commit` commits and pushes it, then
   pushes every agent's repo.
 - Packages carry no personal details: those go in the state folder. `hq-pkg check --share` flags home paths, email
-  addresses and the words in `~/.hq/private-words`.
+  addresses and the words in `state/private-words`.
 - Status: early, built for one person's Mac. macOS only (APFS clones, Keychain, launchd); needs Claude Code, git
   and python3 (gh to share agents, uv for the Discord bridge).
 - MIT licence (LICENSE). Linked skills keep their own licences (each agent's skills.json).

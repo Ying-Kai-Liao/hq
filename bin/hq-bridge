@@ -34,9 +34,9 @@ LABEL = 'dev.hq.bridge'
 # versioned Homebrew path that `brew upgrade uv` replaces
 LAUNCHER = Path.home() / '.config' / 'hq' / 'bin' / 'hq-uv'
 
-# Installed agents: $HQ_AGENTS (default <state>/packages/<name>, each its own git repo), then the repo's own agents/.
-STATE_ROOT = Path(os.environ.get('HQ_STATE') or (Path.home() / '.hq' if (Path.home() / '.hq').is_dir() else HQ))
-AGENTS = Path(os.environ.get('HQ_AGENTS') or STATE_ROOT / 'packages')
+# Installed agents: $HQ_AGENTS, else <hq>/agents, else <state>/packages; each its own git repo.
+STATE_ROOT = Path(os.environ.get('HQ_STATE') or next(p for p in (HQ / 'state', Path.home() / '.hq', HQ) if p.is_dir()))
+AGENTS = Path(os.environ.get('HQ_AGENTS') or (HQ / 'agents' if (HQ / 'agents').is_dir() else STATE_ROOT / 'packages'))
 
 
 def agent_dirs():

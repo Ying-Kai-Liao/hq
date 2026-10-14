@@ -1,7 +1,9 @@
 .DS_Store
 __pycache__/
-# agents are their own repos, in the agents folder ($HQ_AGENTS, default ~/.hq/packages); agents may be a link to it
+# agents and state live in the hq folder but are not the kernel: each agent is its own repo (agents/), the state is
+# your private hq-state repo (state/)
 /agents
+/state
 .store/
 # state lives in the state folder ($HQ_STATE, default ~/.hq); keep stray writes out of the repo
 shared/user.md

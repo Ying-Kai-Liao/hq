@@ -37,12 +37,15 @@ HQ="$(cd "$(dirname "$src")/.." && pwd)"
 
 [[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,19p' "$0" | sed 's/^#   //'; exit 0; }
 export HQ_ROOT=$HQ
-# State (memory, data, learned skills, user.md, projects) lives apart from the packages: $HQ_STATE, else ~/.hq,
-# else the repo itself (before hq-migrate-state). Its tree mirrors the repo's paths: agents/<name>/memory, shared/…
-if [[ -z ${HQ_STATE:-} ]]; then [[ -d $HOME/.hq ]] && HQ_STATE=$HOME/.hq || HQ_STATE=$HQ; fi
+# State (memory, data, learned skills, user.md, projects) lives apart from the packages: $HQ_STATE, else <hq>/state,
+# else ~/.hq, else the repo itself (before hq-migrate-state). Its tree: agents/<name>/memory, shared/…
+if [[ -z ${HQ_STATE:-} ]]; then
+  for d in "$HQ/state" "$HOME/.hq" "$HQ"; do [[ -d $d ]] && { HQ_STATE=$d; break; }; done
+fi
 export HQ_STATE
-# Installed agents, each its own git repo (bin/hq-pkg). The repo's own agents/ still works for older installs.
-export HQ_AGENTS=${HQ_AGENTS:-$HQ_STATE/packages}
+# Installed agents, each its own git repo (bin/hq-pkg): $HQ_AGENTS, else <hq>/agents, else <state>/packages.
+if [[ -z ${HQ_AGENTS:-} ]]; then [[ -d $HQ/agents ]] && HQ_AGENTS=$HQ/agents || HQ_AGENTS=$HQ_STATE/packages; fi
+export HQ_AGENTS
 
 case $1 in
   versions|pin|unpin|install|update|push|commit|history|restore|share|search) exec "$HQ/bin/hq-pkg" "$@" ;;

@@ -3,11 +3,11 @@
 Where every part of hq lives, what each file does, and which file to open for a given change. The model and the
 reasons behind it are in [architecture.md](architecture.md); commands are in the [README](../README.md).
 
-## Four places on disk
+## Where things are on disk
 
 ```
-hq/                               the kernel (this repo, public). No agents, no state.
-~/.hq/                            state folder, $HQ_STATE: your private repo (<you>/hq-state)
+hq/                               the kernel (this repo, public); agents/ and state/ sit inside it, ignored
+hq/state/                         state folder, $HQ_STATE: your private repo (<you>/hq-state); ~/.hq links here
   agents/<name>/memory/             MEMORY.md, projects/<id>.md, sessions/<project>.md
   agents/<name>/data/               the agent's databases (*.db ignored; committed as *.sql text dumps)
   agents/<name>/skills/learned/     skills kept private (hq-pkg promote moves one into the package)
@@ -17,13 +17,14 @@ hq/                               the kernel (this repo, public). No agents, no 
   agents/<name>/jobs.json           its scheduled jobs (hq-sched)
   agents.json                       installed agents and their GitHub links (hq-pkg save / install --saved)
   private-words                     words hq-pkg check --share refuses in a package
-  packages/                         the agents folder, $HQ_AGENTS (ignored by the state repo)
-    <name>/                           one agent, its own git repo (<you>/hq-agent-<name>)
-      agent.md                          frontmatter (description, model, effort) + instructions
-      capabilities.yaml                 tools, needs: [services], global_skills
-      settings.json                     Claude Code settings merged over yours for its runs
-      skills/  skills.json  tools/      own skills; third-party skills by link; its CLIs
-    .store/<name>@<version>/          read-only snapshots runs are pinned to (prompt.md, settings.json, .home)
+  packages -> ../agents             link kept for paths that name ~/.hq/packages (ignored by the state repo)
+hq/agents/                        the agents folder, $HQ_AGENTS (ignored by the kernel)
+  <name>/                           one agent, its own git repo (<you>/hq-agent-<name>)
+    agent.md                          frontmatter (description, model, effort) + instructions
+    capabilities.yaml                 tools, needs: [services], global_skills
+    settings.json                     Claude Code settings merged over yours for its runs
+    skills/  skills.json  tools/      own skills; third-party skills by link; its CLIs
+  .store/<name>@<version>/          read-only snapshots runs are pinned to (prompt.md, settings.json, .home)
 ~/.config/hq/                     this machine only, never in git
   auth.json  auth.log               grants and profiles (hq-auth); every secret handed out
   env                               bridge and Telegram settings
@@ -35,8 +36,8 @@ hq/                               the kernel (this repo, public). No agents, no 
   monitor/  house/  bin/hq-uv       the monitor's samples; house's job state; uv copy with Full Disk Access
 ```
 
-Every tool finds the folders the same way: `$HQ_STATE`, else `~/.hq` if it exists, else the repo (a pre-migration
-layout). Agents: `$HQ_AGENTS`, else `<state>/packages`, then the repo's own `agents/` as a fallback.
+Every tool finds the folders the same way: `$HQ_STATE`, else `<hq>/state`, else `~/.hq` (installs from before
+2026-10-14), else the repo (before hq-migrate-state). Agents: `$HQ_AGENTS`, else `<hq>/agents`, else `<state>/packages`.
 
 ## Kernel files
 
@@ -98,10 +99,10 @@ bridge, `HQ_VIA=discord` (`schedule` from hq-sched, plus `HQ_SCHED_JOB`; `ask` f
    Runs on the caller's settings and MCP servers, not the agent's (known gap).
 
 **An agent changes** (you edit it, ask it to, or it writes a learned skill into `{{PACKAGE}}`)
-→ the next run's fingerprint differs → `hq-pkg` checks it → snapshot + commit to `packages/<name>` →
+→ the next run's fingerprint differs → `hq-pkg` checks it → snapshot + commit to `agents/<name>` →
 `hq push <name>` or `hq-state commit` pushes it. Running sessions keep their snapshot.
 
-**State changes** (memory, data) → written straight to `~/.hq/agents/<name>/` → `hq-state commit` dumps the
+**State changes** (memory, data) → written straight to `state/agents/<name>/` → `hq-state commit` dumps the
 databases and commits and pushes the state repo.
 
 **`hq ask house@mini` from another machine** → hq-ask hands it to hq-remote → in a git repo: working tree → commit
@@ -131,4 +132,4 @@ the last tick (at most a day back) and that isn't still running: `hq <agent> "ta
 | Calling agents on other machines, the code handoff | `bin/hq-remote` (`call` on the caller, `serve_run` on the agent's machine) |
 | Cost reports or prices | `bin/hq-cost` (`PRICES`) |
 | The scaffold for new agents | `bin/hq-new`, and the instructor agent's `new-agent` skill (in its own repo) |
-| One agent's behaviour, skills or tools | that agent's repo, `~/.hq/packages/<name>/` (not this repo) |
+| One agent's behaviour, skills or tools | that agent's repo, `agents/<name>/` (its own repo; the kernel ignores it) |

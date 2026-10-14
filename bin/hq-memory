@@ -17,7 +17,7 @@ import os, re, sqlite3, sys
 from pathlib import Path
 
 HQ = Path(__file__).resolve().parent.parent
-STATE = Path(os.environ.get('HQ_STATE') or (Path.home() / '.hq' if (Path.home() / '.hq').is_dir() else HQ))
+STATE = Path(os.environ.get('HQ_STATE') or next(p for p in (HQ / 'state', Path.home() / '.hq', HQ) if p.is_dir()))
 
 
 def files(scope):
