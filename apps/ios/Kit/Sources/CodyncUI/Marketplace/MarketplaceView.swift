@@ -198,7 +198,7 @@ public struct MarketplaceView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center) {
+        VStack(alignment: .leading, spacing: 16) {
             // Everything here lives on one computer; say which.
             HStack(spacing: 10) {
                 ComputerBadge(model.computer, size: 32)
@@ -232,7 +232,6 @@ public struct MarketplaceView: View {
                 .minimumScaleFactor(0.7)
             }
             .layoutPriority(1)
-            Spacer()
             if installedCount > 0 {
                 Button { withAnimation(Motion.layout) { showInstalled = true } } label: {
                     HStack(spacing: 8) {
@@ -241,7 +240,11 @@ public struct MarketplaceView: View {
                                 ServiceLogo(website: nil, name: c.name, registryName: c.registryName, size: 26)
                             }
                         }
-                        Text("\(installedCount) installed").foregroundStyle(Palette.secondary).lineLimit(1).fixedSize()
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(installedCount) installed")
+                            Text("Connectors & skills").font(.caption)
+                        }
+                        .foregroundStyle(Palette.secondary)
                         Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Palette.tertiary)
                     }
                     .contentShape(Rectangle())

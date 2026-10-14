@@ -170,7 +170,10 @@ export function MarketplaceView({ computers, computer, onComputer, appsFirst = f
               </span>
             ))}
           </span>
-          <span style={{ color: 'var(--secondary)', whiteSpace: 'nowrap' }}>{installedCount} installed</span>
+          <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', color: 'var(--secondary)', whiteSpace: 'nowrap' }}>
+            <span>{installedCount} installed</span>
+            <span style={font('caption')}>Connectors & skills</span>
+          </span>
           <Icon name="chevron.right" size={10} weight="semibold" color="var(--tertiary)" />
         </button>
       ) : null}
@@ -386,7 +389,7 @@ function InstalledView({ back }: { back: () => void }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--background)' }}>
-      <ScreenHeader title="Installed" onBack={back} />
+      <ScreenHeader title="Connectors & skills" onBack={back} />
       <div style={{ flex: 1, minHeight: 0 }}>
         <CardForm>
           {empty ? <EmptyState icon="shippingbox" title="Nothing installed" detail="Connectors and skills you add show up here." /> : null}
