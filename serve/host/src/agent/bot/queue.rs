@@ -240,7 +240,7 @@ impl Actor {
         if crate::agent::acp::needs_sign_in(e)
             && let Some(h) = crate::agent::backends::harness(&self.cfg.backend)
         {
-            msg = format!("{0} needs you to sign in. Open {0} in Marketplace to sign in.", h.name);
+            msg = format!("{0} needs you to sign in. Open {0} in Extensions to sign in.", h.name);
         }
         self.notice(&msg, NoticeStyle::Error);
         self.turn = None;
