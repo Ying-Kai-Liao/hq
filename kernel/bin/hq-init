@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+"""hq-init — set hq up on this Mac, or bring yours back on a new one. Safe to run again: it only does what is missing.
+
+  hq init                  check what hq needs, make ~/.hq and the agents folder (each a git repo), a user.md to
+                           fill in, offer private GitHub repos to back both up, and offer a starter agent
+  hq init --from <github-user>
+                           a new Mac: clone <user>/hq-state into ~/.hq and <user>/hq-agents into the agents folder,
+                           then install every agent agents.json lists
+  hq init --yes            take every offer without asking (also what happens without a terminal: offers are skipped)
+
+install.sh runs it at the end. `hq doctor` checks a working install.
+"""
+import json, os, shutil, subprocess, sys
+from pathlib import Path
+
+HQ = Path(os.environ.get('HQ_ROOT') or os.path.dirname(os.path.dirname(
+    os.path.normpath(os.path.join(os.environ.get('PWD') or os.getcwd(), sys.argv[0])))))
+LIB = Path(__file__).resolve().parent.parent / 'lib'
+sys.path.insert(0, str(LIB))
+from hq_paths import paths  # noqa: E402  the one place that knows where hq's folders are
+
+sys.stdout.reconfigure(line_buffering=True)   # in order with the tools it runs, also when piped
+P = paths()
+STATE, AGENTS, SECRETS = P['HQ_STATE'], P['HQ_AGENTS'], P['HQ_SECRETS']
+GITHUB = os.environ.get('HQ_GITHUB', 'https://github.com')   # another git host, or a local folder in tests
+YES = '--yes' in sys.argv or '-y' in sys.argv
+ASK = sys.stdin.isatty() and not YES
+
+
+def run(*args, cwd=None, check=False):
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=check)
+
+
+def say(mark, text):
+    print(f'{mark} {text}')
+
+
+def offer(question, default=True):
+    """Yes/no: asked on a terminal; --yes takes the default; without a terminal, nothing is done."""
+    if YES:
+        return default
+    if not ASK:
+        return False
+    a = input(f'  {question} [{"Y/n" if default else "y/N"}] ').strip().lower()
+    return default if not a else a.startswith('y')
+
+
+def prompt(question):
+    return input(f'  {question}: ').strip() if ASK else ''
+
+
+def has_commits(repo):
+    return run('git', 'rev-parse', '--verify', '-q', 'HEAD', cwd=repo).returncode == 0
+
+
+def gh_user():
+    if not shutil.which('gh'):
+        return ''
+    return run('gh', 'api', 'user', '-q', '.login').stdout.strip()
+
+
+# ---- what hq needs ----------------------------------------------------------------------------------------------------
+
+def check_tools():
+    """True when hq can work; prints what is missing and how to fix it."""
+    ok = True
+    for tool, why, fix in (('git', 'agents are git repos', 'xcode-select --install'),
+                           ('claude', 'agents run in Claude Code', 'https://claude.com/claude-code')):
+        if shutil.which(tool):
+            say('✓', tool)
+        else:
+            ok = False
+            say('✗', f'{tool} is missing ({why}): {fix}')
+    for key in ('user.name', 'user.email'):
+        if run('git', 'config', '--global', key).stdout.strip():
+            continue
+        say('!', f'git has no {key}: commits (every agent version is one) need it')
+        value = prompt(f'your git {key.split(".")[1]} (empty to skip)')
+        if value:
+            run('git', 'config', '--global', key, value)
+            say('✓', f'git {key} set')
+        else:
+            ok = False
+            say('✗', f'set it with: git config --global {key} "..."')
+    if not shutil.which('gh'):
+        say('-', 'gh is not installed: optional, for backups, sharing and finding agents (brew install gh)')
+    elif not gh_user():
+        say('-', 'gh is not logged in: optional, for backups, sharing and finding agents (gh auth login)')
+    else:
+        say('✓', f'gh ({gh_user()})')
+    if not shutil.which('uv'):
+        say('-', 'uv is not installed: needed only for the Discord bridge and some agents\' tools (brew install uv)')
+    return ok
+
+
+# ---- the two private repos ------------------------------------------------------------------------------------------
+
+def ensure_repo(folder, gitignore, label):
+    """folder as a git repo with the given .gitignore and a first commit."""
+    folder.mkdir(parents=True, exist_ok=True)
+    if not (folder / '.git').exists():
+        run('git', 'init', '-q', '-b', 'main', cwd=folder)
+    if not (folder / '.gitignore').exists():
+        shutil.copy(LIB / gitignore, folder / '.gitignore')
+    if not has_commits(folder):
+        run('git', 'add', '-A', cwd=folder)
+        r = run('git', 'commit', '-q', '-m', f'{label}: start', cwd=folder)
+        if r.returncode:
+            say('!', f'{label}: no first commit yet ({(r.stderr or r.stdout).strip().splitlines()[-1]})')
+            return
+    say('✓', f'{label}: {folder}')
+
+
+def restore(user):
+    """A new Mac: this user's state into ~/.hq and agents into the agents folder, both from GitHub."""
+    for folder, repo, label in ((STATE, 'hq-state', 'state'), (AGENTS, 'hq-agents', 'agents')):
+        url = f'{GITHUB}/{user}/{repo}.git'
+        if (folder / '.git').exists() and has_commits(folder):
+            say('✓', f'{label}: {folder} already has history; not replaced')
+            continue
+        folder.mkdir(parents=True, exist_ok=True)
+        if not (folder / '.git').exists():
+            run('git', 'init', '-q', '-b', 'main', cwd=folder)
+        run('git', 'remote', 'remove', 'origin', cwd=folder)
+        run('git', 'remote', 'add', 'origin', url, cwd=folder)
+        r = run('git', 'fetch', '-q', 'origin', cwd=folder)
+        if r.returncode:
+            sys.exit(f'✗ {label}: could not fetch {url} ({r.stderr.strip()}). Private? gh auth login, then again.')
+        branch = run('git', 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD', cwd=folder).stdout.strip() \
+            or ('origin/main' if run('git', 'rev-parse', '-q', '--verify', 'origin/main', cwd=folder).returncode == 0
+                else 'origin/master')
+        r = run('git', 'checkout', '-q', '-f', '-B', branch.split('/', 1)[1], '--track', branch, cwd=folder)
+        if r.returncode:
+            sys.exit(f'✗ {label}: checkout failed: {r.stderr.strip()}')
+        say('✓', f'{label}: {url} -> {folder}')
+    if STATE == Path.home() / '.hq':
+        (STATE / 'secrets').mkdir(exist_ok=True)
+        os.chmod(STATE / 'secrets', 0o700)
+
+
+def backups():
+    """Offer a private GitHub repo for each of the two, when it has no remote yet."""
+    me = None
+    for folder, repo, label in ((STATE, 'hq-state', 'state'), (AGENTS, 'hq-agents', 'agents')):
+        if not (folder / '.git').exists():
+            continue
+        remote = run('git', 'remote', 'get-url', 'origin', cwd=folder).stdout.strip()
+        if remote:
+            say('✓', f'{label} backs up to {remote}')
+            continue
+        me = gh_user() if me is None else me
+        if not me:
+            say('-', f'{label} has no backup yet: log in to gh, then hq init again (or add any private remote)')
+            continue
+        what = 'who you are, projects' if label == 'state' else "agents' memory and data"
+        if not offer(f'back up {label} ({what}) to a new private repo {me}/{repo}?'):
+            say('-', f'{label}: no backup (later: gh repo create {me}/{repo} --private --source {folder} --push)')
+            continue
+        r = run('gh', 'repo', 'create', f'{me}/{repo}', '--private', '--source', str(folder), '--remote', 'origin',
+                '--push')
+        say('✓' if r.returncode == 0 else '✗', f'{label}: {me}/{repo}' if r.returncode == 0
+            else f'{label}: gh repo create failed: {r.stderr.strip()}')
+
+
+# ---- starting points ------------------------------------------------------------------------------------------------
+
+def user_md():
+    f = STATE / 'user.md'
+    if f.exists():
+        say('✓', f'user.md: {f}')
+        return
+    shutil.copy(LIB / 'user.md', f)
+    say('✓', f'user.md: {f} (a template; your first agent fills it in with you)')
+
+
+def starter():
+    have = json.loads(run(str(HQ / 'bin' / 'hq-pkg'), 'list', '--json').stdout or '{}')
+    if have:
+        say('✓', f'agents: {", ".join(sorted(have))}')
+        return
+    starters = json.loads((LIB / 'starters.json').read_text())
+    for name, s in starters.items():
+        if name.startswith('$'):
+            continue
+        if not s.get('link'):
+            say('-', f'no agents yet, and the {name} starter is not published yet: hq new <name> "<what it does>"')
+            continue
+        if offer(f'no agents yet. Install {name}, which {s["about"]}?'):
+            subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'install', s['link'], '--as', name])
+        else:
+            say('-', f'later: hq install {s["link"]}')
+
+
+def main(argv):
+    if '-h' in argv or '--help' in argv:
+        print(__doc__.strip())
+        return
+    print('hq: checking what it needs')
+    if not check_tools():
+        sys.exit('fix the ✗ above, then run hq init again')
+    if STATE != Path.home() / '.hq':
+        say('-', f'state is {STATE} (~/.hq is not this Mac\'s folder yet; see install.sh)')
+    if '--from' in argv:
+        i = argv.index('--from')
+        if i + 1 >= len(argv):
+            sys.exit('hq init --from <github-user>')
+        restore(argv[i + 1])
+    print('hq: your folders')
+    (STATE / 'projects').mkdir(parents=True, exist_ok=True)
+    if not (STATE / 'projects.json').exists():
+        (STATE / 'projects.json').write_text('{"projects": {}}\n')
+    user_md()
+    ensure_repo(STATE, 'dot-hq.gitignore', 'state')
+    ensure_repo(AGENTS, 'agents.gitignore', 'agents')
+    if (STATE / 'agents.json').exists():   # the agents this state lists (another Mac's): install the missing ones
+        subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'install', '--saved'])
+        subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'fetch', '--all'], capture_output=True)
+    print('hq: backups')
+    backups()
+    print('hq: agents')
+    starter()
+    print('\nnext: hq ls · hq <agent> to talk to one · hq doctor to check everything')
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

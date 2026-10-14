@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # hq — run a specialist directly, in a fresh session.
 #
+#   hq init [--from <github-user>]   set hq up on this Mac, or bring yours back on a new one (hq-init)
+#   hq doctor                     check the install: links, repos, agents, services, plugin, background jobs
 #   hq ls                         list agents
 #   hq <agent> [-p ID] [-m MODEL] [-e EFFORT] [task...]  interactive without a task, one-shot with one
 #   hq <agent> --print [...]      show the assembled system prompt, don't run
@@ -36,7 +38,7 @@ set -euo pipefail
 src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
 HQ="$(cd "$(dirname "$src")/.." && pwd)"
 
-[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,20p' "$0" | sed 's/^#   //'; exit 0; }
+[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,22p' "$0" | sed 's/^#   //'; exit 0; }
 export HQ_ROOT=$HQ
 # Where things are, from the one place that knows (lib/hq_paths.py): HQ_HOME (~/hq) holding kernel/ and agents/ (each
 # agent: role/ its repo, memory/ data/ files/ its life), and ~/.hq (user.md, projects, this Mac's things). Exported
@@ -49,6 +51,8 @@ case $1 in
   auth)               shift; exec "$HQ/bin/hq-auth" "${@:-ls}" ;;
   cost)               shift; exec "$HQ/bin/hq-cost" "${@:-agents}" ;;
   ask)                shift; exec "$HQ/bin/hq-ask" "${@:---help}" ;;
+  init)               shift; exec "$HQ/bin/hq-init" "$@" ;;
+  doctor)             shift; exec "$HQ/bin/hq-doctor" "$@" ;;
   new)                shift; exec "$HQ/bin/hq-new" "$@" ;;
   remote)             shift; exec "$HQ/bin/hq-remote" "${@:---help}" ;;
   memory)             shift; exec "$HQ/bin/hq-memory" "${@:---help}" ;;

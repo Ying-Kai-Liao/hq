@@ -746,7 +746,8 @@ def cmd_install_saved():
         if not src.get('repo'):
             print(f'{name}: no remote saved (it was local only); skipped', file=sys.stderr)
             continue
-        link = src['repo'].removesuffix('.git') + (f'/tree/HEAD/{src["path"]}' if src.get('path') else '')
+        repo = src['repo'] if os.path.isdir(src['repo']) else src['repo'].removesuffix('.git')   # a local repo stays a path
+        link = repo + (f'/tree/HEAD/{src["path"]}' if src.get('path') else '')
         try:
             cmd_install(link, name)
         except SystemExit:

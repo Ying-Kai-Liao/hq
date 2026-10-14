@@ -56,7 +56,10 @@ def commit_repo(repo, label):
     if git(repo, 'diff', '--cached', '--quiet', check=False).returncode == 0:
         print(f'hq-state: {label}: nothing changed')
         return
-    git(repo, 'commit', '-q', '-m', f'{label}: {dt.datetime.now():%Y-%m-%d %H:%M}')
+    r = git(repo, 'commit', '-q', '-m', f'{label}: {dt.datetime.now():%Y-%m-%d %H:%M}', check=False)
+    if r.returncode:
+        print(f'hq-state: {label}: commit failed: {(r.stderr or r.stdout).strip().splitlines()[-1]}', file=sys.stderr)
+        return
     print(f'hq-state: {label}: committed')
     if git(repo, 'remote', check=False).stdout.strip():
         r = git(repo, 'push', '-q', check=False)
