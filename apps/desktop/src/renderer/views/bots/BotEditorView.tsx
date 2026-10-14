@@ -221,14 +221,14 @@ function BotSettingsForm({ draft, onChange, error, plugins }: {
 
         <PluginToggles
           title="Connectors"
-          empty="No connectors yet. Add GitHub, Linear, Notion and more from Plugins."
+          empty="No connectors yet. Add GitHub, Linear, Notion and more from Extensions."
           items={connectors.map((c) => ({ id: c.id, name: c.name, detail: c.command ?? c.url ?? '' }))}
           selection={draft.connectors ?? []}
           onChange={(ids) => set('connectors', ids)}
         />
         <PluginToggles
           title="Skills"
-          empty="No skills yet. Get some from Plugins, or write your own."
+          empty="No skills yet. Get some from Extensions, or write your own."
           items={skills.map((s) => ({ id: s.id, name: s.name, detail: s.description }))}
           selection={draft.skills ?? []}
           onChange={(ids) => set('skills', ids)}

@@ -142,7 +142,7 @@ export function MarketplaceView({ computers, computer, onComputer, appsFirst = f
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
         <ComputerBadge computer={store.computer} size={32} />
         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, whiteSpace: 'nowrap' }}>
-          <span style={{ ...font('title', 'semibold'), color: 'var(--text)' }}>{appsFirst ? 'Connect apps' : 'Marketplace'}</span>
+          <span style={{ ...font('title', 'semibold'), color: 'var(--text)' }}>Extensions</span>
           {computers.length > 1 ? (
             <DropdownMenu
               title="Switch computer"

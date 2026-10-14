@@ -10,7 +10,9 @@ a version without one gets a generic "Bug fixes and improvements" line. Delete o
 ### zh-Hant
 
 - 新增 oh-my-pi（omp）：在電腦上裝好並登入後，就能選它當 bot 的 agent。
+- 「Marketplace」改名為「Extensions」：agent、連接器和技能都在這裡。
 
 ### en-US
 
 - Bots can now run on oh-my-pi (omp): once it's installed and signed in on your computer, pick it as a bot's agent.
+- Marketplace is now called Extensions: agents, connectors and skills all live there.
