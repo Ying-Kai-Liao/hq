@@ -3,6 +3,37 @@
 What hq is made of, what is built, and where it is going. Read this before changing the kernel or designing a new
 agent. How a run works step by step: `how-hq-runs.html`. Commands and file formats: the README.
 
+## Concepts (agreed 2026-10-14; the folder layout does not follow them yet)
+
+hq has two levels, and each has the same two halves: what it **is** (shareable, versioned, the same for anyone who
+installs it) and what it **has lived** (private, accumulated, yours).
+
+| | **Is** | **Has lived** |
+|---|---|---|
+| **hq**, the system | the kernel: tools, PROTOCOL, service definitions | hq's knowledge: who it works for (`user.md`), projects (registry, shared maps and decisions), the team (`agents.json`), its rules (`private-words`, jobs, grants) |
+| **an agent** | its role: instructions, skills, tools (the package repo) | its memory (what it knows), data (what it tracks), files (what it made) |
+
+- "Agent" means the role plus its life, on one machine; "role" (today: package) is the part anyone can install.
+- An agent's three kinds of life differ by lifecycle: **memory** is small text, versioned; **data** is databases,
+  versioned as text dumps; **files** are things it made (renders, exports, images), large, not in git.
+- hq's lived knowledge is not "about the user": it is what the whole system knows and runs on, shared by every agent.
+
+Today's folders mix the halves: the kernel's `shared/` holds hq's definition while the state folder's `shared/` holds
+hq's lived knowledge, and an agent's role (`agents/<name>/`) is in a different tree from its life
+(`state/agents/<name>/`); files have no defined home. The layout should mirror the table, roughly:
+
+```
+hq/                      the system
+  (kernel)                  what hq is                                   public repo
+  (hq's knowledge)          what hq has lived                            private repo
+  agents/<name>/
+    role/                   what the agent is                            its own repo
+    memory/ data/ files/    what the agent has lived                     private repo (files/ ignored)
+```
+
+Open: the names (role or package; what to call hq's knowledge, given the kernel's `shared/`), whether projects are a
+level of their own, and one migration to get there.
+
 ## The model
 
 | Part | What it is | Lives in | Status |
