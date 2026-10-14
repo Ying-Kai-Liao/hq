@@ -38,9 +38,9 @@ HQ="$(cd "$(dirname "$src")/.." && pwd)"
 [[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,19p' "$0" | sed 's/^#   //'; exit 0; }
 export HQ_ROOT=$HQ
 # State (memory, data, learned skills, user.md, projects) lives apart from the packages: $HQ_STATE, else <hq>/state,
-# else ~/.hq, else the repo itself (before hq-migrate-state). Its tree: agents/<name>/memory, shared/…
+# else ~/.hq (older installs). Its tree: agents/<name>/memory, shared/…
 if [[ -z ${HQ_STATE:-} ]]; then
-  for d in "$HQ/state" "$HOME/.hq" "$HQ"; do [[ -d $d ]] && { HQ_STATE=$d; break; }; done
+  HQ_STATE=$HQ/state; [[ ! -d $HQ/state && -d $HOME/.hq ]] && HQ_STATE=$HOME/.hq
 fi
 export HQ_STATE
 # Installed agents, each its own git repo (bin/hq-pkg): $HQ_AGENTS, else <hq>/agents, else <state>/packages.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """hq-state — the state folder's own git repo: memory, data, learned skills, user.md, projects.
 
-  hq-state path      print the state folder ($HQ_STATE, else <hq>/state, else ~/.hq, else the repo)
+  hq-state path      print the state folder ($HQ_STATE, else <hq>/state, else ~/.hq)
   hq-state dump      write every agents/*/data/*.db as a text dump next to it (<name>.sql), for git
   hq-state commit    dump, then commit everything that changed and push if there is a remote; then commit and
                      push every agent's own repo (hq-pkg push --all)
@@ -18,7 +18,7 @@ from pathlib import Path
 
 HQ = Path(os.environ.get('HQ_ROOT') or os.path.dirname(os.path.dirname(
     os.path.normpath(os.path.join(os.environ.get('PWD') or os.getcwd(), sys.argv[0])))))
-STATE = Path(os.environ.get('HQ_STATE') or next(p for p in (HQ / 'state', Path.home() / '.hq', HQ) if p.is_dir()))
+STATE = Path(os.environ.get('HQ_STATE') or next((p for p in (HQ / 'state', Path.home() / '.hq') if p.is_dir()), HQ / 'state'))
 
 
 def dump():
@@ -47,8 +47,6 @@ def git(*args, check=True):
 def commit():
     # which agents this install has, and their links, so another Mac can install them (hq-pkg install --saved)
     subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'save'], env={**os.environ, 'HQ_STATE': str(STATE)})
-    if STATE.resolve() == HQ.resolve():
-        sys.exit('hq-state: state is still inside the repo (run hq-migrate-state first)')
     if not (STATE / '.git').exists():
         sys.exit(f'hq-state: {STATE} is not a git repo')
     dump()

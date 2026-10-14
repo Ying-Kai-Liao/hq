@@ -28,9 +28,8 @@ Rules that follow from it:
 ## Built
 
 **State folder** (2026-10-14). Memory, data, `user.md`, projects and `projects.json` live in
-`$HQ_STATE` (default `~/.hq`), a git repo of its own with the same relative paths as the repo had. Databases are
-committed as text dumps (`hq-state dump`). Without a state folder everything falls back to the repo, which is how
-`bin/hq-migrate-state` moved it without downtime. Personal details moved out of the packages too (2026-10-14);
+`$HQ_STATE` (default `<hq>/state`), a git repo of its own. Databases are committed as text dumps (`hq-state dump`).
+Personal details moved out of the packages too (2026-10-14);
 `hq-pkg check --share` guards it. Third-party skills are linked from their repos (skills.json), never copied.
 Published 2026-10-14 with fresh history (MIT).
 

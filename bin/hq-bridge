@@ -35,7 +35,7 @@ LABEL = 'dev.hq.bridge'
 LAUNCHER = Path.home() / '.config' / 'hq' / 'bin' / 'hq-uv'
 
 # Installed agents: $HQ_AGENTS, else <hq>/agents, else <state>/packages; each its own git repo.
-STATE_ROOT = Path(os.environ.get('HQ_STATE') or next(p for p in (HQ / 'state', Path.home() / '.hq', HQ) if p.is_dir()))
+STATE_ROOT = Path(os.environ.get('HQ_STATE') or next((p for p in (HQ / 'state', Path.home() / '.hq') if p.is_dir()), HQ / 'state'))
 AGENTS = Path(os.environ.get('HQ_AGENTS') or (HQ / 'agents' if (HQ / 'agents').is_dir() else STATE_ROOT / 'packages'))
 
 

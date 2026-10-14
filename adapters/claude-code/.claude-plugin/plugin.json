@@ -15,7 +15,7 @@
     "state_path": {
       "type": "string",
       "title": "hq state folder",
-      "description": "Where agents' memory and data live. Empty: $HQ_STATE, else <hq>/state, else ~/.hq, else the hq folder itself.",
+      "description": "Where agents' memory and data live. Empty: $HQ_STATE, else <hq>/state, else ~/.hq.",
       "default": ""
     }
   }

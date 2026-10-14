@@ -38,13 +38,13 @@ async function hqRoot($: EngineInterface, configured: unknown): Promise<string> 
 }
 
 // State (memory, data, learned skills, user.md, projects): the state_path option, else $HQ_STATE, else <hq>/state,
-// else ~/.hq, else the repo itself (before hq-migrate-state). Its tree mirrors the repo's: agents/<name>/memory, shared/…
+// else ~/.hq (older installs). Its tree: agents/<name>/memory, shared/…
 async function stateRoot($: EngineInterface, configured: unknown, hq: string): Promise<string> {
   const home = (await $.env.get('HOME')) ?? ''
   const set = (typeof configured === 'string' ? configured.trim() : '') || ((await $.env.get('HQ_STATE')) ?? '')
   if (set) return set.replace(/^~(?=\/)/, home)
   if (await $.fs.exists(`${hq}/state`)) return `${hq}/state`
-  return (await $.fs.exists(`${home}/.hq`)) ? `${home}/.hq` : hq
+  return (await $.fs.exists(`${home}/.hq`)) ? `${home}/.hq` : `${hq}/state`
 }
 
 // Helpers that take $ must be top-level functions: the hooks loader refuses the whole module otherwise.

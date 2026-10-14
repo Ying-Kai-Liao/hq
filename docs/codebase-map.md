@@ -37,7 +37,7 @@ hq/agents/                        the agents folder, $HQ_AGENTS (ignored by the 
 ```
 
 Every tool finds the folders the same way: `$HQ_STATE`, else `<hq>/state`, else `~/.hq` (installs from before
-2026-10-14), else the repo (before hq-migrate-state). Agents: `$HQ_AGENTS`, else `<hq>/agents`, else `<state>/packages`.
+2026-10-14). Agents: `$HQ_AGENTS`, else `<hq>/agents`, else `<state>/packages`.
 
 ## Kernel files
 
@@ -56,7 +56,6 @@ Every tool finds the folders the same way: `$HQ_STATE`, else `<hq>/state`, else 
 | `bin/project-id` | python | Directory → project ID from `projects.json` (remotes and paths as aliases); `--register` | `bin/hq`, the adapter, agents |
 | `bin/hq-bridge` | python (uv script) | Discord: a channel per agent, a thread per task; runs `hq <agent>` and resumes the thread's session; launchd `dev.hq.bridge` | launchd |
 | `bin/hq-send` | bash | Delivers a result: into the Discord thread when inside one, else Telegram | agents |
-| `bin/hq-migrate-state` | python | One-time move of state out of the repo into `~/.hq` (done 2026-10-14; kept for other installs) | you, once |
 | `adapters/claude-code/hooks/register.tsx` | TS | The Claude Code plugin: registers each agent as `hq:<name>` (pinned package, frontmatter `model`), puts project + memory in front of each spawn, applies `effort` per request, nudges for the session file, `/hq` and `mcp__hq__invoke` | Claude Code, every session |
 | `adapters/claude-code/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | JSON | Plugin manifest (options `hq_path`, `state_path`) and this repo as its marketplace | `install.sh` |
 | `shared/PROTOCOL.md` | md | The rules every agent gets after its `agent.md`: memory, projects, sessions, learned skills, delivery | `hq-pkg` (into `prompt.md`), the adapter |
