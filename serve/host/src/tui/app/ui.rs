@@ -63,7 +63,7 @@ pub const NEW_GROUP: &str = "New group chat";
 pub const ACTIONS: [(&str, &str, Action); 11] = [
     ("New bot…", "n", Action::NewBot),
     ("New group chat…", "m", Action::NewGroup),
-    ("Marketplace: agents, connectors, skills…", "A", Action::Market),
+    ("Extensions: agents, connectors, skills…", "A", Action::Market),
     ("Memory of this bot…", "M", Action::Memory),
     ("Routines of this bot…", "R", Action::Routines),
     ("Refresh agents", "", Action::RefreshAgents),

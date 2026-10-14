@@ -52,7 +52,7 @@ const HELP: [(&str, &str, &str); 55] = [
     ("BOTS", "S", "new session"),
     ("BOTS", "M", "memory"),
     ("BOTS", "R", "routines"),
-    ("BOTS", "A", "marketplace, sign-in"),
+    ("BOTS", "A", "extensions, sign-in"),
     ("BOTS", "x", "delete bot or group"),
     ("VIEW", "t", "trace pane"),
     ("VIEW", "T", "trace full screen"),
