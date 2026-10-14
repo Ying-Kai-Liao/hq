@@ -55,7 +55,9 @@ def load_env():
     if f.exists():
         for line in f.read_text().splitlines():
             k, sep, v = line.strip().partition('=')
-            if sep and not k.startswith('#'):
+            # only hq's own settings: everything here is inherited by the agent runs the bridge starts, and the
+            # file also holds things for other tools (CLAUDE_CODE_OAUTH_TOKEN is for hq-remote's runs only)
+            if sep and k.strip().startswith('HQ_'):
                 os.environ.setdefault(k.strip(), v.strip().strip('"\''))
 
 
