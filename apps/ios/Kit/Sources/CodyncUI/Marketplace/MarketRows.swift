@@ -28,11 +28,10 @@ struct AgentCard: View {
     @State private var hovering = false
 
     private var status: String {
-        switch (backend.installed == true, backend.signedIn) {
-        case (true, false?): "Not signed in"
-        case (true, _): "Installed"
-        case (false, _): backend.curated == true ? "Not installed" : "Sets up on first use"
-        }
+        if backend.installed != true, backend.curated == true { return "Not installed" }
+        if backend.needsNode { return "Needs Node.js" }
+        if backend.installed != true { return "Sets up on first use" }
+        return backend.signedIn == false ? "Not signed in" : "Installed"
     }
 
     var body: some View {

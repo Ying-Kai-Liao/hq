@@ -5,14 +5,14 @@ listing what iPhone users notice. tools/asc-submit.py reads the released version
 a version without one gets a generic "Bug fixes and improvements" line. Delete old sections.
 -->
 
-## 2.16.0
+## 2.16.1
 
 ### zh-Hant
 
-- 新增 oh-my-pi（omp）：在電腦上裝好並登入後，就能選它當 bot 的 agent。
-- 「Marketplace」改名為「Extensions」：agent、連接器和技能都在這裡。
+- 電腦上沒有 Node.js 時，Extensions 會標出需要它的 agent，按一下就能讓 Codync 幫那台電腦加上。
+- Windows 電腦上的 Claude Code、Codex 等 agent 現在可以正常啟動了。
 
 ### en-US
 
-- Bots can now run on oh-my-pi (omp): once it's installed and signed in on your computer, pick it as a bot's agent.
-- Marketplace is now called Extensions: agents, connectors and skills all live there.
+- When your computer doesn't have Node.js, Extensions shows which agents need it, and one tap has Codync add it.
+- Claude Code, Codex and other agents now start on Windows computers.

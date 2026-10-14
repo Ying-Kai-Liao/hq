@@ -25,6 +25,7 @@ public struct MarketplaceView: View {
     @State private var writingSkill = false
     @State private var viewingSkill: SkillRef?
     @State private var agent: Backend?
+    @State private var addingNode = false
     /// Agents shown before "Load more agents".
     @State private var agentLimit = 10
     @State private var showInstalled = false
@@ -82,6 +83,7 @@ public struct MarketplaceView: View {
         .codyncSheet(item: $viewingSkill) { SkillSheet(skill: $0) }
         .codyncSheet(isPresented: $writingSkill) { NewSkillSheet() }
         .codyncSheet(item: $agent) { b in AgentSheet(initial: b) }
+        .codyncSheet(isPresented: $addingNode) { SetupTerminalView(backend: nil, step: .node) { addingNode = false } }
     }
 
     private var page: some View {
@@ -91,6 +93,9 @@ public struct MarketplaceView: View {
                 searchField
                 if !agents.isEmpty {
                     MarketSection(title: query.isEmpty ? "Agents" : "Agents matching “\(query)”") {
+                        if model.hello?.backends.contains(where: \.needsNode) == true {
+                            NodeNotice { addingNode = true }
+                        }
                         ScrollView(.horizontal, showsIndicators: false) {
                             LazyHStack(spacing: 10) {
                                 ForEach(agents.prefix(agentLimit)) { b in agentCard(b).frame(width: 128) }

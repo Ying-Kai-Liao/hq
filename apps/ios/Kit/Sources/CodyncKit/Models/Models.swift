@@ -213,6 +213,12 @@ public struct Backend: Codable, Hashable, Sendable, Identifiable {
     /// Missing when the host can't tell.
     public var signedIn: Bool?
     public var canInstall: Bool?
+    /// Only for an agent that runs on Node.js, on a computer without its own: Codync's copy
+    /// is `missing` or `added`.
+    public var node: String?
+
+    /// It can't run until Node.js is added to the computer.
+    public var needsNode: Bool { node == "missing" }
 }
 
 /// How an agent can be signed in, from asking the agent itself.
@@ -254,7 +260,7 @@ public struct AuthMethod: Decodable, Sendable, Identifiable, Hashable {
 
 /// What a setup terminal on the computer runs.
 public enum SetupStep: String, Codable, Sendable {
-    case install, login
+    case install, node, login
 }
 
 public struct Hello: Codable, Sendable {

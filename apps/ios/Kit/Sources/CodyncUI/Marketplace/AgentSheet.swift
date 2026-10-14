@@ -1,9 +1,39 @@
 import CodyncKit
 import SwiftUI
 
-/// Getting an agent ready on the computer: install it, then sign in. Sign-in
-/// options come from the agent itself (ACP), plus Codync's own command for
-/// CLIs it knows. Bots are made from New chat, not here.
+/// Above the agents while some of them run on Node.js and the computer has none: one place
+/// to add Codync's copy for all of them.
+struct NodeNotice: View {
+    let add: () -> Void
+    @Environment(BotStore.self) private var model
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "shippingbox")
+                .font(.body)
+                .foregroundStyle(Palette.secondary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Node.js isn't on \(model.hostName)").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.text)
+                Text("Some agents need it to run. Codync can add a copy just for them.")
+                    .font(.caption)
+                    .foregroundStyle(Palette.secondary)
+            }
+            Spacer(minLength: 8)
+            Button("Add Node.js", action: add)
+                .buttonStyle(PrimaryButtonStyle())
+                .fixedSize()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Palette.bubbleAgent.opacity(0.45), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .transition(.opacity)
+    }
+}
+
+/// Getting an agent ready on the computer: install it, add Node.js when it runs on Node and
+/// the computer has none, then sign in. Sign-in options come from the agent itself (ACP),
+/// plus Codync's own command for CLIs it knows. Bots are made from New chat, not here.
 struct AgentSheet: View {
     let initial: Backend
     @Environment(BotStore.self) private var model
@@ -32,8 +62,9 @@ struct AgentSheet: View {
             }
         }
         .frame(minWidth: 0, minHeight: 0)
-        // A known "signed in" needs no agent start; everything else asks the agent.
-        .task { if backend.signedIn != true { await check() } }
+        // A known "signed in" needs no agent start; everything else asks the agent (which
+        // can't start without its Node.js).
+        .task { if backend.signedIn != true, !backend.needsNode { await check() } }
         .onChange(of: route) { old, new in
             // Back from a terminal or key form: see what changed.
             if new == nil, old != nil { Task { await check() } }
@@ -44,6 +75,7 @@ struct AgentSheet: View {
         let back = { withAnimation(Motion.layout) { self.route = nil } }
         switch route {
         case .install: SetupTerminalView(backend: backend, step: .install, back: back)
+        case .node: SetupTerminalView(backend: backend, step: .node, back: back)
         case .terminal(let method): SetupTerminalView(backend: backend, step: .login, method: method, back: back)
         case .keys(let method): AgentKeysForm(backend: backend, method: method, saved: auth?.savedEnv ?? [], back: back) { auth = $0 }
         }
@@ -82,6 +114,19 @@ struct AgentSheet: View {
                     )
                 }
             }
+            if backend.node != nil {
+                CardSection {
+                    SetupStepRow(
+                        number: curated ? 2 : 1,
+                        title: "Node.js",
+                        detail: backend.needsNode
+                            ? "\(backend.name) runs on Node.js. Codync adds its own copy."
+                            : "Added on \(model.hostName).",
+                        done: !backend.needsNode,
+                        action: backend.needsNode ? ("Add", { go(.node) }) : nil
+                    )
+                }
+            }
             signInSection
             if let error {
                 CardSection { Text(error).foregroundStyle(Palette.danger).textSelection(.enabled) }
@@ -94,7 +139,13 @@ struct AgentSheet: View {
             ? "Browser sign-ins open on \(model.hostName) itself. Away from it? Use Remote screen to finish there."
             : nil) {
             HStack(spacing: 0) {
-                SetupStepRow(number: curated ? 2 : 1, title: "Sign in", detail: statusText, done: signedIn == true, action: nil)
+                SetupStepRow(
+                    number: 1 + (curated ? 1 : 0) + (backend.node != nil ? 1 : 0),
+                    title: "Sign in",
+                    detail: statusText,
+                    done: signedIn == true,
+                    action: nil
+                )
                 if checking {
                     ThinkingOrb(state: .connecting, size: 16, color: Palette.secondary)
                 } else {
@@ -146,6 +197,7 @@ struct AgentSheet: View {
         if checking { return auth == nil ? "Checking with \(backend.name)… The first check can download it." : "Checking…" }
         switch signedIn {
         case true?: return "Signed in."
+        case _ where backend.needsNode: return "Add Node.js first."
         case false?: return "Not signed in yet."
         case nil: return "Couldn't tell. Skip this if you've already signed in on \(model.hostName)."
         }
@@ -205,6 +257,7 @@ struct AgentSheet: View {
 
 private enum SetupRoute: Hashable {
     case install
+    case node
     case terminal(AuthMethod?)
     case keys(AuthMethod)
 }
