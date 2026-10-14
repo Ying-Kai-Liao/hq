@@ -178,8 +178,8 @@ state/                     what hq has lived (ignored by this repo; your hq-stat
   projects.json            project IDs → the git remotes / paths that belong to them
   agents.json              which agents you have and where their roles come from
   private-words            words no shared role may contain (hq-pkg check --share)
-  shared/user.md           who hq works for (incl. visual taste), read by every agent
-  shared/projects/<id>/    codebase.md (shared project map) + decisions.md (append-only log)
+  user.md                  who hq works for (incl. visual taste), read by every agent
+  projects/<id>/           codebase.md (shared project map) + decisions.md (append-only log)
 ```
 
 ## Versions
@@ -291,12 +291,12 @@ once on the next tick. Nobody approves tool calls in a scheduled run, so it uses
 ## Memory layers
 1. **Identity and skills:** `agent.md` + `skills/` (including the ones it learned) + `capabilities.yaml`.
 2. **Long-term:** `memory/MEMORY.md` and topic files: the craft, lessons. The user lives in
-   `shared/user.md`. All of these are in the state folder.
-3. **Project:** `shared/projects/<id>/` (shared by all agents) + `memory/projects/<id>.md` (private). The codebase map
+   the state folder's `user.md`.
+3. **Project:** the state folder's `projects/<id>/` (shared by all agents) + `memory/projects/<id>.md` (private). The codebase map
    records its commit, so agents only re-read what changed since.
 4. **Session:** the live conversation, plus `memory/sessions/<id>.md` across calls.
 
-`hq memory search <words>` searches it all (every agent's memory and learned skills, and `shared/`) and prints
+`hq memory search <words>` searches it all (every agent's memory and learned skills, `user.md` and `projects/`) and prints
 `path:line` with the passage; agents use it for anything their index doesn't cover. It indexes the files afresh on
 each search, so the markdown stays the only copy.
 

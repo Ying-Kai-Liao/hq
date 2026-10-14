@@ -70,7 +70,7 @@ json.dump({
                 "model, plugins, permissions. MCP servers come from shared services in capabilities.yaml needs "
                 "(granted with hq-auth), or mcp.json next to this file. Placeholders: {{HQ}}, {{AGENT_DIR}} "
                 "(pinned package), {{AGENTS}} (all installed agents), {{PACKAGE}} (live package: skills/learned/), {{HOME_DIR}} (memory, data), {{HOME_REAL}} (same, symlinks resolved: use in permission rules), "
-                "{{STATE}} (the state folder: shared/user.md, shared/projects/), {{USER_HOME}} ($HOME).",
+                "{{STATE}} (the state folder: user.md, projects/), {{USER_HOME}} ($HOME).",
     'autoMemoryEnabled': False,
     'enabledPlugins': {p: False for p in plugins},
     'permissions': {'allow': [f'Edit(/{{{{{h}}}}}/memory/**)' for h in ('HOME_DIR', 'HOME_REAL')] + ['Edit(/{{PACKAGE}}/skills/learned/**)']},

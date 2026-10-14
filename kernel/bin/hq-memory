@@ -5,8 +5,8 @@
   hq-memory ls [--agent NAME | --all]                      the memory files and their sizes
 
 Searches the markdown in the state folder: an agent's memory/ (MEMORY.md, topic files, projects/, sessions/) and its
-learned skills, plus shared/ (user.md, project maps, decisions). Inside an hq run ($HQ_AGENT set) the default is
-that agent and shared/; from your terminal it is every agent. --agent picks one, --all every one.
+learned skills, plus what all agents share: user.md and projects/ (project maps, decisions). Inside an hq run
+($HQ_AGENT set) the default is that agent and the shared files; from your terminal it is every agent. --agent picks one, --all every one.
 
 The files stay the only copy: each search indexes them afresh in memory (SQLite FTS5, ranked by bm25), so nothing
 goes stale and there is no index to commit. Passages are a heading or paragraph each. Words are ANDed; "a phrase"
@@ -37,15 +37,16 @@ def lives():
 
 
 def files(scope):
-    """(label, path) for every markdown file in scope: agents' memory and learned skills, then shared/."""
+    """(label, path) for every markdown file in scope: agents' memory and learned skills, then the shared files."""
     for n, home in lives().items():
         if scope is not None and n != scope:
             continue
         for sub in ('memory', 'skills/learned', 'role/skills/learned'):
             for f in sorted((home / sub).rglob('*.md')):
                 yield n, f
-    for f in sorted((STATE / 'shared').rglob('*.md')):
-        yield 'shared', f
+    for f in [STATE / 'user.md', *sorted((STATE / 'projects').rglob('*.md'))]:
+        if f.is_file():
+            yield 'shared', f
 
 
 def passages(path):

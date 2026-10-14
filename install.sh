@@ -25,7 +25,7 @@ if [ -z "$CUSTOM_HOME" ]; then
   fi
 fi
 eval "$(python3 "$KERNEL/lib/hq_paths.py" --sh)"
-mkdir -p "$HQ_STATE/shared/projects" "$HQ_AGENTS"
+mkdir -p "$HQ_STATE/projects" "$HQ_AGENTS"
 [ -f "$HQ_STATE/projects.json" ] || echo '{"projects": {}}' > "$HQ_STATE/projects.json"
 echo "hq home: $HQ_HOME · state: $HQ_STATE · agents: $HQ_AGENTS"
 

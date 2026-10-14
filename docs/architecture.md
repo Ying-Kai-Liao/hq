@@ -42,7 +42,7 @@ Open: whether projects are a level of their own.
 | **Service** | Something several agents may use: an MCP server, an API, a login | `kernel/services/<name>.json` | built |
 | **Grant** | Which agent may use which service, as which account | `~/.config/hq/auth.json` (local, never in the repo) | built |
 | **Environment** | The installed software a package's plugins need, built per machine | not yet | planned |
-| **Kernel** | Runs agents and connects them: `bin/hq`, `hq-pkg`, `hq-auth`, the bridge, the adapter | this repo: `bin/`, `adapters/`, `shared/`; no agents | built |
+| **Kernel** | Runs agents and connects them: `bin/hq`, `hq-pkg`, `hq-auth`, the bridge, the adapter | this repo: `kernel/` (`bin/`, `lib/`, `adapters/`, `services/`); no agents | built |
 
 Rules that follow from it:
 - **A package holds no state.** Sharing or upgrading an agent never touches anyone's memory or data.

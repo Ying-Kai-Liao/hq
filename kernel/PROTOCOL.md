@@ -20,14 +20,14 @@ history, so the user can roll it back with the rest of you.
      about a project you'll meet again, ask the user what to call it (suggest the product's name, not the folder's)
      and, once they answer, run `{{HQ}}/bin/project-id --register <id>`. Never invent or register an ID yourself.
 2. Read these if they exist (missing files are normal; don't mention them):
-   - `{{STATE}}/shared/user.md`: who the user is, shared by all agents
-   - `{{STATE}}/shared/projects/ID/codebase.md`: the project map, shared by all agents
-   - `{{STATE}}/shared/projects/ID/decisions.md`: the last 30 lines are enough
+   - `{{STATE}}/user.md`: who the user is, shared by all agents
+   - `{{STATE}}/projects/ID/codebase.md`: the project map, shared by all agents
+   - `{{STATE}}/projects/ID/decisions.md`: the last 30 lines are enough
    - `{{HOME_DIR}}/memory/projects/ID.md`: your own notes on this project
    - `{{HOME_DIR}}/memory/sessions/ID.md`: where your last call on this project left off
    - `{{AGENT_DIR}}/capabilities.yaml`: what you may use
    Your long-term index (`memory/MEMORY.md`) is already in your context. For anything older or not in the index,
-   search before you assume it isn't known: `{{HQ}}/bin/hq-memory search <words>` (your memory and `shared/`;
+   search before you assume it isn't known: `{{HQ}}/bin/hq-memory search <words>` (your memory, `user.md` and `projects/`;
    `--all` adds the other agents').
 3. **Freshness check** (only when the task touches the codebase). `codebase.md` starts with a `commit:` line. Compare
    it with `git rev-parse HEAD`.
@@ -43,9 +43,9 @@ history, so the user can roll it back with the rest of you.
 | Long-term: about the user, your craft, lessons that apply everywhere | `{{HOME_DIR}}/memory/MEMORY.md` (index, max 150 lines) + topic files in `memory/` | When you learn something durable. One line per entry in the index, linking to a topic file for detail |
 | Learned skills | `{{PACKAGE}}/skills/learned/<name>/SKILL.md` | When you solve a non-trivial problem you'll meet again. Add it to the index in `MEMORY.md`. It becomes part of you: checked, versioned and shared with your package, so keep the user's personal details in memory, not here |
 | Project, yours | `memory/projects/ID.md` | Your specialist knowledge of this project: decisions, assets, where your files are, open items |
-| Project, shared | `{{STATE}}/shared/projects/ID/codebase.md` | Facts any agent needs: purpose, stack, layout, commands, conventions. Edit only sections you verified |
-| Decisions, shared | `{{STATE}}/shared/projects/ID/decisions.md` | **Append only**, one line: `YYYY-MM-DD · {{AGENT}} · decision · why` |
-| Things you made | `{{HOME_DIR}}/files/ID/` (`files/` without a project) | Finished outputs: renders, images, exports, generated pages, backups. Never in memory, data or `shared/`; not in git, so record where they are in your project notes |
+| Project, shared | `{{STATE}}/projects/ID/codebase.md` | Facts any agent needs: purpose, stack, layout, commands, conventions. Edit only sections you verified |
+| Decisions, shared | `{{STATE}}/projects/ID/decisions.md` | **Append only**, one line: `YYYY-MM-DD · {{AGENT}} · decision · why` |
+| Things you made | `{{HOME_DIR}}/files/ID/` (`files/` without a project) | Finished outputs: renders, images, exports, generated pages, backups. Never in memory, data or `projects/`; not in git, so record where they are in your project notes |
 | Session | `memory/sessions/ID.md` | **Overwrite** at the end of every call, max 30 lines: task, state, next step, open questions |
 
 Not every context is a code project. Ongoing areas of life (expenses, calendar, places, reading) get an ID too, e.g.
