@@ -28,6 +28,7 @@ hq/                               the kernel (this repo, public). No agents, no 
   auth.json  auth.log               grants and profiles (hq-auth); every secret handed out
   env                               bridge and Telegram settings
   cost.db                           the cost ledger (hq-cost)
+  ask.json                          hq ask conversations: agent + directory or name → session
   sched/                            last tick, last run per job, each run's output (hq-sched)
   bridge/                           Discord thread → session map, logs, attachments
   monitor/  house/  bin/hq-uv       the monitor's samples; house's job state; uv copy with Full Disk Access
@@ -44,6 +45,7 @@ layout). Agents: `$HQ_AGENTS`, else `<state>/packages`, then the repo's own `age
 | `bin/hq-pkg` | python | Packages: fingerprint → check → snapshot into `.store`; pin/rollback; auto-commit each good version to the agent's repo; install/update/share/search/restore; fetch third-party skills; `check --share` privacy scan | `bin/hq`, the adapter (`resolve --all --json`), `install.sh` |
 | `bin/hq-auth` | python | Services and grants: which agent may use which service as which account; builds `--mcp-config`; hands out secrets (`get`, `exec`) and logs them | `bin/hq`, agents' tools |
 | `bin/hq-cost` | python | Cost ledger: syncs request usage from `~/.claude/projects` into `cost.db`; `tag` records each hq session (SessionStart hook); reports by agent, version, model, effort | you, launchd `dev.hq.cost`, the hook `bin/hq` adds |
+| `bin/hq-ask` | python | One-shot `hq <agent>` with `--output-format json`: prints the answer, keeps agent + directory (or `--as NAME`) → session in `~/.config/hq/ask.json` so `-c` resumes it with the same project/model/effort; `HQ_VIA=ask` | you, scripts, Claude Code sessions |
 | `bin/hq-memory` | python | Memory search: indexes the state folder's markdown (memory, learned skills, shared/) in an in-memory FTS5 table per search, prints `path:line` + passage | you, agents (PROTOCOL.md; allowed without a prompt in `hq` runs) |
 | `bin/hq-sched` | python | Scheduled jobs: cron parser, `jobs.json` per agent, `tick` starts due jobs as detached `hq <agent> "task"` runs (`HQ_VIA=schedule`), catches up once after sleep; launchd `dev.hq.sched` | you, launchd every minute |
 | `bin/hq-state` | python | The state repo: sqlite → text dumps, commit and push state, then push every agent | you |
@@ -73,7 +75,7 @@ Packages never hold absolute paths. `bin/hq` and the adapter fill these in at ru
 | `{{USER_HOME}}` | `$HOME` | |
 
 Also set for a run: `HQ_AGENT_VERSION`, `HQ_MODEL`, `HQ_EFFORT`, `HQ_PROJECT` (read by `hq-cost tag`), and, from the
-bridge, `HQ_VIA=discord` (`schedule` from hq-sched, plus `HQ_SCHED_JOB`), `HQ_DISCORD_WEBHOOK_URL`, `HQ_DISCORD_THREAD_ID` (read by `hq-send`), `HQ_CLAUDE_ARGS`
+bridge, `HQ_VIA=discord` (`schedule` from hq-sched, plus `HQ_SCHED_JOB`; `ask` from hq-ask), `HQ_DISCORD_WEBHOOK_URL`, `HQ_DISCORD_THREAD_ID` (read by `hq-send`), `HQ_CLAUDE_ARGS`
 (extra `claude` flags; `bin/hq` clears it once read so helpers don't inherit it).
 
 ## Flows

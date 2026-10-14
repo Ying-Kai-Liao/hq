@@ -13,6 +13,7 @@
 #   hq search [words] [--mine]                         find agents on GitHub (repos tagged hq-agent)
 #   hq auth [ls|grant|revoke|set ...]                  which agent may use which service, as which account (hq-auth)
 #   hq cost [agents|agent <name>|...]                  what the agents cost, from the usage ledger (hq-cost)
+#   hq ask <agent> [-c] [--as NAME] "task"            ask an agent, get its answer back; -c continues (hq-ask)
 #   hq memory search <words> [--agent NAME|--all]      search what the agents wrote down (hq-memory)
 #   hq schedule [ls|add|rm|run|log|--install ...]      run agent tasks on a cron schedule (hq-sched)
 #
@@ -33,7 +34,7 @@ set -euo pipefail
 src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
 HQ="$(cd "$(dirname "$src")/.." && pwd)"
 
-[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,17p' "$0" | sed 's/^#   //'; exit 0; }
+[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,18p' "$0" | sed 's/^#   //'; exit 0; }
 export HQ_ROOT=$HQ
 # State (memory, data, learned skills, user.md, projects) lives apart from the packages: $HQ_STATE, else ~/.hq,
 # else the repo itself (before hq-migrate-state). Its tree mirrors the repo's paths: agents/<name>/memory, shared/…
@@ -47,6 +48,7 @@ case $1 in
   rollback)           shift; exec "$HQ/bin/hq-pkg" pin "$@" ;;
   auth)               shift; exec "$HQ/bin/hq-auth" "${@:-ls}" ;;
   cost)               shift; exec "$HQ/bin/hq-cost" "${@:-agents}" ;;
+  ask)                shift; exec "$HQ/bin/hq-ask" "${@:---help}" ;;
   memory)             shift; exec "$HQ/bin/hq-memory" "${@:---help}" ;;
   schedule)           shift; exec "$HQ/bin/hq-sched" "${@:-ls}" ;;
 esac

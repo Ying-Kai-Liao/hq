@@ -132,6 +132,7 @@ bin/hq-pkg                 agents: install, update, history, restore, share; ver
 bin/hq-new                 scaffold a new agent as its own repo
 bin/hq-auth                shared services: which agent may use which, as which account
 bin/hq-state               the state folder's git repo: path, dump (sqlite as text), commit
+bin/hq-ask                 ask an agent and get its answer back; continue the conversation (-c)
 bin/hq-memory              search the agents' memory and shared notes
 bin/hq-sched               scheduled agent jobs (cron, launchd)
 shared/
@@ -235,6 +236,14 @@ transcript cleanup. Each session `hq` starts is tagged with the agent, package v
 (terminal or discord); `hq:<name>` subagents are recognised by their type. `hq cost agents [today|week|month|all]`
 compares agents; `hq cost agent video` shows one agent by day, by version/model/effort and its costliest runs;
 `hq-cost csv` exports every request with its agent for analysis elsewhere.
+
+## Asking an agent from a script or another session
+`hq ask house "what expires this week?"` runs the agent exactly as `hq house "…"` does (its own package, settings,
+services, memory, project) but prints only its answer and keeps the session: `hq ask house -c "and next week?"`
+continues the same conversation from the same directory, `--as NAME` names one to continue from anywhere, and a
+continued conversation keeps its model and effort. `--json` gives answer, session and cost for programs; `hq ask ls`
+lists the conversations. A Claude Code session can use it to work with a specialist over several turns in the
+specialist's own tools, where an `hq:<name>` subagent would run in the caller's. Tagged `via=ask` in the cost ledger.
 
 ## Schedules
 `hq schedule add house "0 8 * * *" "Check what expires this week and send the list"` gives an agent a job: at that
