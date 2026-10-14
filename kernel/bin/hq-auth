@@ -78,10 +78,22 @@ def save_auth(data):
     tmp.rename(AUTH)
 
 
-def service(name):
+def service_file(name):
+    """kernel/services/<name>.json, else one an installed agent brings in its role's services/ (an agent shared by
+    someone else can carry the definition of a service the kernel doesn't have)."""
     f = SERVICES / f'{name}.json'
-    if not f.is_file():
-        die(f"no service '{name}' (kernel/services/)")
+    if f.is_file():
+        return f
+    for pkg in agent_dirs().values():
+        if (pkg / 'services' / f'{name}.json').is_file():
+            return pkg / 'services' / f'{name}.json'
+    return None
+
+
+def service(name):
+    f = service_file(name)
+    if not f:
+        die(f"no service '{name}' (kernel/services/, or an agent's services/)")
     return json.loads(f.read_text())
 
 

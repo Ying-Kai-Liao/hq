@@ -16,7 +16,8 @@
   hq-pkg list [--json]                    installed agents and where each one lives
 
 History (each agent is its own git repo; a version that passes checks is committed there automatically):
-  hq-pkg install <github-link> [--as NAME]  clone an agent: owner/repo, a github.com URL, or .../tree/<ref>/<path>
+  hq-pkg install <github-link> [--as NAME] [--yes]  clone an agent (owner/repo, a github.com URL, .../tree/<ref>/<path>),
+                                          show what it would do here and ask before keeping it (--yes: no question)
   hq-pkg install --saved                  install every agent <state>/agents.json lists that isn't here (a new Mac)
   hq-pkg save                             write <state>/agents.json: each installed agent and its GitHub link
   hq-pkg update <agent>|--all             pull the agent's upstream (fast-forward only; never touches local edits)
@@ -181,8 +182,14 @@ def problems(home):
         if not (home / 'skills' / skill).is_file():
             out.append(f'agent.md names skills/{skill}, which does not exist')
     for svc in needs(home):
-        if not (HQ / 'services' / f'{svc}.json').is_file():
-            out.append(f'capabilities.yaml needs service {svc!r}, not in kernel/services/')
+        if not (HQ / 'services' / f'{svc}.json').is_file() and not (home / 'services' / f'{svc}.json').is_file():
+            out.append(f'capabilities.yaml needs service {svc!r}, not in kernel/services/ or its own services/')
+    for f in sorted((home / 'services').glob('*.json')) if (home / 'services').is_dir() else []:
+        try:
+            if not json.loads(f.read_text()).get('kind'):
+                out.append(f'services/{f.name}: no kind (mcp, cli or login)')
+        except ValueError as e:
+            out.append(f'services/{f.name}: invalid JSON ({e})')
     return out
 
 
@@ -561,7 +568,56 @@ def parse_link(link):
     return f'https://github.com/{owner}/{repo}.git', ref or at or '', path, name
 
 
-def cmd_install(link, name=None):
+def review(home):
+    """What an agent would do on this Mac, from its own files: shown before installing someone's agent."""
+    fields, _ = frontmatter((home / 'agent.md').read_text())
+    lines = [f'  {fields.get("description", "(no description)")}']
+    if fields.get('model') or fields.get('effort'):
+        lines.append(f'  model {fields.get("model", "yours")}, effort {fields.get("effort", "yours")}')
+    try:
+        settings = json.loads((home / 'settings.json').read_text()) if (home / 'settings.json').exists() else {}
+    except ValueError:
+        settings = {}
+    perms = settings.get('permissions', {})
+    if perms.get('defaultMode'):
+        lines.append(f'  permission mode: {perms["defaultMode"]}'
+                     + ('  ← runs every tool without asking' if perms['defaultMode'] == 'bypassPermissions' else ''))
+    allow = perms.get('allow', [])
+    if allow:
+        lines.append(f'  allowed without asking: {", ".join(allow[:8])}' + (' …' if len(allow) > 8 else ''))
+    hooks = [h.get('command', '') for event in settings.get('hooks', {}).values() for m in event
+             for h in m.get('hooks', [])]
+    if hooks:
+        lines.append(f'  hooks (commands that run on their own): {"; ".join(hooks[:4])}')
+    try:
+        mcp = json.loads((home / 'mcp.json').read_text()).get('mcpServers', {}) if (home / 'mcp.json').exists() else {}
+    except ValueError:
+        mcp = {}
+    if mcp:
+        lines.append('  MCP servers it starts: ' + ', '.join(f'{k} ({v.get("command", v.get("url", "?"))})'
+                                                         for k, v in mcp.items()))
+    tools = sorted(str(f.relative_to(home)) for f in (home / 'tools').rglob('*')
+                   if f.is_file() and '__pycache__' not in f.parts) if (home / 'tools').is_dir() else []
+    if tools:
+        lines.append(f'  its tools ({len(tools)}): {", ".join(tools[:6])}' + (' …' if len(tools) > 6 else ''))
+    skills = sorted(d.name for d in (home / 'skills').iterdir() if d.is_dir()) if (home / 'skills').is_dir() else []
+    if skills:
+        lines.append(f'  skills ({len(skills)}): {", ".join(skills[:10])}' + (' …' if len(skills) > 10 else ''))
+    try:
+        linked = external_skills(home)
+    except ValueError:
+        linked = {}
+    if linked:
+        lines.append('  skills fetched from other repos: ' + ', '.join(f'{k} ({v["repo"]})' for k, v in linked.items()))
+    svc = needs(home)
+    if svc:
+        own = [x for x in svc if (home / 'services' / f'{x}.json').is_file()]
+        lines.append(f'  asks for services: {", ".join(svc)}' + (f' (it defines {", ".join(own)})' if own else '')
+                     + ': nothing is shared until you grant it')
+    return '\n'.join(lines)
+
+
+def cmd_install(link, name=None, ask=False):
     url, ref, path, default = parse_link(link)
     name = name or default
     if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', name):
@@ -593,6 +649,14 @@ def cmd_install(link, name=None):
             (home / '.gitignore').write_text(GITIGNORE)
     home = AGENTS / name / 'role'
     state = AGENTS / name
+    if ask:   # someone's agent, installed by hand: show what it would do here before keeping it
+        print(f'{name} ({link}):\n{review(home)}')
+        if sys.stdin.isatty() and input('install it? [Y/n] ').strip().lower().startswith('n'):
+            (state / 'role').unlink() if (state / 'role').is_symlink() else shutil.rmtree(state / 'role')
+            if not any(state.iterdir()):
+                state.rmdir()
+            print(f'{name}: not installed')
+            return
     for d in ('memory/projects', 'memory/sessions'):
         (state / d).mkdir(parents=True, exist_ok=True)
     try:
@@ -862,7 +926,7 @@ def main(argv):
         cmd_save()
     elif cmd == 'install' and rest:
         name = rest[rest.index('--as') + 1] if '--as' in rest else None
-        cmd_install(rest[0], name)
+        cmd_install(rest[0], name, ask='--yes' not in rest)
     elif cmd in ('update', 'commit', 'push') and rest:
         msg = rest[rest.index('-m') + 1] if '-m' in rest else ''
         names = sorted(installed()) if rest[0] == '--all' else rest[:1]
