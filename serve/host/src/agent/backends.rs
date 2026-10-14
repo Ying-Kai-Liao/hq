@@ -40,7 +40,7 @@ pub enum Install {
     Script(&'static str),
     /// Vendor install scripts for Unix and for Windows (PowerShell).
     Scripts { unix: &'static str, windows: &'static str },
-    /// A global npm package.
+    /// A global npm package, installed on the computer's Node or else Codync's (`codync-host npm`).
     Npm(&'static str),
 }
 
@@ -51,12 +51,9 @@ impl Install {
             Self::Script(s) | Self::Scripts { unix: s, .. } if cfg!(unix) => Some(s.to_owned()),
             Self::Script(_) => None,
             Self::Scripts { windows, .. } => Some(windows.to_owned()),
-            Self::Npm(pkg) if cfg!(windows) => Some(format!(
-                "where npm >nul 2>nul || (echo This needs Node.js first: https://nodejs.org & exit /b 1) & npm install -g {pkg}"
-            )),
-            Self::Npm(pkg) => Some(format!(
-                "command -v npm >/dev/null || {{ echo 'This needs Node.js first: https://nodejs.org'; exit 1; }}; npm install -g {pkg}"
-            )),
+            Self::Npm(pkg) => crate::service::current_exe()
+                .ok()
+                .map(|exe| format!("{} npm install -g {pkg}", shell::quote(&exe.to_string_lossy()))),
         }
     }
 }
@@ -93,10 +90,7 @@ pub const HARNESSES: &[Harness] = &[
         local: None,
         registry: Some("claude-acp"),
         setup: "Install Claude Code and run `claude auth login`.",
-        install: Some(Install::Scripts {
-            unix: "curl -fsSL https://claude.ai/install.sh | bash",
-            windows: "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://claude.ai/install.ps1 | iex\"",
-        }),
+        install: Some(Install::Npm("@anthropic-ai/claude-code")),
         login: "{bin} auth login",
         signed_in: Some(SignInCheck { args: "auth status", ok: claude_signed_in }),
     },
@@ -107,7 +101,7 @@ pub const HARNESSES: &[Harness] = &[
         local: None,
         registry: Some("codex-acp"),
         setup: "Install Codex CLI and run `codex login --device-auth`.",
-        install: Some(Install::Script("curl -fsSL https://chatgpt.com/codex/install.sh | sh")),
+        install: Some(Install::Npm("@openai/codex")),
         login: "{bin} login --device-auth",
         signed_in: Some(SignInCheck { args: "login status", ok: exit_ok }),
     },
@@ -482,6 +476,8 @@ fn well_known_dirs() -> Vec<PathBuf> {
         versions.sort_by_key(|p| std::cmp::Reverse(node_version(p)));
         dirs.extend(versions.into_iter().map(|p| p.join("bin")));
     }
+    // Last, so the computer's own Node comes first.
+    dirs.extend(crate::agent::node::search_dirs());
     dirs
 }
 

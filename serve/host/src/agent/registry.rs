@@ -92,7 +92,7 @@ pub fn launch_kind(agent: &Value) -> Option<Launch> {
     {
         return Some(Launch::Download);
     }
-    if d["npx"].is_object() && on_path("npx") {
+    if d["npx"].is_object() && crate::agent::node::available() {
         return Some(Launch::Npx);
     }
     if d["uvx"].is_object() && on_path("uvx") {
@@ -160,6 +160,7 @@ pub async fn command(agent: &Value, progress: impl Fn(&str)) -> Result<Cmd> {
             })
         }
         Some(Launch::Npx) => {
+            crate::agent::node::ensure(&progress).await?;
             prepare_npx(d["npx"]["package"].as_str().unwrap_or_default(), name, &progress).await?;
             Ok(npx_cmd(&d["npx"]))
         }
@@ -257,7 +258,7 @@ fn npx_hash(package: &str) -> String {
     })
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
     Sha256::digest(bytes).iter().fold(String::with_capacity(64), |mut s, b| {
         let _ = write!(s, "{b:02x}");
