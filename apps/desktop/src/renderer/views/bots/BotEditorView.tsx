@@ -101,7 +101,9 @@ function BotSettingsForm({ draft, onChange, error, plugins }: {
   const [viewingSkill, setViewingSkill] = useState<SkillRef | null>(null)
   const avatarRef = useRef<HTMLButtonElement>(null)
   const set = <K extends keyof BotDraft>(key: K, value: BotDraft[K]) => onChange((d) => ({ ...d, [key]: value }))
-  const setModel = useCallback((model: string | null) => onChange((d) => ({ ...d, model })), [onChange])
+  // Options belong to one model.
+  const setModel = useCallback((model: string | null) => onChange((d) => (d.model === model ? d : { ...d, model, modelOptions: {} })), [onChange])
+  const setModelOptions = useCallback((modelOptions: Record<string, string>) => onChange((d) => ({ ...d, modelOptions })), [onChange])
 
   const backends = store.hello?.backends ?? []
   const backend = backends.find((b) => b.id === draft.backend)
@@ -158,7 +160,7 @@ function BotSettingsForm({ draft, onChange, error, plugins }: {
               />
             ) : null}
           </div>
-          <AgentModelPicker backend={draft.backend} selection={draft.model} onChange={setModel} />
+          <AgentModelPicker backend={draft.backend} selection={draft.model} onChange={setModel} options={draft.modelOptions ?? {}} onOptionsChange={setModelOptions} />
           <ValueRow
             label="Workspace"
             detail={

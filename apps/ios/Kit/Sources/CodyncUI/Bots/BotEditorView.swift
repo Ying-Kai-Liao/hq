@@ -49,6 +49,7 @@ public struct BotEditorView: View {
             // Folders, models and connectors belong to the old computer.
             draft.cwd = ""
             draft.model = nil
+            draft.modelOptions = [:]
             draft.connectors = nil
             draft.skills = nil
             model.fillDefaults(&draft)
@@ -139,7 +140,7 @@ struct BotSettingsForm: View {
                                 .fieldBox()
                         }
                     }
-                    AgentModelPicker(backend: draft.backend, selection: $draft.model)
+                    AgentModelPicker(backend: draft.backend, selection: $draft.model, options: $draft.modelOptions)
                     ValueRow("Workspace", detail: draft.cwd.isEmpty
                              ? "This bot has its own space for files. It can work in other folders when you ask."
                              : "This project is the default starting folder. The bot can work elsewhere when you ask.") {

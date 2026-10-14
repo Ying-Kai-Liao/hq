@@ -21,6 +21,8 @@ public struct Bot: Codable, Identifiable, Hashable, Sendable {
     /// `ask` or `auto`.
     public var permission: String
     public var model: String?
+    /// The model's own settings (effort, fast…): agent option id → value.
+    public var modelOptions: [String: String] = [:]
     public var pinned: Bool
     /// Where the user dragged it, lowest first (after pinned bots); ties sort by recent activity.
     public var position: Int = 0
@@ -338,6 +340,7 @@ public struct BotDraft: Codable, Hashable, Sendable {
     public var cwd: String
     public var permission: String
     public var model: String?
+    public var modelOptions: [String: String] = [:]
     public var pinned: Bool?
     public var hidden: Bool?
     public var notify: Bool?
@@ -368,6 +371,7 @@ public struct BotDraft: Codable, Hashable, Sendable {
         cwd = bot.managedWorkspace ? "" : bot.cwd
         permission = bot.permission
         model = bot.model
+        modelOptions = bot.modelOptions
         pinned = bot.pinned
         hidden = bot.hidden
         notify = bot.notify
@@ -398,6 +402,7 @@ extension Bot {
         managedWorkspace = try c.decodeIfPresent(Bool.self, forKey: .managedWorkspace) ?? false
         permission = try c.decodeIfPresent(String.self, forKey: .permission) ?? "auto"
         model = try c.decodeIfPresent(String.self, forKey: .model)
+        modelOptions = try c.decodeIfPresent([String: String].self, forKey: .modelOptions) ?? [:]
         pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         position = try c.decodeIfPresent(Int.self, forKey: .position) ?? 0
         hidden = try c.decodeIfPresent(Bool.self, forKey: .hidden) ?? false
