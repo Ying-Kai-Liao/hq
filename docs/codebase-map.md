@@ -86,13 +86,16 @@ Paths in this table are inside `kernel/`, except `install.sh` and `.claude-plugi
 | `bin/project-id` | python | Directory → project ID from `projects.json` (remotes and paths as aliases); `--register` | `bin/hq`, the adapter, agents |
 | `bin/hq-bridge` | python (uv script) | Discord: a channel per agent, a thread per task; runs `hq <agent>` and resumes the thread's session; launchd `dev.hq.bridge` | launchd |
 | `bin/hq-send` | bash | Delivers a result: into the Discord thread when inside one, else Telegram | agents |
+| `bin/hq-init` | python | Setup, safe to repeat: checks git (+ identity), claude, gh, uv; makes ~/.hq and the agents folder git repos with a first commit and `user.md`; offers private GitHub backups; installs what agents.json lists; offers a starter (`lib/starters.json`). `--from <user>` clones that user's hq-state and hq-agents first (a new Mac) | `install.sh` (last step), you |
+| `bin/hq-doctor` | python | Read-only checks with a fix for each: folders and links, tools, the state, agents and role repos (uncommitted, unpushed, no backup), agent checks, grants, plugin version, each `dev.hq.*` job (loaded, running, stuck in hq-uv = lost Full Disk Access) | you |
+| `lib/dot-hq.gitignore`, `lib/agents.gitignore`, `lib/user.md`, `lib/starters.json` | text | What `hq init` puts in a new ~/.hq and agents folder; the starter agents it offers (link null until published) | `hq-init` |
 | `lib/hq_paths.py` | python | The resolver: HQ_HOME, state, agents (address and `_REAL`), machine, logs, caches; `--sh` / `--json` | every tool, the adapter |
 | `adapters/claude-code/hooks/hooks.json` | JSON | Loads `register.tsx` as the plugin's hooks module | Claude Code |
 | `adapters/claude-code/hooks/register.tsx` | TS | The Claude Code plugin: registers each agent as `hq:<name>` (pinned package, frontmatter `model`), puts project + memory in front of each spawn, applies `effort` per request, nudges for the session file, `/hq` and `mcp__hq__invoke` | Claude Code, every session |
 | `adapters/claude-code/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | JSON | Plugin manifest (option `hq_path`) and this repo as its marketplace | `install.sh` |
 | `kernel/PROTOCOL.md` | md | The rules every agent gets after its `agent.md`: memory, projects, sessions, learned skills, delivery | `hq-pkg` (into `prompt.md`), the adapter |
 | `kernel/services/<name>.json` | JSON | One shared service: kind (mcp, cli, login), how to start it, secret names (never values) | `hq-auth`, `hq-pkg` checks |
-| `install.sh` (top) | bash | Links `~/hq` and `hq`, makes `~/.hq` (secrets/, the state repo's .gitignore), reinstalls the agents `agents.json` lists, fetches skills, installs the plugin | you, once per Mac |
+| `install.sh` (top) | bash | Links `~/hq` and `~/.local/bin/hq`, makes `~/.hq/secrets`, installs the plugin, then runs `hq init` with its arguments (`--from <user>`) | you, once per Mac |
 
 ## Placeholders and environment
 

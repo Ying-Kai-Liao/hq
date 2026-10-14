@@ -50,12 +50,17 @@ How it fits together and where it's going: [docs/architecture.md](docs/architect
 
 ```
 git clone https://github.com/Ying-Kai-Liao/hq ~/hq && ~/hq/install.sh   # ~/hq: any folder you like
-hq new reading "tracks what I read"   # start an agent
-hq install <owner>/<repo>            # an agent: any GitHub repo with an agent.md at its root
-hq-new <name> "<description>"        # or start your own
+hq instructor                        # meet the starter: it learns who you are, then builds your agents with you
+hq install <owner>/<repo>            # an agent someone shared: any GitHub repo with an agent.md at its root
+hq new reading "tracks what I read"  # or start one yourself
+hq doctor                            # check everything, with what to fix
 ```
-This repo is the kernel only: no agents ship with it. `install.sh` links the `hq` CLI and installs the Claude Code
-adapter plugin (`adapters/claude-code`, served by this repo's own marketplace). Then, in any Claude Code session:
+This repo is the kernel only: no agents ship with it. `install.sh` links the `hq` CLI, installs the Claude Code
+adapter plugin (`adapters/claude-code`, served by this repo's own marketplace), then runs `hq init`: it checks what
+hq needs (git and its identity, Claude Code, gh), makes `~/.hq` and the agents folder (each a git repo), a
+`user.md` for your agents to fill in, offers private GitHub repos to back both up, and offers the instructor, the
+agent that builds the others. Run `hq init` again any time; it only does what is missing.
+On a new Mac, `~/hq/install.sh --from <your-github-user>` brings your state and agents back. Then, in any Claude Code session:
 "have the designer critique this page", `/hq branding <task>`, or the `mcp__hq__invoke` tool. Agents appear as
 `hq:<name>`; your main session only sees one line per specialist, and their skills load only when they're called. Or
 run one directly in a terminal: `hq branding`.
@@ -72,15 +77,22 @@ version that passes its checks is committed there automatically, so its history 
 ```
 hq install <owner>/<repo>                      # or a github.com URL; .../tree/<ref>/<folder> for one agent in a bigger repo
 hq install <link> --as <name>                  # under another name
+hq install <link> --yes                        # without the question (the summary is always printed)
 hq update <agent>|--all                        # pull upstream (fast-forward only; your edits are never overwritten)
 hq history <agent>                             # every committed version
 hq restore <agent> <commit>                    # bring one back, as a new commit (undo with another restore)
 hq share <agent> [--public]                    # put it on GitHub as <you>/hq-agent-<name>, private unless --public
+hq share <agent> --public --fresh              # a public copy without its history, at <you>/hq-<name>
 hq search [words] [--mine]                     # find agents: GitHub repos tagged hq-agent (yours incl. private, anyone's public)
 hq push <agent>|--all                          # push committed versions (hq-state commit does this for every agent)
 ```
+Installing shows what the agent would do on your Mac before it is kept: its permission mode, what it may run
+without asking, hooks, MCP servers, tools, skills, and the services it asks for (nothing is shared until you grant
+it). An agent may bring the definition of a service the kernel lacks in its own `services/<name>.json`.
 `--public` runs the privacy check over the package *and its whole history* and refuses while either names you: a
-public repo shows every old commit. An agent installed from someone else keeps their repo as `upstream`; `hq share`
+public repo shows every old commit. `--fresh` publishes a separate public copy instead: one commit per publish
+with the agent as it is now (its files still checked), while the agent's own repo keeps every version and stays
+private. Every share writes a README from `agent.md` unless the agent has one. An agent installed from someone else keeps their repo as `upstream`; `hq share`
 makes yours `origin`, so `hq update` still pulls their changes.
 
 ## Repos, and where each change goes
@@ -112,12 +124,10 @@ their authors' repos (+0). Several agents can share one repo, installed by folde
 A kernel change reaches every agent on its next run without touching their repos. An agent that starts to `need:` a
 new service only passes its checks where that service exists, so push the service with the kernel.
 
-**On a new Mac**, clone hq, your state and agents repos into it, then install:
+**On a new Mac**, clone hq and install with your GitHub user: `hq init --from` fetches your hq-state into `~/.hq`
+and your hq-agents into `agents/`, then installs each agent's role (agents.json) into `agents/<name>/role`:
 ```
-git clone https://github.com/Ying-Kai-Liao/hq ~/hq
-git clone https://github.com/<you>/hq-state ~/.hq
-git clone https://github.com/<you>/hq-agents ~/hq/agents
-~/hq/install.sh   # links ~/hq (if the folder is elsewhere); installs each agent's role (agents.json) into agents/<name>/role
+git clone https://github.com/Ying-Kai-Liao/hq ~/hq && ~/hq/install.sh --from <you>
 ```
 
 **Not in any repo**, so redo them by hand on a new Mac:
