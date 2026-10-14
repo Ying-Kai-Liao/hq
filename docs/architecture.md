@@ -21,12 +21,16 @@ installs it) and what it **has lived** (private, accumulated, yours).
 The folders mirror the table:
 
 ```
-hq/                      the system: this repo (~/.hq links to it)
+~/hq -> hq/              the hq folder, anywhere (an external disk): this repo
   kernel/                   what hq is: the code                         public (this repo)
-  state/                    what hq has lived                            private repo (hq-state)
   agents/                   the agents' lives                            private repo (hq-agents)
     <name>/role/              what the agent is                          its own repo (hq-agent-<name>)
     <name>/memory/ data/ files/   what the agent has lived              (files/ not in git)
+~/.hq/                   this Mac's hq, on the internal disk (like ~/.claude)
+  user.md projects/ projects.json agents.json private-words
+                            what hq has lived                            private repo (hq-state)
+  secrets/ bridge/ sched/ cost.db store/ logs/ cache/ …
+                            this machine only                            never in git
 ```
 
 Open: whether projects are a level of their own.
@@ -38,9 +42,9 @@ Open: whether projects are a level of their own.
 | **Plugin** | A capability: a skill, the tools it drives, and the software they need | inside an agent's `skills/` + `tools/` today | partly: no manifest or `requires` yet |
 | **Role** (package) | What an agent is: identity (`agent.md`), settings, capabilities, its plugins, the skills it learned | its own git repo, `agents/<name>/role/` | built: versioned, snapshotted, committed |
 | **Life** | What an agent has lived: memory, data, files, jobs | next to its role, `agents/<name>/` (the private hq-agents repo; files/ not in git) | built: never snapshotted |
-| **State** | What hq has lived: user.md, projects, agents.json, rules | `state/` in the hq folder (private hq-state repo) | built: never snapshotted |
+| **State** | What hq has lived: user.md, projects, agents.json, rules | `~/.hq` (private hq-state repo; only these files are committed) | built: never snapshotted |
 | **Service** | Something several agents may use: an MCP server, an API, a login | `kernel/services/<name>.json` | built |
-| **Grant** | Which agent may use which service, as which account | `~/.config/hq/auth.json` (local, never in the repo) | built |
+| **Grant** | Which agent may use which service, as which account | `~/.hq/secrets/auth.json` (this Mac, never in git) | built |
 | **Environment** | The installed software a package's plugins need, built per machine | not yet | planned |
 | **Kernel** | Runs agents and connects them: `bin/hq`, `hq-pkg`, `hq-auth`, the bridge, the adapter | this repo: `kernel/` (`bin/`, `lib/`, `adapters/`, `services/`); no agents | built |
 
@@ -72,6 +76,17 @@ address, a link to the hq folder; one resolver (`lib/hq_paths.py`, `HQ_HOME`) is
 are. Logs and caches moved to `~/Library/Logs/hq` and `~/Library/Caches/hq`; snapshots stay in `agents/.store` because
 an APFS clone only costs nothing on the same disk.
 
+**This Mac's hq: ~/.hq** (2026-10-15). `~/.hq` became a real folder on the internal disk, the way `~/.claude` is
+Claude Code's: what hq has lived (the hq-state repo: `user.md`, `projects/`, `projects.json`, `agents.json`,
+`private-words`) and everything only this machine needs (`secrets/`, settings, job state, the cost ledger, logs,
+caches, snapshots), which its `.gitignore` keeps out of git by listing only the five it commits. The hq folder's
+address moved to `~/hq`. `~/.config/hq`, `~/Library/Logs/hq` and `~/Library/Caches/hq` are gone; `<hq>/state` too.
+Every run can read `~/.hq`, so `bin/hq` denies the file tools `~/.hq/secrets/` (tools get secrets from `hq-auth`).
+Snapshots moved to `~/.hq/store`: off the agents' disk there are no clones, so unchanged files are hard links to the
+previous snapshot's (as Time Machine and `rsync --link-dest` do), and `gc` keeps the 2 newest, the good, pinned and
+running versions and anything under 2 days old, on every run; older versions are in each agent's history. The
+resolver keeps the older layout working while `~/.hq` is still a link.
+
 **Agents as repos** (2026-10-14). The kernel repo ships no agents. Each agent is a git repo in the agents folder
 (`agents/` in the hq folder, ignored by the kernel; `<state>/agents.json` records each one's link so `install.sh` brings
 them back on another Mac). `hq install <link>` clones one (a repo, or a folder of one via `/tree/<ref>/<path>`);
@@ -83,7 +98,7 @@ any old commit carries personal details. The author's agents were split out of t
 
 **Versions** (`bin/hq-pkg`). Agents change all the time: an agent learns a skill, the user asks it to change, or a
 code agent edits it. None of that waits for running sessions. Every run is pinned to a read-only snapshot,
-`<agents folder>/.store/<name>@<version>/` (same disk as the agents, so APFS clones); a changed package is checked first, and a failing version never runs (the last good
+`~/.hq/store/<name>@<version>/` (APFS clones on the agents' disk, else hard links to the previous one); a changed package is checked first, and a failing version never runs (the last good
 one does), and the version is committed to the agent's repo. `.editing` holds back a change that spans several
 files. `hq versions | pin | rollback | unpin` for snapshots on disk; `hq history | restore` for every version ever.
 

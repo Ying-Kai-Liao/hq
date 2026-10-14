@@ -7,7 +7,7 @@
 #
 # Inside a Discord task (hq-bridge sets HQ_DISCORD_WEBHOOK_URL + HQ_DISCORD_THREAD_ID) it posts into that thread,
 # named after the agent. Otherwise it goes to Telegram: HQ_TELEGRAM_BOT_TOKEN / HQ_TELEGRAM_CHAT_ID from the
-# environment or ~/.config/hq/env (or the file HQ_TELEGRAM_ENV_FILE names there). Never prints a token.
+# environment or ~/.hq/secrets/env (or the file HQ_TELEGRAM_ENV_FILE names there). Never prints a token.
 set -euo pipefail
 
 as=${HQ_AGENT:-hq}
@@ -34,7 +34,7 @@ if [[ -n ${HQ_DISCORD_WEBHOOK_URL:-} && -n ${HQ_DISCORD_THREAD_ID:-} ]]; then
   echo "sent $i file(s) to thread as $as"; exit 0
 fi
 
-[[ -f ~/.config/hq/env ]] && { set -a; . ~/.config/hq/env; set +a; }
+[[ -f $HQ_SECRETS/env ]] && { set -a; . "$HQ_SECRETS/env"; set +a; }
 # Or borrow a bot from another tool's env file (e.g. a Hermes profile): HQ_TELEGRAM_ENV_FILE names a file with
 # TELEGRAM_BOT_TOKEN and TELEGRAM_HOME_CHANNEL.
 tg_file=${HQ_TELEGRAM_ENV_FILE:-}

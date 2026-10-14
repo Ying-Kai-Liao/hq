@@ -8,7 +8,7 @@ import type { EngineInterface, Register } from 'claude-code'
 //   turn.step          the agent's `effort:` (agent.md frontmatter) on its model requests; `model:` is set at register
 //   classic.SubagentStop  nudge once if the agent didn't write its session file
 //   /hq, mcp__hq__invoke  list agents; call one with an explicit project
-// The kernel comes from hq_path (default ~/.hq/kernel, else ~/Workspace/hq); agents and state from HQ_HOME (default ~/.hq), as every
+// The kernel comes from hq_path (default ~/hq/kernel, else ~/.hq/kernel, else ~/Workspace/hq); agents and state from the resolver, as every
 // kernel tool finds them (lib/hq_paths.py).
 
 type Spawned = { agent: string; project: string; startedMs: number; isNudged: boolean }
@@ -35,11 +35,12 @@ async function hqRoot($: EngineInterface, configured: unknown): Promise<string> 
   const set = typeof configured === 'string' ? configured.trim() : ''
   const home = (await $.env.get('HOME')) ?? ''
   if (set) return set.replace(/^~(?=\/)/, home)
-  // ~/.hq/kernel is where install.sh puts it; ~/Workspace/hq is where older installs have it.
-  return (await $.fs.exists(`${home}/.hq/kernel/bin/hq-pkg`)) ? `${home}/.hq/kernel` : `${home}/Workspace/hq`
+  // ~/hq/kernel is where install.sh puts it; ~/.hq/kernel and ~/Workspace/hq are where older installs have it.
+  for (const k of [`${home}/hq/kernel`, `${home}/.hq/kernel`]) if (await $.fs.exists(`${k}/bin/hq-pkg`)) return k
+  return `${home}/Workspace/hq`
 }
 
-// Where things are, from the kernel's one resolver (lib/hq_paths.py): HQ_HOME (~/.hq by default) holding state/ and
+// Where things are, from the kernel's one resolver (lib/hq_paths.py): the state folder (~/.hq) and
 // agents/, each as an address and with symlinks resolved (_REAL, what permission rules are matched against).
 async function hqPaths($: EngineInterface, hq: string): Promise<Record<string, string>> {
   const run = await $.process.run(['/usr/bin/python3', `${hq}/lib/hq_paths.py`, '--json'], { timeoutMs: 10_000 })
@@ -80,6 +81,7 @@ export const register: Register = (on, options) => {
   let stateReal = ''
   let userHome = ''
   let agentsRoot = ''
+  let machine = ''
   let installed: Record<string, string> = {}
   let agentsReal = ''
   // An agent's life (memory, data, files): its folder next to role/; older layouts: <state>/agents/<name>.
@@ -96,6 +98,7 @@ export const register: Register = (on, options) => {
       .replaceAll('{{HOME_DIR}}', lifeOf(agent, hq))
       .replaceAll('{{HOME_REAL}}', lifeOf(agent, hq, true))
       .replaceAll('{{STATE}}', state || hq)
+      .replaceAll('{{MACHINE}}', machine || `${userHome}/.hq`)
       .replaceAll('{{USER_HOME}}', userHome)
       .replaceAll('{{HQ}}', hq)
       .replaceAll('{{AGENT}}', agent)
@@ -112,6 +115,7 @@ export const register: Register = (on, options) => {
     state = where.HQ_STATE
     stateReal = where.HQ_STATE_REAL
     agentsRoot = where.HQ_AGENTS
+    machine = where.HQ_MACHINE ?? ''
     agentsReal = where.HQ_AGENTS_REAL
     installed = await listAgents($, hq)
     userHome = (await $.env.get('HOME')) ?? ''

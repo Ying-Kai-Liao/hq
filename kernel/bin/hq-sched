@@ -21,7 +21,7 @@ Mac slept through a due time, the job runs once on the next tick (if the miss wa
 
 Runs start with `--permission-mode` from HQ_SCHED_PERMISSION_MODE (default bypassPermissions, as for Discord tasks):
 no one is there to approve a tool call. The agent's settings.json allow/deny rules still apply.
-Machine state (last tick, last runs): ~/.config/hq/sched/. Logs (tick.log, each run's output): ~/Library/Logs/hq/sched/.
+Machine state (last tick, last runs): ~/.hq/sched/. Logs (tick.log, each run's output): ~/.hq/logs/sched/.
 """
 import datetime as dt, json, os, plistlib, re, subprocess, sys
 from pathlib import Path
@@ -30,11 +30,11 @@ HQ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
 from hq_paths import paths  # noqa: E402  the one place that knows where hq's folders are
 STATE = paths()['HQ_STATE']
-MACHINE = Path.home() / '.config/hq/sched'  # last tick, last run per job
+MACHINE = paths()['HQ_MACHINE'] / 'sched'  # last tick, last run per job
 LOGS = paths()['HQ_LOGS'] / 'sched'  # tick.log, one log per run
 LABEL = 'dev.hq.sched'
 PLIST = Path.home() / 'Library/LaunchAgents' / (LABEL + '.plist')
-LAUNCHER = Path.home() / '.config/hq/bin/hq-uv'  # uv with Full Disk Access, for a repo on an external disk
+LAUNCHER = paths()['HQ_MACHINE'] / 'bin/hq-uv'  # uv with Full Disk Access, for a repo on an external disk
 EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')
 MACROS = {'@hourly': '0 * * * *', '@daily': '0 0 * * *', '@midnight': '0 0 * * *',
           '@weekly': '0 0 * * 0', '@monthly': '0 0 1 * *'}
@@ -208,7 +208,7 @@ def tick():
 
 def install():
     LOGS.mkdir(parents=True, exist_ok=True)
-    me = HQ / 'bin/hq-sched'
+    me = paths()['HQ_HOME'] / 'kernel/bin/hq-sched'   # the address, not the disk path: the hq folder can move
     argv = [str(LAUNCHER), 'run', '--quiet', '--script', str(me), 'tick'] if LAUNCHER.exists() else [str(me), 'tick']
     PLIST.write_bytes(plistlib.dumps({
         'Label': LABEL, 'ProgramArguments': argv, 'StartInterval': 60, 'RunAtLoad': True,

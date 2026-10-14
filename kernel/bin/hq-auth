@@ -14,7 +14,7 @@ Three layers, so sharing an agent never shares an account:
   kernel/services/<name>.json   what a service is: kind (mcp | cli | login), how to start it, which env vars it needs.
                                 In the repo; no secrets.
   agents/<a>/capabilities.yaml  `needs: [service, ...]`: what the agent asks for. Part of the agent package.
-  ~/.config/hq/auth.json        profiles (an account: where each secret comes from) and grants (agent → service →
+  ~/.hq/secrets/auth.json      profiles (an account: where each secret comes from) and grants (agent → service →
                                 profile). Yours alone, never in the repo. Holds references, not secret values.
 
 Secret sources in a profile: "keychain:SERVICE#ACCOUNT", "env-file:PATH#VAR", "env:VAR". A `login` service (codex,
@@ -49,7 +49,7 @@ def agent_dirs():
             if not d.name.startswith('.') and (pkg / 'agent.md').is_file():
                 out.setdefault(d.name, pkg)
     return out
-AUTH = Path(os.environ.get('HQ_AUTH') or Path.home() / '.config' / 'hq' / 'auth.json')
+AUTH = Path(os.environ.get('HQ_AUTH') or paths()['HQ_SECRETS'] / 'auth.json')
 LOG = AUTH.with_name('auth.log')   # every secret handed out: when, to whom, for which service; never the value
 
 

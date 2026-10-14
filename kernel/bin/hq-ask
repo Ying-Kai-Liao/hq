@@ -17,13 +17,15 @@ several turns, in the agent's own tools instead of the caller's.
 
 Permission mode: HQ_ASK_PERMISSION_MODE when set, else the agent's settings.json decides (no one can approve a prompt,
 so a tool that needs one is refused, the same as any one-shot run).
-Conversations: ~/.config/hq/ask.json (agent + directory, or --as NAME → session id).
+Conversations: ~/.hq/ask.json (agent + directory, or --as NAME → session id).
 """
 import datetime as dt, fcntl, json, os, subprocess, sys
 from pathlib import Path
 
 HQ = Path(__file__).resolve().parent.parent
-KEPT = Path.home() / '.config/hq/ask.json'
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+from hq_paths import paths  # noqa: E402  the one place that knows where hq's folders are
+KEPT = paths()['HQ_MACHINE'] / 'ask.json'
 EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')
 
 

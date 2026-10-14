@@ -96,7 +96,7 @@ their authors' repos (+0). Several agents can share one repo, installed by folde
 | Repo | Holds | Visibility |
 |---|---|---|
 | `hq` (this one) | the kernel: `kernel/` (code, `PROTOCOL.md`, `services/`, the plugin), docs, `install.sh` | public |
-| `<you>/hq-state`, cloned to `state/` | hq's knowledge: `user.md`, projects, `agents.json`, `private-words` | **private** |
+| `<you>/hq-state`, cloned to `~/.hq` | hq's knowledge: `user.md`, projects, `agents.json`, `private-words` | **private** |
 | `<you>/hq-agents`, cloned to `agents/` | each agent's life: memory, data (as text dumps), jobs, private skills | **private** |
 | `<you>/hq-agent-<name>`, in `agents/<name>/role` | one agent's role: `agent.md`, settings, skills, tools, learned skills | private unless you share it |
 
@@ -115,14 +115,14 @@ new service only passes its checks where that service exists, so push the servic
 **On a new Mac**, clone hq, your state and agents repos into it, then install:
 ```
 git clone https://github.com/Ying-Kai-Liao/hq ~/hq
-git clone https://github.com/<you>/hq-state ~/hq/state
+git clone https://github.com/<you>/hq-state ~/.hq
 git clone https://github.com/<you>/hq-agents ~/hq/agents
-~/hq/install.sh   # links ~/.hq -> ~/hq; installs each agent's role (agents.json) into agents/<name>/role
+~/hq/install.sh   # links ~/hq (if the folder is elsewhere); installs each agent's role (agents.json) into agents/<name>/role
 ```
 
 **Not in any repo**, so redo them by hand on a new Mac:
 - an agent you never shared: `agents.json` records it without a link, so `install.sh` skips it;
-- grants and profiles (`~/.config/hq/auth.json`), secrets (Keychain), `~/.config/hq/env`: `hq auth grant`, `hq auth set`;
+- grants and profiles (`~/.hq/secrets/auth.json`), secrets (Keychain), `~/.hq/secrets/env`: `hq auth grant`, `hq auth set`;
 - LaunchAgents (`~/Library/LaunchAgents/dev.hq.*.plist`): `hq schedule --install`, `hq-bridge --install`, each
   tool's own `install` command. The jobs themselves are in the agents repo.
 - what agents made (`agents/<name>/files/`): on disk only; back it up with the rest of the Mac.
@@ -130,15 +130,18 @@ git clone https://github.com/<you>/hq-agents ~/hq/agents
 ## Layout
 Everything is in the hq folder, laid out by what each thing is (docs/architecture.md, Concepts): hq and each agent
 have what they **are** (shareable, versioned) and what they **have lived** (private). The hq folder is this repo; its
-code is in `kernel/`, which is what hq is. `state/` is what hq has lived (who it works for, projects, the team, rules).
-Each agent is a folder in `agents/`: `role/` is what it is (its own repo), and next to it what it has lived:
-`memory/`, `data/`, `files/`. This repo ignores `agents/` and `state/` (each is its own private repo), so `git pull`
-only ever updates hq. Don't run `git clean -x` here: it deletes ignored folders. `~/.hq` is hq's stable address, a link to the hq
-folder (made by `install.sh`), so the folder can live anywhere, an external disk included; `HQ_HOME` points somewhere
-else instead. Machine-only things stay out of it: `~/.config/hq` (secrets, grants, settings, the cost ledger),
-`~/Library/Logs/hq`, `~/Library/Caches/hq`.
+code is in `kernel/`, which is what hq is. Each agent is a folder in `agents/`: `role/` is what it is (its own repo),
+and next to it what it has lived: `memory/`, `data/`, `files/`. This repo ignores `agents/` (its own private repo),
+so `git pull` only ever updates hq. Don't run `git clean -x` here: it deletes ignored folders. `~/hq` is hq's stable
+address, a link to the hq folder (made by `install.sh`), so the folder can live anywhere, an external disk included;
+`HQ_HOME` points somewhere else instead.
+
+`~/.hq` is this Mac's hq, a real folder on the internal disk, as `~/.claude` is Claude Code's. What hq has lived (who
+it works for, projects, the team, rules) is its git repo (your hq-state); its `.gitignore` commits only those files,
+so everything else in it stays on this Mac: `secrets/` (grants, tokens; agents' file tools are denied it), settings,
+job state, the cost ledger, role snapshots, `logs/`, `cache/`.
 ```
-install.sh                 links ~/.hq and ~/.local/bin/hq, installs the Claude Code plugin
+install.sh                 links ~/hq and ~/.local/bin/hq, makes ~/.hq, installs the Claude Code plugin
 .claude-plugin/            this repo as a plugin marketplace (serves kernel/adapters/claude-code)
 docs/                      architecture, codebase map
 kernel/                    the code
@@ -172,14 +175,14 @@ agents/                    the agents folder (ignored by this repo; your hq-agen
     files/<project>/       what it made: renders, images, exports, backups (on disk, not in git)
     skills/learned/        private skills, never shared (hq-pkg promote <agent> <skill> moves one into role/)
     jobs.json              its scheduled jobs (hq schedule)
-  .store/                  snapshots of roles, one per version (same disk, so each is an APFS clone)
 
-state/                     what hq has lived (ignored by this repo; your hq-state repo)
+~/.hq/                     this Mac's hq; what hq has lived is your hq-state repo
   projects.json            project IDs → the git remotes / paths that belong to them
   agents.json              which agents you have and where their roles come from
   private-words            words no shared role may contain (hq-pkg check --share)
   user.md                  who hq works for (incl. visual taste), read by every agent
   projects/<id>/           codebase.md (shared project map) + decisions.md (append-only log)
+  secrets/ … store/ logs/  this Mac only, never committed (snapshots of roles: store/<name>@<version>/)
 ```
 
 ## Versions
@@ -188,8 +191,8 @@ it, so agents can be upgraded at any time, by anyone (you, the agent writing a l
 one), without waiting for running sessions:
 
 - On each run `bin/hq-pkg` fingerprints the package. Unchanged: run the existing snapshot. Changed: check it (frontmatter,
-  JSON, skills named in agent.md exist, needed services exist), then snapshot it into `.store/<name>@<version>/` as
-  an APFS clone, and commit it to the agent's repo. Prompt and settings stay templates in the snapshot; placeholders
+  JSON, skills named in agent.md exist, needed services exist), then snapshot it into `~/.hq/store/<name>@<version>/`
+  (an APFS clone on the same disk, else hard links to the previous one's unchanged files), and commit it to the agent's repo. Prompt and settings stay templates in the snapshot; placeholders
   are filled at run time. Running sessions keep the snapshot they started on.
 - A version that fails its checks is never used; the last good one runs and the reason is printed. Checks:
   frontmatter, JSON, unknown `{{PLACEHOLDERS}}`, skills named in agent.md exist, needed services exist.
@@ -225,7 +228,7 @@ Three layers, so sharing an agent never shares an account:
 |---|---|---|
 | Service | `kernel/services/<name>.json` (repo) | what it is (`mcp`, `cli`, `login`), how to start it, which env vars it needs |
 | Need | `needs: [...]` in the agent's `capabilities.yaml` (package) | what the agent asks for |
-| Grant | `~/.config/hq/auth.json` (yours, never in the repo) | profiles (an account: where each secret comes from) and grants (agent → service → profile) |
+| Grant | `~/.hq/secrets/auth.json` (yours, never in git) | profiles (an account: where each secret comes from) and grants (agent → service → profile) |
 
 ```
 hq auth                                   # who needs what, who has what, whether each secret resolves
@@ -235,7 +238,7 @@ hq auth set notion/library NOTION_API_KEY # store in Keychain (prompts), point t
 `bin/hq` starts only the MCP services an agent needs *and* is granted; secrets are resolved when the server starts
 (`hq-auth exec`) and exist only in that process, never in a config file or the agent's environment. A cli tool asks
 `hq-auth get --for <agent>`, which refuses agents without a grant. Every secret handed out is logged (time,
-service, profile, who asked, who was running; never the value) to `~/.config/hq/auth.log`. A broken `auth.json`
+service, profile, who asked, who was running; never the value) to `~/.hq/secrets/auth.log`. A broken `auth.json`
 or a secret that doesn't resolve costs the agent that service for the run, never the run itself. Profile sources: `keychain:SVC#ACCOUNT`,
 `env-file:PATH#VAR`, `env:VAR`. This keeps cooperating agents to least privilege; it isn't a sandbox (an agent with
 a shell can read what your user can). `hq:<name>` subagents run inside the calling session and share its MCP
@@ -253,7 +256,7 @@ apply to both `hq <agent>` runs and `hq:<name>` subagents and change with the ag
 `hq <agent> -m MODEL -e EFFORT` (or `HQ_MODEL` / `HQ_EFFORT`); leave a field out to use your global setting.
 
 ## Cost
-`bin/hq-cost` keeps every Claude Code request's cost (list API prices) in `~/.config/hq/cost.db`, so it outlives
+`bin/hq-cost` keeps every Claude Code request's cost (list API prices) in `~/.hq/cost.db`, so it outlives
 transcript cleanup. Each session `hq` starts is tagged with the agent, package version, model, effort and caller
 (terminal or discord); `hq:<name>` subagents are recognised by their type. `hq cost agents [today|week|month|all]`
 compares agents; `hq cost agent video` shows one agent by day, by version/model/effort and its costliest runs;
@@ -275,7 +278,7 @@ Asked from inside a git repo, it gets your working tree (uncommitted and untrack
 on its machine, and whatever it changes comes back as a branch, `hq/<agent>/<id>`, with the one command to review it
 and the one to apply it. Files it makes land in `./hq-out/<id>/`. For your own machines only: it's plain ssh, so it
 adds no server, port or token. Once on the agent's machine: `claude setup-token`, and the token in
-`~/.config/hq/env` as `CLAUDE_CODE_OAUTH_TOKEN`, because macOS keeps the keychain (Claude Code's login) from ssh
+`~/.hq/secrets/env` as `CLAUDE_CODE_OAUTH_TOKEN`, because macOS keeps the keychain (Claude Code's login) from ssh
 sessions. Details: `hq remote --help`.
 
 ## Schedules
@@ -329,7 +332,7 @@ put its skills in `role/skills/`. New sessions pick it up; `hq share <name>` put
 - The state folder holds personal data: keep its remote **private**. `hq-state commit` commits and pushes it, then
   pushes every agent's repo.
 - Packages carry no personal details: those go in the state folder. `hq-pkg check --share` flags home paths, email
-  addresses and the words in `state/private-words`.
+  addresses and the words in `~/.hq/private-words`.
 - Status: early, built for one person's Mac. macOS only (APFS clones, Keychain, launchd); needs Claude Code, git
   and python3 (gh to share agents, uv for the Discord bridge).
 - MIT licence (LICENSE). Linked skills keep their own licences (each agent's skills.json).

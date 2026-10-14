@@ -9,7 +9,7 @@
   hq-cost csv [since YYYY-MM-DD]   every request as CSV with its hq agent, for a spreadsheet
   hq-cost tag                      (SessionStart hook in hq runs) record the session as a run of $HQ_AGENT
 
-The ledger (~/.config/hq/cost.db) keeps one row per API request, so it outlives Claude Code's transcript cleanup
+The ledger (~/.hq/cost.db) keeps one row per API request, so it outlives Claude Code's transcript cleanup
 (30 days by default). Prices are list API prices per million tokens; on a subscription this is usage, not a bill.
 
 hq attribution: bin/hq runs `hq-cost tag` as a SessionStart hook, so each session it starts (including resumes and
@@ -20,9 +20,12 @@ called from inside a run counts for the helper.
 import csv, datetime as dt, glob, json, os, sqlite3, sys
 from pathlib import Path
 
-DB = Path.home() / '.config/hq/cost.db'
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+from hq_paths import paths  # noqa: E402  the one place that knows where hq's folders are
+MACHINE = paths()['HQ_MACHINE']
+DB = MACHINE / 'cost.db'
 PROJECTS = Path.home() / '.claude/projects'
-BRIDGE_STATE = Path.home() / '.config/hq/bridge/state.json'  # thread -> {agent, session_id}: Discord runs before tagging
+BRIDGE_STATE = MACHINE / 'bridge/state.json'  # thread -> {agent, session_id}: Discord runs before tagging
 
 # $ per MTok: input, output, cache read, cache write 5m, cache write 1h. First matching key wins.
 PRICES = [

@@ -6,17 +6,11 @@ reasons behind it are in [architecture.md](architecture.md); commands are in the
 ## Where things are on disk
 
 ```
-hq/                               this repo (public), ~/.hq links here: README, docs/, install.sh, .claude-plugin/
+~/hq -> hq/                       the hq folder (HQ_HOME), wherever it really is (an external disk)
+hq/                               this repo (public): README, docs/, install.sh, .claude-plugin/
   docs/                             architecture.md (the model), this map, how-hq-runs.html (+ .architecture.json,
                                     its source) and img/how-hq-runs-{light,dark}.png (the README's picture)
 hq/kernel/                        the code: what hq is (bin/, lib/, adapters/, PROTOCOL.md, services/)
-hq/state/                         what hq has lived, $HQ_STATE: your private repo (<you>/hq-state)
-  user.md                           who hq works for, read by every agent
-  projects/<id>/                    codebase.md, decisions.md: per-project notes shared by agents
-  projects.json                     project registry (bin/project-id)
-  agents.json                       installed agents and where their roles come from (hq-pkg save / install --saved)
-  private-words                     words hq-pkg check --share refuses in a role
-  agents -> ../agents               link for paths from before 2026-10-14 (ignored)
 hq/agents/                        the agents folder, $HQ_AGENTS: your private repo (<you>/hq-agents), each agent's life
   <name>/                           one agent
     role/                             what it is: its own git repo (<you>/hq-agent-<name>), ignored by hq-agents
@@ -29,40 +23,41 @@ hq/agents/                        the agents folder, $HQ_AGENTS: your private re
     files/<project>/                  what it made: renders, images, exports, backups (ignored: on disk only)
     skills/learned/                   skills kept private (hq-pkg promote moves one into role/)
     jobs.json                         its scheduled jobs (hq-sched)
-  .store/<name>@<version>/          read-only snapshots of roles runs are pinned to (prompt.md, settings.json, .home)
-~/.config/hq/                     this machine only, never in git
-  auth.json  auth.log               grants and profiles (hq-auth); every secret handed out
-  env                               bridge and Telegram settings
+~/.hq/                            this Mac's hq, a real folder on the internal disk (like ~/.claude)
+  user.md                           committed (the hq-state repo, $HQ_STATE): who hq works for, read by every agent
+  projects/<id>/                    committed: codebase.md, decisions.md, per-project notes shared by agents
+  projects.json                     committed: project registry (bin/project-id)
+  agents.json                       committed: installed agents and where their roles come from (hq-pkg save)
+  private-words                     committed: words hq-pkg check --share refuses in a role
+  .gitignore                        ignores everything else (kernel/lib/dot-hq.gitignore): from here down, this Mac only
+  secrets/                          auth.json (grants and profiles, hq-auth), auth.log, env (bridge, Telegram, tokens);
+                                    agents' file tools are denied it (bin/hq)
+  ask.json  remotes.json            hq ask conversations → sessions; other machines (hq-remote)
   cost.db                           the cost ledger (hq-cost)
-  remotes.json                      other machines (hq-remote)
-  ask.json                          hq ask conversations: agent + directory or name → session
-  sched/                            last tick, last run per job (hq-sched)
-  bridge/                           Discord thread → session map, attachments
-  monitor/                          monitor.db (30 days of samples) and monitor.log (devops' dev.hq.monitor)
-  house/  cost/                     remind.log (house's dev.hq.house); sync.log (dev.hq.cost)
+  bridge/  sched/                   Discord thread → session map, attachments; last tick and runs per job
+  monitor/  house/  cost/           devops' monitor.db and monitor.log; house's remind.log; the cost sync.log
+  store/<name>@<version>/           read-only role snapshots runs are pinned to (prompt.md, settings.json, .home);
+  store/.pointers/                  unchanged files hard-linked to the previous version's; good/pin per agent
+  logs/                             bridge.log, sched/tick.log, sched/runs/<agent>/ (each scheduled run's output)
+  cache/                            rebuildable: handoff/ (scratch clones and worktrees of callers' repos, hq-remote)
   bin/hq-uv                         uv copy with Full Disk Access, what every launchd job runs (repo on an external disk)
-~/Library/Logs/hq/                logs: bridge.log, sched/tick.log, sched/runs/<agent>/ (each scheduled run's output);
-                                  the monitor, house and cost jobs still log under ~/.config/hq instead
-~/Library/Caches/hq/              rebuildable: handoff/ (scratch clones and worktrees of callers' repos, hq-remote)
-~/.hq -> hq/                      hq's stable address (HQ_HOME): a link to the hq folder, wherever that really is
 ~/Workspace/hq -> hq/kernel/      older address of the kernel, kept for paths that still name it (removable)
 ```
 
 Every tool asks one resolver, `lib/hq_paths.py` (bash: `eval "$(python3 lib/hq_paths.py --sh)"`; the plugin runs
-it with `--json`): `HQ_HOME`, else `~/.hq`, else the kernel folder; state is `<home>/state`, agents `<home>/agents`.
-It gives each path twice: the address (no symlinks resolved, so no volume name with spaces reaches prompts or Bash
-rules) and `_REAL` (resolved; what Claude Code matches file permission rules against). `HQ_STATE` and `HQ_AGENTS`
-are outputs, exported for agents' tools, not settings. An agent's role is `<agents>/<name>/role`
-and its life the folder around it; an agent without `role/` is the older layout (the folder is the role, the life
-is `<state>/agents/<name>`).
-
-Not every tool asks it yet: `hq-ask`, `hq-cost`, `hq-remote` and `hq-send` still spell `~/.config/hq` themselves, as
-do the agents' `settings.json` permission rules and a few agent tools (devops `monitor.py`, house `house.py`,
-personal `links.py`, video `log_cost.py`).
+it with `--json`). `HQ_HOME` is the variable, else `~/hq`, else the kernel's folder; agents are `<home>/agents`.
+`~/.hq` gives the rest: `HQ_STATE` (itself), `HQ_MACHINE`, `HQ_SECRETS`, `HQ_STORE`, `HQ_LOGS`, `HQ_CACHE`. While
+`~/.hq` is still a link to the hq folder (the layout before 2026-10-15) it answers the old places instead:
+`<home>/state`, `~/.config/hq`, `<agents>/.store`, `~/Library/Logs/hq`, `~/Library/Caches/hq`.
+It gives each folder path twice: the address (no symlinks resolved, so no volume name with spaces reaches prompts
+or Bash rules) and `_REAL` (resolved; what Claude Code matches file permission rules against). They are outputs,
+exported for agents' tools, not settings. An agent's role is `<agents>/<name>/role` and its life the folder around
+it; an agent without `role/` is the older layout (the folder is the role, the life is `<state>/agents/<name>`).
+Agents' settings and tools name these through placeholders and env vars, never `~/.config/hq`.
 
 ## Background jobs
 
-LaunchAgents in `~/Library/LaunchAgents/`, each run through `~/.config/hq/bin/hq-uv`.
+LaunchAgents in `~/Library/LaunchAgents/`, each run through `~/.hq/bin/hq-uv`, by the `~/hq` address (not the disk path).
 
 | Label | Runs | When | Written by |
 |---|---|---|---|
@@ -79,11 +74,11 @@ Paths in this table are inside `kernel/`, except `install.sh` and `.claude-plugi
 | File | Lang | What it does | Called by |
 |---|---|---|---|
 | `bin/hq` | bash | Runs one agent: resolves the pinned package, fills placeholders, adds memory and project, settings + cost-tag hook, granted MCP servers, model/effort, then `exec claude`. Also the front door for `versions`, `install`, `auth`, `cost`… | you, `hq-bridge`, agents calling helpers |
-| `bin/hq-pkg` | python | Packages: fingerprint → check → snapshot into `.store`; pin/rollback; auto-commit each good version to the agent's repo; install/update/share/search/restore; fetch third-party skills; `check --share` privacy scan | `bin/hq`, the adapter (`resolve --all --json`), `install.sh` |
+| `bin/hq-pkg` | python | Packages: fingerprint → check → snapshot into `~/.hq/store` (clones or hard links), gc; pin/rollback; auto-commit each good version to the agent's repo; install/update/share/search/restore; fetch third-party skills; `check --share` privacy scan | `bin/hq`, the adapter (`resolve --all --json`), `install.sh` |
 | `bin/hq-auth` | python | Services and grants: which agent may use which service as which account; builds `--mcp-config`; hands out secrets (`get`, `exec`) and logs them | `bin/hq`, agents' tools |
 | `bin/hq-cost` | python | Cost ledger: syncs request usage from `~/.claude/projects` into `cost.db`; `tag` records each hq session (SessionStart hook); reports by agent, version, model, effort | you, launchd `dev.hq.cost`, the hook `bin/hq` adds |
-| `bin/hq-ask` | python | One-shot `hq <agent>` with `--output-format json`: prints the answer, keeps agent + directory (or `--as NAME`) → session in `~/.config/hq/ask.json` so `-c` resumes it with the same project/model/effort; `HQ_VIA=ask` | you, scripts, Claude Code sessions |
-| `bin/hq-remote` | python | Other machines over ssh: `add`/`ls`/`rm` (`~/.config/hq/remotes.json`); `ask AGENT@MACHINE` (from hq-ask): snapshot the working tree as a commit, push it to a scratch clone there, run `hq ask` there in a worktree, fetch the result branch and copy `.hq-out` back. Its agent side is `_repo` and `_run` | hq-ask, over ssh on the other machine |
+| `bin/hq-ask` | python | One-shot `hq <agent>` with `--output-format json`: prints the answer, keeps agent + directory (or `--as NAME`) → session in `~/.hq/ask.json` so `-c` resumes it with the same project/model/effort; `HQ_VIA=ask` | you, scripts, Claude Code sessions |
+| `bin/hq-remote` | python | Other machines over ssh: `add`/`ls`/`rm` (`~/.hq/remotes.json`); `ask AGENT@MACHINE` (from hq-ask): snapshot the working tree as a commit, push it to a scratch clone there, run `hq ask` there in a worktree, fetch the result branch and copy `.hq-out` back. Its agent side is `_repo` and `_run` | hq-ask, over ssh on the other machine |
 | `bin/hq-memory` | python | Memory search: indexes the agents' memory and private skills and the state folder's user.md and projects/ in an in-memory FTS5 table per search, prints `path:line` + passage | you, agents (PROTOCOL.md; allowed without a prompt in `hq` runs) |
 | `bin/hq-sched` | python | Scheduled jobs: cron parser, `jobs.json` per agent, `tick` starts due jobs as detached `hq <agent> "task"` runs (`HQ_VIA=schedule`), catches up once after sleep; launchd `dev.hq.sched` | you, launchd every minute |
 | `bin/hq-state` | python | Commits what was lived: sqlite → text dumps, commit and push the state repo and the agents repo, then every role | you |
@@ -97,7 +92,7 @@ Paths in this table are inside `kernel/`, except `install.sh` and `.claude-plugi
 | `adapters/claude-code/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | JSON | Plugin manifest (option `hq_path`) and this repo as its marketplace | `install.sh` |
 | `kernel/PROTOCOL.md` | md | The rules every agent gets after its `agent.md`: memory, projects, sessions, learned skills, delivery | `hq-pkg` (into `prompt.md`), the adapter |
 | `kernel/services/<name>.json` | JSON | One shared service: kind (mcp, cli, login), how to start it, secret names (never values) | `hq-auth`, `hq-pkg` checks |
-| `install.sh` (top) | bash | Links `~/.hq` and `hq`, reinstalls the agents `agents.json` lists, fetches skills, installs the plugin | you, once per Mac |
+| `install.sh` (top) | bash | Links `~/hq` and `hq`, makes `~/.hq` (secrets/, the state repo's .gitignore), reinstalls the agents `agents.json` lists, fetches skills, installs the plugin | you, once per Mac |
 
 ## Placeholders and environment
 
@@ -111,6 +106,7 @@ Packages never hold absolute paths. `bin/hq` and the adapter fill these in at ru
 | `{{PACKAGE}}` | the agent's live `role/` (where learned skills are written) | |
 | `{{HOME_DIR}}` / `{{HOME_REAL}}` | the agent's own folder `<agents>/<name>` (memory, data, files); the same with symlinks resolved, for permission rules | `HQ_AGENT_HOME` |
 | `{{STATE}}` / `{{AGENTS}}` | the state folder; the agents folder | `HQ_STATE`, `HQ_AGENTS` (also `HQ_HOME`) |
+| `{{MACHINE}}` | this Mac's hq folder, `~/.hq` (`bridge/attachments/`, …; never `secrets/`, which runs are denied) | `HQ_MACHINE` |
 | `{{USER_HOME}}` | `$HOME` | |
 
 Also set for a run: `HQ_AGENT_VERSION`, `HQ_MODEL`, `HQ_EFFORT`, `HQ_PROJECT` (read by `hq-cost tag`), and, from the
@@ -121,7 +117,7 @@ bridge, `HQ_VIA=discord` (`schedule` from hq-sched, plus `HQ_SCHED_JOB`; `ask` f
 
 **`hq <agent> "task"`** (terminal, or the bridge on a Discord message)
 1. `bin/hq` → `hq-pkg resolve <agent>`: unchanged package → its current snapshot; changed → check, snapshot into
-   `.store`, commit to the agent's repo; failing check → the last good version.
+   `~/.hq/store`, commit to the agent's repo; failing check → the last good version.
 2. Prompt = snapshot `prompt.md` (agent.md body + PROTOCOL.md) with placeholders filled + `MEMORY.md` + session tag.
 3. Settings = snapshot `settings.json` + a SessionStart hook → `hq-cost tag`. MCP = `hq-auth mcp-config <agent>` +
    the package's `mcp.json`. `--model`/`--effort` from frontmatter.
@@ -142,13 +138,13 @@ bridge, `HQ_VIA=discord` (`schedule` from hq-sched, plus `HQ_SCHED_JOB`; `ask` f
 databases and commits and pushes the agents repo and the state repo.
 
 **`hq ask house@mini` from another machine** → hq-ask hands it to hq-remote → in a git repo: working tree → commit
-(temp index) → `git push` over ssh to `~/Library/Caches/hq/handoff/<repo>/repo` on mini → ssh `hq remote _run`: worktree on
+(temp index) → `git push` over ssh to `~/.hq/cache/handoff/<repo>/repo` on mini → ssh `hq remote _run`: worktree on
 `hq/house/<id>`, `hq ask house` there (acceptEdits, `CLAUDE_CODE_OAUTH_TOKEN` from its env file), leftovers committed →
 JSON answer back → `git fetch` the branch, `scp` `.hq-out/` to `./hq-out/<id>/`.
 
 **A scheduled job** → launchd runs `hq-sched tick` every minute → for each `jobs.json` job whose cron time fell since
 the last tick (at most a day back) and that isn't still running: `hq <agent> "task + scheduled note"` detached, with
-`--permission-mode` from `HQ_SCHED_PERMISSION_MODE` → output in `~/Library/Logs/hq/sched/runs/<agent>/`, delivery by `hq-send`.
+`--permission-mode` from `HQ_SCHED_PERMISSION_MODE` → output in `~/.hq/logs/sched/runs/<agent>/`, delivery by `hq-send`.
 
 **Cost** → Claude Code writes transcripts → `hq-cost sync` (every 6 h, and before each report) → `cost.db`;
 `runs` (from the hook) and `hq:` subagent types attribute requests to agents.
@@ -165,7 +161,7 @@ the last tick (at most a day back) and that isn't still running: `hq <agent> "ta
 | Discord behaviour | `bin/hq-bridge`; delivery in `bin/hq-send` |
 | How memory is searched (what's indexed, ranking) | `bin/hq-memory` |
 | Scheduled jobs (cron syntax, catch-up, how a job runs) | `bin/hq-sched` |
-| Where hq's folders are (HQ_HOME, state, agents, logs, caches) | `lib/hq_paths.py` (and, until they ask it, the tools that spell `~/.config/hq`) |
+| Where hq's folders are (HQ_HOME, ~/.hq and what is in it) | `lib/hq_paths.py`, nowhere else |
 | A background job | its row in [Background jobs](#background-jobs): the installer, or the plist itself where there is none |
 | Calling agents on other machines, the code handoff | `bin/hq-remote` (`call` on the caller, `serve_run` on the agent's machine) |
 | Cost reports or prices | `bin/hq-cost` (`PRICES`) |

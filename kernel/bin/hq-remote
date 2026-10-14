@@ -13,7 +13,7 @@ machine's memory, accounts and tools; only the task, your code and its answer an
 Code handoff, when you ask from inside a git repo (--no-code skips it):
   1. Your working tree, uncommitted and untracked files included (not ignored ones), is snapshotted as a commit
      without touching your index or branch, and pushed over ssh into a scratch clone on the other machine
-     (~/Library/Caches/hq/handoff/), never into its own checkout of the project.
+     (~/.hq/cache/handoff/), never into its own checkout of the project.
   2. The agent works in a worktree of it, on branch hq/<agent>/<id>, told which subfolder you were in; the clone
      has your origin, so it finds the same project. Whatever it leaves uncommitted is committed for it at the end.
   3. If it changed anything, the branch is fetched back into your repo as hq/<agent>/<id>. Its first commit is your
@@ -25,17 +25,20 @@ Code handoff, when you ask from inside a git repo (--no-code skips it):
 The run on the other machine is `hq ask` there (tagged via=ask), with --permission-mode from that machine's
 HQ_REMOTE_PERMISSION_MODE (default acceptEdits: it may edit files in its worktree, other tools follow its settings).
 Once per agent machine: macOS keeps the login keychain, where Claude Code keeps its login, away from ssh sessions, so
-run `claude setup-token` there and put the token in its ~/.config/hq/env as CLAUDE_CODE_OAUTH_TOKEN=... (chmod 600);
+run `claude setup-token` there and put the token in its ~/.hq/secrets/env as CLAUDE_CODE_OAUTH_TOKEN=... (chmod 600);
 remote runs use it, nothing else does.
-Machines: ~/.config/hq/remotes.json. Conversations are listed with the rest in `hq ask ls`.
+Machines: ~/.hq/remotes.json. Conversations are listed with the rest in `hq ask ls`.
 """
 import base64, datetime as dt, hashlib, importlib.util, json, os, re, shlex, shutil, subprocess, sys, tempfile
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
 HQ = Path(__file__).resolve().parent.parent
-CONF = Path.home() / '.config/hq/remotes.json'
-HANDOFF = Path.home() / 'Library/Caches/hq/handoff'  # scratch clones and worktrees: rebuildable
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+from hq_paths import paths  # noqa: E402  the one place that knows where hq's folders are
+CONF = paths()['HQ_MACHINE'] / 'remotes.json'
+ENV = paths()['HQ_SECRETS'] / 'env'
+HANDOFF = paths()['HQ_CACHE'] / 'handoff'  # scratch clones and worktrees: rebuildable
 _loader = SourceFileLoader('hq_ask', str(HQ / 'bin/hq-ask'))
 ask = importlib.util.module_from_spec(importlib.util.spec_from_loader('hq_ask', _loader))
 _loader.exec_module(ask)  # conversations are kept with hq ask's
@@ -217,7 +220,7 @@ def call(agent, host, opts, task, cont, name, as_json, no_code):
 def env_file():
     out = {}
     try:
-        for line in (Path.home() / '.config/hq/env').read_text().splitlines():
+        for line in ENV.read_text().splitlines():
             m = re.match(r'\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)=(.*)', line)
             if m:
                 out[m.group(1)] = m.group(2).strip().strip('"\'')
@@ -268,7 +271,7 @@ def serve_run(req):
         argv += [k, v]
     env = dict(os.environ, HQ_ASK_PERMISSION_MODE=os.environ.get('HQ_REMOTE_PERMISSION_MODE', 'acceptEdits'))
     # Over ssh, macOS keeps the login keychain (where Claude Code keeps its login) out of reach: use the long-lived
-    # token from `claude setup-token`, kept in ~/.config/hq/env as CLAUDE_CODE_OAUTH_TOKEN, for this run only.
+    # token from `claude setup-token`, kept in hq's env file (ENV) as CLAUDE_CODE_OAUTH_TOKEN, for this run only.
     if 'CLAUDE_CODE_OAUTH_TOKEN' not in env:
         token = env_file().get('CLAUDE_CODE_OAUTH_TOKEN')
         if token:
@@ -278,8 +281,8 @@ def serve_run(req):
     res = last_json(p.stdout)
     if res and res.get('error') and 'login' in (res.get('answer') or '').lower() and 'CLAUDE_CODE_OAUTH_TOKEN' not in env:
         res['answer'] = ('⚠️ %s: Claude Code is not logged in for ssh sessions (the login keychain is locked to them). '
-                         'Once, on %s: run `claude setup-token` and put the token in ~/.config/hq/env as '
-                         'CLAUDE_CODE_OAUTH_TOKEN=... (chmod 600).' % (os.uname().nodename, os.uname().nodename))
+                         'Once, on %s: run `claude setup-token` and put the token in %s as '
+                         'CLAUDE_CODE_OAUTH_TOKEN=... (chmod 600).' % (os.uname().nodename, os.uname().nodename, ENV))
     res = res or {'answer': '⚠️ %s failed on %s:\n%s' % (agent, os.uname().nodename,
                                                                          (p.stderr or p.stdout)[-1500:]), 'error': True}
     if branch:

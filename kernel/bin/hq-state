@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """hq-state — commit what hq and its agents have lived: two private repos, plus each agent's role.
 
-  hq-state path      print the state folder (<home>/state; lib/hq_paths.py)
+  hq-state path      print the state folder (~/.hq; lib/hq_paths.py)
   hq-state dump      write every agent's data/*.db as a text dump next to it (<name>.sql), for git
   hq-state commit    dump, then commit and push (when there is a remote) the state folder (hq's knowledge: user.md,
                      projects, agents.json, rules) and the agents folder (each agent's memory and data; role/ and

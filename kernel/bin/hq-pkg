@@ -35,7 +35,7 @@ holds only the kernel. The package is that folder, including the skills the agen
 and data are state and live under the state folder, never in the package. Skills the user keeps off the package
 (never shared) go in the state folder's agents/<name>/skills/learned/. Whoever edits it (you, the agent learning a skill,
 another code agent) changes the working copy; the next run sees a new fingerprint, validates it, and snapshots it
-into <agents folder>/.store/<name>@<version>/ as an APFS clone. Running sessions keep the snapshot they started on, so upgrades
+into ~/.hq/store/<name>@<version>/ (an APFS clone on the same disk, else hard links to the last one). Running sessions keep the snapshot they started on, so upgrades
 never wait for anyone. A version that fails validation is not used; the last good one runs instead.
 
 Third-party skills are links, not copies: agents/<name>/skills.json names each one's GitHub repo, path and pinned
@@ -70,15 +70,16 @@ from hq_paths import paths  # noqa: E402  the one place that knows where hq's fo
 # The state folder and the agents folder, <home>/state and <home>/agents (lib/hq_paths.py). Each agent's role/ is a git
 # checkout (or a symlink into one, for an agent that lives in a folder of a bigger repo).
 STATE_ROOT, AGENTS = paths()['HQ_STATE'], paths()['HQ_AGENTS']
-# Snapshots sit next to the agents, on the same disk, so each one is an instant APFS clone.
-STORE = AGENTS / '.store'
+# Snapshots: ~/.hq/store (this Mac's, rebuildable: every good version is also in the agent's repo). On the agents'
+# disk each is an APFS clone; on another disk, unchanged files are hard links to the previous snapshot's.
+STORE = paths()['HQ_STORE']
 STATE = ('memory', 'data')                                   # live state, never snapshotted
 STATE_NESTED = set()                                         # learned skills are package: they version with it
 FORMAT = '2'                                                 # bump when snapshot contents change (e.g. .home)
 SKIP = {'__pycache__', '.DS_Store', 'node_modules', '.editing', '.git'}
-PLACEHOLDERS = {'HQ', 'AGENTS', 'PACKAGE', 'AGENT', 'AGENT_DIR', 'HOME_DIR', 'HOME_REAL', 'STATE', 'USER_HOME'}
+PLACEHOLDERS = {'HQ', 'AGENTS', 'PACKAGE', 'AGENT', 'AGENT_DIR', 'HOME_DIR', 'HOME_REAL', 'STATE', 'MACHINE', 'USER_HOME'}
 EDITING_MAX_AGE = 3600                                       # a stale .editing marker stops holding releases back
-KEEP = 5                                                     # old versions kept besides current/good/pinned/running
+KEEP = 2                                                     # newest versions kept besides good/pinned/running/recent
 
 
 EFFORTS = ('low', 'medium', 'high', 'xhigh', 'max')
@@ -196,18 +197,22 @@ def snapshot(agent, home, version):
     dest = STORE / f'{agent}@{version}'
     if dest.exists():
         return dest
-    STORE.mkdir(exist_ok=True)
+    STORE.mkdir(parents=True, exist_ok=True)
     tmp = STORE / f'.tmp-{agent}-{version}-{os.getpid()}'
     tmp.mkdir()
     # APFS clones, one cp per top-level entry: instant and copy-on-write, so a snapshot never changes when the
     # working copy does. Then drop what the fingerprint ignores.
     entries = [str(e) for e in sorted(home.iterdir()) if e.name not in STATE and e.name not in SKIP]
     cloned = subprocess.run(['cp', '-c', '-R', '-p', *entries, str(tmp)], capture_output=True).returncode == 0
-    if not cloned:
+    if not cloned:                        # another disk: no clones, so share what didn't change instead
+        shutil.rmtree(tmp)
+        tmp.mkdir()
+        prev = next(iter(all_versions(agent)), None)
         for p in package_files(home):
             target = tmp / p.relative_to(home)
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(p, target)
+            if not (prev and link_same(p, prev / p.relative_to(home), target)):
+                shutil.copy2(p, target)
     for nested in STATE_NESTED:
         shutil.rmtree(tmp / nested, ignore_errors=True)
     for root, dirs, files in os.walk(tmp):
@@ -218,6 +223,8 @@ def snapshot(agent, home, version):
             os.unlink(os.path.join(root, f))
     _, body = frontmatter((home / 'agent.md').read_text())
     protocol = (HQ / 'PROTOCOL.md').read_text()
+    for name in ('prompt.md', '.home', '.meta.json'):   # written below: never through a link into an older snapshot
+        (tmp / name).unlink(missing_ok=True)
     (tmp / 'prompt.md').write_text(f'{body.strip()}\n\n{protocol}')
     if not (tmp / 'settings.json').exists():
         (tmp / 'settings.json').write_text('{}\n')
@@ -233,6 +240,19 @@ def snapshot(agent, home, version):
     except OSError:                       # another run made the same version first
         shutil.rmtree(tmp, ignore_errors=True)
     return dest
+
+
+def link_same(src, old, target):
+    """Hard-link target to the previous snapshot's copy when the file didn't change (same size and mtime, as rsync
+    decides). Snapshot files are read-only, so sharing one between versions is safe."""
+    try:
+        a, b = src.stat(), old.stat()
+        if a.st_size != b.st_size or int(a.st_mtime) != int(b.st_mtime):
+            return False
+        os.link(old, target)
+        return True
+    except OSError:
+        return False
 
 
 def pointers(agent):
@@ -343,6 +363,7 @@ def resolve(agent):
         if (STORE / f'{agent}@{version}' / '.unchecked').exists():
             return STORE / f'{agent}@{version}', 'no good version yet, running unchecked edits'
         write_atomic(good, version)
+        gc(agent)
         return STORE / f'{agent}@{version}', ''
     bad = problems(home)
     if bad:
@@ -423,7 +444,8 @@ def cmd_pin(agent, version):
             die(f'no older version of {agent} to roll back to')
         version = older[0]
     if not (STORE / f'{agent}@{version}').is_dir():
-        die(f'no version {version} of {agent} (hq-pkg versions {agent})')
+        die(f'no version {version} of {agent} here (hq-pkg versions {agent}); older ones are in its history: '
+            f'hq-pkg history {agent}, then hq-pkg restore {agent} <commit>')
     write_atomic(pin, version)
     print(f'{agent} pinned to {version}; new runs use it, running ones keep theirs')
 

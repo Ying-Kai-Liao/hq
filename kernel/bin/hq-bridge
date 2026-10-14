@@ -8,16 +8,16 @@
   hq-bridge            run the bridge (foreground; launchd keeps it alive with --install)
   hq-bridge --install  install the macOS LaunchAgent so it starts at login and restarts if it dies
   hq-bridge --status   show channels and open threads
-  hq-bridge --launcher copy uv to ~/.config/hq/bin/hq-uv; give that file Full Disk Access once, then --install
+  hq-bridge --launcher copy uv to ~/.hq/bin/hq-uv; give that file Full Disk Access once, then --install
 
 A message in #<agent> starts a thread and runs `hq <agent> "<message>"`; that agent owns the task. It may call
 other agents as helpers; they post status in the same thread through `hq-send --as <name>`. Replies in a thread
 resume the same Claude session. Only the owner's messages are acted on.
 
-Config (env or ~/.config/hq/env): HQ_DISCORD_BOT_TOKEN (required), HQ_DISCORD_OWNER_ID (your Discord user ID;
+Config (env or ~/.hq/secrets/env): HQ_DISCORD_BOT_TOKEN (required), HQ_DISCORD_OWNER_ID (your Discord user ID;
 default: the server owner), HQ_DISCORD_GUILD (server name or ID; default: the bot's only server),
 HQ_BRIDGE_PERMISSION_MODE (claude --permission-mode for agent runs; default bypassPermissions).
-State: ~/.config/hq/bridge/ (webhooks, thread → session map, logs, downloaded attachments).
+State: ~/.hq/bridge/ (webhooks, thread → session map, downloaded attachments). Log: ~/.hq/logs/bridge.log.
 """
 import asyncio
 import json
@@ -27,15 +27,15 @@ import sys
 from pathlib import Path
 
 HQ = Path(__file__).resolve().parent.parent
-STATE_DIR = Path.home() / '.config' / 'hq' / 'bridge'
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+from hq_paths import paths  # noqa: E402  the one place that knows where hq's folders are
+STATE_DIR = paths()['HQ_MACHINE'] / 'bridge'
 STATE = STATE_DIR / 'state.json'
 LABEL = 'dev.hq.bridge'
 # launchd can't read the external SSD without Full Disk Access; grant it to this fixed copy of uv, not the
 # versioned Homebrew path that `brew upgrade uv` replaces
-LAUNCHER = Path.home() / '.config' / 'hq' / 'bin' / 'hq-uv'
+LAUNCHER = paths()['HQ_MACHINE'] / 'bin' / 'hq-uv'
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
-from hq_paths import paths  # noqa: E402  the one place that knows where hq's folders are
 STATE_ROOT, AGENTS = paths()['HQ_STATE'], paths()['HQ_AGENTS']  # <home>/state, <home>/agents
 LOG = paths()['HQ_LOGS'] / 'bridge.log'
 
@@ -51,7 +51,7 @@ def agent_dirs():
 
 
 def load_env():
-    f = Path.home() / '.config' / 'hq' / 'env'
+    f = paths()['HQ_SECRETS'] / 'env'
     if f.exists():
         for line in f.read_text().splitlines():
             k, sep, v = line.strip().partition('=')
@@ -102,7 +102,8 @@ def launcher():
 def install():
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     LOG.parent.mkdir(parents=True, exist_ok=True)
-    argv = [LAUNCHER, 'run', '--quiet', '--script', HQ / 'bin' / 'hq-bridge'] if LAUNCHER.exists() else [HQ / 'bin' / 'hq-bridge']
+    me = paths()['HQ_HOME'] / 'kernel' / 'bin' / 'hq-bridge'   # the address, not the disk path: the hq folder can move
+    argv = [LAUNCHER, 'run', '--quiet', '--script', me] if LAUNCHER.exists() else [me]
     args = ''.join(f'<string>{a}</string>' for a in argv)
     plist = Path.home() / 'Library' / 'LaunchAgents' / f'{LABEL}.plist'
     path = f"{Path.home()}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
@@ -145,7 +146,7 @@ def main():
         return
     token = os.environ.get('HQ_DISCORD_BOT_TOKEN')
     if not token:
-        sys.exit('hq-bridge: set HQ_DISCORD_BOT_TOKEN in ~/.config/hq/env')
+        sys.exit(f"hq-bridge: set HQ_DISCORD_BOT_TOKEN in {paths()['HQ_SECRETS'] / 'env'}")
 
     import discord
 
