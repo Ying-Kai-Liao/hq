@@ -336,7 +336,7 @@ function AgentCard({ backend, onClick }: { backend: Backend; onClick: () => void
     : backend.curated === true ? 'Not installed' : 'Sets up on first use'
   return (
     <button className="agent-card" title={backend.name} onClick={onClick}>
-      <AgentTile registry={backend.registry} icon={24} tile={40} radius={11} />
+      <AgentTile registry={backend.registry ?? backend.id} icon={24} tile={40} radius={11} />
       <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3, minWidth: 0 }}>
         <span style={{ ...font('subheadline', 'semibold'), color: 'var(--text)', ...ellipsis }}>{backend.name}</span>
         <span style={{ ...font('caption'), color: 'var(--secondary)', ...ellipsis }}>{status}</span>
