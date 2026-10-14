@@ -7,10 +7,12 @@ reasons behind it are in [architecture.md](architecture.md); commands are in the
 
 ```
 hq/                               this repo (public), ~/.hq links here: README, docs/, install.sh, .claude-plugin/
+  docs/                             architecture.md (the model), this map, how-hq-runs.html (+ .architecture.json,
+                                    its source) and img/how-hq-runs-{light,dark}.png (the README's picture)
 hq/kernel/                        the code: what hq is (bin/, lib/, adapters/, PROTOCOL.md, services/)
 hq/state/                         what hq has lived, $HQ_STATE: your private repo (<you>/hq-state)
-  shared/user.md                    who hq works for, read by every agent
-  shared/projects/<id>/             codebase.md, decisions.md: per-project notes shared by agents
+  user.md                           who hq works for, read by every agent
+  projects/<id>/                    codebase.md, decisions.md: per-project notes shared by agents
   projects.json                     project registry (bin/project-id)
   agents.json                       installed agents and where their roles come from (hq-pkg save / install --saved)
   private-words                     words hq-pkg check --share refuses in a role
@@ -36,8 +38,11 @@ hq/agents/                        the agents folder, $HQ_AGENTS: your private re
   ask.json                          hq ask conversations: agent + directory or name → session
   sched/                            last tick, last run per job (hq-sched)
   bridge/                           Discord thread → session map, attachments
-  monitor/  house/  bin/hq-uv       the monitor's samples; house's job state; uv copy with Full Disk Access
-~/Library/Logs/hq/                logs: bridge.log, sched/tick.log, sched/runs/<agent>/ (each scheduled run's output)
+  monitor/                          monitor.db (30 days of samples) and monitor.log (devops' dev.hq.monitor)
+  house/  cost/                     remind.log (house's dev.hq.house); sync.log (dev.hq.cost)
+  bin/hq-uv                         uv copy with Full Disk Access, what every launchd job runs (repo on an external disk)
+~/Library/Logs/hq/                logs: bridge.log, sched/tick.log, sched/runs/<agent>/ (each scheduled run's output);
+                                  the monitor, house and cost jobs still log under ~/.config/hq instead
 ~/Library/Caches/hq/              rebuildable: handoff/ (scratch clones and worktrees of callers' repos, hq-remote)
 ~/.hq -> hq/                      hq's stable address (HQ_HOME): a link to the hq folder, wherever that really is
 ~/Workspace/hq -> hq/kernel/      older address of the kernel, kept for paths that still name it (removable)
@@ -51,6 +56,22 @@ are outputs, exported for agents' tools, not settings. An agent's role is `<agen
 and its life the folder around it; an agent without `role/` is the older layout (the folder is the role, the life
 is `<state>/agents/<name>`).
 
+Not every tool asks it yet: `hq-ask`, `hq-cost`, `hq-remote` and `hq-send` still spell `~/.config/hq` themselves, as
+do the agents' `settings.json` permission rules and a few agent tools (devops `monitor.py`, house `house.py`,
+personal `links.py`, video `log_cost.py`).
+
+## Background jobs
+
+LaunchAgents in `~/Library/LaunchAgents/`, each run through `~/.config/hq/bin/hq-uv`.
+
+| Label | Runs | When | Written by |
+|---|---|---|---|
+| `dev.hq.bridge` | `kernel/bin/hq-bridge` | always (KeepAlive) | `hq-bridge --install` |
+| `dev.hq.sched` | `kernel/bin/hq-sched tick` | every minute | `hq-sched --install` (not installed on this Mac) |
+| `dev.hq.cost` | `kernel/bin/hq-cost sync` | every 6 h | by hand (no installer) |
+| `dev.hq.monitor` | devops `role/tools/monitor.py run` | always (KeepAlive) | `monitor.py install` (devops' repo) |
+| `dev.hq.house` | house `role/tools/house.py remind --send` | 08:00 daily | by hand (no installer) |
+
 ## Kernel files
 
 Paths in this table are inside `kernel/`, except `install.sh` and `.claude-plugin/marketplace.json` (top of the repo).
@@ -63,13 +84,15 @@ Paths in this table are inside `kernel/`, except `install.sh` and `.claude-plugi
 | `bin/hq-cost` | python | Cost ledger: syncs request usage from `~/.claude/projects` into `cost.db`; `tag` records each hq session (SessionStart hook); reports by agent, version, model, effort | you, launchd `dev.hq.cost`, the hook `bin/hq` adds |
 | `bin/hq-ask` | python | One-shot `hq <agent>` with `--output-format json`: prints the answer, keeps agent + directory (or `--as NAME`) → session in `~/.config/hq/ask.json` so `-c` resumes it with the same project/model/effort; `HQ_VIA=ask` | you, scripts, Claude Code sessions |
 | `bin/hq-remote` | python | Other machines over ssh: `add`/`ls`/`rm` (`~/.config/hq/remotes.json`); `ask AGENT@MACHINE` (from hq-ask): snapshot the working tree as a commit, push it to a scratch clone there, run `hq ask` there in a worktree, fetch the result branch and copy `.hq-out` back. Its agent side is `_repo` and `_run` | hq-ask, over ssh on the other machine |
-| `bin/hq-memory` | python | Memory search: indexes the agents' memory and private skills and the state folder's shared/ in an in-memory FTS5 table per search, prints `path:line` + passage | you, agents (PROTOCOL.md; allowed without a prompt in `hq` runs) |
+| `bin/hq-memory` | python | Memory search: indexes the agents' memory and private skills and the state folder's user.md and projects/ in an in-memory FTS5 table per search, prints `path:line` + passage | you, agents (PROTOCOL.md; allowed without a prompt in `hq` runs) |
 | `bin/hq-sched` | python | Scheduled jobs: cron parser, `jobs.json` per agent, `tick` starts due jobs as detached `hq <agent> "task"` runs (`HQ_VIA=schedule`), catches up once after sleep; launchd `dev.hq.sched` | you, launchd every minute |
 | `bin/hq-state` | python | Commits what was lived: sqlite → text dumps, commit and push the state repo and the agents repo, then every role | you |
 | `bin/hq-new` | bash | Scaffolds `agents/<name>/`: `role/` as its own repo, memory folders next to it | you, the instructor agent |
 | `bin/project-id` | python | Directory → project ID from `projects.json` (remotes and paths as aliases); `--register` | `bin/hq`, the adapter, agents |
 | `bin/hq-bridge` | python (uv script) | Discord: a channel per agent, a thread per task; runs `hq <agent>` and resumes the thread's session; launchd `dev.hq.bridge` | launchd |
 | `bin/hq-send` | bash | Delivers a result: into the Discord thread when inside one, else Telegram | agents |
+| `lib/hq_paths.py` | python | The resolver: HQ_HOME, state, agents (address and `_REAL`), machine, logs, caches; `--sh` / `--json` | every tool, the adapter |
+| `adapters/claude-code/hooks/hooks.json` | JSON | Loads `register.tsx` as the plugin's hooks module | Claude Code |
 | `adapters/claude-code/hooks/register.tsx` | TS | The Claude Code plugin: registers each agent as `hq:<name>` (pinned package, frontmatter `model`), puts project + memory in front of each spawn, applies `effort` per request, nudges for the session file, `/hq` and `mcp__hq__invoke` | Claude Code, every session |
 | `adapters/claude-code/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | JSON | Plugin manifest (option `hq_path`) and this repo as its marketplace | `install.sh` |
 | `kernel/PROTOCOL.md` | md | The rules every agent gets after its `agent.md`: memory, projects, sessions, learned skills, delivery | `hq-pkg` (into `prompt.md`), the adapter |
@@ -142,7 +165,8 @@ the last tick (at most a day back) and that isn't still running: `hq <agent> "ta
 | Discord behaviour | `bin/hq-bridge`; delivery in `bin/hq-send` |
 | How memory is searched (what's indexed, ranking) | `bin/hq-memory` |
 | Scheduled jobs (cron syntax, catch-up, how a job runs) | `bin/hq-sched` |
-| Where hq's folders are (HQ_HOME, state, agents, logs, caches) | `lib/hq_paths.py`, nowhere else |
+| Where hq's folders are (HQ_HOME, state, agents, logs, caches) | `lib/hq_paths.py` (and, until they ask it, the tools that spell `~/.config/hq`) |
+| A background job | its row in [Background jobs](#background-jobs): the installer, or the plist itself where there is none |
 | Calling agents on other machines, the code handoff | `bin/hq-remote` (`call` on the caller, `serve_run` on the agent's machine) |
 | Cost reports or prices | `bin/hq-cost` (`PRICES`) |
 | The scaffold for new agents | `bin/hq-new`, and the instructor agent's `new-agent` skill (in its own repo) |
