@@ -282,7 +282,9 @@ lists the conversations. A Claude Code session can use it to work with a special
 specialist's own tools, where an `hq:<name>` subagent would run in the caller's. Tagged `via=ask` in the cost ledger.
 
 ## Agents on your other machines
-An agent lives on the machine that has its tools. From another machine of yours, `hq remote add mini you@mac-mini`
+An agent lives on the machine that has its tools. On a laptop, `install.sh` asks whether your agents run on another
+Mac and sets this up: it finds your Macs on Tailscale, makes an ssh key, asks for that Mac's password once, and adds
+it. By hand: `hq remote add mini you@mac-mini`
 (anything you can `ssh` into without a password: Tailscale, a LAN) and then `hq ask house@mini "…"`: the agent runs
 there, with that machine's memory and accounts, and only the task, your code and its answer travel; `-c` continues.
 Asked from inside a git repo, it gets your working tree (uncommitted and untracked files too) in a scratch worktree

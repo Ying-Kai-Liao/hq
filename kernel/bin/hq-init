@@ -6,12 +6,14 @@
   hq init --from <github-user>
                            a new Mac: clone <user>/hq-state into ~/.hq and <user>/hq-agents into the agents folder,
                            then install every agent agents.json lists
+                           Either way it asks whether your agents run on another Mac, and if so sets up the ssh login
+                           and hq remote add for you
   hq init --yes            take each offer's default without asking (the starter yes, GitHub copies no); without a
                            terminal, offers are skipped
 
 install.sh runs it at the end. `hq doctor` checks a working install.
 """
-import json, os, shutil, subprocess, sys
+import json, os, re, shutil, socket, subprocess, sys
 from pathlib import Path
 
 HQ = Path(os.environ.get('HQ_ROOT') or os.path.dirname(os.path.dirname(
@@ -165,6 +167,73 @@ def backups():
             else f'{label}: gh repo create failed: {r.stderr.strip()}')
 
 
+# ---- agents on another Mac ------------------------------------------------------------------------------------------
+
+def tailscale_macs():
+    """Online Macs on your tailnet other than this one, as (short name, address)."""
+    exe = shutil.which('tailscale') or '/Applications/Tailscale.app/Contents/MacOS/Tailscale'
+    try:
+        peers = json.loads(run(exe, 'status', '--json').stdout or '{}').get('Peer') or {}
+    except (OSError, ValueError):
+        return []
+    out = []
+    for p in peers.values():
+        if p.get('OS') == 'macOS' and p.get('Online') and p.get('TailscaleIPs'):
+            name = (p.get('DNSName') or p.get('HostName') or '').split('.')[0]
+            try:
+                socket.gethostbyname(name)   # MagicDNS on: the name is nicer and survives a new address
+                out.append((name, name))
+            except OSError:
+                out.append((name or p['TailscaleIPs'][0], p['TailscaleIPs'][0]))
+    return sorted(out)
+
+
+def other_macs():
+    """A Mac that uses agents running on another of yours: a key, login without a password, hq remote add.
+    Returns the names of the machines set up."""
+    conf = P['HQ_MACHINE'] / 'remotes.json'
+    try:
+        have = json.loads(conf.read_text())
+    except (OSError, ValueError):
+        have = {}
+    if have:
+        say('✓', f'other Macs: {", ".join(have)} (hq remote ls)')
+        return list(have)
+    if not offer('do your agents run on another Mac you want to use from here?', default=False):
+        say('-', 'agents run on this Mac (later: hq remote add <name> <user>@<mac>)')
+        return []
+    macs = tailscale_macs()
+    for i, (name, _) in enumerate(macs, 1):
+        print(f'    {i}. {name}')
+    pick = prompt('which Mac (its number, or a host name or address)' if macs else 'its host name or address')
+    host = macs[int(pick) - 1][1] if pick.isdigit() and 0 < int(pick) <= len(macs) else pick
+    if not host:
+        say('-', 'skipped (later: hq remote add <name> <user>@<mac>)')
+        return []
+    me = os.environ.get('USER', '')
+    target = f'{prompt(f"your user name on it (empty: {me})") or me}@{host}'
+    ssh = Path.home() / '.ssh'
+    if not any(ssh.glob('id_*.pub')):
+        ssh.mkdir(mode=0o700, exist_ok=True)
+        run('ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(ssh / 'id_ed25519'))
+        say('✓', f'made an ssh key: {ssh / "id_ed25519"}')
+    test = ('ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=accept-new',
+            target, 'true')
+    if run(*test).returncode:
+        print(f'  {target} asks for its password once, to let this Mac in without one from now on:')
+        subprocess.run(['ssh-copy-id', '-o', 'StrictHostKeyChecking=accept-new', target])
+        if run(*test).returncode:
+            say('✗', f'cannot log in to {target}. On that Mac: System Settings → General → Sharing → Remote Login, '
+                     f'on, for this user. Then hq init again.')
+            return []
+    say('✓', f'logs in to {target} without a password')
+    short = re.sub(r'[^a-z0-9-]', '', host.split('.')[0].lower()) or 'mac'
+    short = 'mini' if 'mini' in short else short
+    name = re.sub(r'[^a-z0-9-]', '', prompt(f'a short name for it (empty: {short})').lower()) or short
+    r = subprocess.run([str(HQ / 'bin' / 'hq-remote'), 'add', name, target])
+    return [name] if r.returncode == 0 else []
+
+
 # ---- starting points ------------------------------------------------------------------------------------------------
 
 def user_md():
@@ -234,7 +303,14 @@ def main(argv):
         subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'fetch', '--all'], capture_output=True)
     print('hq: backups')
     backups()
+    print('hq: other Macs')
+    remote = other_macs()
     print('hq: agents')
+    if remote and not json.loads(run(str(HQ / 'bin' / 'hq-pkg'), 'list', '--json').stdout or '{}'):
+        say('-', f'none on this Mac: you use the ones on {remote[0]}')
+        print(f'\nnext: hq ask <agent>@{remote[0]} "…" (from a git repo, it works on your code and sends back a '
+              f'branch) · hq remote ls lists them')
+        return
     starter()
     if 'updated: never' not in (STATE / 'user.md').read_text():
         print('\nnext: hq ls · hq <agent> to talk to one · hq doctor to check everything')
