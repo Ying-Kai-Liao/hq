@@ -12,7 +12,7 @@
 
 A job is a one-shot `hq AGENT "task"`, the same run as from your terminal: pinned package, memory, the agent's own
 tools, tagged in the cost ledger with via=schedule. The task is told it was scheduled and to deliver with hq-send,
-which goes to your Telegram. Jobs live with the agent's state, <state>/agents/AGENT/jobs.json, so they are versioned
+which goes to your Telegram. Jobs live with the agent's life, <hq>/agents/AGENT/jobs.json, so they are versioned
 with your memory and never shared with the package.
 
 CRON is five fields, minute hour day-of-month month day-of-week (0 or 7 = Sunday), each *, a number, a range a-b,
@@ -93,11 +93,13 @@ def next_time(c, after, limit=dt.timedelta(days=366)):
 
 def agents():
     pkgs = Path(os.environ.get('HQ_AGENTS') or (HQ / 'agents' if (HQ / 'agents').is_dir() else STATE / 'packages'))
-    return sorted(p.name for p in pkgs.iterdir() if (p / 'agent.md').is_file()) if pkgs.is_dir() else []
+    return sorted(p.name for p in pkgs.iterdir() if (p / 'agent.md').is_file() or (p / 'role' / 'agent.md').is_file()) \
+        if pkgs.is_dir() else []
 
 
 def jobs_file(agent):
-    return STATE / 'agents' / agent / 'jobs.json'
+    pkgs = Path(os.environ.get('HQ_AGENTS') or (HQ / 'agents' if (HQ / 'agents').is_dir() else STATE / 'packages'))
+    return (pkgs / agent if (pkgs / agent / 'role').is_dir() else STATE / 'agents' / agent) / 'jobs.json'
 
 
 def load(agent):

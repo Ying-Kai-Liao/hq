@@ -3,7 +3,7 @@
 What hq is made of, what is built, and where it is going. Read this before changing the kernel or designing a new
 agent. How a run works step by step: `how-hq-runs.html`. Commands and file formats: the README.
 
-## Concepts (agreed 2026-10-14; the folder layout does not follow them yet)
+## Concepts (agreed and built 2026-10-14)
 
 hq has two levels, and each has the same two halves: what it **is** (shareable, versioned, the same for anyone who
 installs it) and what it **has lived** (private, accumulated, yours).
@@ -18,29 +18,27 @@ installs it) and what it **has lived** (private, accumulated, yours).
   versioned as text dumps; **files** are things it made (renders, exports, images), large, not in git.
 - hq's lived knowledge is not "about the user": it is what the whole system knows and runs on, shared by every agent.
 
-Today's folders mix the halves: the kernel's `shared/` holds hq's definition while the state folder's `shared/` holds
-hq's lived knowledge, and an agent's role (`agents/<name>/`) is in a different tree from its life
-(`state/agents/<name>/`: `memory/`, `data/`, and since 2026-10-14 `files/`, ignored by git). The layout should mirror the table, roughly:
+The folders mirror the table:
 
 ```
 hq/                      the system
-  (kernel)                  what hq is                                   public repo
-  (hq's knowledge)          what hq has lived                            private repo
-  agents/<name>/
-    role/                   what the agent is                            its own repo
-    memory/ data/ files/    what the agent has lived                     private repo (files/ ignored)
+  (kernel)                  what hq is                                   public repo (this one)
+  state/                    what hq has lived                            private repo (hq-state)
+  agents/                   the agents' lives                            private repo (hq-agents)
+    <name>/role/              what the agent is                          its own repo (hq-agent-<name>)
+    <name>/memory/ data/ files/   what the agent has lived              (files/ not in git)
 ```
 
-Open: the names (role or package; what to call hq's knowledge, given the kernel's `shared/`), whether projects are a
-level of their own, and one migration to get there.
+Open: whether projects are a level of their own.
 
 ## The model
 
 | Part | What it is | Lives in | Status |
 |---|---|---|---|
 | **Plugin** | A capability: a skill, the tools it drives, and the software they need | inside an agent's `skills/` + `tools/` today | partly: no manifest or `requires` yet |
-| **Package** | A whole agent: identity (`agent.md`), settings, capabilities, its plugins, the skills it learned | its own git repo, checked out in the agents folder (`$HQ_AGENTS`, default `agents/<name>/` in the hq folder) | built: versioned, snapshotted, committed |
-| **State** | What an agent and the user accumulate: memory, data, user.md, projects | the state folder, `$HQ_STATE` or `state/` in the hq folder (own private git repo) | built: never snapshotted |
+| **Role** (package) | What an agent is: identity (`agent.md`), settings, capabilities, its plugins, the skills it learned | its own git repo, `agents/<name>/role/` | built: versioned, snapshotted, committed |
+| **Life** | What an agent has lived: memory, data, files, jobs | next to its role, `agents/<name>/` (the private hq-agents repo; files/ not in git) | built: never snapshotted |
+| **State** | What hq has lived: user.md, projects, agents.json, rules | `state/` in the hq folder, `$HQ_STATE` (private hq-state repo) | built: never snapshotted |
 | **Service** | Something several agents may use: an MCP server, an API, a login | `shared/services/<name>.json` | built |
 | **Grant** | Which agent may use which service, as which account | `~/.config/hq/auth.json` (local, never in the repo) | built |
 | **Environment** | The installed software a package's plugins need, built per machine | not yet | planned |

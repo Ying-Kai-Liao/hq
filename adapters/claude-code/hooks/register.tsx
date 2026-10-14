@@ -1,7 +1,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 // Claude Code adapter for hq. The kernel (bin/, PROTOCOL.md) lives in the hq repo; the installed agents in the
-// agents folder (<hq>/agents/<name> or <state>/packages/<name>, each its own git repo; listed by bin/hq-pkg); this plugin only reads them:
+// agents folder (<hq>/agents/<name>/role, each its own git repo, next to the agent's memory, data and files; listed by bin/hq-pkg); this plugin only reads them:
 //   session.start      register every installed agent's agent.md as `hq:<name>`, pinned for this session to the
 //                      package version bin/hq-pkg resolves (edits made meanwhile apply to the next session)
 //   agent.spawn        resolve the project, prepend it and the agent's memory to the task
@@ -79,13 +79,20 @@ export const register: Register = (on, options) => {
   let userHome = ''
   let agentsRoot = ''
   let installed: Record<string, string> = {}
+  let agentsReal = ''
+  // An agent's life (memory, data, files): its folder next to role/; older layouts: <state>/agents/<name>.
+  const lifeOf = (agent: string, hq: string, real = false) => {
+    const dir = installed[agent]
+    if (dir?.endsWith('/role')) return real && agentsReal ? `${agentsReal}/${agent}` : dir.slice(0, -'/role'.length)
+    return `${(real && stateReal) || state || hq}/agents/${agent}`
+  }
   const fill = (text: string, hq: string, agent: string, agentDir = installed[agent] ?? `${hq}/agents/${agent}`) =>
     text
       .replaceAll('{{AGENT_DIR}}', agentDir)
       .replaceAll('{{AGENTS}}', agentsRoot || `${state || hq}/packages`)
       .replaceAll('{{PACKAGE}}', installed[agent] ?? `${hq}/agents/${agent}`)
-      .replaceAll('{{HOME_DIR}}', `${state || hq}/agents/${agent}`)
-      .replaceAll('{{HOME_REAL}}', `${stateReal || state || hq}/agents/${agent}`)
+      .replaceAll('{{HOME_DIR}}', lifeOf(agent, hq))
+      .replaceAll('{{HOME_REAL}}', lifeOf(agent, hq, true))
       .replaceAll('{{STATE}}', state || hq)
       .replaceAll('{{USER_HOME}}', userHome)
       .replaceAll('{{HQ}}', hq)
@@ -106,6 +113,8 @@ export const register: Register = (on, options) => {
     userHome = (await $.env.get('HOME')) ?? ''
     const real = await $.process.run(['/bin/realpath', state], { timeoutMs: 5_000 })
     stateReal = real.exitCode === 0 ? real.stdout.trim() : state
+    const realAgents = await $.process.run(['/bin/realpath', agentsRoot], { timeoutMs: 5_000 })
+    agentsReal = realAgents.exitCode === 0 ? realAgents.stdout.trim() : agentsRoot
     const packages = await resolvePackages($, hq)
     for (const [name, dir] of Object.entries(installed)) {
       const file = `${dir}/agent.md`
@@ -163,7 +172,8 @@ export const register: Register = (on, options) => {
       project = found.exitCode === 0 ? found.stdout.trim() : ''
     }
     const task = named ? e.prompt.slice(named[0].length) : e.prompt
-    const memoryFile = `${state || (await stateRoot($, options.state_path, hq))}/agents/${agent}/memory/MEMORY.md`
+    if (!state) state = await stateRoot($, options.state_path, hq)
+    const memoryFile = `${lifeOf(agent, hq)}/memory/MEMORY.md`
     const memory = (await $.fs.exists(memoryFile)) ? await $.fs.read(memoryFile) : ''
     const today = new Date().toISOString().slice(0, 10)
 
@@ -192,7 +202,8 @@ export const register: Register = (on, options) => {
     const run = spawned.get(e.agent_id)
     if (!run || !run.project || run.isNudged || e.stop_hook_active) return next(e)
     const hq = await hqRoot($, options.hq_path)
-    const file = `${state || (await stateRoot($, options.state_path, hq))}/agents/${run.agent}/memory/sessions/${run.project}.md`
+    if (!state) state = await stateRoot($, options.state_path, hq)
+    const file = `${lifeOf(run.agent, hq)}/memory/sessions/${run.project}.md`
     const isWritten = (await $.fs.exists(file)) && (await $.fs.stat(file)).mtimeMs >= run.startedMs
     if (isWritten) {
       spawned.delete(e.agent_id)

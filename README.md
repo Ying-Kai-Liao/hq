@@ -19,8 +19,8 @@ one left off.
 - **An agent is a git repo.** Install one from a GitHub link, change it however you like, and every version that
   passes its checks is committed. Roll back to any of them, share one, or keep it private. The agent learning a new
   skill is a change like any other: versioned, and undone the same way.
-- **What it is and what it knows are kept apart.** The package (instructions, skills, tools) is shareable; memory
-  and data live in your private state folder. Sharing an agent never shares your life, and upgrading one never
+- **What it is and what it has lived are kept apart.** Its role (instructions, skills, tools) is shareable; its
+  memory, data and files sit next to it, in your private agents repo. Sharing an agent never shares your life, and upgrading one never
   touches its memory.
 - **Agents carry no accounts.** An agent says which services it needs; you grant it one of your accounts. Secrets reach only the
   process that uses them. Two people can run the same agent with their own logins.
@@ -64,7 +64,8 @@ On every spawn it resolves the project, puts it and the agent's long-term memory
 agent stops without writing its session file, asks it to once.
 
 ## Agents
-Each agent is a git repo, checked out in the **agents folder** (`$HQ_AGENTS`, default `agents/<name>/` in the hq folder).
+Each agent is a folder in the **agents folder** (`$HQ_AGENTS`, default `agents/` in the hq folder): its role is a git
+repo in `agents/<name>/role/`, its life (memory, data, files) is next to it.
 Whoever changes it (you, a code agent, or the agent itself writing a learned skill) changes that checkout; every
 version that passes its checks is committed there automatically, so its history is the agent's history.
 ```
@@ -86,7 +87,7 @@ Agent repos carry the GitHub topic `hq-agent` (`hq share` adds it) and the kerne
 organization: `hq search --mine` lists yours, private ones included, and public agents from anyone show up in
 `hq search` and at github.com/topics/hq-agent. To publish an agent of your own made outside `hq share`, add the topic.
 
-Running hq takes **2 + N repos**: this kernel, your state repo, and one per agent you've shared. Agents installed
+Running hq takes **3 + N repos**: this kernel, your state repo, your agents repo, and one per agent role you've shared. Agents installed
 from someone else stay in their repo (+0 until you `hq share` your own copy); third-party skills are fetched from
 their authors' repos (+0). Several agents can share one repo, installed by folder (`hq install
 <owner>/<repo>/tree/main/<folder>`), though `hq share` makes one repo per agent.
@@ -94,8 +95,9 @@ their authors' repos (+0). Several agents can share one repo, installed by folde
 | Repo | Holds | Visibility |
 |---|---|---|
 | `hq` (this one) | the kernel: `bin/`, `shared/PROTOCOL.md`, `shared/services/`, the plugin | public |
-| `<you>/hq-state`, cloned to `state/` | memory, data (as text dumps), `user.md`, projects, `agents.json` | **private** |
-| `<you>/hq-agent-<name>`, in `agents/<name>` | one agent: `agent.md`, settings, skills, tools, learned skills | private unless you share it |
+| `<you>/hq-state`, cloned to `state/` | hq's knowledge: `user.md`, projects, `agents.json`, `private-words` | **private** |
+| `<you>/hq-agents`, cloned to `agents/` | each agent's life: memory, data (as text dumps), jobs, private skills | **private** |
+| `<you>/hq-agent-<name>`, in `agents/<name>/role` | one agent's role: `agent.md`, settings, skills, tools, learned skills | private unless you share it |
 
 | You change | It goes to | Saved by |
 |---|---|---|
@@ -103,30 +105,34 @@ their authors' repos (+0). Several agents can share one repo, installed by folde
 | A new agent (`hq-new`, or ask the instructor) | a new local repo in the agents folder | `hq share <name>` once creates its GitHub repo; from then on as above |
 | The kernel or `PROTOCOL.md` | this repo | a normal commit and push; it's public, so `hq-pkg check --share` first |
 | A service (`shared/services/<name>.json`) | this repo | as the kernel; it names its secrets, never their values |
-| Memory and data | the state repo | `hq-state commit` |
+| Memory and data | the agents repo | `hq-state commit` |
+| Your profile, projects, which agents you have | the state repo | `hq-state commit` |
 
 A kernel change reaches every agent on its next run without touching their repos. An agent that starts to `need:` a
 new service only passes its checks where that service exists, so push the service with the kernel.
 
-**On a new Mac**, clone the kernel, your state repo into it (it lists your agents), then install:
+**On a new Mac**, clone the kernel, then your state and agents repos into it, then install:
 ```
 git clone https://github.com/Ying-Kai-Liao/hq ~/Workspace/hq
 git clone https://github.com/<you>/hq-state ~/Workspace/hq/state
-~/Workspace/hq/install.sh   # reinstalls agents.json's agents into agents/
+git clone https://github.com/<you>/hq-agents ~/Workspace/hq/agents
+~/Workspace/hq/install.sh   # installs each agent's role (agents.json) into agents/<name>/role
 ```
 
 **Not in any repo**, so redo them by hand on a new Mac:
 - an agent you never shared: `agents.json` records it without a link, so `install.sh` skips it;
 - grants and profiles (`~/.config/hq/auth.json`), secrets (Keychain), `~/.config/hq/env`: `hq auth grant`, `hq auth set`;
 - LaunchAgents (`~/Library/LaunchAgents/dev.hq.*.plist`): `hq schedule --install`, `hq-bridge --install`, each
-  tool's own `install` command. The jobs themselves are in the state repo.
+  tool's own `install` command. The jobs themselves are in the agents repo.
+- what agents made (`agents/<name>/files/`): on disk only; back it up with the rest of the Mac.
 
 ## Layout
-Everything is in the hq folder, in three kinds of repo. The kernel is this repo. `agents/` holds the agents, each its
-own repo. `state/` is the **state folder**: what the agents and you accumulate (memory, data), your private hq-state
-repo (`hq-state commit`). The kernel ignores both, so `git pull` only ever touches the kernel. `$HQ_AGENTS` and
-`$HQ_STATE` put them elsewhere; installs from before the move keep `~/.hq`, and `~/.hq` may stay as a link to `state/`
-for tools that still name it.
+Everything is in the hq folder, laid out by what each thing is (docs/architecture.md, Concepts): hq and each agent
+have what they **are** (shareable, versioned) and what they **have lived** (private). The kernel is what hq is; `state/`
+is what hq has lived (who it works for, projects, the team, rules). Each agent is a folder in `agents/`: `role/` is
+what it is (its own repo), and next to it what it has lived: `memory/`, `data/`, `files/`. The kernel ignores
+`agents/` and `state/`, so `git pull` only ever touches the kernel. `$HQ_AGENTS` and `$HQ_STATE` put them elsewhere;
+`~/.hq` stays as a link to `state/`, and `state/agents` as a link to `agents/`, for paths from before 2026-10-14.
 ```
 install.sh                 links ~/.local/bin/hq and installs the Claude Code plugin
 adapters/claude-code/      the Claude Code adapter (plugin); .claude-plugin/marketplace.json serves it
@@ -135,7 +141,7 @@ bin/hq                     run an agent directly: hq ls · hq <agent> [-p ID] [t
 bin/hq-pkg                 agents: install, update, history, restore, share; versions: resolve (pin a run), pin, check
 bin/hq-new                 scaffold a new agent as its own repo
 bin/hq-auth                shared services: which agent may use which, as which account
-bin/hq-state               the state folder's git repo: path, dump (sqlite as text), commit
+bin/hq-state               commit what was lived: state and agents repos (sqlite dumped as text), then each role
 bin/hq-ask                 ask an agent and get its answer back; continue the conversation (-c)
 bin/hq-remote              agents on your other machines over ssh: hq remote add, hq ask agent@machine
 bin/hq-memory              search the agents' memory and shared notes
@@ -144,30 +150,33 @@ shared/
   PROTOCOL.md              memory rules, appended to every agent's prompt
   services/<name>.json     shared services (MCP servers, APIs, logins): how to start them, which secrets by name
 
-agents/                    the agents folder ($HQ_AGENTS; ignored by the kernel)
-  <name>/                  one agent, its own git repo
-    agent.md               identity, how it works, skill index
-    capabilities.yaml      tools and data sources it may use, by name only — never credentials
-    settings.json          Claude Code settings merged over your global ones for hq runs: model, plugins, permissions
-    skills/ tools/         its skills (read on demand) and the tools they drive
-    skills/learned/        skills it wrote itself; versioned and shared with it
-  .store/                  snapshots, one per version (same disk as the agents, so each is an APFS clone)
+agents/                    the agents folder ($HQ_AGENTS; ignored by the kernel; your hq-agents repo)
+  <name>/                  one agent
+    role/                  what it is: its own git repo (shareable)
+      agent.md               identity, how it works, skill index
+      capabilities.yaml      tools and data sources it may use, by name only — never credentials
+      settings.json          Claude Code settings merged over your global ones for hq runs: model, plugins, permissions
+      skills/ tools/         its skills (read on demand) and the tools they drive
+      skills/learned/        skills it wrote itself; versioned and shared with it
+    memory/MEMORY.md       long-term index (auto-loaded on every call)
+    memory/projects/<id>.md   its notes on one project
+    memory/sessions/<id>.md   where the last call on that project left off
+    data/                  its databases; committed as text dumps (<name>.sql), not binaries
+    files/<project>/       what it made: renders, images, exports, backups (on disk, not in git)
+    skills/learned/        private skills, never shared (hq-pkg promote <agent> <skill> moves one into role/)
+    jobs.json              its scheduled jobs (hq schedule)
+  .store/                  snapshots of roles, one per version (same disk, so each is an APFS clone)
 
-state/                     the state folder ($HQ_STATE; ignored by the kernel; your hq-state repo)
+state/                     what hq has lived ($HQ_STATE; ignored by the kernel; your hq-state repo)
   projects.json            project IDs → the git remotes / paths that belong to them
-  shared/user.md           about the user (incl. visual taste), read by every agent
+  agents.json              which agents you have and where their roles come from
+  private-words            words no shared role may contain (hq-pkg check --share)
+  shared/user.md           who hq works for (incl. visual taste), read by every agent
   shared/projects/<id>/    codebase.md (shared project map) + decisions.md (append-only log)
-  agents/<name>/
-    memory/MEMORY.md         long-term index (auto-loaded on every call)
-    memory/projects/<id>.md  its notes on one project
-    memory/sessions/<id>.md  where the last call on that project left off
-    skills/learned/          private skills, never shared (hq-pkg promote <agent> <skill> moves one into the agent)
-    data/                    its databases; committed as text dumps (<name>.sql), not binaries
-    files/<project>/         what it made: renders, images, exports, backups (on disk, not in git)
 ```
 
 ## Versions
-An agent's package is its folder in the agents folder; its state is in the state folder. Every run is pinned to a snapshot of
+An agent's package is its `role/`; its life is the folder around it. Every run is pinned to a snapshot of
 it, so agents can be upgraded at any time, by anyone (you, the agent writing a learned skill, a code agent like this
 one), without waiting for running sessions:
 
@@ -186,11 +195,11 @@ one), without waiting for running sessions:
 - `hq:<name>` subagents are pinned per Claude Code session (the adapter resolves every agent at session start).
 
 In prompts and settings: `{{AGENT_DIR}}` is the pinned package (read skills and run tools from it),
-`{{PACKAGE}}` the agent's live folder (where it writes learned skills), `{{AGENTS}}` the agents folder (another
-agent's tools: `{{AGENTS}}/house/tools/house.py`), `{{HOME_DIR}}` the agent's folder in the state folder (memory, data), `{{HOME_REAL}}` the same with
+`{{PACKAGE}}` the agent's live `role/` (where it writes learned skills), `{{AGENTS}}` the agents folder (another
+agent's tools: `{{AGENTS}}/house/role/tools/house.py`), `{{HOME_DIR}}` the agent's own folder (memory, data, files), `{{HOME_REAL}}` the same with
 symlinks resolved (use it in permission rules: Claude Code matches resolved paths), `{{STATE}}` the state folder,
-`{{HQ}}` the kernel repo, `{{USER_HOME}}` your home folder (for permission rules, instead of `/Users/<name>`). Tools find their data through the snapshot's `.home` file; run from the live package (launchd,
-another agent), they use `$HQ_STATE/agents/<name>`, else `~/.hq/agents/<name>` (keep `~/.hq` as a link to `state/` for them).
+`{{HQ}}` the kernel repo, `{{USER_HOME}}` your home folder (for permission rules, instead of `/Users/<name>`). Tools find their data through the snapshot's `.home` file; run from the live `role/` (launchd,
+another agent), they use the folder around it.
 
 ## Third-party skills
 Skills from public GitHub repos are linked, not copied. An agent's `skills.json` names each one's `repo`, `path`
@@ -199,7 +208,7 @@ and `ref` (a full commit sha) and its licence; `hq-pkg fetch <agent>|--all` down
 `.source` file. `install.sh` fetches every agent's; a run fetches anything missing on first use. A package whose
 linked skills aren't fetched fails its checks, so the last good version runs. To upgrade one, change its `ref`.
 Notes of your own about a linked skill go next to it (image's `skills/anatomy-hq.md`), never inside it. A skill
-for your own install only (one you can't or won't share) goes in the agent's `skills/learned/` in the state folder,
+for your own install only (one you can't or won't share) goes in the agent's own `skills/learned/` (next to `role/`, not in it),
 not the package, listed in its MEMORY.md.
 
 ## Services and auth
@@ -265,7 +274,7 @@ sessions. Details: `hq remote --help`.
 ## Schedules
 `hq schedule add house "0 8 * * *" "Check what expires this week and send the list"` gives an agent a job: at that
 time `bin/hq-sched` runs the same one-shot `hq house "…"` you would, tagged `via=schedule` in the cost ledger, and the
-agent delivers with `hq-send`. Jobs are kept with the agent's state (`state/agents/<name>/jobs.json`), so they are
+agent delivers with `hq-send`. Jobs are kept with the agent's life (`agents/<name>/jobs.json`), so they are
 private, versioned with your memory and never part of a shared package. `hq schedule` lists jobs with their next run,
 `hq schedule log house <id>` shows the last run's output, `pause`/`resume`/`rm`/`run` do what they say. Run
 `hq schedule --install` once per Mac: a LaunchAgent ticks every minute, and a time missed while the Mac slept runs
@@ -305,9 +314,9 @@ bin/project-id --register acme [dir]   # add dir's remote (or path) to a project
 ```
 
 ## Adding an agent
-`bin/hq-new <name> "<description>"`, or ask the instructor. It creates the agent in the agents folder as its own git
-repo (`agent.md`, `capabilities.yaml` with `needs:`, `settings.json`) and its memory folders in the state folder; put
-its skills in `skills/`. New sessions pick it up; `hq share <name>` puts it on GitHub.
+`bin/hq-new <name> "<description>"`, or ask the instructor. It creates `agents/<name>/` with its role as its own git
+repo in `role/` (`agent.md`, `capabilities.yaml` with `needs:`, `settings.json`) and its memory folders next to it;
+put its skills in `role/skills/`. New sessions pick it up; `hq share <name>` puts it on GitHub.
 
 ## Notes
 - The state folder holds personal data: keep its remote **private**. `hq-state commit` commits and pushes it, then

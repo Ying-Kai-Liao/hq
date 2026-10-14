@@ -20,15 +20,27 @@ HQ = Path(__file__).resolve().parent.parent
 STATE = Path(os.environ.get('HQ_STATE') or next((p for p in (HQ / 'state', Path.home() / '.hq') if p.is_dir()), HQ / 'state'))
 
 
+def lives():
+    """{agent: its life folder}: <hq>/agents/<name> next to role/, else <state>/agents/<name> (older layouts)."""
+    out = {}
+    agents = Path(os.environ.get('HQ_AGENTS') or HQ / 'agents')
+    for d in sorted(agents.iterdir()) if agents.is_dir() else []:
+        if (d / 'role').is_dir():
+            out[d.name] = d
+    old = STATE / 'agents'
+    for d in sorted(old.iterdir()) if old.is_dir() and not old.is_symlink() else []:
+        if d.is_dir():
+            out.setdefault(d.name, d)
+    return out
+
+
 def files(scope):
     """(label, path) for every markdown file in scope: agents' memory and learned skills, then shared/."""
-    root = STATE / 'agents'
-    names = sorted(p.name for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
-    if scope is not None:
-        names = [n for n in names if n == scope]
-    for n in names:
-        for sub in ('memory', 'skills/learned'):
-            for f in sorted((root / n / sub).rglob('*.md')):
+    for n, home in lives().items():
+        if scope is not None and n != scope:
+            continue
+        for sub in ('memory', 'skills/learned', 'role/skills/learned'):
+            for f in sorted((home / sub).rglob('*.md')):
                 yield n, f
     for f in sorted((STATE / 'shared').rglob('*.md')):
         yield 'shared', f
@@ -93,8 +105,8 @@ def main(argv):
         return
     if cmd != 'search' or not words:
         sys.exit('usage: hq-memory search <words> [--agent NAME | --all] [-n N]')
-    if scope and not (STATE / 'agents' / scope).is_dir():
-        sys.exit('hq-memory: no agent %r in %s' % (scope, STATE / 'agents'))
+    if scope and scope not in lives():
+        sys.exit('hq-memory: no agent %r' % scope)
     hits, n = search(' '.join(words), scope, limit)
     where = 'every agent' if scope is None else scope
     if not hits:

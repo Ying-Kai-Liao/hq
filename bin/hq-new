@@ -20,9 +20,10 @@ if [[ -z ${HQ_STATE:-} ]]; then
 fi
 agents=${HQ_AGENTS:-}
 [[ -n $agents ]] || { [[ -d $HQ/agents ]] && agents=$HQ/agents || agents=$HQ_STATE/packages; }
-home="$agents/$name"
-[[ -e $home || -e $HQ/agents/$name ]] && { echo "hq-new: agent '$name' already exists" >&2; exit 1; }
-state="$HQ_STATE/agents/$name"
+# The agent's folder: role/ (its own repo, what it is) next to memory/, data/, files/ (what it has lived).
+[[ -e $agents/$name ]] && { echo "hq-new: agent '$name' already exists" >&2; exit 1; }
+home="$agents/$name/role"
+state="$agents/$name"
 
 mkdir -p "$home/skills/learned" "$state/memory/projects" "$state/memory/sessions"
 touch "$home/skills/learned/.keep"

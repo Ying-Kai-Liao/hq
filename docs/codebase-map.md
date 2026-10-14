@@ -6,26 +6,27 @@ reasons behind it are in [architecture.md](architecture.md); commands are in the
 ## Where things are on disk
 
 ```
-hq/                               the kernel (this repo, public); agents/ and state/ sit inside it, ignored
-hq/state/                         state folder, $HQ_STATE: your private repo (<you>/hq-state); ~/.hq links here
-  agents/<name>/memory/             MEMORY.md, projects/<id>.md, sessions/<project>.md
-  agents/<name>/data/               the agent's databases (*.db ignored; committed as *.sql text dumps)
-  agents/<name>/files/<project>/    what it made: renders, images, exports, backups (ignored: on disk only)
-  agents/<name>/skills/learned/     skills kept private (hq-pkg promote moves one into the package)
-  shared/user.md                    who the user is, read by every agent
+hq/                               the kernel (this repo, public): what hq is. agents/ and state/ sit inside it, ignored
+hq/state/                         what hq has lived, $HQ_STATE: your private repo (<you>/hq-state); ~/.hq links here
+  shared/user.md                    who hq works for, read by every agent
   shared/projects/<id>/             codebase.md, decisions.md: per-project notes shared by agents
   projects.json                     project registry (bin/project-id)
-  agents/<name>/jobs.json           its scheduled jobs (hq-sched)
-  agents.json                       installed agents and their GitHub links (hq-pkg save / install --saved)
-  private-words                     words hq-pkg check --share refuses in a package
-  packages -> ../agents             link kept for paths that name ~/.hq/packages (ignored by the state repo)
-hq/agents/                        the agents folder, $HQ_AGENTS (ignored by the kernel)
-  <name>/                           one agent, its own git repo (<you>/hq-agent-<name>)
-    agent.md                          frontmatter (description, model, effort) + instructions
-    capabilities.yaml                 tools, needs: [services], global_skills
-    settings.json                     Claude Code settings merged over yours for its runs
-    skills/  skills.json  tools/      own skills; third-party skills by link; its CLIs
-  .store/<name>@<version>/          read-only snapshots runs are pinned to (prompt.md, settings.json, .home)
+  agents.json                       installed agents and where their roles come from (hq-pkg save / install --saved)
+  private-words                     words hq-pkg check --share refuses in a role
+  agents -> ../agents               link for paths from before 2026-10-14 (ignored)
+hq/agents/                        the agents folder, $HQ_AGENTS: your private repo (<you>/hq-agents), each agent's life
+  <name>/                           one agent
+    role/                             what it is: its own git repo (<you>/hq-agent-<name>), ignored by hq-agents
+      agent.md                          frontmatter (description, model, effort) + instructions
+      capabilities.yaml                 tools, needs: [services], global_skills
+      settings.json                     Claude Code settings merged over yours for its runs
+      skills/  skills.json  tools/      own skills; third-party skills by link; its CLIs
+    memory/                           MEMORY.md, projects/<id>.md, sessions/<project>.md
+    data/                             its databases (*.db ignored; committed as *.sql text dumps)
+    files/<project>/                  what it made: renders, images, exports, backups (ignored: on disk only)
+    skills/learned/                   skills kept private (hq-pkg promote moves one into role/)
+    jobs.json                         its scheduled jobs (hq-sched)
+  .store/<name>@<version>/          read-only snapshots of roles runs are pinned to (prompt.md, settings.json, .home)
 ~/.config/hq/                     this machine only, never in git
   auth.json  auth.log               grants and profiles (hq-auth); every secret handed out
   env                               bridge and Telegram settings
@@ -38,7 +39,9 @@ hq/agents/                        the agents folder, $HQ_AGENTS (ignored by the 
 ```
 
 Every tool finds the folders the same way: `$HQ_STATE`, else `<hq>/state`, else `~/.hq` (installs from before
-2026-10-14). Agents: `$HQ_AGENTS`, else `<hq>/agents`, else `<state>/packages`.
+2026-10-14). Agents: `$HQ_AGENTS`, else `<hq>/agents`, else `<state>/packages`. An agent's role is `<agents>/<name>/role`
+and its life the folder around it; an agent without `role/` is the older layout (the folder is the role, the life
+is `<state>/agents/<name>`).
 
 ## Kernel files
 
@@ -50,10 +53,10 @@ Every tool finds the folders the same way: `$HQ_STATE`, else `<hq>/state`, else 
 | `bin/hq-cost` | python | Cost ledger: syncs request usage from `~/.claude/projects` into `cost.db`; `tag` records each hq session (SessionStart hook); reports by agent, version, model, effort | you, launchd `dev.hq.cost`, the hook `bin/hq` adds |
 | `bin/hq-ask` | python | One-shot `hq <agent>` with `--output-format json`: prints the answer, keeps agent + directory (or `--as NAME`) → session in `~/.config/hq/ask.json` so `-c` resumes it with the same project/model/effort; `HQ_VIA=ask` | you, scripts, Claude Code sessions |
 | `bin/hq-remote` | python | Other machines over ssh: `add`/`ls`/`rm` (`~/.config/hq/remotes.json`); `ask AGENT@MACHINE` (from hq-ask): snapshot the working tree as a commit, push it to a scratch clone there, run `hq ask` there in a worktree, fetch the result branch and copy `.hq-out` back. Its agent side is `_repo` and `_run` | hq-ask, over ssh on the other machine |
-| `bin/hq-memory` | python | Memory search: indexes the state folder's markdown (memory, learned skills, shared/) in an in-memory FTS5 table per search, prints `path:line` + passage | you, agents (PROTOCOL.md; allowed without a prompt in `hq` runs) |
+| `bin/hq-memory` | python | Memory search: indexes the agents' memory and private skills and the state folder's shared/ in an in-memory FTS5 table per search, prints `path:line` + passage | you, agents (PROTOCOL.md; allowed without a prompt in `hq` runs) |
 | `bin/hq-sched` | python | Scheduled jobs: cron parser, `jobs.json` per agent, `tick` starts due jobs as detached `hq <agent> "task"` runs (`HQ_VIA=schedule`), catches up once after sleep; launchd `dev.hq.sched` | you, launchd every minute |
-| `bin/hq-state` | python | The state repo: sqlite → text dumps, commit and push state, then push every agent | you |
-| `bin/hq-new` | bash | Scaffolds a new agent as its own repo in the agents folder, plus its state skeleton | you, the instructor agent |
+| `bin/hq-state` | python | Commits what was lived: sqlite → text dumps, commit and push the state repo and the agents repo, then every role | you |
+| `bin/hq-new` | bash | Scaffolds `agents/<name>/`: `role/` as its own repo, memory folders next to it | you, the instructor agent |
 | `bin/project-id` | python | Directory → project ID from `projects.json` (remotes and paths as aliases); `--register` | `bin/hq`, the adapter, agents |
 | `bin/hq-bridge` | python (uv script) | Discord: a channel per agent, a thread per task; runs `hq <agent>` and resumes the thread's session; launchd `dev.hq.bridge` | launchd |
 | `bin/hq-send` | bash | Delivers a result: into the Discord thread when inside one, else Telegram | agents |
@@ -72,8 +75,8 @@ Packages never hold absolute paths. `bin/hq` and the adapter fill these in at ru
 | `{{HQ}}` | the kernel repo | `HQ_ROOT` |
 | `{{AGENT}}` | the agent's name | `HQ_AGENT` |
 | `{{AGENT_DIR}}` | the pinned snapshot this run uses | `HQ_AGENT_DIR` |
-| `{{PACKAGE}}` | the agent's live repo (where learned skills are written) | |
-| `{{HOME_DIR}}` / `{{HOME_REAL}}` | its state folder `<state>/agents/<name>`; the same with symlinks resolved, for permission rules | `HQ_AGENT_HOME` |
+| `{{PACKAGE}}` | the agent's live `role/` (where learned skills are written) | |
+| `{{HOME_DIR}}` / `{{HOME_REAL}}` | the agent's own folder `<agents>/<name>` (memory, data, files); the same with symlinks resolved, for permission rules | `HQ_AGENT_HOME` |
 | `{{STATE}}` / `{{AGENTS}}` | the state folder; the agents folder | `HQ_STATE`, `HQ_AGENTS` |
 | `{{USER_HOME}}` | `$HOME` | |
 
@@ -102,8 +105,8 @@ bridge, `HQ_VIA=discord` (`schedule` from hq-sched, plus `HQ_SCHED_JOB`; `ask` f
 → the next run's fingerprint differs → `hq-pkg` checks it → snapshot + commit to `agents/<name>` →
 `hq push <name>` or `hq-state commit` pushes it. Running sessions keep their snapshot.
 
-**State changes** (memory, data) → written straight to `state/agents/<name>/` → `hq-state commit` dumps the
-databases and commits and pushes the state repo.
+**What was lived changes** (memory, data) → written straight to `agents/<name>/` → `hq-state commit` dumps the
+databases and commits and pushes the agents repo and the state repo.
 
 **`hq ask house@mini` from another machine** → hq-ask hands it to hq-remote → in a git repo: working tree → commit
 (temp index) → `git push` over ssh to `~/.config/hq/handoff/<repo>/repo` on mini → ssh `hq remote _run`: worktree on

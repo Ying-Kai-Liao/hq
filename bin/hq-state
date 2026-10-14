@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""hq-state — the state folder's own git repo: memory, data, learned skills, user.md, projects.
+"""hq-state — commit what hq and its agents have lived: two private repos, plus each agent's role.
 
   hq-state path      print the state folder ($HQ_STATE, else <hq>/state, else ~/.hq)
-  hq-state dump      write every agents/*/data/*.db as a text dump next to it (<name>.sql), for git
-  hq-state commit    dump, then commit everything that changed and push if there is a remote; then commit and
-                     push every agent's own repo (hq-pkg push --all)
+  hq-state dump      write every agent's data/*.db as a text dump next to it (<name>.sql), for git
+  hq-state commit    dump, then commit and push (when there is a remote) the state folder (hq's knowledge: user.md,
+                     projects, agents.json, rules) and the agents folder (each agent's memory and data; role/ and
+                     files/ are not in it); then commit and push every agent's role repo (hq-pkg push --all)
 
 Databases are committed as dumps, not binaries: they diff, merge by hand, and restore with
 `sqlite3 NEW.db < NAME.sql`. The state repo holds personal data; keep its remote private.
@@ -19,11 +20,13 @@ from pathlib import Path
 HQ = Path(os.environ.get('HQ_ROOT') or os.path.dirname(os.path.dirname(
     os.path.normpath(os.path.join(os.environ.get('PWD') or os.getcwd(), sys.argv[0])))))
 STATE = Path(os.environ.get('HQ_STATE') or next((p for p in (HQ / 'state', Path.home() / '.hq') if p.is_dir()), HQ / 'state'))
+AGENTS = Path(os.environ.get('HQ_AGENTS') or (HQ / 'agents' if (HQ / 'agents').is_dir() else STATE / 'packages'))
 
 
 def dump():
     n = 0
-    for db in sorted(STATE.glob('agents/*/data/*.db')):
+    dbs = {p.resolve(): p for p in [*AGENTS.glob('*/data/*.db'), *STATE.glob('agents/*/data/*.db')]}
+    for db in sorted(dbs.values()):
         out = db.with_suffix('.sql')
         src = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
         snap = sqlite3.connect(':memory:')
@@ -36,33 +39,40 @@ def dump():
         snap.close()
         tmp.replace(out)
         n += 1
-        print(f'dumped {db.relative_to(STATE)} -> {out.name}')
+        print(f'dumped {db.parent.parent.name}/data/{db.name} -> {out.name}')
     return n
 
 
-def git(*args, check=True):
-    return subprocess.run(['git', *args], cwd=STATE, capture_output=True, text=True, check=check)
+def git(repo, *args, check=True):
+    return subprocess.run(['git', *args], cwd=repo, capture_output=True, text=True, check=check)
+
+
+def commit_repo(repo, label):
+    if not (repo / '.git').exists():
+        print(f'hq-state: {repo} is not a git repo; skipped')
+        return
+    git(repo, 'add', '-A')
+    if git(repo, 'diff', '--cached', '--quiet', check=False).returncode == 0:
+        print(f'hq-state: {label}: nothing changed')
+        return
+    git(repo, 'commit', '-q', '-m', f'{label}: {dt.datetime.now():%Y-%m-%d %H:%M}')
+    print(f'hq-state: {label}: committed')
+    if git(repo, 'remote', check=False).stdout.strip():
+        r = git(repo, 'push', '-q', check=False)
+        print(f'hq-state: {label}: pushed' if r.returncode == 0 else f'hq-state: {label}: push failed: {r.stderr.strip()}')
 
 
 def commit():
     # which agents this install has, and their links, so another Mac can install them (hq-pkg install --saved)
     subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'save'], env={**os.environ, 'HQ_STATE': str(STATE)})
-    if not (STATE / '.git').exists():
-        sys.exit(f'hq-state: {STATE} is not a git repo')
     dump()
-    git('add', '-A')
-    if git('diff', '--cached', '--quiet', check=False).returncode == 0:
-        print('hq-state: nothing changed')
-        return
-    git('commit', '-q', '-m', f'state: {dt.datetime.now():%Y-%m-%d %H:%M}')
-    print('hq-state: committed')
-    if git('remote', check=False).stdout.strip():
-        r = git('push', '-q', check=False)
-        print('hq-state: pushed' if r.returncode == 0 else f'hq-state: push failed: {r.stderr.strip()}')
+    commit_repo(STATE, 'state')
+    if AGENTS.resolve() != STATE.resolve() and (AGENTS / '.git').exists():
+        commit_repo(AGENTS, 'agents')
 
 
 def push_agents():
-    """Agents are their own repos (packages/, ignored here): commit and push each one along with the state."""
+    """Each agent's role is its own repo (ignored by both): commit and push each one along with the rest."""
     subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'push', '--all'], env={**os.environ, 'HQ_STATE': str(STATE)})
 
 

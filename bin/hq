@@ -58,8 +58,9 @@ case $1 in
   schedule)           shift; exec "$HQ/bin/hq-sched" "${@:-ls}" ;;
 esac
 
-# The package folder of an installed agent: the agents folder first, then the repo's own agents/.
-agent_dir() { for d in "$HQ_AGENTS/$1" "$HQ/agents/$1"; do [[ -f $d/agent.md ]] && { echo "$d"; return; }; done; }
+# An agent is a folder in the agents folder: its role (role/, its own repo: agent.md, skills, tools) next to its life
+# (memory/, data/, files/). Older layouts: the role is the folder itself and the life is <state>/agents/<name>.
+agent_dir() { for d in "$HQ_AGENTS/$1/role" "$HQ_AGENTS/$1" "$HQ/agents/$1"; do [[ -f $d/agent.md ]] && { echo "$d"; return; }; done; }
 
 if [[ $1 == ls ]]; then
   "$HQ/bin/hq-pkg" list --json | python3 -c '
@@ -73,7 +74,7 @@ fi
 agent=$1; shift
 src_pkg=$(agent_dir "$agent")
 [[ -n $src_pkg ]] || { echo "hq: no agent '$agent' (try: hq ls, or hq install <github-link>)" >&2; exit 1; }
-home="$HQ_STATE/agents/$agent"
+if [[ $src_pkg == */role ]]; then home=${src_pkg%/role}; else home="$HQ_STATE/agents/$agent"; fi
 mkdir -p "$home/memory/projects" "$home/memory/sessions"
 
 # The pinned package (prompt.md = agent.md body + PROTOCOL.md). If versioning itself breaks, run the live folder

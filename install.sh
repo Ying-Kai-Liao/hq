@@ -6,9 +6,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd -P)"
 mkdir -p "$HOME/.local/bin"
 chmod +x "$ROOT/bin/"*
-# Everything lives in this folder, each part its own repo the kernel ignores: agents/ (one repo per agent) and
-# state/ (memory, data, user.md, projects: your private hq-state repo). $HQ_STATE / $HQ_AGENTS override; an older
-# install with ~/.hq keeps it.
+# Everything lives in this folder, each part its own repo the kernel ignores: agents/ (your agents: each one's
+# memory and data, in a private repo of yours, with its role/ as its own repo inside) and state/ (hq's knowledge:
+# user.md, projects, agents.json; your private hq-state repo). On a new Mac clone both here first, then run this:
+# it installs each agent's role from agents.json. $HQ_STATE / $HQ_AGENTS override; an older ~/.hq install keeps it.
 if [ -n "${HQ_STATE:-}" ]; then STATE=$HQ_STATE
 elif [ -d "$ROOT/state" ] || [ ! -d "$HOME/.hq" ]; then STATE=$ROOT/state
 else STATE=$HOME/.hq; fi

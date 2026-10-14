@@ -93,10 +93,17 @@ def installed():
     """{name: package folder}: the agents folder first, then the repo's own agents/ (older installs)."""
     out = {}
     for root in (AGENTS, HQ / 'agents'):
-        for f in sorted(root.glob('*/agent.md')) if root.is_dir() else []:
-            if not f.parent.name.startswith('.'):
-                out.setdefault(f.parent.name, f.parent)
+        for d in sorted(root.iterdir()) if root.is_dir() else []:
+            pkg = d / 'role' if (d / 'role' / 'agent.md').is_file() else d   # role/ next to the agent's life
+            if not d.name.startswith('.') and (pkg / 'agent.md').is_file():
+                out.setdefault(d.name, pkg)
     return out
+
+
+def life(agent):
+    """Where an agent's life is (memory, data, files): its folder in the agents folder, next to role/; older layouts:
+    <state>/agents/<name>."""
+    return AGENTS / agent if (AGENTS / agent / 'role').is_dir() else STATE_ROOT / 'agents' / agent
 
 
 def agent_home(agent):
@@ -117,7 +124,8 @@ def package_files(home):
 
 
 def fingerprint(home):
-    h = hashlib.sha1(f'format {FORMAT}\nstate {STATE_ROOT}\n'.encode())   # .home names the state folder
+    where = home.parent if home.name == 'role' else STATE_ROOT
+    h = hashlib.sha1(f'format {FORMAT}\nstate {where}\n'.encode())   # .home names where the life is
     for p, label in [*((p, p.relative_to(home)) for p in package_files(home)),
                      (HQ / 'shared' / 'PROTOCOL.md', 'PROTOCOL.md')]:
         st = p.stat()
@@ -213,7 +221,7 @@ def snapshot(agent, home, version):
     (tmp / 'prompt.md').write_text(f'{body.strip()}\n\n{protocol}')
     if not (tmp / 'settings.json').exists():
         (tmp / 'settings.json').write_text('{}\n')
-    (tmp / '.home').write_text(f'{STATE_ROOT}/agents/{agent}\n')
+    (tmp / '.home').write_text(f'{life(agent)}\n')
     (tmp / '.meta.json').write_text(json.dumps({'agent': agent, 'version': version, 'made': time.time(),
                                                 'needs': needs(home)}))
     for root, _, files in os.walk(tmp):   # read-only files: a run can't edit its own snapshot by accident
@@ -460,7 +468,7 @@ def share_problems(home):
 
 def cmd_promote(agent, skill):
     home = agent_home(agent)
-    src = STATE_ROOT / 'agents' / agent / 'skills' / 'learned' / skill
+    src = life(agent) / 'skills' / 'learned' / skill
     dest = home / 'skills' / 'learned' / skill
     if not (src / 'SKILL.md').is_file():
         die(f'no learned skill {src}/SKILL.md')
@@ -495,7 +503,8 @@ def git(home, *args, check=False, timeout=120):
 def owned(home):
     """True when the agent has a history of its own: it lives in the agents folder and is inside a git repo.
     The repo's legacy agents/ is never committed to (that is the public kernel repo)."""
-    return home.parent == AGENTS and git(home, 'rev-parse', '--is-inside-work-tree').stdout.strip() == 'true'
+    inside = home.parent == AGENTS or (home.name == 'role' and home.parent.parent == AGENTS)
+    return inside and git(home, 'rev-parse', '--is-inside-work-tree').stdout.strip() == 'true'
 
 
 def repo_root(home):
@@ -547,10 +556,12 @@ def cmd_install(link, name=None):
             git(checkout, 'checkout', '-q', ref, check=True)
         if not (checkout / path / 'agent.md').is_file():
             die(f'{link}: no agent.md in {path}/')
-        (AGENTS / name).symlink_to(checkout / path)
+        (AGENTS / name).mkdir(exist_ok=True)   # may already hold its life (memory, data) from the agents repo
+        (AGENTS / name / 'role').symlink_to(checkout / path)
     else:
-        git(AGENTS, 'clone', '-q', url, name, check=True, timeout=600)
-        home = AGENTS / name
+        (AGENTS / name).mkdir(exist_ok=True)
+        git(AGENTS / name, 'clone', '-q', url, 'role', check=True, timeout=600)
+        home = AGENTS / name / 'role'
         if ref:
             git(home, 'checkout', '-q', ref, check=True)
         if not (home / 'agent.md').is_file():
@@ -558,8 +569,8 @@ def cmd_install(link, name=None):
             die(f'{link} has no agent.md at its root; for an agent in a folder, link .../tree/<ref>/<folder>')
         if not (home / '.gitignore').exists():
             (home / '.gitignore').write_text(GITIGNORE)
-    home = AGENTS / name
-    state = STATE_ROOT / 'agents' / name
+    home = AGENTS / name / 'role'
+    state = AGENTS / name
     for d in ('memory/projects', 'memory/sessions'):
         (state / d).mkdir(parents=True, exist_ok=True)
     try:

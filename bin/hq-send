@@ -16,7 +16,7 @@ as=${HQ_AGENT:-hq}
 root="$(cd "$(dirname "$0")/.." && pwd)"
 state=${HQ_STATE:-$([[ -d $root/state ]] && echo "$root/state" || echo "$HOME/.hq")}
 agents=${HQ_AGENTS:-$([[ -d $root/agents ]] && echo "$root/agents" || echo "$state/packages")}
-card="$agents/$as/agent.md"
+card="$agents/$as/role/agent.md"; [[ -f $card ]] || card="$agents/$as/agent.md"
 [[ -f $card ]] || card="$(dirname "$0")/../agents/$as/agent.md"
 [[ -f $card ]] && name=$(sed -n 's/^display_name:[[:space:]]*//p' "$card" | head -1) && [[ -n $name ]] && as=$name
 caption=""

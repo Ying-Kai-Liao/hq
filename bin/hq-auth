@@ -44,9 +44,10 @@ AGENTS = Path(os.environ.get('HQ_AGENTS') or (HQ / 'agents' if (HQ / 'agents').i
 def agent_dirs():
     out = {}
     for root in (AGENTS, HQ / 'agents'):
-        for f in sorted(root.glob('*/agent.md')) if root.is_dir() else []:
-            if not f.parent.name.startswith('.'):
-                out.setdefault(f.parent.name, f.parent)
+        for d in sorted(root.iterdir()) if root.is_dir() else []:
+            pkg = d / 'role' if (d / 'role' / 'agent.md').is_file() else d   # role/ next to the agent's life
+            if not d.name.startswith('.') and (pkg / 'agent.md').is_file():
+                out.setdefault(d.name, pkg)
     return out
 AUTH = Path(os.environ.get('HQ_AUTH') or Path.home() / '.config' / 'hq' / 'auth.json')
 LOG = AUTH.with_name('auth.log')   # every secret handed out: when, to whom, for which service; never the value
