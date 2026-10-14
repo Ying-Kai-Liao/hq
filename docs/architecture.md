@@ -38,7 +38,7 @@ Open: whether projects are a level of their own.
 | **Plugin** | A capability: a skill, the tools it drives, and the software they need | inside an agent's `skills/` + `tools/` today | partly: no manifest or `requires` yet |
 | **Role** (package) | What an agent is: identity (`agent.md`), settings, capabilities, its plugins, the skills it learned | its own git repo, `agents/<name>/role/` | built: versioned, snapshotted, committed |
 | **Life** | What an agent has lived: memory, data, files, jobs | next to its role, `agents/<name>/` (the private hq-agents repo; files/ not in git) | built: never snapshotted |
-| **State** | What hq has lived: user.md, projects, agents.json, rules | `state/` in the hq folder, `$HQ_STATE` (private hq-state repo) | built: never snapshotted |
+| **State** | What hq has lived: user.md, projects, agents.json, rules | `state/` in the hq folder (private hq-state repo) | built: never snapshotted |
 | **Service** | Something several agents may use: an MCP server, an API, a login | `shared/services/<name>.json` | built |
 | **Grant** | Which agent may use which service, as which account | `~/.config/hq/auth.json` (local, never in the repo) | built |
 | **Environment** | The installed software a package's plugins need, built per machine | not yet | planned |
@@ -57,14 +57,16 @@ Rules that follow from it:
 ## Built
 
 **State folder** (2026-10-14). Memory, data, `user.md`, projects and `projects.json` live in
-`$HQ_STATE` (default `<hq>/state`), a git repo of its own. Databases are committed as text dumps (`hq-state dump`).
+`<home>/state` (`lib/hq_paths.py`), a git repo of its own. Databases are committed as text dumps (`hq-state dump`).
 Personal details moved out of the packages too (2026-10-14);
 `hq-pkg check --share` guards it. Third-party skills are linked from their repos (skills.json), never copied.
 Published 2026-10-14 with fresh history (MIT).
 
 **One folder** (2026-10-14). Agents and state moved into the hq folder, `agents/` and `state/`, each still its own
-repo and ignored by the kernel: one place to manage, the same repo boundaries. `~/.hq` stays as a link to `state/`
-and `state/packages` as one to `../agents`, for paths that still name them (launchd jobs, agents' own tools).
+repo and ignored by the kernel: one place to manage, the same repo boundaries. `~/.hq` is hq's stable
+address, a link to the hq folder; one resolver (`lib/hq_paths.py`, `HQ_HOME`) is the only code that knows where things
+are. Logs and caches moved to `~/Library/Logs/hq` and `~/Library/Caches/hq`; snapshots stay in `agents/.store` because
+an APFS clone only costs nothing on the same disk.
 
 **Agents as repos** (2026-10-14). The kernel repo ships no agents. Each agent is a git repo in the agents folder
 (`agents/` in the hq folder, ignored by the kernel; `<state>/agents.json` records each one's link so `install.sh` brings

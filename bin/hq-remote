@@ -13,7 +13,7 @@ machine's memory, accounts and tools; only the task, your code and its answer an
 Code handoff, when you ask from inside a git repo (--no-code skips it):
   1. Your working tree, uncommitted and untracked files included (not ignored ones), is snapshotted as a commit
      without touching your index or branch, and pushed over ssh into a scratch clone on the other machine
-     (~/.config/hq/handoff/), never into its own checkout of the project.
+     (~/Library/Caches/hq/handoff/), never into its own checkout of the project.
   2. The agent works in a worktree of it, on branch hq/<agent>/<id>, told which subfolder you were in; the clone
      has your origin, so it finds the same project. Whatever it leaves uncommitted is committed for it at the end.
   3. If it changed anything, the branch is fetched back into your repo as hq/<agent>/<id>. Its first commit is your
@@ -35,7 +35,7 @@ from pathlib import Path
 
 HQ = Path(__file__).resolve().parent.parent
 CONF = Path.home() / '.config/hq/remotes.json'
-HANDOFF = Path.home() / '.config/hq/handoff'
+HANDOFF = Path.home() / 'Library/Caches/hq/handoff'  # scratch clones and worktrees: rebuildable
 _loader = SourceFileLoader('hq_ask', str(HQ / 'bin/hq-ask'))
 ask = importlib.util.module_from_spec(importlib.util.spec_from_loader('hq_ask', _loader))
 _loader.exec_module(ask)  # conversations are kept with hq ask's

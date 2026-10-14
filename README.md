@@ -64,7 +64,7 @@ On every spawn it resolves the project, puts it and the agent's long-term memory
 agent stops without writing its session file, asks it to once.
 
 ## Agents
-Each agent is a folder in the **agents folder** (`$HQ_AGENTS`, default `agents/` in the hq folder): its role is a git
+Each agent is a folder in the **agents folder** (`agents/` in the hq folder): its role is a git
 repo in `agents/<name>/role/`, its life (memory, data, files) is next to it.
 Whoever changes it (you, a code agent, or the agent itself writing a learned skill) changes that checkout; every
 version that passes its checks is committed there automatically, so its history is the agent's history.
@@ -131,8 +131,10 @@ Everything is in the hq folder, laid out by what each thing is (docs/architectur
 have what they **are** (shareable, versioned) and what they **have lived** (private). The kernel is what hq is; `state/`
 is what hq has lived (who it works for, projects, the team, rules). Each agent is a folder in `agents/`: `role/` is
 what it is (its own repo), and next to it what it has lived: `memory/`, `data/`, `files/`. The kernel ignores
-`agents/` and `state/`, so `git pull` only ever touches the kernel. `$HQ_AGENTS` and `$HQ_STATE` put them elsewhere;
-`~/.hq` stays as a link to `state/`, and `state/agents` as a link to `agents/`, for paths from before 2026-10-14.
+`agents/` and `state/`, so `git pull` only ever touches the kernel. `~/.hq` is hq's stable address, a link to the hq
+folder (made by `install.sh`), so the folder can live anywhere, an external disk included; `HQ_HOME` points somewhere
+else instead. Machine-only things stay out of it: `~/.config/hq` (secrets, grants, settings, the cost ledger),
+`~/Library/Logs/hq`, `~/Library/Caches/hq`.
 ```
 install.sh                 links ~/.local/bin/hq and installs the Claude Code plugin
 adapters/claude-code/      the Claude Code adapter (plugin); .claude-plugin/marketplace.json serves it
@@ -150,7 +152,7 @@ shared/
   PROTOCOL.md              memory rules, appended to every agent's prompt
   services/<name>.json     shared services (MCP servers, APIs, logins): how to start them, which secrets by name
 
-agents/                    the agents folder ($HQ_AGENTS; ignored by the kernel; your hq-agents repo)
+agents/                    the agents folder (ignored by the kernel; your hq-agents repo)
   <name>/                  one agent
     role/                  what it is: its own git repo (shareable)
       agent.md               identity, how it works, skill index
@@ -167,7 +169,7 @@ agents/                    the agents folder ($HQ_AGENTS; ignored by the kernel;
     jobs.json              its scheduled jobs (hq schedule)
   .store/                  snapshots of roles, one per version (same disk, so each is an APFS clone)
 
-state/                     what hq has lived ($HQ_STATE; ignored by the kernel; your hq-state repo)
+state/                     what hq has lived (ignored by the kernel; your hq-state repo)
   projects.json            project IDs → the git remotes / paths that belong to them
   agents.json              which agents you have and where their roles come from
   private-words            words no shared role may contain (hq-pkg check --share)

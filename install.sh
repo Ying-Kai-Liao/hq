@@ -9,21 +9,26 @@ chmod +x "$ROOT/bin/"*
 # Everything lives in this folder, each part its own repo the kernel ignores: agents/ (your agents: each one's
 # memory and data, in a private repo of yours, with its role/ as its own repo inside) and state/ (hq's knowledge:
 # user.md, projects, agents.json; your private hq-state repo). On a new Mac clone both here first, then run this:
-# it installs each agent's role from agents.json. $HQ_STATE / $HQ_AGENTS override; an older ~/.hq install keeps it.
-if [ -n "${HQ_STATE:-}" ]; then STATE=$HQ_STATE
-elif [ -d "$ROOT/state" ] || [ ! -d "$HOME/.hq" ]; then STATE=$ROOT/state
-else STATE=$HOME/.hq; fi
-if [ -n "${HQ_AGENTS:-}" ]; then AGENTS=$HQ_AGENTS
-elif [ "$STATE" = "$ROOT/state" ] || [ -d "$ROOT/agents" ]; then AGENTS=$ROOT/agents
-else AGENTS=$STATE/packages; fi
+# it installs each agent's role from agents.json.
+# ~/.hq is hq's stable address: a link to this folder, so tools and agents never need to know where it really is.
+# HQ_HOME points elsewhere instead (lib/hq_paths.py).
+if [ -z "${HQ_HOME:-}" ]; then
+  if [ ! -e "$HOME/.hq" ]; then ln -s "$ROOT" "$HOME/.hq" && echo "linked ~/.hq -> $ROOT"
+  elif [ ! -d "$HOME/.hq/state" ]; then
+    echo "install: ~/.hq is an older layout (state directly in it). Move its contents into $ROOT/state, its packages/"
+    echo "         into $ROOT/agents, then replace it with a link: ln -sfn \"$ROOT\" ~/.hq" >&2; exit 1
+  fi
+fi
+eval "$(python3 "$ROOT/lib/hq_paths.py" --sh)"
+STATE=$HQ_STATE AGENTS=$HQ_AGENTS
 mkdir -p "$STATE/shared/projects" "$AGENTS"
 [ -f "$STATE/projects.json" ] || echo '{"projects": {}}' > "$STATE/projects.json"
-echo "state folder: $STATE · agents folder: $AGENTS"
+echo "hq home: $HQ_HOME · state: $STATE · agents: $AGENTS"
 
 # A state folder cloned from another Mac lists its agents in agents.json: install the missing ones (and their
 # third-party skills); then fetch anything linked that isn't downloaded yet.
-HQ_STATE=$STATE HQ_AGENTS=$AGENTS "$ROOT/bin/hq-pkg" install --saved || echo "note: some agents didn't install; see above"
-HQ_STATE=$STATE HQ_AGENTS=$AGENTS "$ROOT/bin/hq-pkg" fetch --all || echo "note: some skills didn't download; each agent retries on its first run"
+"$ROOT/bin/hq-pkg" install --saved || echo "note: some agents didn't install; see above"
+"$ROOT/bin/hq-pkg" fetch --all || echo "note: some skills didn't download; each agent retries on its first run"
 
 ln -sfn "$ROOT/bin/hq" "$HOME/.local/bin/hq"
 echo "linked hq -> $HOME/.local/bin/hq"

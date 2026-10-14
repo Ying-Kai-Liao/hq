@@ -8,8 +8,8 @@ import type { EngineInterface, Register } from 'claude-code'
 //   turn.step          the agent's `effort:` (agent.md frontmatter) on its model requests; `model:` is set at register
 //   classic.SubagentStop  nudge once if the agent didn't write its session file
 //   /hq, mcp__hq__invoke  list agents; call one with an explicit project
-// Packages come from hq_path (default ~/Workspace/hq); memory and data from state_path (default $HQ_STATE or ~/.hq;
-// bin/hq-pkg and bin/project-id read $HQ_STATE / <hq>/state / ~/.hq, so set HQ_STATE rather than a different state_path).
+// The kernel comes from hq_path (default ~/Workspace/hq); agents and state from HQ_HOME (default ~/.hq), as every
+// kernel tool finds them (lib/hq_paths.py).
 
 type Spawned = { agent: string; project: string; startedMs: number; isNudged: boolean }
 
@@ -37,14 +37,14 @@ async function hqRoot($: EngineInterface, configured: unknown): Promise<string> 
   return (set || `${home}/Workspace/hq`).replace(/^~(?=\/)/, home)
 }
 
-// State (memory, data, learned skills, user.md, projects): the state_path option, else $HQ_STATE, else <hq>/state,
-// else ~/.hq (older installs). Its tree: agents/<name>/memory, shared/…
-async function stateRoot($: EngineInterface, configured: unknown, hq: string): Promise<string> {
-  const home = (await $.env.get('HOME')) ?? ''
-  const set = (typeof configured === 'string' ? configured.trim() : '') || ((await $.env.get('HQ_STATE')) ?? '')
-  if (set) return set.replace(/^~(?=\/)/, home)
-  if (await $.fs.exists(`${hq}/state`)) return `${hq}/state`
-  return (await $.fs.exists(`${home}/.hq`)) ? `${home}/.hq` : `${hq}/state`
+// Where things are, from the kernel's one resolver (lib/hq_paths.py): HQ_HOME (~/.hq by default) holding state/ and
+// agents/, each as an address and with symlinks resolved (_REAL, what permission rules are matched against).
+async function hqPaths($: EngineInterface, hq: string): Promise<Record<string, string>> {
+  const run = await $.process.run(['/usr/bin/python3', `${hq}/lib/hq_paths.py`, '--json'], { timeoutMs: 10_000 })
+  try {
+    if (run.exitCode === 0) return JSON.parse(run.stdout) as Record<string, string>
+  } catch {}
+  return { HQ_STATE: `${hq}/state`, HQ_AGENTS: `${hq}/agents`, HQ_STATE_REAL: `${hq}/state`, HQ_AGENTS_REAL: `${hq}/agents` }
 }
 
 // Helpers that take $ must be top-level functions: the hooks loader refuses the whole module otherwise.
@@ -106,15 +106,13 @@ export const register: Register = (on, options) => {
       return result
     }
     const protocol = await $.fs.read(`${hq}/shared/PROTOCOL.md`)
-    state = await stateRoot($, options.state_path, hq)
-    agentsRoot =
-      ((await $.env.get('HQ_AGENTS')) ?? '') || ((await $.fs.exists(`${hq}/agents`)) ? `${hq}/agents` : `${state}/packages`)
+    const where = await hqPaths($, hq)
+    state = where.HQ_STATE
+    stateReal = where.HQ_STATE_REAL
+    agentsRoot = where.HQ_AGENTS
+    agentsReal = where.HQ_AGENTS_REAL
     installed = await listAgents($, hq)
     userHome = (await $.env.get('HOME')) ?? ''
-    const real = await $.process.run(['/bin/realpath', state], { timeoutMs: 5_000 })
-    stateReal = real.exitCode === 0 ? real.stdout.trim() : state
-    const realAgents = await $.process.run(['/bin/realpath', agentsRoot], { timeoutMs: 5_000 })
-    agentsReal = realAgents.exitCode === 0 ? realAgents.stdout.trim() : agentsRoot
     const packages = await resolvePackages($, hq)
     for (const [name, dir] of Object.entries(installed)) {
       const file = `${dir}/agent.md`
@@ -172,7 +170,7 @@ export const register: Register = (on, options) => {
       project = found.exitCode === 0 ? found.stdout.trim() : ''
     }
     const task = named ? e.prompt.slice(named[0].length) : e.prompt
-    if (!state) state = await stateRoot($, options.state_path, hq)
+    if (!state) state = (await hqPaths($, hq)).HQ_STATE
     const memoryFile = `${lifeOf(agent, hq)}/memory/MEMORY.md`
     const memory = (await $.fs.exists(memoryFile)) ? await $.fs.read(memoryFile) : ''
     const today = new Date().toISOString().slice(0, 10)
@@ -202,7 +200,7 @@ export const register: Register = (on, options) => {
     const run = spawned.get(e.agent_id)
     if (!run || !run.project || run.isNudged || e.stop_hook_active) return next(e)
     const hq = await hqRoot($, options.hq_path)
-    if (!state) state = await stateRoot($, options.state_path, hq)
+    if (!state) state = (await hqPaths($, hq)).HQ_STATE
     const file = `${lifeOf(run.agent, hq)}/memory/sessions/${run.project}.md`
     const isWritten = (await $.fs.exists(file)) && (await $.fs.stat(file)).mtimeMs >= run.startedMs
     if (isWritten) {

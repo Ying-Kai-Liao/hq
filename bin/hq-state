@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """hq-state — commit what hq and its agents have lived: two private repos, plus each agent's role.
 
-  hq-state path      print the state folder ($HQ_STATE, else <hq>/state, else ~/.hq)
+  hq-state path      print the state folder (<home>/state; lib/hq_paths.py)
   hq-state dump      write every agent's data/*.db as a text dump next to it (<name>.sql), for git
   hq-state commit    dump, then commit and push (when there is a remote) the state folder (hq's knowledge: user.md,
                      projects, agents.json, rules) and the agents folder (each agent's memory and data; role/ and
@@ -19,8 +19,9 @@ from pathlib import Path
 
 HQ = Path(os.environ.get('HQ_ROOT') or os.path.dirname(os.path.dirname(
     os.path.normpath(os.path.join(os.environ.get('PWD') or os.getcwd(), sys.argv[0])))))
-STATE = Path(os.environ.get('HQ_STATE') or next((p for p in (HQ / 'state', Path.home() / '.hq') if p.is_dir()), HQ / 'state'))
-AGENTS = Path(os.environ.get('HQ_AGENTS') or (HQ / 'agents' if (HQ / 'agents').is_dir() else STATE / 'packages'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+from hq_paths import paths  # noqa: E402  the one place that knows where hq's folders are
+STATE, AGENTS = paths()['HQ_STATE'], paths()['HQ_AGENTS']
 
 
 def dump():
@@ -64,7 +65,7 @@ def commit_repo(repo, label):
 
 def commit():
     # which agents this install has, and their links, so another Mac can install them (hq-pkg install --saved)
-    subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'save'], env={**os.environ, 'HQ_STATE': str(STATE)})
+    subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'save'], env=os.environ)
     dump()
     commit_repo(STATE, 'state')
     if AGENTS.resolve() != STATE.resolve() and (AGENTS / '.git').exists():
@@ -73,7 +74,7 @@ def commit():
 
 def push_agents():
     """Each agent's role is its own repo (ignored by both): commit and push each one along with the rest."""
-    subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'push', '--all'], env={**os.environ, 'HQ_STATE': str(STATE)})
+    subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'push', '--all'], env=os.environ)
 
 
 def main(argv):

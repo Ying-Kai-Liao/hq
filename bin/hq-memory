@@ -17,13 +17,15 @@ import os, re, sqlite3, sys
 from pathlib import Path
 
 HQ = Path(__file__).resolve().parent.parent
-STATE = Path(os.environ.get('HQ_STATE') or next((p for p in (HQ / 'state', Path.home() / '.hq') if p.is_dir()), HQ / 'state'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+from hq_paths import paths  # noqa: E402  the one place that knows where hq's folders are
+STATE = paths()['HQ_STATE']
 
 
 def lives():
     """{agent: its life folder}: <hq>/agents/<name> next to role/, else <state>/agents/<name> (older layouts)."""
     out = {}
-    agents = Path(os.environ.get('HQ_AGENTS') or HQ / 'agents')
+    agents = paths()['HQ_AGENTS']
     for d in sorted(agents.iterdir()) if agents.is_dir() else []:
         if (d / 'role').is_dir():
             out[d.name] = d

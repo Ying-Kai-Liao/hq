@@ -7,7 +7,7 @@ reasons behind it are in [architecture.md](architecture.md); commands are in the
 
 ```
 hq/                               the kernel (this repo, public): what hq is. agents/ and state/ sit inside it, ignored
-hq/state/                         what hq has lived, $HQ_STATE: your private repo (<you>/hq-state); ~/.hq links here
+hq/state/                         what hq has lived, $HQ_STATE: your private repo (<you>/hq-state)
   shared/user.md                    who hq works for, read by every agent
   shared/projects/<id>/             codebase.md, decisions.md: per-project notes shared by agents
   projects.json                     project registry (bin/project-id)
@@ -31,15 +31,21 @@ hq/agents/                        the agents folder, $HQ_AGENTS: your private re
   auth.json  auth.log               grants and profiles (hq-auth); every secret handed out
   env                               bridge and Telegram settings
   cost.db                           the cost ledger (hq-cost)
-  remotes.json  handoff/            other machines (hq-remote); scratch clones and worktrees of callers' repos
+  remotes.json                      other machines (hq-remote)
   ask.json                          hq ask conversations: agent + directory or name → session
-  sched/                            last tick, last run per job, each run's output (hq-sched)
-  bridge/                           Discord thread → session map, logs, attachments
+  sched/                            last tick, last run per job (hq-sched)
+  bridge/                           Discord thread → session map, attachments
   monitor/  house/  bin/hq-uv       the monitor's samples; house's job state; uv copy with Full Disk Access
+~/Library/Logs/hq/                logs: bridge.log, sched/tick.log, sched/runs/<agent>/ (each scheduled run's output)
+~/Library/Caches/hq/              rebuildable: handoff/ (scratch clones and worktrees of callers' repos, hq-remote)
+~/.hq -> hq/                      hq's stable address (HQ_HOME): a link to the hq folder, wherever that really is
 ```
 
-Every tool finds the folders the same way: `$HQ_STATE`, else `<hq>/state`, else `~/.hq` (installs from before
-2026-10-14). Agents: `$HQ_AGENTS`, else `<hq>/agents`, else `<state>/packages`. An agent's role is `<agents>/<name>/role`
+Every tool asks one resolver, `lib/hq_paths.py` (bash: `eval "$(python3 lib/hq_paths.py --sh)"`; the plugin runs
+it with `--json`): `HQ_HOME`, else `~/.hq`, else the kernel folder; state is `<home>/state`, agents `<home>/agents`.
+It gives each path twice: the address (no symlinks resolved, so no volume name with spaces reaches prompts or Bash
+rules) and `_REAL` (resolved; what Claude Code matches file permission rules against). `HQ_STATE` and `HQ_AGENTS`
+are outputs, exported for agents' tools, not settings. An agent's role is `<agents>/<name>/role`
 and its life the folder around it; an agent without `role/` is the older layout (the folder is the role, the life
 is `<state>/agents/<name>`).
 
@@ -77,7 +83,7 @@ Packages never hold absolute paths. `bin/hq` and the adapter fill these in at ru
 | `{{AGENT_DIR}}` | the pinned snapshot this run uses | `HQ_AGENT_DIR` |
 | `{{PACKAGE}}` | the agent's live `role/` (where learned skills are written) | |
 | `{{HOME_DIR}}` / `{{HOME_REAL}}` | the agent's own folder `<agents>/<name>` (memory, data, files); the same with symlinks resolved, for permission rules | `HQ_AGENT_HOME` |
-| `{{STATE}}` / `{{AGENTS}}` | the state folder; the agents folder | `HQ_STATE`, `HQ_AGENTS` |
+| `{{STATE}}` / `{{AGENTS}}` | the state folder; the agents folder | `HQ_STATE`, `HQ_AGENTS` (also `HQ_HOME`) |
 | `{{USER_HOME}}` | `$HOME` | |
 
 Also set for a run: `HQ_AGENT_VERSION`, `HQ_MODEL`, `HQ_EFFORT`, `HQ_PROJECT` (read by `hq-cost tag`), and, from the
@@ -109,13 +115,13 @@ bridge, `HQ_VIA=discord` (`schedule` from hq-sched, plus `HQ_SCHED_JOB`; `ask` f
 databases and commits and pushes the agents repo and the state repo.
 
 **`hq ask house@mini` from another machine** → hq-ask hands it to hq-remote → in a git repo: working tree → commit
-(temp index) → `git push` over ssh to `~/.config/hq/handoff/<repo>/repo` on mini → ssh `hq remote _run`: worktree on
+(temp index) → `git push` over ssh to `~/Library/Caches/hq/handoff/<repo>/repo` on mini → ssh `hq remote _run`: worktree on
 `hq/house/<id>`, `hq ask house` there (acceptEdits, `CLAUDE_CODE_OAUTH_TOKEN` from its env file), leftovers committed →
 JSON answer back → `git fetch` the branch, `scp` `.hq-out/` to `./hq-out/<id>/`.
 
 **A scheduled job** → launchd runs `hq-sched tick` every minute → for each `jobs.json` job whose cron time fell since
 the last tick (at most a day back) and that isn't still running: `hq <agent> "task + scheduled note"` detached, with
-`--permission-mode` from `HQ_SCHED_PERMISSION_MODE` → output in `~/.config/hq/sched/runs/<agent>/`, delivery by `hq-send`.
+`--permission-mode` from `HQ_SCHED_PERMISSION_MODE` → output in `~/Library/Logs/hq/sched/runs/<agent>/`, delivery by `hq-send`.
 
 **Cost** → Claude Code writes transcripts → `hq-cost sync` (every 6 h, and before each report) → `cost.db`;
 `runs` (from the hook) and `hq:` subagent types attribute requests to agents.
@@ -132,6 +138,7 @@ the last tick (at most a day back) and that isn't still running: `hq <agent> "ta
 | Discord behaviour | `bin/hq-bridge`; delivery in `bin/hq-send` |
 | How memory is searched (what's indexed, ranking) | `bin/hq-memory` |
 | Scheduled jobs (cron syntax, catch-up, how a job runs) | `bin/hq-sched` |
+| Where hq's folders are (HQ_HOME, state, agents, logs, caches) | `lib/hq_paths.py`, nowhere else |
 | Calling agents on other machines, the code handoff | `bin/hq-remote` (`call` on the caller, `serve_run` on the agent's machine) |
 | Cost reports or prices | `bin/hq-cost` (`PRICES`) |
 | The scaffold for new agents | `bin/hq-new`, and the instructor agent's `new-agent` skill (in its own repo) |

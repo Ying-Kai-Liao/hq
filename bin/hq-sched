@@ -21,14 +21,17 @@ Mac slept through a due time, the job runs once on the next tick (if the miss wa
 
 Runs start with `--permission-mode` from HQ_SCHED_PERMISSION_MODE (default bypassPermissions, as for Discord tasks):
 no one is there to approve a tool call. The agent's settings.json allow/deny rules still apply.
-Machine state (last tick, last runs, outputs): ~/.config/hq/sched/.
+Machine state (last tick, last runs): ~/.config/hq/sched/. Logs (tick.log, each run's output): ~/Library/Logs/hq/sched/.
 """
 import datetime as dt, json, os, plistlib, re, subprocess, sys
 from pathlib import Path
 
 HQ = Path(__file__).resolve().parent.parent
-STATE = Path(os.environ.get('HQ_STATE') or next((p for p in (HQ / 'state', Path.home() / '.hq') if p.is_dir()), HQ / 'state'))
-MACHINE = Path.home() / '.config/hq/sched'
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+from hq_paths import paths  # noqa: E402  the one place that knows where hq's folders are
+STATE = paths()['HQ_STATE']
+MACHINE = Path.home() / '.config/hq/sched'  # last tick, last run per job
+LOGS = paths()['HQ_LOGS'] / 'sched'  # tick.log, one log per run
 LABEL = 'dev.hq.sched'
 PLIST = Path.home() / 'Library/LaunchAgents' / (LABEL + '.plist')
 LAUNCHER = Path.home() / '.config/hq/bin/hq-uv'  # uv with Full Disk Access, for a repo on an external disk
@@ -92,13 +95,13 @@ def next_time(c, after, limit=dt.timedelta(days=366)):
 # --- jobs -------------------------------------------------------------------------------------------------------------
 
 def agents():
-    pkgs = Path(os.environ.get('HQ_AGENTS') or (HQ / 'agents' if (HQ / 'agents').is_dir() else STATE / 'packages'))
+    pkgs = paths()['HQ_AGENTS']
     return sorted(p.name for p in pkgs.iterdir() if (p / 'agent.md').is_file() or (p / 'role' / 'agent.md').is_file()) \
         if pkgs.is_dir() else []
 
 
 def jobs_file(agent):
-    pkgs = Path(os.environ.get('HQ_AGENTS') or (HQ / 'agents' if (HQ / 'agents').is_dir() else STATE / 'packages'))
+    pkgs = paths()['HQ_AGENTS']
     return (pkgs / agent if (pkgs / agent / 'role').is_dir() else STATE / 'agents' / agent) / 'jobs.json'
 
 
@@ -144,7 +147,7 @@ def slug(text):
 
 def start(agent, job, now, why):
     """Start `hq AGENT task` detached; its output goes to a log file. Returns the log path."""
-    out = MACHINE / 'runs' / agent
+    out = LOGS / 'runs' / agent
     out.mkdir(parents=True, exist_ok=True)
     log = out / ('%s-%s.log' % (job['id'], now.strftime('%Y%m%d-%H%M')))
     task = ('%s\n\n(Scheduled job "%s" of %s, cron `%s`, %s. No one is watching this session: finish the task and '
@@ -204,19 +207,19 @@ def tick():
 # --- launchd ----------------------------------------------------------------------------------------------------------
 
 def install():
-    MACHINE.mkdir(parents=True, exist_ok=True)
+    LOGS.mkdir(parents=True, exist_ok=True)
     me = HQ / 'bin/hq-sched'
     argv = [str(LAUNCHER), 'run', '--quiet', '--script', str(me), 'tick'] if LAUNCHER.exists() else [str(me), 'tick']
     PLIST.write_bytes(plistlib.dumps({
         'Label': LABEL, 'ProgramArguments': argv, 'StartInterval': 60, 'RunAtLoad': True,
         'ProcessType': 'Background', 'WorkingDirectory': str(Path.home()),
-        'EnvironmentVariables': {'HOME': str(Path.home()), 'HQ_STATE': str(STATE),
+        'EnvironmentVariables': {'HOME': str(Path.home()), 'HQ_HOME': str(paths()['HQ_HOME']),
                                  'PATH': os.environ.get('PATH', '/usr/bin:/bin')},
-        'StandardOutPath': str(MACHINE / 'tick.log'), 'StandardErrorPath': str(MACHINE / 'tick.log')}))
+        'StandardOutPath': str(LOGS / 'tick.log'), 'StandardErrorPath': str(LOGS / 'tick.log')}))
     uid = os.getuid()
     subprocess.run(['launchctl', 'bootout', 'gui/%d/%s' % (uid, LABEL)], capture_output=True)
     subprocess.run(['launchctl', 'bootstrap', 'gui/%d' % uid, str(PLIST)], check=True)
-    print('installed %s: ticks every minute; log %s' % (PLIST, MACHINE / 'tick.log'))
+    print('installed %s: ticks every minute; log %s' % (PLIST, LOGS / 'tick.log'))
 
 
 def uninstall():
@@ -264,7 +267,7 @@ def log(agent=None, jid=None):
             state = 'running' if running(v.get('pid')) else 'done'
             print('%s  %-24s %-7s %s' % (v['at'], k, state, v['log'].replace(str(Path.home()), '~', 1)))
     if agent and jid:
-        runs = sorted((MACHINE / 'runs' / agent).glob(jid + '-*.log'))
+        runs = sorted((LOGS / 'runs' / agent).glob(jid + '-*.log'))
         if runs:
             print('\n' + runs[-1].read_text()[-3000:])
 

@@ -37,15 +37,9 @@ HQ="$(cd "$(dirname "$src")/.." && pwd)"
 
 [[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,19p' "$0" | sed 's/^#   //'; exit 0; }
 export HQ_ROOT=$HQ
-# State (memory, data, learned skills, user.md, projects) lives apart from the packages: $HQ_STATE, else <hq>/state,
-# else ~/.hq (older installs). Its tree: agents/<name>/memory, shared/…
-if [[ -z ${HQ_STATE:-} ]]; then
-  HQ_STATE=$HQ/state; [[ ! -d $HQ/state && -d $HOME/.hq ]] && HQ_STATE=$HOME/.hq
-fi
-export HQ_STATE
-# Installed agents, each its own git repo (bin/hq-pkg): $HQ_AGENTS, else <hq>/agents, else <state>/packages.
-if [[ -z ${HQ_AGENTS:-} ]]; then [[ -d $HQ/agents ]] && HQ_AGENTS=$HQ/agents || HQ_AGENTS=$HQ_STATE/packages; fi
-export HQ_AGENTS
+# Where things are, from the one place that knows (lib/hq_paths.py): HQ_HOME (~/.hq by default) holding agents/ (each
+# agent: role/ its repo, memory/ data/ files/ its life) and state/ (user.md, projects). Exported for agents' tools.
+eval "$(python3 "$HQ/lib/hq_paths.py" --sh)"
 
 case $1 in
   versions|pin|unpin|install|update|push|commit|history|restore|share|search) exec "$HQ/bin/hq-pkg" "$@" ;;

@@ -34,9 +34,10 @@ LABEL = 'dev.hq.bridge'
 # versioned Homebrew path that `brew upgrade uv` replaces
 LAUNCHER = Path.home() / '.config' / 'hq' / 'bin' / 'hq-uv'
 
-# Installed agents: $HQ_AGENTS, else <hq>/agents, else <state>/packages; each its own git repo.
-STATE_ROOT = Path(os.environ.get('HQ_STATE') or next((p for p in (HQ / 'state', Path.home() / '.hq') if p.is_dir()), HQ / 'state'))
-AGENTS = Path(os.environ.get('HQ_AGENTS') or (HQ / 'agents' if (HQ / 'agents').is_dir() else STATE_ROOT / 'packages'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+from hq_paths import paths  # noqa: E402  the one place that knows where hq's folders are
+STATE_ROOT, AGENTS = paths()['HQ_STATE'], paths()['HQ_AGENTS']  # <home>/state, <home>/agents
+LOG = paths()['HQ_LOGS'] / 'bridge.log'
 
 
 def agent_dirs():
@@ -100,6 +101,7 @@ def launcher():
 
 def install():
     STATE_DIR.mkdir(parents=True, exist_ok=True)
+    LOG.parent.mkdir(parents=True, exist_ok=True)
     argv = [LAUNCHER, 'run', '--quiet', '--script', HQ / 'bin' / 'hq-bridge'] if LAUNCHER.exists() else [HQ / 'bin' / 'hq-bridge']
     args = ''.join(f'<string>{a}</string>' for a in argv)
     plist = Path.home() / 'Library' / 'LaunchAgents' / f'{LABEL}.plist'
@@ -114,12 +116,12 @@ def install():
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>30</integer>
-  <key>StandardOutPath</key><string>{STATE_DIR}/bridge.log</string>
-  <key>StandardErrorPath</key><string>{STATE_DIR}/bridge.log</string>
+  <key>StandardOutPath</key><string>{LOG}</string>
+  <key>StandardErrorPath</key><string>{LOG}</string>
 </dict></plist>
 """)
     os.system(f'launchctl bootout gui/{os.getuid()}/{LABEL} 2>/dev/null; launchctl bootstrap gui/{os.getuid()} "{plist}"')
-    print(f'installed {plist}; logs in {STATE_DIR}/bridge.log')
+    print(f'installed {plist}; logs in {LOG}')
 
 
 def chunks(text, n=1900):

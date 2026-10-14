@@ -36,9 +36,9 @@ HQ = Path(os.environ.get('HQ_ROOT') or os.path.dirname(os.path.dirname(
     os.path.normpath(os.path.join(os.environ.get('PWD') or os.getcwd(), sys.argv[0])))))
 SERVICES = HQ / 'shared' / 'services'
 
-# Installed agents: $HQ_AGENTS, else <hq>/agents, else <state>/packages; each its own git repo.
-STATE_ROOT = Path(os.environ.get('HQ_STATE') or next((p for p in (HQ / 'state', Path.home() / '.hq') if p.is_dir()), HQ / 'state'))
-AGENTS = Path(os.environ.get('HQ_AGENTS') or (HQ / 'agents' if (HQ / 'agents').is_dir() else STATE_ROOT / 'packages'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+from hq_paths import paths  # noqa: E402  the one place that knows where hq's folders are
+STATE_ROOT, AGENTS = paths()['HQ_STATE'], paths()['HQ_AGENTS']  # <home>/state, <home>/agents
 
 
 def agent_dirs():
