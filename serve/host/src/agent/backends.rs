@@ -7,7 +7,7 @@
 //! back to the official ACP registry build (npx / uvx / downloaded binary).
 
 use crate::LockExt;
-use crate::agent::{node, registry};
+use crate::agent::{acp, node, registry};
 use crate::shell;
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -687,7 +687,11 @@ pub async fn launch_candidates(id: &str, progress: impl Fn(&str)) -> anyhow::Res
     }
     if out.is_empty() {
         let hint = h.map_or("Check that it's installed on this computer.", |h| h.setup);
-        anyhow::bail!("{} isn't set up on this computer. {hint}", h.map_or(id, |h| h.name));
+        let name = h.map_or(id, |h| h.name);
+        return Err(acp::Failure::error(
+            acp::FailureKind::NotSetUp,
+            format!("{name} isn't set up on this computer. {hint}"),
+        ));
     }
     Ok(out)
 }

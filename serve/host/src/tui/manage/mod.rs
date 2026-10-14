@@ -6,6 +6,7 @@
 #![allow(clippy::many_single_char_names)]
 
 mod agent;
+mod analytics;
 mod bot_chat;
 mod fields;
 mod market;
@@ -14,6 +15,7 @@ mod replies;
 mod routines;
 mod skill;
 
+pub use analytics::AnalyticsSheet;
 pub use memory::{MemoryMode, MemorySheet};
 pub use routines::local_zone;
 pub use skill::SkillSheet;

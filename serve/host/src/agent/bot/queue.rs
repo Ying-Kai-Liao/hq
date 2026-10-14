@@ -230,14 +230,14 @@ impl Actor {
 
     pub(super) fn start_failed(&mut self, e: &anyhow::Error) {
         if self.turn.is_some() {
-            self.report_turn(false, true, "start_failed");
+            self.report_turn(false, Some(e), "start_failed");
         }
         self.finish_routine(crate::routines::Status::Failed, Some(format!("Could not start routine: {e:#}")), None);
         self.complete_request(Err(anyhow!("couldn't start recipient: {e:#}")), false);
         self.complete_group(Err(anyhow!("couldn't start: {e:#}")));
         // `{:#}` keeps the reason ("starting `npx …`: EACCES"), not just "agent process exited".
         let mut msg = format!("Couldn't start the agent: {e:#}");
-        if e.to_string().to_lowercase().contains("auth")
+        if crate::agent::acp::needs_sign_in(e)
             && let Some(h) = crate::agent::backends::harness(&self.cfg.backend)
         {
             msg = format!("{0} needs you to sign in. Open {0} in Marketplace to sign in.", h.name);

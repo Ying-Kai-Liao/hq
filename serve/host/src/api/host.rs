@@ -162,6 +162,10 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             crate::analytics::track(hub, &b)?;
             json!({})
         }
+        "reportError" => {
+            crate::analytics::errors::report(hub, &b)?;
+            json!({})
+        }
         "setScreenEnabled" => {
             hub.screen.set_enabled(&hub.store, b["enabled"].as_bool().unwrap_or(false)).await?;
             hub.screen.state()

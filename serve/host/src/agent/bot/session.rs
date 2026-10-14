@@ -300,7 +300,8 @@ impl Actor {
         if let Some(c) = self.conn.take() {
             c.acp.kill().await;
         }
-        bail!("the agent didn't answer {method} within {}s", SESSION_TIMEOUT.as_secs())
+        let message = format!("the agent didn't answer {method} within {}s", SESSION_TIMEOUT.as_secs());
+        Err(acp::Failure::error(acp::FailureKind::Timeout, message))
     }
 
     /// Memory failed to start: said once per actor, then the bot works without it.
@@ -411,7 +412,8 @@ pub(crate) async fn start_agent(command: &str, cwd: &str, env: &[(String, String
         }
         Err(_) => {
             acp.kill().await;
-            return Err(anyhow!("the agent didn't answer the ACP handshake within {}s", budget.as_secs()));
+            let message = format!("the agent didn't answer the ACP handshake within {}s", budget.as_secs());
+            return Err(acp::Failure::error(acp::FailureKind::Timeout, message));
         }
     };
     let sessions = SessionCaps {

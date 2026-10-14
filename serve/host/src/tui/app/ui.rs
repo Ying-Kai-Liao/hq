@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::time::Instant;
 
 use super::super::manage::{
-    AgentSetup, BotChatSheet, Fields, Market, MemorySheet, RoutineForm, RoutineList, SkillSheet,
+    AgentSetup, AnalyticsSheet, BotChatSheet, Fields, Market, MemorySheet, RoutineForm, RoutineList, SkillSheet,
 };
 use super::{Editor, Mark};
 
@@ -56,12 +56,13 @@ pub enum Action {
     Usage,
     CheckUpdate,
     Analytics,
+    AboutAnalytics,
     Keys,
 }
 
 pub const NEW_GROUP: &str = "New group chat";
 
-pub const ACTIONS: [(&str, &str, Action); 11] = [
+pub const ACTIONS: [(&str, &str, Action); 12] = [
     ("New bot…", "n", Action::NewBot),
     ("New group chat…", "m", Action::NewGroup),
     ("Extensions: agents, connectors, skills…", "A", Action::Market),
@@ -72,6 +73,7 @@ pub const ACTIONS: [(&str, &str, Action); 11] = [
     ("Usage", "U", Action::Usage),
     ("Check for updates", "", Action::CheckUpdate),
     ("Share usage analytics", "", Action::Analytics),
+    ("About usage analytics…", "", Action::AboutAnalytics),
     ("Keys", "?", Action::Keys),
 ];
 
@@ -258,6 +260,7 @@ pub enum Overlay {
     Agent(AgentSetup),
     Fields(Box<Fields>),
     Skill(SkillSheet),
+    Analytics(AnalyticsSheet),
 }
 
 pub struct Toast {
