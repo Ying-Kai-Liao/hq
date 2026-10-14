@@ -22,7 +22,17 @@ export function AnalyticsSheet() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--background)' }}>
       <ModalHeader title="Usage analytics" />
       <CardForm>
-        <CardSection>
+        <CardSection
+          footer={
+            <>
+              See the{' '}
+              <button style={{ color: 'var(--text)', textDecoration: 'underline' }} onClick={() => window.codync.app.openExternal(PRIVACY_POLICY)}>
+                Privacy Policy
+              </button>{' '}
+              for details.
+            </>
+          }
+        >
           {details.map((d) => (
             <div key={d.title} className="settings-row" style={{ alignItems: 'flex-start' }}>
               <span style={{ width: 20, display: 'flex', justifyContent: 'center', paddingTop: 2 }}>
@@ -34,11 +44,6 @@ export function AnalyticsSheet() {
               </div>
             </div>
           ))}
-        </CardSection>
-        <CardSection>
-          <button className="press" style={{ ...font('body'), color: 'var(--text)', alignSelf: 'flex-start' }} onClick={() => window.codync.app.openExternal(PRIVACY_POLICY)}>
-            Privacy Policy
-          </button>
         </CardSection>
       </CardForm>
     </div>

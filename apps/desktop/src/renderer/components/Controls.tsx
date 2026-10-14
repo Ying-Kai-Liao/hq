@@ -133,7 +133,7 @@ export function CardForm({ children, style }: { children: ReactNode; style?: CSS
  * A titled group of rows (ChatGPT's desktop settings): a small bold heading over a filled,
  * rounded group whose rows are split by inset hairlines.
  */
-export function CardSection({ title, footer, accessory, children }: { title?: string | null; footer?: string | null; accessory?: ReactNode; children: ReactNode }) {
+export function CardSection({ title, footer, accessory, children }: { title?: string | null; footer?: ReactNode; accessory?: ReactNode; children: ReactNode }) {
   const rows = Children.toArray(children)
   return (
     <section className="card-section">

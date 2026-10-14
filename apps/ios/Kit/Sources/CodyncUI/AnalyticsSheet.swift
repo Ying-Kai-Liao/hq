@@ -4,8 +4,6 @@ import SwiftUI
 /// Settings' info button beside Share usage analytics: everything it covers. The same text as the
 /// desktop app's and the terminal UI's, true to the privacy policy.
 public struct AnalyticsSheet: View {
-    @Environment(\.openURL) private var openURL
-
     private static let details: [(icon: String, title: String, detail: String)] = [
         ("chart.bar", "Features you use", "Opening the app, creating or deleting a bot, sending a message (how many attachments, never the files), running a routine or a voice call, installing a connector. Each comes with the app version, the platform, and the bot's agent and model."),
         ("exclamationmark.triangle", "Crashes and errors", "When Codync crashes or an agent fails to answer: the kind of error and where in Codync's own code it happened. Never the error's message; file paths are cut down to Codync's own files."),
@@ -15,6 +13,16 @@ public struct AnalyticsSheet: View {
         ("lock.shield", "How it's used", "Only to spot bugs sooner and see which features work and where people get stuck. Never sold, never used for ads or to track you across other apps and websites."),
         ("power", "Your choice", "Each iPhone and each computer has its own switch. Turning it off stops sending right away and drops anything not sent yet."),
     ]
+
+    /// The footer, with "Privacy Policy" an underlined link.
+    private static let policy: AttributedString = {
+        var text = AttributedString("See the Privacy Policy for details.")
+        if let range = text.range(of: "Privacy Policy") {
+            text[range].link = URL(string: "https://codync.dev/privacy")
+            text[range].underlineStyle = .single
+        }
+        return text
+    }()
 
     public init() {}
 
@@ -38,11 +46,11 @@ public struct AnalyticsSheet: View {
                         }
                     }
                 }
-                CardSection {
-                    Button("Privacy Policy") { openURL(URL(string: "https://codync.dev/privacy")!) }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Palette.text)
-                }
+                Text(Self.policy)
+                    .font(.caption)
+                    .foregroundStyle(Palette.secondary)
+                    .tint(Palette.text)
+                    .padding(.horizontal, 2)
             }
         }
         .background(Palette.background)
