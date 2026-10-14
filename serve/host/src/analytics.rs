@@ -336,6 +336,11 @@ pub async fn flush_before_exit(hub: &Hub) {
 }
 
 async fn send(batch: &[Value]) -> bool {
+    // Debug builds (`cargo test`, `cargo run`) are throwaway hosts: each e2e test's fresh
+    // home would count as a new user, and one built with `CODYNC_ENV=main` lands in production.
+    if cfg!(debug_assertions) {
+        return true;
+    }
     let body = json!({"api_key": TOKEN, "batch": batch});
     match crate::http().post(BATCH_URL).json(&body).timeout(Duration::from_secs(15)).send().await {
         Ok(r) if r.status().is_success() => true,
