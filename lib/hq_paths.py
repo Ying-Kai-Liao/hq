@@ -5,10 +5,10 @@
   hq_paths.py --sh     export lines for bash: eval "$(python3 lib/hq_paths.py --sh)"
   hq_paths.py --json   the same as JSON (the Claude Code adapter)
 
-One setting, HQ_HOME: the folder that holds agents/ (one folder per agent: role/ is its repo, memory/ data/ files/
+One setting, HQ_HOME: the hq folder, which holds kernel/ (this repo), agents/ (one folder per agent: role/ is its repo, memory/ data/ files/
 its life) and state/ (hq's own records: user.md, projects, agents.json; your private hq-state repo). Unset, it is
-~/.hq, the stable address (usually a link to the hq folder, so the folder can live anywhere, an external disk
-included), else the kernel folder itself.
+~/.hq, the stable address (a link to the hq folder, so the folder can live anywhere, an external disk included),
+else the folder around kernel/.
 
 Paths come in two spellings, each for one job: the address (HQ_HOME as given, no symlinks resolved, so no spaces
 from a volume name end up in prompts and Bash permission rules) and the real path (symlinks resolved), which is
@@ -29,7 +29,9 @@ CACHE = Path.home() / 'Library/Caches/hq'
 def paths():
     given = os.environ.get('HQ_HOME', '').strip()
     dot = Path.home() / '.hq'
-    home = Path(os.path.expanduser(given)) if given else dot if dot.is_dir() else KERNEL
+    # Without ~/.hq: the hq folder around the kernel when it sits there as kernel/, else the kernel folder itself.
+    fallback = KERNEL.parent if KERNEL.name == 'kernel' else KERNEL
+    home = Path(os.path.expanduser(given)) if given else dot if dot.is_dir() else fallback
     out = {'HQ_HOME': home, 'HQ_STATE': home / 'state', 'HQ_AGENTS': home / 'agents'}
     out.update({k + '_REAL': Path(os.path.realpath(v)) for k, v in list(out.items())})
     out.update(HQ_MACHINE=MACHINE, HQ_LOGS=LOGS, HQ_CACHE=CACHE)

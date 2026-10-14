@@ -1,11 +1,7 @@
 .DS_Store
 __pycache__/
-# agents and state live in the hq folder but are not the kernel: each agent is its own repo (agents/), the state is
-# your private hq-state repo (state/)
-/agents
-/state
+# The kernel is kernel/ in the hq folder; agents/ and state/ are its siblings, never inside it. Keep stray writes out.
 .store/
-# state lives in the state folder ($HQ_STATE, default ~/.hq); keep stray writes out of the repo
 shared/user.md
 shared/projects/
 projects.json

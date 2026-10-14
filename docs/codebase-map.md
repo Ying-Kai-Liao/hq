@@ -6,7 +6,8 @@ reasons behind it are in [architecture.md](architecture.md); commands are in the
 ## Where things are on disk
 
 ```
-hq/                               the kernel (this repo, public): what hq is. agents/ and state/ sit inside it, ignored
+hq/                               the hq folder (~/.hq links here): a plain folder holding three sibling repos
+hq/kernel/                        the kernel (this repo, public): what hq is
 hq/state/                         what hq has lived, $HQ_STATE: your private repo (<you>/hq-state)
   shared/user.md                    who hq works for, read by every agent
   shared/projects/<id>/             codebase.md, decisions.md: per-project notes shared by agents
@@ -39,6 +40,7 @@ hq/agents/                        the agents folder, $HQ_AGENTS: your private re
 ~/Library/Logs/hq/                logs: bridge.log, sched/tick.log, sched/runs/<agent>/ (each scheduled run's output)
 ~/Library/Caches/hq/              rebuildable: handoff/ (scratch clones and worktrees of callers' repos, hq-remote)
 ~/.hq -> hq/                      hq's stable address (HQ_HOME): a link to the hq folder, wherever that really is
+~/Workspace/hq -> hq/kernel/      older address of the kernel, kept for paths that still name it
 ```
 
 Every tool asks one resolver, `lib/hq_paths.py` (bash: `eval "$(python3 lib/hq_paths.py --sh)"`; the plugin runs
@@ -67,7 +69,7 @@ is `<state>/agents/<name>`).
 | `bin/hq-bridge` | python (uv script) | Discord: a channel per agent, a thread per task; runs `hq <agent>` and resumes the thread's session; launchd `dev.hq.bridge` | launchd |
 | `bin/hq-send` | bash | Delivers a result: into the Discord thread when inside one, else Telegram | agents |
 | `adapters/claude-code/hooks/register.tsx` | TS | The Claude Code plugin: registers each agent as `hq:<name>` (pinned package, frontmatter `model`), puts project + memory in front of each spawn, applies `effort` per request, nudges for the session file, `/hq` and `mcp__hq__invoke` | Claude Code, every session |
-| `adapters/claude-code/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | JSON | Plugin manifest (options `hq_path`, `state_path`) and this repo as its marketplace | `install.sh` |
+| `adapters/claude-code/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | JSON | Plugin manifest (option `hq_path`) and this repo as its marketplace | `install.sh` |
 | `shared/PROTOCOL.md` | md | The rules every agent gets after its `agent.md`: memory, projects, sessions, learned skills, delivery | `hq-pkg` (into `prompt.md`), the adapter |
 | `shared/services/<name>.json` | JSON | One shared service: kind (mcp, cli, login), how to start it, secret names (never values) | `hq-auth`, `hq-pkg` checks |
 | `install.sh` | bash | Links `hq`, reinstalls the agents `agents.json` lists, fetches skills, installs the plugin | you, once per Mac |

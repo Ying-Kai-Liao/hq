@@ -49,7 +49,7 @@ How it fits together and where it's going: [docs/architecture.md](docs/architect
 </picture>
 
 ```
-git clone https://github.com/Ying-Kai-Liao/hq ~/Workspace/hq && ~/Workspace/hq/install.sh
+git clone https://github.com/Ying-Kai-Liao/hq ~/hq/kernel && ~/hq/kernel/install.sh   # ~/hq: any folder you like
 hq install <owner>/<repo>            # an agent: any GitHub repo with an agent.md at its root
 hq-new <name> "<description>"        # or start your own
 ```
@@ -111,12 +111,12 @@ their authors' repos (+0). Several agents can share one repo, installed by folde
 A kernel change reaches every agent on its next run without touching their repos. An agent that starts to `need:` a
 new service only passes its checks where that service exists, so push the service with the kernel.
 
-**On a new Mac**, clone the kernel, then your state and agents repos into it, then install:
+**On a new Mac**, clone the three repos side by side in one folder, then install:
 ```
-git clone https://github.com/Ying-Kai-Liao/hq ~/Workspace/hq
-git clone https://github.com/<you>/hq-state ~/Workspace/hq/state
-git clone https://github.com/<you>/hq-agents ~/Workspace/hq/agents
-~/Workspace/hq/install.sh   # installs each agent's role (agents.json) into agents/<name>/role
+git clone https://github.com/Ying-Kai-Liao/hq ~/hq/kernel
+git clone https://github.com/<you>/hq-state ~/hq/state
+git clone https://github.com/<you>/hq-agents ~/hq/agents
+~/hq/kernel/install.sh   # links ~/.hq -> ~/hq; installs each agent's role (agents.json) into agents/<name>/role
 ```
 
 **Not in any repo**, so redo them by hand on a new Mac:
@@ -128,14 +128,16 @@ git clone https://github.com/<you>/hq-agents ~/Workspace/hq/agents
 
 ## Layout
 Everything is in the hq folder, laid out by what each thing is (docs/architecture.md, Concepts): hq and each agent
-have what they **are** (shareable, versioned) and what they **have lived** (private). The kernel is what hq is; `state/`
-is what hq has lived (who it works for, projects, the team, rules). Each agent is a folder in `agents/`: `role/` is
-what it is (its own repo), and next to it what it has lived: `memory/`, `data/`, `files/`. The kernel ignores
-`agents/` and `state/`, so `git pull` only ever touches the kernel. `~/.hq` is hq's stable address, a link to the hq
+have what they **are** (shareable, versioned) and what they **have lived** (private). `kernel/` (this repo) is what hq
+is; `state/` is what hq has lived (who it works for, projects, the team, rules). Each agent is a folder in `agents/`:
+`role/` is what it is (its own repo), and next to it what it has lived: `memory/`, `data/`, `files/`. The three are
+sibling repos, none inside another, so `git pull` (or `git clean`) in `kernel/` can never touch your agents or state.
+The hq folder itself is a plain folder, not a repo. `~/.hq` is hq's stable address, a link to the hq
 folder (made by `install.sh`), so the folder can live anywhere, an external disk included; `HQ_HOME` points somewhere
 else instead. Machine-only things stay out of it: `~/.config/hq` (secrets, grants, settings, the cost ledger),
 `~/Library/Logs/hq`, `~/Library/Caches/hq`.
 ```
+kernel/                    this repo
 install.sh                 links ~/.local/bin/hq and installs the Claude Code plugin
 adapters/claude-code/      the Claude Code adapter (plugin); .claude-plugin/marketplace.json serves it
 bin/project-id             resolves the current directory to a project; --list, --register

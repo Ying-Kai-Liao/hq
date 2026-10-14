@@ -21,8 +21,8 @@ installs it) and what it **has lived** (private, accumulated, yours).
 The folders mirror the table:
 
 ```
-hq/                      the system
-  (kernel)                  what hq is                                   public repo (this one)
+hq/                      the system: a plain folder (~/.hq links to it), three sibling repos inside
+  kernel/                   what hq is                                   public repo (this one)
   state/                    what hq has lived                            private repo (hq-state)
   agents/                   the agents' lives                            private repo (hq-agents)
     <name>/role/              what the agent is                          its own repo (hq-agent-<name>)
@@ -61,6 +61,10 @@ Rules that follow from it:
 Personal details moved out of the packages too (2026-10-14);
 `hq-pkg check --share` guards it. Third-party skills are linked from their repos (skills.json), never copied.
 Published 2026-10-14 with fresh history (MIT).
+
+**Kernel beside, not around** (2026-10-14). The kernel moved into `kernel/`, a sibling of `agents/` and `state/`,
+so no private repo lives inside the public one's working tree (where `git clean -x` or a re-clone would reach it).
+`~/.hq/kernel` is the kernel's address; `~/Workspace/hq` stays as a link to it for older paths.
 
 **One folder** (2026-10-14). Agents and state moved into the hq folder, `agents/` and `state/`, each still its own
 repo and ignored by the kernel: one place to manage, the same repo boundaries. `~/.hq` is hq's stable

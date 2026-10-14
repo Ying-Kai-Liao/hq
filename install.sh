@@ -6,17 +6,18 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd -P)"
 mkdir -p "$HOME/.local/bin"
 chmod +x "$ROOT/bin/"*
-# Everything lives in this folder, each part its own repo the kernel ignores: agents/ (your agents: each one's
-# memory and data, in a private repo of yours, with its role/ as its own repo inside) and state/ (hq's knowledge:
-# user.md, projects, agents.json; your private hq-state repo). On a new Mac clone both here first, then run this:
-# it installs each agent's role from agents.json.
-# ~/.hq is hq's stable address: a link to this folder, so tools and agents never need to know where it really is.
+# The hq folder holds three sibling repos: kernel/ (this one, public), agents/ (your agents: each one's memory and
+# data in a private repo of yours, its role/ its own repo inside) and state/ (hq's knowledge: user.md, projects,
+# agents.json; your private hq-state repo). Clone this as <hq folder>/kernel; on a new Mac clone agents/ and state/
+# next to it first, then run this: it installs each agent's role from agents.json.
+# ~/.hq is hq's stable address, a link to the hq folder, so tools and agents never need to know where it really is;
 # HQ_HOME points elsewhere instead (lib/hq_paths.py).
 if [ -z "${HQ_HOME:-}" ]; then
-  if [ ! -e "$HOME/.hq" ]; then ln -s "$ROOT" "$HOME/.hq" && echo "linked ~/.hq -> $ROOT"
+  [ "$(basename "$ROOT")" = kernel ] && FOLDER=$(dirname "$ROOT") || FOLDER=$HOME/hq
+  if [ ! -e "$HOME/.hq" ]; then mkdir -p "$FOLDER" && ln -s "$FOLDER" "$HOME/.hq" && echo "linked ~/.hq -> $FOLDER"
   elif [ ! -d "$HOME/.hq/state" ]; then
-    echo "install: ~/.hq is an older layout (state directly in it). Move its contents into $ROOT/state, its packages/"
-    echo "         into $ROOT/agents, then replace it with a link: ln -sfn \"$ROOT\" ~/.hq" >&2; exit 1
+    echo "install: ~/.hq is an older layout (state directly in it). Move its contents into <hq folder>/state, its" >&2
+    echo "         packages/ into <hq folder>/agents, then replace it with a link: ln -sfn <hq folder> ~/.hq" >&2; exit 1
   fi
 fi
 eval "$(python3 "$ROOT/lib/hq_paths.py" --sh)"
@@ -30,12 +31,14 @@ echo "hq home: $HQ_HOME · state: $STATE · agents: $AGENTS"
 "$ROOT/bin/hq-pkg" install --saved || echo "note: some agents didn't install; see above"
 "$ROOT/bin/hq-pkg" fetch --all || echo "note: some skills didn't download; each agent retries on its first run"
 
-ln -sfn "$ROOT/bin/hq" "$HOME/.local/bin/hq"
-echo "linked hq -> $HOME/.local/bin/hq"
+# Through ~/.hq when it leads here: the path agents see then has no volume name (and no spaces) in it.
+BIN=$ROOT/bin/hq; [ "$(cd "$HOME/.hq/kernel" 2>/dev/null && pwd -P)" = "$ROOT" ] && BIN=$HOME/.hq/kernel/bin/hq
+ln -sfn "$BIN" "$HOME/.local/bin/hq"
+echo "linked $HOME/.local/bin/hq -> $BIN"
 
 if command -v claude >/dev/null; then
   claude plugin marketplace add "$ROOT" >/dev/null 2>&1 || true
   claude plugin install hq@hq && echo "installed the hq plugin (restart Claude Code sessions to pick it up)"
 fi
-[ "$ROOT" = "$HOME/Workspace/hq" ] || echo "note: set the plugin's hq_path to $ROOT in /plugin"
+[ "$ROOT" = "$(cd "$HOME/.hq/kernel" 2>/dev/null && pwd -P)" ] || echo "note: set the plugin's hq_path to $ROOT in /plugin"
 echo "next: hq install <owner>/<repo> for an agent, or hq-new <name> \"<description>\" to start one"

@@ -9,7 +9,7 @@
     "hq_path": {
       "type": "string",
       "title": "hq folder",
-      "description": "Where the hq kernel lives. Empty: ~/Workspace/hq. Agents and state come from HQ_HOME (default ~/.hq).",
+      "description": "Where the hq kernel lives. Empty: ~/.hq/kernel, else ~/Workspace/hq. Agents and state come from HQ_HOME (default ~/.hq).",
       "default": ""
     }
   }

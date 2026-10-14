@@ -8,7 +8,7 @@ import type { EngineInterface, Register } from 'claude-code'
 //   turn.step          the agent's `effort:` (agent.md frontmatter) on its model requests; `model:` is set at register
 //   classic.SubagentStop  nudge once if the agent didn't write its session file
 //   /hq, mcp__hq__invoke  list agents; call one with an explicit project
-// The kernel comes from hq_path (default ~/Workspace/hq); agents and state from HQ_HOME (default ~/.hq), as every
+// The kernel comes from hq_path (default ~/.hq/kernel, else ~/Workspace/hq); agents and state from HQ_HOME (default ~/.hq), as every
 // kernel tool finds them (lib/hq_paths.py).
 
 type Spawned = { agent: string; project: string; startedMs: number; isNudged: boolean }
@@ -34,7 +34,9 @@ function frontmatter(text: string): { fields: Record<string, string>; body: stri
 async function hqRoot($: EngineInterface, configured: unknown): Promise<string> {
   const set = typeof configured === 'string' ? configured.trim() : ''
   const home = (await $.env.get('HOME')) ?? ''
-  return (set || `${home}/Workspace/hq`).replace(/^~(?=\/)/, home)
+  if (set) return set.replace(/^~(?=\/)/, home)
+  // ~/.hq/kernel is where install.sh puts it; ~/Workspace/hq is where older installs have it.
+  return (await $.fs.exists(`${home}/.hq/kernel/bin/hq-pkg`)) ? `${home}/.hq/kernel` : `${home}/Workspace/hq`
 }
 
 // Where things are, from the kernel's one resolver (lib/hq_paths.py): HQ_HOME (~/.hq by default) holding state/ and
