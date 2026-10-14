@@ -372,7 +372,8 @@ fn model_error(model: &str, e: &anyhow::Error) -> anyhow::Error {
 fn split_variant<'a>(res: &Value, model: &'a str) -> (&'a str, Vec<(&'a str, &'a str)>) {
     let listed = |id: &str| crate::agent::auth::model_ids(res).iter().any(|m| m == id);
     if let Some((name, params)) = model.strip_suffix(']').and_then(|m| m.split_once('['))
-        && let Some(params) = params.split(',').map(|p| p.split_once('=')).collect::<Option<Vec<_>>>()
+        && let Some(params) =
+            params.split(',').filter(|p| !p.is_empty()).map(|p| p.split_once('=')).collect::<Option<Vec<_>>>()
         && !listed(model)
         && listed(name)
     {
@@ -444,5 +445,8 @@ mod tests {
         assert_eq!(split_variant(&plain, "other[x=1]"), ("other[x=1]", vec![]));
         // Claude's `opus[1m]` is a model id of its own, not a variant.
         assert_eq!(split_variant(&json!({"models": {"availableModels": [{"modelId": "opus"}]}}), "opus[1m]").1, vec![]);
+        // Cursor's Auto: `default[]` with variants, `default` without.
+        let auto = json!({"models": {"availableModels": [{"modelId": "default"}]}});
+        assert_eq!(split_variant(&auto, "default[]"), ("default", vec![]));
     }
 }
