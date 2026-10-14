@@ -34,22 +34,68 @@ def run(*args, cwd=None, check=False):
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=check)
 
 
-def say(mark, text):
-    print(f'{mark} {text}')
+# ---- how it looks ------------------------------------------------------------------------------------------------------
+# Colour only on a terminal, and never with NO_COLOR set; piped output stays plain text.
+
+COLOR = sys.stdout.isatty() and not os.environ.get('NO_COLOR')
 
 
-def offer(question, default=True):
+def paint(code, text):
+    return f'\033[{code}m{text}\033[0m' if COLOR else text
+
+
+def dim(text):
+    return paint('2', text)
+
+
+def accent(text):
+    return paint('38;5;79', text)
+
+
+MARKS = {'✓': lambda: paint('32', '✓'), '!': lambda: paint('33', '!'), '✗': lambda: paint('31', '✗'),
+         '-': lambda: dim('·')}
+LOGO = ['█', '█▄▄ ▄▄▄', '█ █ █▄█', '      █']
+STEPS = 0
+
+
+def logo(title, subtitle):
+    print()
+    for i, row in enumerate(LOGO):
+        side = {1: paint('1', title), 2: dim(subtitle)}.get(i, '')
+        print(f'  {accent(row.ljust(9))}  {side}'.rstrip())
+
+
+def section(title):
+    global STEPS
+    STEPS += 1
+    print(f'\n  {accent(str(STEPS))}  {paint("1", title)}')
+
+
+def say(mark, text, note=''):
+    print(f'     {MARKS[mark]()} {text}' + (f'  {dim(note)}' if note else ''))
+
+
+def tilde(path):
+    home = str(Path.home())
+    return '~' + str(path)[len(home):] if str(path).startswith(home) else str(path)
+
+
+def offer(question, default=True, note=''):
     """Yes/no: asked on a terminal; --yes takes the default; without a terminal, nothing is done."""
     if YES:
         return default
     if not ASK:
         return False
-    a = input(f'  {question} [{"Y/n" if default else "y/N"}] ').strip().lower()
+    if note:
+        print(f'       {dim(note)}')
+    a = input(f'     {accent("?")} {question} {dim("Y/n" if default else "y/N")} ').strip().lower()
     return default if not a else a.startswith('y')
 
 
-def prompt(question):
-    return input(f'  {question}: ').strip() if ASK else ''
+def prompt(question, default=''):
+    if not ASK:
+        return ''
+    return input(f'     {accent("?")} {question}' + (f' {dim(f"({default})")}' if default else '') + ' ').strip()
 
 
 def has_commits(repo):
@@ -73,26 +119,26 @@ def check_tools():
             say('✓', tool)
         else:
             ok = False
-            say('✗', f'{tool} is missing ({why}): {fix}')
+            say('✗', f'{tool} is missing', f'{why} · {fix}')
     for key in ('user.name', 'user.email'):
         if run('git', 'config', '--global', key).stdout.strip():
             continue
-        say('!', f'git has no {key}: commits (every agent version is one) need it')
-        value = prompt(f'your git {key.split(".")[1]} (empty to skip)')
+        say('!', f'git has no {key}', 'every agent version is a commit, which needs it')
+        value = prompt(f'Your {key.split(".")[1]} for git')
         if value:
             run('git', 'config', '--global', key, value)
             say('✓', f'git {key} set')
         else:
             ok = False
-            say('✗', f'set it with: git config --global {key} "..."')
+            say('✗', f'git {key} not set', f'git config --global {key} "..."')
     if not shutil.which('gh'):
-        say('-', 'gh is not installed: optional, for backups, sharing and finding agents (brew install gh)')
+        say('-', 'gh', 'optional, for backups and sharing · brew install gh')
     elif not gh_user():
-        say('-', 'gh is not logged in: optional, for backups, sharing and finding agents (gh auth login)')
+        say('-', 'gh', 'not logged in · optional, for backups and sharing · gh auth login')
     else:
         say('✓', f'gh ({gh_user()})')
     if not shutil.which('uv'):
-        say('-', 'uv is not installed: needed only for the Discord bridge and some agents\' tools (brew install uv)')
+        say('-', 'uv', 'optional, for Discord and some agents\' tools · brew install uv')
     return ok
 
 
@@ -109,9 +155,10 @@ def ensure_repo(folder, gitignore, label):
         run('git', 'add', '-A', cwd=folder)
         r = run('git', 'commit', '-q', '-m', f'{label}: start', cwd=folder)
         if r.returncode:
-            say('!', f'{label}: no first commit yet ({(r.stderr or r.stdout).strip().splitlines()[-1]})')
+            say('!', f'{label}: no first commit yet', (r.stderr or r.stdout).strip().splitlines()[-1])
             return
-    say('✓', f'{label}: {folder}')
+    say('✓', tilde(folder).ljust(14), {'state': 'who you are, your projects',
+                                         'agents': "each agent's memory and data"}.get(label, ''))
 
 
 def restore(user):
@@ -119,7 +166,7 @@ def restore(user):
     for folder, repo, label in ((STATE, 'hq-state', 'state'), (AGENTS, 'hq-agents', 'agents')):
         url = f'{GITHUB}/{user}/{repo}.git'
         if (folder / '.git').exists() and has_commits(folder):
-            say('✓', f'{label}: {folder} already has history; not replaced')
+            say('✓', tilde(folder), 'already has history; kept')
             continue
         folder.mkdir(parents=True, exist_ok=True)
         if not (folder / '.git').exists():
@@ -135,7 +182,7 @@ def restore(user):
         r = run('git', 'checkout', '-q', '-f', '-B', branch.split('/', 1)[1], '--track', branch, cwd=folder)
         if r.returncode:
             sys.exit(f'✗ {label}: checkout failed: {r.stderr.strip()}')
-        say('✓', f'{label}: {url} -> {folder}')
+        say('✓', tilde(folder), f'from {url}')
     if STATE == Path.home() / '.hq':
         (STATE / 'secrets').mkdir(exist_ok=True)
         os.chmod(STATE / 'secrets', 0o700)
@@ -144,27 +191,31 @@ def restore(user):
 def backups():
     """Offer a private GitHub repo for each of the two, when it has no remote yet."""
     me = None
+    if not any(run('git', 'remote', 'get-url', 'origin', cwd=f).stdout.strip() for f in (STATE, AGENTS)) \
+            and not gh_user():
+        say('-', 'on this Mac only', 'for a GitHub copy too: gh auth login, then hq init')
+        return
     for folder, repo, label in ((STATE, 'hq-state', 'state'), (AGENTS, 'hq-agents', 'agents')):
         if not (folder / '.git').exists():
             continue
         remote = run('git', 'remote', 'get-url', 'origin', cwd=folder).stdout.strip()
         if remote:
-            say('✓', f'{label} backs up to {remote}')
+            say('✓', label, f'backs up to {remote}')
             continue
         me = gh_user() if me is None else me
         if not me:
-            say('-', f'{label}: on this Mac only (for a GitHub copy: gh auth login, then hq init again)')
+            say('-', label, 'on this Mac only · for a GitHub copy: gh auth login, then hq init')
             continue
         what = 'who you are, projects' if label == 'state' else "agents' memory and data"
-        if not offer(f'also keep {label} ({what}) in a new private GitHub repo {me}/{repo}? It stays on this Mac '
-                     f'either way (Time Machine backs it up); GitHub only adds an off-site copy and '
-                     f'install.sh --from on a new Mac', default=False):
-            say('-', f'{label}: on this Mac only (later: gh repo create {me}/{repo} --private --source {folder} --push)')
+        if not offer(f'Also copy {label} ({what}) to a private repo, {me}/{repo}?', default=False,
+                     note='It stays on this Mac either way. GitHub adds an off-site copy, and install.sh --from '
+                          'on a new Mac.'):
+            say('-', label, 'on this Mac only')
             continue
         r = run('gh', 'repo', 'create', f'{me}/{repo}', '--private', '--source', str(folder), '--remote', 'origin',
                 '--push')
-        say('✓' if r.returncode == 0 else '✗', f'{label}: {me}/{repo}' if r.returncode == 0
-            else f'{label}: gh repo create failed: {r.stderr.strip()}')
+        say('✓' if r.returncode == 0 else '✗', label, f'copied to {me}/{repo}' if r.returncode == 0
+            else f'gh repo create failed: {r.stderr.strip()}')
 
 
 # ---- agents on another Mac ------------------------------------------------------------------------------------------
@@ -197,41 +248,48 @@ def other_macs():
     except (OSError, ValueError):
         have = {}
     if have:
-        say('✓', f'other Macs: {", ".join(have)} (hq remote ls)')
+        say('✓', ', '.join(have), 'hq remote ls')
         return list(have)
-    if not offer('do your agents run on another Mac you want to use from here?', default=False):
-        say('-', 'agents run on this Mac (later: hq remote add <name> <user>@<mac>)')
+    if not offer('Do your agents run on another Mac you want to use from here?', default=False):
+        say('-', 'agents run on this Mac', 'later: hq remote add <name> <user>@<mac>')
         return []
     macs = tailscale_macs()
     for i, (name, _) in enumerate(macs, 1):
-        print(f'    {i}. {name}')
-    pick = prompt('which Mac (its number, or a host name or address)' if macs else 'its host name or address')
+        print(f'       {accent(str(i))}  {name}')
+    pick = prompt('Which Mac?', 'number, name or address' if macs else 'name or address')
     host = macs[int(pick) - 1][1] if pick.isdigit() and 0 < int(pick) <= len(macs) else pick
     if not host:
-        say('-', 'skipped (later: hq remote add <name> <user>@<mac>)')
+        say('-', 'skipped', 'later: hq remote add <name> <user>@<mac>')
         return []
     me = os.environ.get('USER', '')
-    target = f'{prompt(f"your user name on it (empty: {me})") or me}@{host}'
+    target = f'{prompt("Your user name on it?", me) or me}@{host}'
     ssh = Path.home() / '.ssh'
     if not any(ssh.glob('id_*.pub')):
         ssh.mkdir(mode=0o700, exist_ok=True)
         run('ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(ssh / 'id_ed25519'))
-        say('✓', f'made an ssh key: {ssh / "id_ed25519"}')
+        say('✓', 'made an ssh key', tilde(ssh / 'id_ed25519'))
     test = ('ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=accept-new',
             target, 'true')
     if run(*test).returncode:
-        print(f'  {target} asks for its password once, to let this Mac in without one from now on:')
-        subprocess.run(['ssh-copy-id', '-o', 'StrictHostKeyChecking=accept-new', target])
+        print(f'       {dim(f"The password for {target}, asked once: from then on this Mac logs in without it.")}')
+        print(f'       ', end='', flush=True)
+        subprocess.run(['ssh-copy-id', '-o', 'StrictHostKeyChecking=accept-new', target], capture_output=True)
+        print('\r', end='')   # back to the line's start when ssh asked for nothing
         if run(*test).returncode:
-            say('✗', f'cannot log in to {target}. On that Mac: System Settings → General → Sharing → Remote Login, '
-                     f'on, for this user. Then hq init again.')
+            say('✗', f'cannot log in to {target}', 'on that Mac: System Settings → General → Sharing → Remote '
+                                                     'Login, on for this user; then hq init again')
             return []
-    say('✓', f'logs in to {target} without a password')
+    say('✓', f'logs in to {target}')
     short = re.sub(r'[^a-z0-9-]', '', host.split('.')[0].lower()) or 'mac'
     short = 'mini' if 'mini' in short else short
-    name = re.sub(r'[^a-z0-9-]', '', prompt(f'a short name for it (empty: {short})').lower()) or short
-    r = subprocess.run([str(HQ / 'bin' / 'hq-remote'), 'add', name, target])
-    return [name] if r.returncode == 0 else []
+    name = re.sub(r'[^a-z0-9-]', '', prompt('A short name for it?', short).lower()) or short
+    r = run(str(HQ / 'bin' / 'hq-remote'), 'add', name, target)
+    if r.returncode:
+        say('✗', f'hq remote add {name}', (r.stderr or r.stdout).strip().splitlines()[-1])
+        return []
+    agents = [l.split()[0] for l in r.stdout.strip().splitlines()[1:] if l.strip()]
+    say('✓', f'{name} added', ', '.join(f'{a}@{name}' for a in agents) or 'no agents there yet')
+    return [name]
 
 
 # ---- starting points ------------------------------------------------------------------------------------------------
@@ -239,59 +297,70 @@ def other_macs():
 def user_md():
     f = STATE / 'user.md'
     if f.exists():
-        say('✓', f'user.md: {f}')
         return
     shutil.copy(LIB / 'user.md', f)
-    say('✓', f'user.md: {f} (a template; your first agent fills it in with you)')
 
 
 def starter():
     have = json.loads(run(str(HQ / 'bin' / 'hq-pkg'), 'list', '--json').stdout or '{}')
     if have:
-        say('✓', f'agents: {", ".join(sorted(have))}')
+        say('✓', ', '.join(sorted(have)))
         return
     starters = json.loads((LIB / 'starters.json').read_text())
     for name, s in starters.items():
         if name.startswith('$'):
             continue
         if not s.get('link'):
-            say('-', f'no agents yet, and the {name} starter is not published yet: hq new <name> "<what it does>"')
+            say('-', 'no agents yet', 'hq new <name> "<what it does>"')
             continue
-        if offer(f'no agents yet. Install {name}, which {s["about"]}?'):
-            subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'install', s['link'], '--as', name])
+        if offer(f'Install the {name}?', note=f'The agent that {s["about"]}.'):
+            r = run(str(HQ / 'bin' / 'hq-pkg'), 'install', s['link'], '--as', name, '--yes')
+            say('✓' if r.returncode == 0 else '✗', name if r.returncode == 0 else f'{name} not installed',
+                s['link'] if r.returncode == 0 else (r.stderr or r.stdout).strip()[-200:])
         else:
-            say('-', f'later: hq install {s["link"]}')
+            say('-', 'no agents yet', f'later: hq install {s["link"]}')
 
 
-TOUR = """
-How hq works
-  An agent is a specialist: its own instructions, skills and tools, and a memory that grows as you
-  use it. Reach one in a terminal (hq <agent>), inside any Claude Code session (ask for it by name,
-  or hq:<agent>), or later in Discord if you set up the bridge (README).
-  What you and your agents live stays on this Mac: ~/.hq (who you are, your projects) and
-  ~/hq/agents (each agent's memory and data).
-  Every change to an agent is a version: hq history <agent> lists them, hq restore <agent> <commit>
-  brings one back.
-  hq install <owner>/<repo> adds an agent someone shared, after showing what it may do;
-  hq share <agent> shares yours. hq ls lists your agents, hq doctor checks everything.
-"""
+TOUR = [
+    ('Agents', 'Each one is a specialist with its own skills, tools and a memory that grows as you use it.'),
+    ('Reach one', 'hq <agent> in a terminal, or ask for it by name in any Claude Code session.'),
+    ('Yours', '~/.hq and ~/hq/agents stay on this Mac.'),
+    ('Undo', 'Every change is a version: hq history <agent>, then hq restore <agent> <commit>.'),
+    ('Share', 'hq install <owner>/<repo> adds one someone shared; hq share <agent> shares yours.'),
+]
+
+
+def tour():
+    print(f'\n  {paint("1", "How hq works")}')
+    for head, text in TOUR:
+        print(f'     {accent(head.ljust(10))} {text}')
+
+
+def done(commands, note=''):
+    print(f'\n  {paint("32", "✓")} {paint("1", "Ready.")} ' + ('Start here:' if len(commands) == 1 else 'Next:'))
+    for c in commands:
+        print(f'       {accent("$")} {paint("1", c)}')
+    if note:
+        print(f'       {dim(note)}')
+    print()
 
 
 def main(argv):
     if '-h' in argv or '--help' in argv:
         print(__doc__.strip())
         return
-    print('hq: checking what it needs')
+    logo('hq', 'your agents, on your Mac')
+    section('What hq needs')
     if not check_tools():
-        sys.exit('fix the ✗ above, then run hq init again')
+        sys.exit(f'\n  Fix the {paint("31", "✗")} above, then run hq init again.\n')
     if STATE != Path.home() / '.hq':
-        say('-', f'state is {STATE} (~/.hq is not this Mac\'s folder yet; see install.sh)')
+        say('-', f'state is {tilde(STATE)}', '~/.hq is not this Mac\'s folder yet; see install.sh')
     if '--from' in argv:
         i = argv.index('--from')
         if i + 1 >= len(argv):
             sys.exit('hq init --from <github-user>')
         restore(argv[i + 1])
-    print('hq: your folders')
+    section('Your folders')
     (STATE / 'projects').mkdir(parents=True, exist_ok=True)
     if not (STATE / 'projects.json').exists():
         (STATE / 'projects.json').write_text('{"projects": {}}\n')
@@ -301,25 +370,25 @@ def main(argv):
     if (STATE / 'agents.json').exists():   # the agents this state lists (another Mac's): install the missing ones
         subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'install', '--saved'])
         subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'fetch', '--all'], capture_output=True)
-    print('hq: backups')
+    section('Backups')
     backups()
-    print('hq: other Macs')
+    section('Other Macs')
     remote = other_macs()
-    print('hq: agents')
+    section('Agents')
     if remote and not json.loads(run(str(HQ / 'bin' / 'hq-pkg'), 'list', '--json').stdout or '{}'):
-        say('-', f'none on this Mac: you use the ones on {remote[0]}')
-        print(f'\nnext: hq ask <agent>@{remote[0]} "…" (from a git repo, it works on your code and sends back a '
-              f'branch) · hq remote ls lists them')
+        say('-', 'none on this Mac', f'you use the ones on {remote[0]}')
+        done([f'hq ask <agent>@{remote[0]} "…"', 'hq remote ls'],
+             f'From inside a git repo, the agent works on your code and sends its change back as a branch.')
         return
     starter()
     if 'updated: never' not in (STATE / 'user.md').read_text():
-        print('\nnext: hq ls · hq <agent> to talk to one · hq doctor to check everything')
+        done(['hq ls', 'hq <agent>', 'hq doctor'], 'your agents · talk to one · check everything')
         return
-    print(TOUR)
+    tour()
     if (AGENTS / 'builder' / 'role').is_dir():
-        print('Start here: hq builder\n  It asks a few questions about you, then builds your first specialist with you.')
+        done(['hq builder'], 'It asks a few questions about you, then builds your first specialist with you.')
     else:
-        print('Start here: hq new <name> "<what it does>", or install the builder to make one with you.')
+        done(['hq new <name> "<what it does>"'])
 
 
 if __name__ == '__main__':

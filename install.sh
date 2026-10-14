@@ -19,7 +19,7 @@ chmod +x "$KERNEL/bin/"* "$KERNEL/lib/hq_paths.py"
 # ~/hq is hq's stable address, a link to this folder, so tools and agents never need to know where it really is
 # (an external disk, a path with spaces). HQ_HOME points elsewhere instead (kernel/lib/hq_paths.py).
 if [ -z "$CUSTOM_HOME" ] && [ "$ROOT" != "$HOME/hq" ]; then
-  if [ ! -e "$HOME/hq" ]; then ln -s "$ROOT" "$HOME/hq" && echo "linked ~/hq -> $ROOT"
+  if [ ! -e "$HOME/hq" ]; then ln -s "$ROOT" "$HOME/hq"
   elif [ "$(cd "$HOME/hq" && pwd -P)" != "$ROOT" ]; then
     echo "install: ~/hq already exists and is not this folder: move it, or set HQ_HOME to use another folder" >&2; exit 1
   fi
@@ -35,12 +35,11 @@ fi
 # Through ~/hq: the path agents see then has no volume name (and no spaces) in it.
 BIN=$KERNEL/bin/hq; [ -z "$CUSTOM_HOME" ] && BIN=$HOME/hq/kernel/bin/hq
 ln -sfn "$BIN" "$HOME/.local/bin/hq"
-echo "linked ~/.local/bin/hq -> $BIN"
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "note: add ~/.local/bin to your PATH to use hq (e.g. in ~/.zshrc: export PATH=\"\$HOME/.local/bin:\$PATH\")" ;; esac
 
 if command -v claude >/dev/null; then
   claude plugin marketplace add "$ROOT" >/dev/null 2>&1 || true
-  claude plugin install hq@hq >/dev/null && echo "installed the hq plugin (restart Claude Code sessions to pick it up)"
+  claude plugin install hq@hq >/dev/null 2>&1 || echo "note: the Claude Code plugin did not install: claude plugin install hq@hq"
   [ -z "$CUSTOM_HOME" ] || echo "note: set the plugin's hq_path to $KERNEL in /plugin"
 fi
 
