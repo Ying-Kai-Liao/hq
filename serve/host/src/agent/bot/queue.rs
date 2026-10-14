@@ -78,7 +78,8 @@ impl Actor {
                 let restart = cfg.backend != self.cfg.backend
                     || cfg.command != self.cfg.command
                     || cfg.cwd != self.cfg.cwd
-                    || cfg.model != self.cfg.model;
+                    || cfg.model != self.cfg.model
+                    || cfg.model_options != self.cfg.model_options;
                 self.tools_changed |= cfg.connectors != self.cfg.connectors || cfg.computer != self.cfg.computer;
                 // Name, description and skill changes reach the agent as a profile update
                 // on the next message (see `context`).

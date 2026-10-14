@@ -1,6 +1,7 @@
 //! The screen's state: panes, overlays and their forms, and where clicks land.
 
 use ratatui::layout::Rect;
+use std::collections::BTreeMap;
 use std::time::Instant;
 
 use super::super::manage::{
@@ -134,6 +135,7 @@ pub enum Field {
     Instructions,
     Agent,
     Model,
+    ModelOptions,
     Folder,
     Approvals,
     Notify,
@@ -144,11 +146,12 @@ pub enum Field {
     Skills,
 }
 
-pub const FIELDS: [Field; 12] = [
+pub const FIELDS: [Field; 13] = [
     Field::Name,
     Field::Instructions,
     Field::Agent,
     Field::Model,
+    Field::ModelOptions,
     Field::Folder,
     Field::Approvals,
     Field::Notify,
@@ -172,6 +175,8 @@ pub struct Form {
     pub instructions: Editor,
     pub backend: String,
     pub model: Editor,
+    /// Model settings (effort, fast…) and the model they were picked for.
+    pub model_options: (String, BTreeMap<String, String>),
     pub cwd: String,
     pub auto: bool,
     pub notify: bool,
@@ -190,6 +195,11 @@ pub struct Form {
 impl Form {
     pub fn current(&self) -> Field {
         FIELDS[self.field]
+    }
+
+    /// The settings picked for the model now in the field; another model has none yet.
+    pub fn model_options(&self) -> Option<&BTreeMap<String, String>> {
+        (self.model_options.0 == self.model.text.trim()).then_some(&self.model_options.1)
     }
 }
 

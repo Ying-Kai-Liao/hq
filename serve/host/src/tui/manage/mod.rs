@@ -274,9 +274,15 @@ impl App {
     pub(super) fn cycle_model(&self, backend: &str, current: &str, d: isize) -> Option<String> {
         let list = self.models.get(backend)?.as_ref()?;
         let mut ids = vec![String::new()];
-        ids.extend(list.iter().map(|(id, _)| id.clone()));
+        ids.extend(list.iter().map(|m| m.id.clone()));
         let i = ids.iter().position(|x| x == current).unwrap_or(0);
         Some(ids[super::app::cycle(i, d, ids.len())].clone())
+    }
+
+    /// The settings (effort, fast…) `backend`'s `model` offers.
+    pub(crate) fn model_settings(&self, backend: &str, model: &str) -> &[super::app::ModelOption] {
+        let list = self.models.get(backend).and_then(Option::as_ref);
+        list.and_then(|l| l.iter().find(|m| m.id == model)).map_or(&[], |m| &m.options)
     }
 }
 
