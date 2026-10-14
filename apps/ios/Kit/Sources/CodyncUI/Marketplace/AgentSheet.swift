@@ -8,21 +8,29 @@ struct NodeNotice: View {
     @Environment(BotStore.self) private var model
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: "shippingbox")
                 .font(.body)
                 .foregroundStyle(Palette.secondary)
+                .padding(.top, 1)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Node.js isn't on \(model.hostName)").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.text)
-                Text("Some agents need it to run. Codync can add a copy just for them.")
-                    .font(.caption)
-                    .foregroundStyle(Palette.secondary)
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Node.js isn't on \(model.hostName)").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.text)
+                    Text("Some agents need it to run. Codync can add a copy just for them.")
+                        .font(.caption)
+                        .foregroundStyle(Palette.secondary)
+                }
+                // Compact on a phone: under the text, so the text keeps the row's width.
+                Button("Add Node.js", action: add)
+                    .buttonStyle(.plain)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.onAccent)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(Palette.accentFill, in: Capsule())
             }
-            Spacer(minLength: 8)
-            Button("Add Node.js", action: add)
-                .buttonStyle(PrimaryButtonStyle())
-                .fixedSize()
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
