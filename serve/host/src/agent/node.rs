@@ -181,7 +181,7 @@ mod tests {
         for os in ["macos", "linux", "windows"] {
             for arch in ["x86_64", "aarch64"] {
                 let (platform, checksum) = archive(os, arch).expect("supported");
-                assert!(!platform.is_empty());
+                assert_ne!(platform, "");
                 assert!(checksum.len() == 64 && checksum.chars().all(|c| c.is_ascii_hexdigit()));
             }
         }
