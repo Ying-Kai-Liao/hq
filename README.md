@@ -60,7 +60,8 @@ adapter plugin (`adapters/claude-code`, served by this repo's own marketplace), 
 hq needs (git and its identity, Claude Code, gh), makes `~/.hq` and the agents folder (each a git repo), a
 `user.md` for your agents to fill in, offers to keep both in private GitHub repos too (off by default: they stay
 on this Mac, which Time Machine backs up), and offers the builder, the
-agent that builds the others. Run `hq init` again any time; it only does what is missing.
+agent that builds the others, then lists the agents people shared (GitHub repos tagged `hq-agent`) to install
+any by number. Run `hq init` again any time; it only does what is missing.
 On a new Mac, `~/hq/install.sh --from <your-github-user>` brings your state and agents back. Then, in any Claude Code session:
 "have the designer critique this page", `/hq branding <task>`, or the `mcp__hq__invoke` tool. Agents appear as
 `hq:<name>`; your main session only sees one line per specialist, and their skills load only when they're called. Or

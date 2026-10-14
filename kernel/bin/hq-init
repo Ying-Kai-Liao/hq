@@ -13,7 +13,7 @@
 
 install.sh runs it at the end. `hq doctor` checks a working install.
 """
-import json, os, re, shutil, socket, subprocess, sys
+import json, os, re, shutil, socket, subprocess, sys, urllib.request
 from pathlib import Path
 
 HQ = Path(os.environ.get('HQ_ROOT') or os.path.dirname(os.path.dirname(
@@ -321,6 +321,46 @@ def starter():
             say('-', 'no agents yet', f'later: hq install {s["link"]}')
 
 
+def catalogue():
+    """Agents people shared publicly (GitHub repos tagged hq-agent), most starred first; None when GitHub can't be
+    reached. Needs no login."""
+    req = urllib.request.Request('https://api.github.com/search/repositories?q=topic:hq-agent&sort=stars&per_page=30',
+                                 headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'hq-init'})
+    try:
+        with urllib.request.urlopen(req, timeout=8) as r:
+            return [(i['full_name'], i.get('description') or '') for i in json.load(r).get('items', [])]
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def find_agents():
+    """Offer the shared agents this Mac doesn't have yet; each install shows what the agent may do first."""
+    if not ASK:
+        return
+    found = catalogue()
+    if found is None:
+        say('-', 'GitHub not reachable', 'later: hq search')
+        return
+    have = json.loads(run(str(HQ / 'bin' / 'hq-pkg'), 'list', '--json').stdout or '{}')
+    links = {o.get('remote', '').removeprefix('https://github.com/').removesuffix('.git').lower() for o in have.values()}
+
+    def short(repo):
+        return re.sub(r'^hq-(agent-)?', '', repo.split('/')[1])
+    new = [(r, d) for r, d in found if r.lower() not in links and short(r) not in have][:9]
+    if not new:
+        say('✓', 'you have every agent people shared', 'hq search finds new ones later')
+        return
+    width = max(len(short(r)) for r, _ in new)
+    for i, (repo, about) in enumerate(new, 1):
+        print(f'       {accent(str(i))}  {short(repo).ljust(width)}  {about.split(". ")[0].rstrip(".")[:60]}  '
+              f'{dim(repo.split("/")[0])}')
+    pick = prompt('Install any?', 'numbers like 1 3, or empty to skip')
+    for n in dict.fromkeys(re.findall(r'\d+', pick)):
+        if 0 < int(n) <= len(new):
+            print()
+            subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'install', new[int(n) - 1][0]])
+
+
 TOUR = [
     ('Agents', 'Each one is a specialist with its own skills, tools and a memory that grows as you use it.'),
     ('Reach one', 'hq <agent> in a terminal, or ask for it by name in any Claude Code session.'),
@@ -381,6 +421,8 @@ def main(argv):
              f'From inside a git repo, the agent works on your code and sends its change back as a branch.')
         return
     starter()
+    section('Agents people shared')
+    find_agents()
     if 'updated: never' not in (STATE / 'user.md').read_text():
         done(['hq ls', 'hq <agent>', 'hq doctor'], 'your agents · talk to one · check everything')
         return
