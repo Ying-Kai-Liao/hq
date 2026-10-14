@@ -194,6 +194,20 @@ def starter():
             say('-', f'later: hq install {s["link"]}')
 
 
+TOUR = """
+How hq works
+  An agent is a specialist: its own instructions, skills and tools, and a memory that grows as you
+  use it. Reach one in a terminal (hq <agent>), inside any Claude Code session (ask for it by name,
+  or hq:<agent>), or later in Discord if you set up the bridge (README).
+  What you and your agents live stays on this Mac: ~/.hq (who you are, your projects) and
+  ~/hq/agents (each agent's memory and data).
+  Every change to an agent is a version: hq history <agent> lists them, hq restore <agent> <commit>
+  brings one back.
+  hq install <owner>/<repo> adds an agent someone shared, after showing what it may do;
+  hq share <agent> shares yours. hq ls lists your agents, hq doctor checks everything.
+"""
+
+
 def main(argv):
     if '-h' in argv or '--help' in argv:
         print(__doc__.strip())
@@ -222,7 +236,14 @@ def main(argv):
     backups()
     print('hq: agents')
     starter()
-    print('\nnext: hq ls · hq <agent> to talk to one · hq doctor to check everything')
+    if 'updated: never' not in (STATE / 'user.md').read_text():
+        print('\nnext: hq ls · hq <agent> to talk to one · hq doctor to check everything')
+        return
+    print(TOUR)
+    if (AGENTS / 'builder' / 'role').is_dir():
+        print('Start here: hq builder\n  It asks a few questions about you, then builds your first specialist with you.')
+    else:
+        print('Start here: hq new <name> "<what it does>", or install the builder to make one with you.')
 
 
 if __name__ == '__main__':
