@@ -177,9 +177,7 @@ pub async fn command(agent: &Value, progress: impl Fn(&str)) -> Result<Cmd> {
             ),
             args: args_of(&d["uvx"]),
         }),
-        None if needs_node(agent) => {
-            bail!("{name} needs Node.js on this computer: add it in {name}'s setup in Extensions")
-        }
+        None if needs_node(agent) => bail!("{name} needs Node.js on this computer: add it in Extensions"),
         None => bail!("{name} has no build for this computer (needs uv)"),
     }
 }

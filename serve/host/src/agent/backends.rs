@@ -490,8 +490,6 @@ fn well_known_dirs() -> Vec<PathBuf> {
         versions.sort_by_key(|p| std::cmp::Reverse(node_version(p)));
         dirs.extend(versions.into_iter().map(|p| p.join("bin")));
     }
-    // Last, so the computer's own Node comes first.
-    dirs.extend(node::search_dirs());
     dirs
 }
 
@@ -506,6 +504,13 @@ pub fn hydrate_path() {
         if p.as_os_str().is_empty() || !p.is_dir() {
             continue;
         }
+        if seen.insert(p.clone()) {
+            path.push(p);
+        }
+    }
+    // Codync's Node last, so the computer's own comes first; listed even before it exists, so
+    // adding it (a separate `codync-host node` process) counts without another refresh.
+    for p in node::search_dirs() {
         if seen.insert(p.clone()) {
             path.push(p);
         }
