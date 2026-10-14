@@ -7,7 +7,7 @@
 //! back to the official ACP registry build (npx / uvx / downloaded binary).
 
 use crate::LockExt;
-use crate::agent::registry;
+use crate::agent::{node, registry};
 use crate::shell;
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -90,7 +90,10 @@ pub const HARNESSES: &[Harness] = &[
         local: None,
         registry: Some("claude-acp"),
         setup: "Install Claude Code and run `claude auth login`.",
-        install: Some(Install::Npm("@anthropic-ai/claude-code")),
+        install: Some(Install::Scripts {
+            unix: "curl -fsSL https://claude.ai/install.sh | bash",
+            windows: "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://claude.ai/install.ps1 | iex\"",
+        }),
         login: "{bin} auth login",
         signed_in: Some(SignInCheck { args: "auth status", ok: claude_signed_in }),
     },
@@ -101,7 +104,10 @@ pub const HARNESSES: &[Harness] = &[
         local: None,
         registry: Some("codex-acp"),
         setup: "Install Codex CLI and run `codex login --device-auth`.",
-        install: Some(Install::Npm("@openai/codex")),
+        install: Some(Install::Scripts {
+            unix: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+            windows: "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://chatgpt.com/codex/install.ps1 | iex\"",
+        }),
         login: "{bin} login --device-auth",
         signed_in: Some(SignInCheck { args: "login status", ok: exit_ok }),
     },
@@ -477,7 +483,7 @@ fn well_known_dirs() -> Vec<PathBuf> {
         dirs.extend(versions.into_iter().map(|p| p.join("bin")));
     }
     // Last, so the computer's own Node comes first.
-    dirs.extend(crate::agent::node::search_dirs());
+    dirs.extend(node::search_dirs());
     dirs
 }
 
@@ -548,8 +554,9 @@ pub fn list() -> Vec<Value> {
         .map(|h| {
             let path = h.bins.iter().find_map(|b| which(b));
             let reg = h.registry.and_then(|id| registry.iter().find(|a| a["id"] == id));
-            let runnable =
-                (path.is_some() && h.local.is_some()) || reg.is_some_and(|a| registry::launch_kind(a).is_some());
+            let native = path.is_some() && h.local.is_some();
+            let runnable = native || reg.is_some_and(|a| registry::launch_kind(a).is_some());
+            let node = if native { None } else { reg.filter(|a| registry::needs_node(a)).and_then(|_| node::state()) };
             json!({
                 "id": h.id,
                 "name": h.name,
@@ -560,6 +567,7 @@ pub fn list() -> Vec<Value> {
                 "installHint": h.setup,
                 "signedIn": signed_in(h.id),
                 "canInstall": h.install.and_then(Install::command).is_some(),
+                "node": node.map(node::State::name),
                 "command": h.local.unwrap_or_default(),
                 "registry": h.registry,
                 "curated": true,
@@ -582,6 +590,7 @@ pub fn list() -> Vec<Value> {
             "description": a["description"],
             "installHint": format!("Codync installs it automatically. Sign in to {} on this computer first if it needs an account.", a["name"].as_str().unwrap_or(id)),
             "signedIn": signed_in(id),
+            "node": node::state().filter(|_| registry::needs_node(a)).map(node::State::name),
             "command": "",
             "registry": id,
             "curated": false,

@@ -123,6 +123,8 @@ pub struct Market {
 }
 
 pub enum Row<'a> {
+    /// Some agents run on Node.js and the computer has none: adds Codync's copy.
+    Node,
     Agent(&'a Value),
     Installed(&'a Value),
     Custom,
@@ -143,6 +145,7 @@ pub struct AgentSetup {
 
 pub enum SetupRow {
     Install,
+    Node,
     Login,
     Method(Value),
     Check,

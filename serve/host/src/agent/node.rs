@@ -1,6 +1,7 @@
-//! Node.js for the agents that come from npm (Claude, Codex, Gemini, …) and for installing npm
-//! CLIs: the computer's own when it has one, else a checksum-pinned official build Codync
-//! downloads once into `~/.codync/node`, so installing an agent never needs Node.js first.
+//! Node.js for the agents whose ACP adapter comes from npm (Claude, Codex, Gemini, …) and for
+//! installing npm CLIs: the computer's own when it has one, else a checksum-pinned official
+//! build that Codync adds into `~/.codync/node` when the user asks (an agent's setup, or
+//! installing an npm CLI).
 
 use crate::agent::{backends, registry};
 use anyhow::{Context, Result, ensure};
@@ -45,18 +46,38 @@ pub fn search_dirs() -> [PathBuf; 2] {
     [bin_dir(root()), bin_dir(global_prefix())]
 }
 
-/// Codync can run npm agents here: the computer has Node, or Codync has one for it.
-pub fn available() -> bool {
-    backends::on_path("npx") || archive(std::env::consts::OS, std::env::consts::ARCH).is_some()
+/// Node.js on a computer without its own: Codync's, missing or added.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum State {
+    Missing,
+    Added,
 }
 
-/// Makes `npx` runnable for agents, downloading Codync's Node the first time it's missing.
-pub async fn ensure(progress: &impl Fn(&str)) -> Result<()> {
-    if backends::on_path("npx") {
+impl State {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Missing => "missing",
+            Self::Added => "added",
+        }
+    }
+}
+
+/// `None` while the computer has its own Node; otherwise whether Codync's is there.
+pub fn state() -> Option<State> {
+    if backends::which("npx").is_some_and(|npx| !npx.starts_with(root())) {
+        return None;
+    }
+    Some(if root().join(".installed").exists() { State::Added } else { State::Missing })
+}
+
+/// `codync-host node`: adds Codync's Node (an agent's setup step runs it in a terminal).
+pub async fn add() -> Result<()> {
+    if state().is_none() {
+        println!("This computer already has Node.js.");
         return Ok(());
     }
-    install(progress).await?;
-    tokio::task::spawn_blocking(backends::hydrate_path).await?;
+    install(&|line| println!("{line}")).await?;
+    println!("Node.js {VERSION} is ready.");
     Ok(())
 }
 

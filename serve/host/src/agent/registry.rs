@@ -92,13 +92,19 @@ pub fn launch_kind(agent: &Value) -> Option<Launch> {
     {
         return Some(Launch::Download);
     }
-    if d["npx"].is_object() && crate::agent::node::available() {
+    if d["npx"].is_object() && on_path("npx") {
         return Some(Launch::Npx);
     }
     if d["uvx"].is_object() && on_path("uvx") {
         return Some(Launch::Uvx);
     }
     None
+}
+
+/// The agent runs through `npx` here (no build of its own for this platform).
+pub fn needs_node(agent: &Value) -> bool {
+    let d = &agent["distribution"];
+    d["npx"].is_object() && !platform().is_some_and(|p| d["binary"][p].is_object())
 }
 
 fn args_of(v: &Value) -> String {
@@ -160,7 +166,6 @@ pub async fn command(agent: &Value, progress: impl Fn(&str)) -> Result<Cmd> {
             })
         }
         Some(Launch::Npx) => {
-            crate::agent::node::ensure(&progress).await?;
             prepare_npx(d["npx"]["package"].as_str().unwrap_or_default(), name, &progress).await?;
             Ok(npx_cmd(&d["npx"]))
         }
@@ -172,10 +177,10 @@ pub async fn command(agent: &Value, progress: impl Fn(&str)) -> Result<Cmd> {
             ),
             args: args_of(&d["uvx"]),
         }),
-        None => bail!(
-            "{name} has no build for this computer (needs {})",
-            if d["uvx"].is_object() { "uv" } else { "Node.js" }
-        ),
+        None if needs_node(agent) => {
+            bail!("{name} needs Node.js on this computer: add it in {name}'s setup in Extensions")
+        }
+        None => bail!("{name} has no build for this computer (needs uv)"),
     }
 }
 
