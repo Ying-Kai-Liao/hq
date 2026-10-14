@@ -154,9 +154,10 @@ import json, os, sys
 s = json.load(sys.stdin)
 s.setdefault("hooks", {}).setdefault("SessionStart", []).append(
     {"hooks": [{"type": "command", "command": os.environ["HOOK"], "timeout": 10}]})
-if os.environ["HQ_SECRETS"] != os.environ["HQ_MACHINE"]:
-    s.setdefault("permissions", {}).setdefault("deny", []).extend(
-        "%s(/%s/**)" % (tool, os.environ["HQ_SECRETS"]) for tool in ("Read", "Edit", "Write"))
+sec = os.environ["HQ_SECRETS"]   # a folder of its own, or (the older layout) two files among the machine things
+files = ["%s/**" % sec] if sec != os.environ["HQ_MACHINE"] else ["%s/env" % sec, "%s/auth.json" % sec]
+s.setdefault("permissions", {}).setdefault("deny", []).extend(
+    "%s(/%s)" % (tool, f) for f in files for tool in ("Read", "Edit", "Write"))
 json.dump(s, sys.stdout, indent=1)' > "$runs/$$.settings.json"
 
 # Directories the agent may use: the kernel (tools) under both its logical and its resolved path (Claude Code checks
