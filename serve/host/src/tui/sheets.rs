@@ -175,7 +175,7 @@ fn multiline(buf: &mut Buffer, r: Rect, e: &Editor, placeholder: &str, active: b
 pub fn market(buf: &mut Buffer, area: Rect, app: &App, m: &Market) {
     let t = theme();
     let r = centered(area, 96, 30);
-    let title = format!("Marketplace · {}", app.host);
+    let title = format!("Extensions · {}", app.host);
     let inner = frame_box(buf, r, t.text, t.panel, Some((&title, t.text)));
     let mut x = inner.x;
     for (tab, label) in TABS {
