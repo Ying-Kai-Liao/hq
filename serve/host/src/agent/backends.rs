@@ -139,10 +139,11 @@ pub const HARNESSES: &[Harness] = &[
         bins: &["omp"],
         local: Some("{bin} acp"),
         registry: None,
-        setup: "Install oh-my-pi (curl -fsSL https://omp.sh/install | sh) and run `omp login`.",
+        setup: "Install oh-my-pi (curl -fsSL https://omp.sh/install | sh -s -- --binary) and run `omp login`.",
         install: Some(Install::Scripts {
-            unix: "curl -fsSL https://omp.sh/install | sh",
-            windows: "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://omp.sh/install.ps1 | iex\"",
+            // The prebuilt binary: by default the scripts build through any Bun on PATH and stop when it's older than they need.
+            unix: "curl -fsSL https://omp.sh/install | sh -s -- --binary",
+            windows: "powershell -NoProfile -ExecutionPolicy Bypass -Command \"& ([scriptblock]::Create((irm https://omp.sh/install.ps1))) -Binary\"",
         }),
         login: "{bin} login",
         signed_in: None,
@@ -454,7 +455,7 @@ fn well_known_dirs() -> Vec<PathBuf> {
         // Global npm CLIs (%APPDATA%\npm), and Node itself.
         dirs.extend(dirs::data_dir().map(|d| d.join("npm")));
         dirs.extend(std::env::var_os("ProgramFiles").map(|d| PathBuf::from(d).join("nodejs")));
-        // oh-my-pi's standalone installer (%LOCALAPPDATA%\omp); its Bun install lands in ~/.bun/bin below.
+        // oh-my-pi's binary install (%LOCALAPPDATA%\omp); a Bun install lands in ~/.bun/bin below.
         dirs.extend(dirs::data_local_dir().map(|d| d.join("omp")));
     }
     for rel in [
