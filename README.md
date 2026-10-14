@@ -85,11 +85,15 @@ hq restore <agent> <commit>                    # bring one back, as a new commit
 hq share <agent> [--public]                    # put it on GitHub as <you>/hq-agent-<name>, private unless --public
 hq share <agent> --public --fresh              # a public copy without its history, at <you>/hq-<name>
 hq search [words] [--mine]                     # find agents: GitHub repos tagged hq-agent (yours incl. private, anyone's public)
+hq deps <agent>|--all [--install]              # programs an agent runs that this Mac lacks; --install adds them
 hq push <agent>|--all                          # push committed versions (hq-state commit does this for every agent)
 ```
 Installing shows what the agent would do on your Mac before it is kept: its permission mode, what it may run
 without asking, hooks, MCP servers, tools, skills, and the services it asks for (nothing is shared until you grant
 it). An agent may bring the definition of a service the kernel lacks in its own `services/<name>.json`.
+Programs it runs go in `requires:` in its `capabilities.yaml` (`ffmpeg: brew install ffmpeg  # cutting footage`):
+installing lists the missing ones and offers to install them, `hq doctor` keeps checking, `hq deps <agent> --install`
+adds them later.
 `--public` runs the privacy check over the package *and its whole history* and refuses while either names you: a
 public repo shows every old commit. `--fresh` publishes a separate public copy instead: one commit per publish
 with the agent as it is now (its files still checked), while the agent's own repo keeps every version and stays

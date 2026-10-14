@@ -14,6 +14,8 @@
   hq-pkg fetch <agent>|--all [--force]    download the third-party skills skills.json names (a run does it on first
                                           use; install.sh does it for every agent)
   hq-pkg list [--json]                    installed agents and where each one lives
+  hq-pkg deps <agent>|--all [--install]   the programs an agent runs (requires: in capabilities.yaml) that this Mac
+                                          lacks, with the command that installs each; --install runs them
 
 History (each agent is its own git repo; a version that passes checks is committed there automatically):
   hq-pkg install <github-link> [--as NAME] [--yes]  clone an agent (owner/repo, a github.com URL, .../tree/<ref>/<path>),
@@ -201,6 +203,66 @@ def needs(home):
     f = home / 'capabilities.yaml'
     m = re.search(r'^needs:\s*\[([^\]]*)\]', f.read_text(), re.M) if f.exists() else None
     return [s.strip() for s in m.group(1).split(',') if s.strip()] if m else []
+
+
+def requires(home):
+    """`requires:` in capabilities.yaml: programs the agent runs, one per line, `name: install command  # why`. The
+    name is a command on PATH, or a path (/... or ~/...) that must exist, e.g. an app."""
+    f = home / 'capabilities.yaml'
+    out, inside = [], False
+    for line in (f.read_text().splitlines() if f.exists() else []):
+        if re.match(r'^requires:', line):
+            inside = True
+            continue
+        if inside and line.strip() and not line[0].isspace():
+            break
+        m = re.match(r'^\s+(?:-\s*)?([^:#]+?):\s*([^#]*?)\s*(?:#\s*(.*))?$', line) if inside else None
+        if m:
+            out.append((m.group(1).strip(), m.group(2).strip(), (m.group(3) or '').strip()))
+    return out
+
+
+def missing(home):
+    def present(name):
+        if name.startswith(('/', '~')):
+            return Path(os.path.expanduser(name)).exists()
+        return bool(shutil.which(name))
+    return [r for r in requires(home) if not present(r[0])]
+
+
+def install_missing(name, miss):
+    """Run each missing program's install command, showing its output; True when all are there afterwards."""
+    for prog, cmd, _ in miss:
+        if cmd.startswith('brew ') and not shutil.which('brew'):
+            print(f'  {prog}: needs Homebrew first (https://brew.sh), then: hq deps {name} --install')
+            continue
+        print(f'  $ {cmd}')
+        subprocess.run(cmd, shell=True)
+    left = missing(agent_home(name))
+    for prog, cmd, _ in left:
+        print(f'  ✗ {prog} still missing: {cmd}')
+    return not left
+
+
+def show_missing(name, miss):
+    print(f'  it runs programs this Mac doesn\'t have yet:')
+    width, cw = max(len(p) for p, _, _ in miss), max(len(c) for _, c, _ in miss)
+    for prog, cmd, why in miss:
+        print(f'    {prog.ljust(width)}  {cmd.ljust(cw)}  {why}'.rstrip())
+
+
+def cmd_deps(names, install):
+    short = False
+    for name in names:
+        miss = missing(agent_home(name))
+        if not miss:
+            if len(names) == 1:
+                print(f'{name}: has everything it runs' if requires(agent_home(name)) else f'{name}: requires nothing')
+            continue
+        print(name)
+        show_missing(name, miss)
+        short = not install_missing(name, miss) if install else True
+    sys.exit(1 if short else 0)
 
 
 def snapshot(agent, home, version):
@@ -612,6 +674,10 @@ def review(home):
         linked = {}
     if linked:
         lines.append('  skills fetched from other repos: ' + ', '.join(f'{k} ({v["repo"]})' for k, v in linked.items()))
+    progs = requires(home)
+    if progs:
+        lines.append(f'  programs it runs: {", ".join(p for p, _, _ in progs)}'
+                     + (f' (missing here: {", ".join(p for p, _, _ in missing(home))})' if missing(home) else ''))
     svc = needs(home)
     if svc:
         own = [x for x in svc if (home / 'services' / f'{x}.json').is_file()]
@@ -671,6 +737,13 @@ def cmd_install(link, name=None, ask=False):
     svc = needs(home)
     if svc:
         print(f'  it asks for: {", ".join(svc)} (grant with: hq auth grant {name} <service>)')
+    miss = missing(home)
+    if miss:
+        show_missing(name, miss)
+        if ask and sys.stdin.isatty() and not input('  install them now? [Y/n] ').strip().lower().startswith('n'):
+            install_missing(name, miss)
+        else:
+            print(f'  later: hq deps {name} --install')
 
 
 def upstream(home):
@@ -989,6 +1062,8 @@ def main(argv):
                 print(f'hq-pkg: {name}: {e}', file=sys.stderr)
                 failed = True
         sys.exit(1 if failed else 0)
+    elif cmd == 'deps' and rest:
+        cmd_deps(sorted(installed()) if rest[0] == '--all' else rest[:1], '--install' in rest)
     elif cmd == 'promote' and len(rest) == 2:
         cmd_promote(*rest)
     elif cmd == 'check' and rest[:1] == ['--share']:
