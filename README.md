@@ -133,6 +133,7 @@ bin/hq-new                 scaffold a new agent as its own repo
 bin/hq-auth                shared services: which agent may use which, as which account
 bin/hq-state               the state folder's git repo: path, dump (sqlite as text), commit
 bin/hq-ask                 ask an agent and get its answer back; continue the conversation (-c)
+bin/hq-remote              agents on your other machines over ssh: hq remote add, hq ask agent@machine
 bin/hq-memory              search the agents' memory and shared notes
 bin/hq-sched               scheduled agent jobs (cron, launchd)
 shared/
@@ -244,6 +245,17 @@ continues the same conversation from the same directory, `--as NAME` names one t
 continued conversation keeps its model and effort. `--json` gives answer, session and cost for programs; `hq ask ls`
 lists the conversations. A Claude Code session can use it to work with a specialist over several turns in the
 specialist's own tools, where an `hq:<name>` subagent would run in the caller's. Tagged `via=ask` in the cost ledger.
+
+## Agents on your other machines
+An agent lives on the machine that has its tools. From another machine of yours, `hq remote add mini you@mac-mini`
+(anything you can `ssh` into without a password: Tailscale, a LAN) and then `hq ask house@mini "…"`: the agent runs
+there, with that machine's memory and accounts, and only the task, your code and its answer travel; `-c` continues.
+Asked from inside a git repo, it gets your working tree (uncommitted and untracked files too) in a scratch worktree
+on its machine, and whatever it changes comes back as a branch, `hq/<agent>/<id>`, with the one command to review it
+and the one to apply it. Files it makes land in `./hq-out/<id>/`. For your own machines only: it's plain ssh, so it
+adds no server, port or token. Once on the agent's machine: `claude setup-token`, and the token in
+`~/.config/hq/env` as `CLAUDE_CODE_OAUTH_TOKEN`, because macOS keeps the keychain (Claude Code's login) from ssh
+sessions. Details: `hq remote --help`.
 
 ## Schedules
 `hq schedule add house "0 8 * * *" "Check what expires this week and send the list"` gives an agent a job: at that

@@ -28,6 +28,7 @@ hq/                               the kernel (this repo, public). No agents, no 
   auth.json  auth.log               grants and profiles (hq-auth); every secret handed out
   env                               bridge and Telegram settings
   cost.db                           the cost ledger (hq-cost)
+  remotes.json  handoff/            other machines (hq-remote); scratch clones and worktrees of callers' repos
   ask.json                          hq ask conversations: agent + directory or name → session
   sched/                            last tick, last run per job, each run's output (hq-sched)
   bridge/                           Discord thread → session map, logs, attachments
@@ -46,6 +47,7 @@ layout). Agents: `$HQ_AGENTS`, else `<state>/packages`, then the repo's own `age
 | `bin/hq-auth` | python | Services and grants: which agent may use which service as which account; builds `--mcp-config`; hands out secrets (`get`, `exec`) and logs them | `bin/hq`, agents' tools |
 | `bin/hq-cost` | python | Cost ledger: syncs request usage from `~/.claude/projects` into `cost.db`; `tag` records each hq session (SessionStart hook); reports by agent, version, model, effort | you, launchd `dev.hq.cost`, the hook `bin/hq` adds |
 | `bin/hq-ask` | python | One-shot `hq <agent>` with `--output-format json`: prints the answer, keeps agent + directory (or `--as NAME`) → session in `~/.config/hq/ask.json` so `-c` resumes it with the same project/model/effort; `HQ_VIA=ask` | you, scripts, Claude Code sessions |
+| `bin/hq-remote` | python | Other machines over ssh: `add`/`ls`/`rm` (`~/.config/hq/remotes.json`); `ask AGENT@MACHINE` (from hq-ask): snapshot the working tree as a commit, push it to a scratch clone there, run `hq ask` there in a worktree, fetch the result branch and copy `.hq-out` back. Its agent side is `_repo` and `_run` | hq-ask, over ssh on the other machine |
 | `bin/hq-memory` | python | Memory search: indexes the state folder's markdown (memory, learned skills, shared/) in an in-memory FTS5 table per search, prints `path:line` + passage | you, agents (PROTOCOL.md; allowed without a prompt in `hq` runs) |
 | `bin/hq-sched` | python | Scheduled jobs: cron parser, `jobs.json` per agent, `tick` starts due jobs as detached `hq <agent> "task"` runs (`HQ_VIA=schedule`), catches up once after sleep; launchd `dev.hq.sched` | you, launchd every minute |
 | `bin/hq-state` | python | The state repo: sqlite → text dumps, commit and push state, then push every agent | you |
@@ -102,6 +104,11 @@ bridge, `HQ_VIA=discord` (`schedule` from hq-sched, plus `HQ_SCHED_JOB`; `ask` f
 **State changes** (memory, data) → written straight to `~/.hq/agents/<name>/` → `hq-state commit` dumps the
 databases and commits and pushes the state repo.
 
+**`hq ask house@mini` from another machine** → hq-ask hands it to hq-remote → in a git repo: working tree → commit
+(temp index) → `git push` over ssh to `~/.config/hq/handoff/<repo>/repo` on mini → ssh `hq remote _run`: worktree on
+`hq/house/<id>`, `hq ask house` there (acceptEdits, `CLAUDE_CODE_OAUTH_TOKEN` from its env file), leftovers committed →
+JSON answer back → `git fetch` the branch, `scp` `.hq-out/` to `./hq-out/<id>/`.
+
 **A scheduled job** → launchd runs `hq-sched tick` every minute → for each `jobs.json` job whose cron time fell since
 the last tick (at most a day back) and that isn't still running: `hq <agent> "task + scheduled note"` detached, with
 `--permission-mode` from `HQ_SCHED_PERMISSION_MODE` → output in `~/.config/hq/sched/runs/<agent>/`, delivery by `hq-send`.
@@ -121,6 +128,7 @@ the last tick (at most a day back) and that isn't still running: `hq <agent> "ta
 | Discord behaviour | `bin/hq-bridge`; delivery in `bin/hq-send` |
 | How memory is searched (what's indexed, ranking) | `bin/hq-memory` |
 | Scheduled jobs (cron syntax, catch-up, how a job runs) | `bin/hq-sched` |
+| Calling agents on other machines, the code handoff | `bin/hq-remote` (`call` on the caller, `serve_run` on the agent's machine) |
 | Cost reports or prices | `bin/hq-cost` (`PRICES`) |
 | The scaffold for new agents | `bin/hq-new`, and the instructor agent's `new-agent` skill (in its own repo) |
 | One agent's behaviour, skills or tools | that agent's repo, `~/.hq/packages/<name>/` (not this repo) |

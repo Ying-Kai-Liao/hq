@@ -4,6 +4,7 @@
   hq ask <agent> [options] "task"     run the agent on the task in this directory; print its answer
   hq ask <agent> -c "follow-up"       continue the last conversation with that agent from this directory
   hq ask ls                           the conversations kept, newest first
+  hq ask <agent>@<machine> "task"     an agent on another machine of yours, over ssh (hq remote --help)
 
 Options: -c/--continue, --as NAME (a named conversation: -c --as NAME picks it up from anywhere), -p PROJECT,
 -m MODEL, -e EFFORT, --json (the whole result: answer, session, cost, turns).
@@ -60,6 +61,8 @@ def main(argv):
         print(__doc__.strip()); return 0
     if argv[0] == 'ls':
         ls(); return 0
+    if '@' in argv[0]:  # an agent on another machine
+        os.execv(str(HQ / 'bin/hq-remote'), [str(HQ / 'bin/hq-remote'), 'ask', *argv])
     agent, rest = argv[0], argv[1:]
     cont, name, as_json, hq_opts, words, i = False, None, False, [], [], 0
     while i < len(rest):
