@@ -11,12 +11,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd -P)"
 KERNEL=$ROOT/kernel
+CUSTOM_HOME=${HQ_HOME:-}   # set by you, before the resolver below fills HQ_HOME in
 mkdir -p "$HOME/.local/bin"
 chmod +x "$KERNEL/bin/"* "$KERNEL/lib/hq_paths.py"
 
 # ~/.hq is hq's stable address, a link to this folder, so tools and agents never need to know where it really is
 # (an external disk, a path with spaces). HQ_HOME points elsewhere instead (kernel/lib/hq_paths.py).
-if [ -z "${HQ_HOME:-}" ]; then
+if [ -z "$CUSTOM_HOME" ]; then
   if [ ! -e "$HOME/.hq" ]; then ln -s "$ROOT" "$HOME/.hq" && echo "linked ~/.hq -> $ROOT"
   elif [ "$(cd "$HOME/.hq" && pwd -P)" != "$ROOT" ]; then
     echo "install: ~/.hq already exists and is not this folder. Move what is in it (state/, agents/) here, then:" >&2
@@ -34,13 +35,13 @@ echo "hq home: $HQ_HOME · state: $HQ_STATE · agents: $HQ_AGENTS"
 "$KERNEL/bin/hq-pkg" fetch --all || echo "note: some skills didn't download; each agent retries on its first run"
 
 # Through ~/.hq when it leads here: the path agents see then has no volume name (and no spaces) in it.
-BIN=$KERNEL/bin/hq; [ -z "${HQ_HOME:-}" ] && BIN=$HOME/.hq/kernel/bin/hq
+BIN=$KERNEL/bin/hq; [ -z "$CUSTOM_HOME" ] && BIN=$HOME/.hq/kernel/bin/hq
 ln -sfn "$BIN" "$HOME/.local/bin/hq"
 echo "linked $HOME/.local/bin/hq -> $BIN"
 
 if command -v claude >/dev/null; then
   claude plugin marketplace add "$ROOT" >/dev/null 2>&1 || true
   claude plugin install hq@hq && echo "installed the hq plugin (restart Claude Code sessions to pick it up)"
-  [ -z "${HQ_HOME:-}" ] || echo "note: set the plugin's hq_path to $KERNEL in /plugin"
+  [ -z "$CUSTOM_HOME" ] || echo "note: set the plugin's hq_path to $KERNEL in /plugin"
 fi
 echo "next: hq new <name> \"<description>\" to start an agent, or hq install <owner>/<repo> for one someone shared"
