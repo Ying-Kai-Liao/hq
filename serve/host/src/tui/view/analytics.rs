@@ -2,6 +2,7 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
 use super::super::manage::AnalyticsSheet;
@@ -57,7 +58,10 @@ pub(super) fn analytics(buf: &mut Buffer, area: Rect, s: &AnalyticsSheet) {
         lines.extend(md::wrap(&[Span::styled(detail, t.secondary)], width, &[Span::raw(" ")], &[Span::raw(" ")]));
         lines.push(Line::default());
     }
-    lines.push(Line::from(Span::styled(" Privacy policy: https://codync.dev/privacy", t.dim)));
+    lines.push(Line::from(vec![
+        Span::styled(" See the Privacy Policy for details: ", t.dim),
+        Span::styled("https://codync.dev/privacy", t.dim.add_modifier(Modifier::UNDERLINED)),
+    ]));
     let h = usize::from(body.height);
     let max = lines.len().saturating_sub(h);
     s.max_scroll.set(max);
