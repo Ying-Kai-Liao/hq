@@ -10,6 +10,7 @@ hq/                               the kernel (this repo, public); agents/ and st
 hq/state/                         state folder, $HQ_STATE: your private repo (<you>/hq-state); ~/.hq links here
   agents/<name>/memory/             MEMORY.md, projects/<id>.md, sessions/<project>.md
   agents/<name>/data/               the agent's databases (*.db ignored; committed as *.sql text dumps)
+  agents/<name>/files/<project>/    what it made: renders, images, exports, backups (ignored: on disk only)
   agents/<name>/skills/learned/     skills kept private (hq-pkg promote moves one into the package)
   shared/user.md                    who the user is, read by every agent
   shared/projects/<id>/             codebase.md, decisions.md: per-project notes shared by agents

@@ -163,6 +163,7 @@ state/                     the state folder ($HQ_STATE; ignored by the kernel; y
     memory/sessions/<id>.md  where the last call on that project left off
     skills/learned/          private skills, never shared (hq-pkg promote <agent> <skill> moves one into the agent)
     data/                    its databases; committed as text dumps (<name>.sql), not binaries
+    files/<project>/         what it made: renders, images, exports, backups (on disk, not in git)
 ```
 
 ## Versions

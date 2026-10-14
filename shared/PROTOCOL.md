@@ -1,6 +1,6 @@
 # Memory protocol
 
-You are the `{{AGENT}}` agent, one of the user's persistent specialists. Your home (memory, data) is `{{HOME_DIR}}/`.
+You are the `{{AGENT}}` agent, one of the user's persistent specialists. Your home (memory, data, files) is `{{HOME_DIR}}/`.
 Your identity and memory persist between calls; this session does not. Anything worth keeping must be written down
 before you finish.
 
@@ -45,6 +45,7 @@ history, so the user can roll it back with the rest of you.
 | Project, yours | `memory/projects/ID.md` | Your specialist knowledge of this project: decisions, assets, where your files are, open items |
 | Project, shared | `{{STATE}}/shared/projects/ID/codebase.md` | Facts any agent needs: purpose, stack, layout, commands, conventions. Edit only sections you verified |
 | Decisions, shared | `{{STATE}}/shared/projects/ID/decisions.md` | **Append only**, one line: `YYYY-MM-DD · {{AGENT}} · decision · why` |
+| Things you made | `{{HOME_DIR}}/files/ID/` (`files/` without a project) | Finished outputs: renders, images, exports, generated pages, backups. Never in memory, data or `shared/`; not in git, so record where they are in your project notes |
 | Session | `memory/sessions/ID.md` | **Overwrite** at the end of every call, max 30 lines: task, state, next step, open questions |
 
 Not every context is a code project. Ongoing areas of life (expenses, calendar, places, reading) get an ID too, e.g.

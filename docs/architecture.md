@@ -20,7 +20,7 @@ installs it) and what it **has lived** (private, accumulated, yours).
 
 Today's folders mix the halves: the kernel's `shared/` holds hq's definition while the state folder's `shared/` holds
 hq's lived knowledge, and an agent's role (`agents/<name>/`) is in a different tree from its life
-(`state/agents/<name>/`); files have no defined home. The layout should mirror the table, roughly:
+(`state/agents/<name>/`: `memory/`, `data/`, and since 2026-10-14 `files/`, ignored by git). The layout should mirror the table, roughly:
 
 ```
 hq/                      the system
