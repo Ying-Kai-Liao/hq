@@ -323,6 +323,7 @@ function ChatSplitView() {
   } else {
     detail = (
       <div className="empty-detail">
+        <div className="detail-drag drag" />
         <div style={{ display: 'flex' }}>
           <CharacterAvatar shape="blob" color="blue" size={60} mood="working" />
           <CharacterAvatar shape="squircle" color="orange" size={60} style={{ marginLeft: -10 }} />
