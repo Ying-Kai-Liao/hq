@@ -12,7 +12,7 @@
 #   hq install <github-link> [--as NAME]               add an agent; each agent is its own git repo
 #   hq update|push|commit <agent>|--all                pull from, push to or commit the agent's repo
 #   hq history <agent> | hq restore <agent> <commit>   every good version is committed; restore any of them
-#   hq share <agent> [--public]                        put it on GitHub as <you>/hq-agent-<name>
+#   hq share <agent> [--public [--fresh]]              put it on GitHub; --fresh: a public copy without its history
 #   hq search [words] [--mine]                         find agents on GitHub (repos tagged hq-agent)
 #   hq auth [ls|grant|revoke|set ...]                  which agent may use which service, as which account (hq-auth)
 #   hq cost [agents|agent <name>|...]                  what the agents cost, from the usage ledger (hq-cost)

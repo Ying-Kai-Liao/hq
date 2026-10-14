@@ -30,6 +30,9 @@ History (each agent is its own git repo; a version that passes checks is committ
                                           public ones from anyone; --mine for yours only
   hq-pkg share <agent> [--public]         put the agent on GitHub as <you>/hq-agent-<name> (tagged hq-agent), private unless --public;
                                           --public refuses while the package or its history has personal details
+  hq-pkg share <agent> --public --fresh [--repo NAME]
+                                          a public copy without the history, at <you>/hq-<name> (or NAME), remote
+                                          `public`: one commit per publish; the agent's own repo keeps every version
 
 Agents live in the agents folder, <home>/agents/<name>/ (lib/hq_paths.py), each its own git repo; the hq repo
 holds only the kernel. The package is that folder, including the skills the agent learned (skills/learned/); memory
@@ -564,7 +567,7 @@ def parse_link(link):
         die(f'not a GitHub link: {link} (owner/repo, https://github.com/owner/repo[/tree/REF/PATH])', 2)
     owner, repo, ref, path, at = m.groups()
     path = (path or '').strip('/')
-    name = path.rsplit('/', 1)[-1] if path else re.sub(r'^hq-agent-', '', repo)
+    name = path.rsplit('/', 1)[-1] if path else re.sub(r'^hq-(agent-)?', '', repo)
     return f'https://github.com/{owner}/{repo}.git', ref or at or '', path, name
 
 
@@ -743,6 +746,79 @@ def history_problems(home):
     return sorted(set(out))
 
 
+README = """# {name}
+
+{description}
+
+An agent for [hq](https://github.com/Ying-Kai-Liao/hq): a specialist that runs in Claude Code with its own memory,
+skills and tools, on your own Mac.
+
+```
+hq install {link}
+```
+{needs}
+`hq install` shows what it may do on your Mac (permissions, tools, services) before keeping it. Its memory and data
+stay yours; updating it (`hq update {name}`) never touches them.
+"""
+
+
+def ensure_readme(home, agent, link):
+    """A README for the agent's GitHub page, from agent.md, unless the author wrote one."""
+    f = home / 'README.md'
+    if f.exists():
+        return
+    fields, _ = frontmatter((home / 'agent.md').read_text())
+    svc = needs(home)
+    f.write_text(README.format(
+        name=agent, link=link, description=fields.get('description', '').strip(),
+        needs=(f'\nIt asks for these services, used only once you grant them (`hq auth grant {agent} <service> '
+               f'<profile>`): {", ".join(svc)}.\n' if svc else '')))
+
+
+def cmd_publish(agent, repo_name=None):
+    """A public copy without the history: one commit per publish, holding the agent as it is now. The agent's own
+    repo (origin) keeps every version and stays as private as it is."""
+    home = agent_home(agent)
+    if not owned(home) or repo_root(home).resolve() != home.resolve():
+        die(f'{agent}: only an agent that is its own repo in the agents folder can be published')
+    url = git(home, 'remote', 'get-url', 'public').stdout.strip()
+    if url:   # published before: the same place
+        m = re.search(r'github\.com[/:]([\w.-]+/[\w.-]+?)(?:\.git)?$', url)
+        repo = m.group(1) if m else url
+    else:
+        me = subprocess.run(['gh', 'api', 'user', '-q', '.login'], capture_output=True, text=True).stdout.strip()
+        if not me:
+            die('gh is not logged in (gh auth login)')
+        repo = f'{me}/{repo_name or "hq-" + agent}'
+    ensure_readme(home, agent, repo)
+    commit(home, f'{agent}: edits')
+    bad = share_problems(home)
+    if bad:
+        die(f'{agent} carries personal details, so it is not published:\n  ' + '\n  '.join(bad[:30]))
+    if not url:
+        desc = frontmatter((home / 'agent.md').read_text())[0].get('description', '')[:300]
+        r = subprocess.run(['gh', 'repo', 'create', repo, '--public', '--description', desc],
+                           capture_output=True, text=True)
+        if r.returncode and 'already exists' not in r.stderr:
+            die(f'gh repo create {repo}: {r.stderr.strip()}')
+        git(home, 'remote', 'add', 'public', f'https://github.com/{repo}.git', check=True)
+    git(home, 'fetch', '-q', 'public')
+    parent = git(home, 'rev-parse', '-q', '--verify', 'public/main').stdout.strip()
+    tree = git(home, 'rev-parse', 'HEAD^{tree}', check=True).stdout.strip()
+    if parent and git(home, 'rev-parse', f'{parent}^{{tree}}').stdout.strip() == tree:
+        print(f'{agent}: https://github.com/{repo} is already this version')
+        return
+    msg = f'{agent} {fingerprint(home)}'
+    new = git(home, 'commit-tree', tree, *(['-p', parent] if parent else []), '-m', msg, check=True).stdout.strip()
+    r = git(home, 'push', '-q', 'public', f'{new}:refs/heads/main')
+    if r.returncode:
+        die(f'{agent}: push to {repo} failed: {r.stderr.strip()}')
+    if '/' in repo and not repo.startswith('/'):
+        subprocess.run(['gh', 'repo', 'edit', repo, '--add-topic', TOPIC], capture_output=True)
+    print(f'{agent}: published https://github.com/{repo} (one commit, no history); others install it with: '
+          f'hq install {repo}')
+
+
 def cmd_share(agent, public):
     home = agent_home(agent)
     if not owned(home):
@@ -750,13 +826,15 @@ def cmd_share(agent, public):
     root = repo_root(home)
     if root.resolve() != home.resolve():
         die(f'{agent} lives in a folder of {root}; share that repo with git/gh directly')
+    me_ = subprocess.run(['gh', 'api', 'user', '-q', '.login'], capture_output=True, text=True).stdout.strip()
+    ensure_readme(home, agent, f'{me_}/hq-agent-{agent}' if me_ else agent)
     commit(home, f'{agent}: edits')
     if public:
         bad = share_problems(home) + [f'history {x}' for x in history_problems(home)]
         if bad:
             die(f'{agent} still carries personal details, so it stays private:\n  ' + '\n  '.join(bad[:30])
                 + ('\n  ...' if len(bad) > 30 else '')
-                + '\nFix the files; for old commits, publish a fresh copy without the history instead.')
+                + f'\nFix the files; for old commits, publish a copy without the history: hq share {agent} --public --fresh')
     me = subprocess.run(['gh', 'api', 'user', '-q', '.login'], capture_output=True, text=True).stdout.strip()
     if not me:
         die('gh is not logged in (gh auth login)')
@@ -945,7 +1023,10 @@ def main(argv):
     elif cmd == 'restore' and len(rest) == 2:
         cmd_restore(*rest)
     elif cmd == 'share' and rest:
-        cmd_share(rest[0], '--public' in rest)
+        if '--fresh' in rest:
+            cmd_publish(rest[0], rest[rest.index('--repo') + 1] if '--repo' in rest else None)
+        else:
+            cmd_share(rest[0], '--public' in rest)
     elif cmd == 'check' and rest:
         bad = problems(agent_home(rest[0]))
         print('\n'.join(bad) or 'ok')
