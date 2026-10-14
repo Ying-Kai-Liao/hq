@@ -24,6 +24,7 @@ export function agentTint(registry: string | null | undefined) {
     case 'amp-acp': return 'rgb(242, 79, 64)'
     case 'kiro': return 'rgb(143, 69, 255)'
     case 'cortex-code': return 'rgb(41, 181, 232)'
+    case 'omp': return 'linear-gradient(to bottom right, rgb(237, 74, 191), rgb(155, 77, 255), rgb(90, 216, 230))'
     default: return 'var(--text)'
   }
 }
@@ -167,7 +168,7 @@ export function AgentSheet({ initial }: { initial: Backend }) {
       <CardForm>
         <CardSection>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '4px 0' }}>
-            <AgentTile registry={backend.registry} icon={30} tile={52} radius={14} />
+            <AgentTile registry={backend.registry ?? backend.id} icon={30} tile={52} radius={14} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
               <span style={font('title3', 'semibold')}>{backend.name}</span>
               {backend.description ? <span style={{ ...font('subheadline'), color: 'var(--secondary)', ...lineClamp(3) }}>{backend.description}</span> : null}

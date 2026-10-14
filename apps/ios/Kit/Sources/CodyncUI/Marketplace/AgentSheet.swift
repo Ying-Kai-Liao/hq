@@ -57,7 +57,7 @@ struct AgentSheet: View {
         CardForm {
             CardSection {
                 HStack(spacing: 14) {
-                    AgentIcon(registry: backend.registry, size: 30)
+                    AgentIcon(registry: backend.registry ?? backend.id, size: 30)
                         .frame(width: 52, height: 52)
                         .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     VStack(alignment: .leading, spacing: 2) {

@@ -38,7 +38,7 @@ struct AgentCard: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: 12) {
-                AgentIcon(registry: backend.registry, size: 34)
+                AgentIcon(registry: backend.registry ?? backend.id, size: 34)
                     .frame(width: 64, height: 64)
                     .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 VStack(spacing: 2) {

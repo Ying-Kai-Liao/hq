@@ -250,7 +250,7 @@ private struct ComputerRow: View {
             }
             Spacer()
             if store.connection == .online {
-                IconButton("Marketplace", systemImage: "storefront", action: openMarketplace)
+                IconButton("Extensions", systemImage: "square.grid.2x2", action: openMarketplace)
             }
             if store.screen != nil, store.connection == .online {
                 IconButton("Screen", systemImage: "display", action: openScreen)
@@ -288,7 +288,7 @@ private struct ComputerRow: View {
                 MenuItem("Color", icon: "paintpalette") { coloring = true },
             ]
             if store.connection == .online {
-                items.append(MenuItem("Marketplace", icon: "storefront", action: openMarketplace))
+                items.append(MenuItem("Extensions", icon: "square.grid.2x2", action: openMarketplace))
                 items.append(MenuItem("Voice chat", icon: "waveform") { voiceSettings = true })
             }
             if store.screen != nil, store.connection == .online {

@@ -198,7 +198,7 @@ public struct MarketplaceView: View {
             HStack(spacing: 10) {
                 ComputerBadge(model.computer, size: 32)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("Marketplace")
+                    Text("Extensions")
                         .font(.title2.weight(.semibold))
                         .foregroundStyle(Palette.text)
                     if let computer, computers.count > 1 {
