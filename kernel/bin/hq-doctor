@@ -37,6 +37,10 @@ def bad(text):
     print(f'  ✗ {text}')
 
 
+def note(text):
+    print(f'  · {text}')
+
+
 def section(title):
     print(title)
 
@@ -90,16 +94,18 @@ def repo(folder, label):
     status = run('git', 'status', '--porcelain', cwd=folder).stdout.strip()
     remote = run('git', 'remote', 'get-url', 'origin', cwd=folder).stdout.strip()
     ahead = run('git', 'rev-list', '--count', '@{u}..HEAD', cwd=folder).stdout.strip()
-    notes = []
+    notes, local = [], False
     if status:
         notes.append(f'{len(status.splitlines())} uncommitted')
     if not remote:
-        notes.append('no backup (hq init offers one)')
+        local = True
     elif ahead.isdigit() and int(ahead):
         notes.append(f'{ahead} unpushed')
     elif not ahead:
         notes.append('no upstream branch')
     (warn if notes else ok)(f'{label}: {folder}' + (f' ({", ".join(notes)})' if notes else ''))
+    if local:
+        note(f'{label} is on this Mac only (Time Machine covers it; hq init offers a private GitHub copy)')
 
 
 def repos_and_agents():
@@ -111,7 +117,7 @@ def repos_and_agents():
     if not user.exists():
         bad(f'no {user}: hq init')
     elif 'updated: never' in user.read_text():
-        warn('user.md is still the template: tell your agents (the instructor) about yourself')
+        warn('user.md is still the template: tell your agents (the builder) about yourself')
     listed = json.loads(run(str(HQ / 'bin' / 'hq-pkg'), 'list', '--json').stdout or '{}')
     if not listed:
         warn('no agents: hq install <owner>/<repo>, or hq new <name> "<what it does>"')

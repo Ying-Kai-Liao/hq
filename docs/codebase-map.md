@@ -82,7 +82,7 @@ Paths in this table are inside `kernel/`, except `install.sh` and `.claude-plugi
 | `bin/hq-memory` | python | Memory search: indexes the agents' memory and private skills and the state folder's user.md and projects/ in an in-memory FTS5 table per search, prints `path:line` + passage | you, agents (PROTOCOL.md; allowed without a prompt in `hq` runs) |
 | `bin/hq-sched` | python | Scheduled jobs: cron parser, `jobs.json` per agent, `tick` starts due jobs as detached `hq <agent> "task"` runs (`HQ_VIA=schedule`), catches up once after sleep; launchd `dev.hq.sched` | you, launchd every minute |
 | `bin/hq-state` | python | Commits what was lived: sqlite → text dumps, commit and push the state repo and the agents repo, then every role | you |
-| `bin/hq-new` | bash | Scaffolds `agents/<name>/`: `role/` as its own repo, memory folders next to it | you, the instructor agent |
+| `bin/hq-new` | bash | Scaffolds `agents/<name>/`: `role/` as its own repo, memory folders next to it | you, the builder agent |
 | `bin/project-id` | python | Directory → project ID from `projects.json` (remotes and paths as aliases); `--register` | `bin/hq`, the adapter, agents |
 | `bin/hq-bridge` | python (uv script) | Discord: a channel per agent, a thread per task; runs `hq <agent>` and resumes the thread's session; launchd `dev.hq.bridge` | launchd |
 | `bin/hq-send` | bash | Delivers a result: into the Discord thread when inside one, else Telegram | agents |
@@ -168,5 +168,5 @@ the last tick (at most a day back) and that isn't still running: `hq <agent> "ta
 | A background job | its row in [Background jobs](#background-jobs): the installer, or the plist itself where there is none |
 | Calling agents on other machines, the code handoff | `bin/hq-remote` (`call` on the caller, `serve_run` on the agent's machine) |
 | Cost reports or prices | `bin/hq-cost` (`PRICES`) |
-| The scaffold for new agents | `bin/hq-new`, and the instructor agent's `new-agent` skill (in its own repo) |
+| The scaffold for new agents | `bin/hq-new`, and the builder agent's `new-agent` skill (in its own repo) |
 | One agent's behaviour, skills or tools | that agent's repo, `agents/<name>/` (its own repo; the kernel ignores it) |

@@ -1,6 +1,6 @@
 {
   "$comment": "Agents hq init offers on a fresh install, so it starts with someone who can build the rest. link: what hq install takes; null until published.",
-  "instructor": {
+  "builder": {
     "link": null,
     "about": "builds and maintains your agents: tell it what you want a specialist for and it sets one up"
   }
