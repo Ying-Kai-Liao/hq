@@ -52,7 +52,7 @@ EOF
 
 cat > "$home/capabilities.yaml" <<'EOF'
 # Declarations only. Credentials come from the runtime, never from here.
-needs: []          # shared services (shared/services/), e.g. [jev-browser, notion]; grant with hq-auth grant
+needs: []          # shared services (kernel/services/), e.g. [jev-browser, notion]; grant with hq-auth grant
 tools: []          # e.g. web-fetch, sqlite
 state: []          # where its data lives; read from the source every time
 access: read       # what it may change without asking

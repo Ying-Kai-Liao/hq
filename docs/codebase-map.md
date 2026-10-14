@@ -6,8 +6,8 @@ reasons behind it are in [architecture.md](architecture.md); commands are in the
 ## Where things are on disk
 
 ```
-hq/                               the hq folder (~/.hq links here): a plain folder holding three sibling repos
-hq/kernel/                        the kernel (this repo, public): what hq is
+hq/                               this repo (public), ~/.hq links here: README, docs/, install.sh, .claude-plugin/
+hq/kernel/                        the code: what hq is (bin/, lib/, adapters/, PROTOCOL.md, services/)
 hq/state/                         what hq has lived, $HQ_STATE: your private repo (<you>/hq-state)
   shared/user.md                    who hq works for, read by every agent
   shared/projects/<id>/             codebase.md, decisions.md: per-project notes shared by agents
@@ -40,7 +40,7 @@ hq/agents/                        the agents folder, $HQ_AGENTS: your private re
 ~/Library/Logs/hq/                logs: bridge.log, sched/tick.log, sched/runs/<agent>/ (each scheduled run's output)
 ~/Library/Caches/hq/              rebuildable: handoff/ (scratch clones and worktrees of callers' repos, hq-remote)
 ~/.hq -> hq/                      hq's stable address (HQ_HOME): a link to the hq folder, wherever that really is
-~/Workspace/hq -> hq/kernel/      older address of the kernel, kept for paths that still name it
+~/Workspace/hq -> hq/kernel/      older address of the kernel, kept for paths that still name it (removable)
 ```
 
 Every tool asks one resolver, `lib/hq_paths.py` (bash: `eval "$(python3 lib/hq_paths.py --sh)"`; the plugin runs
@@ -52,6 +52,8 @@ and its life the folder around it; an agent without `role/` is the older layout 
 is `<state>/agents/<name>`).
 
 ## Kernel files
+
+Paths in this table are inside `kernel/`, except `install.sh` and `.claude-plugin/marketplace.json` (top of the repo).
 
 | File | Lang | What it does | Called by |
 |---|---|---|---|
@@ -70,9 +72,9 @@ is `<state>/agents/<name>`).
 | `bin/hq-send` | bash | Delivers a result: into the Discord thread when inside one, else Telegram | agents |
 | `adapters/claude-code/hooks/register.tsx` | TS | The Claude Code plugin: registers each agent as `hq:<name>` (pinned package, frontmatter `model`), puts project + memory in front of each spawn, applies `effort` per request, nudges for the session file, `/hq` and `mcp__hq__invoke` | Claude Code, every session |
 | `adapters/claude-code/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | JSON | Plugin manifest (option `hq_path`) and this repo as its marketplace | `install.sh` |
-| `shared/PROTOCOL.md` | md | The rules every agent gets after its `agent.md`: memory, projects, sessions, learned skills, delivery | `hq-pkg` (into `prompt.md`), the adapter |
-| `shared/services/<name>.json` | JSON | One shared service: kind (mcp, cli, login), how to start it, secret names (never values) | `hq-auth`, `hq-pkg` checks |
-| `install.sh` | bash | Links `hq`, reinstalls the agents `agents.json` lists, fetches skills, installs the plugin | you, once per Mac |
+| `kernel/PROTOCOL.md` | md | The rules every agent gets after its `agent.md`: memory, projects, sessions, learned skills, delivery | `hq-pkg` (into `prompt.md`), the adapter |
+| `kernel/services/<name>.json` | JSON | One shared service: kind (mcp, cli, login), how to start it, secret names (never values) | `hq-auth`, `hq-pkg` checks |
+| `install.sh` (top) | bash | Links `~/.hq` and `hq`, reinstalls the agents `agents.json` lists, fetches skills, installs the plugin | you, once per Mac |
 
 ## Placeholders and environment
 
@@ -132,11 +134,11 @@ the last tick (at most a day back) and that isn't still running: `hq <agent> "ta
 
 | To change | Open |
 |---|---|
-| What every agent is told (memory, sessions, delivery rules) | `shared/PROTOCOL.md` |
+| What every agent is told (memory, sessions, delivery rules) | `kernel/PROTOCOL.md` |
 | How a run is assembled (flags, prompt, settings, model/effort) | `bin/hq`, and the same in `register.tsx` for subagents |
 | What makes a version valid, snapshots, auto-commit, install/share | `bin/hq-pkg` (`problems()` for checks) |
 | A new placeholder | `bin/hq` `fill()`, `register.tsx` `fill`, `hq-pkg` `PLACEHOLDERS` |
-| Services, grants, secrets | `shared/services/`, `bin/hq-auth` |
+| Services, grants, secrets | `kernel/services/`, `kernel/bin/hq-auth` |
 | Discord behaviour | `bin/hq-bridge`; delivery in `bin/hq-send` |
 | How memory is searched (what's indexed, ranking) | `bin/hq-memory` |
 | Scheduled jobs (cron syntax, catch-up, how a job runs) | `bin/hq-sched` |

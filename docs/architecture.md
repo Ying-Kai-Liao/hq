@@ -21,8 +21,8 @@ installs it) and what it **has lived** (private, accumulated, yours).
 The folders mirror the table:
 
 ```
-hq/                      the system: a plain folder (~/.hq links to it), three sibling repos inside
-  kernel/                   what hq is                                   public repo (this one)
+hq/                      the system: this repo (~/.hq links to it)
+  kernel/                   what hq is: the code                         public (this repo)
   state/                    what hq has lived                            private repo (hq-state)
   agents/                   the agents' lives                            private repo (hq-agents)
     <name>/role/              what the agent is                          its own repo (hq-agent-<name>)
@@ -39,7 +39,7 @@ Open: whether projects are a level of their own.
 | **Role** (package) | What an agent is: identity (`agent.md`), settings, capabilities, its plugins, the skills it learned | its own git repo, `agents/<name>/role/` | built: versioned, snapshotted, committed |
 | **Life** | What an agent has lived: memory, data, files, jobs | next to its role, `agents/<name>/` (the private hq-agents repo; files/ not in git) | built: never snapshotted |
 | **State** | What hq has lived: user.md, projects, agents.json, rules | `state/` in the hq folder (private hq-state repo) | built: never snapshotted |
-| **Service** | Something several agents may use: an MCP server, an API, a login | `shared/services/<name>.json` | built |
+| **Service** | Something several agents may use: an MCP server, an API, a login | `kernel/services/<name>.json` | built |
 | **Grant** | Which agent may use which service, as which account | `~/.config/hq/auth.json` (local, never in the repo) | built |
 | **Environment** | The installed software a package's plugins need, built per machine | not yet | planned |
 | **Kernel** | Runs agents and connects them: `bin/hq`, `hq-pkg`, `hq-auth`, the bridge, the adapter | this repo: `bin/`, `adapters/`, `shared/`; no agents | built |
@@ -62,9 +62,9 @@ Personal details moved out of the packages too (2026-10-14);
 `hq-pkg check --share` guards it. Third-party skills are linked from their repos (skills.json), never copied.
 Published 2026-10-14 with fresh history (MIT).
 
-**Kernel beside, not around** (2026-10-14). The kernel moved into `kernel/`, a sibling of `agents/` and `state/`,
-so no private repo lives inside the public one's working tree (where `git clean -x` or a re-clone would reach it).
-`~/.hq/kernel` is the kernel's address; `~/Workspace/hq` stays as a link to it for older paths.
+**Code in kernel/** (2026-10-15). The repo is the hq folder; all code and services moved into `kernel/` (bin, lib,
+adapters, PROTOCOL.md, services), so the top level shows the system's parts: `kernel/`, `agents/`, `state/`. One
+clone installs hq. `agents/` and `state/` stay ignored, their own repos; `git clean -x` at the top would reach them.
 
 **One folder** (2026-10-14). Agents and state moved into the hq folder, `agents/` and `state/`, each still its own
 repo and ignored by the kernel: one place to manage, the same repo boundaries. `~/.hq` is hq's stable

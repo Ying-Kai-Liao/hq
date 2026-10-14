@@ -11,7 +11,7 @@
   hq-auth get  [--for AGENT] <service> <VAR>       print one secret, for an agent's own tool to call
 
 Three layers, so sharing an agent never shares an account:
-  shared/services/<name>.json   what a service is: kind (mcp | cli | login), how to start it, which env vars it needs.
+  kernel/services/<name>.json   what a service is: kind (mcp | cli | login), how to start it, which env vars it needs.
                                 In the repo; no secrets.
   agents/<a>/capabilities.yaml  `needs: [service, ...]`: what the agent asks for. Part of the agent package.
   ~/.config/hq/auth.json        profiles (an account: where each secret comes from) and grants (agent → service →
@@ -34,7 +34,7 @@ from pathlib import Path
 
 HQ = Path(os.environ.get('HQ_ROOT') or os.path.dirname(os.path.dirname(
     os.path.normpath(os.path.join(os.environ.get('PWD') or os.getcwd(), sys.argv[0])))))
-SERVICES = HQ / 'shared' / 'services'
+SERVICES = HQ / 'services'
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
 from hq_paths import paths  # noqa: E402  the one place that knows where hq's folders are
@@ -81,7 +81,7 @@ def save_auth(data):
 def service(name):
     f = SERVICES / f'{name}.json'
     if not f.is_file():
-        die(f"no service '{name}' (shared/services/)")
+        die(f"no service '{name}' (kernel/services/)")
     return json.loads(f.read_text())
 
 

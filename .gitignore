@@ -1,8 +1,8 @@
 .DS_Store
 __pycache__/
-# The kernel is kernel/ in the hq folder; agents/ and state/ are its siblings, never inside it. Keep stray writes out.
-.store/
-shared/user.md
-shared/projects/
-projects.json
 .orca/
+# Your agents and state live in this folder too, each its own repo: never part of hq itself.
+# Careful: `git clean -x` here would delete them; push them (hq-state commit) before cleaning.
+/agents/
+/state/
+.store/

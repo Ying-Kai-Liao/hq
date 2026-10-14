@@ -107,7 +107,7 @@ export const register: Register = (on, options) => {
       $.ui.toast(`hq: no hq repo at ${hq}; set hq_path in /plugin config`)
       return result
     }
-    const protocol = await $.fs.read(`${hq}/shared/PROTOCOL.md`)
+    const protocol = await $.fs.read(`${hq}/PROTOCOL.md`)
     const where = await hqPaths($, hq)
     state = where.HQ_STATE
     stateReal = where.HQ_STATE_REAL

@@ -49,7 +49,8 @@ How it fits together and where it's going: [docs/architecture.md](docs/architect
 </picture>
 
 ```
-git clone https://github.com/Ying-Kai-Liao/hq ~/hq/kernel && ~/hq/kernel/install.sh   # ~/hq: any folder you like
+git clone https://github.com/Ying-Kai-Liao/hq ~/hq && ~/hq/install.sh   # ~/hq: any folder you like
+hq new reading "tracks what I read"   # start an agent
 hq install <owner>/<repo>            # an agent: any GitHub repo with an agent.md at its root
 hq-new <name> "<description>"        # or start your own
 ```
@@ -94,7 +95,7 @@ their authors' repos (+0). Several agents can share one repo, installed by folde
 
 | Repo | Holds | Visibility |
 |---|---|---|
-| `hq` (this one) | the kernel: `bin/`, `shared/PROTOCOL.md`, `shared/services/`, the plugin | public |
+| `hq` (this one) | the kernel: `kernel/` (code, `PROTOCOL.md`, `services/`, the plugin), docs, `install.sh` | public |
 | `<you>/hq-state`, cloned to `state/` | hq's knowledge: `user.md`, projects, `agents.json`, `private-words` | **private** |
 | `<you>/hq-agents`, cloned to `agents/` | each agent's life: memory, data (as text dumps), jobs, private skills | **private** |
 | `<you>/hq-agent-<name>`, in `agents/<name>/role` | one agent's role: `agent.md`, settings, skills, tools, learned skills | private unless you share it |
@@ -104,19 +105,19 @@ their authors' repos (+0). Several agents can share one repo, installed by folde
 | An agent (you edit it, ask it to change, or it learns a skill) | that agent's repo | committed automatically on its next run; pushed by `hq-state commit` or `hq push <name>` |
 | A new agent (`hq-new`, or ask the instructor) | a new local repo in the agents folder | `hq share <name>` once creates its GitHub repo; from then on as above |
 | The kernel or `PROTOCOL.md` | this repo | a normal commit and push; it's public, so `hq-pkg check --share` first |
-| A service (`shared/services/<name>.json`) | this repo | as the kernel; it names its secrets, never their values |
+| A service (`kernel/services/<name>.json`) | this repo | as the kernel; it names its secrets, never their values |
 | Memory and data | the agents repo | `hq-state commit` |
 | Your profile, projects, which agents you have | the state repo | `hq-state commit` |
 
 A kernel change reaches every agent on its next run without touching their repos. An agent that starts to `need:` a
 new service only passes its checks where that service exists, so push the service with the kernel.
 
-**On a new Mac**, clone the three repos side by side in one folder, then install:
+**On a new Mac**, clone hq, your state and agents repos into it, then install:
 ```
-git clone https://github.com/Ying-Kai-Liao/hq ~/hq/kernel
+git clone https://github.com/Ying-Kai-Liao/hq ~/hq
 git clone https://github.com/<you>/hq-state ~/hq/state
 git clone https://github.com/<you>/hq-agents ~/hq/agents
-~/hq/kernel/install.sh   # links ~/.hq -> ~/hq; installs each agent's role (agents.json) into agents/<name>/role
+~/hq/install.sh   # links ~/.hq -> ~/hq; installs each agent's role (agents.json) into agents/<name>/role
 ```
 
 **Not in any repo**, so redo them by hand on a new Mac:
@@ -128,33 +129,35 @@ git clone https://github.com/<you>/hq-agents ~/hq/agents
 
 ## Layout
 Everything is in the hq folder, laid out by what each thing is (docs/architecture.md, Concepts): hq and each agent
-have what they **are** (shareable, versioned) and what they **have lived** (private). `kernel/` (this repo) is what hq
-is; `state/` is what hq has lived (who it works for, projects, the team, rules). Each agent is a folder in `agents/`:
-`role/` is what it is (its own repo), and next to it what it has lived: `memory/`, `data/`, `files/`. The three are
-sibling repos, none inside another, so `git pull` (or `git clean`) in `kernel/` can never touch your agents or state.
-The hq folder itself is a plain folder, not a repo. `~/.hq` is hq's stable address, a link to the hq
+have what they **are** (shareable, versioned) and what they **have lived** (private). The hq folder is this repo; its
+code is in `kernel/`, which is what hq is. `state/` is what hq has lived (who it works for, projects, the team, rules).
+Each agent is a folder in `agents/`: `role/` is what it is (its own repo), and next to it what it has lived:
+`memory/`, `data/`, `files/`. This repo ignores `agents/` and `state/` (each is its own private repo), so `git pull`
+only ever updates hq. Don't run `git clean -x` here: it deletes ignored folders. `~/.hq` is hq's stable address, a link to the hq
 folder (made by `install.sh`), so the folder can live anywhere, an external disk included; `HQ_HOME` points somewhere
 else instead. Machine-only things stay out of it: `~/.config/hq` (secrets, grants, settings, the cost ledger),
 `~/Library/Logs/hq`, `~/Library/Caches/hq`.
 ```
-kernel/                    this repo
-install.sh                 links ~/.local/bin/hq and installs the Claude Code plugin
-adapters/claude-code/      the Claude Code adapter (plugin); .claude-plugin/marketplace.json serves it
-bin/project-id             resolves the current directory to a project; --list, --register
-bin/hq                     run an agent directly: hq ls · hq <agent> [-p ID] [task] · --print
-bin/hq-pkg                 agents: install, update, history, restore, share; versions: resolve (pin a run), pin, check
-bin/hq-new                 scaffold a new agent as its own repo
-bin/hq-auth                shared services: which agent may use which, as which account
-bin/hq-state               commit what was lived: state and agents repos (sqlite dumped as text), then each role
-bin/hq-ask                 ask an agent and get its answer back; continue the conversation (-c)
-bin/hq-remote              agents on your other machines over ssh: hq remote add, hq ask agent@machine
-bin/hq-memory              search the agents' memory and shared notes
-bin/hq-sched               scheduled agent jobs (cron, launchd)
-shared/
+install.sh                 links ~/.hq and ~/.local/bin/hq, installs the Claude Code plugin
+.claude-plugin/            this repo as a plugin marketplace (serves kernel/adapters/claude-code)
+docs/                      architecture, codebase map
+kernel/                    the code
+  adapters/claude-code/    the Claude Code adapter (plugin)
+  lib/hq_paths.py          the one place that knows where things are
+  bin/project-id           resolves the current directory to a project; --list, --register
+  bin/hq                   run an agent directly: hq ls · hq <agent> [-p ID] [task] · --print
+  bin/hq-pkg               agents: install, update, history, restore, share; versions: resolve (pin a run), pin, check
+  bin/hq-new               scaffold a new agent as its own repo
+  bin/hq-auth              shared services: which agent may use which, as which account
+  bin/hq-state             commit what was lived: state and agents repos (sqlite dumped as text), then each role
+  bin/hq-ask               ask an agent and get its answer back; continue the conversation (-c)
+  bin/hq-remote            agents on your other machines over ssh: hq remote add, hq ask agent@machine
+  bin/hq-memory            search the agents' memory and shared notes
+  bin/hq-sched             scheduled agent jobs (cron, launchd)
   PROTOCOL.md              memory rules, appended to every agent's prompt
   services/<name>.json     shared services (MCP servers, APIs, logins): how to start them, which secrets by name
 
-agents/                    the agents folder (ignored by the kernel; your hq-agents repo)
+agents/                    the agents folder (ignored by this repo; your hq-agents repo)
   <name>/                  one agent
     role/                  what it is: its own git repo (shareable)
       agent.md               identity, how it works, skill index
@@ -171,7 +174,7 @@ agents/                    the agents folder (ignored by the kernel; your hq-age
     jobs.json              its scheduled jobs (hq schedule)
   .store/                  snapshots of roles, one per version (same disk, so each is an APFS clone)
 
-state/                     what hq has lived (ignored by the kernel; your hq-state repo)
+state/                     what hq has lived (ignored by this repo; your hq-state repo)
   projects.json            project IDs → the git remotes / paths that belong to them
   agents.json              which agents you have and where their roles come from
   private-words            words no shared role may contain (hq-pkg check --share)
@@ -220,7 +223,7 @@ Three layers, so sharing an agent never shares an account:
 
 | Layer | Where | Says |
 |---|---|---|
-| Service | `shared/services/<name>.json` (repo) | what it is (`mcp`, `cli`, `login`), how to start it, which env vars it needs |
+| Service | `kernel/services/<name>.json` (repo) | what it is (`mcp`, `cli`, `login`), how to start it, which env vars it needs |
 | Need | `needs: [...]` in the agent's `capabilities.yaml` (package) | what the agent asks for |
 | Grant | `~/.config/hq/auth.json` (yours, never in the repo) | profiles (an account: where each secret comes from) and grants (agent → service → profile) |
 
@@ -312,9 +315,9 @@ How an agent finds its project, first match wins:
 4. **None:** no project memory. Nothing is registered automatically; the agent asks you for a name first.
 
 ```
-bin/project-id                    # ID for the current directory, or nothing
-bin/project-id --list             # all projects and their aliases
-bin/project-id --register acme [dir]   # add dir's remote (or path) to a project
+kernel/bin/project-id             # ID for the current directory, or nothing
+kernel/bin/project-id --list      # all projects and their aliases
+kernel/bin/project-id --register acme [dir]   # add dir's remote (or path) to a project
 ```
 
 ## Adding an agent

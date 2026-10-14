@@ -1,10 +1,12 @@
 {
   "name": "hq",
-  "owner": { "name": "Ying-Kai Liao" },
+  "owner": {
+    "name": "Ying-Kai Liao"
+  },
   "plugins": [
     {
       "name": "hq",
-      "source": "./adapters/claude-code",
+      "source": "./kernel/adapters/claude-code",
       "description": "Claude Code adapter for hq: your persistent specialist agents as subagents in every session."
     }
   ]

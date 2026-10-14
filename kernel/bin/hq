@@ -6,6 +6,7 @@
 #   hq <agent> --print [...]      show the assembled system prompt, don't run
 #   hq <agent> --inspect          start one run and report what it loads (tools, MCP servers, skills, plugins)
 #   hq versions|pin|unpin|rollback <agent> [VERSION]   agent package versions (hq-pkg)
+#   hq new <name> "<description>"                      start a new agent (hq-new)
 #   hq install <github-link> [--as NAME]               add an agent; each agent is its own git repo
 #   hq update|push|commit <agent>|--all                pull from, push to or commit the agent's repo
 #   hq history <agent> | hq restore <agent> <commit>   every good version is committed; restore any of them
@@ -22,7 +23,7 @@
 # version once they pass checks; running sessions keep theirs. Shared services and their secrets come from
 # bin/hq-auth: only the ones the agent needs and is granted, secrets injected into the server process only.
 #
-# Same prompt the Claude Code plugin gives hq:<agent>: agent.md + shared/PROTOCOL.md, plus the
+# Same prompt the Claude Code plugin gives hq:<agent>: agent.md + PROTOCOL.md, plus the
 # agent's MEMORY.md and the project:
 # -p ID, else the project whose remote/path matches the current directory, else none.
 # agents/<name>/settings.json is merged over your global Claude Code settings.
@@ -35,7 +36,7 @@ set -euo pipefail
 src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
 HQ="$(cd "$(dirname "$src")/.." && pwd)"
 
-[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,19p' "$0" | sed 's/^#   //'; exit 0; }
+[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,20p' "$0" | sed 's/^#   //'; exit 0; }
 export HQ_ROOT=$HQ
 # Where things are, from the one place that knows (lib/hq_paths.py): HQ_HOME (~/.hq by default) holding agents/ (each
 # agent: role/ its repo, memory/ data/ files/ its life) and state/ (user.md, projects). Exported for agents' tools.
@@ -47,6 +48,7 @@ case $1 in
   auth)               shift; exec "$HQ/bin/hq-auth" "${@:-ls}" ;;
   cost)               shift; exec "$HQ/bin/hq-cost" "${@:-agents}" ;;
   ask)                shift; exec "$HQ/bin/hq-ask" "${@:---help}" ;;
+  new)                shift; exec "$HQ/bin/hq-new" "$@" ;;
   remote)             shift; exec "$HQ/bin/hq-remote" "${@:---help}" ;;
   memory)             shift; exec "$HQ/bin/hq-memory" "${@:---help}" ;;
   schedule)           shift; exec "$HQ/bin/hq-sched" "${@:-ls}" ;;
@@ -85,7 +87,7 @@ home_real=$(cd "$home" && pwd -P)
 fill() { sed "s|{{AGENT_DIR}}|$pkg|g; s|{{HOME_DIR}}|$home|g; s|{{HOME_REAL}}|$home_real|g; s|{{STATE}}|$HQ_STATE|g; s|{{AGENTS}}|$HQ_AGENTS|g; s|{{PACKAGE}}|$src_pkg|g; s|{{USER_HOME}}|$HOME|g; s|{{HQ}}|$HQ|g; s|{{AGENT}}|$agent|g"; }
 template() {
   if [[ -f $pkg/prompt.md ]]; then cat "$pkg/prompt.md"
-  else awk 'NR==1 && /^---$/ {fm=1; next} fm && /^---$/ {fm=0; next} !fm' "$src_pkg/agent.md"; echo; cat "$HQ/shared/PROTOCOL.md"; fi
+  else awk 'NR==1 && /^---$/ {fm=1; next} fm && /^---$/ {fm=0; next} !fm' "$src_pkg/agent.md"; echo; cat "$HQ/PROTOCOL.md"; fi
 }
 
 [[ ${1:-} == --render ]] && { template | fill; exit 0; }

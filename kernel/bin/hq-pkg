@@ -127,7 +127,7 @@ def fingerprint(home):
     where = home.parent if home.name == 'role' else STATE_ROOT
     h = hashlib.sha1(f'format {FORMAT}\nstate {where}\n'.encode())   # .home names where the life is
     for p, label in [*((p, p.relative_to(home)) for p in package_files(home)),
-                     (HQ / 'shared' / 'PROTOCOL.md', 'PROTOCOL.md')]:
+                     (HQ / 'PROTOCOL.md', 'PROTOCOL.md')]:
         st = p.stat()
         h.update(f'{label}\0{st.st_size}\0{st.st_mtime_ns}\n'.encode())
     return h.hexdigest()[:10]
@@ -180,8 +180,8 @@ def problems(home):
         if not (home / 'skills' / skill).is_file():
             out.append(f'agent.md names skills/{skill}, which does not exist')
     for svc in needs(home):
-        if not (HQ / 'shared' / 'services' / f'{svc}.json').is_file():
-            out.append(f'capabilities.yaml needs service {svc!r}, not in shared/services/')
+        if not (HQ / 'services' / f'{svc}.json').is_file():
+            out.append(f'capabilities.yaml needs service {svc!r}, not in kernel/services/')
     return out
 
 
@@ -217,7 +217,7 @@ def snapshot(agent, home, version):
         for f in [f for f in files if f in SKIP]:
             os.unlink(os.path.join(root, f))
     _, body = frontmatter((home / 'agent.md').read_text())
-    protocol = (HQ / 'shared' / 'PROTOCOL.md').read_text()
+    protocol = (HQ / 'PROTOCOL.md').read_text()
     (tmp / 'prompt.md').write_text(f'{body.strip()}\n\n{protocol}')
     if not (tmp / 'settings.json').exists():
         (tmp / 'settings.json').write_text('{}\n')
