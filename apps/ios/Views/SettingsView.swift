@@ -21,6 +21,7 @@ struct SettingsView: View {
     @State private var confirmStartOver = false
     @State private var confirmRemoveCopy: CloudComputer?
     @State private var voice: VoiceTarget?
+    @State private var aboutAnalytics = false
 
     var body: some View {
         CardForm {
@@ -78,9 +79,13 @@ struct SettingsView: View {
             }
 
             CardSection(footer: "Which features you use, never your messages, code or files. Helps us spot bugs sooner and make Codync better for you.") {
-                Toggle("Share usage analytics", isOn: Binding(get: { analyticsEnabled },
-                                                             set: { Analytics.shared.setEnabled($0) }))
-                    .toggleStyle(.codync)
+                HStack(spacing: 4) {
+                    Text("Share usage analytics").lineLimit(1).layoutPriority(1)
+                    IconButton("About usage analytics", systemImage: "info.circle") { aboutAnalytics = true }
+                    Toggle(isOn: Binding(get: { analyticsEnabled }, set: { Analytics.shared.setEnabled($0) })) { EmptyView() }
+                        .toggleStyle(.codync)
+                        .accessibilityLabel("Share usage analytics")
+                }
             }
 
             if !hiddenBots.isEmpty {
@@ -136,6 +141,7 @@ struct SettingsView: View {
             PairingView(inModal: true)
         }
         .codyncSheet(item: $voice) { target in VoiceChatSettingsView().environment(target.store) }
+        .codyncSheet(isPresented: $aboutAnalytics) { AnalyticsSheet() }
         .codyncSheet(item: $access) { target in
             AccessRequestView(computer: target.computer, pending: accounts.pendingAccess[target.id] != nil)
         }

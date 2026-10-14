@@ -38,9 +38,10 @@ export function Spinner({ size = 14 }: { size?: number }) {
 }
 
 /** On/off switch: label on the left, a flat capsule track on the right. */
-export function Switch({ on, onChange, children, disabled, style }: { on: boolean; onChange: (on: boolean) => void; children?: ReactNode; disabled?: boolean; style?: CSSProperties }) {
+/** `label` names a switch whose visible label sits outside it (beside an info button, say). */
+export function Switch({ on, onChange, children, label, disabled, style }: { on: boolean; onChange: (on: boolean) => void; children?: ReactNode; label?: string; disabled?: boolean; style?: CSSProperties }) {
   return (
-    <button className="switch" role="switch" aria-checked={on} disabled={disabled} onClick={() => onChange(!on)} style={style}>
+    <button className="switch" role="switch" aria-checked={on} aria-label={label} disabled={disabled} onClick={() => onChange(!on)} style={style}>
       {children !== undefined ? <span className="switch-label">{children}</span> : null}
       <span className={`switch-track ${on ? 'on' : ''}`}>
         <span className="switch-knob" />
