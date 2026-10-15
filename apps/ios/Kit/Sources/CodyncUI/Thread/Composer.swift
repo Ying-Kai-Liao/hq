@@ -239,9 +239,15 @@ struct Composer: View {
                 if UIPasteboard.general.hasImages || UIPasteboard.general.hasURLs {
                     items.append(MenuItem("Paste", icon: "doc.on.clipboard") { pasteFiles() })
                 }
+                if let bot, bot.fastModeShown {
+                    items.append(MenuItem("Fast mode", icon: "bolt", selected: bot.fastMode, divider: true) {
+                        model.setFastMode(bot, !bot.fastMode)
+                    })
+                }
                 return items
             } label: { addLabel }
-                .accessibilityLabel("Add files")
+                .accessibilityLabel(bot?.fastModeShown == true ? "Add files or Fast mode" : "Add files")
+                .accessibilityValue(bot?.fastModeShown == true ? (bot?.fastMode == true ? "Fast mode on" : "Fast mode off") : "")
     }
 
     private var addLabel: some View {
@@ -251,6 +257,22 @@ struct Composer: View {
             .frame(width: fieldHeight, height: fieldHeight)
             .glass(in: Circle())
             .contentShape(Circle())
+            .overlay(alignment: .topTrailing) { fastModeBadge }
+            .animation(Motion.reduced(Motion.fade, reduceMotion), value: bot?.fastModeState)
+    }
+
+    /// Fast mode is on: a bolt on the + button, tinted while the agent refuses it.
+    @ViewBuilder private var fastModeBadge: some View {
+        if let bot, bot.fastModeShown, bot.fastMode {
+            Image(systemName: "bolt.fill")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(bot.fastModeState == .refused ? Palette.warning : Palette.background)
+                .frame(width: 16, height: 16)
+                .background(Circle().fill(bot.fastModeState == .refused ? Palette.secondary.opacity(0.25) : Palette.text))
+                .offset(x: 3, y: -3)
+                .transition(.opacity)
+                .accessibilityHidden(true)
+        }
     }
 
     private var fileChips: some View {

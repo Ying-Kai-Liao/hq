@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { isBelow } from '@shared/compat'
+import { fastModeShown, fastModeState, fastModeTitle } from '@shared/fast-mode'
 import { isGroup, isWorkingIn, type Bot } from '@shared/models'
 import { BotAvatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
@@ -185,6 +186,17 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
             {canAttach ? (
               <button className="press composer-add" aria-label="Add files" title="Add files" onClick={() => void window.codync.app.pickFiles().then(append)}>
                 <Icon name="plus" size={13} weight="medium" color="var(--text)" />
+              </button>
+            ) : null}
+            {bot && fastModeShown(bot) ? (
+              <button
+                className={`press composer-add composer-fast fade-in ${fastModeState(bot)}`}
+                aria-label={fastModeTitle(bot)}
+                aria-pressed={bot.fastMode}
+                title={fastModeTitle(bot)}
+                onClick={() => store.setFastMode(bot, !bot.fastMode)}
+              >
+                <Icon name="bolt" size={12} weight="semibold" />
               </button>
             ) : null}
             <div className="composer-field">

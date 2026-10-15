@@ -1,38 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { ChoicePicker, IconButton, Pill, Spinner } from '../../components/Controls'
 import { font } from '../../lib/fonts'
-import { useStore } from '../../store/context'
-import { errorText } from './drafts'
+import type { AgentModelsState } from './agent-models'
 
-/** A model's own setting (effort, fast…) and the values the agent accepts. */
-interface ModelOption {
-  id: string
-  name: string
-  values: { id: string; name: string }[]
-  default?: string | null
-}
-
-/** Model identifiers and display names advertised by the selected computer's ACP agent. */
-interface AgentModels {
-  models: { id: string; name: string; description?: string | null; options?: ModelOption[] }[]
-  currentModelId?: string | null
-}
-
-/** Models come from the selected computer's agent, never a bundled provider list. */
-export function AgentModelPicker({ backend, selection, onChange, options: chosen, onOptionsChange }: {
+/** The bot's model and its options, from the list `useAgentModels` loaded for its agent. */
+export function AgentModelPicker({ backend, models, selection, onChange, options: chosen, onOptionsChange }: {
   backend: string
+  models: AgentModelsState
   selection: string | null | undefined
   onChange: (model: string | null) => void
   options: Record<string, string>
   onOptionsChange: (options: Record<string, string>) => void
 }) {
-  const store = useStore()
-  const online = store.connection.kind === 'online'
-  const [catalog, setCatalog] = useState<AgentModels | null>(null)
-  const scope = useRef<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [failure, setFailure] = useState<string | null>(null)
-  const [retry, setRetry] = useState(0)
+  const { catalog, loading, failure } = models
   const custom = backend === 'custom'
 
   // A different agent starts on its own default model.
@@ -42,32 +22,6 @@ export function AgentModelPicker({ backend, selection, onChange, options: chosen
     lastBackend.current = backend
     onChange(null)
   }, [backend, onChange])
-
-  useEffect(() => {
-    const key = `${store.computer.id}/${backend}`
-    if (scope.current !== key) {
-      setCatalog(null)
-      scope.current = key
-    }
-    setFailure(null)
-    setLoading(false)
-    if (custom) return
-    const client = store.client
-    if (!online || !client) {
-      setFailure('Connect to this computer to load its models. You can still enter a model ID.')
-      return
-    }
-    let cancelled = false
-    setLoading(true)
-    client
-      .call<AgentModels>('agentModels', { backend }, 300_000)
-      .then((res) => !cancelled && setCatalog(res))
-      .catch((e: unknown) => !cancelled && setFailure(`Couldn't load models: ${errorText(e)}`))
-      .finally(() => !cancelled && setLoading(false))
-    return () => {
-      cancelled = true
-    }
-  }, [store.computer.id, store.client, backend, online, retry, custom])
 
   // The agent's own "Default (recommended)" entry is the same choice as leaving the model unset,
   // so it folds into the single Default row instead of showing twice.
@@ -95,7 +49,7 @@ export function AgentModelPicker({ backend, selection, onChange, options: chosen
             // Loading and refresh share one fixed slot, so the row never grows for loading.
             <div style={{ width: 28, height: 28, display: 'grid', placeItems: 'center', flex: 'none' }}>
               <div style={{ gridArea: '1 / 1', opacity: loading ? 0 : 1, transition: 'opacity var(--fade)', pointerEvents: loading ? 'none' : undefined }}>
-                <IconButton title={failure ? 'Retry model list' : 'Refresh model list'} icon="arrow.clockwise" disabled={loading} onClick={() => setRetry((r) => r + 1)} />
+                <IconButton title={failure ? 'Retry model list' : 'Refresh model list'} icon="arrow.clockwise" disabled={loading} onClick={models.reload} />
               </div>
               {loading ? (
                 <div className="fade-in" style={{ gridArea: '1 / 1', display: 'flex' }} aria-label="Loading available models">

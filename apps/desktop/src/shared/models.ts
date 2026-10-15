@@ -22,6 +22,12 @@ export interface Bot {
   model?: string | null
   /** The model's own settings (effort, fast…): agent option id → value. */
   modelOptions: Record<string, string>
+  /** The agent's Fast mode (Claude Code, Codex): faster replies for more usage. */
+  fastMode: boolean
+  /** What the agent says about Fast mode: `unknown` (no session yet), `offered`, `unsupported`,
+   *  or `refused` (it turned it off; `fastModeIssue` says why). */
+  fastModeSupport: string
+  fastModeIssue: string | null
   pinned: boolean
   /** Where the user dragged it, lowest first (after pinned bots); ties sort by recent activity. */
   position: number
@@ -62,6 +68,9 @@ export function normalizeBot(raw: Partial<Bot> & { id: string }): Bot {
     permission: raw.permission ?? 'auto',
     model: raw.model ?? null,
     modelOptions: raw.modelOptions ?? {},
+    fastMode: raw.fastMode ?? false,
+    fastModeSupport: raw.fastModeSupport ?? 'unknown',
+    fastModeIssue: raw.fastModeIssue ?? null,
     pinned: raw.pinned ?? false,
     position: raw.position ?? 0,
     hidden: raw.hidden ?? false,
@@ -409,6 +418,7 @@ export interface BotDraft {
   permission: string
   model?: string | null
   modelOptions?: Record<string, string>
+  fastMode?: boolean
   pinned?: boolean
   hidden?: boolean
   notify?: boolean | null
@@ -430,6 +440,7 @@ export function draftOf(bot: Bot): BotDraft {
     permission: bot.permission,
     model: bot.model ?? null,
     modelOptions: bot.modelOptions,
+    fastMode: bot.fastMode,
     pinned: bot.pinned,
     hidden: bot.hidden,
     notify: bot.notify ?? null,

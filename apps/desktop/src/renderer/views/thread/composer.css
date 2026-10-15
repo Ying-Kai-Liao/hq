@@ -10,6 +10,17 @@
   flex: none;
   margin-bottom: calc(max(0px, (round(up, calc(var(--conversation) * 1.25), 1px) + 10px - 25px) / 2));
 }
+/* Fast mode: filled while on, a warning tint while the agent refuses it. */
+.composer-fast {
+  color: var(--secondary);
+  transition: background var(--fade), color var(--fade), border-color var(--fade);
+}
+.composer-fast.on {
+  background: var(--accent-fill);
+  border-color: transparent;
+  color: var(--on-accent);
+}
+.composer-fast.refused { color: var(--warning); }
 .composer-surface {
   flex: 1;
   min-width: 0;
