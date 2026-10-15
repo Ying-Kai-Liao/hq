@@ -77,8 +77,25 @@
 .extensions-logos img { width: 14px; height: 16px; padding: 1px; background: #fff; border-radius: 3px; object-fit: contain; }
 .extensions-logos > * + * { margin-left: -3px; }
 
+/* An available release: one filled circle that stands out from the quiet chrome around it. */
+.update-badge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--on-accent);
+  background: var(--accent-fill);
+  animation: update-badge-in var(--layout) both;
+  transition: opacity var(--hover), transform var(--hover);
+}
+.update-badge:hover:not(:disabled) { opacity: .85; }
+.update-badge:active:not(:disabled) { transform: scale(.94); }
+.update-badge:disabled { opacity: .35; }
+@keyframes update-badge-in { from { opacity: 0; transform: scale(.6); } }
+
 @media (prefers-reduced-motion: reduce) {
-  .extensions:active, .sidebar-account:active { transform: none; }
+  .extensions:active, .sidebar-account:active, .update-badge:active:not(:disabled) { transform: none; }
+  .update-badge { animation: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .sidebar-footer-fade { background: var(--surface); inset: 0; }

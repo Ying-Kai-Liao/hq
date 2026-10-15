@@ -37,6 +37,8 @@ export class Updates extends EventEmitter {
     waitingForApp: null,
   }
   private userInitiated = false
+  /** The person chose Update: restart into the release as soon as it's downloaded. */
+  private installWhenDownloaded = false
   private preparing: Promise<boolean> | null = null
   private prepared = false
   private updateGeneration = 0
@@ -49,6 +51,7 @@ export class Updates extends EventEmitter {
   register(windows: () => BrowserWindow[]) {
     ipcMain.handle('updates:state', () => this.state)
     ipcMain.on('updates:check', () => this.check())
+    ipcMain.on('updates:install', () => this.installNow())
     ipcMain.on('updates:autoCheck', (_e, on: boolean) => this.setAutoCheck(on))
     ipcMain.on('updates:autoDownload', (_e, on: boolean) => this.setAutoDownload(on))
     this.on('setAutoCheck', (on: boolean) => this.setAutoCheck(on))
@@ -68,7 +71,10 @@ export class Updates extends EventEmitter {
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true
     autoUpdater.on('checking-for-update', () => this.set({ checking: true, error: null }))
-    autoUpdater.on('update-not-available', () => this.checked({ availableVersion: null }))
+    autoUpdater.on('update-not-available', () => {
+      this.installWhenDownloaded = false
+      this.checked({ availableVersion: null })
+    })
     autoUpdater.on('update-available', (info) => void this.available(info))
     autoUpdater.on('download-progress', ({ percent }) => {
       const rounded = Math.floor(percent)
@@ -77,7 +83,9 @@ export class Updates extends EventEmitter {
     // Ready to install: the person restarts from the Updates page, or it installs once idle.
     autoUpdater.on('update-downloaded', (info) => {
       this.set({ staged: true, downloadPercent: null, availableVersion: info.version })
-      this.installWhenIdle()
+      if (!this.installWhenDownloaded) return this.installWhenIdle()
+      this.installWhenDownloaded = false
+      void this.install(true)
     })
     autoUpdater.on('error', (error) => this.failed(error))
 
@@ -118,6 +126,7 @@ export class Updates extends EventEmitter {
 
   private failed(error: unknown) {
     this.updateGeneration++
+    this.installWhenDownloaded = false
     prefs.set('updateRelaunchInFront', false)
     // A preparation still stopping the host restores it after stop completes.
     if (this.prepared) {
@@ -148,6 +157,14 @@ export class Updates extends EventEmitter {
     void autoUpdater.checkForUpdates().catch(() => {})
   }
 
+  /** The sidebar's Update badge: restarts into the available release, downloading it first. */
+  installNow() {
+    if (!enabled || !this.state.availableVersion || this.state.waitingForApp) return
+    if (this.state.staged) return void this.install(true)
+    this.installWhenDownloaded = true
+    this.check()
+  }
+
   /**
    * A release that needs a newer iPhone app than the App Store has (still in review) waits,
    * so paired iPhones aren't asked for an update they can't get yet. Without an answer from
@@ -166,6 +183,7 @@ export class Updates extends EventEmitter {
     }
     this.checked({ availableVersion: info.version, waitingForApp: waiting })
     if (waiting) {
+      this.installWhenDownloaded = false
       if (this.userInitiated) this.set({ error: `Codync ${info.version} needs the iPhone app ${waiting}, which isn't in the App Store yet. It installs once that version passes review.` })
       this.userInitiated = false
       return

@@ -87,7 +87,7 @@ const bridge: CodyncBridge = {
     openApp() {},
   },
   cloud: { request: async () => ({ ok: false, error: { status: 503, code: 'demo', message: DEMO_UNAVAILABLE } }) },
-  updates: { state: async () => updates, onChange: none, check() {}, setAutoCheck() {}, setAutoDownload() {} },
+  updates: { state: async () => updates, onChange: none, check() {}, install() {}, setAutoCheck() {}, setAutoDownload() {} },
   files: { begin: unavailable, write: async () => {}, finish: async () => {}, cancel: async () => {} },
   app: {
     reportError() {},

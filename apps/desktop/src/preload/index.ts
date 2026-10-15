@@ -89,6 +89,7 @@ const bridge: CodyncBridge = {
     state: () => ipcRenderer.invoke('updates:state'),
     onChange: (cb) => listen('updates:change', cb),
     check: () => ipcRenderer.send('updates:check'),
+    install: () => ipcRenderer.send('updates:install'),
     setAutoCheck: (on) => ipcRenderer.send('updates:autoCheck', on),
     setAutoDownload: (on) => ipcRenderer.send('updates:autoDownload', on),
   },
