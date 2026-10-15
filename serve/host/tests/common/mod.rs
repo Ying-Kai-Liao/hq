@@ -1,11 +1,30 @@
 //! Shared by the end-to-end tests.
 
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
+/// The checksum-verified Engram release the test hosts share: `CODYNC_TEST_ENGRAM`, else the copy
+/// `packaging/engram/test-runtime.py` fetches once into `target/engram-test-runtime`. Without it
+/// each host downloads its own, slow enough that tests time out. `None` when offline.
+pub fn engram_fixture() -> Option<PathBuf> {
+    static FIXTURE: OnceLock<Option<PathBuf>> = OnceLock::new();
+    FIXTURE
+        .get_or_init(|| {
+            if let Some(binary) = std::env::var_os("CODYNC_TEST_ENGRAM") {
+                return Some(binary.into());
+            }
+            let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../packaging/engram/test-runtime.py");
+            let output = Command::new(python()).arg(script).output().ok().filter(|o| o.status.success())?;
+            Some(String::from_utf8_lossy(&output.stdout).trim().into())
+        })
+        .clone()
+}
+
 /// Use the checksum-verified release fixture so isolated hosts don't each download it.
-pub fn seed_memory_runtime(home: &std::path::Path) {
-    let Some(binary) = std::env::var_os("CODYNC_TEST_ENGRAM") else {
+pub fn seed_memory_runtime(home: &Path) {
+    let Some(binary) = engram_fixture() else {
         return;
     };
     let dir = home.join("engram/3.2.1");
@@ -17,7 +36,7 @@ pub fn seed_memory_runtime(home: &std::path::Path) {
 /// Runs `codync-host serve` for `home` until it answers: the process and its base URL. A port
 /// picked here is only free for a moment; when something else takes it before the host binds, the
 /// host exits and this starts it again on another one.
-pub async fn serve(home: &std::path::Path) -> (Child, String) {
+pub async fn serve(home: &Path) -> (Child, String) {
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let port = std::net::TcpListener::bind("127.0.0.1:0").expect("free port").local_addr().expect("port").port();
@@ -63,7 +82,7 @@ pub fn python() -> &'static str {
 }
 
 /// The agent command that runs a Python fixture (quoted for `sh -c` / `cmd /c`).
-pub fn python_agent(script: &std::path::Path) -> String {
+pub fn python_agent(script: &Path) -> String {
     let path = script.display().to_string();
     if cfg!(windows) {
         format!("{} -u \"{path}\"", python())

@@ -30,7 +30,7 @@ impl Drop for Host {
 
 impl Host {
     async fn start() -> Self {
-        assert!(std::env::var_os("CODYNC_TEST_ENGRAM").is_some(), "set CODYNC_TEST_ENGRAM to the pinned binary");
+        assert!(common::engram_fixture().is_some(), "needs the pinned Engram binary");
         let home = std::env::temp_dir().join(format!("codync-memory-e2e-{}", uuid::Uuid::new_v4()));
         common::seed_memory_runtime(&home);
         let (child, base) = common::serve(&home).await;
