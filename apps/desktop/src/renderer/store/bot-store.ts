@@ -223,6 +223,10 @@ export class BotStore extends BotSync {
     this.patchBot(bot, { hidden })
   }
 
+  setFastMode(bot: Bot, fastMode: boolean) {
+    this.patchBot(bot, { fastMode })
+  }
+
   /** The roster as the user dragged it, top first: shown at once, then saved on the host. */
   reorder(ids: string[]) {
     ids.forEach((id, position) => {
@@ -352,7 +356,7 @@ function updatePayload(bot: Bot): BotDraft {
     id: bot.id, name: bot.name, description: bot.description, avatarColor: bot.avatarColor, avatarShape: bot.avatarShape,
     backend: bot.backend, command: bot.command ?? null, cwd: bot.managedWorkspace ? '' : bot.cwd, permission: bot.permission,
     model: bot.model ?? null, pinned: bot.pinned, hidden: bot.hidden, notify: bot.notify ?? null,
-    connectors: bot.connectors, skills: bot.skills, computer: bot.computer,
+    connectors: bot.connectors, skills: bot.skills, computer: bot.computer, fastMode: bot.fastMode,
   }
 }
 

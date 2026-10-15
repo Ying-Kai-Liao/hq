@@ -140,7 +140,10 @@ struct BotSettingsForm: View {
                                 .fieldBox()
                         }
                     }
-                    AgentModelPicker(backend: draft.backend, selection: $draft.model, options: $draft.modelOptions)
+                    AgentModelPicker(backend: draft.backend, selection: $draft.model, options: $draft.modelOptions,
+                                     fastMode: Binding(get: { draft.fastMode ?? false }, set: { on in
+                                         withAnimation(Motion.reduced(Motion.fade, reduceMotion)) { draft.fastMode = on }
+                                     }), bot: draft.id.flatMap { model.bots[$0] })
                     ValueRow("Workspace", detail: draft.cwd.isEmpty
                              ? "This bot has its own space for files. It can work in other folders when you ask."
                              : "This project is the default starting folder. The bot can work elsewhere when you ask.") {

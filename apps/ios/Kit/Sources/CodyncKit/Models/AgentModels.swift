@@ -25,4 +25,6 @@ public struct AgentModels: Decodable, Sendable {
 
     public let models: [Model]
     public let currentModelId: String?
+    /// The agent offers Fast mode (absent on older hosts).
+    public let fastMode: Bool?
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { fastModeRefusal, fastModeShown } from '@shared/fast-mode'
 import { draftOf, type BotDraft, type DirListing } from '@shared/models'
 import { CharacterAvatar } from '../../components/Avatar'
 import { CardSection, ChoicePicker, DropdownMenu, IconButton, Pill, SearchField, Spinner, ValueRow } from '../../components/Controls'
@@ -7,6 +8,7 @@ import { ModalHeader, Sheet, useDismiss } from '../../components/Overlay'
 import { font } from '../../lib/fonts'
 import { AVATAR_COLORS, AVATAR_SHAPES } from '../../lib/theme'
 import { useStore } from '../../store/context'
+import { useAgentModels } from './agent-models'
 import { AgentModelPicker } from './AgentModelPicker'
 import { errorText, fillDefaults, isValid, lastPathComponent, normalized, usePlugins, type Plugins } from './drafts'
 import { FormSheet } from '../marketplace/pieces'
@@ -104,6 +106,8 @@ function BotSettingsForm({ draft, onChange, error, plugins }: {
   // Options belong to one model.
   const setModel = useCallback((model: string | null) => onChange((d) => (d.model === model ? d : { ...d, model, modelOptions: {} })), [onChange])
   const setModelOptions = useCallback((modelOptions: Record<string, string>) => onChange((d) => ({ ...d, modelOptions })), [onChange])
+  const models = useAgentModels(draft.backend)
+  const saved = draft.id ? (store.bots.get(draft.id) ?? null) : null
 
   const backends = store.hello?.backends ?? []
   const backend = backends.find((b) => b.id === draft.backend)
@@ -160,7 +164,18 @@ function BotSettingsForm({ draft, onChange, error, plugins }: {
               />
             ) : null}
           </div>
-          <AgentModelPicker backend={draft.backend} selection={draft.model} onChange={setModel} options={draft.modelOptions ?? {}} onOptionsChange={setModelOptions} />
+          <AgentModelPicker backend={draft.backend} models={models} selection={draft.model} onChange={setModel} options={draft.modelOptions ?? {}} onOptionsChange={setModelOptions} />
+          {(draft.backend !== 'custom' && models.catalog?.fastMode) || draft.fastMode || (saved?.backend === draft.backend && fastModeShown(saved)) ? (
+            // Shown while the agent offers it (its model list, or the bot's own sessions), or while it's on.
+            <div className="fade-in">
+              <SwitchRow
+                title="Fast mode"
+                detail={(saved && fastModeRefusal(saved)) ?? 'Faster replies for more usage, on models that offer it.'}
+                on={draft.fastMode ?? false}
+                onChange={(on) => set('fastMode', on)}
+              />
+            </div>
+          ) : null}
           <ValueRow
             label="Workspace"
             detail={

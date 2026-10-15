@@ -2,11 +2,16 @@ import CodyncKit
 import SwiftUI
 
 /// Models come from the selected computer's agent, never a bundled provider list.
+/// Fast mode is a second card row, shown while the agent offers it or while it's on
+/// (so it can be turned off).
 struct AgentModelPicker: View {
     let backend: String
     @Binding var selection: String?
     /// The selected model's settings (effort, fast…); they belong to one model.
     @Binding var options: [String: String]
+    @Binding var fastMode: Bool
+    /// The saved bot: whether its own sessions offer Fast mode, and why the agent refused it.
+    var bot: Bot?
     @Environment(BotStore.self) private var store
     @State private var catalog: AgentModels?
     @State private var catalogScope: String?
@@ -63,7 +68,26 @@ struct AgentModelPicker: View {
         return [("", fallback.map { "Default · \($0)" } ?? "Default")] + option.values.map { ($0.id, $0.name) }
     }
 
+    private var showsFastMode: Bool {
+        (backend != "custom" && catalog?.fastMode == true) || fastMode
+            || (bot?.backend == backend && bot?.fastModeShown == true)
+    }
+
     var body: some View {
+        modelRow
+            .onChange(of: backend) { _, _ in
+                selection = nil
+                options = [:]
+            }
+            .task(id: requestKey) { await load() }
+        if showsFastMode {
+            SwitchRow("Fast mode", detail: bot?.fastModeRefusal ?? "Faster replies for more usage, on models that offer it.",
+                      isOn: $fastMode)
+                .transition(.opacity)
+        }
+    }
+
+    private var modelRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text("Model")
@@ -109,12 +133,7 @@ struct AgentModelPicker: View {
                 .font(.caption)
                 .foregroundStyle(Palette.secondary)
         }
-        .onChange(of: backend) { _, _ in
-            selection = nil
-            options = [:]
-        }
         .animation(Motion.reduced(Motion.fade, reduceMotion), value: modelOptions.map(\.id))
-        .task(id: requestKey) { await load() }
     }
 
     /// Loading and refresh share one fixed slot, so the row never grows for loading.
@@ -153,7 +172,7 @@ struct AgentModelPicker: View {
         do {
             let response = try await client.agentModels(backend)
             try Task.checkCancellation()
-            catalog = response
+            withAnimation(Motion.reduced(Motion.fade, reduceMotion)) { catalog = response }
         } catch {
             guard !Task.isCancelled else { return }
             failure = "Couldn't load models: \(error.localizedDescription)"
