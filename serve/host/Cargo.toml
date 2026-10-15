@@ -90,6 +90,14 @@ lto = "thin"
 codegen-units = 1
 strip = true
 
+# The host Codync Dev bundles (apps/desktop/tools/native-host.mjs): optimized like a release, but
+# a host change rebuilds in about 25 s instead of 80 s per architecture.
+[profile.dev-app]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
+
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
