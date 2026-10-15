@@ -54,15 +54,16 @@ hq builder                           # meet the starter: it learns who you are, 
 hq install <owner>/<repo>            # an agent someone shared: any GitHub repo with an agent.md at its root
 hq new reading "tracks what I read"  # or start one yourself
 hq doctor                            # check everything, with what to fix
+hq backup                            # everything to private GitHub repos: state, memories, your agents
 ```
 This repo is the kernel only: no agents ship with it. `install.sh` links the `hq` CLI, installs the Claude Code
 adapter plugin (`adapters/claude-code`, served by this repo's own marketplace), then runs `hq init`: it checks what
 hq needs (git and its identity, Claude Code, gh), makes `~/.hq` and the agents folder (each a git repo), a
-`user.md` for your agents to fill in, offers to keep both in private GitHub repos too (off by default: they stay
-on this Mac, which Time Machine backs up), and offers the builder, the
+`user.md` for your agents to fill in, asks once whether to back everything up to private GitHub repos (off by
+default: it stays on this Mac, which Time Machine backs up; `hq backup` later), and offers the builder, the
 agent that builds the others, then lists the agents people shared (GitHub repos tagged `hq-agent`) to install
 any by number; `hq market` shows that list any time. Run `hq init` again any time; it only does what is missing.
-On a new Mac, `~/hq/install.sh --from <your-github-user>` brings your state and agents back. Then, in any Claude Code session:
+On a new Mac, `install.sh` finds your backup through your GitHub login and offers to bring it back. Then, in any Claude Code session:
 "have the designer critique this page", `/hq branding <task>`, or the `mcp__hq__invoke` tool. Agents appear as
 `hq:<name>`; your main session only sees one line per specialist, and their skills load only when they're called. Or
 run one directly in a terminal: `hq branding`.
@@ -122,20 +123,23 @@ their authors' repos (+0). Several agents can share one repo, installed by folde
 | You change | It goes to | Saved by |
 |---|---|---|
 | An agent (you edit it, ask it to change, or it learns a skill) | that agent's repo | committed automatically on its next run; pushed by `hq-state commit` or `hq push <name>` |
-| A new agent (`hq-new`, or ask the builder) | a new local repo in the agents folder | `hq share <name>` once creates its GitHub repo; from then on as above |
+| A new agent (`hq-new`, or ask the builder) | a new local repo in the agents folder | `hq backup` once creates its private GitHub repo; from then on as above |
 | The kernel or `PROTOCOL.md` | this repo | a normal commit and push; it's public, so `hq-pkg check --share` first |
 | A service (`kernel/services/<name>.json`) | this repo | as the kernel; it names its secrets, never their values |
 | Memory and data | the agents repo | `hq-state commit` |
 | Your profile, projects, which agents you have | the state repo | `hq-state commit` |
 
+`hq backup` does all of it at once: a private repo for each piece that has none yet (it lists them and asks), then
+commits and pushes everything. `hq doctor` says in one line what is backed up, what changed since, and what is
+only on this Mac.
+
 A kernel change reaches every agent on its next run without touching their repos. An agent that starts to `need:` a
 new service only passes its checks where that service exists, so push the service with the kernel.
 
-**On a new Mac**, clone hq and install with your GitHub user: `hq init --from` fetches your hq-state into `~/.hq`
-and your hq-agents into `agents/`, then installs each agent's role (agents.json) into `agents/<name>/role`:
-```
-git clone https://github.com/Ying-Kai-Liao/hq ~/hq && ~/hq/install.sh --from <you>
-```
+**On a new Mac**, install as usual: `hq init` asks whether to bring back a GitHub backup (logging you in to
+GitHub if needed), finds `<you>/hq-state`, fetches it into `~/.hq` and your hq-agents into `agents/`, then installs
+each agent's role (agents.json) into `agents/<name>/role`. It names any agent that was never backed up.
+`install.sh --from <you>` does the same without asking.
 
 **Not in any repo**, so redo them by hand on a new Mac:
 - an agent you never shared: `agents.json` records it without a link, so `install.sh` skips it;

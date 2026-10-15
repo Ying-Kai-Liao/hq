@@ -3,8 +3,8 @@
 
   hq doctor            every check: ✓ fine, ! worth a look, ✗ broken (exit 1 when anything is broken)
 
-Links and folders, the tools hq needs, the state and agents repos and each agent's role repo (uncommitted,
-unpushed, no backup), each agent's checks, services and grants, the Claude Code plugin, and the background jobs:
+Links and folders, the tools hq needs, one backup line (state, memories and each agent: on GitHub,
+behind, or on this Mac only), each agent's checks, services and grants, the Claude Code plugin, and the background jobs:
 loaded, running, and not stuck (a job whose hq-uv never starts its script has usually lost Full Disk Access).
 """
 import json, os, plistlib, re, shutil, subprocess, sys
@@ -87,31 +87,18 @@ def tools():
         ok('gh')
 
 
-def repo(folder, label):
-    if not (folder / '.git').exists():
-        bad(f'{label}: {folder} is not a git repo: hq init')
-        return
-    status = run('git', 'status', '--porcelain', cwd=folder).stdout.strip()
-    remote = run('git', 'remote', 'get-url', 'origin', cwd=folder).stdout.strip()
-    ahead = run('git', 'rev-list', '--count', '@{u}..HEAD', cwd=folder).stdout.strip()
-    notes, local = [], False
-    if status:
-        notes.append(f'{len(status.splitlines())} uncommitted')
-    if not remote:
-        local = True
-    elif ahead.isdigit() and int(ahead):
-        notes.append(f'{ahead} unpushed')
-    elif not ahead:
-        notes.append('no upstream branch')
-    (warn if notes else ok)(f'{label}: {folder}' + (f' ({", ".join(notes)})' if notes else ''))
-    if local:
-        note(f'{label} is on this Mac only (Time Machine covers it; hq init offers a private GitHub copy)')
+def backup():
+    for folder, label in ((P['HQ_STATE'], 'state'), (P['HQ_AGENTS'], 'agents')):
+        if not (folder / '.git').exists():
+            bad(f'{label}: {folder} is not a git repo: hq init')
+    line = run(str(HQ / 'bin' / 'hq-state'), 'backup', '--check').stdout.strip()
+    mark, _, text = line.partition(' ')
+    {'✓': ok, '!': warn}.get(mark, note)(text or 'backup: the check printed nothing')
 
 
 def repos_and_agents():
-    section('repos')
-    repo(P['HQ_STATE'], 'state')
-    repo(P['HQ_AGENTS'], 'agents')
+    section('backup')
+    backup()
     section('agents')
     user = P['HQ_STATE'] / 'user.md'
     if not user.exists():
@@ -126,10 +113,6 @@ def repos_and_agents():
         notes = []
         if o.get('dirty'):
             notes.append('uncommitted edits')
-        if o.get('unpushed'):
-            notes.append(f'{o["unpushed"]} unpushed')
-        if not o.get('remote') and not o.get('legacy'):
-            notes.append('local only')
         deps = run(str(HQ / 'bin' / 'hq-pkg'), 'deps', name)
         if deps.returncode:
             notes.append('missing ' + ', '.join(l.split()[0] for l in deps.stdout.splitlines()[2:] if l.strip())

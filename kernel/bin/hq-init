@@ -2,10 +2,12 @@
 """hq-init — set hq up on this Mac, or bring yours back on a new one. Safe to run again: it only does what is missing.
 
   hq init                  check what hq needs, make ~/.hq and the agents folder (each a git repo), a user.md to
-                           fill in, offer to keep both in private GitHub repos too (default no), and a starter agent
+                           fill in, offer one backup to private GitHub repos (default no; hq backup), and a starter
+                           agent. On a new Mac whose GitHub login has a backup (<you>/hq-state), it offers to bring
+                           it back first
   hq init --from <github-user>
-                           a new Mac: clone <user>/hq-state into ~/.hq and <user>/hq-agents into the agents folder,
-                           then install every agent agents.json lists
+                           the same restore without asking: clone <user>/hq-state into ~/.hq and <user>/hq-agents
+                           into the agents folder, then install every agent agents.json lists
                            Either way it asks whether your agents run on another Mac, and if so sets up the ssh login
                            and hq remote add for you
   hq init --yes            take each offer's default without asking (the starter yes, GitHub copies no); without a
@@ -56,6 +58,7 @@ MARKS = {'✓': lambda: paint('32', '✓'), '!': lambda: paint('33', '!'), '✗'
          '-': lambda: dim('·')}
 LOGO = ['█', '█▄▄ ▄▄▄', '█ █ █▄█', '      █']
 STEPS = 0
+RESTORED = set()   # folders restore() just brought back, so ensure_repo doesn't list them twice
 
 
 def logo(title, subtitle):
@@ -157,12 +160,16 @@ def ensure_repo(folder, gitignore, label):
         if r.returncode:
             say('!', f'{label}: no first commit yet', (r.stderr or r.stdout).strip().splitlines()[-1])
             return
+    if folder in RESTORED:
+        return
     say('✓', tilde(folder).ljust(14), {'state': 'who you are, your projects',
                                          'agents': "each agent's memory and data"}.get(label, ''))
 
 
 def restore(user):
     """A new Mac: this user's state into ~/.hq and agents into the agents folder, both from GitHub."""
+    if GITHUB == 'https://github.com' and gh_user():
+        run('gh', 'auth', 'setup-git')   # git fetches the private repos with gh's login
     for folder, repo, label in ((STATE, 'hq-state', 'state'), (AGENTS, 'hq-agents', 'agents')):
         url = f'{GITHUB}/{user}/{repo}.git'
         if (folder / '.git').exists() and has_commits(folder):
@@ -174,6 +181,10 @@ def restore(user):
         run('git', 'remote', 'remove', 'origin', cwd=folder)
         run('git', 'remote', 'add', 'origin', url, cwd=folder)
         r = run('git', 'fetch', '-q', 'origin', cwd=folder)
+        if r.returncode and label == 'agents':   # memories were never backed up: agents start fresh, nothing lost
+            run('git', 'remote', 'remove', 'origin', cwd=folder)
+            say('-', tilde(folder), f'no {user}/{repo} on GitHub; agents start with empty memories')
+            continue
         if r.returncode:
             sys.exit(f'✗ {label}: could not fetch {url} ({r.stderr.strip()}). Private? gh auth login, then again.')
         branch = run('git', 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD', cwd=folder).stdout.strip() \
@@ -182,40 +193,86 @@ def restore(user):
         r = run('git', 'checkout', '-q', '-f', '-B', branch.split('/', 1)[1], '--track', branch, cwd=folder)
         if r.returncode:
             sys.exit(f'✗ {label}: checkout failed: {r.stderr.strip()}')
-        say('✓', tilde(folder), f'from {url}')
+        say('✓', tilde(folder), f'from {user}/{repo}')
+        RESTORED.add(folder)
     if STATE == Path.home() / '.hq':
         (STATE / 'secrets').mkdir(exist_ok=True)
         os.chmod(STATE / 'secrets', 0o700)
 
 
-def backups():
-    """Offer a private GitHub repo for each of the two, when it has no remote yet."""
-    me = None
-    if not any(run('git', 'remote', 'get-url', 'origin', cwd=f).stdout.strip() for f in (STATE, AGENTS)) \
-            and not gh_user():
-        say('-', 'on this Mac only', 'for a GitHub copy too: gh auth login, then hq init')
+def backed_up():
+    return json.loads(run(str(HQ / 'bin' / 'hq-state'), 'backup', '--json').stdout or '[]')
+
+
+def gh_login():
+    """gh auth login in the browser, on a terminal: the GitHub login, or ''."""
+    if not ASK or not shutil.which('gh'):
+        return ''
+    say('-', 'logging in to GitHub', 'gh opens your browser')
+    subprocess.run(['gh', 'auth', 'login', '-w', '-p', 'https'])
+    return gh_user()
+
+
+def find_backup():
+    """A new Mac (no state yet): offer the backup at <you>/hq-state, found through the GitHub login."""
+    if has_commits(STATE) or not shutil.which('gh'):
         return
-    for folder, repo, label in ((STATE, 'hq-state', 'state'), (AGENTS, 'hq-agents', 'agents')):
-        if not (folder / '.git').exists():
-            continue
-        remote = run('git', 'remote', 'get-url', 'origin', cwd=folder).stdout.strip()
-        if remote:
-            say('✓', label, f'backs up to {remote}')
-            continue
-        me = gh_user() if me is None else me
+    me, asked = gh_user(), False
+    if not me:
+        asked = True
+        if not offer('Bring back hq from a GitHub backup?', default=False,
+                     note='Only if you use hq on another Mac and backed it up there.'):
+            return
+        me = gh_login()
         if not me:
-            say('-', label, 'on this Mac only · for a GitHub copy: gh auth login, then hq init')
-            continue
-        what = 'who you are, projects' if label == 'state' else "agents' memory and data"
-        if not offer(f'Also copy {label} ({what}) to a private repo, {me}/{repo}?', default=False,
-                     note='It stays on this Mac either way. GitHub adds an off-site copy, and install.sh --from '
-                          'on a new Mac.'):
-            say('-', label, 'on this Mac only')
-            continue
-        r = run('gh', 'repo', 'create', f'{me}/{repo}', '--private', '--source', str(folder), '--remote', 'origin',
-                '--push')
-        say('✓' if r.returncode == 0 else '✗', label, f'copied to {me}/{repo}' if r.returncode == 0
-            else f'gh repo create failed: {r.stderr.strip()}')
+            say('!', 'not logged in to GitHub', 'later: hq init --from <your GitHub name>')
+            return
+    if run('gh', 'repo', 'view', f'{me}/hq-state', '--json', 'name').returncode:
+        if asked:
+            say('-', f'no backup at {me}/hq-state', 'starting fresh')
+        return
+    if asked:   # they said bring it back already
+        say('✓', f'found your backup, {me}/hq-state')
+        restore(me)
+    elif offer(f'You have hq backed up on GitHub ({me}/hq-state). Bring it back to this Mac?', default=True,
+               note='Your profile, projects, agents and their memories.'):
+        restore(me)
+
+
+def backups():
+    """One backup: a private GitHub repo for every piece that has none (hq backup does the work)."""
+    ps = backed_up()
+    local = [p['name'] for p in ps if p['state'] == 'local']
+    if not local:
+        say('✓', 'backed up to GitHub', dim(', '.join(p['name'] for p in ps)) if len(ps) < 6 else f'{len(ps)} pieces')
+        return
+    if not shutil.which('gh'):
+        say('-', 'on this Mac only', 'for a GitHub copy too: brew install gh, then hq backup')
+        return
+    if len(local) < len(ps):   # some are on GitHub already: the rest belongs there too
+        yes = offer(f'Back up the rest too: {", ".join(local)}?', default=True,
+                    note='The other pieces are already in private repos on GitHub.')
+    else:
+        yes = offer('Also keep a copy in private GitHub repos?', default=False,
+                    note='It stays on this Mac either way. With a copy, a new Mac gets everything back: your '
+                         'profile, agents and their memories.')
+    if not yes:
+        say('-', 'on this Mac only' if len(local) == len(ps) else f'only here: {", ".join(local)}',
+            'later: hq backup')
+        return
+    if not gh_user() and not gh_login():
+        say('!', 'not logged in to GitHub', 'later: hq backup')
+        return
+    r = run(str(HQ / 'bin' / 'hq-state'), 'backup', '--yes')
+    for line in r.stdout.splitlines():
+        m = re.match(r'([\w-]+): (backed up to .*)', line)
+        if m:
+            say('✓', m.group(1), m.group(2))
+    for line in r.stderr.splitlines():
+        say('✗', line)
+    left = [p['name'] for p in backed_up() if p['state'] == 'local']
+    if left:
+        say('!', f'still only here: {", ".join(left)}', 'hq backup says why')
 
 
 # ---- agents on another Mac ------------------------------------------------------------------------------------------
@@ -367,6 +424,8 @@ def main(argv):
             sys.exit('hq init --from <github-user>')
         restore(argv[i + 1])
     section('Your folders')
+    if '--from' not in argv:
+        find_backup()
     (STATE / 'projects').mkdir(parents=True, exist_ok=True)
     if not (STATE / 'projects.json').exists():
         (STATE / 'projects.json').write_text('{"projects": {}}\n')
@@ -374,7 +433,13 @@ def main(argv):
     ensure_repo(STATE, 'dot-hq.gitignore', 'state')
     ensure_repo(AGENTS, 'agents.gitignore', 'agents')
     if (STATE / 'agents.json').exists():   # the agents this state lists (another Mac's): install the missing ones
-        subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'install', '--saved'])
+        r = run(str(HQ / 'bin' / 'hq-pkg'), 'install', '--saved')
+        for line in (r.stdout + r.stderr).splitlines():
+            m = re.match(r'installed ([\w.-]+) from (\S+)', line)
+            if m:
+                say('✓', m.group(1), re.sub(r'^.*?([\w.-]+/[\w.-]+?)(\.git)?$', r'from \1', m.group(2)))
+            elif re.match(r'[\w.-]+: ', line):
+                say('!', *line.split(': ', 1))
         subprocess.run([str(HQ / 'bin' / 'hq-pkg'), 'fetch', '--all'], capture_output=True)
     section('Backups')
     backups()
