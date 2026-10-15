@@ -70,6 +70,27 @@ test('manual check downloads with progress, then waits for Restart to update', a
   assert.equal(f.preferences.get('updateRelaunchInFront'), true)
 })
 
+test('the Update badge downloads the release if needed, then restarts into it', async () => {
+  const f = updaterFixture({ prefs: { updatesAutoDownload: false } })
+  f.ipc.emit('updates:install')
+  assert.equal(f.calls.check, 0, 'nothing to install before a release is found')
+  await f.emit('update-available', release)
+  assert.equal(f.calls.download, 0)
+  f.ipc.emit('updates:install')
+  await f.emit('update-available', release)
+  assert.equal(f.calls.download, 1)
+  await f.emit('update-downloaded', release)
+  assert.equal(f.calls.install, 1, 'restarts without a second click')
+  assert.equal(f.preferences.get('updateRelaunchInFront'), true)
+
+  const staged = updaterFixture()
+  await staged.emit('update-downloaded', release)
+  staged.ipc.emit('updates:install')
+  await settle()
+  assert.equal(staged.calls.check, 0)
+  assert.equal(staged.calls.install, 1)
+})
+
 test('the app relaunched by a chosen restart opens its own bundle once to come forward', () => {
   const relaunched = updaterFixture({ prefs: { updateRelaunchInFront: true } })
   assert.deepEqual(relaunched.opened, ['/Applications/Codync.app'])

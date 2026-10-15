@@ -1,4 +1,5 @@
 import { ProfileAvatar } from './PanelMenus'
+import { UpdateBadge } from './UpdateButton'
 import gmail from '../assets/gmail.png'
 import calendar from '../assets/google-calendar.png'
 import drive from '../assets/google-drive.png'
@@ -28,6 +29,7 @@ export function SidebarFooter({ accountOpen, onAccount, onExtensions }: {
           {[gmail, calendar, drive].map((src) => <img key={src} src={src} alt="" draggable={false} />)}
         </span>
       </button>
+      <UpdateBadge size={34} />
     </div>
   )
 }

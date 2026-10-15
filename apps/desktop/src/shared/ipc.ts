@@ -178,6 +178,8 @@ export interface CodyncBridge {
     state(): Promise<UpdateState>
     onChange(cb: (s: UpdateState) => void): () => void
     check(): void
+    /** Downloads the available release if needed, then restarts into it. */
+    install(): void
     setAutoCheck(on: boolean): void
     setAutoDownload(on: boolean): void
   }
