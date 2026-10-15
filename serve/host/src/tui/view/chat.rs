@@ -50,8 +50,14 @@ pub(super) fn chat(buf: &mut Buffer, r: Rect, app: &mut App, narrow: bool) {
         put(buf, x, r.y, room, &truncate(&format!("group · {}", names.join(", ")), usize::from(room)), t.secondary);
     } else if !narrow {
         let mode = if b.auto { "auto" } else { "ask" };
-        let cwd = truncate(&b.folder(&app.home), usize::from(room).saturating_sub(w(&b.backend) + w(mode) + 6));
-        put(buf, x, r.y, room, &format!("{} · {cwd} · {mode}", b.backend), t.secondary);
+        let fast = match (b.fast_mode, b.fast_refusal().is_some()) {
+            (true, true) => " · ⚡ refused",
+            (true, false) => " · ⚡ fast",
+            _ => "",
+        };
+        let cwd =
+            truncate(&b.folder(&app.home), usize::from(room).saturating_sub(w(&b.backend) + w(mode) + w(fast) + 6));
+        put(buf, x, r.y, room, &format!("{} · {cwd} · {mode}{fast}", b.backend), t.secondary);
     }
     let mut top = r.y + 1;
     if !narrow {

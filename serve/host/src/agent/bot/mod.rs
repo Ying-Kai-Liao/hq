@@ -15,6 +15,7 @@
 //! forked from the main one when the agent can fork) and in group chats (turns in
 //! its main session, written to the group's transcript; see `group`).
 
+mod fast_mode;
 mod files;
 mod queue;
 mod session;
@@ -24,6 +25,7 @@ mod updates;
 pub(crate) use session::{launch_commands, select_model, start_agent};
 
 use crate::agent::acp::{Acp, Incoming};
+use crate::agent::config::FastModeSupport;
 use crate::chat::context::{Identity, Snapshot};
 use crate::chat::group::GroupTurn;
 use crate::chat::memory;
@@ -112,6 +114,9 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig) -> BotHandle {
     });
     let keeper = memory::spawn_keeper(hub.clone(), cfg.id.clone());
     let lane = Lane::main(&cfg.id);
+    let fast_support = FastModeSupport::from_stored(hub.store.kv_get(&fast_mode::stored_key(&cfg.id)).as_deref());
+    let support = fast_support.clone();
+    hub.set_runtime(&cfg.id, |r| r.fast_mode = support);
     let actor = Actor {
         hub,
         cfg,
@@ -148,6 +153,7 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig) -> BotHandle {
         cancel_deadline: None,
         exit_tail: None,
         tools_changed: false,
+        fast_support,
     };
     let task = tokio::spawn(actor.run(rx, interrupted));
     BotHandle { tx, task }
@@ -175,6 +181,8 @@ pub(crate) struct Conn {
     pub(crate) claude: bool,
     /// Sessions already created or loaded in this process.
     loaded: HashSet<String>,
+    /// Each live session's Fast mode option, as the agent last listed it.
+    fast_options: HashMap<String, Value>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -242,6 +250,8 @@ struct Actor {
     /// Connectors changed: restart the agent before the next turn so the
     /// session is resumed with the new MCP servers.
     tools_changed: bool,
+    /// What the agent says about Fast mode; clients see it in the bot's runtime.
+    fast_support: FastModeSupport,
 }
 
 struct RoutineCompletion {

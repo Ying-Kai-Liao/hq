@@ -6,7 +6,7 @@ use crate::chat::context;
 use crate::store::{BotConfig, Entry, EntryKind, Lane, lane_key};
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 impl Actor {
@@ -190,12 +190,15 @@ impl Actor {
             self.hub.set_runtime(&self.cfg.id, |r| r.activity = "Opening the thread…".into());
             let res = self
                 .session_request("session/fork", json!({"sessionId": main, "cwd": self.cfg.cwd, "mcpServers": servers}))
-                .await;
-            if let Some(sid) = res.ok().and_then(|r| r["sessionId"].as_str().map(str::to_owned))
+                .await
+                .ok();
+            if let Some(res) = res
+                && let Some(sid) = res["sessionId"].as_str().map(str::to_owned)
                 && let Some(conn) = self.conn.as_mut()
             {
                 conn.loaded.insert(sid.clone());
                 self.set_session(slot, Some(&sid));
+                self.note_options(&sid, &res, false);
                 forked = true;
             } else {
                 tracing::warn!(bot = %self.cfg.id, "session/fork failed; the thread starts fresh");
@@ -245,10 +248,13 @@ impl Actor {
                 Ok(res) => {
                     // A resumed session can come back on the agent's last-used model (Cursor
                     // keeps one for all its sessions), so the bot's own is set again.
-                    if res.get("configOptions").is_some() || res.get("models").is_some() {
-                        select_model(&conn.acp, &res, &sid, &self.cfg).await?;
-                    }
+                    let res = if res.get("configOptions").is_some() || res.get("models").is_some() {
+                        select_model(&conn.acp, &res, &sid, &self.cfg).await?
+                    } else {
+                        res
+                    };
                     conn.loaded.insert(sid.clone());
+                    self.note_options(&sid, &res, false);
                     if let Some(s) = snapshot {
                         // Its system prompt now names the bot as rendered.
                         context::mark_announced(&self.hub.store, &self.cfg.id, &s, s.system_identity.clone())?;
@@ -276,7 +282,8 @@ impl Actor {
         let Some(conn) = self.conn.as_mut() else { bail!("agent not running") };
         let sid = res["sessionId"].as_str().ok_or_else(|| anyhow!("agent returned no sessionId"))?.to_owned();
         conn.loaded.insert(sid.clone());
-        select_model(&conn.acp, &res, &sid, &self.cfg).await?;
+        let options = select_model(&conn.acp, &res, &sid, &self.cfg).await?;
+        self.note_options(&sid, &options, false);
         self.set_session(slot, Some(&sid));
         self.session_fresh = true;
         self.turn_session = Some(sid.clone());
@@ -292,7 +299,7 @@ impl Actor {
 
     /// A session request the agent doesn't answer in time stops the agent: a hung one
     /// would otherwise hold the bot, and its Stop, forever.
-    async fn session_request(&mut self, method: &str, params: Value) -> Result<Value> {
+    pub(super) async fn session_request(&mut self, method: &str, params: Value) -> Result<Value> {
         let acp = self.conn.as_ref().ok_or_else(|| anyhow!("agent not running"))?.acp.clone();
         if let Ok(result) = tokio::time::timeout(SESSION_TIMEOUT, acp.request(method, params)).await {
             return result;
@@ -343,23 +350,27 @@ pub(crate) async fn launch_commands(cfg: &BotConfig, progress: impl Fn(&str)) ->
 }
 
 /// Switches a session (`session/new` or `session/load` answered `res`) to the bot's
-/// chosen model, then sets that model's options (effort, fast…).
-pub(crate) async fn select_model(acp: &Acp, res: &Value, sid: &str, cfg: &BotConfig) -> Result<()> {
-    let Some(model) = cfg.model.as_deref().filter(|m| !m.is_empty()) else { return Ok(()) };
+/// chosen model, then sets that model's options (effort, fast…). Returns the answer holding
+/// the session's config options now: a model can change them.
+pub(crate) async fn select_model(acp: &Acp, res: &Value, sid: &str, cfg: &BotConfig) -> Result<Value> {
+    let Some(model) = cfg.model.as_deref().filter(|m| !m.is_empty()) else { return Ok(res.clone()) };
     let Some(config_id) = crate::agent::auth::model_config(res).and_then(|c| c["id"].as_str()) else {
         let r = acp.request("session/set_model", json!({"sessionId": sid, "modelId": model})).await;
-        return r.map(drop).map_err(|e| model_error(model, &e));
+        return r.map(|_| res.clone()).map_err(|e| model_error(model, &e));
     };
     let (model, mut options) = split_variant(res, model);
     options.extend(cfg.model_options.iter().map(|(k, v)| (k.as_str(), v.as_str())));
     let set = |id: &str, value: &str| {
         acp.request("session/set_config_option", json!({"sessionId": sid, "configId": id, "value": value}))
     };
-    set(config_id, model).await.map_err(|e| model_error(model, &e))?;
+    let mut current = set(config_id, model).await.map_err(|e| model_error(model, &e))?;
     for (id, value) in options {
-        set(id, value).await.map_err(|e| model_error(&format!("{model} with {id}={value}"), &e))?;
+        let answer = set(id, value).await.map_err(|e| model_error(&format!("{model} with {id}={value}"), &e))?;
+        if answer["configOptions"].is_array() {
+            current = answer;
+        }
     }
-    Ok(())
+    Ok(if current["configOptions"].is_array() { current } else { res.clone() })
 }
 
 fn model_error(model: &str, e: &anyhow::Error) -> anyhow::Error {
@@ -422,7 +433,7 @@ pub(crate) async fn start_agent(command: &str, cwd: &str, env: &[(String, String
         fork: init["agentCapabilities"]["sessionCapabilities"]["fork"].is_object(),
     };
     let claude = init["agentCapabilities"]["_meta"]["claudeCode"].is_object();
-    Ok(Conn { acp, rx, sessions, claude, loaded: HashSet::new() })
+    Ok(Conn { acp, rx, sessions, claude, loaded: HashSet::new(), fast_options: HashMap::new() })
 }
 
 #[cfg(test)]

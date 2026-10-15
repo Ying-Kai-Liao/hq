@@ -89,6 +89,8 @@ pub struct App {
     pub plugins: (Vec<Value>, Vec<Value>),
     /// Models each agent offers (`None` while loading).
     pub models: HashMap<String, Option<Vec<AgentModel>>>,
+    /// Agents whose model list came with Fast mode.
+    pub fast_mode: HashSet<String>,
     /// A setup terminal holding the screen.
     pub shell: Option<Shell>,
     /// Chats and threads (`bot` / `bot/root`) marked read since their bot's unread count last changed.
@@ -152,6 +154,7 @@ impl App {
             market: (vec![], vec![]),
             plugins: (vec![], vec![]),
             models: HashMap::new(),
+            fast_mode: HashSet::new(),
             shell: None,
             reading: HashSet::new(),
             history_busy: HashSet::new(),

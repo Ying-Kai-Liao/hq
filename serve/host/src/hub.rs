@@ -39,6 +39,7 @@ pub struct Runtime {
     pub started_at: Option<i64>,
     /// Where the running turn talks: its own chat, a thread, or a group.
     pub lane: Option<Lane>,
+    pub fast_mode: crate::agent::config::FastModeSupport,
 }
 
 /// Reactions per message: a handful of distinct emoji.
@@ -353,7 +354,11 @@ impl Hub {
             f(rt);
             (before, rt.clone())
         };
-        if before.status != after.status || before.activity != after.activity || before.lane != after.lane {
+        if before.status != after.status
+            || before.activity != after.activity
+            || before.lane != after.lane
+            || before.fast_mode != after.fast_mode
+        {
             self.emit_bot(id);
             // A group shows what its busy member is doing.
             for lane in [&before.lane, &after.lane].into_iter().flatten() {

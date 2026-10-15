@@ -82,6 +82,9 @@ impl Actor {
         } else {
             self.ensure_session(slot.as_deref()).await?;
         }
+        if let Some(sid) = self.turn_session.clone() {
+            self.sync_fast_mode(&sid).await;
+        }
         if hidden && self.session_fresh {
             // A new session must never silently repeat an interrupted routine.
             self.finish_routine(

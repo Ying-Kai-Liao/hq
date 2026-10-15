@@ -81,9 +81,14 @@ impl Actor {
                     || cfg.model != self.cfg.model
                     || cfg.model_options != self.cfg.model_options;
                 self.tools_changed |= cfg.connectors != self.cfg.connectors || cfg.computer != self.cfg.computer;
+                // Live sessions switch before their next turn (see `fast_mode`).
+                let fast_changed = cfg.fast_mode != self.cfg.fast_mode;
                 // Name, description and skill changes reach the agent as a profile update
                 // on the next message (see `context`).
                 self.cfg = cfg;
+                if fast_changed {
+                    self.fast_mode_changed();
+                }
                 if restart {
                     self.files.cancel();
                     if let Some(c) = self.conn.take() {

@@ -138,6 +138,7 @@ pub enum Field {
     Agent,
     Model,
     ModelOptions,
+    Fast,
     Folder,
     Approvals,
     Notify,
@@ -148,12 +149,13 @@ pub enum Field {
     Skills,
 }
 
-pub const FIELDS: [Field; 13] = [
+pub const FIELDS: [Field; 14] = [
     Field::Name,
     Field::Instructions,
     Field::Agent,
     Field::Model,
     Field::ModelOptions,
+    Field::Fast,
     Field::Folder,
     Field::Approvals,
     Field::Notify,
@@ -179,6 +181,7 @@ pub struct Form {
     pub model: Editor,
     /// Model settings (effort, fast…) and the model they were picked for.
     pub model_options: (String, BTreeMap<String, String>),
+    pub fast: bool,
     pub cwd: String,
     pub auto: bool,
     pub notify: bool,
