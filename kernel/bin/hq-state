@@ -10,6 +10,9 @@
                      (hq backup) everything to GitHub: a private repo for each piece that has none yet (the state,
                      the agents' memories as <you>/hq-agents, each agent of yours as <you>/hq-agent-<name>), asking
                      first unless --yes; then commit and push it all
+  hq-state backup --nightly [off]
+                     (hq backup --nightly) the same every night at 03:00, or when the Mac wakes after it: the
+                     LaunchAgent dev.hq.backup, log ~/.hq/logs/backup.log; off removes it
   hq-state backup --check|--json
                      one line saying what is backed up and what is not (exit 1 when something is not), or each
                      piece as JSON (hq init and hq doctor use it)
@@ -20,6 +23,7 @@ Databases are committed as dumps, not binaries: they diff, merge by hand, and re
 import datetime as dt
 import json
 import os
+import plistlib
 import re
 import shutil
 import sqlite3
@@ -33,6 +37,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..
 from hq_paths import paths  # noqa: E402  the one place that knows where hq's folders are
 STATE, AGENTS = paths()['HQ_STATE'], paths()['HQ_AGENTS']
 sys.stdout.reconfigure(line_buffering=True)   # in order with the tools it runs, also when piped
+LABEL = 'dev.hq.backup'
+PLIST = Path.home() / 'Library/LaunchAgents' / (LABEL + '.plist')
 
 
 def dump():
@@ -210,6 +216,31 @@ def backup(yes):
     return 0 if mark != '!' else 1
 
 
+def nightly(on):
+    uid = os.getuid()
+    subprocess.run(['launchctl', 'bootout', f'gui/{uid}/{LABEL}'], capture_output=True)
+    if not on:
+        PLIST.unlink(missing_ok=True)
+        print(f'removed {LABEL}: backups run only when you ask (hq backup)')
+        return
+    p = paths()
+    logs = p['HQ_LOGS']
+    logs.mkdir(parents=True, exist_ok=True)
+    me = p['HQ_HOME'] / 'kernel/bin/hq-state'   # the address, not the disk path: the hq folder can move
+    launcher = p['HQ_MACHINE'] / 'bin/hq-uv'      # uv with Full Disk Access, for a repo on an external disk
+    argv = [str(launcher), 'run', '--quiet', '--script', str(me)] if launcher.exists() else [str(me)]
+    PLIST.parent.mkdir(parents=True, exist_ok=True)
+    PLIST.write_bytes(plistlib.dumps({
+        'Label': LABEL, 'ProgramArguments': [*argv, 'backup', '--yes'],
+        'StartCalendarInterval': {'Hour': 3, 'Minute': 0}, 'ProcessType': 'Background',
+        'WorkingDirectory': str(Path.home()),
+        'EnvironmentVariables': {'HOME': str(Path.home()), 'HQ_HOME': str(p['HQ_HOME']),
+                                 'PATH': os.environ.get('PATH', '/usr/bin:/bin')},
+        'StandardOutPath': str(logs / 'backup.log'), 'StandardErrorPath': str(logs / 'backup.log')}))
+    subprocess.run(['launchctl', 'bootstrap', f'gui/{uid}', str(PLIST)], check=True)
+    print(f'every night at 03:00 ({LABEL}); log {logs / "backup.log"}')
+
+
 def main(argv):
     cmd = argv[0] if argv else '-h'
     if cmd == 'path':
@@ -219,6 +250,8 @@ def main(argv):
     elif cmd == 'commit':
         commit()
         push_agents()
+    elif cmd == 'backup' and '--nightly' in argv:
+        nightly('off' not in argv)
     elif cmd == 'backup' and '--json' in argv:
         print(json.dumps(pieces()))
     elif cmd == 'backup' and '--check' in argv:

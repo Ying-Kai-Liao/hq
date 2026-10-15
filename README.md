@@ -130,7 +130,9 @@ their authors' repos (+0). Several agents can share one repo, installed by folde
 | Your profile, projects, which agents you have | the state repo | `hq-state commit` |
 
 `hq backup` does all of it at once: a private repo for each piece that has none yet (it lists them and asks), then
-commits and pushes everything. `hq doctor` says in one line what is backed up, what changed since, and what is
+commits and pushes everything. Saying yes to backups in `hq init` also runs it every night at 03:00 (`hq backup
+--nightly`, a LaunchAgent; `--nightly off` stops it), so a new agent of yours gets its private repo the next night.
+`hq doctor` says in one line what is backed up, what changed since, and what is
 only on this Mac.
 
 A kernel change reaches every agent on its next run without touching their repos. An agent that starts to `need:` a

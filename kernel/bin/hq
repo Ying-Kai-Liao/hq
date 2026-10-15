@@ -3,7 +3,7 @@
 #
 #   hq init [--from <github-user>]   set hq up on this Mac, or bring yours back on a new one (hq-init)
 #   hq doctor                     check the install: links, repos, agents, services, plugin, background jobs
-#   hq backup [--yes|--check]     everything to private GitHub repos, making the missing ones; --check says what isn't (hq-state)
+#   hq backup [--yes|--check|--nightly [off]]   everything to private GitHub repos, making the missing ones; --check says what isn't; --nightly at 03:00 (hq-state)
 #   hq ls                         list agents
 #   hq <agent> [-p ID] [-m MODEL] [-e EFFORT] [task...]  interactive without a task, one-shot with one
 #   hq <agent> --print [...]      show the assembled system prompt, don't run

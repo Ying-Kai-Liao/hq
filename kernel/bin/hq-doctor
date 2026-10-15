@@ -94,6 +94,10 @@ def backup():
     line = run(str(HQ / 'bin' / 'hq-state'), 'backup', '--check').stdout.strip()
     mark, _, text = line.partition(' ')
     {'✓': ok, '!': warn}.get(mark, note)(text or 'backup: the check printed nothing')
+    if (HOME / 'Library/LaunchAgents/dev.hq.backup.plist').exists():
+        note('every night at 03:00 (dev.hq.backup; log ~/.hq/logs/backup.log)')
+    elif mark in ('✓', '!'):
+        warn('backups run only when you ask: hq backup --nightly runs them every night')
 
 
 def repos_and_agents():

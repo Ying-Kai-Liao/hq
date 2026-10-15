@@ -245,6 +245,7 @@ def backups():
     local = [p['name'] for p in ps if p['state'] == 'local']
     if not local:
         say('✓', 'backed up to GitHub', dim(', '.join(p['name'] for p in ps)) if len(ps) < 6 else f'{len(ps)} pieces')
+        every_night(ask=True)
         return
     if not shutil.which('gh'):
         say('-', 'on this Mac only', 'for a GitHub copy too: brew install gh, then hq backup')
@@ -273,6 +274,20 @@ def backups():
     left = [p['name'] for p in backed_up() if p['state'] == 'local']
     if left:
         say('!', f'still only here: {", ".join(left)}', 'hq backup says why')
+    every_night(ask=False)
+
+
+def every_night(ask):
+    """The nightly backup: on with the backup itself; asked about only for a backup made before it existed."""
+    if (Path.home() / 'Library/LaunchAgents/dev.hq.backup.plist').exists():
+        say('✓', 'every night at 03:00', 'hq backup --nightly off stops it')
+        return
+    if ask and not offer('Back up every night?', default=True, note='Today it runs only when you ask.'):
+        say('-', 'only when you ask', 'later: hq backup --nightly')
+        return
+    r = run(str(HQ / 'bin' / 'hq-state'), 'backup', '--nightly')
+    say('✓' if r.returncode == 0 else '✗', 'every night at 03:00' if r.returncode == 0 else 'nightly backup',
+        'hq backup --nightly off stops it' if r.returncode == 0 else (r.stderr or r.stdout).strip()[-200:])
 
 
 # ---- agents on another Mac ------------------------------------------------------------------------------------------
