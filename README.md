@@ -61,7 +61,7 @@ hq needs (git and its identity, Claude Code, gh), makes `~/.hq` and the agents f
 `user.md` for your agents to fill in, offers to keep both in private GitHub repos too (off by default: they stay
 on this Mac, which Time Machine backs up), and offers the builder, the
 agent that builds the others, then lists the agents people shared (GitHub repos tagged `hq-agent`) to install
-any by number. Run `hq init` again any time; it only does what is missing.
+any by number; `hq market` shows that list any time. Run `hq init` again any time; it only does what is missing.
 On a new Mac, `~/hq/install.sh --from <your-github-user>` brings your state and agents back. Then, in any Claude Code session:
 "have the designer critique this page", `/hq branding <task>`, or the `mcp__hq__invoke` tool. Agents appear as
 `hq:<name>`; your main session only sees one line per specialist, and their skills load only when they're called. Or
@@ -85,6 +85,7 @@ hq history <agent>                             # every committed version
 hq restore <agent> <commit>                    # bring one back, as a new commit (undo with another restore)
 hq share <agent> [--public]                    # put it on GitHub as <you>/hq-agent-<name>, private unless --public
 hq share <agent> --public --fresh              # a public copy without its history, at <you>/hq-<name>
+hq market [words]                              # agents people shared, most starred first: pick any by number to install
 hq search [words] [--mine]                     # find agents: GitHub repos tagged hq-agent (yours incl. private, anyone's public)
 hq deps <agent>|--all [--install]              # programs an agent runs that this Mac lacks; --install adds them
 hq push <agent>|--all                          # push committed versions (hq-state commit does this for every agent)

@@ -28,6 +28,8 @@ History (each agent is its own git repo; a version that passes checks is committ
   hq-pkg history <agent> [N]              the agent's commits, newest first
   hq-pkg restore <agent> <commit>         make the package what it was at <commit>, as a new commit (undo with
                                           another restore); the next run uses it
+  hq-pkg market [WORDS] [--new]          agents people shared publicly, most starred first (no GitHub login
+                                          needed): pick any by number to install; --new hides the ones you have
   hq-pkg search [WORDS] [--mine]          agents on GitHub (repos tagged hq-agent): yours, private ones included, and
                                           public ones from anyone; --mine for yours only
   hq-pkg share <agent> [--public]         put the agent on GitHub as <you>/hq-agent-<name> (tagged hq-agent), private unless --public;
@@ -997,6 +999,62 @@ def cmd_search(words, mine):
         print(f'{x["fullName"]}{vis}  {mark}\n    {(x["description"] or "").strip()[:110]}')
 
 
+def cmd_market(words, new_only):
+    """The public catalogue: repos tagged hq-agent, read from GitHub's search without a login, to install by number."""
+    import urllib.parse
+    import urllib.request
+    color = sys.stdout.isatty() and not os.environ.get('NO_COLOR')
+
+    def paint(code, text):
+        return f'\033[{code}m{text}\033[0m' if color else text
+    q = urllib.parse.quote(' '.join([*words, f'topic:{TOPIC}']))
+    req = urllib.request.Request(f'https://api.github.com/search/repositories?q={q}&sort=stars&per_page=50',
+                                 headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'hq'})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            found = json.load(r).get('items', [])
+    except (OSError, ValueError) as e:
+        die(f'GitHub is not reachable ({e}); try again later')
+    have = {}
+    for name, home in installed().items():
+        for remote in (git(home, 'remote').stdout.split() if owned(home) else []):
+            m = re.search(r'github\.com[/:]([\w.-]+/[\w.-]+?)(?:\.git)?$', git(home, 'remote', 'get-url', remote).stdout)
+            if m:
+                have[m.group(1).lower()] = name
+
+    def short(repo):
+        return re.sub(r'^hq-(agent-)?', '', repo.split('/')[1])
+    rows = [(x['full_name'], (x.get('description') or '').split('. ')[0].rstrip('.'), x.get('stargazers_count', 0),
+             have.get(x['full_name'].lower()) or (short(x['full_name']) if short(x['full_name']) in installed() else ''))
+            for x in found]
+    if new_only:
+        rows = [r for r in rows if not r[3]]
+    if not rows:
+        print(('     · no new agents' if new_only else f'     · no shared agents') + (f' matching {" ".join(words)}' if words else '')
+              + ' yet')
+        return
+    width = max(len(short(r[0])) for r in rows)
+    aw = min(60, max(len(r[1]) for r in rows))
+    pickable = []
+    for repo, about, stars, mine in rows:
+        if mine:
+            print(f'     {paint("32", "✓")}  {short(repo).ljust(width)}  {about[:aw].ljust(aw)}  {paint("2", "installed")}')
+            continue
+        pickable.append(repo)
+        n = paint('38;5;79', str(len(pickable)).rjust(2))
+        print(f'    {n}  {short(repo).ljust(width)}  {about[:aw].ljust(aw)}  '
+              + paint('2', repo.split('/')[0] + (f'  ★{stars}' if stars else '')))
+    if not pickable or not sys.stdin.isatty():
+        if pickable:
+            print('  install one: hq install <owner>/<repo>')
+        return
+    pick = input(f'     {paint("38;5;79", "?")} Install any? {paint("2", "(numbers like 1 3, or empty to skip)")} ')
+    for n in dict.fromkeys(re.findall(r'\d+', pick)):
+        if 0 < int(n) <= len(pickable):
+            print()
+            cmd_install(pickable[int(n) - 1], ask=True)
+
+
 def cmd_list(as_json):
     out = {}
     for name, home in installed().items():
@@ -1091,6 +1149,8 @@ def main(argv):
                 cmd_push(name)
             elif commit(agent_home(name), msg or f'{name}: edits'):
                 print(f'{name}: committed')
+    elif cmd == 'market':
+        cmd_market([w for w in rest if w != '--new'], '--new' in rest)
     elif cmd == 'search':
         cmd_search([w for w in rest if w != '--mine'], '--mine' in rest)
     elif cmd == 'history' and rest:

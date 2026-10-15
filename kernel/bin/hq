@@ -13,6 +13,7 @@
 #   hq update|push|commit <agent>|--all                pull from, push to or commit the agent's repo
 #   hq history <agent> | hq restore <agent> <commit>   every good version is committed; restore any of them
 #   hq share <agent> [--public [--fresh]]              put it on GitHub; --fresh: a public copy without its history
+#   hq market [words]                                  agents people shared: pick any by number to install
 #   hq search [words] [--mine]                         find agents on GitHub (repos tagged hq-agent)
 #   hq deps <agent>|--all [--install]                  programs an agent runs that this Mac lacks; --install adds them
 #   hq auth [ls|grant|revoke|set ...]                  which agent may use which service, as which account (hq-auth)
@@ -47,7 +48,7 @@ export HQ_ROOT=$HQ
 eval "$(python3 "$HQ/lib/hq_paths.py" --sh)"
 
 case $1 in
-  versions|pin|unpin|install|update|push|commit|history|restore|share|search|deps) exec "$HQ/bin/hq-pkg" "$@" ;;
+  versions|pin|unpin|install|update|push|commit|history|restore|share|search|market|deps) exec "$HQ/bin/hq-pkg" "$@" ;;
   rollback)           shift; exec "$HQ/bin/hq-pkg" pin "$@" ;;
   auth)               shift; exec "$HQ/bin/hq-auth" "${@:-ls}" ;;
   cost)               shift; exec "$HQ/bin/hq-cost" "${@:-agents}" ;;
