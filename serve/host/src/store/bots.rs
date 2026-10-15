@@ -215,6 +215,7 @@ mod tests {
             permission: Permission::Ask,
             model: None,
             model_options: std::collections::BTreeMap::new(),
+            fast_mode: false,
             pinned: false,
             position: 0,
             hidden: false,

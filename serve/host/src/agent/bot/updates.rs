@@ -22,7 +22,13 @@ impl Actor {
                 self.exit_tail = Some(tail);
             }
             Some(Incoming::Notification { method, params }) => {
+                // Any session's, turn or not: the agent changed an option itself.
                 if method == "session/update"
+                    && params["update"]["sessionUpdate"] == "config_option_update"
+                    && let Some(sid) = params["sessionId"].as_str()
+                {
+                    self.note_options(sid, &params["update"], false);
+                } else if method == "session/update"
                     && params["sessionId"].as_str() == self.turn_session.as_deref()
                     && self.turn.is_some()
                 {

@@ -129,6 +129,7 @@ impl App {
             backend: b.backend.clone(),
             model: Editor::with(b.model.as_deref().unwrap_or_default()),
             model_options: (b.model.clone().unwrap_or_default(), b.model_options.clone()),
+            fast: b.fast_mode,
             cwd: if b.managed_workspace { String::new() } else { b.cwd.clone() },
             auto: b.auto,
             notify: b.notify,
@@ -164,6 +165,7 @@ impl App {
             backend,
             model: Editor::default(),
             model_options: (String::new(), BTreeMap::new()),
+            fast: false,
             cwd: String::new(),
             auto: true,
             notify: true,
@@ -244,6 +246,7 @@ impl App {
                 if matches!(
                     field,
                     Field::Agent
+                        | Field::Fast
                         | Field::Approvals
                         | Field::Notify
                         | Field::Computer
@@ -268,6 +271,7 @@ impl App {
                             self.want_models(&f.backend);
                         }
                     }
+                    Field::Fast => f.fast = !f.fast,
                     Field::Approvals => f.auto = !f.auto,
                     Field::Notify => f.notify = !f.notify,
                     Field::Computer => f.computer = !f.computer,
@@ -339,6 +343,7 @@ impl App {
             "permission": if f.auto { "auto" } else { "ask" },
             "model": if model.is_empty() { Value::Null } else { model.into() },
             "modelOptions": f.model_options().cloned().unwrap_or_default(),
+            "fastMode": f.fast,
             "notify": f.notify,
             "computer": f.computer,
             "avatarColor": COLORS[f.color],

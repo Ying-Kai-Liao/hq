@@ -12,7 +12,11 @@ impl Hub {
         let mut v = serde_json::to_value(cfg).expect("BotConfig is plain data and always serializes");
         v["managedWorkspace"] = crate::agent::workspace::is_managed(cfg).into();
         let rt = if cfg.is_group() {
-            self.group_runtime(cfg)
+            // A group has no agent: Fast mode belongs to its members.
+            crate::hub::Runtime {
+                fast_mode: crate::agent::config::FastModeSupport::default(),
+                ..self.group_runtime(cfg)
+            }
         } else {
             self.runtime.locked().get(&cfg.id).cloned().unwrap_or_default()
         };
@@ -23,6 +27,8 @@ impl Hub {
         v["activity"] = rt.activity.into();
         v["startedAt"] = rt.started_at.into();
         v["workingChat"] = rt.lane.as_ref().map(|l| l.chat.clone()).into();
+        v["fastModeSupport"] = rt.fast_mode.as_str().into();
+        v["fastModeIssue"] = rt.fast_mode.issue().into();
         v["workingThread"] = rt.lane.and_then(|l| l.thread).into();
         v["unread"] = self.store.unread(&cfg.id, row.read_rev, ReadScope::All).into();
         let preview = last.as_ref().map(|l| match &l.author {
