@@ -12,11 +12,15 @@
 
 A message in #<agent> starts a thread and runs `hq <agent> "<message>"`; that agent owns the task. It may call
 other agents as helpers; they post status in the same thread through `hq-send --as <name>`. Replies in a thread
-resume the same Claude session. Only the owner's messages are acted on.
+resume the same Claude session. Only the owner's (and allowed users') messages are acted on,
+unless HQ_DISCORD_REPLY_TO=anyone.
 
 Config (env or ~/.hq/secrets/env): HQ_DISCORD_BOT_TOKEN (required), HQ_DISCORD_OWNER_ID (your Discord user ID;
 default: the server owner), HQ_DISCORD_GUILD (server name or ID; default: the bot's only server),
-HQ_BRIDGE_PERMISSION_MODE (claude --permission-mode for agent runs; default bypassPermissions).
+HQ_BRIDGE_PERMISSION_MODE (claude --permission-mode for agent runs; default bypassPermissions),
+HQ_DISCORD_ALLOWED_IDS (comma-separated Discord user IDs answered besides the owner),
+HQ_DISCORD_REPLY_TO (owner or anyone; default owner. anyone lets every member of the server run agents with that
+permission mode, so use it only on a private server you trust).
 State: ~/.hq/bridge/ (webhooks, thread → session map, downloaded attachments). Log: ~/.hq/logs/bridge.log.
 """
 import asyncio
@@ -159,6 +163,8 @@ def main():
     locks: dict[str, asyncio.Lock] = {}
     hooks: dict[str, discord.Webhook] = {}
     owner_id = int(os.environ['HQ_DISCORD_OWNER_ID']) if os.environ.get('HQ_DISCORD_OWNER_ID') else None
+    anyone = os.environ.get('HQ_DISCORD_REPLY_TO', 'owner').strip().lower() == 'anyone'
+    allowed = {int(x) for x in re.findall(r'\d+', os.environ.get('HQ_DISCORD_ALLOWED_IDS', ''))}
 
     async def setup(guild):
         nonlocal owner_id
@@ -172,7 +178,7 @@ def main():
             st['webhooks'][agent] = {'channel_id': ch.id, 'url': wh.url}
             hooks[agent] = discord.Webhook.from_url(wh.url, client=client)
         write_state(st)
-        print(f'hq-bridge: ready in {guild.name}: {", ".join(agents())}; acting on messages from user {owner_id}', flush=True)
+        print(f'hq-bridge: ready in {guild.name}: {", ".join(agents())}; acting on messages from {"anyone" if anyone else f"users {sorted({owner_id} | allowed)}"}', flush=True)
 
     @client.event
     async def on_ready():
@@ -235,7 +241,7 @@ def main():
 
     @client.event
     async def on_message(msg):
-        if msg.author.bot or msg.webhook_id or msg.author.id != owner_id:
+        if msg.author.bot or msg.webhook_id or (not anyone and msg.author.id not in {owner_id} | allowed):
             return
         if isinstance(msg.channel, discord.Thread) and msg.channel.parent and msg.channel.parent.name in st['webhooks']:
             agent, thread = msg.channel.parent.name, msg.channel
