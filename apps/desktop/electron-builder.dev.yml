@@ -11,6 +11,11 @@ protocols:
     schemes: [codync-dev, com.pokai.Codync.dev]
 publish: null
 mac:
+  # Codync Dev only runs on the Mac that built it: an app folder for its architecture, signed
+  # without Apple's timestamp server (one round trip per file, about 5 minutes a build; only
+  # notarized builds need it).
+  target: [dir]
+  timestamp: none
   signIgnore:
     - CodyncDevScreen\.app/Contents/Helpers/cua-driver$
   artifactName: codync-dev-macos.${ext}
