@@ -197,10 +197,10 @@ pub(super) fn chat(buf: &mut Buffer, r: Rect, app: &mut App, narrow: bool) {
     }
 }
 
-/// The `/` menu over the bottom of the transcript: the bot's skills matching what's typed.
+/// The `/` menu over the bottom of the transcript: Fast mode and the bot's skills matching what's typed.
 fn skill_menu(buf: &mut Buffer, body: Rect, app: &App) {
     let t = theme();
-    let matches = app.skill_matches();
+    let matches = app.slash_matches();
     let n = u(matches.len().min(5)).min(body.height);
     for (i, m) in matches.iter().take(usize::from(n)).enumerate() {
         let y = body.bottom() - n + u(i);

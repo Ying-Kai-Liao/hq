@@ -106,6 +106,9 @@ impl App {
                 if text.is_empty() && files.is_empty() {
                     return;
                 }
+                if files.is_empty() && self.fast_command(&text) {
+                    return;
+                }
                 if let Some(m) = &self.mismatch {
                     // The draft stays; it sends once the update is done.
                     let why = mismatch_text(m, &self.host);
@@ -369,22 +372,8 @@ impl App {
                     self.call("updateBot", json!({"id": id, "pinned": pinned}), After::Nothing);
                 }
             }
-            KeyCode::Char('F') => self.toggle_fast_mode(),
             KeyCode::Char('c') => self.copy_last(),
             _ => {}
-        }
-    }
-
-    fn toggle_fast_mode(&mut self) {
-        let Some(b) = self.bot() else { return };
-        if b.group {
-            self.flash("A group has no agent of its own");
-        } else if !b.fast_shown() {
-            self.flash("This bot's agent doesn't offer Fast mode");
-        } else {
-            let (id, on) = (b.id.clone(), !b.fast_mode);
-            self.call("updateBot", json!({"id": id, "fastMode": on}), After::Nothing);
-            self.flash(if on { "Fast mode on" } else { "Fast mode off" });
         }
     }
 
