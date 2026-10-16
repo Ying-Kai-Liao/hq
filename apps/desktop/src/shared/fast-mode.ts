@@ -4,10 +4,13 @@ import type { Bot } from './models'
 
 export type FastModeState = 'on' | 'off' | 'refused'
 
-/** An agent bot whose agent offers Fast mode, or one that has it on (so it can be turned off). */
+/**
+ * An agent bot unless its agent said it has no Fast mode (an unknown one may: its first session
+ * settles it), or one that has it on (so it can be turned off).
+ */
 export function fastModeShown(bot: Bot | null): boolean {
   if (!bot || bot.kind === 'group') return false
-  return bot.fastMode || bot.fastModeSupport === 'offered' || bot.fastModeSupport === 'refused'
+  return bot.fastMode || bot.fastModeSupport !== 'unsupported'
 }
 
 export function fastModeState(bot: Bot): FastModeState {

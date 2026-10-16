@@ -51,9 +51,10 @@ import Testing
     #expect(!older.fastMode)
 }
 
-@Test func composerOffersFastModeOnceTheAgentDoes() throws {
+@Test func composerOffersFastModeUntilTheAgentSaysItHasNone() throws {
     func bot(_ json: String) throws -> Bot { try JSONDecoder().decode(Bot.self, from: Data(json.utf8)) }
-    #expect(try !bot(#"{"id":"b"}"#).fastModeShown)
+    #expect(try bot(#"{"id":"b"}"#).fastModeShown)
+    #expect(try !bot(#"{"id":"b","fastModeSupport":"unsupported"}"#).fastModeShown)
     #expect(try bot(#"{"id":"b","fastModeSupport":"offered"}"#).fastModeShown)
     #expect(try bot(#"{"id":"b","fastMode":true,"fastModeSupport":"unsupported"}"#).fastModeShown)
     #expect(try !bot(#"{"id":"g","kind":"group","fastModeSupport":"offered"}"#).fastModeShown)

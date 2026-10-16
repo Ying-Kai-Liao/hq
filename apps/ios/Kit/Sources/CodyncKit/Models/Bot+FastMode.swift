@@ -5,9 +5,10 @@ import Foundation
 public extension Bot {
     enum FastModeState: Sendable { case on, off, refused }
 
-    /// An agent bot whose agent offers Fast mode, or one that has it on (so it can be turned off).
+    /// An agent bot unless its agent said it has no Fast mode (an unknown one may: its first session
+    /// settles it), or one that has it on (so it can be turned off).
     var fastModeShown: Bool {
-        !isGroup && (fastMode || fastModeSupport == "offered" || fastModeSupport == "refused")
+        !isGroup && (fastMode || fastModeSupport != "unsupported")
     }
 
     var fastModeState: FastModeState {

@@ -22,7 +22,8 @@ private let installed = [("pdf", "PDF"), ("code-review", "Code Review"), ("xlsx"
     #expect(SlashCommands.list(for: offered, query: "review", skills: installed).map(\.name) == ["code-review"])
     #expect(SlashCommands.list(for: offered, query: "session", skills: installed).map(\.name) == ["new"])
     #expect(SlashCommands.list(for: try bot(#"{"id":"b","skills":["pdf"]}"#), query: "xl", skills: installed).isEmpty)
-    #expect(SlashCommands.list(for: try bot(#"{"id":"b"}"#), query: "", skills: []).map(\.name) == ["new"], "no Fast mode on offer")
+    #expect(SlashCommands.list(for: try bot(#"{"id":"b"}"#), query: "", skills: []).map(\.name) == ["fast", "new"], "offered until the agent says otherwise")
+    #expect(SlashCommands.list(for: try bot(#"{"id":"b","fastModeSupport":"unsupported"}"#), query: "", skills: []).map(\.name) == ["new"], "no Fast mode on offer")
     #expect(SlashCommands.list(for: try bot(#"{"id":"g","kind":"group","fastModeSupport":"offered"}"#), query: "", skills: installed).isEmpty)
 }
 
@@ -31,5 +32,5 @@ private let installed = [("pdf", "PDF"), ("code-review", "Code Review"), ("xlsx"
     #expect(SlashCommands.builtIn(for: offered, draft: "/fast ")?.action == .fast)
     #expect(SlashCommands.builtIn(for: offered, draft: "/new")?.action == .newSession)
     #expect(SlashCommands.builtIn(for: offered, draft: "/fast please") == nil)
-    #expect(SlashCommands.builtIn(for: try bot(#"{"id":"b"}"#), draft: "/fast") == nil, "without Fast mode it reaches the agent")
+    #expect(SlashCommands.builtIn(for: try bot(#"{"id":"b","fastModeSupport":"unsupported"}"#), draft: "/fast") == nil, "without Fast mode it reaches the agent")
 }
