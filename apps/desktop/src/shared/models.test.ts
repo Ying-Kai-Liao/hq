@@ -12,13 +12,15 @@ test('a host without Fast mode reads as off', () => {
   assert.equal(normalizeBot({ id: 'b' }).fastMode, false)
 })
 
-test('the composer offers Fast mode once the agent does, and while it is on', async () => {
-  const { fastModeShown, fastModeState, fastModeTitle } = await import('./fast-mode.ts')
-  assert.equal(fastModeShown(normalizeBot({ id: 'b' })), false)
+test('the composer offers Fast mode until the agent says it has none, and while it is on', async () => {
+  const { fastModeShown, fastModeState, fastModeDetail } = await import('./fast-mode.ts')
+  assert.equal(fastModeShown(normalizeBot({ id: 'b' })), true)
+  assert.equal(fastModeShown(normalizeBot({ id: 'b', fastModeSupport: 'unsupported' })), false)
   assert.equal(fastModeShown(normalizeBot({ id: 'b', fastModeSupport: 'offered' })), true)
   assert.equal(fastModeShown(normalizeBot({ id: 'b', fastMode: true, fastModeSupport: 'unsupported' })), true)
   assert.equal(fastModeShown(normalizeBot({ id: 'g', kind: 'group', fastModeSupport: 'offered' })), false)
   const refused = normalizeBot({ id: 'b', fastMode: true, fastModeSupport: 'refused', fastModeIssue: 'requires extra usage' })
   assert.equal(fastModeState(refused), 'refused')
-  assert.match(fastModeTitle(refused), /requires extra usage/)
+  assert.match(fastModeDetail(refused), /requires extra usage/)
 })
+

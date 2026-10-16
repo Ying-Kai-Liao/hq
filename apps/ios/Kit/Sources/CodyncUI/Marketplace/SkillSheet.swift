@@ -37,7 +37,7 @@ struct SkillSheet: View {
     }
 
     /// Older hosts list skills but can't show what's in them.
-    private var readable: Bool { !AppVersion.isBelow(model.hello?.version ?? "", SkillCommand.minHost) }
+    private var readable: Bool { !AppVersion.isBelow(model.hello?.version ?? "", SlashCommands.minSkillsHost) }
 
     var body: some View {
         VStack(spacing: 0) {

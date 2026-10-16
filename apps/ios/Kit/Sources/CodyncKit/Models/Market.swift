@@ -246,6 +246,10 @@ public struct ConnectionRequest: Codable, Hashable, Sendable {
     public var location: String?
     /// Login requests: the website's domain or the app's name.
     public var site: String?
+    /// Agent sign-in requests: the agent (backend id) to sign in to.
+    public var backend: String?
+    /// App requests: the app's logo, when Composio lists it.
+    public var logo: String?
 }
 
 /// A saved website or app login; the password stays on the computer.
@@ -270,10 +274,10 @@ public extension HostClient {
         let _: Verified = try await call("connectorVerify", ["id": id], timeout: 120)
     }
 
-    func finishConnectionRequest(_ entryId: String, connectorId: String? = nil, value: String? = nil, username: String? = nil, cancel: Bool = false) async throws {
-        struct Body: Encodable { var entryId: String; var connectorId: String?; var value: String?; var username: String?; var cancel: Bool }
+    func finishConnectionRequest(_ entryId: String, connectorId: String? = nil, value: String? = nil, username: String? = nil) async throws {
+        struct Body: Encodable { var entryId: String; var connectorId: String?; var value: String?; var username: String? }
         struct Response: Decodable { var entry: Entry }
-        let _: Response = try await call("connectorRequestFinish", Body(entryId: entryId, connectorId: connectorId, value: value, username: username, cancel: cancel), timeout: 120)
+        let _: Response = try await call("connectorRequestFinish", Body(entryId: entryId, connectorId: connectorId, value: value, username: username), timeout: 120)
     }
 
     func logins() async throws -> [SavedLogin] {

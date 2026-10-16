@@ -123,6 +123,10 @@ export interface ConnectionRequest {
   location?: string | null
   /** Login requests: the website's domain or the app's name. */
   site?: string | null
+  /** Agent sign-in requests: the agent (backend id) to sign in to. */
+  backend?: string | null
+  /** App requests: the app's logo, when Composio lists it. */
+  logo?: string | null
 }
 
 /** A saved website or app login; the password stays on the computer. */
@@ -211,8 +215,8 @@ export const market = {
   skillDetails: async (c: HostClient, which: { id: string } | { source: string }) => (await c.call<{ markdown: string }>('skillDetails', which, s(60))).markdown,
   connectorInfo: (c: HostClient, registryName: string) => c.call<MarketConnector>('connectorInfo', { registryName }, s(60)),
   verifyConnector: (c: HostClient, id: string) => c.call<{ status: string }>('connectorVerify', { id }, s(120)),
-  finishConnectionRequest: (c: HostClient, entryId: string, opts: { connectorId?: string; value?: string; username?: string; cancel?: boolean } = {}) =>
-    c.call('connectorRequestFinish', { entryId, connectorId: opts.connectorId ?? null, value: opts.value ?? null, username: opts.username ?? null, cancel: opts.cancel ?? false }, s(120)),
+  finishConnectionRequest: (c: HostClient, entryId: string, opts: { connectorId?: string; value?: string; username?: string } = {}) =>
+    c.call('connectorRequestFinish', { entryId, connectorId: opts.connectorId ?? null, value: opts.value ?? null, username: opts.username ?? null }, s(120)),
   logins: async (c: HostClient) => (await c.call<{ items: SavedLogin[] }>('credentialLogins', {}, s(60))).items,
   saveLogin: (c: HostClient, site: string, username: string, password: string) => c.call('credentialSaveLogin', { site, username, password }, s(60)),
   removeLogin: (c: HostClient, id: string) => c.call('credentialRemoveLogin', { id }, s(60)),

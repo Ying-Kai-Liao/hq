@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 /// The message box under a chat or a thread: send, or stop while the bot (or the
 /// group) is working there. In a group, typing `@` suggests its bots; with one bot, a
-/// leading `/` suggests its skills.
+/// leading `/` lists its commands.
 struct Composer: View {
     let botId: String
     /// Replies go to the thread on this message.
@@ -62,16 +62,21 @@ struct Composer: View {
         }
     }
 
-    /// The bot's skills while the draft is `/partial`; not in a group, where each member has its own.
-    private var skillSuggestions: [InstalledSkill] {
-        guard let bot, !bot.isGroup, !AppVersion.isBelow(model.hello?.version ?? "", SkillCommand.minHost),
-              let query = SkillCommand.query(draft) else { return [] }
-        return SkillCommand.matches(model.installedSkills, enabled: bot.skills, query: query)
+    /// The bot's `/` commands while the draft is `/partial`; skills only from hosts that run them.
+    private var commands: [SlashCommand] {
+        guard let query = SlashCommands.query(draft) else { return [] }
+        let skillsShown = !AppVersion.isBelow(model.hello?.version ?? "", SlashCommands.minSkillsHost)
+        return SlashCommands.list(for: bot, query: query, skills: skillsShown ? model.installedSkills : [])
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !suggestions.isEmpty || !skillSuggestions.isEmpty {
+            if !commands.isEmpty {
+                CommandList(commands: commands, pick: run)
+                    .padding(.horizontal, 16)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            if !suggestions.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(suggestions) { member in
@@ -81,16 +86,6 @@ struct Composer: View {
                                 mention(member)
                             }
                         }
-                        ForEach(skillSuggestions) { skill in
-                            SuggestionChip(title: skill.name) {
-                                Image(systemName: "book.pages").font(.caption).foregroundStyle(Palette.secondary)
-                            } action: {
-                                draft = "/\(skill.id) "
-                                focused = true
-                            }
-                            .help(skill.description)
-                            .accessibilityHint(skill.description)
-                        }
                     }
                     .padding(.horizontal, 16)
                 }
@@ -99,7 +94,7 @@ struct Composer: View {
             field
         }
         .animation(Motion.layout, value: suggestions.map(\.id))
-        .animation(Motion.layout, value: skillSuggestions.map(\.id))
+        .animation(Motion.layout, value: commands.map(\.id))
     }
 
     private var fieldPadding: CGFloat { 10 }
@@ -220,7 +215,7 @@ struct Composer: View {
         }
         .onChange(of: draft) { _, value in
             model.setComposerDraft(value, for: botId, thread: thread)
-            // Starting a skill name: list the computer's skills again.
+            // Starting a command: list the computer's skills again.
             if value == "/", bot?.isGroup == false { Task { await model.refreshPlugins() } }
         }
         .onChange(of: model.routineDrafts[botId]) { _, value in
@@ -239,15 +234,9 @@ struct Composer: View {
                 if UIPasteboard.general.hasImages || UIPasteboard.general.hasURLs {
                     items.append(MenuItem("Paste", icon: "doc.on.clipboard") { pasteFiles() })
                 }
-                if let bot, bot.fastModeShown {
-                    items.append(MenuItem("Fast mode", icon: "bolt", selected: bot.fastMode, divider: true) {
-                        model.setFastMode(bot, !bot.fastMode)
-                    })
-                }
                 return items
             } label: { addLabel }
-                .accessibilityLabel(bot?.fastModeShown == true ? "Add files or Fast mode" : "Add files")
-                .accessibilityValue(bot?.fastModeShown == true ? (bot?.fastMode == true ? "Fast mode on" : "Fast mode off") : "")
+                .accessibilityLabel("Add files")
     }
 
     private var addLabel: some View {
@@ -257,22 +246,6 @@ struct Composer: View {
             .frame(width: fieldHeight, height: fieldHeight)
             .glass(in: Circle())
             .contentShape(Circle())
-            .overlay(alignment: .topTrailing) { fastModeBadge }
-            .animation(Motion.reduced(Motion.fade, reduceMotion), value: bot?.fastModeState)
-    }
-
-    /// Fast mode is on: a bolt on the + button, tinted while the agent refuses it.
-    @ViewBuilder private var fastModeBadge: some View {
-        if let bot, bot.fastModeShown, bot.fastMode {
-            Image(systemName: "bolt.fill")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(bot.fastModeState == .refused ? Palette.warning : Palette.background)
-                .frame(width: 16, height: 16)
-                .background(Circle().fill(bot.fastModeState == .refused ? Palette.secondary.opacity(0.25) : Palette.text))
-                .offset(x: 3, y: -3)
-                .transition(.opacity)
-                .accessibilityHidden(true)
-        }
     }
 
     private var fileChips: some View {
@@ -334,7 +307,23 @@ struct Composer: View {
         focused = true
     }
 
+    private func run(_ command: SlashCommand) {
+        guard let bot else { return }
+        switch command.action {
+        case .fast:
+            model.setFastMode(bot, !bot.fastMode)
+            draft = ""
+        case .newSession:
+            model.newSession(bot.id)
+            draft = ""
+        case .skill(let id):
+            draft = "/\(id) "
+        }
+        focused = true
+    }
+
     private func submit() {
+        if files.isEmpty, let command = SlashCommands.builtIn(for: bot, draft: draft) { return run(command) }
         guard canSend else { return }
         withAnimation(Motion.reduced(Motion.conversation, reduceMotion)) {
             guard model.sendComposerDraft(to: botId, thread: thread, files: files) else { return }
@@ -344,7 +333,7 @@ struct Composer: View {
     }
 }
 
-/// One suggestion above the box: a bot to @mention or a skill to start with.
+/// One suggestion above the box: a bot to @mention.
 private struct SuggestionChip<Icon: View>: View {
     let title: String
     @ViewBuilder let icon: Icon

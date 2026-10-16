@@ -5,12 +5,14 @@ listing what iPhone users notice. tools/asc-submit.py reads the released version
 a version without one gets a generic "Bug fixes and improvements" line. Delete old sections.
 -->
 
-## 2.17.0
+## 2.17.2
 
 ### zh-Hant
 
-- Claude Code 和 Codex 的 bot 可以開啟快速模式：回覆更快，用量也較多。在輸入框的 + 選單或 bot 設定裡切換，開啟時 + 按鈕上會出現閃電。帳號不能使用時，設定裡會說明原因。
+- 在輸入框打 / 就會列出所有指令：快速模式、開新工作階段，以及 bot 的 skills，每一項都附上說明。快速模式改從這裡開關，不再放在 + 選單。
+- Claude Code 等 agent 需要重新登入時，對話裡會出現登入卡片，點「Sign in」就能直接登入；登入後，剛才沒回覆的訊息會自動重送。
 
 ### en-US
 
-- Turn on Fast mode for Claude Code and Codex bots: faster replies for more usage. Switch it from the composer's + menu or the bot's settings; a bolt on the + button shows it's on. If your account can't use it, the settings say why.
+- Type / in the composer to see every command with what it does: Fast mode, New session and the bot's skills. Fast mode now switches from here instead of the + menu.
+- When Claude Code or another agent needs you to sign in again, a card in the chat lets you sign in right there, and the messages it couldn't answer go out again once you're signed in.
