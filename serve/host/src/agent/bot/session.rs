@@ -6,8 +6,8 @@ use crate::chat::context;
 use crate::store::{BotConfig, Entry, EntryKind, Lane, lane_key};
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet};
-use std::time::Duration;
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 impl Actor {
     /// Which session a lane's turns use: a thread of the bot's own chat has its own
@@ -196,7 +196,7 @@ impl Actor {
                 && let Some(sid) = res["sessionId"].as_str().map(str::to_owned)
                 && let Some(conn) = self.conn.as_mut()
             {
-                conn.loaded.insert(sid.clone());
+                conn.loaded.insert(sid.clone(), Instant::now());
                 self.set_session(slot, Some(&sid));
                 self.note_options(&sid, &res, false);
                 forked = true;
@@ -219,7 +219,7 @@ impl Actor {
         if let Some(sid) = current {
             let prompt_current =
                 snapshot.as_ref().is_none_or(|s| self.applied_system.get(&sid).is_some_and(|t| *t == s.system));
-            if conn.loaded.contains(&sid) && prompt_current {
+            if conn.loaded.contains_key(&sid) && prompt_current {
                 self.turn_session = Some(sid);
                 return Ok(());
             }
@@ -253,7 +253,7 @@ impl Actor {
                     } else {
                         res
                     };
-                    conn.loaded.insert(sid.clone());
+                    conn.loaded.insert(sid.clone(), Instant::now());
                     self.note_options(&sid, &res, false);
                     if let Some(s) = snapshot {
                         // Its system prompt now names the bot as rendered.
@@ -281,7 +281,7 @@ impl Actor {
         let res = self.session_request("session/new", params).await?;
         let Some(conn) = self.conn.as_mut() else { bail!("agent not running") };
         let sid = res["sessionId"].as_str().ok_or_else(|| anyhow!("agent returned no sessionId"))?.to_owned();
-        conn.loaded.insert(sid.clone());
+        conn.loaded.insert(sid.clone(), Instant::now());
         let options = select_model(&conn.acp, &res, &sid, &self.cfg).await?;
         self.note_options(&sid, &options, false);
         self.set_session(slot, Some(&sid));
@@ -431,9 +431,18 @@ pub(crate) async fn start_agent(command: &str, cwd: &str, env: &[(String, String
     let sessions = SessionCaps {
         load: init["agentCapabilities"]["loadSession"].as_bool().unwrap_or(false),
         fork: init["agentCapabilities"]["sessionCapabilities"]["fork"].is_object(),
+        close: init["agentCapabilities"]["sessionCapabilities"]["close"].is_object(),
     };
     let claude = init["agentCapabilities"]["_meta"]["claudeCode"].is_object();
-    Ok(Conn { acp, rx, sessions, claude, loaded: HashSet::new(), fast_options: HashMap::new() })
+    Ok(Conn {
+        acp,
+        rx,
+        sessions,
+        claude,
+        loaded: HashMap::new(),
+        started: Instant::now(),
+        fast_options: HashMap::new(),
+    })
 }
 
 #[cfg(test)]

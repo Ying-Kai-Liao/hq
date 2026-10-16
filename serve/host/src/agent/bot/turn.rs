@@ -10,7 +10,7 @@ use crate::remote::push::{self, AlertKind};
 use crate::store::{EntryKind, Lane, now_ms};
 use anyhow::{Context, Result, anyhow};
 use serde_json::json;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 impl Actor {
@@ -182,6 +182,11 @@ impl Actor {
     pub(super) fn finish_turn(&mut self, done: &Done) {
         if self.turn.is_none() {
             return;
+        }
+        if let (Some(conn), Some(sid)) = (self.conn.as_mut(), &self.turn_session)
+            && let Some(used) = conn.loaded.get_mut(sid)
+        {
+            *used = Instant::now();
         }
         self.files.cancel();
         self.flush(true);

@@ -17,6 +17,7 @@
 
 mod fast_mode;
 mod files;
+mod lifecycle;
 mod queue;
 mod session;
 mod turn;
@@ -34,7 +35,7 @@ use crate::store::{BotConfig, Entry, EntryKind, Lane, now_ms};
 use anyhow::{Result, anyhow};
 use serde::Serialize;
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -154,6 +155,7 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig) -> BotHandle {
         exit_tail: None,
         tools_changed: false,
         fast_support,
+        idle_checked: Instant::now(),
     };
     let task = tokio::spawn(actor.run(rx, interrupted));
     BotHandle { tx, task }
@@ -171,6 +173,8 @@ struct SessionCaps {
     load: bool,
     /// `session/fork`: a thread starts as a copy of the main session.
     fork: bool,
+    /// `session/close`: an idle session can be released while the agent keeps running.
+    close: bool,
 }
 
 pub(crate) struct Conn {
@@ -179,8 +183,9 @@ pub(crate) struct Conn {
     sessions: SessionCaps,
     /// Claude's adapter: takes `_meta.systemPrompt` and `_meta.claudeCode.options`.
     pub(crate) claude: bool,
-    /// Sessions already created or loaded in this process.
-    loaded: HashSet<String>,
+    /// Sessions already created or loaded in this process, and when each was last used.
+    loaded: HashMap<String, Instant>,
+    started: Instant,
     /// Each live session's Fast mode option, as the agent last listed it.
     fast_options: HashMap<String, Value>,
 }
@@ -252,6 +257,8 @@ struct Actor {
     tools_changed: bool,
     /// What the agent says about Fast mode; clients see it in the bot's runtime.
     fast_support: FastModeSupport,
+    /// When idle sessions and agents were last looked for.
+    idle_checked: Instant,
 }
 
 struct RoutineCompletion {
@@ -316,6 +323,7 @@ impl Actor {
                         self.cancel_deadline = None;
                         if let Some(c) = self.conn.take() { c.acp.kill().await; }
                     }
+                    self.release_idle().await;
                 },
             }
         }

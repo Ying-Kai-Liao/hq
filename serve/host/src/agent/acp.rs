@@ -112,6 +112,8 @@ pub struct Acp {
     next_id: AtomicI64,
     pending: Pending,
     child: tokio::sync::Mutex<Child>,
+    /// The process (and, on Unix, process group) leader.
+    pid: Option<u32>,
 }
 
 impl Acp {
@@ -196,13 +198,19 @@ impl Acp {
             });
         }
 
+        let pid = child.id();
         let acp = Arc::new(Self {
             stdin: tokio::sync::Mutex::new(stdin),
             next_id: AtomicI64::new(1),
             pending,
             child: tokio::sync::Mutex::new(child),
+            pid,
         });
         Ok((acp, rx))
+    }
+
+    pub fn pid(&self) -> Option<u32> {
+        self.pid
     }
 
     async fn write(&self, msg: Value) -> Result<()> {
