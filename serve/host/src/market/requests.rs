@@ -374,7 +374,7 @@ mod tests {
         assert_eq!(history.iter().filter(|e| e.id == format!("connection-ack-{id}")).count(), 1);
         assert!(!serde_json::to_string(&history).unwrap().contains("test-private-key"));
         hub.shutdown().await;
-        std::fs::remove_dir_all(dir).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -410,7 +410,7 @@ mod tests {
         let history = serde_json::to_string(&history).unwrap();
         assert!(history.contains("type_login") && !history.contains("hunter2-private"));
         hub.shutdown().await;
-        std::fs::remove_dir_all(dir).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]
@@ -435,7 +435,7 @@ mod tests {
         });
         sent.await.expect("both messages go out again");
         hub.shutdown().await;
-        std::fs::remove_dir_all(dir).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]
@@ -454,7 +454,7 @@ mod tests {
         assert!(finish(&hub, &json!({"entryId":id,"value":"test-private-key"})).await.is_err());
         assert!(connectors(&hub.store).unwrap()[0].env.is_empty());
         hub.shutdown().await;
-        std::fs::remove_dir_all(dir).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]
@@ -474,6 +474,6 @@ mod tests {
         assert_eq!(hub.store.bot("bot").unwrap().unwrap().config.connectors.len(), 0);
         assert!(hub.store.entry(&format!("connection-ack-{id}")).is_none());
         hub.shutdown().await;
-        std::fs::remove_dir_all(dir).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
