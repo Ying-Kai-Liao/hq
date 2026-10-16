@@ -71,10 +71,7 @@ export class Updates extends EventEmitter {
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true
     autoUpdater.on('checking-for-update', () => this.set({ checking: true, error: null }))
-    autoUpdater.on('update-not-available', () => {
-      this.installWhenDownloaded = false
-      this.checked({ availableVersion: null })
-    })
+    autoUpdater.on('update-not-available', () => this.upToDate())
     autoUpdater.on('update-available', (info) => void this.available(info))
     autoUpdater.on('download-progress', ({ percent }) => {
       const rounded = Math.floor(percent)
@@ -87,7 +84,10 @@ export class Updates extends EventEmitter {
       this.installWhenDownloaded = false
       void this.install(true)
     })
-    autoUpdater.on('error', (error) => this.failed(error))
+    // The latest release has no update feed for this platform until its build finishes
+    // uploading: nothing to offer yet.
+    autoUpdater.on('error', (error: Error & { code?: string }) =>
+      error.code === 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND' ? this.upToDate() : this.failed(error))
 
     // A staged update installs on Quit, once the host has actually stopped.
     app.on('before-quit', (event) => {
@@ -122,6 +122,12 @@ export class Updates extends EventEmitter {
     const now = Date.now()
     prefs.set('updatesLastCheck', now)
     this.set({ checking: false, lastCheck: now, ...change })
+  }
+
+  private upToDate() {
+    this.installWhenDownloaded = false
+    this.userInitiated = false
+    this.checked({ availableVersion: null })
   }
 
   private failed(error: unknown) {
