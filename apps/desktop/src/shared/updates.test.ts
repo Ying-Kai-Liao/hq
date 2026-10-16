@@ -108,6 +108,16 @@ test('latest version records the last check without downloading or stopping the 
   assert.equal(f.calls.download + f.calls.prepare + f.calls.install, 0)
 })
 
+test('a latest release whose build is still uploading counts as up to date, not an error', async () => {
+  const f = updaterFixture()
+  f.updates.check()
+  await f.emit('error', Object.assign(new Error('Cannot find latest-mac.yml in the latest release artifacts'), { code: 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND' }))
+  assert.equal(f.updates.state.error, null)
+  assert.equal(f.updates.state.checking, false)
+  assert.equal(f.updates.state.availableVersion, null)
+  assert.equal(f.calls.download, 0)
+})
+
 test('host stop failure preserves the staged release, reports an error and permits retry', async () => {
   const f = updaterFixture()
   f.behavior.prepare = async () => { throw new Error('stop failed') }
