@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Button, Spinner } from '../../components/Controls'
+import { Button, IconButton, Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { useComputerAccess } from './use-computer-access'
 import appIcon from '../../../../resources/icon.png'
@@ -40,7 +40,10 @@ export function ComputerAccessView({ onContinue }: { onContinue?: (ready: boolea
           Install the full Codync desktop app to finish setup.
         </AccessNotice> : null}
         {access.error ? <AccessNotice title="Couldn’t finish setup" icon="exclamationmark.circle" error>{access.error}</AccessNotice> : null}
-        <div className="computer-access-section-label"><span>{windows ? 'Availability' : 'Permissions'}</span><span>{ready ? 'All set' : `${completed} of ${mac ? 3 : windows ? 1 : 2} ready`}</span></div>
+        <div className="computer-access-section-label">
+          <span>{windows ? 'Availability' : 'Permissions'}</span>
+          <span>{ready ? 'All set' : `${completed} of ${mac ? 3 : windows ? 1 : 2} ready`}<IconButton title="Check again" icon="arrow.clockwise" size={22} onClick={() => void access.refresh()} /></span>
+        </div>
         <div className="computer-access-steps">
           {windows ? <AccessRow title="Computer control" icon="cursorarrow.motionlines" detail="Bots can use apps on this computer. Remote screen viewing from your phone isn’t available on Windows yet." done={ready} /> : <>
             <AccessRow title="Codync Screen" icon="desktopcomputer" detail="Runs in the background to share your screen and connect your controls." done={helperReady} active={['enable', 'helper', 'background'].includes(step)} status={step === 'background' ? 'Needs approval' : undefined}>
@@ -49,10 +52,12 @@ export function ComputerAccessView({ onContinue }: { onContinue?: (ready: boolea
             </AccessRow>
             {mac ? <>
               <AccessRow title="Screen recording" icon="record.circle" detail="Lets Codync see your screen, including anything visible in your apps." done={screen?.capture === true} active={step === 'capture'}>
+                {step === 'capture' ? <SettingsHint app={access.helperName} /> : null}
                 {canRequest ? request('capture', 'Allow screen recording') : null}
                 {access.requested.has('capture') ? <SettingsLink action={() => access.openSettings('capture')} /> : null}
               </AccessRow>
               <AccessRow title="Control apps" icon="cursorarrow.motionlines" detail="Lets Codync click, type and interact with apps on your behalf." done={screen?.input === true} active={step === 'input'}>
+                {step === 'input' ? <SettingsHint app={access.helperName} control /> : null}
                 {canRequest ? request('input', 'Allow computer control') : null}
                 {access.requested.has('input') ? <SettingsLink action={() => access.openSettings('input')} /> : null}
               </AccessRow>
@@ -61,16 +66,13 @@ export function ComputerAccessView({ onContinue }: { onContinue?: (ready: boolea
             </AccessRow>}
           </>}
         </div>
-        {mac && !ready ? <div className="computer-access-help">
-          <Icon name="info.circle" size={13} />
-          <p>In System Settings, look for <strong>{access.helperName}</strong>. Computer control may be called <strong>Device Control and Data Access</strong> or <strong>Accessibility</strong>. Return here after granting access; if asked, allow the helper to restart.</p>
-        </div> : null}
-        <div className="computer-access-reassurance"><Icon name="lock.shield" size={13} /><p>Permissions stay on this computer. {onContinue ? 'You can change them later in Settings → Computer access.' : 'Your other computers keep their own permissions.'}</p></div>
-        <footer className="computer-access-footer">
-          <Button kind="secondary" onClick={() => void access.refresh()}><Icon name="arrow.clockwise" size={12} /> Check again</Button>
-          {onContinue ? <Button kind={ready ? 'primary' : 'secondary'} onClick={() => onContinue(ready)}>{ready ? 'Continue' : 'Set up later'}{ready ? <Icon name="arrow.right" size={12} /> : null}</Button> : null}
-        </footer>
-        <p className="computer-access-phone-note">On iPhone, connect with a QR code or Ask Access. No SSH setup needed.</p>
+        <ul className="computer-access-notes">
+          <li><Icon name="lock.shield" size={13} /><p>Permissions stay on this computer. {onContinue ? 'You can change them later in Settings → Computer access.' : 'Your other computers keep their own permissions.'}</p></li>
+          <li><Icon name="iphone" size={13} /><p>On iPhone, connect with a QR code or Ask Access. No SSH setup needed.</p></li>
+        </ul>
+        {onContinue ? <footer className="computer-access-footer">
+          <Button kind={ready ? 'primary' : 'secondary'} onClick={() => onContinue(ready)}>{ready ? 'Continue' : 'Set up later'}{ready ? <Icon name="arrow.right" size={12} /> : null}</Button>
+        </footer> : null}
       </div>
     </section>
   )
@@ -79,10 +81,13 @@ export function ComputerAccessView({ onContinue }: { onContinue?: (ready: boolea
 function AccessRow({ title, icon, detail, done, active = false, status, children }: {
   title: string; icon: string; detail: string; done: boolean; active?: boolean; status?: string; children?: ReactNode
 }) {
+  const label = done ? 'Ready' : status ?? (active ? 'Needs access' : 'Waiting')
   return <div className={`computer-access-row ${done ? 'granted' : active ? 'current' : 'waiting'}`}>
-    <span className="computer-access-row-icon"><Icon name={icon} size={17} /></span>
+    <span className="computer-access-badge" role="img" aria-label={label} title={label}>
+      {done ? <Icon name="checkmark" size={12} weight="bold" /> : <Icon name={icon} size={15} />}
+    </span>
     <div className="computer-access-row-body">
-      <div className="computer-access-row-heading"><h2>{title}</h2><span className="computer-access-status">{done ? <><Icon name="checkmark" size={10} weight="semibold" /> Ready</> : status ?? (active ? 'Needs access' : 'Waiting')}</span></div>
+      <h2>{title}</h2>
       <p>{detail}</p>
       {!done ? <div className="computer-access-actions">{children}</div> : null}
     </div>
@@ -93,6 +98,12 @@ function AccessNotice({ title, icon, error = false, children }: { title: string;
   return <div className={`computer-access-notice ${error ? 'error' : ''}`} role={error ? 'alert' : 'status'}>
     <Icon name={icon} size={16} /><div><strong>{title}</strong><p>{children}</p></div>
   </div>
+}
+
+function SettingsHint({ app, control = false }: { app: string; control?: boolean }) {
+  return <p className="computer-access-inline-note">
+    In System Settings, look for <strong>{app}</strong>.{control ? <> It may be listed under <strong>Device Control and Data Access</strong> or <strong>Accessibility</strong>.</> : null} Return here after granting access; if asked, allow the helper to restart.
+  </p>
 }
 
 function SettingsLink({ action }: { action: () => void }) {
