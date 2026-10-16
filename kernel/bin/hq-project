@@ -71,6 +71,10 @@ def main(argv):
             children.setdefault(p['parent'], []).append(pid)
 
     if argv[:1] == ['ls']:
+        if not projects:
+            print('no projects yet. Register one: hq project add <id> [dir] [--in PARENT] [--home DIR]')
+            return 0
+
         def tree(pid, depth, seen):
             p = projects[pid]
             where = p.get('home') or ' '.join(p.get('remotes', []) + p.get('paths', []))
