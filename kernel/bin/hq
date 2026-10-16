@@ -22,6 +22,7 @@
 #   hq ask <agent> [-c] [--as NAME] "task"            ask an agent, get its answer back; -c continues (hq-ask)
 #   hq remote add|ls|rm ...  ·  hq ask <agent>@<machine>   agents on your other machines, over ssh (hq-remote)
 #   hq memory search <words> [--agent NAME|--all]      search what the agents wrote down (hq-memory)
+#   hq project [ls|add ID [dir] [--in P] [--home DIR]]  projects: what each holds, its home folder, its memory (hq-project)
 #   hq schedule [ls|add|rm|run|log|--install ...]      run agent tasks on a cron schedule (hq-sched)
 #
 # Every run is pinned to a snapshot of the agent's package (bin/hq-pkg): edits, by anyone, become the next run's
@@ -41,7 +42,7 @@ set -euo pipefail
 src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
 HQ="$(cd "$(dirname "$src")/.." && pwd)"
 
-[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,22p' "$0" | sed 's/^#   //'; exit 0; }
+[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,26p' "$0" | sed 's/^#   //'; exit 0; }
 export HQ_ROOT=$HQ
 # Where things are, from the one place that knows (lib/hq_paths.py): HQ_HOME (~/hq) holding kernel/ and agents/ (each
 # agent: role/ its repo, memory/ data/ files/ its life), and ~/.hq (user.md, projects, this Mac's things). Exported
@@ -60,6 +61,7 @@ case $1 in
   new)                shift; exec "$HQ/bin/hq-new" "$@" ;;
   remote)             shift; exec "$HQ/bin/hq-remote" "${@:---help}" ;;
   memory)             shift; exec "$HQ/bin/hq-memory" "${@:---help}" ;;
+  project)            shift; exec "$HQ/bin/hq-project" "$@" ;;
   schedule)           shift; exec "$HQ/bin/hq-sched" "${@:-ls}" ;;
 esac
 
@@ -141,12 +143,16 @@ else
   project=$("$HQ/bin/project-id" || true)
 fi
 
+# The project's parents (closest first) and the home folders along the chain (bin/project-id --info).
+info=$([[ -n $project ]] && "$HQ/bin/project-id" --info "$project" || true)
+parents=$(printf '%s\n' "$info" | tail -n +2 | cut -f1 | paste -sd' ' -)
+
 # Body without frontmatter, then long-term memory.
 prompt="$(template | fill)
 <long-term-memory path=\"$home/memory/MEMORY.md\">
 $(cat "$home/memory/MEMORY.md" 2>/dev/null)
 </long-term-memory>
-<session project=\"${project:-none}\" cwd=\"$PWD\" date=\"$(date +%F)\"/>"
+<session project=\"${project:-none}\"${parents:+ parents=\"$parents\"} cwd=\"$PWD\" date=\"$(date +%F)\"/>"
 
 if [[ $print -eq 1 ]]; then printf '%s\n' "$prompt"; [[ $# -gt 0 ]] && printf '\n[task] %s\n' "$*"; exit 0; fi
 
@@ -175,7 +181,11 @@ hq_real=$(cd "$HQ" && pwd -P); [[ $hq_real != "$HQ" ]] && dirs+=(--add-dir "$hq_
 [[ $HQ_STATE != "$HQ" ]] && dirs+=(--add-dir "$HQ_STATE")
 [[ -d $HQ_AGENTS && $HQ_AGENTS != "$HQ_STATE"/* ]] && dirs+=(--add-dir "$HQ_AGENTS")
 [[ -d $HQ_STORE && $HQ_STORE != "$HQ_STATE"/* && $HQ_STORE != "$HQ_AGENTS"/* ]] && dirs+=(--add-dir "$HQ_STORE")
-args=(--append-system-prompt "$prompt" "${dirs[@]}" --settings "$runs/$$.settings.json" --allowedTools "Bash($HQ/bin/project-id)" "Bash($HQ/bin/project-id --list)" "Bash($HQ/bin/hq-memory search:*)")
+# Each project's home along the chain: the user's own folder for its files.
+while IFS=$'\t' read -r _ h; do
+  [[ -n $h && $h != - ]] && h=${h/#\~/$HOME} && [[ -d $h ]] && dirs+=(--add-dir "$h")
+done <<< "$info"
+args=(--append-system-prompt "$prompt" "${dirs[@]}" --settings "$runs/$$.settings.json" --allowedTools "Bash($HQ/bin/project-id)" "Bash($HQ/bin/project-id --list)" "Bash($HQ/bin/project-id --info:*)" "Bash($HQ/bin/hq-memory search:*)")
 # Each agent carries only its own tools: the shared services it needs and is granted (hq-auth), its own mcp.json
 # for servers no one else uses, and no global skills unless capabilities.yaml says global_skills: true. Its own
 # skills are files it reads on demand. A broken auth.json costs the agent its services, not the run.

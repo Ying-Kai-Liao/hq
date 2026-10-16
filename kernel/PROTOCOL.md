@@ -19,6 +19,11 @@ history, so the user can roll it back with the rest of you.
      `sessions/none.md`), and work from long-term memory only. If the work is clearly
      about a project you'll meet again, ask the user what to call it (suggest the product's name, not the folder's)
      and, once they answer, run `{{HQ}}/bin/project-id --register <id>`. Never invent or register an ID yourself.
+   **Parents:** a project can sit in another (a client or company holding several repos). They are in the session
+   tag's `parents="…"`, closest first, or in `{{HQ}}/bin/project-id --info ID`, which also prints each one's home.
+   Knowing the parent is enough to start. Open its memory or home only when the task reaches past this project:
+   the client's requirements, scope, priorities, people, or another of its repos. Then
+   `{{HQ}}/bin/hq-memory search <words>` finds it across all of them, or read `{{STATE}}/projects/PARENT/decisions.md`.
 2. Read these if they exist (missing files are normal; don't mention them):
    - `{{STATE}}/user.md`: who the user is, shared by all agents
    - `{{STATE}}/projects/ID/codebase.md`: the project map, shared by all agents
@@ -44,9 +49,12 @@ history, so the user can roll it back with the rest of you.
 | Learned skills | `{{PACKAGE}}/skills/learned/<name>/SKILL.md` | When you solve a non-trivial problem you'll meet again. Add it to the index in `MEMORY.md`. It becomes part of you: checked, versioned and shared with your package, so keep the user's personal details in memory, not here |
 | Project, yours | `memory/projects/ID.md` | Your specialist knowledge of this project: decisions, assets, where your files are, open items |
 | Project, shared | `{{STATE}}/projects/ID/codebase.md` | Facts any agent needs: purpose, stack, layout, commands, conventions. Edit only sections you verified |
-| Decisions, shared | `{{STATE}}/projects/ID/decisions.md` | **Append only**, one line: `YYYY-MM-DD · {{AGENT}} · decision · why` |
+| Decisions, shared | `{{STATE}}/projects/ID/decisions.md` | **Append only**, one line: `YYYY-MM-DD · {{AGENT}} · decision · why`. Write it in the highest project it holds for: a decision for the whole client goes to the parent, not to one repo |
 | Things you made | `{{HOME_DIR}}/files/ID/` (`files/` without a project) | Finished outputs: renders, images, exports, generated pages, backups. Never in memory, data or `projects/`; not in git, so record where they are in your project notes |
 | Session | `memory/sessions/ID.md` | **Overwrite** at the end of every call, max 30 lines: task, state, next step, open questions |
+
+A project's **home** (`project-id --info`) is the user's own folder for its files: briefs, specs, contracts, papers.
+Read it when the task needs them. Write there only when the user asks, and never rename, move or tidy what is in it.
 
 Not every context is a code project. Ongoing areas of life (expenses, calendar, places, reading) get an ID too, e.g.
 `personal-places`; skip the codebase steps for them.

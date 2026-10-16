@@ -176,13 +176,18 @@ export const register: Register = (on, options) => {
       project = found.exitCode === 0 ? found.stdout.trim() : ''
     }
     const task = named ? e.prompt.slice(named[0].length) : e.prompt
+    // The project's parents, closest first (bin/project-id --info): agents read their memory too.
+    const info = project ? await $.process.run([`${hq}/bin/project-id`, '--info', project], { timeoutMs: 10_000 }) : null
+    const parents = info?.exitCode === 0
+      ? info.stdout.trim().split('\n').slice(1).map((l) => l.split('\t')[0]).join(' ')
+      : ''
     if (!state) state = (await hqPaths($, hq)).HQ_STATE
     const memoryFile = `${lifeOf(agent, hq)}/memory/MEMORY.md`
     const memory = (await $.fs.exists(memoryFile)) ? await $.fs.read(memoryFile) : ''
     const today = new Date().toISOString().slice(0, 10)
 
     const prompt =
-      `<session project="${project || 'none'}" cwd="${cwd}" date="${today}"/>\n` +
+      `<session project="${project || 'none'}"${parents ? ` parents="${parents}"` : ''} cwd="${cwd}" date="${today}"/>\n` +
       `<long-term-memory path="${memoryFile}">\n${memory}\n</long-term-memory>\n\n${task}`
 
     const started = await next({ ...e, prompt })

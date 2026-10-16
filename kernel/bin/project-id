@@ -3,12 +3,18 @@
 
   project-id [dir]                 print the ID whose remotes/paths match dir (default: cwd);
                                    print nothing and exit 1 when no project matches
-  project-id --list                print every project ID with its aliases
-  project-id --register ID [dir]   add dir's git remote (or its path, without a remote) to project ID,
-                                   creating ID if new. Only after the user has named the project.
+  project-id --list                print every project ID with its parent, home and aliases
+  project-id --info ID             the project and its parents, closest first: one line each, ID<TAB>home (or -)
+  project-id --register ID [dir] [--in PARENT] [--home DIR]
+                                   add dir's git remote (or its path, without a remote) to project ID, creating
+                                   ID if new; --in sets its parent, --home its home folder. Without dir, the home
+                                   is the alias when one is given, else the current directory. Only after the user
+                                   has named the project.
 
-A project is a named thing; remotes and paths are aliases that point to it. Add a remote or path to
-keep a project's memory after a rename, move or re-clone.
+A project is a named thing; remotes and paths are aliases that point to it. Add a remote or path to keep a
+project's memory after a rename, move or re-clone. A project may sit in a parent (a client, a company, a line of
+research holding several repos), and may have a home: a folder of the user's own, anywhere, for its files. hq only
+points at a home; it never lays one out. A path alias also matches the folders inside it, the longest alias winning.
 """
 import json, os, re, subprocess, sys
 
@@ -58,6 +64,40 @@ def save(reg):
         fh.write("\n")
 
 
+def tilde(path):
+    """Store paths under the home directory as ~/..., so the registry still reads right on another Mac."""
+    home = os.path.expanduser("~")
+    return "~" + path[len(home):] if path == home or path.startswith(home + "/") else path
+
+
+def real(path):
+    return os.path.realpath(os.path.expanduser(path))
+
+
+def chain(projects, pid):
+    """pid and its parents, closest first; stops at a missing parent or a loop."""
+    out = []
+    while pid in projects and pid not in out:
+        out.append(pid)
+        pid = projects[pid].get("parent")
+    return out
+
+
+def match(projects, d):
+    """The project for directory d: its git remote, else the longest path alias that holds it."""
+    remote, root = locate(d)
+    for pid, p in projects.items():
+        if remote and remote in p.get("remotes", []):
+            return pid
+    best, size = None, -1
+    for pid, p in projects.items():
+        for a in p.get("paths", []):
+            a = real(a)
+            if (root == a or root.startswith(a.rstrip("/") + "/")) and len(a) > size:
+                best, size = pid, len(a)
+    return best
+
+
 def main(argv):
     reg = load()
     projects = reg.setdefault("projects", {})
@@ -65,30 +105,60 @@ def main(argv):
     if argv[:1] == ["--list"]:
         for pid, p in sorted(projects.items()):
             was = f" (formerly {p['formerly']})" if p.get("formerly") else ""
-            print(f"{pid}{was}\t" + " ".join(p.get("remotes", []) + p.get("paths", [])))
+            more = (f" in:{p['parent']}" if p.get("parent") else "") + (f" home:{p['home']}" if p.get("home") else "")
+            aliases = p.get("remotes", []) + [a for a in p.get("paths", []) if a != p.get("home")]
+            print(f"{pid}{was}{more}\t" + " ".join(aliases))
+        return 0
+
+    if argv[:1] == ["--info"]:
+        if len(argv) < 2 or argv[1] not in projects:
+            print(f"project-id: no project {argv[1] if len(argv) > 1 else ''!r}", file=sys.stderr)
+            return 1
+        for pid in chain(projects, argv[1]):
+            print(f"{pid}\t{projects[pid].get('home') or '-'}")
         return 0
 
     if argv[:1] == ["--register"]:
-        if len(argv) < 2 or not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", argv[1]):
+        args, opts = [], {}
+        it = iter(argv[1:])
+        for a in it:
+            if a in ("--in", "--home"):
+                opts[a] = next(it, "")
+            else:
+                args.append(a)
+        if not args or not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", args[0]):
             print("project-id: --register needs an ID of lowercase letters, digits, . _ -", file=sys.stderr)
             return 2
-        pid = argv[1]
-        remote, root = locate(os.path.realpath(argv[2] if len(argv) > 2 else os.getcwd()))
+        pid, parent, home = args[0], opts.get("--in"), opts.get("--home")
+        if parent is not None and (parent not in projects or pid in chain(projects, parent)):
+            why = "is not a project (register it first)" if parent not in projects else f"is {pid} or inside it"
+            print(f"project-id: {parent!r} {why}", file=sys.stderr)
+            return 2
+        if home is not None and not os.path.isdir(real(home)):
+            print(f"project-id: no folder {home}", file=sys.stderr)
+            return 2
+        if len(args) > 1 and not os.path.isdir(real(args[1])):
+            print(f"project-id: no folder {args[1]}", file=sys.stderr)
+            return 2
         p = projects.setdefault(pid, {"remotes": [], "paths": []})
-        key, alias = ("remotes", remote) if remote else ("paths", root)
+        if parent is not None:
+            p["parent"] = parent
+        if home is not None:
+            p["home"] = tilde(real(home))
+        if len(args) > 1 or home is None:
+            remote, root = locate(real(args[1] if len(args) > 1 else os.getcwd()))
+        else:
+            remote, root = "", real(home)   # a home is matched by its path, even when it sits inside a repo
+        key, alias = ("remotes", remote) if remote else ("paths", tilde(root))
         if alias not in p.setdefault(key, []):
             p[key].append(alias)
         save(reg)
         print(pid)
         return 0
 
-    remote, root = locate(os.path.realpath(argv[0] if argv else os.getcwd()))
-    for pid, p in projects.items():
-        if remote and remote in p.get("remotes", []):
-            print(pid); return 0
-    for pid, p in projects.items():
-        if root in p.get("paths", []):
-            print(pid); return 0
+    pid = match(projects, real(argv[0] if argv else os.getcwd()))
+    if pid:
+        print(pid); return 0
     return 1
 
 
