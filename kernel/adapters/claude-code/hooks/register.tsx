@@ -73,6 +73,24 @@ async function resolvePackages($: EngineInterface, hq: string): Promise<Record<s
   }
 }
 
+// "peace-guardian is part of circlewe; circlewe's own files: ~/Documents/CircleWe" (bin/project-id --info), or ''.
+async function projectContext($: EngineInterface, hq: string, cwd: string): Promise<string> {
+  const found = await $.process.run([`${hq}/bin/project-id`, cwd], { timeoutMs: 10_000 })
+  if (found.exitCode !== 0) return ''
+  const id = found.stdout.trim()
+  const info = await $.process.run([`${hq}/bin/project-id`, '--info', id], { timeoutMs: 10_000 })
+  if (info.exitCode !== 0) return ''
+  const chain = info.stdout.trim().split('\n').map((l) => l.split('\t'))
+  const homes = chain.filter(([, h]) => h && h !== '-').map(([p, h]) => `${p}: ${h}`)
+  if (chain.length < 2 && !homes.length) return ''
+  const parents = chain.slice(1).map(([p]) => p)
+  return (
+    `hq project: ${id}` + (parents.length ? `, part of ${parents.join(' → ')}` : '') + '.' +
+    (homes.length ? ` The user's own files for it (specs, briefs, contracts) are in ${homes.join('; ')}.` : '') +
+    ' Open them only when the task needs more than this repo; `hq project` shows the rest.'
+  )
+}
+
 export const register: Register = (on, options) => {
 
   // agentDir: the pinned snapshot from hq-pkg (or the live folder when versioning is unavailable).
@@ -84,6 +102,7 @@ export const register: Register = (on, options) => {
   let machine = ''
   let installed: Record<string, string> = {}
   let agentsReal = ''
+  let projectLine = ''
   // An agent's life (memory, data, files): its folder next to role/; older layouts: <state>/agents/<name>.
   const lifeOf = (agent: string, hq: string, real = false) => {
     const dir = installed[agent]
@@ -119,6 +138,7 @@ export const register: Register = (on, options) => {
     agentsReal = where.HQ_AGENTS_REAL
     installed = await listAgents($, hq)
     userHome = (await $.env.get('HOME')) ?? ''
+    projectLine = await projectContext($, hq, e.cwd)
     const packages = await resolvePackages($, hq)
     for (const [name, dir] of Object.entries(installed)) {
       const file = `${dir}/agent.md`
@@ -163,6 +183,13 @@ export const register: Register = (on, options) => {
   })
 
   // Every hq spawn, whoever starts it: project + fresh long-term memory go in front of the task.
+  // A session in a project that sits in a parent, or has a home, is told so in one line; nothing for any other.
+  on('prompt.compose', async ($, e, next) => {
+    const result = await next(e)
+    if (!projectLine) return result
+    return { sections: [...result.sections, { id: 'hq:project', text: projectLine, scope: 'session' as const }] }
+  }).catch(($, e, next) => next(e))
+
   on('agent.spawn', async ($, e, next) => {
     if (!e.subagentType.startsWith('hq:')) return next(e)
     const hq = await hqRoot($, options.hq_path)
