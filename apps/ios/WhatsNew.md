@@ -9,8 +9,8 @@ a version without one gets a generic "Bug fixes and improvements" line. Delete o
 
 ### zh-Hant
 
-- 快速模式改成在輸入框輸入 /fast 開關：打 / 就會在選單最前面看到快速模式和它目前的狀態，點一下或送出 /fast 即可切換。
+- 在輸入框打 / 就會列出所有指令：快速模式、開新工作階段，以及 bot 的 skills，每一項都附上說明。快速模式改從這裡開關，不再放在 + 選單。
 
 ### en-US
 
-- Fast mode now lives in the composer's / menu: type / to see it first, with whether it's on, and tap it or send /fast to switch it.
+- Type / in the composer to see every command with what it does: Fast mode, New session and the bot's skills. Fast mode now switches from here instead of the + menu.

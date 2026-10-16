@@ -53,7 +53,8 @@
 .dialog-card::after,
 .anchored-panel::after,
 .account-panel::after,
-.action-menu::after {
+.action-menu::after,
+.command-menu::after {
   content: '';
   position: absolute;
   inset: 0;

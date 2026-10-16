@@ -13,24 +13,13 @@ test('a host without Fast mode reads as off', () => {
 })
 
 test('the composer offers Fast mode once the agent does, and while it is on', async () => {
-  const { fastModeShown, fastModeState, fastModeTitle } = await import('./fast-mode.ts')
+  const { fastModeShown, fastModeState, fastModeDetail } = await import('./fast-mode.ts')
   assert.equal(fastModeShown(normalizeBot({ id: 'b' })), false)
   assert.equal(fastModeShown(normalizeBot({ id: 'b', fastModeSupport: 'offered' })), true)
   assert.equal(fastModeShown(normalizeBot({ id: 'b', fastMode: true, fastModeSupport: 'unsupported' })), true)
   assert.equal(fastModeShown(normalizeBot({ id: 'g', kind: 'group', fastModeSupport: 'offered' })), false)
   const refused = normalizeBot({ id: 'b', fastMode: true, fastModeSupport: 'refused', fastModeIssue: 'requires extra usage' })
   assert.equal(fastModeState(refused), 'refused')
-  assert.match(fastModeTitle(refused), /requires extra usage/)
+  assert.match(fastModeDetail(refused), /requires extra usage/)
 })
 
-test('/fast is offered while typed and switches Fast mode instead of sending', async () => {
-  const { fastCommandOffered, isFastCommand } = await import('./fast-mode.ts')
-  const offered = normalizeBot({ id: 'b', fastModeSupport: 'offered' })
-  assert.equal(fastCommandOffered(offered, ''), true)
-  assert.equal(fastCommandOffered(offered, 'fa'), true)
-  assert.equal(fastCommandOffered(offered, 'pdf'), false)
-  assert.equal(fastCommandOffered(normalizeBot({ id: 'b' }), ''), false)
-  assert.equal(isFastCommand(offered, '/fast '), true)
-  assert.equal(isFastCommand(offered, '/fast please'), false)
-  assert.equal(isFastCommand(normalizeBot({ id: 'b' }), '/fast'), false, 'without Fast mode it reaches the agent')
-})

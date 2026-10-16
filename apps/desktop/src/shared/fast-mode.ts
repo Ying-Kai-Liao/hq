@@ -21,27 +21,14 @@ export function fastModeRefusal(bot: Bot): string | null {
   return `The agent turned it off: ${bot.fastModeIssue ?? 'not available'}. Switch it off and on to try again.`
 }
 
-/** `/fast` in the composer turns Fast mode on or off instead of going to the agent. */
-export const FAST_COMMAND = '/fast'
-
-/** The `/` menu offers Fast mode while `query` (what follows the `/`) could still name it. */
-export function fastCommandOffered(bot: Bot | null, query: string): boolean {
-  return fastModeShown(bot) && 'fast mode'.includes(query.toLowerCase())
-}
-
-/** A draft that is just `/fast`: sending it switches Fast mode. */
-export function isFastCommand(bot: Bot | null, draft: string): boolean {
-  return fastModeShown(bot) && draft.trim() === FAST_COMMAND
-}
-
-/** The `/` menu entry's tooltip and accessibility label. */
-export function fastModeTitle(bot: Bot): string {
+/** What picking `/fast` in the composer's command list does, or why it isn't in effect. */
+export function fastModeDetail(bot: Bot): string {
   switch (fastModeState(bot)) {
     case 'off':
-      return 'Turn on Fast mode: faster replies, more usage'
+      return 'Turn on for faster replies and more usage'
     case 'on':
-      return 'Turn off Fast mode'
+      return 'Turn off and return to standard speed'
     case 'refused':
-      return `Fast mode is off. ${fastModeRefusal(bot)}`
+      return fastModeRefusal(bot) ?? ''
   }
 }

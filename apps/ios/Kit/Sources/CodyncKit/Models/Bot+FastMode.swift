@@ -21,16 +21,12 @@ public extension Bot {
         return "The agent turned it off: \(fastModeIssue ?? "not available"). Switch it off and on to try again."
     }
 
-    /// `/fast` in the composer turns Fast mode on or off instead of going to the agent.
-    static let fastCommand = "/fast"
-
-    /// The `/` menu offers Fast mode while `query` (what follows the `/`) could still name it.
-    func offersFastCommand(_ query: String) -> Bool {
-        fastModeShown && (query.isEmpty || "fast mode".localizedCaseInsensitiveContains(query))
-    }
-
-    /// A draft that is just `/fast`: sending it switches Fast mode.
-    func isFastCommand(_ draft: String) -> Bool {
-        fastModeShown && draft.trimmingCharacters(in: .whitespacesAndNewlines) == Self.fastCommand
+    /// What picking `/fast` in the composer's command list does, or why it isn't in effect.
+    var fastModeDetail: String {
+        switch fastModeState {
+        case .off: "Turn on for faster replies and more usage"
+        case .on: "Turn off and return to standard speed"
+        case .refused: fastModeRefusal ?? ""
+        }
     }
 }
