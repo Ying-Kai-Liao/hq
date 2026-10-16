@@ -12,7 +12,12 @@
 
 A message in #<agent> starts a thread and runs `hq <agent> "<message>"`; that agent owns the task. It may call
 other agents as helpers; they post status in the same thread through `hq-send --as <name>`. Replies in a thread
-resume the same Claude session. Only the owner's (and allowed users') messages are acted on,
+resume the same Claude session. Messages sent while the agent is still working wait in the thread's inbox and go to
+it together as one prompt when the run ends. With a Jev key (JEV_API_KEY in ~/.config/jev/env) each of those
+messages is routed by Jev first: "stop" kills the run, a correction stops it and starts it again with the correction
+merged in, a different subject becomes its own turn, anything else is merged; without Jev, or when Jev fails, it is
+merged. While a run goes, the agent shows a small "working…" line with a Stop button; it goes away when the reply is
+posted. Only the owner's (and allowed users') messages are acted on,
 unless HQ_DISCORD_REPLY_TO=anyone.
 
 Config (env or ~/.hq/secrets/env): HQ_DISCORD_BOT_TOKEN (required), HQ_DISCORD_OWNER_ID (your Discord user ID;
@@ -20,14 +25,18 @@ default: the server owner), HQ_DISCORD_GUILD (server name or ID; default: the bo
 HQ_BRIDGE_PERMISSION_MODE (claude --permission-mode for agent runs; default bypassPermissions),
 HQ_DISCORD_ALLOWED_IDS (comma-separated Discord user IDs answered besides the owner),
 HQ_DISCORD_REPLY_TO (owner or anyone; default owner. anyone lets every member of the server run agents with that
-permission mode, so use it only on a private server you trust).
+permission mode, so use it only on a private server you trust), HQ_BRIDGE_DEBOUNCE (seconds to wait for more
+messages before a run starts; default 2), HQ_BRIDGE_ROUTER (jev or off; default jev when a Jev key is found), HQ_BRIDGE_INTERRUPT (off: corrections wait
+for the next turn instead of restarting the run).
 State: ~/.hq/bridge/ (webhooks, thread → session map, downloaded attachments). Log: ~/.hq/logs/bridge.log.
 """
 import asyncio
 import json
 import os
 import re
+import signal
 import sys
+import urllib.request
 from pathlib import Path
 
 HQ = Path(__file__).resolve().parent.parent
@@ -131,6 +140,68 @@ def install():
     print(f'installed {plist}; logs in {LOG}')
 
 
+def jev_config():
+    """JEV_* from the environment or ~/.config/jev/env; kept out of os.environ so agent runs never see the key."""
+    cfg = {}
+    f = Path.home() / '.config' / 'jev' / 'env'
+    if f.exists():
+        for line in f.read_text().splitlines():
+            k, sep, v = line.strip().partition('=')
+            if sep and k.strip().startswith('JEV_'):
+                cfg[k.strip()] = v.strip().strip('"\'')
+    cfg.update({k: v for k, v in os.environ.items() if k.startswith('JEV_')})
+    return cfg
+
+
+# Narrow yes/no questions (Jev ignores negation inside a question); thresholds from probes on 2026-10-16.
+ROUTE_QUESTIONS = {
+    'stop': 'Does `latest` ask the assistant to stop, cancel or abort the work in `task`?',
+    'change': 'Does `latest` replace or correct an instruction given in `task`?',
+    'add': 'Does `latest` add a detail or an extra request to the work in `task`?',
+    'other': 'Is `latest` a request about a different subject from `task`?',
+    'partial': 'Does `latest` end mid-thought, as if the user will send the rest in a next message?',
+}
+
+
+def route(cfg, task, recent, latest):
+    """-> (stop | separate | merge, path) for a message that arrived while `task` runs. Any failure merges."""
+    if not cfg.get('JEV_API_KEY') or os.environ.get('HQ_BRIDGE_ROUTER', 'jev').lower() == 'off':
+        return 'merge', 'no router'
+    base = cfg.get('JEV_BASE_URL', 'https://api.typesafe.ai').rstrip('/')
+    url = base if base.endswith('/systemone') else base + ('/systemone' if base.endswith('/v1') else '/v1/systemone')
+    body = json.dumps({'model': cfg.get('JEV_MODEL', 'jev-latest'),
+                       'state': {'task': task[-4000:], 'recent': recent[-6:], 'latest': latest[-2000:]},
+                       'questions': {k: {'type': 'noul', 'instructions': q} for k, q in ROUTE_QUESTIONS.items()}},
+                      ensure_ascii=False).encode()
+    req = urllib.request.Request(url, data=body, method='POST', headers={
+        'Authorization': 'Bearer ' + cfg['JEV_API_KEY'], 'Content-Type': 'application/json', 'User-Agent': 'hq-bridge'})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            ans = json.loads(r.read().decode())['answers']
+        p = {k: max(0.0, min(1.0, float(ans[k]['noul']))) for k in ROUTE_QUESTIONS}
+    except Exception as e:  # noqa: BLE001  the router is advice; the inbox works without it
+        return 'merge', f'jev failed ({type(e).__name__})'
+    path = ' '.join(f'{k}:{v:.2f}' for k, v in p.items())
+    if p['stop'] >= 0.9 and p['stop'] > p['change']:   # "wait, do August instead" scores stop 0.80, change 0.96
+        return 'stop', path
+    if p['change'] >= 0.9 and os.environ.get('HQ_BRIDGE_INTERRUPT', 'on').lower() != 'off':
+        return 'interrupt', path   # "actually make it sushi", "do August instead": the running work is off course
+    if p['other'] >= 0.9 and p['add'] < 0.7 and p['change'] < 0.5:   # "make it sushi": other 0.93 but change 0.95
+        return 'separate', path
+    return ('merge-partial' if p['partial'] >= 0.8 else 'merge'), path
+
+
+INTERRUPTED = ('(Your previous attempt at this was stopped part-way because the user corrected it; files or other '
+               'things it touched may be half-changed, so check before you go on.)\n\n')
+
+
+def merged(items):
+    if len(items) == 1:
+        return items[0]
+    return ('The user sent several messages in a row; answer them together, in one reply:\n\n'
+            + '\n\n'.join(f'[{i}] {t}' for i, t in enumerate(items, 1)))
+
+
 def chunks(text, n=1900):
     text = text.strip() or '(no reply)'
     while text:
@@ -159,8 +230,14 @@ def main():
     intents = discord.Intents.default()
     intents.message_content = True
     client = discord.Client(intents=intents)
+    WORKING, STOPPED = '-# working…', '-# stopped'   # Discord subtext: small and grey
+    FOOTER = ('\n\n(From Discord: this thread is your task. Your final answer is posted here automatically; use '
+              'hq-send for images and files. Helpers you call post status with `hq-send --as <their name>`.)')
     st = read_state()
-    locks: dict[str, asyncio.Lock] = {}
+    inbox: dict[str, list[list[str]]] = {k: v['batches'] for k, v in st.get('inbox', {}).items()}  # thread → batches
+    busy: dict[str, dict] = {}       # thread → the running turn: agent, task, proc, stopped, hold
+    history: dict[str, list] = {}    # thread → the last user messages, for the router
+    jev = jev_config()
     hooks: dict[str, discord.Webhook] = {}
     owner_id = int(os.environ['HQ_DISCORD_OWNER_ID']) if os.environ.get('HQ_DISCORD_OWNER_ID') else None
     anyone = os.environ.get('HQ_DISCORD_REPLY_TO', 'owner').strip().lower() == 'anyone'
@@ -190,6 +267,12 @@ def main():
             await client.close()
             return
         await setup(guilds[0])
+        for key, saved in list(st.get('inbox', {}).items()):   # messages that waited when the bridge last stopped
+            if key not in busy and saved.get('agent') in hooks:
+                try:
+                    asyncio.create_task(worker(saved['agent'], await client.fetch_channel(int(key))))
+                except Exception as e:  # noqa: BLE001
+                    print(f'hq-bridge: could not resume inbox {key}: {e}', flush=True)
         if not getattr(client, 'rescanning', False):  # on_ready fires again after reconnects
             client.rescanning = True
             asyncio.create_task(rescan(guilds[0]))
@@ -204,40 +287,220 @@ def main():
             except Exception as e:  # a failed rescan must never take the bridge down
                 print(f'hq-bridge: rescan failed: {e}', flush=True)
 
-    async def run(agent, thread, task, reply_to):
+    def save_inbox(agent, key):
+        if inbox.get(key):
+            st.setdefault('inbox', {})[key] = {'agent': agent, 'batches': inbox[key]}
+        else:
+            st.setdefault('inbox', {}).pop(key, None)
+        write_state(st)
+
+    async def run(agent, thread, task):
+        """One agent turn in this thread; -> 'stopped', 'interrupted' or 'done'."""
         key = str(thread.id)
-        lock = locks.setdefault(key, asyncio.Lock())
-        async with lock:
-            session = st['threads'].get(key, {}).get('session_id')
-            hook = st['webhooks'][agent]
-            claude_args = ['--output-format', 'json',
-                           '--permission-mode', os.environ.get('HQ_BRIDGE_PERMISSION_MODE', 'bypassPermissions')]
-            if session:
-                claude_args += ['--resume', session]
-            env = dict(os.environ, HQ_AGENT=agent, HQ_VIA='discord', HQ_DISCORD_WEBHOOK_URL=hook['url'], HQ_DISCORD_THREAD_ID=key,
-                       HQ_CLAUDE_ARGS=' '.join(claude_args))
-            env.pop('HQ_DISCORD_BOT_TOKEN', None)  # agents never see the bot token
+        session = st['threads'].get(key, {}).get('session_id')
+        hook = st['webhooks'][agent]
+        claude_args = ['--output-format', 'json',
+                       '--permission-mode', os.environ.get('HQ_BRIDGE_PERMISSION_MODE', 'bypassPermissions')]
+        if session:
+            claude_args += ['--resume', session]
+        env = dict(os.environ, HQ_AGENT=agent, HQ_VIA='discord', HQ_DISCORD_WEBHOOK_URL=hook['url'], HQ_DISCORD_THREAD_ID=key,
+                   HQ_CLAUDE_ARGS=' '.join(claude_args))
+        env.pop('HQ_DISCORD_BOT_TOKEN', None)  # agents never see the bot token
+        for k in [k for k in env if k.startswith('JEV_')]:
+            env.pop(k)                           # nor the router's key
+        proc = await asyncio.create_subprocess_exec(
+            str(HQ / 'bin' / 'hq'), agent, task + FOOTER, cwd=str(Path.home()), env=env, start_new_session=True,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        busy[key]['proc'] = proc
+        if busy[key].get('ended'):            # Stop was pressed before the process existed
+            kill(proc)
+        try:
+            out, err = await asyncio.wait_for(proc.communicate(), timeout=3600)
+        except asyncio.TimeoutError:
+            kill(proc)
+            out, err = b'', b'timed out after 60 min'
+        if busy[key].get('ended'):
+            return busy[key]['ended']
+        try:
+            res = json.loads(out.decode())
+            text, sid = res.get('result') or '', res.get('session_id')
+            if res.get('is_error'):
+                text = f'⚠️ {text or res.get("subtype", "error")}'
+        except ValueError:
+            text, sid = f'⚠️ {agent} failed:\n```\n{(err or out).decode(errors="replace")[-1500:]}\n```', None
+        if sid:
+            st['threads'][key] = {'agent': agent, 'session_id': sid}
+            write_state(st)
+        for part in chunks(text):
+            await hooks[agent].send(part, username=display_name(agent), thread=thread, wait=True)
+        return 'done'
+
+    def kill(proc):
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)  # hq → claude → its tools: the whole group
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    async def worker(agent, thread):
+        """Drains the thread's inbox: each batch of merged messages is one turn. One worker per thread."""
+        key = str(thread.id)
+        busy[key] = {'agent': agent, 'task': ''}
+        try:
             async with thread.typing():
-                proc = await asyncio.create_subprocess_exec(
-                    str(HQ / 'bin' / 'hq'), agent, task, cwd=str(Path.home()), env=env,
-                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                while inbox.get(key):
+                    await asyncio.sleep(float(os.environ.get('HQ_BRIDGE_DEBOUNCE', '2')))
+                    while busy[key].pop('hold', False):   # the last message looked unfinished: give the rest time
+                        await asyncio.sleep(8)
+                    if not inbox.get(key):                 # a "stop" came in during the wait
+                        break
+                    batch = inbox[key].pop(0)
+                    busy[key]['cont'] = False    # whatever is queued now came in before this turn started
+                    save_inbox(agent, key)
+                    task = (INTERRUPTED if busy[key].pop('redo', False) else '') + merged(batch)
+                    busy[key].update(task=task, batch=batch, ended=None, proc=None)
+                    try:   # from the agent itself, as small grey text; the webhook is the bot's, so its button works
+                        status = await hooks[agent].send(WORKING, username=display_name(agent), thread=thread,
+                                                         view=stop_button(key), wait=True)
+                    except Exception as e:  # noqa: BLE001  no button is fine: typing "stop" still works
+                        print(f'hq-bridge: status message {key}: {e}', flush=True)
+                        status = None
+                    busy[key]['status'] = status
+                    ended = await run(agent, thread, task)
+                    busy[key]['status'] = None
+                    try:
+                        if ended == 'stopped' and status:
+                            await status.edit(content=STOPPED, view=None)
+                        elif ended == 'stopped':
+                            await hooks[agent].send(STOPPED, username=display_name(agent), thread=thread, wait=True)
+                        elif status:
+                            await status.delete()
+                    except Exception as e:  # noqa: BLE001
+                        print(f'hq-bridge: status message {key}: {e}', flush=True)
+        except Exception as e:  # noqa: BLE001  keep the inbox on disk; the next message or restart picks it up
+            print(f'hq-bridge: worker {key} failed: {e}', flush=True)
+        finally:
+            busy.pop(key, None)
+
+    async def deliver(agent, thread, msg, task):
+        key = str(thread.id)
+        recent = history.setdefault(key, [])
+        q = inbox.setdefault(key, [])
+        running = busy.get(key, {}).get('proc')
+        running = running if running is not None and running.returncode is None else None
+        if running is None:
+            # Nothing running: the message joins the prompt about to go (or starts one) right away, so the run can't
+            # leave without it while Jev answers; Jev is then only asked whether it says "stop".
+            waiting = key in busy and bool(q)
+            if q:
+                q[-1].append(task)
+            else:
+                q.append([task])
+            save_inbox(agent, key)
+            if key not in busy:
+                asyncio.create_task(worker(agent, thread))
+                waiting = False
+            if waiting:
+                decision, path = await asyncio.to_thread(route, jev, merged(q[-1][:-1] or [task]), recent, msg.content)
+                print(f'hq-bridge: route {key} {path} -> {decision} (waiting)', flush=True)
+                if decision == 'merge-partial':
+                    busy.get(key, {})['hold'] = True
+                elif decision == 'stop':
+                    await stop(agent, thread, key, msg)
+            remember(recent, msg)
+            return
+        decision, path = await asyncio.to_thread(route, jev, busy[key]['task'], recent, msg.content)
+        print(f'hq-bridge: route {key} {path} -> {decision}', flush=True)
+        remember(recent, msg)
+        now = busy.get(key, {})
+        if decision == 'stop':
+            await stop(agent, thread, key, msg)
+            return
+        if decision == 'interrupt' and now.get('proc') is running and running.returncode is None:
+            now['ended'], now['redo'] = 'interrupted', True
+            more = q.pop(0) if q and now.get('cont') else []   # extras for this same work that were waiting
+            q.insert(0, now['batch'] + more + [task])          # the same work again, corrected, before anything else
+            now['cont'] = False
+            kill(running)
+            save_inbox(agent, key)
+            await react(msg, '🔁')
+            if now.get('status') is not None:
                 try:
-                    out, err = await asyncio.wait_for(proc.communicate(), timeout=3600)
-                except asyncio.TimeoutError:
-                    proc.kill()
-                    out, err = b'', b'timed out after 60 min'
+                    await now['status'].edit(content='-# restarting with your correction…', view=None)
+                except Exception:  # noqa: BLE001  cosmetic
+                    pass
+            return
+        if decision == 'separate' or not q:
+            q.append([task])
+            if key in busy:
+                now['cont'] = decision != 'separate' and len(q) == 1   # the next batch continues the running work
+        else:
+            q[-1].append(task)
+        save_inbox(agent, key)
+        if key in busy:
+            now['hold'] = now.get('hold') or decision == 'merge-partial'
+            await show_queued(key)
+        else:
+            asyncio.create_task(worker(agent, thread))   # the run ended while Jev answered
+
+    async def react(msg, emoji):
+        try:
+            await msg.add_reaction(emoji)
+        except Exception:  # noqa: BLE001  cosmetic
+            pass
+
+    def remember(recent, msg):
+        recent.append({'role': 'user', 'text': msg.content[-1000:]})
+        del recent[:-6]
+
+    def stop_button(key):
+        view = discord.ui.View(timeout=None)
+        view.add_item(discord.ui.Button(label='Stop', style=discord.ButtonStyle.secondary,
+                                        custom_id=f'hq-stop:{key}'))   # handled in on_interaction, so it survives restarts
+        return view
+
+    async def show_queued(key):
+        """The working line says how many messages wait for the next turn (instead of a reaction on each)."""
+        now = busy.get(key, {})
+        n = sum(len(b) for b in inbox.get(key, []))
+        if now.get('status') is not None:
             try:
-                res = json.loads(out.decode())
-                text, sid = res.get('result') or '', res.get('session_id')
-                if res.get('is_error'):
-                    text = f'⚠️ {text or res.get("subtype", "error")}'
-            except ValueError:
-                text, sid = f'⚠️ {agent} failed:\n```\n{(err or out).decode(errors="replace")[-1500:]}\n```', None
-            if sid:
-                st['threads'][key] = {'agent': agent, 'session_id': sid}
-                write_state(st)
-            for part in chunks(text):
-                await hooks[agent].send(part, username=display_name(agent), thread=thread, wait=True)
+                await now['status'].edit(content=WORKING + (f' · {n} queued' if n else ''))
+            except Exception:  # noqa: BLE001  cosmetic
+                pass
+
+    @client.event
+    async def on_interaction(it):
+        cid = (it.data or {}).get('custom_id', '')
+        if not cid.startswith('hq-stop:'):
+            return
+        if not anyone and it.user.id not in {owner_id} | allowed:
+            return await it.response.send_message('Only the owner can stop this.', ephemeral=True)
+        key = cid.split(':', 1)[1]
+        now = busy.get(key)
+        if now is None or (now.get('proc') is not None and now['proc'].returncode is not None):
+            return await it.response.edit_message(content='-# finished', view=None)
+        await it.response.edit_message(content='-# stopping…', view=None)
+        print(f'hq-bridge: stop {key} pressed by {it.user.id}', flush=True)
+        inbox[key] = []
+        save_inbox(now['agent'], key)
+        now['ended'] = 'stopped'
+        if now.get('proc') is not None:
+            kill(now['proc'])                # the worker turns "Stopping…" into "Stopped." when the run comes back
+
+    async def stop(agent, thread, key, msg):
+        """Empty the inbox and end the running turn, or the one about to start."""
+        inbox[key] = []
+        save_inbox(agent, key)
+        now = busy.get(key, {})
+        proc = now.get('proc')
+        starting = proc is None and now.get('task')   # batch taken, process not started yet: run() kills it at once
+        if starting or (proc is not None and proc.returncode is None):
+            now['ended'] = 'stopped'
+            if proc is not None:
+                kill(proc)                   # the worker posts "Stopped." when the run comes back
+        else:
+            await hooks[agent].send(STOPPED, username=display_name(agent), thread=thread, wait=True)
+        await react(msg, '🛑')   # only messages the bridge acted on get a reaction; queued ones are counted instead
 
     @client.event
     async def on_message(msg):
@@ -261,9 +524,7 @@ def main():
                 await a.save(p)
                 paths.append(str(p))
             task += '\n\nAttached files: ' + ', '.join(paths)
-        task += ('\n\n(From Discord: this thread is your task. Your final answer is posted here automatically; use '
-                 'hq-send for images and files. Helpers you call post status with `hq-send --as <their name>`.)')
-        asyncio.create_task(run(agent, thread, task, msg))
+        await deliver(agent, thread, msg, task)
 
     client.run(token, log_handler=None)
 
