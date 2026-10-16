@@ -179,8 +179,10 @@ mod tests {
         assert_eq!(names(&app), ["fast", "new", "pdf", "docx"], "only skills the bot has on");
         app.drafts.insert("b".into(), super::Editor::with("/session"));
         assert_eq!(names(&app), ["new"], "titles match too");
-        app.bots.get_mut("b").expect("the bot").fast_support = "unsupported".into();
+        app.bots.get_mut("b").expect("the bot").fast_support = "unknown".into();
         app.drafts.insert("b".into(), super::Editor::with("/"));
+        assert_eq!(names(&app), ["fast", "new", "pdf", "docx"], "offered until the agent says otherwise");
+        app.bots.get_mut("b").expect("the bot").fast_support = "unsupported".into();
         assert_eq!(names(&app), ["new", "pdf", "docx"], "no Fast mode on offer");
     }
 

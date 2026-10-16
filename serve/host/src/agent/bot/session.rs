@@ -1,5 +1,6 @@
 //! The agent process and its ACP sessions: launch, handshake, new/load/fork, thread sessions.
 
+use super::fast_mode::Listing;
 use super::{Actor, Conn, NoticeStyle, SessionCaps};
 use crate::agent::acp::{self, Acp, Incoming};
 use crate::chat::context;
@@ -198,7 +199,7 @@ impl Actor {
             {
                 conn.loaded.insert(sid.clone(), Instant::now());
                 self.set_session(slot, Some(&sid));
-                self.note_options(&sid, &res, false);
+                self.note_options(&sid, &res, Listing::Session);
                 forked = true;
             } else {
                 tracing::warn!(bot = %self.cfg.id, "session/fork failed; the thread starts fresh");
@@ -254,7 +255,7 @@ impl Actor {
                         res
                     };
                     conn.loaded.insert(sid.clone(), Instant::now());
-                    self.note_options(&sid, &res, false);
+                    self.note_options(&sid, &res, Listing::Session);
                     if let Some(s) = snapshot {
                         // Its system prompt now names the bot as rendered.
                         context::mark_announced(&self.hub.store, &self.cfg.id, &s, s.system_identity.clone())?;
@@ -283,7 +284,7 @@ impl Actor {
         let sid = res["sessionId"].as_str().ok_or_else(|| anyhow!("agent returned no sessionId"))?.to_owned();
         conn.loaded.insert(sid.clone(), Instant::now());
         let options = select_model(&conn.acp, &res, &sid, &self.cfg).await?;
-        self.note_options(&sid, &options, false);
+        self.note_options(&sid, &options, Listing::Session);
         self.set_session(slot, Some(&sid));
         self.session_fresh = true;
         self.turn_session = Some(sid.clone());

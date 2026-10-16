@@ -158,9 +158,10 @@ impl AgentModel {
 }
 
 impl Bot {
-    /// An agent bot whose agent offers Fast mode, or one that has it on (so it can be turned off).
+    /// An agent bot unless its agent said it has no Fast mode (an unknown one may: its first
+    /// session settles it), or one that has it on (so it can be turned off).
     pub fn fast_shown(&self) -> bool {
-        !self.group && (self.fast_mode || self.fast_support == "offered" || self.fast_support == "refused")
+        !self.group && (self.fast_mode || self.fast_support != "unsupported")
     }
 
     /// Why Fast mode isn't in effect, when the agent turned it off itself.
