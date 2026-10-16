@@ -162,8 +162,14 @@ if [[ $pkg == "$src_pkg" ]]; then runs=$(mktemp -d); else runs=$pkg/.runs; mkdir
 field() { awk -v k="$1" 'NR==1 && /^---$/ {fm=1; next} fm && /^---$/ {exit} fm && $1 == k":" {sub(/^[^:]*:[ \t]*/, ""); print; exit}' "$pkg/agent.md" 2>/dev/null || true; }
 export HQ_MODEL=${HQ_MODEL:-$(field model)} HQ_EFFORT=${HQ_EFFORT:-$(field effort)} HQ_PROJECT=$project
 # The agent's settings plus a SessionStart hook that tags each session (new, resumed, /clear) in the cost ledger, and
-# hq's secrets kept out of its file tools (they sit inside ~/.hq, which every run can read; tools get them from hq-auth).
-fill < "$pkg/settings.json" | HOOK="\"$HQ/bin/hq-cost\" tag" python3 -c '
+# hq's secrets kept out of its file tools (they sit inside ~/.hq, which every run can read; tools get them from hq-auth),
+# and the writes PROTOCOL asks for allowed without a prompt (a one-shot run has no one to approve them): its memory,
+# its learned skills and the shared project files, each under its logical and its resolved path.
+fill < "$pkg/settings.json" | HOOK="\"$HQ/bin/hq-cost\" tag" WRITABLE="$home/memory
+$home_real/memory
+$src_pkg/skills/learned
+$HQ_STATE/projects
+$HQ_STATE_REAL/projects" python3 -c '
 import json, os, sys
 s = json.load(sys.stdin)
 s.setdefault("hooks", {}).setdefault("SessionStart", []).append(
@@ -172,6 +178,8 @@ sec = os.environ["HQ_SECRETS"]   # a folder of its own, or (the older layout) tw
 files = ["%s/**" % sec] if sec != os.environ["HQ_MACHINE"] else ["%s/env" % sec, "%s/auth.json" % sec]
 s.setdefault("permissions", {}).setdefault("deny", []).extend(
     "%s(/%s)" % (tool, f) for f in files for tool in ("Read", "Edit", "Write"))
+allow = s["permissions"].setdefault("allow", [])
+allow.extend(r for r in dict.fromkeys("Edit(/%s/**)" % d for d in os.environ["WRITABLE"].split("\n")) if r not in allow)
 json.dump(s, sys.stdout, indent=1)' > "$runs/$$.settings.json"
 
 # Directories the agent may use: the kernel (tools) under both its logical and its resolved path (Claude Code checks
