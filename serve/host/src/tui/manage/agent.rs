@@ -7,10 +7,12 @@ use super::super::app::{After, App, Editor, Overlay};
 use super::{AgentSetup, Fields, Input, Reply, SetupRow, Submit, ctrl, s};
 
 impl App {
-    pub fn open_agent(&mut self, backend: &str) {
+    /// `recheck`: opened from a chat's sign-in request, whose agent refused a turn, so the agent
+    /// is asked again however signed in it looked.
+    pub fn open_agent(&mut self, backend: &str, recheck: bool) {
         let b = self.backends.iter().find(|b| b["id"] == backend);
         // An agent without its Node.js can't start, so there's nothing to ask it yet.
-        let known = b.is_some_and(|b| b["signedIn"] == true || b["node"] == "missing");
+        let known = b.is_some_and(|b| (b["signedIn"] == true && !recheck) || b["node"] == "missing");
         let mut a = AgentSetup { backend: backend.to_owned(), auth: None, busy: false, cursor: 0, error: None };
         if !known {
             a.busy = true;

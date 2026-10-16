@@ -15,6 +15,7 @@ mod ui;
 pub use editor::Editor;
 pub use exchange::{ConversationRow, Exchange, Item, Outcome, conversation, group, rows};
 pub use model::{After, AgentModel, Bot, Entry, Kind, Mark, ModelOption, Msg, Status};
+pub use slash::SlashAction;
 pub use ui::{
     ACTIONS, Action, AgentPicker, COLORS, Click, Confirm, ConfirmAct, Dir, FIELDS, FILTERS, Field, Focus, FolderPicker,
     Form, Goto, GotoItem, GroupField, GroupForm, Hits, NEW_GROUP, Overlay, SHAPES, Toast, Toggle, TraceMode, Width,
@@ -59,6 +60,8 @@ pub struct App {
     /// Narrow layout: showing the chat page (else the roster page).
     pub chat_page: bool,
     pub drafts: HashMap<String, Editor>,
+    /// The `/` list's highlighted row and the draft it was picked for.
+    pub slash_pick: (String, usize),
     /// Files dropped on the composer (pasted paths), per draft like the text.
     pub files: HashMap<String, Vec<std::path::PathBuf>>,
     pub download: Option<super::net::files::Download>,
@@ -133,6 +136,7 @@ impl App {
             typing: false,
             chat_page: false,
             drafts: HashMap::new(),
+            slash_pick: (String::new(), 0),
             files: HashMap::new(),
             sends: HashMap::new(),
             chat_scroll: 0,

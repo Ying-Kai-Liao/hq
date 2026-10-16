@@ -5,7 +5,7 @@ use ratatui::layout::{Position, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
-use super::super::app::{App, Click, Editor, Mark, Status};
+use super::super::app::{App, Click, Editor, Mark, SlashAction, Status};
 use super::super::md::{truncate, width as w};
 use super::buffer::{fill, hline, put, put_line, rput, u};
 use super::set_cursor;
@@ -193,25 +193,32 @@ pub(super) fn chat(buf: &mut Buffer, r: Rect, app: &mut App, narrow: bool) {
         rput(buf, r.right() - 1, box_top.saturating_sub(1), &s, t.btn);
     }
     if typing {
-        skill_menu(buf, body, app);
+        command_menu(buf, body, app);
     }
 }
 
-/// The `/` menu over the bottom of the transcript: the bot's skills matching what's typed.
-fn skill_menu(buf: &mut Buffer, body: Rect, app: &App) {
+/// The `/` list over the bottom of the transcript: the commands matching what's typed, the
+/// highlighted one kept in view.
+fn command_menu(buf: &mut Buffer, body: Rect, app: &App) {
     let t = theme();
-    let matches = app.skill_matches();
-    let n = u(matches.len().min(5)).min(body.height);
-    for (i, m) in matches.iter().take(usize::from(n)).enumerate() {
-        let y = body.bottom() - n + u(i);
-        fill(buf, Rect::new(body.x, y, body.width, 1), t.panel);
-        let name = if i == 0 { t.bold } else { t.text };
-        let x = put(buf, body.x + 3, y, 26, &truncate(&format!("/{}", m.id), 26), name.patch(t.panel)) + 2;
-        let hint = if i == 0 { "tab fills in" } else { "" };
-        let rx = rput(buf, body.right() - 1, y, hint, t.dim.patch(t.panel));
-        let about = if m.description.is_empty() { &m.name } else { &m.description };
+    let commands = app.slash_commands();
+    let sel = app.slash_selected(commands.len());
+    let n = u(commands.len().min(5)).min(body.height);
+    let start = sel.saturating_sub(usize::from(n).saturating_sub(1));
+    for (row, (i, c)) in commands.iter().enumerate().skip(start).take(usize::from(n)).enumerate() {
+        let y = body.bottom() - n + u(row);
+        let bg = if i == sel { t.sel } else { t.panel };
+        fill(buf, Rect::new(body.x, y, body.width, 1), bg);
+        let name = if i == sel { t.bold } else { t.text };
+        let x = put(buf, body.x + 3, y, 26, &truncate(&format!("/{}", c.name), 26), name.patch(bg)) + 2;
+        let hint = match (i == sel, c.action) {
+            (false, _) => "",
+            (true, SlashAction::Skill) => "tab fills in",
+            (true, _) => "↵ runs",
+        };
+        let rx = rput(buf, body.right() - 1, y, hint, t.dim.patch(bg));
         let room = usize::from(rx.saturating_sub(x + 1));
-        put(buf, x, y, u(room), &truncate(&about.replace('\n', " "), room), t.secondary.patch(t.panel));
+        put(buf, x, y, u(room), &truncate(&c.about(), room), t.secondary.patch(bg));
     }
 }
 

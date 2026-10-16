@@ -158,9 +158,10 @@ impl AgentModel {
 }
 
 impl Bot {
-    /// An agent bot whose agent offers Fast mode, or one that has it on (so it can be turned off).
+    /// An agent bot unless its agent said it has no Fast mode (an unknown one may: its first
+    /// session settles it), or one that has it on (so it can be turned off).
     pub fn fast_shown(&self) -> bool {
-        !self.group && (self.fast_mode || self.fast_support == "offered" || self.fast_support == "refused")
+        !self.group && (self.fast_mode || self.fast_support != "unsupported")
     }
 
     /// Why Fast mode isn't in effect, when the agent turned it off itself.
@@ -171,6 +172,15 @@ impl Bot {
                 self.fast_issue.as_deref().unwrap_or("not available")
             )
         })
+    }
+
+    /// What picking `/fast` does, or why Fast mode isn't in effect.
+    pub fn fast_detail(&self) -> String {
+        match self.fast_refusal() {
+            Some(why) => why,
+            None if self.fast_mode => "Turn off and return to standard speed".to_owned(),
+            None => "Turn on for faster replies and more usage".to_owned(),
+        }
     }
 
     /// Where it works, as the header shows it.

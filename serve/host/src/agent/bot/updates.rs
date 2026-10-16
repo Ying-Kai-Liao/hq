@@ -1,5 +1,6 @@
 //! Agent → client: `session/update`s, permission requests and streamed text mapped onto entries.
 
+use super::fast_mode::Listing;
 use super::{Actor, NoticeStyle, Seg, SegKind};
 use crate::agent::acp::{self, Incoming};
 use crate::chat::context;
@@ -27,7 +28,7 @@ impl Actor {
                     && params["update"]["sessionUpdate"] == "config_option_update"
                     && let Some(sid) = params["sessionId"].as_str()
                 {
-                    self.note_options(sid, &params["update"], false);
+                    self.note_options(sid, &params["update"], Listing::Update);
                 } else if method == "session/update"
                     && params["sessionId"].as_str() == self.turn_session.as_deref()
                     && self.turn.is_some()

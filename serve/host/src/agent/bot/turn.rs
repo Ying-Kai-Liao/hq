@@ -10,7 +10,7 @@ use crate::remote::push::{self, AlertKind};
 use crate::store::{EntryKind, Lane, now_ms};
 use anyhow::{Context, Result, anyhow};
 use serde_json::json;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 impl Actor {
@@ -49,6 +49,7 @@ impl Actor {
         let from_user =
             !hidden && self.active_request.is_none() && self.active_group.is_none() && self.active_routine.is_none();
         self.turn_text = from_user.then(|| text.to_owned());
+        self.turn_entries = if from_user { entry_ids.to_vec() } else { Vec::new() };
         self.turn_memory_revision = memory::maintenance::revision(&self.hub.store, &self.cfg.id);
         self.announce = None;
         self.stop_requested = false;
@@ -183,6 +184,11 @@ impl Actor {
         if self.turn.is_none() {
             return;
         }
+        if let (Some(conn), Some(sid)) = (self.conn.as_mut(), &self.turn_session)
+            && let Some(used) = conn.loaded.get_mut(sid)
+        {
+            *used = Instant::now();
+        }
         self.files.cancel();
         self.flush(true);
         self.seg = Seg::None;
@@ -239,8 +245,10 @@ impl Actor {
         match (&done, stop_reason.as_str()) {
             (Err(e), _) if !self.stop_requested => {
                 let tail = self.exit_tail.take().filter(|t| !t.is_empty());
-                let detail = tail.map(|t| format!("\n\n{}", acp::truncate(&t, 1200))).unwrap_or_default();
-                self.notice(&format!("The agent failed: {e}{detail}"), NoticeStyle::Error);
+                if !self.invite_sign_in(e) {
+                    let detail = tail.map(|t| format!("\n\n{}", acp::truncate(&t, 1200))).unwrap_or_default();
+                    self.notice(&format!("The agent failed: {e}{detail}"), NoticeStyle::Error);
+                }
             }
             (_, "cancelled") | (Err(_), _) => self.notice("Stopped.", NoticeStyle::Info),
             (_, "max_tokens") => self.notice("The agent hit its output limit.", NoticeStyle::Info),

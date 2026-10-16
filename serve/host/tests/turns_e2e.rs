@@ -182,6 +182,22 @@ async fn fast_mode_switches_live_sessions_without_a_restart() {
 }
 
 #[tokio::test]
+async fn an_agent_without_config_options_has_no_fast_mode() {
+    if python_missing() {
+        return;
+    }
+    let host = Host::start().await;
+    let bot = host.bot("Plain", "tests/fixtures/fast_mode_agent.py").await;
+    std::fs::write(host.home.join("Plain").join("plain"), "").unwrap();
+    let support = || async { common::snapshot(&host.base, &host.token).await["bots"][0]["fastModeSupport"].clone() };
+    assert_eq!(support().await, "unknown", "clients offer /fast until a session says");
+
+    host.call("send", json!({"botId": bot, "text": "one"})).await;
+    host.wait_for(&bot, Duration::from_secs(60), speed_reply("fast off", "one")).await;
+    assert_eq!(support().await, "unsupported");
+}
+
+#[tokio::test]
 async fn a_refused_fast_mode_is_reported_and_not_asked_for_again() {
     if python_missing() {
         return;

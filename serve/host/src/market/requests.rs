@@ -2,6 +2,7 @@
 //! tools receive status, never credential values.
 use super::connectors;
 use crate::{
+    LockExt,
     agent::bot::Cmd,
     hub::Hub,
     store::{Entry, EntryKind, Lane, now_ms},
@@ -19,6 +20,8 @@ enum RequestKind {
     Secret,
     App,
     Login,
+    /// The bot's own agent (Claude Code…) needs signing in; posted by the host, not a tool.
+    Agent,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -35,6 +38,72 @@ fn has_status(request: &Value, status: RequestStatus) -> bool {
 
 const MAX_AGE: i64 = 24 * 60 * 60 * 1000;
 static MUTATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// Agent sign-in cards change from bot actors and API calls alike (no `.await` while held).
+static SIGN_IN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// `bot`'s turn failed because agent `backend` (`name`) needs signing in: a card in `lane`
+/// asks the user to, and `entries` (the user messages it couldn't answer) go out again once
+/// they have. A bot keeps one such card; messages that fail later join it.
+pub fn invite_agent_sign_in(
+    hub: &Hub,
+    bot: &str,
+    lane: &Lane,
+    backend: &str,
+    name: &str,
+    entries: &[String],
+) -> Result<()> {
+    let _guard = SIGN_IN.locked();
+    if let Some(card) = hub.store.pending_sign_ins(backend)?.into_iter().find(|card| card.bot_id == bot) {
+        let mut data = card.data;
+        let mut ids = data["connectionRequest"]["entryIds"].as_array().cloned().unwrap_or_default();
+        for id in entries {
+            if !ids.iter().any(|v| v == id.as_str()) {
+                ids.push(json!(id));
+            }
+        }
+        data["connectionRequest"]["entryIds"] = Value::Array(ids);
+        hub.set_entry(&card.id, &data).ok_or_else(|| anyhow!("Could not update the sign-in request"))?;
+        return Ok(());
+    }
+    let request = json!({"kind": RequestKind::Agent, "status": RequestStatus::Pending, "title": name, "botId": bot,
+        "backend": backend, "entryIds": entries});
+    // The card's title names the agent.
+    let text = "Needs you to sign in. Your message goes out again once you're signed in.";
+    hub.add_entry(
+        lane,
+        EntryKind::Notice,
+        hub.store.max_turn(bot),
+        &json!({"text": text, "connectionRequest": request}),
+    )
+    .ok_or_else(|| anyhow!("Could not save the sign-in request"))?;
+    Ok(())
+}
+
+/// Agent `backend` is signed in now: its sign-in cards complete, and the messages they hold go
+/// out again (a card older than a day only completes).
+pub fn agent_signed_in(hub: &Hub, backend: &str) -> Result<()> {
+    let _guard = SIGN_IN.locked();
+    for card in hub.store.pending_sign_ins(backend)? {
+        let mut data = card.data.clone();
+        data["connectionRequest"]["status"] = serde_json::to_value(RequestStatus::Ready)?;
+        hub.set_entry(&card.id, &data).ok_or_else(|| anyhow!("Could not complete the sign-in request"))?;
+        let Some(bot) = hub.store.bot(&card.bot_id)?.filter(|b| !b.deleted) else { continue };
+        if now_ms() - card.created_at > MAX_AGE {
+            continue;
+        }
+        let ids = data["connectionRequest"]["entryIds"].as_array().cloned().unwrap_or_default();
+        for mut entry in ids.iter().filter_map(Value::as_str).filter_map(|id| hub.store.entry(id)) {
+            let attachments = entry.data["attachments"].as_array().cloned().unwrap_or_default();
+            let text = entry.data["text"].as_str().unwrap_or_default();
+            let prompt = crate::chat::prompt::of_message(&hub.store, &bot.config, text, &attachments);
+            entry.data["status"] = "queued".into();
+            hub.set_entry(&entry.id, &entry.data);
+            let lane = Lane { chat: entry.bot_id.clone(), thread: entry.thread_id.clone() };
+            hub.send_cmd(&card.bot_id, Cmd::Send { lane, entry_id: entry.id, text: prompt })?;
+        }
+    }
+    Ok(())
+}
 
 pub fn tools() -> Value {
     json!([
@@ -78,8 +147,15 @@ pub async fn call(hub: &Arc<Hub>, bot: &str, name: &str, args: &Value) -> Result
             }
             let lane = hub.runtime(bot).lane.unwrap_or_else(|| Lane::main(bot));
             let reason: String = text(args, "reason")?.chars().take(400).collect();
+            // The card shows the app's own name and logo when Composio lists it.
+            let listed = super::composio::toolkits(&hub.store, &toolkit, "")
+                .await
+                .ok()
+                .and_then(|v| v["items"].as_array()?.iter().find(|t| t["slug"] == toolkit.as_str()).cloned());
+            let title = listed.as_ref().and_then(|t| t["name"].as_str()).unwrap_or(&toolkit).to_owned();
+            let logo = listed.as_ref().map_or(Value::Null, |t| t["logo"].clone());
             let entry = hub.add_entry(&lane,EntryKind::Notice,hub.store.max_turn(bot),&json!({"text":reason,"connectionRequest":{
-                "kind":RequestKind::App,"status":RequestStatus::Pending,"title":toolkit,"botId":bot,"toolkit":toolkit,"connectorId":format!("{}{}",super::composio::PREFIX,toolkit)
+                "kind":RequestKind::App,"status":RequestStatus::Pending,"title":title,"logo":logo,"botId":bot,"toolkit":toolkit,"connectorId":format!("{}{}",super::composio::PREFIX,toolkit)
             }})).ok_or_else(|| anyhow!("Could not save connection request"))?;
             Ok(json!({"requestId":entry.id,"status":"waitingForUser"}))
         }
@@ -161,6 +237,14 @@ pub async fn finish(hub: &Arc<Hub>, args: &Value) -> Result<Value> {
         let mut data = e.data.clone();
         data["connectionRequest"]["status"] = serde_json::to_value(RequestStatus::Cancelled)?;
         return Ok(json!({"entry":hub.set_entry(id, &data).ok_or_else(|| anyhow!("Could not cancel request"))?}));
+    }
+    if kind == RequestKind::Agent {
+        let backend = text(request, "backend")?;
+        if crate::agent::auth::check(&hub.store, backend).await?["signedIn"] != true {
+            bail!("{} isn't signed in yet.", request["title"].as_str().unwrap_or("The agent"));
+        }
+        agent_signed_in(hub, backend)?;
+        return Ok(json!({"entry": hub.store.entry(id)}));
     }
     if kind == RequestKind::Login {
         let login = super::logins::save(
@@ -252,7 +336,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(Path::new(":memory:")).unwrap();
         let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/team_agent.py");
-        let cfg: BotConfig = serde_json::from_value(json!({"id":"bot","name":"bot","backend":"fixture","cwd":dir,"command":format!("python3 -u '{}'",agent.display()),"notify":false})).unwrap();
+        let cfg: BotConfig = serde_json::from_value(json!({"id":"bot","name":"bot","backend":"fixture","cwd":dir,"command":crate::shell::python(&agent),"notify":false})).unwrap();
         store.save_bot(&cfg).unwrap();
         let c: super::super::Connector = serde_json::from_value(json!({"id":"fixture","name":"Fixture","command":"python3","args":[PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/credential_mcp.py")]})).unwrap();
         super::super::save_connectors(&store, &[c]).unwrap();
@@ -290,7 +374,7 @@ mod tests {
         assert_eq!(history.iter().filter(|e| e.id == format!("connection-ack-{id}")).count(), 1);
         assert!(!serde_json::to_string(&history).unwrap().contains("test-private-key"));
         hub.shutdown().await;
-        std::fs::remove_dir_all(dir).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -326,7 +410,32 @@ mod tests {
         let history = serde_json::to_string(&history).unwrap();
         assert!(history.contains("type_login") && !history.contains("hunter2-private"));
         hub.shutdown().await;
-        std::fs::remove_dir_all(dir).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn signing_in_completes_the_card_and_sends_its_messages_again() {
+        let (hub, dir) = fixture();
+        let lane = Lane::main("bot");
+        let user =
+            |text: &str| hub.add_entry(&lane, EntryKind::User, 1, &json!({"text":text,"status":"sent"})).unwrap().id;
+        let (first, second) = (user("alpha-7"), user("bravo-9"));
+        invite_agent_sign_in(&hub, "bot", &lane, "fixture", "Fixture", std::slice::from_ref(&first)).unwrap();
+        invite_agent_sign_in(&hub, "bot", &lane, "fixture", "Fixture", &[second.clone(), first.clone()]).unwrap();
+        let cards = hub.store.pending_sign_ins("fixture").unwrap();
+        assert_eq!(cards.len(), 1, "a bot keeps one sign-in card");
+        assert_eq!(cards[0].data["connectionRequest"]["entryIds"], json!([first, second]));
+        agent_signed_in(&hub, "fixture").unwrap();
+        assert_eq!(hub.store.entry(&cards[0].id).unwrap().data["connectionRequest"]["status"], "ready");
+        let prompts = dir.join("prompts.jsonl");
+        let sent = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            while !std::fs::read_to_string(&prompts).is_ok_and(|p| p.contains("alpha-7") && p.contains("bravo-9")) {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        });
+        sent.await.expect("both messages go out again");
+        hub.shutdown().await;
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]
@@ -345,7 +454,7 @@ mod tests {
         assert!(finish(&hub, &json!({"entryId":id,"value":"test-private-key"})).await.is_err());
         assert!(connectors(&hub.store).unwrap()[0].env.is_empty());
         hub.shutdown().await;
-        std::fs::remove_dir_all(dir).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]
@@ -365,6 +474,6 @@ mod tests {
         assert_eq!(hub.store.bot("bot").unwrap().unwrap().config.connectors.len(), 0);
         assert!(hub.store.entry(&format!("connection-ack-{id}")).is_none());
         hub.shutdown().await;
-        std::fs::remove_dir_all(dir).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
