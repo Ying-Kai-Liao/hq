@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 /// The message box under a chat or a thread: send, or stop while the bot (or the
 /// group) is working there. In a group, typing `@` suggests its bots; with one bot, a
-/// leading `/` suggests its skills.
+/// leading `/` offers Fast mode and its skills.
 struct Composer: View {
     let botId: String
     /// Replies go to the thread on this message.
@@ -69,11 +69,18 @@ struct Composer: View {
         return SkillCommand.matches(model.installedSkills, enabled: bot.skills, query: query)
     }
 
+    /// The bot whose Fast mode the `/` menu offers while the draft could still be `/fast`.
+    private var fastOffer: Bot? {
+        guard let bot, let query = SkillCommand.query(draft), bot.offersFastCommand(query) else { return nil }
+        return bot
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !suggestions.isEmpty || !skillSuggestions.isEmpty {
+            if !suggestions.isEmpty || !skillSuggestions.isEmpty || fastOffer != nil {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
+                        if let bot = fastOffer { fastChip(bot) }
                         ForEach(suggestions) { member in
                             SuggestionChip(title: member.name) {
                                 CharacterAvatar(bot: member, size: 18, animated: false)
@@ -100,6 +107,25 @@ struct Composer: View {
         }
         .animation(Motion.layout, value: suggestions.map(\.id))
         .animation(Motion.layout, value: skillSuggestions.map(\.id))
+        .animation(Motion.layout, value: fastOffer != nil)
+    }
+
+    /// `/fast`: Fast mode and whether it's on; tapping switches it.
+    private func fastChip(_ bot: Bot) -> some View {
+        let (value, tint): (String, Color) = switch bot.fastModeState {
+        case .on: ("On", Palette.secondary)
+        case .off: ("Off", Palette.secondary)
+        case .refused: ("Refused", Palette.warning)
+        }
+        let about = bot.fastModeRefusal ?? "Faster replies for more usage."
+        return SuggestionChip(title: "Fast mode", detail: (value, tint)) {
+            Image(systemName: "bolt").font(.caption).foregroundStyle(Palette.secondary)
+        } action: {
+            toggleFast(bot)
+        }
+        .accessibilityValue(value)
+        .accessibilityHint(about)
+        .help(about)
     }
 
     private var fieldPadding: CGFloat { 10 }
@@ -239,15 +265,9 @@ struct Composer: View {
                 if UIPasteboard.general.hasImages || UIPasteboard.general.hasURLs {
                     items.append(MenuItem("Paste", icon: "doc.on.clipboard") { pasteFiles() })
                 }
-                if let bot, bot.fastModeShown {
-                    items.append(MenuItem("Fast mode", icon: "bolt", selected: bot.fastMode, divider: true) {
-                        model.setFastMode(bot, !bot.fastMode)
-                    })
-                }
                 return items
             } label: { addLabel }
-                .accessibilityLabel(bot?.fastModeShown == true ? "Add files or Fast mode" : "Add files")
-                .accessibilityValue(bot?.fastModeShown == true ? (bot?.fastMode == true ? "Fast mode on" : "Fast mode off") : "")
+                .accessibilityLabel("Add files")
     }
 
     private var addLabel: some View {
@@ -257,22 +277,6 @@ struct Composer: View {
             .frame(width: fieldHeight, height: fieldHeight)
             .glass(in: Circle())
             .contentShape(Circle())
-            .overlay(alignment: .topTrailing) { fastModeBadge }
-            .animation(Motion.reduced(Motion.fade, reduceMotion), value: bot?.fastModeState)
-    }
-
-    /// Fast mode is on: a bolt on the + button, tinted while the agent refuses it.
-    @ViewBuilder private var fastModeBadge: some View {
-        if let bot, bot.fastModeShown, bot.fastMode {
-            Image(systemName: "bolt.fill")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(bot.fastModeState == .refused ? Palette.warning : Palette.background)
-                .frame(width: 16, height: 16)
-                .background(Circle().fill(bot.fastModeState == .refused ? Palette.secondary.opacity(0.25) : Palette.text))
-                .offset(x: 3, y: -3)
-                .transition(.opacity)
-                .accessibilityHidden(true)
-        }
     }
 
     private var fileChips: some View {
@@ -334,7 +338,14 @@ struct Composer: View {
         focused = true
     }
 
+    private func toggleFast(_ bot: Bot) {
+        model.setFastMode(bot, !bot.fastMode)
+        draft = ""
+        focused = true
+    }
+
     private func submit() {
+        if files.isEmpty, let bot, bot.isFastCommand(draft) { return toggleFast(bot) }
         guard canSend else { return }
         withAnimation(Motion.reduced(Motion.conversation, reduceMotion)) {
             guard model.sendComposerDraft(to: botId, thread: thread, files: files) else { return }
@@ -344,9 +355,11 @@ struct Composer: View {
     }
 }
 
-/// One suggestion above the box: a bot to @mention or a skill to start with.
+/// One suggestion above the box: a bot to @mention, Fast mode, or a skill to start with.
 private struct SuggestionChip<Icon: View>: View {
     let title: String
+    /// A value after the title, such as Fast mode's On / Off.
+    var detail: (text: String, tint: Color)?
     @ViewBuilder let icon: Icon
     let action: () -> Void
 
@@ -355,6 +368,7 @@ private struct SuggestionChip<Icon: View>: View {
             HStack(spacing: 6) {
                 icon
                 Text(title).font(.subheadline).foregroundStyle(Palette.text)
+                if let detail { Text(detail.text).font(.subheadline).foregroundStyle(detail.tint) }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)

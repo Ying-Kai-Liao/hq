@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { isBelow } from '@shared/compat'
-import { fastModeShown, fastModeState, fastModeTitle } from '@shared/fast-mode'
+import { fastCommandOffered, fastModeState, fastModeTitle, isFastCommand } from '@shared/fast-mode'
 import { isGroup, isWorkingIn, type Bot } from '@shared/models'
 import { BotAvatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
@@ -18,7 +18,7 @@ type Trailing = 'interrupt' | 'stop' | 'call' | 'send'
 
 /**
  * The message box under a chat or a thread: send, or stop while the bot (or the group) is
- * working there. In a group, typing `@` suggests its bots; with one bot, a leading `/` suggests its skills.
+ * working there. In a group, typing `@` suggests its bots; with one bot, a leading `/` offers Fast mode and its skills.
  */
 export function Composer({ botId, thread = null, onCall, onInterrupt }: {
   botId: string
@@ -104,8 +104,9 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
 
   // Not in a group: each member has its own skills.
   const skillsShown = !!bot && !isGroup(bot) && !isBelow(store.hello?.version ?? '', SKILLS_HOST)
-  const typedSkill = skillsShown ? skillQuery(draft) : null
-  const skills = typedSkill === null || !bot ? [] : matchingSkills(plugins.installedSkills, bot.skills, typedSkill)
+  const slash = skillQuery(draft)
+  const skills = !skillsShown || slash === null || !bot ? [] : matchingSkills(plugins.installedSkills, bot.skills, slash)
+  const fastOffered = slash !== null && fastCommandOffered(bot, slash)
 
   const pickSkill = (id: string) => {
     setDraft(`/${id} `)
@@ -125,7 +126,15 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
     setFiles((list) => [...list, ...accepted])
   }
 
+  const toggleFast = () => {
+    if (!bot) return
+    store.setFastMode(bot, !bot.fastMode)
+    setDraft('')
+    field.current?.focus()
+  }
+
   const submit = () => {
+    if (!files.length && isFastCommand(bot, draft)) return toggleFast()
     if (!canSend) return
     store.send(draft, botId, thread, files)
     setDraft('')
@@ -146,7 +155,7 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
-      <ComposerReveal open={suggestions.length > 0 || skills.length > 0}>
+      <ComposerReveal open={suggestions.length > 0 || skills.length > 0 || fastOffered}>
         <div className="mentions">
           {suggestions.map((m) => (
             <button key={m.id} className="press mention" onClick={() => mention(m)}>
@@ -154,6 +163,15 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
               <span style={{ ...font('subheadline'), color: 'var(--text)' }}>{m.name}</span>
             </button>
           ))}
+          {fastOffered && bot ? (
+            <button className="press mention" title={fastModeTitle(bot)} aria-label={fastModeTitle(bot)} aria-pressed={bot.fastMode} onClick={toggleFast}>
+              <Icon name="bolt" size={12} color="var(--secondary)" />
+              <span style={{ ...font('subheadline'), color: 'var(--text)' }}>Fast mode</span>
+              <span style={{ ...font('subheadline'), color: fastModeState(bot) === 'refused' ? 'var(--warning)' : 'var(--secondary)' }}>
+                {{ on: 'On', off: 'Off', refused: 'Refused' }[fastModeState(bot)]}
+              </span>
+            </button>
+          ) : null}
           {skills.map((s) => (
             <button key={s.id} className="press mention" title={s.description || s.name} onClick={() => pickSkill(s.id)}>
               <Icon name="book.pages" size={12} color="var(--secondary)" />
@@ -186,17 +204,6 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
             {canAttach ? (
               <button className="press composer-add" aria-label="Add files" title="Add files" onClick={() => void window.codync.app.pickFiles().then(append)}>
                 <Icon name="plus" size={13} weight="medium" color="var(--text)" />
-              </button>
-            ) : null}
-            {bot && fastModeShown(bot) ? (
-              <button
-                className={`press composer-add composer-fast fade-in ${fastModeState(bot)}`}
-                aria-label={fastModeTitle(bot)}
-                aria-pressed={bot.fastMode}
-                title={fastModeTitle(bot)}
-                onClick={() => store.setFastMode(bot, !bot.fastMode)}
-              >
-                <Icon name="bolt" size={12} weight="semibold" />
               </button>
             ) : null}
             <div className="composer-field">

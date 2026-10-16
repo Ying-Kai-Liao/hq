@@ -5,12 +5,12 @@ listing what iPhone users notice. tools/asc-submit.py reads the released version
 a version without one gets a generic "Bug fixes and improvements" line. Delete old sections.
 -->
 
-## 2.17.0
+## 2.17.2
 
 ### zh-Hant
 
-- Claude Code 和 Codex 的 bot 可以開啟快速模式：回覆更快，用量也較多。在輸入框的 + 選單或 bot 設定裡切換，開啟時 + 按鈕上會出現閃電。帳號不能使用時，設定裡會說明原因。
+- 快速模式改成在輸入框輸入 /fast 開關：打 / 就會在選單最前面看到快速模式和它目前的狀態，點一下或送出 /fast 即可切換。
 
 ### en-US
 
-- Turn on Fast mode for Claude Code and Codex bots: faster replies for more usage. Switch it from the composer's + menu or the bot's settings; a bolt on the + button shows it's on. If your account can't use it, the settings say why.
+- Fast mode now lives in the composer's / menu: type / to see it first, with whether it's on, and tap it or send /fast to switch it.

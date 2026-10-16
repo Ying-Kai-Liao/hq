@@ -1,4 +1,5 @@
-// `/skill` in the composer: while the draft is just `/partial`, the bot's skills are offered.
+// `/skill` in the composer: while the draft is just `/partial`, the bot's skills are offered
+// (after Fast mode's `/fast`, `@shared/fast-mode`).
 // The host turns a message starting with `/<skill id>` into "read this skill first"
 // (host/src/market/skills.rs `expand_command`).
 

@@ -1,4 +1,4 @@
-// Fast mode in the chat (composer ⚡) and bot settings; the host reports what the agent
+// Fast mode in the chat (the composer's `/fast`) and bot settings; the host reports what the agent
 // offers (`fastModeSupport`, `fastModeIssue`): docs/features/marketplace.md, "Fast mode".
 import type { Bot } from './models'
 
@@ -21,7 +21,20 @@ export function fastModeRefusal(bot: Bot): string | null {
   return `The agent turned it off: ${bot.fastModeIssue ?? 'not available'}. Switch it off and on to try again.`
 }
 
-/** The composer button's tooltip and accessibility label. */
+/** `/fast` in the composer turns Fast mode on or off instead of going to the agent. */
+export const FAST_COMMAND = '/fast'
+
+/** The `/` menu offers Fast mode while `query` (what follows the `/`) could still name it. */
+export function fastCommandOffered(bot: Bot | null, query: string): boolean {
+  return fastModeShown(bot) && 'fast mode'.includes(query.toLowerCase())
+}
+
+/** A draft that is just `/fast`: sending it switches Fast mode. */
+export function isFastCommand(bot: Bot | null, draft: string): boolean {
+  return fastModeShown(bot) && draft.trim() === FAST_COMMAND
+}
+
+/** The `/` menu entry's tooltip and accessibility label. */
 export function fastModeTitle(bot: Bot): string {
   switch (fastModeState(bot)) {
     case 'off':
