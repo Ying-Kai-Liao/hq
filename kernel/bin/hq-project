@@ -3,11 +3,16 @@
 
   hq project [dir]                                   the project here (or at dir) and the ones it sits in
   hq project ls                                      every project, as a tree
-  hq project add ID [dir] [--in PARENT] [--home DIR] register or change one (bin/project-id --register)
+  hq project add ID [dir] [--in PARENT] [--home [DIR]]
+                                                     register or change one (bin/project-id --register); a bare
+                                                     --home makes one: inside the parent's home, else <root>/ID
+  hq project root [DIR]                              where new homes go (default ~/Documents); DIR changes it
 
 A project can sit in another: a client or company holding several repos, a line of research holding a paper repo
-and a data folder. Agents working in one also read its parents' memory. Its home is any folder of yours, wherever you
+and a data folder. Agents working in one know its parents and read their memory when the task needs it. Its home is
+any folder of yours, wherever you
 already keep its files (Documents, Drive, Dropbox); hq points at it and never lays it out or moves anything in it.
+A new project with no folder yet gets an empty one under the root.
 """
 import json, os, subprocess, sys
 from pathlib import Path
@@ -64,6 +69,8 @@ def main(argv):
         print(__doc__.strip()); return 0
     if argv[:1] == ['add']:
         return subprocess.call([str(BIN / 'project-id'), '--register', *argv[1:]])
+    if argv[:1] == ['root']:
+        return subprocess.call([str(BIN / 'project-id'), '--root', *argv[1:]])
     projects = registry()
     children = {}
     for pid, p in sorted(projects.items()):
@@ -72,7 +79,7 @@ def main(argv):
 
     if argv[:1] == ['ls']:
         if not projects:
-            print('no projects yet. Register one: hq project add <id> [dir] [--in PARENT] [--home DIR]')
+            print('no projects yet. Register one: hq project add <id> [dir] [--in PARENT] [--home [DIR]]')
             return 0
 
         def tree(pid, depth, seen):
@@ -89,7 +96,7 @@ def main(argv):
 
     found = subprocess.run([str(BIN / 'project-id'), *argv[:1]], capture_output=True, text=True)
     if found.returncode != 0:
-        print('no project here. Register one: hq project add <id> [dir] [--in PARENT] [--home DIR]')
+        print('no project here. Register one: hq project add <id> [dir] [--in PARENT] [--home [DIR]]')
         return 1
     chain = subprocess.run([str(BIN / 'project-id'), '--info', found.stdout.strip()],
                            capture_output=True, text=True).stdout.split('\n')

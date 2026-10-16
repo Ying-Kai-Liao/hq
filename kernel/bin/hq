@@ -22,7 +22,7 @@
 #   hq ask <agent> [-c] [--as NAME] "task"            ask an agent, get its answer back; -c continues (hq-ask)
 #   hq remote add|ls|rm ...  ·  hq ask <agent>@<machine>   agents on your other machines, over ssh (hq-remote)
 #   hq memory search <words> [--agent NAME|--all]      search what the agents wrote down (hq-memory)
-#   hq project [ls|add ID [dir] [--in P] [--home DIR]]  projects: what each holds, its home folder, its memory (hq-project)
+#   hq project [ls|root|add ID [dir] [--in P] [--home [DIR]]]  projects: what each holds, its home folder, its memory
 #   hq schedule [ls|add|rm|run|log|--install ...]      run agent tasks on a cron schedule (hq-sched)
 #
 # Every run is pinned to a snapshot of the agent's package (bin/hq-pkg): edits, by anyone, become the next run's

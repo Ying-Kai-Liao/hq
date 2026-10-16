@@ -5,11 +5,12 @@
                                    print nothing and exit 1 when no project matches
   project-id --list                print every project ID with its parent, home and aliases
   project-id --info ID             the project and its parents, closest first: one line each, ID<TAB>home (or -)
-  project-id --register ID [dir] [--in PARENT] [--home DIR]
+  project-id --register ID [dir] [--in PARENT] [--home [DIR]]
                                    add dir's git remote (or its path, without a remote) to project ID, creating
-                                   ID if new; --in sets its parent, --home its home folder. Without dir, the home
-                                   is the alias when one is given, else the current directory. Only after the user
-                                   has named the project.
+                                   ID if new; --in sets its parent, --home its home folder: DIR, or without one
+                                   ID inside the closest parent's home, else <root>/ID, made when missing. Without dir, the home is the alias when one is
+                                   given, else the current directory. Only after the user has named the project.
+  project-id --root [DIR]          where new homes go (default ~/Documents); with DIR, change it
 
 A project is a named thing; remotes and paths are aliases that point to it. Add a remote or path to keep a
 project's memory after a rename, move or re-clone. A project may sit in a parent (a client, a company, a line of
@@ -24,6 +25,7 @@ sys.path.insert(0, os.path.join(HOME, "lib"))
 from hq_paths import paths  # noqa: E402
 STATE = str(paths()["HQ_STATE"])
 REG = os.path.join(STATE, "projects.json")
+ROOT = "~/Documents"   # where a new project's home goes unless projects.json says "homes"
 
 
 def git(*args, cwd):
@@ -118,28 +120,51 @@ def main(argv):
             print(f"{pid}\t{projects[pid].get('home') or '-'}")
         return 0
 
+    if argv[:1] == ["--root"]:
+        if len(argv) > 1:
+            if not os.path.isdir(real(argv[1])):
+                print(f"project-id: no folder {argv[1]}", file=sys.stderr)
+                return 2
+            reg["homes"] = tilde(real(argv[1]))
+            save(reg)
+        print(reg.get("homes", ROOT))
+        return 0
+
     if argv[:1] == ["--register"]:
-        args, opts = [], {}
-        it = iter(argv[1:])
-        for a in it:
-            if a in ("--in", "--home"):
-                opts[a] = next(it, "")
+        args, opts, rest = [], {}, argv[1:]
+        while rest:
+            a, rest = rest[0], rest[1:]
+            if a == "--in":
+                opts[a], rest = (rest[0], rest[1:]) if rest else ("", rest)
+            elif a == "--home":   # a bare --home: the default folder for this project
+                opts[a], rest = (rest[0], rest[1:]) if rest and not rest[0].startswith("--") else (None, rest)
             else:
                 args.append(a)
         if not args or not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", args[0]):
             print("project-id: --register needs an ID of lowercase letters, digits, . _ -", file=sys.stderr)
             return 2
-        pid, parent, home = args[0], opts.get("--in"), opts.get("--home")
+        pid, parent, home = args[0], opts.get("--in"), opts.get("--home", "")
+        made = False
+        if home is None:   # inside the closest parent's home, else under the root
+            near = next((projects[q]["home"] for q in chain(projects, parent or projects.get(pid, {}).get("parent"))
+                         if projects[q].get("home")), None)
+            home = os.path.join(real(near or reg.get("homes", ROOT)), pid)
+            made = not os.path.isdir(home)
+        elif home == "":
+            home = None
         if parent is not None and (parent not in projects or pid in chain(projects, parent)):
             why = "is not a project (register it first)" if parent not in projects else f"is {pid} or inside it"
             print(f"project-id: {parent!r} {why}", file=sys.stderr)
             return 2
-        if home is not None and not os.path.isdir(real(home)):
+        if home is not None and not made and not os.path.isdir(real(home)):
             print(f"project-id: no folder {home}", file=sys.stderr)
             return 2
         if len(args) > 1 and not os.path.isdir(real(args[1])):
             print(f"project-id: no folder {args[1]}", file=sys.stderr)
             return 2
+        if made:
+            os.makedirs(home)
+            print(f"made {tilde(home)}", file=sys.stderr)
         p = projects.setdefault(pid, {"remotes": [], "paths": []})
         if parent is not None:
             p["parent"] = parent

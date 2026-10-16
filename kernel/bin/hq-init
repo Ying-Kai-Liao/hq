@@ -373,6 +373,24 @@ def user_md():
     shutil.copy(LIB / 'user.md', f)
 
 
+def project_root():
+    """Where a new project's files go (hq project add ID --home): asked once, kept in projects.json as "homes"."""
+    f = STATE / 'projects.json'
+    reg = json.loads(f.read_text())
+    if 'homes' in reg or not ASK:
+        return   # without a terminal ~/Documents is the default anyway; asked on the next run that has one
+    print(f'       {dim("A project (a client, a product, a line of research) can have a folder for its files. hq links")}')
+    print(f'       {dim("folders you already have; a new project with none gets one here.")}')
+    where = prompt('Where do you keep project files?', '~/Documents') or '~/Documents'
+    d = Path(os.path.expanduser(where))
+    if not d.is_dir():
+        say('!', f'no folder {where}', 'kept ~/Documents; change it with: hq project root <folder>')
+        return
+    reg['homes'] = tilde(d.resolve())
+    f.write_text(json.dumps(reg, indent=2) + '\n')
+    say('✓', f'new project folders go in {reg["homes"]}', 'hq project root <folder> changes it')
+
+
 def starter():
     have = json.loads(run(str(HQ / 'bin' / 'hq-pkg'), 'list', '--json').stdout or '{}')
     if have:
@@ -445,6 +463,7 @@ def main(argv):
     if not (STATE / 'projects.json').exists():
         (STATE / 'projects.json').write_text('{"projects": {}}\n')
     user_md()
+    project_root()
     ensure_repo(STATE, 'dot-hq.gitignore', 'state')
     ensure_repo(AGENTS, 'agents.gitignore', 'agents')
     if (STATE / 'agents.json').exists():   # the agents this state lists (another Mac's): install the missing ones

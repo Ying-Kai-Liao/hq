@@ -35,7 +35,8 @@ The folders mirror the table:
 
 Projects are a level of their own (2026-10-16): a project can sit in a parent (a client or company holding several
 repos, a line of research) and can have a **home**, any folder of the user's where its files already are. hq records
-the pointer and never lays the folder out. Agents are told the parent (one attribute on the session tag) but open its
+the pointer and never lays the folder out. A new project with no folder gets an empty one, inside its parent's home or
+under the root the user chose in `hq init` (`homes` in `projects.json`, default `~/Documents`). Agents are told the parent (one attribute on the session tag) but open its
 memory or home only when the task reaches past their project, so context stays lean. A decision goes in the highest
 project it holds for (`bin/project-id --info`, `hq project`).
 
