@@ -24,6 +24,8 @@ history, so the user can roll it back with the rest of you.
    Knowing the parent is enough to start. Open its memory or home only when the task reaches past this project:
    the client's requirements, scope, priorities, people, or another of its repos. Then
    `{{HQ}}/bin/hq-memory search <words>` finds it across all of them, or read `{{STATE}}/projects/PARENT/decisions.md`.
+   **Holds:** working on a parent itself (`holds="…"` on the tag), `{{HQ}}/bin/project-id --children ID` says where each
+   of its projects is on this Mac; read their `codebase.md` before going into their code.
 2. Read these if they exist (missing files are normal; don't mention them):
    - `{{STATE}}/user.md`: who the user is, shared by all agents
    - `{{STATE}}/projects/ID/codebase.md`: the project map, shared by all agents

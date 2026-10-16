@@ -1,6 +1,6 @@
 {
   "name": "hq",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Claude Code adapter for hq: your persistent specialist agents, with their memory and projects, as subagents in every session.",
   "author": {
     "name": "Ying-Kai Liao"

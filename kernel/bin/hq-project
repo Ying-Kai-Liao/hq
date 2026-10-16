@@ -7,6 +7,8 @@
                                                      register or change one (bin/project-id --register); a bare
                                                      --home makes one: inside the parent's home, else <root>/ID
   hq project root [DIR]                              where new homes go (default ~/Documents); DIR changes it
+  hq project open [ID] [claude options]              work on the whole project: Claude Code in its home (else its
+                                                     folder) with every project it holds that is on this Mac
 
 A project can sit in another: a client or company holding several repos, a line of research holding a paper repo
 and a data folder. Agents working in one know its parents and read their memory when the task needs it. Its home is
@@ -64,6 +66,49 @@ def show(projects, pid, children):
         print('  holds   ' + ', '.join(children[pid]))
 
 
+def lines(*args):
+    run = subprocess.run([str(BIN / 'project-id'), *args], capture_output=True, text=True)
+    return [l.split('\t') for l in run.stdout.splitlines() if l] if run.returncode == 0 else None
+
+
+def open_project(argv):
+    """Claude Code in the project's home with the folders of everything it holds, so one session sees all of it."""
+    pid = argv[0] if argv and not argv[0].startswith('-') else None
+    rest = argv[1:] if pid else argv
+    if pid is None:
+        found = subprocess.run([str(BIN / 'project-id')], capture_output=True, text=True)
+        pid = found.stdout.strip() if found.returncode == 0 else None
+        if not pid:
+            print('hq project open <id>: no project here (hq project ls shows them)', file=sys.stderr)
+            return 1
+    me = lines('--children', pid, '--all')
+    if me is None:
+        print('hq project open: no project %r (hq project ls shows them)' % pid, file=sys.stderr)
+        return 1
+    projects = registry()
+    p = projects[pid]
+    where = next((d for d in [p.get('home')] + p.get('paths', [])
+                  if d and os.path.isdir(os.path.expanduser(d))), None)
+    if not where:
+        print('hq project open: %s has no folder on this Mac; give it one: hq project add %s --home [DIR]'
+              % (pid, pid), file=sys.stderr)
+        return 1
+    where = os.path.expanduser(where)
+    dirs, missing = [], []
+    for c, d in me:
+        d = os.path.expanduser(d)
+        if d == '-':
+            missing.append(c)
+        elif not (d + '/').startswith(where.rstrip('/') + '/') and d not in dirs:   # inside the home: already there
+            dirs.append(d)
+    print('%s: %s' % (pid, short(where)) + ('  + ' + ', '.join(short(d) for d in dirs) if dirs else ''))
+    if missing:
+        print('not on this Mac: %s (clone it, then hq project add <id> <dir> --in %s)' % (', '.join(missing), pid))
+    os.chdir(where)
+    args = ['claude', *[x for d in dirs for x in ('--add-dir', d)], *rest]
+    os.execvp('claude', args)
+
+
 def main(argv):
     if argv[:1] in (['-h'], ['--help']):
         print(__doc__.strip()); return 0
@@ -71,6 +116,8 @@ def main(argv):
         return subprocess.call([str(BIN / 'project-id'), '--register', *argv[1:]])
     if argv[:1] == ['root']:
         return subprocess.call([str(BIN / 'project-id'), '--root', *argv[1:]])
+    if argv[:1] == ['open']:
+        return open_project(argv[1:])
     projects = registry()
     children = {}
     for pid, p in sorted(projects.items()):

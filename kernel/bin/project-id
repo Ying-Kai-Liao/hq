@@ -11,11 +11,14 @@
                                    ID inside the closest parent's home, else <root>/ID, made when missing. Without dir, the home is the alias when one is
                                    given, else the current directory. Only after the user has named the project.
   project-id --root [DIR]          where new homes go (default ~/Documents); with DIR, change it
+  project-id --children ID [--all] the projects ID holds (--all: theirs too), one line each: ID<TAB>where it is on
+                                   this Mac (its home, else its first folder that exists), or - when it isn't here
 
 A project is a named thing; remotes and paths are aliases that point to it. Add a remote or path to keep a
 project's memory after a rename, move or re-clone. A project may sit in a parent (a client, a company, a line of
 research holding several repos), and may have a home: a folder of the user's own, anywhere, for its files. hq only
 points at a home; it never lays one out. A path alias also matches the folders inside it, the longest alias winning.
+A repo is registered by its remote and by where it is checked out, so its parent knows where to find it on this Mac.
 """
 import json, os, re, subprocess, sys
 
@@ -85,6 +88,24 @@ def chain(projects, pid):
     return out
 
 
+def children(projects, pid, deep=False, seen=None):
+    """The projects pid holds, sorted; with deep, theirs too, each after its parent."""
+    seen = seen if seen is not None else {pid}
+    out = []
+    for c in sorted(q for q, p in projects.items() if p.get("parent") == pid and q not in seen):
+        seen.add(c)
+        out += [c] + (children(projects, c, True, seen) if deep else [])
+    return out
+
+
+def here(p):
+    """Where a project is on this Mac: its home, else the first of its folders that exists; None when neither."""
+    for d in [p.get("home")] + p.get("paths", []):
+        if d and os.path.isdir(real(d)):
+            return d
+    return None
+
+
 def match(projects, d):
     """The project for directory d: its git remote, else the longest path alias that holds it."""
     remote, root = locate(d)
@@ -118,6 +139,14 @@ def main(argv):
             return 1
         for pid in chain(projects, argv[1]):
             print(f"{pid}\t{projects[pid].get('home') or '-'}")
+        return 0
+
+    if argv[:1] == ["--children"]:
+        if len(argv) < 2 or argv[1] not in projects:
+            print(f"project-id: no project {argv[1] if len(argv) > 1 else ''!r}", file=sys.stderr)
+            return 1
+        for pid in children(projects, argv[1], "--all" in argv[2:]):
+            print(f"{pid}\t{here(projects[pid]) or '-'}")
         return 0
 
     if argv[:1] == ["--root"]:
@@ -174,9 +203,10 @@ def main(argv):
             remote, root = locate(real(args[1] if len(args) > 1 else os.getcwd()))
         else:
             remote, root = "", real(home)   # a home is matched by its path, even when it sits inside a repo
-        key, alias = ("remotes", remote) if remote else ("paths", tilde(root))
-        if alias not in p.setdefault(key, []):
-            p[key].append(alias)
+        if remote and remote not in p.setdefault("remotes", []):
+            p["remotes"].append(remote)
+        if tilde(root) not in p.setdefault("paths", []):   # a repo's checkout too: where it is on this Mac
+            p["paths"].append(tilde(root))
         save(reg)
         print(pid)
         return 0

@@ -73,21 +73,30 @@ async function resolvePackages($: EngineInterface, hq: string): Promise<Record<s
   }
 }
 
-// "peace-guardian is part of circlewe; circlewe's own files: ~/Documents/CircleWe" (bin/project-id --info), or ''.
+// One line on where this session sits among the user's projects (bin/project-id --info, --children), or '' for a
+// project with no parent, home or children. In a repo: its parents and their files. At a parent: what it holds.
 async function projectContext($: EngineInterface, hq: string, cwd: string): Promise<string> {
-  const found = await $.process.run([`${hq}/bin/project-id`, cwd], { timeoutMs: 10_000 })
-  if (found.exitCode !== 0) return ''
-  const id = found.stdout.trim()
-  const info = await $.process.run([`${hq}/bin/project-id`, '--info', id], { timeoutMs: 10_000 })
-  if (info.exitCode !== 0) return ''
-  const chain = info.stdout.trim().split('\n').map((l) => l.split('\t'))
+  const run = async (...args: string[]) => {
+    const r = await $.process.run([`${hq}/bin/project-id`, ...args], { timeoutMs: 10_000 })
+    return r.exitCode === 0 ? r.stdout.trim() : null
+  }
+  const id = await run(cwd)
+  if (!id) return ''
+  const rows = (out: string | null) => (out ? out.split('\n').map((l) => l.split('\t')) : [])
+  const chain = rows(await run('--info', id))
+  const held = rows(await run('--children', id))
   const homes = chain.filter(([, h]) => h && h !== '-').map(([p, h]) => `${p}: ${h}`)
-  if (chain.length < 2 && !homes.length) return ''
+  if (chain.length < 2 && !homes.length && !held.length) return ''
   const parents = chain.slice(1).map(([p]) => p)
   return (
     `hq project: ${id}` + (parents.length ? `, part of ${parents.join(' → ')}` : '') + '.' +
-    (homes.length ? ` The user's own files for it (specs, briefs, contracts) are in ${homes.join('; ')}.` : '') +
-    ' Open them only when the task needs more than this repo; `hq project` shows the rest.'
+    (held.length
+      ? ` It holds ${held.map(([c, d]) => `${c} (${d === '-' ? 'not on this Mac' : d})`).join(', ')}.`
+      : '') +
+    (homes.length ? ` The user's own files for it (specs, briefs, contracts): ${homes.join('; ')}.` : '') +
+    (parents.length
+      ? ' Open the parent\'s files only when the task needs more than this project; `hq project` shows the rest.'
+      : ' `hq project` shows the rest.')
   )
 }
 

@@ -83,8 +83,8 @@ Paths in this table are inside `kernel/`, except `install.sh` and `.claude-plugi
 | `bin/hq-sched` | python | Scheduled jobs: cron parser, `jobs.json` per agent, `tick` starts due jobs as detached `hq <agent> "task"` runs (`HQ_VIA=schedule`), catches up once after sleep; launchd `dev.hq.sched` | you, launchd every minute |
 | `bin/hq-state` | python | Commits what was lived: sqlite → text dumps, commit and push the state repo and the agents repo, then every role | you |
 | `bin/hq-new` | bash | Scaffolds `agents/<name>/`: `role/` as its own repo, memory folders next to it | you, the builder agent |
-| `bin/project-id` | python | Directory → project ID from `projects.json` (remotes and paths as aliases, a path also matching the folders inside it); `--info` the project's parents and homes; `--register` with `--in PARENT`, `--home [DIR]` (bare: a new folder inside the parent's home, else under the root); `--root [DIR]` where new homes go (`homes` in `projects.json`, default `~/Documents`, asked by `hq init`) | `bin/hq`, the adapter, agents |
-| `bin/hq-project` | python | `hq project`: the project here and its parents (repos, home, memory, children), `ls` as a tree, `add` (→ `project-id --register`), `root` (→ `project-id --root`) | you |
+| `bin/project-id` | python | Directory → project ID from `projects.json` (remotes and paths as aliases, a path also matching the folders inside it); `--info` the project's parents and homes; `--register` with `--in PARENT`, `--home [DIR]` (bare: a new folder inside the parent's home, else under the root); `--children ID [--all]` the projects it holds and where each is on this Mac (a repo is registered by remote and checkout); `--root [DIR]` where new homes go (`homes` in `projects.json`, default `~/Documents`, asked by `hq init`) | `bin/hq`, the adapter, agents |
+| `bin/hq-project` | python | `hq project`: the project here and its parents (repos, home, memory, children), `ls` as a tree, `add` (→ `project-id --register`), `root` (→ `project-id --root`), `open [ID]`: Claude Code in the project's home with `--add-dir` for everything it holds | you |
 | `bin/hq-bridge` | python (uv script) | Discord: a channel per agent, a thread per task; runs `hq <agent>` and resumes the thread's session; launchd `dev.hq.bridge` | launchd |
 | `bin/hq-send` | bash | Delivers a result: into the Discord thread when inside one, else Telegram | agents |
 | `bin/hq-init` | python | Setup, safe to repeat: checks git (+ identity), claude, gh, uv; makes ~/.hq and the agents folder git repos with a first commit and `user.md`; offers private GitHub backups; installs what agents.json lists; offers a starter (`lib/starters.json`). `--from <user>` clones that user's hq-state and hq-agents first (a new Mac) | `install.sh` (last step), you |
@@ -130,7 +130,7 @@ bridge, `HQ_VIA=discord` (`schedule` from hq-sched, plus `HQ_SCHED_JOB`; `ask` f
 **`hq:<name>` inside any Claude Code session** (`register.tsx`)
 1. Session start: `hq-pkg resolve --all --json` pins every agent for the session; each is registered with its prompt
    and model; efforts are noted.
-2. Spawn: project from `<hq project>` or `project-id`, its parents (`project-id --info`), plus fresh `MEMORY.md`, go in front of the task.
+2. Spawn: project from `<hq project>` or `project-id`, its parents (`project-id --info`), plus fresh `MEMORY.md`, go in front of the task. Every session in a project with a parent, home or children gets one `hq project:` line in its system prompt (`prompt.compose`).
 3. Each request: the agent's effort. Stop: one nudge if the session file wasn't written.
    Runs on the caller's settings and MCP servers, not the agent's (known gap).
 
