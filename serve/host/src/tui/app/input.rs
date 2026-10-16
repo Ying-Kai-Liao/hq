@@ -89,7 +89,7 @@ impl App {
             self.typing = false;
             return;
         };
-        if self.complete_skill(k) {
+        if self.slash_key(k) {
             return;
         }
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
@@ -106,7 +106,7 @@ impl App {
                 if text.is_empty() && files.is_empty() {
                     return;
                 }
-                if files.is_empty() && self.fast_command(&text) {
+                if files.is_empty() && self.built_in_command(&text) {
                     return;
                 }
                 if let Some(m) = &self.mismatch {

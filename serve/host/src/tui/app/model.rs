@@ -173,6 +173,15 @@ impl Bot {
         })
     }
 
+    /// What picking `/fast` does, or why Fast mode isn't in effect.
+    pub fn fast_detail(&self) -> String {
+        match self.fast_refusal() {
+            Some(why) => why,
+            None if self.fast_mode => "Turn off and return to standard speed".to_owned(),
+            None => "Turn on for faster replies and more usage".to_owned(),
+        }
+    }
+
     /// Where it works, as the header shows it.
     pub fn folder(&self, home: &str) -> String {
         if self.managed_workspace { "personal workspace".to_owned() } else { tilde(&self.cwd, home) }
