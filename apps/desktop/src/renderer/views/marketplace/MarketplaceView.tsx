@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Backend } from '@shared/models'
-import { Button, CardForm, CardSection, DropdownMenu, IconButton, Spinner } from '../../components/Controls'
+import { Button, DropdownMenu, IconButton, Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { Dialog, useDismiss } from '../../components/Overlay'
 import { font } from '../../lib/fonts'
@@ -16,7 +16,7 @@ import {
   appendPage, emptyPage, errorText, hasHiddenItems, market, needsSignIn, replacePage, revealMore, visible,
   type MarketConnector, type MarketSkill,
 } from './market-models'
-import { AppLogo, FormSheet, ItemGrid, MarketRow, MarketSection, ScreenHeader, ServiceLogo, SkeletonGrid, SkillGlyph, SlideStack, TileIcon } from './pieces'
+import { AppLogo, FormSheet, ItemGrid, ItemRow, MarketRow, MarketSection, ScreenHeader, ServiceLogo, SkeletonGrid, SkillGlyph, SlideStack, TileIcon } from './pieces'
 import { usePlugins } from './plugins'
 
 const connectorId = (c: MarketConnector) => c.name
@@ -391,37 +391,47 @@ function InstalledView({ back }: { back: () => void }) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--background)' }}>
       <ScreenHeader title="Connectors & skills" onBack={back} />
       <div style={{ flex: 1, minHeight: 0 }}>
-        <CardForm>
-          {empty ? <EmptyState icon="shippingbox" title="Nothing installed" detail="Connectors and skills you add show up here." /> : null}
-          {plugins.installedConnectors.length ? (
-            <CardSection title="Connectors">
-              {plugins.installedConnectors.map((c) => (
-                <InstalledRow
-                  key={c.id}
-                  title={c.name}
-                  subtitle={needsSignIn(c) ? 'Sign in so bots can use it' : (c.command ?? c.url ?? c.description)}
-                  icon={c.kind === 'composio' ? <AppLogo url={c.logo} name={c.name} size={32} /> : <ServiceLogo name={c.name} registryName={c.registryName} size={32} />}
-                  accessory={signingIn === c.id ? <Spinner /> : needsSignIn(c) ? <Button onClick={() => void signIn(c.id)}>Sign in</Button> : null}
-                  onRemove={() => setRemoving({ id: c.id, name: c.name, isSkill: false })}
-                />
-              ))}
-            </CardSection>
-          ) : null}
-          {plugins.installedSkills.length ? (
-            <CardSection title="Skills">
-              {plugins.installedSkills.map((s) => (
-                <InstalledRow
-                  key={s.id}
-                  title={s.name}
-                  subtitle={s.description}
-                  icon={<SkillGlyph size={32} />}
-                  onOpen={() => setViewingSkill({ id: s.id, name: s.name, description: s.description })}
-                  onRemove={() => setRemoving({ id: s.id, name: s.name, isSkill: true })}
-                />
-              ))}
-            </CardSection>
-          ) : null}
-        </CardForm>
+        <div className="market-scroll">
+          <div className="market-page-content">
+            {empty ? <EmptyState icon="shippingbox" title="Nothing installed" detail="Connectors and skills you add show up here." /> : null}
+            {plugins.installedConnectors.length ? (
+              <MarketSection title="Connectors">
+                <ItemGrid>
+                  {plugins.installedConnectors.map((c) => (
+                    <ItemRow
+                      key={c.id}
+                      title={c.name}
+                      subtitle={needsSignIn(c) ? 'Sign in so bots can use it' : (c.command ?? c.url ?? c.description)}
+                      icon={c.kind === 'composio' ? <AppLogo url={c.logo} name={c.name} /> : <ServiceLogo name={c.name} registryName={c.registryName} />}
+                      trailing={(
+                        <>
+                          {signingIn === c.id ? <Spinner /> : needsSignIn(c) ? <Button onClick={() => void signIn(c.id)}>Sign in</Button> : null}
+                          <RemoveButton title={c.name} onClick={() => setRemoving({ id: c.id, name: c.name, isSkill: false })} />
+                        </>
+                      )}
+                    />
+                  ))}
+                </ItemGrid>
+              </MarketSection>
+            ) : null}
+            {plugins.installedSkills.length ? (
+              <MarketSection title="Skills">
+                <ItemGrid>
+                  {plugins.installedSkills.map((s) => (
+                    <ItemRow
+                      key={s.id}
+                      title={s.name}
+                      subtitle={s.description}
+                      icon={<SkillGlyph />}
+                      onOpen={() => setViewingSkill({ id: s.id, name: s.name, description: s.description })}
+                      trailing={<RemoveButton title={s.name} onClick={() => setRemoving({ id: s.id, name: s.name, isSkill: true })} />}
+                    />
+                  ))}
+                </ItemGrid>
+              </MarketSection>
+            ) : null}
+          </div>
+        </div>
       </div>
       <Dialog
         open={removing !== null}
@@ -448,38 +458,18 @@ function EmptyState({ icon, title, detail }: { icon: string; title: string; deta
   )
 }
 
-function InstalledRow({ title, subtitle, icon, accessory, onOpen, onRemove }: {
-  title: string; subtitle: string; icon: ReactNode; accessory?: ReactNode
-  /** Opens the item's details from its name. */
-  onOpen?: () => void
-  onRemove: () => void
-}) {
-  const label = (
-    <>
-      {icon}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0, textAlign: 'left' }}>
-        <span style={{ color: 'var(--text)', ...ellipsis }}>{title}</span>
-        <span style={{ ...font('caption'), color: 'var(--secondary)', ...ellipsis }}>{subtitle}</span>
-      </div>
-    </>
-  )
+function RemoveButton({ title, onClick }: { title: string; onClick: () => void }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }} title={subtitle}>
-      {onOpen ? (
-        <button className="press" style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }} onClick={onOpen}>
-          {label}
-        </button>
-      ) : label}
-      <span style={{ minWidth: 12 }} />
-      {accessory}
-      <button
-        title="Remove"
-        aria-label={`Remove ${title}`}
-        style={{ minWidth: 44, minHeight: 44, display: 'grid', placeItems: 'center', color: 'var(--secondary)', margin: '-8px 0' }}
-        onClick={onRemove}
-      >
-        <Icon name="trash" size={13} />
-      </button>
-    </div>
+    <button
+      title="Remove"
+      aria-label={`Remove ${title}`}
+      style={{ minWidth: 44, minHeight: 44, display: 'grid', placeItems: 'center', flex: 'none', color: 'var(--secondary)' }}
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+    >
+      <Icon name="trash" size={13} />
+    </button>
   )
 }

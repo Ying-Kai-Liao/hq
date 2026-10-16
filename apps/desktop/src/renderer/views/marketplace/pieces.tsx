@@ -36,26 +36,13 @@ export function MarketRow({ title, subtitle, added, busy = false, addLabel = 'Ad
   /** The whole row opens the item's details; without it the row does what its button does. */
   onOpen?: () => void
 }) {
-  const open = onOpen ?? (added || busy ? undefined : onAdd)
   return (
-    <div
-      className={`market-row ${open ? 'openable' : ''}`}
-      role={open ? 'button' : undefined}
-      tabIndex={open ? 0 : undefined}
-      onClick={open}
-      onKeyDown={(e) => {
-        if (open && e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-          e.preventDefault()
-          open()
-        }
-      }}
-    >
-      <div style={{ width: 46, height: 46, flex: 'none', display: 'grid' }}>{icon}</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: 1 }}>
-        <span style={{ ...font('body', 'medium'), color: 'var(--text)', ...oneLine }} title={title}>{title}</span>
-        <span style={{ ...font('subheadline'), color: 'var(--secondary)', ...oneLine }} title={subtitle}>{subtitle}</span>
-      </div>
-      {busy ? (
+    <ItemRow
+      title={title}
+      subtitle={subtitle}
+      icon={icon}
+      onOpen={onOpen ?? (added || busy ? undefined : onAdd)}
+      trailing={busy ? (
         <span style={{ width: 60, display: 'flex', justifyContent: 'center', flex: 'none' }}>
           <ThinkingOrb size={18} color="var(--secondary)" />
         </span>
@@ -75,6 +62,38 @@ export function MarketRow({ title, subtitle, added, busy = false, addLabel = 'Ad
           {addLabel}
         </button>
       )}
+    />
+  )
+}
+
+/** An `ItemGrid` row: icon, title and subtitle, then `trailing`; `onOpen` makes the whole row a button. */
+export function ItemRow({ title, subtitle, icon, trailing, onOpen }: {
+  title: string
+  subtitle: string
+  icon: ReactNode
+  /** Buttons here stop the click so it doesn't also open the row. */
+  trailing?: ReactNode
+  onOpen?: () => void
+}) {
+  return (
+    <div
+      className={`market-row ${onOpen ? 'openable' : ''}`}
+      role={onOpen ? 'button' : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (onOpen && e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault()
+          onOpen()
+        }
+      }}
+    >
+      <div style={{ width: 46, height: 46, flex: 'none', display: 'grid' }}>{icon}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: 1 }}>
+        <span style={{ ...font('body', 'medium'), color: 'var(--text)', ...oneLine }} title={title}>{title}</span>
+        <span style={{ ...font('subheadline'), color: 'var(--secondary)', ...oneLine }} title={subtitle}>{subtitle}</span>
+      </div>
+      {trailing}
     </div>
   )
 }
