@@ -46,33 +46,33 @@ export function MemoryCard({ botId }: { botId: string }) {
       {view && bot && section === 'yours' && <Switch on={bot.sharedMemory} disabled={memory.busy} onChange={(on) => host.setSharedMemory(bot, on)}>
         Use what your bots share
       </Switch>}
-      {layer && <>
-        <p className="memory-muted">{section === 'yours'
+      {layer && [
+        <p key="note" className="memory-muted">{section === 'yours'
           ? 'Your name, time zone, people and lasting preferences, shared by your bots.'
-          : 'What this bot learned about you.'} {layer.used} of {layer.cap} in use.</p>
-        {!layer.entries.length && <div className="memory-empty">
+          : 'What this bot learned about you.'} {layer.used} of {layer.cap} in use.</p>,
+        ...(layer.entries.length ? [] : [<div key="empty" className="memory-empty">
           <Icon name="brain" size={20} color="var(--tertiary)" />
           <span>{section === 'yours' ? 'Nothing shared yet.' : 'Nothing yet. What this bot learns about you shows up here, and you can change any of it.'}</span>
-        </div>}
-        {layer.entries.map((entry) => <EntryRow key={entry.id} entry={entry} memory={memory} edit={() => setDraft({ id: entry.id, text: entry.text })} />)}
-      </>}
-      {view && section === 'dreams' && <>
-        <p className="memory-muted">Between chats the bot tidies its memory from your own words. Each run can be undone.</p>
-        {!view.dreams.length && <div className="memory-empty"><Icon name="moon" size={20} color="var(--tertiary)" /><span>No dreams yet.</span></div>}
-        {view.dreams.map((dream) => <div className="memory-item fade-in" key={dream.id}>
+        </div>]),
+        ...layer.entries.map((entry) => <EntryRow key={entry.id} entry={entry} memory={memory} edit={() => setDraft({ id: entry.id, text: entry.text })} />),
+      ]}
+      {view && section === 'dreams' && [
+        <p key="note" className="memory-muted">Between chats the bot tidies its memory from your own words. Each run can be undone.</p>,
+        ...(view.dreams.length ? [] : [<div key="empty" className="memory-empty"><Icon name="moon" size={20} color="var(--tertiary)" /><span>No dreams yet.</span></div>]),
+        ...view.dreams.map((dream) => <div className="memory-item fade-in" key={dream.id}>
           <div className="memory-content">
             <strong>{relativeTime.day(dream.at)}{dream.undone ? ' · undone' : ''}</strong>
             {dream.added.map((c) => <span key={`a${c.id}`}>+ {c.text}</span>)}
             {dream.archived.map((c) => <span key={`r${c.id}`} className="memory-archived">− {c.text}</span>)}
           </div>
           {!dream.undone && <IconButton title="Undo this dream" icon="arrow.uturn.backward" disabled={memory.busy} onClick={() => void memory.mutate('undoDream', { id: dream.id })} />}
-        </div>)}
-      </>}
-      {view?.projectMemory && section === 'project' && <>
+        </div>),
+      ]}
+      {view?.projectMemory && section === 'project' && <div className="memory-content">
         <p className="memory-muted">The project folder's own notes, kept by Claude Code. Read-only here.</p>
         <small className="memory-muted">{view.projectMemory.path}</small>
         <pre className="memory-history">{view.projectMemory.text}</pre>
-      </>}
+      </div>}
     </CardSection>
     <Sheet open={draft !== null} onClose={() => setDraft(null)} width={520}>
       <ModalHeader title={draft?.id ? 'Edit memory' : section === 'yours' ? 'Add to what your bots share' : 'Add memory'} />
@@ -96,7 +96,7 @@ function EntryRow({ entry, memory, edit }: { entry: MemoryEntry; memory: MemoryS
   const archived = entry.state === 'archived'
   return <div className="memory-item fade-in">
     <button className="press memory-content" onClick={edit}>
-      <span className={archived ? 'memory-archived' : undefined}>{entry.pinned && <Icon name="pin.fill" size={10} color="var(--secondary)" />} {entry.text}</span>
+      <strong className={archived ? 'memory-archived' : undefined}>{entry.pinned && <Icon name="pin.fill" size={10} color="var(--secondary)" />}{entry.text}</strong>
       <small>{authorLabel(entry, (id) => host.authorName(id))} · {relativeTime.day(entry.updatedAt)}{archived ? ' · archived' : ''}</small>
     </button>
     <DropdownMenu className="icon-button memory-menu" title="Memory actions" items={() => [

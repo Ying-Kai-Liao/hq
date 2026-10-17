@@ -4,7 +4,7 @@
 .memory-item { display: flex; align-items: flex-start; gap: 8px; }
 .memory-item .memory-menu { margin: -4px -6px 0 0; }
 .memory-content { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; text-align: left; }
-.memory-content strong { display: flex; align-items: center; gap: 6px; }
+.memory-content strong { display: flex; align-items: center; gap: 6px; font-weight: 500; overflow-wrap: anywhere; }
 .memory-content span { white-space: pre-wrap; overflow-wrap: anywhere; }
 .memory-content small, .memory-muted { color: var(--secondary); }
 .memory-archived { color: var(--tertiary); }
