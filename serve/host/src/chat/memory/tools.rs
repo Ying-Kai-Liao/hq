@@ -17,8 +17,10 @@ const SEARCH_TEXT_CHARS: usize = 1_500;
 pub const INSTRUCTIONS: &str = "Your memory holds what you know about the user, and every session opens with it. \
 Save lasting facts about the user with remember, and keep entries true with revise_memory and archive_memory \
 (the [id] is in your instructions). Project and code knowledge belongs in the project's own files, not here. \
-Detail on one topic goes in your long-form memory files (listed in your instructions). search_memory finds \
-archived entries and lines of those files; search_history finds what was actually said in your past chats.";
+Lists, itineraries, histories and other detail longer than a sentence or two go in a long-form note on that topic \
+(listed in your instructions), not in entries. search_memory finds archived entries and lines of those notes; \
+search_history finds what was actually said in your past chats. When the user asks you to forget something, \
+take it out of entries and notes, and don't bring it back from your chat history either.";
 
 pub fn tools() -> Value {
     let mut tools = json!([
