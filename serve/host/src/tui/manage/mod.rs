@@ -16,6 +16,7 @@ mod routines;
 mod skill;
 
 pub use analytics::AnalyticsSheet;
+pub use fields::handoff_fields;
 pub use memory::{MemoryMode, MemorySheet, Section};
 pub use routines::local_zone;
 pub use skill::SkillSheet;
@@ -166,6 +167,8 @@ pub enum Submit {
     Connection(Box<super::connections::Connection>),
     Connector(Value),
     Import,
+    /// A handoff card's text (the card's entry id).
+    Handoff(String),
 }
 
 /// A few labeled text fields: an agent's keys, a connector's setup, a pasted MCP config.

@@ -340,6 +340,11 @@ impl Entry {
             || self.data["memory"].is_object()
     }
 
+    /// A line that folds away a longer text: a compaction's summary, or a handoff (`o` shows it).
+    pub fn unfolds(&self) -> bool {
+        crate::tui::view::unfoldable(self).is_some()
+    }
+
     /// A notice for a bot-to-bot message or request (`chat::team`).
     pub fn is_bot_message(&self) -> bool {
         self.kind == Kind::Notice

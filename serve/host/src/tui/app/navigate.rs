@@ -134,7 +134,9 @@ impl App {
         let picks: Vec<(String, bool)> = group(&id, &lane, self.thread.is_none())
             .into_iter()
             .filter_map(|item| match item {
-                Item::Entry(e) if e.is_message() || e.is_bot_message() => Some((e.id.clone(), e.is_message())),
+                Item::Entry(e) if e.is_message() || e.is_bot_message() || e.unfolds() => {
+                    Some((e.id.clone(), e.is_message()))
+                }
                 Item::Group(g) => Some((g.first.id.clone(), false)),
                 Item::Entry(_) => None,
             })
@@ -202,6 +204,23 @@ impl App {
             {
                 if let Some(e) = picked {
                     self.call("undoMemory", json!({"entryId": e.id}), After::Answered(e.id.clone()));
+                }
+            }
+            KeyCode::Char('o') if picked.as_ref().is_some_and(super::Entry::unfolds) => {
+                if let Some(e) = picked
+                    && !self.unfolded.remove(&e.id)
+                {
+                    self.unfolded.insert(e.id);
+                }
+            }
+            KeyCode::Char('e') if picked.as_ref().is_some_and(|e| e.data["handoff"]["status"] == "draft") => {
+                if let Some(e) = picked {
+                    self.overlays.push(super::Overlay::Fields(Box::new(crate::tui::manage::handoff_fields(&e))));
+                }
+            }
+            KeyCode::Char('K') if picked.as_ref().is_some_and(|e| e.data["handoff"]["status"] == "draft") => {
+                if let Some(e) = picked {
+                    self.call("keepConversation", json!({"entryId": e.id}), After::Answered(e.id.clone()));
                 }
             }
             KeyCode::Enter | KeyCode::Char('r') if self.thread.is_some() => {

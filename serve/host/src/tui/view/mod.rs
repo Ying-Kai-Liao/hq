@@ -30,6 +30,7 @@ pub(super) use chat::composer_lines;
 pub(super) use overlay::{field_line, input_line};
 pub(super) use style::theme;
 pub(super) use time::when;
+pub(super) use transcript::unfoldable;
 pub(super) use usage::when_future;
 
 use ratatui::Frame;
