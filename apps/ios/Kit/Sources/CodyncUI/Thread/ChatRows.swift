@@ -49,6 +49,8 @@ struct ChatRow: View {
         default:
             if let request = entry.data.connectionRequest {
                 ConnectionRequestCard(entry: entry, request: request).padding(.top, 12)
+            } else if let card = entry.data.memory {
+                MemoryNoticeRow(entry: entry, card: card).padding(.top, 10)
             } else {
                 NoticeRow(entry: entry).padding(.top, 10)
             }

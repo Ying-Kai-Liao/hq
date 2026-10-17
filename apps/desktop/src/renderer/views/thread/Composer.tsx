@@ -47,6 +47,8 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
   const field = useRef<HTMLTextAreaElement>(null)
   const measure = useRef<HTMLDivElement>(null)
   const composing = useRef(false)
+  /** Text pasted into this draft since the last send. */
+  const pasted = useRef<string[]>([])
   const working = !!bot && isWorkingIn(bot, botId, thread)
   const empty = !draft.trim() && !files.length
   const canSend = !empty && (store.connection.kind === 'online' || (store.canQueue && !files.length))
@@ -143,7 +145,8 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
     const command = files.length ? null : builtInCommand(bot, draft)
     if (command) return run(command)
     if (!canSend) return
-    store.send(draft, botId, thread, files)
+    store.send(draft, botId, thread, files, undefined, pasted.current)
+    pasted.current = []
     setDraft('')
     setFiles([])
     field.current?.focus()
@@ -227,10 +230,12 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
                   }
                 }}
                 onPaste={(e) => {
-                  // ⌘V with a copied file or image: attach it (the field alone would paste a name).
-                  if (!canAttach) return
                   const types = [...e.clipboardData.types]
                   const hasFiles = types.includes('Files')
+                  // Pasted text is sent marked as pasted: memory never takes it as the user's own words.
+                  if (types.includes('text/plain') && !e.clipboardData.files.length) pasted.current.push(e.clipboardData.getData('text/plain'))
+                  // ⌘V with a copied file or image: attach it (the field alone would paste a name).
+                  if (!canAttach) return
                   if (!hasFiles || (types.includes('text/plain') && !e.clipboardData.files.length)) return
                   e.preventDefault()
                   void window.codync.app.readClipboardFiles().then((picked) => {

@@ -68,6 +68,8 @@ public final class BotStore {
     /// Bots whose older history has been fully paged in.
     public internal(set) var historyComplete: Set<String> = []
     var composerDrafts: [String: String] = [:]
+    /// What was pasted into each draft, sent along so memory never takes it as the user's own words.
+    @ObservationIgnored var composerPasted: [String: [String]] = [:]
     public var routineDrafts: [String: String] = [:]
     public let fileDownloads = FileDownloads()
     public var lastError: String?

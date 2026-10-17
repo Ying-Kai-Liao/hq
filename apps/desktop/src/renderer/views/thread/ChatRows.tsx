@@ -15,6 +15,7 @@ import { relativeTime } from './chat-items'
 import { MarkdownText } from './Markdown'
 import { PermissionCard } from './PermissionCard'
 import { ConnectionRequestCard } from '../marketplace/ConnectionRequestCard'
+import { MemoryNotice } from './MemoryNotice'
 
 export function reactionPick(store: BotStore, entry: Entry): ReactionPick {
   return { emoji: QUICK_REACTIONS, chosen: entry.data.reactions ?? [], toggle: (e) => store.react(entry, e) }
@@ -60,6 +61,7 @@ export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrac
       )
     default:
       if (entry.data.connectionRequest) return <div style={{ paddingTop: 12 }}><ConnectionRequestCard entry={entry} /></div>
+      if (entry.data.memory) return <div style={{ paddingTop: 10 }}><MemoryNotice entry={entry} /></div>
       return <div style={{ paddingTop: 10 }}><NoticeRow entry={entry} /></div>
   }
 })

@@ -39,6 +39,10 @@ public struct Bot: Codable, Identifiable, Hashable, Sendable {
     public var skills: [String]
     /// The bot can see and operate the computer's desktop (the built-in `computer` tools).
     public var computer: Bool
+    /// Uses the memory all the user's bots share ("About you"). Nil from an older host.
+    public var sharedMemory: Bool?
+    /// Moves whenever memory changes, so an open memory screen fetches it again.
+    public var memoryRev: Int64?
     /// Created without a name: the host names it after its first few conversations.
     public var autoName: Bool = false
     public var createdAt: Int64
@@ -354,6 +358,8 @@ public struct BotDraft: Codable, Hashable, Sendable {
     public var connectors: [String]?
     public var skills: [String]?
     public var computer: Bool?
+    /// Only sent when the user changes it: unset, the host picks by the bot's folder.
+    public var sharedMemory: Bool?
 
     public init(name: String = "", description: String = "", avatarColor: String = AvatarPalette.colors.randomElement()!.id,
                 avatarShape: String = AvatarPalette.shapes.randomElement()!, backend: String = "claude", cwd: String = "",
@@ -421,6 +427,8 @@ extension Bot {
         connectors = try c.decodeIfPresent([String].self, forKey: .connectors) ?? []
         skills = try c.decodeIfPresent([String].self, forKey: .skills) ?? []
         computer = try c.decodeIfPresent(Bool.self, forKey: .computer) ?? false
+        sharedMemory = try c.decodeIfPresent(Bool.self, forKey: .sharedMemory)
+        memoryRev = try c.decodeIfPresent(Int64.self, forKey: .memoryRev)
         autoName = try c.decodeIfPresent(Bool.self, forKey: .autoName) ?? false
         createdAt = try c.decodeIfPresent(Int64.self, forKey: .createdAt) ?? 0
         rev = try c.decodeIfPresent(Int64.self, forKey: .rev) ?? 0

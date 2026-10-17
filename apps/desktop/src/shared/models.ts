@@ -37,6 +37,10 @@ export interface Bot {
   skills: string[]
   /** The bot can see and operate the computer's desktop. */
   computer: boolean
+  /** Uses the memory all the user's bots share ("About you"). */
+  sharedMemory: boolean
+  /** Moves whenever memory changes, so an open memory screen fetches it again. */
+  memoryRev: number
   autoName: boolean
   createdAt: number
   rev: number
@@ -78,6 +82,8 @@ export function normalizeBot(raw: Partial<Bot> & { id: string }): Bot {
     connectors: raw.connectors ?? [],
     skills: raw.skills ?? [],
     computer: raw.computer ?? false,
+    sharedMemory: raw.sharedMemory ?? raw.managedWorkspace ?? false,
+    memoryRev: raw.memoryRev ?? 0,
     autoName: raw.autoName ?? false,
     createdAt,
     rev: raw.rev ?? 0,
@@ -154,6 +160,17 @@ export interface BotMessage {
   detail?: string
 }
 
+/** A bot's memory write: a "Remembered" line the user can undo, or a card a bot that asks first waits on. */
+export interface MemoryWrite {
+  action: 'remember' | 'revise' | 'archive' | string
+  /** done (undo offered) · pending (approve or decline) · accepted · declined · undone · failed */
+  status: string
+  text?: string
+  previous?: string
+  shared?: boolean
+  error?: string
+}
+
 export interface EntryData {
   /** Structured conversation data added to the existing team-tool notice. */
   botMessage?: BotMessage
@@ -162,6 +179,8 @@ export interface EntryData {
   sourceBotId?: string
   targetBotId?: string
   connectionRequest?: ConnectionRequest
+  /** A bot's memory write shown in the chat (see `MemoryNotice`). */
+  memory?: MemoryWrite
   routineId?: string
   runId?: string
   text?: string
@@ -425,6 +444,7 @@ export interface BotDraft {
   connectors?: string[]
   skills?: string[]
   computer?: boolean
+  sharedMemory?: boolean
 }
 
 export function draftOf(bot: Bot): BotDraft {

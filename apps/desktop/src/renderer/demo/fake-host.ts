@@ -256,7 +256,10 @@ export class FakeHost {
       case 'listDirs':
         return { path: '/Users/demo/code', parent: '/Users/demo', isGit: false, dirs: [{ name: 'pace', path: story.cwd, isGit: true }] }
       case 'memory':
-        return { location: '', facts: [], total: 0, nextOffset: null }
+        return {
+          shared: true, yours: { entries: [], used: 0, cap: 400 }, bot: { entries: [], used: 0, cap: 1200 },
+          dreams: [], projectMemory: null, memoryRev: 0,
+        }
       case 'routines':
         return { routines: [], runs: [] }
       case 'skills':

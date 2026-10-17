@@ -2,6 +2,8 @@ import Foundation
 
 public struct EntryData: Codable, Hashable, Sendable {
     public var connectionRequest: ConnectionRequest?
+    /// A bot's memory write shown in the chat.
+    public var memory: MemoryWrite?
     public var routineId: String?
     public var runId: String?
     public var text: String?
@@ -46,6 +48,30 @@ public struct EntryData: Codable, Hashable, Sendable {
         self.status = status
         self.clientNonce = clientNonce
     }
+}
+
+/// A bot's memory write: a "Remembered" line the user can undo, or a card a bot that asks first waits on.
+/// Every field is optional so a newer host's card still decodes.
+public struct MemoryWrite: Codable, Hashable, Sendable {
+    /// remember · revise · archive
+    public var action: String?
+    /// done (undo offered) · pending (approve or decline) · accepted · declined · undone · failed
+    public var status: String?
+    public var text: String?
+    public var previous: String?
+    public var shared: Bool?
+    public var error: String?
+
+    /// What the user can do with it now.
+    public var choice: Choice? {
+        switch status {
+        case "pending": .answer
+        case "done", "accepted": .undo
+        default: nil
+        }
+    }
+
+    public enum Choice: Sendable { case answer, undo }
 }
 
 /// A file sent with a message; the agent reads it on the computer.

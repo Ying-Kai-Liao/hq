@@ -175,6 +175,31 @@ extension BotStore {
         perform(replay: true) { _ = try await $0.updateBot(d) }
     }
 
+    /// Whether the bot uses the memory all bots share.
+    public func setSharedMemory(_ bot: Bot, _ shared: Bool) {
+        var d = BotDraft(bot)
+        d.sharedMemory = shared
+        bots[bot.id]?.sharedMemory = shared
+        perform(replay: true) { _ = try await $0.updateBot(d) }
+    }
+
+    public enum MemoryAnswer: Sendable { case approve, decline, undo }
+
+    /// Approves or declines a memory card, or undoes a "Remembered" line; the card's update follows on the stream.
+    public func answerMemory(_ entry: Entry, _ answer: MemoryAnswer) {
+        guard answering[entry.id] == nil else { return }
+        Motion.animate { answering[entry.id] = "memory" }
+        Task {
+            do {
+                let accept: Bool? = switch answer { case .approve: true; case .decline: false; case .undo: nil }
+                try await withLink(replay: true) { try await $0.answerMemory(entryId: entry.id, accept: accept) }
+            } catch {
+                lastError = error.localizedDescription
+            }
+            Motion.animate { answering[entry.id] = nil }
+        }
+    }
+
     public func setFastMode(_ bot: Bot, _ fastMode: Bool) {
         var d = BotDraft(bot)
         d.fastMode = fastMode
