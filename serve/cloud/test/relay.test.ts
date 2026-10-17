@@ -228,6 +228,18 @@ describe("presence and forwarding", () => {
     await runDurableObjectAlarm(stub(host));
     expect(await again.closed()).toBe(1011);
   });
+
+  it("closes a silent device socket and tells the host its link is gone", async () => {
+    const { host, hostWs, dev } = await pair();
+    await dev.nextT("presence");
+    const { link } = await hostWs.nextT("open");
+    await runInDurableObject(stub(host), (_, state) => {
+      for (const ws of state.getWebSockets("device")) ws.serializeAttachment({ ...ws.deserializeAttachment(), at: Date.now() - 91_000 });
+    });
+    await runDurableObjectAlarm(stub(host));
+    expect(await dev.closed()).toBe(1011);
+    expect(await hostWs.nextT("close")).toMatchObject({ link });
+  });
 });
 
 describe("mailbox", () => {

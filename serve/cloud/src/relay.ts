@@ -29,7 +29,8 @@ const HOOK_PER_COMPUTER = 1000;
 const HOOK_MAX_BYTES = 16 * 1024 * 1024;
 const HOOK_RETRY_MIN_MS = 30_000;
 const HOOK_RETRY_MAX_MS = 15 * 60_000;
-const HOST_TIMEOUT_MS = 90_000;
+/** No ping for this long (both sides ping every 30 s): the socket is dead and gets closed. */
+const SILENT_TIMEOUT_MS = 90_000;
 const ALARM_MS = 60_000;
 /** epk(32) ‖ sig(64) ‖ ciphertext with at least its 16-byte tag (§6.4). */
 const MBOX_MIN_BLOB = 32 + 64 + 16;
@@ -567,8 +568,13 @@ export class ComputerRelay extends DurableObject<Env> {
   private async closed(ws: WebSocket): Promise<void> {
     const a = ws.deserializeAttachment() as Attachment;
     this.safeClose(ws, 1000, "");
+    await this.gone(ws, a, Date.now());
+  }
+
+  /** Bookkeeping for a socket that closed or that the DO is closing. */
+  private async gone(ws: WebSocket, a: Attachment, now: number): Promise<void> {
     if (a.role === "host") {
-      if (a.ready) await this.hostOffline(Date.now(), ws);
+      if (a.ready) await this.hostOffline(now, ws);
     } else {
       this.rates.delete(a.link);
       send(this.readyHost(ws), JSON.stringify({ t: "close", link: a.link }));
@@ -577,14 +583,15 @@ export class ComputerRelay extends DurableObject<Env> {
 
   override async alarm(): Promise<void> {
     const now = Date.now();
-    for (const ws of this.ctx.getWebSockets("host")) {
-      const a = ws.deserializeAttachment() as HostAttachment;
+    // Silent sockets close, device ones too: what the DO sends a peer that stopped reading stays queued,
+    // and the queue keeps the DO awake (billed as duration) until the connection finally dies, often hours.
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment() as Attachment;
       const last = Math.max(a.at, this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0);
-      if (now - last > HOST_TIMEOUT_MS) {
-        ws.serializeAttachment({ ...a, ready: false });
-        this.safeClose(ws, 1011, "timeout");
-        if (a.ready) await this.hostOffline(now, ws);
-      }
+      if (now - last <= SILENT_TIMEOUT_MS) continue;
+      if (a.role === "host") ws.serializeAttachment({ ...a, ready: false });
+      this.safeClose(ws, 1011, "timeout");
+      await this.gone(ws, a, now);
     }
     for (const row of this.sql
       .exec<{ dk: string; nonce: string }>("SELECT dk, nonce FROM mailbox WHERE exp <= ?", now)
