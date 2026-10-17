@@ -27,7 +27,8 @@ HQ_DISCORD_ALLOWED_IDS (comma-separated Discord user IDs answered besides the ow
 HQ_DISCORD_REPLY_TO (owner or anyone; default owner. anyone lets every member of the server run agents with that
 permission mode, so use it only on a private server you trust), HQ_BRIDGE_DEBOUNCE (seconds to wait for more
 messages before a run starts; default 2), HQ_BRIDGE_ROUTER (jev or off; default jev when a Jev key is found), HQ_BRIDGE_INTERRUPT (off: corrections wait
-for the next turn instead of restarting the run).
+for the next turn instead of restarting the run), HQ_BRIDGE_CONTEXT_SHOW (a reply ends with a small "context N%" line once
+the thread's session is at least this full, in percent; default 30, off to never show it).
 State: ~/.hq/bridge/ (webhooks, thread → session map, downloaded attachments). Log: ~/.hq/logs/bridge.log.
 """
 import asyncio
@@ -202,6 +203,20 @@ def merged(items):
             + '\n\n'.join(f'[{i}] {t}' for i, t in enumerate(items, 1)))
 
 
+def context_pct(res):
+    """How full the session's context is after this turn, in percent; None when the result doesn't say."""
+    its = (res.get('usage') or {}).get('iterations') or []
+    models = [m for m in (res.get('modelUsage') or {}).values() if m.get('contextWindow')]
+    if not its or not models:
+        return None
+    last = its[-1]   # the turn's final API call: what the next turn starts from
+    used = sum(last.get(k, 0) for k in ('input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens',
+                                        'output_tokens'))
+    main = max(models, key=lambda m: m.get('inputTokens', 0) + m.get('cacheReadInputTokens', 0)
+               + m.get('cacheCreationInputTokens', 0))   # the agent's own model, not a helper's
+    return 100 * used / main['contextWindow']
+
+
 def chunks(text, n=1900):
     text = text.strip() or '(no reply)'
     while text:
@@ -240,6 +255,10 @@ def main():
     jev = jev_config()
     hooks: dict[str, discord.Webhook] = {}
     owner_id = int(os.environ['HQ_DISCORD_OWNER_ID']) if os.environ.get('HQ_DISCORD_OWNER_ID') else None
+    try:   # show a reply's context use from this %; off (or anything not a number) never shows it
+        ctx_show = float(os.environ.get('HQ_BRIDGE_CONTEXT_SHOW', '30').strip().rstrip('%'))
+    except ValueError:
+        ctx_show = None
     anyone = os.environ.get('HQ_DISCORD_REPLY_TO', 'owner').strip().lower() == 'anyone'
     allowed = {int(x) for x in re.findall(r'\d+', os.environ.get('HQ_DISCORD_ALLOWED_IDS', ''))}
 
@@ -326,6 +345,9 @@ def main():
             text, sid = res.get('result') or '', res.get('session_id')
             if res.get('is_error'):
                 text = f'⚠️ {text or res.get("subtype", "error")}'
+            pct = context_pct(res)
+            if pct is not None and ctx_show is not None and pct >= ctx_show:
+                text += f'\n-# context {pct:.0f}%'
         except ValueError:
             text, sid = f'⚠️ {agent} failed:\n```\n{(err or out).decode(errors="replace")[-1500:]}\n```', None
         if sid:
