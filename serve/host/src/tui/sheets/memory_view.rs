@@ -60,7 +60,7 @@ fn tabs(buf: &mut Buffer, inner: Rect, memory: &MemorySheet) {
         } else {
             palette.secondary.patch(palette.panel)
         };
-        x += put(buf, x, inner.y, inner.right().saturating_sub(x), &format!(" {label} "), style) + 1;
+        x = put(buf, x, inner.y, inner.right().saturating_sub(x), &format!(" {label} "), style) + 1;
     }
     if memory.busy {
         put(buf, x, inner.y, inner.right().saturating_sub(x), "Loading…", palette.dim.patch(palette.panel));

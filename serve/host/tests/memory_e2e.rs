@@ -134,13 +134,11 @@ async fn moves_old_memory_once_and_keeps_the_layers_apart() {
     .await;
 
     let view = host.memory(&a).await;
-    assert_eq!(texts(&view["bot"], "active"), ["Lives in Taipei", "偏好繁體中文"]);
-    assert_eq!(texts(&view["bot"], "archived"), ["Shipped Codync"], "log entries stay searchable");
+    assert_eq!(texts(&view["bot"], "active"), ["Shipped Codync", "Lives in Taipei", "偏好繁體中文"]);
     assert_eq!(view["bot"]["entries"][0]["author"], "imported");
     assert!(!legacy.exists(), "the old files go once moved");
     let view = host.memory(&b).await;
-    assert_eq!(texts(&view["bot"], "active"), ["Has a daughter named Mei"]);
-    assert_eq!(texts(&view["bot"], "archived"), ["Uses vim keybindings"]);
+    assert_eq!(texts(&view["bot"], "active"), ["Has a daughter named Mei", "Uses vim keybindings"]);
     assert_eq!(view["bot"]["entries"][0]["pinned"], true);
     assert!(!engram.exists());
     host.restart(|_| {}).await;
@@ -158,7 +156,7 @@ async fn moves_old_memory_once_and_keeps_the_layers_apart() {
 
     host.call("pinMemory", json!({"botId": b, "id": own, "pinned": true})).await;
     host.call("archiveMemory", json!({"botId": b, "id": own, "archived": true})).await;
-    assert_eq!(texts(&host.memory(&b).await["bot"], "archived").len(), 2);
+    assert_eq!(texts(&host.memory(&b).await["bot"], "archived"), ["Reviews PRs on Fridays"]);
     host.call("archiveMemory", json!({"botId": b, "id": own, "archived": false})).await;
     assert_eq!(texts(&host.memory(&b).await["bot"], "active")[0], "Reviews PRs on Fridays", "pinned first");
     host.call("forgetMemory", json!({"botId": b, "id": own})).await;

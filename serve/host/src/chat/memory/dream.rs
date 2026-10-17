@@ -130,11 +130,22 @@ fn review_due(store: &Store, bot: &str) -> bool {
     }
     store.memory_read(|c| codync_mem::store::layer(c, Some(bot))).is_ok_and(|entries| {
         entries.iter().any(|e| {
-            e.state == codync_mem::store::State::Active
-                && e.author != codync_mem::store::Author::User
-                && e.text.chars().any(|c| c.is_ascii_digit())
+            e.state == codync_mem::store::State::Active && e.author != codync_mem::store::Author::User && dated(&e.text)
         })
     })
+}
+
+/// Whether a memory names a date the time review may have to turn into the past: a year, a month or day in
+/// Chinese, or an English month next to a number. Other numbers (prices, counts) don't count.
+fn dated(text: &str) -> bool {
+    const MONTHS: [&str; 12] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+    let chars: Vec<char> = text.chars().collect();
+    let year =
+        chars.windows(4).any(|w| matches!(w[..2], ['1', '9'] | ['2', '0']) && w[2..].iter().all(char::is_ascii_digit));
+    let cjk = chars.windows(2).any(|w| w[0].is_ascii_digit() && "年月日號号".contains(w[1]));
+    let lower = text.to_lowercase();
+    let english = MONTHS.iter().any(|m| lower.contains(m)) && chars.iter().any(char::is_ascii_digit);
+    year || cjk || english
 }
 
 fn today() -> String {
@@ -227,4 +238,18 @@ fn message(e: &Entry) -> Option<Message> {
     };
     let text: Vec<String> = text.into_iter().filter(|run| !run.trim().is_empty()).collect();
     (!text.is_empty()).then(|| Message { id: e.id.clone(), from_user, text, date: super::dates::ymd(e.created_at) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dated;
+
+    #[test]
+    fn only_dates_trigger_the_time_review() {
+        assert!(dated("Going to Singapore in July 2026"));
+        assert!(dated("下個月 3號 要搬家"));
+        assert!(dated("Dentist on Oct 21"));
+        assert!(!dated("Prompt is too long: Provided 10,389 tokens"));
+        assert!(!dated("Has 2 cats"));
+    }
 }

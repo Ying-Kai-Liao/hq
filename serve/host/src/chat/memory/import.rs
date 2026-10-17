@@ -1,8 +1,9 @@
 //! A one-time move of the memory Codync kept before (an Engram database per bot, and the Markdown files before
 //! that) into the host's memory tables. Each bot moves once; then the old files go.
 //!
-//! Facts the old keeper filed about the user come in active, as far as the bot's cap allows; the rest are
-//! archived, still searchable. Dreaming changes moved entries only on the user's own contrary words.
+//! What the old opening showed comes in active, as far as the bot's cap allows: the profile and pinned facts
+//! first, then the newest. The rest is archived, still searchable. Dreaming changes moved entries only on the
+//! user's own contrary words.
 
 use crate::hub::Hub;
 use crate::store::Store;
@@ -33,15 +34,20 @@ pub fn import_old_memory(hub: &Hub) {
             return;
         }
     };
+    let mut kept = std::collections::HashSet::new();
     for row in rows.iter().filter(|r| !r.deleted && !r.config.is_group()) {
         let id = &row.config.id;
-        let dir = data.join("bots").join(id);
-        if let Err(error) = import_bot(&hub.store, id, &dir) {
+        if let Err(error) = import_bot(&hub.store, id, &data.join("bots").join(id)) {
             tracing::warn!(bot = %id, error = format!("{error:#}"), "couldn't move the bot's old memory");
-            continue;
+            kept.insert(id.clone());
         }
-        for old in ["engram", "memory"] {
-            remove(&dir.join(old));
+    }
+    // Every bot folder, deleted bots' too, loses what the old memory left there.
+    for dir in std::fs::read_dir(data.join("bots")).into_iter().flatten().flatten() {
+        if !kept.contains(&*dir.file_name().to_string_lossy()) {
+            for old in ["engram", "memory"] {
+                remove(&dir.path().join(old));
+            }
         }
     }
     if hub.store.kv_get("memory.moved").is_none() {
@@ -86,7 +92,7 @@ fn import_bot(store: &Store, bot: &str, dir: &Path) -> Result<()> {
                 mem::pin(c, entry.id, true, fact.at, rev)?;
             }
             let size = codync_mem::tokens::estimate(&entry.text);
-            if fact.profile && used + size <= codync_mem::tokens::BOT_CAP {
+            if used + size <= codync_mem::tokens::BOT_CAP {
                 used += size;
             } else {
                 mem::archive(c, Writer::Import, entry.id, None, fact.at, rev)?;

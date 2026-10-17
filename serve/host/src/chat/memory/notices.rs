@@ -106,6 +106,15 @@ pub fn answer(hub: &Hub, notice_id: &str, accept: bool) -> Result<Value> {
                 card.previous = previous.or(card.previous);
                 super::changed(hub, entry.bot.as_deref(), Change::User);
             }
+            // Dreaming may have learned it meanwhile: it's remembered either way.
+            Err(error)
+                if matches!(
+                    error.downcast_ref::<Error>(),
+                    Some(Error::Refused(codync_mem::check::Refusal::Duplicate))
+                ) =>
+            {
+                card.status = Status::Accepted;
+            }
             Err(error) => {
                 card.status = Status::Failed;
                 card.error = Some(format!("{error:#}"));

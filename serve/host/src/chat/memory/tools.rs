@@ -111,7 +111,7 @@ async fn write(hub: &Arc<Hub>, cfg: &BotConfig, action: Action) -> Result<Value>
             Ok(json!({"status": "saved", "id": entry.id}))
         } else {
             notices::propose(&hub, &cfg, turn.lane, turn.message, &action)?;
-            Ok(json!({"status": "waitingForUser", "note": "The user approves or declines this in the chat. Don't say it's saved."}))
+            Ok(json!({"status": "waitingForUser", "note": "Not saved yet: the user approves or declines it in the chat. Don't tell them it's remembered."}))
         }
     })
     .await?
