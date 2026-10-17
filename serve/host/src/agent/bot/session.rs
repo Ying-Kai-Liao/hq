@@ -161,6 +161,11 @@ impl Actor {
                 // Codync's memory is the only one a bot in its own workspace has.
                 own_memory::turn_off(&self.cfg.backend, &self.cfg.cwd, &mut env, &mut candidates).await;
             }
+            if self.cfg.backend == "codex" && !env.iter().any(|(k, _)| k == "CODEX_CONFIG") {
+                // Codex's `/compact` takes no instructions: the keep-list is its config's `compact_prompt`.
+                let config = json!({"compact_prompt": codync_mem::compaction::KEEP});
+                env.push(("CODEX_CONFIG".into(), config.to_string()));
+            }
             let mut last_err = None;
             for (i, command) in candidates.iter().enumerate() {
                 let fallback_left = i + 1 < candidates.len();

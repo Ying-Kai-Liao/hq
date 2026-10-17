@@ -23,6 +23,47 @@ impl Actor {
         tokio::task::spawn_blocking(move || context::resolve(&hub.store, &cfg, &session)).await?
     }
 
+    /// The prompt for `text` in session `sid`: what the agent should hear first (its profile, a handoff, a thread's
+    /// start, a memory change) and after (a profile update, how to share files).
+    async fn compose(&mut self, sid: &str, text: &str) -> Result<String> {
+        let instructions = self.conn.as_ref().map_or(Instructions::FirstMessage, Conn::instructions);
+        let mut snapshot = self.snapshot(sid).await?;
+        let remind_files = !snapshot.system.contains("send_file");
+        let mut prompt = text.to_owned();
+        if let Some(handoff) = self.handoff.take() {
+            prompt = format!("{handoff}\n\n{prompt}");
+        }
+        // A compaction may have dropped the profile the session's first message carried.
+        let resend = instructions == Instructions::FirstMessage && self.profile_resend.remove(sid);
+        if self.session_fresh || resend {
+            // The instructions reaching the agent now hold memory as it was when they were rendered.
+            memory::opened(&self.hub.store, &self.cfg.id, sid, &snapshot.memory)?;
+        }
+        if let Some((notice, revision)) = memory::change_notice(&self.hub.store, &self.cfg, sid) {
+            prompt = format!("{notice}\n\n{prompt}");
+            self.turn_memory_revision = revision;
+        }
+        if let Some(intro) = self.thread_intro.take() {
+            prompt = format!("{intro}\n\n{prompt}");
+        }
+        if std::mem::take(&mut self.session_fresh) && instructions == Instructions::FirstMessage {
+            prompt = format!("<bot-profile>\n{}\n</bot-profile>\n\n{prompt}", snapshot.system);
+        } else if resend {
+            context::mark_announced(&self.hub.store, &self.cfg.id, &snapshot, snapshot.system_identity.clone())?;
+            snapshot.announced = snapshot.system_identity.clone();
+            prompt = format!("<bot-profile>\n{PROFILE_AGAIN}\n\n{}\n</bot-profile>\n\n{prompt}", snapshot.system);
+        }
+        if let Some((update, identity)) = context::profile_update(&self.hub.store, &snapshot, &self.cfg) {
+            prompt = format!("{prompt}\n\n{update}");
+            self.announce = Some((snapshot, identity));
+        }
+        if remind_files && self.active_group.is_none() && self.active_request.is_none() && self.active_routine.is_none()
+        {
+            prompt.push_str("\n\n[Codync: send_file(path, name?) shares any regular file up to 100 MiB as a downloadable card. Use it instead of sending a local path.]");
+        }
+        Ok(prompt)
+    }
+
     /// Starts a turn in `lane` for the given user entries (none for a hidden turn).
     pub(super) async fn start_turn(
         &mut self,
@@ -73,7 +114,12 @@ impl Actor {
         );
         self.hub.set_runtime(&self.id(), |r| {
             r.status = BotStatus::Working;
-            r.activity = if hidden { "Picking up where it left off…" } else { "Starting…" }.into();
+            r.activity = match (self.compacting.is_some(), hidden) {
+                (true, _) => "Summarizing the earlier conversation…",
+                (false, true) => "Picking up where it left off…",
+                (false, false) => "Starting…",
+            }
+            .into();
             r.started_at = Some(now_ms());
             r.lane = Some(lane.clone());
             r.message = if from_user { entry_ids.last().cloned() } else { None };
@@ -93,7 +139,9 @@ impl Actor {
             self.sync_fast_mode(&sid).await;
         }
         if hidden && self.session_fresh {
-            // A new session must never silently repeat an interrupted routine.
+            // A new session must never silently repeat an interrupted routine, and has nothing to compact.
+            self.compacting = None;
+            self.raw_prompt = false;
             self.finish_routine(
                 crate::routines::Status::Interrupted,
                 Some("The agent could not reload this run's saved session; inspect before retrying".into()),
@@ -126,39 +174,9 @@ impl Actor {
                 }
             }
         }
-        let instructions = self.conn.as_ref().map_or(Instructions::FirstMessage, Conn::instructions);
         let sid = self.turn_session.clone().ok_or_else(|| anyhow!("no session"))?;
-        let mut snapshot = self.snapshot(&sid).await?;
-        let remind_files = !snapshot.system.contains("send_file");
-        let mut prompt = text.to_owned();
-        // A compaction may have dropped the profile the session's first message carried.
-        let resend = instructions == Instructions::FirstMessage && self.profile_resend.remove(&sid);
-        if self.session_fresh || resend {
-            // The instructions reaching the agent now hold memory as it was when they were rendered.
-            memory::opened(&self.hub.store, &self.cfg.id, &sid, &snapshot.memory)?;
-        }
-        if let Some((notice, revision)) = memory::change_notice(&self.hub.store, &self.cfg, &sid) {
-            prompt = format!("{notice}\n\n{prompt}");
-            self.turn_memory_revision = revision;
-        }
-        if let Some(intro) = self.thread_intro.take() {
-            prompt = format!("{intro}\n\n{prompt}");
-        }
-        if std::mem::take(&mut self.session_fresh) && instructions == Instructions::FirstMessage {
-            prompt = format!("<bot-profile>\n{}\n</bot-profile>\n\n{prompt}", snapshot.system);
-        } else if resend {
-            context::mark_announced(&self.hub.store, &self.cfg.id, &snapshot, snapshot.system_identity.clone())?;
-            snapshot.announced = snapshot.system_identity.clone();
-            prompt = format!("<bot-profile>\n{PROFILE_AGAIN}\n\n{}\n</bot-profile>\n\n{prompt}", snapshot.system);
-        }
-        if let Some((update, identity)) = context::profile_update(&self.hub.store, &snapshot, &self.cfg) {
-            prompt = format!("{prompt}\n\n{update}");
-            self.announce = Some((snapshot, identity));
-        }
-        if remind_files && self.active_group.is_none() && self.active_request.is_none() && self.active_routine.is_none()
-        {
-            prompt.push_str("\n\n[Codync: send_file(path, name?) shares any regular file up to 100 MiB as a downloadable card. Use it instead of sending a local path.]");
-        }
+        let prompt =
+            if std::mem::take(&mut self.raw_prompt) { text.to_owned() } else { self.compose(&sid, text).await? };
         self.hub.set_runtime(&self.id(), |r| r.activity = "Thinking…".into());
         let acp = self.conn.as_ref().ok_or_else(|| anyhow!("agent not running"))?.acp.clone();
         let params = json!({
@@ -187,6 +205,7 @@ impl Actor {
         if self.turn.is_none() {
             return;
         }
+        self.after_turn(done);
         if let (Some(conn), Some(sid)) = (self.conn.as_mut(), &self.turn_session)
             && let Some(used) = conn.loaded.get_mut(sid)
         {

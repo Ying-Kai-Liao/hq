@@ -117,7 +117,19 @@ pub fn resolve(store: &Store, cfg: &BotConfig, session: &str) -> Result<Snapshot
     Ok(s)
 }
 
-/// Memory the instructions show changed: every session of the bot re-renders them on its next turn.
+/// One session's instructions are rendered again on its next turn: before a compaction the host starts, so the
+/// compaction keeps them as they are now.
+pub fn refresh(store: &Store, bot_id: &str, session: &str) -> Result<()> {
+    match load(store, bot_id, session) {
+        Some(mut s) => {
+            s.system.clear();
+            save(store, bot_id, &s)
+        }
+        None => Ok(()),
+    }
+}
+
+/// Every session of the bot renders its instructions again on its next turn (after the move from the old memory).
 pub fn invalidate(store: &Store, bot_id: &str) -> Result<()> {
     for k in store.kv_prefix(&format!("context.{bot_id}.")) {
         match store.kv_get(&k).and_then(|v| serde_json::from_str::<Snapshot>(&v).ok()) {
@@ -178,6 +190,8 @@ pub fn render(store: &Store, cfg: &BotConfig) -> String {
         lines.push(String::new());
         lines.push(skills);
     }
+    lines.push(String::new());
+    lines.push(codync_mem::compaction::KEEP.to_owned());
     let mut out = lines.join("\n");
     let memory = crate::chat::memory::opening(store, cfg);
     if !memory.is_empty() {

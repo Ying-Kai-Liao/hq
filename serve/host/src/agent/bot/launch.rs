@@ -1,7 +1,7 @@
 //! The agent process: which commands start it, the ACP handshake, the bot's model, and how its instructions are
 //! attached to a session request.
 
-use super::{Conn, SessionCaps};
+use super::{Adapter, Conn, SessionCaps};
 use crate::agent::acp::{self, Acp};
 use crate::store::BotConfig;
 use anyhow::{Result, anyhow};
@@ -130,18 +130,27 @@ pub(crate) async fn start_agent(command: &str, cwd: &str, env: &[(String, String
         close: init["agentCapabilities"]["sessionCapabilities"]["close"].is_object(),
         system_prompt: init["agentCapabilities"]["sessionCapabilities"]["systemPrompt"].is_object(),
     };
-    let claude = init["agentCapabilities"]["_meta"]["claudeCode"].is_object();
     Ok(Conn {
         acp,
         rx,
         sessions,
-        claude,
+        adapter: adapter(&init),
         loaded: HashMap::new(),
         started: Instant::now(),
         fast_options: HashMap::new(),
         reports_compaction: false,
-        used: HashMap::new(),
+        usage: HashMap::new(),
     })
+}
+
+fn adapter(init: &Value) -> Adapter {
+    if init["agentCapabilities"]["_meta"]["claudeCode"].is_object() {
+        Adapter::Claude
+    } else if init["agentInfo"]["name"].as_str().is_some_and(|name| name.ends_with("codex-acp")) {
+        Adapter::Codex
+    } else {
+        Adapter::Other
+    }
 }
 
 #[cfg(test)]

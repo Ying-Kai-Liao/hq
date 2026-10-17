@@ -15,6 +15,7 @@
 //! forked from the main one when the agent can fork) and in group chats (turns in
 //! its main session, written to the group's transcript; see `group`).
 
+mod compaction;
 mod fast_mode;
 mod files;
 mod launch;
@@ -92,8 +93,16 @@ pub enum Cmd {
 
 enum Queued {
     Routine(String),
-    User { lane: Lane, entry_id: String, text: String },
+    User {
+        lane: Lane,
+        entry_id: String,
+        text: String,
+    },
     BotRequest(crate::chat::team::BotRequest),
+    /// A compaction the host decided on (see `compaction`); `idle` while the user is away.
+    Compact {
+        idle: bool,
+    },
     Group(GroupTurn),
 }
 
@@ -135,6 +144,10 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig) -> BotHandle {
         routine_completion: None,
         session_fresh: false,
         profile_resend: HashSet::new(),
+        compacting: None,
+        raw_prompt: false,
+        handoff: None,
+        compaction_notice: None,
         applied_system: HashMap::new(),
         dreamer,
         turn_text: None,
@@ -193,12 +206,21 @@ pub(crate) enum Instructions {
     FirstMessage,
 }
 
+/// Which adapter answered `initialize`, where Codync treats it apart from the others.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Adapter {
+    /// claude-agent-acp: takes `_meta.systemPrompt` and `_meta.claudeCode.options`, and `/compact <instructions>`.
+    Claude,
+    /// codex-acp: `/compact` (its keep-list is in `CODEX_CONFIG`).
+    Codex,
+    Other,
+}
+
 pub(crate) struct Conn {
     pub(crate) acp: Arc<Acp>,
     pub(crate) rx: mpsc::UnboundedReceiver<Incoming>,
     sessions: SessionCaps,
-    /// Claude's adapter: takes `_meta.systemPrompt` and `_meta.claudeCode.options`.
-    pub(crate) claude: bool,
+    pub(crate) adapter: Adapter,
     /// Sessions already created or loaded in this process, and when each was last used.
     loaded: HashMap<String, Instant>,
     started: Instant,
@@ -206,14 +228,14 @@ pub(crate) struct Conn {
     fast_options: HashMap<String, Value>,
     /// The agent reports compactions (`compaction_update`); until it does, a fall in usage stands in for them.
     reports_compaction: bool,
-    /// Each session's context use at its last `usage_update`.
-    used: HashMap<String, u64>,
+    /// Each session's context use and window size at its last `usage_update`.
+    usage: HashMap<String, (u64, u64)>,
 }
 
 impl Conn {
     pub(crate) fn instructions(&self) -> Instructions {
         // Claude's adapter rebuilds the standard field without the `_meta` object's options, so Claude stays on it.
-        if self.claude {
+        if self.adapter == Adapter::Claude {
             Instructions::ClaudeMeta
         } else if self.sessions.system_prompt {
             Instructions::SystemPrompt
@@ -260,6 +282,14 @@ struct Actor {
     /// Sessions that compacted away the `<bot-profile>` their first message carried; their next prompt carries
     /// a fresh one.
     profile_resend: HashSet<String>,
+    /// The running turn is a compaction the host started (`Some(true)` while the user is away).
+    compacting: Option<bool>,
+    /// The next prompt goes as it is: a command such as `/compact`, with nothing put before or after it.
+    raw_prompt: bool,
+    /// What the next prompt carries from the conversation it starts over from.
+    handoff: Option<String>,
+    /// The chat line of the last compaction, which a late summary fills in.
+    compaction_notice: Option<String>,
     /// Session -> the instructions this process last handed Claude as its system prompt.
     applied_system: HashMap<String, String>,
     dreamer: mpsc::UnboundedSender<memory::DreamEvent>,
@@ -360,6 +390,10 @@ impl Actor {
                         if let Some(c) = self.conn.take() { c.acp.kill().await; }
                     }
                     self.release_idle().await;
+                    // The idle check may have queued a compaction.
+                    if self.turn.is_none() && !self.queue.is_empty() {
+                        self.next_in_queue(&done_tx).await;
+                    }
                 },
             }
         }

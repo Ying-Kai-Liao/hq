@@ -1,5 +1,7 @@
 //! Shared by the end-to-end tests.
 
+pub mod host;
+
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};

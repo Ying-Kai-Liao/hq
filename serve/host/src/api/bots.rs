@@ -226,6 +226,7 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
         }
         "memory" | "saveMemory" | "pinMemory" | "archiveMemory" | "forgetMemory" | "clearMemory" | "undoDream"
         | "answerMemory" | "undoMemory" => crate::chat::memory::call(hub, method, &b).await?,
+        "editHandoff" | "keepConversation" => crate::chat::handoff::call(hub, method, &b)?,
         "react" => {
             let e = hub.react(str_arg(&b, "entryId")?, str_arg(&b, "emoji")?)?;
             json!({"entry": e})

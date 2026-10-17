@@ -40,12 +40,16 @@ fn plan(used: &HashMap<String, Instant>, started: Instant, can_close: bool, now:
 
 impl Actor {
     /// Runs on the actor's tick: at most every [`CHECK_EVERY`], and only while the bot has nothing
-    /// running, queued or waiting on the user.
+    /// running, queued or waiting on the user. A compaction due while idle goes first.
     pub(super) async fn release_idle(&mut self) {
         if self.idle_checked.elapsed() < CHECK_EVERY || !self.at_rest() {
             return;
         }
         self.idle_checked = Instant::now();
+        self.tend_idle();
+        if !self.queue.is_empty() {
+            return;
+        }
         let Some(conn) = &self.conn else { return };
         if !conn.sessions.load {
             return;
