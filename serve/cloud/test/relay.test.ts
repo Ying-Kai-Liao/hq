@@ -201,12 +201,13 @@ describe("presence and forwarding", () => {
     expect(await hostWs.nextT("pong")).toEqual({ t: "pong" });
   });
 
-  it("a new host socket replaces the old: 4009, then offline → online", async () => {
+  it("a new host socket replaces the old: offline → online, 4009 once the old one speaks", async () => {
     const { host, device, hostWs, dev } = await pair();
     expect(await dev.nextT("presence")).toMatchObject({ online: true });
     const next = await socket("/v1/relay/host?v=1", host.sign);
-    expect(await hostWs.closed()).toBe(4009);
     expect(await dev.nextT("presence")).toMatchObject({ online: false });
+    hostWs.send({ t: "ready" });
+    expect(await hostWs.closed()).toBe(4009);
     next.send(acl(host, [{ dk: dkOf(device), grant: null }]));
     await next.nextT("acl.ok");
     next.send({ t: "ready" });
@@ -227,22 +228,41 @@ describe("presence and forwarding", () => {
 
     const again = await hostSocket(host, [{ dk: dkOf(ref.signKey()), grant: null }]);
     expect(await dev.closed()).toBe(4003); // not in the new ACL
-    // Silent for > 90 s: the alarm closes it with 1011.
+    // Silent for > 90 s: offline at the next alarm, closed with 1011 by a later one the DO stayed awake for.
     await runInDurableObject(stub(host), (_, state) => {
       for (const ws of state.getWebSockets("host")) ws.serializeAttachment({ ...ws.deserializeAttachment(), at: Date.now() - 91_000 });
     });
+    await env.DB.prepare("UPDATE computers SET online = 1 WHERE id = ?").bind(host.cid).run();
+    await runDurableObjectAlarm(stub(host));
+    const after = await env.DB.prepare("SELECT online FROM computers WHERE id = ?").bind(host.cid).first<{ online: number }>();
+    expect(after?.online).toBe(0);
     await runDurableObjectAlarm(stub(host));
     expect(await again.closed()).toBe(1011);
   });
 
-  it("closes a silent device socket and tells the host its link is gone", async () => {
+  it("retires a silent device socket: the host's link closes, the socket once it speaks", async () => {
     const { host, hostWs, dev } = await pair();
     await dev.nextT("presence");
     const { link } = await hostWs.nextT("open");
     await ageDevices(host);
     await runDurableObjectAlarm(stub(host));
-    expect(await dev.closed()).toBe(1011);
     expect(await hostWs.nextT("close")).toMatchObject({ link });
+    // Retired: left out of presence, and closed when it shows it's alive.
+    hostWs.ws.close(1000, "bye");
+    await dev.none((m) => m.t === "presence");
+    dev.send({ t: "mbox.list" });
+    expect(await dev.closed()).toBe(1011);
+  });
+
+  it("closes a retired device socket when the DO never got to sleep", async () => {
+    const { host, hostWs, dev } = await pair();
+    await dev.nextT("presence");
+    await hostWs.nextT("open");
+    await ageDevices(host);
+    await runDurableObjectAlarm(stub(host));
+    await hostWs.nextT("close");
+    await runDurableObjectAlarm(stub(host));
+    expect(await dev.closed()).toBe(1011);
   });
 
   it("keeps a device socket that pings", async () => {
