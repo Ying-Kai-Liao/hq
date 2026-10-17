@@ -255,6 +255,7 @@ impl Actor {
             r.started_at = None;
             r.lane = None;
             r.message = None;
+            r.session = None;
         });
         self.hub.team.cancel_from(&self.cfg.id);
     }

@@ -17,13 +17,14 @@
 
 mod fast_mode;
 mod files;
+mod launch;
 mod lifecycle;
 mod queue;
 mod session;
 mod turn;
 mod updates;
 
-pub(crate) use session::{launch_commands, select_model, start_agent, system_prompt};
+pub(crate) use launch::{launch_commands, select_model, start_agent, system_prompt};
 
 use crate::agent::acp::{Acp, Incoming};
 use crate::agent::config::FastModeSupport;

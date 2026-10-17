@@ -1,7 +1,6 @@
 //! Dreaming in the host: when a bot's run starts, what it reads, and running its model on the bot's own harness.
 //! What a run may change is the crate's decision (`codync_mem::dream`).
 
-use super::Change;
 use crate::LockExt;
 use crate::chat::{naming, oneshot};
 use crate::hub::Hub;
@@ -188,7 +187,7 @@ async fn run(hub: &Arc<Hub>, bot_id: &str) -> Result<Ran> {
         Outcome::Changed(dream) => {
             tracing::info!(bot = %bot_id, added = dream.added.len(), archived = dream.archived.len(), "memory dreamed");
             let layer = if kept.add.iter().any(|a| a.shared) { None } else { Some(bot_id) };
-            super::changed(hub, layer, Change::Background);
+            super::changed(hub, layer);
         }
         Outcome::Unchanged => {}
     }

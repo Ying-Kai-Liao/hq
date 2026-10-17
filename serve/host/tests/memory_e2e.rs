@@ -336,6 +336,14 @@ async fn instructions_reach_every_harness_and_survive_compaction() {
     let system = new["systemPrompt"]["content"][0]["text"].as_str().unwrap();
     assert!(system.contains("Standard") && system.contains("Allergic to peanuts"), "{system}");
     assert!(!host.prompts(&standard)[0].contains("<bot-profile>"));
+    // A change reaches the session as a note on its next message; the opening stays as it was.
+    host.call("saveMemory", json!({"botId": standard, "text": "Plays the piano"})).await;
+    host.reply(&standard, "again").await;
+    host.reply(&standard, "and again").await;
+    let prompts = host.prompts(&standard);
+    assert!(prompts[1].starts_with("<memory_update>") && prompts[1].contains("Plays the piano"), "{}", prompts[1]);
+    assert!(!prompts[2].contains("<memory_update>"), "told once");
+    assert_eq!(host.requests(&standard, "session/new").len(), 1);
 
     // Others get it in the first message, and again once after the agent reports a compaction.
     let reporting = host.fixture_bot("Reporting", "instructions_agent.py", "reporting").await;

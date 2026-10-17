@@ -1,6 +1,6 @@
 //! The apps' memory methods: the two layers, the user's own edits, the dream log, and the chat cards.
 
-use super::{Change, notices};
+use super::notices;
 use crate::hub::Hub;
 use crate::store::BotConfig;
 use anyhow::{Result, anyhow, bail};
@@ -38,7 +38,7 @@ fn dispatch(hub: &Hub, method: &str, b: &Value) -> Result<Value> {
                 let layer = (b["shared"] != true).then_some(cfg.id.as_str());
                 let new = New { bot: layer, text, room: None, evidence: &[] };
                 let entry = hub.store.memory_write(|c, now, rev| mem::add(c, Writer::User, new, now, rev))?;
-                super::changed(hub, entry.bot.as_deref(), Change::User);
+                super::changed(hub, entry.bot.as_deref());
                 entry
             };
             Ok(json!({"entry": entry}))
@@ -65,7 +65,7 @@ fn dispatch(hub: &Hub, method: &str, b: &Value) -> Result<Value> {
         "clearMemory" => {
             let layer = (b["shared"] != true).then_some(cfg.id.as_str());
             hub.store.memory_write(|c, _, _| mem::forget_layer(c, layer))?;
-            super::changed(hub, layer, Change::User);
+            super::changed(hub, layer);
             Ok(json!({}))
         }
         "undoDream" => {
@@ -76,7 +76,7 @@ fn dispatch(hub: &Hub, method: &str, b: &Value) -> Result<Value> {
             }
             hub.store.memory_write(|c, now, rev| codync_mem::dream::undo(c, id, now, rev))?;
             // A run may have written to either layer.
-            super::changed(hub, None, Change::User);
+            super::changed(hub, None);
             Ok(json!({}))
         }
         _ => bail!("unknown method: {method}"),
@@ -98,7 +98,7 @@ fn edit(
         }
         change(c, now, rev)
     })?;
-    super::changed(hub, entry.bot.as_deref(), Change::User);
+    super::changed(hub, entry.bot.as_deref());
     Ok(entry)
 }
 

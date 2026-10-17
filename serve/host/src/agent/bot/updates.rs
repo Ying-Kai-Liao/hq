@@ -54,6 +54,9 @@ impl Actor {
         let Some(sid) = self.turn_session.clone() else { return };
         match context::bump_epoch(&self.hub.store, &self.cfg.id, &sid, id) {
             Ok(true) => {
+                if let Err(error) = crate::chat::memory::compacted(&self.hub.store, &self.cfg.id, &sid) {
+                    tracing::warn!(bot = %self.cfg.id, error = format!("{error:#}"), "couldn't record the compaction");
+                }
                 if self.conn.as_ref().is_some_and(|c| c.instructions() == Instructions::FirstMessage) {
                     self.profile_resend.insert(sid);
                 }

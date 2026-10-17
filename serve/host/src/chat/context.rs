@@ -3,14 +3,13 @@
 //!
 //! The bot's instructions (name, description, skills, memory) are rendered once
 //! and kept as a [`Snapshot`] keyed by the ACP session and its *compaction
-//! epoch*. Harnesses that take a system prompt (Claude, via `_meta.systemPrompt`)
-//! get it as one; others get it in the first message of the session. The
-//! snapshot stays byte-identical, so the prompt cache stays warm, until the
+//! epoch*. How it reaches the agent depends on the harness (`agent::bot::Instructions`).
+//! The snapshot stays byte-identical, so the prompt cache stays warm, until the
 //! agent compacts its context (a `compaction_update`) or a new session starts.
 //! Profile edits in between are announced once as an `<agent_profile_update>`
 //! block on the next message and folded into the snapshot after the next
-//! compaction. Memory learned in between reaches the prompt the same way; a change
-//! the user makes is also told on the next message (see `memory::change_notice`).
+//! compaction. Memory changes in between are told on the next message the same way
+//! (see `memory::change_notice`).
 
 use crate::store::{BotConfig, Store};
 use anyhow::Result;
@@ -42,6 +41,9 @@ pub struct Snapshot {
     pub system_identity: Identity,
     /// The identity the agent last heard of (`system` or a later update block).
     pub announced: Identity,
+    /// The memory revision `system` holds (`memory::current_revision` before it was rendered).
+    #[serde(default)]
+    pub memory: String,
 }
 
 // A bot talks in several lanes (its chat, threads, groups), each its own session: snapshots
@@ -100,14 +102,16 @@ pub fn resolve(store: &Store, cfg: &BotConfig, session: &str) -> Result<Snapshot
         return Ok(s.clone());
     }
     let identity = Identity::of(cfg);
+    let memory = crate::chat::memory::current_revision(store, &cfg.id);
     let s = Snapshot {
         session: session.to_owned(),
         epoch,
         system: render(store, cfg),
         system_identity: identity.clone(),
-        // A re-render reaches only Claude, as its system prompt (see `mark_announced`): the agent
-        // still knows the identity it last heard, so an update it missed is still announced.
+        // A re-render reaches the agent only as Claude's system prompt or a re-sent profile (see `mark_announced`):
+        // until then it knows the identity it last heard, so an update it missed is still announced.
         announced: stored.map_or(identity, |old| old.announced),
+        memory,
     };
     save(store, &cfg.id, &s)?;
     Ok(s)
@@ -127,8 +131,9 @@ pub fn invalidate(store: &Store, bot_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Records `system` (already handed to a new session) as that session's snapshot.
-pub fn adopt(store: &Store, cfg: &BotConfig, session: &str, system: String) -> Result<Snapshot> {
+/// Records `system` (already handed to a new session), rendered at memory revision `memory`, as that session's
+/// snapshot.
+pub fn adopt(store: &Store, cfg: &BotConfig, session: &str, system: String, memory: String) -> Result<Snapshot> {
     let identity = Identity::of(cfg);
     let s = Snapshot {
         session: session.to_owned(),
@@ -136,6 +141,7 @@ pub fn adopt(store: &Store, cfg: &BotConfig, session: &str, system: String) -> R
         system,
         system_identity: identity.clone(),
         announced: identity,
+        memory,
     };
     save(store, &cfg.id, &s)?;
     Ok(s)
@@ -249,7 +255,7 @@ mod tests {
     fn snapshot_is_frozen_until_compaction_and_updates_are_announced_once() {
         let store = store();
         let a = cfg("Fixer", "Fix bugs");
-        let first = adopt(&store, &a, "s1", "SYSTEM v1".into()).expect("adopt");
+        let first = adopt(&store, &a, "s1", "SYSTEM v1".into(), String::new()).expect("adopt");
         // Frozen: resolving again returns the same text, even though a live render differs.
         assert_eq!(resolve(&store, &a, "s1").expect("resolve").system, "SYSTEM v1");
         assert!(profile_update(&store, &first, &a).is_none());
@@ -276,7 +282,7 @@ mod tests {
     fn a_memory_change_re_renders_but_keeps_what_the_agent_heard() {
         let store = store();
         let a = cfg("Fixer", "Fix bugs");
-        adopt(&store, &a, "s1", "SYSTEM v1".into()).expect("adopt");
+        adopt(&store, &a, "s1", "SYSTEM v1".into(), String::new()).expect("adopt");
         let b = cfg("Fixer", "Fix bugs and write tests");
         invalidate(&store, &a.id).expect("invalidate");
         let snap = resolve(&store, &b, "s1").expect("resolve");

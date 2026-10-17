@@ -35,68 +35,131 @@ pub fn opening(store: &Store, cfg: &BotConfig) -> String {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Change {
-    /// The user changed memory: every session of the bot hears it on its next turn.
-    User,
-    /// A bot or dreaming wrote it. The session that wrote it knows; others pick it up at their next compaction or
-    /// new session.
-    Background,
-}
-
-/// After memory changed in `bot`'s own layer, or in the shared one (`None`): clients fetch it again, and a change
-/// the user made reaches the bots' sessions.
-pub fn changed(hub: &Hub, bot: Option<&str>, change: Change) {
-    let bots: Vec<String> = match bot {
-        Some(bot) => vec![bot.to_owned()],
+/// After memory changed in `bot`'s own layer, or in the shared one (`None`): the apps fetch it again, and every
+/// session of a bot that sees the layer hears it on its next message (see [`change_notice`]). The opening itself
+/// stays as it is, so the prompt cache does too.
+pub fn changed(hub: &Hub, bot: Option<&str>) {
+    let bots: Vec<(String, bool)> = match bot {
+        Some(bot) => vec![(bot.to_owned(), true)],
         None => hub
             .store
             .bots()
-            .map(|rows| rows.into_iter().filter(|r| !r.deleted && !r.config.is_group()).map(|r| r.config.id).collect())
+            .map(|rows| {
+                rows.into_iter()
+                    .filter(|r| !r.deleted && !r.config.is_group())
+                    .map(|r| {
+                        let sees = shared(&r.config);
+                        (r.config.id, sees)
+                    })
+                    .collect()
+            })
             .unwrap_or_default(),
     };
     let revision = hub.store.memory_rev().to_string();
-    for id in &bots {
-        if change == Change::User
-            && let Err(error) = hub
-                .store
-                .kv_set(&revision_key(id), &revision)
-                .and_then(|()| crate::chat::context::invalidate(&hub.store, id))
-        {
+    for (id, sees) in &bots {
+        if *sees && let Err(error) = hub.store.kv_set(&revision_key(id), &revision) {
             tracing::warn!(bot = %id, error = format!("{error:#}"), "couldn't flag the memory change");
         }
         hub.emit_bot(id);
     }
 }
 
+/// The memory revision a bot's layers are at.
 fn revision_key(bot: &str) -> String {
     format!("memory.revision.{bot}")
 }
 
+/// The revision a session has heard: its opening, then each notice since.
 fn announced_key(bot: &str, session: &str) -> String {
     format!("memory.announced.{bot}.{session}")
 }
 
-/// When the user changed memory since this session last heard: the whole memory as it is now, to put before the
-/// next message, and the revision to acknowledge once it was delivered.
+/// The revision a session's opening holds.
+fn opening_key(bot: &str, session: &str) -> String {
+    format!("memory.opening.{bot}.{session}")
+}
+
+/// When memory changed since this session last heard: the whole memory as it is now, to put before the next
+/// message, and the revision to acknowledge once it was delivered.
 pub fn change_notice(store: &Store, cfg: &BotConfig, session: &str) -> Option<(String, String)> {
-    let revision = store.kv_get(&revision_key(&cfg.id)).unwrap_or_default();
+    let revision = current_revision(store, &cfg.id);
     if revision.is_empty() || store.kv_get(&announced_key(&cfg.id, session)).unwrap_or_default() == revision {
         return None;
     }
     let notice = format!(
-        "<memory_update>\nThe user changed your memory. This is all of it now and replaces any earlier memory in this conversation.\n{}\n</memory_update>",
+        "<memory_update>\nYour memory changed. This is all of it now and replaces any earlier memory in this conversation.\n{}\n</memory_update>",
         opening(store, cfg)
     );
     Some((notice, revision))
 }
 
-/// The session heard memory up to `revision`: from a notice, or from instructions rendered just now.
+/// The session heard memory up to `revision`, from a notice.
 pub fn mark_announced(store: &Store, bot: &str, session: &str, revision: &str) -> anyhow::Result<()> {
     store.kv_set(&announced_key(bot, session), revision)
 }
 
-/// The revision a fresh session's instructions already include.
+/// The session's opening now holds memory at `revision` (a new session, or instructions it got again).
+pub fn opened(store: &Store, bot: &str, session: &str, revision: &str) -> anyhow::Result<()> {
+    store.kv_set(&opening_key(bot, session), revision)?;
+    mark_announced(store, bot, session, revision)
+}
+
+/// The agent summarized its context, so the notices it got since its opening may be gone: it is left knowing what
+/// its opening holds, and hears anything newer again.
+pub fn compacted(store: &Store, bot: &str, session: &str) -> anyhow::Result<()> {
+    match store.kv_get(&opening_key(bot, session)) {
+        Some(opening) => mark_announced(store, bot, session, &opening),
+        None => Ok(()),
+    }
+}
+
+/// A bot wrote memory itself in `session`, which therefore knows the change: when it had heard everything up to
+/// `before`, it has heard this too.
+pub fn heard_own_write(store: &Store, bot: &str, session: &str, before: &str) -> anyhow::Result<()> {
+    if store.kv_get(&announced_key(bot, session)).unwrap_or_default() == before {
+        mark_announced(store, bot, session, &current_revision(store, bot))
+    } else {
+        Ok(())
+    }
+}
+
+/// The memory revision a bot's layers are at; an opening rendered now holds it.
 pub fn current_revision(store: &Store, bot: &str) -> String {
     store.kv_get(&revision_key(bot)).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_session_hears_each_change_once_and_again_after_a_compaction() {
+        let store =
+            Store::open(&std::env::temp_dir().join(format!("codync-memory-{}.db", uuid::Uuid::new_v4()))).unwrap();
+        let cfg: BotConfig = serde_json::from_value(serde_json::json!({
+            "id": "5f0c7a52-0000-4000-8000-000000000002", "name": "Fixer", "backend": "claude", "cwd": "/tmp",
+        }))
+        .unwrap();
+        let changes = |revision: &str| store.kv_set(&revision_key(&cfg.id), revision).unwrap();
+        opened(&store, &cfg.id, "s1", "").unwrap();
+        assert!(change_notice(&store, &cfg, "s1").is_none());
+
+        changes("7");
+        let (notice, revision) = change_notice(&store, &cfg, "s1").expect("a change");
+        assert!(notice.starts_with("<memory_update>"), "{notice}");
+        mark_announced(&store, &cfg.id, "s1", &revision).unwrap();
+        assert!(change_notice(&store, &cfg, "s1").is_none(), "told once");
+        compacted(&store, &cfg.id, "s1").unwrap();
+        assert!(change_notice(&store, &cfg, "s1").is_some(), "the summary may have dropped the notice");
+
+        // What the session wrote itself, with nothing else new, needs no notice; unless it missed something before.
+        opened(&store, &cfg.id, "s1", "7").unwrap();
+        changes("8");
+        heard_own_write(&store, &cfg.id, "s1", "7").unwrap();
+        assert!(change_notice(&store, &cfg, "s1").is_none());
+        changes("9");
+        changes("10");
+        heard_own_write(&store, &cfg.id, "s1", "9").unwrap();
+        assert!(change_notice(&store, &cfg, "s1").is_some());
+    }
 }

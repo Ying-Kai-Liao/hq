@@ -87,7 +87,9 @@ impl Actor {
         } else {
             self.ensure_session(slot.as_deref()).await?;
         }
-        if let Some(sid) = self.turn_session.clone() {
+        let session = self.turn_session.clone();
+        self.hub.set_runtime(&self.id(), |r| r.session.clone_from(&session));
+        if let Some(sid) = session {
             self.sync_fast_mode(&sid).await;
         }
         if hidden && self.session_fresh {
@@ -108,6 +110,7 @@ impl Actor {
                 r.started_at = None;
                 r.lane = None;
                 r.message = None;
+                r.session = None;
             });
             return Ok(());
         }
@@ -131,9 +134,8 @@ impl Actor {
         // A compaction may have dropped the profile the session's first message carried.
         let resend = instructions == Instructions::FirstMessage && self.profile_resend.remove(&sid);
         if self.session_fresh || resend {
-            // The instructions about to reach the agent hold memory as it is now.
-            let revision = memory::current_revision(&self.hub.store, &self.cfg.id);
-            memory::mark_announced(&self.hub.store, &self.cfg.id, &sid, &revision)?;
+            // The instructions reaching the agent now hold memory as it was when they were rendered.
+            memory::opened(&self.hub.store, &self.cfg.id, &sid, &snapshot.memory)?;
         }
         if let Some((notice, revision)) = memory::change_notice(&self.hub.store, &self.cfg, &sid) {
             prompt = format!("{notice}\n\n{prompt}");
@@ -317,6 +319,7 @@ impl Actor {
             r.started_at = None;
             r.lane = None;
             r.message = None;
+            r.session = None;
         });
         self.hub.team.cancel_from(&self.cfg.id);
         // A room turn's news comes from the group once the room is done (see `group`).

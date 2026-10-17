@@ -107,7 +107,14 @@ async fn write(hub: &Arc<Hub>, cfg: &BotConfig, action: Action) -> Result<Value>
             .and_then(|id| hub.store.entry(id))
             .is_some_and(|e| codync_mem::evidence::asks_to_remember(&notices::typed(&e.data).join("\n")));
         if cfg.permission == Permission::Auto || asked {
+            let before = super::current_revision(&hub.store, &cfg.id);
             let entry = notices::apply(&hub, &cfg, turn.lane, turn.message, &action)?;
+            // The session that wrote it needs no notice about its own write.
+            if let Some(session) = &turn.session
+                && let Err(error) = super::heard_own_write(&hub.store, &cfg.id, session, &before)
+            {
+                tracing::warn!(bot = %cfg.id, error = format!("{error:#}"), "couldn't record the bot's own write");
+            }
             Ok(json!({"status": "saved", "id": entry.id}))
         } else {
             notices::propose(&hub, &cfg, turn.lane, turn.message, &action)?;

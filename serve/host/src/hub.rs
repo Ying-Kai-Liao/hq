@@ -42,6 +42,8 @@ pub struct Runtime {
     /// The user's message that started the running turn; `None` for a turn a routine, a room or another bot
     /// started. Memory cites it as where a fact was learned.
     pub message: Option<String>,
+    /// The ACP session the running turn prompts. A memory write made there is one that session already knows.
+    pub session: Option<String>,
     pub fast_mode: crate::agent::config::FastModeSupport,
 }
 
@@ -252,7 +254,7 @@ impl Hub {
         }
         if !cfg.is_group() {
             if crate::chat::memory::shared(&cfg) != crate::chat::memory::shared(&row.config) {
-                crate::chat::memory::changed(self, Some(&id), crate::chat::memory::Change::User);
+                crate::chat::memory::changed(self, Some(&id));
             }
             self.send_cmd(&id, Cmd::Reconfigure(Box::new(cfg)))?;
         }

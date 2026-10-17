@@ -2,7 +2,6 @@
 //! acting, a card the user approves or declines. The line is an ordinary notice whose `memory` field says what
 //! happened, so an app that doesn't know it still shows the text.
 
-use super::Change;
 use crate::hub::Hub;
 use crate::store::{BotConfig, EntryKind, Lane};
 use anyhow::{Result, anyhow, bail};
@@ -60,7 +59,7 @@ pub fn apply(
     let (entry, previous) = write(hub, cfg, &lane, message.clone(), action)?;
     let card = Card { status: Status::Done, entry: Some(entry.id), previous, message, error: None };
     post(hub, cfg, &lane, action, &card);
-    super::changed(hub, entry.bot.as_deref(), Change::Background);
+    super::changed(hub, entry.bot.as_deref());
     Ok(entry)
 }
 
@@ -104,7 +103,7 @@ pub fn answer(hub: &Hub, notice_id: &str, accept: bool) -> Result<Value> {
                 card.status = Status::Accepted;
                 card.entry = Some(entry.id);
                 card.previous = previous.or(card.previous);
-                super::changed(hub, entry.bot.as_deref(), Change::User);
+                super::changed(hub, entry.bot.as_deref());
             }
             // Dreaming may have learned it meanwhile: it's remembered either way.
             Err(error)
@@ -152,7 +151,7 @@ pub fn undo(hub: &Hub, notice_id: &str) -> Result<Value> {
         Ok(entry.bot)
     })?;
     card.status = Status::Undone;
-    super::changed(hub, layer.as_deref(), Change::User);
+    super::changed(hub, layer.as_deref());
     Ok(update(hub, &notice, &cfg, &action, &card))
 }
 
