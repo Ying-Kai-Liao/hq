@@ -3,7 +3,7 @@
 import { runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import V from "../../docs/reference/fixtures/remote-relay-vectors.json";
-import type { ComputerRelay } from "../src/relay";
+import { PING, type ComputerRelay } from "../src/relay";
 import { acl, call, devicePath, env, hostSocket, newHost, sleep, socket, upgrade, type TestHost } from "./helpers";
 import * as ref from "./ref";
 
@@ -13,6 +13,12 @@ const blob = (host: TestHost, device: ref.SignKey, nonce: string) =>
   ref.b64url(
     ref.sealMailbox(device, host.sign.pub, host.box.pub, nonce, JSON.stringify({ m: "send", b: { botId: "b1", text: "hi", clientNonce: nonce }, ts: Date.now() })),
   );
+
+/** Backdates every device socket's connect time past the silence timeout. */
+const ageDevices = (host: TestHost) =>
+  runInDurableObject(stub(host), (_, state) => {
+    for (const ws of state.getWebSockets("device")) ws.serializeAttachment({ ...ws.deserializeAttachment(), at: Date.now() - 91_000 });
+  });
 
 /** A host with one authorized (local) device, both connected; the host is ready unless told otherwise. */
 async function pair(o: { ready?: boolean } = {}) {
@@ -233,12 +239,23 @@ describe("presence and forwarding", () => {
     const { host, hostWs, dev } = await pair();
     await dev.nextT("presence");
     const { link } = await hostWs.nextT("open");
-    await runInDurableObject(stub(host), (_, state) => {
-      for (const ws of state.getWebSockets("device")) ws.serializeAttachment({ ...ws.deserializeAttachment(), at: Date.now() - 91_000 });
-    });
+    await ageDevices(host);
     await runDurableObjectAlarm(stub(host));
     expect(await dev.closed()).toBe(1011);
     expect(await hostWs.nextT("close")).toMatchObject({ link });
+  });
+
+  it("keeps a device socket that pings", async () => {
+    const { host, hostWs, dev } = await pair();
+    await dev.nextT("presence");
+    await hostWs.nextT("open");
+    await ageDevices(host);
+    dev.send(PING);
+    await dev.nextT("pong");
+    await runDurableObjectAlarm(stub(host));
+    await hostWs.none((m) => m.t === "close");
+    dev.send(PING);
+    expect(await dev.nextT("pong")).toEqual({ t: "pong" });
   });
 });
 
