@@ -24,7 +24,15 @@ pub fn draw(buf: &mut Buffer, area: Rect, app: &App, memory: &MemorySheet) {
             input_line(buf, body, body.y + 1, editor, "One short fact", true, false);
             "Enter save · Esc cancel"
         }
+        MemoryMode::File { detail, .. } => {
+            note(buf, body, app, memory, detail.as_ref());
+            "↑↓ version · ↵ bring it back · e edit · x delete · Esc back"
+        }
         MemoryMode::Browse => match memory.section {
+            Section::Notes => {
+                notes(buf, body, memory);
+                "←→ section · ↑↓ move · ↵ open · n new note · Esc close"
+            }
             Section::Yours | Section::Bot => {
                 entries(buf, body, app, memory);
                 "←→ section · ↑↓ move · n add · ↵ edit · p pin · a archive · x forget · s shared · D clear"
@@ -149,6 +157,75 @@ fn dreams(buf: &mut Buffer, body: Rect, memory: &MemorySheet) {
             .chain(d["archived"].as_array().into_iter().flatten().map(|c| format!("− {}", s(c, "text"))))
             .collect();
         put(buf, body.x, y + 1, body.width, &changes.join("  "), palette.dim.patch(palette.panel));
+    }
+}
+
+/// Both layers' long-form notes: name, where it lives, description, size and date, marked past a cap.
+fn notes(buf: &mut Buffer, body: Rect, memory: &MemorySheet) {
+    let palette = theme();
+    let Some(view) = &memory.view else { return };
+    put(
+        buf,
+        body.x,
+        body.y,
+        body.width,
+        "Longer notes, one topic each. The bot reads one when its topic comes up.",
+        palette.secondary.patch(palette.panel),
+    );
+    let rows = memory.rows();
+    if rows.is_empty() {
+        put(buf, body.x, body.y + 2, body.width, "No notes yet. n writes one.", palette.secondary);
+        return;
+    }
+    let cap = view["files"]["cap"].as_u64().unwrap_or(2_000);
+    let height = usize::from(body.height.saturating_sub(2)) / 2;
+    for (position, (index, f)) in rows.iter().enumerate().skip(window(memory.cursor, height)).take(height).enumerate() {
+        let y = body.y + 2 + u(position * 2);
+        let base = row(buf, body, y, index == memory.cursor);
+        let deleted = f["deleted"] == true;
+        let layer = if f["shared"] == true { "shared" } else { "this bot" };
+        let head = format!("{} · {layer}{}", s(f, "name"), if deleted { " · deleted" } else { "" });
+        put(buf, body.x, y, body.width, &head, if deleted { palette.dim } else { palette.text }.patch(base));
+        let tokens = f["tokens"].as_u64().unwrap_or(0);
+        let over = if tokens > cap && !deleted { format!(", over the {cap} cap") } else { String::new() };
+        let detail =
+            format!("{} · {tokens} tokens{over} · {}", s(f, "description"), when(f["updatedAt"].as_i64().unwrap_or(0)));
+        put(buf, body.x, y + 1, body.width, &detail, palette.dim.patch(palette.panel));
+    }
+}
+
+/// One note: what it holds, then its versions to bring one back.
+fn note(buf: &mut Buffer, body: Rect, app: &App, memory: &MemorySheet, detail: Option<&Value>) {
+    let palette = theme();
+    let Some(detail) = detail else {
+        put(buf, body.x, body.y, body.width, "Loading…", palette.dim.patch(palette.panel));
+        return;
+    };
+    put(buf, body.x, body.y, body.width, s(detail, "path"), palette.dim.patch(palette.panel));
+    let versions = detail["versions"].as_array().cloned().unwrap_or_default();
+    let listed = u(versions.len().min(6));
+    let text = Rect::new(body.x, body.y + 2, body.width, body.height.saturating_sub(4 + listed));
+    let content = detail["content"].as_str().unwrap_or("Deleted. Bring back a version below.");
+    Paragraph::new(content).wrap(Wrap { trim: false }).style(palette.text.patch(palette.panel)).render(text, buf);
+    let top = text.bottom() + 1;
+    put(buf, body.x, top, body.width, "Versions", palette.secondary.patch(palette.panel));
+    for (position, (index, v)) in versions.iter().enumerate().skip(window(memory.cursor, 6)).take(6).enumerate() {
+        let y = top + 1 + u(position);
+        let base = row(buf, body, y, index == memory.cursor);
+        let by = match s(v, "author") {
+            "user" => "You".to_owned(),
+            "bot" => name_of(app, s(v, "authorBot")),
+            "dream" => "Dreaming".to_owned(),
+            _ => "This computer".to_owned(),
+        };
+        let what = match s(v, "cause") {
+            "delete" => "deleted it",
+            "restore" => "brought back a version",
+            "undo" => "undid a change",
+            _ => "changed it",
+        };
+        let line = format!("{by} {what} · {}", when(v["at"].as_i64().unwrap_or(0)));
+        put(buf, body.x, y, body.width, &line, palette.text.patch(base));
     }
 }
 

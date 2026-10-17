@@ -78,6 +78,12 @@ impl App {
             Submit::Handoff(entry) => {
                 self.sheet("editHandoff", json!({"entryId": entry, "text": values["text"]}), Reply::FieldsSaved);
             }
+            Submit::MemoryFile { bot, shared, name, base } => {
+                let file = name.clone().map_or_else(|| values.get("file").cloned().unwrap_or_default(), Value::from);
+                let body =
+                    json!({"botId": bot, "file": file, "shared": shared, "content": values["content"], "base": base});
+                self.sheet("saveMemoryFile", body, Reply::FieldsSaved);
+            }
         }
     }
 }
@@ -102,5 +108,34 @@ pub fn handoff_fields(entry: &Entry) -> Fields {
         error: None,
         saving: false,
         submit: Submit::Handoff(entry.id.clone()),
+    }
+}
+
+/// Writes a long-form note: a new one (`name` none) or a change over what was loaded (`base`).
+pub fn memory_file_fields(bot: &str, shared: bool, name: Option<&str>, base: Option<String>, content: &str) -> Fields {
+    let input = |name: &str, label: &str, multiline: bool, placeholder: &str, text: &str| Input {
+        name: name.into(),
+        label: label.into(),
+        secret: false,
+        required: true,
+        multiline,
+        placeholder: placeholder.into(),
+        ed: Editor::with(text),
+    };
+    let mut inputs = Vec::new();
+    if name.is_none() {
+        inputs.push(input("file", "File name", false, "people.md", ""));
+    }
+    inputs.push(input("content", "Note", true, "", content));
+    Fields {
+        title: name.map_or_else(|| "New note".to_owned(), str::to_owned),
+        note: "Starts with a description: line saying when the bot should read it. ⇧↵ new line, ↵ saves.".into(),
+        choices: vec![],
+        choice: 0,
+        inputs,
+        cursor: 0,
+        error: None,
+        saving: false,
+        submit: Submit::MemoryFile { bot: bot.to_owned(), shared, name: name.map(str::to_owned), base },
     }
 }

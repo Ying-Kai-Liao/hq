@@ -84,6 +84,10 @@ impl App {
                         ConfirmAct::ClearMemory(id, shared) => {
                             self.call("clearMemory", json!({"botId": id, "shared": shared}), changed);
                         }
+                        ConfirmAct::DeleteMemoryFile { bot, shared, name, base } => {
+                            let body = json!({"botId": bot, "file": name, "shared": shared, "base": base});
+                            self.call("deleteMemoryFile", body, changed);
+                        }
                         ConfirmAct::DeleteRoutine(bot, id) => {
                             self.call("deleteRoutine", json!({"botId": bot, "id": id}), changed);
                         }

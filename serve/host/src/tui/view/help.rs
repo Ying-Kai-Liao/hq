@@ -34,7 +34,7 @@ const HELP: [(&str, &str, &str); 59] = [
     ("CHAT", "j k  ↵", "picking: move / open"),
     ("CHAT", "1…6", "picking: react"),
     ("CHAT", "f", "picking: save its files"),
-    ("CHAT", "o", "picking: show a summary or handoff"),
+    ("CHAT", "o", "picking: show a summary, handoff or note change"),
     ("CHAT", "e K", "picking a handoff: edit / keep the chat"),
     ("CHAT", "↵", "picking a bot message: open its conversation"),
     ("CHAT", "esc", "close the thread"),

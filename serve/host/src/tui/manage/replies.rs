@@ -32,11 +32,26 @@ impl App {
                     if let Overlay::Memory(m) = o
                         && m.bot == bot
                     {
-                        m.mode = MemoryMode::Browse;
+                        if let MemoryMode::Edit { .. } = m.mode {
+                            m.mode = MemoryMode::Browse;
+                        }
                         m.busy = false;
                     }
                 }
                 self.refresh_sheets();
+            }
+            Reply::MemoryFile(bot) => {
+                for o in &mut self.overlays {
+                    if let Overlay::Memory(m) = o
+                        && m.bot == bot
+                        && let MemoryMode::File { detail, .. } = &mut m.mode
+                    {
+                        let versions = v["versions"].as_array().map_or(0, Vec::len);
+                        *detail = Some(v.clone());
+                        m.cursor = m.cursor.min(versions.saturating_sub(1));
+                        m.busy = false;
+                    }
+                }
             }
             Reply::SkillDetails(id) => {
                 for o in &mut self.overlays {
@@ -239,7 +254,7 @@ impl App {
                     }
                 }
             }
-            Reply::Memory(_) | Reply::MemorySaved(_) | Reply::Routines(_) => {
+            Reply::Memory(_) | Reply::MemorySaved(_) | Reply::MemoryFile(_) | Reply::Routines(_) => {
                 for o in &mut self.overlays {
                     match o {
                         Overlay::Memory(m) => {
@@ -265,6 +280,9 @@ impl App {
             match o {
                 Overlay::Memory(m) => {
                     calls.push(("memory", m.body(), After::Sheet(Reply::Memory(m.bot.clone()))));
+                    if let Some(body) = m.file_body() {
+                        calls.push(("memoryFile", body, After::Sheet(Reply::MemoryFile(m.bot.clone()))));
+                    }
                 }
                 Overlay::Routines(l) => {
                     calls.push(("routines", json!({"botId": l.bot}), After::Sheet(Reply::Routines(l.bot.clone()))));

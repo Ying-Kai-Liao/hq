@@ -97,6 +97,13 @@ pub enum ConfirmAct {
     RotateRoutineKey(String, String),
     RemoveConnector(String),
     RemoveSkill(String),
+    /// A long-form memory note, over the content with hash `base`.
+    DeleteMemoryFile {
+        bot: String,
+        shared: bool,
+        name: String,
+        base: Option<String>,
+    },
 }
 
 pub struct Confirm {

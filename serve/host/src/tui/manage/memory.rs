@@ -3,6 +3,7 @@
 
 use super::super::app::{App, Confirm, ConfirmAct, Editor, Overlay};
 use super::Reply;
+use super::s;
 use crossterm::event::{KeyCode, KeyEvent};
 use serde_json::{Value, json};
 
@@ -10,18 +11,21 @@ use serde_json::{Value, json};
 pub enum Section {
     Yours,
     Bot,
+    /// Both layers' long-form files.
+    Notes,
     Dreams,
     /// The project folder's own memory (Claude Code's `MEMORY.md`), read-only.
     Project,
 }
 
 impl Section {
-    const ALL: [Self; 4] = [Self::Yours, Self::Bot, Self::Dreams, Self::Project];
+    const ALL: [Self; 5] = [Self::Yours, Self::Bot, Self::Notes, Self::Dreams, Self::Project];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Yours => "About you",
             Self::Bot => "This bot",
+            Self::Notes => "Notes",
             Self::Dreams => "Dreams",
             Self::Project => "Project memory",
         }
@@ -32,7 +36,7 @@ impl Section {
         match self {
             Self::Yours => Some(true),
             Self::Bot => Some(false),
-            Self::Dreams | Self::Project => None,
+            Self::Notes | Self::Dreams | Self::Project => None,
         }
     }
 }
@@ -55,6 +59,12 @@ pub enum MemoryMode {
         id: Option<i64>,
         editor: Editor,
     },
+    /// One note: what it holds and its versions (`detail`, once fetched). The cursor moves over the versions.
+    File {
+        name: String,
+        shared: bool,
+        detail: Option<Value>,
+    },
 }
 
 impl MemorySheet {
@@ -65,7 +75,15 @@ impl MemorySheet {
     pub fn editor(&mut self) -> Option<&mut Editor> {
         match &mut self.mode {
             MemoryMode::Edit { editor, .. } => Some(editor),
-            MemoryMode::Browse => None,
+            MemoryMode::Browse | MemoryMode::File { .. } => None,
+        }
+    }
+
+    /// The note sheet's fetch, when one is open.
+    pub fn file_body(&self) -> Option<Value> {
+        match &self.mode {
+            MemoryMode::File { name, shared, .. } => Some(json!({"botId": self.bot, "file": name, "shared": shared})),
+            _ => None,
         }
     }
 
@@ -76,6 +94,18 @@ impl MemorySheet {
             Section::Yours => &view["yours"]["entries"],
             Section::Bot => &view["bot"]["entries"],
             Section::Dreams => &view["dreams"],
+            Section::Notes => {
+                // This bot's own first, then the shared ones; each row says which.
+                let mut rows = Vec::new();
+                for (layer, shared) in [("bot", false), ("yours", true)] {
+                    for file in view["files"][layer]["files"].as_array().into_iter().flatten() {
+                        let mut file = file.clone();
+                        file["shared"] = shared.into();
+                        rows.push(file);
+                    }
+                }
+                return rows;
+            }
             Section::Project => return Vec::new(),
         };
         list.as_array().cloned().unwrap_or_default()
@@ -131,6 +161,9 @@ impl App {
     }
 
     pub(in crate::tui) fn memory_key(&mut self, mut m: MemorySheet, k: KeyEvent) -> Option<Overlay> {
+        if let MemoryMode::File { .. } = m.mode {
+            return self.note_key(m, k);
+        }
         if let MemoryMode::Edit { id, editor } = &mut m.mode {
             match k.code {
                 KeyCode::Esc => m.mode = MemoryMode::Browse,
@@ -170,6 +203,20 @@ impl App {
             }
             KeyCode::Char('n') if m.section.shared().is_some() => {
                 m.mode = MemoryMode::Edit { id: None, editor: Editor::default() };
+            }
+            KeyCode::Char('n') if m.section == Section::Notes => {
+                let fields = super::memory_file_fields(&m.bot, false, None, None, NOTE_TEMPLATE);
+                self.overlays.push(Overlay::Memory(m));
+                self.overlays.push(Overlay::Fields(Box::new(fields)));
+                return None;
+            }
+            KeyCode::Enter | KeyCode::Char('e') if m.section == Section::Notes && selected.is_some() => {
+                let file = selected.expect("checked above");
+                m.mode = MemoryMode::File { name: s(&file, "name"), shared: file["shared"] == true, detail: None };
+                m.cursor = 0;
+                if let Some(body) = m.file_body() {
+                    self.sheet("memoryFile", body, Reply::MemoryFile(m.bot.clone()));
+                }
             }
             KeyCode::Enter | KeyCode::Char('e') if entry.is_some() => {
                 let e = entry.expect("checked above");
@@ -239,4 +286,61 @@ impl App {
         }
         Some(Overlay::Memory(m))
     }
+
+    /// Keys on a note: read it, edit it, delete it, or bring back a version.
+    fn note_key(&mut self, mut m: MemorySheet, k: KeyEvent) -> Option<Overlay> {
+        let MemoryMode::File { name, shared, detail } = &m.mode else { return Some(Overlay::Memory(m)) };
+        let (name, shared) = (name.clone(), *shared);
+        let content = detail.as_ref().and_then(|d| d["content"].as_str()).map(str::to_owned);
+        let base = detail.as_ref().and_then(|d| d["hash"].as_str()).map(str::to_owned);
+        let versions = detail.as_ref().and_then(|d| d["versions"].as_array()).cloned().unwrap_or_default();
+        match k.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                m.mode = MemoryMode::Browse;
+                m.cursor = 0;
+            }
+            KeyCode::Down | KeyCode::Char('j') => m.cursor = (m.cursor + 1).min(versions.len().saturating_sub(1)),
+            KeyCode::Up | KeyCode::Char('k') => m.cursor = m.cursor.saturating_sub(1),
+            KeyCode::Char('e') if content.is_some() => {
+                let fields = super::memory_file_fields(
+                    &m.bot,
+                    shared,
+                    Some(&name),
+                    base,
+                    content.as_deref().unwrap_or_default(),
+                );
+                self.overlays.push(Overlay::Memory(m));
+                self.overlays.push(Overlay::Fields(Box::new(fields)));
+                return None;
+            }
+            KeyCode::Char('x') if content.is_some() && !m.busy => {
+                let c = Confirm {
+                    title: format!("Delete {name}?"),
+                    detail: "The bot no longer sees it.".into(),
+                    note: "Its versions stay, so you can bring it back.".into(),
+                    button: "Delete",
+                    act: ConfirmAct::DeleteMemoryFile { bot: m.bot.clone(), shared, name, base },
+                };
+                self.overlays.push(Overlay::Memory(m));
+                self.overlays.push(Overlay::Confirm(c));
+                return None;
+            }
+            KeyCode::Enter | KeyCode::Char('r') if !m.busy => {
+                if let Some(version) = versions
+                    .get(m.cursor)
+                    .filter(|v| v["content"].is_string() && v["content"].as_str() != content.as_deref())
+                {
+                    m.busy = true;
+                    let body =
+                        json!({"botId": m.bot, "file": name, "shared": shared, "version": version["id"], "base": base});
+                    self.sheet("restoreMemoryFile", body, Reply::MemorySaved(m.bot.clone()));
+                }
+            }
+            _ => {}
+        }
+        Some(Overlay::Memory(m))
+    }
 }
+
+/// What a new note starts with.
+const NOTE_TEMPLATE: &str = "---\ndescription: When to read this note\n---\n";

@@ -186,9 +186,7 @@ impl App {
             KeyCode::Enter if picked.as_ref().is_some_and(|e| e.data["connectionRequest"]["status"] == "pending") => {
                 self.open_connection();
             }
-            KeyCode::Char(c @ ('y' | 'n'))
-                if picked.as_ref().is_some_and(|e| e.data["memory"]["status"] == "pending") =>
-            {
+            KeyCode::Char(c @ ('y' | 'n')) if picked.as_ref().is_some_and(|e| memory_status(e) == Some("pending")) => {
                 if let Some(e) = picked {
                     self.call(
                         "answerMemory",
@@ -198,9 +196,7 @@ impl App {
                 }
             }
             KeyCode::Char('u')
-                if picked
-                    .as_ref()
-                    .is_some_and(|e| matches!(e.data["memory"]["status"].as_str(), Some("done" | "accepted"))) =>
+                if picked.as_ref().is_some_and(|e| matches!(memory_status(e), Some("done" | "accepted"))) =>
             {
                 if let Some(e) = picked {
                     self.call("undoMemory", json!({"entryId": e.id}), After::Answered(e.id.clone()));
@@ -297,6 +293,11 @@ impl App {
         copy(&text);
         self.flash("Copied the last reply");
     }
+}
+
+/// The status of a memory line: an entry's or a note's.
+fn memory_status(e: &super::Entry) -> Option<&str> {
+    e.data["memory"]["status"].as_str().or_else(|| e.data["memoryFile"]["status"].as_str())
 }
 
 #[cfg(test)]
