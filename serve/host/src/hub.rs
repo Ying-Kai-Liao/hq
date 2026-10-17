@@ -39,6 +39,9 @@ pub struct Runtime {
     pub started_at: Option<i64>,
     /// Where the running turn talks: its own chat, a thread, or a group.
     pub lane: Option<Lane>,
+    /// The user's message that started the running turn; `None` for a turn a routine, a room or another bot
+    /// started. Memory cites it as where a fact was learned.
+    pub message: Option<String>,
     pub fast_mode: crate::agent::config::FastModeSupport,
 }
 
@@ -118,6 +121,7 @@ impl Hub {
     pub fn start(self: &Arc<Self>) -> Result<()> {
         // Approval cards and queued sends from a previous run can't be honored anymore.
         self.store.expire_pending()?;
+        crate::chat::memory::import_old_memory(self);
         self.routines.restore(&self.store)?;
         crate::market::turn_on_installed_once(&self.store)?;
         for row in self.store.bots()? {
@@ -247,6 +251,9 @@ impl Hub {
             self.store.save_bot(&cfg)?;
         }
         if !cfg.is_group() {
+            if crate::chat::memory::shared(&cfg) != crate::chat::memory::shared(&row.config) {
+                crate::chat::memory::changed(self, Some(&id), crate::chat::memory::Change::User);
+            }
             self.send_cmd(&id, Cmd::Reconfigure(Box::new(cfg)))?;
         }
         self.emit_bot(&id);

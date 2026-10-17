@@ -9,9 +9,9 @@
 //! agent compacts its context (a `compaction_update`) or a new session starts.
 //! Profile edits in between are announced once as an `<agent_profile_update>`
 //! block on the next message and folded into the snapshot after the next
-//! compaction. Memory learned in between reaches the prompt the same way.
+//! compaction. Memory learned in between reaches the prompt the same way; a change
+//! the user makes is also told on the next message (see `memory::change_notice`).
 
-use crate::chat::memory::{self, Memory};
 use crate::store::{BotConfig, Store};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -92,7 +92,7 @@ fn save(store: &Store, bot_id: &str, s: &Snapshot) -> Result<()> {
 }
 
 /// The snapshot for `session` at its current epoch, rendering a fresh one when
-/// the stored one belongs to another session or an earlier epoch. Reads memory files.
+/// the stored one belongs to another session or an earlier epoch.
 pub fn resolve(store: &Store, cfg: &BotConfig, session: &str) -> Result<Snapshot> {
     let epoch = epoch(store, &cfg.id, session);
     let stored = load(store, &cfg.id, session);
@@ -141,7 +141,7 @@ pub fn adopt(store: &Store, cfg: &BotConfig, session: &str, system: String) -> R
     Ok(s)
 }
 
-/// The bot's instructions, rendered live. Reads memory files.
+/// The bot's instructions, rendered live.
 pub fn render(store: &Store, cfg: &BotConfig) -> String {
     let name = cfg.name.trim();
     let mut lines = vec!["Agent profile:".to_owned()];
@@ -173,13 +173,10 @@ pub fn render(store: &Store, cfg: &BotConfig) -> String {
         lines.push(skills);
     }
     let mut out = lines.join("\n");
-    match Memory::for_bot(&cfg.id).and_then(|mem| Ok((mem.recall(memory::RECENT_PROMPT_LIMIT)?, mem))) {
-        Ok((recall, mem)) => {
-            let (section, _) = memory::render(&recall, mem.location());
-            out.push_str("\n\n");
-            out.push_str(&section);
-        }
-        Err(error) => tracing::warn!(bot = %cfg.id, error = format!("{error:#}"), "no memory folder"),
+    let memory = crate::chat::memory::opening(store, cfg);
+    if !memory.is_empty() {
+        out.push_str("\n\n");
+        out.push_str(&memory);
     }
     out
 }

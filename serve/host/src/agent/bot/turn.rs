@@ -50,7 +50,7 @@ impl Actor {
             !hidden && self.active_request.is_none() && self.active_group.is_none() && self.active_routine.is_none();
         self.turn_text = from_user.then(|| text.to_owned());
         self.turn_entries = if from_user { entry_ids.to_vec() } else { Vec::new() };
-        self.turn_memory_revision = memory::maintenance::revision(&self.hub.store, &self.cfg.id);
+        self.turn_memory_revision.clear();
         self.announce = None;
         self.stop_requested = false;
         self.cancel_deadline = None;
@@ -73,6 +73,7 @@ impl Actor {
             r.activity = if hidden { "Picking up where it left off…" } else { "Starting…" }.into();
             r.started_at = Some(now_ms());
             r.lane = Some(lane.clone());
+            r.message = if from_user { entry_ids.last().cloned() } else { None };
         });
 
         let slot = self.slot(&lane);
@@ -103,6 +104,7 @@ impl Actor {
                 r.activity = String::new();
                 r.started_at = None;
                 r.lane = None;
+                r.message = None;
             });
             return Ok(());
         }
@@ -120,24 +122,17 @@ impl Actor {
         }
         let claude = self.conn.as_ref().is_some_and(|c| c.claude);
         let sid = self.turn_session.clone().ok_or_else(|| anyhow!("no session"))?;
-        self.memory_session = match memory::lifecycle::begin(&self.hub, &self.cfg.id, &sid).await {
-            Ok(session) => Some(session),
-            Err(error) => {
-                self.memory_unavailable(&error);
-                None
-            }
-        };
-        if from_user
-            && let Some(session) = &self.memory_session
-            && let Err(error) = memory::lifecycle::capture_prompt(&self.cfg.id, session, text).await
-        {
-            tracing::warn!(bot = %self.cfg.id, %error, "memory prompt capture failed");
-        }
         let snapshot = self.snapshot(&sid).await?;
         let remind_files = !snapshot.system.contains("send_file");
         let mut prompt = text.to_owned();
-        if let Some(notice) = memory::lifecycle::change_notice(&self.hub, &self.cfg.id, &sid) {
+        if self.session_fresh {
+            // A new session's instructions already hold memory as it is now.
+            let revision = memory::current_revision(&self.hub.store, &self.cfg.id);
+            memory::mark_announced(&self.hub.store, &self.cfg.id, &sid, &revision)?;
+        }
+        if let Some((notice, revision)) = memory::change_notice(&self.hub.store, &self.cfg, &sid) {
             prompt = format!("{notice}\n\n{prompt}");
+            self.turn_memory_revision = revision;
         }
         if let Some(intro) = self.thread_intro.take() {
             prompt = format!("{intro}\n\n{prompt}");
@@ -169,7 +164,8 @@ impl Actor {
         }
         // Written before this returns, so a Stop right after is sent after the prompt.
         let answer = acp.send("session/prompt", params).await?;
-        if let Err(error) = memory::lifecycle::mark_announced(&self.hub, &self.cfg.id, &sid, &self.turn_memory_revision)
+        if !self.turn_memory_revision.is_empty()
+            && let Err(error) = memory::mark_announced(&self.hub.store, &self.cfg.id, &sid, &self.turn_memory_revision)
         {
             tracing::warn!(%error, "could not acknowledge memory update notice");
         }
@@ -306,22 +302,16 @@ impl Actor {
         {
             tracing::warn!(bot = %self.cfg.id, error = format!("{error:#}"), "couldn't record the profile update");
         }
-        if let (Some(user), Some(agent), "end_turn") = (self.turn_text.take(), &final_text, stop_reason.as_str())
-            && memory::is_memorable(&user)
-        {
-            let _ = self.keeper.send(memory::KeeperEvent::Exchange(memory::Exchange {
-                user,
-                agent: agent.clone(),
-                at: now_ms(),
-                session: self.memory_session.clone().unwrap_or_default(),
-                revision: self.turn_memory_revision.clone(),
-            }));
+        if let (Some(user), Some(agent), "end_turn") = (self.turn_text.take(), &final_text, stop_reason.as_str()) {
+            let turn = crate::chat::naming::Turn { user, agent: agent.clone() };
+            let _ = self.dreamer.send(memory::DreamEvent::Turn(turn));
         }
         self.hub.set_runtime(&self.id(), |r| {
             r.status = if failed { BotStatus::Error } else { BotStatus::Idle };
             r.activity = String::new();
             r.started_at = None;
             r.lane = None;
+            r.message = None;
         });
         self.hub.team.cancel_from(&self.cfg.id);
         // A room turn's news comes from the group once the room is done (see `group`).

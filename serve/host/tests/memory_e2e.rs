@@ -1,14 +1,13 @@
-//! A real host and a checksum-verified Engram release, with isolated disposable data.
+//! Bot memory on a real host with disposable data: moving the old memory, the user's edits, a bot's writes by
+//! its permission, and dreaming.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 #[allow(dead_code)]
 mod common;
 
-use base64::Engine as _;
 use serde_json::{Value, json};
 use std::{
-    fmt::Write as _,
     path::PathBuf,
     process::Child,
     time::{Duration, Instant},
@@ -30,187 +29,239 @@ impl Drop for Host {
 
 impl Host {
     async fn start() -> Self {
-        assert!(common::engram_fixture().is_some(), "needs the pinned Engram binary");
         let home = std::env::temp_dir().join(format!("codync-memory-e2e-{}", uuid::Uuid::new_v4()));
-        common::seed_memory_runtime(&home);
         let (child, base) = common::serve(&home).await;
         let token = std::fs::read_to_string(home.join("token")).unwrap().trim().to_owned();
         Self { child, home, base, token }
     }
 
-    async fn call(&self, method: &str, body: Value) -> Value {
+    /// Stops the host, lets `between` change its files, and starts it again on the same data.
+    async fn restart(&mut self, between: impl FnOnce(&std::path::Path)) {
+        common::stop(&mut self.child);
+        between(&self.home);
+        let (child, base) = common::serve(&self.home).await;
+        self.child = child;
+        self.base = base;
+    }
+
+    async fn post(&self, method: &str, body: &Value) -> (bool, Value) {
         let response = reqwest::Client::new()
             .post(format!("{}/api/{method}", self.base))
             .bearer_auth(&self.token)
-            .json(&body)
+            .json(body)
             .timeout(Duration::from_secs(120))
             .send()
             .await
             .unwrap();
-        let status = response.status();
-        let body: Value = response.json().await.unwrap();
-        assert!(status.is_success(), "{method}: {body}");
+        let ok = response.status().is_success();
+        (ok, response.json().await.unwrap())
+    }
+
+    async fn call(&self, method: &str, body: Value) -> Value {
+        let (ok, body) = self.post(method, &body).await;
+        assert!(ok, "{method}: {body}");
         body
     }
 
-    async fn bot(&self, name: &str) -> String {
-        self.call("createBot", json!({"name":name, "backend":"custom", "command":"unused", "connectors":[]}))
-            .await["bot"]["id"].as_str().unwrap().to_owned()
+    /// A call that must be refused: its error text.
+    async fn refused(&self, method: &str, body: Value) -> String {
+        let (ok, body) = self.post(method, &body).await;
+        assert!(!ok, "{method} should have been refused: {body}");
+        body["error"].as_str().unwrap_or_default().to_owned()
+    }
+
+    async fn bot(&self, name: &str, permission: &str) -> String {
+        let bot =
+            json!({"name": name, "backend": "custom", "command": "unused", "connectors": [], "permission": permission});
+        self.call("createBot", bot).await["bot"]["id"].as_str().unwrap().to_owned()
+    }
+
+    async fn memory(&self, bot: &str) -> Value {
+        self.call("memory", json!({"botId": bot})).await
+    }
+
+    async fn tool(&self, bot: &str, name: &str, arguments: Value) -> Value {
+        self.call("memoryCall", json!({"botId": bot, "name": name, "arguments": arguments})).await
+    }
+
+    async fn tool_refused(&self, bot: &str, name: &str, arguments: Value) -> String {
+        self.refused("memoryCall", json!({"botId": bot, "name": name, "arguments": arguments})).await
+    }
+
+    /// The newest memory line in a bot's chat.
+    async fn card(&self, bot: &str) -> Value {
+        let history = self.call("history", json!({"botId": bot})).await;
+        history["entries"].as_array().unwrap().iter().rev().find(|e| e["data"]["memory"].is_object()).unwrap().clone()
     }
 }
 
-#[tokio::test]
-#[ignore = "requires the pinned Engram release at CODYNC_TEST_ENGRAM"]
-async fn migrate_manage_backup_and_forget_without_cross_bot_reads() {
-    let host = Host::start().await;
-    let a = host.bot("Memory A").await;
-    let b = host.bot("Memory B").await;
-    let legacy = host.home.join("bots").join(&a).join("memory");
-    std::fs::create_dir_all(legacy.join("log")).unwrap();
-    let mut facts = String::new();
-    for i in 0..65 {
-        writeln!(facts, "- (2026-01-01) 台灣繁體中文偏好 {i}").unwrap();
-    }
-    std::fs::write(legacy.join("profile.md"), &facts).unwrap();
-    std::fs::write(legacy.join("log/2026-02.md"), "- (2026-02-02) 發布 Codync\n").unwrap();
-
-    let first = host.call("memory", json!({"botId":a,"offset":0})).await;
-    assert_eq!(first["total"], 66);
-    assert_eq!(first["facts"].as_array().unwrap().len(), 50);
-    assert_eq!(first["nextOffset"], 50);
-    let legacy_client = host.call("memory", json!({"botId":a})).await;
-    assert_eq!(legacy_client["facts"].as_array().unwrap().len(), 66, "older clients cannot paginate");
-    let search = host.call("memory", json!({"botId":a, "query":"台灣繁體中文"})).await;
-    assert_eq!(search["total"], 65, "UI search must not inherit the MCP top-20 cap");
-    let short = host.call("memory", json!({"botId":a, "query":"台灣", "offset":50})).await;
-    assert_eq!(short["facts"].as_array().unwrap().len(), 15);
-    assert!(short["nextOffset"].is_null());
-    assert_eq!(host.call("memory", json!({"botId":b, "query":"台灣"})).await["total"], 0);
-    assert_eq!(std::fs::read_to_string(legacy.join("profile.md")).unwrap(), facts);
-    let one = &first["facts"][0];
-    assert_eq!(one["createdAt"], 1_767_225_600_000_i64);
-    let id = one["id"].as_str().unwrap();
-    host.call("saveMemory", json!({"botId":a,"id":id,"title":"Updated preference","content":"Prefers English now","scope":"personal","memoryType":"learning"})).await;
-    host.call("pinMemory", json!({"botId":a,"id":id,"pinned":true})).await;
-    let pinned = host.call("memory", json!({"botId":a,"filter":"pinned"})).await;
-    assert_eq!(pinned["total"], 1);
-    let detail = host.call("memoryDetail", json!({"botId":a,"id":id})).await;
-    assert!(detail["history"]["result"].as_str().unwrap().contains("台灣繁體中文"));
-    let exported = host.call("exportMemory", json!({"botId":a})).await;
-    let backup: Value = serde_json::from_str(exported["json"].as_str().unwrap()).unwrap();
-    assert_eq!(backup["observations"].as_array().unwrap().len(), 66);
-    host.call("forgetMemory", json!({"botId":a,"id":id})).await;
-    assert_eq!(host.call("memory", json!({"botId":a,"filter":"pinned"})).await["total"], 0);
-    let native_session = format!("codync-{a}:codync-background");
-    let prompt = host.call("memoryCall", json!({"botId":a,"name":"mem_save_prompt","arguments":{"session_id":native_session,"content":"UNIQUE_SECRET_CAPTURE"}})).await;
-    assert_ne!(prompt["isError"], true);
-    host.call("clearMemory", json!({"botId":a})).await;
-    let cleared = host.call("exportMemory", json!({"botId":a})).await;
-    let cleared: Value = serde_json::from_str(cleared["json"].as_str().unwrap()).unwrap();
-    assert!(!cleared.to_string().contains("UNIQUE_SECRET_CAPTURE"));
-    assert_eq!(cleared["observations"], json!([]));
-    assert_eq!(host.call("memory", json!({"botId":a})).await["total"], 0);
-    // Import into another bot's isolated store, then search the source content.
-    host.call("importMemory", json!({"botId":b,"json":exported["json"]})).await;
-    assert_eq!(host.call("memory", json!({"botId":b})).await["total"], 66);
-    assert_eq!(
-        host.call("memory", json!({"botId":a})).await["total"],
-        0,
-        "legacy files must not resurrect cleared facts"
-    );
+fn texts(layer: &Value, state: &str) -> Vec<String> {
+    layer["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["state"] == state)
+        .map(|e| e["text"].as_str().unwrap().to_owned())
+        .collect()
 }
 
 #[tokio::test]
-#[ignore = "requires the pinned Engram release at CODYNC_TEST_ENGRAM"]
-async fn large_backups_round_trip_through_chunked_transport() {
-    let host = Host::start().await;
-    let bot = host.bot("Large backup").await;
-    let session = "external-session";
-    let observations: Vec<Value> = (0..80)
-        .map(|i| {
-            json!({
-                "id":i+1, "sync_id":format!("large-{i}"), "session_id":session,
-                "project":"external-project", "title":format!("Durable fact {i}"), "type":"learning", "scope":"project",
-                "content":format!("Record {i}: {}", "long-lived knowledge ".repeat(500)),
-                "created_at":"2026-01-01T00:00:00Z", "updated_at":"2026-01-01T00:00:00Z",
-            })
-        })
-        .collect();
-    let backup = serde_json::to_vec(&json!({"version":"0.2.0", "sessions":[{
-        "id":session,"project":"external-project","directory":"", "started_at":"2026-01-01T00:00:00Z"
-    }],"observations":observations,"prompts":[]}))
-    .unwrap();
-    assert!(backup.len() > 384 * 1024);
-    let upload = uuid::Uuid::new_v4().to_string();
-    for (index, chunk) in backup.chunks(384 * 1024).enumerate() {
-        let offset = index * 384 * 1024;
-        host.call(
-            "upload",
-            json!({"botId":bot,"uploadId":upload,"name":"backup.json","offset":offset,
-            "data":base64::engine::general_purpose::STANDARD.encode(chunk),"done":offset+chunk.len()==backup.len()}),
+async fn moves_old_memory_once_and_keeps_the_layers_apart() {
+    let mut host = Host::start().await;
+    let a = host.bot("Memory A", "auto").await;
+    let b = host.bot("Memory B", "auto").await;
+    let (legacy, engram) =
+        (host.home.join("bots").join(&a).join("memory"), host.home.join("bots").join(&b).join("engram"));
+    host.restart(|_| {
+        // Markdown from before Engram for A; an Engram database for B.
+        std::fs::create_dir_all(legacy.join("log")).unwrap();
+        std::fs::write(legacy.join("profile.md"), "- (2026-01-01) 偏好繁體中文\n- (2026-01-02) Lives in Taipei\n")
+            .unwrap();
+        std::fs::write(legacy.join("log/2026-02.md"), "- (2026-02-02) Shipped Codync\n").unwrap();
+        std::fs::create_dir_all(&engram).unwrap();
+        let db = rusqlite::Connection::open(engram.join("engram.db")).unwrap();
+        db.execute_batch(
+            "CREATE TABLE observations (id INTEGER PRIMARY KEY, content TEXT, scope TEXT, pinned INTEGER,
+                created_at TEXT, type TEXT, deleted_at TEXT);
+             INSERT INTO observations (content, scope, pinned, created_at, type, deleted_at) VALUES
+                ('Has a daughter named Mei', 'personal', 1, '2026-03-01 10:00:00', 'learning', NULL),
+                ('[note] Uses vim keybindings', 'project', 0, '2026-03-02 10:00:00', 'discovery', NULL),
+                ('A forgotten fact', 'personal', 0, '2026-03-03 10:00:00', 'learning', '2026-03-04 10:00:00'),
+                ('What one session did', 'project', 0, '2026-03-05 10:00:00', 'session_summary', NULL);",
         )
-        .await;
-    }
-    host.call("importMemory", json!({"botId":bot,"uploadId":upload})).await;
-    assert_eq!(host.call("memory", json!({"botId":bot})).await["total"], 80);
-    let result = host.call("exportMemory", json!({"botId":bot})).await;
-    let upload = result["uploadId"].as_str().expect("large export must use chunks");
-    let mut bytes = Vec::new();
-    loop {
-        let part = host.call("readUpload", json!({"botId":bot,"uploadId":upload,"offset":bytes.len()})).await;
-        bytes.extend(base64::engine::general_purpose::STANDARD.decode(part["data"].as_str().unwrap()).unwrap());
-        if bytes.len() as u64 == part["size"].as_u64().unwrap() {
-            break;
-        }
-    }
-    let exported: Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(exported["observations"].as_array().unwrap().len(), 80);
-    for fact in exported["observations"].as_array().unwrap() {
-        assert_eq!(fact["project"], format!("codync-{bot}"));
-        assert!(fact["content"].as_str().unwrap().len() > 9_000);
-    }
+        .unwrap();
+    })
+    .await;
+
+    let view = host.memory(&a).await;
+    assert_eq!(texts(&view["bot"], "active"), ["Lives in Taipei", "偏好繁體中文"]);
+    assert_eq!(texts(&view["bot"], "archived"), ["Shipped Codync"], "log entries stay searchable");
+    assert_eq!(view["bot"]["entries"][0]["author"], "imported");
+    assert!(!legacy.exists(), "the old files go once moved");
+    let view = host.memory(&b).await;
+    assert_eq!(texts(&view["bot"], "active"), ["Has a daughter named Mei"]);
+    assert_eq!(texts(&view["bot"], "archived"), ["Uses vim keybindings"]);
+    assert_eq!(view["bot"]["entries"][0]["pinned"], true);
+    assert!(!engram.exists());
+    host.restart(|_| {}).await;
+    assert_eq!(host.memory(&a).await["bot"]["entries"].as_array().unwrap().len(), 3, "nothing moves twice");
+
+    // A shared fact reaches every bot that uses the shared layer; a bot's own stays with it.
+    host.call("saveMemory", json!({"botId": a, "shared": true, "text": "Time zone is Asia/Taipei"})).await;
+    let own = host.call("saveMemory", json!({"botId": b, "text": "Reviews PRs on Fridays"})).await;
+    let own = own["entry"]["id"].as_i64().unwrap();
+    let view = host.memory(&a).await;
+    assert_eq!(view["shared"], true, "a bot in its own workspace uses the shared layer");
+    assert_eq!(texts(&view["yours"], "active"), ["Time zone is Asia/Taipei"]);
+    assert!(!view.to_string().contains("Reviews PRs"));
+    assert!(host.refused("forgetMemory", json!({"botId": a, "id": own})).await.contains("No such memory"));
+
+    host.call("pinMemory", json!({"botId": b, "id": own, "pinned": true})).await;
+    host.call("archiveMemory", json!({"botId": b, "id": own, "archived": true})).await;
+    assert_eq!(texts(&host.memory(&b).await["bot"], "archived").len(), 2);
+    host.call("archiveMemory", json!({"botId": b, "id": own, "archived": false})).await;
+    assert_eq!(texts(&host.memory(&b).await["bot"], "active")[0], "Reviews PRs on Fridays", "pinned first");
+    host.call("forgetMemory", json!({"botId": b, "id": own})).await;
+    host.call("clearMemory", json!({"botId": a, "shared": true})).await;
+    let view = host.memory(&b).await;
+    assert!(view["yours"]["entries"].as_array().unwrap().is_empty());
+    assert!(!view.to_string().contains("Reviews PRs"));
 }
 
 #[tokio::test]
-#[ignore = "requires the pinned Engram release at CODYNC_TEST_ENGRAM"]
-async fn new_session_flushes_automatic_facts_and_native_summary() {
+async fn bots_write_memory_by_their_permission() {
+    let host = Host::start().await;
+    let auto = host.bot("Auto", "auto").await;
+    let ask = host.bot("Ask", "ask").await;
+
+    // A bot that acts on its own writes at once, and the chat says so with an undo.
+    let saved = host.tool(&auto, "remember", json!({"text": "Prefers short replies"})).await;
+    assert_eq!(saved["status"], "saved");
+    let card = host.card(&auto).await;
+    assert_eq!(card["data"]["memory"]["status"], "done");
+    assert_eq!(card["data"]["text"], "Remembered: Prefers short replies");
+    assert_eq!(texts(&host.memory(&auto).await["bot"], "active"), ["Prefers short replies"]);
+    host.call("undoMemory", json!({"entryId": card["id"]})).await;
+    assert_eq!(host.card(&auto).await["data"]["memory"]["status"], "undone");
+    assert!(host.memory(&auto).await["bot"]["entries"].as_array().unwrap().is_empty());
+    let again = host.tool_refused(&auto, "remember", json!({"text": "prefers short replies."})).await;
+    assert!(again.contains("deleted this memory before"), "{again}");
+
+    // What the user wrote stays theirs; secrets never go in.
+    let mine = host.call("saveMemory", json!({"botId": auto, "text": "Has two cats"})).await;
+    let mine = mine["entry"]["id"].as_i64().unwrap();
+    let revise = host.tool_refused(&auto, "revise_memory", json!({"id": mine, "text": "Has three cats"})).await;
+    assert!(revise.contains("only the user"), "{revise}");
+    let secret = host.tool_refused(&auto, "remember", json!({"text": "The Wi-Fi password is hunter22"})).await;
+    assert!(secret.contains("never stored"), "{secret}");
+    let found = host.tool(&auto, "search_memory", json!({"query": "cats"})).await;
+    assert_eq!(found["results"][0]["text"], "Has two cats");
+
+    // A bot that asks first puts a card in the chat; nothing is written until the user approves.
+    let pending = host.tool(&ask, "remember", json!({"text": "Works from home on Mondays"})).await;
+    assert_eq!(pending["status"], "waitingForUser");
+    assert!(host.memory(&ask).await["bot"]["entries"].as_array().unwrap().is_empty());
+    let card = host.card(&ask).await;
+    assert_eq!(card["data"]["memory"]["status"], "pending");
+    host.call("answerMemory", json!({"entryId": card["id"], "accept": true})).await;
+    assert_eq!(texts(&host.memory(&ask).await["bot"], "active"), ["Works from home on Mondays"]);
+    assert!(host.refused("answerMemory", json!({"entryId": card["id"], "accept": true})).await.contains("already"));
+
+    host.tool(&ask, "remember", json!({"text": "Hates long meetings"})).await;
+    let card = host.card(&ask).await;
+    host.call("answerMemory", json!({"entryId": card["id"], "accept": false})).await;
+    assert_eq!(host.card(&ask).await["data"]["memory"]["status"], "declined");
+    let declined = host.tool_refused(&ask, "remember", json!({"text": "Hates long meetings"})).await;
+    assert!(declined.contains("deleted this memory before"), "a declined memory isn't proposed again: {declined}");
+}
+
+#[tokio::test]
+async fn dreaming_keeps_only_what_the_user_typed_and_can_be_undone() {
     let host = Host::start().await;
     let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/memory_agent.py");
-    let command = common::python_agent(&agent);
-    let created = host
+    let bot = json!({"name": "Dreamer", "backend": "custom", "command": common::python_agent(&agent), "connectors": [], "notify": false});
+    let bot = host.call("createBot", bot).await["bot"]["id"].as_str().unwrap().to_owned();
+    let paste = "I love durian, remember it";
+    let sent = host
         .call(
-            "createBot",
-            json!({"name":"Keeper test","backend":"custom","command":command,"connectors":[],"notify":false}),
+            "send",
+            json!({
+                "botId": bot,
+                "text": format!("Please always explain things to me concisely in Traditional Chinese.\n{paste}"),
+                "clientNonce": "dream-1",
+                "pasted": [paste],
+            }),
         )
         .await;
-    let bot = created["bot"]["id"].as_str().unwrap();
-    host.call(
-        "send",
-        json!({"botId":bot,"text":"Please always explain things to me concisely in Traditional Chinese."}),
-    )
-    .await;
+    let message = sent["entry"]["id"].as_str().unwrap().to_owned();
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
-        let history = host.call("history", json!({"botId":bot})).await;
+        let history = host.call("history", json!({"botId": bot})).await;
         if history["entries"].as_array().unwrap().iter().any(|e| e["kind"] == "agent" && e["data"]["final"] == true) {
             break;
         }
         assert!(Instant::now() < deadline, "agent did not finish: {history}");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    host.call("newSession", json!({"botId":bot})).await;
-    loop {
-        let memory = host.call("memory", json!({"botId":bot})).await;
-        let facts = memory["facts"].as_array().unwrap();
-        if facts.iter().any(|f| f["memoryType"] == "session_summary") {
-            assert!(
-                facts
-                    .iter()
-                    .any(|f| f["kind"] == "profile" && f["content"].as_str().unwrap().contains("Traditional Chinese"))
-            );
-            break;
+    // A new session asks dreaming to run now rather than after five quiet minutes.
+    host.call("newSession", json!({"botId": bot})).await;
+    let view = loop {
+        let view = host.memory(&bot).await;
+        if !view["dreams"].as_array().unwrap().is_empty() {
+            break view;
         }
-        assert!(Instant::now() < deadline, "keeper did not save summary: {memory}");
+        assert!(Instant::now() < deadline, "dreaming didn't run: {view}");
         tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    };
+    assert_eq!(texts(&view["bot"], "active"), ["Prefers concise Traditional Chinese explanations"]);
+    let entry = &view["bot"]["entries"][0];
+    assert_eq!(entry["author"], "dream");
+    assert_eq!(entry["evidence"], json!([message]), "it cites the message it learned from");
+    assert!(!view.to_string().contains("durian"), "pasted text isn't the user's own words");
+
+    let dream = view["dreams"][0]["id"].as_i64().unwrap();
+    host.call("undoDream", json!({"botId": bot, "id": dream})).await;
+    let view = host.memory(&bot).await;
+    assert!(view["bot"]["entries"].as_array().unwrap().is_empty());
+    assert_eq!(view["dreams"][0]["undone"], true);
 }

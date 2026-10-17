@@ -107,7 +107,7 @@ impl Actor {
                 let id = u["compactionId"].as_str().unwrap_or_default();
                 match context::bump_epoch(&self.hub.store, &self.cfg.id, sid, id) {
                     Ok(true) => {
-                        let _ = self.keeper.send(crate::chat::memory::KeeperEvent::Flush);
+                        let _ = self.dreamer.send(crate::chat::memory::DreamEvent::Flush);
                         self.notice("Earlier context was summarized to make room.", NoticeStyle::Info);
                     }
                     Ok(false) => {}

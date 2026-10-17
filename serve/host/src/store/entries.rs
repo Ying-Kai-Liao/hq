@@ -198,6 +198,28 @@ impl Store {
         Ok(rows)
     }
 
+    /// Messages in all of `bot_id`'s own lanes (its chat and threads) after `after_seq`, oldest first: the
+    /// user's, and final replies. Dreaming reads these.
+    pub fn conversation_since(&self, bot_id: &str, after_seq: i64, limit: i64) -> Result<Vec<Entry>> {
+        let c = self.db.locked();
+        let mut st = c.prepare(&format!(
+            "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND seq > ?2 AND
+               (kind = 'user' OR (kind = 'agent' AND json_extract(data, '$.final') = 1))
+             ORDER BY seq LIMIT ?3"
+        ))?;
+        Ok(st.query_map(params![bot_id, after_seq, limit], row_entry)?.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The newest entry of a bot's chat and threads.
+    pub fn last_seq(&self, bot_id: &str) -> i64 {
+        let c = self.db.locked();
+        logged(
+            "last seq",
+            c.query_row("SELECT COALESCE(MAX(seq), 0) FROM entries WHERE bot_id = ?1", [bot_id], |r| r.get(0)),
+        )
+        .unwrap_or(0)
+    }
+
     /// Chat-visible messages (the user's, final replies) in `lane` after `after_seq`, oldest first.
     pub fn messages_after(&self, lane: &Lane, after_seq: i64, limit: i64) -> Result<Vec<Entry>> {
         let c = self.db.locked();

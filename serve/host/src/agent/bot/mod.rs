@@ -7,8 +7,8 @@
 //! "full conversation" sheet, and surface live as the roster activity line.
 //!
 //! Context (from Grok Bot too): the bot's instructions and memory are a frozen
-//! snapshot per session and compaction epoch (`context`), finished exchanges feed
-//! its memory keeper (`memory`), messages sent while it works are folded into
+//! snapshot per session and compaction epoch (`context`), finished turns feed
+//! its dreaming (`memory`), messages sent while it works are folded into
 //! its next turn, and a turn cut off by a host restart is resumed.
 //!
 //! Lanes: besides its own chat, a bot talks in threads (each a session of its own,
@@ -113,7 +113,7 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig) -> BotHandle {
         (now_ms() - started < STALE_RESUME_MS)
             .then(|| Lane { chat: cfg.id.clone(), thread: (!thread.is_empty()).then(|| thread.to_owned()) })
     });
-    let keeper = memory::spawn_keeper(hub.clone(), cfg.id.clone());
+    let dreamer = memory::spawn_dreamer(hub.clone(), cfg.id.clone());
     let lane = Lane::main(&cfg.id);
     let fast_support = FastModeSupport::from_stored(hub.store.kv_get(&fast_mode::stored_key(&cfg.id)).as_deref());
     let support = fast_support.clone();
@@ -134,11 +134,9 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig) -> BotHandle {
         routine_completion: None,
         session_fresh: false,
         applied_system: HashMap::new(),
-        keeper,
+        dreamer,
         turn_text: None,
         turn_entries: Vec::new(),
-        memory_session: None,
-        memory_warned: false,
         turn_memory_revision: String::new(),
         announce: None,
         turn: None,
@@ -227,14 +225,12 @@ struct Actor {
     session_fresh: bool,
     /// Session -> the instructions this process last handed Claude as its system prompt.
     applied_system: HashMap<String, String>,
-    keeper: mpsc::UnboundedSender<memory::KeeperEvent>,
+    dreamer: mpsc::UnboundedSender<memory::DreamEvent>,
     /// The user's words for this turn (None for a hidden turn or one not from the user); feeds memory.
     turn_text: Option<String>,
     /// The user messages this turn answers (none when it isn't the user's).
     turn_entries: Vec<String>,
-    memory_session: Option<String>,
-    /// The user was told memory is unavailable.
-    memory_warned: bool,
+    /// The memory change this turn's notice told the agent about (see `memory::change_notice`).
     turn_memory_revision: String,
     /// A profile update this turn carried, recorded once the agent got it.
     announce: Option<(Snapshot, Identity)>,

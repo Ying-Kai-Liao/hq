@@ -134,10 +134,6 @@ impl Actor {
     /// Makes sure the agent runs and `slot`'s session (main, or a thread's) is live;
     /// sets `turn_session`. A thread without one forks the main session when it can.
     pub(super) async fn ensure_session(&mut self, slot: Option<&str>) -> Result<()> {
-        // Memory is best-effort: a bot without it still answers.
-        if let Err(error) = crate::chat::memory::prepare(&self.cfg.id).await {
-            self.memory_unavailable(&error);
-        }
         if !self.cfg.connectors.is_empty()
             || self.hub.store.kv_read(&format!("agent-env:{}", self.cfg.backend))?.is_some()
         {
@@ -159,7 +155,11 @@ impl Actor {
             .await?;
             self.hub.set_runtime(&self.id(), |r| r.activity = "Starting agent…".into());
             // Keys saved from an "environment variable" sign-in.
-            let env = crate::agent::auth::env(&self.hub.store, &self.cfg.backend)?;
+            let mut env = crate::agent::auth::env(&self.hub.store, &self.cfg.backend)?;
+            if crate::agent::workspace::is_managed(&self.cfg) {
+                // Codync's memory is the only one a bot in its own workspace has (see `claude_meta`).
+                env.push(("CLAUDE_CODE_DISABLE_AUTO_MEMORY".into(), "1".into()));
+            }
             let mut last_err = None;
             for (i, command) in candidates.iter().enumerate() {
                 let fallback_left = i + 1 < candidates.len();
@@ -190,7 +190,13 @@ impl Actor {
         {
             self.hub.set_runtime(&self.cfg.id, |r| r.activity = "Opening the thread…".into());
             let res = self
-                .session_request("session/fork", json!({"sessionId": main, "cwd": self.cfg.cwd, "mcpServers": servers}))
+                .session_request("session/fork", {
+                    let mut params = json!({"sessionId": main, "cwd": self.cfg.cwd, "mcpServers": servers});
+                    if claude {
+                        params["_meta"] = json!({"claudeCode": claude_options(&self.cfg)});
+                    }
+                    params
+                })
                 .await
                 .ok();
             if let Some(res) = res
@@ -235,7 +241,7 @@ impl Actor {
             self.hub.set_runtime(&self.cfg.id, |r| r.activity = "Resuming session…".into());
             let mut params = json!({"sessionId": sid, "cwd": self.cfg.cwd, "mcpServers": servers});
             if let Some(s) = &snapshot {
-                params["_meta"] = system_meta(&s.system);
+                params["_meta"] = claude_meta(&self.cfg, &s.system);
             }
             let res = self.session_request("session/load", params).await;
             let Some(conn) = self.conn.as_mut() else { return res.map(drop) };
@@ -277,7 +283,7 @@ impl Actor {
         };
         let mut params = json!({"cwd": self.cfg.cwd, "mcpServers": servers});
         if claude {
-            params["_meta"] = system_meta(&system);
+            params["_meta"] = claude_meta(&self.cfg, &system);
         }
         let res = self.session_request("session/new", params).await?;
         let Some(conn) = self.conn.as_mut() else { bail!("agent not running") };
@@ -312,17 +318,6 @@ impl Actor {
         Err(acp::Failure::error(acp::FailureKind::Timeout, message))
     }
 
-    /// Memory failed to start: said once per actor, then the bot works without it.
-    pub(super) fn memory_unavailable(&mut self, error: &anyhow::Error) {
-        tracing::warn!(bot = %self.cfg.id, error = format!("{error:#}"), "memory unavailable");
-        if !std::mem::replace(&mut self.memory_warned, true) {
-            self.notice(
-                &format!("Memory is unavailable; the bot works without it for now. {error:#}"),
-                NoticeStyle::Info,
-            );
-        }
-    }
-
     /// Drops the main ACP session so the next turn starts a fresh one.
     pub(super) fn forget_session(&mut self) {
         self.set_session(None, None);
@@ -332,9 +327,20 @@ impl Actor {
 /// How long `session/new`, `session/load` and `session/fork` may take.
 const SESSION_TIMEOUT: Duration = Duration::from_secs(180);
 
-/// Claude's `_meta`: the bot's instructions appended to Claude Code's own system prompt.
-fn system_meta(system: &str) -> Value {
-    json!({"systemPrompt": {"append": system}})
+/// Claude's `_meta`: the bot's instructions appended to Claude Code's own system prompt, and its options.
+fn claude_meta(cfg: &BotConfig, system: &str) -> Value {
+    json!({"systemPrompt": {"append": system}, "claudeCode": claude_options(cfg)})
+}
+
+/// Claude Code's own memory stays off where Codync's is the bot's only one (a bot in its own workspace); in a
+/// project folder it is the project's working memory and stays on. Its auto-dream rewrites memory with no log, so
+/// it is off everywhere ([design](../../../../docs/design/bot-memory.md#claude-codes-own-memory)).
+fn claude_options(cfg: &BotConfig) -> Value {
+    let mut settings = json!({"autoDreamEnabled": false});
+    if crate::agent::workspace::is_managed(cfg) {
+        settings["autoMemoryEnabled"] = false.into();
+    }
+    json!({"options": {"settings": settings}})
 }
 
 /// Shell commands that may start the bot's agent over ACP, best first.

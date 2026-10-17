@@ -71,7 +71,7 @@ impl Actor {
                 }
                 self.forget_session();
                 // Retain and summarize completed exchanges even when the user starts afresh.
-                let _ = self.keeper.send(memory::KeeperEvent::Flush);
+                let _ = self.dreamer.send(memory::DreamEvent::Flush);
                 self.notice("New session — the agent starts with a fresh context.", NoticeStyle::Divider);
             }
             Cmd::Reconfigure(cfg) => {
@@ -254,6 +254,7 @@ impl Actor {
             r.activity = "Couldn't start".into();
             r.started_at = None;
             r.lane = None;
+            r.message = None;
         });
         self.hub.team.cancel_from(&self.cfg.id);
     }
