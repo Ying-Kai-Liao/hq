@@ -5,6 +5,7 @@
 #   hq doctor                     check the install: links, repos, agents, services, plugin, background jobs
 #   hq backup [--yes|--check|--nightly [off]]   everything to private GitHub repos, making the missing ones; --check says what isn't; --nightly at 03:00 (hq-state)
 #   hq ls                         list agents
+#   hq who <words>                which agent owns this work: skills, tools, "Not yours" lines searched (hq-who)
 #   hq <agent> [-p ID] [-m MODEL] [-e EFFORT] [task...]  interactive without a task, one-shot with one
 #   hq <agent> --print [...]      show the assembled system prompt, don't run
 #   hq <agent> --inspect          start one run and report what it loads (tools, MCP servers, skills, plugins)
@@ -61,6 +62,7 @@ case $1 in
   new)                shift; exec "$HQ/bin/hq-new" "$@" ;;
   remote)             shift; exec "$HQ/bin/hq-remote" "${@:---help}" ;;
   memory)             shift; exec "$HQ/bin/hq-memory" "${@:---help}" ;;
+  who)                shift; exec "$HQ/bin/hq-who" "${@:---help}" ;;
   project)            shift; exec "$HQ/bin/hq-project" "$@" ;;
   schedule)           shift; exec "$HQ/bin/hq-sched" "${@:-ls}" ;;
 esac
@@ -178,7 +180,7 @@ s.setdefault("hooks", {}).setdefault("SessionStart", []).append(
 sec = os.environ["HQ_SECRETS"]   # a folder of its own, or (the older layout) two files among the machine things
 files = ["%s/**" % sec] if sec != os.environ["HQ_MACHINE"] else ["%s/env" % sec, "%s/auth.json" % sec]
 s.setdefault("permissions", {}).setdefault("deny", []).extend(
-    "%s(/%s)" % (tool, f) for f in files for tool in ("Read", "Edit", "Write"))
+    "%s(/%s)" % (tool, f) for f in files for tool in ("Read", "Edit"))   # Edit covers every file-writing tool
 allow = s["permissions"].setdefault("allow", [])
 allow.extend(r for r in dict.fromkeys("Edit(/%s/**)" % d for d in os.environ["WRITABLE"].split("\n")) if r not in allow)
 json.dump(s, sys.stdout, indent=1)' > "$runs/$$.settings.json"
@@ -196,7 +198,18 @@ while IFS=$'\t' read -r _ h; do
   [[ -n $h && $h != - ]] && h=${h/#\~/$HOME} && [[ -d $h ]] && dirs+=(--add-dir "$h")
 done <<< "$info
 $held"
-args=(--append-system-prompt "$prompt" "${dirs[@]}" --settings "$runs/$$.settings.json" --allowedTools "Bash($HQ/bin/project-id)" "Bash($HQ/bin/project-id --list)" "Bash($HQ/bin/project-id --info:*)" "Bash($HQ/bin/project-id --children:*)" "Bash($HQ/bin/hq-memory search:*)")
+# The read-only kernel commands PROTOCOL tells agents to run, allowed without a prompt. Under every path the kernel
+# has (logical, resolved, ~/hq/kernel) and, since a path with a space gets quoted, with the program in quotes too.
+readonly_cmds=("project-id" "project-id --list" "project-id --info:*" "project-id --children:*" "hq-memory search:*" "hq-who:*")
+allowed=()
+while IFS= read -r base; do
+  [[ -n $base && -d $base/bin ]] || continue
+  for c in "${readonly_cmds[@]}"; do
+    name=${c%%[ :]*}; rest=${c#"$name"}
+    allowed+=("Bash($base/bin/$c)" "Bash(\"$base/bin/$name\"$rest)")
+  done
+done < <(printf '%s\n' "$HQ" "$hq_real" "$HQ_HOME/kernel" | awk '!seen[$0]++')
+args=(--append-system-prompt "$prompt" "${dirs[@]}" --settings "$runs/$$.settings.json" --allowedTools "${allowed[@]}")
 # Each agent carries only its own tools: the shared services it needs and is granted (hq-auth), its own mcp.json
 # for servers no one else uses, and no global skills unless capabilities.yaml says global_skills: true. Its own
 # skills are files it reads on demand. A broken auth.json costs the agent its services, not the run.

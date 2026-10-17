@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""hq-who — which agent owns this work? Search the agents by what they do.
+
+  hq-who <words> [-n N] [--json]    the agents that best match, the line that matched, and how to call each
+
+Reads every installed agent's own files afresh (nothing to index or keep up to date): its description, its skills
+table and each skill's name and description, its tools (capabilities.yaml), and its "Not yours" section. A "Not
+yours" line counts for the agent it names, not the one it is written in ("music beds → sound" is sound's). Rarer
+words weigh more; a word matches its plural and longer forms (skill, skills; build, builder). An agent's name in the
+words says whose, not what work, so it is ignored unless it is all there is. Inside an hq run
+($HQ_AGENT set) your own entry is marked "(you)".
+"""
+import json, math, os, re, sys
+from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+from hq_paths import paths  # noqa: E402  the one place that knows where hq's folders are
+
+STOP = set('''a an the to of for in on at by and or but my me i we you your our it its this that these those is are
+be can could do does did who what which how where when why with from into about please want need would should will
+some any one thing things someone something hq use used make'''.split())
+WEIGHT = {'description': 3.0, 'skill': 2.0, 'not-yours': 2.0, 'tools': 1.0}
+
+
+def agents():
+    """{name: its package folder (role/)}"""
+    out = {}
+    root = paths()['HQ_AGENTS']
+    for d in sorted(root.iterdir()) if root.is_dir() else []:
+        for pkg in (d / 'role', d):
+            if (pkg / 'agent.md').is_file():
+                out[d.name] = pkg
+                break
+    return out
+
+
+def frontmatter(text, key):
+    m = re.search(r'^---\n(.*?)\n---', text, re.S)
+    f = re.search(rf'^{key}:\s*(.*)$', m.group(1), re.M) if m else None
+    return f.group(1).strip().strip('"\'') if f else ''
+
+
+def section(text, title):
+    m = re.search(rf'^## {title}[^\n]*\n(.*?)(?=^## |\Z)', text, re.S | re.M)
+    return m.group(1) if m else ''
+
+
+def entries(name, pkg, names):
+    """(owner, kind, text) lines that describe what each agent does."""
+    text = (pkg / 'agent.md').read_text(errors='replace')
+    yield name, 'description', frontmatter(text, 'description')
+    for row in section(text, 'Your skills').splitlines():
+        cells = [c.strip() for c in row.strip().strip('|').split('|')]
+        if row.startswith('|') and len(cells) >= 2 and not set(cells[0]) <= set('-: ') and cells[0] != 'Task' \
+                and not cells[0].startswith('Skills you wrote'):
+            yield name, 'skill', f"{cells[0]} ({cells[1].replace('`', '')})"
+    skills = pkg / 'skills'
+    for f in sorted(skills.glob('*/SKILL.md')) + sorted(skills.glob('learned/*/SKILL.md')):
+        t = f.read_text(errors='replace')
+        yield name, 'skill', f"{frontmatter(t, 'name') or f.parent.name}: {frontmatter(t, 'description')}"
+    caps = pkg / 'capabilities.yaml'
+    if caps.is_file():
+        m = re.search(r'^tools:\s*(.*)$', caps.read_text(errors='replace'), re.M)
+        if m:
+            yield name, 'tools', m.group(1).split('#')[0].strip()
+    # "Not yours": each sentence goes to the agents it names; one naming no agent stays a hint about this one's limits.
+    for part in re.split(r'(?<=\.)\s+|\n(?=\S)', section(text, 'Not yours')):
+        part = ' '.join(part.split())
+        owners = [n for n in names if n != name and re.search(rf'(?<![\w-]){re.escape(n)}(?![\w-])', part)]
+        for o in owners:
+            yield o, 'not-yours', f'{part}  (from {name}\'s "Not yours")'
+
+
+def stem(w):
+    for suf in ('ies', 'es', 's', 'ing', 'ed', 'er'):
+        if len(w) > len(suf) + 3 and w.endswith(suf):
+            return w[:-len(suf)] + ('y' if suf == 'ies' else '')
+    return w
+
+
+def terms(text):
+    return re.findall(r'[a-z0-9]+|[㐀-鿿豈-﫿]+', text.lower())
+
+
+def matches(term, words, raw):
+    if re.match(r'[㐀-鿿]', term):
+        return term in raw
+    t = stem(term)
+    return any(w == t or (len(t) >= 4 and w.startswith(t)) or (len(w) >= 4 and t.startswith(w)) for w in words)
+
+
+def main(argv):
+    if not argv or argv[0] in ('-h', '--help'):
+        print(__doc__.strip())
+        return 0
+    limit, as_json, words = 3, False, []
+    it = iter(argv)
+    for a in it:
+        if a == '-n':
+            limit = int(next(it, 3))
+        elif a == '--json':
+            as_json = True
+        else:
+            words.append(a)
+    query = [w for w in dict.fromkeys(terms(' '.join(words))) if w not in STOP]
+    if not query:
+        print('hq-who: say what the work is, e.g. hq who rebuild a reference video', file=sys.stderr)
+        return 1
+    found = agents()
+    # "add a skill to the video agent": an agent's name says whose, not what the work is. Keep it only when
+    # nothing else is left ("hq who video").
+    rest = [q for q in query if q not in found and q not in ('agent', 'agents')]
+    if rest:
+        query = rest
+    lines = [e for n, p in found.items() for e in entries(n, p, list(found)) if e[2]]
+    # Match on the words, not the file paths in them (every skills row ends in "<name>/SKILL.md").
+    indexed = [(o, k, t, {stem(w) for w in terms(re.sub(r'[\w./-]*SKILL\.md', '', t))}) for o, k, t in lines]
+    # Rarer words weigh more: a word in every agent's text tells nothing about which one owns the work.
+    df = {q: len({o for o, _, t, ws in indexed if matches(q, ws, t.lower())}) for q in query}
+    idf = {q: math.log(1 + len(found) / df[q]) if df[q] else 0 for q in query}
+
+    scored = {}
+    for owner, kind, text, ws in indexed:
+        hit = [q for q in query if matches(q, ws, text.lower())]
+        if hit:
+            s = WEIGHT[kind] * sum(idf[q] for q in hit) * (1 + 0.5 * (len(hit) - 1))
+            scored.setdefault(owner, []).append((s, kind, text, hit))
+    ranked = []
+    for owner, hits in scored.items():
+        hits.sort(key=lambda h: -h[0])
+        total = hits[0][0] + 0.25 * sum(h[0] for h in hits[1:3])
+        ranked.append((total, owner, hits[:2]))
+    ranked.sort(key=lambda r: -r[0])
+    if ranked:
+        ranked = [r for r in ranked if r[0] >= 0.5 * ranked[0][0]][:limit]
+    me = os.environ.get('HQ_AGENT', '')
+
+    if as_json:
+        print(json.dumps([{'agent': o, 'score': round(s, 2), 'call': f'hq:{o}',
+                           'matched': [{'kind': k, 'text': t} for _, k, t, _ in h]} for s, o, h in ranked],
+                         ensure_ascii=False, indent=1))
+        return 0
+    if not ranked:
+        print(f'No agent does "{" ".join(words)}". Ask builder to make or extend one: hq:builder')
+        return 0
+    for s, owner, hits in ranked:
+        print(f"{owner}{' (you)' if owner == me else ''}  → hq:{owner}  (terminal: hq {owner} \"task\")")
+        for _, kind, text, _ in hits:
+            print(f'    {kind}: {text[:160]}{"…" if len(text) > 160 else ""}')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))
