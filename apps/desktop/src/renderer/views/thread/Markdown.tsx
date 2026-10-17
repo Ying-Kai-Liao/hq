@@ -36,7 +36,7 @@ function emphasis(text: string, key: string): ReactNode[] {
     if (m[1] !== undefined) {
       const url = m[2]!
       out.push(
-        <a key={k} href={url} onClick={(e) => { e.preventDefault(); window.codync.app.openExternal(url) }} style={{ color: 'var(--accent)', textDecoration: 'none', cursor: 'pointer' }}>
+        <a key={k} href={url} title={url} onClick={(e) => { e.preventDefault(); window.codync.app.openExternal(url) }} style={{ color: 'var(--accent)', textDecoration: 'underline', textUnderlineOffset: '0.15em', cursor: 'pointer' }}>
           {emphasis(m[1], `${k}-`)}
         </a>,
       )

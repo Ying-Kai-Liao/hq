@@ -5,6 +5,16 @@ listing what iPhone users notice. tools/asc-submit.py reads the released version
 a version without one gets a generic "Bug fixes and improvements" line. Delete old sections.
 -->
 
+## 2.17.5
+
+### zh-Hant
+
+- 對話中的連結加上底線，在淺色與深色模式下都更容易辨識與點選。
+
+### en-US
+
+- Links in conversations are now underlined, making them easier to recognize and tap in both light and dark mode.
+
 ## 2.17.2
 
 ### zh-Hant
