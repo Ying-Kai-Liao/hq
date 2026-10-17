@@ -23,7 +23,7 @@ mod session;
 mod turn;
 mod updates;
 
-pub(crate) use session::{launch_commands, select_model, start_agent};
+pub(crate) use session::{launch_commands, select_model, start_agent, system_prompt};
 
 use crate::agent::acp::{Acp, Incoming};
 use crate::agent::config::FastModeSupport;
@@ -35,7 +35,7 @@ use crate::store::{BotConfig, Entry, EntryKind, Lane, now_ms};
 use anyhow::{Result, anyhow};
 use serde::Serialize;
 use serde_json::{Value, json};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -133,6 +133,7 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig) -> BotHandle {
         routine_timed_out: false,
         routine_completion: None,
         session_fresh: false,
+        profile_resend: HashSet::new(),
         applied_system: HashMap::new(),
         dreamer,
         turn_text: None,
@@ -166,6 +167,8 @@ fn activity(title: &str) -> &str {
 }
 
 /// What the agent can do with sessions besides creating them.
+// Each flag is one capability the agent advertised at `initialize`, independent of the others.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy)]
 struct SessionCaps {
     /// `session/load`: resume a session after a restart.
@@ -174,6 +177,19 @@ struct SessionCaps {
     fork: bool,
     /// `session/close`: an idle session can be released while the agent keeps running.
     close: bool,
+    /// ACP `systemPrompt`: instructions on `session/new`, `load` and `fork` that the agent keeps at system level.
+    system_prompt: bool,
+}
+
+/// How the bot's instructions (identity and memory) reach the agent.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Instructions {
+    /// Claude's adapter: `_meta.systemPrompt`, swapped in by loading the session again.
+    ClaudeMeta,
+    /// ACP `systemPrompt` (append), which the agent keeps across compaction.
+    SystemPrompt,
+    /// A `<bot-profile>` block before the first message, sent again after a compaction.
+    FirstMessage,
 }
 
 pub(crate) struct Conn {
@@ -187,6 +203,23 @@ pub(crate) struct Conn {
     started: Instant,
     /// Each live session's Fast mode option, as the agent last listed it.
     fast_options: HashMap<String, Value>,
+    /// The agent reports compactions (`compaction_update`); until it does, a fall in usage stands in for them.
+    reports_compaction: bool,
+    /// Each session's context use at its last `usage_update`.
+    used: HashMap<String, u64>,
+}
+
+impl Conn {
+    pub(crate) fn instructions(&self) -> Instructions {
+        // Claude's adapter rebuilds the standard field without the `_meta` object's options, so Claude stays on it.
+        if self.claude {
+            Instructions::ClaudeMeta
+        } else if self.sessions.system_prompt {
+            Instructions::SystemPrompt
+        } else {
+            Instructions::FirstMessage
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -223,6 +256,9 @@ struct Actor {
     routine_completion: Option<RoutineCompletion>,
     /// True until the first prompt of a new ACP session has been sent.
     session_fresh: bool,
+    /// Sessions that compacted away the `<bot-profile>` their first message carried; their next prompt carries
+    /// a fresh one.
+    profile_resend: HashSet<String>,
     /// Session -> the instructions this process last handed Claude as its system prompt.
     applied_system: HashMap<String, String>,
     dreamer: mpsc::UnboundedSender<memory::DreamEvent>,

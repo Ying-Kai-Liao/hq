@@ -1,5 +1,5 @@
 //! Bot memory on a real host with disposable data: moving the old memory, the user's edits, a bot's writes by
-//! its permission, and dreaming.
+//! its permission, dreaming, and how the instructions holding memory reach each kind of harness.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -86,6 +86,52 @@ impl Host {
 
     async fn tool_refused(&self, bot: &str, name: &str, arguments: Value) -> String {
         self.refused("memoryCall", json!({"botId": bot, "name": name, "arguments": arguments})).await
+    }
+
+    /// A bot running `tests/fixtures/<fixture>` with `args`.
+    async fn fixture_bot(&self, name: &str, fixture: &str, args: &str) -> String {
+        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(fixture);
+        let command = format!("{} {args}", common::python_agent(&script));
+        let bot = json!({"name": name, "backend": "custom", "command": command, "connectors": [], "notify": false});
+        self.call("createBot", bot).await["bot"]["id"].as_str().unwrap().to_owned()
+    }
+
+    /// Sends `text` and waits for the bot's reply.
+    async fn reply(&self, bot: &str, text: &str) {
+        let finals = |history: &Value| {
+            history["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|e| e["kind"] == "agent" && e["data"]["final"] == true)
+                .count()
+        };
+        let before = finals(&self.call("history", json!({"botId": bot})).await);
+        let nonce = uuid::Uuid::new_v4().to_string();
+        self.call("send", json!({"botId": bot, "text": text, "clientNonce": nonce})).await;
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let history = self.call("history", json!({"botId": bot})).await;
+            if finals(&history) > before {
+                return;
+            }
+            assert!(Instant::now() < deadline, "{bot} didn't answer {text:?}: {history}");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    /// The requests `instructions_agent.py` logged in a bot's workspace.
+    fn requests(&self, bot: &str, method: &str) -> Vec<Value> {
+        let log = std::fs::read_to_string(self.home.join("bots").join(bot).join("workspace/requests.jsonl")).unwrap();
+        log.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).filter(|r| r["method"] == method).collect()
+    }
+
+    /// The text of every prompt a bot's agent got, oldest first.
+    fn prompts(&self, bot: &str) -> Vec<String> {
+        self.requests(bot, "session/prompt")
+            .iter()
+            .map(|r| r["params"]["prompt"][0]["text"].as_str().unwrap().to_owned())
+            .collect()
     }
 
     /// The newest memory line in a bot's chat.
@@ -274,4 +320,44 @@ async fn dreaming_keeps_only_what_the_user_typed_and_can_be_undone() {
     let view = host.memory(&bot).await;
     assert_eq!(view["bot"]["entries"], json!([]));
     assert_eq!(view["dreams"][0]["undone"], true);
+}
+
+#[tokio::test]
+async fn instructions_reach_every_harness_and_survive_compaction() {
+    let host = Host::start().await;
+    let profile_again = "replaces any earlier bot profile";
+
+    // An agent with ACP's systemPrompt gets the instructions there, not in a message.
+    let standard = host.fixture_bot("Standard", "instructions_agent.py", "standard").await;
+    host.call("saveMemory", json!({"botId": standard, "text": "Allergic to peanuts"})).await;
+    host.reply(&standard, "hello").await;
+    let new = &host.requests(&standard, "session/new")[0]["params"];
+    assert_eq!(new["systemPrompt"]["mode"], "append");
+    let system = new["systemPrompt"]["content"][0]["text"].as_str().unwrap();
+    assert!(system.contains("Standard") && system.contains("Allergic to peanuts"), "{system}");
+    assert!(!host.prompts(&standard)[0].contains("<bot-profile>"));
+
+    // Others get it in the first message, and again once after the agent reports a compaction.
+    let reporting = host.fixture_bot("Reporting", "instructions_agent.py", "reporting").await;
+    host.reply(&reporting, "hello").await;
+    host.reply(&reporting, "COMPACT_NOW").await;
+    host.reply(&reporting, "after").await;
+    host.reply(&reporting, "later").await;
+    assert!(host.requests(&reporting, "session/new")[0]["params"].get("systemPrompt").is_none());
+    let prompts = host.prompts(&reporting);
+    assert!(prompts[0].contains("<bot-profile>") && !prompts[0].contains(profile_again), "{}", prompts[0]);
+    assert!(!prompts[1].contains("<bot-profile>"));
+    assert!(prompts[2].contains("<bot-profile>") && prompts[2].contains(profile_again), "{}", prompts[2]);
+    assert!(!prompts[3].contains("<bot-profile>"), "only once");
+
+    // An agent that doesn't report compactions shows them as its context use halving.
+    let silent = host.fixture_bot("Silent", "instructions_agent.py", "silent").await;
+    host.reply(&silent, "USAGE 90000").await;
+    host.reply(&silent, "USAGE 70000").await;
+    host.reply(&silent, "steady").await;
+    host.reply(&silent, "USAGE 9000").await;
+    host.reply(&silent, "after").await;
+    let prompts = host.prompts(&silent);
+    assert!(!prompts[2].contains("<bot-profile>"), "a small fall isn't a compaction");
+    assert!(prompts[4].contains(profile_again), "{}", prompts[4]);
 }

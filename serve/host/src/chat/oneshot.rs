@@ -1,6 +1,7 @@
 //! Background jobs on the bot's own harness (dreaming, automatic naming): one prompt to a throwaway agent.
 
 use crate::agent::acp::{self, Acp, Incoming};
+use crate::agent::bot::Instructions;
 use crate::hub::Hub;
 use crate::store::BotConfig;
 use anyhow::{Result, anyhow, bail};
@@ -36,14 +37,19 @@ pub async fn one_shot(hub: &Arc<Hub>, cfg: &BotConfig, system: &str, user: &str)
     let acp = conn.acp.clone();
     let result = async {
         let mut params = json!({"cwd": cwd, "mcpServers": []});
-        let text = if conn.claude {
-            params["_meta"] = json!({
-                "systemPrompt": system,
-                "claudeCode": {"options": {"tools": [], "persistSession": false, "settingSources": [], "model": "haiku"}},
-            });
-            user.to_owned()
-        } else {
-            format!("{system}\n\n---\n\n{user}")
+        let text = match conn.instructions() {
+            Instructions::ClaudeMeta => {
+                params["_meta"] = json!({
+                    "systemPrompt": system,
+                    "claudeCode": {"options": {"tools": [], "persistSession": false, "settingSources": [], "model": "haiku"}},
+                });
+                user.to_owned()
+            }
+            Instructions::SystemPrompt => {
+                params["systemPrompt"] = crate::agent::bot::system_prompt(system);
+                user.to_owned()
+            }
+            Instructions::FirstMessage => format!("{system}\n\n---\n\n{user}"),
         };
         let res = acp.request("session/new", params).await?;
         let sid = res["sessionId"].as_str().ok_or_else(|| anyhow!("agent returned no sessionId"))?.to_owned();

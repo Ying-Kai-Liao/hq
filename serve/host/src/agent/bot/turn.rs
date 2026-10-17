@@ -1,6 +1,6 @@
 //! Starting a turn and wrapping it up: final reply, notices, replies to waiters, alerts and memory.
 
-use super::{Actor, Done, NoticeStyle, Queued, Seg};
+use super::{Actor, Conn, Done, Instructions, NoticeStyle, Queued, Seg};
 use crate::agent::acp::{self, Incoming};
 use crate::analytics::{self, TurnOutcome, TurnSource};
 use crate::chat::context::{self, Snapshot};
@@ -12,6 +12,9 @@ use anyhow::{Context, Result, anyhow};
 use serde_json::json;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+
+/// Leads a `<bot-profile>` sent again after a compaction, so the agent drops an older copy it may still hold.
+const PROFILE_AGAIN: &str = "Your context was summarized. This is your full, current profile and memory; it replaces any earlier bot profile in this conversation.";
 
 impl Actor {
     /// This session's frozen instructions (reads memory files when re-rendering).
@@ -120,13 +123,15 @@ impl Actor {
                 }
             }
         }
-        let claude = self.conn.as_ref().is_some_and(|c| c.claude);
+        let instructions = self.conn.as_ref().map_or(Instructions::FirstMessage, Conn::instructions);
         let sid = self.turn_session.clone().ok_or_else(|| anyhow!("no session"))?;
-        let snapshot = self.snapshot(&sid).await?;
+        let mut snapshot = self.snapshot(&sid).await?;
         let remind_files = !snapshot.system.contains("send_file");
         let mut prompt = text.to_owned();
-        if self.session_fresh {
-            // A new session's instructions already hold memory as it is now.
+        // A compaction may have dropped the profile the session's first message carried.
+        let resend = instructions == Instructions::FirstMessage && self.profile_resend.remove(&sid);
+        if self.session_fresh || resend {
+            // The instructions about to reach the agent hold memory as it is now.
             let revision = memory::current_revision(&self.hub.store, &self.cfg.id);
             memory::mark_announced(&self.hub.store, &self.cfg.id, &sid, &revision)?;
         }
@@ -137,12 +142,12 @@ impl Actor {
         if let Some(intro) = self.thread_intro.take() {
             prompt = format!("{intro}\n\n{prompt}");
         }
-        if self.session_fresh {
-            self.session_fresh = false;
-            // Claude already has the instructions as its system prompt.
-            if !claude {
-                prompt = format!("<bot-profile>\n{}\n</bot-profile>\n\n{prompt}", snapshot.system);
-            }
+        if std::mem::take(&mut self.session_fresh) && instructions == Instructions::FirstMessage {
+            prompt = format!("<bot-profile>\n{}\n</bot-profile>\n\n{prompt}", snapshot.system);
+        } else if resend {
+            context::mark_announced(&self.hub.store, &self.cfg.id, &snapshot, snapshot.system_identity.clone())?;
+            snapshot.announced = snapshot.system_identity.clone();
+            prompt = format!("<bot-profile>\n{PROFILE_AGAIN}\n\n{}\n</bot-profile>\n\n{prompt}", snapshot.system);
         }
         if let Some((update, identity)) = context::profile_update(&self.hub.store, &snapshot, &self.cfg) {
             prompt = format!("{prompt}\n\n{update}");

@@ -1,7 +1,7 @@
 //! Agent → client: `session/update`s, permission requests and streamed text mapped onto entries.
 
 use super::fast_mode::Listing;
-use super::{Actor, NoticeStyle, Seg, SegKind};
+use super::{Actor, Instructions, NoticeStyle, Seg, SegKind};
 use crate::agent::acp::{self, Incoming};
 use crate::chat::context;
 use crate::hub::BotStatus;
@@ -45,6 +45,35 @@ impl Actor {
                     let _ = acp.respond_error(id, -32601, &format!("{method} is not supported by Codync")).await;
                 }
             }
+        }
+    }
+
+    /// The agent summarized its context: the next turn gets freshly rendered instructions and memory (see
+    /// `context`), and a harness that got them in its first message gets them again.
+    fn compacted(&mut self, id: &str) {
+        let Some(sid) = self.turn_session.clone() else { return };
+        match context::bump_epoch(&self.hub.store, &self.cfg.id, &sid, id) {
+            Ok(true) => {
+                if self.conn.as_ref().is_some_and(|c| c.instructions() == Instructions::FirstMessage) {
+                    self.profile_resend.insert(sid);
+                }
+                let _ = self.dreamer.send(crate::chat::memory::DreamEvent::Flush);
+                self.notice("Earlier context was summarized to make room.", NoticeStyle::Info);
+            }
+            Ok(false) => {}
+            Err(error) => {
+                tracing::warn!(bot = %self.cfg.id, error = format!("{error:#}"), "couldn't record the compaction");
+            }
+        }
+    }
+
+    /// An agent that doesn't report compactions still shows them in its usage.
+    fn track_usage(&mut self, used: u64) {
+        let Some(sid) = self.turn_session.clone() else { return };
+        let Some(conn) = self.conn.as_mut() else { return };
+        let before = conn.used.insert(sid, used);
+        if !conn.reports_compaction && compacted_by_usage(before, used) {
+            self.compacted(&format!("usage-{}", crate::store::now_ms()));
         }
     }
 
@@ -100,26 +129,21 @@ impl Actor {
                     self.set_activity(super::activity(&title));
                 }
             }
-            // The agent summarized its context: the next turn gets freshly rendered
-            // instructions and memory (see `context`).
-            "compaction_update" if u["status"] == "completed" => {
-                let Some(sid) = &self.turn_session else { return };
-                let id = u["compactionId"].as_str().unwrap_or_default();
-                match context::bump_epoch(&self.hub.store, &self.cfg.id, sid, id) {
-                    Ok(true) => {
-                        let _ = self.dreamer.send(crate::chat::memory::DreamEvent::Flush);
-                        self.notice("Earlier context was summarized to make room.", NoticeStyle::Info);
-                    }
-                    Ok(false) => {}
-                    Err(error) => {
-                        tracing::warn!(bot = %self.cfg.id, error = format!("{error:#}"), "couldn't record the compaction");
-                    }
+            "compaction_update" => {
+                if let Some(conn) = self.conn.as_mut() {
+                    conn.reports_compaction = true;
+                }
+                if u["status"] == "completed" {
+                    self.compacted(u["compactionId"].as_str().unwrap_or_default());
                 }
             }
             "usage_update" => {
                 let info = &u["_meta"]["_claude/rateLimit"];
                 if info.is_object() {
                     crate::usage::ingest_claude_rate_limit(&self.hub, info);
+                }
+                if let Some(used) = u["used"].as_u64() {
+                    self.track_usage(used);
                 }
             }
             "plan" => {
@@ -354,9 +378,25 @@ pub fn diff_summary(path: &str, old: &str, new: &str) -> Value {
     })
 }
 
+/// Context use below which a fall isn't read as a compaction: a short session has little to summarize.
+const COMPACTED_FROM: u64 = 20_000;
+
+/// Whether a session's context use fell the way it does when the agent summarizes it: by more than half.
+fn compacted_by_usage(before: Option<u64>, used: u64) -> bool {
+    before.is_some_and(|before| before >= COMPACTED_FROM && used < before / 2)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_halved_context_reads_as_a_compaction() {
+        assert!(compacted_by_usage(Some(90_000), 12_000));
+        assert!(!compacted_by_usage(Some(90_000), 60_000), "ordinary churn");
+        assert!(!compacted_by_usage(Some(8_000), 1_000), "too little to summarize");
+        assert!(!compacted_by_usage(None, 1_000), "the session's first report");
+    }
 
     #[test]
     fn diff_counts_changed_middle() {

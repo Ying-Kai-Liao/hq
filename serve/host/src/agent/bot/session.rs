@@ -1,7 +1,7 @@
 //! The agent process and its ACP sessions: launch, handshake, new/load/fork, thread sessions.
 
 use super::fast_mode::Listing;
-use super::{Actor, Conn, NoticeStyle, SessionCaps};
+use super::{Actor, Conn, Instructions, NoticeStyle, SessionCaps};
 use crate::agent::acp::{self, Acp, Incoming};
 use crate::chat::context;
 use crate::store::{BotConfig, Entry, EntryKind, Lane, lane_key};
@@ -181,7 +181,7 @@ impl Actor {
             }
         }
         let servers = self.mcp_servers()?;
-        let claude = self.conn.as_ref().is_some_and(|c| c.claude);
+        let instructions = self.conn.as_ref().map_or(Instructions::FirstMessage, Conn::instructions);
         let mut forked = false;
         if let Some(root) = slot
             && self.session_for(slot).is_none()
@@ -189,16 +189,16 @@ impl Actor {
             && self.conn.as_ref().is_some_and(|c| c.sessions.fork)
         {
             self.hub.set_runtime(&self.cfg.id, |r| r.activity = "Opening the thread…".into());
-            let res = self
-                .session_request("session/fork", {
-                    let mut params = json!({"sessionId": main, "cwd": self.cfg.cwd, "mcpServers": servers});
-                    if claude {
-                        params["_meta"] = json!({"claudeCode": claude_options(&self.cfg)});
-                    }
-                    params
-                })
-                .await
-                .ok();
+            let mut params = json!({"sessionId": main, "cwd": self.cfg.cwd, "mcpServers": servers});
+            match instructions {
+                Instructions::ClaudeMeta => params["_meta"] = json!({"claudeCode": claude_options(&self.cfg)}),
+                // The fork keeps the instructions its main session runs with.
+                Instructions::SystemPrompt => {
+                    params["systemPrompt"] = system_prompt(&self.snapshot(&main).await?.system);
+                }
+                Instructions::FirstMessage => {}
+            }
+            let res = self.session_request("session/fork", params).await.ok();
             if let Some(res) = res
                 && let Some(sid) = res["sessionId"].as_str().map(str::to_owned)
                 && let Some(conn) = self.conn.as_mut()
@@ -218,8 +218,8 @@ impl Actor {
         // re-rendered them, loading the session again swaps the prompt in (the adapter
         // rebuilds its query and resumes the same conversation).
         let current = self.session_for(slot);
-        let snapshot = match (&current, claude) {
-            (Some(sid), true) => Some(self.snapshot(sid).await?),
+        let snapshot = match (&current, instructions) {
+            (Some(sid), Instructions::ClaudeMeta) => Some(self.snapshot(sid).await?),
             _ => None,
         };
         let Some(conn) = self.conn.as_ref() else { bail!("agent not running") };
@@ -242,6 +242,9 @@ impl Actor {
             let mut params = json!({"sessionId": sid, "cwd": self.cfg.cwd, "mcpServers": servers});
             if let Some(s) = &snapshot {
                 params["_meta"] = claude_meta(&self.cfg, &s.system);
+            }
+            if instructions == Instructions::SystemPrompt {
+                params["systemPrompt"] = system_prompt(&self.snapshot(&sid).await?.system);
             }
             let res = self.session_request("session/load", params).await;
             let Some(conn) = self.conn.as_mut() else { return res.map(drop) };
@@ -282,8 +285,10 @@ impl Actor {
             tokio::task::spawn_blocking(move || context::render(&hub.store, &cfg)).await?
         };
         let mut params = json!({"cwd": self.cfg.cwd, "mcpServers": servers});
-        if claude {
-            params["_meta"] = claude_meta(&self.cfg, &system);
+        match instructions {
+            Instructions::ClaudeMeta => params["_meta"] = claude_meta(&self.cfg, &system),
+            Instructions::SystemPrompt => params["systemPrompt"] = system_prompt(&system),
+            Instructions::FirstMessage => {}
         }
         let res = self.session_request("session/new", params).await?;
         let Some(conn) = self.conn.as_mut() else { bail!("agent not running") };
@@ -298,7 +303,7 @@ impl Actor {
             self.thread_intro = Some(self.thread_intro(root, false));
         }
         context::adopt(&self.hub.store, &self.cfg, &sid, system.clone())?;
-        if claude {
+        if instructions == Instructions::ClaudeMeta {
             self.applied_system.insert(sid, system);
         }
         Ok(())
@@ -326,6 +331,11 @@ impl Actor {
 
 /// How long `session/new`, `session/load` and `session/fork` may take.
 const SESSION_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// ACP's `systemPrompt`: the bot's instructions added to the agent's own.
+pub(crate) fn system_prompt(system: &str) -> Value {
+    json!({"mode": "append", "content": [{"type": "text", "text": system}]})
+}
 
 /// Claude's `_meta`: the bot's instructions appended to Claude Code's own system prompt, and its options.
 fn claude_meta(cfg: &BotConfig, system: &str) -> Value {
@@ -439,6 +449,7 @@ pub(crate) async fn start_agent(command: &str, cwd: &str, env: &[(String, String
         load: init["agentCapabilities"]["loadSession"].as_bool().unwrap_or(false),
         fork: init["agentCapabilities"]["sessionCapabilities"]["fork"].is_object(),
         close: init["agentCapabilities"]["sessionCapabilities"]["close"].is_object(),
+        system_prompt: init["agentCapabilities"]["sessionCapabilities"]["systemPrompt"].is_object(),
     };
     let claude = init["agentCapabilities"]["_meta"]["claudeCode"].is_object();
     Ok(Conn {
@@ -449,6 +460,8 @@ pub(crate) async fn start_agent(command: &str, cwd: &str, env: &[(String, String
         loaded: HashMap::new(),
         started: Instant::now(),
         fast_options: HashMap::new(),
+        reports_compaction: false,
+        used: HashMap::new(),
     })
 }
 
