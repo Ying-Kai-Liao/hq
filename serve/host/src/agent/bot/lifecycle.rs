@@ -100,28 +100,38 @@ impl Actor {
     }
 }
 
-/// Whether something the agent started runs in a process group of its own, like a dev server
+/// Whether something the agent started runs detached, in a session of its own, like a dev server
 /// from its shell tool. Stopping the agent would orphan it and lose track of it, so the agent
-/// stays. MCP servers share the agent's group and don't count. Unsure counts as busy.
+/// stays. MCP servers stay in the agent's session and don't count, even in a process group of
+/// their own (Codex starts each one in its own group). Unsure counts as busy.
 // ponytail: a dev server keeps its agent (and memory) indefinitely; add a cap if that matters.
 #[cfg(unix)]
 async fn background_work(leader: Option<u32>) -> bool {
     let Some(leader) = leader else { return true };
-    let listed = tokio::process::Command::new("ps").args(["-A", "-o", "pid=,ppid=,pgid="]).output().await;
+    let listed = tokio::process::Command::new("ps").args(["-A", "-o", "pid=,ppid="]).output().await;
     let Ok(listed) = listed.inspect_err(|e| tracing::warn!(error = format!("{e:#}"), "couldn't list processes")) else {
         return true;
     };
     if !listed.status.success() {
         return true;
     }
-    let processes: Vec<(u32, u32, u32)> = String::from_utf8_lossy(&listed.stdout)
+    let processes: Vec<(u32, u32)> = String::from_utf8_lossy(&listed.stdout)
         .lines()
         .filter_map(|line| {
             let mut fields = line.split_whitespace().map(str::parse);
-            Some((fields.next()?.ok()?, fields.next()?.ok()?, fields.next()?.ok()?))
+            Some((fields.next()?.ok()?, fields.next()?.ok()?))
         })
         .collect();
-    detached_descendant(&processes, leader)
+    detached_descendant(&processes, leader, session)
+}
+
+/// `pid`'s session, or `None` once it's gone.
+#[cfg(unix)]
+fn session(pid: u32) -> Option<i32> {
+    let pid = libc::pid_t::try_from(pid).ok()?;
+    // SAFETY: getsid only reads the process table.
+    let sid = unsafe { libc::getsid(pid) };
+    (sid >= 0).then_some(sid)
 }
 
 /// Windows has no process groups to tell a dev server from an MCP server, and stopping the agent
@@ -132,17 +142,19 @@ async fn background_work(_leader: Option<u32>) -> bool {
     true
 }
 
-/// `processes`: (pid, parent pid, process group) rows. The agent's group is its leader's pid.
+/// `processes`: (pid, parent pid) rows; `session` finds a live process's session.
 #[cfg(any(unix, test))]
-fn detached_descendant(processes: &[(u32, u32, u32)], leader: u32) -> bool {
-    let mut children: HashMap<u32, Vec<(u32, u32)>> = HashMap::new();
-    for &(pid, parent, group) in processes {
-        children.entry(parent).or_default().push((pid, group));
+fn detached_descendant(processes: &[(u32, u32)], leader: u32, session: impl Fn(u32) -> Option<i32>) -> bool {
+    let Some(own) = session(leader) else { return true };
+    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
+    for &(pid, parent) in processes {
+        children.entry(parent).or_default().push(pid);
     }
     let mut stack = vec![leader];
     while let Some(parent) = stack.pop() {
-        for &(pid, group) in children.get(&parent).into_iter().flatten() {
-            if group != leader {
+        for &pid in children.get(&parent).into_iter().flatten() {
+            // One that exited since the listing holds nothing.
+            if session(pid).is_some_and(|sid| sid != own) {
                 return true;
             }
             stack.push(pid);
@@ -175,21 +187,26 @@ mod tests {
     }
 
     #[test]
-    fn only_work_in_another_process_group_holds_the_agent() {
-        // 10 agent (group 10) -> 11 claude -> 12 MCP server, all in group 10.
-        let agent = [(10, 1, 10), (11, 10, 10), (12, 11, 10), (40, 1, 40)];
-        assert!(!detached_descendant(&agent, 10));
-        // claude's shell tool runs `npm run dev` in group 20.
+    fn only_work_in_another_session_holds_the_agent() {
+        // 10 agent -> 11 codex -> 12 MCP server in a group of its own; all in the host's session 5.
+        let sessions: HashMap<u32, i32> = [(10, 5), (11, 5), (12, 5), (20, 20), (21, 20), (30, 30)].into();
+        let session = |pid| sessions.get(&pid).copied();
+        let agent = [(10, 1), (11, 10), (12, 11), (40, 1)];
+        assert!(!detached_descendant(&agent, 10, session));
+        // The shell tool runs `npm run dev` in a session of its own.
         let mut busy = agent.to_vec();
-        busy.extend([(20, 11, 20), (21, 20, 20)]);
-        assert!(detached_descendant(&busy, 10));
-        // Someone else's process in another group isn't the agent's.
-        assert!(!detached_descendant(&[(10, 1, 10), (30, 1, 30), (31, 30, 31)], 10));
+        busy.extend([(20, 11), (21, 20)]);
+        assert!(detached_descendant(&busy, 10, session));
+        // Someone else's process in another session isn't the agent's.
+        assert!(!detached_descendant(&[(10, 1), (30, 1)], 10, session));
+        // A child that exited since the listing holds nothing; an agent that can't be looked up is unsure.
+        assert!(!detached_descendant(&[(10, 1), (50, 10)], 10, session));
+        assert!(detached_descendant(&agent, 99, session));
     }
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn a_process_started_in_its_own_group_is_background_work() {
+    async fn a_process_started_in_its_own_session_is_background_work() {
         use std::process::Stdio;
         let spawn = |script: &str| {
             let mut command = tokio::process::Command::new("perl");
@@ -197,11 +214,14 @@ mod tests {
             command.spawn().expect("perl runs")
         };
         let plain = spawn("my $pid = fork; if (!$pid) { sleep 30; exit } sleep 30");
-        let detached = spawn("my $pid = fork; if (!$pid) { setpgrp; sleep 30; exit } sleep 30");
+        // How Codex starts an MCP server.
+        let grouped = spawn("my $pid = fork; if (!$pid) { setpgrp; sleep 30; exit } sleep 30");
+        let detached = spawn("use POSIX (); my $pid = fork; if (!$pid) { POSIX::setsid(); sleep 30; exit } sleep 30");
         tokio::time::sleep(Duration::from_millis(300)).await;
         assert!(!background_work(plain.id()).await);
+        assert!(!background_work(grouped.id()).await);
         assert!(background_work(detached.id()).await);
-        for child in [plain, detached] {
+        for child in [plain, grouped, detached] {
             if let Some(pid) = child.id() {
                 let _ = std::process::Command::new("/bin/kill").args(["-KILL", "--", &format!("-{pid}")]).status();
             }
