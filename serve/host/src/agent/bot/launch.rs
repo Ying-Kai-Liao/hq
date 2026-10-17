@@ -25,7 +25,9 @@ pub(super) fn claude_meta(cfg: &BotConfig, system: &str) -> Value {
 /// project folder it is the project's working memory and stays on. Its auto-dream rewrites memory with no log, so
 /// it is off everywhere ([design](../../../../docs/design/bot-memory.md#claude-codes-own-memory)).
 fn claude_options(cfg: &BotConfig) -> Value {
-    let mut settings = json!({"autoDreamEnabled": false});
+    // The bot's replies and memory are Codync's own tools, which follow the bot's permission inside Codync: the
+    // user's Claude Code auto-mode classifier mustn't refuse them (it blocked a reply naming the user's daughter).
+    let mut settings = json!({"autoDreamEnabled": false, "permissions": {"allow": ["mcp__chat", "mcp__memory"]}});
     if crate::agent::workspace::is_managed(cfg) {
         settings["autoMemoryEnabled"] = false.into();
     }
