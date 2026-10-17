@@ -29,7 +29,8 @@ const HOOK_PER_COMPUTER = 1000;
 const HOOK_MAX_BYTES = 16 * 1024 * 1024;
 const HOOK_RETRY_MIN_MS = 30_000;
 const HOOK_RETRY_MAX_MS = 15 * 60_000;
-const HOST_TIMEOUT_MS = 90_000;
+/** No ping for this long (both sides ping every 30 s): the socket is dead and gets closed. */
+const SILENT_TIMEOUT_MS = 90_000;
 const ALARM_MS = 60_000;
 /** epk(32) ‖ sig(64) ‖ ciphertext with at least its 16-byte tag (§6.4). */
 const MBOX_MIN_BLOB = 32 + 64 + 16;
@@ -43,6 +44,7 @@ interface HostAttachment {
   kid: string;
   ready: boolean;
   at: number;
+  retired?: Retired;
 }
 interface DeviceAttachment {
   role: "device";
@@ -52,8 +54,15 @@ interface DeviceAttachment {
   offer?: string;
   at: number;
   msgs: number;
+  retired?: Retired;
 }
 type Attachment = HostAttachment | DeviceAttachment;
+/** A socket the DO let go of: nothing is sent to it, and it's closed with `code` once that's free (§7.6). */
+interface Retired {
+  at: number;
+  code: number;
+  reason: string;
+}
 
 export interface Acl {
   v: 1;
@@ -107,6 +116,8 @@ export class ComputerRelay extends DurableObject<Env> {
   private readonly sql: SqlStorage;
   /** Per-link rate windows (device → DO only). Lost on hibernation, which is acceptable (§7.6). */
   private readonly rates = new Map<string, { start: number; msgs: number; bytes: number }>();
+  /** Sockets this instance retired. Hibernation drops it, so a socket still in it later means the DO never slept. */
+  private readonly retiredHere = new WeakSet<WebSocket>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -167,14 +178,10 @@ export class ComputerRelay extends DurableObject<Env> {
       return errorResponse(403, "forbidden");
     }
     // A new host connection replaces the old one (§7.2).
-    let wasOnline = false;
     for (const old of this.ctx.getWebSockets("host")) {
       const a = old.deserializeAttachment() as HostAttachment;
-      wasOnline ||= a.ready;
-      old.serializeAttachment({ ...a, ready: false });
-      this.safeClose(old, 4009, "replaced");
+      if (!a.retired) await this.retire(old, a, now, 4009, "replaced");
     }
-    if (wasOnline) await this.hostOffline(now);
     const { 0: client, 1: server } = new WebSocketPair();
     this.ctx.acceptWebSocket(server, ["host"]);
     server.serializeAttachment({ role: "host", kid, ready: false, at: now } satisfies HostAttachment);
@@ -340,6 +347,8 @@ export class ComputerRelay extends DurableObject<Env> {
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     const a = ws.deserializeAttachment() as Attachment;
+    // It's alive after all, so closing it is quick.
+    if (a.retired) return this.safeClose(ws, a.retired.code, a.retired.reason);
     if (typeof message !== "string") return this.safeClose(ws, 4002, "protocolError");
     let msg: Msg;
     try {
@@ -567,8 +576,25 @@ export class ComputerRelay extends DurableObject<Env> {
   private async closed(ws: WebSocket): Promise<void> {
     const a = ws.deserializeAttachment() as Attachment;
     this.safeClose(ws, 1000, "");
+    if (!a.retired) await this.gone(ws, a, Date.now());
+  }
+
+  /**
+   * Lets go of a socket: nothing is sent to it any more and the bookkeeping runs now. It isn't closed yet: closing
+   * a peer that's unreachable keeps the DO awake (billed) until TCP gives up, while a socket left alone doesn't.
+   * The alarm closes it later if it speaks again, or if the DO never got to sleep (data queued for it may be
+   * what keeps it awake, and only closing frees that).
+   */
+  private async retire(ws: WebSocket, a: Attachment, now: number, code: number, reason: string): Promise<void> {
+    ws.serializeAttachment({ ...a, ...(a.role === "host" ? { ready: false } : {}), retired: { at: now, code, reason } });
+    this.retiredHere.add(ws);
+    await this.gone(ws, a, now);
+  }
+
+  /** Bookkeeping for a socket that closed or that the DO let go of. */
+  private async gone(ws: WebSocket, a: Attachment, now: number): Promise<void> {
     if (a.role === "host") {
-      if (a.ready) await this.hostOffline(Date.now(), ws);
+      if (a.ready) await this.hostOffline(now, ws);
     } else {
       this.rates.delete(a.link);
       send(this.readyHost(ws), JSON.stringify({ t: "close", link: a.link }));
@@ -577,13 +603,15 @@ export class ComputerRelay extends DurableObject<Env> {
 
   override async alarm(): Promise<void> {
     const now = Date.now();
-    for (const ws of this.ctx.getWebSockets("host")) {
-      const a = ws.deserializeAttachment() as HostAttachment;
-      const last = Math.max(a.at, this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0);
-      if (now - last > HOST_TIMEOUT_MS) {
-        ws.serializeAttachment({ ...a, ready: false });
-        this.safeClose(ws, 1011, "timeout");
-        if (a.ready) await this.hostOffline(now, ws);
+    // Silent sockets, device ones too, are retired: whatever the DO sends a peer that stopped reading stays
+    // queued and keeps the DO awake (billed as duration) until the connection dies, often hours later.
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment() as Attachment;
+      const heard = Math.max(a.at, this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0);
+      if (a.retired) {
+        if (heard > a.retired.at || this.retiredHere.has(ws)) this.safeClose(ws, a.retired.code, a.retired.reason);
+      } else if (now - heard > SILENT_TIMEOUT_MS) {
+        await this.retire(ws, a, now, 1011, "timeout");
       }
     }
     for (const row of this.sql
@@ -659,7 +687,10 @@ export class ComputerRelay extends DurableObject<Env> {
   }
 
   private devices(): [WebSocket, DeviceAttachment][] {
-    return this.ctx.getWebSockets("device").map((ws) => [ws, ws.deserializeAttachment() as DeviceAttachment]);
+    return this.ctx
+      .getWebSockets("device")
+      .map((ws): [WebSocket, DeviceAttachment] => [ws, ws.deserializeAttachment() as DeviceAttachment])
+      .filter(([, a]) => !a.retired);
   }
 
   private deviceByLink(link: unknown): WebSocket | undefined {
@@ -673,7 +704,7 @@ export class ComputerRelay extends DurableObject<Env> {
 
   private toHosts(msg: object): void {
     const text = JSON.stringify(msg);
-    for (const ws of this.ctx.getWebSockets("host")) send(ws, text);
+    for (const ws of this.ctx.getWebSockets("host")) if (!(ws.deserializeAttachment() as HostAttachment).retired) send(ws, text);
   }
 
   private acl(): Acl | null {
