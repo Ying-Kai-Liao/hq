@@ -185,7 +185,12 @@ async fn run(hub: &Arc<Hub>, bot_id: &str) -> Result<Ran> {
     match outcome {
         Outcome::Stale => return Ok(Ran::Later),
         Outcome::Changed(dream) => {
-            tracing::info!(bot = %bot_id, added = dream.added.len(), archived = dream.archived.len(), "memory dreamed");
+            let notes = dream::notes(&snapshot, &kept);
+            tracing::info!(
+                bot = %bot_id, added = dream.added.len(), archived = dream.archived.len(), notes = notes.len(), "memory dreamed"
+            );
+            let (h, c, id) = (hub.clone(), cfg.clone(), dream.id);
+            tokio::task::spawn_blocking(move || super::files::write_notes(&h, &c, id, &notes)).await?;
             let layer = if kept.add.iter().any(|a| a.shared) { None } else { Some(bot_id) };
             super::changed(hub, layer);
         }

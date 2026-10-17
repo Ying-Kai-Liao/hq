@@ -6,6 +6,10 @@
 mod api;
 mod dates;
 mod dream;
+mod file_api;
+mod file_notices;
+mod file_tools;
+pub mod files;
 mod import;
 mod notices;
 mod tools;
@@ -25,15 +29,16 @@ pub fn shared(cfg: &BotConfig) -> bool {
     cfg.shared_memory.unwrap_or_else(|| crate::agent::workspace::is_managed(cfg))
 }
 
-/// The memory section of a bot's instructions.
+/// The memory section of a bot's instructions: its entries, then the index of its long-form files.
 pub fn opening(store: &Store, cfg: &BotConfig) -> String {
-    match store.memory_read(|c| codync_mem::opening::load(c, &cfg.id, shared(cfg))) {
+    let entries = match store.memory_read(|c| codync_mem::opening::load(c, &cfg.id, shared(cfg))) {
         Ok(opening) => opening.render(),
         Err(error) => {
             tracing::warn!(bot = %cfg.id, error = format!("{error:#}"), "couldn't read memory");
             String::new()
         }
-    }
+    };
+    format!("{entries}\n\n{}", files::index(store, cfg))
 }
 
 /// After memory changed in `bot`'s own layer, or in the shared one (`None`): the apps fetch it again, and every

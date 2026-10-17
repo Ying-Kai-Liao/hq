@@ -94,6 +94,19 @@ impl Actor {
         )
     }
 
+    /// What every session request carries: the folder and MCP servers, and the memory folders for an agent that
+    /// takes folders besides its own.
+    fn session_params(&self, servers: &Value, session: Option<&str>) -> Value {
+        let mut params = json!({"cwd": self.cfg.cwd, "mcpServers": servers});
+        if let Some(sid) = session {
+            params["sessionId"] = sid.into();
+        }
+        if self.conn.as_ref().is_some_and(|c| c.sessions.additional_directories) {
+            params["additionalDirectories"] = json!(memory::files::folders(&self.cfg));
+        }
+        params
+    }
+
     /// ACP connectors, team collaboration, and optional computer control.
     pub(super) fn mcp_servers(&self) -> Result<Value> {
         let Ok(exe) = std::env::current_exe() else {
@@ -195,7 +208,7 @@ impl Actor {
             && self.conn.as_ref().is_some_and(|c| c.sessions.fork)
         {
             self.hub.set_runtime(&self.cfg.id, |r| r.activity = "Opening the thread…".into());
-            let mut params = json!({"sessionId": main, "cwd": self.cfg.cwd, "mcpServers": servers});
+            let mut params = self.session_params(&servers, Some(&main));
             // The fork keeps the instructions its main session runs with, so it shares its cached prompt.
             let parent = self.snapshot(&main).await?;
             match instructions {
@@ -249,7 +262,7 @@ impl Actor {
                 return Box::pin(self.ensure_session(slot)).await;
             }
             self.hub.set_runtime(&self.cfg.id, |r| r.activity = "Resuming session…".into());
-            let mut params = json!({"sessionId": sid, "cwd": self.cfg.cwd, "mcpServers": servers});
+            let mut params = self.session_params(&servers, Some(&sid));
             if let Some(s) = &snapshot {
                 params["_meta"] = claude_meta(&self.cfg, &s.system);
             }
@@ -298,7 +311,7 @@ impl Actor {
             })
             .await?
         };
-        let mut params = json!({"cwd": self.cfg.cwd, "mcpServers": servers});
+        let mut params = self.session_params(&servers, None);
         match instructions {
             Instructions::ClaudeMeta => params["_meta"] = claude_meta(&self.cfg, &system),
             Instructions::SystemPrompt => params["systemPrompt"] = system_prompt(&system),

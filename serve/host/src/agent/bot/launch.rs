@@ -129,6 +129,7 @@ pub(crate) async fn start_agent(command: &str, cwd: &str, env: &[(String, String
         fork: init["agentCapabilities"]["sessionCapabilities"]["fork"].is_object(),
         close: init["agentCapabilities"]["sessionCapabilities"]["close"].is_object(),
         system_prompt: init["agentCapabilities"]["sessionCapabilities"]["systemPrompt"].is_object(),
+        additional_directories: init["agentCapabilities"]["sessionCapabilities"]["additionalDirectories"].is_object(),
     };
     Ok(Conn {
         acp,

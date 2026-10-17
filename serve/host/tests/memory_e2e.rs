@@ -163,7 +163,8 @@ async fn dreaming_keeps_only_what_the_user_typed_and_can_be_undone() {
     host.call("newSession", json!({"botId": bot})).await;
     let view = loop {
         let view = host.memory(&bot).await;
-        if !view["dreams"].as_array().unwrap().is_empty() {
+        // The run is logged first; its file notes follow.
+        if view["dreams"][0]["files"].as_array().is_some_and(|f| !f.is_empty()) {
             break view;
         }
         assert!(Instant::now() < deadline, "dreaming didn't run: {view}");
@@ -187,11 +188,20 @@ async fn dreaming_keeps_only_what_the_user_typed_and_can_be_undone() {
     let other = host.bot("Other", "auto").await;
     assert!(host.tool_refused(&other, "search_history", json!({"from": message})).await.contains("no message"));
 
+    // Detail goes to a long-form file, as a line under new frontmatter.
+    let note = host.home.join("bots").join(&bot).join("bot-memory/style.md");
+    assert_eq!(
+        std::fs::read_to_string(&note).unwrap(),
+        "---\ndescription: How the user likes answers\n---\n- Wants things explained concisely, in Traditional Chinese\n"
+    );
+    assert_eq!(view["dreams"][0]["files"][0]["name"], "style.md");
+
     let dream = view["dreams"][0]["id"].as_i64().unwrap();
     host.call("undoDream", json!({"botId": bot, "id": dream})).await;
     let view = host.memory(&bot).await;
     assert_eq!(view["bot"]["entries"], json!([]));
     assert_eq!(view["dreams"][0]["undone"], true);
+    assert!(!note.exists(), "undo takes the new file back too");
 }
 
 #[tokio::test]

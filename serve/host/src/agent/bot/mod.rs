@@ -193,6 +193,8 @@ struct SessionCaps {
     close: bool,
     /// ACP `systemPrompt`: instructions on `session/new`, `load` and `fork` that the agent keeps at system level.
     system_prompt: bool,
+    /// ACP `additionalDirectories`: folders outside `cwd` the agent may work in, here the memory folders.
+    additional_directories: bool,
 }
 
 /// How the bot's instructions (identity and memory) reach the agent.

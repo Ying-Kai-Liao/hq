@@ -1,6 +1,6 @@
 //! The apps' memory methods: the two layers, the user's own edits, the dream log, and the chat cards.
 
-use super::notices;
+use super::{file_notices, notices};
 use crate::hub::Hub;
 use crate::store::BotConfig;
 use anyhow::{Result, anyhow, bail};
@@ -21,10 +21,18 @@ pub async fn call(hub: &Arc<Hub>, method: &str, b: &Value) -> Result<Value> {
 }
 
 fn dispatch(hub: &Hub, method: &str, b: &Value) -> Result<Value> {
-    match method {
-        "answerMemory" => return notices::answer(hub, str_arg(b, "entryId")?, b["accept"] == true),
-        "undoMemory" => return notices::undo(hub, str_arg(b, "entryId")?),
-        _ => {}
+    if let "answerMemory" | "undoMemory" = method {
+        let id = str_arg(b, "entryId")?;
+        let file = hub.store.entry(id).is_some_and(|e| file_notices::is_file_card(&e.data));
+        return match (method, file) {
+            ("answerMemory", true) => file_notices::answer(hub, id, b["accept"] == true),
+            ("answerMemory", false) => notices::answer(hub, id, b["accept"] == true),
+            (_, true) => file_notices::undo(hub, id),
+            _ => notices::undo(hub, id),
+        };
+    }
+    if method == "memoryFile" || method.ends_with("MemoryFile") {
+        return super::file_api::call(hub, &bot(hub, str_arg(b, "botId")?)?, method, b);
     }
     let cfg = bot(hub, str_arg(b, "botId")?)?;
     let id = || b["id"].as_i64().ok_or_else(|| anyhow!("id required"));
@@ -65,6 +73,7 @@ fn dispatch(hub: &Hub, method: &str, b: &Value) -> Result<Value> {
         "clearMemory" => {
             let layer = (b["shared"] != true).then_some(cfg.id.as_str());
             hub.store.memory_write(|c, _, _| mem::forget_layer(c, layer))?;
+            super::files::forget_layer(hub, layer)?;
             super::changed(hub, layer);
             Ok(json!({}))
         }
@@ -74,7 +83,8 @@ fn dispatch(hub: &Hub, method: &str, b: &Value) -> Result<Value> {
             if dream.is_none_or(|d| d.bot != cfg.id) {
                 bail!("unknown dream");
             }
-            hub.store.memory_write(|c, now, rev| codync_mem::dream::undo(c, id, now, rev))?;
+            let dream = hub.store.memory_write(|c, now, rev| codync_mem::dream::undo(c, id, now, rev))?;
+            super::files::undo_notes(hub, &dream);
             // A run may have written to either layer.
             super::changed(hub, None);
             Ok(json!({}))
@@ -116,6 +126,7 @@ fn view(hub: &Hub, cfg: &BotConfig) -> Result<Value> {
         "shared": super::shared(cfg),
         "yours": layer(yours, None),
         "bot": layer(own, Some(bot)),
+        "files": super::file_api::listing(hub, cfg)?,
         "dreams": dreams,
         "projectMemory": project_memory(cfg),
         "memoryRev": hub.store.memory_rev(),

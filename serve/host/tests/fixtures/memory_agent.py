@@ -1,7 +1,7 @@
 """Deterministic ACP replies for dreaming, without an LLM provider.
 
 A dream run gets a plan with two additions: one quoting what the user typed, one quoting what they pasted. Only
-the first may survive the host's audit.
+the first may survive the host's audit. It also appends a note to a long-form file.
 """
 import json
 import sys
@@ -20,6 +20,15 @@ PLAN = {
     ],
     "archive": [],
     "review": [],
+    "append": [
+        {
+            "file": "style.md",
+            "text": "Wants things explained concisely, in Traditional Chinese",
+            "quote": "explain things to me concisely",
+            "message": "m1",
+            "description": "How the user likes answers",
+        },
+    ],
 }
 
 

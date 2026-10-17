@@ -277,7 +277,9 @@ impl Hub {
         }
         // Its shared files are unreachable once the bot is deleted.
         let files = crate::chat::files::root(id);
+        let bot = id.to_owned();
         tokio::task::spawn_blocking(move || {
+            crate::chat::memory::files::remove_bot(&bot);
             if let Err(error) = std::fs::remove_dir_all(&files)
                 && error.kind() != std::io::ErrorKind::NotFound
             {

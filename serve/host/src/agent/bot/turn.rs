@@ -125,6 +125,9 @@ impl Actor {
             r.message = if from_user { entry_ids.last().cloned() } else { None };
         });
 
+        // Memory files changed since (in an editor, say) reach the opening or the next notice.
+        let (hub, cfg) = (self.hub.clone(), self.cfg.clone());
+        let _ = tokio::task::spawn_blocking(move || memory::files::scan(&hub, &cfg)).await;
         let slot = self.slot(&lane);
         if let Some(deadline) = self.routine_deadline {
             tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), self.ensure_session(slot.as_deref()))
@@ -206,6 +209,8 @@ impl Actor {
             return;
         }
         self.after_turn(done);
+        // The bot's own edits to its memory files, checked and shown in the chat it made them from.
+        memory::files::scan_after_turn(self.hub.clone(), self.cfg.clone());
         if let (Some(conn), Some(sid)) = (self.conn.as_mut(), &self.turn_session)
             && let Some(used) = conn.loaded.get_mut(sid)
         {

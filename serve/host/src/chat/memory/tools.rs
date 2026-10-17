@@ -17,10 +17,11 @@ const SEARCH_TEXT_CHARS: usize = 1_500;
 pub const INSTRUCTIONS: &str = "Your memory holds what you know about the user, and every session opens with it. \
 Save lasting facts about the user with remember, and keep entries true with revise_memory and archive_memory \
 (the [id] is in your instructions). Project and code knowledge belongs in the project's own files, not here. \
-search_memory finds archived entries; search_history finds what was actually said in your past chats.";
+Detail on one topic goes in your long-form memory files (listed in your instructions). search_memory finds \
+archived entries and lines of those files; search_history finds what was actually said in your past chats.";
 
 pub fn tools() -> Value {
-    json!([
+    let mut tools = json!([
         {
             "name": "remember",
             "description": "Save one short fact about the user to your memory: who they are, their people, preferences, standing requests, plans or commitments. Use it when the user asks you to remember something or tells you something lasting about themselves. Write one self-contained fact in the user's language, with absolute dates. The user sees it in the chat and can undo it; a bot that asks before acting shows it to the user for approval first.",
@@ -56,7 +57,7 @@ pub fn tools() -> Value {
         },
         {
             "name": "search_memory",
-            "description": "Search your memory, including archived entries, for text containing the query (case-insensitive). Each result's source lists the messages it was learned from: pass one to search_history as from to read it.",
+            "description": "Search your memory, including archived entries and your long-form files, for text containing the query (case-insensitive). Each entry's source lists the messages it was learned from: pass one to search_history as from to read it. files lists matching lines of your memory files.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"query": {"type": "string"}},
@@ -77,7 +78,11 @@ pub fn tools() -> Value {
             },
             "annotations": {"readOnlyHint": true},
         },
-    ])
+    ]);
+    if let Some(list) = tools.as_array_mut() {
+        list.extend(super::file_tools::definitions());
+    }
+    tools
 }
 
 pub async fn call(hub: &Arc<Hub>, bot_id: &str, name: &str, args: &Value) -> Result<Value> {
@@ -90,6 +95,7 @@ pub async fn call(hub: &Arc<Hub>, bot_id: &str, name: &str, args: &Value) -> Res
         "archive_memory" => write(hub, &cfg, Action::Archive { entry: id()? }).await,
         "search_memory" => search_memory(hub, &cfg, args["query"].as_str().unwrap_or_default()).await,
         "search_history" => search_history(hub, &cfg, args).await,
+        "read_memory" | "edit_memory" => super::file_tools::call(hub, &cfg, name, args).await,
         _ => bail!("unknown memory tool: {name}"),
     }
 }
@@ -129,9 +135,19 @@ async fn search_memory(hub: &Arc<Hub>, cfg: &BotConfig, query: &str) -> Result<V
         bail!("query required");
     }
     let (hub, bot, shared, query) = (hub.clone(), cfg.id.clone(), super::shared(cfg), query.to_owned());
-    let found =
-        tokio::task::spawn_blocking(move || hub.store.memory_read(|c| codync_mem::store::search(c, &bot, &query, 20)))
-            .await??;
+    let (found, lines) = tokio::task::spawn_blocking(move || {
+        hub.store.memory_read(|c| {
+            let entries = codync_mem::store::search(c, &bot, &query, 20)?;
+            Ok((entries, codync_mem::files::search(c, &bot, shared, &query, 20)?))
+        })
+    })
+    .await??;
+    let files: Vec<Value> = lines
+        .into_iter()
+        .map(|hit| {
+            json!({"file": hit.name, "shared": hit.bot.is_none(), "line": hit.line, "text": acp::truncate(&hit.text, 300)})
+        })
+        .collect();
     let results: Vec<Value> = found
         .into_iter()
         .filter(|e| shared || e.bot.is_some())
@@ -146,7 +162,7 @@ async fn search_memory(hub: &Arc<Hub>, cfg: &BotConfig, query: &str) -> Result<V
             })
         })
         .collect();
-    Ok(json!({"results": results}))
+    Ok(json!({"results": results, "files": files}))
 }
 
 async fn search_history(hub: &Arc<Hub>, cfg: &BotConfig, args: &Value) -> Result<Value> {
