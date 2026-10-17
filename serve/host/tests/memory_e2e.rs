@@ -257,6 +257,18 @@ async fn dreaming_keeps_only_what_the_user_typed_and_can_be_undone() {
     assert_eq!(entry["evidence"], json!([message]), "it cites the message it learned from");
     assert!(!view.to_string().contains("durian"), "pasted text isn't the user's own words");
 
+    // The bot can go from a memory to the message it came from, and page back through the chat.
+    let found = host.tool(&bot, "search_memory", json!({"query": "concise"})).await;
+    assert_eq!(found["results"][0]["source"], json!([message]));
+    let page = host.tool(&bot, "search_history", json!({"limit": 1})).await;
+    assert_eq!(page["results"][0]["from"], "you");
+    assert_eq!(page["next"], json!(message));
+    let page = host.tool(&bot, "search_history", json!({"from": message})).await;
+    assert_eq!(page["results"][0]["id"], json!(message));
+    assert_eq!(page["next"], Value::Null);
+    let other = host.bot("Other", "auto").await;
+    assert!(host.tool_refused(&other, "search_history", json!({"from": message})).await.contains("no message"));
+
     let dream = view["dreams"][0]["id"].as_i64().unwrap();
     host.call("undoDream", json!({"botId": bot, "id": dream})).await;
     let view = host.memory(&bot).await;

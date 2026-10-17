@@ -56,7 +56,7 @@ pub fn tools() -> Value {
         },
         {
             "name": "search_memory",
-            "description": "Search your memory, including archived entries, for text containing the query (case-insensitive).",
+            "description": "Search your memory, including archived entries, for text containing the query (case-insensitive). Each result's source lists the messages it was learned from: pass one to search_history as from to read it.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"query": {"type": "string"}},
@@ -66,14 +66,14 @@ pub fn tools() -> Value {
         },
         {
             "name": "search_history",
-            "description": "Search your full chat history with the user for messages containing every given word (case-insensitive). Returns dated messages, newest first.",
+            "description": "Read your full chat history with the user, newest first: messages containing every given word (case-insensitive), or without a query, every message. Returns dated messages with ids, and next: pass it as from for the page before.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "Words that must all appear, separated by spaces."},
+                    "from": {"type": "string", "description": "A message id (from a result, next, or a memory's source): start at that message and go back."},
                     "limit": {"type": "integer", "description": "Maximum results (default 10, at most 30)."},
                 },
-                "required": ["query"],
             },
             "annotations": {"readOnlyHint": true},
         },
@@ -129,7 +129,14 @@ async fn search_memory(hub: &Arc<Hub>, cfg: &BotConfig, query: &str) -> Result<V
         .into_iter()
         .filter(|e| shared || e.bot.is_some())
         .map(|e| {
-            json!({"id": e.id, "text": e.text, "state": e.state, "shared": e.bot.is_none(), "date": ymd(e.updated_at)})
+            json!({
+                "id": e.id,
+                "text": e.text,
+                "state": e.state,
+                "shared": e.bot.is_none(),
+                "date": ymd(e.updated_at),
+                "source": e.evidence,
+            })
         })
         .collect();
     Ok(json!({"results": results}))
@@ -138,17 +145,32 @@ async fn search_memory(hub: &Arc<Hub>, cfg: &BotConfig, query: &str) -> Result<V
 async fn search_history(hub: &Arc<Hub>, cfg: &BotConfig, args: &Value) -> Result<Value> {
     let terms: Vec<String> =
         args["query"].as_str().unwrap_or_default().split_whitespace().take(SEARCH_TERMS).map(str::to_owned).collect();
-    if terms.is_empty() {
-        bail!("query must contain at least one word");
-    }
+    let from = args["from"].as_str().map(str::to_owned);
     let limit = args["limit"].as_i64().unwrap_or(SEARCH_DEFAULT).clamp(1, SEARCH_MAX);
     let hub = hub.clone();
-    let id = cfg.id.clone();
-    let rows = tokio::task::spawn_blocking(move || hub.store.search_messages(&id, &terms, limit)).await??;
+    let bot = cfg.id.clone();
+    let (rows, next) = tokio::task::spawn_blocking(move || -> Result<_> {
+        let from = match from {
+            Some(id) => Some(
+                hub.store
+                    .entry(&id)
+                    .filter(|e| e.bot_id == bot)
+                    .ok_or_else(|| anyhow!("no message {id} in your chat"))?
+                    .seq,
+            ),
+            None => None,
+        };
+        // One more than asked tells whether there is a page before.
+        let mut rows = hub.store.search_messages(&bot, &terms, from, limit + 1)?;
+        let next = if rows.len() > usize::try_from(limit)? { rows.pop().map(|e| e.id) } else { None };
+        Ok((rows, next))
+    })
+    .await??;
     let results: Vec<Value> = rows
         .iter()
         .map(|e| {
             json!({
+                "id": e.id,
                 "date": ymd(e.created_at),
                 "from": if e.kind == crate::store::EntryKind::User.as_str() { "user" } else { "you" },
                 "inThread": e.thread_id.is_some(),
@@ -156,5 +178,5 @@ async fn search_history(hub: &Arc<Hub>, cfg: &BotConfig, args: &Value) -> Result
             })
         })
         .collect();
-    Ok(json!({"results": results}))
+    Ok(json!({"results": results, "next": next}))
 }

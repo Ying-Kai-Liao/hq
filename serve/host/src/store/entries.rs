@@ -153,18 +153,20 @@ impl Store {
     }
 
     /// Chat-visible messages (the user's, final replies) in any of `bot_id`'s lanes that
-    /// contain every term (case-insensitive for ASCII), newest first.
-    // ponytail: substring scan, no index (CJK needs no tokenizer this way); an FTS5 trigram table if it gets slow.
-    pub fn search_messages(&self, bot_id: &str, terms: &[String], limit: i64) -> Result<Vec<Entry>> {
+    /// contain every term (case-insensitive for ASCII), newest first, from `from` (a `seq`) back.
+    // ponytail: substring scan, no index (CJK needs no tokenizer this way): 0.6 s over 180k messages of one bot.
+    // An FTS5 trigram table once a bot's search passes a second.
+    pub fn search_messages(&self, bot_id: &str, terms: &[String], from: Option<i64>, limit: i64) -> Result<Vec<Entry>> {
         let mut sql = format!(
-            "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND
+            "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND seq <= ?3 AND
                (kind = 'user' OR (kind = 'agent' AND json_extract(data, '$.final') = 1))"
         );
         for i in 0..terms.len() {
-            let _ = write!(sql, " AND instr(lower(json_extract(data, '$.text')), ?{}) > 0", i + 3);
+            let _ = write!(sql, " AND instr(lower(json_extract(data, '$.text')), ?{}) > 0", i + 4);
         }
         sql.push_str(" ORDER BY seq DESC LIMIT ?2");
-        let mut args: Vec<rusqlite::types::Value> = vec![bot_id.to_owned().into(), limit.into()];
+        let mut args: Vec<rusqlite::types::Value> =
+            vec![bot_id.to_owned().into(), limit.into(), from.unwrap_or(i64::MAX).into()];
         args.extend(terms.iter().map(|t| t.to_lowercase().into()));
         let c = self.db.locked();
         let mut st = c.prepare(&sql)?;
@@ -333,7 +335,7 @@ mod tests {
         s.insert_entry(&Lane::main("b2"), EntryKind::User, 1, &json!({"text": "Swift 6 elsewhere"})).unwrap();
         let texts = |terms: &[&str]| -> Vec<String> {
             let terms: Vec<String> = terms.iter().map(|t| (*t).to_owned()).collect();
-            s.search_messages("b1", &terms, 10)
+            s.search_messages("b1", &terms, None, 10)
                 .unwrap()
                 .into_iter()
                 .map(|e| e.data["text"].as_str().unwrap().to_owned())
@@ -342,6 +344,22 @@ mod tests {
         assert_eq!(texts(&["SWIFT", "6"]), ["Swift 6 strict mode is on", "我們用 Swift 6 寫 Codync"]);
         assert_eq!(texts(&["codync", "寫"]), ["我們用 Swift 6 寫 Codync"]);
         assert_eq!(texts(&["narration"]).len(), 0);
+    }
+
+    #[test]
+    fn history_search_reads_back_from_a_message() {
+        let s = temp_store();
+        let main = Lane::main("b1");
+        let seqs: Vec<i64> = (1..=4)
+            .map(|i| s.insert_entry(&main, EntryKind::User, 1, &json!({"text": format!("note {i}")})).unwrap().seq)
+            .collect();
+        let texts = |terms: &[String], from| -> Vec<String> {
+            let rows = s.search_messages("b1", terms, from, 2).unwrap();
+            rows.into_iter().map(|e| e.data["text"].as_str().unwrap().to_owned()).collect()
+        };
+        assert_eq!(texts(&[], Some(seqs[2])), ["note 3", "note 2"], "starts at the message itself");
+        assert_eq!(texts(&["1".to_owned()], Some(seqs[2])), ["note 1"]);
+        assert_eq!(texts(&[], None), ["note 4", "note 3"]);
     }
 
     #[test]
