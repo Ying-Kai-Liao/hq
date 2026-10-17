@@ -36,3 +36,12 @@ import Testing
     #expect(try decode("declined")?.choice == nil)
     #expect(try decode("something-newer")?.choice == nil)
 }
+
+@Test func compactionLinesAndHandoffCardsDecode() throws {
+    let decode = { (json: String) in try JSONDecoder().decode(EntryData.self, from: Data(json.utf8)) }
+    let line = try decode(#"{"text": "Earlier context was summarized.", "compaction": {"summary": "Planned a trip.", "byHost": true}}"#)
+    #expect(line.compaction?.summary == "Planned a trip.")
+    let card = try decode(#"{"text": "…", "handoff": {"status": "draft", "reason": "cold", "text": "<handoff>…</handoff>"}}"#)
+    #expect(card.handoff?.isDraft == true)
+    #expect(try decode(#"{"handoff": {"status": "sent"}}"#).handoff?.isDraft == false)
+}

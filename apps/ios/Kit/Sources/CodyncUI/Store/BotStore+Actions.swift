@@ -200,6 +200,31 @@ extension BotStore {
         }
     }
 
+    /// Saves the user's version of a handoff that hasn't been sent. Whether it did.
+    public func editHandoff(_ entry: Entry, text: String) async -> Bool {
+        do {
+            try await withLink(replay: true) { try await $0.editHandoff(entryId: entry.id, text: text) }
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Carries on with the bot's current conversation instead of the handoff.
+    public func keepConversation(_ entry: Entry) {
+        guard answering[entry.id] == nil else { return }
+        Motion.animate { answering[entry.id] = "handoff" }
+        Task {
+            do {
+                try await withLink(replay: true) { try await $0.keepConversation(entryId: entry.id) }
+            } catch {
+                lastError = error.localizedDescription
+            }
+            Motion.animate { answering[entry.id] = nil }
+        }
+    }
+
     public func setFastMode(_ bot: Bot, _ fastMode: Bool) {
         var d = BotDraft(bot)
         d.fastMode = fastMode

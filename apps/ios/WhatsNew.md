@@ -13,6 +13,7 @@ a version without one gets a generic "Bug fixes and improvements" line. Delete o
 - bot 記下一件事時，聊天裡會顯示出來，一鍵就能復原；設定成「先問我」的 bot 會改用卡片詢問，由你決定要不要記。
 - bot 會在空檔時整理記憶，只採用你親口打的字，貼上或引用的內容不算；每次整理都列在 Dreams 裡，可以復原。
 - 原本的記憶會自動搬過來。
+- 對話太長時，bot 會先摘要較早的內容，摘要可以在聊天裡展開；摘要也不夠用時，會改用一張卡片開新對話，你可以先編輯它要帶過去的內容，或選擇保留原本的對話。
 
 ### en-US
 
@@ -20,6 +21,7 @@ a version without one gets a generic "Bug fixes and improvements" line. Delete o
 - When a bot remembers something, the chat shows it with a one-tap undo. A bot set to ask first shows a card instead, and you decide.
 - Between chats, bots tidy their memory using only words you typed yourself, not pasted or quoted text. Every run is listed under Dreams and can be undone.
 - Your existing memory moves over automatically.
+- When a chat runs long, the bot summarizes the earlier part, and you can open the summary in the chat. When that's no longer enough, a card offers a fresh conversation: edit what it carries over, or keep the current one.
 
 ## 2.17.5
 

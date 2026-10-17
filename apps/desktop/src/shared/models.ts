@@ -171,9 +171,29 @@ export interface MemoryWrite {
   error?: string
 }
 
+/** "Earlier context was summarized": the harness's summary, when it gave one. */
+export interface Compaction {
+  summary?: string | null
+  /** The host started it ahead of time; otherwise the harness did when its context filled. */
+  byHost?: boolean
+}
+
+/** What a new conversation carries when the bot's own chat starts over; editable until the next message sends it. */
+export interface HandoffCard {
+  /** draft · sent · kept */
+  status: string
+  /** cold · away · full */
+  reason?: string
+  text?: string
+}
+
 export interface EntryData {
   /** Structured conversation data added to the existing team-tool notice. */
   botMessage?: BotMessage
+  /** notice: the agent summarized its context (see `CompactionNotice`). */
+  compaction?: Compaction
+  /** notice: the bot's chat starts over with this handoff (see `HandoffNotice`). */
+  handoff?: HandoffCard
   heading?: string
   delegationId?: string
   sourceBotId?: string

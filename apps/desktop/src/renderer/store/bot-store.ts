@@ -217,6 +217,34 @@ export class BotStore extends BotSync {
     })()
   }
 
+  /** Saves the user's version of a handoff that hasn't been sent; whether it did. */
+  async editHandoff(entry: Entry, text: string) {
+    try {
+      await this.withLink((c) => c.call('editHandoff', { entryId: entry.id, text }), true)
+      return true
+    } catch (error) {
+      this.lastError = error instanceof Error ? error.message : String(error)
+      this.changed()
+      return false
+    }
+  }
+
+  /** Carries on with the bot's current conversation instead of the handoff. */
+  keepConversation(entry: Entry) {
+    if (this.answering.has(entry.id)) return
+    this.answering.set(entry.id, 'handoff')
+    this.changed()
+    void (async () => {
+      try {
+        await this.withLink((c) => c.call('keepConversation', { entryId: entry.id }), true)
+      } catch (error) {
+        this.lastError = error instanceof Error ? error.message : String(error)
+      }
+      this.answering.delete(entry.id)
+      this.changed()
+    })()
+  }
+
   /** The roster's "Mark as read": the chat and all its threads. */
   markAllRead(botId: string) {
     const bot = this.bots.get(botId)
