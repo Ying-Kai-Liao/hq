@@ -4,6 +4,8 @@ public struct EntryData: Codable, Hashable, Sendable {
     public var connectionRequest: ConnectionRequest?
     /// A bot's memory write shown in the chat.
     public var memory: MemoryWrite?
+    /// A bot's change to one of its memory files.
+    public var memoryFile: MemoryFileCard?
     /// notice: the agent summarized its context.
     public var compaction: Compaction?
     /// notice: the bot's chat starts over with this handoff.

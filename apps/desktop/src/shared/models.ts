@@ -171,6 +171,23 @@ export interface MemoryWrite {
   error?: string
 }
 
+/** A bot's change to a memory file: "Updated people.md" with the diff and an undo, a change put back and why, or
+ *  for a bot that asks first, the change waiting for the user. */
+export interface MemoryFileCard {
+  file?: string
+  shared?: boolean
+  /** done · pending · accepted · declined · undone · restored · failed */
+  status?: string
+  /** `- ` removed and `+ ` added lines. */
+  diff?: string
+  created?: boolean
+  deleted?: boolean
+  /** The change removes more than a quarter of the file. */
+  big?: boolean
+  /** Why it was put back, or couldn't be made. */
+  reason?: string
+}
+
 /** "Earlier context was summarized": the harness's summary, when it gave one. */
 export interface Compaction {
   summary?: string | null
@@ -201,6 +218,8 @@ export interface EntryData {
   connectionRequest?: ConnectionRequest
   /** A bot's memory write shown in the chat (see `MemoryNotice`). */
   memory?: MemoryWrite
+  /** A bot's change to one of its memory files (see `MemoryFileNotice`). */
+  memoryFile?: MemoryFileCard
   routineId?: string
   runId?: string
   text?: string

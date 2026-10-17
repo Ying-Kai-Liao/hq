@@ -6,6 +6,7 @@ import { useModel } from '../../lib/observable'
 import { useStore } from '../../store/context'
 import { MemoryStore, authorLabel, type MemoryEntry } from '../../store/memory-store'
 import { relativeTime } from '../thread/chat-items'
+import { type FileTarget, MemoryFileSheet, fileRows } from './MemoryFiles'
 import './memory.css'
 
 type Section = 'yours' | 'bot' | 'dreams' | 'project'
@@ -18,6 +19,7 @@ export function MemoryCard({ botId }: { botId: string }) {
   const [section, setSection] = useState<Section>('bot')
   const [draft, setDraft] = useState<{ id?: number; text: string } | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
+  const [file, setFile] = useState<FileTarget | null>(null)
   // Memory changes anywhere move the bot's `memoryRev`: fetch again.
   useEffect(() => { void memory.load() }, [memory, bot?.memoryRev, bot?.sharedMemory])
 
@@ -55,6 +57,7 @@ export function MemoryCard({ botId }: { botId: string }) {
           <span>{section === 'yours' ? 'Nothing shared yet.' : 'Nothing yet. What this bot learns about you shows up here, and you can change any of it.'}</span>
         </div>]),
         ...layer.entries.map((entry) => <EntryRow key={entry.id} entry={entry} memory={memory} edit={() => setDraft({ id: entry.id, text: entry.text })} />),
+        ...(view?.files ? fileRows(memory, view.files, section === 'yours', setFile) : []),
       ]}
       {view && section === 'dreams' && [
         <p key="note" className="memory-muted">Between chats the bot tidies its memory from your own words. Each run can be undone.</p>,
@@ -64,6 +67,7 @@ export function MemoryCard({ botId }: { botId: string }) {
             <strong>{relativeTime.day(dream.at)}{dream.undone ? ' · undone' : ''}</strong>
             {dream.added.map((c) => <span key={`a${c.id}`}>+ {c.text}</span>)}
             {dream.archived.map((c) => <span key={`r${c.id}`} className="memory-archived">− {c.text}</span>)}
+            {(dream.files ?? []).map((f) => <span key={`f${f.version}`} className="memory-muted">Added to {f.name}</span>)}
           </div>
           {!dream.undone && <IconButton title="Undo this dream" icon="arrow.uturn.backward" disabled={memory.busy} onClick={() => void memory.mutate('undoDream', { id: dream.id })} />}
         </div>),
@@ -83,6 +87,9 @@ export function MemoryCard({ botId }: { botId: string }) {
         {memory.error && <p role="alert" className="memory-error">{memory.error}</p>}
         <Button disabled={memory.busy || !draft.text.trim()} onClick={save}>{memory.busy ? 'Saving…' : 'Save'}</Button>
       </div>}
+    </Sheet>
+    <Sheet open={file !== null} onClose={() => setFile(null)} width={640}>
+      {file && <MemoryFileSheet memory={memory} target={file} onClose={() => setFile(null)} />}
     </Sheet>
     <Dialog open={confirmClear}
       title={section === 'yours' ? 'Forget everything your bots share about you?' : 'Forget everything this bot remembers?'}

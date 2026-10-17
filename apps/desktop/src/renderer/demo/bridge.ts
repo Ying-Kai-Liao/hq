@@ -92,6 +92,7 @@ const bridge: CodyncBridge = {
   app: {
     reportError() {},
     openExternal: (url) => void window.open(url, '_blank', 'noopener'),
+    openMemoryFile: () => {},
     copy: (text) => void navigator.clipboard?.writeText(text).catch(() => {}),
     pickFiles: async () => [],
     readClipboardFiles: async () => [],

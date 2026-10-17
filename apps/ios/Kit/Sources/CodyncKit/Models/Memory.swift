@@ -29,11 +29,18 @@ public struct DreamRun: Decodable, Identifiable, Hashable, Sendable {
         public var id: Int64
         public var text: String
     }
+    /// A long-form file the run added a line to.
+    public struct FileNote: Decodable, Hashable, Sendable {
+        public var name: String
+        public var shared: Bool
+        public var version: Int64
+    }
     public var id: Int64
     public var at: Int64
     public var undone: Bool
     public var added: [Change]
     public var archived: [Change]
+    public var files: [FileNote]?
 }
 
 /// A bot's memory as its screen shows it.
@@ -49,6 +56,8 @@ public struct MemoryView: Decodable, Hashable, Sendable {
     public var dreams: [DreamRun]
     /// Claude Code's own notes for the bot's project folder, read-only.
     public var projectMemory: Project?
+    /// The long-form files of both layers.
+    public var files: MemoryFiles?
 }
 
 /// The text a single change of a composer's draft inserted, when it is long enough that the user pasted it

@@ -31,6 +31,34 @@ final class MemoryStore {
         }
     }
 
+    /// A long-form file as it is now, with its versions.
+    func file(_ name: String, shared: Bool) async -> MemoryFileDetail? {
+        do {
+            return try await client().memoryFile(botId: botId, file: name, shared: shared)
+        } catch {
+            self.error = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// Saves, deletes (`content` and `version` nil) or brings back a version of a file over what was loaded (`base`);
+    /// reloads after it.
+    @discardableResult
+    func changeFile(_ name: String, shared: Bool, base: String?, content: String? = nil, version: Int64? = nil) async -> Bool {
+        guard !busy else { return false }
+        busy = true
+        error = nil
+        defer { busy = false }
+        do {
+            try await client().changeMemoryFile(botId: botId, file: name, shared: shared, base: base, content: content, version: version)
+            await load()
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
     /// A memory method for this bot; reloads after it.
     @discardableResult
     func mutate(_ method: String, id: Int64? = nil, pinned: Bool? = nil, archived: Bool? = nil, shared: Bool? = nil,

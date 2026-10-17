@@ -26,6 +26,50 @@ export interface DreamRun {
   undone: boolean
   added: { id: number; text: string }[]
   archived: { id: number; text: string }[]
+  /** Long-form files it added a line to. */
+  files?: { name: string; shared: boolean; version: number }[]
+}
+
+/** A long-form memory file as the host last recorded it (`codync_mem::files::File`). */
+export interface MemoryFile {
+  bot: string | null
+  name: string
+  /** SHA-256 of what it holds; a save is made over it. */
+  hash: string
+  description: string | null
+  tokens: number
+  deleted: boolean
+  updatedAt: number
+}
+
+export interface MemoryFiles {
+  yours: { files: MemoryFile[]; folder: string }
+  bot: { files: MemoryFile[]; folder: string }
+  /** Tokens one file may hold, and files one folder may hold. */
+  cap: number
+  folderCap: number
+}
+
+export interface MemoryFileVersion {
+  id: number
+  /** null: the file was deleted. */
+  content: string | null
+  /** user · bot · dream · computer */
+  author: string
+  authorBot: string | null
+  /** edit · delete · restore · undo · dream */
+  cause: string
+  at: number
+}
+
+/** A file as it is on disk now, with its recent versions. */
+export interface MemoryFileDetail {
+  file: string
+  shared: boolean
+  content: string | null
+  hash: string | null
+  path: string
+  versions: MemoryFileVersion[]
 }
 
 export interface MemoryView {
@@ -37,6 +81,8 @@ export interface MemoryView {
   /** Claude Code's own notes for the bot's project folder, read-only. */
   projectMemory: { path: string; text: string } | null
   memoryRev: number
+  /** The long-form files of both layers. */
+  files?: MemoryFiles
 }
 
 /** One bot's memory: fetches it, and changes it through the host. */
@@ -60,6 +106,23 @@ export class MemoryStore extends Observable {
       if (request === this.request) this.error = message(error)
     }
     this.changed()
+  }
+
+  /** A long-form file as it is now, with its versions. */
+  async file(name: string, shared: boolean): Promise<MemoryFileDetail | null> {
+    try {
+      return await (await this.client()).call<MemoryFileDetail>('memoryFile', { botId: this.botId, file: name, shared })
+    } catch (error) {
+      this.error = message(error)
+      this.changed()
+      return null
+    }
+  }
+
+  /** Saves (`content`), deletes (neither) or brings back `version` of a file, over what was loaded (`base`). */
+  changeFile(name: string, shared: boolean, base: string | null, change: { content?: string; version?: number } = {}) {
+    const method = change.version !== undefined ? 'restoreMemoryFile' : change.content !== undefined ? 'saveMemoryFile' : 'deleteMemoryFile'
+    return this.mutate(method, { file: name, shared, base, ...change })
   }
 
   /** A memory method for this bot; reloads after it. */
@@ -89,6 +152,19 @@ export function authorLabel(entry: MemoryEntry, botName: (id: string | null) => 
     case 'bot': return `${botName(entry.authorBot)} remembered it`
     case 'dream': return 'Dreaming'
     default: return 'Moved from the old memory'
+  }
+}
+
+/** Who made a file's version and why, for its row. */
+export function versionLabel(version: MemoryFileVersion, botName: (id: string | null) => string) {
+  const by = version.author === 'user' ? 'You'
+    : version.author === 'bot' ? botName(version.authorBot)
+    : version.author === 'dream' ? 'Dreaming' : 'This computer'
+  switch (version.cause) {
+    case 'delete': return `${by} deleted it`
+    case 'restore': return `${by} brought back a version`
+    case 'undo': return `${by} undid a change`
+    default: return `${by} changed it`
   }
 }
 

@@ -17,6 +17,7 @@
   --accent-dim: #d9d9d9;
   --danger: #c23a2b;
   --warning: #f0a030;
+  --attention: #936000;
   --code-background: #f4f4f4;
   --added: #2e7d32;
   --removed: #c62828;
@@ -73,6 +74,7 @@
     --accent-dim: #333333;
     --danger: #f0a7a7;
     --code-background: #111111;
+    --attention: #ecaf52;
     --added: #8fd18b;
     --removed: #f0a7a7;
     --panel: #1b1b1b;

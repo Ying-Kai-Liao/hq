@@ -99,6 +99,7 @@ struct MemoryCard: View {
             }
             .padding(.vertical, 6)
         }
+        if let files = view.files { MemoryFilesList(memory: memory, files: files, shared: shared) }
     }
 
     @ViewBuilder private func dreams(_ memory: MemoryStore, _ runs: [DreamRun]) -> some View {
@@ -112,6 +113,7 @@ struct MemoryCard: View {
                         .fontWeight(.semibold)
                     ForEach(run.added, id: \.id) { Text("+ \($0.text)") }
                     ForEach(run.archived, id: \.id) { Text("− \($0.text)").foregroundStyle(Palette.tertiary) }
+                    ForEach(run.files ?? [], id: \.version) { Label("Added to \($0.name)", systemImage: "doc.text").foregroundStyle(Palette.secondary) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if !run.undone {

@@ -12,3 +12,7 @@
 .memory-editor textarea { padding: 10px; background: var(--surface); color: var(--text); border: 0; border-radius: 8px; font: inherit; resize: vertical; }
 .memory-history { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; user-select: text; margin: 0; }
 .memory-error { color: var(--danger, #df665e); white-space: pre-wrap; }
+.memory-notes-header { display: flex; align-items: center; justify-content: space-between; color: var(--secondary); font-size: 12px; font-weight: 600; }
+.memory-attention { color: var(--attention); }
+.memory-file-sheet { display: flex; flex-direction: column; height: 100%; background: var(--background); }
+.memory-file-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font: 12px/1.5 var(--mono, ui-monospace, monospace); }
