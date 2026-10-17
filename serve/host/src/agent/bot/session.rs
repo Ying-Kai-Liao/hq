@@ -3,6 +3,7 @@
 use super::fast_mode::Listing;
 use super::{Actor, Conn, Instructions, NoticeStyle, SessionCaps};
 use crate::agent::acp::{self, Acp, Incoming};
+use crate::agent::own_memory;
 use crate::chat::context;
 use crate::store::{BotConfig, Entry, EntryKind, Lane, lane_key};
 use anyhow::{Result, anyhow, bail};
@@ -148,7 +149,7 @@ impl Actor {
         }
         if self.conn.is_none() {
             let (hub, id) = (self.hub.clone(), self.cfg.id.clone());
-            let candidates = launch_commands(&self.cfg, move |msg: &str| {
+            let mut candidates = launch_commands(&self.cfg, move |msg: &str| {
                 let msg = msg.to_owned();
                 hub.set_runtime(&id, |r| r.activity = msg);
             })
@@ -157,8 +158,8 @@ impl Actor {
             // Keys saved from an "environment variable" sign-in.
             let mut env = crate::agent::auth::env(&self.hub.store, &self.cfg.backend)?;
             if crate::agent::workspace::is_managed(&self.cfg) {
-                // Codync's memory is the only one a bot in its own workspace has (see `claude_meta`).
-                env.push(("CLAUDE_CODE_DISABLE_AUTO_MEMORY".into(), "1".into()));
+                // Codync's memory is the only one a bot in its own workspace has.
+                own_memory::turn_off(&self.cfg.backend, &self.cfg.cwd, &mut env, &mut candidates).await;
             }
             let mut last_err = None;
             for (i, command) in candidates.iter().enumerate() {

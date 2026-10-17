@@ -12,8 +12,8 @@ use std::time::Duration;
 const TIMEOUT: Duration = Duration::from_secs(180);
 
 /// Runs one prompt on a throwaway agent of the bot's harness and returns its reply.
-/// Claude gets a real system prompt, no tools, no settings and no saved session;
-/// other harnesses get the instructions inline.
+/// Claude gets a real system prompt, no tools, no settings and no saved session; an agent with ACP
+/// `systemPrompt` gets the instructions there, other harnesses inline. None of them may remember the job.
 pub async fn one_shot(hub: &Arc<Hub>, cfg: &BotConfig, system: &str, user: &str) -> Result<String> {
     let cwd = crate::service::data_dir().join("background");
     tokio::fs::create_dir_all(&cwd).await?;
@@ -21,10 +21,12 @@ pub async fn one_shot(hub: &Arc<Hub>, cfg: &BotConfig, system: &str, user: &str)
     if hub.store.kv_read(&format!("agent-env:{}", cfg.backend))?.is_some() {
         crate::market::vault::unlock(hub.clone()).await?;
     }
-    let env = crate::agent::auth::env(&hub.store, &cfg.backend)?;
+    let mut env = crate::agent::auth::env(&hub.store, &cfg.backend)?;
+    let mut commands = crate::agent::bot::launch_commands(cfg, |_| {}).await?;
+    crate::agent::own_memory::turn_off(&cfg.backend, &cwd, &mut env, &mut commands).await;
     let mut conn = None;
     let mut last_err = None;
-    for command in crate::agent::bot::launch_commands(cfg, |_| {}).await? {
+    for command in commands {
         match crate::agent::bot::start_agent(&command, &cwd, &env, Duration::from_secs(60)).await {
             Ok(c) => {
                 conn = Some(c);

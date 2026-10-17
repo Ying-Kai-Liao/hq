@@ -7,6 +7,7 @@ pub mod backends;
 pub mod bot;
 pub mod config;
 pub mod node;
+pub mod own_memory;
 pub mod registry;
 pub mod term;
 pub mod workspace;
