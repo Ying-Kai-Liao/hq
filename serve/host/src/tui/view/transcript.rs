@@ -295,6 +295,14 @@ fn entry_lines(
                     e.notice_text(),
                     if status == "pending" { hint } else { status }
                 )
+            } else if let Some(status) = e.data["memory"]["status"].as_str() {
+                // A bot's memory write: undo it, or answer a bot that asked first (keys on the picked line).
+                let hint = match status {
+                    "pending" => " · y approves · n declines",
+                    "done" | "accepted" => " · u undoes",
+                    _ => "",
+                };
+                format!("{}{hint}", e.notice_text())
             } else {
                 e.notice_text()
             };
@@ -318,7 +326,7 @@ fn entry_lines(
                     &[Span::raw("   ")],
                 )),
             }
-            if e.data["connectionRequest"].is_object() {
+            if e.data["connectionRequest"].is_object() || e.data["memory"].is_object() {
                 out.messages.push((e.id.clone(), from, out.lines.len()));
             }
         }

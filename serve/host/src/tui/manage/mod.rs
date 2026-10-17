@@ -16,7 +16,7 @@ mod routines;
 mod skill;
 
 pub use analytics::AnalyticsSheet;
-pub use memory::{MemoryMode, MemorySheet};
+pub use memory::{MemoryMode, MemorySheet, Section};
 pub use routines::local_zone;
 pub use skill::SkillSheet;
 
@@ -35,8 +35,6 @@ pub const REACTIONS: [&str; 6] = ["👍", "❤️", "😂", "🎉", "👀", "✅
 pub enum Reply {
     Memory(String),
     MemorySaved(String),
-    MemoryDetail(String),
-    MemoryExport(String),
     Routines(String),
     RoutineSaved,
     /// A routine's webhook URL and key: copied as a ready-to-run curl.

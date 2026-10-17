@@ -66,7 +66,10 @@ impl App {
             }
             Some("usage") => self.usage = v["usage"].clone(),
             Some("screen") => self.screen = v["screen"].clone(),
-            Some("bot") => self.upsert_bot(&v["bot"]),
+            Some("bot") => {
+                self.upsert_bot(&v["bot"]);
+                self.memory_moved(&v["bot"]);
+            }
             Some("entry") => {
                 if let Some((bot, e)) = Entry::parse(&v["entry"])
                     && !self.outside_window(&bot, &e)
@@ -318,6 +321,7 @@ impl App {
                 {
                     self.drafts.remove(key);
                     self.files.remove(key);
+                    self.pasted.remove(key);
                 }
                 self.sends.remove(key);
                 // The stream may already hold a newer copy (its delivery status).

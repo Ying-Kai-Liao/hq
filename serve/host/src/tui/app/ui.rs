@@ -91,7 +91,8 @@ pub struct Goto {
 pub enum ConfirmAct {
     Delete(String),
     NewSession(String),
-    ClearMemory(String),
+    /// A bot's own memory, or (`true`) the one all bots share.
+    ClearMemory(String, bool),
     DeleteRoutine(String, String),
     RotateRoutineKey(String, String),
     RemoveConnector(String),

@@ -64,6 +64,8 @@ pub struct App {
     pub slash_pick: (String, usize),
     /// Files dropped on the composer (pasted paths), per draft like the text.
     pub files: HashMap<String, Vec<std::path::PathBuf>>,
+    /// What was pasted into each draft, sent along so memory never takes it as the user's own words.
+    pub pasted: HashMap<String, Vec<String>>,
     pub download: Option<super::net::files::Download>,
     sends: HashMap<String, PendingSend>,
     /// Lines scrolled up from the bottom of the chat (0 = follow new messages).
@@ -138,6 +140,7 @@ impl App {
             drafts: HashMap::new(),
             slash_pick: (String::new(), 0),
             files: HashMap::new(),
+            pasted: HashMap::new(),
             sends: HashMap::new(),
             chat_scroll: 0,
             trace_scroll: 0,

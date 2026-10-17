@@ -334,7 +334,10 @@ impl Entry {
 
     /// What the chat shows as a message: the user's, and each turn's final reply.
     pub fn is_message(&self) -> bool {
-        self.kind == Kind::User || self.is_final() || self.data["connectionRequest"].is_object()
+        self.kind == Kind::User
+            || self.is_final()
+            || self.data["connectionRequest"].is_object()
+            || self.data["memory"].is_object()
     }
 
     /// A notice for a bot-to-bot message or request (`chat::team`).

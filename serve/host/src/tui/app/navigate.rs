@@ -184,6 +184,26 @@ impl App {
             KeyCode::Enter if picked.as_ref().is_some_and(|e| e.data["connectionRequest"]["status"] == "pending") => {
                 self.open_connection();
             }
+            KeyCode::Char(c @ ('y' | 'n'))
+                if picked.as_ref().is_some_and(|e| e.data["memory"]["status"] == "pending") =>
+            {
+                if let Some(e) = picked {
+                    self.call(
+                        "answerMemory",
+                        json!({"entryId": e.id, "accept": c == 'y'}),
+                        After::Answered(e.id.clone()),
+                    );
+                }
+            }
+            KeyCode::Char('u')
+                if picked
+                    .as_ref()
+                    .is_some_and(|e| matches!(e.data["memory"]["status"].as_str(), Some("done" | "accepted"))) =>
+            {
+                if let Some(e) = picked {
+                    self.call("undoMemory", json!({"entryId": e.id}), After::Answered(e.id.clone()));
+                }
+            }
             KeyCode::Enter | KeyCode::Char('r') if self.thread.is_some() => {
                 self.pick = None;
                 self.start_typing();
