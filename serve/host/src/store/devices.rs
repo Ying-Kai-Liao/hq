@@ -198,6 +198,14 @@ impl Store {
         logged("activity tickets", rows).unwrap_or_default()
     }
 
+    pub fn remove_activity_ticket(&self, bot_id: &str, device_key: &str) -> Result<()> {
+        self.db.locked().execute(
+            "DELETE FROM activity_tickets WHERE bot_id = ?1 AND device_key = ?2",
+            params![bot_id, device_key],
+        )?;
+        Ok(())
+    }
+
     /// Forgets a bot's Live Activity tickets (its activity ended); returns them.
     pub fn take_activity_tickets(&self, bot_id: &str) -> Vec<String> {
         let tickets = self.activity_tickets(bot_id);
@@ -258,6 +266,19 @@ mod tests {
         assert_eq!(s.activity_tickets("bot"), ["new-a"]);
         s.remove_push_ticket("new").unwrap();
         assert_eq!(s.push_tickets().iter().map(|ticket| ticket.ticket.as_str()).collect::<Vec<_>>(), ["other"]);
+    }
+
+    #[test]
+    fn ending_one_phone_activity_preserves_other_bots_and_phones() {
+        let s = temp_store();
+        s.add_activity_ticket("one", "bot", "phone").unwrap();
+        s.add_activity_ticket("two", "bot", "other-phone").unwrap();
+        s.add_activity_ticket("three", "other-bot", "phone").unwrap();
+        s.remove_activity_ticket("bot", "phone").unwrap();
+        assert_eq!(s.activity_tickets("bot"), ["two"]);
+        assert_eq!(s.activity_tickets("other-bot"), ["three"]);
+        s.remove_activity_ticket("bot", "phone").unwrap();
+        assert_eq!(s.activity_tickets("bot"), ["two"]);
     }
 
     #[test]
