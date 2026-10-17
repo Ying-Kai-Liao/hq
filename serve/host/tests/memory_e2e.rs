@@ -162,7 +162,7 @@ async fn moves_old_memory_once_and_keeps_the_layers_apart() {
     host.call("forgetMemory", json!({"botId": b, "id": own})).await;
     host.call("clearMemory", json!({"botId": a, "shared": true})).await;
     let view = host.memory(&b).await;
-    assert!(view["yours"]["entries"].as_array().unwrap().is_empty());
+    assert_eq!(view["yours"]["entries"], json!([]));
     assert!(!view.to_string().contains("Reviews PRs"));
 }
 
@@ -181,7 +181,7 @@ async fn bots_write_memory_by_their_permission() {
     assert_eq!(texts(&host.memory(&auto).await["bot"], "active"), ["Prefers short replies"]);
     host.call("undoMemory", json!({"entryId": card["id"]})).await;
     assert_eq!(host.card(&auto).await["data"]["memory"]["status"], "undone");
-    assert!(host.memory(&auto).await["bot"]["entries"].as_array().unwrap().is_empty());
+    assert_eq!(host.memory(&auto).await["bot"]["entries"], json!([]));
     let again = host.tool_refused(&auto, "remember", json!({"text": "prefers short replies."})).await;
     assert!(again.contains("deleted this memory before"), "{again}");
 
@@ -198,7 +198,7 @@ async fn bots_write_memory_by_their_permission() {
     // A bot that asks first puts a card in the chat; nothing is written until the user approves.
     let pending = host.tool(&ask, "remember", json!({"text": "Works from home on Mondays"})).await;
     assert_eq!(pending["status"], "waitingForUser");
-    assert!(host.memory(&ask).await["bot"]["entries"].as_array().unwrap().is_empty());
+    assert_eq!(host.memory(&ask).await["bot"]["entries"], json!([]));
     let card = host.card(&ask).await;
     assert_eq!(card["data"]["memory"]["status"], "pending");
     host.call("answerMemory", json!({"entryId": card["id"], "accept": true})).await;
@@ -260,6 +260,6 @@ async fn dreaming_keeps_only_what_the_user_typed_and_can_be_undone() {
     let dream = view["dreams"][0]["id"].as_i64().unwrap();
     host.call("undoDream", json!({"botId": bot, "id": dream})).await;
     let view = host.memory(&bot).await;
-    assert!(view["bot"]["entries"].as_array().unwrap().is_empty());
+    assert_eq!(view["bot"]["entries"], json!([]));
     assert_eq!(view["dreams"][0]["undone"], true);
 }
