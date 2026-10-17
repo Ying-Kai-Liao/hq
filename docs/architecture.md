@@ -51,6 +51,7 @@ project it holds for (`bin/project-id --info`, `hq project`).
 | **State** | What hq has lived: user.md, projects, agents.json, rules | `~/.hq` (private hq-state repo; only these files are committed) | built: never snapshotted |
 | **Service** | Something several agents may use: an MCP server, an API, a login | `kernel/services/<name>.json` | built |
 | **Grant** | Which agent may use which service, as which account | `~/.hq/secrets/auth.json` (this Mac, never in git) | built |
+| **Browser profile** | A set of logins and the browser that made them, opened by every browser tool an agent has; its own per agent unless granted a shared one | `browser/<name>` in `auth.json`, folder `~/.hq/browsers/<name>` (this Mac, never in git) | built |
 | **Environment** | The installed software a package's plugins need, built per machine | not yet | planned |
 | **Kernel** | Runs agents and connects them: `bin/hq`, `hq-pkg`, `hq-auth`, the bridge, the adapter | this repo: `kernel/` (`bin/`, `lib/`, `adapters/`, `services/`); no agents | built |
 

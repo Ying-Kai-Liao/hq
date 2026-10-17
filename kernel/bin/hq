@@ -167,8 +167,10 @@ export HQ_MODEL=${HQ_MODEL:-$(field model)} HQ_EFFORT=${HQ_EFFORT:-$(field effor
 # The agent's settings plus a SessionStart hook that tags each session (new, resumed, /clear) in the cost ledger, and
 # hq's secrets kept out of its file tools (they sit inside ~/.hq, which every run can read; tools get them from hq-auth),
 # and the writes PROTOCOL asks for allowed without a prompt (a one-shot run has no one to approve them): its memory,
-# its learned skills and the shared project files, each under its logical and its resolved path.
-fill < "$pkg/settings.json" | HOOK="\"$HQ/bin/hq-cost\" tag" WRITABLE="$home/memory
+# its learned skills and the shared project files, each under its logical and its resolved path. Every installed plugin
+# but hq is off unless the agent's settings turn it on, so a plugin installed after the agent was made stays out.
+plugins=$(claude plugin list --json 2>/dev/null || echo '[]')
+fill < "$pkg/settings.json" | PLUGINS=$plugins HOOK="\"$HQ/bin/hq-cost\" tag" WRITABLE="$home/memory
 $home_real/memory
 $src_pkg/skills/learned
 $HQ_STATE/projects
@@ -183,6 +185,13 @@ s.setdefault("permissions", {}).setdefault("deny", []).extend(
     "%s(/%s)" % (tool, f) for f in files for tool in ("Read", "Edit"))   # Edit covers every file-writing tool
 allow = s["permissions"].setdefault("allow", [])
 allow.extend(r for r in dict.fromkeys("Edit(/%s/**)" % d for d in os.environ["WRITABLE"].split("\n")) if r not in allow)
+try:
+    installed = [p["id"] for p in json.loads(os.environ["PLUGINS"])]
+except (ValueError, KeyError, TypeError):
+    installed = []
+on = s.setdefault("enabledPlugins", {})
+for p in installed:
+    on.setdefault(p, p == "hq@hq")
 json.dump(s, sys.stdout, indent=1)' > "$runs/$$.settings.json"
 
 # Directories the agent may use: the kernel (tools) under both its logical and its resolved path (Claude Code checks

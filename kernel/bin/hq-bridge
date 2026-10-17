@@ -13,7 +13,7 @@
 A message in #<agent> starts a thread and runs `hq <agent> "<message>"`; that agent owns the task. It may call
 other agents as helpers; they post status in the same thread through `hq-send --as <name>`. Replies in a thread
 resume the same Claude session. Messages sent while the agent is still working wait in the thread's inbox and go to
-it together as one prompt when the run ends. With a Jev key (JEV_API_KEY in ~/.config/jev/env) each of those
+it together as one prompt when the run ends. With a Jev key (the jev-browser key, granted to `bridge` in hq-auth) each of those
 messages is routed by Jev first: "stop" kills the run, a correction stops it and starts it again with the correction
 merged in, a different subject becomes its own turn, anything else is merged; without Jev, or when Jev fails, it is
 merged. While a run goes, the agent shows a small "working…" line with a Stop button; it goes away when the reply is
@@ -36,6 +36,7 @@ import json
 import os
 import re
 import signal
+import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -142,15 +143,14 @@ def install():
 
 
 def jev_config():
-    """JEV_* from the environment or ~/.config/jev/env; kept out of os.environ so agent runs never see the key."""
-    cfg = {}
-    f = Path.home() / '.config' / 'jev' / 'env'
-    if f.exists():
-        for line in f.read_text().splitlines():
-            k, sep, v = line.strip().partition('=')
-            if sep and k.strip().startswith('JEV_'):
-                cfg[k.strip()] = v.strip().strip('"\'')
-    cfg.update({k: v for k, v in os.environ.items() if k.startswith('JEV_')})
+    """JEV_* from the environment, the key from hq-auth (hq-auth grant bridge jev-browser <profile>); kept out of
+    os.environ so agent runs never see the key."""
+    cfg = {k: v for k, v in os.environ.items() if k.startswith('JEV_')}
+    if 'JEV_API_KEY' not in cfg:
+        r = subprocess.run([str(HQ / 'bin' / 'hq-auth'), 'get', '--for', 'bridge', 'jev-browser', 'TYPESAFE_API_KEY'],
+                           capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            cfg['JEV_API_KEY'] = r.stdout.strip()
     return cfg
 
 

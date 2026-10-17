@@ -1,0 +1,5 @@
+{
+  "description": "A browser profile: the logins an agent's browser tools share, kept in ~/.hq/browsers/<name> (hq-auth browser)",
+  "kind": "browser",
+  "secrets": []
+}

@@ -2,13 +2,18 @@
 """hq-auth — which agent may use which shared service, and with which account.
 
   hq-auth ls                              every agent: the services it needs, its grant, whether the secrets resolve
-  hq-auth grant <agent> <service> <profile>   let an agent use a service as that profile (e.g. notion/library)
+  hq-auth grant <agent> <service> <profile>   let an agent use a service as that profile (e.g. notion/library);
+                                          several agents as a,b,c, or --all for every agent whose needs list it
   hq-auth revoke <agent> <service>
   hq-auth set <profile> <VAR>             store a secret in the macOS Keychain (prompts; never echoed) and point
                                           the profile at it
   hq-auth mcp-config <agent>              the --mcp-config JSON for an agent's granted MCP services (bin/hq uses it)
   hq-auth exec [--for AGENT] <service> -- CMD...   run CMD with that service's secrets in its environment only
   hq-auth get  [--for AGENT] <service> <VAR>       print one secret, for an agent's own tool to call
+  hq-auth env  <agent> <service> [VAR=value | VAR=]  this agent's own settings for a service (not secrets), e.g.
+                                          hq-auth env personal jev-browser JEV_BROWSER_HEADED=1; VAR= drops one
+  hq-auth browser <name> [<browser>]      a browser profile (its logins, in ~/.hq/browsers/<name>) and the browser
+                                          that made it: chrome, chromium, msedge, firefox, or an app's path
 
 Three layers, so sharing an agent never shares an account:
   kernel/services/<name>.json   what a service is: kind (mcp | cli | login), how to start it, which env vars it needs.
@@ -16,6 +21,15 @@ Three layers, so sharing an agent never shares an account:
   agents/<a>/capabilities.yaml  `needs: [service, ...]`: what the agent asks for. Part of the agent package.
   ~/.hq/secrets/auth.json      profiles (an account: where each secret comes from) and grants (agent → service →
                                 profile). Yours alone, never in the repo. Holds references, not secret values.
+                                Also env (agent → service → VAR: value): plain settings that override the
+                                service's own env for that agent only.
+
+Browser profiles: logins belong to a browser profile, not to a tool, so every browser tool an agent has (each
+service with "browsers" in its json) opens the agent's one profile: `hq-auth grant <agent> browser browser/<name>`;
+without a grant, the agent's own (browser/<agent>). Agents granted the same profile share its logins, though only
+one run can have it open at a time. A service gets $HQ_BROWSER and $HQ_BROWSER_PROFILE for its env and args, and
+is left out of a run when it can't drive the profile's browser (a profile is only ever opened by the browser that
+made it).
 
 Secret sources in a profile: "keychain:SERVICE#ACCOUNT", "env-file:PATH#VAR", "env:VAR". A `login` service (codex,
 a Chrome profile) has no secrets here: the tool keeps its own login, and the grant only says who may use it.
@@ -67,6 +81,7 @@ def load_auth():
         die(f'{AUTH}: invalid JSON ({e})')
     data.setdefault('profiles', {})
     data.setdefault('grants', {})
+    data.setdefault('env', {})
     return data
 
 
@@ -157,6 +172,40 @@ def secrets(auth, svc, profile):
     return out
 
 
+def browser_profile(auth, agent):
+    """(profile name, browser, folder) of the browser profile this agent's browser tools open."""
+    name = auth['grants'].get(agent, {}).get('browser') or f'browser/{agent}'
+    return name, auth['profiles'].get(name, {}).get('browser'), paths()['HQ_MACHINE'] / 'browsers' / name.split('/', 1)[1]
+
+
+def drives(spec, browser):
+    """Whether a browser service can run that browser (an app path counts when it lists "path")."""
+    can = spec.get('browsers', [])
+    return browser in can or ('path' in can and '/' in browser)
+
+
+def settings(auth, agent, svc):
+    """The service's env with this agent's own overrides on top; $HQ_AGENT in a value is this agent, $HQ_BROWSER
+    and $HQ_BROWSER_PROFILE its browser profile. Exits when a browser service can't drive that profile's browser."""
+    os.environ['HQ_AGENT'] = agent
+    for k, v in paths().items():   # $HQ_MACHINE and the rest, also when hq-auth runs on its own
+        os.environ.setdefault(k, str(v))
+    spec = service(svc)
+    if spec.get('browsers'):
+        name, browser, folder = browser_profile(auth, agent)
+        browser = browser or spec['browsers'][0]   # a new profile starts in the service's first browser
+        if not drives(spec, browser):
+            die(f'{svc} can\'t drive {browser}, the browser of {name} ({agent}\'s profile; hq-auth browser)')
+        folder.parent.mkdir(mode=0o700, parents=True, exist_ok=True)   # logins: this user only
+        os.environ.update(HQ_BROWSER=browser, HQ_BROWSER_PROFILE=str(folder))
+    env = {**spec.get('mcp', {}).get('env', {}), **auth['env'].get(agent, {}).get(svc, {})}
+    return {k: expand(v) for k, v in env.items()}
+
+
+def uses_browser(agent):
+    return any(service_file(s) and service(s).get('browsers') for s in needs(agent))
+
+
 def audit(agent, svc, profile, how):
     """One line per secret handed out. --for can name any agent, so the log records who was really running too."""
     try:
@@ -186,7 +235,7 @@ def cmd_ls():
         if not wanted and not granted:
             continue
         print(agent)
-        for svc in sorted(set(wanted) | set(granted)):
+        for svc in sorted((set(wanted) | set(granted)) - {'browser'}):   # the browser profile has its own line
             profile = granted.get(svc)
             if not profile:
                 print(f'  {svc:<14} NOT GRANTED')
@@ -201,6 +250,12 @@ def cmd_ls():
             status = 'ok' if refs is not None and not missing else \
                 'no such profile' if refs is None else 'missing ' + ', '.join(missing)
             print(f'  {svc:<14} {profile:<24} {status}{note}')
+            for var, value in auth['env'].get(agent, {}).get(svc, {}).items():
+                print(f'  {"":<14} {var}={value}')
+        if uses_browser(agent) or 'browser' in granted:
+            name, browser, folder = browser_profile(auth, agent)
+            own = '' if 'browser' in granted else '  (its own; no browser grant)'
+            print(f'  {"browser":<14} {name:<24} {browser or "not set"}, ~/{folder.relative_to(Path.home())}{own}')
 
 
 def cmd_mcp_config(agent):
@@ -220,13 +275,18 @@ def cmd_mcp_config(agent):
         except SystemExit:
             print(f'hq: {agent}: {svc} skipped this run, its secrets don\'t resolve (hq-auth ls)', file=sys.stderr)
             continue
+        try:
+            env = settings(auth, agent, svc)   # also skip a browser tool that can't drive the agent's profile
+        except SystemExit:
+            print(f'hq: {agent}: {svc} skipped this run', file=sys.stderr)
+            continue
         mcp = spec['mcp']
         # Secrets are resolved when the server starts, inside hq-auth exec, so they never land in a config file
         # or in the agent's own environment.
         servers[svc] = {
             'command': str(HQ / 'bin' / 'hq-auth'),
             'args': ['exec', '--for', agent, svc, '--', mcp['command'], *[expand(a) for a in mcp.get('args', [])]],
-            'env': {k: expand(v) for k, v in mcp.get('env', {}).items()},
+            'env': env,
         }
     print(json.dumps({'mcpServers': servers}))
 
@@ -238,7 +298,7 @@ def cmd_exec(args):
     svc, cmd = args[0], args[2:]
     auth = load_auth()
     profile = grant_for(auth, agent, svc)
-    env = {**os.environ, **secrets(auth, svc, profile)}
+    env = {**os.environ, **settings(auth, agent, svc), **secrets(auth, svc, profile)}
     audit(agent, svc, profile, 'exec')
     os.execvpe(cmd[0], cmd, env)
 
@@ -284,15 +344,21 @@ def main(argv):
     if cmd == 'ls':
         cmd_ls()
     elif cmd == 'grant' and len(rest) == 3:
-        agent, svc, profile = rest
+        who, svc, profile = rest
         service(svc)
         if not profile.startswith(svc + '/'):
             die(f'a {svc} grant takes a {svc}/<account> profile', 2)
+        uses = (lambda a: uses_browser(a)) if svc == 'browser' else (lambda a: svc in needs(a))
+        names = [a for a in agents() if uses(a)] if who == '--all' else [a for a in who.split(',') if a]
+        if not names:
+            die(f'no agent lists {svc} in its needs' if who == '--all' else 'no agent named', 2)
         auth = load_auth()
         auth['profiles'].setdefault(profile, {})
-        auth['grants'].setdefault(agent, {})[svc] = profile
+        for agent in names:
+            auth['grants'].setdefault(agent, {})[svc] = profile
         save_auth(auth)
-        print(f'{agent} may use {svc} as {profile}')
+        for agent in names:
+            print(f'{agent} may use {svc} as {profile}' + ('' if uses(agent) else f' (not in its needs yet)'))
     elif cmd == 'revoke' and len(rest) == 2:
         auth = load_auth()
         auth['grants'].get(rest[0], {}).pop(rest[1], None)
@@ -300,6 +366,41 @@ def main(argv):
         print(f'{rest[0]} may no longer use {rest[1]}')
     elif cmd == 'set' and len(rest) == 2:
         cmd_set(*rest)
+    elif cmd == 'env' and len(rest) >= 2:
+        agent, svc, pairs = rest[0], rest[1], rest[2:]
+        service(svc)
+        auth = load_auth()
+        mine = auth['env'].setdefault(agent, {}).setdefault(svc, {})
+        for pair in pairs:
+            var, eq, value = pair.partition('=')
+            if not eq or not var:
+                die(f'expected VAR=value, got {pair!r}', 2)
+            if value:
+                mine[var] = value
+            else:
+                mine.pop(var, None)
+        if not mine:
+            auth['env'][agent].pop(svc)
+        if not auth['env'][agent]:
+            auth['env'].pop(agent)
+        if pairs:
+            save_auth(auth)
+        for var, value in settings(auth, agent, svc).items():
+            print(f'{var}={value}')
+    elif cmd == 'browser' and len(rest) in (1, 2):
+        name = rest[0] if rest[0].startswith('browser/') else f'browser/{rest[0]}'
+        auth = load_auth()
+        prof = auth['profiles'].setdefault(name, {})
+        if len(rest) == 2:
+            if prof.get('browser') and prof['browser'] != rest[1]:
+                print(f'note: {name} was made in {prof["browser"]}; its logins may not open in {rest[1]}',
+                      file=sys.stderr)
+            prof['browser'] = rest[1]
+        save_auth(auth)
+        folder = paths()['HQ_MACHINE'] / 'browsers' / name.split('/', 1)[1]
+        users = [a for a, g in auth['grants'].items() if g.get('browser') == name]
+        print(f'{name}: {prof.get("browser") or "browser not set (the first tool to open it picks)"}, {folder}'
+              + (f'; granted to {", ".join(users)}' if users else ''))
     elif cmd == 'mcp-config' and len(rest) == 1:
         cmd_mcp_config(rest[0])
     elif cmd == 'exec':

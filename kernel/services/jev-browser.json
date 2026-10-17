@@ -1,10 +1,11 @@
 {
-  "description": "Real Chrome via the jev-browser MCP server: Google Maps lookups, login-walled pages",
+  "description": "Jev Browser MCP server: Google Maps lookups, login-walled pages, in the agent's browser profile",
   "kind": "mcp",
+  "browsers": ["chrome", "chromium", "chrome-beta", "msedge", "path"],
   "mcp": {
     "command": "npx",
-    "args": ["-y", "-p", "jev-browser", "jev-browser-mcp"],
-    "env": { "JEV_BROWSER_PROFILE": "~/.config/jev-browser/profile" }
+    "args": ["-y", "-p", "jev-browser@latest", "jev-browser-mcp"],
+    "env": { "JEV_BROWSER": "$HQ_BROWSER", "JEV_BROWSER_PROFILE": "$HQ_BROWSER_PROFILE" }
   },
   "secrets": ["TYPESAFE_API_KEY"]
 }
