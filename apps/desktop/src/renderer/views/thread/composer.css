@@ -74,6 +74,26 @@
   transition: opacity var(--morph), transform var(--morph);
 }
 .composer-symbol.active { opacity: 1; transform: scale(1) rotate(0); }
+/* Dictation, beside send / call (Grok Bot's): a light circle; filled while it listens. */
+.composer-mic {
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--secondary);
+  background: color-mix(in srgb, var(--text) 7%, var(--composer-fill));
+  margin-bottom: calc(max(0px, (round(up, calc(var(--conversation) * 1.25), 1px) + 10px - 25px) / 2));
+  transition: background-color var(--morph), color var(--morph), transform var(--press);
+}
+.composer-mic:hover {
+  color: var(--text);
+}
+.composer-mic.on {
+  background: var(--danger);
+  color: #fff;
+}
 .composer-send {
   width: 25px;
   height: 25px;

@@ -12,6 +12,7 @@ import { pluginsFor } from '../marketplace/plugins'
 import { composerEnter } from './composer-keyboard'
 import { CommandMenu, useCommandMenu } from './CommandMenu'
 import { ComposerAttachment } from './ComposerAttachment'
+import { useDictation } from './dictation'
 import { builtInCommand, SKILLS_HOST, slashCommands, slashQuery, type SlashCommand } from './slash-commands'
 
 type Trailing = 'interrupt' | 'stop' | 'call' | 'send'
@@ -44,6 +45,7 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
   const draft = useSyncExternalStore(drafts.subscribe, () => drafts.get(botId, thread))
   const setDraft = (text: string) => drafts.set(botId, thread, text)
   const [files, setFiles] = useState<OutgoingFile[]>([])
+  const dictation = useDictation(draft, setDraft)
   const field = useRef<HTMLTextAreaElement>(null)
   const measure = useRef<HTMLDivElement>(null)
   const composing = useRef(false)
@@ -245,6 +247,17 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
                 }}
               />
             </div>
+            {dictation.available ? (
+              <button
+                className={`press composer-mic ${dictation.listening ? 'on' : ''}`}
+                aria-label={dictation.listening ? 'Stop dictating' : 'Dictate'}
+                title={dictation.listening ? 'Stop dictating' : 'Dictate'}
+                aria-pressed={dictation.listening}
+                onClick={dictation.toggle}
+              >
+                <Icon name={dictation.listening ? 'mic.fill' : 'mic'} size={13} weight="medium" />
+              </button>
+            ) : null}
             <button
               className="press composer-send"
               disabled={!enabled}

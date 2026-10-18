@@ -25,6 +25,9 @@ struct Composer: View {
     @State private var pickingPhotos = false
     @State private var photoItems: [PhotosPickerItem] = []
     @FocusState private var focused: Bool
+    @State private var dictation = Dictation()
+    /// The box when dictation started; the words heard go after it.
+    @State private var dictatedAfter = ""
     /// One line of the field's text, following Dynamic Type: the send button centers on the last line.
     @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
 
@@ -175,7 +178,10 @@ struct Composer: View {
             switch state {
             case .interrupt: onInterrupt?()
             case .stop: model.stop(botId)
-            case .call: onCall?()
+            case .call:
+                // The call takes the microphone.
+                dictation.stop()
+                onCall?()
             case .send: submit()
             }
         } label: {
@@ -195,6 +201,31 @@ struct Composer: View {
         .animation(Motion.reduced(Motion.morph, reduceMotion), value: canSend)
     }
 
+    /// Dictation, beside send / call (Grok Bot's): a light circle; red while it listens.
+    private var micButton: some View {
+        let on = dictation.listening
+        return Button {
+            if on {
+                dictation.stop()
+            } else {
+                dictatedAfter = draft
+                Task { await dictation.start { said in draft = Dictation.join(dictatedAfter, said) } }
+            }
+        } label: {
+            Image(systemName: on ? "mic.fill" : "mic")
+                .font(.system(size: 15, weight: .medium))
+                .contentTransition(.symbolEffect(.replace))
+                .foregroundStyle(on ? .white : Palette.secondary)
+                .frame(width: buttonSize, height: buttonSize)
+                .background(on ? Palette.danger : Palette.bubbleAgent, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(PressScale())
+        .accessibilityLabel(on ? "Stop dictating" : "Dictate")
+        .help(on ? "Stop dictating" : "Dictate")
+        .animation(Motion.reduced(Motion.morph, reduceMotion), value: on)
+    }
+
     private var box: some View {
         HStack(alignment: .bottom, spacing: 8) {
             TextField(placeholder, text: $draft, axis: .vertical)
@@ -203,6 +234,8 @@ struct Composer: View {
                 .textFieldStyle(.plain)
                 .focused($focused)
                 .padding(.vertical, fieldPadding)
+            micButton
+                .padding(.bottom, max(0, (textLineHeight + 2 * fieldPadding - buttonSize) / 2))
             trailingButton
                 .padding(.bottom, max(0, (textLineHeight + 2 * fieldPadding - buttonSize) / 2))
                 .animation(Motion.layout, value: isEmpty)
@@ -211,8 +244,10 @@ struct Composer: View {
         .padding(.trailing, 6)
         .padding(.vertical, boxPadding)
         .onChange(of: [botId, thread], initial: true) {
+            dictation.stop()
             draft = model.composerDraft(for: botId, thread: thread)
         }
+        .onDisappear { dictation.stop() }
         .onChange(of: draft) { _, value in
             model.setComposerDraft(value, for: botId, thread: thread)
             // Starting a command: list the computer's skills again.
