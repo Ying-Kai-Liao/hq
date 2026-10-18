@@ -169,6 +169,7 @@ install.sh                 links ~/hq and ~/.local/bin/hq, makes ~/.hq, installs
 docs/                      architecture, codebase map
 kernel/                    the code
   adapters/claude-code/    the Claude Code adapter (plugin)
+  adapters/harness.py      the other harnesses an agent can run on: codex, pi, agy, hermes, qwen, dsh, opencode
   lib/hq_paths.py          the one place that knows where things are
   bin/project-id           resolves the current directory to a project; --list, --register
   bin/hq                   run an agent directly: hq ls · hq <agent> [-p ID] [task] · --print
@@ -278,6 +279,18 @@ session) use that session's settings instead.
 apply to both `hq <agent>` runs and `hq:<name>` subagents and change with the agent's version. Override one run with
 `hq <agent> -m MODEL -e EFFORT` (or `HQ_MODEL` / `HQ_EFFORT`); leave a field out to use your global setting.
 
+**Harness.** An agent runs on Claude Code unless `agent.md` says `harness:` with one of `codex` (OpenAI Codex CLI),
+`pi`, `agy` (Antigravity CLI), `hermes` (Hermes Agent), `qwen` (Qwen Code), `dsh` (DeepSeek Harness) or `opencode`.
+`hq <agent> -H codex`, `hq ask <agent> -H pi`, `hq schedule add … -H hermes` or `HQ_HARNESS` pick one for a run; the
+Discord bridge uses the agent's own. Every harness gets the same prompt (agent.md, PROTOCOL, memory, project),
+directories, model and effort; `kernel/adapters/harness.py` turns them into its flags and its answer into the shape
+`hq ask` and the bridge read, with sessions you continue (`-c`, a thread) on the same harness. A `model:` names a model
+of the agent's own harness, so with `-H` the other harness uses its default unless `-m` says. What only Claude Code
+runs have: the agent's `settings.json` (permissions, hooks), per-request costs (other harnesses: one ledger row per
+run), and on agy, hermes, qwen and dsh, the granted MCP servers (codex, pi and opencode get them). dsh takes its
+DeepSeek key from its own settings or a `deepseek` grant (`hq auth`); dsh and opencode run through `npx` when not
+installed. `hq:<name>` subagents always run inside the calling Claude Code session.
+
 ## Cost
 `bin/hq-cost` keeps every Claude Code request's cost (list API prices) in `~/.hq/cost.db`, so it outlives
 transcript cleanup. Each session `hq` starts is tagged with the agent, package version, model, effort and caller
@@ -289,7 +302,7 @@ compares agents; `hq cost agent video` shows one agent by day, by version/model/
 `hq ask house "what expires this week?"` runs the agent exactly as `hq house "…"` does (its own package, settings,
 services, memory, project) but prints only its answer and keeps the session: `hq ask house -c "and next week?"`
 continues the same conversation from the same directory, `--as NAME` names one to continue from anywhere, and a
-continued conversation keeps its model and effort. `--json` gives answer, session and cost for programs; `hq ask ls`
+continued conversation keeps its model, effort and harness (`-H`). `--json` gives answer, session and cost for programs; `hq ask ls`
 lists the conversations. A Claude Code session can use it to work with a specialist over several turns in the
 specialist's own tools, where an `hq:<name>` subagent would run in the caller's. Tagged `via=ask` in the cost ledger.
 

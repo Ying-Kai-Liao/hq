@@ -8,6 +8,7 @@
   hq-cost sync                     copy new usage from ~/.claude/projects into the ledger
   hq-cost csv [since YYYY-MM-DD]   every request as CSV with its hq agent, for a spreadsheet
   hq-cost tag                      (SessionStart hook in hq runs) record the session as a run of $HQ_AGENT
+  hq-cost record                   (adapters/harness.py) one run on another harness (codex, pi, ...) as a row
 
 The ledger (~/.hq/cost.db) keeps one row per API request, so it outlives Claude Code's transcript cleanup
 (30 days by default). Prices are list API prices per million tokens; on a subscription this is usage, not a bill.
@@ -165,6 +166,22 @@ def tag(c):
         print(f'hq-cost tag: {e}', file=sys.stderr)
 
 
+def record(c):
+    """A run on another harness (adapters/harness.py): one row, the harness's own cost when it reports one."""
+    try:
+        r, env = json.load(sys.stdin), os.environ.get
+        now = dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+        c.execute('insert or replace into req values (?,?,?,?,?,?,?,?,?,?,?,?)', (
+            r['id'], r['session'], now, os.getcwd(), r.get('model'), 'main', r.get('turn'), r.get('input', 0),
+            r.get('output', 0), r.get('cache_read', 0), r.get('cache_write', 0), r.get('cost')))
+        c.execute('insert or ignore into runs values (?,?,?,?,?,?,?,?)', (
+            r['session'], env('HQ_AGENT'), env('HQ_AGENT_VERSION'), r.get('model'), env('HQ_EFFORT') or None,
+            env('HQ_VIA', 'terminal'), env('HQ_PROJECT') or None, now[:19]))
+        c.commit()
+    except Exception as e:  # noqa: BLE001 — cost tracking must never block a run
+        print(f'hq-cost record: {e}', file=sys.stderr)
+
+
 def since_of(period):
     now = dt.datetime.now(dt.timezone.utc).astimezone()
     start = {'today': now.replace(hour=0, minute=0, second=0, microsecond=0),
@@ -239,6 +256,8 @@ def main():
     c = db()
     if a[0] == 'tag':
         return tag(c)
+    if a[0] == 'record':
+        return record(c)
     if a[0] == 'sync':
         return sync(c)
     sync(c, quiet=True)

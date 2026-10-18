@@ -22,7 +22,7 @@ unless HQ_DISCORD_REPLY_TO=anyone.
 
 Config (env or ~/.hq/secrets/env): HQ_DISCORD_BOT_TOKEN (required), HQ_DISCORD_OWNER_ID (your Discord user ID;
 default: the server owner), HQ_DISCORD_GUILD (server name or ID; default: the bot's only server),
-HQ_BRIDGE_PERMISSION_MODE (claude --permission-mode for agent runs; default bypassPermissions),
+HQ_BRIDGE_PERMISSION_MODE (the permission mode for agent runs, on any harness; default bypassPermissions),
 HQ_DISCORD_ALLOWED_IDS (comma-separated Discord user IDs answered besides the owner),
 HQ_DISCORD_REPLY_TO (owner or anyone; default owner. anyone lets every member of the server run agents with that
 permission mode, so use it only on a private server you trust), HQ_BRIDGE_DEBOUNCE (seconds to wait for more
@@ -318,12 +318,10 @@ def main():
         key = str(thread.id)
         session = st['threads'].get(key, {}).get('session_id')
         hook = st['webhooks'][agent]
-        claude_args = ['--output-format', 'json',
-                       '--permission-mode', os.environ.get('HQ_BRIDGE_PERMISSION_MODE', 'bypassPermissions')]
-        if session:
-            claude_args += ['--resume', session]
         env = dict(os.environ, HQ_AGENT=agent, HQ_VIA='discord', HQ_DISCORD_WEBHOOK_URL=hook['url'], HQ_DISCORD_THREAD_ID=key,
-                   HQ_CLAUDE_ARGS=' '.join(claude_args))
+                   HQ_OUTPUT='json', HQ_PERMISSION_MODE=os.environ.get('HQ_BRIDGE_PERMISSION_MODE', 'bypassPermissions'))
+        if session:   # any harness: bin/hq starts a new session when this one is another harness's
+            env['HQ_RESUME'] = session
         env.pop('HQ_DISCORD_BOT_TOKEN', None)  # agents never see the bot token
         for k in [k for k in env if k.startswith('JEV_')]:
             env.pop(k)                           # nor the router's key

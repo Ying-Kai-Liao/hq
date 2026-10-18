@@ -1,0 +1,5 @@
+{
+  "description": "DeepSeek API key, for the DeepSeek Harness (dsh) when an agent runs on it (harness: dsh); without a grant dsh uses its own stored key",
+  "kind": "cli",
+  "secrets": ["DEEPSEEK_API_KEY"]
+}

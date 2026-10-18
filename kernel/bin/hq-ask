@@ -10,7 +10,8 @@
 
 Options: -c/--continue, --as NAME (a named conversation: -c --as NAME picks it up from anywhere, in its folder),
 -C/--dir DIR (work in DIR), -p PROJECT (its memory, and its folder unless -C says; the current one if it has none),
--m MODEL, -e EFFORT, --json (the whole result: answer, session, cost, turns).
+-m MODEL, -e EFFORT, -H HARNESS (claude, codex, pi, agy, hermes, qwen, dsh, opencode; default the agent's own),
+--json (the whole result: answer, session, cost, turns).
 
 The same run as `hq <agent> "task"`: its pinned package, own settings and services, memory and project, tagged
 via=ask in the cost ledger. The difference is what comes back: the answer alone on stdout (status and errors on
@@ -18,7 +19,7 @@ stderr, exit 1 when the agent failed), and its session kept so `-c` resumes it w
 That makes it the way for a script, another harness or a Claude Code session to work with a specialist over
 several turns, in the agent's own tools instead of the caller's.
 
-Permission mode: HQ_ASK_PERMISSION_MODE when set, else the agent's settings.json decides (no one can approve a prompt,
+Permission mode: HQ_ASK_PERMISSION_MODE when set, else the agent's settings.json (or the harness) decides (no one can approve a prompt,
 so a tool that needs one is refused, the same as any one-shot run).
 Conversations: ~/.hq/ask.json (agent + directory, or --as NAME → session id). A conversation belongs to the
 directory it ran in, so after -C or -p, `-c` from inside that folder (or with the same -C/-p) continues it.
@@ -77,7 +78,7 @@ def main(argv):
         elif a == '--as': name = rest[i + 1]; i += 2
         elif a == '--json': as_json = True; i += 1
         elif a in ('-C', '--dir'): where = rest[i + 1]; i += 2
-        elif a in ('-p', '--project', '-m', '--model', '-e', '--effort'):
+        elif a in ('-p', '--project', '-m', '--model', '-e', '--effort', '-H', '--harness'):
             if a in ('-e', '--effort') and rest[i + 1] not in EFFORTS:
                 sys.exit('hq ask: effort must be one of %s' % ', '.join(EFFORTS))
             hq_opts += [a, rest[i + 1]]; i += 2
@@ -85,7 +86,7 @@ def main(argv):
         else: words.append(a); i += 1
     task = ' '.join(words).strip()
     if not task:
-        sys.exit('usage: hq ask <agent> [-c] [--as NAME] [-C DIR] [-p PROJECT] [-m MODEL] [-e EFFORT] [--json] "task"')
+        sys.exit('usage: hq ask <agent> [-c] [--as NAME] [-C DIR] [-p PROJECT] [-m MODEL] [-e EFFORT] [-H HARNESS] [--json] "task"')
 
     # Where the agent works: -C, else the folder of the project -p names, else a named conversation's own folder.
     project = next((v for f, v in zip(hq_opts[::2], hq_opts[1::2]) if f in ('-p', '--project')), None)
@@ -110,19 +111,19 @@ def main(argv):
         sys.exit('hq ask: no conversation with %s %s to continue; start one without -c'
                  % (agent, 'named ' + name if name else 'from this directory'))
 
-    # A continued conversation keeps its project, model and effort unless this call names new ones.
+    # A continued conversation keeps its project, model, effort and harness unless this call names new ones.
     given = hq_opts[::2]
-    for flag, alias in (('-p', '--project'), ('-m', '--model'), ('-e', '--effort')):
+    for flag, alias in (('-p', '--project'), ('-m', '--model'), ('-e', '--effort'), ('-H', '--harness')):
         if prev and flag not in given and alias not in given and (prev.get('opts') or {}).get(flag):
             hq_opts += [flag, prev['opts'][flag]]
-    opts = {('-' + f.lstrip('-')[0]): v for f, v in zip(hq_opts[::2], hq_opts[1::2])}
+    opts = {(f if len(f) == 2 else '-' + {'harness': 'H'}.get(f[2:], f[2])): v
+            for f, v in zip(hq_opts[::2], hq_opts[1::2])}
 
-    claude_args = ['--output-format', 'json']
+    env = dict(os.environ, HQ_VIA='ask', HQ_OUTPUT='json')   # bin/hq: the same for every harness
     if os.environ.get('HQ_ASK_PERMISSION_MODE'):
-        claude_args += ['--permission-mode', os.environ['HQ_ASK_PERMISSION_MODE']]
+        env['HQ_PERMISSION_MODE'] = os.environ['HQ_ASK_PERMISSION_MODE']
     if prev:
-        claude_args += ['--resume', prev['session_id']]
-    env = dict(os.environ, HQ_VIA='ask', HQ_CLAUDE_ARGS=' '.join(claude_args))
+        env['HQ_RESUME'] = prev['session_id']
     proc = subprocess.run([str(HQ / 'bin/hq'), agent, *hq_opts, '--', task], env=env, stdin=subprocess.DEVNULL,
                           capture_output=True, text=True)
     try:

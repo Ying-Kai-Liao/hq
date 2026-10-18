@@ -6,7 +6,7 @@
 #   hq backup [--yes|--check|--nightly [off]]   everything to private GitHub repos, making the missing ones; --check says what isn't; --nightly at 03:00 (hq-state)
 #   hq ls                         list agents
 #   hq who <words>                which agent owns this work: skills, tools, "Not yours" lines searched (hq-who)
-#   hq <agent> [-p ID] [-m MODEL] [-e EFFORT] [task...]  interactive without a task, one-shot with one
+#   hq <agent> [-p ID] [-m MODEL] [-e EFFORT] [-H HARNESS] [task...]  interactive without a task, one-shot with one
 #   hq <agent> --print [...]      show the assembled system prompt, don't run
 #   hq <agent> --inspect          start one run and report what it loads (tools, MCP servers, skills, plugins)
 #   hq versions|pin|unpin|rollback <agent> [VERSION]   agent package versions (hq-pkg)
@@ -37,6 +37,10 @@
 # Model and effort: `model:` and `effort:` in agent.md's frontmatter (the same fields the hq:<name> subagent uses),
 # overridden by -m/-e or HQ_MODEL/HQ_EFFORT; unset means your global setting. Every session is tagged in the cost
 # ledger (hq-cost tag) with the agent, version, model and effort.
+# Harness: `harness:` in agent.md (claude, codex, pi, agy, hermes, qwen, dsh, opencode), overridden by -H or HQ_HARNESS;
+# unset means claude. Every harness gets the same prompt, directories, granted MCP servers, model and effort
+# (adapters/harness.py turns them into its flags). Callers ask for JSON output, a session to resume and a permission
+# mode with HQ_OUTPUT=json, HQ_RESUME and HQ_PERMISSION_MODE, the same for every harness.
 set -euo pipefail
 
 # Follow the script's own symlinks but keep the repo's logical path (it may be a symlink to a path with spaces).
@@ -133,6 +137,7 @@ while [[ $# -gt 0 ]]; do
     -p|--project) project=$2; shift 2 ;;
     -m|--model)   HQ_MODEL=$2; shift 2 ;;
     -e|--effort)  HQ_EFFORT=$2; shift 2 ;;
+    -H|--harness) HQ_HARNESS=$2; shift 2 ;;
     --)           shift; break ;;
     *)            break ;;
   esac
@@ -163,12 +168,20 @@ if [[ $print -eq 1 ]]; then printf '%s\n' "$prompt"; [[ $# -gt 0 ]] && printf '\
 if [[ $pkg == "$src_pkg" ]]; then runs=$(mktemp -d); else runs=$pkg/.runs; mkdir -p "$runs"; : > "$runs/$$"; fi
 # Model and effort from the pinned agent.md unless the caller chose (-m/-e, HQ_MODEL/HQ_EFFORT).
 field() { awk -v k="$1" 'NR==1 && /^---$/ {fm=1; next} fm && /^---$/ {exit} fm && $1 == k":" {sub(/^[^:]*:[ \t]*/, ""); print; exit}' "$pkg/agent.md" 2>/dev/null || true; }
-export HQ_MODEL=${HQ_MODEL:-$(field model)} HQ_EFFORT=${HQ_EFFORT:-$(field effort)} HQ_PROJECT=$project
+own=$(field harness); own=${own:-claude}; [[ $own == claude-code ]] && own=claude
+harness=${HQ_HARNESS:-$own}; [[ $harness == claude-code ]] && harness=claude
+# agent.md's model names a model of its own harness: on another one (-H), that harness's default unless -m says.
+[[ $harness == "$own" ]] && HQ_MODEL=${HQ_MODEL:-$(field model)}
+export HQ_MODEL=${HQ_MODEL:-} HQ_EFFORT=${HQ_EFFORT:-$(field effort)} HQ_PROJECT=$project
+# For this run only, like HQ_CLAUDE_ARGS below: a helper this agent starts runs on its own harness, in its own session.
+out_format=${HQ_OUTPUT:-} resume=${HQ_RESUME:-} perm_mode=${HQ_PERMISSION_MODE:-}
+unset HQ_HARNESS HQ_OUTPUT HQ_RESUME HQ_PERMISSION_MODE
 # The agent's settings plus a SessionStart hook that tags each session (new, resumed, /clear) in the cost ledger, and
 # hq's secrets kept out of its file tools (they sit inside ~/.hq, which every run can read; tools get them from hq-auth),
 # and the writes PROTOCOL asks for allowed without a prompt (a one-shot run has no one to approve them): its memory,
 # its learned skills and the shared project files, each under its logical and its resolved path. Every installed plugin
 # but hq is off unless the agent's settings turn it on, so a plugin installed after the agent was made stays out.
+if [[ $harness == claude ]]; then
 plugins=$(claude plugin list --json 2>/dev/null || echo '[]')
 fill < "$pkg/settings.json" | PLUGINS=$plugins HOOK="\"$HQ/bin/hq-cost\" tag" WRITABLE="$home/memory
 $home_real/memory
@@ -193,6 +206,7 @@ on = s.setdefault("enabledPlugins", {})
 for p in installed:
     on.setdefault(p, p == "hq@hq")
 json.dump(s, sys.stdout, indent=1)' > "$runs/$$.settings.json"
+fi
 
 # Directories the agent may use: the kernel (tools) under both its logical and its resolved path (Claude Code checks
 # resolved paths), the state folder (user.md, projects), the agents (memory, data) and the snapshots (its skills).
@@ -218,17 +232,43 @@ while IFS= read -r base; do
     allowed+=("Bash($base/bin/$c)" "Bash(\"$base/bin/$name\"$rest)")
   done
 done < <(printf '%s\n' "$HQ" "$hq_real" "$HQ_HOME/kernel" | awk '!seen[$0]++')
-args=(--append-system-prompt "$prompt" "${dirs[@]}" --settings "$runs/$$.settings.json" --allowedTools "${allowed[@]}")
 # Each agent carries only its own tools: the shared services it needs and is granted (hq-auth), its own mcp.json
 # for servers no one else uses, and no global skills unless capabilities.yaml says global_skills: true. Its own
 # skills are files it reads on demand. A broken auth.json costs the agent its services, not the run.
 "$HQ/bin/hq-auth" mcp-config "$agent" > "$runs/$$.mcp.json" \
   || { echo "hq: $agent: no shared services this run (hq-auth failed)" >&2; echo '{"mcpServers": {}}' > "$runs/$$.mcp.json"; }
+
+# Another harness: the same run, handed to its adapter (prompt in a file, directories and MCP configs as lists).
+if [[ $harness != claude ]]; then
+  printf '%s\n' "$prompt" > "$runs/$$.prompt.md"
+  run_dirs=$(for ((i = 1; i < ${#dirs[@]}; i += 2)); do printf '%s\n' "${dirs[i]}"; done)
+  grep -q '^global_skills: *true' "$pkg/capabilities.yaml" 2>/dev/null && gs=1 || gs=0
+  run_mcp="$runs/$$.mcp.json"; [[ -f $pkg/mcp.json ]] && run_mcp+=$'\n'"$pkg/mcp.json"
+  export HQ_RUN_PROMPT="$runs/$$.prompt.md" HQ_RUN_DIRS="$PWD"$'\n'"$run_dirs" HQ_RUN_MCP=$run_mcp HQ_RUN_GLOBAL_SKILLS=$gs
+  hargs=(--)
+  [[ -n $out_format ]] && hargs=(--output "$out_format" "${hargs[@]}")
+  [[ -n $resume ]] && hargs=(--resume "$resume" "${hargs[@]}")
+  [[ -n $perm_mode ]] && hargs=(--permission-mode "$perm_mode" "${hargs[@]}")
+  if [[ $# -eq 0 ]]; then
+    [[ -t 0 && -t 1 ]] || { echo "hq: no terminal for an interactive session; give a task (hq $agent \"...\") or run it in a terminal" >&2; exit 1; }
+    exec python3 "$HQ/adapters/harness.py" "$harness" "${hargs[@]}"
+  fi
+  exec python3 "$HQ/adapters/harness.py" "$harness" "${hargs[@]}" "$*"
+fi
+
+args=(--append-system-prompt "$prompt" "${dirs[@]}" --settings "$runs/$$.settings.json" --allowedTools "${allowed[@]}")
 args+=(--strict-mcp-config --mcp-config "$runs/$$.mcp.json")
 [[ -f $pkg/mcp.json ]] && args+=(--mcp-config "$pkg/mcp.json")
 grep -q '^global_skills: *true' "$pkg/capabilities.yaml" 2>/dev/null || args+=(--disable-slash-commands)
 [[ -n $HQ_MODEL ]] && args+=(--model "$HQ_MODEL")
 [[ -n $HQ_EFFORT ]] && args+=(--effort "$HQ_EFFORT")
+[[ $out_format == json ]] && args+=(--output-format json)
+[[ -n $perm_mode ]] && args+=(--permission-mode "$perm_mode")
+# A session another harness made ("codex:…") can't be resumed here: start a new one.
+if [[ -n $resume ]]; then
+  if [[ $resume == *:* ]]; then echo "hq: session $resume is not a Claude Code session; starting a new one" >&2
+  else args+=(--resume "$resume"); fi
+fi
 # Extra claude flags from a caller such as hq-bridge (e.g. --output-format json --resume <session>).
 if [[ -n ${HQ_CLAUDE_ARGS:-} ]]; then read -r -a extra <<< "$HQ_CLAUDE_ARGS"; args+=("${extra[@]}"); fi
 # They are for this run only: a helper this agent starts with `hq <other>` must not resume this session.

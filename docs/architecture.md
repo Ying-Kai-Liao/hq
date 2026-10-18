@@ -117,6 +117,13 @@ ask `hq-auth get`. Every secret handed out is logged. Least privilege between co
 `hq:<name>` subagent. `bin/hq-cost` keeps a ledger of every request; `hq` tags its sessions with agent, version,
 model and effort, so `hq cost agents` / `hq cost agent <name>` show what each agent and each version costs.
 
+**Harnesses** (`adapters/harness.py`, 2026-10-18). An agent runs on Claude Code or, with `harness:` in `agent.md`
+(or `-H`), on codex, pi, agy, hermes, qwen, dsh or opencode. `bin/hq` still builds the run (prompt, snapshot, project,
+directories, granted MCP servers, model, effort); only the last step differs. Callers ask for JSON, a session to resume
+and a permission mode with `HQ_OUTPUT`, `HQ_RESUME`, `HQ_PERMISSION_MODE`, the same for every harness, and get Claude's
+result shape back. Session ids from other harnesses are `<harness>:<id>`, so a session is only ever resumed by the
+harness that made it. Settings permissions, hooks and per-request cost stay Claude-only.
+
 **Channels** (`bin/hq-bridge`, `bin/hq-send`). Discord, one bot, a channel per agent. The channel's agent owns the
 task, calls other agents as helpers, and answers in the task's thread.
 

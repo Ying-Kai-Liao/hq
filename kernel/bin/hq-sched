@@ -2,7 +2,7 @@
 """hq-sched — run agent tasks on a schedule.
 
   hq-sched ls [AGENT]                                  every job, when it runs next and how it last went
-  hq-sched add AGENT "CRON" "task" [--id ID] [-m MODEL] [-e EFFORT]   add a job (or replace the one with that id)
+  hq-sched add AGENT "CRON" "task" [--id ID] [-m MODEL] [-e EFFORT] [-H HARNESS]   add a job (or replace the one with that id)
   hq-sched rm AGENT ID                                 remove a job
   hq-sched pause|resume AGENT ID                       keep a job but stop or restart it
   hq-sched run AGENT ID                                run a job now, in the background
@@ -154,11 +154,12 @@ def start(agent, job, now, why):
             'deliver the result with %s/bin/hq-send. If there is nothing worth sending, send nothing.)'
             % (job['task'], job['id'], agent, job['cron'], why, HQ))
     env = dict(os.environ, HQ_VIA='schedule', HQ_SCHED_JOB=job['id'],
-               HQ_CLAUDE_ARGS='--permission-mode ' + os.environ.get('HQ_SCHED_PERMISSION_MODE', 'bypassPermissions'))
-    for k in ('HQ_AGENT', 'HQ_MODEL', 'HQ_EFFORT', 'HQ_DISCORD_WEBHOOK_URL', 'HQ_DISCORD_THREAD_ID'):
+               HQ_PERMISSION_MODE=os.environ.get('HQ_SCHED_PERMISSION_MODE', 'bypassPermissions'))
+    for k in ('HQ_AGENT', 'HQ_MODEL', 'HQ_EFFORT', 'HQ_HARNESS', 'HQ_DISCORD_WEBHOOK_URL', 'HQ_DISCORD_THREAD_ID'):
         env.pop(k, None)
     if job.get('model'): env['HQ_MODEL'] = job['model']
     if job.get('effort'): env['HQ_EFFORT'] = job['effort']
+    if job.get('harness'): env['HQ_HARNESS'] = job['harness']
     with open(log, 'w') as fh:
         fh.write('# %s %s %s (%s)\n' % (now.isoformat(timespec='minutes'), agent, job['id'], why)); fh.flush()
         p = subprocess.Popen([str(HQ / 'bin/hq'), agent, task], cwd=str(Path.home()), env=env, stdin=subprocess.DEVNULL,
@@ -284,12 +285,12 @@ def main(argv):
     if cmd == 'add':
         opts, pos, i = {}, [], 0
         while i < len(rest):
-            if rest[i] in ('--id', '-m', '--model', '-e', '--effort'):
-                opts[rest[i].lstrip('-')[0] if rest[i] != '--id' else 'id'] = rest[i + 1]; i += 2
+            if rest[i] in ('--id', '-m', '--model', '-e', '--effort', '-H', '--harness'):
+                opts[{'--id': 'id', '-H': 'H', '--harness': 'H'}.get(rest[i], rest[i].lstrip('-')[0])] = rest[i + 1]; i += 2
             else:
                 pos.append(rest[i]); i += 1
         if len(pos) != 3:
-            sys.exit('usage: hq-sched add AGENT "CRON" "task" [--id ID] [-m MODEL] [-e EFFORT]')
+            sys.exit('usage: hq-sched add AGENT "CRON" "task" [--id ID] [-m MODEL] [-e EFFORT] [-H HARNESS]')
         agent, cron, task = pos
         need_agent(agent)
         try:
@@ -301,6 +302,7 @@ def main(argv):
         job = {'id': opts.get('id') or slug(task), 'cron': cron, 'task': task}
         if opts.get('m'): job['model'] = opts['m']
         if opts.get('e'): job['effort'] = opts['e']
+        if opts.get('H'): job['harness'] = opts['H']
         jobs = [j for j in load(agent) if j['id'] != job['id']] + [job]
         save(agent, jobs)
         print('%s/%s: next run %s' % (agent, job['id'], nxt.strftime('%a %d %b %H:%M') if nxt else 'never'))
