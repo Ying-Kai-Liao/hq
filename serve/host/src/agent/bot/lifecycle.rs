@@ -86,17 +86,25 @@ impl Actor {
             && self.cancel_deadline.is_none()
     }
 
+    /// A session a turn failed in (see `acp::may_end_session`), closed when the agent can load it
+    /// again: the next turn then loads it afresh instead of finding it dead.
+    pub(super) async fn close_failed_session(&mut self, sid: &str) {
+        if self.conn.as_ref().is_some_and(|c| c.sessions.close && c.sessions.load && c.loaded.contains_key(sid)) {
+            self.close_session(sid).await;
+        }
+    }
+
     async fn close_session(&mut self, sid: &str) {
         let closed = self.session_request("session/close", json!({ "sessionId": sid })).await;
         let Some(conn) = self.conn.as_mut() else { return };
         match closed {
             Ok(_) => {
-                tracing::info!(bot = %self.cfg.id, session = sid, "closed an idle session");
+                tracing::info!(bot = %self.cfg.id, session = sid, "closed a session");
                 conn.loaded.remove(sid);
                 conn.fast_options.remove(sid);
             }
             Err(error) => {
-                tracing::warn!(bot = %self.cfg.id, session = sid, error = format!("{error:#}"), "couldn't close an idle session");
+                tracing::warn!(bot = %self.cfg.id, session = sid, error = format!("{error:#}"), "couldn't close a session");
                 // Try again after another idle period rather than every check.
                 conn.loaded.insert(sid.to_owned(), Instant::now());
             }

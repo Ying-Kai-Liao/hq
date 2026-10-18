@@ -226,3 +226,22 @@ async fn a_refused_fast_mode_is_reported_and_not_asked_for_again() {
     host.wait_for(&bot, Duration::from_secs(60), speed_reply("fast off", "three")).await;
     assert_eq!(log().matches(FAST_ON).count(), 2);
 }
+
+#[tokio::test]
+async fn a_session_that_ended_in_the_agent_is_closed_and_loaded_again() {
+    if python_missing() {
+        return;
+    }
+    let host = Host::start().await;
+    let bot = host.bot("Ended", "tests/fixtures/ended_session_agent.py").await;
+    host.call("send", json!({"botId": bot, "text": "hello"})).await;
+    host.wait_for(&bot, Duration::from_secs(60), |e| e["kind"] == "agent" && e["data"]["text"] == "pong").await;
+    host.call("send", json!({"botId": bot, "text": "end-this-session"})).await;
+    host.wait_for(&bot, Duration::from_secs(30), |e| {
+        e["kind"] == "notice" && e["data"]["text"].as_str().is_some_and(|t| t.contains("session has ended"))
+    })
+    .await;
+    // Left open, the ended session would refuse this one too.
+    host.call("send", json!({"botId": bot, "text": "still there?"})).await;
+    host.wait_for(&bot, Duration::from_secs(30), |e| e["kind"] == "agent" && e["data"]["text"] == "still here").await;
+}

@@ -233,18 +233,21 @@ pub fn turn_finished(
     };
     let mut p = json!({"agent": agent, "outcome": outcome, "stop_reason": stop_reason, "source": source, "seconds": ms.max(0) / 1000});
     if let Some(e) = failure {
-        let (kind, rpc_code) = failure_kind(e);
+        let (kind, rpc) = failure_kind(e);
         p["error"] = kind.into();
-        if let Some(code) = rpc_code {
-            p["rpc_code"] = code.into();
+        if let Some(rpc) = rpc {
+            p["rpc_code"] = rpc.code.into();
+            if let Some(reason) = &rpc.kind {
+                p["agent_reason"] = reason.as_str().into();
+            }
         }
     }
     capture(hub, Event::TurnFinished, p.as_object().cloned().unwrap_or_default());
 }
 
-/// Why a turn failed, as a category (plus the agent's JSON-RPC code): never the error's text,
-/// which can hold paths and agent output.
-fn failure_kind(e: &anyhow::Error) -> (&'static str, Option<i64>) {
+/// Why a turn failed, as a category (plus the agent's JSON-RPC error, for its code and own
+/// category): never the error's text, which can hold paths and agent output.
+fn failure_kind(e: &anyhow::Error) -> (&'static str, Option<&crate::agent::acp::RpcError>) {
     use crate::agent::acp::{Failure, FailureKind, RpcError};
     if let Some(f) = e.chain().find_map(|c| c.downcast_ref::<Failure>()) {
         let kind = match f.kind {
@@ -259,7 +262,7 @@ fn failure_kind(e: &anyhow::Error) -> (&'static str, Option<i64>) {
     }
     for cause in e.chain() {
         if let Some(r) = cause.downcast_ref::<RpcError>() {
-            return ("agent_error", Some(r.code));
+            return ("agent_error", Some(r));
         }
         if let Some(io) = cause.downcast_ref::<std::io::Error>() {
             return (if io.kind() == std::io::ErrorKind::NotFound { "not_installed" } else { "io" }, None);
@@ -469,18 +472,26 @@ mod tests {
     fn a_failed_turn_names_its_kind_not_its_text() {
         use crate::agent::acp::{Failure, FailureKind, RpcError};
         use anyhow::Context as _;
+        let code = |e: &anyhow::Error| {
+            let (kind, rpc) = failure_kind(e);
+            (kind, rpc.map(|r| r.code))
+        };
         let setup = Failure::error(FailureKind::NotSetUp, "Codex isn't set up on this computer.");
-        assert_eq!(failure_kind(&setup), ("not_installed", None));
+        assert_eq!(code(&setup), ("not_installed", None));
         let hung = Err::<(), _>(Failure::error(FailureKind::Timeout, "no answer")).context("starting");
-        assert_eq!(failure_kind(&hung.expect_err("failed")), ("timeout", None));
+        assert_eq!(code(&hung.expect_err("failed")), ("timeout", None));
         let missing = std::io::Error::new(std::io::ErrorKind::NotFound, "/Users/me/bin/agent");
         let spawn = Err::<(), _>(missing).context("starting `/Users/me/bin/agent`");
-        assert_eq!(failure_kind(&spawn.expect_err("failed")), ("not_installed", None));
-        let auth = anyhow::Error::new(RpcError { code: -32000, message: "Authentication required".into() });
-        assert_eq!(failure_kind(&auth), ("sign_in", None));
-        let rpc = anyhow::Error::new(RpcError { code: -32603, message: "Internal error: /Users/me".into() });
-        assert_eq!(failure_kind(&rpc), ("agent_error", Some(-32603)));
-        assert_eq!(failure_kind(&anyhow::anyhow!("something else")), ("other", None));
+        assert_eq!(code(&spawn.expect_err("failed")), ("not_installed", None));
+        let auth = anyhow::Error::new(RpcError { code: -32000, message: "Authentication required".into(), kind: None });
+        assert_eq!(code(&auth), ("sign_in", None));
+        let rpc =
+            anyhow::Error::new(RpcError { code: -32603, message: "Internal error: /Users/me".into(), kind: None });
+        assert_eq!(code(&rpc), ("agent_error", Some(-32603)));
+        let limited =
+            anyhow::Error::new(RpcError { code: -32603, message: "x".into(), kind: Some("rate_limit".into()) });
+        assert_eq!(failure_kind(&limited).1.and_then(|r| r.kind.as_deref()), Some("rate_limit"));
+        assert_eq!(code(&anyhow::anyhow!("something else")), ("other", None));
     }
 
     #[test]
