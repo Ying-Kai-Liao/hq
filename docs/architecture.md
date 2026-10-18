@@ -202,7 +202,7 @@ but waits for an app):
   no public URL: either the loopback redirect (the person pastes back the address their browser fails to open) or a
   small relay. Undecided.
 - **Memory per person:** `agents/<a>/memory/` stays shared with the agent's members, `memory/people/<id>/` holds what
-  it learned from one person, and `user.md` becomes `people/<owner>.md`. A structural move: propose it first.
+  it learned from one person. Plan: [memory-per-person.md](memory-per-person.md) (the owner's memory stays where it is).
 - **Shared browser logins:** the owner's browser profiles hold the agents' accounts. A profile opens in one run at a
   time, so each run gets an APFS clone, thrown away after (a login refreshed during a run is lost). `chrome-agent`
   should become a browser profile (`browser/agent`, living in the Chrome app). It can't be merged into the
