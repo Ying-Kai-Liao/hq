@@ -11,6 +11,7 @@ export default defineConfig(async () => ({
     cloudflareTest({
       wrangler: { configPath: "./wrangler.toml", environment: "dev" },
       miniflare: {
+        d1Databases: ["ANDROID_MIGRATION_DB"],
         // The pool's bundled workerd trails wrangler's; pin to the newest date it supports.
         compatibilityDate: "2026-08-22",
         bindings: {

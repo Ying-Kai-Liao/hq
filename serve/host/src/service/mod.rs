@@ -80,8 +80,18 @@ pub(crate) fn home() -> PathBuf {
 }
 
 pub fn data_dir() -> PathBuf {
-    std::env::var_os("CODYNC_HOME")
-        .map_or_else(|| home().join(crate::environment::Environment::current().data_folder()), PathBuf::from)
+    std::env::var_os("CODYNC_HOME").map_or_else(default_data_dir, PathBuf::from)
+}
+
+#[cfg(not(test))]
+fn default_data_dir() -> PathBuf {
+    home().join(crate::environment::Environment::current().data_folder())
+}
+
+/// Unit tests never see a real host's data: tests that start a hub run its start-up clean-up, which deletes files.
+#[cfg(test)]
+fn default_data_dir() -> PathBuf {
+    std::env::temp_dir().join(format!("codync-unit-{}", std::process::id()))
 }
 
 fn create_parent(file: &Path) -> Result<()> {
@@ -366,6 +376,15 @@ mod tests {
 
     fn read(f: &Path) -> Value {
         serde_json::from_str(&std::fs::read_to_string(f).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn unit_tests_keep_out_of_the_real_data_folder() {
+        assert!(
+            std::env::var_os("CODYNC_HOME").is_some() || !data_dir().starts_with(home()),
+            "{}",
+            data_dir().display()
+        );
     }
 
     #[test]

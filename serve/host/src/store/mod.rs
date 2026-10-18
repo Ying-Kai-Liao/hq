@@ -8,6 +8,7 @@
 mod bots;
 mod devices;
 mod entries;
+mod memory;
 mod model;
 mod schema;
 
@@ -59,6 +60,11 @@ impl Store {
     pub fn kv_set(&self, k: &str, v: &str) -> Result<()> {
         let c = self.db.locked();
         c.execute("INSERT INTO kv(k, v) VALUES(?1, ?2) ON CONFLICT(k) DO UPDATE SET v = ?2", params![k, v])?;
+        Ok(())
+    }
+
+    pub fn kv_delete(&self, k: &str) -> Result<()> {
+        self.db.locked().execute("DELETE FROM kv WHERE k = ?1", [k])?;
         Ok(())
     }
 

@@ -11,12 +11,15 @@ mod bot_chat;
 mod fields;
 mod market;
 mod memory;
+mod pages;
 mod replies;
 mod routines;
 mod skill;
 
 pub use analytics::AnalyticsSheet;
-pub use memory::{MemoryMode, MemorySheet};
+pub use fields::{handoff_fields, memory_file_fields};
+pub use memory::{MemoryMode, MemorySheet, Section};
+pub use pages::Page;
 pub use routines::local_zone;
 pub use skill::SkillSheet;
 
@@ -35,8 +38,8 @@ pub const REACTIONS: [&str; 6] = ["👍", "❤️", "😂", "🎉", "👀", "✅
 pub enum Reply {
     Memory(String),
     MemorySaved(String),
-    MemoryDetail(String),
-    MemoryExport(String),
+    /// A note the bot's memory sheet has open.
+    MemoryFile(String),
     Routines(String),
     RoutineSaved,
     /// A routine's webhook URL and key: copied as a ready-to-run curl.
@@ -168,6 +171,15 @@ pub enum Submit {
     Connection(Box<super::connections::Connection>),
     Connector(Value),
     Import,
+    /// A handoff card's text (the card's entry id).
+    Handoff(String),
+    /// A long-form memory note: a new one (`name` none) or a change over the content with hash `base`.
+    MemoryFile {
+        bot: String,
+        shared: bool,
+        name: Option<String>,
+        base: Option<String>,
+    },
 }
 
 /// A few labeled text fields: an agent's keys, a connector's setup, a pasted MCP config.

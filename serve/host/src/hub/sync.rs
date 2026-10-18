@@ -11,6 +11,10 @@ impl Hub {
         let cfg = &row.config;
         let mut v = serde_json::to_value(cfg).expect("BotConfig is plain data and always serializes");
         v["managedWorkspace"] = crate::agent::workspace::is_managed(cfg).into();
+        if !cfg.is_group() {
+            v["sharedMemory"] = crate::chat::memory::shared(cfg).into();
+            v["memoryRev"] = self.store.memory_rev().into();
+        }
         let rt = if cfg.is_group() {
             // A group has no agent: Fast mode belongs to its members.
             crate::hub::Runtime {

@@ -8,6 +8,7 @@ use super::{
     After, AgentPicker, App, Bot, COLORS, Editor, FIELDS, Field, Form, GroupField, GroupForm, Overlay, SHAPES, Toggle,
     cycle, merge_toggles,
 };
+use crate::tui::manage::Page;
 
 impl App {
     pub(super) fn open_pair(&mut self) {
@@ -107,7 +108,7 @@ impl App {
         }
     }
 
-    pub(super) fn edit_bot(&mut self) {
+    pub(in crate::tui) fn edit_bot(&mut self) {
         let Some(b) = self.bot().cloned() else { return };
         if b.group {
             self.overlays.push(Overlay::Group(GroupForm {
@@ -142,9 +143,11 @@ impl App {
             sub: 0,
             error: None,
             saving: false,
+            opened: Value::Null,
         };
         merge_toggles(&mut f.connectors, &self.market.0, false);
         merge_toggles(&mut f.skills, &self.market.1, false);
+        f.opened = f.body();
         self.want_models(&b.backend);
         self.overlays.push(Overlay::Form(Box::new(f)));
         self.call("connectors", json!({}), After::Connectors);
@@ -183,6 +186,7 @@ impl App {
             sub: 0,
             error: None,
             saving: false,
+            opened: Value::Null,
         };
         self.want_models(&f.backend);
         self.overlays.push(Overlay::Form(Box::new(f)));
@@ -191,6 +195,16 @@ impl App {
     }
 
     pub(super) fn form_key(&mut self, mut f: Box<Form>, k: KeyEvent) -> Option<Overlay> {
+        if f.bot_id.is_some()
+            && let Some(page) = Page::Settings.step(k)
+        {
+            if f.dirty() {
+                f.error = Some("Save with ^S first, or Esc to drop the changes.".into());
+                return Some(Overlay::Form(f));
+            }
+            self.open_page(page);
+            return None;
+        }
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         let field = f.current();
         match k.code {
@@ -334,23 +348,7 @@ impl App {
             f.error = Some("Give the bot a name.".into());
             return;
         }
-        let model = f.model.text.trim();
-        let mut body = json!({
-            "name": f.name.text.trim(),
-            "description": f.instructions.text.trim(),
-            "backend": f.backend,
-            "cwd": f.cwd,
-            "permission": if f.auto { "auto" } else { "ask" },
-            "model": if model.is_empty() { Value::Null } else { model.into() },
-            "modelOptions": f.model_options().cloned().unwrap_or_default(),
-            "fastMode": f.fast,
-            "notify": f.notify,
-            "computer": f.computer,
-            "avatarColor": COLORS[f.color],
-            "avatarShape": SHAPES[f.shape],
-            "connectors": f.connectors.iter().filter(|t| t.on).map(|t| t.id.clone()).collect::<Vec<_>>(),
-            "skills": f.skills.iter().filter(|t| t.on).map(|t| t.id.clone()).collect::<Vec<_>>(),
-        });
+        let mut body = f.body();
         f.saving = true;
         f.error = None;
         match &f.bot_id {
@@ -360,6 +358,34 @@ impl App {
             }
             None => self.call("createBot", body, After::Saved),
         }
+    }
+}
+
+impl Form {
+    /// The bot as this form would save it.
+    fn body(&self) -> Value {
+        let model = self.model.text.trim();
+        json!({
+            "name": self.name.text.trim(),
+            "description": self.instructions.text.trim(),
+            "backend": self.backend,
+            "cwd": self.cwd,
+            "permission": if self.auto { "auto" } else { "ask" },
+            "model": if model.is_empty() { Value::Null } else { model.into() },
+            "modelOptions": self.model_options().cloned().unwrap_or_default(),
+            "fastMode": self.fast,
+            "notify": self.notify,
+            "computer": self.computer,
+            "avatarColor": COLORS[self.color],
+            "avatarShape": SHAPES[self.shape],
+            "connectors": self.connectors.iter().filter(|t| t.on).map(|t| t.id.clone()).collect::<Vec<_>>(),
+            "skills": self.skills.iter().filter(|t| t.on).map(|t| t.id.clone()).collect::<Vec<_>>(),
+        })
+    }
+
+    /// Whether anything changed since the form opened.
+    pub fn dirty(&self) -> bool {
+        self.body() != self.opened
     }
 }
 

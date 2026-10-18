@@ -64,6 +64,8 @@ pub struct App {
     pub slash_pick: (String, usize),
     /// Files dropped on the composer (pasted paths), per draft like the text.
     pub files: HashMap<String, Vec<std::path::PathBuf>>,
+    /// What was pasted into each draft, sent along so memory never takes it as the user's own words.
+    pub pasted: HashMap<String, Vec<String>>,
     pub download: Option<super::net::files::Download>,
     sends: HashMap<String, PendingSend>,
     /// Lines scrolled up from the bottom of the chat (0 = follow new messages).
@@ -87,6 +89,8 @@ pub struct App {
     pub thread: Option<String>,
     /// A main-chat message picked to reply to in its thread (`r`, then j/k and ↵).
     pub pick: Option<String>,
+    /// Chat lines showing their full text: a compaction's summary, a handoff (`o` on the picked line).
+    pub unfolded: HashSet<String>,
     pub market: (Vec<Toggle>, Vec<Toggle>),
     /// Installed connectors and skills as the host lists them.
     pub plugins: (Vec<Value>, Vec<Value>),
@@ -138,6 +142,7 @@ impl App {
             drafts: HashMap::new(),
             slash_pick: (String::new(), 0),
             files: HashMap::new(),
+            pasted: HashMap::new(),
             sends: HashMap::new(),
             chat_scroll: 0,
             trace_scroll: 0,
@@ -155,6 +160,7 @@ impl App {
             chat_top: false,
             thread: None,
             pick: None,
+            unfolded: HashSet::new(),
             market: (vec![], vec![]),
             plugins: (vec![], vec![]),
             models: HashMap::new(),

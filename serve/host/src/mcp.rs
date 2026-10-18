@@ -78,11 +78,6 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
                 "ping" => Ok(json!({})),
                 "tools/list" => Ok(match server {
                     Server::Computer => computer_tools(port, &token).await,
-                    // Without Engram, history search still works.
-                    Server::Memory => memory_tools(port, &token, &bot).await.unwrap_or_else(|error| {
-                        tracing::warn!(error = format!("{error:#}"), "memory tools unavailable");
-                        json!({"tools": available_tools})
-                    }),
                     _ => json!({"tools": available_tools}),
                 }),
                 "tools/call" => Ok(call(port, &token, &bot, params, server).await),
@@ -96,19 +91,6 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
     }
     // The agent is gone: replies still pending have no one to read them.
     Ok(())
-}
-
-async fn memory_tools(port: u16, token: &str, bot: &str) -> Result<Value> {
-    Ok(crate::http()
-        .post(format!("http://127.0.0.1:{port}/api/memoryTools"))
-        .bearer_auth(token)
-        .json(&json!({"botId": bot}))
-        .timeout(Duration::from_secs(240))
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?)
 }
 
 /// The `computer` tools the host offers; none when it can't be reached.
@@ -158,7 +140,6 @@ async fn call(port: u16, token: &str, bot: &str, params: &Value, server: Server)
                     return match server {
                         Server::Computer if v["isError"] == true => json!({"content": v["content"], "isError": true}),
                         Server::Computer => json!({"content": v["content"]}),
-                        Server::Memory if v["content"].is_array() => v,
                         Server::Chat | Server::Team | Server::Memory | Server::Routines | Server::Connectors => {
                             json!({"content": [{"type": "text", "text": v.to_string()}]})
                         }

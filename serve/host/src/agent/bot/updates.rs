@@ -1,9 +1,8 @@
 //! Agent → client: `session/update`s, permission requests and streamed text mapped onto entries.
 
 use super::fast_mode::Listing;
-use super::{Actor, NoticeStyle, Seg, SegKind};
+use super::{Actor, Seg, SegKind};
 use crate::agent::acp::{self, Incoming};
-use crate::chat::context;
 use crate::hub::BotStatus;
 use crate::remote::push::{self, AlertKind};
 use crate::store::{EntryKind, Permission};
@@ -74,6 +73,7 @@ impl Actor {
                     "locations": u["locations"].clone(),
                 });
                 merge_tool_content(&mut data, &u["content"]);
+                crate::chat::memory::files::touched(&self.hub.store, &self.cfg, &self.lane, &data);
                 let title = data["title"].as_str().unwrap_or("Tool").to_owned();
                 if let Some(e) = self.add(EntryKind::Tool, turn, data) {
                     self.tools.insert(tool_id, e.id);
@@ -93,6 +93,7 @@ impl Actor {
                     e.data["locations"] = u["locations"].clone();
                 }
                 merge_tool_content(&mut e.data, &u["content"]);
+                crate::chat::memory::files::touched(&self.hub.store, &self.cfg, &self.lane, &e.data);
                 let status = e.data["status"].as_str().unwrap_or_default().to_owned();
                 let title = e.data["title"].as_str().unwrap_or_default().to_owned();
                 self.hub.set_entry(&entry_id, &e.data);
@@ -100,26 +101,26 @@ impl Actor {
                     self.set_activity(super::activity(&title));
                 }
             }
-            // The agent summarized its context: the next turn gets freshly rendered
-            // instructions and memory (see `context`).
-            "compaction_update" if u["status"] == "completed" => {
-                let Some(sid) = &self.turn_session else { return };
-                let id = u["compactionId"].as_str().unwrap_or_default();
-                match context::bump_epoch(&self.hub.store, &self.cfg.id, sid, id) {
-                    Ok(true) => {
-                        let _ = self.keeper.send(crate::chat::memory::KeeperEvent::Flush);
-                        self.notice("Earlier context was summarized to make room.", NoticeStyle::Info);
-                    }
-                    Ok(false) => {}
-                    Err(error) => {
-                        tracing::warn!(bot = %self.cfg.id, error = format!("{error:#}"), "couldn't record the compaction");
-                    }
+            "compaction_update" => {
+                if let Some(conn) = self.conn.as_mut() {
+                    conn.reports_compaction = true;
+                }
+                // Claude's adapter carries the summary on one of its completed updates.
+                if u["status"] == "completed" {
+                    let summary = acp::content_text(&u["summary"]);
+                    self.compacted(
+                        u["compactionId"].as_str().unwrap_or_default(),
+                        (!summary.trim().is_empty()).then_some(summary),
+                    );
                 }
             }
             "usage_update" => {
                 let info = &u["_meta"]["_claude/rateLimit"];
                 if info.is_object() {
                     crate::usage::ingest_claude_rate_limit(&self.hub, info);
+                }
+                if let Some(used) = u["used"].as_u64() {
+                    self.track_usage(used, u["size"].as_u64().unwrap_or(0));
                 }
             }
             "plan" => {

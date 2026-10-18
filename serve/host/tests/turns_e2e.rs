@@ -28,7 +28,6 @@ impl Host {
     async fn start() -> Self {
         let home = std::env::temp_dir().join(format!("codync-turns-e2e-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&home).unwrap();
-        common::seed_memory_runtime(&home);
         let (child, base) = common::serve(&home).await;
         let token = std::fs::read_to_string(home.join("token")).unwrap().trim().to_owned();
         Self { child, base, token, home }

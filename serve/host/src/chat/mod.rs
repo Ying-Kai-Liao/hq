@@ -4,8 +4,10 @@
 pub mod context;
 pub mod files;
 pub mod group;
+pub mod handoff;
 pub mod memory;
 pub mod naming;
+pub mod oneshot;
 pub mod outbox;
 pub mod prompt;
 pub mod team;

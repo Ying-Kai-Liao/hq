@@ -39,6 +39,11 @@ pub struct Runtime {
     pub started_at: Option<i64>,
     /// Where the running turn talks: its own chat, a thread, or a group.
     pub lane: Option<Lane>,
+    /// The user's message that started the running turn; `None` for a turn a routine, a room or another bot
+    /// started. Memory cites it as where a fact was learned.
+    pub message: Option<String>,
+    /// The ACP session the running turn prompts. A memory write made there is one that session already knows.
+    pub session: Option<String>,
     pub fast_mode: crate::agent::config::FastModeSupport,
 }
 
@@ -61,7 +66,7 @@ pub struct Hub {
     emit_lock: Mutex<()>,
     bots: Mutex<HashMap<String, BotHandle>>,
     runtime: Mutex<HashMap<String, Runtime>>,
-    pub ios_clients: AtomicUsize,
+    pub phone_clients: AtomicUsize,
     pub usage: Mutex<Usage>,
     keep_awake: Mutex<service::KeepAwake>,
     /// Generation of the authorized-device table and pairing offers: bumped on every
@@ -102,7 +107,7 @@ impl Hub {
             emit_lock: Mutex::new(()),
             bots: Mutex::default(),
             runtime: Mutex::default(),
-            ios_clients: AtomicUsize::new(0),
+            phone_clients: AtomicUsize::new(0),
             usage: Mutex::default(),
             keep_awake: Mutex::default(),
             auth: watch::Sender::new(0),
@@ -118,6 +123,7 @@ impl Hub {
     pub fn start(self: &Arc<Self>) -> Result<()> {
         // Approval cards and queued sends from a previous run can't be honored anymore.
         self.store.expire_pending()?;
+        crate::chat::memory::import_old_memory(self);
         self.routines.restore(&self.store)?;
         crate::market::turn_on_installed_once(&self.store)?;
         for row in self.store.bots()? {
@@ -247,6 +253,9 @@ impl Hub {
             self.store.save_bot(&cfg)?;
         }
         if !cfg.is_group() {
+            if crate::chat::memory::shared(&cfg) != crate::chat::memory::shared(&row.config) {
+                crate::chat::memory::changed(self, Some(&id));
+            }
             self.send_cmd(&id, Cmd::Reconfigure(Box::new(cfg)))?;
         }
         self.emit_bot(&id);
@@ -268,7 +277,9 @@ impl Hub {
         }
         // Its shared files are unreachable once the bot is deleted.
         let files = crate::chat::files::root(id);
+        let bot = id.to_owned();
         tokio::task::spawn_blocking(move || {
+            crate::chat::memory::files::remove_bot(&bot);
             if let Err(error) = std::fs::remove_dir_all(&files)
                 && error.kind() != std::io::ErrorKind::NotFound
             {
@@ -525,8 +536,8 @@ impl Hub {
         Ok(removed)
     }
 
-    pub fn ios_connected(&self) -> bool {
-        self.ios_clients.load(Ordering::Relaxed) > 0
+    pub fn phone_connected(&self) -> bool {
+        self.phone_clients.load(Ordering::Relaxed) > 0
     }
 }
 

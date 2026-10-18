@@ -39,17 +39,8 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
         )?,
         "routineCall" => crate::routines::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"])?,
         "memoryCall" => {
-            let bot = str_arg(&b, "botId")?;
-            let name = str_arg(&b, "name")?;
-            let args = if name.starts_with("mem_") {
-                crate::chat::memory::lifecycle::bound_args(hub, bot, b["memoryLane"].as_str(), name, &b["arguments"])
-                    .await?
-            } else {
-                b["arguments"].clone()
-            };
-            crate::chat::memory::call(hub, bot, name, &args).await?
+            crate::chat::memory::tool_call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?
         }
-        "memoryTools" => crate::chat::memory::available_tools(hub, str_arg(&b, "botId")?).await?,
         "chatCall" => {
             crate::chat::outbox::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?
         }
@@ -184,13 +175,21 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             let turn = hub.store.max_turn(bot) + 1;
             // A group has no agent of its own to queue behind: its message is simply sent.
             let status = if row.config.is_group() { "sent" } else { "queued" };
+            let mut data = json!({"text": text, "clientNonce": nonce, "status": status, "attachments": attachments});
+            // What the user pasted rather than typed: memory never takes it as the user's own words.
+            let pasted: Vec<&str> = b["pasted"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|p| !p.is_empty() && text.contains(p))
+                .collect();
+            if !pasted.is_empty() {
+                data["pasted"] = json!(pasted);
+            }
             let e = hub
-                .add_entry(
-                    &lane,
-                    EntryKind::User,
-                    turn,
-                    &json!({"text": text, "clientNonce": nonce, "status": status, "attachments": attachments}),
-                )
+                .add_entry(&lane, EntryKind::User, turn, &data)
                 .ok_or_else(|| anyhow!("couldn't save the message"))?;
             // Before the turn starts, so its reply lands unread.
             let scope = lane.thread.as_deref().map_or(ReadScope::Chat, ReadScope::Thread);
@@ -225,8 +224,10 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             hub.send_cmd(str_arg(&b, "botId")?, Cmd::NewSession)?;
             json!({})
         }
-        "memory" | "saveMemory" | "memoryDetail" | "pinMemory" | "reviewMemory" | "forgetMemory" | "clearMemory"
-        | "exportMemory" | "importMemory" => crate::chat::memory::manage::call(hub, method, &b).await?,
+        "memory" | "saveMemory" | "pinMemory" | "archiveMemory" | "forgetMemory" | "clearMemory" | "undoDream"
+        | "answerMemory" | "undoMemory" | "memoryFile" | "saveMemoryFile" | "deleteMemoryFile"
+        | "restoreMemoryFile" => crate::chat::memory::call(hub, method, &b).await?,
+        "editHandoff" | "keepConversation" => crate::chat::handoff::call(hub, method, &b)?,
         "react" => {
             let e = hub.react(str_arg(&b, "entryId")?, str_arg(&b, "emoji")?)?;
             json!({"entry": e})

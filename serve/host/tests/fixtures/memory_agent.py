@@ -1,9 +1,35 @@
-"""Deterministic ACP replies for automatic memory extraction, without an LLM provider."""
+"""Deterministic ACP replies for dreaming, without an LLM provider.
+
+A dream run gets a plan with two additions: one quoting what the user typed, one quoting what they pasted. Only
+the first may survive the host's audit. It also appends a note to a long-form file.
+"""
 import json
 import sys
 import uuid
 
 session = ""
+
+PLAN = {
+    "add": [
+        {
+            "text": "Prefers concise Traditional Chinese explanations",
+            "quote": "explain things to me concisely in Traditional Chinese",
+            "message": "m1",
+        },
+        {"text": "Loves durian", "quote": "I love durian", "message": "m1"},
+    ],
+    "archive": [],
+    "review": [],
+    "append": [
+        {
+            "file": "style.md",
+            "text": "Wants things explained concisely, in Traditional Chinese",
+            "quote": "explain things to me concisely",
+            "message": "m1",
+            "description": "How the user likes answers",
+        },
+    ],
+}
 
 
 def send(value):
@@ -21,12 +47,12 @@ for line in sys.stdin:
         result = {"sessionId": session}
     elif method == "session/prompt":
         text = params["prompt"][0]["text"]
-        if "Tag each fact you keep with a category" in text:
-            reply = "profile: The user prefers concise Traditional Chinese explanations."
-        elif "Write a concise session summary" in text:
-            reply = "The user established a preference for concise Traditional Chinese explanations."
+        if "You keep the memory a personal assistant bot has" in text:
+            reply = "Here is the plan:\n" + json.dumps(PLAN)
+        elif "You name a personal assistant bot" in text:
+            reply = "NONE"
         else:
-            reply = "I will use concise Traditional Chinese explanations."
+            reply = "I will keep my explanations short."
         send({"method": "session/update", "params": {"sessionId": session, "update": {
             "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}
         }}})

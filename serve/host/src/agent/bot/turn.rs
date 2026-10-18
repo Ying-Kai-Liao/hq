@@ -1,6 +1,6 @@
 //! Starting a turn and wrapping it up: final reply, notices, replies to waiters, alerts and memory.
 
-use super::{Actor, Done, NoticeStyle, Queued, Seg};
+use super::{Actor, Conn, Done, Instructions, NoticeStyle, Queued, Seg};
 use crate::agent::acp::{self, Incoming};
 use crate::analytics::{self, TurnOutcome, TurnSource};
 use crate::chat::context::{self, Snapshot};
@@ -13,11 +13,55 @@ use serde_json::json;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
+/// Leads a `<bot-profile>` sent again after a compaction, so the agent drops an older copy it may still hold.
+const PROFILE_AGAIN: &str = "Your context was summarized. This is your full, current profile and memory; it replaces any earlier bot profile in this conversation.";
+
 impl Actor {
     /// This session's frozen instructions (reads memory files when re-rendering).
     pub(super) async fn snapshot(&self, session: &str) -> Result<Snapshot> {
         let (hub, cfg, session) = (self.hub.clone(), self.cfg.clone(), session.to_owned());
         tokio::task::spawn_blocking(move || context::resolve(&hub.store, &cfg, &session)).await?
+    }
+
+    /// The prompt for `text` in session `sid`: what the agent should hear first (its profile, a handoff, a thread's
+    /// start, a memory change) and after (a profile update, how to share files).
+    async fn compose(&mut self, sid: &str, text: &str) -> Result<String> {
+        let instructions = self.conn.as_ref().map_or(Instructions::FirstMessage, Conn::instructions);
+        let mut snapshot = self.snapshot(sid).await?;
+        let remind_files = !snapshot.system.contains("send_file");
+        let mut prompt = text.to_owned();
+        if let Some(handoff) = self.handoff.take() {
+            prompt = format!("{handoff}\n\n{prompt}");
+        }
+        // A compaction may have dropped the profile the session's first message carried.
+        let resend = instructions == Instructions::FirstMessage && self.profile_resend.remove(sid);
+        if self.session_fresh || resend {
+            // The instructions reaching the agent now hold memory as it was when they were rendered.
+            memory::opened(&self.hub.store, &self.cfg.id, sid, &snapshot.memory)?;
+        }
+        if let Some((notice, revision)) = memory::change_notice(&self.hub.store, &self.cfg, sid) {
+            prompt = format!("{notice}\n\n{prompt}");
+            self.turn_memory_revision = revision;
+        }
+        if let Some(intro) = self.thread_intro.take() {
+            prompt = format!("{intro}\n\n{prompt}");
+        }
+        if std::mem::take(&mut self.session_fresh) && instructions == Instructions::FirstMessage {
+            prompt = format!("<bot-profile>\n{}\n</bot-profile>\n\n{prompt}", snapshot.system);
+        } else if resend {
+            context::mark_announced(&self.hub.store, &self.cfg.id, &snapshot, snapshot.system_identity.clone())?;
+            snapshot.announced = snapshot.system_identity.clone();
+            prompt = format!("<bot-profile>\n{PROFILE_AGAIN}\n\n{}\n</bot-profile>\n\n{prompt}", snapshot.system);
+        }
+        if let Some((update, identity)) = context::profile_update(&self.hub.store, &snapshot, &self.cfg) {
+            prompt = format!("{prompt}\n\n{update}");
+            self.announce = Some((snapshot, identity));
+        }
+        if remind_files && self.active_group.is_none() && self.active_request.is_none() && self.active_routine.is_none()
+        {
+            prompt.push_str("\n\n[Codync: send_file(path, name?) shares any regular file up to 100 MiB as a downloadable card. Use it instead of sending a local path.]");
+        }
+        Ok(prompt)
     }
 
     /// Starts a turn in `lane` for the given user entries (none for a hidden turn).
@@ -50,7 +94,7 @@ impl Actor {
             !hidden && self.active_request.is_none() && self.active_group.is_none() && self.active_routine.is_none();
         self.turn_text = from_user.then(|| text.to_owned());
         self.turn_entries = if from_user { entry_ids.to_vec() } else { Vec::new() };
-        self.turn_memory_revision = memory::maintenance::revision(&self.hub.store, &self.cfg.id);
+        self.turn_memory_revision.clear();
         self.announce = None;
         self.stop_requested = false;
         self.cancel_deadline = None;
@@ -70,11 +114,20 @@ impl Actor {
         );
         self.hub.set_runtime(&self.id(), |r| {
             r.status = BotStatus::Working;
-            r.activity = if hidden { "Picking up where it left off…" } else { "Starting…" }.into();
+            r.activity = match (self.compacting.is_some(), hidden) {
+                (true, _) => "Summarizing the earlier conversation…",
+                (false, true) => "Picking up where it left off…",
+                (false, false) => "Starting…",
+            }
+            .into();
             r.started_at = Some(now_ms());
             r.lane = Some(lane.clone());
+            r.message = if from_user { entry_ids.last().cloned() } else { None };
         });
 
+        // Memory files changed since (in an editor, say) reach the opening or the next notice.
+        let (hub, cfg) = (self.hub.clone(), self.cfg.clone());
+        let _ = tokio::task::spawn_blocking(move || memory::files::scan(&hub, &cfg)).await;
         let slot = self.slot(&lane);
         if let Some(deadline) = self.routine_deadline {
             tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), self.ensure_session(slot.as_deref()))
@@ -83,11 +136,15 @@ impl Actor {
         } else {
             self.ensure_session(slot.as_deref()).await?;
         }
-        if let Some(sid) = self.turn_session.clone() {
+        let session = self.turn_session.clone();
+        self.hub.set_runtime(&self.id(), |r| r.session.clone_from(&session));
+        if let Some(sid) = session {
             self.sync_fast_mode(&sid).await;
         }
         if hidden && self.session_fresh {
-            // A new session must never silently repeat an interrupted routine.
+            // A new session must never silently repeat an interrupted routine, and has nothing to compact.
+            self.compacting = None;
+            self.raw_prompt = false;
             self.finish_routine(
                 crate::routines::Status::Interrupted,
                 Some("The agent could not reload this run's saved session; inspect before retrying".into()),
@@ -103,6 +160,8 @@ impl Actor {
                 r.activity = String::new();
                 r.started_at = None;
                 r.lane = None;
+                r.message = None;
+                r.session = None;
             });
             return Ok(());
         }
@@ -118,45 +177,9 @@ impl Actor {
                 }
             }
         }
-        let claude = self.conn.as_ref().is_some_and(|c| c.claude);
         let sid = self.turn_session.clone().ok_or_else(|| anyhow!("no session"))?;
-        self.memory_session = match memory::lifecycle::begin(&self.hub, &self.cfg.id, &sid).await {
-            Ok(session) => Some(session),
-            Err(error) => {
-                self.memory_unavailable(&error);
-                None
-            }
-        };
-        if from_user
-            && let Some(session) = &self.memory_session
-            && let Err(error) = memory::lifecycle::capture_prompt(&self.cfg.id, session, text).await
-        {
-            tracing::warn!(bot = %self.cfg.id, %error, "memory prompt capture failed");
-        }
-        let snapshot = self.snapshot(&sid).await?;
-        let remind_files = !snapshot.system.contains("send_file");
-        let mut prompt = text.to_owned();
-        if let Some(notice) = memory::lifecycle::change_notice(&self.hub, &self.cfg.id, &sid) {
-            prompt = format!("{notice}\n\n{prompt}");
-        }
-        if let Some(intro) = self.thread_intro.take() {
-            prompt = format!("{intro}\n\n{prompt}");
-        }
-        if self.session_fresh {
-            self.session_fresh = false;
-            // Claude already has the instructions as its system prompt.
-            if !claude {
-                prompt = format!("<bot-profile>\n{}\n</bot-profile>\n\n{prompt}", snapshot.system);
-            }
-        }
-        if let Some((update, identity)) = context::profile_update(&self.hub.store, &snapshot, &self.cfg) {
-            prompt = format!("{prompt}\n\n{update}");
-            self.announce = Some((snapshot, identity));
-        }
-        if remind_files && self.active_group.is_none() && self.active_request.is_none() && self.active_routine.is_none()
-        {
-            prompt.push_str("\n\n[Codync: send_file(path, name?) shares any regular file up to 100 MiB as a downloadable card. Use it instead of sending a local path.]");
-        }
+        let prompt =
+            if std::mem::take(&mut self.raw_prompt) { text.to_owned() } else { self.compose(&sid, text).await? };
         self.hub.set_runtime(&self.id(), |r| r.activity = "Thinking…".into());
         let acp = self.conn.as_ref().ok_or_else(|| anyhow!("agent not running"))?.acp.clone();
         let params = json!({
@@ -169,7 +192,8 @@ impl Actor {
         }
         // Written before this returns, so a Stop right after is sent after the prompt.
         let answer = acp.send("session/prompt", params).await?;
-        if let Err(error) = memory::lifecycle::mark_announced(&self.hub, &self.cfg.id, &sid, &self.turn_memory_revision)
+        if !self.turn_memory_revision.is_empty()
+            && let Err(error) = memory::mark_announced(&self.hub.store, &self.cfg.id, &sid, &self.turn_memory_revision)
         {
             tracing::warn!(%error, "could not acknowledge memory update notice");
         }
@@ -184,6 +208,9 @@ impl Actor {
         if self.turn.is_none() {
             return;
         }
+        self.after_turn(done);
+        // The bot's own edits to its memory files, checked and shown in the chat it made them from.
+        memory::files::scan_after_turn(self.hub.clone(), self.cfg.clone());
         if let (Some(conn), Some(sid)) = (self.conn.as_mut(), &self.turn_session)
             && let Some(used) = conn.loaded.get_mut(sid)
         {
@@ -306,22 +333,17 @@ impl Actor {
         {
             tracing::warn!(bot = %self.cfg.id, error = format!("{error:#}"), "couldn't record the profile update");
         }
-        if let (Some(user), Some(agent), "end_turn") = (self.turn_text.take(), &final_text, stop_reason.as_str())
-            && memory::is_memorable(&user)
-        {
-            let _ = self.keeper.send(memory::KeeperEvent::Exchange(memory::Exchange {
-                user,
-                agent: agent.clone(),
-                at: now_ms(),
-                session: self.memory_session.clone().unwrap_or_default(),
-                revision: self.turn_memory_revision.clone(),
-            }));
+        if let (Some(user), Some(agent), "end_turn") = (self.turn_text.take(), &final_text, stop_reason.as_str()) {
+            let turn = crate::chat::naming::Turn { user, agent: agent.clone() };
+            let _ = self.dreamer.send(memory::DreamEvent::Turn(turn));
         }
         self.hub.set_runtime(&self.id(), |r| {
             r.status = if failed { BotStatus::Error } else { BotStatus::Idle };
             r.activity = String::new();
             r.started_at = None;
             r.lane = None;
+            r.message = None;
+            r.session = None;
         });
         self.hub.team.cancel_from(&self.cfg.id);
         // A room turn's news comes from the group once the room is done (see `group`).

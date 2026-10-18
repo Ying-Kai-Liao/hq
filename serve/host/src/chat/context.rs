@@ -3,15 +3,14 @@
 //!
 //! The bot's instructions (name, description, skills, memory) are rendered once
 //! and kept as a [`Snapshot`] keyed by the ACP session and its *compaction
-//! epoch*. Harnesses that take a system prompt (Claude, via `_meta.systemPrompt`)
-//! get it as one; others get it in the first message of the session. The
-//! snapshot stays byte-identical, so the prompt cache stays warm, until the
+//! epoch*. How it reaches the agent depends on the harness (`agent::bot::Instructions`).
+//! The snapshot stays byte-identical, so the prompt cache stays warm, until the
 //! agent compacts its context (a `compaction_update`) or a new session starts.
 //! Profile edits in between are announced once as an `<agent_profile_update>`
 //! block on the next message and folded into the snapshot after the next
-//! compaction. Memory learned in between reaches the prompt the same way.
+//! compaction. Memory changes in between are told on the next message the same way
+//! (see `memory::change_notice`).
 
-use crate::chat::memory::{self, Memory};
 use crate::store::{BotConfig, Store};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -42,6 +41,9 @@ pub struct Snapshot {
     pub system_identity: Identity,
     /// The identity the agent last heard of (`system` or a later update block).
     pub announced: Identity,
+    /// The memory revision `system` holds (`memory::current_revision` before it was rendered).
+    #[serde(default)]
+    pub memory: String,
 }
 
 // A bot talks in several lanes (its chat, threads, groups), each its own session: snapshots
@@ -92,7 +94,7 @@ fn save(store: &Store, bot_id: &str, s: &Snapshot) -> Result<()> {
 }
 
 /// The snapshot for `session` at its current epoch, rendering a fresh one when
-/// the stored one belongs to another session or an earlier epoch. Reads memory files.
+/// the stored one belongs to another session or an earlier epoch.
 pub fn resolve(store: &Store, cfg: &BotConfig, session: &str) -> Result<Snapshot> {
     let epoch = epoch(store, &cfg.id, session);
     let stored = load(store, &cfg.id, session);
@@ -100,20 +102,34 @@ pub fn resolve(store: &Store, cfg: &BotConfig, session: &str) -> Result<Snapshot
         return Ok(s.clone());
     }
     let identity = Identity::of(cfg);
+    let memory = crate::chat::memory::current_revision(store, &cfg.id);
     let s = Snapshot {
         session: session.to_owned(),
         epoch,
         system: render(store, cfg),
         system_identity: identity.clone(),
-        // A re-render reaches only Claude, as its system prompt (see `mark_announced`): the agent
-        // still knows the identity it last heard, so an update it missed is still announced.
+        // A re-render reaches the agent only as Claude's system prompt or a re-sent profile (see `mark_announced`):
+        // until then it knows the identity it last heard, so an update it missed is still announced.
         announced: stored.map_or(identity, |old| old.announced),
+        memory,
     };
     save(store, &cfg.id, &s)?;
     Ok(s)
 }
 
-/// Memory the instructions show changed: every session of the bot re-renders them on its next turn.
+/// One session's instructions are rendered again on its next turn: before a compaction the host starts, so the
+/// compaction keeps them as they are now.
+pub fn refresh(store: &Store, bot_id: &str, session: &str) -> Result<()> {
+    match load(store, bot_id, session) {
+        Some(mut s) => {
+            s.system.clear();
+            save(store, bot_id, &s)
+        }
+        None => Ok(()),
+    }
+}
+
+/// Every session of the bot renders its instructions again on its next turn (after the move from the old memory).
 pub fn invalidate(store: &Store, bot_id: &str) -> Result<()> {
     for k in store.kv_prefix(&format!("context.{bot_id}.")) {
         match store.kv_get(&k).and_then(|v| serde_json::from_str::<Snapshot>(&v).ok()) {
@@ -127,8 +143,9 @@ pub fn invalidate(store: &Store, bot_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Records `system` (already handed to a new session) as that session's snapshot.
-pub fn adopt(store: &Store, cfg: &BotConfig, session: &str, system: String) -> Result<Snapshot> {
+/// Records `system` (already handed to a new session), rendered at memory revision `memory`, as that session's
+/// snapshot.
+pub fn adopt(store: &Store, cfg: &BotConfig, session: &str, system: String, memory: String) -> Result<Snapshot> {
     let identity = Identity::of(cfg);
     let s = Snapshot {
         session: session.to_owned(),
@@ -136,12 +153,13 @@ pub fn adopt(store: &Store, cfg: &BotConfig, session: &str, system: String) -> R
         system,
         system_identity: identity.clone(),
         announced: identity,
+        memory,
     };
     save(store, &cfg.id, &s)?;
     Ok(s)
 }
 
-/// The bot's instructions, rendered live. Reads memory files.
+/// The bot's instructions, rendered live.
 pub fn render(store: &Store, cfg: &BotConfig) -> String {
     let name = cfg.name.trim();
     let mut lines = vec!["Agent profile:".to_owned()];
@@ -172,14 +190,13 @@ pub fn render(store: &Store, cfg: &BotConfig) -> String {
         lines.push(String::new());
         lines.push(skills);
     }
+    lines.push(String::new());
+    lines.push(codync_mem::compaction::KEEP.to_owned());
     let mut out = lines.join("\n");
-    match Memory::for_bot(&cfg.id).and_then(|mem| Ok((mem.recall(memory::RECENT_PROMPT_LIMIT)?, mem))) {
-        Ok((recall, mem)) => {
-            let (section, _) = memory::render(&recall, mem.location());
-            out.push_str("\n\n");
-            out.push_str(&section);
-        }
-        Err(error) => tracing::warn!(bot = %cfg.id, error = format!("{error:#}"), "no memory folder"),
+    let memory = crate::chat::memory::opening(store, cfg);
+    if !memory.is_empty() {
+        out.push_str("\n\n");
+        out.push_str(&memory);
     }
     out
 }
@@ -252,7 +269,7 @@ mod tests {
     fn snapshot_is_frozen_until_compaction_and_updates_are_announced_once() {
         let store = store();
         let a = cfg("Fixer", "Fix bugs");
-        let first = adopt(&store, &a, "s1", "SYSTEM v1".into()).expect("adopt");
+        let first = adopt(&store, &a, "s1", "SYSTEM v1".into(), String::new()).expect("adopt");
         // Frozen: resolving again returns the same text, even though a live render differs.
         assert_eq!(resolve(&store, &a, "s1").expect("resolve").system, "SYSTEM v1");
         assert!(profile_update(&store, &first, &a).is_none());
@@ -279,7 +296,7 @@ mod tests {
     fn a_memory_change_re_renders_but_keeps_what_the_agent_heard() {
         let store = store();
         let a = cfg("Fixer", "Fix bugs");
-        adopt(&store, &a, "s1", "SYSTEM v1".into()).expect("adopt");
+        adopt(&store, &a, "s1", "SYSTEM v1".into(), String::new()).expect("adopt");
         let b = cfg("Fixer", "Fix bugs and write tests");
         invalidate(&store, &a.id).expect("invalidate");
         let snap = resolve(&store, &b, "s1").expect("resolve");

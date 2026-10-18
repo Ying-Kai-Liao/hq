@@ -1,13 +1,14 @@
-//! The agent process and its ACP sessions: launch, handshake, new/load/fork, thread sessions.
+//! The bot's ACP sessions: starting its agent, new/load/fork, thread sessions.
 
 use super::fast_mode::Listing;
-use super::{Actor, Conn, NoticeStyle, SessionCaps};
-use crate::agent::acp::{self, Acp, Incoming};
-use crate::chat::context;
-use crate::store::{BotConfig, Entry, EntryKind, Lane, lane_key};
+use super::launch::{claude_meta, launch_commands, select_model, start_agent, system_prompt};
+use super::{Actor, Conn, Instructions, NoticeStyle};
+use crate::agent::acp::{self, Incoming};
+use crate::agent::own_memory;
+use crate::chat::{context, memory};
+use crate::store::{Entry, EntryKind, Lane, lane_key};
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 impl Actor {
@@ -93,6 +94,19 @@ impl Actor {
         )
     }
 
+    /// What every session request carries: the folder and MCP servers, and the memory folders for an agent that
+    /// takes folders besides its own.
+    fn session_params(&self, servers: &Value, session: Option<&str>) -> Value {
+        let mut params = json!({"cwd": self.cfg.cwd, "mcpServers": servers});
+        if let Some(sid) = session {
+            params["sessionId"] = sid.into();
+        }
+        if self.conn.as_ref().is_some_and(|c| c.sessions.additional_directories) {
+            params["additionalDirectories"] = json!(memory::files::folders(&self.cfg));
+        }
+        params
+    }
+
     /// ACP connectors, team collaboration, and optional computer control.
     pub(super) fn mcp_servers(&self) -> Result<Value> {
         let Ok(exe) = std::env::current_exe() else {
@@ -134,10 +148,6 @@ impl Actor {
     /// Makes sure the agent runs and `slot`'s session (main, or a thread's) is live;
     /// sets `turn_session`. A thread without one forks the main session when it can.
     pub(super) async fn ensure_session(&mut self, slot: Option<&str>) -> Result<()> {
-        // Memory is best-effort: a bot without it still answers.
-        if let Err(error) = crate::chat::memory::prepare(&self.cfg.id).await {
-            self.memory_unavailable(&error);
-        }
         if !self.cfg.connectors.is_empty()
             || self.hub.store.kv_read(&format!("agent-env:{}", self.cfg.backend))?.is_some()
         {
@@ -152,14 +162,23 @@ impl Actor {
         }
         if self.conn.is_none() {
             let (hub, id) = (self.hub.clone(), self.cfg.id.clone());
-            let candidates = launch_commands(&self.cfg, move |msg: &str| {
+            let mut candidates = launch_commands(&self.cfg, move |msg: &str| {
                 let msg = msg.to_owned();
                 hub.set_runtime(&id, |r| r.activity = msg);
             })
             .await?;
             self.hub.set_runtime(&self.id(), |r| r.activity = "Starting agent…".into());
             // Keys saved from an "environment variable" sign-in.
-            let env = crate::agent::auth::env(&self.hub.store, &self.cfg.backend)?;
+            let mut env = crate::agent::auth::env(&self.hub.store, &self.cfg.backend)?;
+            if crate::agent::workspace::is_managed(&self.cfg) {
+                // Codync's memory is the only one a bot in its own workspace has.
+                own_memory::turn_off(&self.cfg.backend, &self.cfg.cwd, &mut env, &mut candidates).await;
+            }
+            if self.cfg.backend == "codex" && !env.iter().any(|(k, _)| k == "CODEX_CONFIG") {
+                // Codex's `/compact` takes no instructions: the keep-list is its config's `compact_prompt`.
+                let config = json!({"compact_prompt": codync_mem::compaction::KEEP});
+                env.push(("CODEX_CONFIG".into(), config.to_string()));
+            }
             let mut last_err = None;
             for (i, command) in candidates.iter().enumerate() {
                 let fallback_left = i + 1 < candidates.len();
@@ -181,7 +200,7 @@ impl Actor {
             }
         }
         let servers = self.mcp_servers()?;
-        let claude = self.conn.as_ref().is_some_and(|c| c.claude);
+        let instructions = self.conn.as_ref().map_or(Instructions::FirstMessage, Conn::instructions);
         let mut forked = false;
         if let Some(root) = slot
             && self.session_for(slot).is_none()
@@ -189,10 +208,15 @@ impl Actor {
             && self.conn.as_ref().is_some_and(|c| c.sessions.fork)
         {
             self.hub.set_runtime(&self.cfg.id, |r| r.activity = "Opening the thread…".into());
-            let res = self
-                .session_request("session/fork", json!({"sessionId": main, "cwd": self.cfg.cwd, "mcpServers": servers}))
-                .await
-                .ok();
+            let mut params = self.session_params(&servers, Some(&main));
+            // The fork keeps the instructions its main session runs with, so it shares its cached prompt.
+            let parent = self.snapshot(&main).await?;
+            match instructions {
+                Instructions::ClaudeMeta => params["_meta"] = claude_meta(&self.cfg, &parent.system),
+                Instructions::SystemPrompt => params["systemPrompt"] = system_prompt(&parent.system),
+                Instructions::FirstMessage => {}
+            }
+            let res = self.session_request("session/fork", params).await.ok();
             if let Some(res) = res
                 && let Some(sid) = res["sessionId"].as_str().map(str::to_owned)
                 && let Some(conn) = self.conn.as_mut()
@@ -200,6 +224,11 @@ impl Actor {
                 conn.loaded.insert(sid.clone(), Instant::now());
                 self.set_session(slot, Some(&sid));
                 self.note_options(&sid, &res, Listing::Session);
+                context::adopt(&self.hub.store, &self.cfg, &sid, parent.system.clone(), parent.memory.clone())?;
+                memory::opened(&self.hub.store, &self.cfg.id, &sid, &parent.memory)?;
+                if instructions == Instructions::ClaudeMeta {
+                    self.applied_system.insert(sid, parent.system);
+                }
                 forked = true;
             } else {
                 tracing::warn!(bot = %self.cfg.id, "session/fork failed; the thread starts fresh");
@@ -212,8 +241,8 @@ impl Actor {
         // re-rendered them, loading the session again swaps the prompt in (the adapter
         // rebuilds its query and resumes the same conversation).
         let current = self.session_for(slot);
-        let snapshot = match (&current, claude) {
-            (Some(sid), true) => Some(self.snapshot(sid).await?),
+        let snapshot = match (&current, instructions) {
+            (Some(sid), Instructions::ClaudeMeta) => Some(self.snapshot(sid).await?),
             _ => None,
         };
         let Some(conn) = self.conn.as_ref() else { bail!("agent not running") };
@@ -233,9 +262,12 @@ impl Actor {
                 return Box::pin(self.ensure_session(slot)).await;
             }
             self.hub.set_runtime(&self.cfg.id, |r| r.activity = "Resuming session…".into());
-            let mut params = json!({"sessionId": sid, "cwd": self.cfg.cwd, "mcpServers": servers});
+            let mut params = self.session_params(&servers, Some(&sid));
             if let Some(s) = &snapshot {
-                params["_meta"] = system_meta(&s.system);
+                params["_meta"] = claude_meta(&self.cfg, &s.system);
+            }
+            if instructions == Instructions::SystemPrompt {
+                params["systemPrompt"] = system_prompt(&self.snapshot(&sid).await?.system);
             }
             let res = self.session_request("session/load", params).await;
             let Some(conn) = self.conn.as_mut() else { return res.map(drop) };
@@ -257,8 +289,9 @@ impl Actor {
                     conn.loaded.insert(sid.clone(), Instant::now());
                     self.note_options(&sid, &res, Listing::Session);
                     if let Some(s) = snapshot {
-                        // Its system prompt now names the bot as rendered.
+                        // Its system prompt now names the bot and holds memory as rendered.
                         context::mark_announced(&self.hub.store, &self.cfg.id, &s, s.system_identity.clone())?;
+                        memory::opened(&self.hub.store, &self.cfg.id, &sid, &s.memory)?;
                         self.applied_system.insert(sid.clone(), s.system);
                     }
                     self.turn_session = Some(sid);
@@ -271,13 +304,18 @@ impl Actor {
                 }
             }
         }
-        let system = {
+        let (revision, system) = {
             let (hub, cfg) = (self.hub.clone(), self.cfg.clone());
-            tokio::task::spawn_blocking(move || context::render(&hub.store, &cfg)).await?
+            tokio::task::spawn_blocking(move || {
+                (memory::current_revision(&hub.store, &cfg.id), context::render(&hub.store, &cfg))
+            })
+            .await?
         };
-        let mut params = json!({"cwd": self.cfg.cwd, "mcpServers": servers});
-        if claude {
-            params["_meta"] = system_meta(&system);
+        let mut params = self.session_params(&servers, None);
+        match instructions {
+            Instructions::ClaudeMeta => params["_meta"] = claude_meta(&self.cfg, &system),
+            Instructions::SystemPrompt => params["systemPrompt"] = system_prompt(&system),
+            Instructions::FirstMessage => {}
         }
         let res = self.session_request("session/new", params).await?;
         let Some(conn) = self.conn.as_mut() else { bail!("agent not running") };
@@ -291,8 +329,8 @@ impl Actor {
         if let Some(root) = slot {
             self.thread_intro = Some(self.thread_intro(root, false));
         }
-        context::adopt(&self.hub.store, &self.cfg, &sid, system.clone())?;
-        if claude {
+        context::adopt(&self.hub.store, &self.cfg, &sid, system.clone(), revision)?;
+        if instructions == Instructions::ClaudeMeta {
             self.applied_system.insert(sid, system);
         }
         Ok(())
@@ -312,17 +350,6 @@ impl Actor {
         Err(acp::Failure::error(acp::FailureKind::Timeout, message))
     }
 
-    /// Memory failed to start: said once per actor, then the bot works without it.
-    pub(super) fn memory_unavailable(&mut self, error: &anyhow::Error) {
-        tracing::warn!(bot = %self.cfg.id, error = format!("{error:#}"), "memory unavailable");
-        if !std::mem::replace(&mut self.memory_warned, true) {
-            self.notice(
-                &format!("Memory is unavailable; the bot works without it for now. {error:#}"),
-                NoticeStyle::Info,
-            );
-        }
-    }
-
     /// Drops the main ACP session so the next turn starts a fresh one.
     pub(super) fn forget_session(&mut self) {
         self.set_session(None, None);
@@ -331,143 +358,3 @@ impl Actor {
 
 /// How long `session/new`, `session/load` and `session/fork` may take.
 const SESSION_TIMEOUT: Duration = Duration::from_secs(180);
-
-/// Claude's `_meta`: the bot's instructions appended to Claude Code's own system prompt.
-fn system_meta(system: &str) -> Value {
-    json!({"systemPrompt": {"append": system}})
-}
-
-/// Shell commands that may start the bot's agent over ACP, best first.
-/// `progress` receives short status lines ("Downloading Cursor…").
-pub(crate) async fn launch_commands(cfg: &BotConfig, progress: impl Fn(&str)) -> Result<Vec<String>> {
-    Ok(match cfg.command.as_deref().map(str::trim) {
-        Some(c) if !c.is_empty() => vec![c.to_owned()],
-        _ => crate::agent::backends::launch_candidates(&cfg.backend, progress)
-            .await?
-            .iter()
-            .map(crate::agent::registry::Cmd::acp)
-            .collect(),
-    })
-}
-
-/// Switches a session (`session/new` or `session/load` answered `res`) to the bot's
-/// chosen model, then sets that model's options (effort, fast…). Returns the answer holding
-/// the session's config options now: a model can change them.
-pub(crate) async fn select_model(acp: &Acp, res: &Value, sid: &str, cfg: &BotConfig) -> Result<Value> {
-    let Some(model) = cfg.model.as_deref().filter(|m| !m.is_empty()) else { return Ok(res.clone()) };
-    let Some(config_id) = crate::agent::auth::model_config(res).and_then(|c| c["id"].as_str()) else {
-        let r = acp.request("session/set_model", json!({"sessionId": sid, "modelId": model})).await;
-        return r.map(|_| res.clone()).map_err(|e| model_error(model, &e));
-    };
-    let (model, mut options) = split_variant(res, model);
-    options.extend(cfg.model_options.iter().map(|(k, v)| (k.as_str(), v.as_str())));
-    let set = |id: &str, value: &str| {
-        acp.request("session/set_config_option", json!({"sessionId": sid, "configId": id, "value": value}))
-    };
-    let mut current = set(config_id, model).await.map_err(|e| model_error(model, &e))?;
-    for (id, value) in options {
-        let answer = set(id, value).await.map_err(|e| model_error(&format!("{model} with {id}={value}"), &e))?;
-        if answer["configOptions"].is_array() {
-            current = answer;
-        }
-    }
-    Ok(if current["configOptions"].is_array() { current } else { res.clone() })
-}
-
-fn model_error(model: &str, e: &anyhow::Error) -> anyhow::Error {
-    tracing::warn!(model, error = format!("{e:#}"), "couldn't set model");
-    anyhow!("Couldn't select model {model}: {e:#}")
-}
-
-/// Cursor names a model variant `grok-4.7[reasoning_effort=high,fast=true]`. When the agent
-/// lists plain models instead, the bracket becomes options of the plain model.
-fn split_variant<'a>(res: &Value, model: &'a str) -> (&'a str, Vec<(&'a str, &'a str)>) {
-    let listed = |id: &str| crate::agent::auth::model_ids(res).iter().any(|m| m == id);
-    if let Some((name, params)) = model.strip_suffix(']').and_then(|m| m.split_once('['))
-        && let Some(params) =
-            params.split(',').filter(|p| !p.is_empty()).map(|p| p.split_once('=')).collect::<Option<Vec<_>>>()
-        && !listed(model)
-        && listed(name)
-    {
-        return (name, params);
-    }
-    (model, Vec::new())
-}
-
-/// Spawns an ACP agent and completes the `initialize` handshake.
-pub(crate) async fn start_agent(command: &str, cwd: &str, env: &[(String, String)], budget: Duration) -> Result<Conn> {
-    let (acp, rx) = Acp::spawn(command, cwd, env)?;
-    let init = tokio::time::timeout(
-        budget,
-        acp.request(
-            "initialize",
-            json!({
-                "protocolVersion": 1,
-                // `session.compaction`: tell us when the agent summarizes its context.
-                // `parameterizedModelPicker`: Cursor lists plain models with their options
-                // (effort, fast…) instead of one fixed variant each; model discovery asks the same.
-                "clientCapabilities": {
-                    "fs": {"readTextFile": false, "writeTextFile": false},
-                    "terminal": false,
-                    "session": {"compaction": {}},
-                    "_meta": {"parameterizedModelPicker": true},
-                },
-                "clientInfo": {"name": "codync", "title": "Codync", "version": env!("CARGO_PKG_VERSION")},
-            }),
-        ),
-    )
-    .await;
-    let init = match init {
-        Ok(Ok(v)) => v,
-        Ok(Err(e)) => {
-            acp.kill().await;
-            return Err(e);
-        }
-        Err(_) => {
-            acp.kill().await;
-            let message = format!("the agent didn't answer the ACP handshake within {}s", budget.as_secs());
-            return Err(acp::Failure::error(acp::FailureKind::Timeout, message));
-        }
-    };
-    let sessions = SessionCaps {
-        load: init["agentCapabilities"]["loadSession"].as_bool().unwrap_or(false),
-        fork: init["agentCapabilities"]["sessionCapabilities"]["fork"].is_object(),
-        close: init["agentCapabilities"]["sessionCapabilities"]["close"].is_object(),
-    };
-    let claude = init["agentCapabilities"]["_meta"]["claudeCode"].is_object();
-    Ok(Conn {
-        acp,
-        rx,
-        sessions,
-        claude,
-        loaded: HashMap::new(),
-        started: Instant::now(),
-        fast_options: HashMap::new(),
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn variant_ids_become_options_only_when_the_agent_lists_plain_models() {
-        let plain = json!({"configOptions": [{"id": "model", "category": "model", "type": "select",
-            "options": [{"value": "grok-4.7"}]}]});
-        let variant = "grok-4.7[context=256k,reasoning_effort=medium,fast=false]";
-        assert_eq!(
-            split_variant(&plain, variant),
-            ("grok-4.7", vec![("context", "256k"), ("reasoning_effort", "medium"), ("fast", "false")])
-        );
-        assert_eq!(split_variant(&plain, "grok-4.7"), ("grok-4.7", vec![]));
-        let variants = json!({"configOptions": [{"id": "model", "category": "model", "type": "select",
-            "options": [{"value": variant}]}]});
-        assert_eq!(split_variant(&variants, variant), (variant, vec![]));
-        assert_eq!(split_variant(&plain, "other[x=1]"), ("other[x=1]", vec![]));
-        // Claude's `opus[1m]` is a model id of its own, not a variant.
-        assert_eq!(split_variant(&json!({"models": {"availableModels": [{"modelId": "opus"}]}}), "opus[1m]").1, vec![]);
-        // Cursor's Auto: `default[]` with variants, `default` without.
-        let auto = json!({"models": {"availableModels": [{"modelId": "default"}]}});
-        assert_eq!(split_variant(&auto, "default[]"), ("default", vec![]));
-    }
-}

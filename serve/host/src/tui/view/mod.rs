@@ -29,6 +29,8 @@ pub(super) use buffer::{centered, frame_box, hline, put, restyle, rput, u};
 pub(super) use chat::composer_lines;
 pub(super) use overlay::{field_line, input_line};
 pub(super) use style::theme;
+pub(super) use time::when;
+pub(super) use transcript::unfoldable;
 pub(super) use usage::when_future;
 
 use ratatui::Frame;

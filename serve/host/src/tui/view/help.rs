@@ -9,7 +9,7 @@ use super::buffer::{centered, frame_box, put, u};
 use super::overlay::field_line;
 use super::style::theme;
 
-const HELP: [(&str, &str, &str); 57] = [
+const HELP: [(&str, &str, &str); 60] = [
     ("MOVE", "j k  ↑ ↓", "next / previous bot"),
     ("MOVE", "[ ]", "previous / next bot"),
     ("MOVE", "1…9", "jump to bot 1–9"),
@@ -34,6 +34,8 @@ const HELP: [(&str, &str, &str); 57] = [
     ("CHAT", "j k  ↵", "picking: move / open"),
     ("CHAT", "1…6", "picking: react"),
     ("CHAT", "f", "picking: save its files"),
+    ("CHAT", "o", "picking: show a summary, handoff or note change"),
+    ("CHAT", "e K", "picking a handoff: edit / keep the chat"),
     ("CHAT", "↵", "picking a bot message: open its conversation"),
     ("CHAT", "esc", "close the thread"),
     ("TYPE", "↵", "send"),
@@ -47,12 +49,13 @@ const HELP: [(&str, &str, &str); 57] = [
     ("TYPE", "/", "commands: /fast, /new, skills"),
     ("BOTS", "n", "new bot"),
     ("BOTS", "m", "new group chat"),
-    ("BOTS", "e", "edit bot or group"),
+    ("BOTS", "e", "settings, or edit a group"),
     ("BOTS", "p", "pin / unpin"),
     ("BOTS", "J K", "move bot down / up"),
     ("BOTS", "S", "new session"),
     ("BOTS", "M", "memory"),
-    ("BOTS", "R", "routines"),
+    ("BOTS", "R", "details: routines, computer"),
+    ("BOTS", "⇧← ⇧→", "between details, memory, settings"),
     ("BOTS", "A", "extensions, sign-in"),
     ("BOTS", "x", "delete bot or group"),
     ("VIEW", "t", "trace pane"),

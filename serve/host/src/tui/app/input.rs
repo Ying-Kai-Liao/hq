@@ -23,9 +23,11 @@ impl App {
             self.typing = true;
             self.focus = Focus::Chat;
             // A file dragged onto the terminal pastes its path: attach it.
-            match dropped_files(&s) {
-                Some(paths) => self.files.entry(key).or_default().extend(paths),
-                None => self.drafts.entry(key).or_default().insert(&s),
+            if let Some(paths) = dropped_files(&s) {
+                self.files.entry(key).or_default().extend(paths);
+            } else {
+                self.drafts.entry(key.clone()).or_default().insert(&s);
+                self.pasted.entry(key).or_default().push(s);
             }
         }
     }
@@ -132,6 +134,9 @@ impl App {
                 let mut body = json!({"botId": id, "text": text, "clientNonce": nonce});
                 if let Some(root) = thread {
                     body["threadId"] = root.into();
+                }
+                if let Some(pasted) = self.pasted.get(&key).filter(|p| !p.is_empty()) {
+                    body["pasted"] = json!(pasted);
                 }
                 let after = After::Sent(key);
                 if files.is_empty() {

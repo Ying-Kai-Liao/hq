@@ -134,7 +134,9 @@ impl App {
         let picks: Vec<(String, bool)> = group(&id, &lane, self.thread.is_none())
             .into_iter()
             .filter_map(|item| match item {
-                Item::Entry(e) if e.is_message() || e.is_bot_message() => Some((e.id.clone(), e.is_message())),
+                Item::Entry(e) if e.is_message() || e.is_bot_message() || e.unfolds() => {
+                    Some((e.id.clone(), e.is_message()))
+                }
                 Item::Group(g) => Some((g.first.id.clone(), false)),
                 Item::Entry(_) => None,
             })
@@ -183,6 +185,39 @@ impl App {
             }
             KeyCode::Enter if picked.as_ref().is_some_and(|e| e.data["connectionRequest"]["status"] == "pending") => {
                 self.open_connection();
+            }
+            KeyCode::Char(c @ ('y' | 'n')) if picked.as_ref().is_some_and(|e| memory_status(e) == Some("pending")) => {
+                if let Some(e) = picked {
+                    self.call(
+                        "answerMemory",
+                        json!({"entryId": e.id, "accept": c == 'y'}),
+                        After::Answered(e.id.clone()),
+                    );
+                }
+            }
+            KeyCode::Char('u')
+                if picked.as_ref().is_some_and(|e| matches!(memory_status(e), Some("done" | "accepted"))) =>
+            {
+                if let Some(e) = picked {
+                    self.call("undoMemory", json!({"entryId": e.id}), After::Answered(e.id.clone()));
+                }
+            }
+            KeyCode::Char('o') if picked.as_ref().is_some_and(super::Entry::unfolds) => {
+                if let Some(e) = picked
+                    && !self.unfolded.remove(&e.id)
+                {
+                    self.unfolded.insert(e.id);
+                }
+            }
+            KeyCode::Char('e') if picked.as_ref().is_some_and(|e| e.data["handoff"]["status"] == "draft") => {
+                if let Some(e) = picked {
+                    self.overlays.push(super::Overlay::Fields(Box::new(crate::tui::manage::handoff_fields(&e))));
+                }
+            }
+            KeyCode::Char('K') if picked.as_ref().is_some_and(|e| e.data["handoff"]["status"] == "draft") => {
+                if let Some(e) = picked {
+                    self.call("keepConversation", json!({"entryId": e.id}), After::Answered(e.id.clone()));
+                }
             }
             KeyCode::Enter | KeyCode::Char('r') if self.thread.is_some() => {
                 self.pick = None;
@@ -258,6 +293,11 @@ impl App {
         copy(&text);
         self.flash("Copied the last reply");
     }
+}
+
+/// The status of a memory line: an entry's or a note's.
+fn memory_status(e: &super::Entry) -> Option<&str> {
+    e.data["memory"]["status"].as_str().or_else(|| e.data["memoryFile"]["status"].as_str())
 }
 
 #[cfg(test)]

@@ -49,7 +49,7 @@ impl App {
             Action::NewGroup => self.new_group(),
             Action::Market => self.open_market(),
             Action::Memory => self.open_memory(),
-            Action::Routines => self.open_routines(),
+            Action::Details => self.open_routines(),
             Action::RefreshAgents => self.call("refreshBackends", json!({}), After::Backends),
             Action::Pair => self.open_pair(),
             Action::Usage => self.overlays.push(Overlay::Usage),
@@ -81,7 +81,13 @@ impl App {
                     match &c.act {
                         ConfirmAct::Delete(id) => self.call("deleteBot", json!({"botId": id}), After::Nothing),
                         ConfirmAct::NewSession(id) => self.call("newSession", json!({"botId": id}), After::Nothing),
-                        ConfirmAct::ClearMemory(id) => self.call("clearMemory", json!({"botId": id}), changed),
+                        ConfirmAct::ClearMemory(id, shared) => {
+                            self.call("clearMemory", json!({"botId": id, "shared": shared}), changed);
+                        }
+                        ConfirmAct::DeleteMemoryFile { bot, shared, name, base } => {
+                            let body = json!({"botId": bot, "file": name, "shared": shared, "base": base});
+                            self.call("deleteMemoryFile", body, changed);
+                        }
                         ConfirmAct::DeleteRoutine(bot, id) => {
                             self.call("deleteRoutine", json!({"botId": bot, "id": id}), changed);
                         }

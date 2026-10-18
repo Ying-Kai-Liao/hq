@@ -34,7 +34,6 @@ impl Drop for Host {
 async fn start_host() -> Host {
     let home = std::env::temp_dir().join(format!("codync-e2e-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&home).unwrap();
-    common::seed_memory_runtime(&home);
     let (child, base) = common::serve(&home).await;
     let token = std::fs::read_to_string(home.join("token")).unwrap().trim().to_owned();
     Host { child, base, token, home }

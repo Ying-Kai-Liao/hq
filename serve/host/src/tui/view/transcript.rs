@@ -295,6 +295,29 @@ fn entry_lines(
                     e.notice_text(),
                     if status == "pending" { hint } else { status }
                 )
+            } else if let Some(status) = e.data["memory"]["status"].as_str() {
+                // A bot's memory write: undo it, or answer a bot that asked first (keys on the picked line).
+                let hint = match status {
+                    "pending" => " · y approves · n declines",
+                    "done" | "accepted" => " · u undoes",
+                    _ => "",
+                };
+                format!("{}{hint}", e.notice_text())
+            } else if let Some(status) = e.data["memoryFile"]["status"].as_str() {
+                // A bot's change to a memory note: the same keys, and the diff unfolds.
+                let hint = match status {
+                    "pending" => " · o shows the change · y allows · n declines",
+                    "done" | "accepted" => " · o shows the change · u undoes",
+                    _ => "",
+                };
+                format!("{}{hint}", e.notice_text())
+            } else if let Some(status) = e.data["handoff"]["status"].as_str() {
+                // The chat starts over with a handoff: read it, edit it or keep the conversation while it's a draft.
+                let hint =
+                    if status == "draft" { " · o shows it · e edits · K keeps this chat" } else { " · o shows it" };
+                format!("{}{hint}", e.notice_text())
+            } else if e.data["compaction"]["summary"].is_string() {
+                format!("{} · o shows the summary", e.notice_text())
             } else {
                 e.notice_text()
             };
@@ -318,12 +341,32 @@ fn entry_lines(
                     &[Span::raw("   ")],
                 )),
             }
-            if e.data["connectionRequest"].is_object() {
+            let folded = unfoldable(e);
+            if app.unfolded.contains(&e.id)
+                && let Some(full) = folded
+            {
+                out.lines.extend(md::wrap(
+                    &[Span::styled(full.to_owned(), t.dim)],
+                    width,
+                    &[Span::raw("   │ ")],
+                    &[Span::raw("   │ ")],
+                ));
+            }
+            if e.data["connectionRequest"].is_object() || e.data["memory"].is_object() || folded.is_some() {
                 out.messages.push((e.id.clone(), from, out.lines.len()));
             }
         }
         _ => {}
     }
+}
+
+/// The full text a chat line folds away: a compaction's summary, what a handoff carries, or a note's change.
+pub(in crate::tui) fn unfoldable(e: &Entry) -> Option<&str> {
+    e.data["handoff"]["text"]
+        .as_str()
+        .or_else(|| e.data["compaction"]["summary"].as_str())
+        .or_else(|| e.data["memoryFile"]["diff"].as_str())
+        .filter(|t| !t.is_empty())
 }
 
 /// A bot-to-bot exchange, or a run of them, as one compact line ("· Messaged ▌O▐ Owen",

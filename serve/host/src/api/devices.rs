@@ -48,7 +48,6 @@ const LOCAL_ONLY: &[&str] = &[
     "chatCall",
     "teamCall",
     "memoryCall",
-    "memoryTools",
     "routineCall",
     "composioCall",
     "connectorTarget",

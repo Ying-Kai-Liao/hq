@@ -71,7 +71,7 @@ impl Actor {
                 }
                 self.forget_session();
                 // Retain and summarize completed exchanges even when the user starts afresh.
-                let _ = self.keeper.send(memory::KeeperEvent::Flush);
+                let _ = self.dreamer.send(memory::DreamEvent::Flush);
                 self.notice("New session — the agent starts with a fresh context.", NoticeStyle::Divider);
             }
             Cmd::Reconfigure(cfg) => {
@@ -212,6 +212,13 @@ impl Actor {
                     }
                     continue;
                 }
+                Some(Queued::Compact { .. }) => {
+                    let Some(Queued::Compact { idle }) = self.queue.pop_front() else {
+                        unreachable!("front is a compaction")
+                    };
+                    self.start_compaction(idle, done_tx).await;
+                    continue;
+                }
                 _ => {}
             }
             // Messages sent while the agent worked go out together as its next turn
@@ -228,6 +235,10 @@ impl Actor {
             }
             let ids: Vec<String> = batch.iter().map(|(id, _)| id.clone()).collect();
             let text = batch.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join("\n\n");
+            // A handoff waiting in the chat starts a new conversation with this message.
+            if lane == main {
+                self.handoff = self.take_handoff();
+            }
             if let Err(e) = self.start_turn(lane, &ids, &text, false, done_tx).await {
                 self.start_failed(&e);
             }
@@ -254,6 +265,8 @@ impl Actor {
             r.activity = "Couldn't start".into();
             r.started_at = None;
             r.lane = None;
+            r.message = None;
+            r.session = None;
         });
         self.hub.team.cancel_from(&self.cfg.id);
     }
