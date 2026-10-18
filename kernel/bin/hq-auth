@@ -15,6 +15,25 @@
   hq-auth browser <name> [<browser>]      a browser profile (its logins, in ~/.hq/browsers/<name>) and the browser
                                           that made it: chrome, chromium, msedge, firefox, or an app's path
 
+People (who may use which agent, and how; the run's person is HQ_PERSON, unset = the owner):
+  hq-auth people [ID ...] [--matrix]      each person: their accounts, the profiles they own, every agent they can
+                                          reach (own row, everyone row, helper) with its mode, and the account each
+                                          service would really use in their runs; ID for one person in full (the
+                                          owner's agents too); --matrix: agents × people at a glance
+  hq-auth person <id> [name=.. lang=.. tz=.. owner] [--rm]   a person; `owner` marks you (one owner)
+  hq-auth handle <id> <platform> <user-id> | --rm   the person's account on a platform (numeric id, not a username)
+  hq-auth invite <id> [minutes]           a one-time code (default 15 minutes); they send /link CODE to the bridge
+  hq-auth link <platform> <user-id> <code>   bind that account to the code's person (the bridge calls it)
+  hq-auth whois <platform> <user-id>      the person behind an account, or exit 1
+  hq-auth preset <name> [mode=.. deny=a,b] [--rm]   a named bundle of permissions memberships point at
+  hq-auth member <agent>[,..] <id> [preset=.. mode=.. deny=.. model=.. helpers=a,b env.VAR=..] [--rm]
+                                          let a person use an agent, with their own settings on top of the agent's;
+                                          <id> '*' is everyone hq knows (not unknown senders); their own row wins
+  hq-auth owner <profile> <id>|-|default  the profile is that person's (their logins, their calendar); - = shared;
+                                          default: logins and browser profiles are the owner's, keys and bots shared
+  hq-auth may <id> <agent> [--via AGENT]  exit 0 if the person may use the agent (--via: called as AGENT's helper)
+  hq-auth resolve <agent> [--person ID] [--via AGENT]   the run's effective person settings, as JSON (bin/hq uses it)
+
 Three layers, so sharing an agent never shares an account:
   kernel/services/<name>.json   what a service is: kind (mcp | cli | login), how to start it, which env vars it needs.
                                 In the repo; no secrets.
@@ -23,6 +42,11 @@ Three layers, so sharing an agent never shares an account:
                                 profile). Yours alone, never in the repo. Holds references, not secret values.
                                 Also env (agent → service → VAR: value): plain settings that override the
                                 service's own env for that agent only.
+
+People are tables in the same file, each fact in one place: people (who someone is, their handles), presets
+(named permissions), members (agent → person → preset and overrides: access is the row existing) and grants keyed
+`<agent>@<person>` for a person's own accounts, tried before the agent's. A profile with "person" is that person's:
+a run for anyone else never gets it, whatever the grants say. The owner may use every agent with no membership.
 
 Browser profiles: logins belong to a browser profile, not to a tool, so every browser tool an agent has (each
 service with "browsers" in its json) opens the agent's one profile: `hq-auth grant <agent> browser browser/<name>`;
@@ -79,15 +103,17 @@ def load_auth():
         data = {}
     except ValueError as e:
         die(f'{AUTH}: invalid JSON ({e})')
-    data.setdefault('profiles', {})
-    data.setdefault('grants', {})
-    data.setdefault('env', {})
+    for table in ('profiles', 'grants', 'env', 'people', 'presets', 'members', 'invites'):
+        data.setdefault(table, {})
     return data
 
 
 def save_auth(data):
     AUTH.parent.mkdir(parents=True, exist_ok=True)
     tmp = AUTH.with_name(AUTH.name + '.tmp')
+    now = time.time()
+    data['invites'] = {c: i for c, i in data.get('invites', {}).items() if i.get('expires', 0) > now}
+    data = {k: v for k, v in data.items() if v or k in ('profiles', 'grants', 'env')}   # no empty people tables
     tmp.write_text(json.dumps(data, indent=2) + '\n')
     os.chmod(tmp, 0o600)
     tmp.rename(AUTH)
@@ -122,13 +148,86 @@ def agents():
     return sorted(agent_dirs())
 
 
+def owner(auth):
+    return next((p for p, v in auth['people'].items() if v.get('owner')), None)
+
+
+def acting(auth):
+    """The person this run works for: HQ_PERSON, set by the entry point (the bridge, a schedule) and inherited by
+    every helper; unset is the owner."""
+    return os.environ.get('HQ_PERSON') or owner(auth) or ''
+
+
+def is_owner(auth, person):
+    return not person or person == owner(auth)
+
+
+EVERYONE = '*'   # a membership row for every person hq knows (never an unknown sender); a person's own row wins
+
+
+def row_of(auth, agent, person):
+    """The person's membership of agent: their own row, else the agent's `*` row, else None."""
+    rows = auth['members'].get(agent, {})
+    return rows.get(person, rows.get(EVERYONE))
+
+
+def may(auth, person, agent, via=None):
+    """(allowed, why). Access is a membership row; a helper is allowed when the caller's membership lists it."""
+    if is_owner(auth, person):
+        return True, 'owner'
+    if person not in auth['people']:
+        return False, f"'{person}' is not a person in hq (hq-auth people)"
+    if row_of(auth, agent, person) is not None:
+        return True, 'member' if person in auth['members'].get(agent, {}) else 'member (everyone)'
+    if via and agent in (row_of(auth, via, person) or {}).get('helpers', []):
+        return True, f'helper of {via}'
+    return False, f'{person} may not use {agent}' + (f' (not in their {via} helpers)' if via else '')
+
+
+SHARED = '*'      # a profile's person: shared on purpose, even for a service whose profiles are personal
+
+
+def personal(svc):
+    """Whether a service's profiles belong to someone unless marked shared: logins (a Chrome profile, a ChatGPT
+    login) and browser profiles are; API keys and bots aren't. A service json can say "personal": true or false."""
+    f = service_file(svc)
+    spec = json.loads(f.read_text()) if f else {}
+    return spec.get('personal', spec.get('kind') in ('login', 'browser'))
+
+
+def owner_of(auth, profile):
+    """Whose a profile is: its "person", else the owner's when its service is personal, else no one's (shared).
+    With no owner named yet, "the owner" still owns it, so other people's runs are refused all the same."""
+    belongs = auth['profiles'].get(profile, {}).get('person')
+    if belongs == SHARED:
+        return None
+    if belongs:
+        return belongs
+    return (owner(auth) or 'the owner') if personal(profile.split('/', 1)[0]) else None
+
+
+def granted(auth, agent, svc, person=None):
+    """(profile, why not, refused): the person's own grant (<agent>@<person>) first, then the agent's. A profile that belongs
+    to someone else is never handed over, so a missing personal grant can't fall back to another person's account."""
+    person = acting(auth) if person is None else person
+    profile = (auth['grants'].get(f'{agent}@{person}', {}).get(svc) if person else None) \
+        or auth['grants'].get(agent, {}).get(svc)
+    if not profile:
+        return None, f'{agent} has no grant for {svc} (hq-auth grant {agent} {svc} <profile>)', False
+    belongs = owner_of(auth, profile)
+    if belongs and person and belongs != person:   # an owner run (no person) is never refused
+        return None, (f'{profile} is {belongs}\'s and this run is for {person or "no one"} '
+                      f'(hq-auth grant {agent}@{person} {svc} <their profile>)'), True
+    return profile, '', False
+
+
 def grant_for(auth, agent, svc):
     """The profile name this agent may use for svc, or exit with why not."""
     if not agent:
         die(f'who is asking for {svc}? (HQ_AGENT is not set; tools pass --for <agent>)')
-    profile = auth['grants'].get(agent, {}).get(svc)
+    profile, why, _ = granted(auth, agent, svc)
     if not profile:
-        die(f'{agent} has no grant for {svc} (hq-auth grant {agent} {svc} <profile>)')
+        die(why)
     return profile
 
 
@@ -173,8 +272,14 @@ def secrets(auth, svc, profile):
 
 
 def browser_profile(auth, agent):
-    """(profile name, browser, folder) of the browser profile this agent's browser tools open."""
-    name = auth['grants'].get(agent, {}).get('browser') or f'browser/{agent}'
+    """(profile name, browser, folder) of the browser profile this agent's browser tools open. Without a grant, the
+    agent's own; for someone other than the owner, one of their own (the agent's own holds the owner's logins).
+    Exits when the granted profile is someone else's."""
+    person = acting(auth)
+    name, why, refused = granted(auth, agent, 'browser')
+    if refused:
+        die(why)
+    name = name or (f'browser/{agent}' if is_owner(auth, person) else f'browser/{agent}-{person}')
     return name, auth['profiles'].get(name, {}).get('browser'), paths()['HQ_MACHINE'] / 'browsers' / name.split('/', 1)[1]
 
 
@@ -211,7 +316,8 @@ def audit(agent, svc, profile, how):
     try:
         with open(LOG, 'a') as f:
             f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')}\t{how}\t{svc}\t{profile}\tfor={agent}"
-                    f"\trun={os.environ.get('HQ_AGENT', '-')}\tppid={os.getppid()}\n")
+                    f"\trun={os.environ.get('HQ_AGENT', '-')}\tppid={os.getppid()}"
+                    f"\tperson={os.environ.get('HQ_PERSON') or 'owner'}\n")
     except OSError:
         pass
 
@@ -265,9 +371,10 @@ def cmd_mcp_config(agent):
         spec = service(svc)
         if spec.get('kind') != 'mcp':
             continue
-        profile = auth['grants'].get(agent, {}).get(svc)
+        profile, why, refused = granted(auth, agent, svc)
         if not profile:
-            print(f'hq: {agent} needs {svc} but has no grant; running without it '
+            print(f'hq: {agent}: {svc} left out this run: {why}' if refused else
+                  f'hq: {agent} needs {svc} but has no grant; running without it '
                   f'(hq-auth grant {agent} {svc} <profile>)', file=sys.stderr)
             continue
         try:
@@ -281,6 +388,8 @@ def cmd_mcp_config(agent):
             print(f'hq: {agent}: {svc} skipped this run', file=sys.stderr)
             continue
         mcp = spec['mcp']
+        if os.environ.get('HQ_PERSON'):
+            env['HQ_PERSON'] = os.environ['HQ_PERSON']   # the server's own hq-auth exec decides for the same person
         # Secrets are resolved when the server starts, inside hq-auth exec, so they never land in a config file
         # or in the agent's own environment.
         servers[svc] = {
@@ -336,6 +445,344 @@ def cmd_set(profile, var):
     print(f'stored in Keychain as {kc} / {var}; {profile} now reads it from there')
 
 
+# A membership with no preset is a guest's. `default` mode in a one-shot run means only what the agent's own
+# settings allow runs (house's own tool, not any shell command); auth.json presets of the same name replace these.
+PRESETS = {'guest': {'mode': 'default'}, 'member': {'mode': 'acceptEdits'}}
+
+
+def preset(auth, name):
+    return auth['presets'].get(name) or PRESETS.get(name) or die(f"no preset '{name}' (hq-auth preset {name} mode=..)")
+
+
+def resolve(auth, agent, person, via=None):
+    """What a run of agent for person gets: whether it may run, and the person's settings over the agent's. A helper
+    reached through the caller's helpers list runs with the caller's membership, so calling one never loosens it."""
+    ok, why = may(auth, person, agent, via)
+    me = auth['people'].get(person, {})
+    out = {'person': person, 'owner': is_owner(auth, person), 'allowed': ok, 'why': why,
+           **{k: me[k] for k in ('name', 'lang', 'tz') if k in me}}
+    if not ok or out['owner']:
+        return out
+    row = row_of(auth, agent, person)
+    if row is None:
+        row = row_of(auth, via, person)
+    p = preset(auth, row.get('preset', 'guest'))
+    out.update(preset=row.get('preset', 'guest'), mode=row.get('mode') or p.get('mode', 'default'),
+               deny=list(dict.fromkeys(p.get('deny', []) + row.get('deny', []))),
+               model=row.get('model', ''), env=row.get('env', {}), helpers=row.get('helpers', []))
+    return out
+
+
+def pairs(args, allowed):
+    """key=value arguments, `--rm` and bare flags, checked against the keys a command takes."""
+    out, flags = {}, set()
+    for a in args:
+        k, eq, v = a.partition('=')
+        if not eq:
+            flags.add(a)
+            continue
+        if k not in allowed and not (k.startswith('env.') and 'env.' in allowed):
+            die(f'unknown setting {k} (takes {", ".join(sorted(allowed))})', 2)
+        out[k] = v
+    return out, flags
+
+
+def need_person(auth, pid):
+    if pid not in auth['people']:
+        die(f"no person '{pid}' (hq-auth person {pid} name=..)")
+
+
+def services_of(auth, agent, person):
+    """Every service a run of agent could be handed: its needs, its grants and the person's own grants."""
+    out = set(needs(agent)) | set(auth['grants'].get(agent, {})) | set(auth['grants'].get(f'{agent}@{person}', {}))
+    if uses_browser(agent):
+        out.add('browser')
+    return sorted(out)
+
+
+def access(auth, person):
+    """[(agent, how, settings)]: every agent the person can reach. how: owner, own, everyone, or helper of X."""
+    if is_owner(auth, person):
+        return [(a, 'owner', {}) for a in agents()]
+    out, seen = [], set()
+    for agent in agents():
+        rows = auth['members'].get(agent, {})
+        if person in rows or EVERYONE in rows:
+            out.append((agent, 'own' if person in rows else 'everyone', resolve(auth, agent, person)))
+            seen.add(agent)
+    for agent, _, r in list(out):
+        for h in r.get('helpers', []):
+            if h not in seen and h in agent_dirs():
+                out.append((h, f'helper of {agent}', resolve(auth, h, person, agent)))
+                seen.add(h)
+    return out
+
+
+def account_line(auth, agent, svc, person):
+    if svc == 'browser':
+        try:
+            return browser_profile(auth, agent)[0] + ('' if auth['grants'].get(agent, {}).get('browser') or
+                                                       auth['grants'].get(f'{agent}@{person}', {}).get('browser')
+                                                       else '  (its own, made on first use)')
+        except SystemExit:
+            return 'LEFT OUT: ' + granted(auth, agent, 'browser', person)[1]
+    profile, why, refused = granted(auth, agent, svc, person)
+    if refused:
+        return 'LEFT OUT: ' + why.split(' (')[0]
+    if not profile:
+        return 'no grant'
+    mine = auth['grants'].get(f'{agent}@{person}', {}).get(svc) == profile
+    whose = owner_of(auth, profile)
+    return profile + ('  (their own)' if mine else f'  ({whose}\'s)' if whose else '  (shared)')
+
+
+def cmd_people(args):
+    auth = load_auth()
+    if not auth['people']:
+        print('no people yet: hq-auth person <you> name=.. owner, then hq-auth person <id> for each other person')
+        return
+    if '--matrix' in args:
+        return matrix(auth)
+    full = bool(args)
+    order = sorted(auth['people'], key=lambda p: (not auth['people'][p].get('owner'), p))
+    for pid in args or order:
+        need_person(auth, pid)
+        os.environ['HQ_PERSON'] = pid                      # browser_profile and settings read it
+        p = auth['people'][pid]
+        extra = ', '.join(f'{k} {p[k]}' for k in ('name', 'lang', 'tz') if p.get(k))
+        print(f'{pid}{"  (owner)" if p.get("owner") else ""}{"  · " + extra if extra else ""}')
+        handles = ', '.join(f'{plat} {uid}' for plat, uid in sorted(p.get('handles', {}).items()))
+        hint = f'hq-auth handle {pid} <platform> <user-id>' if p.get('owner') else f'hq-auth invite {pid}'
+        print(f'  {"accounts":<9} {handles or "none linked (" + hint + ")"}')
+        owns = sorted(n for n in auth['profiles'] if owner_of(auth, n) in (pid, 'the owner' if p.get('owner') else pid))
+        if owns:
+            print(f'  {"owns":<9} {", ".join(owns)}')
+        reach = access(auth, pid)
+        if p.get('owner') and not full:
+            print(f'  {"agents":<9} all {len(reach)} (owner; hq-auth people {pid} for each one\'s accounts)')
+            print()
+            continue
+        if not reach:
+            print(f'  {"agents":<9} none (hq-auth member <agent> {pid})')
+        for agent, how, r in reach:
+            bits = [] if how == 'owner' else [r['preset'], r['mode']]
+            bits += [f'deny {",".join(r["deny"])}'] if r.get('deny') else []
+            bits += [f'model {r["model"]}'] if r.get('model') else []
+            bits += [f'helpers {",".join(r["helpers"])}'] if r.get('helpers') and not how.startswith('helper') else []
+            bits += [f'{k}={v}' for k, v in r.get('env', {}).items()]
+            tag = '' if how in ('own', 'owner') else f'  [{how}]'
+            print(f'  {agent:<9} {" · ".join(bits)}{tag}'.rstrip())
+            for svc in services_of(auth, agent, pid):
+                print(f'  {"":<9}   {svc:<12} {account_line(auth, agent, svc, pid)}')
+        print()
+
+
+def matrix(auth):
+    """Agents down, people across: how each person reaches each agent."""
+    order = sorted(auth['people'], key=lambda p: (not auth['people'][p].get('owner'), p))
+    cells = {}
+    for pid in order:
+        for agent, how, r in access(auth, pid):
+            cells[agent, pid] = 'owner' if how == 'owner' else \
+                (r['preset'] + ('*' if how == 'everyone' else '') if not how.startswith('helper') else 'helper')
+    width = max([len(p) for p in order] + [7]) + 2
+    print(f'{"":<18}' + ''.join(f'{p:<{width}}' for p in order))
+    for agent in agents():
+        print(f'{agent:<18}' + ''.join(f'{cells.get((agent, p), "-"):<{width}}' for p in order))
+    print('\n* from the everyone row · helper: only when called by an agent that lists it · - no access')
+
+
+def cmd_person(args):
+    if not args:
+        die('person <id> [name=.. lang=.. tz=.. owner] [--rm]', 2)
+    pid, (kv, flags) = args[0], pairs(args[1:], {'name', 'lang', 'tz'})
+    if not re.fullmatch(r'[a-z][a-z0-9-]*', pid):
+        die('a person id is lowercase letters, digits and -, e.g. sam', 2)
+    auth = load_auth()
+    if '--rm' in flags:
+        auth['people'].pop(pid, None)
+        for rows in auth['members'].values():
+            rows.pop(pid, None)
+        auth['members'] = {a: r for a, r in auth['members'].items() if r}
+        auth['grants'] = {k: g for k, g in auth['grants'].items() if not k.endswith(f'@{pid}')}
+        save_auth(auth)
+        print(f'{pid} removed, with their memberships and grants (profiles they own are kept)')
+        return
+    p = auth['people'].setdefault(pid, {})
+    p.update({k: v for k, v in kv.items() if v})
+    for k in [k for k, v in kv.items() if not v]:
+        p.pop(k, None)
+    if 'owner' in flags:
+        was = owner(auth)
+        if was and was != pid:   # the old owner's logins stay theirs: pin the ones that were theirs by default
+            pinned = [n for n, prof in auth['profiles'].items() if not prof.get('person') and owner_of(auth, n)]
+            for n in pinned:
+                auth['profiles'][n]['person'] = was
+            if pinned:
+                print(f'kept {was}\'s: {", ".join(sorted(pinned))} (hq-auth owner <profile> {pid} to hand one over)')
+            print(f'note: anyone using this Mac account, and {was}\'s HQ_DISCORD_OWNER_ID, still run as the owner')
+        for other in auth['people'].values():
+            other.pop('owner', None)
+        p['owner'] = True
+    save_auth(auth)
+    print(f'{pid}: ' + (', '.join(f'{k} {v}' for k, v in p.items() if k != 'handles') or 'added'))
+
+
+def cmd_handle(args):
+    if len(args) != 3:
+        die('handle <id> <platform> <user-id> | handle <id> <platform> --rm', 2)
+    pid, plat, uid = args
+    auth = load_auth()
+    need_person(auth, pid)
+    if uid == '--rm':
+        auth['people'][pid].get('handles', {}).pop(plat, None)
+        save_auth(auth)
+        print(f'{pid}: no {plat} account')
+        return
+    bind(auth, pid, plat, uid)
+    save_auth(auth)
+    print(f'{pid} is {plat} {uid}')
+
+
+def bind(auth, pid, plat, uid):
+    if not re.fullmatch(r'-?\d+|[A-Z0-9]+', uid):
+        die(f'{plat} user ids are numbers (Telegram, Discord) or Slack ids like U0123ABC, not usernames', 2)
+    for other, p in auth['people'].items():
+        if other != pid and p.get('handles', {}).get(plat) == uid:
+            die(f'{plat} {uid} is already {other}')
+    auth['people'][pid].setdefault('handles', {})[plat] = uid
+
+
+def cmd_whois(args):
+    if len(args) != 2:
+        die('whois <platform> <user-id>', 2)
+    auth = load_auth()
+    for pid, p in auth['people'].items():
+        if p.get('handles', {}).get(args[0]) == args[1]:
+            print(pid)
+            return
+    sys.exit(1)
+
+
+def cmd_invite(args):
+    if len(args) not in (1, 2):
+        die('invite <id> [minutes]', 2)
+    auth = load_auth()
+    need_person(auth, args[0])
+    minutes = int(args[1]) if len(args) == 2 else 15
+    alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'   # no 0/O or 1/I to misread
+    code = ''.join(alphabet[b % len(alphabet)] for b in os.urandom(6))
+    auth['invites'][code] = {'person': args[0], 'expires': time.time() + minutes * 60}
+    save_auth(auth)
+    print(f'{code}\n{args[0]} sends "/link {code}" to the hq bot on any platform within {minutes} minutes')
+
+
+def cmd_link(args):
+    if len(args) != 3:
+        die('link <platform> <user-id> <code>', 2)
+    plat, uid, code = args
+    auth = load_auth()
+    inv = auth['invites'].pop(code.strip().upper(), None)
+    if not inv or inv['expires'] < time.time():
+        save_auth(auth)
+        die('that code is unknown or expired; ask for a new one (hq-auth invite <id>)')
+    bind(auth, inv['person'], plat, uid)
+    save_auth(auth)
+    print(inv['person'])
+
+
+def cmd_preset(args):
+    if not args:
+        die('preset <name> [mode=.. deny=a,b] [--rm]', 2)
+    name, (kv, flags) = args[0], pairs(args[1:], {'mode', 'deny'})
+    auth = load_auth()
+    if '--rm' in flags:
+        auth['presets'].pop(name, None)
+    else:
+        p = auth['presets'].setdefault(name, dict(PRESETS.get(name, {})))
+        if 'mode' in kv:
+            p['mode'] = kv['mode']
+        if 'deny' in kv:
+            p['deny'] = [d for d in kv['deny'].split(',') if d]
+    save_auth(auth)
+    print(f'{name}: {json.dumps(preset(auth, name)) if name in auth["presets"] or name in PRESETS else "removed"}')
+
+
+def cmd_member(args):
+    if len(args) < 2:
+        die('member <agent>[,..] <id> [preset=.. mode=.. deny=.. model=.. helpers=a,b env.VAR=..] [--rm]', 2)
+    names, pid = [a for a in args[0].split(',') if a], args[1]
+    kv, flags = pairs(args[2:], {'preset', 'mode', 'deny', 'model', 'helpers', 'env.'})
+    auth = load_auth()
+    if pid != EVERYONE:
+        need_person(auth, pid)
+    for agent in names:
+        if agent not in agent_dirs():
+            die(f"no agent '{agent}' (hq ls)")
+        if '--rm' in flags:
+            auth['members'].get(agent, {}).pop(pid, None)
+            if not auth['members'].get(agent):
+                auth['members'].pop(agent, None)
+            print(f'{pid} may no longer use {agent}')
+            continue
+        row = auth['members'].setdefault(agent, {}).setdefault(pid, {})
+        for k, v in kv.items():
+            if k.startswith('env.'):
+                env = row.setdefault('env', {})
+                env.update({k[4:]: v}) if v else env.pop(k[4:], None)
+                if not env:
+                    row.pop('env')
+            elif k in ('deny', 'helpers'):
+                row[k] = [x for x in v.split(',') if x]
+            elif v:
+                row[k] = v
+            else:
+                row.pop(k, None)
+        if 'preset' in row:
+            preset(auth, row['preset'])
+        if pid == EVERYONE:
+            p = preset(auth, row.get('preset', 'guest'))
+            r = {'preset': row.get('preset', 'guest'), 'mode': row.get('mode') or p.get('mode', 'default'),
+                 'deny': p.get('deny', []) + row.get('deny', []), 'helpers': row.get('helpers', [])}
+        else:
+            r = resolve(auth, agent, pid)
+        print(f'{"everyone hq knows" if pid == EVERYONE else pid} may use {agent}: preset {r["preset"]}, mode {r["mode"]}'
+              + (f', deny {",".join(r["deny"])}' if r['deny'] else '')
+              + (f', helpers {",".join(r["helpers"])}' if r['helpers'] else ''))
+    save_auth(auth)
+
+
+def cmd_owner(args):
+    if len(args) != 2:
+        die('owner <profile> <id>|-|default', 2)
+    prof, pid = args
+    auth = load_auth()
+    if prof not in auth['profiles']:
+        die(f"no profile '{prof}'")
+    if pid == '-':
+        auth['profiles'][prof]['person'] = SHARED
+    elif pid == 'default':
+        auth['profiles'][prof].pop('person', None)
+    else:
+        need_person(auth, pid)
+        auth['profiles'][prof]['person'] = pid
+    save_auth(auth)
+    who = owner_of(auth, prof)
+    print(f'{prof}: ' + (f'{who}\'s; runs for anyone else never get it' if who else 'shared with everyone who may use '
+                         'the agents granted it') + (' (the default for its service)' if pid == 'default' else ''))
+
+
+def take_opts(args, names):
+    opts, rest = {}, []
+    it = iter(args)
+    for a in it:
+        if a in names:
+            opts[a] = next(it, '')
+        else:
+            rest.append(a)
+    return opts, rest
+
+
 def main(argv):
     if not argv or argv[0] in ('-h', '--help'):
         print(__doc__.strip())
@@ -348,11 +795,16 @@ def main(argv):
         service(svc)
         if not profile.startswith(svc + '/'):
             die(f'a {svc} grant takes a {svc}/<account> profile', 2)
-        uses = (lambda a: uses_browser(a)) if svc == 'browser' else (lambda a: svc in needs(a))
+        # agent@person: that person's own account for the agent (tried first in their runs)
+        base = lambda a: a.split('@', 1)[0]
+        uses = (lambda a: uses_browser(base(a))) if svc == 'browser' else (lambda a: svc in needs(base(a)))
         names = [a for a in agents() if uses(a)] if who == '--all' else [a for a in who.split(',') if a]
         if not names:
             die(f'no agent lists {svc} in its needs' if who == '--all' else 'no agent named', 2)
         auth = load_auth()
+        for a in names:
+            if '@' in a:
+                need_person(auth, a.split('@', 1)[1])
         auth['profiles'].setdefault(profile, {})
         for agent in names:
             auth['grants'].setdefault(agent, {})[svc] = profile
@@ -401,6 +853,36 @@ def main(argv):
         users = [a for a, g in auth['grants'].items() if g.get('browser') == name]
         print(f'{name}: {prof.get("browser") or "browser not set (the first tool to open it picks)"}, {folder}'
               + (f'; granted to {", ".join(users)}' if users else ''))
+    elif cmd == 'people':
+        cmd_people(rest)
+    elif cmd == 'person':
+        cmd_person(rest)
+    elif cmd == 'handle':
+        cmd_handle(rest)
+    elif cmd == 'whois':
+        cmd_whois(rest)
+    elif cmd == 'invite':
+        cmd_invite(rest)
+    elif cmd == 'link':
+        cmd_link(rest)
+    elif cmd == 'preset':
+        cmd_preset(rest)
+    elif cmd == 'member':
+        cmd_member(rest)
+    elif cmd == 'owner':
+        cmd_owner(rest)
+    elif cmd in ('may', 'resolve'):
+        opts, rest = take_opts(rest, {'--via', '--person'})
+        auth = load_auth()
+        if cmd == 'may' and len(rest) == 2:
+            ok, why = may(auth, rest[0], rest[1], opts.get('--via'))
+            print(why)
+            sys.exit(0 if ok else 1)
+        if cmd == 'resolve' and len(rest) == 1:
+            person = opts.get('--person') or acting(auth)
+            print(json.dumps(resolve(auth, rest[0], person, opts.get('--via') or None)))
+            return
+        die(f'{cmd}: see hq-auth --help', 2)
     elif cmd == 'mcp-config' and len(rest) == 1:
         cmd_mcp_config(rest[0])
     elif cmd == 'exec':

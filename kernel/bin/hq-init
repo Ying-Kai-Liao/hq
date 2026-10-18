@@ -373,6 +373,25 @@ def user_md():
     shutil.copy(LIB / 'user.md', f)
 
 
+def you():
+    """You as hq's owner (hq-auth people), named once from git: other people you add later are checked against
+    you. Logins and browser profiles are yours by default; API keys and bots are shared."""
+    auth = str(HQ / 'bin' / 'hq-auth')
+    listing = run(auth, 'people').stdout
+    if '(owner)' in listing:
+        say('✓', f'you are {listing.split()[0]} in hq')
+        return
+    full = run('git', 'config', '--global', 'user.name').stdout.strip()
+    guess = re.sub(r'[^a-z0-9-]', '', (full.split() or [os.environ.get('USER', 'me')])[0].lower()) or 'me'
+    answer = prompt('What should hq call you? (a short id, like your first name)', guess) or guess
+    pid = re.sub(r'[^a-z0-9-]', '', answer.lower()) or guess
+    r = run(auth, 'person', pid, f'name={full or answer}', 'owner')
+    if r.returncode == 0:
+        say('✓', f'you are {pid} in hq', 'your logins stay yours; add people with hq auth person, see hq auth people')
+    else:
+        say('!', 'could not name you in hq', r.stderr.strip())
+
+
 def project_root():
     """Where a new project's files go (hq project add ID --home): asked once, kept in projects.json as "homes"."""
     f = STATE / 'projects.json'
@@ -463,6 +482,7 @@ def main(argv):
     if not (STATE / 'projects.json').exists():
         (STATE / 'projects.json').write_text('{"projects": {}}\n')
     user_md()
+    you()
     project_root()
     ensure_repo(STATE, 'dot-hq.gitignore', 'state')
     ensure_repo(AGENTS, 'agents.gitignore', 'agents')

@@ -20,6 +20,18 @@ merged. While a run goes, the agent shows a small "working…" line with a Stop 
 posted. Only the owner's (and allowed users') messages are acted on,
 unless HQ_DISCORD_REPLY_TO=anyone.
 
+People (hq-auth people): a Discord account linked to a person (hq-auth handle, or the person sends `/link CODE`
+from hq-auth invite) is acted on too, as that person: the run gets HQ_PERSON, so it only reaches the agents their
+memberships allow, with their permission mode instead of HQ_BRIDGE_PERMISSION_MODE. A thread belongs to the person
+who started it (its session holds what the agent saw for them); replies from anyone else are turned away.
+HQ_DISCORD_ALLOWED_IDS not linked to a person still act as the owner, as before.
+
+Telegram (a bot of hq's own, granted to the bridge: hq-auth set telegram/hq TELEGRAM_BOT_TOKEN, then hq-auth grant
+bridge telegram telegram/hq): `/link CODE` binds the sender's Telegram account to the code's person. In a private
+chat with the bot, `@agent …` or `/agent …` asks an agent, a reply to its message continues that task, and anything
+else goes to the chat's default agent (/default; the owner's DM starts with HQ_BRIDGE_DM_DEFAULT, default personal)
+or the bot asks who should take it. /agents, /whoami. Groups: only /link for now.
+
 Config (env or ~/.hq/secrets/env): HQ_DISCORD_BOT_TOKEN (required), HQ_DISCORD_OWNER_ID (your Discord user ID;
 default: the server owner), HQ_DISCORD_GUILD (server name or ID; default: the bot's only server),
 HQ_BRIDGE_PERMISSION_MODE (the permission mode for agent runs, on any harness; default bypassPermissions),
@@ -32,12 +44,14 @@ the thread's session is at least this full, in percent; default 30, off to never
 State: ~/.hq/bridge/ (webhooks, thread → session map, downloaded attachments). Log: ~/.hq/logs/bridge.log.
 """
 import asyncio
+import html
 import json
 import os
 import re
 import signal
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -246,6 +260,8 @@ def main():
     intents.message_content = True
     client = discord.Client(intents=intents)
     WORKING, STOPPED = '-# working…', '-# stopped'   # Discord subtext: small and grey
+    TG_FOOTER = ('\n\n(From Telegram, a private chat with the hq bot: your final answer is posted there automatically, '
+                 'as plain text. Files and images can\'t be sent back there yet; say where you saved them.)')
     FOOTER = ('\n\n(From Discord: this thread is your task. Your final answer is posted here automatically; use '
               'hq-send for images and files. Helpers you call post status with `hq-send --as <their name>`.)')
     st = read_state()
@@ -261,6 +277,22 @@ def main():
         ctx_show = None
     anyone = os.environ.get('HQ_DISCORD_REPLY_TO', 'owner').strip().lower() == 'anyone'
     allowed = {int(x) for x in re.findall(r'\d+', os.environ.get('HQ_DISCORD_ALLOWED_IDS', ''))}
+    auth_bin = str(HQ / 'bin' / 'hq-auth')
+
+    def person_of(uid):
+        """'' for the owner (and unlinked allowed users, as before people), a person id, or None: not acted on."""
+        if uid == owner_id:
+            return ''
+        r = subprocess.run([auth_bin, 'whois', 'discord', str(uid)], capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+        return '' if anyone or uid in allowed else None
+
+    def may(person, agent):
+        if not person:
+            return True, ''
+        r = subprocess.run([auth_bin, 'may', person, agent], capture_output=True, text=True)
+        return r.returncode == 0, (r.stdout or r.stderr).strip()
 
     async def setup(guild):
         nonlocal owner_id
@@ -295,6 +327,249 @@ def main():
         if not getattr(client, 'rescanning', False):  # on_ready fires again after reconnects
             client.rescanning = True
             asyncio.create_task(rescan(guilds[0]))
+            tg = await asyncio.to_thread(telegram_token)
+            if tg:
+                asyncio.create_task(telegram(tg))
+
+    def telegram_token():
+        r = subprocess.run([auth_bin, 'get', '--for', 'bridge', 'telegram', 'TELEGRAM_BOT_TOKEN'],
+                           capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else None
+
+    async def telegram(token):
+        """Your agents on Telegram, in a private chat with the bot. `@agent …` or `/agent …` picks the agent; a reply
+        to an agent's message continues that task (its session); anything else goes to the chat's default agent
+        (/default <agent>; the owner's DM starts with HQ_BRIDGE_DM_DEFAULT, default personal), or the bot asks who
+        should take it. Runs are for the linked person (HQ_PERSON), checked by bin/hq like every other run. Also
+        /link CODE, /whoami, /agents. Groups: only /link for now. The update offset is kept in the bridge state."""
+        api = f'https://api.telegram.org/bot{token}/'
+        tg = st.setdefault('telegram', {'rooms': {}, 'replies': {}, 'pending': {}})
+        locks: dict[str, asyncio.Lock] = {}
+
+        def call(method, **params):
+            data = urllib.parse.urlencode({k: json.dumps(v) if isinstance(v, (dict, list)) else v
+                                           for k, v in params.items()}).encode()
+            with urllib.request.urlopen(api + method, data=data, timeout=70) as r:
+                return json.loads(r.read().decode())
+
+        async def send(chat, text, to=None, **extra):
+            try:
+                return (await asyncio.to_thread(call, 'sendMessage', chat_id=chat, text=text,
+                                                **({'reply_to_message_id': to} if to else {}), **extra))['result']
+            except Exception as e:  # noqa: BLE001
+                print(f'hq-bridge: telegram send failed: {type(e).__name__}: {e}', flush=True)
+
+        def cmd_name(agent):   # Telegram commands: lowercase letters, digits and _
+            return agent.replace('-', '_')
+
+        def find_agent(word):
+            return next((a for a in agents() if word.lower() in (a, cmd_name(a))), None)
+
+        def resolve(person, agent):
+            r = subprocess.run([auth_bin, 'resolve', agent, '--person', person], capture_output=True, text=True)
+            try:
+                return json.loads(r.stdout)
+            except ValueError:
+                return {'allowed': False, 'why': f"can't check whether {person} may use {agent}"}
+
+        def usable(person):
+            return [a for a in agents() if resolve(person, a).get('allowed')]
+
+        def remember(chat, msg_id, row):
+            tg['replies'][f'{chat}:{msg_id}'] = row
+            for k in list(tg['replies'])[:-3000]:   # the newest few thousand are enough to reply to
+                del tg['replies'][k]
+
+        async def run(chat, to, person, agent, task, session):
+            """One turn of agent for person; posts the answer as replies to `to` and remembers them for follow-ups."""
+            r = await asyncio.to_thread(resolve, person, agent)
+            if not r.get('allowed'):
+                await send(chat, f'{r.get("why")}. Ask the owner to add you (hq-auth member {agent} {person}).', to)
+                return
+            key = session or f'{chat}:{to}'
+            async with locks.setdefault(key, asyncio.Lock()):   # one turn at a time per conversation
+                env = dict(os.environ, HQ_VIA='telegram', HQ_OUTPUT='json',
+                           HQ_PERMISSION_MODE=os.environ.get('HQ_BRIDGE_PERMISSION_MODE', 'bypassPermissions'))
+                for k in [k for k in env if k.startswith(('JEV_', 'HQ_DISCORD_', 'TELEGRAM_')) or k == 'HQ_AGENT']:
+                    env.pop(k)   # no bot tokens or keys, and this is no agent's helper
+                env.pop('HQ_PERSON', None)
+                if not r.get('owner'):
+                    env['HQ_PERSON'] = person   # bin/hq checks it again and sets their mode
+                if session:
+                    env['HQ_RESUME'] = session
+                proc = await asyncio.create_subprocess_exec(
+                    str(HQ / 'bin' / 'hq'), agent, task + TG_FOOTER, cwd=str(Path.home()), env=env,
+                    start_new_session=True, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+
+                async def typing():
+                    while proc.returncode is None:
+                        try:
+                            await asyncio.to_thread(call, 'sendChatAction', chat_id=chat, action='typing')
+                        except Exception:  # noqa: BLE001  cosmetic
+                            pass
+                        await asyncio.sleep(5)
+                ticker = asyncio.create_task(typing())
+                try:
+                    out, err = await asyncio.wait_for(proc.communicate(), timeout=3600)
+                except asyncio.TimeoutError:
+                    kill(proc)
+                    out, err = b'', b'timed out after 60 min'
+                ticker.cancel()
+                try:
+                    res = json.loads(out.decode())
+                    text, sid = res.get('result') or '', res.get('session_id')
+                    if res.get('is_error'):
+                        text = f'⚠️ {text or res.get("subtype", "error")}'
+                except ValueError:
+                    text, sid = f'⚠️ {agent} failed:\n{(err or out).decode(errors="replace")[-1500:]}', None
+                first = True
+                for part in chunks(text, 3900):
+                    body = (f'<b>{html.escape(display_name(agent))}</b>\n' if first else '') + html.escape(part)
+                    sent = await send(chat, body, to, parse_mode='HTML')
+                    first = False
+                    if sent:
+                        remember(chat, sent['message_id'], {'agent': agent, 'session_id': sid or session,
+                                                            'person': person})
+                write_state(st)
+
+        async def handle(m):
+            sender, chat = m.get('from') or {}, (m.get('chat') or {})
+            if sender.get('is_bot') or not sender.get('id') or m.get('sender_chat'):
+                return   # bots, and anonymous admins or channels posting as the group: no person behind them
+            text, private, cid, mid = (m.get('text') or m.get('caption') or ''), chat.get('type') == 'private', \
+                chat['id'], m['message_id']
+            uid = str(sender['id'])
+            cmd = re.fullmatch(r'\s*/(\w+)(?:@(\w+))?\s*(.*?)\s*', text, re.S)
+            if cmd and cmd.group(2) and cmd.group(2).lower() != me.lower():
+                return   # a command for another bot in the group
+            name, arg = (cmd.group(1).lower(), cmd.group(3)) if cmd else ('', '')
+            if name == 'link' and re.fullmatch(r'[A-Za-z0-9]{4,12}', arg):
+                r = await asyncio.to_thread(subprocess.run, [auth_bin, 'link', 'telegram', uid, arg],
+                                            capture_output=True, text=True)
+                print(f'hq-bridge: telegram link {uid}: {"ok " + r.stdout.strip() if r.returncode == 0 else "refused"}',
+                      flush=True)
+                await send(cid, f'Linked: you are {r.stdout.strip()} in hq.' if r.returncode == 0
+                           else r.stderr.strip().removeprefix('hq-auth: ') or 'That code did not work.', mid)
+                return
+            if not private:
+                return   # groups come with rooms
+            r = await asyncio.to_thread(subprocess.run, [auth_bin, 'whois', 'telegram', uid], capture_output=True,
+                                        text=True)
+            person = r.stdout.strip() if r.returncode == 0 else ''
+            if not person:
+                await send(cid, 'This Telegram account is not linked to hq yet. Ask the owner for a code, then send '
+                                '/link CODE here.', mid)
+                return
+            room = tg['rooms'].setdefault(str(cid), {})
+            if 'default' not in room:   # a new DM: the owner's starts with HQ_BRIDGE_DM_DEFAULT
+                owner_dm = (await asyncio.to_thread(resolve, person, agents()[0])).get('owner')
+                room['default'] = os.environ.get('HQ_BRIDGE_DM_DEFAULT', 'personal') if owner_dm else ''
+                write_state(st)
+            if name in ('start', 'whoami'):
+                await send(cid, f'You are {person} in hq.' + (f' Messages without @agent go to {room["default"]}.'
+                                                               if room.get('default') else ''), mid)
+                return
+            if name == 'agents':
+                mine = await asyncio.to_thread(usable, person)
+                await send(cid, 'Yours: ' + (', '.join(mine) or 'none yet') + '\nWrite @agent or /agent, or reply to '
+                           'an agent\'s message to continue it.', mid)
+                return
+            if name == 'default':
+                agent = find_agent(arg) if arg else None
+                if arg in ('none', '-'):
+                    room['default'] = ''
+                elif not agent or not (await asyncio.to_thread(resolve, person, agent)).get('allowed'):
+                    await send(cid, f'No agent of yours called {arg!r}. /agents lists them.', mid)
+                    return
+                else:
+                    room['default'] = agent
+                write_state(st)
+                await send(cid, f'Messages without @agent now go to {room["default"]}.' if room['default'] else
+                           'No default: I\'ll ask who should take each message.', mid)
+                return
+            task, agent, session = text, None, None
+            mention = re.match(r'\s*[@/]([\w-]+)\b\s*(.*)', text, re.S)
+            if mention and find_agent(mention.group(1)):
+                agent, task = find_agent(mention.group(1)), mention.group(2).strip() or text
+            replied = m.get('reply_to_message') or {}
+            prev = tg['replies'].get(f'{cid}:{replied.get("message_id")}') if replied else None
+            if prev and prev.get('person') == person and agent in (None, prev['agent']):
+                agent, session = prev['agent'], prev.get('session_id')
+            elif replied.get('text') and not prev:
+                task = f'(Replying to: "{replied["text"][:1500]}")\n\n{task}'
+            if m.get('photo') or m.get('document') or m.get('voice') or m.get('video'):
+                task += '\n\n(The user sent a file on Telegram; files are not passed on here yet, so say so if it matters.)'
+            agent = agent or room.get('default') or None
+            if not agent:
+                mine = await asyncio.to_thread(usable, person)
+                if not mine:
+                    await send(cid, 'You have no agents yet. Ask the owner to add you.', mid)
+                    return
+                tg['pending'][f'{cid}:{mid}'] = {'task': task, 'person': person}
+                write_state(st)
+                rows = [[{'text': a, 'callback_data': f'pick:{a}:{mid}'} for a in mine[i:i + 3]]
+                        for i in range(0, len(mine), 3)]
+                await send(cid, 'Who should take this?', mid, reply_markup={'inline_keyboard': rows})
+                return
+            asyncio.create_task(run(cid, mid, person, agent, task, session))
+
+        async def picked(q):
+            data = q.get('data') or ''
+            m = re.fullmatch(r'pick:([\w-]+):(\d+)', data)
+            msg = q.get('message') or {}
+            cid = (msg.get('chat') or {}).get('id')
+            try:
+                await asyncio.to_thread(call, 'answerCallbackQuery', callback_query_id=q['id'])
+            except Exception:  # noqa: BLE001
+                pass
+            pending = tg['pending'].pop(f'{cid}:{m.group(2)}', None) if m and cid else None
+            r = await asyncio.to_thread(subprocess.run, [auth_bin, 'whois', 'telegram', str(q['from']['id'])],
+                                        capture_output=True, text=True)
+            if not pending or pending['person'] != r.stdout.strip():
+                return   # already picked, or someone else's question
+            write_state(st)
+            try:
+                await asyncio.to_thread(call, 'editMessageText', chat_id=cid, message_id=msg['message_id'],
+                                        text=f'→ {m.group(1)}')
+            except Exception:  # noqa: BLE001  cosmetic
+                pass
+            asyncio.create_task(run(cid, int(m.group(2)), pending['person'], m.group(1), pending['task'], None))
+
+        try:
+            me = (await asyncio.to_thread(call, 'getMe'))['result']['username']
+            print(f'hq-bridge: telegram as @{me}', flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f'hq-bridge: telegram bot not reachable ({type(e).__name__}); not polling', flush=True)
+            return
+        try:   # the / menu: one command per agent, plus hq's own
+            commands = [{'command': cmd_name(a), 'description': description(a)[:250]} for a in agents()][:90]
+            commands += [{'command': 'agents', 'description': 'the agents you can use'},
+                         {'command': 'default', 'description': 'which agent answers messages without @agent'},
+                         {'command': 'whoami', 'description': 'who you are in hq'}]
+            await asyncio.to_thread(call, 'setMyCommands', commands=commands)
+        except Exception as e:  # noqa: BLE001  the menu is a convenience
+            print(f'hq-bridge: telegram commands not set: {type(e).__name__}', flush=True)
+        offset = st.get('telegram_offset', 0)
+        while True:
+            try:
+                res = await asyncio.to_thread(call, 'getUpdates', offset=offset, timeout=50,
+                                              allowed_updates=['message', 'callback_query'])
+            except Exception as e:  # noqa: BLE001  a network blip: wait and poll again
+                print(f'hq-bridge: telegram poll failed: {type(e).__name__}', flush=True)
+                await asyncio.sleep(15)
+                continue
+            for u in res.get('result', []):
+                offset = u['update_id'] + 1
+                try:
+                    if u.get('message'):
+                        await handle(u['message'])
+                    elif u.get('callback_query'):
+                        await picked(u['callback_query'])
+                except Exception as e:  # noqa: BLE001  one bad message must not stop the bot
+                    print(f'hq-bridge: telegram message failed: {type(e).__name__}: {e}', flush=True)
+            if res.get('result'):
+                st['telegram_offset'] = offset
+                write_state(st)
 
     async def rescan(guild):
         # New agents (from the builder or hq-new) get their channel within a minute, no restart needed.
@@ -322,6 +597,10 @@ def main():
                    HQ_OUTPUT='json', HQ_PERMISSION_MODE=os.environ.get('HQ_BRIDGE_PERMISSION_MODE', 'bypassPermissions'))
         if session:   # any harness: bin/hq starts a new session when this one is another harness's
             env['HQ_RESUME'] = session
+        person = st['threads'].get(key, {}).get('person', '')
+        env.pop('HQ_PERSON', None)
+        if person:   # bin/hq checks the membership and sets the mode; HQ_PERMISSION_MODE is ignored for them
+            env['HQ_PERSON'] = person
         env.pop('HQ_DISCORD_BOT_TOKEN', None)  # agents never see the bot token
         for k in [k for k in env if k.startswith('JEV_')]:
             env.pop(k)                           # nor the router's key
@@ -349,7 +628,7 @@ def main():
         except ValueError:
             text, sid = f'⚠️ {agent} failed:\n```\n{(err or out).decode(errors="replace")[-1500:]}\n```', None
         if sid:
-            st['threads'][key] = {'agent': agent, 'session_id': sid}
+            st['threads'][key] = {'agent': agent, 'session_id': sid, **({'person': person} if person else {})}
             write_state(st)
         for part in chunks(text):
             await hooks[agent].send(part, username=display_name(agent), thread=thread, wait=True)
@@ -493,9 +772,10 @@ def main():
         cid = (it.data or {}).get('custom_id', '')
         if not cid.startswith('hq-stop:'):
             return
-        if not anyone and it.user.id not in {owner_id} | allowed:
-            return await it.response.send_message('Only the owner can stop this.', ephemeral=True)
         key = cid.split(':', 1)[1]
+        who = await asyncio.to_thread(person_of, it.user.id)
+        if who is None or (who and who != st['threads'].get(key, {}).get('person', '')):
+            return await it.response.send_message('Only the person who started this can stop it.', ephemeral=True)
         now = busy.get(key)
         if now is None or (now.get('proc') is not None and now['proc'].returncode is not None):
             return await it.response.edit_message(content='-# finished', view=None)
@@ -524,14 +804,36 @@ def main():
 
     @client.event
     async def on_message(msg):
-        if msg.author.bot or msg.webhook_id or (not anyone and msg.author.id not in {owner_id} | allowed):
+        if msg.author.bot or msg.webhook_id:
+            return
+        link = re.fullmatch(r'\s*/link\s+([A-Za-z0-9]{4,12})\s*', msg.content or '')
+        if link:   # a one-time code from hq-auth invite: this Discord account becomes that person
+            r = await asyncio.to_thread(subprocess.run, [auth_bin, 'link', 'discord', str(msg.author.id), link.group(1)],
+                                        capture_output=True, text=True)
+            print(f'hq-bridge: link {msg.author.id}: {"ok " + r.stdout.strip() if r.returncode == 0 else "refused"}', flush=True)
+            await msg.reply(f'Linked: you are **{r.stdout.strip()}** in hq.' if r.returncode == 0 else
+                            (r.stderr.strip().removeprefix('hq-auth: ') or 'That code did not work.'))
+            return
+        person = await asyncio.to_thread(person_of, msg.author.id)
+        if person is None:
             return
         if isinstance(msg.channel, discord.Thread) and msg.channel.parent and msg.channel.parent.name in st['webhooks']:
             agent, thread = msg.channel.parent.name, msg.channel
+            started_by = st['threads'].get(str(thread.id), {}).get('person', '')
+            if person != started_by:   # its session holds what the agent saw for them
+                await msg.reply(f'This thread is {started_by or "the owner"}\'s. Post in #{agent} to start your own.')
+                return
         elif getattr(msg.channel, 'name', None) in st['webhooks']:
             agent = msg.channel.name
+            ok, why = await asyncio.to_thread(may, person, agent)
+            if not ok:
+                await msg.reply(f'{why}. Ask the owner to add you (hq-auth member {agent} {person}).')
+                return
             title = re.sub(r'\s+', ' ', msg.content).strip()[:90] or 'task'
             thread = await msg.create_thread(name=title, auto_archive_duration=1440)
+            if person:
+                st['threads'][str(thread.id)] = {'agent': agent, 'person': person}
+                write_state(st)
         else:
             return
         task = msg.content

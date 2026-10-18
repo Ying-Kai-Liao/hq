@@ -88,6 +88,27 @@ agent=$1; shift
 src_pkg=$(agent_dir "$agent")
 [[ -n $src_pkg ]] || { echo "hq: no agent '$agent' (try: hq ls, or hq install <github-link>)" >&2; exit 1; }
 if [[ $src_pkg == */role ]]; then home=${src_pkg%/role}; else home="$HQ_STATE/agents/$agent"; fi
+
+# Who the run is for: HQ_PERSON, set by the entry point (the bridge, a schedule) and inherited by every helper, so
+# access follows the person who asked however deep the calls go. Unset is the owner and changes nothing. A helper is
+# checked as one (--via the agent that called it). Fails closed: no answer from hq-auth, no run.
+caller=${HQ_AGENT:-}; [[ $caller == "$agent" ]] && caller=""; p_owner=1 p_mode="" p_model="" p_deny="" p_line=""
+if [[ -n ${HQ_PERSON:-} ]]; then
+  res=$("$HQ/bin/hq-auth" resolve "$agent" ${caller:+--via "$caller"}) \
+    || { echo "hq: can't check whether ${HQ_PERSON} may use $agent (hq-auth resolve failed)" >&2; exit 1; }
+  eval "$(RES=$res python3 -c '
+import json, os, shlex
+r = json.loads(os.environ["RES"])
+q = lambda v: shlex.quote(str(v))
+print("p_allowed=%d p_why=%s p_owner=%d" % (r["allowed"], q(r["why"]), r["owner"]))
+print("p_mode=%s p_model=%s p_deny=%s" % (q(r.get("mode", "")), q(r.get("model", "")), q("\n".join(r.get("deny", [])))))
+attrs = " ".join("%s=\"%s\"" % (k, str(r[k]).replace("\"", "")) for k in ("person", "name", "lang", "tz") if r.get(k))
+print("p_line=%s" % q(" " + attrs))
+for k, v in r.get("env", {}).items():
+    print("export %s=%s" % (k, q(v)))')"
+  [[ $p_allowed == 1 ]] || { echo "hq: $p_why (hq-auth member $agent ${HQ_PERSON})" >&2; exit 3; }
+  export HQ_PERSON
+fi
 mkdir -p "$home/memory/projects" "$home/memory/sessions"
 
 # The pinned package (prompt.md = agent.md body + PROTOCOL.md). If versioning itself breaks, run the live folder
@@ -160,7 +181,7 @@ prompt="$(template | fill)
 <long-term-memory path=\"$home/memory/MEMORY.md\">
 $(cat "$home/memory/MEMORY.md" 2>/dev/null)
 </long-term-memory>
-<session project=\"${project:-none}\"${parents:+ parents=\"$parents\"}${held:+ holds=\"$(printf '%s\n' "$held" | cut -f1 | paste -sd' ' -)\"} cwd=\"$PWD\" date=\"$(date +%F)\"/>"
+<session project=\"${project:-none}\"${parents:+ parents=\"$parents\"}${held:+ holds=\"$(printf '%s\n' "$held" | cut -f1 | paste -sd' ' -)\"} cwd=\"$PWD\" date=\"$(date +%F)\"$p_line/>"
 
 if [[ $print -eq 1 ]]; then printf '%s\n' "$prompt"; [[ $# -gt 0 ]] && printf '\n[task] %s\n' "$*"; exit 0; fi
 
@@ -172,22 +193,39 @@ own=$(field harness); own=${own:-claude}; [[ $own == claude-code ]] && own=claud
 harness=${HQ_HARNESS:-$own}; [[ $harness == claude-code ]] && harness=claude
 # agent.md's model names a model of its own harness: on another one (-H), that harness's default unless -m says.
 [[ $harness == "$own" ]] && HQ_MODEL=${HQ_MODEL:-$(field model)}
+[[ -n $p_model ]] && HQ_MODEL=$p_model   # the person's membership picks the model over the agent's and the caller's
 export HQ_MODEL=${HQ_MODEL:-} HQ_EFFORT=${HQ_EFFORT:-$(field effort)} HQ_PROJECT=$project
 # For this run only, like HQ_CLAUDE_ARGS below: a helper this agent starts runs on its own harness, in its own session.
 out_format=${HQ_OUTPUT:-} resume=${HQ_RESUME:-} perm_mode=${HQ_PERMISSION_MODE:-}
 unset HQ_HARNESS HQ_OUTPUT HQ_RESUME HQ_PERMISSION_MODE
+# For anyone but the owner the membership sets the permission mode, whatever the caller asked for (the bridge asks
+# for bypassPermissions), and deny rules only Claude Code can enforce keep the run on Claude Code.
+if [[ $p_owner == 0 ]]; then
+  perm_mode=$p_mode
+  [[ $harness == claude ]] \
+    || { echo "hq: $agent for ${HQ_PERSON}: runs for anyone but the owner need Claude Code (path rules), not $harness" >&2; exit 3; }
+  # They see this agent's own life only: every other agent's folder and the owner's user.md are denied by path
+  # (logical and resolved), on top of the narrower directories below.
+  for d in "$HQ_AGENTS"/*/; do
+    d=${d%/}; [[ ${d##*/} == "$agent" ]] && continue
+    for p in "$d" "$(cd "$d" && pwd -P)"; do p_deny+=$'\n'"Read(/$p/**)"$'\n'"Edit(/$p/**)"; done
+  done
+  p_deny+=$'\n'"Read(/$HQ_STATE/user.md)"$'\n'"Read(/$HQ_STATE_REAL/user.md)"
+fi
 # The agent's settings plus a SessionStart hook that tags each session (new, resumed, /clear) in the cost ledger, and
 # hq's secrets kept out of its file tools (they sit inside ~/.hq, which every run can read; tools get them from hq-auth),
 # and the writes PROTOCOL asks for allowed without a prompt (a one-shot run has no one to approve them): its memory,
 # its learned skills and the shared project files, each under its logical and its resolved path. Every installed plugin
 # but hq is off unless the agent's settings turn it on, so a plugin installed after the agent was made stays out.
+# Shared project files are writable for the owner; for anyone else only the current project's.
+state_projects="$HQ_STATE/projects"$'\n'"$HQ_STATE_REAL/projects"
+[[ $p_owner == 0 ]] && state_projects=${project:+"$HQ_STATE/projects/$project"$'\n'"$HQ_STATE_REAL/projects/$project"}
 if [[ $harness == claude ]]; then
 plugins=$(claude plugin list --json 2>/dev/null || echo '[]')
-fill < "$pkg/settings.json" | PLUGINS=$plugins HOOK="\"$HQ/bin/hq-cost\" tag" WRITABLE="$home/memory
+fill < "$pkg/settings.json" | DENY=$p_deny PLUGINS=$plugins HOOK="\"$HQ/bin/hq-cost\" tag" WRITABLE="$home/memory
 $home_real/memory
 $src_pkg/skills/learned
-$HQ_STATE/projects
-$HQ_STATE_REAL/projects" python3 -c '
+$state_projects" python3 -c '
 import json, os, sys
 s = json.load(sys.stdin)
 s.setdefault("hooks", {}).setdefault("SessionStart", []).append(
@@ -196,8 +234,9 @@ sec = os.environ["HQ_SECRETS"]   # a folder of its own, or (the older layout) tw
 files = ["%s/**" % sec] if sec != os.environ["HQ_MACHINE"] else ["%s/env" % sec, "%s/auth.json" % sec]
 s.setdefault("permissions", {}).setdefault("deny", []).extend(
     "%s(/%s)" % (tool, f) for f in files for tool in ("Read", "Edit"))   # Edit covers every file-writing tool
+s["permissions"]["deny"].extend(d for d in os.environ["DENY"].split("\n") if d)   # from the membership of the person the run is for
 allow = s["permissions"].setdefault("allow", [])
-allow.extend(r for r in dict.fromkeys("Edit(/%s/**)" % d for d in os.environ["WRITABLE"].split("\n")) if r not in allow)
+allow.extend(r for r in dict.fromkeys("Edit(/%s/**)" % d for d in os.environ["WRITABLE"].split("\n") if d.strip()) if r not in allow)
 try:
     installed = [p["id"] for p in json.loads(os.environ["PLUGINS"])]
 except (ValueError, KeyError, TypeError):
@@ -221,6 +260,13 @@ while IFS=$'\t' read -r _ h; do
   [[ -n $h && $h != - ]] && h=${h/#\~/$HOME} && [[ -d $h ]] && dirs+=(--add-dir "$h")
 done <<< "$info
 $held"
+# Anyone but the owner: the kernel, this agent's own folder and pinned package, and the current project's shared
+# files; not the other agents, the state folder or the owner's project folders.
+if [[ $p_owner == 0 ]]; then
+  dirs=(--add-dir "$HQ" --add-dir "$home" --add-dir "$pkg")
+  [[ $hq_real != "$HQ" ]] && dirs+=(--add-dir "$hq_real")
+  [[ -n $project && -d $HQ_STATE/projects/$project ]] && dirs+=(--add-dir "$HQ_STATE/projects/$project")
+fi
 # The read-only kernel commands PROTOCOL tells agents to run, allowed without a prompt. Under every path the kernel
 # has (logical, resolved, ~/hq/kernel) and, since a path with a space gets quoted, with the program in quotes too.
 readonly_cmds=("project-id" "project-id --list" "project-id --info:*" "project-id --children:*" "hq-memory search:*" "hq-who:*")
@@ -270,7 +316,23 @@ if [[ -n $resume ]]; then
   else args+=(--resume "$resume"); fi
 fi
 # Extra claude flags from a caller such as hq-bridge (e.g. --output-format json --resume <session>).
-if [[ -n ${HQ_CLAUDE_ARGS:-} ]]; then read -r -a extra <<< "$HQ_CLAUDE_ARGS"; args+=("${extra[@]}"); fi
+# For anyone but the owner, permission flags in them are dropped: the membership's mode stands.
+if [[ -n ${HQ_CLAUDE_ARGS:-} ]]; then
+  read -r -a extra <<< "$HQ_CLAUDE_ARGS"
+  if [[ $p_owner == 0 ]]; then
+    kept=(); skip=0
+    for a in "${extra[@]}"; do
+      if [[ $skip == 1 ]]; then skip=0; continue; fi
+      case $a in
+        --permission-mode) skip=1 ;;
+        --permission-mode=*|--dangerously-skip-permissions|--allow-dangerously-skip-permissions) ;;
+        *) kept+=("$a") ;;
+      esac
+    done
+    extra=(${kept[@]+"${kept[@]}"})
+  fi
+  args+=(${extra[@]+"${extra[@]}"})
+fi
 # They are for this run only: a helper this agent starts with `hq <other>` must not resume this session.
 unset HQ_CLAUDE_ARGS
 if [[ $# -gt 0 ]]; then exec claude "${args[@]}" -p "$*"; fi

@@ -205,6 +205,22 @@ export const register: Register = (on, options) => {
     const agent = e.subagentType.slice(3)
     const cwd = e.cwd ?? (await $.session.cwd())
 
+    // A run for someone other than the owner (HQ_PERSON, from bin/hq) may start only the helpers that person may
+    // use, checked as this agent's helper. Fails closed: no answer from hq-auth, no spawn.
+    const person = (await $.env.get('HQ_PERSON')) ?? ''
+    if (person) {
+      const caller = (await $.env.get('HQ_AGENT')) ?? ''
+      let why = ''
+      try {
+        const r = await $.process.run([`${hq}/bin/hq-auth`, 'may', person, agent, ...(caller ? ['--via', caller] : [])],
+          { timeoutMs: 10_000 })
+        if (r.exitCode !== 0) why = r.stdout.trim() || r.stderr.trim() || `${person} may not use ${agent}`
+      } catch {
+        why = `can't check whether ${person} may use ${agent}`
+      }
+      if (why) return { deny: `hq: ${why}. This run is for ${person}; only the owner can give them ${agent}.` }
+    }
+
     const named = /^<hq project="([a-z0-9][a-z0-9._-]*)"\/>\n?/.exec(e.prompt)
     let project = named?.[1] ?? ''
     if (!project) {
