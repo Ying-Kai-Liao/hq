@@ -130,15 +130,18 @@ public struct MenuItem: Identifiable {
     public let id = UUID()
     public var title: String
     public var icon: String?
+    /// A picture in the icon's place (an agent's logo).
+    public var image: Image?
     public var selected: Bool?
     public var destructive: Bool
     public var divider: Bool
     public var action: () -> Void
 
-    public init(_ title: String, icon: String? = nil, selected: Bool? = nil, destructive: Bool = false,
+    public init(_ title: String, icon: String? = nil, image: Image? = nil, selected: Bool? = nil, destructive: Bool = false,
                 divider: Bool = false, action: @escaping () -> Void) {
         self.title = title
         self.icon = icon
+        self.image = image
         self.selected = selected
         self.destructive = destructive
         self.divider = divider
@@ -196,13 +199,19 @@ private struct ContextActions: ViewModifier {
         // The binding's setter must be Sendable, but SwiftUI only calls it from the menu, on the
         // main thread where the action was made.
         nonisolated(unsafe) let action = item.action
-        Toggle(isOn: Binding(get: { selected }, set: { _ in action() })) {
-            if let icon = item.icon { SwiftUI.Label(item.title, systemImage: icon) } else { Text(item.title) }
-        }
-    } else if let icon = item.icon {
-        Button(role: role, action: item.action) { SwiftUI.Label(item.title, systemImage: icon) }
+        Toggle(isOn: Binding(get: { selected }, set: { _ in action() })) { menuLabel(item) }
     } else {
-        Button(item.title, role: role, action: item.action)
+        Button(role: role, action: item.action) { menuLabel(item) }
+    }
+}
+
+@ViewBuilder private func menuLabel(_ item: MenuItem) -> some View {
+    if let image = item.image {
+        SwiftUI.Label { Text(item.title) } icon: { image }
+    } else if let icon = item.icon {
+        SwiftUI.Label(item.title, systemImage: icon)
+    } else {
+        Text(item.title)
     }
 }
 
@@ -235,19 +244,28 @@ public struct ChoicePicker<ID: Hashable>: View {
     let options: [(id: ID, label: String)]
     var fill: Color
     var fitsAvailableWidth: Bool
+    /// A picture before each label, in the menu and on the pill (an agent's logo).
+    var image: ((ID) -> Image?)?
 
-    public init(selection: Binding<ID>, options: [(id: ID, label: String)], fill: Color = .clear, fitsAvailableWidth: Bool = false) {
+    public init(selection: Binding<ID>, options: [(id: ID, label: String)], fill: Color = .clear, fitsAvailableWidth: Bool = false,
+                image: ((ID) -> Image?)? = nil) {
         _selection = selection
         self.options = options
         self.fill = fill
         self.fitsAvailableWidth = fitsAvailableWidth
+        self.image = image
     }
 
     public var body: some View {
         DropdownMenu {
-            options.map { option in MenuItem(option.label, selected: option.id == selection) { selection = option.id } }
+            options.map { option in
+                MenuItem(option.label, image: image?(option.id), selected: option.id == selection) { selection = option.id }
+            }
         } label: {
             HStack(spacing: 6) {
+                if let picture = image?(selection) {
+                    picture.resizable().scaledToFit().frame(width: 16, height: 16)
+                }
                 Text(options.first { $0.id == selection }?.label ?? "Choose").lineLimit(1)
                 Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(Palette.secondary)
             }
@@ -302,6 +320,18 @@ public struct SegmentedChoice<ID: Hashable>: View {
         .padding(3)
         .background(Palette.bubbleUser, in: Capsule())
     }
+}
+
+/// How `CardSection` draws its group: filled (Settings style), or outlined on the page like Grok
+/// Bot's routine cards (the bot details sheet).
+public enum CardStyle: Sendable {
+    case filled, outlined
+}
+
+public extension EnvironmentValues {
+    @Entry var cardStyle: CardStyle = .filled
+    /// How many lines a row's note shows; the details sheet keeps long ones (skill descriptions) to two.
+    @Entry var noteLines: Int? = nil
 }
 
 /// Grok Bot's page tabs: plain labels, the chosen one on a light capsule.
@@ -408,6 +438,7 @@ public struct CardSection<Content: View, Accessory: View>: View {
     let content: Content
     /// Trailing controls on the heading's line (add, refresh, clear).
     let accessory: Accessory
+    @Environment(\.cardStyle) private var cardStyle
 
     public init(_ title: String? = nil, footer: String? = nil, @ViewBuilder content: () -> Content,
                 @ViewBuilder accessory: () -> Accessory) {
@@ -434,7 +465,12 @@ public struct CardSection<Content: View, Accessory: View>: View {
                 _VariadicView.Tree(HairlineRows()) { content }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(cardStyle == .filled ? Palette.surface : .clear, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                if cardStyle == .outlined {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.border)
+                }
+            }
             if let footer {
                 Text(footer)
                     .font(.caption)
@@ -484,6 +520,7 @@ public struct ValueRow<Value: View>: View {
     let label: String
     let detail: String?
     let value: Value
+    @Environment(\.noteLines) private var noteLines
 
     public init(_ label: String, detail: String? = nil, @ViewBuilder value: () -> Value) {
         self.label = label
@@ -505,6 +542,7 @@ public struct ValueRow<Value: View>: View {
                     Text(detail)
                         .font(.caption)
                         .foregroundStyle(Palette.secondary)
+                        .lineLimit(noteLines)
                         .lineSpacing(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -593,6 +631,14 @@ extension View {
         padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background(fill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    /// Grok Bot's list cards (routines, the computer switch): an outline on the page, no fill.
+    func outlinedCard(vertical: CGFloat = 12) -> some View {
+        padding(.horizontal, 14)
+            .padding(.vertical, vertical)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.border))
     }
 }
 

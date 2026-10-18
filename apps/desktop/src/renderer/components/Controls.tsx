@@ -67,19 +67,22 @@ export function DropdownMenu({ items, children, className, style, title }: { ite
 /** Picks one value: the current choice in a pill with a chevron, opening a Codync menu. */
 export function ChoicePicker<T extends string | number>({ selection, options, onChange, fill, fits = false }: {
   selection: T
-  options: { id: T; label: string }[]
+  /** `leading`: a picture before the label, in the menu and on the picker (an agent's logo). */
+  options: { id: T; label: string; leading?: ReactNode }[]
   onChange: (id: T) => void
   fill?: string
   fits?: boolean
 }) {
-  const label = options.find((o) => o.id === selection)?.label ?? 'Choose'
+  const chosen = options.find((o) => o.id === selection)
+  const label = chosen?.label ?? 'Choose'
   return (
     <DropdownMenu
       title={label}
       className={`choice-picker ${fill ? '' : 'outlined'}`}
       style={{ background: fill, width: fits ? '100%' : undefined }}
-      items={() => options.map((o) => ({ title: o.label, selected: o.id === selection, action: () => onChange(o.id) }))}
+      items={() => options.map((o) => ({ title: o.label, leading: o.leading, selected: o.id === selection, action: () => onChange(o.id) }))}
     >
+      {chosen?.leading}
       <span className="choice-label">{label}</span>
       <Icon name="chevron.down" size={10} weight="semibold" color="var(--secondary)" />
     </DropdownMenu>
@@ -181,7 +184,7 @@ export function ValueRow({ label, detail, children }: { label: string; detail?: 
     <div className="value-row">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
         <span style={{ color: 'var(--text)' }}>{label}</span>
-        {detail ? <span style={{ ...font('caption'), color: 'var(--secondary)', lineHeight: 1.35 }}>{detail}</span> : null}
+        {detail ? <span className="detail-note" title={detail} style={{ ...font('caption'), color: 'var(--secondary)', lineHeight: 1.35 }}>{detail}</span> : null}
       </div>
       <span style={{ flex: 1, minWidth: 12 }} />
       <span style={{ color: 'var(--secondary)', display: 'flex', alignItems: 'center' }}>{children}</span>

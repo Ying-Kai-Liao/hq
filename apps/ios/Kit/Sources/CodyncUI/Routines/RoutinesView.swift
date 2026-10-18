@@ -70,18 +70,13 @@ struct RoutinesView: View {
                     .lineSpacing(3)
                     .foregroundStyle(Palette.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(14)
-                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .outlinedCard(vertical: 14)
             } else {
-                VStack(spacing: 0) {
+                VStack(spacing: 8) {
                     ForEach(routines) { routine in
-                        if routine.id != routines.first?.id { Hairline() }
-                        row(routine)
+                        row(routine).outlinedCard(vertical: 0)
                     }
                 }
-                .padding(.horizontal, 14)
-                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
         }
     }

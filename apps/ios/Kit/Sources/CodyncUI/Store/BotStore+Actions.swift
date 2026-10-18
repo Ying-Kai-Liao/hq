@@ -175,6 +175,14 @@ extension BotStore {
         perform(replay: true) { _ = try await $0.updateBot(d) }
     }
 
+    /// Whether the bot may see and use the computer's screen.
+    public func setComputer(_ bot: Bot, _ computer: Bool) {
+        var d = BotDraft(bot)
+        d.computer = computer
+        bots[bot.id]?.computer = computer
+        perform(replay: true) { _ = try await $0.updateBot(d) }
+    }
+
     /// Whether the bot uses the memory all bots share.
     public func setSharedMemory(_ bot: Bot, _ shared: Bool) {
         var d = BotDraft(bot)

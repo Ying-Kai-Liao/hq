@@ -138,6 +138,10 @@ export function ThreadView({ botId }: { botId: string }) {
             <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               {bot ? isGroup(bot) ? <GroupAvatar members={store.members(bot)} size={22} /> : <BotAvatar bot={bot} size={22} /> : null}
               <span style={{ ...font(13, 'medium'), color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{bot?.name ?? ''}</span>
+              {/* Grok Bot's hint on hover: the pill opens the details. */}
+              <span className="title-pill-chevron">
+                <Icon name="chevron.right" size={10} weight="semibold" color="var(--secondary)" />
+              </span>
             </span>
             {store.shownConnection.kind !== 'online' || store.mismatch ? <ConnectionSubtitle /> : null}
           </button>

@@ -42,6 +42,8 @@ struct BotDetailsView: View {
                 TabChoice(selection: $tab, options: [(.details, "Details"), (.memory, "Memory"), (.settings, "Settings")])
                     .padding(.top, 18)
                 page.padding(.top, 20)
+                    .environment(\.cardStyle, .outlined)
+                    .environment(\.noteLines, 2)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 24)
@@ -105,9 +107,20 @@ struct BotDetailsView: View {
         switch tab {
         case .details:
             VStack(alignment: .leading, spacing: 28) {
-                if model.screen != nil, let bot {
-                    CardSection("Computer") {
-                        ValueRow("Use the computer", value: bot.computer ? "On" : "Off")
+                if let draft = Binding($draft) {
+                    BotSettingsForm(draft: draft, error: saveError, scrolls: false, part: .often)
+                }
+                if let screen = model.screen, let bot {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Computer")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Palette.text)
+                            .padding(.leading, 2)
+                        SwitchRow("Use the computer",
+                                  detail: screen.controlReady == true ? nil : "On that computer, open Codync → Settings → Computer access to set it up first.",
+                                  isOn: Binding(get: { bot.computer }, set: { model.setComputer(bot, $0) }))
+                            .disabled(model.isOffline)
+                            .outlinedCard()
                     }
                 }
                 RoutinesView(botId: botId, initialId: routineId) { dismiss() }
@@ -116,7 +129,7 @@ struct BotDetailsView: View {
             MemoryCard(botId: botId)
         case .settings:
             if let draft = Binding($draft) {
-                BotSettingsForm(draft: draft, error: saveError, scrolls: false)
+                BotSettingsForm(draft: draft, error: saveError, scrolls: false, part: .rarely)
             }
         }
     }

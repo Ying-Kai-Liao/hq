@@ -7,6 +7,7 @@ struct MemoryFilesList: View {
     let files: MemoryFiles
     let shared: Bool
     @State private var open: MemoryFileTarget?
+    @Environment(\.noteLines) private var noteLines
 
     var body: some View {
         let folder = shared ? files.yours : files.bot
@@ -41,7 +42,7 @@ struct MemoryFilesList: View {
                 Label(file.name, systemImage: file.deleted ? "doc" : "doc.text")
                     .foregroundStyle(file.deleted ? Palette.tertiary : Palette.text)
                 if let description = file.description, !file.deleted {
-                    Text(description).font(.footnote).foregroundStyle(Palette.secondary)
+                    Text(description).font(.footnote).foregroundStyle(Palette.secondary).lineLimit(noteLines)
                 }
                 Text(caption(file, cap: cap))
                     .font(.caption)

@@ -132,6 +132,12 @@
   color: var(--text);
 }
 
+/* Grok Bot's list cards (routines, the computer switch): an outline on the page, no fill. */
+.outlined-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
 .tab-choice {
   display: flex;
   justify-content: center;

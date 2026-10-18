@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
-import { Hairline, IconButton, Switch } from '../../components/Controls'
+import { useEffect, useRef, useState } from 'react'
+import { IconButton, Switch } from '../../components/Controls'
 import { Sheet } from '../../components/Overlay'
 import { font } from '../../lib/fonts'
 import { useStore } from '../../store/context'
@@ -117,7 +117,6 @@ export function RoutinesView({ botId, initialId, onClose }: { botId: string; ini
   }
 
   const editingRoutine = routines.find((r) => r.id === editing?.routineId) ?? null
-  const surface = { background: 'var(--surface)', borderRadius: 16 }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: onClose ? 16 : 10, color: 'var(--text)', ...font(13) }}>
       <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -133,24 +132,21 @@ export function RoutinesView({ botId, initialId, onClose }: { botId: string; ini
       {loadError ? <span style={{ ...font('caption'), color: 'var(--danger)' }}>{loadError}</span> : null}
       {error ? <span style={{ ...font('caption'), color: 'var(--danger)', userSelect: 'text' }}>{error}</span> : null}
       {routines.length === 0 ? (
-        <div style={{ ...surface, ...font(12), lineHeight: 1.45, color: 'var(--secondary)', padding: 14 }}>
+        <div className="outlined-card" style={{ ...font(12), lineHeight: 1.45, color: 'var(--secondary)', padding: 14 }}>
           {loaded ? 'No routines yet. Ask the bot for one, or set it up yourself with +.' : 'Loading routines…'}
         </div>
       ) : (
-        <div style={{ ...surface, padding: '0 14px' }}>
-          {routines.map((routine, i) => (
-            <Fragment key={routine.id}>
-              {i > 0 ? <Hairline /> : null}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <button className="routine-row" onClick={() => open(routine.id)}>
-                  <span style={{ color: 'var(--text)' }}>{routine.name}</span>
-                  <span style={{ ...font('caption'), color: routine.lastError ? 'var(--danger)' : 'var(--secondary)' }}>{summary(routine)}</span>
-                </button>
-                <span aria-label={routine.name} style={{ display: 'flex' }}>
-                  <Switch on={routine.enabled} disabled={busy || store.isOffline} onChange={(on) => void action('setRoutineEnabled', routine, on)} />
-                </span>
-              </div>
-            </Fragment>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {routines.map((routine) => (
+            <div key={routine.id} className="outlined-card" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 14px' }}>
+              <button className="routine-row" onClick={() => open(routine.id)}>
+                <span style={{ color: 'var(--text)' }}>{routine.name}</span>
+                <span style={{ ...font('caption'), color: routine.lastError ? 'var(--danger)' : 'var(--secondary)' }}>{summary(routine)}</span>
+              </button>
+              <span aria-label={routine.name} style={{ display: 'flex' }}>
+                <Switch on={routine.enabled} disabled={busy || store.isOffline} onChange={(on) => void action('setRoutineEnabled', routine, on)} />
+              </span>
+            </div>
           ))}
         </div>
       )}

@@ -265,6 +265,11 @@ export class BotStore extends BotSync {
     this.patchBot(bot, { pinned })
   }
 
+  /** Whether the bot may see and use the computer's screen. */
+  setComputer(bot: Bot, computer: boolean) {
+    this.patchBot(bot, { computer })
+  }
+
   /** Whether the bot uses the memory all bots share. */
   setSharedMemory(bot: Bot, sharedMemory: boolean) {
     this.patchBot(bot, { sharedMemory })

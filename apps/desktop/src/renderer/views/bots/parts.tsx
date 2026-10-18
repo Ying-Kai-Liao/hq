@@ -14,7 +14,7 @@ export function Field({ label, detail, children }: { label: string; detail?: str
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <span style={{ color: 'var(--text)' }}>{label}</span>
-        {detail ? <span style={{ ...font('caption'), color: 'var(--secondary)', lineHeight: 1.35 }}>{detail}</span> : null}
+        {detail ? <span className="detail-note" title={detail} style={{ ...font('caption'), color: 'var(--secondary)', lineHeight: 1.35 }}>{detail}</span> : null}
       </div>
       {children}
     </div>
@@ -27,7 +27,7 @@ export function SwitchRow({ title, detail, on, onChange }: { title: string; deta
     <Switch on={on} onChange={onChange}>
       <span style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <span style={{ color: 'var(--text)' }}>{title}</span>
-        {detail ? <span style={{ ...font('caption'), color: 'var(--secondary)', lineHeight: 1.35 }}>{detail}</span> : null}
+        {detail ? <span className="detail-note" title={detail} style={{ ...font('caption'), color: 'var(--secondary)', lineHeight: 1.35 }}>{detail}</span> : null}
       </span>
     </Switch>
   )

@@ -6,13 +6,24 @@
   background: var(--background);
 }
 
+/* The top band moves the window, like the chat's top chrome; the corner buttons stay clickable. */
+.details-drag {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 54px;
+  z-index: 1;
+  /* What scrolls under it fades out, like the chat's top edge. */
+  background: linear-gradient(var(--background) 70%, transparent);
+  -webkit-app-region: drag;
+}
 .details-actions {
   position: absolute;
   top: 11px;
   right: 11px;
-  z-index: 1;
+  z-index: 2;
   display: flex;
   gap: 8px;
+  -webkit-app-region: no-drag;
 }
 
 .details-scroll {
@@ -53,6 +64,71 @@
   gap: 28px;
   padding: 20px 16px 0;
 }
+.details-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.details-section-title {
+  padding-left: 2px;
+  font-size: calc(13px * var(--scale));
+  font-weight: 600;
+  color: var(--text);
+}
+.details-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  font-size: calc(13px * var(--scale));
+  color: var(--text);
+}
+.details-switch-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+.details-switch-note {
+  font-size: calc(11px * var(--scale));
+  line-height: 1.35;
+  color: var(--secondary);
+}
+
+/* Every group in the inspector is an outlined card, like the routines; inputs take the fill. */
+.details-tab .card-section-rows {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.details-tab .field-box {
+  background: var(--surface);
+}
+/* Long notes (skill descriptions, explanations, a note's description) stop at two lines in the
+   narrow panel; hovering shows the rest, and a skill's info button or a note opens it whole. */
+.details-tab .detail-note,
+.details-tab .memory-content > .memory-muted {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.details-tab .routine-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The panel is narrow: a row with a note puts its control under the label and note. */
+.details-tab .value-row:has(.detail-note) {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.details-tab .value-row:has(.detail-note) > :first-child {
+  flex: 1 1 100%;
+}
+
 /* The settings form scrolls with the panel, not on its own. */
 .details-tab .bot-form {
   height: auto;

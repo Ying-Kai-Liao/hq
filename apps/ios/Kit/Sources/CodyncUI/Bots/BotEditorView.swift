@@ -73,6 +73,12 @@ public struct BotEditorView: View {
     }
 }
 
+/// Which settings a form shows: all of them (a new bot), what changes often (instructions, model,
+/// fast mode: the details sheet's Details page) or the rest (its Settings page).
+enum FormPart {
+    case all, often, rarely
+}
+
 /// Bot settings, in sections in the Settings style (`CardSection`). `scrolls` is off where a
 /// surrounding view scrolls (the details sheet).
 struct BotSettingsForm: View {
@@ -81,6 +87,7 @@ struct BotSettingsForm: View {
     var computers: [(id: ComputerID, label: String)] = []
     var computer: Binding<ComputerID>?
     var scrolls = true
+    var part: FormPart = .all
     @Environment(BotStore.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pickingFolder = false
@@ -108,7 +115,60 @@ struct BotSettingsForm: View {
         }
     }
 
-    private var sections: some View {
+    /// What changes often: on the details sheet's Details page.
+    private var oftenSections: some View {
+        VStack(alignment: .leading, spacing: 30) {
+            CardSection("Instructions") { instructions }
+            CardSection("Agent") {
+                agentPicker
+                modelPicker
+            }
+            if let error {
+                Text(error).font(.footnote).foregroundStyle(Palette.danger)
+            }
+        }
+    }
+
+    private var instructions: some View {
+        Field("Standing instructions", detail: "Rules that always apply. Put task-specific requests in the chat instead.") {
+            TextField("e.g. Reviews PRs. Never pushes without asking.", text: $draft.description, axis: .vertical)
+                .lineLimit(3...8)
+                .fieldBox()
+        }
+    }
+
+    private var agentPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ValueRow("Agent") {
+                ChoicePicker(selection: $draft.backend,
+                             options: (model.hello?.backends ?? []).map { ($0.id, $0.available ? $0.name : "\($0.name) (not installed)") } + [("custom", "Custom command")],
+                             image: { id in AgentIcon.image(registry: model.hello?.backends.first { $0.id == id }?.registry ?? id) })
+            }
+            if let b = model.hello?.backends.first(where: { $0.id == draft.backend }), !b.available {
+                Text(b.installHint).font(.caption).foregroundStyle(Palette.warning)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if draft.backend == "custom" {
+                TextField("ACP command, e.g. my-agent --acp", text: Binding(get: { draft.command ?? "" }, set: { draft.command = $0.isEmpty ? nil : $0 }))
+                    .font(.callout.monospaced())
+                    .plainTextInput()
+                    .fieldBox()
+            }
+        }
+    }
+
+    private var modelPicker: some View {
+        AgentModelPicker(backend: draft.backend, selection: $draft.model, options: $draft.modelOptions,
+                         fastMode: Binding(get: { draft.fastMode ?? false }, set: { on in
+                             withAnimation(Motion.reduced(Motion.fade, reduceMotion)) { draft.fastMode = on }
+                         }), bot: draft.id.flatMap { model.bots[$0] })
+    }
+
+    @ViewBuilder private var sections: some View {
+        if part == .often { oftenSections } else { allSections }
+    }
+
+    private var allSections: some View {
         VStack(alignment: .leading, spacing: 30) {
             CardSection("Profile") {
                 VStack(alignment: .leading, spacing: 12) {
@@ -135,14 +195,11 @@ struct BotSettingsForm: View {
                         TextField("Name", text: $draft.name).fieldBox()
                     }
                 }
-                Field("Standing instructions", detail: "Rules that always apply. Put task-specific requests in the chat instead.") {
-                    TextField("e.g. Reviews PRs. Never pushes without asking.", text: $draft.description, axis: .vertical)
-                        .lineLimit(3...8)
-                        .fieldBox()
-                }
+                if part == .all { instructions }
             }
 
-            CardSection("Agent") {
+            // On the details sheet the agent and its model are on the Details page; what's left is where it works.
+            CardSection(part == .all ? "Agent" : "Workspace") {
                 VStack(alignment: .leading, spacing: 6) {
                     ValueRow("Computer") {
                         if let computer {
@@ -157,26 +214,10 @@ struct BotSettingsForm: View {
                             .font(.caption).foregroundStyle(Palette.warning)
                     }
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    ValueRow("Agent") {
-                        ChoicePicker(selection: $draft.backend,
-                                     options: (model.hello?.backends ?? []).map { ($0.id, $0.available ? $0.name : "\($0.name) (not installed)") } + [("custom", "Custom command")])
-                    }
-                    if let b = model.hello?.backends.first(where: { $0.id == draft.backend }), !b.available {
-                        Text(b.installHint).font(.caption).foregroundStyle(Palette.warning)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    if draft.backend == "custom" {
-                        TextField("ACP command, e.g. my-agent --acp", text: Binding(get: { draft.command ?? "" }, set: { draft.command = $0.isEmpty ? nil : $0 }))
-                            .font(.callout.monospaced())
-                            .plainTextInput()
-                            .fieldBox()
-                    }
+                if part == .all {
+                    agentPicker
+                    modelPicker
                 }
-                AgentModelPicker(backend: draft.backend, selection: $draft.model, options: $draft.modelOptions,
-                                 fastMode: Binding(get: { draft.fastMode ?? false }, set: { on in
-                                     withAnimation(Motion.reduced(Motion.fade, reduceMotion)) { draft.fastMode = on }
-                                 }), bot: draft.id.flatMap { model.bots[$0] })
                 ValueRow("Workspace", detail: draft.cwd.isEmpty
                          ? "This bot has its own space for files. It can work in other folders when you ask."
                          : "This project is the default starting folder. The bot can work elsewhere when you ask.") {
@@ -209,7 +250,7 @@ struct BotSettingsForm: View {
             CardSection("Activity") {
                 SwitchRow("Notifications", detail: "Get notified when this bot finishes or needs you",
                           isOn: Binding(get: { draft.notify ?? true }, set: { draft.notify = $0 }))
-                if model.screen != nil {
+                if model.screen != nil, part == .all {
                     SwitchRow("Use the computer", detail: model.screen?.controlReady != true
                         ? "Let this bot use apps. On that computer, open Codync → Settings → Computer access to set up permissions first."
                         : model.screen?.enabled == true
@@ -246,6 +287,7 @@ struct Field<Content: View>: View {
     let label: String
     var detail: String?
     @ViewBuilder let content: Content
+    @Environment(\.noteLines) private var noteLines
 
     init(_ label: String, detail: String? = nil, @ViewBuilder content: () -> Content) {
         self.label = label
@@ -259,6 +301,7 @@ struct Field<Content: View>: View {
                 Text(label).foregroundStyle(Palette.text)
                 if let detail {
                     Text(detail).font(.caption).foregroundStyle(Palette.secondary).lineSpacing(2)
+                        .lineLimit(noteLines)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -272,6 +315,7 @@ struct SwitchRow: View {
     let title: String
     var detail: String?
     @Binding var isOn: Bool
+    @Environment(\.noteLines) private var noteLines
 
     init(_ title: String, detail: String? = nil, isOn: Binding<Bool>) {
         self.title = title
@@ -285,6 +329,7 @@ struct SwitchRow: View {
                 Text(title).foregroundStyle(Palette.text)
                 if let detail {
                     Text(detail).font(.caption).foregroundStyle(Palette.secondary).lineSpacing(2)
+                        .lineLimit(noteLines)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -294,12 +339,23 @@ struct SwitchRow: View {
 }
 
 extension View {
-    /// A rounded input box.
-    func fieldBox(fill: Color = Palette.background) -> some View {
-        textFieldStyle(.plain)
+    /// A rounded input box: the page color in a filled card, filled in an outlined one.
+    func fieldBox(fill: Color? = nil) -> some View {
+        modifier(FieldBox(fill: fill))
+    }
+}
+
+private struct FieldBox: ViewModifier {
+    let fill: Color?
+    @Environment(\.cardStyle) private var cardStyle
+
+    func body(content: Content) -> some View {
+        content
+            .textFieldStyle(.plain)
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
-            .background(fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(fill ?? (cardStyle == .outlined ? Palette.surface : Palette.background),
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -367,122 +423,6 @@ struct AvatarPicker: View {
                 }
                 .padding(4)
             }
-        }
-    }
-}
-
-/// Browses folders on the host, drilling down in place.
-struct FolderPicker: View {
-    let start: String?
-    let onPick: (String) -> Void
-    /// The folders opened so far; the last one is shown.
-    @State private var stack: [String?]
-    @State private var forward = true
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    init(start: String?, onPick: @escaping (String) -> Void) {
-        self.start = start
-        self.onPick = onPick
-        _stack = State(initialValue: [start])
-    }
-
-    var body: some View {
-        let current = stack.last ?? nil
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                if stack.count > 1 {
-                    BackButton { go(forward: false) { stack.removeLast() } }
-                        .padding(.leading, 12)
-                        .transition(.opacity)
-                }
-                ModalHeader(current.map { ($0 as NSString).lastPathComponent } ?? "Folders")
-            }
-            ZStack {
-                FolderLevel(path: current, onPick: onPick) { path in go(forward: true) { stack.append(path) } }
-                    .id(stack.count)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: forward ? .trailing : .leading),
-                        removal: .move(edge: forward ? .leading : .trailing)
-                    ).combined(with: .opacity))
-            }
-            .frame(maxHeight: .infinity, alignment: .top)
-            .clipped()
-        }
-        .background(Palette.background)
-    }
-
-    /// Sets the slide direction first, so the leaving level takes it too, then moves.
-    private func go(forward: Bool, _ change: @escaping () -> Void) {
-        self.forward = forward
-        Task { @MainActor in
-            withAnimation(Motion.reduced(Motion.layout, reduceMotion), change)
-        }
-    }
-}
-
-/// One folder's subfolders.
-private struct FolderLevel: View {
-    let path: String?
-    let onPick: (String) -> Void
-    let open: (String) -> Void
-    @Environment(BotStore.self) private var model
-    @State private var listing: DirListing?
-    @State private var error: String?
-    @State private var filter = ""
-
-    var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 22) {
-                SearchField(text: $filter)
-                if let listing {
-                    CardSection(footer: listing.path) {
-                        Button {
-                            onPick(listing.path)
-                        } label: {
-                            Label("Use “\((listing.path as NSString).lastPathComponent)”", systemImage: "checkmark.circle.fill")
-                                .font(.headline)
-                                .foregroundStyle(Palette.accent)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(PressScale())
-                    }
-                    let dirs = listing.dirs.filter { filter.isEmpty || $0.name.localizedCaseInsensitiveContains(filter) }
-                    if !dirs.isEmpty {
-                        CardSection {
-                            ForEach(dirs) { dir in
-                                Button {
-                                    open(dir.path)
-                                } label: {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: dir.isGit ? "arrow.triangle.branch" : "folder")
-                                            .foregroundStyle(dir.isGit ? Palette.accent : Palette.secondary)
-                                            .frame(width: 20)
-                                        Text(dir.name).foregroundStyle(Palette.text).lineLimit(1)
-                                        Spacer(minLength: 8)
-                                        Image(systemName: "chevron.right")
-                                            .font(.caption2.weight(.semibold))
-                                            .foregroundStyle(Palette.tertiary)
-                                    }
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(PressScale())
-                            }
-                        }
-                    }
-                } else if let error {
-                    Text(error).foregroundStyle(Palette.danger)
-                } else {
-                    Spinner(size: 20).frame(maxWidth: .infinity)
-                }
-            }
-            .font(.body)
-            .padding(20)
-        }
-        .scrollDismissesKeyboard(.interactively)
-        .background(Palette.background)
-        .task {
-            do { listing = try await model.listDirs(path) } catch { self.error = error.localizedDescription }
         }
     }
 }

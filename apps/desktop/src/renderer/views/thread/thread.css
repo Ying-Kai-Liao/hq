@@ -78,6 +78,19 @@
 .title-pill {
   transition: opacity var(--layout), transform var(--layout);
 }
+.title-pill-chevron {
+  display: flex;
+  width: 0;
+  margin-left: -7px;
+  overflow: hidden;
+  opacity: 0;
+  transition: width var(--hover), margin var(--hover), opacity var(--hover);
+}
+.title-pill:hover .title-pill-chevron {
+  width: calc(10px * var(--scale));
+  margin-left: 0;
+  opacity: 1;
+}
 .title-pill.hidden-by-call {
   opacity: 0;
   transform: translateY(-8px);

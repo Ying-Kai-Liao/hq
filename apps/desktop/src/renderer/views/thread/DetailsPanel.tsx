@@ -1,7 +1,7 @@
 import { isGroup, isWorking, type Bot } from '@shared/models'
 import { AgentIcon } from '../../components/AgentIcon'
 import { BotAvatar, GroupAvatar } from '../../components/Avatar'
-import { CardSection, IconButton, TabChoice, ValueRow } from '../../components/Controls'
+import { IconButton, Switch, TabChoice } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { font } from '../../lib/fonts'
 import { useStore } from '../../store/context'
@@ -35,6 +35,7 @@ export function DetailsPanel({ botId, routineId, tab, setTab, editGroup, share, 
   const group = !!bot && isGroup(bot)
   return (
     <div className="details-panel">
+      <div className="details-drag" />
       <div className="details-actions">
         {bot && !group ? <MacChatButton className="ringed" title="Create template" icon="square.and.arrow.up" onClick={share} /> : null}
         <MacChatButton className="ringed" title="Close details" icon="xmark" onClick={close} />
@@ -49,13 +50,14 @@ export function DetailsPanel({ botId, routineId, tab, setTab, editGroup, share, 
             <div key={tab} className="details-tab fade-in">
               {tab === 'details' ? (
                 <>
+                  <BotSettingsPanel botId={botId} part="often" />
                   {bot ? <ComputerUse bot={bot} /> : null}
                   <RoutinesView botId={botId} initialId={routineId} />
                 </>
               ) : tab === 'memory' ? (
                 <MemoryCard botId={botId} />
               ) : (
-                <BotSettingsPanel botId={botId} />
+                <BotSettingsPanel botId={botId} part="rarely" />
               )}
             </div>
           </>
@@ -88,14 +90,25 @@ function Identity({ bot }: { bot: Bot }) {
   )
 }
 
-/** Whether this bot may use the computer; it's changed in Settings. */
+/** Whether this bot may use the computer, switched right here (also in Settings). */
 function ComputerUse({ bot }: { bot: Bot }) {
   const store = useStore()
-  if (!store.screen) return null
+  const screen = store.screen
+  if (!screen) return null
+  const ready = screen.platform === 'windows' || (screen.enabled && screen.connected && screen.capture && screen.input)
   return (
-    <CardSection title="Computer">
-      <ValueRow label="Use the computer">{bot.computer ? 'On' : 'Off'}</ValueRow>
-    </CardSection>
+    <section className="details-section">
+      <span className="details-section-title">Computer</span>
+      <div className="outlined-card details-switch">
+        <span className="details-switch-text">
+          <span>Use the computer</span>
+          {ready ? null : <span className="details-switch-note">On that computer, open Codync → Settings → Computer access to set it up first.</span>}
+        </span>
+        <span style={{ display: 'flex', flex: 'none' }}>
+          <Switch label="Use the computer" on={bot.computer} disabled={store.isOffline} onChange={(on) => store.setComputer(bot, on)} />
+        </span>
+      </div>
+    </section>
   )
 }
 
