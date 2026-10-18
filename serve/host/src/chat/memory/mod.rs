@@ -70,6 +70,15 @@ pub fn changed(hub: &Hub, bot: Option<&str>) {
     }
 }
 
+/// What a bot's memory screen shows changed outside the store (Claude Code's notes came or went): moves
+/// `memoryRev` so the apps fetch it again, without telling the bot's sessions.
+pub fn screen_changed(hub: &Hub, bot: &str) {
+    if let Err(error) = hub.store.memory_write(|_, _, _| Ok(())) {
+        tracing::warn!(bot, error = format!("{error:#}"), "couldn't move the memory revision");
+    }
+    hub.emit_bot(bot);
+}
+
 /// The memory revision a bot's layers are at.
 fn revision_key(bot: &str) -> String {
     format!("memory.revision.{bot}")

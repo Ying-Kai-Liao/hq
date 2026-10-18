@@ -227,6 +227,7 @@ mod tests {
             skills: vec![],
             computer: false,
             shared_memory: None,
+            harness_memory: false,
             auto_name: false,
             created_at: 0,
         };

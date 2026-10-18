@@ -21,15 +21,15 @@ pub(super) fn claude_meta(cfg: &BotConfig, system: &str) -> Value {
     json!({"systemPrompt": {"append": system, "excludeDynamicSections": true}, "claudeCode": claude_options(cfg)})
 }
 
-/// Claude Code's own memory stays off where Codync's is the bot's only one (a bot in its own workspace); in a
-/// project folder it is the project's working memory and stays on. Its auto-dream rewrites memory with no log, so
-/// it is off everywhere ([design](../../../../docs/design/bot-memory.md#claude-codes-own-memory)).
+/// Claude Code's own memory and its auto-dream stay off, so Codync's is the bot's one memory, unless the user kept
+/// them on; then Claude Code sets both itself ([design](../../../../docs/design/bot-memory.md#claude-codes-own-memory)).
 fn claude_options(cfg: &BotConfig) -> Value {
     // The bot's replies and memory are Codync's own tools, which follow the bot's permission inside Codync: the
     // user's Claude Code auto-mode classifier mustn't refuse them (it blocked a reply naming the user's daughter).
-    let mut settings = json!({"autoDreamEnabled": false, "permissions": {"allow": ["mcp__chat", "mcp__memory"]}});
-    if crate::agent::workspace::is_managed(cfg) {
+    let mut settings = json!({"permissions": {"allow": ["mcp__chat", "mcp__memory"]}});
+    if !crate::agent::own_memory::kept(cfg) {
         settings["autoMemoryEnabled"] = false.into();
+        settings["autoDreamEnabled"] = false.into();
     }
     json!({"options": {"settings": settings}})
 }
@@ -179,5 +179,27 @@ mod tests {
         // Cursor's Auto: `default[]` with variants, `default` without.
         let auto = json!({"models": {"availableModels": [{"modelId": "default"}]}});
         assert_eq!(split_variant(&auto, "default[]"), ("default", vec![]));
+    }
+
+    #[test]
+    fn claude_codes_memory_is_off_in_any_folder_unless_the_user_kept_it() {
+        let bot = |kept: Value| -> BotConfig {
+            serde_json::from_value(
+                json!({"id": "a", "name": "B", "backend": "claude", "cwd": "/work/app", "harnessMemory": kept}),
+            )
+            .unwrap()
+        };
+        let settings = |cfg: &BotConfig| claude_options(cfg)["options"]["settings"].clone();
+        // `null`: a client sending back a bot that had no switch.
+        for off in [json!(false), Value::Null] {
+            let off = settings(&bot(off));
+            assert_eq!(off["autoMemoryEnabled"], false, "a project folder too");
+            assert_eq!(off["autoDreamEnabled"], false);
+        }
+        let kept = settings(&bot(json!(true)));
+        assert!(
+            kept.get("autoMemoryEnabled").is_none() && kept.get("autoDreamEnabled").is_none(),
+            "Claude Code decides"
+        );
     }
 }

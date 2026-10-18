@@ -133,10 +133,11 @@ fn view(hub: &Hub, cfg: &BotConfig) -> Result<Value> {
     }))
 }
 
-/// Claude Code's own memory of a project bot's folder (`~/.claude/projects/<folder>/memory/MEMORY.md`), shown
-/// read-only so nothing a bot remembers is out of the user's sight.
+/// Claude Code's own memory of the bot's folder (`~/.claude/projects/<folder>/memory/MEMORY.md`), where the user
+/// kept it on, shown read-only so nothing a bot remembers is out of the user's sight. Empty text until Claude Code
+/// saves something, so the apps show its section as soon as the switch is on.
 fn project_memory(cfg: &BotConfig) -> Value {
-    if crate::agent::workspace::is_managed(cfg) || cfg.backend != "claude" {
+    if cfg.backend != "claude" || !crate::agent::own_memory::kept(cfg) {
         return Value::Null;
     }
     let folder: String = cfg.cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
@@ -149,7 +150,14 @@ fn project_memory(cfg: &BotConfig) -> Value {
         std::io::Read::read_to_end(&mut std::io::Read::take(file, PROJECT_MEMORY_BYTES), &mut bytes)?;
         Ok(String::from_utf8_lossy(&bytes).into_owned())
     });
-    read.map_or(Value::Null, |text| json!({"path": path.to_string_lossy(), "text": text}))
+    match read {
+        Ok(text) => json!({"path": path.to_string_lossy(), "text": text}),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({"path": path.to_string_lossy(), "text": ""}),
+        Err(error) => {
+            tracing::warn!(%error, "couldn't read Claude Code's memory");
+            Value::Null
+        }
+    }
 }
 
 fn bot(hub: &Hub, id: &str) -> Result<BotConfig> {

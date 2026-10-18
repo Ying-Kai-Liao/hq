@@ -11,6 +11,9 @@ impl Hub {
         let cfg = &row.config;
         let mut v = serde_json::to_value(cfg).expect("BotConfig is plain data and always serializes");
         v["managedWorkspace"] = crate::agent::workspace::is_managed(cfg).into();
+        // Null where there is no switch to show.
+        v["harnessMemory"] =
+            (!cfg.is_group() && crate::agent::own_memory::switchable(cfg)).then_some(cfg.harness_memory).into();
         if !cfg.is_group() {
             v["sharedMemory"] = crate::chat::memory::shared(cfg).into();
             v["memoryRev"] = self.store.memory_rev().into();

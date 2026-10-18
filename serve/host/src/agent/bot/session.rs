@@ -170,10 +170,7 @@ impl Actor {
             self.hub.set_runtime(&self.id(), |r| r.activity = "Starting agent…".into());
             // Keys saved from an "environment variable" sign-in.
             let mut env = crate::agent::auth::env(&self.hub.store, &self.cfg.backend)?;
-            if crate::agent::workspace::is_managed(&self.cfg) {
-                // Codync's memory is the only one a bot in its own workspace has.
-                own_memory::turn_off(&self.cfg.backend, &self.cfg.cwd, &mut env, &mut candidates).await;
-            }
+            own_memory::apply(&self.cfg, &mut env, &mut candidates).await;
             if self.cfg.backend == "codex" && !env.iter().any(|(k, _)| k == "CODEX_CONFIG") {
                 // Codex's `/compact` takes no instructions: the keep-list is its config's `compact_prompt`.
                 let config = json!({"compact_prompt": codync_mem::compaction::KEEP});
