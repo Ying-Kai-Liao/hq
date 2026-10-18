@@ -104,9 +104,18 @@ print("p_allowed=%d p_why=%s p_owner=%d" % (r["allowed"], q(r["why"]), r["owner"
 print("p_mode=%s p_model=%s p_deny=%s" % (q(r.get("mode", "")), q(r.get("model", "")), q("\n".join(r.get("deny", [])))))
 attrs = " ".join("%s=\"%s\"" % (k, str(r[k]).replace("\"", "")) for k in ("person", "name", "lang", "tz") if r.get(k))
 print("p_line=%s" % q(" " + attrs))
+print("p_budget=%s p_budget_agent=%s p_was=%s" % (q(r.get("budget", "")), q(r.get("budget_agent") or ""), q(",".join(r.get("was", [])))))
 for k, v in r.get("env", {}).items():
     print("export %s=%s" % (k, q(v)))')"
   [[ $p_allowed == 1 ]] || { echo "hq: $p_why (hq-auth member $agent ${HQ_PERSON})" >&2; exit 3; }
+  if [[ -n $p_budget ]]; then   # the membership's monthly cap, for the agent they reached (the caller, for a helper)
+    spent=$(HQ_PERSON_WAS=$p_was "$HQ/bin/hq-cost" spent "$HQ_PERSON" "$p_budget_agent" 2>/dev/null || echo 0)
+    if python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) >= float(sys.argv[2]) else 1)' "$spent" "$p_budget"; then
+      printf 'hq: %s has used $%.2f of their $%s this month on %s; the owner can raise it (hq auth member %s %s budget=..)\n' \
+        "$HQ_PERSON" "$spent" "$p_budget" "$p_budget_agent" "$p_budget_agent" "$HQ_PERSON" >&2
+      exit 3
+    fi
+  fi
   export HQ_PERSON
 fi
 mkdir -p "$home/memory/projects" "$home/memory/sessions"

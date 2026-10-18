@@ -4,6 +4,9 @@
   hq-cost [today|week|month|all]   totals, by day, by project and the top sessions (syncs first)
   hq-cost agents [period]          hq agents side by side: cost, runs, cost per run, models (default: month)
   hq-cost agent <name> [period]    one hq agent: by day, by version, by model and effort, its costliest runs
+  hq-cost people [period]          what each person's runs cost (HQ_PERSON; the owner's own runs as owner), by agent
+  hq-cost spent <person> [agent]   this calendar month's cost of a person's runs, a bare number (bin/hq checks a
+                                   membership's budget= with it)
   hq-cost session <id-prefix>      one session turn by turn, plus its subagents
   hq-cost sync                     copy new usage from ~/.claude/projects into the ledger
   hq-cost csv [since YYYY-MM-DD]   every request as CSV with its hq agent, for a spreadsheet
@@ -26,7 +29,7 @@ from hq_paths import paths  # noqa: E402  the one place that knows where hq's fo
 MACHINE = paths()['HQ_MACHINE']
 DB = MACHINE / 'cost.db'
 PROJECTS = Path.home() / '.claude/projects'
-BRIDGE_STATE = MACHINE / 'bridge/state.json'  # thread -> {agent, session_id}: Discord runs before tagging
+BRIDGE_STATE = MACHINE / 'bridge/state.json'  # thread -> {sessions: {agent: id}}: Discord runs before tagging
 
 # $ per MTok: input, output, cache read, cache write 5m, cache write 1h. First matching key wins.
 PRICES = [
@@ -59,13 +62,19 @@ def db():
       create index if not exists req_ts on req(ts);
       create index if not exists req_session on req(session);
       create table if not exists runs (session text primary key, agent text, version text, model text, effort text,
-        via text, project text, started text);
-      create view if not exists hq_req as
+        via text, project text, started text);''')
+    if 'person' not in [r[1] for r in c.execute('pragma table_info(runs)')]:
+        c.execute('alter table runs add column person text')   # who the run was for: HQ_PERSON; null is the owner
+    # the person comes from the session: a helper or hq:<name> subagent in a person's run counts for them too
+    c.executescript('''
+      drop view if exists hq_req;
+      create view hq_req as
         select req.*, case when req.agent like 'hq:%' then substr(req.agent, 4, instr(substr(req.agent, 4) || ':', ':') - 1)
                            else runs.agent end as hq_agent,
                case when req.agent like 'hq:%' then null else runs.version end as version,
                case when req.agent like 'hq:%' then 'subagent' else runs.via end as via,
-               case when req.agent like 'hq:%' then null else runs.effort end as effort
+               case when req.agent like 'hq:%' then null else runs.effort end as effort,
+               runs.person as person
         from req left join runs using (session);''')
     return c
 
@@ -115,8 +124,9 @@ def sync(c, quiet=False):
         n += len(rows)
     try:
         threads = json.loads(BRIDGE_STATE.read_text()).get('threads', {}).values()
-        c.executemany("insert or ignore into runs (session, agent, via) values (?, ?, 'discord')",
-                      [(t['session_id'], t['agent']) for t in threads if t.get('session_id') and t.get('agent')])
+        rows = [(t['session_id'], t['agent']) for t in threads if t.get('session_id') and t.get('agent')]   # v1
+        rows += [(sid, a) for t in threads for a, sid in (t.get('sessions') or {}).items() if sid]
+        c.executemany("insert or ignore into runs (session, agent, via) values (?, ?, 'discord')", rows)
     except (OSError, ValueError, AttributeError):
         pass
     c.commit()
@@ -157,10 +167,11 @@ def tag(c):
         hook = json.load(sys.stdin)
         env = os.environ.get
         if hook.get('session_id') and env('HQ_AGENT'):
-            c.execute('insert or replace into runs values (?,?,?,?,?,?,?,?)', (
+            c.execute('insert or replace into runs (session, agent, version, model, effort, via, project, started, '
+                      'person) values (?,?,?,?,?,?,?,?,?)', (
                 hook['session_id'], env('HQ_AGENT'), env('HQ_AGENT_VERSION'), env('HQ_MODEL') or None,
                 env('HQ_EFFORT') or None, env('HQ_VIA', 'terminal'), env('HQ_PROJECT') or None,
-                dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')))
+                dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S'), env('HQ_PERSON') or None))
             c.commit()
     except Exception as e:  # noqa: BLE001 — cost tracking must never block a run
         print(f'hq-cost tag: {e}', file=sys.stderr)
@@ -174,9 +185,10 @@ def record(c):
         c.execute('insert or replace into req values (?,?,?,?,?,?,?,?,?,?,?,?)', (
             r['id'], r['session'], now, os.getcwd(), r.get('model'), 'main', r.get('turn'), r.get('input', 0),
             r.get('output', 0), r.get('cache_read', 0), r.get('cache_write', 0), r.get('cost')))
-        c.execute('insert or ignore into runs values (?,?,?,?,?,?,?,?)', (
+        c.execute('insert or ignore into runs (session, agent, version, model, effort, via, project, started, '
+                  'person) values (?,?,?,?,?,?,?,?,?)', (
             r['session'], env('HQ_AGENT'), env('HQ_AGENT_VERSION'), r.get('model'), env('HQ_EFFORT') or None,
-            env('HQ_VIA', 'terminal'), env('HQ_PROJECT') or None, now[:19]))
+            env('HQ_VIA', 'terminal'), env('HQ_PROJECT') or None, now[:19], env('HQ_PERSON') or None))
         c.commit()
     except Exception as e:  # noqa: BLE001 — cost tracking must never block a run
         print(f'hq-cost record: {e}', file=sys.stderr)
@@ -229,6 +241,36 @@ def agent(c, name, period):
     print()
 
 
+def people(c, period):
+    since = since_of(period)
+    rows = c.execute('''select coalesce(person, 'owner'), hq_agent, sum(cost) s, count(distinct session)
+                        from hq_req where hq_agent is not null and ts >= ? group by 1, 2 order by 1, s desc''',
+                     (since,)).fetchall()
+    print(f'\nwhat each person\'s runs cost, {period}  (owner: your own runs)\n')
+    who = None
+    for p, a, cost, runs in rows:
+        if p != who:
+            total = sum(r[2] or 0 for r in rows if r[0] == p)
+            print(f'  {p:<12}{money(total):>10}')
+            who = p
+        print(f'    {a:<14}{money(cost):>10}{runs:>5} runs')
+    if not rows:
+        print('  nothing recorded yet')
+    print()
+
+
+def spent(c, person, agent=None):
+    """This calendar month (local time) for a person, all agents or one; the person's old ids count too."""
+    start = dt.datetime.now().astimezone().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    since = start.astimezone(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+    ids = [person] + [x for x in os.environ.get('HQ_PERSON_WAS', '').split(',') if x]
+    sql = f'select sum(cost) from hq_req where ts >= ? and person in ({",".join("?" * len(ids))})'
+    args = [since, *ids]
+    if agent:
+        sql, args = sql + ' and hq_agent = ?', args + [agent]
+    print(f'{c.execute(sql, args).fetchone()[0] or 0:.4f}')
+
+
 def session(c, prefix):
     ids = [r[0] for r in c.execute('select distinct session from req where session like ?', (prefix + '%',))]
     if len(ids) != 1:
@@ -267,11 +309,15 @@ def main():
         agents(c, a[1] if len(a) > 1 else 'month')
     elif a[0] == 'agent' and len(a) > 1:
         agent(c, a[1], a[2] if len(a) > 2 else 'month')
+    elif a[0] == 'people':
+        people(c, a[1] if len(a) > 1 else 'month')
+    elif a[0] == 'spent' and len(a) > 1:
+        spent(c, a[1], a[2] if len(a) > 2 else None)
     elif a[0] == 'csv':
         since = a[2] if len(a) > 2 else '0'
         w = csv.writer(sys.stdout)
         w.writerow(['id', 'session', 'ts', 'project', 'model', 'agent', 'turn', 'input', 'output', 'cache_read', 'cache_write',
-                    'cost', 'hq_agent', 'version', 'via', 'effort'])
+                    'cost', 'hq_agent', 'version', 'via', 'effort', 'person'])
         w.writerows(c.execute('select * from hq_req where ts >= ? order by ts', (since,)))
     elif a[0] in ('today', 'week', 'month', 'all'):
         report(c, a[0])

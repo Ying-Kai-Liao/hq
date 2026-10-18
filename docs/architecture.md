@@ -124,11 +124,27 @@ and a permission mode with `HQ_OUTPUT`, `HQ_RESUME`, `HQ_PERMISSION_MODE`, the s
 result shape back. Session ids from other harnesses are `<harness>:<id>`, so a session is only ever resumed by the
 harness that made it. Settings permissions, hooks and per-request cost stay Claude-only.
 
-**Channels** (`bin/hq-bridge`, `bin/hq-send`). Discord, one bot, a channel per agent. The channel's agent owns the
-task, calls other agents as helpers, and answers in the task's thread. Telegram (2026-10-19), a bot of hq's own
-(`telegram/hq`, granted to `bridge`) in the same bridge process: in a private chat, `@agent` or `/agent` picks the
-agent, a reply to an agent's message continues its session, anything else goes to the chat's default agent
-(`/default`; the owner's DM starts with `personal`) or the bot asks with a button per agent. No groups or files yet.
+**Channels** (`bin/hq-bridge`, `lib/hq_bridge/`, `bin/hq-send`; 2026-10-19). One bridge process for every platform
+and every bot. Each bot is a connection: a `discord/`, `telegram/` or `slack/` profile granted to `bridge` (a grant
+can hold a list, one bot each), plus the Discord token in `HQ_DISCORD_BOT_TOKEN` as `discord/hq`. Every connection
+runs and restarts on its own. `core.py` holds what is the same everywhere; an adapter per platform
+(`discord_chat.py`, `telegram_chat.py`, `slack_chat.py`) only receives, posts as the agent, threads and stops.
+- **Rooms:** where people talk (a DM, `#home`, a group), keyed `<connection>:<chat>`, with an optional default agent
+  (`/default <agent>`). An agent's Discord channel is a room defaulting to that agent; the owner's new DMs default to
+  `personal`.
+- **Who answers:** `@agent` (or `/agent`); in a thread, the agent that answered last; then the room's default; else,
+  when the bot was addressed, it asks "who should take this?" with a button per agent, never guessing. A room with
+  no default ignores talk not aimed at hq.
+- **Threads:** one task each (a Discord or Slack thread; on Telegram a reply chain), belonging to the person who
+  started it, with a session per agent (`{agent: session}`). The first agent owns it; one mentioned later answers in
+  its own session there.
+- **The queue**, the same on every platform: messages sent while an agent works wait and go to it together; Jev
+  routes each (stop, correction → restart, other subject, more of the same); a Stop button and `/stop`.
+- **Files:** in as local paths; out with `hq-send`, which leaves them in the run's outbox (`HQ_BRIDGE_OUTBOX`) for
+  the bridge to post (Discord threads: the channel's webhook, as before).
+- Telegram: groups too (privacy mode: commands, mentions of the bot and replies to it), Markdown shown as Telegram
+  HTML. Slack: Socket Mode, `@agent` as plain text, `!command` (Slack keeps `/`). Discord: a mentionable role per
+  agent for `@` autocomplete when the bot may manage roles.
 
 **People** (`bin/hq-auth`, 2026-10-19). Other people use the owner's hq through chat. The tables live in
 `auth.json`, next to grants, so agents can't change them, one fact per table:
@@ -153,8 +169,18 @@ the owner, the membership's mode replaces the caller's (the bridge asks for `byp
 
 The plugin refuses `hq:<name>` spawns the person may not use (`--via` the calling agent: a helper is allowed when
 the caller's membership lists it). The bridge maps a sender to a person (`whois`), links accounts with `/link CODE`
-(from `hq auth invite`), checks access before starting, and gives a Discord thread to the person who started it.
-Others are turned away from it, because its session holds what the agent saw for them. `hq auth people [ID]
+(from `hq auth invite`), checks access before starting, and gives a thread to the person who started it.
+Others are turned away from it, because its session holds what the agent saw for them. The old Discord settings
+(`HQ_DISCORD_REPLY_TO`, `HQ_DISCORD_ALLOWED_IDS`, `HQ_DISCORD_OWNER_ID`) are ignored: the owner is the `people` owner
+(until their Discord account is known, the server's owner stands in).
+- Only the owner gets a free shell: `mode=bypassPermissions` on a membership or preset needs `--trusted`; one set
+  without it (by hand) runs in `default`.
+- `hq auth person <id> id=<new>` renames, carrying memberships, grants, owned profiles and invites; the old id stays
+  in `was`, so bridge threads and the cost ledger still mean them.
+- Cost per person: the ledger's runs carry `person` (`hq cost people`), and `budget=USD` on a membership caps a
+  calendar month of their runs of that agent (helpers reached through it included); `bin/hq` refuses past it.
+- `hq doctor` checks the tables: rows and grants naming no one, missing agents, logins shared with everyone, free
+  shells, the old Discord settings. `hq auth people [ID]
 [--matrix]` shows everything: each person's accounts, owned profiles, the agents they reach and how, and the
 account each service would really use in their runs.
 
@@ -166,50 +192,21 @@ apply to full `hq <agent>` runs.
 
 ## Planned
 
-**People and channels** (designed 2026-10-19, in build order; most users will use the owner's hq remotely, through
-chat). Items 1–5 all change `hq-bridge`, so build them one after another, item 1 first. After that, 4, 3, 11 and 12
-touch different files and can be built in parallel (flow).
+**People and channels**, what is left of the 2026-10-19 design (items 1–9 and 12 are built, above; Slack is built
+but waits for an app):
 
-Channels:
-1. **Split the bridge.** One core for people, access, routing, sessions and the queue, plus a small adapter per
-   platform: receive, post as the agent, thread, stop. Discord and Telegram each carry a copy of that core today.
-   Discord moves first, behaving exactly as now.
-2. **Rooms and `@mentions` everywhere.** A room is where people talk (a DM, `#home`, `#work`), keyed by bot and chat
-   id, with an optional default agent. `@agent` picks; with no mention, the thread's last agent, then the room's
-   default; with none, ask "who should take this?" (never guess). Threads become `{agent: session}`, the first
-   agent mentioned owns the task, and the others are helpers. Today's agent channels stay as rooms. On Discord, a
-   role per agent gives `@` autocomplete.
-3. **Telegram, finished:** groups (the household one; privacy mode means commands or mentions only), files both
-   ways, Markdown, and the queue, stop and corrections from Discord.
-4. **Slack:** one app in Socket Mode. On the free plan: 10 apps, 90-day history, no guest accounts (so keep
-   private agents' channels private).
-5. **Several bots per platform:** a grant holds a list (`"bridge": {"telegram": ["telegram/hq", …]}`), one connection
-   each, every connection restarting on its own.
-
-Auth:
-
-6. **Retire the old Discord settings.** Turn off `HQ_DISCORD_REPLY_TO=anyone` (today every server member runs as the
-   owner). Make each `HQ_DISCORD_ALLOWED_IDS` entry a person or drop it, and read the owner from `people` instead
-   of `HQ_DISCORD_OWNER_ID`.
-7. **Only the owner gets a free shell:** `hq auth member … mode=bypassPermissions` refuses unless `--trusted`.
-8. **`hq doctor` checks the people setup:** memberships naming missing agents, unknown people in grants, login
-   profiles marked shared.
-9. **Rename a person** (`hq auth person <id> id=<new>`, carrying memberships, grants and owned profiles along).
-10. **An `admin` level** (everything but the owner's logins, folder isolation off). On hold until the owner asks.
-
-Remote users:
-
-11. **Sign-in links** for a person's own accounts: an OAuth link sent in chat (Google first), with the token stored
-    in the Keychain as `google/<person>` and granted `agent@person`.
-12. **Cost per person:** a `person` column in the cost ledger, and a monthly cap per membership (`budget=`).
-13. **Memory per person:** `agents/<a>/memory/` stays shared with the agent's members, `memory/people/<id>/` holds
-    what it learned from one person, and `user.md` becomes `people/<owner>.md`. This is a structural move, so
-    propose it before doing it.
-14. **Shared browser logins:** the owner's browser profiles hold the agents' accounts. A profile opens in one run
-    at a time, so each run gets an APFS clone, thrown away after (a login refreshed during a run is lost).
-    `chrome-agent` should become a browser profile (`browser/agent`, living in the Chrome app). It can't be merged
-    into the jev-browser profile yet: yt-dlp couldn't decrypt 208 of that profile's 670 cookies, which are encrypted with a
-    different key.
+- **An `admin` level** (everything but the owner's logins, folder isolation off). On hold until the owner asks.
+- **Sign-in links** for a person's own accounts: an OAuth link sent in chat (Google first), with the token stored in
+  the Keychain as `google/<person>` and granted `agent@person`. Needs a Google Cloud OAuth client, and the bridge has
+  no public URL: either the loopback redirect (the person pastes back the address their browser fails to open) or a
+  small relay. Undecided.
+- **Memory per person:** `agents/<a>/memory/` stays shared with the agent's members, `memory/people/<id>/` holds what
+  it learned from one person, and `user.md` becomes `people/<owner>.md`. A structural move: propose it first.
+- **Shared browser logins:** the owner's browser profiles hold the agents' accounts. A profile opens in one run at a
+  time, so each run gets an APFS clone, thrown away after (a login refreshed during a run is lost). `chrome-agent`
+  should become a browser profile (`browser/agent`, living in the Chrome app). It can't be merged into the
+  jev-browser profile yet: yt-dlp couldn't decrypt 208 of that profile's 670 cookies, which are encrypted with a
+  different key. Structural too: propose first.
 
 **Publishing an agent with a past.** `hq share --public` refuses an agent whose old commits name the user. Next:
 `--fresh`, a public repo from the current version alone, kept in step from the private one.

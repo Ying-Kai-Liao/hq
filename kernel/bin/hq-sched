@@ -155,7 +155,8 @@ def start(agent, job, now, why):
             % (job['task'], job['id'], agent, job['cron'], why, HQ))
     env = dict(os.environ, HQ_VIA='schedule', HQ_SCHED_JOB=job['id'],
                HQ_PERMISSION_MODE=os.environ.get('HQ_SCHED_PERMISSION_MODE', 'bypassPermissions'))
-    for k in ('HQ_AGENT', 'HQ_MODEL', 'HQ_EFFORT', 'HQ_HARNESS', 'HQ_DISCORD_WEBHOOK_URL', 'HQ_DISCORD_THREAD_ID'):
+    for k in ('HQ_AGENT', 'HQ_MODEL', 'HQ_EFFORT', 'HQ_HARNESS', 'HQ_DISCORD_WEBHOOK_URL', 'HQ_DISCORD_THREAD_ID',
+              'HQ_BRIDGE_OUTBOX'):
         env.pop(k, None)
     if job.get('model'): env['HQ_MODEL'] = job['model']
     if job.get('effort'): env['HQ_EFFORT'] = job['effort']

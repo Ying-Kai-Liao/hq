@@ -85,8 +85,10 @@ Paths in this table are inside `kernel/`, except `install.sh` and `.claude-plugi
 | `bin/hq-new` | bash | Scaffolds `agents/<name>/`: `role/` as its own repo, memory folders next to it | you, the builder agent |
 | `bin/project-id` | python | Directory → project ID from `projects.json` (remotes and paths as aliases, a path also matching the folders inside it); `--info` the project's parents and homes; `--register` with `--in PARENT`, `--home [DIR]` (bare: a new folder inside the parent's home, else under the root); `--children ID [--all]` the projects it holds and where each is on this Mac (a repo is registered by remote and checkout); `--root [DIR]` where new homes go (`homes` in `projects.json`, default `~/Documents`, asked by `hq init`) | `bin/hq`, the adapter, agents |
 | `bin/hq-project` | python | `hq project`: the project here and its parents (repos, home, memory, children), `ls` as a tree, `add` (→ `project-id --register`), `root` (→ `project-id --root`), `open [ID]`: Claude Code in the project's home with `--add-dir` for everything it holds | you |
-| `bin/hq-bridge` | python (uv script) | Discord: a channel per agent, a thread per task; runs `hq <agent>` and resumes the thread's session; launchd `dev.hq.bridge` | launchd |
-| `bin/hq-send` | bash | Delivers a result: into the Discord thread when inside one, else Telegram | agents |
+| `bin/hq-bridge` | python (uv script) | Chat: every granted bot (Discord, Telegram, Slack) in one process, each connection restarting on its own; launchd `dev.hq.bridge` | launchd |
+| `lib/hq_bridge/core.py` | python | The bridge's core: people (`hq-auth who`), access, rooms and defaults, `@agent` routing, threads → `{agent: session}`, the queue with the Jev router, stop, runs `hq <agent>` with `HQ_PERSON`, posts what the run's outbox holds | `hq-bridge` |
+| `lib/hq_bridge/discord_chat.py`, `telegram_chat.py`, `slack_chat.py` | python | One adapter per platform: receive, post as the agent, threads, the working line with Stop, buttons, files; Telegram's Markdown → HTML | `hq-bridge` |
+| `bin/hq-send` | bash | Delivers a result: into the Discord thread when inside one, into the bridge's outbox (`HQ_BRIDGE_OUTBOX`) inside any other chat task, else Telegram | agents |
 | `bin/hq-init` | python | Setup, safe to repeat: checks git (+ identity), claude, gh, uv; makes ~/.hq and the agents folder git repos with a first commit and `user.md`; offers private GitHub backups; installs what agents.json lists; offers a starter (`lib/starters.json`). `--from <user>` clones that user's hq-state and hq-agents first (a new Mac) | `install.sh` (last step), you |
 | `bin/hq-doctor` | python | Read-only checks with a fix for each: folders and links, tools, the state, agents and role repos (uncommitted, unpushed, no backup), agent checks, grants, plugin version, each `dev.hq.*` job (loaded, running, stuck in hq-uv = lost Full Disk Access) | you |
 | `lib/dot-hq.gitignore`, `lib/agents.gitignore`, `lib/user.md`, `lib/starters.json` | text | What `hq init` puts in a new ~/.hq and agents folder; the starter agents it offers (link null until published) | `hq-init` |
@@ -114,7 +116,7 @@ Packages never hold absolute paths. `bin/hq` and the adapter fill these in at ru
 | `{{USER_HOME}}` | `$HOME` | |
 
 Also set for a run: `HQ_AGENT_VERSION`, `HQ_MODEL`, `HQ_EFFORT`, `HQ_PROJECT` (read by `hq-cost tag`), and, from the
-bridge, `HQ_VIA=discord` (`schedule` from hq-sched, plus `HQ_SCHED_JOB`; `ask` from hq-ask), `HQ_DISCORD_WEBHOOK_URL`, `HQ_DISCORD_THREAD_ID` (read by `hq-send`), `HQ_CLAUDE_ARGS`
+bridge, `HQ_VIA=discord`, `telegram` or `slack`, `HQ_BRIDGE_OUTBOX`, `HQ_PERSON` for anyone but the owner (`schedule` from hq-sched, plus `HQ_SCHED_JOB`; `ask` from hq-ask), `HQ_DISCORD_WEBHOOK_URL`, `HQ_DISCORD_THREAD_ID` (read by `hq-send`), `HQ_CLAUDE_ARGS`
 (extra `claude` flags; `bin/hq` clears it once read so helpers don't inherit it).
 
 ## Flows

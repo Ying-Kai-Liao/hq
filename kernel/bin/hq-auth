@@ -3,13 +3,16 @@
 
   hq-auth ls                              every agent: the services it needs, its grant, whether the secrets resolve
   hq-auth grant <agent> <service> <profile>   let an agent use a service as that profile (e.g. notion/library);
-                                          several agents as a,b,c, or --all for every agent whose needs list it
+                                          several agents as a,b,c, or --all for every agent whose needs list it;
+                                          several profiles as p1,p2 (the bridge: one bot each, telegram/hq,telegram/x)
+  hq-auth granted [--for AGENT] <service> the profiles granted, one per line
   hq-auth revoke <agent> <service>
   hq-auth set <profile> <VAR>             store a secret in the macOS Keychain (prompts; never echoed) and point
                                           the profile at it
   hq-auth mcp-config <agent>              the --mcp-config JSON for an agent's granted MCP services (bin/hq uses it)
   hq-auth exec [--for AGENT] <service> -- CMD...   run CMD with that service's secrets in its environment only
-  hq-auth get  [--for AGENT] <service> <VAR>       print one secret, for an agent's own tool to call
+  hq-auth get  [--for AGENT] [--profile P] <service> <VAR>   print one secret, for an agent's own tool to call;
+                                          --profile picks one of several granted profiles
   hq-auth env  <agent> <service> [VAR=value | VAR=]  this agent's own settings for a service (not secrets), e.g.
                                           hq-auth env personal jev-browser JEV_BROWSER_HEADED=1; VAR= drops one
   hq-auth browser <name> [<browser>]      a browser profile (its logins, in ~/.hq/browsers/<name>) and the browser
@@ -21,14 +24,22 @@ People (who may use which agent, and how; the run's person is HQ_PERSON, unset =
                                           service would really use in their runs; ID for one person in full (the
                                           owner's agents too); --matrix: agents × people at a glance
   hq-auth person <id> [name=.. lang=.. tz=.. owner] [--rm]   a person; `owner` marks you (one owner)
+  hq-auth person <id> id=<new>            rename: memberships, grants, owned profiles and invites come along; the
+                                          old id stays as an alias (bridge threads they started stay theirs)
   hq-auth handle <id> <platform> <user-id> | --rm   the person's account on a platform (numeric id, not a username)
   hq-auth invite <id> [minutes]           a one-time code (default 15 minutes); they send /link CODE to the bridge
   hq-auth link <platform> <user-id> <code>   bind that account to the code's person (the bridge calls it)
   hq-auth whois <platform> <user-id>      the person behind an account, or exit 1
-  hq-auth preset <name> [mode=.. deny=a,b] [--rm]   a named bundle of permissions memberships point at
-  hq-auth member <agent>[,..] <id> [preset=.. mode=.. deny=.. model=.. helpers=a,b env.VAR=..] [--rm]
+  hq-auth who <platform> <user-id>        the same as JSON for the bridge: {person, owner, was, owner_id,
+                                          owner_linked}; person null when no one is linked
+  hq-auth preset <name> [mode=.. deny=a,b] [--trusted] [--rm]   a named bundle of permissions memberships point at
+  hq-auth member <agent>[,..] <id> [preset=.. mode=.. deny=.. model=.. helpers=a,b budget=USD env.VAR=..] [--trusted] [--rm]
                                           let a person use an agent, with their own settings on top of the agent's;
-                                          <id> '*' is everyone hq knows (not unknown senders); their own row wins
+                                          <id> '*' is everyone hq knows (not unknown senders); their own row wins.
+                                          mode=bypassPermissions is a free shell on this Mac as you: refused unless
+                                          --trusted (a row or preset without it runs in default mode).
+                                          budget=20: at most $20 a calendar month of their runs of that agent
+                                          (helpers they reach through it included; hq cost people shows it)
   hq-auth owner <profile> <id>|-|default  the profile is that person's (their logins, their calendar); - = shared;
                                           default: logins and browser profiles are the owner's, keys and bots shared
   hq-auth may <id> <agent> [--via AGENT]  exit 0 if the person may use the agent (--via: called as AGENT's helper)
@@ -155,7 +166,7 @@ def owner(auth):
 def acting(auth):
     """The person this run works for: HQ_PERSON, set by the entry point (the bridge, a schedule) and inherited by
     every helper; unset is the owner."""
-    return os.environ.get('HQ_PERSON') or owner(auth) or ''
+    return canonical(auth, os.environ.get('HQ_PERSON') or owner(auth) or '')
 
 
 def is_owner(auth, person):
@@ -173,6 +184,7 @@ def row_of(auth, agent, person):
 
 def may(auth, person, agent, via=None):
     """(allowed, why). Access is a membership row; a helper is allowed when the caller's membership lists it."""
+    person = canonical(auth, person)
     if is_owner(auth, person):
         return True, 'owner'
     if person not in auth['people']:
@@ -212,6 +224,9 @@ def granted(auth, agent, svc, person=None):
     person = acting(auth) if person is None else person
     profile = (auth['grants'].get(f'{agent}@{person}', {}).get(svc) if person else None) \
         or auth['grants'].get(agent, {}).get(svc)
+    if isinstance(profile, list):   # several (the bridge's bots): the first, unless the caller picks one (--profile)
+        pick = os.environ.get('HQ_AUTH_PROFILE')
+        profile = pick if pick in profile else None if pick else (profile[0] if profile else None)
     if not profile:
         return None, f'{agent} has no grant for {svc} (hq-auth grant {agent} {svc} <profile>)', False
     belongs = owner_of(auth, profile)
@@ -341,8 +356,8 @@ def cmd_ls():
         if not wanted and not granted:
             continue
         print(agent)
-        for svc in sorted((set(wanted) | set(granted)) - {'browser'}):   # the browser profile has its own line
-            profile = granted.get(svc)
+        for svc, profile in sorted((s, p) for s in (set(wanted) | set(granted)) - {'browser'}   # browser: own line
+                                   for p in (granted.get(s) if isinstance(granted.get(s), list) else [granted.get(s)])):
             if not profile:
                 print(f'  {svc:<14} NOT GRANTED')
                 continue
@@ -414,6 +429,8 @@ def cmd_exec(args):
 
 def cmd_get(args):
     agent, args = take_for(args)
+    if args[:1] == ['--profile']:
+        os.environ['HQ_AUTH_PROFILE'], args = args[1], args[2:]
     if len(args) != 2:
         die('get [--for AGENT] <service> <VAR>', 2)
     svc, var = args
@@ -448,6 +465,9 @@ def cmd_set(profile, var):
 # A membership with no preset is a guest's. `default` mode in a one-shot run means only what the agent's own
 # settings allow runs (house's own tool, not any shell command); auth.json presets of the same name replace these.
 PRESETS = {'guest': {'mode': 'default'}, 'member': {'mode': 'acceptEdits'}}
+# Modes that run any command without asking: a free shell on this Mac, as the owner. Only the owner has one, unless
+# a membership or preset was set with --trusted.
+FREE_SHELL = {'bypassPermissions'}
 
 
 def preset(auth, name):
@@ -457,6 +477,7 @@ def preset(auth, name):
 def resolve(auth, agent, person, via=None):
     """What a run of agent for person gets: whether it may run, and the person's settings over the agent's. A helper
     reached through the caller's helpers list runs with the caller's membership, so calling one never loosens it."""
+    person = canonical(auth, person)
     ok, why = may(auth, person, agent, via)
     me = auth['people'].get(person, {})
     out = {'person': person, 'owner': is_owner(auth, person), 'allowed': ok, 'why': why,
@@ -467,10 +488,24 @@ def resolve(auth, agent, person, via=None):
     if row is None:
         row = row_of(auth, via, person)
     p = preset(auth, row.get('preset', 'guest'))
-    out.update(preset=row.get('preset', 'guest'), mode=row.get('mode') or p.get('mode', 'default'),
+    out.update(preset=row.get('preset', 'guest'), mode=mode_of(row, p),
                deny=list(dict.fromkeys(p.get('deny', []) + row.get('deny', []))),
-               model=row.get('model', ''), env=row.get('env', {}), helpers=row.get('helpers', []))
+               model=row.get('model', ''), env=row.get('env', {}), helpers=row.get('helpers', []),
+               budget=row.get('budget', ''), budget_agent=agent if row_of(auth, agent, person) is not None else via,
+               was=auth['people'].get(person, {}).get('was', []))
     return out
+
+
+def mode_of(row, p):
+    """The membership's mode; a free shell set without --trusted (say, by hand in auth.json) falls back to default."""
+    mode = row.get('mode') or p.get('mode', 'default')
+    trusted = row.get('trusted') if row.get('mode') else p.get('trusted')
+    return 'default' if mode in FREE_SHELL and not trusted else mode
+
+
+def check_free_shell(mode, flags, what):
+    if mode in FREE_SHELL and '--trusted' not in flags:
+        die(f'{what}: mode={mode} runs any command on this Mac as you, unasked. Add --trusted if you mean it', 2)
 
 
 def pairs(args, allowed):
@@ -549,7 +584,8 @@ def cmd_people(args):
         need_person(auth, pid)
         os.environ['HQ_PERSON'] = pid                      # browser_profile and settings read it
         p = auth['people'][pid]
-        extra = ', '.join(f'{k} {p[k]}' for k in ('name', 'lang', 'tz') if p.get(k))
+        extra = ', '.join([f'{k} {p[k]}' for k in ('name', 'lang', 'tz') if p.get(k)]
+                          + ([f'formerly {",".join(p["was"])}'] if p.get('was') else []))
         print(f'{pid}{"  (owner)" if p.get("owner") else ""}{"  · " + extra if extra else ""}')
         handles = ', '.join(f'{plat} {uid}' for plat, uid in sorted(p.get('handles', {}).items()))
         hint = f'hq-auth handle {pid} <platform> <user-id>' if p.get('owner') else f'hq-auth invite {pid}'
@@ -568,6 +604,7 @@ def cmd_people(args):
             bits = [] if how == 'owner' else [r['preset'], r['mode']]
             bits += [f'deny {",".join(r["deny"])}'] if r.get('deny') else []
             bits += [f'model {r["model"]}'] if r.get('model') else []
+            bits += [f'budget ${r["budget"]}/month'] if r.get('budget') and not how.startswith('helper') else []
             bits += [f'helpers {",".join(r["helpers"])}'] if r.get('helpers') and not how.startswith('helper') else []
             bits += [f'{k}={v}' for k, v in r.get('env', {}).items()]
             tag = '' if how in ('own', 'owner') else f'  [{how}]'
@@ -595,10 +632,12 @@ def matrix(auth):
 def cmd_person(args):
     if not args:
         die('person <id> [name=.. lang=.. tz=.. owner] [--rm]', 2)
-    pid, (kv, flags) = args[0], pairs(args[1:], {'name', 'lang', 'tz'})
+    pid, (kv, flags) = args[0], pairs(args[1:], {'name', 'lang', 'tz', 'id'})
     if not re.fullmatch(r'[a-z][a-z0-9-]*', pid):
         die('a person id is lowercase letters, digits and -, e.g. sam', 2)
     auth = load_auth()
+    if 'id' in kv:
+        return rename(auth, pid, kv.pop('id'))
     if '--rm' in flags:
         auth['people'].pop(pid, None)
         for rows in auth['members'].values():
@@ -608,6 +647,8 @@ def cmd_person(args):
         save_auth(auth)
         print(f'{pid} removed, with their memberships and grants (profiles they own are kept)')
         return
+    if pid not in auth['people'] and canonical(auth, pid) != pid:
+        die(f"'{pid}' was renamed to {canonical(auth, pid)}")
     p = auth['people'].setdefault(pid, {})
     p.update({k: v for k, v in kv.items() if v})
     for k in [k for k, v in kv.items() if not v]:
@@ -625,7 +666,41 @@ def cmd_person(args):
             other.pop('owner', None)
         p['owner'] = True
     save_auth(auth)
-    print(f'{pid}: ' + (', '.join(f'{k} {v}' for k, v in p.items() if k != 'handles') or 'added'))
+    print(f'{pid}: ' + (', '.join(f'{k} {v}' for k, v in p.items() if k not in ('handles', 'was')) or 'added'))
+
+
+def rename(auth, old, new):
+    """A person's new id, carried through every table that names them. The old id stays in `was`, so what outside
+    auth.json still says old (a bridge thread they started, the cost ledger) keeps meaning them."""
+    need_person(auth, old)
+    if not re.fullmatch(r'[a-z][a-z0-9-]*', new):
+        die('a person id is lowercase letters, digits and -, e.g. sam', 2)
+    if new in auth['people'] or any(new in p.get('was', []) for p in auth['people'].values()):
+        die(f"'{new}' is already a person (or one's old id)")
+    p = auth['people'].pop(old)
+    p['was'] = list(dict.fromkeys(p.get('was', []) + [old]))
+    auth['people'][new] = p
+    for rows in auth['members'].values():
+        if old in rows:
+            rows[new] = rows.pop(old)
+    auth['grants'] = {(k.rsplit('@', 1)[0] + '@' + new if k.endswith(f'@{old}') else k): g
+                      for k, g in auth['grants'].items()}
+    owned = [n for n, prof in auth['profiles'].items() if prof.get('person') == old]
+    for n in owned:
+        auth['profiles'][n]['person'] = new
+    for inv in auth['invites'].values():
+        if inv.get('person') == old:
+            inv['person'] = new
+    save_auth(auth)
+    print(f'{old} is now {new}' + (f'; owns {", ".join(sorted(owned))}' if owned else '')
+          + ' (profile names stay as they are: they name accounts, not people)')
+
+
+def canonical(auth, pid):
+    """The person's id now, for an id that may be an old one."""
+    if pid in auth['people']:
+        return pid
+    return next((p for p, v in auth['people'].items() if pid in v.get('was', [])), pid)
 
 
 def cmd_handle(args):
@@ -662,6 +737,17 @@ def cmd_whois(args):
             print(pid)
             return
     sys.exit(1)
+
+
+def cmd_who(args):
+    if len(args) != 2:
+        die('who <platform> <user-id>', 2)
+    auth = load_auth()
+    pid = next((p for p, v in auth['people'].items() if v.get('handles', {}).get(args[0]) == args[1]), None)
+    me = owner(auth)
+    print(json.dumps({'person': pid, 'owner': bool(pid) and is_owner(auth, pid),
+                      'was': auth['people'][pid].get('was', []) if pid else [], 'owner_id': me,
+                      'owner_linked': bool(me and auth['people'][me].get('handles', {}).get(args[0]))}))
 
 
 def cmd_invite(args):
@@ -701,7 +787,11 @@ def cmd_preset(args):
     else:
         p = auth['presets'].setdefault(name, dict(PRESETS.get(name, {})))
         if 'mode' in kv:
+            check_free_shell(kv['mode'], flags, f'preset {name}')
             p['mode'] = kv['mode']
+            p.pop('trusted', None)
+            if kv['mode'] in FREE_SHELL:
+                p['trusted'] = True
         if 'deny' in kv:
             p['deny'] = [d for d in kv['deny'].split(',') if d]
     save_auth(auth)
@@ -710,9 +800,15 @@ def cmd_preset(args):
 
 def cmd_member(args):
     if len(args) < 2:
-        die('member <agent>[,..] <id> [preset=.. mode=.. deny=.. model=.. helpers=a,b env.VAR=..] [--rm]', 2)
+        die('member <agent>[,..] <id> [preset=.. mode=.. deny=.. model=.. helpers=a,b budget=USD env.VAR=..] [--trusted] [--rm]', 2)
     names, pid = [a for a in args[0].split(',') if a], args[1]
-    kv, flags = pairs(args[2:], {'preset', 'mode', 'deny', 'model', 'helpers', 'env.'})
+    kv, flags = pairs(args[2:], {'preset', 'mode', 'deny', 'model', 'helpers', 'budget', 'env.'})
+    if kv.get('budget'):
+        try:
+            if float(kv['budget']) < 0:
+                raise ValueError
+        except ValueError:
+            die('budget is dollars a month, e.g. budget=20', 2)
     auth = load_auth()
     if pid != EVERYONE:
         need_person(auth, pid)
@@ -725,7 +821,13 @@ def cmd_member(args):
                 auth['members'].pop(agent, None)
             print(f'{pid} may no longer use {agent}')
             continue
+        if kv.get('mode'):
+            check_free_shell(kv['mode'], flags, f'{pid} on {agent}')
         row = auth['members'].setdefault(agent, {}).setdefault(pid, {})
+        if 'mode' in kv:
+            row.pop('trusted', None)
+            if kv['mode'] in FREE_SHELL:
+                row['trusted'] = True
         for k, v in kv.items():
             if k.startswith('env.'):
                 env = row.setdefault('env', {})
@@ -742,13 +844,15 @@ def cmd_member(args):
             preset(auth, row['preset'])
         if pid == EVERYONE:
             p = preset(auth, row.get('preset', 'guest'))
-            r = {'preset': row.get('preset', 'guest'), 'mode': row.get('mode') or p.get('mode', 'default'),
+            r = {'preset': row.get('preset', 'guest'), 'mode': mode_of(row, p),
                  'deny': p.get('deny', []) + row.get('deny', []), 'helpers': row.get('helpers', [])}
         else:
             r = resolve(auth, agent, pid)
         print(f'{"everyone hq knows" if pid == EVERYONE else pid} may use {agent}: preset {r["preset"]}, mode {r["mode"]}'
               + (f', deny {",".join(r["deny"])}' if r['deny'] else '')
-              + (f', helpers {",".join(r["helpers"])}' if r['helpers'] else ''))
+              + (f', helpers {",".join(r["helpers"])}' if r['helpers'] else '')
+              + (f', budget ${r["budget"]}/month' if r.get('budget') else '')
+              + (' (a free shell on this Mac: trusted)' if r['mode'] in FREE_SHELL else ''))
     save_auth(auth)
 
 
@@ -793,8 +897,6 @@ def main(argv):
     elif cmd == 'grant' and len(rest) == 3:
         who, svc, profile = rest
         service(svc)
-        if not profile.startswith(svc + '/'):
-            die(f'a {svc} grant takes a {svc}/<account> profile', 2)
         # agent@person: that person's own account for the agent (tried first in their runs)
         base = lambda a: a.split('@', 1)[0]
         uses = (lambda a: uses_browser(base(a))) if svc == 'browser' else (lambda a: svc in needs(base(a)))
@@ -805,12 +907,17 @@ def main(argv):
         for a in names:
             if '@' in a:
                 need_person(auth, a.split('@', 1)[1])
-        auth['profiles'].setdefault(profile, {})
+        profiles = [p for p in profile.split(',') if p]
+        if any(not p.startswith(svc + '/') for p in profiles):
+            die(f'a {svc} grant takes {svc}/<account> profiles', 2)
+        for p in profiles:
+            auth['profiles'].setdefault(p, {})
         for agent in names:
-            auth['grants'].setdefault(agent, {})[svc] = profile
+            auth['grants'].setdefault(agent, {})[svc] = profiles if len(profiles) > 1 else profiles[0]
         save_auth(auth)
         for agent in names:
-            print(f'{agent} may use {svc} as {profile}' + ('' if uses(agent) else f' (not in its needs yet)'))
+            print(f'{agent} may use {svc} as {", ".join(profiles)}' + ('' if uses(agent) or agent == 'bridge'
+                                                                       else f' (not in its needs yet)'))
     elif cmd == 'revoke' and len(rest) == 2:
         auth = load_auth()
         auth['grants'].get(rest[0], {}).pop(rest[1], None)
@@ -861,6 +968,8 @@ def main(argv):
         cmd_handle(rest)
     elif cmd == 'whois':
         cmd_whois(rest)
+    elif cmd == 'who':
+        cmd_who(rest)
     elif cmd == 'invite':
         cmd_invite(rest)
     elif cmd == 'link':
@@ -889,6 +998,12 @@ def main(argv):
         cmd_exec(rest)
     elif cmd == 'get':
         cmd_get(rest)
+    elif cmd == 'granted':
+        agent, rest = take_for(rest)
+        if len(rest) != 1:
+            die('granted [--for AGENT] <service>', 2)
+        g = load_auth()['grants'].get(agent, {}).get(rest[0])
+        print('\n'.join(g if isinstance(g, list) else [g] if g else []))
     else:
         die(f'unknown command: {" ".join(argv)} (hq-auth --help)', 2)
 

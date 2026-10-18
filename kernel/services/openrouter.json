@@ -1,0 +1,5 @@
+{
+  "description": "OpenRouter API (one key, many models); tools ask hq-auth for the key. Set a credit limit on the key in the OpenRouter dashboard as the hard cap",
+  "kind": "cli",
+  "secrets": ["OPENROUTER_API_KEY"]
+}

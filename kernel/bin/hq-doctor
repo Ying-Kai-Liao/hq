@@ -4,7 +4,8 @@
   hq doctor            every check: ✓ fine, ! worth a look, ✗ broken (exit 1 when anything is broken)
 
 Links and folders, the tools hq needs, one backup line (state, memories and each agent: on GitHub,
-behind, or on this Mac only), each agent's checks, services and grants, the Claude Code plugin, and the background jobs:
+behind, or on this Mac only), each agent's checks, services and grants, the people setup (memberships, grants and
+profiles naming no one, shared logins, free shells), the Claude Code plugin, and the background jobs:
 loaded, running, and not stuck (a job whose hq-uv never starts its script has usually lost Full Disk Access).
 """
 import json, os, plistlib, re, shutil, subprocess, sys
@@ -146,12 +147,81 @@ def services():
             agent = line.strip()
             continue
         parts = line.split()
-        if len(parts) >= 3:
+        if len(parts) >= 3 and parts[0] != 'browser':   # the browser line says where the profile is, not ok
             n += 1
             if parts[-1] != 'ok':
                 bad(f'{agent}: {" ".join(parts)}')
     if n:
         ok(f'{n} grant(s) checked')
+
+
+def people():
+    """The people tables in auth.json: rows and grants that name someone or something that isn't there, logins
+    shared with everyone, free shells, and the Discord settings from before people."""
+    section('people')
+    try:
+        auth = json.loads(Path(os.environ.get('HQ_AUTH') or P['HQ_SECRETS'] / 'auth.json').read_text())
+    except FileNotFoundError:
+        note('no auth.json yet')
+        return
+    except ValueError as e:
+        bad(f'auth.json is not valid JSON ({e})')
+        return
+    folks, members = auth.get('people', {}), auth.get('members', {})
+    known = set(json.loads(run(str(HQ / 'bin' / 'hq-pkg'), 'list', '--json').stdout or '{}'))
+    owners = [p for p, v in folks.items() if v.get('owner')]
+    if not folks:
+        note('no people: only you use hq (hq auth person <you> owner, then hq auth invite <id> for others)')
+        return
+    if len(owners) != 1:
+        bad(f'{len(owners)} owners in people ({", ".join(owners) or "none"}): hq auth person <you> owner')
+    issues = 0
+    for agent, rows in members.items():
+        if agent not in known:
+            issues += 1
+            warn(f'members: {agent} is not an installed agent ({", ".join(rows)}): hq auth member {agent} <id> --rm')
+        for pid, row in rows.items():
+            if pid != '*' and pid not in folks:
+                issues += 1
+                bad(f'members: {agent} names {pid}, who is not a person: hq auth member {agent} {pid} --rm')
+            if row.get('preset') and row['preset'] not in auth.get('presets', {}) | {'guest': 0, 'member': 0}:
+                issues += 1
+                bad(f'members: {pid} on {agent} uses preset {row["preset"]}, which does not exist')
+            mode = row.get('mode') or auth.get('presets', {}).get(row.get('preset', ''), {}).get('mode')
+            if mode == 'bypassPermissions':
+                issues += 1
+                trusted = row.get('trusted') if row.get('mode') else \
+                    auth.get('presets', {}).get(row.get('preset', ''), {}).get('trusted')
+                warn(
+                    f'members: {"everyone" if pid == "*" else pid} on {agent} has a free shell (bypassPermissions)'
+                    + ('' if trusted else ' without --trusted, so it runs in default mode'))
+    for key in auth.get('grants', {}):
+        agent, _, pid = key.partition('@')
+        if pid and pid not in folks:
+            issues += 1
+            bad(f'grants: {key} names {pid}, who is not a person: hq auth revoke {key} <service>')
+        if agent not in known | {'bridge'}:
+            issues += 1
+            warn(f'grants: {agent} is not an installed agent')
+    for name, prof in auth.get('profiles', {}).items():
+        who = prof.get('person')
+        if who and who != '*' and who not in folks:
+            issues += 1
+            bad(f'profiles: {name} belongs to {who}, who is not a person: hq auth owner {name} <id>|-|default')
+        svc = HQ / 'services' / f'{name.split("/", 1)[0]}.json'
+        spec = json.loads(svc.read_text()) if svc.is_file() else {}
+        if who == '*' and spec.get('personal', spec.get('kind') in ('login', 'browser')):
+            issues += 1
+            warn(f'profiles: {name} is a login shared with everyone who may use its agents (hq auth owner {name} default '
+                 'to make it yours again)')
+    env = P['HQ_SECRETS'] / 'env'
+    old = {k for k, _, _ in (l.strip().partition('=') for l in env.read_text().splitlines())} if env.exists() else set()
+    for k in sorted(old & {'HQ_DISCORD_REPLY_TO', 'HQ_DISCORD_ALLOWED_IDS', 'HQ_DISCORD_OWNER_ID'}):
+        issues += 1
+        warn(f'{k} in {env} is from before people and is ignored now: remove it (hq auth handle / invite instead)')
+    if not issues:
+        others = len(folks) - len(owners)
+        ok(f'{len(folks)} people ({others} besides you), {sum(len(r) for r in members.values())} membership(s)')
 
 
 def plugin():
@@ -217,7 +287,7 @@ def main(argv):
     if '-h' in argv or '--help' in argv:
         print(__doc__.strip())
         return
-    for check in (folders, tools, repos_and_agents, services, plugin, jobs):
+    for check in (folders, tools, repos_and_agents, services, people, plugin, jobs):
         try:
             check()
         except Exception as e:   # one broken check never hides the others

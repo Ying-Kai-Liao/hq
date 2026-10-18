@@ -1,0 +1,5 @@
+{
+  "description": "A Discord bot for hq-bridge (one bot in one server); the bridge asks hq-auth for its token. HQ_DISCORD_BOT_TOKEN in ~/.hq/secrets/env still works as discord/hq",
+  "kind": "cli",
+  "secrets": ["DISCORD_BOT_TOKEN"]
+}

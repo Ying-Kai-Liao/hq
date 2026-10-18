@@ -6,12 +6,16 @@
 #   hq-send --as image "🎨 generating…"    post as another agent (helpers reporting into the owner's thread)
 #
 # Inside a Discord task (hq-bridge sets HQ_DISCORD_WEBHOOK_URL + HQ_DISCORD_THREAD_ID) it posts into that thread,
-# named after the agent. Otherwise it goes to Telegram: HQ_TELEGRAM_BOT_TOKEN / HQ_TELEGRAM_CHAT_ID from the
-# environment or ~/.hq/secrets/env (or the file HQ_TELEGRAM_ENV_FILE names there). Never prints a token.
+# named after the agent. A tool that names a Telegram chat (HQ_TELEGRAM_BOT_TOKEN + HQ_TELEGRAM_CHAT_ID in its
+# environment) posts there. Inside any other chat task (Telegram, Slack, a Discord DM) it leaves the message in the
+# run's outbox (HQ_BRIDGE_OUTBOX) and the bridge posts it into the thread. Otherwise it goes to Telegram:
+# HQ_TELEGRAM_BOT_TOKEN / HQ_TELEGRAM_CHAT_ID from ~/.hq/secrets/env (or the file HQ_TELEGRAM_ENV_FILE names
+# there). Never prints a token.
 set -euo pipefail
 
 as=${HQ_AGENT:-hq}
 [[ ${1:-} == --as ]] && { as=$2; shift 2; }
+agent=$as
 # Discord shows the agent's display_name (agent.md frontmatter) when it has one
 eval "$(python3 "$(dirname "$0")/../lib/hq_paths.py" --sh)"   # HQ_AGENTS
 card="$HQ_AGENTS/$as/role/agent.md"; [[ -f $card ]] || card="$HQ_AGENTS/$as/agent.md"
@@ -32,6 +36,22 @@ if [[ -n ${HQ_DISCORD_WEBHOOK_URL:-} && -n ${HQ_DISCORD_THREAD_ID:-} ]]; then
   for f in "$@"; do form+=(-F "files[$i]=@$f"); i=$((i + 1)); done
   curl -s --fail-with-body --max-time 120 "${form[@]}" "$url" >/dev/null
   echo "sent $i file(s) to thread as $as"; exit 0
+fi
+
+if [[ -n ${HQ_BRIDGE_OUTBOX:-} && -d $HQ_BRIDGE_OUTBOX && ! ( -n ${HQ_TELEGRAM_BOT_TOKEN:-} && -n ${HQ_TELEGRAM_CHAT_ID:-} ) ]]; then
+  [[ -f $1 ]] && kind=files || kind=text
+  python3 - "$HQ_BRIDGE_OUTBOX" "$agent" "$kind" "$caption" "$@" <<'PY'
+import json, os, sys, time
+box, who, kind, caption, rest = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:]
+item = {'as': who, 'files': [os.path.abspath(f) for f in rest], 'caption': caption} if kind == 'files' \
+    else {'as': who, 'text': ' '.join(rest)}
+name = os.path.join(box, f'{time.time_ns()}.json')
+with open(name + '.tmp', 'w') as f:
+    json.dump(item, f)
+os.rename(name + '.tmp', name)   # whole or not at all: the bridge reads *.json only
+PY
+  [[ $kind == files ]] && echo "sent $# file(s) to the thread as $as" || echo "sent message to the thread as $as"
+  exit 0
 fi
 
 [[ -f $HQ_SECRETS/env ]] && { set -a; . "$HQ_SECRETS/env"; set +a; }

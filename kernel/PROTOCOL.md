@@ -103,8 +103,8 @@ commit: <full sha>   updated: YYYY-MM-DD   by: <agent>
 - When you offer to do something and the user answers "yes", "ok" or "go", do it in that same turn. A short answer
   to your own question is the go-ahead, not a goodbye. Never end a turn without a reply.
 - **Helper:** when another agent calls you, you work for that agent, not the user. Return the result (files by
-  path) to the caller. If the task came from Discord (`HQ_DISCORD_THREAD_ID` is set), post one short status line
-  there: `{{HQ}}/bin/hq-send --as {{AGENT}} "🎨 generating the infographic…"`, and nothing else. Ask the caller,
+  path) to the caller. If the task came from chat (`HQ_VIA` is discord, telegram or slack), post one short status
+  line there: `{{HQ}}/bin/hq-send --as {{AGENT}} "🎨 generating the infographic…"`, and nothing else. Ask the caller,
   not the user, when something is unclear.
 - Other agents may write to shared files at the same time: append to `decisions.md`; for `codebase.md`, re-read it
   right before editing and change only your sections.
