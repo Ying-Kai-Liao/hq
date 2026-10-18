@@ -2,11 +2,14 @@
 """hq-ask — ask an hq agent and get its answer back, as a conversation you can continue.
 
   hq ask <agent> [options] "task"     run the agent on the task in this directory; print its answer
+  hq ask <agent> -p ID "task"         ... in project ID's folder on this Mac (project-id --where), from anywhere
+  hq ask <agent> -C DIR "task"        ... in DIR
   hq ask <agent> -c "follow-up"       continue the last conversation with that agent from this directory
   hq ask ls                           the conversations kept, newest first
   hq ask <agent>@<machine> "task"     an agent on another machine of yours, over ssh (hq remote --help)
 
-Options: -c/--continue, --as NAME (a named conversation: -c --as NAME picks it up from anywhere), -p PROJECT,
+Options: -c/--continue, --as NAME (a named conversation: -c --as NAME picks it up from anywhere, in its folder),
+-C/--dir DIR (work in DIR), -p PROJECT (its memory, and its folder unless -C says; the current one if it has none),
 -m MODEL, -e EFFORT, --json (the whole result: answer, session, cost, turns).
 
 The same run as `hq <agent> "task"`: its pinned package, own settings and services, memory and project, tagged
@@ -17,7 +20,8 @@ several turns, in the agent's own tools instead of the caller's.
 
 Permission mode: HQ_ASK_PERMISSION_MODE when set, else the agent's settings.json decides (no one can approve a prompt,
 so a tool that needs one is refused, the same as any one-shot run).
-Conversations: ~/.hq/ask.json (agent + directory, or --as NAME → session id).
+Conversations: ~/.hq/ask.json (agent + directory, or --as NAME → session id). A conversation belongs to the
+directory it ran in, so after -C or -p, `-c` from inside that folder (or with the same -C/-p) continues it.
 """
 import datetime as dt, fcntl, json, os, subprocess, sys
 from pathlib import Path
@@ -66,12 +70,13 @@ def main(argv):
     if '@' in argv[0]:  # an agent on another machine
         os.execv(str(HQ / 'bin/hq-remote'), [str(HQ / 'bin/hq-remote'), 'ask', *argv])
     agent, rest = argv[0], argv[1:]
-    cont, name, as_json, hq_opts, words, i = False, None, False, [], [], 0
+    cont, name, as_json, where, hq_opts, words, i = False, None, False, None, [], [], 0
     while i < len(rest):
         a = rest[i]
         if a in ('-c', '--continue'): cont = True; i += 1
         elif a == '--as': name = rest[i + 1]; i += 2
         elif a == '--json': as_json = True; i += 1
+        elif a in ('-C', '--dir'): where = rest[i + 1]; i += 2
         elif a in ('-p', '--project', '-m', '--model', '-e', '--effort'):
             if a in ('-e', '--effort') and rest[i + 1] not in EFFORTS:
                 sys.exit('hq ask: effort must be one of %s' % ', '.join(EFFORTS))
@@ -80,7 +85,24 @@ def main(argv):
         else: words.append(a); i += 1
     task = ' '.join(words).strip()
     if not task:
-        sys.exit('usage: hq ask <agent> [-c] [--as NAME] [-p PROJECT] [-m MODEL] [-e EFFORT] [--json] "task"')
+        sys.exit('usage: hq ask <agent> [-c] [--as NAME] [-C DIR] [-p PROJECT] [-m MODEL] [-e EFFORT] [--json] "task"')
+
+    # Where the agent works: -C, else the folder of the project -p names, else a named conversation's own folder.
+    project = next((v for f, v in zip(hq_opts[::2], hq_opts[1::2]) if f in ('-p', '--project')), None)
+    if not where and project:
+        found = subprocess.run([str(HQ / 'bin/project-id'), '--where', project], capture_output=True, text=True)
+        where = found.stdout.strip() or None
+        if not where and not found.stderr:   # an unknown project: bin/hq says so
+            print('hq ask: %s has no folder on this Mac, so %s works here; to give it one: \'%s\' --register %s DIR'
+                  % (project, agent, HQ / 'bin/project-id', project), file=sys.stderr)
+    if not where and cont and name:
+        where = (load().get('%s|as:%s' % (agent, name)) or {}).get('dir')
+    started = os.getcwd()
+    if where:
+        try:
+            os.chdir(os.path.expanduser(where))
+        except OSError as e:
+            sys.exit('hq ask: cannot work in %s: %s' % (where, e.strerror))
 
     key = '%s|%s' % (agent, ('as:' + name) if name else os.getcwd())
     prev = load().get(key) if cont else None
@@ -114,14 +136,16 @@ def main(argv):
     cost = (prev or {}).get('cost', 0) + (res.get('total_cost_usd') or 0)
     if sid:
         keep(key, {'agent': agent, 'session_id': sid, 'at': dt.datetime.now().isoformat(timespec='minutes'),
-                   'turns': turns, 'cost': round(cost, 4), 'opts': opts, 'last': ' '.join(task.split())})
+                   'turns': turns, 'cost': round(cost, 4), 'opts': opts, 'dir': os.getcwd(),
+                   'last': ' '.join(task.split())})
     if as_json:
         print(json.dumps({'agent': agent, 'answer': text, 'session_id': sid, 'error': bool(res.get('is_error')),
                           'turn': turns, 'cost_usd': res.get('total_cost_usd'), 'num_turns': res.get('num_turns')},
                          ensure_ascii=False))
     else:
         print(text)
-        again = 'hq ask %s -c%s "…"' % (agent, ' --as ' + name if name else '')
+        moved = '' if name or os.getcwd() == started else (' -p ' + project if project else " -C '%s'" % os.getcwd())
+        again = 'hq ask %s -c%s "…"' % (agent, (' --as ' + name) if name else moved)
         print('\n[%s · turn %d · $%.2f this turn · continue: %s]'
               % (agent, turns, res.get('total_cost_usd') or 0, again), file=sys.stderr)
     return 1 if res.get('is_error') else 0

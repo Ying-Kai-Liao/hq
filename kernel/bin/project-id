@@ -13,6 +13,8 @@
   project-id --root [DIR]          where new homes go (default ~/Documents); with DIR, change it
   project-id --children ID [--all] the projects ID holds (--all: theirs too), one line each: ID<TAB>where it is on
                                    this Mac (its home, else its first folder that exists), or - when it isn't here
+  project-id --where ID            the folder to work in for ID on this Mac: its first checkout or path that exists,
+                                   else its home; prints nothing and exits 1 when it isn't here
 
 A project is a named thing; remotes and paths are aliases that point to it. Add a remote or path to keep a
 project's memory after a rename, move or re-clone. A project may sit in a parent (a client, a company, a line of
@@ -148,6 +150,16 @@ def main(argv):
         for pid in children(projects, argv[1], "--all" in argv[2:]):
             print(f"{pid}\t{here(projects[pid]) or '-'}")
         return 0
+
+    if argv[:1] == ["--where"]:
+        if len(argv) < 2 or argv[1] not in projects:
+            print(f"project-id: no project {argv[1] if len(argv) > 1 else ''!r}", file=sys.stderr)
+            return 1
+        p = projects[argv[1]]
+        d = next((real(d) for d in p.get("paths", []) + [p.get("home")] if d and os.path.isdir(real(d))), None)
+        if d:
+            print(d); return 0
+        return 1
 
     if argv[:1] == ["--root"]:
         if len(argv) > 1:
