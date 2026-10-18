@@ -179,6 +179,11 @@ Others are turned away from it, because its session holds what the agent saw for
   in `was`, so bridge threads and the cost ledger still mean them.
 - Cost per person: the ledger's runs carry `person` (`hq cost people`), and `budget=USD` on a membership caps a
   calendar month of their runs of that agent (helpers reached through it included); `bin/hq` refuses past it.
+- Memory per person ([memory-per-person.md](memory-per-person.md)): the owner's memory stays in the agent's
+  `memory/`; anyone else's run uses `memory/people/<id>/`, `files/people/<id>/` and `<state>/people/<id>.md`, and
+  everyone shares `memory/shared/` (the craft, never a person). Their runs are denied the owner's memory and
+  outputs and every other person's, by path; `hq-memory` searches only their part. Rename moves the folders;
+  removal keeps them.
 - `hq doctor` checks the tables: rows and grants naming no one, missing agents, logins shared with everyone, free
   shells, the old Discord settings. `hq auth people [ID]
 [--matrix]` shows everything: each person's accounts, owned profiles, the agents they reach and how, and the
@@ -192,8 +197,7 @@ apply to full `hq <agent>` runs.
 
 ## Planned
 
-**People and channels**, what is left of the 2026-10-19 design (items 1–9 and 12 are built, above; Slack is built
-but waits for an app):
+**People and channels**, what is left of the 2026-10-19 design (the rest is built, above; Slack waits for an app):
 
 - **An `admin` level** (everything but the owner's logins, folder isolation off). On hold until the owner asks.
 - **Sign-in links** (deferred 2026-10-19 until someone needs their own account; meanwhile people use the owner's accounts
@@ -201,8 +205,6 @@ but waits for an app):
   the Keychain as `google/<person>` and granted `agent@person`. Needs a Google Cloud OAuth client, and the bridge has
   no public URL: either the loopback redirect (the person pastes back the address their browser fails to open) or a
   small relay. Undecided.
-- **Memory per person:** `agents/<a>/memory/` stays shared with the agent's members, `memory/people/<id>/` holds what
-  it learned from one person. Plan: [memory-per-person.md](memory-per-person.md) (the owner's memory stays where it is).
 - **Shared browser logins:** the owner's browser profiles hold the agents' accounts. A profile opens in one run at a
   time, so each run gets an APFS clone, thrown away after (a login refreshed during a run is lost). `chrome-agent`
   should become a browser profile (`browser/agent`, living in the Chrome app). It can't be merged into the

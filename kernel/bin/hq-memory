@@ -13,8 +13,9 @@ goes stale and there is no index to commit. Passages are a heading or paragraph 
 in quotes, prefix*, OR and NOT work as in FTS5. When the words match nothing, it falls back to a plain substring
 search, which also finds text FTS doesn't split into words (Chinese, for one).
 
-In a run for someone other than the owner (HQ_PERSON, checked with hq-auth) it searches only that agent's memory
-and the current project's shared files: never user.md, other agents, other projects, --agent or --all.
+In a run for someone other than the owner (HQ_PERSON, checked with hq-auth) it searches only that agent's shared
+memory and theirs (memory/shared/, memory/people/<id>/), its learned skills, their people/<id>.md and the current
+project's shared files: never user.md, the owner's memory, other people, other agents, --agent or --all.
 """
 import json, os, re, sqlite3, subprocess, sys
 from pathlib import Path
@@ -39,34 +40,40 @@ def lives():
     return out
 
 
-def files(scope, guest=False):
+def files(scope, guest=None):
     """(label, path) for every markdown file in scope: agents' memory and learned skills, then the shared files.
-    guest: a run for someone other than the owner, so no user.md and only the current project's shared files."""
+    guest: the id of a person other than the owner the run is for: their part of the memory and only the current
+    project's shared files."""
     for n, home in lives().items():
         if scope is not None and n != scope:
             continue
-        for sub in ('memory', 'skills/learned', 'role/skills/learned'):
+        subs = ('memory/shared', f'memory/people/{guest}') if guest else ('memory',)
+        for sub in (*subs, 'skills/learned', 'role/skills/learned'):
             for f in sorted((home / sub).rglob('*.md')):
                 yield n, f
     project = os.environ.get('HQ_PROJECT', '')
     shared = [STATE / 'user.md', *sorted((STATE / 'projects').rglob('*.md'))] if not guest else \
-        sorted((STATE / 'projects' / project).rglob('*.md')) if project and '/' not in project else []
+        [STATE / 'people' / f'{guest}.md',
+         *(sorted((STATE / 'projects' / project).rglob('*.md')) if project and '/' not in project else [])]
     for f in shared:
         if f.is_file():
             yield 'shared', f
 
 
 def guest_run():
-    """Whether this runs for someone other than the owner. Fails closed: no answer from hq-auth counts as yes."""
+    """The id of the person this runs for when that isn't the owner, else None. Fails closed: no answer from hq-auth
+    is a person with no memory ('-')."""
     person = os.environ.get('HQ_PERSON')
     if not person:
-        return False
+        return None
     r = subprocess.run([str(HQ / 'bin' / 'hq-auth'), 'resolve', os.environ.get('HQ_AGENT') or '-', '--person', person],
                        capture_output=True, text=True)
     try:
-        return not json.loads(r.stdout).get('owner')
+        r = json.loads(r.stdout)
     except ValueError:
-        return True
+        return '-'
+    pid = r.get('person') or '-'
+    return None if r.get('owner') else pid if re.fullmatch(r'[a-z][a-z0-9-]*', pid) else '-'
 
 
 def passages(path):
@@ -91,7 +98,7 @@ def fts_query(words):
     return ' '.join('"%s"' % w.replace('"', '""') for w in words.split())
 
 
-def search(words, scope, limit, guest=False):
+def search(words, scope, limit, guest=None):
     db = sqlite3.connect(':memory:')
     db.execute("create virtual table p using fts5(agent unindexed, path unindexed, line unindexed, text, "
                "tokenize='porter unicode61 remove_diacritics 2')")

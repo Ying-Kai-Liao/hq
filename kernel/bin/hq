@@ -100,7 +100,7 @@ if [[ -n ${HQ_PERSON:-} ]]; then
 import json, os, shlex
 r = json.loads(os.environ["RES"])
 q = lambda v: shlex.quote(str(v))
-print("p_allowed=%d p_why=%s p_owner=%d" % (r["allowed"], q(r["why"]), r["owner"]))
+print("p_allowed=%d p_why=%s p_owner=%d p_id=%s" % (r["allowed"], q(r["why"]), r["owner"], q(r.get("person", ""))))
 print("p_mode=%s p_model=%s p_deny=%s" % (q(r.get("mode", "")), q(r.get("model", "")), q("\n".join(r.get("deny", [])))))
 attrs = " ".join("%s=\"%s\"" % (k, str(r[k]).replace("\"", "")) for k in ("person", "name", "lang", "tz") if r.get(k))
 print("p_line=%s" % q(" " + attrs))
@@ -118,7 +118,17 @@ for k, v in r.get("env", {}).items():
   fi
   export HQ_PERSON
 fi
-mkdir -p "$home/memory/projects" "$home/memory/sessions"
+mkdir -p "$home/memory/projects" "$home/memory/sessions" "$home/memory/shared"
+# Whose memory this run uses. The owner's is the agent's memory/ itself; anyone else's is memory/people/<id>/, with
+# their outputs in files/people/<id>/ and who they are in <state>/people/<id>.md (the owner's: user.md). memory/shared/
+# is for every member: the craft, never a person.
+mem=$home/memory files=$home/files person_file=$HQ_STATE/user.md
+if [[ $p_owner == 0 ]]; then
+  [[ $p_id =~ ^[a-z][a-z0-9-]*$ ]] || { echo "hq: bad person id '$p_id' from hq-auth" >&2; exit 3; }
+  mem=$home/memory/people/$p_id files=$home/files/people/$p_id person_file=$HQ_STATE/people/$p_id.md
+  mkdir -p "$mem/projects" "$mem/sessions" "$files" "$HQ_STATE/people"
+fi
+shared=$home/memory/shared
 
 # The pinned package (prompt.md = agent.md body + PROTOCOL.md). If versioning itself breaks, run the live folder
 # rather than not at all.
@@ -131,7 +141,8 @@ export HQ_AGENT=$agent HQ_AGENT_DIR=$pkg HQ_AGENT_HOME=$home HQ_AGENT_VERSION=${
 # {{HOME_REAL}}: the same folder with symlinks resolved. Permission rules match the resolved path, so a memory
 # Edit rule needs it when the repo sits behind a symlink (~/Workspace/hq -> the external SSD).
 home_real=$(cd "$home" && pwd -P)
-fill() { sed "s|{{AGENT_DIR}}|$pkg|g; s|{{HOME_DIR}}|$home|g; s|{{HOME_REAL}}|$home_real|g; s|{{STATE}}|$HQ_STATE|g; s|{{MACHINE}}|$HQ_MACHINE|g; s|{{AGENTS}}|$HQ_AGENTS|g; s|{{PACKAGE}}|$src_pkg|g; s|{{USER_HOME}}|$HOME|g; s|{{HQ}}|$HQ|g; s|{{AGENT}}|$agent|g"; }
+real() { printf '%s' "${1/#"$home"/$home_real}"; }   # a path in the agent's folder, symlinks resolved
+fill() { sed "s|{{MEMORY_DIR}}|$mem|g; s|{{SHARED_MEMORY}}|$shared|g; s|{{FILES_DIR}}|$files|g; s|{{PERSON_FILE}}|$person_file|g; s|{{AGENT_DIR}}|$pkg|g; s|{{HOME_DIR}}|$home|g; s|{{HOME_REAL}}|$home_real|g; s|{{STATE}}|$HQ_STATE|g; s|{{MACHINE}}|$HQ_MACHINE|g; s|{{AGENTS}}|$HQ_AGENTS|g; s|{{PACKAGE}}|$src_pkg|g; s|{{USER_HOME}}|$HOME|g; s|{{HQ}}|$HQ|g; s|{{AGENT}}|$agent|g"; }
 template() {
   if [[ -f $pkg/prompt.md ]]; then cat "$pkg/prompt.md"
   else awk 'NR==1 && /^---$/ {fm=1; next} fm && /^---$/ {fm=0; next} !fm' "$src_pkg/agent.md"; echo; cat "$HQ/PROTOCOL.md"; fi
@@ -186,10 +197,14 @@ parents=$(printf '%s\n' "$info" | tail -n +2 | cut -f1 | paste -sd' ' -)
 held=$([[ -n $project ]] && "$HQ/bin/project-id" --children "$project" --all || true)
 
 # Body without frontmatter, then long-term memory.
+# The owner's run: the agent's memory, then the shared part when there is one. Anyone else's: the shared part and
+# their own.
+memory_tag() { printf '<long-term-memory path="%s"%s>\n%s\n</long-term-memory>' "$1" "$2" "$(cat "$1" 2>/dev/null)"; }
+if [[ $p_owner == 1 ]]; then mems=$(memory_tag "$mem/MEMORY.md" "")
+else mems=$(memory_tag "$shared/MEMORY.md" ' scope="shared"')$'\n'$(memory_tag "$mem/MEMORY.md" " scope=\"$p_id\""); fi
+[[ $p_owner == 1 && -s $shared/MEMORY.md ]] && mems+=$'\n'$(memory_tag "$shared/MEMORY.md" ' scope="shared"')
 prompt="$(template | fill)
-<long-term-memory path=\"$home/memory/MEMORY.md\">
-$(cat "$home/memory/MEMORY.md" 2>/dev/null)
-</long-term-memory>
+$mems
 <session project=\"${project:-none}\"${parents:+ parents=\"$parents\"}${held:+ holds=\"$(printf '%s\n' "$held" | cut -f1 | paste -sd' ' -)\"} cwd=\"$PWD\" date=\"$(date +%F)\"$p_line/>"
 
 if [[ $print -eq 1 ]]; then printf '%s\n' "$prompt"; [[ $# -gt 0 ]] && printf '\n[task] %s\n' "$*"; exit 0; fi
@@ -220,6 +235,25 @@ if [[ $p_owner == 0 ]]; then
     for p in "$d" "$(cd "$d" && pwd -P)"; do p_deny+=$'\n'"Read(/$p/**)"$'\n'"Edit(/$p/**)"; done
   done
   p_deny+=$'\n'"Read(/$HQ_STATE/user.md)"$'\n'"Read(/$HQ_STATE_REAL/user.md)"
+  # Inside this agent: the owner's memory and outputs, and everyone else's, by name (deny beats allow, so the run
+  # gets a list of what it may not touch rather than a broad deny with exceptions).
+  hide=()
+  for e in "$home/memory"/* "$home/files"/*; do
+    [[ -e $e ]] || continue
+    case ${e##*/} in shared) [[ $e == "$home/memory/shared" ]] && continue ;; people) continue ;; esac
+    [[ -d $e ]] && hide+=("$e/**") || hide+=("$e")
+  done
+  for e in "$home/memory/people"/* "$home/files/people"/*; do
+    [[ -d $e && ${e##*/} != "$p_id" ]] && hide+=("$e/**")
+  done
+  for e in "$HQ_STATE/people"/*.md; do
+    [[ -f $e && $e != "$person_file" ]] && hide+=("$e")
+  done
+  for h in "${hide[@]}"; do
+    for p in "$h" "$(real "$h")" "${h/#"$HQ_STATE"/$HQ_STATE_REAL}"; do
+      p_deny+=$'\n'"Read(/$p)"$'\n'"Edit(/$p)"
+    done
+  done
 fi
 # The agent's settings plus a SessionStart hook that tags each session (new, resumed, /clear) in the cost ledger, and
 # hq's secrets kept out of its file tools (they sit inside ~/.hq, which every run can read; tools get them from hq-auth),
@@ -231,8 +265,9 @@ state_projects="$HQ_STATE/projects"$'\n'"$HQ_STATE_REAL/projects"
 [[ $p_owner == 0 ]] && state_projects=${project:+"$HQ_STATE/projects/$project"$'\n'"$HQ_STATE_REAL/projects/$project"}
 if [[ $harness == claude ]]; then
 plugins=$(claude plugin list --json 2>/dev/null || echo '[]')
-fill < "$pkg/settings.json" | DENY=$p_deny PLUGINS=$plugins HOOK="\"$HQ/bin/hq-cost\" tag" WRITABLE="$home/memory
-$home_real/memory
+[[ $p_owner == 1 ]] && writable="$home/memory"$'\n'"$home_real/memory" \
+  || writable=$(printf '%s\n' "$mem" "$(real "$mem")" "$shared" "$(real "$shared")" "$files" "$(real "$files")")
+fill < "$pkg/settings.json" | DENY=$p_deny PLUGINS=$plugins HOOK="\"$HQ/bin/hq-cost\" tag" WRITABLE="$writable
 $src_pkg/skills/learned
 $state_projects" python3 -c '
 import json, os, sys
@@ -269,10 +304,12 @@ while IFS=$'\t' read -r _ h; do
   [[ -n $h && $h != - ]] && h=${h/#\~/$HOME} && [[ -d $h ]] && dirs+=(--add-dir "$h")
 done <<< "$info
 $held"
-# Anyone but the owner: the kernel, this agent's own folder and pinned package, and the current project's shared
-# files; not the other agents, the state folder or the owner's project folders.
+# Anyone but the owner: the kernel, their part of this agent's folder (their memory and outputs, the shared memory,
+# the agent's data) and its pinned package, and the current project's shared files; not the other agents, the
+# state folder or the owner's project folders.
 if [[ $p_owner == 0 ]]; then
-  dirs=(--add-dir "$HQ" --add-dir "$home" --add-dir "$pkg")
+  dirs=(--add-dir "$HQ" --add-dir "$mem" --add-dir "$shared" --add-dir "$files" --add-dir "$HQ_STATE/people" --add-dir "$pkg")
+  [[ -d $home/data ]] && dirs+=(--add-dir "$home/data")
   [[ $hq_real != "$HQ" ]] && dirs+=(--add-dir "$hq_real")
   [[ -n $project && -d $HQ_STATE/projects/$project ]] && dirs+=(--add-dir "$HQ_STATE/projects/$project")
 fi

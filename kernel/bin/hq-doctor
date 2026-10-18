@@ -218,6 +218,15 @@ def people():
             issues += 1
             warn(f'profiles: {name} is a login shared with everyone who may use its agents (hq auth owner {name} default '
                  'to make it yours again)')
+    gone = set()
+    for d in sorted(P['HQ_AGENTS'].iterdir()) if P['HQ_AGENTS'].is_dir() else []:
+        for sub in ('memory', 'files'):
+            gone |= {p.name for p in (d / sub / 'people').glob('*') if p.is_dir() and p.name not in folks}
+    gone |= {p.stem for p in (P['HQ_STATE'] / 'people').glob('*.md') if p.stem not in folks}
+    for pid in sorted(gone):
+        issues += 1
+        warn(f'memory and files are kept for {pid}, who is not a person any more: '
+             f'agents/*/memory/people/{pid}, agents/*/files/people/{pid}, people/{pid}.md (delete them by hand)')
     env = P['HQ_SECRETS'] / 'env'
     old = {k for k, _, _ in (l.strip().partition('=') for l in env.read_text().splitlines())} if env.exists() else set()
     for k in sorted(old & {'HQ_DISCORD_REPLY_TO', 'HQ_DISCORD_ALLOWED_IDS', 'HQ_DISCORD_OWNER_ID'}):

@@ -111,6 +111,8 @@ Packages never hold absolute paths. `bin/hq` and the adapter fill these in at ru
 | `{{AGENT_DIR}}` | the pinned snapshot this run uses | `HQ_AGENT_DIR` |
 | `{{PACKAGE}}` | the agent's live `role/` (where learned skills are written) | |
 | `{{HOME_DIR}}` / `{{HOME_REAL}}` | the agent's own folder `<agents>/<name>` (memory, data, files); the same with symlinks resolved, for permission rules | `HQ_AGENT_HOME` |
+| `{{MEMORY_DIR}}` / `{{FILES_DIR}}` / `{{PERSON_FILE}}` | whose memory, outputs and profile the run uses: the owner's `memory/`, `files/`, `user.md`; anyone else's `memory/people/<id>/`, `files/people/<id>/`, `<state>/people/<id>.md` | |
+| `{{SHARED_MEMORY}}` | `memory/shared/`: the craft, for everyone who uses the agent | |
 | `{{STATE}}` / `{{AGENTS}}` | the state folder; the agents folder | `HQ_STATE`, `HQ_AGENTS` (also `HQ_HOME`) |
 | `{{MACHINE}}` | this Mac's hq folder, `~/.hq` (`bridge/attachments/`, …; never `secrets/`, which runs are denied) | `HQ_MACHINE` |
 | `{{USER_HOME}}` | `$HOME` | |

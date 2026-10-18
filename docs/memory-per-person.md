@@ -1,7 +1,7 @@
-# Memory per person — plan
+# Memory per person
 
-Status: planned 2026-10-19, not built. Build it when a second person shares an agent with the owner, or before.
-This moves and splits memory folders, so each step is checked before the next.
+Status: built 2026-10-19 with the recommended answer to each decision below (the owner's memory stays in place,
+a shared part, outputs per person, memory kept when a person is removed). Kept as the design record.
 
 ## Why
 

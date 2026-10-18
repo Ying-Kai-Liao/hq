@@ -650,7 +650,9 @@ def cmd_person(args):
         auth['members'] = {a: r for a, r in auth['members'].items() if r}
         auth['grants'] = {k: g for k, g in auth['grants'].items() if not k.endswith(f'@{pid}')}
         save_auth(auth)
-        print(f'{pid} removed, with their memberships and grants (profiles they own are kept)')
+        kept = sorted({label for label, _ in person_folders(pid)})
+        print(f'{pid} removed, with their memberships and grants (profiles they own are kept)'
+              + (f'; their memory and files in {", ".join(kept)} are kept (delete them by hand)' if kept else ''))
         return
     if pid not in auth['people'] and canonical(auth, pid) != pid:
         die(f"'{pid}' was renamed to {canonical(auth, pid)}")
@@ -700,8 +702,35 @@ def rename(auth, old, new):
         if inv.get('person') == old:
             inv['person'] = new
     save_auth(auth)
+    moved = move_life(old, new)
     print(f'{old} is now {new}' + (f'; owns {", ".join(sorted(owned))}' if owned else '')
+          + (f'; moved their memory and files in {", ".join(moved)}' if moved else '')
           + ' (profile names stay as they are: they name accounts, not people)')
+
+
+def person_folders(pid):
+    """(label, path) of what hq keeps for a person outside auth.json: each agent's memory/people/<id> and
+    files/people/<id>, and <state>/people/<id>.md."""
+    for d in sorted(AGENTS.iterdir()) if AGENTS.is_dir() else []:
+        for sub in ('memory', 'files'):
+            p = d / sub / 'people' / pid
+            if p.exists():
+                yield d.name, p
+    p = STATE_ROOT / 'people' / f'{pid}.md'
+    if p.exists():
+        yield 'people', p
+
+
+def move_life(old, new):
+    moved = []
+    for label, p in list(person_folders(old)):
+        dest = p.with_name(f'{new}.md' if p.suffix == '.md' else new)
+        if dest.exists():
+            print(f'note: {dest} is already there; {p} left as it is', file=sys.stderr)
+            continue
+        p.rename(dest)
+        moved.append(label)
+    return sorted(set(moved))
 
 
 def canonical(auth, pid):
