@@ -19,8 +19,9 @@ stderr, exit 1 when the agent failed), and its session kept so `-c` resumes it w
 That makes it the way for a script, another harness or a Claude Code session to work with a specialist over
 several turns, in the agent's own tools instead of the caller's.
 
-Permission mode: HQ_ASK_PERMISSION_MODE when set, else the agent's settings.json (or the harness) decides (no one can approve a prompt,
-so a tool that needs one is refused, the same as any one-shot run).
+Permission mode: HQ_ASK_PERMISSION_MODE when set, else the agent's settings.json defaultMode, else hq's default (auto;
+~/.hq/settings.json changes it). No one can approve a prompt, so a tool that needs one is refused, the same as any
+one-shot run.
 Conversations: ~/.hq/ask.json (agent + directory, or --as NAME → session id). A conversation belongs to the
 directory it ran in, so after -C or -p, `-c` from inside that folder (or with the same -C/-p) continues it.
 """

@@ -32,6 +32,7 @@ hq/agents/                        the agents folder, $HQ_AGENTS: your private re
   .gitignore                        ignores everything else (kernel/lib/dot-hq.gitignore): from here down, this Mac only
   secrets/                          auth.json (grants and profiles, hq-auth), auth.log, env (bridge, Telegram, tokens);
                                     agents' file tools are denied it (bin/hq)
+  settings.json                     hq's own settings for this Mac, not secret (lib/hq_settings.py): permission_mode
   ask.json  remotes.json            hq ask conversations → sessions; other machines (hq-remote)
   cost.db                           the cost ledger (hq-cost)
   bridge/  sched/                   Discord thread → session map, attachments; last tick and runs per job
@@ -93,6 +94,7 @@ Paths in this table are inside `kernel/`, except `install.sh` and `.claude-plugi
 | `bin/hq-doctor` | python | Read-only checks with a fix for each: folders and links, tools, the state, agents and role repos (uncommitted, unpushed, no backup), agent checks, grants, plugin version, each `dev.hq.*` job (loaded, running, stuck in hq-uv = lost Full Disk Access) | you |
 | `lib/dot-hq.gitignore`, `lib/agents.gitignore`, `lib/user.md`, `lib/starters.json` | text | What `hq init` puts in a new ~/.hq and agents folder; the starter agents it offers (link null until published) | `hq-init` |
 | `lib/hq_paths.py` | python | The resolver: HQ_HOME, state, agents (address and `_REAL`), machine, logs, caches; `--sh` / `--json` | every tool, the adapter |
+| `lib/hq_settings.py` | python | hq's own settings (hq-wide, not secret): this Mac's `~/.hq/settings.json` over the defaults; today `permission_mode` (default `auto`), the mode a run starts in when neither the caller nor the agent sets one | `bin/hq`, `hq-doctor` |
 | `adapters/claude-code/hooks/hooks.json` | JSON | Loads `register.tsx` as the plugin's hooks module | Claude Code |
 | `adapters/claude-code/hooks/register.tsx` | TS | The Claude Code plugin: registers each agent as `hq:<name>` (pinned package, frontmatter `model`), puts project + memory in front of each spawn, applies `effort` per request, nudges for the session file, `/hq` and `mcp__hq__invoke` | Claude Code, every session |
 | `adapters/claude-code/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | JSON | Plugin manifest (option `hq_path`) and this repo as its marketplace | `install.sh` |
@@ -147,12 +149,14 @@ databases and commits and pushes the agents repo and the state repo.
 
 **`hq ask house@mini` from another machine** → hq-ask hands it to hq-remote → in a git repo: working tree → commit
 (temp index) → `git push` over ssh to `~/.hq/cache/handoff/<repo>/repo` on mini → ssh `hq remote _run`: worktree on
-`hq/house/<id>`, `hq ask house` there (acceptEdits, `CLAUDE_CODE_OAUTH_TOKEN` from its env file), leftovers committed →
+`hq/house/<id>`, `hq ask house` there (mode from its `HQ_REMOTE_PERMISSION_MODE`, else the agent's, else hq's default;
+`CLAUDE_CODE_OAUTH_TOKEN` from its env file), leftovers committed →
 JSON answer back → `git fetch` the branch, `scp` `.hq-out/` to `./hq-out/<id>/`.
 
 **A scheduled job** → launchd runs `hq-sched tick` every minute → for each `jobs.json` job whose cron time fell since
 the last tick (at most a day back) and that isn't still running: `hq <agent> "task + scheduled note"` detached, with
-`--permission-mode` from `HQ_SCHED_PERMISSION_MODE` → output in `~/.hq/logs/sched/runs/<agent>/`, delivery by `hq-send`.
+`--permission-mode` from `HQ_SCHED_PERMISSION_MODE` when set (else the agent's mode, else hq's default) → output in
+`~/.hq/logs/sched/runs/<agent>/`, delivery by `hq-send`.
 
 **Cost** → Claude Code writes transcripts → `hq-cost sync` (every 6 h, and before each report) → `cost.db`;
 `runs` (from the hook) and `hq:` subagent types attribute requests to agents.
@@ -170,6 +174,7 @@ the last tick (at most a day back) and that isn't still running: `hq <agent> "ta
 | How memory is searched (what's indexed, ranking) | `bin/hq-memory` |
 | Scheduled jobs (cron syntax, catch-up, how a job runs) | `bin/hq-sched` |
 | Where hq's folders are (HQ_HOME, ~/.hq and what is in it) | `lib/hq_paths.py`, nowhere else |
+| An hq-wide setting that isn't secret (the default permission mode) | `lib/hq_settings.py` `DEFAULTS`; per Mac, `~/.hq/settings.json` |
 | A background job | its row in [Background jobs](#background-jobs): the installer, or the plist itself where there is none |
 | Calling agents on other machines, the code handoff | `bin/hq-remote` (`call` on the caller, `serve_run` on the agent's machine) |
 | Cost reports or prices | `bin/hq-cost` (`PRICES`) |

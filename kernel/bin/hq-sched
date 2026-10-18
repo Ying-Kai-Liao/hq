@@ -19,8 +19,9 @@ CRON is five fields, minute hour day-of-month month day-of-week (0 or 7 = Sunday
 a list a,b and a step */n or a-b/n; or @hourly, @daily, @weekly, @monthly. Times are this Mac's local time. When the
 Mac slept through a due time, the job runs once on the next tick (if the miss was under a day), not once per miss.
 
-Runs start with `--permission-mode` from HQ_SCHED_PERMISSION_MODE (default bypassPermissions, as for Discord tasks):
-no one is there to approve a tool call. The agent's settings.json allow/deny rules still apply.
+Runs start with `--permission-mode` from HQ_SCHED_PERMISSION_MODE when set, else in the agent's settings.json
+defaultMode, else in hq's default (auto; ~/.hq/settings.json changes it): no one is there to approve a tool call, so
+one that would need it is refused. The agent's settings.json allow/deny rules still apply.
 Machine state (last tick, last runs): ~/.hq/sched/. Logs (tick.log, each run's output): ~/.hq/logs/sched/.
 """
 import datetime as dt, json, os, plistlib, re, subprocess, sys
@@ -153,8 +154,9 @@ def start(agent, job, now, why):
     task = ('%s\n\n(Scheduled job "%s" of %s, cron `%s`, %s. No one is watching this session: finish the task and '
             'deliver the result with %s/bin/hq-send. If there is nothing worth sending, send nothing.)'
             % (job['task'], job['id'], agent, job['cron'], why, HQ))
-    env = dict(os.environ, HQ_VIA='schedule', HQ_SCHED_JOB=job['id'],
-               HQ_PERMISSION_MODE=os.environ.get('HQ_SCHED_PERMISSION_MODE', 'bypassPermissions'))
+    env = dict(os.environ, HQ_VIA='schedule', HQ_SCHED_JOB=job['id'])
+    if os.environ.get('HQ_SCHED_PERMISSION_MODE'):   # unset: the agent's mode, else hq's default (bin/hq)
+        env['HQ_PERMISSION_MODE'] = os.environ['HQ_SCHED_PERMISSION_MODE']
     for k in ('HQ_AGENT', 'HQ_MODEL', 'HQ_EFFORT', 'HQ_HARNESS', 'HQ_DISCORD_WEBHOOK_URL', 'HQ_DISCORD_THREAD_ID',
               'HQ_BRIDGE_OUTBOX'):
         env.pop(k, None)

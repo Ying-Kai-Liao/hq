@@ -626,8 +626,9 @@ class Core:
         conv, person = th['conv'], th.get('person', '')
         session = th.setdefault('sessions', {}).get(agent)
         r = await asyncio.to_thread(self.resolve, person, agent) if person else {'owner': True}
-        env = dict(os.environ, HQ_VIA=ad.platform, HQ_OUTPUT='json',
-                   HQ_PERMISSION_MODE=os.environ.get('HQ_BRIDGE_PERMISSION_MODE', 'bypassPermissions'))
+        env = dict(os.environ, HQ_VIA=ad.platform, HQ_OUTPUT='json')
+        if os.environ.get('HQ_BRIDGE_PERMISSION_MODE'):   # unset: the agent's mode, else hq's default (bin/hq)
+            env['HQ_PERMISSION_MODE'] = os.environ['HQ_BRIDGE_PERMISSION_MODE']
         for k in [k for k in env if k.startswith(('JEV_', 'TELEGRAM_', 'SLACK_', 'DISCORD_', 'HQ_DISCORD_'))
                   or k in ('HQ_AGENT', 'HQ_PERSON', 'HQ_RESUME', 'HQ_BRIDGE_OUTBOX')]:
             env.pop(k)   # no bot tokens or keys, and this is no agent's helper

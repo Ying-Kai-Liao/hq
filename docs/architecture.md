@@ -124,6 +124,14 @@ and a permission mode with `HQ_OUTPUT`, `HQ_RESUME`, `HQ_PERMISSION_MODE`, the s
 result shape back. Session ids from other harnesses are `<harness>:<id>`, so a session is only ever resumed by the
 harness that made it. Settings permissions, hooks and per-request cost stay Claude-only.
 
+**Permission mode** (`lib/hq_settings.py`, 2026-10-19). An owner's run starts in the first mode that is set: the
+caller's (`HQ_PERMISSION_MODE`, which the bridge, `hq schedule`, `hq ask` and `hq remote` set only from their own
+`HQ_BRIDGE_`, `HQ_SCHED_`, `HQ_ASK_` and `HQ_REMOTE_PERMISSION_MODE`), the agent's `settings.json`
+`permissions.defaultMode`, then hq's default: `auto`, or `permission_mode` in this Mac's `~/.hq/settings.json` (hq's
+own settings: hq-wide, not secret, never committed; `hq doctor` shows the one in force). `bin/hq` writes that default
+into the run's settings, so only Claude Code runs get it; other harnesses tell only `bypassPermissions` apart from the
+rest, so for them an unset mode stays as before. A run for anyone but the owner takes its membership's mode instead.
+
 **Channels** (`bin/hq-bridge`, `lib/hq_bridge/`, `bin/hq-send`; 2026-10-19). One bridge process for every platform
 and every bot. Each bot is a connection: a `discord/`, `telegram/` or `slack/` profile granted to `bridge` (a grant
 can hold a list, one bot each), plus the Discord token in `HQ_DISCORD_BOT_TOKEN` as `discord/hq`. Every connection
@@ -161,7 +169,7 @@ runs and restarts on its own. `core.py` holds what is the same everywhere; an ad
 
 A run's person is `HQ_PERSON`: set only by entry points (the bridge from the sender's account, a schedule), unset
 means the owner, inherited by every helper. `bin/hq` resolves it before anything else and fails closed. For anyone but
-the owner, the membership's mode replaces the caller's (the bridge asks for `bypassPermissions`), and the run:
+the owner, the membership's mode replaces the caller's, and the run:
 - stays on Claude Code;
 - sees only the kernel, the agent's own folder, its pinned package and the current project;
 - is denied every other agent's folder and `user.md`;
