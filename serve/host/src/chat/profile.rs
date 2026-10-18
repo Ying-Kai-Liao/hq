@@ -80,7 +80,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(std::path::Path::new(":memory:")).unwrap();
         let cfg: BotConfig = serde_json::from_value(
-            json!({"id": "a", "name": "New Bot", "autoName": true, "backend": "claude", "cwd": "/tmp"}),
+            json!({"id": "a", "name": "New Bot", "autoName": true, "backend": "claude", "cwd": dir.to_string_lossy()}),
         )
         .unwrap();
         store.save_bot(&cfg).unwrap();
