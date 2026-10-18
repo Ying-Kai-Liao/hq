@@ -131,10 +131,4 @@ impl Host {
             .map(|r| r["params"]["prompt"][0]["text"].as_str().unwrap().to_owned())
             .collect()
     }
-
-    /// The newest memory line in a bot's chat.
-    pub async fn card(&self, bot: &str) -> Value {
-        let history = self.call("history", json!({"botId": bot})).await;
-        history["entries"].as_array().unwrap().iter().rev().find(|e| e["data"]["memory"].is_object()).unwrap().clone()
-    }
 }

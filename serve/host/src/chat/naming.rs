@@ -1,8 +1,8 @@
 //! Automatic bot names, as in Grok Bot: a bot created without a name is called
 //! [`PLACEHOLDER`] until its first few conversations show what it's for. Then
 //! a one-shot agent of the bot's harness (see `oneshot`) is asked for a short
-//! name, at the end of a turn. The user renaming it ends this. The description stays the
-//! user's: it holds standing instructions.
+//! name, at the end of a turn. The user renaming it, or asking the bot to rename itself
+//! (`profile`), ends this. The description stays the user's: it holds standing instructions.
 
 use crate::hub::Hub;
 use crate::store::Store;
@@ -23,7 +23,7 @@ pub const PLACEHOLDER: &str = "New Bot";
 const NAME_AFTER: usize = 3;
 /// The most recent conversations shown to the namer (it retries after each one).
 const WINDOW: usize = 6;
-const MAX_NAME_CHARS: usize = 40;
+pub const MAX_NAME_CHARS: usize = 40;
 
 fn key(bot_id: &str) -> String {
     format!("naming.turns.{bot_id}")

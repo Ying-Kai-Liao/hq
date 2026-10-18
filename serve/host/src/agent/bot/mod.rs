@@ -177,7 +177,14 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig) -> BotHandle {
 
 /// The working line for a tool call: composing a message reads as typing.
 fn activity(title: &str) -> &str {
-    if title.contains("send_message") { "Typing…" } else { title }
+    if title.contains("send_message") {
+        "Typing…"
+    } else if ["memory__", "memory.", "bot-memory", "shared-memory"].iter().any(|m| title.contains(m)) {
+        // Memory stays out of the chat, its working line included: the memory settings show it.
+        "Thinking…"
+    } else {
+        title
+    }
 }
 
 /// What the agent can do with sessions besides creating them.
@@ -458,5 +465,16 @@ async fn recv_incoming(conn: &mut Option<Conn>) -> Option<Incoming> {
     match conn {
         Some(c) => c.rx.recv().await,
         None => std::future::pending().await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn memory_work_reads_as_thinking() {
+        assert_eq!(super::activity("mcp__chat__send_message"), "Typing…");
+        assert_eq!(super::activity("mcp__memory__remember"), "Thinking…");
+        assert_eq!(super::activity("Write /Users/me/.codync/bots/b/bot-memory/trip.md"), "Thinking…");
+        assert_eq!(super::activity("Terminal"), "Terminal");
     }
 }

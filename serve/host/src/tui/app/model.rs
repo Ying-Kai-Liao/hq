@@ -334,13 +334,10 @@ impl Entry {
 
     /// What the chat shows as a message: the user's, and each turn's final reply.
     pub fn is_message(&self) -> bool {
-        self.kind == Kind::User
-            || self.is_final()
-            || self.data["connectionRequest"].is_object()
-            || self.data["memory"].is_object()
+        self.kind == Kind::User || self.is_final() || self.data["connectionRequest"].is_object()
     }
 
-    /// A line that folds away a longer text: a compaction's summary, or a handoff (`o` shows it).
+    /// A line that folds away a longer text: a handoff (`o` shows it).
     pub fn unfolds(&self) -> bool {
         crate::tui::view::unfoldable(self).is_some()
     }

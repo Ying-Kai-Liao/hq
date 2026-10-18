@@ -9,6 +9,7 @@ pub mod memory;
 pub mod naming;
 pub mod oneshot;
 pub mod outbox;
+pub mod profile;
 pub mod prompt;
 pub mod team;
 pub mod uploads;

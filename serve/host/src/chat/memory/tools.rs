@@ -4,7 +4,7 @@ use super::dates::ymd;
 use super::notices::{self, Action};
 use crate::agent::acp;
 use crate::hub::Hub;
-use crate::store::{BotConfig, Permission};
+use crate::store::BotConfig;
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -26,7 +26,7 @@ pub fn tools() -> Value {
     let mut tools = json!([
         {
             "name": "remember",
-            "description": "Save one short fact about the user to your memory: who they are, their people, preferences, standing requests, plans or commitments. Use it when the user asks you to remember something or tells you something lasting about themselves. Write one self-contained fact in the user's language, with absolute dates. The user sees it in the chat and can undo it; a bot that asks before acting shows it to the user for approval first.",
+            "description": "Save one short fact about the user to your memory: who they are, their people, preferences, standing requests, plans or commitments. Use it when the user asks you to remember something or tells you something lasting about themselves. Write one self-contained fact in the user's language, with absolute dates. The user sees all of it in the bot's memory settings and changes or deletes it there.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -102,32 +102,22 @@ pub async fn call(hub: &Arc<Hub>, bot_id: &str, name: &str, args: &Value) -> Res
     }
 }
 
-/// A bot that acts without asking writes at once; one that asks puts a confirm card in the chat, unless the user's
-/// own message in this turn asked it to remember.
+/// Writes at once, whatever the bot's permission: memory isn't an action on the user's computer, and the user
+/// reviews and changes it in the bot's memory settings.
 async fn write(hub: &Arc<Hub>, cfg: &BotConfig, action: Action) -> Result<Value> {
     let hub = hub.clone();
     let cfg = cfg.clone();
     tokio::task::spawn_blocking(move || {
         let turn = hub.runtime(&cfg.id);
-        let asked = turn
-            .message
-            .as_deref()
-            .and_then(|id| hub.store.entry(id))
-            .is_some_and(|e| codync_mem::evidence::asks_to_remember(&notices::typed(&e.data).join("\n")));
-        if cfg.permission == Permission::Auto || asked {
-            let before = super::current_revision(&hub.store, &cfg.id);
-            let entry = notices::apply(&hub, &cfg, turn.lane, turn.message, &action)?;
-            // The session that wrote it needs no notice about its own write.
-            if let Some(session) = &turn.session
-                && let Err(error) = super::heard_own_write(&hub.store, &cfg.id, session, &before)
-            {
-                tracing::warn!(bot = %cfg.id, error = format!("{error:#}"), "couldn't record the bot's own write");
-            }
-            Ok(json!({"status": "saved", "id": entry.id}))
-        } else {
-            notices::propose(&hub, &cfg, turn.lane, turn.message, &action)?;
-            Ok(json!({"status": "waitingForUser", "note": "Not saved yet: the user approves or declines it in the chat. Don't tell them it's remembered."}))
+        let before = super::current_revision(&hub.store, &cfg.id);
+        let entry = notices::apply(&hub, &cfg, turn.lane, turn.message, &action)?;
+        // The session that wrote it needs no notice about its own write.
+        if let Some(session) = &turn.session
+            && let Err(error) = super::heard_own_write(&hub.store, &cfg.id, session, &before)
+        {
+            tracing::warn!(bot = %cfg.id, error = format!("{error:#}"), "couldn't record the bot's own write");
         }
+        Ok(json!({"status": "saved", "id": entry.id}))
     })
     .await?
 }

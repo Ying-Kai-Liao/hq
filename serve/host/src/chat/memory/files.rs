@@ -2,10 +2,9 @@
 //! scan that turns what changed in them into versions, and the host's own compare-and-swap writes. The rules
 //! (names, checks, versions, the index) are `codync_mem::files`.
 
-use super::file_notices::{self, Outcome};
 use crate::LockExt;
 use crate::hub::Hub;
-use crate::store::{BotConfig, Lane, Store};
+use crate::store::{BotConfig, Store};
 use anyhow::{Context, Result, anyhow, bail};
 use codync_mem::files::{self as mf, Author, Cause, Change, Version};
 use serde::{Deserialize, Serialize};
@@ -64,12 +63,16 @@ pub fn index(store: &Store, cfg: &BotConfig) -> String {
 #[derive(Serialize, Deserialize)]
 struct Touch {
     bot: String,
-    chat: String,
-    thread: Option<String>,
 }
 
 /// Notes the memory files a tool call names (its `locations` and diffs), so the scan knows which bot changed them.
-pub fn touched(store: &Store, cfg: &BotConfig, lane: &Lane, tool: &serde_json::Value) {
+/// Only calls that change files count: a read left behind would credit the next outside edit to the bot.
+pub fn touched(store: &Store, cfg: &BotConfig, tool: &serde_json::Value) {
+    let changes = matches!(tool["toolKind"].as_str(), Some("edit" | "delete" | "move"))
+        || tool["diffs"].as_array().is_some_and(|d| !d.is_empty());
+    if !changes {
+        return;
+    }
     let paths = tool["locations"]
         .as_array()
         .into_iter()
@@ -80,7 +83,7 @@ pub fn touched(store: &Store, cfg: &BotConfig, lane: &Lane, tool: &serde_json::V
     for path in paths {
         let path = Path::new(path);
         if path.parent().is_some_and(|dir| folders.iter().any(|f| f == dir)) {
-            let touch = Touch { bot: cfg.id.clone(), chat: lane.chat.clone(), thread: lane.thread.clone() };
+            let touch = Touch { bot: cfg.id.clone() };
             let value = serde_json::to_string(&touch).expect("a touch is plain data");
             if let Err(error) = store.kv_set(&touch_key(path), &value) {
                 tracing::warn!(error = format!("{error:#}"), "couldn't note a memory file edit");
@@ -195,7 +198,7 @@ fn found(hub: &Hub, layer: Option<&str>, name: &str, after: Option<&OnDisk>) -> 
     let before = hub.store.memory_read(|c| mf::current(c, layer, name))?;
     let (mtime, size) = after.map_or((0, 0), |a| (a.mtime, a.size));
     let content = after.map(|a| a.content.as_str());
-    let (Some(cfg), Some(touch)) = (bot, touch) else {
+    let Some(cfg) = bot else {
         let change = Change {
             bot: layer,
             name,
@@ -210,7 +213,6 @@ fn found(hub: &Hub, layer: Option<&str>, name: &str, after: Option<&OnDisk>) -> 
         super::changed(hub, layer);
         return Ok(());
     };
-    let lane = Lane { chat: touch.chat, thread: touch.thread };
     if let Some(content) = content
         && let Err(refusal) = mf::check(content)
     {
@@ -220,16 +222,7 @@ fn found(hub: &Hub, layer: Option<&str>, name: &str, after: Option<&OnDisk>) -> 
         if before.is_some() {
             hub.store.memory_write(|c, _, _| mf::observed(c, layer, name, mtime, size))?;
         }
-        file_notices::post(
-            hub,
-            &cfg,
-            &lane,
-            layer,
-            name,
-            Outcome::Restored(refusal.message().to_owned()),
-            before.as_deref(),
-            content,
-        );
+        tracing::info!(bot = %cfg.id, file = name, reason = refusal.message(), "put back a bot's memory note change");
         return Ok(());
     }
     let change = Change {
@@ -242,17 +235,7 @@ fn found(hub: &Hub, layer: Option<&str>, name: &str, after: Option<&OnDisk>) -> 
         mtime,
         size,
     };
-    let version = record_bot_change(hub, &cfg, layer, &change)?;
-    file_notices::post(
-        hub,
-        &cfg,
-        &lane,
-        layer,
-        name,
-        Outcome::Done(version.id),
-        before.as_deref(),
-        content.unwrap_or_default(),
-    );
+    record_bot_change(hub, &cfg, layer, &change)?;
     Ok(())
 }
 

@@ -279,6 +279,13 @@ fn entry_lines(
                 decided_line(out, e);
             }
         }
+        // Of memory and context, only a fresh conversation gets a line: memory lives in the bot's memory settings, a
+        // summary keeps the same conversation going, and a kept handoff changed nothing.
+        Kind::Notice
+            if e.data["memory"].is_object()
+                || e.data["memoryFile"].is_object()
+                || e.data["compaction"].is_object()
+                || e.data["handoff"]["status"] == "kept" => {}
         Kind::Notice => {
             let from = out.lines.len();
             if let Some(x) = Exchange::of(&b.id, e) {
@@ -295,29 +302,11 @@ fn entry_lines(
                     e.notice_text(),
                     if status == "pending" { hint } else { status }
                 )
-            } else if let Some(status) = e.data["memory"]["status"].as_str() {
-                // A bot's memory write: undo it, or answer a bot that asked first (keys on the picked line).
-                let hint = match status {
-                    "pending" => " · y approves · n declines",
-                    "done" | "accepted" => " · u undoes",
-                    _ => "",
-                };
-                format!("{}{hint}", e.notice_text())
-            } else if let Some(status) = e.data["memoryFile"]["status"].as_str() {
-                // A bot's change to a memory note: the same keys, and the diff unfolds.
-                let hint = match status {
-                    "pending" => " · o shows the change · y allows · n declines",
-                    "done" | "accepted" => " · o shows the change · u undoes",
-                    _ => "",
-                };
-                format!("{}{hint}", e.notice_text())
             } else if let Some(status) = e.data["handoff"]["status"].as_str() {
                 // The chat starts over with a handoff: read it, edit it or keep the conversation while it's a draft.
                 let hint =
                     if status == "draft" { " · o shows it · e edits · K keeps this chat" } else { " · o shows it" };
                 format!("{}{hint}", e.notice_text())
-            } else if e.data["compaction"]["summary"].is_string() {
-                format!("{} · o shows the summary", e.notice_text())
             } else {
                 e.notice_text()
             };
@@ -352,7 +341,7 @@ fn entry_lines(
                     &[Span::raw("   │ ")],
                 ));
             }
-            if e.data["connectionRequest"].is_object() || e.data["memory"].is_object() || folded.is_some() {
+            if e.data["connectionRequest"].is_object() || folded.is_some() {
                 out.messages.push((e.id.clone(), from, out.lines.len()));
             }
         }
@@ -360,13 +349,9 @@ fn entry_lines(
     }
 }
 
-/// The full text a chat line folds away: a compaction's summary, what a handoff carries, or a note's change.
+/// The full text a chat line folds away: what a handoff carries.
 pub(in crate::tui) fn unfoldable(e: &Entry) -> Option<&str> {
-    e.data["handoff"]["text"]
-        .as_str()
-        .or_else(|| e.data["compaction"]["summary"].as_str())
-        .or_else(|| e.data["memoryFile"]["diff"].as_str())
-        .filter(|t| !t.is_empty())
+    e.data["handoff"]["text"].as_str().filter(|t| !t.is_empty())
 }
 
 /// A bot-to-bot exchange, or a run of them, as one compact line ("· Messaged ▌O▐ Owen",
@@ -514,6 +499,24 @@ mod tests {
         let line = bad.lines.last().unwrap();
         assert!(line.to_string().ends_with("Owen · failed"));
         assert_eq!(line.spans[0].style, theme().red);
+    }
+
+    #[test]
+    fn memory_lines_and_kept_handoffs_stay_out_of_the_chat() {
+        let app = app_with_bots();
+        let mut line = exchange_entry("done");
+        line.data =
+            serde_json::json!({"text": "Remembered: likes tea", "memory": {"action": "remember", "status": "done"}});
+        let mut out = Built { lines: vec![], buttons: vec![], messages: vec![] };
+        entry_lines(&mut out, &app, &app.bots["a"], &line, &HashMap::new(), true, 80);
+        assert!(out.lines.is_empty() && out.messages.is_empty());
+        line.data = serde_json::json!({"text": "Kept this conversation.", "handoff": {"status": "kept"}});
+        entry_lines(&mut out, &app, &app.bots["a"], &line, &HashMap::new(), true, 80);
+        assert!(out.lines.is_empty(), "a kept handoff changed nothing");
+        line.data =
+            serde_json::json!({"text": "Earlier context was summarized to make room.", "compaction": {"byHost": true}});
+        entry_lines(&mut out, &app, &app.bots["a"], &line, &HashMap::new(), true, 80);
+        assert!(out.lines.is_empty(), "a summary keeps the same conversation going");
     }
 
     #[test]

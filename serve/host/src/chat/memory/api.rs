@@ -59,7 +59,7 @@ fn dispatch(hub: &Hub, method: &str, b: &Value) -> Result<Value> {
         "archiveMemory" => {
             let id = id()?;
             if b["archived"] == false {
-                edit(hub, &cfg, id, |c, now, rev| mem::activate(c, id, now, rev))?;
+                edit(hub, &cfg, id, |c, now, rev| mem::bring_back(c, id, now, rev))?;
             } else {
                 edit(hub, &cfg, id, |c, now, rev| mem::archive(c, Writer::User, id, None, now, rev))?;
             }

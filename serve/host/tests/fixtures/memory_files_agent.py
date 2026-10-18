@@ -1,7 +1,8 @@
 """ACP fixture that edits memory files with its own tools, the way a harness's Write and Edit do.
 
 It advertises `additionalDirectories`. A prompt `WRITE <path>` followed by a line break writes the rest of the
-prompt to that file; `DELETE <path>` removes it. Either reports a tool call naming the path in its `locations`.
+prompt to that file; `DELETE <path>` removes it; `READ <path>` changes nothing. Each reports a tool call naming the
+path in its `locations`.
 Every request is appended to `requests.jsonl` in the working directory.
 """
 import json
@@ -34,17 +35,19 @@ for line in sys.stdin:
         session = params["sessionId"]
         # The user's words come last, after any notice the host put before them.
         text = params["prompt"][0]["text"]
-        command = text[text.rfind("WRITE "):] if "WRITE " in text else text[text.rfind("DELETE "):] if "DELETE " in text else ""
+        starts = [text.rfind(verb) for verb in ("WRITE ", "DELETE ", "READ ") if verb in text]
+        command = text[max(starts):] if starts else ""
         if command:
             head, _, body = command.partition("\n")
             verb, path = head.split(" ", 1)
             if verb == "WRITE":
                 with open(path, "w", encoding="utf-8", newline="\n") as f:
                     f.write(body)
-            elif os.path.exists(path):
+            elif verb == "DELETE" and os.path.exists(path):
                 os.remove(path)
-            update(session, {"sessionUpdate": "tool_call", "toolCallId": f"t{request['id']}", "title": f"Edit {path}",
-                             "kind": "edit", "status": "completed", "locations": [{"path": path}]})
+            kind = "read" if verb == "READ" else "edit"
+            update(session, {"sessionUpdate": "tool_call", "toolCallId": f"t{request['id']}", "title": f"{verb} {path}",
+                             "kind": kind, "status": "completed", "locations": [{"path": path}]})
         update(session, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "ok"}})
         result = {"stopReason": "end_turn"}
     else:

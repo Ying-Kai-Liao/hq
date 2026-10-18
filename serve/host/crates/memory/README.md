@@ -1,6 +1,7 @@
 # codync-mem
 
-Memory for coding-agent bots, from [Codync](https://github.com/leepokai/Codync).
+Specially designed for bot-based memory: the memory system the coding-agent bots in
+[Codync](https://github.com/leepokai/Codync) run on, as a standalone crate.
 
 - **It records the person, not the work.** Project knowledge stays in the harness's own files (`AGENTS.md`,
   `CLAUDE.md`); the full conversation stays in your transcript.
@@ -20,6 +21,10 @@ transaction, so a memory change commits together with whatever the caller record
 send pull requests to [Codync's `dev` branch](https://github.com/leepokai/Codync) (`host/crates/memory`).
 
 ## Use
+
+```sh
+cargo add codync-mem
+```
 
 ```rust
 use codync_mem::rusqlite::Connection;

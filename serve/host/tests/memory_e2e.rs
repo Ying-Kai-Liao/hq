@@ -85,20 +85,19 @@ async fn moves_old_memory_once_and_keeps_the_layers_apart() {
 }
 
 #[tokio::test]
-async fn bots_write_memory_by_their_permission() {
+async fn bots_write_memory_at_once_and_the_user_keeps_control() {
     let host = Host::start().await;
     let auto = host.bot("Auto", "auto").await;
     let ask = host.bot("Ask", "ask").await;
 
-    // A bot that acts on its own writes at once, and the chat says so with an undo.
+    // A bot that acts on its own writes at once, with no line in the chat: the memory screen shows it.
     let saved = host.tool(&auto, "remember", json!({"text": "Prefers short replies"})).await;
     assert_eq!(saved["status"], "saved");
-    let card = host.card(&auto).await;
-    assert_eq!(card["data"]["memory"]["status"], "done");
-    assert_eq!(card["data"]["text"], "Remembered: Prefers short replies");
-    assert_eq!(texts(&host.memory(&auto).await["bot"], "active"), ["Prefers short replies"]);
-    host.call("undoMemory", json!({"entryId": card["id"]})).await;
-    assert_eq!(host.card(&auto).await["data"]["memory"]["status"], "undone");
+    let history = host.call("history", json!({"botId": auto})).await;
+    assert!(history["entries"].as_array().unwrap().iter().all(|e| !e["data"]["memory"].is_object()), "{history}");
+    let memory = host.memory(&auto).await;
+    assert_eq!(texts(&memory["bot"], "active"), ["Prefers short replies"]);
+    host.call("forgetMemory", json!({"botId": auto, "id": memory["bot"]["entries"][0]["id"]})).await;
     assert_eq!(host.memory(&auto).await["bot"]["entries"], json!([]));
     let again = host.tool_refused(&auto, "remember", json!({"text": "prefers short replies."})).await;
     assert!(again.contains("deleted this memory before"), "{again}");
@@ -113,22 +112,12 @@ async fn bots_write_memory_by_their_permission() {
     let found = host.tool(&auto, "search_memory", json!({"query": "cats"})).await;
     assert_eq!(found["results"][0]["text"], "Has two cats");
 
-    // A bot that asks first puts a card in the chat; nothing is written until the user approves.
-    let pending = host.tool(&ask, "remember", json!({"text": "Works from home on Mondays"})).await;
-    assert_eq!(pending["status"], "waitingForUser");
-    assert_eq!(host.memory(&ask).await["bot"]["entries"], json!([]));
-    let card = host.card(&ask).await;
-    assert_eq!(card["data"]["memory"]["status"], "pending");
-    host.call("answerMemory", json!({"entryId": card["id"], "accept": true})).await;
+    // A bot that asks before acting writes memory at once too: the user reviews it in the memory settings.
+    let saved = host.tool(&ask, "remember", json!({"text": "Works from home on Mondays"})).await;
+    assert_eq!(saved["status"], "saved");
     assert_eq!(texts(&host.memory(&ask).await["bot"], "active"), ["Works from home on Mondays"]);
-    assert!(host.refused("answerMemory", json!({"entryId": card["id"], "accept": true})).await.contains("already"));
-
-    host.tool(&ask, "remember", json!({"text": "Hates long meetings"})).await;
-    let card = host.card(&ask).await;
-    host.call("answerMemory", json!({"entryId": card["id"], "accept": false})).await;
-    assert_eq!(host.card(&ask).await["data"]["memory"]["status"], "declined");
-    let declined = host.tool_refused(&ask, "remember", json!({"text": "Hates long meetings"})).await;
-    assert!(declined.contains("deleted this memory before"), "a declined memory isn't proposed again: {declined}");
+    let history = host.call("history", json!({"botId": ask})).await;
+    assert!(history["entries"].as_array().unwrap().iter().all(|e| !e["data"]["memory"].is_object()), "{history}");
 }
 
 #[tokio::test]

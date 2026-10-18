@@ -89,7 +89,7 @@ pub struct App {
     pub thread: Option<String>,
     /// A main-chat message picked to reply to in its thread (`r`, then j/k and ↵).
     pub pick: Option<String>,
-    /// Chat lines showing their full text: a compaction's summary, a handoff (`o` on the picked line).
+    /// Chat lines showing their full text: a handoff (`o` on the picked line).
     pub unfolded: HashSet<String>,
     pub market: (Vec<Toggle>, Vec<Toggle>),
     /// Installed connectors and skills as the host lists them.

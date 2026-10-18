@@ -42,7 +42,12 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             crate::chat::memory::tool_call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?
         }
         "chatCall" => {
-            crate::chat::outbox::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?
+            let (bot, name) = (str_arg(&b, "botId")?, str_arg(&b, "name")?);
+            if crate::chat::profile::TOOLS.contains(&name) {
+                crate::chat::profile::call(hub, bot, name, &b["arguments"]).await?
+            } else {
+                crate::chat::outbox::call(hub, bot, name, &b["arguments"]).await?
+            }
         }
         "teamCall" => {
             crate::chat::team::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?

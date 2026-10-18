@@ -73,7 +73,7 @@ impl Actor {
                     "locations": u["locations"].clone(),
                 });
                 merge_tool_content(&mut data, &u["content"]);
-                crate::chat::memory::files::touched(&self.hub.store, &self.cfg, &self.lane, &data);
+                crate::chat::memory::files::touched(&self.hub.store, &self.cfg, &data);
                 let title = data["title"].as_str().unwrap_or("Tool").to_owned();
                 if let Some(e) = self.add(EntryKind::Tool, turn, data) {
                     self.tools.insert(tool_id, e.id);
@@ -93,7 +93,7 @@ impl Actor {
                     e.data["locations"] = u["locations"].clone();
                 }
                 merge_tool_content(&mut e.data, &u["content"]);
-                crate::chat::memory::files::touched(&self.hub.store, &self.cfg, &self.lane, &e.data);
+                crate::chat::memory::files::touched(&self.hub.store, &self.cfg, &e.data);
                 let status = e.data["status"].as_str().unwrap_or_default().to_owned();
                 let title = e.data["title"].as_str().unwrap_or_default().to_owned();
                 self.hub.set_entry(&entry_id, &e.data);
