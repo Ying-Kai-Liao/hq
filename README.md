@@ -315,6 +315,9 @@ owner's chat messages to it and `hq ask coder "…"` are typed into it (`hq-live
 with `reply=`) instead of starting a run; `hq ask` returns at once with an id and `hq ask --wait <id>` prints the
 answers, which the agent sends with `hq-send --to <reply>`. It is never an `hq:<name>` subagent, resource-manager
 never closes it, and anyone but the owner is refused. When it isn't running, a message runs it once as usual.
+`hq live login on coder` starts it whenever you log in (LaunchAgent dev.hq.live, through hq-uv like the other jobs):
+it waits for Orca, else uses tmux, and leaves a session that already runs alone (`agents.coder.live_at_login`
+in ~/.hq/settings.json; `hq init` asks).
 
 ## Agents on your other machines
 An agent lives on the machine that has its tools. On a laptop, `install.sh` asks whether your agents run on another

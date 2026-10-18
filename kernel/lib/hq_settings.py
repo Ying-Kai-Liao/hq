@@ -12,7 +12,8 @@ unattended Mac may do is decided per Mac. Without the file, or for a key it leav
                     the entry points' variables) nor the agent's settings.json (permissions.defaultMode) chose one
   agents            per agent, what this Mac chose over the agent's own settings: {"<agent>": {"permission_mode":
                     MODE}}. An agent's defaultMode is its author's suggestion; the mode chosen here (hq install asks)
-                    wins over it, and only the caller's wins over this
+                    wins over it, and only the caller's wins over this; {"live_at_login": true} for a live agent
+                    (session: live) whose session starts when you log in to this Mac (hq live login)
 """
 import json, os, sys
 
