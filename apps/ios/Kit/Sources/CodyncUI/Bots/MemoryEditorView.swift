@@ -34,6 +34,7 @@ struct MemoryEditorView: View {
                 .disabled(memory.busy || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding(20)
+            Spacer(minLength: 0)
         }
     }
 }

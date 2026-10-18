@@ -105,10 +105,13 @@ public struct Entry: Codable, Identifiable, Hashable, Sendable {
         self.updatedAt = updatedAt
     }
 
-    /// Chat-visible (Grok Bot model): user messages, final replies, approval cards, notices.
+    /// Chat-visible (Grok Bot model): user messages, final replies, approval cards, notices. Of memory and context,
+    /// only a fresh conversation gets a line: memory lives in the bot's memory settings, a summary keeps the same
+    /// conversation going, and a kept handoff changed nothing.
     public var isChat: Bool {
         switch kind {
-        case "user", "permission", "notice": true
+        case "user", "permission": true
+        case "notice": data.memory == nil && data.memoryFile == nil && data.compaction == nil && data.handoff?.status != "kept"
         case "agent": data.final == true
         default: false
         }

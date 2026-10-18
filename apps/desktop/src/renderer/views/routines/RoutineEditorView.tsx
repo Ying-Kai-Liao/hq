@@ -5,7 +5,8 @@ import { Dialog, ModalHeader } from '../../components/Overlay'
 import { font } from '../../lib/fonts'
 import { useStore } from '../../store/context'
 import { emptyDraft, errorText, sameDraft, type Routine, type RoutineScheduleDraft, type RoutineSchedulePreview } from './routine'
-import { Field, RoutineWebhookPanel } from './RoutineWebhookPanel'
+import { Field } from '../bots/parts'
+import { RoutineWebhookPanel } from './RoutineWebhookPanel'
 import './routines.css'
 
 const caption = { ...font('caption'), paddingLeft: 4, lineHeight: 1.4 } as const

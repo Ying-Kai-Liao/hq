@@ -38,11 +38,11 @@ export function useReduceMotion() {
 export const isDark = darkQuery.get
 export const reduceMotion = motionQuery.get
 
-/** Palette values for drawing code (canvas) that can't read CSS variables. */
+/** Palette values for drawing code (canvas) that can't read CSS variables; they match theme.css. */
 export const palette = (dark: boolean) => ({
-  text: dark ? [242, 242, 242] : [20, 20, 20],
-  secondary: dark ? '#9a9a9a' : '#6b6b6b',
-  background: dark ? '#0a0a0a' : '#ffffff',
+  text: dark ? [250, 250, 250] : [20, 20, 20],
+  warning: '#F0A030',
+  danger: dark ? '#F0A7A7' : '#C23A2B',
 })
 
 export interface Swatch {

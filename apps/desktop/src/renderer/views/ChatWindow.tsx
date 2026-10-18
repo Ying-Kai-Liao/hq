@@ -3,7 +3,7 @@ import type { WindowCommand } from '@shared/ipc'
 import { isSSHConnecting, showsChat as shouldShowChat } from '@shared/ssh-startup'
 import { draftOf, type Bot, type BotDraft } from '@shared/models'
 import { CharacterAvatar } from '../components/Avatar'
-import { Button, ChoicePicker, IconButton } from '../components/Controls'
+import { Button, ChoicePicker, IconButton, ResizeHandle } from '../components/Controls'
 import { AnchoredMenu, Dialog, ModalHeader, Sheet, type MenuItem } from '../components/Overlay'
 import { font } from '../lib/fonts'
 import { useModels } from '../lib/observable'
@@ -46,8 +46,6 @@ export function ChatWindow() {
   const [accessSetup, setAccessSetup] = usePref(prefs.computerAccessSetup)
   const [showAccess, setShowAccess] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
-  useTraySummary(app)
-  useIslandSummary(app)
   useSSHAttachments(app)
   const ssh = useSSH()
   const showsChat = shouldShowChat(app.host.state.kind, app.computers.length, ssh.state)
@@ -101,6 +99,7 @@ export function ChatWindow() {
   const approval = app.currentApproval
   return (
     <div className="chat-window">
+      <Summaries />
       {onboarded ? (
         accessSetup === null ? (
           <ComputerAccessView onContinue={(ready) => setAccessSetup(ready ? 'ready' : 'later')} />
@@ -136,6 +135,14 @@ export function ChatWindow() {
       </Sheet>
     </div>
   )
+}
+
+/** Keeps the tray and the approval island current: it follows every store, so it renders nothing. */
+function Summaries() {
+  const app = useApp()
+  useTraySummary(app)
+  useIslandSummary(app)
+  return null
 }
 
 interface BotTarget {
@@ -278,17 +285,12 @@ function ChatSplitView() {
   }
 
   // The sidebar's edge drags its width; narrower than 180 collapses it to the rail.
-  const dragStart = useRef<{ x: number; width: number } | null>(null)
-  const onDividerDown = (e: React.PointerEvent) => {
-    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-    dragStart.current = { x: e.clientX, width: compact ? 76 : sidebarWidth }
-  }
-  const onDividerMove = (e: React.PointerEvent) => {
-    if (!dragStart.current) return
-    const proposed = dragStart.current.width + e.clientX - dragStart.current.x
+  const [resizing, setResizing] = useState(false)
+  const sidebarMax = Math.min(420, window.innerWidth - 420)
+  const resizeSidebar = (proposed: number) => {
     const nextCompact = proposed < 180
     if (nextCompact !== compact) setCompact(nextCompact)
-    if (!nextCompact) setSidebarWidth(Math.min(Math.max(260, proposed), Math.min(420, window.innerWidth - 420)))
+    if (!nextCompact) setSidebarWidth(Math.min(Math.max(260, proposed), sidebarMax))
   }
 
   const errorMessage = app.errorMessage
@@ -343,13 +345,13 @@ function ChatSplitView() {
   const width = compact ? 76 : sidebarWidth
   return (
     <div className="split" style={{ pointerEvents: showAccount || contextBot ? 'none' : undefined }}>
-      <aside className={`sidebar ${compact ? 'compact' : ''}`} style={{ width }}>
-        <div className="sidebar-header drag" style={{ paddingLeft: compact ? 0 : isMac ? 80 : 18, opacity: compact ? 0 : 1, pointerEvents: compact ? 'none' : undefined }} aria-hidden={compact}>
+      <aside className={`sidebar ${compact ? 'compact' : ''} ${resizing ? 'resizing' : ''}`} style={{ width }}>
+        <div className="sidebar-header drag" style={{ paddingLeft: compact ? 0 : isMac ? 80 : 18, opacity: compact ? 0 : 1 }} inert={compact}>
           <span style={{ flex: 1 }} />
           <div className="no-drag" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <ComputerFilterHeader hidden={hidden} setHidden={setHidden} manage={() => setSettings('computers')} compact />
             <IconButton title="Search" icon="magnifyingglass" size={32} className="sidebar-header-action" onClick={() => setSearching(true)} />
-            <IconButton title="New" icon="plus" size={32} className="sidebar-header-action" buttonRef={newButton} onClick={() => setNewMenu((o) => !o)} disabled={!onlineStores.length} />
+            <IconButton title="New" icon="plus" size={32} className="sidebar-header-action" buttonRef={newButton} menuOpen={newMenu} onClick={() => setNewMenu((o) => !o)} disabled={!onlineStores.length} />
           </div>
           <AnchoredMenu open={newMenu} onClose={() => setNewMenu(false)} anchor={newButton} items={newItems} />
         </div>
@@ -372,7 +374,7 @@ function ChatSplitView() {
         {compact ? (
           <div className="rail-actions">
             <IconButton title="Search" icon="magnifyingglass" onClick={() => setSearching(true)} />
-            <IconButton title="New" icon="plus" size={36} buttonRef={railNewButton} disabled={!onlineStores.length} onClick={() => setRailNewMenu((o) => !o)} />
+            <IconButton title="New" icon="plus" size={36} buttonRef={railNewButton} menuOpen={railNewMenu} disabled={!onlineStores.length} onClick={() => setRailNewMenu((o) => !o)} />
             <AnchoredMenu open={railNewMenu} onClose={() => setRailNewMenu(false)} anchor={railNewButton} items={newItems} />
             <IconButton title="Extensions" icon="square.grid.2x2" size={36} onClick={openMarketplace} />
             <UpdateBadge size={32} />
@@ -384,7 +386,7 @@ function ChatSplitView() {
           <SidebarFooter accountOpen={showAccount} onAccount={() => setShowAccount((s) => !s)} onExtensions={openMarketplace} />
         )}
       </aside>
-      <div className="sidebar-divider" onPointerDown={onDividerDown} onPointerMove={onDividerMove} onPointerUp={() => (dragStart.current = null)} role="separator" aria-label="Resize sidebar" aria-valuenow={width} />
+      <ResizeHandle label="Resize sidebar" width={width} min={76} max={sidebarMax} edge="trailing" onResize={resizeSidebar} onDragging={setResizing} />
       <main className="detail">
         {/* The call bar's settings open this window's Settings at Voice chat. */}
         <OpenVoiceSettings.Provider value={openVoiceSettings}>{detail}</OpenVoiceSettings.Provider>

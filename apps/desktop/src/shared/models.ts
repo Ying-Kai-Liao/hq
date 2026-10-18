@@ -160,34 +160,6 @@ export interface BotMessage {
   detail?: string
 }
 
-/** A bot's memory write: a "Remembered" line the user can undo, or a card a bot that asks first waits on. */
-export interface MemoryWrite {
-  action: 'remember' | 'revise' | 'archive' | string
-  /** done (undo offered) · pending (approve or decline) · accepted · declined · undone · failed */
-  status: string
-  text?: string
-  previous?: string
-  shared?: boolean
-  error?: string
-}
-
-/** A bot's change to a memory file: "Updated people.md" with the diff and an undo, a change put back and why, or
- *  for a bot that asks first, the change waiting for the user. */
-export interface MemoryFileCard {
-  file?: string
-  shared?: boolean
-  /** done · pending · accepted · declined · undone · restored · failed */
-  status?: string
-  /** `- ` removed and `+ ` added lines. */
-  diff?: string
-  created?: boolean
-  deleted?: boolean
-  /** The change removes more than a quarter of the file. */
-  big?: boolean
-  /** Why it was put back, or couldn't be made. */
-  reason?: string
-}
-
 /** "Earlier context was summarized": the harness's summary, when it gave one. */
 export interface Compaction {
   summary?: string | null
@@ -207,7 +179,7 @@ export interface HandoffCard {
 export interface EntryData {
   /** Structured conversation data added to the existing team-tool notice. */
   botMessage?: BotMessage
-  /** notice: the agent summarized its context (see `CompactionNotice`). */
+  /** notice: the agent summarized its context; kept out of the chat. */
   compaction?: Compaction
   /** notice: the bot's chat starts over with this handoff (see `HandoffNotice`). */
   handoff?: HandoffCard
@@ -216,10 +188,9 @@ export interface EntryData {
   sourceBotId?: string
   targetBotId?: string
   connectionRequest?: ConnectionRequest
-  /** A bot's memory write shown in the chat (see `MemoryNotice`). */
-  memory?: MemoryWrite
-  /** A bot's change to one of its memory files (see `MemoryFileNotice`). */
-  memoryFile?: MemoryFileCard
+  /** A memory line an older host put in the chat. Memory lives in the bot's memory settings, so it isn't shown. */
+  memory?: unknown
+  memoryFile?: unknown
   routineId?: string
   runId?: string
   text?: string
@@ -267,8 +238,11 @@ export function isChat(e: Entry): boolean {
   switch (e.kind) {
     case 'user':
     case 'permission':
-    case 'notice':
       return true
+    case 'notice':
+      // Only a fresh conversation gets a line: memory lives in the bot's memory settings, a summary keeps the same
+      // conversation going, and a kept handoff changed nothing.
+      return !e.data.memory && !e.data.memoryFile && !e.data.compaction && e.data.handoff?.status !== 'kept'
     case 'agent':
       return e.data.final === true
     default:

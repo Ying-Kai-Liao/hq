@@ -25,7 +25,7 @@
   gap: 10px;
   height: 32px;
   padding: 0 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-s);
   font-size: calc(13px * var(--scale));
   color: var(--text);
   transition: background-color var(--hover);
@@ -48,25 +48,19 @@
   flex: 1;
   min-height: 0;
   padding: 0 18px;
-  animation: settings-fade var(--fade) both;
+  animation: fade-in var(--fade) both;
 }
 .settings-close {
   position: absolute;
   top: 14px;
   right: 14px;
 }
-@keyframes settings-fade {
-  from {
-    opacity: 0;
-  }
-}
-
 /* One filled group, like a CardSection's. */
 .settings-card {
   padding: 16px;
   width: 100%;
   background: var(--surface);
-  border-radius: 16px;
+  border-radius: var(--radius-l);
   margin-bottom: 8px;
   display: flex;
   flex-direction: column;
@@ -97,17 +91,17 @@
 }
 .settings-code {
   font-family: var(--mono);
-  font-size: calc(10px * var(--scale));
+  font-size: calc(11px * var(--scale));
   padding: 6px;
   flex: 1;
   min-width: 0;
   background: var(--code-background);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
 }
 
 /* A row that appears fades in. */
 .settings-appear {
-  animation: settings-fade var(--layout) both;
+  animation: fade-in var(--layout) both;
 }
 
 /* Show/hide: fade with a short drop from the top (`.opacity.combined(with: .move(edge: .top))`). */

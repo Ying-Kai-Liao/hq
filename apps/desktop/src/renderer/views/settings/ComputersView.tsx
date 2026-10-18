@@ -72,7 +72,7 @@ export function ComputersView() {
                   <ComputerBadge computer={store.computer} size={22} />
                   <div className="settings-stack">
                     <span style={font('callout', 'medium')}>{store.hostName}</span>
-                    <span style={{ ...font('caption'), color: stale ? 'var(--warning)' : 'var(--secondary)' }}>
+                    <span style={{ ...font('caption'), color: stale ? 'var(--attention)' : 'var(--secondary)' }}>
                       {stale ? `Older copy of this computer · ${statusText(store)}` : statusText(store)}
                     </span>
                   </div>
@@ -209,7 +209,7 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
           <Switch key="cloud" on={cloud?.enabled ?? false} disabled={busy || !online} onChange={(on) => run(() => app.cloud.setCloud(store, on))}>
             <span className="settings-stack">
               <span>Reach from anywhere</span>
-              <span style={{ ...font('caption'), color: cloud?.lastError ? 'var(--warning)' : 'var(--secondary)' }}>{cloudLine}</span>
+              <span style={{ ...font('caption'), color: cloud?.lastError ? 'var(--attention)' : 'var(--secondary)' }}>{cloudLine}</span>
             </span>
           </Switch>,
           accountLine,
@@ -223,7 +223,7 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
                 >
                   <span className="settings-stack settings-appear">
                     <span>Skip the 6-digit check</span>
-                    <span style={{ ...font('caption'), color: autoApproval ? 'var(--warning)' : 'var(--secondary)' }}>
+                    <span style={{ ...font('caption'), color: autoApproval ? 'var(--attention)' : 'var(--secondary)' }}>
                       {autoApproval ? 'Devices on your account get in on their own.' : 'Each new device shows a code you approve here.'}
                     </span>
                   </span>
@@ -353,7 +353,7 @@ function PairingPanel({ store }: { store: BotStore }) {
             Scan with the Codync app or the iPhone Camera. No Tailscale or open ports needed: your iPhone connects directly on the same Wi-Fi, and through the encrypted relay anywhere else.
           </div>
           {store.cloud?.enabled !== true ? (
-            <div style={{ ...caption, color: 'var(--warning)' }}>
+            <div style={{ ...caption, color: 'var(--attention)' }}>
               {info.urls.length === 0
                 ? 'No network address found and “Reach from anywhere” is off. Connect to Wi-Fi or turn it on.'
                 : `“Reach from anywhere” is off, so the iPhone only reaches ${name} on the same network.`}

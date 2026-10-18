@@ -100,7 +100,7 @@
 .details-tab .card-section-rows {
   background: none;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--radius-l);
 }
 .details-tab .field-box {
   background: var(--surface);

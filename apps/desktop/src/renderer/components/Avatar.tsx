@@ -128,15 +128,31 @@ export const CharacterAvatar = memo(function CharacterAvatar({ shape, color, tin
     el.height = Math.round(size * ratio)
     const ctx = el.getContext('2d')!
     const still = mood === 'idle' || reduce
+    // A moving character draws at 30 fps (its light turns slowly), and only while on screen.
     let frame = 0
+    let drawn = -Infinity
+    let visible = true
     const draw = (time: number) => {
-      ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-      ctx.clearRect(0, 0, size, size)
-      drawCharacter(ctx, { shape, fill, size, mood, dark, t: still ? 0 : (time / 1000) % 3600, still })
-      if (!still) frame = requestAnimationFrame(draw)
+      frame = 0
+      if (time - drawn >= 33) {
+        drawn = time
+        ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
+        ctx.clearRect(0, 0, size, size)
+        drawCharacter(ctx, { shape, fill, size, mood, dark, t: still ? 0 : (time / 1000) % 3600, still })
+      }
+      if (!still && visible) frame = requestAnimationFrame(draw)
     }
     draw(performance.now())
-    return () => cancelAnimationFrame(frame)
+    if (still) return
+    const onScreen = new IntersectionObserver(([e]) => {
+      visible = e!.isIntersecting
+      if (visible && !frame) frame = requestAnimationFrame(draw)
+    })
+    onScreen.observe(el)
+    return () => {
+      onScreen.disconnect()
+      cancelAnimationFrame(frame)
+    }
   }, [shape, fill, size, mood, dark, reduce])
 
   return <canvas ref={canvas} aria-hidden style={{ width: size, height: size, display: 'block', flex: 'none', ...style }} />
@@ -263,7 +279,7 @@ export function AvatarWithStatus({ bot, members = [], size = 44 }: { bot: Bot; m
         <div
           style={{
             position: 'absolute', right: 0, bottom: 0, width: size * 0.36, height: size * 0.36, borderRadius: '50%',
-            background: 'var(--warning)', boxShadow: '0 0 0 2px var(--background)', display: 'grid', placeItems: 'center', color: '#fff',
+            background: 'var(--warning)', boxShadow: '0 0 0 2px var(--background)', display: 'grid', placeItems: 'center', color: 'var(--on-warning)',
           }}
         >
           <Icon name="exclamationmark" size={size * 0.2} weight="black" scaled={false} />

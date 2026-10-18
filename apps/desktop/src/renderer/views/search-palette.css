@@ -34,7 +34,7 @@
   width: 100%;
   min-height: 56px;
   padding: 8px 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-m);
   text-align: left;
   transition: background-color var(--hover);
 }
@@ -52,7 +52,7 @@
   font-size: calc(12px * var(--scale));
   padding: 0 6px;
   height: 22px;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
 }
 .palette-empty {
   padding: 28px 0;

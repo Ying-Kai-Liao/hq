@@ -4,12 +4,15 @@
   padding: 12px;
   border: none;
   outline: none;
-  border-radius: 12px;
+  border-radius: var(--radius-m);
   background: var(--bubble-user);
   color: var(--text);
   font: inherit;
   user-select: text;
   resize: none;
+}
+.routine-input:focus {
+  outline: 2px solid var(--secondary);
 }
 .routine-input::placeholder {
   color: var(--secondary);
@@ -71,10 +74,5 @@ textarea.routine-input {
 }
 
 .routine-fade {
-  animation: routine-fade var(--hover) both;
-}
-@keyframes routine-fade {
-  from {
-    opacity: 0;
-  }
+  animation: fade-in var(--hover) both;
 }

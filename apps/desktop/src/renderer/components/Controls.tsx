@@ -1,4 +1,4 @@
-import { Children, Fragment, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { Children, Fragment, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import { font } from '../lib/fonts'
 import { Icon } from './Icon'
 import { AnchoredMenu, IconButtonBase, type MenuItem } from './Overlay'
@@ -56,7 +56,7 @@ export function DropdownMenu({ items, children, className, style, title }: { ite
   const ref = useRef<HTMLButtonElement>(null)
   return (
     <>
-      <button ref={ref} className={className} style={style} title={title} onClick={() => setOpen((o) => !o)}>
+      <button ref={ref} className={className} style={style} title={title} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         {children}
       </button>
       <AnchoredMenu open={open} onClose={() => setOpen(false)} anchor={ref} items={items} />
@@ -155,7 +155,7 @@ export function CardSection({ title, footer, accessory, children }: { title?: st
     <section className="card-section">
       {title || accessory ? (
         <div className="card-section-title">
-          {title ? <span style={{ ...font(13, 'semibold'), color: 'var(--text)' }}>{title}</span> : null}
+          {title ? <h3 style={{ ...font(13, 'semibold'), color: 'var(--text)' }}>{title}</h3> : null}
           <span style={{ flex: 1 }} />
           {accessory}
         </div>
@@ -199,7 +199,7 @@ export function SearchField({ value, onChange, prompt = 'Search', inputRef }: { 
       <Icon name="magnifyingglass" size={12} color="var(--secondary)" />
       <input ref={inputRef} value={value} placeholder={prompt} spellCheck={false} onChange={(e) => onChange(e.target.value)} />
       {value ? (
-        <button aria-label="Clear search" onClick={() => onChange('')} style={{ display: 'flex', color: 'var(--tertiary)' }}>
+        <button aria-label="Clear search" title="Clear search" className="search-clear" onClick={() => onChange('')}>
           <Icon name="xmark.circle.fill" size={12} />
         </button>
       ) : null}
@@ -233,10 +233,65 @@ export function Pill({ children, fill = 'var(--background)', outlined = false, s
 }
 
 /** Determinate progress (`value` 0...1): a thin capsule track that fills from the left. */
-export function ProgressBar({ value, label }: { value: number; label: string }) {
+export function ProgressBar({ value, label, fill, style }: { value: number; label: string; fill?: string; style?: CSSProperties }) {
   return (
-    <div className="progress-track" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(value * 100)}>
-      <div className="progress-fill" style={{ transform: `scaleX(${value})` }} />
+    <div className="progress-track" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(value * 100)} style={style}>
+      <div className="progress-fill" style={{ transform: `scaleX(${value})`, background: fill }} />
     </div>
+  )
+}
+
+/**
+ * A panel's resizable edge: a hairline that drags the panel's width, or steps it with ←/→ while
+ * focused. `edge` is the side of the panel it sits on; `onResize` gets the proposed width.
+ */
+export function ResizeHandle({ label, width, min, max, edge, onResize, onDragging }: {
+  label: string
+  width: number
+  min: number
+  max: number
+  edge: 'leading' | 'trailing'
+  onResize: (width: number) => void
+  onDragging?: (dragging: boolean) => void
+}) {
+  const start = useRef<{ x: number; width: number } | null>(null)
+  // Dragging toward the panel's outside grows it.
+  const grow = edge === 'trailing' ? 1 : -1
+  const end = () => {
+    if (!start.current) return
+    start.current = null
+    onDragging?.(false)
+  }
+  const onPointerDown = (e: PointerEvent) => {
+    if (e.button !== 0) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    start.current = { x: e.clientX, width }
+    onDragging?.(true)
+  }
+  const onPointerMove = (e: PointerEvent) => {
+    if (start.current) onResize(start.current.width + grow * (e.clientX - start.current.x))
+  }
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    e.preventDefault()
+    onResize(width + grow * (e.key === 'ArrowRight' ? 16 : -16))
+  }
+  return (
+    <div
+      className="resize-handle"
+      role="separator"
+      tabIndex={0}
+      aria-label={label}
+      aria-orientation="vertical"
+      aria-valuenow={Math.round(width)}
+      aria-valuemin={min}
+      aria-valuemax={Math.round(max)}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={end}
+      onPointerCancel={end}
+      onLostPointerCapture={end}
+      onKeyDown={onKeyDown}
+    />
   )
 }

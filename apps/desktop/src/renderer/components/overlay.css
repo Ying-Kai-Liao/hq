@@ -9,16 +9,16 @@
 .modal-dim {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--scrim);
   opacity: 0;
   transition: opacity var(--layout);
 }
 .modal-content {
   position: relative;
   background: var(--background);
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   overflow: hidden;
-  box-shadow: 0 12px 60px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-xl);
   opacity: 0;
   transform: scale(0.96);
   transition: opacity var(--layout), transform var(--layout);
@@ -83,7 +83,7 @@
 .dialog-dim {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--scrim);
 }
 .dialog-card {
   position: relative;
@@ -92,8 +92,8 @@
   width: min(320px, calc(100vw - 48px));
   padding: 18px;
   background: var(--bubble-agent);
-  border-radius: 22px;
-  box-shadow: 0 10px 48px rgba(0, 0, 0, 0.25);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -104,6 +104,7 @@
   gap: 6px;
   text-align: center;
   color: var(--text);
+  overflow-wrap: anywhere;
 }
 .dialog-buttons {
   display: flex;
@@ -115,7 +116,7 @@
   font-weight: 500;
   text-align: center;
   padding: 8px 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--bubble-user);
   color: var(--text);
   transition: transform var(--press), opacity var(--press);
@@ -124,9 +125,12 @@
   background: var(--accent-fill);
   color: var(--on-accent);
 }
+[data-modal-card]:focus {
+  outline: none;
+}
 .dialog-button.destructive {
-  background: var(--danger);
-  color: #fff;
+  background: var(--danger-fill);
+  color: var(--on-danger);
 }
 .dialog-button:active {
   transform: scale(0.98);
@@ -155,8 +159,8 @@
 }
 .anchored-panel {
   background: var(--bubble-agent);
-  border-radius: 14px;
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.25);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-l);
   overflow: hidden;
   transform: scale(0.98);
   transition: transform var(--layout);
@@ -182,7 +186,7 @@
   gap: 10px;
   width: 100%;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-s);
   font-size: calc(12px * var(--scale));
   color: var(--text);
   transition: background-color var(--hover);

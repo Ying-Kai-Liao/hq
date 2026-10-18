@@ -153,7 +153,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
           onChange={(id) => set('backend', id)}
         />
       </ValueRow>
-      {backend && !backend.available ? <span style={{ ...font('caption'), color: 'var(--warning)' }}>{backend.installHint}</span> : null}
+      {backend && !backend.available ? <span style={{ ...font('caption'), color: 'var(--attention)' }}>{backend.installHint}</span> : null}
       {draft.backend === 'custom' ? (
         <input
           className="field-box fade-in"

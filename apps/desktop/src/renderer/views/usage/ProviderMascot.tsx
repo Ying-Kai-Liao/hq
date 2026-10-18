@@ -2,6 +2,7 @@ import type { UsageProvider } from '@shared/models'
 import { agentIconURL, AgentIcon } from '../../components/AgentIcon'
 import { CharacterAvatar, drawCharacter } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
+import { palette } from '../../lib/theme'
 import { mascotShape, providerRegistry, providerTint, providerTintCSS, tightest } from './usage-model'
 
 /** A provider's character, with a red "!" once any of its limits is nearly used up. */
@@ -59,7 +60,7 @@ export function mascotDataURL(provider: UsageProvider, size: number, style: 'cha
   if (full) {
     ctx.beginPath()
     ctx.arc(size * 0.92, size * 0.08, size * 0.17, 0, Math.PI * 2)
-    ctx.fillStyle = dark ? '#F0A7A7' : '#C23A2B'
+    ctx.fillStyle = palette(dark).danger
     ctx.fill()
   }
   return canvas.toDataURL('image/png')

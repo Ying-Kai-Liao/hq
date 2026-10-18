@@ -5,6 +5,24 @@ listing what iPhone users notice. tools/asc-submit.py reads the released version
 a version without one gets a generic "Bug fixes and improvements" line. Delete old sections.
 -->
 
+## 2.18.1
+
+### zh-Hant
+
+- 記憶不再出現在聊天裡：bot 記下或改了什麼，都到 bot 詳細資料的「記憶」查看、修改或忘記。每個 bot 都會直接記，不再跳卡片詢問。
+- 修正在記憶裡儲存或新增筆記時 App 會閃退的問題。
+- 「新增記憶」視窗的內容改為從上方開始，不再空一大塊。
+- 聊天裡只在開新對話時留一行說明；對話摘要和「保留這段對話」不再顯示。
+- 斜線選單拿掉「New session」，要開新對話請用聊天選單裡的「New session」。
+
+### en-US
+
+- Memory stays out of the chat. Whatever a bot remembers or changes, you see, edit or forget it under Memory in the bot's details. Every bot remembers directly, with no cards to approve.
+- Fixed the app closing when you saved or created a note in memory.
+- The Add memory sheet now starts at the top instead of leaving a gap.
+- The chat explains only a fresh conversation, in one line; summaries and kept conversations no longer show.
+- New session left the / menu; start one from the chat's menu.
+
 ## 2.18.0
 
 ### zh-Hant

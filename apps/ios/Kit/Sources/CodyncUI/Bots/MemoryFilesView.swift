@@ -74,8 +74,9 @@ struct MemoryFileView: View {
     let memory: MemoryStore
     let target: MemoryFileTarget
     @State private var detail: MemoryFileDetail?
-    /// The text being edited; nil while reading.
-    @State private var draft: String?
+    /// Editing, with the text being edited. Not an optional binding: the editor still reads it while it animates out.
+    @State private var editing = false
+    @State private var draft = ""
     @State private var name = ""
     @State private var confirmDelete = false
     @Environment(BotStore.self) private var host
@@ -90,8 +91,8 @@ struct MemoryFileView: View {
                 if let error = memory.error {
                     CardSection { Text(error).foregroundStyle(Palette.danger).textSelection(.enabled) }
                 }
-                if let text = Binding($draft) {
-                    editor(text)
+                if editing {
+                    editor
                 } else if let detail {
                     reader(detail)
                 } else {
@@ -105,6 +106,7 @@ struct MemoryFileView: View {
                 detail = await memory.file(file, shared: target.shared)
             } else {
                 draft = Self.template
+                editing = true
             }
         }
         .codyncDialog("Delete \(target.name ?? "this note")?", isPresented: $confirmDelete,
@@ -118,12 +120,15 @@ struct MemoryFileView: View {
     @ViewBuilder private var actions: some View {
         if memory.busy {
             Spinner()
-        } else if let draft {
+        } else if editing {
             IconButton("Save", systemImage: "checkmark") { Task { await change(content: draft) } }
                 .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (target.name == nil && !validName))
         } else if let detail, let content = detail.content {
             HStack(spacing: 2) {
-                IconButton("Edit", systemImage: "pencil") { withAnimation(Motion.layout) { self.draft = content } }
+                IconButton("Edit", systemImage: "pencil") {
+                    draft = content
+                    withAnimation(Motion.layout) { editing = true }
+                }
                 IconButton("Delete", systemImage: "trash") { withAnimation(Motion.layout) { confirmDelete = true } }
             }
         }
@@ -131,7 +136,7 @@ struct MemoryFileView: View {
 
     private var validName: Bool { name.range(of: #"^[a-z0-9-]+\.md$"#, options: .regularExpression) != nil }
 
-    @ViewBuilder private func editor(_ text: Binding<String>) -> some View {
+    @ViewBuilder private var editor: some View {
         if target.name == nil {
             CardSection(footer: "Lowercase letters, digits and dashes, ending in .md.") {
                 TextField("people.md", text: $name)
@@ -140,7 +145,7 @@ struct MemoryFileView: View {
             }
         }
         CardSection(footer: "The description: line says when the bot should read it.") {
-            TextField("", text: text, axis: .vertical)
+            TextField("", text: $draft, axis: .vertical)
                 .lineLimit(12...40)
                 .font(.footnote.monospaced())
         }
@@ -197,7 +202,7 @@ struct MemoryFileView: View {
         let base = target.name == nil ? nil : detail?.hash
         if await memory.changeFile(file, shared: target.shared, base: base, content: content, version: version) {
             if content == nil && version == nil { dismiss(); return }
-            withAnimation(Motion.layout) { draft = nil }
+            withAnimation(Motion.layout) { editing = false }
             if target.name == nil { dismiss(); return }
             detail = await memory.file(file, shared: target.shared)
         }

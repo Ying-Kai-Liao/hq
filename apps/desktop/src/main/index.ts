@@ -67,7 +67,7 @@ function openChat() {
     height: 760,
     minWidth: 760,
     minHeight: 500,
-    title: identity.name,
+    title: app.getName(),
     show: false,
     backgroundColor: background(),
     titleBarStyle: isMac ? 'hidden' : 'default',
@@ -141,7 +141,7 @@ function menu() {
 function registerIPC(tray: Tray) {
   registerHostProxy()
   ipcMain.on('app:hostPort', (e) => (e.returnValue = identity.port))
-  ipcMain.on('app:name', (e) => (e.returnValue = identity.name))
+  ipcMain.on('app:name', (e) => (e.returnValue = app.getName()))
   ipcMain.on('app:scheme', (e) => (e.returnValue = identity.scheme))
   registerFileSaves()
   ipcMain.on('app:version', (e) => (e.returnValue = app.getVersion()))
@@ -202,6 +202,7 @@ function registerIPC(tray: Tray) {
 }
 
 if (!app.requestSingleInstanceLock()) {
+  if (!app.isPackaged) console.error(`${app.getName()} is already running. Quit it first, or run another copy beside it: npm run dev -- --name <name>`)
   app.quit()
 } else {
   registerSchemes()

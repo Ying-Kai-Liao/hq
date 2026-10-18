@@ -3,20 +3,8 @@ import { IconButton } from '../../components/Controls'
 import { Dialog } from '../../components/Overlay'
 import { font } from '../../lib/fonts'
 import { useStore } from '../../store/context'
+import { Field } from '../bots/parts'
 import { errorText, type RoutineWebhook } from './routine'
-
-/** A labelled form field (kit's `Field`): the label, an optional detail, then the control. */
-export function Field({ label, detail, children }: { label: string; detail?: string; children: ReactNode }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <span style={{ color: 'var(--text)' }}>{label}</span>
-        {detail ? <span style={{ ...font('caption'), color: 'var(--secondary)', lineHeight: 1.4 }}>{detail}</span> : null}
-      </div>
-      {children}
-    </div>
-  )
-}
 
 /** A saved webhook routine's address and key: copy either, reveal or replace the key. */
 export function RoutineWebhookPanel({ botId, routineId }: { botId: string; routineId: string }) {

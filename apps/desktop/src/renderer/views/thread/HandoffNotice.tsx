@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Compaction, Entry, HandoffCard } from '@shared/models'
+import type { Entry, HandoffCard } from '@shared/models'
 import { Button, CardForm, CardSection, Disclosure, IconButton, Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { ModalHeader, Sheet } from '../../components/Overlay'
@@ -14,20 +14,6 @@ function Line({ icon, text }: { icon: string; text?: string }) {
       <Icon name={icon} size={11} />
       <span>{text}</span>
     </span>
-  )
-}
-
-/** "Earlier context was summarized to make room." The harness's summary unfolds under it when there is one. */
-export function CompactionNotice({ entry, compaction }: { entry: Entry; compaction: Compaction }) {
-  const [expanded, setExpanded] = useState(false)
-  const line = <Line icon="arrow.down.right.and.arrow.up.left" text={entry.data.text} />
-  if (!compaction.summary) return <div className="handoff-center">{line}</div>
-  return (
-    <div className="handoff-folded">
-      <Disclosure expanded={expanded} onToggle={() => setExpanded(!expanded)} label={line}>
-        <p className="handoff-text">{compaction.summary}</p>
-      </Disclosure>
-    </div>
   )
 }
 

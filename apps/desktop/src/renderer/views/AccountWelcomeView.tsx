@@ -41,7 +41,7 @@ export function AccountWelcomeView({ onContinue }: { onContinue: () => void }) {
   const rise = (shown: boolean): CSSProperties => ({
     opacity: shown ? 1 : 0,
     transform: shown ? 'none' : 'translateY(14px)',
-    transition: 'opacity 0.6s cubic-bezier(0.34, 1.3, 0.64, 1), transform 0.6s cubic-bezier(0.34, 1.3, 0.64, 1)',
+    transition: 'opacity 0.6s var(--ease-out), transform 0.6s var(--ease-out)',
   })
 
   return (
@@ -89,7 +89,7 @@ export function AccountWelcomeView({ onContinue }: { onContinue: () => void }) {
           {!account.isConfigured ? (
             <div style={{ ...font('footnote'), color: 'var(--tertiary)' }}>Sign-in isn't configured in this build. You can still use Codync on this {deviceName}.</div>
           ) : null}
-          {account.errorMessage ? <div style={{ ...font('footnote'), color: 'var(--warning)' }}>{account.errorMessage}</div> : null}
+          {account.errorMessage ? <div style={{ ...font('footnote'), color: 'var(--attention)' }}>{account.errorMessage}</div> : null}
         </div>
       </div>
     </div>
@@ -127,7 +127,7 @@ function WelcomeCrew({ shown }: { shown: boolean }) {
             position: 'absolute', left: '50%', top: '50%',
             transform: `translate(calc(-50% + ${m.x}px), calc(-50% + ${m.y + (reduce ? 0 : Math.sin(t * 1.3 + i * 1.7) * 5)}px)) scale(${shown ? 1 : 0.3})`,
             opacity: shown ? 1 : 0,
-            transition: `opacity 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) ${i * 0.07}s, scale 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) ${i * 0.07}s`,
+            transition: `opacity 0.7s var(--ease-out) ${i * 0.07}s, scale 0.7s var(--ease-out) ${i * 0.07}s`,
           }}
         >
           <CharacterAvatar shape={m.shape} color={m.color} size={m.size} mood={m.mood} />
@@ -146,7 +146,7 @@ function WelcomeChatGlimpse({ shown }: { shown: boolean }) {
     const timer = setTimeout(() => setReplied(true), reduce ? 0 : 1600)
     return () => clearTimeout(timer)
   }, [shown, reduce])
-  const rise: CSSProperties = { opacity: shown ? 1 : 0, transform: shown ? 'none' : 'translateY(14px)', transition: 'opacity 0.6s, transform 0.6s cubic-bezier(0.34, 1.3, 0.64, 1)' }
+  const rise: CSSProperties = { opacity: shown ? 1 : 0, transform: shown ? 'none' : 'translateY(14px)', transition: 'opacity 0.6s, transform 0.6s var(--ease-out)' }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'flex-end', ...rise }}>
@@ -155,7 +155,7 @@ function WelcomeChatGlimpse({ shown }: { shown: boolean }) {
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, ...rise }}>
         <CharacterAvatar shape="blob" color="blue" size={28} mood={replied ? 'idle' : 'working'} />
         {replied ? (
-          <span style={{ ...font('subheadline'), color: 'var(--text)', padding: '9px 14px', background: 'var(--bubble-agent)', borderRadius: 18, animation: 'bubble-in 0.45s cubic-bezier(0.34, 1.3, 0.64, 1) both', transformOrigin: 'bottom left' }}>
+          <span style={{ ...font('subheadline'), color: 'var(--text)', padding: '9px 14px', background: 'var(--bubble-agent)', borderRadius: 18, animation: 'bubble-in 0.45s var(--ease-out) both', transformOrigin: 'bottom left' }}>
             Done. It raced the session refresh; tests pass on fix/login.
           </span>
         ) : (

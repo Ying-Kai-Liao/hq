@@ -37,7 +37,7 @@ export function SSHRow({ profile, status, edit, attached = true }: { profile: SS
         </span>
         <div className="settings-stack" style={{ flex: 1 }}>
           <span style={font('callout', 'medium')}>{profile.name || profile.host}</span>
-          <span style={{ ...font('caption'), color: problem ? 'var(--warning)' : 'var(--secondary)' }}>{line}</span>
+          <span style={{ ...font('caption'), color: problem ? 'var(--attention)' : 'var(--secondary)' }}>{line}</span>
         </div>
         {active ? (
           <IconButton title="Disconnect" icon="stop.circle" onClick={() => bridge.disconnect(profile.id)} />

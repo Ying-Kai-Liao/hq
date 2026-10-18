@@ -4,7 +4,7 @@ import { isGroup, isWorking, needsInput, folderName, type Bot, type UsageWindow 
 import { drawCharacter, moodOf } from '../components/Avatar'
 import { useModels } from '../lib/observable'
 import { prefs, usePref } from '../lib/prefs'
-import { avatarColor, isDark } from '../lib/theme'
+import { avatarColor, isDark, palette } from '../lib/theme'
 import type { AppModel } from '../store/app-model'
 import { providerTint, resetDate, untilText, windowTitle } from './usage/usage-model'
 import { mascotDataURL } from './usage/ProviderMascot'
@@ -35,7 +35,7 @@ function avatarIcon(bot: Bot) {
   return canvasURL(key, 20, 20, (ctx) => {
     const dark = isDark()
     drawCharacter(ctx, { shape: bot.avatarShape, fill: avatarColor(bot.avatarColor), size: 20, mood: moodOf(bot, false), dark, t: 0, still: true })
-    const badge = needsInput(bot) ? '#F0A030' : bot.unread > 0 ? (dark ? '#FFFFFF' : '#000000') : null
+    const badge = needsInput(bot) ? palette(dark).warning : bot.unread > 0 ? (dark ? '#FFFFFF' : '#000000') : null
     if (badge) {
       const r = needsInput(bot) ? 3.6 : 2.8
       ctx.beginPath()
@@ -60,7 +60,7 @@ function barIcon(providerId: string, window: UsageWindow) {
   const percent = Math.round(window.percent)
   return canvasURL(`bar|${providerId}|${percent}`, 60, 16, (ctx) => {
     const dark = isDark()
-    const color = window.percent >= 90 ? (dark ? '#F0A7A7' : '#C23A2B') : window.percent >= 70 ? '#F0A030' : providerTint(providerId)
+    const color = window.percent >= 90 ? palette(dark).danger : window.percent >= 70 ? palette(dark).warning : providerTint(providerId)
     ctx.fillStyle = dark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'
     ctx.beginPath()
     ctx.roundRect(0, 5.5, 60, 5, 2.5)

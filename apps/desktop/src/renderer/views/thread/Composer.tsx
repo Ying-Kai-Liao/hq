@@ -118,10 +118,6 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
         store.setFastMode(bot, !bot.fastMode)
         setDraft('')
         break
-      case 'newSession':
-        store.newSession(bot.id)
-        setDraft('')
-        break
       case 'skill':
         setDraft(`/${command.action.id} `)
         break
@@ -161,8 +157,8 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
     call: ['waveform', 'Call'],
     send: ['arrow.up', 'Send'],
   } as const)[trailing]
-  const fill = trailing === 'interrupt' ? 'var(--danger)' : trailing === 'send' ? (canSend ? 'var(--accent-fill)' : 'var(--accent-dim)') : 'var(--accent-fill)'
-  const ink = trailing === 'interrupt' ? '#fff' : trailing === 'send' ? (canSend ? 'var(--on-accent)' : 'var(--tertiary)') : 'var(--on-accent)'
+  const fill = trailing === 'interrupt' ? 'var(--danger-fill)' : trailing === 'send' ? (canSend ? 'var(--accent-fill)' : 'var(--accent-dim)') : 'var(--accent-fill)'
+  const ink = trailing === 'interrupt' ? 'var(--on-danger)' : trailing === 'send' ? (canSend ? 'var(--on-accent)' : 'var(--tertiary)') : 'var(--on-accent)'
   const enabled = trailing !== 'send' || canSend
 
   return (

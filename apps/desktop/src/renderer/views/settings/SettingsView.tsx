@@ -44,7 +44,7 @@ export function SettingsView({ page: initial }: { page: SettingsPage }) {
           <div key={group} style={{ display: 'contents' }}>
             <div className="settings-group" style={{ paddingTop: group === 'Personal' ? 0 : 16 }}>{group}</div>
             {pages.filter((p) => p.group === group).map((item) => (
-              <button key={item.id} className={`settings-item ${item.id === page ? 'selected' : ''}`} aria-selected={item.id === page} onClick={() => setPage(item.id)}>
+              <button key={item.id} className={`settings-item ${item.id === page ? 'selected' : ''}`} aria-current={item.id === page ? 'page' : undefined} onClick={() => setPage(item.id)}>
                 <span style={{ width: 18, display: 'flex', justifyContent: 'center', color: 'var(--secondary)' }}>
                   <Icon name={item.icon} size={13} />
                 </span>
@@ -256,7 +256,7 @@ function UpdateSettings() {
           ...(updates.error
             ? [
                 <div key="error" className="settings-row settings-appear">
-                  <span style={{ flex: 1, color: 'var(--warning)' }}>{updates.error}</span>
+                  <span style={{ flex: 1, color: 'var(--attention)' }}>{updates.error}</span>
                   <Button kind="secondary" onClick={() => window.codync.updates.check()} disabled={updates.checking}>
                     Retry
                   </Button>

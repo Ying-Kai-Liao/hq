@@ -96,7 +96,7 @@ export function AccountPanelLayer({ compact, approvals, onDismiss, onUsage, onSe
           }
         />
         {page === 'main' && errorMessage ? (
-          <div style={{ ...font(12), color: 'var(--warning)', padding: '8px 10px' }}>{errorMessage}</div>
+          <div style={{ ...font(12), color: 'var(--attention)', padding: '8px 10px' }}>{errorMessage}</div>
         ) : null}
       </div>
     </div>
