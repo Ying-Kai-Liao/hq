@@ -85,7 +85,7 @@ final class CloudSpeechEngine: VoiceEngine {
                 try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
                 try session.setActive(true)
             let input = engine.inputNode
-            let format = input.outputFormat(forBus: 0)
+            let format = try MicTap.format(of: input)
             input.installTap(onBus: 0, bufferSize: 2048, format: format, block: MicTap.pcm16k(from: format) { [weak self] pcm, level in
                 Task { @MainActor in self?.heard(pcm, level: level) }
             })

@@ -77,12 +77,12 @@ import Testing
     let encoded = String(decoding: try JSONEncoder().encode(unknown), as: UTF8.self)
     #expect(encoded.contains(#""type":"Crash""#) && encoded.contains(#""frames":[]"#))
 
-    // A runaway stack keeps the 50 frames nearest the crash.
+    // A runaway stack keeps the 200 frames nearest the crash.
     var deep = frame("Codync", 0)
-    for i in 1...80 { deep = frame("Codync", i, deep) }
+    for i in 1...250 { deep = frame("Codync", i, deep) }
     let capped = CrashReports.frames(Data(#"{"callStacks":[{"callStackRootFrames":[\#(deep)]}]}"#.utf8))
-    #expect(capped.count == 50)
-    #expect(capped.last == .object(["platform": .string("custom"), "lang": .string("swift"), "function": .string("Codync + 80"),
+    #expect(capped.count == 200)
+    #expect(capped.last == .object(["platform": .string("custom"), "lang": .string("swift"), "function": .string("Codync + 250"),
                                     "module": .string("Codync"), "resolved": .bool(false), "in_app": .bool(true)]))
 
     // Recorded like any other event: off records nothing.

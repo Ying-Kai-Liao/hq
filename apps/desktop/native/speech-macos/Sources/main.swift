@@ -37,6 +37,10 @@ final class Recognizer {
         self.request = request
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
+        // No usable input (no microphone, a route change): a tap on a 0 Hz format raises an exception that ends the helper.
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            return fail("Couldn't start the microphone: no microphone is available right now.")
+        }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
             request.append(buffer)
             let level = Self.level(buffer)

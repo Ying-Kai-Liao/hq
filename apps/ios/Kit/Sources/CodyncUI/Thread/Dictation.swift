@@ -35,9 +35,7 @@ final class Dictation {
         } catch {
             return
         }
-        // No input route (no microphone): installing a tap would throw.
-        let format = engine.inputNode.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
+        guard let format = try? MicTap.format(of: engine.inputNode) else {
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             return
         }
