@@ -1,6 +1,6 @@
 import { Button } from '../components/Controls'
 import { Icon } from '../components/Icon'
-import { font } from '../lib/fonts'
+import { Text } from '../components/Text'
 import { useApp } from '../store/context'
 
 const isMac = window.codync.platform === 'darwin'
@@ -26,10 +26,10 @@ export function EmptyState({ icon, title, message, action, compact = false }: { 
   return (
     <div className={`empty-state ${compact ? 'local-recovery' : ''}`}>
       <Icon name={icon} size={compact ? 22 : 36} weight="light" color="var(--tertiary)" />
-      <div style={{ ...font(compact ? 'callout' : 'title3', 'semibold'), color: 'var(--text)' }}>{title}</div>
-      <div style={{ ...font('callout'), color: 'var(--secondary)', textAlign: compact ? 'left' : 'center', maxWidth: 360 }}>{message}</div>
+      <Text as="div" size={compact ? 'callout' : 'title3'} weight="semibold" tone="text">{title}</Text>
+      <Text as="div" size="callout" tone="secondary" className="empty-state-message">{message}</Text>
       {action ? (
-        <Button kind={compact ? 'secondary' : 'primary'} onClick={action[1]} style={{ marginTop: 4 }}>
+        <Button kind={compact ? 'secondary' : 'primary'} onClick={action[1]} className="empty-state-action">
           {action[0]}
         </Button>
       ) : null}

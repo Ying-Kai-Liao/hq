@@ -2,8 +2,8 @@ import { useState } from 'react'
 import type { Entry, HandoffCard } from '@shared/models'
 import { Button, CardForm, CardSection, Disclosure, IconButton, Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
-import { ModalHeader, Sheet } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { ModalHeader, Sheet, SheetPage } from '../../components/Overlay'
+import { Text } from '../../components/Text'
 import { useStore as useLiveStore } from '../../store/context'
 import { Field } from '../marketplace/pieces'
 import './handoff.css'
@@ -42,7 +42,7 @@ export function HandoffNotice({ entry, card }: { entry: Entry; card: HandoffCard
   return (
     <div className="handoff-card">
       <Line icon="arrow.triangle.branch" text={entry.data.text} />
-      <Disclosure expanded={expanded} onToggle={() => setExpanded(!expanded)} label={<span style={{ ...font('footnote'), fontWeight: 500 }}>What it carries</span>}>
+      <Disclosure expanded={expanded} onToggle={() => setExpanded(!expanded)} label={<Text size="footnote" weight="medium">What it carries</Text>}>
         {carried}
       </Disclosure>
       <div className="handoff-actions">
@@ -52,7 +52,7 @@ export function HandoffNotice({ entry, card }: { entry: Entry; card: HandoffCard
         </>}
       </div>
       <Sheet open={draft !== null} onClose={() => setDraft(null)} width={620}>
-        {draft !== null && <div className="handoff-editor">
+        {draft !== null && <SheetPage>
           <ModalHeader
             title="Edit the handoff"
             trailing={saving ? <Spinner /> : <IconButton title="Save" icon="checkmark" disabled={!draft.trim()} onClick={() => { void save() }} />}
@@ -62,7 +62,7 @@ export function HandoffNotice({ entry, card }: { entry: Entry; card: HandoffCard
               <Field value={draft} onChange={setDraft} label="Handoff" lines={[10, 24]} mono />
             </CardSection>
           </CardForm>
-        </div>}
+        </SheetPage>}
       </Sheet>
     </div>
   )

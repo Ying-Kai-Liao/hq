@@ -3,7 +3,7 @@ import { sshSummary, sshStatusDetail } from '@shared/ssh-startup'
 import { DropdownMenu } from '../components/Controls'
 import { Icon } from '../components/Icon'
 import type { MenuItem } from '../components/Overlay'
-import { font } from '../lib/fonts'
+import { Text } from '../components/Text'
 import { useApp } from '../store/context'
 import { useSSH } from './settings/ssh-model'
 import type { Connection } from '../store/bot-store'
@@ -71,8 +71,8 @@ export function ComputerFilterHeader({ hidden, setHidden, manage, compact = fals
     return list
   }
   return (
-    <DropdownMenu items={items} title={text} className={compact ? 'computer-filter-action' : undefined} style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, padding: compact ? '0 9px' : '6px 0', ...font(12, 'medium'), color: 'var(--secondary)' }}>
-      {compact ? <Icon name="desktopcomputer" size={12} weight="medium" /> : <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} aria-label={`Computers, ${text}. Filter conversations`}>{text}</span>}
+    <DropdownMenu items={items} title={text} className={`computer-filter ${compact ? 'computer-filter-action' : ''}`}>
+      {compact ? <Icon name="desktopcomputer" size={12} weight="medium" /> : <Text truncate aria-label={`Computers, ${text}. Filter conversations`}>{text}</Text>}
       <Icon name="chevron.down" size={8} weight="semibold" />
     </DropdownMenu>
   )

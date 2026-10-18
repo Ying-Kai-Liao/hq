@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
-import { font } from '../lib/fonts'
 import { reduceMotion } from '../lib/theme'
 import { Icon } from './Icon'
+import { HStack, VStack } from './Stack'
+import { Text } from './Text'
 import './overlay.css'
 
 /** Keeps a layer mounted while it animates away; `shown` drives the CSS transition. */
@@ -38,7 +39,7 @@ export const useDismiss = () => useContext(DismissContext)
 /** Stack depth: only the top layer takes Escape. */
 const stack: number[] = []
 let nextLayer = 0
-function useEscape(active: boolean, onEscape: () => void) {
+export function useEscape(active: boolean, onEscape: () => void) {
   const handler = useRef(onEscape)
   handler.current = onEscape
   useEffect(() => {
@@ -122,7 +123,7 @@ export function Sheet({ open, onClose, width, height, dismissOnDim = false, chil
       <ModalTitleContext.Provider value={titleId}>
         <div ref={layer} className={`modal-card ${shown ? 'shown' : ''}`} role="dialog" aria-modal aria-labelledby={titleId}>
           <div className="modal-dim" onClick={dismissOnDim ? onClose : undefined} />
-          <div className="modal-content" data-modal-card tabIndex={-1} style={{ width, height, maxWidth: 'calc(100vw - 48px)', maxHeight: 'calc(100vh - 48px)' }}>
+          <div className="modal-content" data-modal-card tabIndex={-1} style={{ width, height }}>
             {open ? children : last.current}
           </div>
         </div>
@@ -161,8 +162,8 @@ export function Dialog({ open, title, message, actions, cancel = 'Cancel', onClo
       <div className="dialog-dim" onClick={() => cancel !== null && onClose()} />
       <div className="dialog-card" data-modal-card tabIndex={-1}>
         <div className="dialog-text">
-          <h2 id={`${id}-title`} style={font('headline')}>{shownContent.title}</h2>
-          {shownContent.message ? <div id={`${id}-message`} style={{ ...font('compactSecondary'), color: 'var(--secondary)' }}>{shownContent.message}</div> : null}
+          <Text as="h2" id={`${id}-title`} size="headline">{shownContent.title}</Text>
+          {shownContent.message ? <Text as="div" id={`${id}-message`} size="compactSecondary" tone="secondary">{shownContent.message}</Text> : null}
         </div>
         <div className="dialog-buttons">
           {shownContent.actions.map((a) => (
@@ -210,7 +211,7 @@ export interface ReactionPick {
 
 export function ReactionStrip({ pick, dismiss, size = 26 }: { pick: ReactionPick; dismiss?: () => void; size?: number }) {
   return (
-    <div style={{ display: 'flex' }}>
+    <HStack align="stretch">
       {pick.emoji.map((emoji) => {
         const chosen = pick.chosen.includes(emoji)
         return (
@@ -225,11 +226,11 @@ export function ReactionStrip({ pick, dismiss, size = 26 }: { pick: ReactionPick
               pick.toggle(emoji)
             }}
           >
-            <span style={font(14)}>{emoji}</span>
+            <Text size={14}>{emoji}</Text>
           </button>
         )
       })}
-    </div>
+    </HStack>
   )
 }
 
@@ -253,7 +254,7 @@ export function MenuPanel({ items, reactions, dismiss, maxHeight }: { items: Men
   return (
     <div className="menu-panel" role="menu" style={{ maxHeight }}>
       {reactions ? (
-        <div style={{ paddingBottom: items.length ? 4 : 0 }}>
+        <div className={items.length ? 'menu-reactions' : undefined}>
           <ReactionStrip pick={reactions} dismiss={dismiss} />
         </div>
       ) : null}
@@ -278,7 +279,7 @@ export function MenuPanel({ items, reactions, dismiss, maxHeight }: { items: Men
             ) : null}
             <span className="menu-title">{item.title}</span>
             {item.selected !== undefined ? (
-              <span style={{ opacity: item.selected ? 1 : 0, display: 'flex' }}>
+              <span className={`check-slot${item.selected ? ' on' : ''}`}>
                 <Icon name="checkmark" size={10} weight="semibold" />
               </span>
             ) : null}
@@ -287,6 +288,27 @@ export function MenuPanel({ items, reactions, dismiss, maxHeight }: { items: Men
       ))}
     </div>
   )
+}
+
+/**
+ * Where a panel opens beside `rect`: below it or above (whichever has more room), aligned to the
+ * anchor's leading or trailing edge and kept on screen. `room` is the height available.
+ */
+export function anchorPlacement(rect: DOMRect) {
+  const W = window.innerWidth
+  const H = window.innerHeight
+  const roomBelow = Math.max(0, H - rect.bottom - 14)
+  const roomAbove = Math.max(0, rect.top - 14)
+  const below = roomBelow >= roomAbove
+  const leading = rect.left + rect.width / 2 < W * 0.6
+  const width = Math.min(320, W - 16)
+  const inset = Math.max(8, W - width - 8)
+  const style: React.CSSProperties = {
+    [below ? 'top' : 'bottom']: below ? rect.bottom + 6 : H - rect.top + 6,
+    ...(leading ? { left: Math.min(Math.max(8, rect.left), inset) } : { right: Math.min(Math.max(8, W - rect.right), inset) }),
+    transformOrigin: `${below ? 'top' : 'bottom'} ${leading ? 'left' : 'right'}`,
+  }
+  return { style, width, room: below ? roomBelow : roomAbove }
 }
 
 /**
@@ -312,25 +334,11 @@ export function AnchoredMenu({ open, onClose, anchor, point, items, reactions }:
   }, [open, point, anchor])
   useEscape(open, onClose)
   if (!mounted || !rect) return null
-  const W = window.innerWidth
-  const H = window.innerHeight
-  const roomBelow = Math.max(0, H - rect.bottom - 14)
-  const roomAbove = Math.max(0, rect.top - 14)
-  const below = roomBelow >= roomAbove
-  const leading = rect.left + rect.width / 2 < W * 0.6
-  const width = Math.min(320, W - 16)
-  const inset = Math.max(8, W - width - 8)
-  const style: React.CSSProperties = {
-    position: 'absolute',
-    [below ? 'top' : 'bottom']: below ? rect.bottom + 6 : H - rect.top + 6,
-    ...(leading ? { left: Math.min(Math.max(8, rect.left), inset) } : { right: Math.min(Math.max(8, W - rect.right), inset) }),
-    maxWidth: width,
-    transformOrigin: `${below ? 'top' : 'bottom'} ${leading ? 'left' : 'right'}`,
-  }
+  const { style, width, room } = anchorPlacement(rect)
   return createPortal(
     <div className={`anchored ${shown ? 'shown' : ''}`} onMouseDown={(e) => e.target === e.currentTarget && onClose()} onContextMenu={(e) => { e.preventDefault(); onClose() }}>
-      <div className="anchored-panel" style={style}>
-        <MenuPanel items={frozen.current} reactions={reactions} dismiss={onClose} maxHeight={Math.min(420, below ? roomBelow : roomAbove)} />
+      <div className="anchored-panel" style={{ ...style, maxWidth: width }}>
+        <MenuPanel items={frozen.current} reactions={reactions} dismiss={onClose} maxHeight={Math.min(420, room)} />
       </div>
     </div>,
     document.body,
@@ -352,14 +360,30 @@ export function useContextMenu() {
   }
 }
 
-/** A modal's title row: title, optional trailing actions, and a close button. */
-export function ModalHeader({ title, trailing }: { title: ReactNode; trailing?: ReactNode }) {
+/** A sheet's content: a full-height column on the page color, usually a ModalHeader and a body. */
+export function SheetPage({ className, children }: { className?: string; children: ReactNode }) {
+  return <div className={`sheet-page${className ? ` ${className}` : ''}`}>{children}</div>
+}
+
+/**
+ * A modal's title row: title (and a line under it), optional trailing actions, and a close
+ * button that dismisses the modal, or calls `onClose` for a panel that isn't one.
+ */
+export function ModalHeader({ title, subtitle, trailing, onClose, closeTitle = 'Close' }: { title: ReactNode; subtitle?: ReactNode; trailing?: ReactNode; onClose?: () => void; closeTitle?: string }) {
   const dismiss = useDismiss()
+  const titleId = useContext(ModalTitleContext)
   return (
     <div className="modal-header">
-      <h2 id={useContext(ModalTitleContext)} style={{ ...font('compactBody', 'semibold'), flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h2>
+      {subtitle !== undefined ? (
+        <VStack grow>
+          <Text as="h2" id={titleId} size="compactBody" weight="semibold" tone="text">{title}</Text>
+          <Text size="caption" tone="tertiary" truncate>{subtitle}</Text>
+        </VStack>
+      ) : (
+        <Text as="h2" id={titleId} size="compactBody" weight="semibold" truncate className="modal-title">{title}</Text>
+      )}
       {trailing}
-      <IconButtonBase title="Close" icon="xmark" onClick={dismiss} />
+      <IconButtonBase title={closeTitle} icon="xmark" onClick={onClose ?? dismiss} />
     </div>
   )
 }

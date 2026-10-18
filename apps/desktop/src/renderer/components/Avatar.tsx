@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, type CSSProperties } from 'react'
 import { isGroup, isWorking, needsInput, type Bot } from '@shared/models'
 import { avatarColor, palette, useDark, useReduceMotion } from '../lib/theme'
 import { Icon } from './Icon'
+import './avatar.css'
 
 export type Mood = 'idle' | 'working' | 'needsInput'
 
@@ -107,14 +108,13 @@ interface CharacterProps {
   mood?: Mood
   /** Draws for a dark ground whatever the system appearance (the notch island is always black). */
   dark?: boolean
-  style?: CSSProperties
 }
 
 /**
  * Grok-Bot-style character drawn like the app icon: an even grid of dots shaded as if the
  * silhouette were a ball, with hollow eyes that glance while it works and blink now and then.
  */
-export const CharacterAvatar = memo(function CharacterAvatar({ shape, color, tint, size = 40, mood = 'idle', dark: forceDark, style }: CharacterProps) {
+export const CharacterAvatar = memo(function CharacterAvatar({ shape, color, tint, size = 40, mood = 'idle', dark: forceDark }: CharacterProps) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const dark = useDark() || forceDark === true
   const reduce = useReduceMotion()
@@ -155,7 +155,7 @@ export const CharacterAvatar = memo(function CharacterAvatar({ shape, color, tin
     }
   }, [shape, fill, size, mood, dark, reduce])
 
-  return <canvas ref={canvas} aria-hidden style={{ width: size, height: size, display: 'block', flex: 'none', ...style }} />
+  return <canvas ref={canvas} aria-hidden style={{ width: size, height: size, display: 'block', flex: 'none' }} />
 })
 
 /** Draws one frame of a character at the context's origin (views and menu bar icons). */
@@ -221,7 +221,7 @@ export function BotAvatar({ bot, size = 40, animated = true }: { bot: Bot; size?
  */
 export function GroupAvatar({ members, size = 40, animated = true }: { members: Bot[]; size?: number; animated?: boolean }) {
   const place = (bot: Bot, side: number, corner: CSSProperties) => (
-    <div key={bot.id} style={{ position: 'absolute', ...corner }}>
+    <div key={bot.id} className="avatar-slot" style={corner}>
       <BotAvatar bot={bot} size={side} animated={animated} />
     </div>
   )
@@ -229,7 +229,7 @@ export function GroupAvatar({ members, size = 40, animated = true }: { members: 
   switch (members.length) {
     case 0:
       content = (
-        <div style={{ display: 'grid', placeItems: 'center', width: '100%', height: '100%', color: 'var(--secondary)' }}>
+        <div className="avatar-empty">
           <Icon name="person.2" size={size * 0.4} />
         </div>
       )
@@ -255,42 +255,26 @@ export function GroupAvatar({ members, size = 40, animated = true }: { members: 
         members.length === 4 ? (
           place(members[3]!, size * 0.5, { bottom: 0, right: 0 })
         ) : (
-          <div
-            key="more"
-            style={{
-              position: 'absolute', right: 0, bottom: 0, width: size * 0.5, height: size * 0.5, display: 'grid', placeItems: 'center',
-              fontSize: size * 0.24, fontWeight: 700, color: 'var(--secondary)', fontFamily: 'ui-rounded, var(--font)',
-            }}
-          >
+          <div key="more" className="avatar-more" style={{ width: size * 0.5, height: size * 0.5, fontSize: size * 0.24 }}>
             +{members.length - 3}
           </div>
         ),
       ]
   }
-  return <div aria-hidden style={{ position: 'relative', width: size, height: size, flex: 'none' }}>{content}</div>
+  return <div aria-hidden className="avatar-frame" style={{ width: size, height: size }}>{content}</div>
 }
 
 /** Avatar with the roster status dot: filled = unread, amber = needs you. A group shows its members. */
 export function AvatarWithStatus({ bot, members = [], size = 44 }: { bot: Bot; members?: Bot[]; size?: number }) {
   return (
-    <div style={{ position: 'relative', width: size, height: size, flex: 'none' }}>
+    <div className="avatar-frame" style={{ width: size, height: size }}>
       {isGroup(bot) ? <GroupAvatar members={members} size={size} /> : <BotAvatar bot={bot} size={size} />}
       {needsInput(bot) ? (
-        <div
-          style={{
-            position: 'absolute', right: 0, bottom: 0, width: size * 0.36, height: size * 0.36, borderRadius: '50%',
-            background: 'var(--warning)', boxShadow: '0 0 0 2px var(--background)', display: 'grid', placeItems: 'center', color: 'var(--on-warning)',
-          }}
-        >
+        <div className="avatar-badge needs-you" style={{ width: size * 0.36, height: size * 0.36 }}>
           <Icon name="exclamationmark" size={size * 0.2} weight="black" scaled={false} />
         </div>
       ) : bot.unread > 0 ? (
-        <div
-          style={{
-            position: 'absolute', right: 0, bottom: 0, width: size * 0.28, height: size * 0.28, borderRadius: '50%',
-            background: 'var(--accent-fill)', boxShadow: '0 0 0 2px var(--background)',
-          }}
-        />
+        <div className="avatar-badge unread" style={{ width: size * 0.28, height: size * 0.28 }} />
       ) : null}
     </div>
   )

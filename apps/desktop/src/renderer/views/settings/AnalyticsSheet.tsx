@@ -1,7 +1,8 @@
 import { CardForm, CardSection } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
-import { ModalHeader } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { ModalHeader, SheetPage } from '../../components/Overlay'
+import { HStack, IconSlot, VStack } from '../../components/Stack'
+import { Text } from '../../components/Text'
 
 const PRIVACY_POLICY = 'https://codync.dev/privacy'
 
@@ -19,14 +20,14 @@ const details = [
 /** Settings → Privacy's info button: everything Share usage analytics covers. */
 export function AnalyticsSheet() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--background)' }}>
+    <SheetPage>
       <ModalHeader title="Usage analytics" />
       <CardForm>
         <CardSection
           footer={
             <>
               See the{' '}
-              <button style={{ color: 'var(--text)', textDecoration: 'underline' }} onClick={() => window.codync.app.openExternal(PRIVACY_POLICY)}>
+              <button className="settings-link" onClick={() => window.codync.app.openExternal(PRIVACY_POLICY)}>
                 Privacy Policy
               </button>{' '}
               for details.
@@ -34,18 +35,18 @@ export function AnalyticsSheet() {
           }
         >
           {details.map((d) => (
-            <div key={d.title} className="settings-row" style={{ alignItems: 'flex-start' }}>
-              <span style={{ width: 20, display: 'flex', justifyContent: 'center', paddingTop: 2 }}>
+            <HStack key={d.title} align="flex-start" className="settings-row">
+              <IconSlot width={20} className="settings-analytics-icon">
                 <Icon name={d.icon} size={15} color="var(--secondary)" />
-              </span>
-              <div className="settings-stack" style={{ flex: 1, gap: 2 }}>
+              </IconSlot>
+              <VStack gap={2} grow className="settings-stack">
                 <span>{d.title}</span>
-                <span style={{ ...font('footnote'), color: 'var(--secondary)' }}>{d.detail}</span>
-              </div>
-            </div>
+                <Text size="footnote" tone="secondary">{d.detail}</Text>
+              </VStack>
+            </HStack>
           ))}
         </CardSection>
       </CardForm>
-    </div>
+    </SheetPage>
   )
 }

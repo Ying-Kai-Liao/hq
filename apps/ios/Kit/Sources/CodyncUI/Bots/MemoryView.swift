@@ -1,7 +1,8 @@
 import CodyncKit
 import SwiftUI
 
-/// A bot's memory: what all your bots know about you, what this one knows, its dreams and its project's notes.
+/// A bot's memory: what all your bots know about you, what this one knows, its dreams, and its harness's own notes
+/// when the user kept them on.
 struct MemoryCard: View {
     let botId: String
     @Environment(BotStore.self) private var host
@@ -9,25 +10,36 @@ struct MemoryCard: View {
     @State private var section: Section = .bot
     @State private var editor: MemoryEditTarget?
     @State private var confirmClear = false
+    @State private var aboutHarness = false
 
-    enum Section: Hashable { case yours, bot, dreams, project }
+    enum Section: Hashable { case yours, bot, dreams, harness }
 
     private var bot: Bot? { host.bots[botId] }
 
     var body: some View {
         VStack(spacing: 10) {
-            TabChoice(selection: Binding(get: { section }, set: { value in withAnimation(Motion.layout) { section = value } }),
-                      options: sections(memory?.view))
+            TabChoice(selection: Binding(get: { section }, set: { value in
+                withAnimation(Motion.layout) { section = value }
+                // Claude Code writes its notes outside Codync, so nothing moves `memoryRev`: read them again on the way in.
+                if value == .harness { Task { await memory?.load() } }
+            }), options: sections(memory?.view))
             CardSection {
                 if let memory { contents(memory) }
                 else { Text("Loading memory…").foregroundStyle(Palette.secondary) }
             }
         }
         // Memory changes anywhere move the bot's `memoryRev`: fetch again.
-        .task(id: "\(botId)-\(bot?.memoryRev ?? 0)-\(bot?.sharedMemory ?? false)") {
+        .task(id: "\(botId)-\(bot?.memoryRev ?? 0)-\(bot?.sharedMemory ?? false)-\(bot?.harnessMemory ?? false)") {
             let store = memory ?? MemoryStore(botId: botId) { try await host.ready() }
             memory = store
             await store.load()
+        }
+        // Claude Code's section goes when its memory is turned off (on another device too).
+        .onChange(of: memory?.view.map { $0.projectMemory == nil } ?? false) { _, gone in
+            if gone && section == .harness { section = .bot }
+        }
+        .codyncSheet(isPresented: $aboutHarness) {
+            if let bot { HarnessMemorySheet(harness: host.backendName(bot.backend), readable: bot.backend == "claude") }
         }
         .codyncSheet(item: $editor) { target in
             if let memory { MemoryEditorView(memory: memory, target: target) }
@@ -46,7 +58,7 @@ struct MemoryCard: View {
             switch section {
             case .yours, .bot: layer(memory, view: view)
             case .dreams: dreams(memory, view.dreams)
-            case .project: project(view.projectMemory)
+            case .harness: harness(view.projectMemory)
             }
         } else if memory.error == nil {
             Text("Loading memory…").foregroundStyle(Palette.secondary)
@@ -55,7 +67,7 @@ struct MemoryCard: View {
 
     private func sections(_ view: MemoryView?) -> [(id: Section, label: String)] {
         [(Section.yours, "About you"), (.bot, "This bot"), (.dreams, "Dreams")]
-            + (view?.projectMemory != nil ? [(.project, "Project")] : [])
+            + (view?.projectMemory != nil ? [(.harness, host.backendName(bot?.backend ?? "claude"))] : [])
     }
 
     @ViewBuilder private func layer(_ memory: MemoryStore, view: MemoryView) -> some View {
@@ -64,6 +76,19 @@ struct MemoryCard: View {
         if shared, let bot {
             Toggle("Use what your bots share", isOn: Binding(get: { bot.sharedMemory ?? view.shared }, set: { host.setSharedMemory(bot, $0) }))
                 .toggleStyle(.codync)
+        }
+        if !shared, let bot, let on = bot.harnessMemory {
+            let name = host.backendName(bot.backend)
+            HStack(spacing: 4) {
+                Text("\(name)'s own memory").lineLimit(1).layoutPriority(1)
+                IconButton("About \(name)'s own memory", systemImage: "info.circle") {
+                    withAnimation(Motion.layout) { aboutHarness = true }
+                }
+                Toggle(isOn: Binding(get: { on }, set: { host.setHarnessMemory(bot, $0) })) { EmptyView() }
+                    .toggleStyle(.codync)
+                    .disabled(memory.busy)
+                    .accessibilityLabel("\(name)'s own memory")
+            }
         }
         HStack(alignment: .top, spacing: 8) {
             Text("\(shared ? "Your name, time zone, people and lasting preferences, shared by your bots." : "What this bot learned about you.") \(layer.used) of \(layer.cap) in use.")
@@ -127,12 +152,13 @@ struct MemoryCard: View {
         }
     }
 
-    @ViewBuilder private func project(_ project: MemoryView.Project?) -> some View {
+    @ViewBuilder private func harness(_ project: MemoryView.Project?) -> some View {
         if let project {
-            Text("The project folder's own notes, kept by Claude Code. Read-only here.")
+            Text("Claude Code's own notes, read-only here.")
                 .font(.footnote).foregroundStyle(Palette.secondary)
             Text(project.path).font(.caption).foregroundStyle(Palette.tertiary).textSelection(.enabled)
-            Text(project.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+            if project.text.isEmpty { empty("brain", "Nothing yet. Claude Code's notes show up here once it saves some.") }
+            else { Text(project.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
         }
     }
 

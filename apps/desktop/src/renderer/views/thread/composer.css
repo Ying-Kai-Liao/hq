@@ -1,3 +1,76 @@
+/* The box, its mentions row and its attachments. */
+.mentions {
+  display: flex;
+  gap: 6px;
+  padding: 0 16px 6px;
+  overflow-x: auto;
+}
+.mention,
+.file-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  flex: none;
+}
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 14px 14px;
+  max-width: var(--column);
+  margin: 0 auto;
+  width: 100%;
+}
+.file-chips {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px 0;
+  overflow-x: auto;
+}
+.file-chips:has(.attachment-tile) {
+  align-items: flex-start;
+}
+.attachment-tile {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  flex: none;
+  border-radius: var(--radius-l);
+  overflow: hidden;
+  background: var(--surface);
+}
+.attachment-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.attachment-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.75);
+}
+.file-chip-name {
+  max-width: 160px;
+}
+/* The remove glyph is small; its target is 24 pt. */
+.file-chip-remove {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: -6px -8px -6px -4px;
+}
+
 .composer-add {
   width: 25px;
   height: 25px;
@@ -100,7 +173,18 @@
   place-items: center;
   flex: none;
   margin-bottom: calc(max(0px, (round(up, calc(var(--conversation) * 1.25), 1px) + 10px - 25px) / 2));
+  background: var(--accent-fill);
+  color: var(--on-accent);
   transition: background-color var(--morph), color var(--morph), transform var(--press);
+}
+.composer-send.interrupt {
+  background: var(--danger-fill);
+  color: var(--on-danger);
+}
+/* Disabled only as Send with nothing sendable. */
+.composer-send:disabled {
+  background: var(--accent-dim);
+  color: var(--tertiary);
 }
 
 /* The `/` command list, floating over the transcript above the box. */

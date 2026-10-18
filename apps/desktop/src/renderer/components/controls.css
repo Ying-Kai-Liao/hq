@@ -1,5 +1,5 @@
 .styled-button {
-  font-size: calc(12px * var(--scale));
+  font-size: var(--text-callout);
   font-weight: 500;
   padding: 6px 12px;
   border-radius: var(--radius-pill);
@@ -84,7 +84,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: calc(12px * var(--scale));
+  font-size: var(--text-callout);
   color: var(--text);
   padding: 5px 9px;
   border-radius: var(--radius-s);
@@ -92,6 +92,9 @@
 }
 .choice-picker.outlined {
   box-shadow: inset 0 0 0 1px var(--border);
+}
+.choice-picker.fits {
+  width: 100%;
 }
 .choice-label {
   white-space: nowrap;
@@ -122,7 +125,7 @@
   position: relative;
   flex: 1;
   text-align: center;
-  font-size: calc(11px * var(--scale));
+  font-size: var(--text-caption);
   font-weight: 500;
   color: var(--secondary);
   padding: 5px 0;
@@ -147,7 +150,7 @@
   height: calc(24px * var(--scale));
   padding: 0 calc(10px * var(--scale));
   border-radius: var(--radius-pill);
-  font-size: calc(13px * var(--scale));
+  font-size: var(--text-body);
   color: var(--secondary);
   white-space: nowrap;
   transition: background-color var(--hover), color var(--hover);
@@ -166,6 +169,17 @@
   gap: 10px;
   width: 100%;
 }
+.choice-row-label {
+  flex: 1;
+}
+/* The checkmark beside a choice: its space is kept when it's off. */
+.check-slot {
+  display: flex;
+  opacity: 0;
+}
+.check-slot.on {
+  opacity: 1;
+}
 
 .card-form {
   height: 100%;
@@ -177,7 +191,7 @@
   flex-direction: column;
   gap: 28px;
   padding: 14px;
-  font-size: calc(12px * var(--scale));
+  font-size: var(--text-callout);
 }
 
 .card-section {
@@ -210,7 +224,7 @@
   min-width: 0;
 }
 .card-section-footer {
-  font-size: calc(11px * var(--scale));
+  font-size: var(--text-caption);
   color: var(--secondary);
   line-height: 1.4;
   padding: 0 2px;
@@ -226,6 +240,9 @@
     height: 0.5px;
   }
 }
+.hairline.grow {
+  flex: 1;
+}
 .hairline.inset {
   margin: 0 16px;
 }
@@ -235,6 +252,15 @@
   align-items: center;
   width: 100%;
 }
+.value-row-value {
+  color: var(--secondary);
+}
+/* A row's note under its title (RowLabel). */
+.detail-note {
+  font-size: var(--text-caption);
+  color: var(--secondary);
+  line-height: 1.35;
+}
 
 .search-field {
   display: flex;
@@ -243,7 +269,7 @@
   padding: 7px 10px;
   background: var(--bubble-agent);
   border-radius: var(--radius-pill);
-  font-size: calc(12px * var(--scale));
+  font-size: var(--text-callout);
 }
 .search-field input {
   flex: 1;
@@ -287,12 +313,23 @@
   gap: 6px;
   width: 100%;
 }
+.disclosure-chevron {
+  display: flex;
+  color: var(--secondary);
+  transition: transform var(--layout);
+}
+.disclosure-chevron.open {
+  transform: rotate(90deg);
+}
 
 .pill {
   display: inline-flex;
   align-items: center;
   padding: 5px 9px;
   border-radius: var(--radius-s);
+}
+.pill.outlined {
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .progress-track {

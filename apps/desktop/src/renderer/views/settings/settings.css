@@ -14,10 +14,13 @@
   padding: 30px 10px 10px;
 }
 .settings-group {
-  font-size: calc(12px * var(--scale));
+  font-size: var(--text-callout);
   font-weight: 500;
   color: var(--tertiary);
   padding: 0 10px 4px;
+}
+.settings-group:not(:first-child) {
+  padding-top: 16px;
 }
 .settings-item {
   display: flex;
@@ -26,13 +29,14 @@
   height: 32px;
   padding: 0 10px;
   border-radius: var(--radius-s);
-  font-size: calc(13px * var(--scale));
+  font-size: var(--text-body);
   color: var(--text);
   transition: background-color var(--hover);
 }
 .settings-item.selected {
   background: rgba(var(--text-rgb), 0.08);
 }
+/* A row's leading icon, centered in a fixed column so the labels line up. */
 .settings-divider {
   width: 1px;
   flex: none;
@@ -43,6 +47,9 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+}
+.settings-title {
+  padding: 30px 32px 8px;
 }
 .settings-page {
   flex: 1;
@@ -91,12 +98,120 @@
 }
 .settings-code {
   font-family: var(--mono);
-  font-size: calc(11px * var(--scale));
+  font-size: var(--text-caption);
   padding: 6px;
   flex: 1;
   min-width: 0;
   background: var(--code-background);
   border-radius: var(--radius-xs);
+}
+.settings-mono {
+  font-family: var(--mono);
+}
+.settings-centered {
+  text-align: center;
+}
+/* Underlined text buttons (links out) and the quieter Cancel beside them. */
+.settings-link {
+  color: var(--text);
+  text-decoration: underline;
+}
+.settings-quiet-button {
+  color: var(--secondary);
+}
+.settings-off {
+  opacity: 0.4;
+}
+
+/* General: the analytics switch sits at the row's end, after its label and info button. */
+.switch.settings-privacy-switch {
+  flex: 1;
+  justify-content: flex-end;
+}
+
+/* Usage: a computer's label over its limits, then one row per limit. */
+.settings-usage-computer {
+  font-size: var(--text-body);
+  font-weight: 700;
+}
+.settings-usage-row {
+  font-size: var(--text-callout);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.settings-usage-title {
+  width: 64px;
+  flex: none;
+}
+.settings-usage-percent {
+  width: 36px;
+  flex: none;
+  text-align: right;
+}
+.settings-usage-reset {
+  width: 130px;
+  flex: none;
+  text-align: right;
+}
+
+/* Computers & devices. */
+.settings-computers {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--background);
+}
+.settings-computers-content {
+  padding: 14px 14px 20px;
+}
+.settings-route {
+  color: var(--tertiary);
+}
+.settings-pairing {
+  padding: 16px;
+}
+.settings-ssh-editor {
+  width: 460px;
+}
+.settings-ssh-editor-body {
+  padding: 4px 20px 20px;
+}
+.settings-approval {
+  width: 420px;
+}
+.settings-approval-body {
+  padding: 0 24px 24px;
+}
+.settings-analytics-icon {
+  padding-top: 2px;
+}
+
+/* Voice chat: its own sheet outside Settings; rows that need a key dim until there is one. */
+.sheet-page.settings-voice-sheet {
+  width: 440px;
+  height: 600px;
+}
+.settings-voice-body {
+  flex: 1;
+  min-height: 0;
+}
+.settings-dimmable {
+  transition: opacity var(--layout);
+}
+.settings-dimmable.dimmed {
+  opacity: 0.55;
+  pointer-events: none;
+}
+.settings-key-input {
+  flex: 1;
+  min-width: 0;
+}
+.settings-key-result {
+  font-size: var(--text-caption);
+  font-weight: 400;
+  color: var(--secondary);
+}
+.settings-key-result.failed {
+  color: var(--danger);
 }
 
 /* A row that appears fades in. */

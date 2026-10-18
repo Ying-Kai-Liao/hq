@@ -1,9 +1,10 @@
 import { isGroup, isWorking, type Bot } from '@shared/models'
 import { AgentIcon } from '../../components/AgentIcon'
 import { BotAvatar, GroupAvatar } from '../../components/Avatar'
-import { IconButton, Switch, TabChoice } from '../../components/Controls'
+import { IconButton, RowLabel, Switch, TabChoice } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
-import { font } from '../../lib/fonts'
+import { HStack, VStack } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import { useStore } from '../../store/context'
 import { BotSettingsPanel } from '../bots/BotEditorView'
 import { MemoryCard } from '../bots/MemoryView'
@@ -100,13 +101,10 @@ function ComputerUse({ bot }: { bot: Bot }) {
     <section className="details-section">
       <span className="details-section-title">Computer</span>
       <div className="outlined-card details-switch">
-        <span className="details-switch-text">
-          <span>Use the computer</span>
-          {ready ? null : <span className="details-switch-note">On that computer, open Codync → Settings → Computer access to set it up first.</span>}
-        </span>
-        <span style={{ display: 'flex', flex: 'none' }}>
+        <RowLabel grow label="Use the computer" detail={ready ? null : 'On that computer, open Codync → Settings → Computer access to set it up first.'} />
+        <HStack as="span" align="stretch" className="details-switch-control">
           <Switch label="Use the computer" on={bot.computer} disabled={store.isOffline} onChange={(on) => store.setComputer(bot, on)} />
-        </span>
+        </HStack>
       </div>
     </section>
   )
@@ -121,19 +119,19 @@ function GroupMembersList({ group, editGroup }: { group: Bot; editGroup: () => v
         <div key={bot.id} className="member-row removable">
           <button className="member-open press" title={`Open ${bot.name}'s own chat`} onClick={() => store.setSelection(bot.id)}>
             <BotAvatar bot={bot} size={32} />
-            <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0, flex: 1 }}>
+            <VStack as="span" gap={1} grow>
               <span className="member-name">{bot.name}</span>
-              {isWorking(bot) ? <span className="member-name" style={{ ...font('compactSecondary'), color: 'var(--secondary)' }}>{bot.activity || 'Working…'}</span> : null}
-            </span>
+              {isWorking(bot) ? <Text size="compactSecondary" tone="secondary" className="member-name">{bot.activity || 'Working…'}</Text> : null}
+            </VStack>
           </button>
           {group.members.length > 1 ? <IconButton title={`Remove ${bot.name} from the group`} icon="xmark" onClick={() => store.removeMember(group, bot.id)} /> : null}
         </div>
       ))}
       <button className="member-row press" onClick={editGroup}>
-        <span style={{ width: 32, display: 'grid', placeItems: 'center' }}>
+        <span className="member-add-icon">
           <Icon name="plus" size={16} color="var(--secondary)" />
         </span>
-        <span className="member-name" style={{ color: 'var(--secondary)' }}>Add Member</span>
+        <Text tone="secondary" className="member-name">Add Member</Text>
       </button>
     </div>
   )

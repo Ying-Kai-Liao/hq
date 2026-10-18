@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { BotAvatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { Sheet } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { Text } from '../../components/Text'
 import { useModel } from '../../lib/observable'
 import { avatarColor, useDark, useReduceMotion, withAlpha } from '../../lib/theme'
 import { useStore } from '../../store/context'
@@ -186,14 +186,14 @@ export function CallView({ botId, onSpeaking, interrupt, onEnd }: {
           title={speaking ? 'Interrupt' : undefined}
           onClick={() => session?.interrupt()}
         >
-          {bot ? <BotAvatar bot={bot} size={34} /> : <span style={{ width: 34, height: 34 }} />}
+          {bot ? <BotAvatar bot={bot} size={34} /> : <span className="call-avatar-empty" />}
         </button>
         <CallLevelDots engine={session} working={working} color={color} label={statusText} />
         {/* Audio leaves the computer: say where. */}
         {session?.provider ? (
-          <span style={{ ...font('caption2', 'semibold'), color: 'var(--secondary)' }} aria-label={`Voice by ${providerName(session.provider)}`}>
+          <Text size="caption2" weight="semibold" tone="secondary" aria-label={`Voice by ${providerName(session.provider)}`}>
             {providerName(session.provider)}
-          </span>
+          </Text>
         ) : null}
         <button className="call-round" title="Call settings" aria-label="Call settings" onClick={() => (openVoiceSettings ? openVoiceSettings() : setSettings(true))}>
           <Icon name="gearshape" size={16} weight="medium" scaled={false} />
@@ -211,13 +211,13 @@ export function CallView({ botId, onSpeaking, interrupt, onEnd }: {
         </button>
       </div>
       {failure ? (
-        <div key="failure" className="call-line" style={{ color: 'var(--danger)' }}>
+        <Text as="div" key="failure" tone="danger" className="call-line">
           {failure}
-        </div>
+        </Text>
       ) : notice ? (
-        <div key={notice} className="call-line" style={{ color: 'var(--secondary)' }}>
+        <Text as="div" key={notice} tone="secondary" className="call-line">
           {notice}
-        </div>
+        </Text>
       ) : null}
       <Sheet open={settings} onClose={() => setSettings(false)}>
         <VoiceChatSettingsView />
@@ -275,5 +275,5 @@ function CallLevelDots({ engine, working, color, label }: { engine: VoiceEngine 
     return () => cancelAnimationFrame(frame)
   }, [])
 
-  return <canvas ref={canvas} role="img" aria-label={label} style={{ width: DOTS_WIDTH, height: DOTS_HEIGHT, flex: 'none' }} />
+  return <canvas ref={canvas} role="img" aria-label={label} className="call-dots" style={{ width: DOTS_WIDTH, height: DOTS_HEIGHT }} />
 }

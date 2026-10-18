@@ -16,7 +16,9 @@
 .memory-editor textarea { padding: 10px; background: var(--surface); color: var(--text); border: 0; border-radius: var(--radius-s); font: inherit; resize: vertical; }
 .memory-history { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; user-select: text; margin: 0; }
 .memory-error { color: var(--danger); white-space: pre-wrap; }
-.memory-notes-header { display: flex; align-items: center; justify-content: space-between; color: var(--secondary); font-size: calc(12px * var(--scale)); font-weight: 600; }
+.memory-notes-header { display: flex; align-items: center; justify-content: space-between; color: var(--secondary); font-size: var(--text-callout); font-weight: 600; }
 .memory-attention { color: var(--attention); }
 .memory-file-sheet { display: flex; flex-direction: column; height: 100%; background: var(--background); }
-.memory-file-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font: calc(12px * var(--scale))/1.5 var(--mono); }
+.memory-file-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font: var(--text-callout)/1.5 var(--mono); }
+.memory-info-icon { padding-top: 2px; }
+.switch.memory-harness-switch { flex: 1; justify-content: flex-end; }

@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { isWorkingIn } from '@shared/models'
-import { Hairline, IconButton } from '../../components/Controls'
-import { Sheet } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { Hairline } from '../../components/Controls'
+import { ModalHeader, Sheet, SheetPage } from '../../components/Overlay'
+import { HStack } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import { useStore } from '../../store/context'
 import { UpdateNeededCard } from '../UpdateNeededCard'
 import { buildChat, rowIn, useArrivals } from './chat-items'
@@ -39,26 +40,20 @@ export function RepliesView({ botId, rootId, close }: { botId: string; rootId: s
 
   const openTrace = () => setShowTrace(true)
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--background)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 48, padding: '0 10px 0 16px', flex: 'none' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-          <span style={{ ...font('compactBody', 'semibold'), color: 'var(--text)' }}>Thread</span>
-          <span style={{ ...font('caption'), color: 'var(--tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{chat?.name ?? ''}</span>
-        </div>
-        <IconButton title="Close thread" icon="xmark" onClick={close} />
-      </div>
-      <div style={{ height: 0.5, background: 'var(--border)', flex: 'none' }} />
-      <div ref={scroller} style={{ flex: 1, overflowY: 'auto' }}>
-        <div style={{ padding: '8px 16px 0' }}>
+    <SheetPage>
+      <ModalHeader title="Thread" subtitle={chat?.name ?? ''} onClose={close} closeTitle="Close thread" />
+      <div className="thread-hairline" />
+      <div ref={scroller} className="thread-scroll">
+        <div className="replies-content">
           {root ? (
             <>
               <ChatRow entry={root} groupStart chat={chat} openTrace={openTrace} />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 0' }}>
-                <span style={{ ...font('caption'), color: 'var(--tertiary)', whiteSpace: 'nowrap' }}>
+              <HStack gap={10} className="replies-count">
+                <Text size="caption" tone="tertiary" className="replies-count-label">
                   {replyCount(root.data.thread?.count ?? 0)}
-                </span>
-                <Hairline style={{ flex: 1 }} />
-              </div>
+                </Text>
+                <Hairline grow />
+              </HStack>
             </>
           ) : null}
           {items.map((item) =>
@@ -69,16 +64,16 @@ export function RepliesView({ botId, rootId, close }: { botId: string; rootId: s
             ) : null,
           )}
           {chat && live ? (
-            <div className={arrivals.has('working') ? 'row-in' : undefined} style={{ paddingTop: 6 }}>
+            <div className={arrivals.has('working') ? 'chat-working row-in' : 'chat-working'}>
               <WorkingIndicator bot={chat} thinking={store.currentThinking(botId, rootId)} />
             </div>
           ) : null}
-          <div style={{ height: 8 }} />
+          <div className="chat-end" />
         </div>
       </div>
-      <div style={{ flex: 'none' }}>
+      <div className="replies-composer">
         {store.mismatch ? (
-          <div style={{ padding: '0 16px 8px' }}>
+          <div className="composer-update-needed">
             <UpdateNeededCard />
           </div>
         ) : (
@@ -88,7 +83,7 @@ export function RepliesView({ botId, rootId, close }: { botId: string; rootId: s
       <Sheet open={showTrace} onClose={() => setShowTrace(false)} width={620} height={560}>
         <TraceView botId={botId} thread={rootId} />
       </Sheet>
-    </div>
+    </SheetPage>
   )
 }
 

@@ -1,9 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { draftOf, isGroup, type Bot } from '@shared/models'
 import { BotAvatar, GroupAvatar } from '../../components/Avatar'
-import { IconButton } from '../../components/Controls'
+import { Hairline, IconButton } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
-import { font } from '../../lib/fonts'
+import { SheetPage } from '../../components/Overlay'
+import { HStack, Spacer } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import { useStore } from '../../store/context'
 import { createDefaultBot, errorText } from './drafts'
 import { AutoTextArea, BotChip } from './parts'
@@ -137,10 +139,10 @@ export function NewChatView({ group, onClose }: { group: boolean; onClose: () =>
   }, [])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--background)' }}>
-      <div className="drag" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 22px', ...font('title3') }}>
-        <span style={{ color: 'var(--secondary)', flex: 'none' }}>To:</span>
-        <div ref={chips} className="chip-row no-drag" style={{ flex: 1 }}>
+    <SheetPage>
+      <HStack gap={8} className="drag compose-to">
+        <Text tone="secondary" className="compose-to-label">To:</Text>
+        <div ref={chips} className="chip-row no-drag">
           {picked.map((bot) => (
             <BotChip key={bot.id} bot={bot} onRemove={() => remove(bot.id)} />
           ))}
@@ -148,7 +150,7 @@ export function NewChatView({ group, onClose }: { group: boolean; onClose: () =>
             ref={toField}
             value={query}
             placeholder={toPrompt}
-            style={{ minWidth: 200, flex: 1, color: 'var(--text)', userSelect: 'text' }}
+            className="compose-to-input"
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing || e.keyCode === 229) return
@@ -164,12 +166,12 @@ export function NewChatView({ group, onClose }: { group: boolean; onClose: () =>
           />
         </div>
         <IconButton title="Close" icon="xmark" className="no-drag" onClick={onClose} />
-      </div>
-      <div className="hairline" />
+      </HStack>
+      <Hairline />
 
       <div className="compose-list">
         <PickRow shortcut={1} onClick={create} icon={
-          <span style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--bubble-agent)', display: 'grid', placeItems: 'center' }}>
+          <span className="compose-create-icon">
             <Icon key={creating ? 'hourglass' : 'plus'} name={creating ? 'hourglass' : 'plus'} size={13} weight="medium" className="fade-in" />
           </span>
         }>
@@ -182,7 +184,7 @@ export function NewChatView({ group, onClose }: { group: boolean; onClose: () =>
         ))}
       </div>
 
-      <div style={{ flex: 1 }} />
+      <Spacer />
 
       <div className="compose-box">
         <AutoTextArea
@@ -200,7 +202,7 @@ export function NewChatView({ group, onClose }: { group: boolean; onClose: () =>
           }}
         />
       </div>
-    </div>
+    </SheetPage>
   )
 }
 
@@ -208,12 +210,12 @@ function PickRow({ shortcut, onClick, icon, children }: { shortcut: number | nul
   return (
     <button className="press pick-row hover fade-in" onClick={onClick}>
       {icon}
-      <span style={{ flex: 1, minWidth: 0, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{children}</span>
+      <Text tone="text" truncate grow>{children}</Text>
       {shortcut !== null ? (
-        <span style={{ display: 'flex', gap: 3 }}>
+        <HStack as="span" align="stretch" gap={3}>
           <span className="key-cap">⌘</span>
           <span className="key-cap">{shortcut}</span>
-        </span>
+        </HStack>
       ) : null}
     </button>
   )

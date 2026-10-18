@@ -1,4 +1,5 @@
 .thread-view {
+  position: relative;
   display: flex;
   height: 100%;
   overflow: hidden;
@@ -99,6 +100,9 @@
   opacity: 0;
   transform: translateY(-8px);
 }
+.title-pill-subtitle {
+  color: var(--secondary);
+}
 
 .transcript-frame {
   position: absolute;
@@ -108,6 +112,17 @@
   height: 100%;
   overflow-y: auto;
   overflow-anchor: none;
+}
+/* The scrolling body of a thread or the trace sheet, under its header. */
+.thread-scroll {
+  flex: 1;
+  overflow-y: auto;
+}
+/* Half a point at every resolution (the shared hairline is 1 px at 1x). */
+.thread-hairline {
+  height: 0.5px;
+  background: var(--border);
+  flex: none;
 }
 .transcript-content {
   container-type: inline-size;
@@ -121,8 +136,11 @@
   width: 100%;
   text-align: center;
   padding: 12px 0;
-  font-size: calc(11px * var(--scale));
+  font-size: var(--text-caption);
   color: var(--secondary);
+}
+.transcript-intro {
+  padding-top: 40px;
 }
 .intro-card {
   display: flex;
@@ -134,12 +152,72 @@
   padding: 0 24px;
   text-align: center;
 }
+.intro-card-path {
+  overflow-wrap: anywhere;
+}
+.intro-card-hint {
+  padding-top: 4px;
+  line-height: 1.5;
+}
+.intro-card-hint.balanced {
+  max-width: 360px;
+  text-wrap: balance;
+}
+/* Room under the last row. */
+.chat-end {
+  height: 8px;
+}
 
 .composer-dock {
   flex: none;
 }
+.composer-update-needed {
+  padding: 0 16px 8px;
+}
 
 /* Messages */
+/* Space above a row: more where a new speaker's run (or a card) starts. */
+.chat-row {
+  padding-top: 4px;
+}
+.chat-row.group-start {
+  padding-top: 12px;
+}
+.chat-row.notice {
+  padding-top: 10px;
+}
+/* A group message's reactions and thread line up past its author's avatar. */
+.chat-row-indent {
+  padding-left: 34px;
+}
+.time-separator {
+  text-align: center;
+  padding: 18px 0 6px;
+}
+.chat-notice {
+  text-align: center;
+}
+.chat-notice-divider {
+  padding: 6px 0;
+}
+.chat-notice-divider-text {
+  text-align: center;
+  max-width: 260px;
+}
+.chat-notice-error {
+  padding: 12px;
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.chat-routine-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0;
+  margin: 0 auto;
+  font-size: var(--text-caption);
+  color: var(--secondary);
+}
 .message {
   display: flex;
   flex-direction: column;
@@ -188,13 +266,33 @@
 .bubble.agent {
   background: var(--chat-agent);
 }
+.file-message-cards {
+  display: grid;
+  gap: 6px;
+}
+.user-status-error {
+  margin-right: 4px;
+}
+.user-status-time {
+  opacity: 0;
+  transition: opacity var(--hover);
+}
+.user-status-time.shown {
+  opacity: 1;
+}
 .message-actions {
   position: absolute;
   bottom: 0;
   display: flex;
   align-items: center;
   gap: 2px;
+  opacity: 0;
+  pointer-events: none;
   transition: opacity var(--hover);
+}
+.message-actions.shown {
+  opacity: 1;
+  pointer-events: auto;
 }
 .message-actions.leading {
   right: calc(100% + 6px);
@@ -225,6 +323,16 @@
   border-radius: var(--radius-pill);
   background: var(--surface);
 }
+.thread-chip-authors > * + * {
+  margin-left: -6px;
+}
+/* Agent-side cards (working, approvals) stop short of the far edge. */
+.agent-inset {
+  padding-right: 40px;
+}
+.chat-working {
+  padding-top: 6px;
+}
 .working {
   display: flex;
   flex-direction: column;
@@ -235,89 +343,33 @@
   text-align: left;
   min-width: 0;
 }
+.working-chevron {
+  transition: transform var(--layout);
+}
+.working-chevron.expanded {
+  transform: rotate(180deg);
+}
 .thinking {
   max-height: 180px;
   overflow-y: auto;
   white-space: pre-wrap;
   text-align: left;
+  font-size: var(--text-caption);
+  color: var(--secondary);
 }
 
-/* Composer */
-.mentions {
-  display: flex;
-  gap: 6px;
-  padding: 0 16px 6px;
-  overflow-x: auto;
+/* Thread */
+.replies-content {
+  padding: 8px 16px 0;
 }
-.mention {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: var(--radius-pill);
-  background: var(--surface);
+.replies-count {
+  padding: 12px 0;
+}
+.replies-count-label {
+  white-space: nowrap;
+}
+.replies-composer {
   flex: none;
-}
-.composer {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 8px 14px 14px;
-  max-width: var(--column);
-  margin: 0 auto;
-  width: 100%;
-}
-.file-chips {
-  display: flex;
-  gap: 6px;
-  padding: 8px 10px 0;
-  overflow-x: auto;
-}
-.file-chips:has(.attachment-tile) {
-  align-items: flex-start;
-}
-.attachment-tile {
-  position: relative;
-  width: 80px;
-  height: 80px;
-  flex: none;
-  border-radius: var(--radius-l);
-  overflow: hidden;
-  background: var(--surface);
-}
-.attachment-tile img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-.attachment-remove {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.75);
-}
-.file-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: var(--radius-pill);
-  background: var(--surface);
-  flex: none;
-}
-/* The remove glyph is small; its target is 24 pt. */
-.file-chip-remove {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  margin: -6px -8px -6px -4px;
 }
 
 .call-overlay {
@@ -337,18 +389,27 @@
   }
 }
 
-.side-panel {
-  height: 100%;
-  display: flex;
+/* The conversation's room for the panel changes in one step; the panel itself slides over it, out
+   of the flow, so a long chat is laid out once per open or close, not on every frame. */
+.side-panel-slot {
   flex: none;
-  opacity: 0;
-  transition: width var(--layout), opacity var(--morph);
+}
+.side-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 7;
+  display: flex;
+  background: var(--background);
+  transition: right var(--layout);
   /* The margin lets the edge's drag area reach into the conversation. */
   overflow: clip;
   overflow-clip-margin: 4px;
 }
-.side-panel.shown { opacity: 1; }
-.side-panel.resizing { transition: none; }
+.side-panel-content {
+  height: 100%;
+  flex: none;
+}
 
 /* A message arriving while the list follows the newest pops in from its bubble's side (Grok Bot's). */
 .row-in {

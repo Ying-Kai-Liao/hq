@@ -5,8 +5,9 @@ import { AgentIcon } from '../../components/AgentIcon'
 import { CharacterAvatar } from '../../components/Avatar'
 import { CardSection, ChoicePicker, DropdownMenu, IconButton, Pill, SearchField, Spinner, ValueRow } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
-import { ModalHeader, Sheet, useDismiss } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { ModalHeader, Sheet, SheetPage, useDismiss } from '../../components/Overlay'
+import { HStack, IconSlot, VStack } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import { AVATAR_COLORS, AVATAR_SHAPES } from '../../lib/theme'
 import { useStore } from '../../store/context'
 import { useAgentModels } from './agent-models'
@@ -48,15 +49,15 @@ export function BotEditorView({ draft: initial }: { draft: BotDraft }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--background)' }}>
+    <SheetPage>
       <ModalHeader
         title={isNew ? 'New bot' : 'Settings'}
         trailing={saving ? <Spinner /> : <IconButton title={isNew ? 'Create' : 'Save'} icon="checkmark" disabled={!isValid(draft) || saving || !online} onClick={save} />}
       />
-      <div style={{ flex: 1, minHeight: 0 }}>
+      <div className="bot-editor-body">
         <BotSettingsForm draft={draft} onChange={setDraft} error={error} plugins={plugins} />
       </div>
-    </div>
+    </SheetPage>
   )
 }
 
@@ -142,7 +143,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
   ]
 
   const agent = (
-    <div key="agent" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <VStack key="agent" gap={8}>
       <ValueRow label="Agent">
         <ChoicePicker
           selection={draft.backend}
@@ -153,18 +154,17 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
           onChange={(id) => set('backend', id)}
         />
       </ValueRow>
-      {backend && !backend.available ? <span style={{ ...font('caption'), color: 'var(--attention)' }}>{backend.installHint}</span> : null}
+      {backend && !backend.available ? <Text size="caption" tone="attention">{backend.installHint}</Text> : null}
       {draft.backend === 'custom' ? (
         <input
-          className="field-box fade-in"
-          style={font('callout', undefined, 'monospaced')}
+          className="field-box fade-in bot-command"
           value={draft.command ?? ''}
           placeholder="ACP command, e.g. my-agent --acp"
           spellCheck={false}
           onChange={(e) => set('command', e.target.value || null)}
         />
       ) : null}
-    </div>
+    </VStack>
   )
 
   if (part === 'often') {
@@ -176,7 +176,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
             {agent}
             {model}
           </CardSection>
-          {error ? <span className="fade-in" style={{ ...font('footnote'), color: 'var(--danger)' }}>{error}</span> : null}
+          {error ? <Text size="footnote" tone="danger" className="fade-in">{error}</Text> : null}
         </div>
       </div>
     )
@@ -191,7 +191,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
               <CharacterAvatar shape={draft.avatarShape} color={draft.avatarColor} size={24} />
             </button>
             <AnchoredPanel open={pickingAvatar} onClose={() => setPickingAvatar(false)} anchor={avatarRef}>
-              <div style={{ padding: 14, width: 300 }}>
+              <div className="avatar-picker-panel">
                 <AvatarPicker shape={draft.avatarShape} color={draft.avatarColor} onShape={(s) => set('avatarShape', s)} onColor={(c) => set('avatarColor', c)} />
               </div>
             </AnchoredPanel>
@@ -208,7 +208,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
         {/* In the inspector the agent and its model are on the Details tab; what's left is where it works. */}
         <CardSection title={part === 'all' ? 'Agent' : 'Workspace'}>
           <ValueRow label="Computer">
-            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{store.hostName}</span>
+            <Text truncate>{store.hostName}</Text>
           </ValueRow>
           {part === 'all' ? agent : null}
           {part === 'all' ? model : null}
@@ -227,8 +227,8 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
                 { title: 'Choose project folder…', selected: !!draft.cwd, action: () => setPickingFolder(true) },
               ]}
             >
-              <Pill outlined style={{ gap: 6, color: 'var(--text)' }}>
-                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{draft.cwd ? lastPathComponent(draft.cwd) : 'Personal'}</span>
+              <Pill outlined className="workspace-pill">
+                <Text truncate className="workspace-pill-label">{draft.cwd ? lastPathComponent(draft.cwd) : 'Personal'}</Text>
                 <Icon name="chevron.down" size={10} weight="semibold" color="var(--secondary)" />
               </Pill>
             </DropdownMenu>
@@ -287,7 +287,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
           onChange={(ids) => set('skills', ids)}
           onInfo={(s) => setViewingSkill({ id: s.id, name: s.name, description: s.detail })}
         />
-        {error ? <span className="fade-in" style={{ ...font('footnote'), color: 'var(--danger)' }}>{error}</span> : null}
+        {error ? <Text size="footnote" tone="danger" className="fade-in">{error}</Text> : null}
       </div>
       <FormSheet open={viewingSkill !== null} onClose={() => setViewingSkill(null)}>
         {viewingSkill ? <SkillSheet key={viewingSkill.name} skill={viewingSkill} /> : null}
@@ -317,7 +317,7 @@ function PluginToggles({ title, empty, items, selection, onChange, onInfo }: {
 }) {
   return (
     <CardSection title={title}>
-      {items.length ? null : <span style={{ color: 'var(--secondary)' }}>{empty}</span>}
+      {items.length ? null : <Text tone="secondary">{empty}</Text>}
       {items.map((item) => {
         const row = (
           <SwitchRow
@@ -329,10 +329,10 @@ function PluginToggles({ title, empty, items, selection, onChange, onInfo }: {
           />
         )
         return onInfo ? (
-          <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>{row}</div>
+          <HStack key={item.id} gap={4}>
+            <div className="plugin-toggle">{row}</div>
             <IconButton title={`About ${item.name}`} icon="info.circle" onClick={() => onInfo(item)} />
-          </div>
+          </HStack>
         ) : row
       })}
     </CardSection>
@@ -341,7 +341,7 @@ function PluginToggles({ title, empty, items, selection, onChange, onInfo }: {
 
 function AvatarPicker({ shape, color, onShape, onColor }: { shape: string; color: string; onShape: (s: string) => void; onColor: (c: string) => void }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <VStack gap={12}>
       <div className="swatch-row">
         {AVATAR_SHAPES.map((s) => (
           <button key={s} className={`swatch ${s === shape ? 'on' : ''}`} aria-label={`${s} shape`} aria-pressed={s === shape} onClick={() => onShape(s)}>
@@ -352,11 +352,11 @@ function AvatarPicker({ shape, color, onShape, onColor }: { shape: string; color
       <div className="swatch-row">
         {AVATAR_COLORS.map((c) => (
           <button key={c.id} className={`swatch ${c.id === color ? 'on' : ''}`} aria-label={c.label} aria-pressed={c.id === color} onClick={() => onColor(c.id)}>
-            <span style={{ width: 26, height: 26, borderRadius: '50%', background: c.hex, display: 'block' }} />
+            <span className="swatch-color" style={{ background: c.hex }} />
           </button>
         ))}
       </div>
-    </div>
+    </VStack>
   )
 }
 
@@ -367,10 +367,10 @@ function FolderPicker({ start, onPick }: { start: string | null; onPick: (path: 
   const [forward, setForward] = useState(true)
   const current = stack[stack.length - 1] ?? null
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--background)' }}>
-      <div style={{ display: 'flex', alignItems: 'center' }}>
+    <SheetPage>
+      <HStack>
         {stack.length > 1 ? (
-          <div className="fade-in" style={{ paddingLeft: 10, display: 'flex' }}>
+          <HStack align="stretch" className="fade-in folder-back">
             <IconButton
               title="Back"
               icon="chevron.left"
@@ -379,13 +379,13 @@ function FolderPicker({ start, onPick }: { start: string | null; onPick: (path: 
                 setStack((s) => s.slice(0, -1))
               }}
             />
-          </div>
+          </HStack>
         ) : null}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="folder-title">
           <ModalHeader title={current ? lastPathComponent(current) : 'Folders'} />
         </div>
-      </div>
-      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+      </HStack>
+      <div className="folder-levels">
         <FolderLevel
           key={stack.length}
           path={current}
@@ -397,7 +397,7 @@ function FolderPicker({ start, onPick }: { start: string | null; onPick: (path: 
           }}
         />
       </div>
-    </div>
+    </SheetPage>
   )
 }
 
@@ -423,24 +423,24 @@ function FolderLevel({ path, forward, onPick, onOpen }: { path: string | null; f
 
   return (
     <div className={`bot-form level-slide ${forward ? 'from-trailing' : 'from-leading'}`}>
-      <div className="bot-form-content" style={{ gap: 14 }}>
+      <div className="bot-form-content folder-level-content">
         <SearchField value={filter} onChange={setFilter} />
         {listing ? (
           <>
             <CardSection footer={listing.path}>
-              <button className="press" style={{ display: 'flex', alignItems: 'center', gap: 8, ...font('headline'), color: 'var(--accent)' }} onClick={() => onPick(listing.path)}>
+              <button className="press folder-use" onClick={() => onPick(listing.path)}>
                 <Icon name="checkmark.circle.fill" size={13} />
-                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{`Use “${lastPathComponent(listing.path)}”`}</span>
+                <Text truncate>{`Use “${lastPathComponent(listing.path)}”`}</Text>
               </button>
             </CardSection>
             {dirs.length ? (
               <CardSection>
                 {dirs.map((dir) => (
-                  <button key={dir.path} className="press" style={{ display: 'flex', alignItems: 'center', gap: 10 }} onClick={() => onOpen(dir.path)}>
-                    <span style={{ width: 20, display: 'flex', justifyContent: 'center' }}>
+                  <button key={dir.path} className="press folder-row" onClick={() => onOpen(dir.path)}>
+                    <IconSlot width={20}>
                       <Icon name={dir.isGit ? 'arrow.triangle.branch' : 'folder'} size={12} color={dir.isGit ? 'var(--accent)' : 'var(--secondary)'} />
-                    </span>
-                    <span style={{ flex: 1, minWidth: 0, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{dir.name}</span>
+                    </IconSlot>
+                    <Text tone="text" truncate grow>{dir.name}</Text>
                     <Icon name="chevron.right" size={10} weight="semibold" color="var(--tertiary)" />
                   </button>
                 ))}
@@ -448,11 +448,11 @@ function FolderLevel({ path, forward, onPick, onOpen }: { path: string | null; f
             ) : null}
           </>
         ) : error ? (
-          <span style={{ color: 'var(--danger)' }}>{error}</span>
+          <Text tone="danger">{error}</Text>
         ) : (
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <HStack align="stretch" justify="center">
             <Spinner size={20} />
-          </div>
+          </HStack>
         )}
       </div>
     </div>

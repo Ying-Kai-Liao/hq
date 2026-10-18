@@ -5,7 +5,8 @@ import { draftOf, type Bot, type BotDraft } from '@shared/models'
 import { CharacterAvatar } from '../components/Avatar'
 import { Button, ChoicePicker, IconButton, ResizeHandle } from '../components/Controls'
 import { AnchoredMenu, Dialog, ModalHeader, Sheet, type MenuItem } from '../components/Overlay'
-import { font } from '../lib/fonts'
+import { HStack, Spacer } from '../components/Stack'
+import { Text } from '../components/Text'
 import { useModels } from '../lib/observable'
 import { prefs, stepTextSize, usePref, DEFAULT_TEXT_SIZE } from '../lib/prefs'
 import { useApp, StoreContext } from '../store/context'
@@ -36,8 +37,6 @@ import { useIslandSummary } from './island-summary'
 import { useSSH, useSSHAttachments } from './settings/ssh-model'
 import './chat-window.css'
 import './sidebar-header.css'
-
-const isMac = window.codync.platform === 'darwin'
 
 /** Native desktop chat: roster on the left, the conversation on the right (Grok Bot's desktop layout). */
 export function ChatWindow() {
@@ -328,13 +327,13 @@ function ChatSplitView() {
     detail = (
       <div className="empty-detail">
         <div className="detail-drag drag" />
-        <div style={{ display: 'flex' }}>
+        <HStack align="stretch" className="empty-detail-crew">
           <CharacterAvatar shape="blob" color="blue" size={60} mood="working" />
-          <CharacterAvatar shape="squircle" color="orange" size={60} style={{ marginLeft: -10 }} />
-          <CharacterAvatar shape="teardrop" color="violet" size={60} mood="working" style={{ marginLeft: -10 }} />
-        </div>
-        <div style={font('title2', 'semibold')}>{connecting ? 'Connecting to your computers…' : 'Your coding agents, as teammates.'}</div>
-        <div style={{ color: 'var(--secondary)', textAlign: 'center', maxWidth: 420 }}>{connecting ? 'Your bots will appear once connected. Manage computers to see connection progress.' : 'Pick a bot, or create one for each kind of work and point it at a project.'}</div>
+          <CharacterAvatar shape="squircle" color="orange" size={60} />
+          <CharacterAvatar shape="teardrop" color="violet" size={60} mood="working" />
+        </HStack>
+        <Text as="div" size="title2" weight="semibold">{connecting ? 'Connecting to your computers…' : 'Your coding agents, as teammates.'}</Text>
+        <Text as="div" tone="secondary" className="empty-detail-message">{connecting ? 'Your bots will appear once connected. Manage computers to see connection progress.' : 'Pick a bot, or create one for each kind of work and point it at a project.'}</Text>
         <Button onClick={() => compose()} disabled={!onlineStores.length}>
           New Bot
         </Button>
@@ -344,30 +343,30 @@ function ChatSplitView() {
 
   const width = compact ? 76 : sidebarWidth
   return (
-    <div className="split" style={{ pointerEvents: showAccount || contextBot ? 'none' : undefined }}>
+    <div className={`split ${showAccount || contextBot ? 'covered' : ''}`}>
       <aside className={`sidebar ${compact ? 'compact' : ''} ${resizing ? 'resizing' : ''}`} style={{ width }}>
-        <div className="sidebar-header drag" style={{ paddingLeft: compact ? 0 : isMac ? 80 : 18, opacity: compact ? 0 : 1 }} inert={compact}>
-          <span style={{ flex: 1 }} />
-          <div className="no-drag" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div className="sidebar-header drag" inert={compact}>
+          <Spacer />
+          <HStack gap={6} className="no-drag">
             <ComputerFilterHeader hidden={hidden} setHidden={setHidden} manage={() => setSettings('computers')} compact />
             <IconButton title="Search" icon="magnifyingglass" size={32} className="sidebar-header-action" onClick={() => setSearching(true)} />
             <IconButton title="New" icon="plus" size={32} className="sidebar-header-action" buttonRef={newButton} menuOpen={newMenu} onClick={() => setNewMenu((o) => !o)} disabled={!onlineStores.length} />
-          </div>
+          </HStack>
           <AnchoredMenu open={newMenu} onClose={() => setNewMenu(false)} anchor={newButton} items={newItems} />
         </div>
         {compact ? (
-          <div style={{ width: 70, alignSelf: 'center' }} className="drag">
-            <div className="no-drag" style={{ display: 'flex', justifyContent: 'center' }}>
+          <div className="rail-header drag">
+            <HStack align="stretch" justify="center" className="no-drag">
               <ComputerFilterHeader hidden={hidden} setHidden={setHidden} manage={() => setSettings('computers')} compact />
-            </div>
+            </HStack>
           </div>
         ) : null}
         <div className="roster" ref={listRef} tabIndex={0} onKeyDown={onListKey}>
           <BotRoster roster={roster} compact={compact} onContext={(bot, store, x, y) => setContextBot({ target: { bot, store }, x, y })} />
           {visibleRoster.length === 0 && !roster.grouped && !compact && mismatchStores.length === 0 ? (
             <div className="roster-empty">
-              <div style={font(13, 'medium')}>{onlineStores.length ? 'No bots yet' : 'Waiting for a computer'}</div>
-              {onlineStores.length ? <div style={{ ...font(12), color: 'var(--secondary)' }}>Use + to start a new chat.</div> : null}
+              <Text as="div" size="body" weight="medium">{onlineStores.length ? 'No bots yet' : 'Waiting for a computer'}</Text>
+              {onlineStores.length ? <Text as="div" size="callout" tone="secondary">Use + to start a new chat.</Text> : null}
             </div>
           ) : null}
         </div>
@@ -378,7 +377,7 @@ function ChatSplitView() {
             <AnchoredMenu open={railNewMenu} onClose={() => setRailNewMenu(false)} anchor={railNewButton} items={newItems} />
             <IconButton title="Extensions" icon="square.grid.2x2" size={36} onClick={openMarketplace} />
             <UpdateBadge size={32} />
-            <button className="rail-profile" style={{ background: showAccount ? 'var(--bubble-agent)' : undefined }} aria-label="Open account menu for Account" title="Account" onClick={() => setShowAccount((s) => !s)}>
+            <button className={`rail-profile ${showAccount ? 'open' : ''}`} aria-label="Open account menu for Account" title="Account" onClick={() => setShowAccount((s) => !s)}>
               <ProfileAvatar />
             </button>
           </div>
@@ -458,9 +457,9 @@ function ChatSplitView() {
 function ComputerPicker({ stores, value, onChange }: { stores: BotStore[]; value: string; onChange: (id: string) => void }) {
   const options = useMemo(() => stores.map((s) => ({ id: s.computer.id, label: s.hostName })), [stores])
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 22px 0', ...font('callout') }}>
-      <span style={{ color: 'var(--secondary)' }}>On</span>
+    <HStack gap={8} className="compose-computer">
+      <Text tone="secondary">On</Text>
       <ChoicePicker selection={value} options={options} onChange={onChange} />
-    </div>
+    </HStack>
   )
 }

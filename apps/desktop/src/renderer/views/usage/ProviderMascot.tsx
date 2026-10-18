@@ -2,26 +2,28 @@ import type { UsageProvider } from '@shared/models'
 import { agentIconURL, AgentIcon } from '../../components/AgentIcon'
 import { CharacterAvatar, drawCharacter } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
+import { HStack } from '../../components/Stack'
 import { palette } from '../../lib/theme'
 import { mascotShape, providerRegistry, providerTint, providerTintCSS, tightest } from './usage-model'
+import './usage.css'
 
 /** A provider's character, with a red "!" once any of its limits is nearly used up. */
 export function ProviderMascot({ provider, size, style = 'character' }: { provider: UsageProvider; size: number; style?: 'character' | 'original' }) {
   const full = (tightest(provider)?.percent ?? 0) >= 90
   if (style === 'original') {
     return (
-      <span style={{ width: size, height: size, display: 'grid', placeItems: 'center', flex: 'none' }}>
+      <span className="usage-mascot-logo" style={{ width: size, height: size }}>
         <AgentIcon registry={providerRegistry(provider.id)} size={size * 0.84} color={providerTintCSS(provider.id)} />
       </span>
     )
   }
   return (
-    <span style={{ position: 'relative', width: size, height: size, flex: 'none', display: 'block' }}>
+    <span className="usage-mascot" style={{ width: size, height: size }}>
       <CharacterAvatar shape={mascotShape(provider.id)} color="" tint={providerTint(provider.id)} size={size} mood={full ? 'needsInput' : 'idle'} />
       {full ? (
-        <span style={{ position: 'absolute', top: -size * 0.12, right: -size * 0.12, display: 'flex', color: 'var(--danger)', background: '#fff', borderRadius: '50%' }}>
+        <HStack as="span" align="stretch" className="usage-mascot-alert" style={{ top: -size * 0.12, right: -size * 0.12 }}>
           <Icon name="exclamationmark.circle.fill" size={size * 0.34} weight="bold" scaled={false} />
-        </span>
+        </HStack>
       ) : null}
     </span>
   )

@@ -2,14 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { Button, ChoicePicker, IconButton, Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { Dialog, ModalHeader } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { HStack, Spacer, VStack } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import { useStore } from '../../store/context'
 import { emptyDraft, errorText, sameDraft, type Routine, type RoutineScheduleDraft, type RoutineSchedulePreview } from './routine'
 import { Field } from '../bots/parts'
 import { RoutineWebhookPanel } from './RoutineWebhookPanel'
 import './routines.css'
-
-const caption = { ...font('caption'), paddingLeft: 4, lineHeight: 1.4 } as const
 
 export function RoutineEditorView({ botId, routine, saved }: {
   botId: string
@@ -134,12 +133,11 @@ export function RoutineEditorView({ botId, routine, saved }: {
     switch (schedule.kind) {
       case 'cron':
         return (
-          <div className="routine-cron" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <VStack gap={8} className="routine-cron">
             <div className="routine-cron-fields">
               <Field label="Cron">
                 <input
-                  className="routine-input"
-                  style={font('body', undefined, 'monospaced')}
+                  className="routine-input routine-cron-input"
                   value={schedule.expression}
                   placeholder="0 9 * * 1-5"
                   spellCheck={false}
@@ -151,114 +149,109 @@ export function RoutineEditorView({ botId, routine, saved }: {
                 <input className="routine-input" value={schedule.zone} placeholder="Asia/Taipei" spellCheck={false} autoCorrect="off" onChange={(e) => update({ zone: e.target.value })} />
               </Field>
             </div>
-            <div style={{ paddingLeft: 4 }}>
+            <div className="routine-cron-preview">
               {previewError ? (
-                <span style={{ ...font('caption'), color: 'var(--danger)', lineHeight: 1.4 }}>{previewError}</span>
+                <Text size="caption" tone="danger" className="routine-cron-error">{previewError}</Text>
               ) : shownPreview ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <span style={font('caption', 'medium')}>{shownPreview.summary}</span>
+                <VStack gap={2}>
+                  <Text size="caption" weight="medium">{shownPreview.summary}</Text>
                   {shownPreview.nextRunAt ? (
-                    <span style={{ ...font('caption'), color: 'var(--secondary)' }}>
+                    <Text size="caption" tone="secondary">
                       Next {new Date(shownPreview.nextRunAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
-                    </span>
+                    </Text>
                   ) : null}
-                  {shownPreview.warning ? <span style={{ ...font('caption'), color: 'var(--secondary)' }}>{shownPreview.warning}</span> : null}
-                </div>
+                  {shownPreview.warning ? <Text size="caption" tone="secondary">{shownPreview.warning}</Text> : null}
+                </VStack>
               ) : (
-                <span style={{ ...font('caption', undefined, 'monospaced'), color: 'var(--tertiary)', whiteSpace: 'pre' }}>minute  hour  day  month  weekday</span>
+                <Text size="caption" mono tone="tertiary" className="routine-cron-hint">minute  hour  day  month  weekday</Text>
               )}
             </div>
-          </div>
+          </VStack>
         )
       case 'webhook':
         return routine && routine.triggers.some((t) => t.type === 'webhook' || t.type === 'event') ? (
           <RoutineWebhookPanel botId={botId} routineId={routine.id} />
         ) : (
-          <span style={{ ...caption, color: 'var(--secondary)' }}>Runs each time something is posted to its URL. Save to get the URL and key.</span>
+          <Text size="caption" tone="secondary" className="routine-caption">Runs each time something is posted to its URL. Save to get the URL and key.</Text>
         )
       default:
-        return <span style={{ ...caption, color: 'var(--secondary)' }}>Set up by the bot. Pick Schedule or Webhook to replace it.</span>
+        return <Text size="caption" tone="secondary" className="routine-caption">Set up by the bot. Pick Schedule or Webhook to replace it.</Text>
     }
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', maxHeight: 700, minHeight: 0, background: 'var(--background)', color: 'var(--text)', ...font(13) }}>
+    <VStack className="routine-editor">
       <ModalHeader title={routine ? 'Edit routine' : 'Set up a routine'} />
       {/* The card fits the form; it scrolls only when taller than the window allows. */}
-      <fieldset className="routine-form" disabled={busy || !loaded} style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: 20 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <fieldset className="routine-form" disabled={busy || !loaded}>
+        <VStack gap={24} className="routine-form-body">
+          <VStack gap={14}>
             <Field label="Name">
               <input className="routine-input" value={name} placeholder="e.g. Morning summary" onChange={(e) => setName(e.target.value)} />
             </Field>
             <Field label="Instruction">
               <textarea className="routine-input" value={instruction} placeholder="Describe what this bot should do each time it runs." onChange={(e) => setInstruction(e.target.value)} />
             </Field>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          </VStack>
+          <VStack gap={14}>
             <Field label="When to run">
               <ChoicePicker selection={schedule.kind} options={options} onChange={(kind) => update({ kind })} fits />
             </Field>
             {loaded ? (
               triggerFields()
             ) : (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--secondary)' }}>
+              <HStack as="span" gap={6} className="routine-loading">
                 <Icon name="clock" size={12} />
                 Loading schedule…
-              </span>
+              </HStack>
             )}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <button
-              className="press"
-              aria-expanded={advanced}
-              onClick={() => setAdvanced((a) => !a)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 4, ...font('compactSecondary'), color: 'var(--secondary)', width: '100%' }}
-            >
+          </VStack>
+          <VStack gap={12}>
+            <button className="press routine-advanced" aria-expanded={advanced} onClick={() => setAdvanced((a) => !a)}>
               Run settings
-              <span style={{ display: 'flex', transform: `rotate(${advanced ? 180 : 0}deg)`, transition: 'transform var(--layout)' }}>
+              <span className={`routine-chevron ${advanced ? 'open' : ''}`}>
                 <Icon name="chevron.down" size={10} weight="semibold" />
               </span>
-              <span style={{ flex: 1 }} />
-              {!advanced ? <span style={{ color: 'var(--tertiary)' }}>Timeout {timeout}s</span> : null}
+              <Spacer />
+              {!advanced ? <Text tone="tertiary">Timeout {timeout}s</Text> : null}
             </button>
             {advanced ? (
-              <div className="routine-fade" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <VStack gap={12} className="routine-fade">
                 <Field label="Timeout (seconds)">
                   <input className="routine-input" value={timeout} placeholder="3600" onChange={(e) => setTimeoutText(e.target.value)} />
                 </Field>
-                <span style={{ ...caption, color: 'var(--secondary)' }}>A run is stopped after this long. 1 second to 24 hours.</span>
-              </div>
+                <Text size="caption" tone="secondary" className="routine-caption">A run is stopped after this long. 1 second to 24 hours.</Text>
+              </VStack>
             ) : null}
-          </div>
-        </div>
+          </VStack>
+        </VStack>
       </fieldset>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 20, flex: 'none' }}>
+      <VStack gap={12} className="routine-editor-footer">
         {previewError !== null ? (
-          <button className="press" style={{ alignSelf: 'flex-start' }} disabled={store.isOffline} onClick={() => void checkSchedule()}>
+          <button className="press routine-retry" disabled={store.isOffline} onClick={() => void checkSchedule()}>
             Check schedule again
           </button>
         ) : null}
         {!loaded && error !== null ? (
-          <button className="press" style={{ alignSelf: 'flex-start' }} onClick={() => void loadSchedule()}>
+          <button className="press routine-retry" onClick={() => void loadSchedule()}>
             Retry loading schedule
           </button>
         ) : null}
-        {schedule.kind !== 'cron' && previewError ? <span style={{ ...font('caption'), color: 'var(--danger)' }}>{previewError}</span> : null}
+        {schedule.kind !== 'cron' && previewError ? <Text size="caption" tone="danger">{previewError}</Text> : null}
         {error ? (
-          <span style={{ display: 'flex', gap: 6, alignItems: 'flex-start', ...font('callout'), color: 'var(--danger)', userSelect: 'text' }}>
-            <Icon name="exclamationmark.circle" size={12} style={{ marginTop: 1 }} />
+          <HStack as="span" gap={6} align="flex-start" className="routine-error">
+            <Icon name="exclamationmark.circle" size={12} className="routine-error-icon" />
             {error}
-          </span>
+          </HStack>
         ) : null}
         {store.isOffline ? (
-          <span style={{ display: 'flex', gap: 6, alignItems: 'center', ...font('caption'), color: 'var(--danger)' }}>
+          <HStack as="span" gap={6} className="routine-offline">
             <Icon name="wifi.slash" size={10} />
             Connect to this computer to save your routine.
-          </span>
+          </HStack>
         ) : null}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <HStack gap={16}>
           {routine ? (
             <>
               <IconButton title="Delete routine" icon="trash" onClick={() => setConfirmDelete(true)} />
@@ -277,13 +270,13 @@ export function RoutineEditorView({ botId, routine, saved }: {
               />
             </>
           ) : null}
-          <span style={{ flex: 1 }} />
+          <Spacer />
           <Button disabled={!canSave} onClick={() => void save()} title="Save (⌘S)">
             {busy ? <Spinner size={12} /> : null}
             {busy ? 'Saving…' : routine ? 'Save changes' : 'Create routine'}
           </Button>
-        </div>
-      </div>
+        </HStack>
+      </VStack>
 
       <Dialog
         open={confirmDelete}
@@ -306,6 +299,6 @@ export function RoutineEditorView({ botId, routine, saved }: {
         ]}
         onClose={() => setConfirmDelete(false)}
       />
-    </div>
+    </VStack>
   )
 }

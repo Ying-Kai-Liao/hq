@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { islandLabel } from '@shared/island'
 import { Button, CardForm, CardSection, ChoicePicker, IconButton, ProgressBar, Switch, ValueRow } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { useDismiss } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { HStack, IconSlot, VStack } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import { useModel } from '../../lib/observable'
 import { DEFAULT_TEXT_SIZE, prefs, TEXT_SIZES, usePref } from '../../lib/prefs'
 import { useAccount } from '../../store/account'
@@ -41,25 +42,25 @@ export function SettingsView({ page: initial }: { page: SettingsPage }) {
     <div className="settings">
       <nav className="settings-sidebar">
         {['Personal', thisComputer].map((group) => (
-          <div key={group} style={{ display: 'contents' }}>
-            <div className="settings-group" style={{ paddingTop: group === 'Personal' ? 0 : 16 }}>{group}</div>
+          <Fragment key={group}>
+            <div className="settings-group">{group}</div>
             {pages.filter((p) => p.group === group).map((item) => (
               <button key={item.id} className={`settings-item ${item.id === page ? 'selected' : ''}`} aria-current={item.id === page ? 'page' : undefined} onClick={() => setPage(item.id)}>
-                <span style={{ width: 18, display: 'flex', justifyContent: 'center', color: 'var(--secondary)' }}>
+                <IconSlot width={18} tone="secondary">
                   <Icon name={item.icon} size={13} />
-                </span>
-                <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label ?? item.title}</span>
+                </IconSlot>
+                <Text truncate grow>{item.label ?? item.title}</Text>
                 {item.id === 'computers' && app.approvals.length > 0 ? (
-                  <span style={{ ...font(11, 'semibold'), color: 'var(--secondary)' }}>{app.approvals.length}</span>
+                  <Text size="caption" weight="semibold" tone="secondary">{app.approvals.length}</Text>
                 ) : null}
               </button>
             ))}
-          </div>
+          </Fragment>
         ))}
       </nav>
       <div className="settings-divider" />
       <div className="settings-main">
-        <div style={{ ...font(24, 'semibold'), color: 'var(--text)', padding: '30px 32px 8px' }}>{current.title}</div>
+        <Text as="div" size={24} weight="semibold" tone="text" className="settings-title">{current.title}</Text>
         <div key={page} className="settings-page">
           <PageContent page={page} />
         </div>
@@ -87,7 +88,7 @@ function PageContent({ page }: { page: SettingsPage }) {
         </StoreContext.Provider>
       ) : (
         <CardForm>
-          <span style={{ color: 'var(--secondary)' }}>Voice keys are kept by {thisMac}'s host, which isn't running.</span>
+          <Text tone="secondary">Voice keys are kept by {thisMac}'s host, which isn't running.</Text>
         </CardForm>
       )
     case 'usage':
@@ -119,14 +120,14 @@ function GeneralSettings() {
       <CardSection title="Account" footer={account.errorMessage}>
         <div className="settings-row">
           <Icon name="person.crop.circle" size={26} color="var(--secondary)" />
-          <div className="settings-stack" style={{ flex: 1 }}>
-            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <VStack grow className="settings-stack">
+            <Text truncate>
               {account.isSignedIn ? (account.user?.email ?? 'Signed in') : 'Not signed in'}
-            </span>
-            <span style={{ ...font('caption'), color: 'var(--secondary)' }}>
+            </Text>
+            <Text size="caption" tone="secondary">
               {account.isSignedIn ? 'Reach your computers from anywhere' : 'Sign in to reach your computers from anywhere'}
-            </span>
-          </div>
+            </Text>
+          </VStack>
           {account.isSignedIn ? (
             <Button kind="secondary" onClick={() => void account.signOut()} disabled={account.isBusy}>
               {account.isBusy ? 'Please wait…' : 'Sign out'}
@@ -184,11 +185,11 @@ function PrivacySettings() {
   return (
     <>
       <CardSection title="Privacy" footer="Which features you use, never your messages, code or files. Helps us spot bugs sooner and make Codync better for you.">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ opacity: running ? 1 : 0.4 }}>Share usage analytics</span>
+        <HStack gap={4}>
+          <span className={running ? undefined : 'settings-off'}>Share usage analytics</span>
           <IconButton title="About usage analytics" icon="info.circle" onClick={() => setAbout(true)} />
-          <Switch on={local?.analytics === true} onChange={setShared} disabled={!running} label="Share usage analytics" style={{ flex: 1, justifyContent: 'flex-end' }} />
-        </div>
+          <Switch on={local?.analytics === true} onChange={setShared} disabled={!running} label="Share usage analytics" className="settings-privacy-switch" />
+        </HStack>
       </CardSection>
       <FormSheet open={about} onClose={() => setAbout(false)}>
         <AnalyticsSheet />
@@ -202,15 +203,15 @@ function UsageLimitsList() {
   const app = useApp()
   const stores = app.computers.flatMap((c) => app.store(c.id) ?? [])
   const withUsage = stores.filter((s) => s.usage.providers.length > 0)
-  if (withUsage.length === 0) return <span style={{ color: 'var(--secondary)' }}>No usage information yet.</span>
+  if (withUsage.length === 0) return <Text tone="secondary">No usage information yet.</Text>
   return (
     <>
       {withUsage.flatMap((store) => [
         stores.length > 1 ? (
-          <div key={`${store.computer.id}-label`} style={{ ...font('headline'), display: 'flex', alignItems: 'center', gap: 6 }}>
+          <HStack key={`${store.computer.id}-label`} gap={6} className="settings-usage-computer">
             <ComputerBadge computer={store.computer} size={16} />
             {store.hostName}
-          </div>
+          </HStack>
         ) : null,
         <UsageLimits key={store.computer.id} usage={store.usage} />,
       ])}
@@ -235,10 +236,10 @@ function UpdateSettings() {
       <CardSection title="Codync" footer={footer}>
         {[
           <ValueRow key="version" label="Version" detail={lastChecked}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <HStack as="span" gap={10}>
               <span>{window.codync.appVersion}</span>
               <UpdateButton updates={updates} />
-            </span>
+            </HStack>
           </ValueRow>,
           ...(updates.downloadPercent !== null
             ? [
@@ -256,7 +257,7 @@ function UpdateSettings() {
           ...(updates.error
             ? [
                 <div key="error" className="settings-row settings-appear">
-                  <span style={{ flex: 1, color: 'var(--attention)' }}>{updates.error}</span>
+                  <Text tone="attention" grow>{updates.error}</Text>
                   <Button kind="secondary" onClick={() => window.codync.updates.check()} disabled={updates.checking}>
                     Retry
                   </Button>
