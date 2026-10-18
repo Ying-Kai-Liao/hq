@@ -2,7 +2,7 @@ import { FileDownloadCard } from './FileDownloadCard'
 import { memo, useEffect, useRef, useState } from 'react'
 import { isGroup, isWorking, needsInput, type Bot, type Entry, type ThreadSummary } from '@shared/models'
 import { BotAvatar } from '../../components/Avatar'
-import { IconButton } from '../../components/Controls'
+import { Hairline, IconButton } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { AnchoredMenu, useContextMenu, type MenuItem, type ReactionPick } from '../../components/Overlay'
 import { ThinkingOrb } from '../../components/ThinkingOrb'
@@ -180,20 +180,16 @@ function UserStatus({ entry, botWorking, hovering }: { entry: Entry; botWorking:
       return <span style={caption}>{botWorking ? 'Queued until this response finishes' : 'Queued'}</span>
     case 'failed':
       return (
-        <span style={{ display: 'flex', alignItems: 'center', gap: 10, ...font('caption2', 'semibold') }}>
-          <span style={{ color: 'var(--danger)' }}>Failed to send</span>
-          <button title="Resend" aria-label="Resend" style={{ display: 'flex' }} onClick={() => store.retry(entry)}>
-            <Icon name="arrow.clockwise" size={10} weight="semibold" />
-          </button>
-          <button title="Delete" aria-label="Delete" style={{ display: 'flex' }} onClick={() => store.discard(entry)}>
-            <Icon name="trash" size={10} weight="semibold" />
-          </button>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 2, ...font('caption2', 'semibold') }}>
+          <span style={{ color: 'var(--danger)', marginRight: 4 }}>Failed to send</span>
+          <IconButton title="Resend" icon="arrow.clockwise" size={24} onClick={() => store.retry(entry)} />
+          <IconButton title="Delete" icon="trash" size={24} onClick={() => store.discard(entry)} />
         </span>
       )
     case 'cancelled':
       return <span style={caption}>Not sent — stopped</span>
     default:
-      return <span style={{ ...font(10), color: 'var(--tertiary)', opacity: hovering ? 1 : 0, transition: 'opacity var(--hover)' }}>{relativeTime.time(entry.createdAt)}</span>
+      return <span style={{ ...font(11), color: 'var(--tertiary)', opacity: hovering ? 1 : 0, transition: 'opacity var(--hover)' }}>{relativeTime.time(entry.createdAt)}</span>
   }
 }
 
@@ -236,9 +232,9 @@ export function NoticeRow({ entry }: { entry: Entry }) {
     case 'divider':
       return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0' }}>
-          <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+          <Hairline style={{ flex: 1 }} />
           <span style={{ ...font('caption2'), color: 'var(--tertiary)', textAlign: 'center', maxWidth: 260 }}>{text}</span>
-          <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+          <Hairline style={{ flex: 1 }} />
         </div>
       )
     case 'error':
@@ -265,7 +261,7 @@ export function WorkingIndicator({ bot, thinking }: { bot: Bot; thinking: string
       <button className="working" disabled={!thinking} onClick={() => setExpanded((e) => !e)} aria-expanded={thinking ? expanded : undefined}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <ThinkingOrb state={waiting ? 'listening' : 'working'} size={16} color={waiting ? 'var(--warning)' : 'var(--secondary)'} />
-          <span style={{ ...font('subheadline'), color: waiting ? 'var(--warning)' : 'var(--secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{bot.activity || 'Working…'}</span>
+          <span style={{ ...font('subheadline'), color: waiting ? 'var(--attention)' : 'var(--secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{bot.activity || 'Working…'}</span>
           {bot.startedAt ? <Timer since={bot.startedAt} /> : null}
           {thinking ? (
             <span style={{ display: 'flex', transform: `rotate(${expanded ? 180 : 0}deg)`, transition: 'transform var(--layout)' }}>

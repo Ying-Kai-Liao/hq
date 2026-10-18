@@ -118,7 +118,7 @@ function RosterRow({ background, compact, label, title, selected, onHover, onCli
       className="roster-row"
       style={{ padding: compact ? 0 : '0 8px', background }}
       aria-label={label}
-      aria-selected={selected}
+      aria-current={selected || undefined}
       title={title}
       draggable
       onMouseEnter={() => onHover(true)}

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { font } from '../lib/fonts'
 import { reduceMotion } from '../lib/theme'
@@ -60,6 +60,45 @@ function useEscape(active: boolean, onEscape: () => void) {
   }, [active])
 }
 
+const FOCUSABLE = 'button:not(:disabled), [href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])'
+
+/** The open modal's title id, so its `ModalHeader` names the dialog. */
+const ModalTitleContext = createContext<string | undefined>(undefined)
+
+/**
+ * An open modal holds focus: everything behind it goes inert, focus moves in (to a
+ * `data-autofocus` control, else the card itself), and returns to where it was on close.
+ */
+function useModalFocus(open: boolean, mounted: boolean, layer: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const node = layer.current
+    if (!open || !node) return
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const muted = [...document.body.children].filter((el): el is HTMLElement => el instanceof HTMLElement && el !== node && !el.inert)
+    for (const el of muted) el.inert = true
+    if (!node.contains(document.activeElement)) (node.querySelector<HTMLElement>('[data-autofocus]') ?? node.querySelector<HTMLElement>('[data-modal-card]'))?.focus({ preventScroll: true })
+    // Tab cycles inside the top modal instead of leaving the page.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || node.inert) return
+      const items = [...node.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.getClientRects().length > 0 && !el.closest('[inert]'))
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (!first || !last) return
+      const active = document.activeElement
+      const wrap = e.shiftKey ? active === first || !node.contains(active) : active === last
+      if (!wrap) return
+      e.preventDefault()
+      ;(e.shiftKey ? last : first).focus()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      for (const el of muted) el.inert = false
+      if (previous?.isConnected) previous.focus({ preventScroll: true })
+    }
+  }, [open, mounted, layer])
+}
+
 /** The Mac modal (`.codyncSheet`): a centered card over a dim; the content sizes it. */
 export function Sheet({ open, onClose, width, height, dismissOnDim = false, children }: {
   open: boolean
@@ -72,17 +111,22 @@ export function Sheet({ open, onClose, width, height, dismissOnDim = false, chil
 }) {
   const { mounted, shown } = usePresence(open)
   const last = useRef(children)
+  const layer = useRef<HTMLDivElement>(null)
+  const titleId = useId()
   if (open) last.current = children
   useEscape(open, onClose)
+  useModalFocus(open, mounted, layer)
   if (!mounted) return null
   return createPortal(
     <DismissContext.Provider value={onClose}>
-      <div className={`modal-card ${shown ? 'shown' : ''}`} role="dialog" aria-modal>
-        <div className="modal-dim" onClick={dismissOnDim ? onClose : undefined} />
-        <div className="modal-content" style={{ width, height, maxWidth: 'calc(100vw - 48px)', maxHeight: 'calc(100vh - 48px)' }}>
-          {open ? children : last.current}
+      <ModalTitleContext.Provider value={titleId}>
+        <div ref={layer} className={`modal-card ${shown ? 'shown' : ''}`} role="dialog" aria-modal aria-labelledby={titleId}>
+          <div className="modal-dim" onClick={dismissOnDim ? onClose : undefined} />
+          <div className="modal-content" data-modal-card tabIndex={-1} style={{ width, height, maxWidth: 'calc(100vw - 48px)', maxHeight: 'calc(100vh - 48px)' }}>
+            {open ? children : last.current}
+          </div>
         </div>
-      </div>
+      </ModalTitleContext.Provider>
     </DismissContext.Provider>,
     document.body,
   )
@@ -105,17 +149,20 @@ export function Dialog({ open, title, message, actions, cancel = 'Cancel', onClo
 }) {
   const { mounted, shown } = usePresence(open, 120)
   const last = useRef({ title, message, actions })
+  const layer = useRef<HTMLDivElement>(null)
+  const id = useId()
   if (open) last.current = { title, message, actions }
   useEscape(open && cancel !== null, onClose)
+  useModalFocus(open, mounted, layer)
   if (!mounted) return null
   const shownContent = last.current
   return createPortal(
-    <div className={`dialog ${shown ? 'shown' : ''}`} role="alertdialog" aria-modal>
+    <div ref={layer} className={`dialog ${shown ? 'shown' : ''}`} role="alertdialog" aria-modal aria-labelledby={`${id}-title`} aria-describedby={shownContent.message ? `${id}-message` : undefined}>
       <div className="dialog-dim" onClick={() => cancel !== null && onClose()} />
-      <div className="dialog-card">
+      <div className="dialog-card" data-modal-card tabIndex={-1}>
         <div className="dialog-text">
-          <div style={font('headline')}>{shownContent.title}</div>
-          {shownContent.message ? <div style={{ ...font('compactSecondary'), color: 'var(--secondary)' }}>{shownContent.message}</div> : null}
+          <h2 id={`${id}-title`} style={font('headline')}>{shownContent.title}</h2>
+          {shownContent.message ? <div id={`${id}-message`} style={{ ...font('compactSecondary'), color: 'var(--secondary)' }}>{shownContent.message}</div> : null}
         </div>
         <div className="dialog-buttons">
           {shownContent.actions.map((a) => (
@@ -131,7 +178,7 @@ export function Dialog({ open, title, message, actions, cancel = 'Cancel', onClo
             </button>
           ))}
           {cancel !== null ? (
-            <button className="dialog-button" onClick={onClose}>
+            <button className="dialog-button" data-autofocus onClick={onClose}>
               {cancel}
             </button>
           ) : null}
@@ -204,17 +251,19 @@ export function MenuPanel({ items, reactions, dismiss, maxHeight }: { items: Men
     return () => window.removeEventListener('keydown', onKey)
   }, [items, highlight, dismiss])
   return (
-    <div className="menu-panel" style={{ maxHeight }}>
+    <div className="menu-panel" role="menu" style={{ maxHeight }}>
       {reactions ? (
         <div style={{ paddingBottom: items.length ? 4 : 0 }}>
           <ReactionStrip pick={reactions} dismiss={dismiss} />
         </div>
       ) : null}
       {items.map((item, i) => (
-        <div key={`${item.title}-${i}`}>
-          {item.divider ? <div className="menu-divider" /> : null}
+        <div key={`${item.title}-${i}`} role="none">
+          {item.divider ? <div className="menu-divider" role="separator" /> : null}
           <button
             className={`menu-row ${item.destructive ? 'destructive' : ''} ${highlight === i ? 'highlight' : ''}`}
+            role={item.selected === undefined ? 'menuitem' : 'menuitemradio'}
+            aria-checked={item.selected}
             title={item.title}
             onMouseEnter={() => setHighlight(i)}
             onClick={() => {
@@ -308,7 +357,7 @@ export function ModalHeader({ title, trailing }: { title: ReactNode; trailing?: 
   const dismiss = useDismiss()
   return (
     <div className="modal-header">
-      <div style={{ ...font('compactBody', 'semibold'), flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
+      <h2 id={useContext(ModalTitleContext)} style={{ ...font('compactBody', 'semibold'), flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h2>
       {trailing}
       <IconButtonBase title="Close" icon="xmark" onClick={dismiss} />
     </div>
@@ -316,7 +365,7 @@ export function ModalHeader({ title, trailing }: { title: ReactNode; trailing?: 
 }
 
 /** Plain icon button that lights up on hover and press. Icon-only, labelled for VoiceOver. */
-export function IconButtonBase({ title, icon, onClick, selected = false, size = 28, disabled, className, buttonRef }: {
+export function IconButtonBase({ title, icon, onClick, selected = false, size = 28, disabled, className, buttonRef, menuOpen }: {
   title: string
   icon: string
   onClick?: (e: React.MouseEvent) => void
@@ -325,6 +374,8 @@ export function IconButtonBase({ title, icon, onClick, selected = false, size = 
   disabled?: boolean
   className?: string
   buttonRef?: RefObject<HTMLButtonElement | null>
+  /** Set when the button opens a menu: whether that menu is open. */
+  menuOpen?: boolean
 }) {
   return (
     <button
@@ -333,6 +384,8 @@ export function IconButtonBase({ title, icon, onClick, selected = false, size = 
       style={{ width: size, height: size, borderRadius: size * 0.28 }}
       title={title}
       aria-label={title}
+      aria-haspopup={menuOpen === undefined ? undefined : 'menu'}
+      aria-expanded={menuOpen}
       disabled={disabled}
       onClick={onClick}
     >

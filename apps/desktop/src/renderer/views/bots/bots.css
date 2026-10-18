@@ -6,13 +6,17 @@
   width: 100%;
   padding: 8px 10px;
   background: var(--background);
-  border-radius: 12px;
+  border-radius: var(--radius-m);
   color: var(--text);
   user-select: text;
   cursor: text;
 }
 textarea.field-box {
   line-height: 1.3;
+}
+/* Like a macOS text field: a ring while it has focus. */
+.field-box:focus {
+  outline: 2px solid var(--secondary);
 }
 
 .bot-form {
@@ -31,12 +35,12 @@ textarea.field-box {
 .avatar-button {
   padding: 12px;
   background: var(--bubble-agent);
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   display: flex;
 }
 .avatar-button.small {
   padding: 5px;
-  border-radius: 10px;
+  border-radius: var(--radius-s);
 }
 
 /* A selectable avatar shape or color, ringed when chosen. */
@@ -65,7 +69,7 @@ textarea.field-box {
   gap: 6px;
   padding: 5px 6px 5px 8px;
   background: var(--bubble-agent);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   flex: none;
   animation: chip-in var(--layout) both;
 }
@@ -90,7 +94,7 @@ textarea.field-box {
   gap: 12px;
   width: 100%;
   padding: 8px 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-m);
   transition: background-color var(--hover), transform var(--press);
 }
 .pick-row.hover:hover {
@@ -101,19 +105,19 @@ textarea.field-box {
   min-height: 18px;
   display: grid;
   place-items: center;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: var(--background);
   color: var(--secondary);
   font-family: var(--mono);
-  font-size: calc(10px * var(--scale));
+  font-size: calc(11px * var(--scale));
 }
 
 .compose-list {
   max-height: 460px;
   overflow-y: auto;
   background: var(--surface);
-  border-radius: 18px;
-  box-shadow: 0 6px 32px rgba(0, 0, 0, 0.08);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-m);
   max-width: 620px;
   margin: 10px 22px 0;
   padding: 8px;
@@ -127,8 +131,8 @@ textarea.field-box {
   margin: 16px;
   padding: 6px 6px 6px 18px;
   background: var(--bubble-user);
-  border-radius: 24px;
-  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.06);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-s);
 }
 .compose-box textarea {
   flex: 1;
@@ -154,15 +158,6 @@ textarea.field-box {
   from {
     opacity: 0;
     transform: translateX(var(--from));
-  }
-}
-
-.fade-in {
-  animation: fade-in var(--fade) both;
-}
-@keyframes fade-in {
-  from {
-    opacity: 0;
   }
 }
 
@@ -215,7 +210,7 @@ textarea.field-box {
   min-height: 48px;
   margin: 0 -8px;
   padding: 4px 8px;
-  border-radius: 12px;
+  border-radius: var(--radius-m);
   text-align: left;
   transition: background-color var(--hover), transform var(--press);
 }

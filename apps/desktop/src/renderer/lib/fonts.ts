@@ -11,9 +11,10 @@ export const TextStyle = {
   body: 13,
   callout: 12,
   subheadline: 11,
-  footnote: 10,
-  caption: 10,
-  caption2: 10,
+  // macOS draws these at 10; 11 is the floor for text people read or click.
+  footnote: 11,
+  caption: 11,
+  caption2: 11,
   /** Codync's compact desktop body (12) and secondary (11). */
   compactBody: 12,
   compactSecondary: 11,

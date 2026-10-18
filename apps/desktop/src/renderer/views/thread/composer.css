@@ -3,8 +3,7 @@
   height: 25px;
   border-radius: 50%;
   background: color-mix(in srgb, var(--text) 9%, var(--composer-fill));
-  border: 1px solid var(--chrome-stroke);
-  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-s);
   display: grid;
   place-items: center;
   flex: none;
@@ -15,9 +14,8 @@
   flex: 1;
   min-width: 0;
   background: var(--composer-fill);
-  border-radius: 22px;
-  border: 1px solid var(--composer-stroke);
-  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.06);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-s);
   display: flex;
   flex-direction: column;
 }
@@ -25,7 +23,7 @@
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding: 6px 7px;
+  padding: 7px 8px;
 }
 .composer-field {
   flex: 1;
@@ -91,13 +89,13 @@
   color: var(--text);
 }
 .composer-mic.on {
-  background: var(--danger);
-  color: #fff;
+  background: var(--danger-fill);
+  color: var(--on-danger);
 }
 .composer-send {
   width: 25px;
   height: 25px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   display: grid;
   place-items: center;
   flex: none;
@@ -113,8 +111,8 @@
   bottom: calc(100% + 8px);
   z-index: 20;
   background: var(--bubble-agent);
-  border-radius: 14px;
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.12);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-m);
   overflow: hidden;
   opacity: 0;
   transform: translateY(4px);
@@ -140,5 +138,5 @@
   color: var(--secondary);
 }
 .command-detail.warning {
-  color: var(--warning);
+  color: var(--attention);
 }

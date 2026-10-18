@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { isWorkingIn } from '@shared/models'
-import { IconButton } from '../../components/Controls'
+import { Hairline, IconButton } from '../../components/Controls'
 import { Sheet } from '../../components/Overlay'
 import { font } from '../../lib/fonts'
 import { useStore } from '../../store/context'
@@ -57,7 +57,7 @@ export function RepliesView({ botId, rootId, close }: { botId: string; rootId: s
                 <span style={{ ...font('caption'), color: 'var(--tertiary)', whiteSpace: 'nowrap' }}>
                   {replyCount(root.data.thread?.count ?? 0)}
                 </span>
-                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                <Hairline style={{ flex: 1 }} />
               </div>
             </>
           ) : null}

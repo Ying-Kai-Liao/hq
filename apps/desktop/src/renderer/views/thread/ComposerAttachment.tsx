@@ -34,7 +34,7 @@ export function ComposerAttachment({ file, remove }: { file: OutgoingFile; remov
     <span className="file-chip">
       <Icon name={attachmentSymbol(file.name)} size={10} color="var(--secondary)" />
       <span style={{ ...font('footnote'), color: 'var(--text)', maxWidth: 160, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</span>
-      <button aria-label={`Remove ${file.name}`} title="Remove" style={{ display: 'flex' }} onClick={remove}>
+      <button className="file-chip-remove" aria-label={`Remove ${file.name}`} title="Remove" onClick={remove}>
         <Icon name="xmark" size={10} weight="bold" color="var(--secondary)" />
       </button>
     </span>

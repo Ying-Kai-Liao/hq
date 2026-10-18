@@ -31,6 +31,9 @@
   overflow: hidden;
   transition: width var(--layout);
 }
+.sidebar.resizing {
+  transition: none;
+}
 .sidebar-header {
   display: flex;
   align-items: center;
@@ -51,12 +54,16 @@
   outline: none;
   position: relative;
 }
+.roster:focus-visible {
+  outline: 2px solid var(--secondary);
+  outline-offset: -2px;
+}
 .sidebar.compact .roster {
   padding-top: 4px;
 }
 .roster-row {
   width: 100%;
-  border-radius: 12px;
+  border-radius: var(--radius-m);
   display: flex;
   transition: background-color var(--hover);
   flex: none;
@@ -97,28 +104,12 @@
 .rail-profile {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--radius-m);
   display: grid;
   place-items: center;
   margin-top: 4px;
 }
 
-.sidebar-divider {
-  width: 1px;
-  flex: none;
-  background: var(--border);
-  position: relative;
-  z-index: 2;
-}
-.sidebar-divider::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -4px;
-  width: 9px;
-  cursor: col-resize;
-}
 
 .detail {
   flex: 1;
@@ -163,16 +154,16 @@
   position: absolute;
   padding: 7px;
   background: var(--panel);
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-l);
   animation: panel-in var(--fade) both;
 }
 .account-panel {
-  border-radius: 18px;
+  border-radius: var(--radius-l);
   transform-origin: bottom left;
 }
 .action-menu {
   width: 260px;
-  border-radius: 14px;
+  border-radius: var(--radius-l);
 }
 @keyframes panel-in {
   from {
@@ -187,7 +178,7 @@
   width: 100%;
   height: 30px;
   padding: 0 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-s);
 }
 .panel-row.highlight {
   background: rgba(var(--text-rgb), 0.08);

@@ -23,7 +23,7 @@
   min-width: 0;
   padding: 5px 4px;
   color: var(--secondary);
-  border-radius: 8px;
+  border-radius: var(--radius-s);
   cursor: grab;
 }
 
@@ -49,12 +49,12 @@
 
 .computer-roster-label > span {
   color: var(--tertiary);
-  font-size: calc(10px * var(--scale));
+  font-size: calc(11px * var(--scale));
   white-space: nowrap;
 }
 
 .computer-roster-label > .warning {
-  color: var(--warning);
+  color: var(--attention);
 }
 
 .computer-roster-chevron {

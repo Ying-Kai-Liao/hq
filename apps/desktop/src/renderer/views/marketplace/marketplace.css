@@ -53,7 +53,7 @@
   padding: 0 14px;
   height: 38px;
   background: var(--bubble-agent);
-  border-radius: 12px;
+  border-radius: var(--radius-m);
 }
 .market-search input {
   flex: 1;
@@ -84,7 +84,7 @@
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  border-radius: 12px;
+  border-radius: var(--radius-m);
   background: var(--bubble-agent);
 }
 
@@ -95,7 +95,7 @@
   text-align: left;
   gap: 12px;
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-m);
   min-width: 0;
   background: transparent;
   transition: background-color var(--hover), transform var(--press);
@@ -112,7 +112,7 @@
   align-items: center;
   gap: 14px;
   padding: 10px 12px;
-  border-radius: 16px;
+  border-radius: var(--radius-l);
   min-width: 0;
   transition: background-color var(--hover);
 }
@@ -126,7 +126,7 @@
   color: var(--text);
   padding: 7px 16px;
   background: var(--bubble-agent);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   white-space: nowrap;
   flex: none;
   transition: transform var(--press), opacity var(--press);
@@ -182,7 +182,7 @@ textarea.market-field {
 /* A chat request card has no fill, so each of its fields gets one (fill, no border). */
 .request-card .market-field {
   padding: 7px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-s);
   background: var(--bubble-agent);
   box-sizing: border-box;
 }
@@ -197,15 +197,6 @@ textarea.market-field {
 }
 .setup-terminal .xterm-viewport {
   background: transparent !important;
-}
-
-.fade-in {
-  animation: market-fade-in var(--fade) both;
-}
-@keyframes market-fade-in {
-  from {
-    opacity: 0;
-  }
 }
 
 .market-heading { display: flex; align-items: center; gap: 12px; padding-right: 10px; flex-wrap: wrap; }

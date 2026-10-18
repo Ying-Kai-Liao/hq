@@ -2,7 +2,7 @@
   font-size: calc(12px * var(--scale));
   font-weight: 500;
   padding: 6px 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -57,7 +57,7 @@
   position: relative;
   width: 34px;
   height: 20px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--bubble-user);
   flex: none;
   transition: background-color var(--hover);
@@ -87,7 +87,7 @@
   font-size: calc(12px * var(--scale));
   color: var(--text);
   padding: 5px 9px;
-  border-radius: 10px;
+  border-radius: var(--radius-s);
   max-width: 100%;
 }
 .choice-picker.outlined {
@@ -107,14 +107,14 @@
   gap: 2px;
   padding: 3px;
   background: var(--bubble-user);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 .segmented-thumb {
   position: absolute;
   top: 3px;
   bottom: 3px;
   left: 3px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--background);
   transition: transform var(--morph);
 }
@@ -135,7 +135,7 @@
 /* Grok Bot's list cards (routines, the computer switch): an outline on the page, no fill. */
 .outlined-card {
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--radius-l);
 }
 
 .tab-choice {
@@ -146,7 +146,7 @@
 .tab-choice-option {
   height: calc(24px * var(--scale));
   padding: 0 calc(10px * var(--scale));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: calc(13px * var(--scale));
   color: var(--secondary);
   white-space: nowrap;
@@ -194,7 +194,7 @@
 }
 .card-section-rows {
   background: var(--surface);
-  border-radius: 16px;
+  border-radius: var(--radius-l);
   display: flex;
   flex-direction: column;
 }
@@ -210,7 +210,7 @@
   min-width: 0;
 }
 .card-section-footer {
-  font-size: calc(10px * var(--scale));
+  font-size: calc(11px * var(--scale));
   color: var(--secondary);
   line-height: 1.4;
   padding: 0 2px;
@@ -242,12 +242,43 @@
   gap: 8px;
   padding: 7px 10px;
   background: var(--bubble-agent);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: calc(12px * var(--scale));
 }
 .search-field input {
   flex: 1;
   min-width: 0;
+}
+/* A panel's resizable edge: a hairline with a wider grab area (ResizeHandle). */
+.resize-handle {
+  width: 1px;
+  flex: none;
+  background: var(--border);
+  position: relative;
+  z-index: 7;
+  touch-action: none;
+}
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 9px;
+  cursor: col-resize;
+}
+
+.search-field:focus-within {
+  outline: 2px solid var(--secondary);
+}
+/* The clear button gets a 24 pt target around its small glyph. */
+.search-clear {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: -6px -6px -6px 0;
+  color: var(--tertiary);
 }
 
 .disclosure-label {
@@ -261,13 +292,13 @@
   display: inline-flex;
   align-items: center;
   padding: 5px 9px;
-  border-radius: 10px;
+  border-radius: var(--radius-s);
 }
 
 .progress-track {
   width: 100%;
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--bubble-user);
   overflow: hidden;
 }

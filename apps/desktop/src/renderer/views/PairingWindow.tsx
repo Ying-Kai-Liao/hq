@@ -59,7 +59,7 @@ export function PairingWindow() {
             Scan with the Codync app or the iPhone Camera. No Tailscale or open ports needed: your iPhone connects directly on the same Wi-Fi, and through the encrypted relay anywhere else.
           </div>
           {cloud?.enabled !== true ? (
-            <div style={{ ...font('caption'), color: 'var(--warning)', textAlign: 'center' }}>
+            <div style={{ ...font('caption'), color: 'var(--attention)', textAlign: 'center' }}>
               {info.urls.length === 0
                 ? 'No network address found and “Reach from anywhere” is off. Connect to Wi-Fi or turn it on.'
                 : `“Reach from anywhere” is off, so the iPhone only reaches ${name} on the same network.`}

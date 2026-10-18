@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import type { Bot } from '@shared/models'
 import { BotAvatar } from '../../components/Avatar'
@@ -8,13 +8,14 @@ import { usePresence } from '../../components/Overlay'
 import { font } from '../../lib/fonts'
 import './bots.css'
 
-/** A labeled input inside a section row: label (and an optional note) over the field. */
+/** A labeled input inside a section row: label (and an optional note) over the field, which they name. */
 export function Field({ label, detail, children }: { label: string; detail?: string | null; children: ReactNode }) {
+  const id = useId()
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div role="group" aria-labelledby={`${id}-label`} aria-describedby={detail ? `${id}-detail` : undefined} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <span style={{ color: 'var(--text)' }}>{label}</span>
-        {detail ? <span className="detail-note" title={detail} style={{ ...font('caption'), color: 'var(--secondary)', lineHeight: 1.35 }}>{detail}</span> : null}
+        <span id={`${id}-label`} style={{ color: 'var(--text)' }}>{label}</span>
+        {detail ? <span id={`${id}-detail`} className="detail-note" title={detail} style={{ ...font('caption'), color: 'var(--secondary)', lineHeight: 1.35 }}>{detail}</span> : null}
       </div>
       {children}
     </div>

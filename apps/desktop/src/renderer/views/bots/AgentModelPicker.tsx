@@ -81,7 +81,7 @@ export function AgentModelPicker({ backend, models, selection, onChange, options
         )
       })}
       {!custom && !loading && failure ? (
-        <span style={{ ...font('caption'), color: 'var(--warning)' }}>{failure}</span>
+        <span style={{ ...font('caption'), color: 'var(--attention)' }}>{failure}</span>
       ) : !custom && !loading && empty ? (
         <span style={{ ...font('caption'), color: 'var(--secondary)' }}>This agent doesn't advertise a model list. Leave Default or enter a model ID.</span>
       ) : null}

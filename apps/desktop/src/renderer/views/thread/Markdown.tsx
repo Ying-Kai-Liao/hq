@@ -1,5 +1,6 @@
 import { memo, type ReactNode } from 'react'
 import { parseMarkdown, type Block } from './markdown-blocks.ts'
+import { Hairline } from '../../components/Controls'
 
 // The Mac's Markdown for messages: the blocks from `markdown-blocks.ts`, with inline styling like
 // `AttributedString(markdown:)`.
@@ -75,7 +76,7 @@ const MarkdownBlock = memo(function MarkdownBlock({ block }: { block: Block }) {
         </div>
       )
     case 'rule':
-      return <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+      return <Hairline style={{ margin: '4px 0' }} />
     case 'table': {
       const columns = Math.max(block.header.length, ...block.rows.map((r) => r.length))
       const cols = Array.from({ length: columns }, (_, i) => i)
@@ -86,7 +87,7 @@ const MarkdownBlock = memo(function MarkdownBlock({ block }: { block: Block }) {
               <span key={`h${i}`} style={{ fontWeight: 600 }}>{inline(block.header[i] ?? '', `h${i}`)}</span>
             ))}
             {block.rows.map((row, r) => [
-              <div key={`l${r}`} style={{ gridColumn: `1 / span ${columns}`, height: 1, background: 'var(--border)' }} />,
+              <Hairline key={`l${r}`} style={{ gridColumn: `1 / span ${columns}` }} />,
               ...cols.map((i) => <span key={`${r}-${i}`}>{inline(row[i] ?? '', `${r}-${i}`)}</span>),
             ])}
           </div>

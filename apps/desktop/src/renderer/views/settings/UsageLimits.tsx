@@ -1,4 +1,5 @@
 import type { Usage } from '@shared/models'
+import { ProgressBar } from '../../components/Controls'
 import { font } from '../../lib/fonts'
 import { prefs, usePref } from '../../lib/prefs'
 import { ProviderMascot } from '../usage/ProviderMascot'
@@ -33,8 +34,11 @@ export function UsageLimits({ usage }: { usage: Usage }) {
 export function UsageBar({ percent, tint }: { percent: number; tint: string }) {
   const fill = percent >= 90 ? 'var(--danger)' : percent >= 70 ? 'var(--warning)' : tint
   return (
-    <span style={{ flex: 1, minWidth: 0, height: 6, borderRadius: 3, background: 'var(--bubble-agent)', overflow: 'hidden' }}>
-      <span style={{ display: 'block', height: '100%', borderRadius: 3, background: fill, width: `${Math.min(1, Math.max(0.02, percent / 100)) * 100}%`, transition: 'width var(--layout)' }} />
-    </span>
+    <ProgressBar
+      value={Math.min(1, Math.max(0.02, percent / 100))}
+      label={`${Math.round(percent)}% used`}
+      fill={fill}
+      style={{ flex: 1, minWidth: 0, height: 6, background: 'var(--bubble-agent)' }}
+    />
   )
 }

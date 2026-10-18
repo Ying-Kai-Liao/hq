@@ -7,6 +7,8 @@
   /* Chat text follows the selected size without an extra platform offset. */
   --conversation: var(--chat);
   --md-scale: var(--chat-scale);
+  /* Messages and the composer share one readable column that grows with the text size. */
+  --column: calc(820px * var(--scale));
   flex: 1;
   min-width: 0;
   height: 100%;
@@ -62,20 +64,22 @@
   -webkit-mask-image: linear-gradient(to bottom, #000, transparent 50%);
   mask-image: linear-gradient(to bottom, #000, transparent 50%);
 }
+@media (prefers-reduced-transparency: reduce) {
+  .top-fade::before {
+    backdrop-filter: none;
+  }
+}
 .title-pill {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 6px 12px 6px 8px;
+  padding: 7px 13px 7px 9px;
   background: var(--chrome-fill);
-  border: 1px solid var(--chrome-stroke);
-  border-radius: 999px;
-  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.12);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-m);
   max-width: 60%;
-}
-.title-pill {
   transition: opacity var(--layout), transform var(--layout);
 }
 .title-pill-chevron {
@@ -95,25 +99,6 @@
   opacity: 0;
   transform: translateY(-8px);
 }
-.frosted-circle {
-  border-radius: 50%;
-  background: var(--frosted);
-  backdrop-filter: blur(20px);
-  display: flex;
-}
-.frosted-circle .icon-button {
-  border-radius: 50% !important;
-}
-.round-button {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--frosted);
-  backdrop-filter: blur(20px);
-  display: grid;
-  place-items: center;
-  flex: none;
-}
 
 .transcript-frame {
   position: absolute;
@@ -126,7 +111,7 @@
 }
 .transcript-content {
   container-type: inline-size;
-  max-width: 1120px;
+  max-width: var(--column);
   margin: 0 auto;
   /* The floating title pill and composer sit over the list; messages pass underneath. */
   padding: 64px 14px var(--composer-height, 70px);
@@ -136,7 +121,7 @@
   width: 100%;
   text-align: center;
   padding: 12px 0;
-  font-size: calc(10px * var(--scale));
+  font-size: calc(11px * var(--scale));
   color: var(--secondary);
 }
 .intro-card {
@@ -188,7 +173,7 @@
 }
 .bubble {
   padding: 8px 10px;
-  border-radius: 16px;
+  border-radius: var(--radius-l);
   max-width: 100%;
   min-width: 0;
 }
@@ -229,7 +214,7 @@
 }
 .reaction-chip {
   padding: 3px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
 }
 .thread-chip {
@@ -237,7 +222,7 @@
   align-items: center;
   gap: 6px;
   padding: 5px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
 }
 .working {
@@ -245,7 +230,7 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  border-radius: 22px;
+  border-radius: var(--radius-xl);
   background: var(--bubble-agent);
   text-align: left;
   min-width: 0;
@@ -269,7 +254,7 @@
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   flex: none;
 }
@@ -278,18 +263,9 @@
   align-items: flex-end;
   gap: 8px;
   padding: 8px 14px 14px;
-  max-width: 1120px;
+  max-width: var(--column);
   margin: 0 auto;
   width: 100%;
-}
-.symbol-swap {
-  animation: symbol-in var(--morph) both;
-}
-@keyframes symbol-in {
-  from {
-    opacity: 0;
-    transform: scale(0.6);
-  }
 }
 .file-chips {
   display: flex;
@@ -305,7 +281,7 @@
   width: 80px;
   height: 80px;
   flex: none;
-  border-radius: 16px;
+  border-radius: var(--radius-l);
   overflow: hidden;
   background: var(--surface);
 }
@@ -331,9 +307,17 @@
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   flex: none;
+}
+/* The remove glyph is small; its target is 24 pt. */
+.file-chip-remove {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: -6px -8px -6px -4px;
 }
 
 .call-overlay {
@@ -359,56 +343,16 @@
   flex: none;
   opacity: 0;
   transition: width var(--layout), opacity var(--morph);
-  /* The margin lets the border's drag area reach into the conversation. */
+  /* The margin lets the edge's drag area reach into the conversation. */
   overflow: clip;
   overflow-clip-margin: 4px;
 }
 .side-panel.shown { opacity: 1; }
 .side-panel.resizing { transition: none; }
-.side-panel-border {
-  width: 1px;
-  background: var(--border);
-  flex: none;
-  position: relative;
-  z-index: 7;
-}
-.side-panel-border::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -4px;
-  width: 9px;
-  cursor: col-resize;
-}
-@keyframes panel-slide {
-  from {
-    opacity: 0;
-    transform: translateX(20px);
-  }
-}
-.panel-slide.from-trailing {
-  animation: from-trailing var(--layout) both;
-}
-.panel-slide.from-leading {
-  animation: from-leading var(--layout) both;
-}
-@keyframes from-trailing {
-  from {
-    opacity: 0;
-    transform: translateX(30%);
-  }
-}
-@keyframes from-leading {
-  from {
-    opacity: 0;
-    transform: translateX(-30%);
-  }
-}
 
 /* A message arriving while the list follows the newest pops in from its bubble's side (Grok Bot's). */
 .row-in {
-  animation: row-in 0.24s cubic-bezier(0.23, 1, 0.32, 1) both;
+  animation: row-in 0.24s var(--ease-out) both;
   transform-origin: bottom left;
 }
 .row-in.mine {
@@ -422,11 +366,6 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .row-in {
-    animation: row-fade 0.12s both;
-  }
-}
-@keyframes row-fade {
-  from {
-    opacity: 0;
+    animation: fade-in 0.12s both;
   }
 }

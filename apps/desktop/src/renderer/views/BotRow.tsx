@@ -51,7 +51,7 @@ const line: React.CSSProperties = { ...font('callout'), whiteSpace: 'nowrap', ov
 function Preview({ bot, store }: { bot: Bot; store: BotStore }) {
   if (needsInput(bot)) {
     return (
-      <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--warning)', minWidth: 0 }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--attention)', minWidth: 0 }}>
         <ThinkingOrb state="listening" size={16} color="var(--warning)" />
         <span style={line}>{bot.activity || 'Needs your approval'}</span>
       </span>
