@@ -39,6 +39,8 @@ export interface Bot {
   computer: boolean
   /** Uses the memory all the user's bots share ("About you"). */
   sharedMemory: boolean
+  /** Keeps the harness's own memory (Claude Code's…) on beside Codync's; null where it has no switch. */
+  harnessMemory: boolean | null
   /** Moves whenever memory changes, so an open memory screen fetches it again. */
   memoryRev: number
   autoName: boolean
@@ -83,6 +85,7 @@ export function normalizeBot(raw: Partial<Bot> & { id: string }): Bot {
     skills: raw.skills ?? [],
     computer: raw.computer ?? false,
     sharedMemory: raw.sharedMemory ?? raw.managedWorkspace ?? false,
+    harnessMemory: raw.harnessMemory ?? null,
     memoryRev: raw.memoryRev ?? 0,
     autoName: raw.autoName ?? false,
     createdAt,
@@ -458,6 +461,7 @@ export interface BotDraft {
   skills?: string[]
   computer?: boolean
   sharedMemory?: boolean
+  harnessMemory?: boolean
 }
 
 export function draftOf(bot: Bot): BotDraft {

@@ -20,3 +20,5 @@
 .memory-attention { color: var(--attention); }
 .memory-file-sheet { display: flex; flex-direction: column; height: 100%; background: var(--background); }
 .memory-file-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font: var(--text-callout)/1.5 var(--mono); }
+.memory-info-icon { padding-top: 2px; }
+.switch.memory-harness-switch { flex: 1; justify-content: flex-end; }

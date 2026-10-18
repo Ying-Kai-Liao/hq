@@ -2,16 +2,19 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button, CardSection, DropdownMenu, IconButton, Switch, TabChoice } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { Dialog, ModalHeader, Sheet } from '../../components/Overlay'
+import { HStack } from '../../components/Stack'
 import { useModel } from '../../lib/observable'
 import { useStore } from '../../store/context'
 import { MemoryStore, authorLabel, type MemoryEntry } from '../../store/memory-store'
+import { FormSheet } from '../marketplace/pieces'
 import { relativeTime } from '../thread/chat-items'
+import { HarnessMemorySheet } from './HarnessMemorySheet'
 import { type FileTarget, MemoryFileSheet, fileRows } from './MemoryFiles'
 import './memory.css'
 
-type Section = 'yours' | 'bot' | 'dreams' | 'project'
+type Section = 'yours' | 'bot' | 'dreams' | 'harness'
 
-/** A bot's memory: what all your bots know about you, what this one knows, its dreams and its project's notes. */
+/** A bot's memory: what all your bots know about you, what this one knows, its dreams, and its harness's own notes when the user kept them on. */
 export function MemoryCard({ botId }: { botId: string }) {
   const host = useStore()
   const memory = useModel(useMemo(() => new MemoryStore(botId, () => host.ready()), [botId, host]))
@@ -20,13 +23,17 @@ export function MemoryCard({ botId }: { botId: string }) {
   const [draft, setDraft] = useState<{ id?: number; text: string } | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   const [file, setFile] = useState<FileTarget | null>(null)
+  const [aboutHarness, setAboutHarness] = useState(false)
   // Memory changes anywhere move the bot's `memoryRev`: fetch again.
-  useEffect(() => { void memory.load() }, [memory, bot?.memoryRev, bot?.sharedMemory])
+  useEffect(() => { void memory.load() }, [memory, bot?.memoryRev, bot?.sharedMemory, bot?.harnessMemory])
 
   const view = memory.view
+  // Claude Code's section goes when its memory is turned off (on another device too).
+  useEffect(() => { if (section === 'harness' && view && !view.projectMemory) setSection('bot') }, [section, view])
+  const harness = host.backendName(bot?.backend ?? 'claude')
   const sections: { id: Section; label: string }[] = [
     { id: 'yours', label: 'About you' }, { id: 'bot', label: 'This bot' }, { id: 'dreams', label: 'Dreams' },
-    ...(view?.projectMemory ? [{ id: 'project' as const, label: 'Project' }] : []),
+    ...(view?.projectMemory ? [{ id: 'harness' as const, label: harness }] : []),
   ]
   const layer = section === 'yours' ? view?.yours : section === 'bot' ? view?.bot : undefined
   const save = () => {
@@ -36,13 +43,22 @@ export function MemoryCard({ botId }: { botId: string }) {
 
   return <>
     <div className="memory-panel">
-      <TabChoice label="Memory" selection={section} options={sections} onChange={setSection} />
+      <TabChoice label="Memory" selection={section} options={sections} onChange={(next) => {
+        setSection(next)
+        // Claude Code writes its notes outside Codync, so nothing moves `memoryRev`: read them again on the way in.
+        if (next === 'harness') void memory.load()
+      }} />
       <CardSection>
         {memory.error && <p role="alert" className="memory-error">{memory.error}</p>}
         {!view && !memory.error && <p className="memory-muted">Loading memory…</p>}
         {view && bot && section === 'yours' && <Switch on={bot.sharedMemory} disabled={memory.busy} onChange={(on) => host.setSharedMemory(bot, on)}>
           Use what your bots share
         </Switch>}
+        {view && bot && section === 'bot' && bot.harnessMemory !== null && <HStack gap={4}>
+          <span>{harness}'s own memory</span>
+          <IconButton title={`About ${harness}'s own memory`} icon="info.circle" onClick={() => setAboutHarness(true)} />
+          <Switch on={bot.harnessMemory} disabled={memory.busy} onChange={(on) => host.setHarnessMemory(bot, on)} label={`${harness}'s own memory`} className="memory-harness-switch" />
+        </HStack>}
         {layer && [
           <div key="note" className="memory-layer-note">
             <p className="memory-muted">{section === 'yours'
@@ -76,10 +92,12 @@ export function MemoryCard({ botId }: { botId: string }) {
             {!dream.undone && <IconButton title="Undo this dream" icon="arrow.uturn.backward" disabled={memory.busy} onClick={() => void memory.mutate('undoDream', { id: dream.id })} />}
           </div>),
         ]}
-        {view?.projectMemory && section === 'project' && <div className="memory-content">
-          <p className="memory-muted">The project folder's own notes, kept by Claude Code. Read-only here.</p>
+        {view?.projectMemory && section === 'harness' && <div className="memory-content">
+          <p className="memory-muted">Claude Code's own notes, read-only here.</p>
           <small className="memory-muted">{view.projectMemory.path}</small>
-          <pre className="memory-history">{view.projectMemory.text}</pre>
+          {view.projectMemory.text
+            ? <pre className="memory-history">{view.projectMemory.text}</pre>
+            : <div className="memory-empty"><Icon name="brain" size={20} color="var(--tertiary)" /><span>Nothing yet. Claude Code's notes show up here once it saves some.</span></div>}
         </div>}
       </CardSection>
     </div>
@@ -96,6 +114,9 @@ export function MemoryCard({ botId }: { botId: string }) {
     <Sheet open={file !== null} onClose={() => setFile(null)} width={640}>
       {file && <MemoryFileSheet memory={memory} target={file} onClose={() => setFile(null)} />}
     </Sheet>
+    <FormSheet open={aboutHarness} onClose={() => setAboutHarness(false)} height={460}>
+      <HarnessMemorySheet harness={harness} readable={bot?.backend === 'claude'} />
+    </FormSheet>
     <Dialog open={confirmClear}
       title={section === 'yours' ? 'Forget everything your bots share about you?' : 'Forget everything this bot remembers?'}
       actions={[{ title: 'Forget everything', destructive: true, action: () => { void memory.mutate('clearMemory', { shared: section === 'yours' }) } }]}

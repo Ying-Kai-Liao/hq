@@ -191,6 +191,14 @@ extension BotStore {
         perform(replay: true) { _ = try await $0.updateBot(d) }
     }
 
+    /// Whether the bot's harness keeps its own memory on beside Codync's.
+    public func setHarnessMemory(_ bot: Bot, _ on: Bool) {
+        var d = BotDraft(bot)
+        d.harnessMemory = on
+        bots[bot.id]?.harnessMemory = on
+        perform(replay: true) { _ = try await $0.updateBot(d) }
+    }
+
     /// Saves the user's version of a handoff that hasn't been sent. Whether it did.
     public func editHandoff(_ entry: Entry, text: String) async -> Bool {
         do {

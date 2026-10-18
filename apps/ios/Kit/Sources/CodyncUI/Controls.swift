@@ -357,6 +357,8 @@ public struct TabChoice<ID: Hashable>: View {
                         .font(.subheadline)
                         .foregroundStyle(on ? Palette.text : Palette.secondary)
                         .lineLimit(1)
+                        // Four tabs on a narrow iPhone shrink a little rather than cut a label short.
+                        .minimumScaleFactor(0.8)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background {
