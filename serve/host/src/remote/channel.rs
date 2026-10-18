@@ -202,7 +202,10 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
     let _ = ch.tx.send(ToDevice::Close(code, reason)).await;
     let hub = ch.hub.clone();
     drop(ch);
-    let _ = writer.await;
+    // `serve` already took the writer's end when it stopped first; polling it again panics.
+    if !writer.is_finished() {
+        let _ = writer.await;
+    }
     // Only now, with the answer and the `4100` handed to the transport: a relay publishes the
     // new ACL (offer gone) behind them on the same socket, so the pairing link isn't cut first.
     if code == close::PAIRED {
@@ -625,14 +628,16 @@ mod tests {
         rx: mpsc::Receiver<Out>,
         sealer: Option<Sealer>,
         opener: Option<Opener>,
+        /// The host's side of this channel.
+        run: tokio::task::JoinHandle<()>,
     }
 
     impl Phone {
         fn connect(hub: &Arc<Hub>, key: SigningKey, kind: ChannelKind) -> Self {
             let (tx, incoming) = mpsc::channel(64);
             let (outgoing, rx) = mpsc::channel(64);
-            tokio::spawn(run(hub.clone(), Transport { incoming, outgoing }, kind));
-            Self { key, tx, rx, sealer: None, opener: None }
+            let run = tokio::spawn(run(hub.clone(), Transport { incoming, outgoing }, kind));
+            Self { key, tx, rx, sealer: None, opener: None, run }
         }
 
         fn direct(hub: &Arc<Hub>, key: SigningKey) -> Self {
@@ -949,5 +954,18 @@ mod tests {
             last = Some(out);
         }
         assert!(matches!(last, Some(Out::Close(close::PAIRED, _))), "got {last:?}");
+    }
+
+    #[tokio::test]
+    async fn a_device_that_stops_reading_ends_the_channel_cleanly() {
+        let hub = temp_hub();
+        let key = paired_phone(&hub).await;
+        let mut p = Phone::direct(&hub, key);
+        p.hello(&hub, false).await;
+        assert_eq!(p.call(1, "hello", json!({})).await["id"], 1);
+        // The transport is gone: the next answer can't be written, so the writer ends first.
+        p.rx.close();
+        p.send(json!({"id": 2, "m": "hello", "b": {}})).await;
+        timeout(Duration::from_secs(5), p.run).await.expect("the channel ends").expect("without a panic");
     }
 }
