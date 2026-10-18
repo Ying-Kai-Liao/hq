@@ -85,6 +85,8 @@ export interface MemoryView {
   files?: MemoryFiles
 }
 
+const OLDER_HOST = "Update Codync on your computer to see this bot's memory."
+
 /** One bot's memory: fetches it, and changes it through the host. */
 export class MemoryStore extends Observable {
   view: MemoryView | null = null
@@ -98,6 +100,8 @@ export class MemoryStore extends Observable {
     const request = ++this.request
     try {
       const view = await (await this.client()).call<MemoryView>('memory', { botId: this.botId })
+      // A host before 2.18.0 answers with its old memory listing, which has no layers or dreams.
+      if (!Array.isArray(view.dreams)) throw new Error(OLDER_HOST)
       if (request === this.request) {
         this.view = view
         this.error = null

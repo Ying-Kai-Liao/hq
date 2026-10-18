@@ -5,6 +5,16 @@ listing what iPhone users notice. tools/asc-submit.py reads the released version
 a version without one gets a generic "Bug fixes and improvements" line. Delete old sections.
 -->
 
+## 2.19.0
+
+### zh-Hant
+
+- 電腦上的 Codync 太舊、還看不了新版記憶時，記憶頁會直接提示你更新電腦上的 Codync。
+
+### en-US
+
+- When the Codync on your computer is too old for the new memory, the Memory page now asks you to update it.
+
 ## 2.18.1
 
 ### zh-Hant
