@@ -233,7 +233,6 @@ export class FakeHost {
         return {}
       }
       case 'newSession':
-        this.add({ botId: str('botId'), threadId: null, kind: 'notice', data: { text: 'New session', style: 'divider' } })
         return {}
       case 'createBot':
       case 'updateBot':
