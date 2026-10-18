@@ -17,7 +17,7 @@ from hq_paths import paths  # noqa: E402  the one place that knows where hq's fo
 
 FILE = paths()['HQ_MACHINE'] / 'settings.json'
 DEFAULTS = {'permission_mode': 'auto'}
-CHOICES = {'permission_mode': ('default', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions')}
+CHOICES = {'permission_mode': ('default', 'manual', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions')}
 
 
 def read():
