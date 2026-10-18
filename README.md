@@ -341,7 +341,8 @@ set, else in the agent's own mode, else in hq's default (`auto`, as every other 
 rules still apply.
 
 ## Permission mode
-Every run starts in the first permission mode that is set: the caller's (`HQ_PERMISSION_MODE`; the bridge, schedules,
+Every run starts in the first permission mode that is set: the caller's (`hq <agent> --permission-mode MODE`, or
+`--bypass` for `bypassPermissions`; else `HQ_PERMISSION_MODE`: the bridge, schedules,
 `hq ask` and remote runs pass theirs from `HQ_BRIDGE_`, `HQ_SCHED_`, `HQ_ASK_` and `HQ_REMOTE_PERMISSION_MODE`), the
 agent's `settings.json` `permissions.defaultMode`, then hq's default, `auto`. To change hq's default on a Mac, put
 `{"permission_mode": "acceptEdits"}` (or another Claude Code mode) in its `~/.hq/settings.json`, hq's own settings:

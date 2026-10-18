@@ -6,7 +6,7 @@
 #   hq backup [--yes|--check|--nightly [off]]   everything to private GitHub repos, making the missing ones; --check says what isn't; --nightly at 03:00 (hq-state)
 #   hq ls                         list agents
 #   hq who <words>                which agent owns this work: skills, tools, "Not yours" lines searched (hq-who)
-#   hq <agent> [-p ID] [-m MODEL] [-e EFFORT] [-H HARNESS] [task...]  interactive without a task, one-shot with one
+#   hq <agent> [-p ID] [-m MODEL] [-e EFFORT] [-H HARNESS] [--permission-mode MODE|--bypass] [task...]  interactive without a task, one-shot with one
 #   hq <agent> --print [...]      show the assembled system prompt, don't run
 #   hq <agent> --inspect          start one run and report what it loads (tools, MCP servers, skills, plugins)
 #   hq versions|pin|unpin|rollback <agent> [VERSION]   agent package versions (hq-pkg)
@@ -42,7 +42,8 @@
 # unset means claude. Every harness gets the same prompt, directories, granted MCP servers, model and effort
 # (adapters/harness.py turns them into its flags). Callers ask for JSON output, a session to resume and a permission
 # mode with HQ_OUTPUT=json, HQ_RESUME and HQ_PERMISSION_MODE, the same for every harness.
-# Permission mode: HQ_PERMISSION_MODE (entry points set it from their own HQ_BRIDGE_/HQ_SCHED_/HQ_ASK_PERMISSION_MODE),
+# Permission mode: --permission-mode MODE or --bypass (bypassPermissions), else HQ_PERMISSION_MODE (entry points set it
+# from their own HQ_BRIDGE_/HQ_SCHED_/HQ_ASK_PERMISSION_MODE),
 # else the agent's settings.json defaultMode, else hq's default (lib/hq_settings.py: auto, or ~/.hq/settings.json).
 set -euo pipefail
 
@@ -183,6 +184,8 @@ while [[ $# -gt 0 ]]; do
     -m|--model)   HQ_MODEL=$2; shift 2 ;;
     -e|--effort)  HQ_EFFORT=$2; shift 2 ;;
     -H|--harness) HQ_HARNESS=$2; shift 2 ;;
+    --permission-mode) HQ_PERMISSION_MODE=$2; shift 2 ;;
+    --bypass)     HQ_PERMISSION_MODE=bypassPermissions; shift ;;
     --)           shift; break ;;
     *)            break ;;
   esac
