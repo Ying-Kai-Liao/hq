@@ -73,10 +73,27 @@ pub fn routines(buf: &mut Buffer, area: Rect, app: &App, l: &RoutineList) {
     let title = name_of(app, &l.bot);
     let inner = frame_box(buf, r, t.text, t.panel, Some((&title, t.text)));
     let mut inner = page_tabs(buf, inner, Page::Details);
+    // What changes often: the agent, its model and the instructions (`i` edits them in Settings).
+    if let Some(b) = app.bots.get(&l.bot).filter(|b| !b.group) {
+        let agent = app
+            .backends
+            .iter()
+            .find(|x| x["id"].as_str() == Some(b.backend.as_str()))
+            .map_or(&*b.backend, |x| s(x, "name"));
+        let model = b.model.as_deref().unwrap_or("default model");
+        let fast = if b.fast_mode { " · fast" } else { "" };
+        put(buf, inner.x, inner.y, inner.width, &format!("{agent} · {model}{fast}"), t.text.patch(t.panel));
+        rput(buf, inner.right(), inner.y, "i edits", t.dim.patch(t.panel));
+        let first = b.description.lines().find(|l| !l.trim().is_empty()).unwrap_or("No standing instructions");
+        let room = usize::from(inner.width);
+        put(buf, inner.x, inner.y + 1, inner.width, &truncate(first.trim(), room), t.secondary.patch(t.panel));
+        inner = Rect::new(inner.x, inner.y + 3, inner.width, inner.height.saturating_sub(3));
+    }
     if !app.screen.is_null() {
         let on = app.bots.get(&l.bot).is_some_and(|b| b.computer);
         put(buf, inner.x, inner.y, inner.width, "Use the computer", t.text.patch(t.panel));
-        rput(buf, inner.right(), inner.y, if on { "On" } else { "Off" }, t.secondary.patch(t.panel));
+        let x = rput(buf, inner.right(), inner.y, "  u switches", t.dim.patch(t.panel));
+        rput(buf, x, inner.y, if on { "◉ On" } else { "○ Off" }, if on { t.text } else { t.secondary }.patch(t.panel));
         inner = Rect::new(inner.x, inner.y + 2, inner.width, inner.height.saturating_sub(2));
     }
     put(buf, inner.x, inner.y, inner.width, "Routines", t.bold.patch(t.panel));

@@ -4,7 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use serde_json::{Value, json};
 use std::str::FromStr as _;
 
-use super::super::app::{App, Confirm, ConfirmAct, Editor, Focus, Overlay};
+use super::super::app::{After, App, Confirm, ConfirmAct, Editor, FIELDS, Field, Focus, Overlay};
 use super::{Page, Reply, RoutineField, RoutineForm, RoutineList, ctrl, newline, s};
 
 impl App {
@@ -28,6 +28,19 @@ impl App {
         let bot = l.bot.clone();
         match (k.code, current) {
             (KeyCode::Esc | KeyCode::Char('q' | 'R'), _) => return None,
+            // The agent, model and instructions shown above the routines are edited in Settings.
+            (KeyCode::Char('i'), _) => {
+                self.open_page(Page::Settings);
+                if let Some(Overlay::Form(f)) = self.overlays.last_mut() {
+                    f.field = FIELDS.iter().position(|x| *x == Field::Instructions).unwrap_or(0);
+                }
+                return None;
+            }
+            // Use the computer, on the Details page above the routines.
+            (KeyCode::Char('u'), _) if !self.screen.is_null() => {
+                let on = self.bots.get(&bot).is_some_and(|b| b.computer);
+                self.call("updateBot", json!({"id": bot, "computer": !on}), After::Nothing);
+            }
             (KeyCode::Down | KeyCode::Char('j'), _) => l.cursor = (l.cursor + 1).min(n.saturating_sub(1)),
             (KeyCode::Up | KeyCode::Char('k'), _) => l.cursor = l.cursor.saturating_sub(1),
             (KeyCode::Char('n'), _) => {
