@@ -42,6 +42,8 @@ People (who may use which agent, and how; the run's person is HQ_PERSON, unset =
                                           (helpers they reach through it included; hq cost people shows it)
   hq-auth owner <profile> <id>|-|default  the profile is that person's (their logins, their calendar); - = shared;
                                           default: logins and browser profiles are the owner's, keys and bots shared
+  hq-auth share <profile> <id>[,..] [--rm]   it stays its owner's, and these people's runs may use it too (through
+                                          the agents granted it that they may use)
   hq-auth may <id> <agent> [--via AGENT]  exit 0 if the person may use the agent (--via: called as AGENT's helper)
   hq-auth resolve <agent> [--person ID] [--via AGENT]   the run's effective person settings, as JSON (bin/hq uses it)
 
@@ -230,7 +232,8 @@ def granted(auth, agent, svc, person=None):
     if not profile:
         return None, f'{agent} has no grant for {svc} (hq-auth grant {agent} {svc} <profile>)', False
     belongs = owner_of(auth, profile)
-    if belongs and person and belongs != person:   # an owner run (no person) is never refused
+    lent = auth['profiles'].get(profile, {}).get('with', [])
+    if belongs and person and belongs != person and canonical(auth, person) not in lent:   # owner runs: never refused
         return None, (f'{profile} is {belongs}\'s and this run is for {person or "no one"} '
                       f'(hq-auth grant {agent}@{person} {svc} <their profile>)'), True
     return profile, '', False
@@ -568,7 +571,9 @@ def account_line(auth, agent, svc, person):
         return 'no grant'
     mine = auth['grants'].get(f'{agent}@{person}', {}).get(svc) == profile
     whose = owner_of(auth, profile)
-    return profile + ('  (their own)' if mine else f'  ({whose}\'s)' if whose else '  (shared)')
+    lent = person in auth['profiles'].get(profile, {}).get('with', [])
+    return profile + ('  (their own)' if mine else f'  ({whose}\'s, shared with them)' if whose and lent
+                      else f'  ({whose}\'s)' if whose else '  (shared)')
 
 
 def cmd_people(args):
@@ -688,6 +693,9 @@ def rename(auth, old, new):
     owned = [n for n, prof in auth['profiles'].items() if prof.get('person') == old]
     for n in owned:
         auth['profiles'][n]['person'] = new
+    for prof in auth['profiles'].values():
+        if old in prof.get('with', []):
+            prof['with'] = [new if x == old else x for x in prof['with']]
     for inv in auth['invites'].values():
         if inv.get('person') == old:
             inv['person'] = new
@@ -876,6 +884,26 @@ def cmd_owner(args):
                          'the agents granted it') + (' (the default for its service)' if pid == 'default' else ''))
 
 
+def cmd_share(args):
+    if len(args) not in (2, 3) or (len(args) == 3 and args[2] != '--rm'):
+        die('share <profile> <id>[,..] [--rm]', 2)
+    prof, ids = args[0], [i for i in args[1].split(',') if i]
+    auth = load_auth()
+    if prof not in auth['profiles']:
+        die(f"no profile '{prof}'")
+    for pid in ids:
+        need_person(auth, pid)
+    p = auth['profiles'][prof]
+    lent = [x for x in p.get('with', []) if x not in ids] if len(args) == 3 else list(dict.fromkeys(p.get('with', []) + ids))
+    if lent:
+        p['with'] = lent
+    else:
+        p.pop('with', None)
+    save_auth(auth)
+    who = owner_of(auth, prof)
+    print(f'{prof}: {who or "shared"}\'s' + (f', shared with {", ".join(lent)}' if lent else ', shared with no one else'))
+
+
 def take_opts(args, names):
     opts, rest = {}, []
     it = iter(args)
@@ -980,6 +1008,8 @@ def main(argv):
         cmd_member(rest)
     elif cmd == 'owner':
         cmd_owner(rest)
+    elif cmd == 'share':
+        cmd_share(rest)
     elif cmd in ('may', 'resolve'):
         opts, rest = take_opts(rest, {'--via', '--person'})
         auth = load_auth()

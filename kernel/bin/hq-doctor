@@ -208,6 +208,10 @@ def people():
         if who and who != '*' and who not in folks:
             issues += 1
             bad(f'profiles: {name} belongs to {who}, who is not a person: hq auth owner {name} <id>|-|default')
+        for pid in prof.get('with', []):
+            if pid not in folks:
+                issues += 1
+                bad(f'profiles: {name} is shared with {pid}, who is not a person: hq auth share {name} {pid} --rm')
         svc = HQ / 'services' / f'{name.split("/", 1)[0]}.json'
         spec = json.loads(svc.read_text()) if svc.is_file() else {}
         if who == '*' and spec.get('personal', spec.get('kind') in ('login', 'browser')):
