@@ -288,6 +288,21 @@ async fn crash_resumes_the_same_session_and_publishes_one_result() {
 }
 
 #[tokio::test]
+async fn an_agent_started_for_a_run_stops_when_the_run_ends() {
+    let host = Host::start().await;
+    let bot = host.stable_bot("only-runs").await;
+    let id = host.save(&bot, "one-off", "ONE_OFF", json!([{"type":"webhook"}]), 30).await;
+    host.call("runRoutine", json!({"botId":bot,"id":id})).await;
+    host.wait_event("only-runs", "finished", "ONE_OFF").await;
+    host.send(&bot, "LATER").await;
+    host.wait_event("only-runs", "finished", "LATER").await;
+    let events = host.agent_events("only-runs");
+    // The message started the agent again: the run's agent stopped with the run instead of closing its session.
+    assert_eq!(events.iter().filter(|e| e["event"] == "initialize").count(), 2);
+    assert!(!events.iter().any(|e| e["event"] == "closed"));
+}
+
+#[tokio::test]
 async fn a_finished_run_closes_its_session_and_the_main_one_stays() {
     let host = Host::start().await;
     let bot = host.stable_bot("spent").await;

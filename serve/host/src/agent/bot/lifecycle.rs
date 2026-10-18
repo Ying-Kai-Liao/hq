@@ -1,5 +1,6 @@
 //! Idle agents give their resources back. A session unused for [`IDLE`] is closed (a routine run's
-//! as soon as the run ends); once every session is idle, the agent stops with its process group.
+//! as soon as the run ends); once every session is idle, or a routine run ends with none other open,
+//! the agent stops with its process group.
 //! The next message starts the agent again and loads the session, so the conversation carries on.
 //! Agents that can't load a session keep everything: stopping them would lose the conversation.
 
@@ -86,9 +87,28 @@ impl Actor {
             && self.cancel_deadline.is_none()
     }
 
-    /// Closes a session the agent can load again when it's next needed: one a routine run is done with, so a bot on
-    /// a short schedule doesn't hold a set of MCP servers per run until [`IDLE`], or one a turn failed in (see
-    /// `acp::may_end_session`), so the next turn loads it afresh instead of finding it dead.
+    /// A routine run's session is spent once the run is. When it was the only session open and nothing waits, the
+    /// agent ran just for the run and stops with it, with everything it started; otherwise the session alone closes,
+    /// so a bot on a short schedule doesn't hold a set of MCP servers per run until [`IDLE`]. Opening the run's thread
+    /// loads it again.
+    pub(super) async fn release_spent(&mut self, sid: &str) {
+        let Some(conn) = &self.conn else { return };
+        if !conn.sessions.load {
+            return;
+        }
+        let alone = conn.loaded.keys().all(|s| s == sid) && self.queue.is_empty();
+        if alone && !background_work(conn.acp.pid()).await {
+            tracing::info!(bot = %self.cfg.id, "stopping the agent after its routine run");
+            if let Some(conn) = self.conn.take() {
+                conn.acp.kill().await;
+            }
+        } else {
+            self.close_reloadable(sid).await;
+        }
+    }
+
+    /// Closes a session the agent can load again when it's next needed, like one a turn failed in (see
+    /// `acp::may_end_session`): the next turn loads it afresh instead of finding it dead.
     pub(super) async fn close_reloadable(&mut self, sid: &str) {
         if self.conn.as_ref().is_some_and(|c| c.sessions.close && c.sessions.load && c.loaded.contains_key(sid)) {
             self.close_session(sid).await;

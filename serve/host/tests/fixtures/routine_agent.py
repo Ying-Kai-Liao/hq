@@ -1,5 +1,6 @@
 """Persistent deterministic ACP sessions for routine restart and queue tests."""
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -125,6 +126,7 @@ for line in sys.stdin:
     request = json.loads(line)
     method = request.get("method")
     if method == "initialize":
+        log("initialize", "", str(os.getpid()))
         capabilities = {"loadSession": not pathlib.Path("no-load").exists(), "sessionCapabilities": {"close": {}}}
         send({"id": request["id"], "result": {"agentCapabilities": capabilities}})
     elif method == "session/new":
