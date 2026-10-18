@@ -15,6 +15,7 @@ a version without one gets a generic "Bug fixes and improvements" line. Delete o
 - 原本的記憶會自動搬過來。
 - 對話太長時，bot 會先摘要較早的內容，摘要可以在聊天裡展開；摘要也不夠用時，會改用一張卡片開新對話，你可以先編輯它要帶過去的內容，或選擇保留原本的對話。
 - bot 可以把較長的細節寫成筆記（每個主題一份），在記憶裡就能閱讀、編輯、刪除或還原任何一個版本；bot 改了筆記時，聊天裡會顯示改了哪些地方，一鍵就能復原。
+- bot 的詳細資料重新整理成一頁：上方是 bot 的頭像和名字，下面分成「詳細資料」、「記憶」、「設定」三個分頁，設定改了就自動儲存；也能從這裡把 bot 分享成範本。
 
 ### en-US
 
@@ -24,6 +25,7 @@ a version without one gets a generic "Bug fixes and improvements" line. Delete o
 - Your existing memory moves over automatically.
 - When a chat runs long, the bot summarizes the earlier part, and you can open the summary in the chat. When that's no longer enough, a card offers a fresh conversation: edit what it carries over, or keep the current one.
 - Bots can keep longer notes, one topic each. Read, edit, delete or bring back any version from memory, and when a bot changes a note, the chat shows what changed with a one-tap undo.
+- A bot's details are one page now: its avatar and name on top, then Details, Memory and Settings tabs. Settings save as you edit, and you can share the bot as a template from here.
 
 ## 2.17.5
 

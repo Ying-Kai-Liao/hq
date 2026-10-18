@@ -304,6 +304,43 @@ public struct SegmentedChoice<ID: Hashable>: View {
     }
 }
 
+/// Grok Bot's page tabs: plain labels, the chosen one on a light capsule.
+public struct TabChoice<ID: Hashable>: View {
+    @Binding var selection: ID
+    let options: [(id: ID, label: String)]
+    @Namespace private var pill
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    public init(selection: Binding<ID>, options: [(id: ID, label: String)]) {
+        _selection = selection
+        self.options = options
+    }
+
+    public var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options, id: \.id) { option in
+                let on = option.id == selection
+                Button {
+                    withAnimation(Motion.reduced(Motion.morph, reduceMotion)) { selection = option.id }
+                } label: {
+                    Text(option.label)
+                        .font(.subheadline)
+                        .foregroundStyle(on ? Palette.text : Palette.secondary)
+                        .lineLimit(1)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background {
+                            if on { Capsule().fill(Palette.bubbleAgent).matchedGeometryEffect(id: "pill", in: pill) }
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+    }
+}
+
 /// A list of choices, one per row with a checkmark: the replacement for `.inline` pickers.
 public struct ChoiceList<ID: Hashable>: View {
     @Binding var selection: ID

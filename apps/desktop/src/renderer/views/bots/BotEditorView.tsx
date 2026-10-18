@@ -13,7 +13,6 @@ import { AgentModelPicker } from './AgentModelPicker'
 import { errorText, fillDefaults, isValid, lastPathComponent, normalized, usePlugins, type Plugins } from './drafts'
 import { FormSheet } from '../marketplace/pieces'
 import { SkillSheet, type SkillRef } from '../marketplace/SkillSheet'
-import { MemoryCard } from './MemoryView'
 import { AnchoredPanel, AutoTextArea, Field, SwitchRow } from './parts'
 import './bots.css'
 
@@ -90,7 +89,7 @@ export function BotSettingsPanel({ botId }: { botId: string }) {
   return draft ? <BotSettingsForm draft={draft} onChange={change} error={error} plugins={plugins} /> : null
 }
 
-/** Bot settings: a big avatar (Grok Bot's), then sections in the Settings style (`CardSection`). */
+/** Bot settings, in sections in the Settings style (`CardSection`). */
 function BotSettingsForm({ draft, onChange, error, plugins }: {
   draft: BotDraft
   onChange: (update: (d: BotDraft) => BotDraft) => void
@@ -117,18 +116,17 @@ function BotSettingsForm({ draft, onChange, error, plugins }: {
   return (
     <div className="bot-form">
       <div className="bot-form-content">
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
-          <button ref={avatarRef} className="avatar-button" title="Edit Bot avatar" aria-label="Edit Bot avatar" onClick={() => setPickingAvatar((p) => !p)}>
-            <CharacterAvatar shape={draft.avatarShape} color={draft.avatarColor} size={56} />
-          </button>
-          <AnchoredPanel open={pickingAvatar} onClose={() => setPickingAvatar(false)} anchor={avatarRef}>
-            <div style={{ padding: 14, width: 300 }}>
-              <AvatarPicker shape={draft.avatarShape} color={draft.avatarColor} onShape={(s) => set('avatarShape', s)} onColor={(c) => set('avatarColor', c)} />
-            </div>
-          </AnchoredPanel>
-        </div>
-
         <CardSection title="Profile">
+          <ValueRow label="Avatar">
+            <button ref={avatarRef} className="avatar-button small" title="Edit Bot avatar" aria-label="Edit Bot avatar" onClick={() => setPickingAvatar((p) => !p)}>
+              <CharacterAvatar shape={draft.avatarShape} color={draft.avatarColor} size={24} />
+            </button>
+            <AnchoredPanel open={pickingAvatar} onClose={() => setPickingAvatar(false)} anchor={avatarRef}>
+              <div style={{ padding: 14, width: 300 }}>
+                <AvatarPicker shape={draft.avatarShape} color={draft.avatarColor} onShape={(s) => set('avatarShape', s)} onColor={(c) => set('avatarColor', c)} />
+              </div>
+            </AnchoredPanel>
+          </ValueRow>
           {/* A new bot is named from its first conversations (Grok Bot's flow); rename it any time after. */}
           {draft.id ? (
             <Field label="Name">
@@ -251,8 +249,6 @@ function BotSettingsForm({ draft, onChange, error, plugins }: {
           onChange={(ids) => set('skills', ids)}
           onInfo={(s) => setViewingSkill({ id: s.id, name: s.name, description: s.detail })}
         />
-        {draft.id ? <MemoryCard botId={draft.id} /> : null}
-
         {error ? <span className="fade-in" style={{ ...font('footnote'), color: 'var(--danger)' }}>{error}</span> : null}
       </div>
       <FormSheet open={viewingSkill !== null} onClose={() => setViewingSkill(null)}>

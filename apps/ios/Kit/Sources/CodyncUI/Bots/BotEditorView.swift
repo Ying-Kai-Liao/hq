@@ -73,146 +73,30 @@ public struct BotEditorView: View {
     }
 }
 
-/// Bot settings: a big avatar (Grok Bot's), then sections in the Settings style (`CardSection`).
+/// Bot settings, in sections in the Settings style (`CardSection`). `scrolls` is off where a
+/// surrounding view scrolls (the details sheet).
 struct BotSettingsForm: View {
     @Binding var draft: BotDraft
     let error: String?
     var computers: [(id: ComputerID, label: String)] = []
     var computer: Binding<ComputerID>?
+    var scrolls = true
     @Environment(BotStore.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pickingFolder = false
+    @State private var pickingAvatar = false
     @State private var viewingSkill: SkillRef?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 30) {
-                VStack(spacing: 16) {
-                    CharacterAvatar(shape: draft.avatarShape, color: draft.avatarColor, size: 96)
-                        .padding(18)
-                        .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                    AvatarPicker(shape: $draft.avatarShape, color: $draft.avatarColor)
-                }
-                .frame(maxWidth: .infinity)
-
-                CardSection("Profile") {
-                    // A new bot is named from its first conversations (Grok Bot's flow); rename it any time after.
-                    if draft.id != nil {
-                        Field("Name") {
-                            TextField("Name", text: $draft.name).fieldBox()
-                        }
-                    }
-                    Field("Standing instructions", detail: "Rules that always apply. Put task-specific requests in the chat instead.") {
-                        TextField("e.g. Reviews PRs. Never pushes without asking.", text: $draft.description, axis: .vertical)
-                            .lineLimit(3...8)
-                            .fieldBox()
-                    }
-                }
-
-                CardSection("Agent") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ValueRow("Computer") {
-                            if let computer {
-                                ChoicePicker(selection: computer, options: computers, fitsAvailableWidth: true)
-                                    .accessibilityLabel("Computer")
-                            } else {
-                                Text(model.hostName).lineLimit(1)
-                            }
-                        }
-                        if computer != nil, model.connection != .online {
-                            Text("Connect this computer to create the bot, or choose another computer.")
-                                .font(.caption).foregroundStyle(Palette.warning)
-                        }
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        ValueRow("Agent") {
-                            ChoicePicker(selection: $draft.backend,
-                                         options: (model.hello?.backends ?? []).map { ($0.id, $0.available ? $0.name : "\($0.name) (not installed)") } + [("custom", "Custom command")])
-                        }
-                        if let b = model.hello?.backends.first(where: { $0.id == draft.backend }), !b.available {
-                            Text(b.installHint).font(.caption).foregroundStyle(Palette.warning)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        if draft.backend == "custom" {
-                            TextField("ACP command, e.g. my-agent --acp", text: Binding(get: { draft.command ?? "" }, set: { draft.command = $0.isEmpty ? nil : $0 }))
-                                .font(.callout.monospaced())
-                                .plainTextInput()
-                                .fieldBox()
-                        }
-                    }
-                    AgentModelPicker(backend: draft.backend, selection: $draft.model, options: $draft.modelOptions,
-                                     fastMode: Binding(get: { draft.fastMode ?? false }, set: { on in
-                                         withAnimation(Motion.reduced(Motion.fade, reduceMotion)) { draft.fastMode = on }
-                                     }), bot: draft.id.flatMap { model.bots[$0] })
-                    ValueRow("Workspace", detail: draft.cwd.isEmpty
-                             ? "This bot has its own space for files. It can work in other folders when you ask."
-                             : "This project is the default starting folder. The bot can work elsewhere when you ask.") {
-                        DropdownMenu {
-                            [
-                                MenuItem("Personal workspace", selected: draft.cwd.isEmpty) {
-                                    withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { draft.cwd = "" }
-                                },
-                                MenuItem("Choose project folder…", selected: !draft.cwd.isEmpty) {
-                                    withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { pickingFolder = true }
-                                },
-                            ]
-                        } label: {
-                            HStack(spacing: 6) {
-                                Text(draft.cwd.isEmpty ? "Personal" : (draft.cwd as NSString).lastPathComponent).lineLimit(1)
-                                Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(Palette.secondary)
-                            }
-                            .foregroundStyle(Palette.text)
-                            .outlinedPill()
-                        }
-                        .help(draft.cwd.isEmpty ? "A persistent workspace allocated for this bot" : draft.cwd)
-                    }
-                    ValueRow("Permissions", detail: draft.permission == "auto"
-                             ? "Tool requests are approved automatically. Your agent's own settings (like Claude Code's permission rules) still apply."
-                             : "You'll get an approval card and a notification whenever the agent asks.") {
-                        ChoicePicker(selection: $draft.permission, options: [("ask", "Ask me"), ("auto", "Approve automatically")])
-                    }
-                }
-
-                CardSection("Activity") {
-                    SwitchRow("Notifications", detail: "Get notified when this bot finishes or needs you",
-                              isOn: Binding(get: { draft.notify ?? true }, set: { draft.notify = $0 }))
-                    if model.screen != nil {
-                        SwitchRow("Use the computer", detail: model.screen?.controlReady != true
-                            ? "Let this bot use apps. On that computer, open Codync → Settings → Computer access to set up permissions first."
-                            : model.screen?.enabled == true
-                            ? "Let this bot see the screen and use the mouse and keyboard. You can watch and take over from your phone."
-                            : model.screen?.computerUse == true
-                            ? "Let this bot see the screen and use the mouse and keyboard."
-                            : "Let this bot see the screen and use the mouse and keyboard. On that computer, open Codync → Settings → Computer access to set up permissions first.",
-                                  isOn: Binding(get: { draft.computer ?? false }, set: { draft.computer = $0 }))
-                    }
-                }
-
-                PluginToggles(
-                    title: "Connectors",
-                    empty: "No connectors yet. Add GitHub, Linear, Notion and more from Extensions.",
-                    items: model.installedConnectors.map { ($0.id, $0.name, $0.command ?? $0.url ?? "") },
-                    selection: Binding(get: { draft.connectors ?? [] }, set: { draft.connectors = $0 })
-                )
-                PluginToggles(
-                    title: "Skills",
-                    empty: "No skills yet. Get some from Extensions, or write your own.",
-                    items: model.installedSkills.map { ($0.id, $0.name, $0.description) },
-                    selection: Binding(get: { draft.skills ?? [] }, set: { draft.skills = $0 }),
-                    info: { id in viewingSkill = model.installedSkills.first { $0.id == id }.map(SkillRef.init) }
-                )
-                if let id = draft.id {
-                    MemoryCard(botId: id)
-                }
-
-                if let error {
-                    Text(error).font(.footnote).foregroundStyle(Palette.danger)
-                }
+        Group {
+            if scrolls {
+                ScrollView { sections.padding(20) }
+                    .scrollDismissesKeyboard(.interactively)
+            } else {
+                sections
             }
-            .padding(20)
         }
         .font(.body)
-        .scrollDismissesKeyboard(.interactively)
         .background(Palette.background)
         .task { await model.refreshPlugins() }
         .codyncSheet(item: $viewingSkill) { SkillSheet(skill: $0) }
@@ -220,6 +104,138 @@ struct BotSettingsForm: View {
             FolderPicker(start: draft.cwd.isEmpty ? model.hello?.home : draft.cwd) {
                 draft.cwd = $0
                 pickingFolder = false
+            }
+        }
+    }
+
+    private var sections: some View {
+        VStack(alignment: .leading, spacing: 30) {
+            CardSection("Profile") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Button {
+                        withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { pickingAvatar.toggle() }
+                    } label: {
+                        ValueRow("Avatar") {
+                            CharacterAvatar(shape: draft.avatarShape, color: draft.avatarColor, size: 28)
+                                .padding(5)
+                                .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Edit Bot avatar")
+                    if pickingAvatar {
+                        AvatarPicker(shape: $draft.avatarShape, color: $draft.avatarColor)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                }
+                // A new bot is named from its first conversations (Grok Bot's flow); rename it any time after.
+                if draft.id != nil {
+                    Field("Name") {
+                        TextField("Name", text: $draft.name).fieldBox()
+                    }
+                }
+                Field("Standing instructions", detail: "Rules that always apply. Put task-specific requests in the chat instead.") {
+                    TextField("e.g. Reviews PRs. Never pushes without asking.", text: $draft.description, axis: .vertical)
+                        .lineLimit(3...8)
+                        .fieldBox()
+                }
+            }
+
+            CardSection("Agent") {
+                VStack(alignment: .leading, spacing: 6) {
+                    ValueRow("Computer") {
+                        if let computer {
+                            ChoicePicker(selection: computer, options: computers, fitsAvailableWidth: true)
+                                .accessibilityLabel("Computer")
+                        } else {
+                            Text(model.hostName).lineLimit(1)
+                        }
+                    }
+                    if computer != nil, model.connection != .online {
+                        Text("Connect this computer to create the bot, or choose another computer.")
+                            .font(.caption).foregroundStyle(Palette.warning)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    ValueRow("Agent") {
+                        ChoicePicker(selection: $draft.backend,
+                                     options: (model.hello?.backends ?? []).map { ($0.id, $0.available ? $0.name : "\($0.name) (not installed)") } + [("custom", "Custom command")])
+                    }
+                    if let b = model.hello?.backends.first(where: { $0.id == draft.backend }), !b.available {
+                        Text(b.installHint).font(.caption).foregroundStyle(Palette.warning)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    if draft.backend == "custom" {
+                        TextField("ACP command, e.g. my-agent --acp", text: Binding(get: { draft.command ?? "" }, set: { draft.command = $0.isEmpty ? nil : $0 }))
+                            .font(.callout.monospaced())
+                            .plainTextInput()
+                            .fieldBox()
+                    }
+                }
+                AgentModelPicker(backend: draft.backend, selection: $draft.model, options: $draft.modelOptions,
+                                 fastMode: Binding(get: { draft.fastMode ?? false }, set: { on in
+                                     withAnimation(Motion.reduced(Motion.fade, reduceMotion)) { draft.fastMode = on }
+                                 }), bot: draft.id.flatMap { model.bots[$0] })
+                ValueRow("Workspace", detail: draft.cwd.isEmpty
+                         ? "This bot has its own space for files. It can work in other folders when you ask."
+                         : "This project is the default starting folder. The bot can work elsewhere when you ask.") {
+                    DropdownMenu {
+                        [
+                            MenuItem("Personal workspace", selected: draft.cwd.isEmpty) {
+                                withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { draft.cwd = "" }
+                            },
+                            MenuItem("Choose project folder…", selected: !draft.cwd.isEmpty) {
+                                withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { pickingFolder = true }
+                            },
+                        ]
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(draft.cwd.isEmpty ? "Personal" : (draft.cwd as NSString).lastPathComponent).lineLimit(1)
+                            Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(Palette.secondary)
+                        }
+                        .foregroundStyle(Palette.text)
+                        .outlinedPill()
+                    }
+                    .help(draft.cwd.isEmpty ? "A persistent workspace allocated for this bot" : draft.cwd)
+                }
+                ValueRow("Permissions", detail: draft.permission == "auto"
+                         ? "Tool requests are approved automatically. Your agent's own settings (like Claude Code's permission rules) still apply."
+                         : "You'll get an approval card and a notification whenever the agent asks.") {
+                    ChoicePicker(selection: $draft.permission, options: [("ask", "Ask me"), ("auto", "Approve automatically")])
+                }
+            }
+
+            CardSection("Activity") {
+                SwitchRow("Notifications", detail: "Get notified when this bot finishes or needs you",
+                          isOn: Binding(get: { draft.notify ?? true }, set: { draft.notify = $0 }))
+                if model.screen != nil {
+                    SwitchRow("Use the computer", detail: model.screen?.controlReady != true
+                        ? "Let this bot use apps. On that computer, open Codync → Settings → Computer access to set up permissions first."
+                        : model.screen?.enabled == true
+                        ? "Let this bot see the screen and use the mouse and keyboard. You can watch and take over from your phone."
+                        : model.screen?.computerUse == true
+                        ? "Let this bot see the screen and use the mouse and keyboard."
+                        : "Let this bot see the screen and use the mouse and keyboard. On that computer, open Codync → Settings → Computer access to set up permissions first.",
+                              isOn: Binding(get: { draft.computer ?? false }, set: { draft.computer = $0 }))
+                }
+            }
+
+            PluginToggles(
+                title: "Connectors",
+                empty: "No connectors yet. Add GitHub, Linear, Notion and more from Extensions.",
+                items: model.installedConnectors.map { ($0.id, $0.name, $0.command ?? $0.url ?? "") },
+                selection: Binding(get: { draft.connectors ?? [] }, set: { draft.connectors = $0 })
+            )
+            PluginToggles(
+                title: "Skills",
+                empty: "No skills yet. Get some from Extensions, or write your own.",
+                items: model.installedSkills.map { ($0.id, $0.name, $0.description) },
+                selection: Binding(get: { draft.skills ?? [] }, set: { draft.skills = $0 }),
+                info: { id in viewingSkill = model.installedSkills.first { $0.id == id }.map(SkillRef.init) }
+            )
+            if let error {
+                Text(error).font(.footnote).foregroundStyle(Palette.danger)
             }
         }
     }

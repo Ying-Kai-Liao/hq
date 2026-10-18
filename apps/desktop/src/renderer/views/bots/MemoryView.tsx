@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, CardSection, DropdownMenu, IconButton, SegmentedChoice, Switch } from '../../components/Controls'
+import { Button, CardSection, DropdownMenu, IconButton, Switch, TabChoice } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { Dialog, ModalHeader, Sheet } from '../../components/Overlay'
 import { useModel } from '../../lib/observable'
@@ -35,49 +35,54 @@ export function MemoryCard({ botId }: { botId: string }) {
   }
 
   return <>
-    <CardSection title="Memory" accessory={layer ? <div className="memory-header-actions">
-      <IconButton title="Add memory" icon="plus" onClick={() => setDraft({ text: '' })} disabled={memory.busy} />
-      <DropdownMenu className="icon-button memory-menu" title="More" items={() => [
-        { title: 'Refresh', icon: 'arrow.clockwise', action: () => void memory.load() },
-        { title: 'Forget everything here', icon: 'trash', destructive: true, divider: true, action: () => setConfirmClear(true) },
-      ]}><Icon name="ellipsis" size={14} weight="medium" /></DropdownMenu>
-    </div> : null}>
-      <SegmentedChoice selection={section} options={sections} onChange={setSection} />
-      {memory.error && <p role="alert" className="memory-error">{memory.error}</p>}
-      {!view && !memory.error && <p className="memory-muted">Loading memory…</p>}
-      {view && bot && section === 'yours' && <Switch on={bot.sharedMemory} disabled={memory.busy} onChange={(on) => host.setSharedMemory(bot, on)}>
-        Use what your bots share
-      </Switch>}
-      {layer && [
-        <p key="note" className="memory-muted">{section === 'yours'
-          ? 'Your name, time zone, people and lasting preferences, shared by your bots.'
-          : 'What this bot learned about you.'} {layer.used} of {layer.cap} in use.</p>,
-        ...(layer.entries.length ? [] : [<div key="empty" className="memory-empty">
-          <Icon name="brain" size={20} color="var(--tertiary)" />
-          <span>{section === 'yours' ? 'Nothing shared yet.' : 'Nothing yet. What this bot learns about you shows up here, and you can change any of it.'}</span>
-        </div>]),
-        ...layer.entries.map((entry) => <EntryRow key={entry.id} entry={entry} memory={memory} edit={() => setDraft({ id: entry.id, text: entry.text })} />),
-        ...(view?.files ? fileRows(memory, view.files, section === 'yours', setFile) : []),
-      ]}
-      {view && section === 'dreams' && [
-        <p key="note" className="memory-muted">Between chats the bot tidies its memory from your own words. Each run can be undone.</p>,
-        ...(view.dreams.length ? [] : [<div key="empty" className="memory-empty"><Icon name="moon" size={20} color="var(--tertiary)" /><span>No dreams yet.</span></div>]),
-        ...view.dreams.map((dream) => <div className="memory-item fade-in" key={dream.id}>
-          <div className="memory-content">
-            <strong>{relativeTime.day(dream.at)}{dream.undone ? ' · undone' : ''}</strong>
-            {dream.added.map((c) => <span key={`a${c.id}`}>+ {c.text}</span>)}
-            {dream.archived.map((c) => <span key={`r${c.id}`} className="memory-archived">− {c.text}</span>)}
-            {(dream.files ?? []).map((f) => <span key={`f${f.version}`} className="memory-muted">Added to {f.name}</span>)}
-          </div>
-          {!dream.undone && <IconButton title="Undo this dream" icon="arrow.uturn.backward" disabled={memory.busy} onClick={() => void memory.mutate('undoDream', { id: dream.id })} />}
-        </div>),
-      ]}
-      {view?.projectMemory && section === 'project' && <div className="memory-content">
-        <p className="memory-muted">The project folder's own notes, kept by Claude Code. Read-only here.</p>
-        <small className="memory-muted">{view.projectMemory.path}</small>
-        <pre className="memory-history">{view.projectMemory.text}</pre>
-      </div>}
-    </CardSection>
+    <div className="memory-panel">
+      <TabChoice label="Memory" selection={section} options={sections} onChange={setSection} />
+      <CardSection>
+        {memory.error && <p role="alert" className="memory-error">{memory.error}</p>}
+        {!view && !memory.error && <p className="memory-muted">Loading memory…</p>}
+        {view && bot && section === 'yours' && <Switch on={bot.sharedMemory} disabled={memory.busy} onChange={(on) => host.setSharedMemory(bot, on)}>
+          Use what your bots share
+        </Switch>}
+        {layer && [
+          <div key="note" className="memory-layer-note">
+            <p className="memory-muted">{section === 'yours'
+              ? 'Your name, time zone, people and lasting preferences, shared by your bots.'
+              : 'What this bot learned about you.'} {layer.used} of {layer.cap} in use.</p>
+            <div className="memory-header-actions">
+              <IconButton title="Add memory" icon="plus" onClick={() => setDraft({ text: '' })} disabled={memory.busy} />
+              <DropdownMenu className="icon-button memory-menu" title="More" items={() => [
+                { title: 'Refresh', icon: 'arrow.clockwise', action: () => void memory.load() },
+                { title: 'Forget everything here', icon: 'trash', destructive: true, divider: true, action: () => setConfirmClear(true) },
+              ]}><Icon name="ellipsis" size={14} weight="medium" /></DropdownMenu>
+            </div>
+          </div>,
+          ...(layer.entries.length ? [] : [<div key="empty" className="memory-empty">
+            <Icon name="brain" size={20} color="var(--tertiary)" />
+            <span>{section === 'yours' ? 'Nothing shared yet.' : 'Nothing yet. What this bot learns about you shows up here, and you can change any of it.'}</span>
+          </div>]),
+          ...layer.entries.map((entry) => <EntryRow key={entry.id} entry={entry} memory={memory} edit={() => setDraft({ id: entry.id, text: entry.text })} />),
+          ...(view?.files ? fileRows(memory, view.files, section === 'yours', setFile) : []),
+        ]}
+        {view && section === 'dreams' && [
+          <p key="note" className="memory-muted">Between chats the bot tidies its memory from your own words. Each run can be undone.</p>,
+          ...(view.dreams.length ? [] : [<div key="empty" className="memory-empty"><Icon name="moon" size={20} color="var(--tertiary)" /><span>No dreams yet.</span></div>]),
+          ...view.dreams.map((dream) => <div className="memory-item fade-in" key={dream.id}>
+            <div className="memory-content">
+              <strong>{relativeTime.day(dream.at)}{dream.undone ? ' · undone' : ''}</strong>
+              {dream.added.map((c) => <span key={`a${c.id}`}>+ {c.text}</span>)}
+              {dream.archived.map((c) => <span key={`r${c.id}`} className="memory-archived">− {c.text}</span>)}
+              {(dream.files ?? []).map((f) => <span key={`f${f.version}`} className="memory-muted">Added to {f.name}</span>)}
+            </div>
+            {!dream.undone && <IconButton title="Undo this dream" icon="arrow.uturn.backward" disabled={memory.busy} onClick={() => void memory.mutate('undoDream', { id: dream.id })} />}
+          </div>),
+        ]}
+        {view?.projectMemory && section === 'project' && <div className="memory-content">
+          <p className="memory-muted">The project folder's own notes, kept by Claude Code. Read-only here.</p>
+          <small className="memory-muted">{view.projectMemory.path}</small>
+          <pre className="memory-history">{view.projectMemory.text}</pre>
+        </div>}
+      </CardSection>
+    </div>
     <Sheet open={draft !== null} onClose={() => setDraft(null)} width={520}>
       <ModalHeader title={draft?.id ? 'Edit memory' : section === 'yours' ? 'Add to what your bots share' : 'Add memory'} />
       {draft && <div className="memory-editor">

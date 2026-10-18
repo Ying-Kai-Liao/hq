@@ -132,6 +132,28 @@
   color: var(--text);
 }
 
+.tab-choice {
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+}
+.tab-choice-option {
+  height: calc(24px * var(--scale));
+  padding: 0 calc(10px * var(--scale));
+  border-radius: 999px;
+  font-size: calc(13px * var(--scale));
+  color: var(--secondary);
+  white-space: nowrap;
+  transition: background-color var(--hover), color var(--hover);
+}
+.tab-choice-option:hover {
+  color: var(--text);
+}
+.tab-choice-option.on {
+  background: var(--chat-button);
+  color: var(--text);
+}
+
 .choice-row {
   display: flex;
   align-items: center;

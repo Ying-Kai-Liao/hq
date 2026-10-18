@@ -1,0 +1,68 @@
+/* The inspector beside a conversation, laid out like Grok Bot's: actions in the corner, the bot
+   centered on top, page tabs under it, and one scroll for all of it. */
+.details-panel {
+  position: relative;
+  height: 100%;
+  background: var(--background);
+}
+
+.details-actions {
+  position: absolute;
+  top: 11px;
+  right: 11px;
+  z-index: 1;
+  display: flex;
+  gap: 8px;
+}
+
+.details-scroll {
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 24px;
+}
+
+.details-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 62px 20px 18px;
+  text-align: center;
+}
+.details-name {
+  margin-top: 14px;
+  font-size: calc(16px * var(--scale));
+  font-weight: 600;
+  color: var(--text);
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.details-subtitle {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: calc(12px * var(--scale));
+  color: var(--secondary);
+}
+
+.details-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 20px 16px 0;
+}
+/* The settings form scrolls with the panel, not on its own. */
+.details-tab .bot-form {
+  height: auto;
+  overflow: visible;
+  background: none;
+}
+.details-tab .bot-form-content {
+  padding: 0;
+}
+
+.details-members {
+  padding: 0 20px;
+}

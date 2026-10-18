@@ -15,16 +15,12 @@ public struct ThreadView: View {
     @State var openThread: ThreadTarget?
     @State var botChat: BotChatTarget?
     @State var editingGroup = false
-    @State var editing: EditorRequest?
-    @State var templateRequest: EditorRequest?
+    @State var details: DetailsRequest?
     @State var confirmNewSession = false
     @State var confirmDelete: Bot?
     @State var calling = false
     @State var callSpeaking = false
     @State var interruptCall: (() -> Void)?
-    @State var showRoutines = false
-    @State var routineId: String?
-    @State var routineRequest = UUID()
     /// The chat stays on the newest message until the reader scrolls away.
     @State var following = true
     @State var loadingEarlier = false
@@ -84,11 +80,8 @@ public struct ThreadView: View {
                 TraceView(botId: botId)
             }
             .codyncSheet(item: $botChat) { BotConversationView(botId: botId, peerId: $0.id) }
-            .codyncSheet(item: $templateRequest) { request in
-                BotTemplateView(draft: request.draft)
-            }
-            .codyncSheet(item: $editing) { request in
-                BotEditorView(draft: request.draft)
+            .codyncSheet(item: $details) { request in
+                BotDetailsView(botId: botId, request: request)
             }
             .codyncSheet(isPresented: $editingGroup) {
                 GroupEditorView(group: bot)
@@ -96,13 +89,6 @@ public struct ThreadView: View {
             .codyncDialog("Start a new session?", isPresented: $confirmNewSession,
                           message: "The conversation stays here, but the agent starts with a fresh context.") {
                 [DialogAction("New session") { model.newSession(botId) }]
-            }
-            .codyncSheet(isPresented: $showRoutines) {
-                ScrollView {
-                    RoutinesView(botId: botId, initialId: routineId) {
-                        withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { showRoutines = false }
-                    }.padding(20)
-                }
             }
             .deleteBotConfirmation($confirmDelete) { dismiss() }
     }
@@ -198,9 +184,7 @@ public struct ThreadView: View {
 
     func openRoutine(_ id: String?) {
         withAnimation(Motion.reduced(Motion.layout, reduceMotion)) {
-            routineId = id
-            routineRequest = UUID()
-            presentRoutine()
+            details = DetailsRequest(tab: .details, routineId: id)
         }
     }
 
@@ -213,9 +197,7 @@ public struct ThreadView: View {
             return items
         }
         if let bot {
-            items.append(MenuItem("Edit profile", icon: "pencil") {
-                editProfile(bot)
-            })
+            items.append(MenuItem("Settings", icon: "gearshape") { openSettings() })
             items.append(MenuItem(bot.pinned ? "Unpin" : "Pin", icon: "pin") { model.setPinned(bot, !bot.pinned) })
         }
         items.append(MenuItem("Routines", icon: "clock.arrow.circlepath") {
@@ -438,7 +420,7 @@ extension ThreadView {
     }
 
     private func openDetails() {
-        if bot?.isGroup == true { editingGroup = true } else if let bot { editing = EditorRequest(BotDraft(bot)) }
+        if bot?.isGroup == true { editingGroup = true } else { details = DetailsRequest() }
     }
 
     /// Opens the computer's screen; pulses while this bot is operating it (watch, then take over).
@@ -450,11 +432,7 @@ extension ThreadView {
         .symbolEffect(.pulse, options: .repeating, isActive: operating)
     }
 
-    func presentRoutine() {
-        showRoutines = true
-    }
-
-    func editProfile(_ bot: Bot) {
-        editing = EditorRequest(BotDraft(bot))
+    func openSettings() {
+        details = DetailsRequest(tab: .settings)
     }
 }

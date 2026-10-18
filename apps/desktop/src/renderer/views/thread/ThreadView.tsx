@@ -12,7 +12,7 @@ import { BotConversationView, BotMessageRow } from './BotConversation'
 import { ChatRow, TimeSeparator, WorkingIndicator } from './ChatRows'
 import { Composer } from './Composer'
 import { ChatSidePanel } from './ChatSidePanel'
-import { DetailsPanel } from './DetailsPanel'
+import { DetailsPanel, type DetailsTab } from './DetailsPanel'
 import { RepliesView } from './RepliesView'
 import { TraceView } from './TraceView'
 import { useReading } from './reading'
@@ -40,7 +40,7 @@ export function ThreadView({ botId }: { botId: string }) {
   const [editingGroup, setEditingGroup] = useState(false)
   const [templateDraft, setTemplateDraft] = useState<BotDraft | null>(null)
   const [showSettings, setShowSettings] = useState(false)
-  const [editingDetails, setEditingDetails] = useState(false)
+  const [detailsTab, setDetailsTab] = useState<DetailsTab>('details')
   const [compactDetails, setCompactDetails] = useState(false)
   const [calling, setCalling] = useState(false)
   const [callSpeaking, setCallSpeaking] = useState(false)
@@ -97,7 +97,7 @@ export function ThreadView({ botId }: { botId: string }) {
   const presentRoutine = (id: string | null) => {
     setRoutineId(id)
     setRoutineRequest((r) => r + 1)
-    setEditingDetails(false)
+    setDetailsTab('details')
     setOpenThread(null)
     setShowSettings(true)
     if (!wide) setCompactDetails(true)
@@ -108,8 +108,8 @@ export function ThreadView({ botId }: { botId: string }) {
       key={routineRequest}
       botId={botId}
       routineId={routineId}
-      editing={editingDetails}
-      setEditing={setEditingDetails}
+      tab={detailsTab}
+      setTab={setDetailsTab}
       editGroup={() => setEditingGroup(true)}
       share={() => {
         setCompactDetails(false)
@@ -130,7 +130,7 @@ export function ThreadView({ botId }: { botId: string }) {
           <div className="top-chrome-row">
             <span style={{ flex: 1 }} />
             {(!showSettings || openThread || !wide) && !compactDetails ? (
-              <MacChatButton title="Conversation details" icon="chevron.left.2" direction={[-1, 0]} onClick={toggleDetails} />
+              <MacChatButton className="ringed" title="Conversation details" icon="chevron.left.2" direction={[-1, 0]} onClick={toggleDetails} />
             ) : null}
           </div>
           {/* The call bar takes the pill's place; its frosted glass would show the name blurred. */}

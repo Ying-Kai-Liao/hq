@@ -15,18 +15,12 @@ struct MemoryCard: View {
     private var bot: Bot? { host.bots[botId] }
 
     var body: some View {
-        CardSection("Memory") {
-            if let memory { contents(memory) }
-            else { Text("Loading memory…").foregroundStyle(Palette.secondary) }
-        } accessory: {
-            if let memory, section == .yours || section == .bot {
-                HStack(spacing: 2) {
-                    IconButton("Add memory", systemImage: "plus") {
-                        withAnimation(Motion.layout) { editor = MemoryEditTarget(entry: nil, shared: section == .yours, text: "") }
-                    }
-                    .disabled(memory.busy)
-                    moreMenu(memory)
-                }
+        VStack(spacing: 10) {
+            TabChoice(selection: Binding(get: { section }, set: { value in withAnimation(Motion.layout) { section = value } }),
+                      options: sections(memory?.view))
+            CardSection {
+                if let memory { contents(memory) }
+                else { Text("Loading memory…").foregroundStyle(Palette.secondary) }
             }
         }
         // Memory changes anywhere move the bot's `memoryRev`: fetch again.
@@ -47,8 +41,6 @@ struct MemoryCard: View {
     }
 
     @ViewBuilder private func contents(_ memory: MemoryStore) -> some View {
-        SegmentedChoice(selection: Binding(get: { section }, set: { value in withAnimation(Motion.layout) { section = value } }),
-                        options: sections(memory.view))
         if let error = memory.error { Text(error).foregroundStyle(Palette.danger).textSelection(.enabled) }
         if let view = memory.view {
             switch section {
@@ -73,8 +65,16 @@ struct MemoryCard: View {
             Toggle("Use what your bots share", isOn: Binding(get: { bot.sharedMemory ?? view.shared }, set: { host.setSharedMemory(bot, $0) }))
                 .toggleStyle(.codync)
         }
-        Text("\(shared ? "Your name, time zone, people and lasting preferences, shared by your bots." : "What this bot learned about you.") \(layer.used) of \(layer.cap) in use.")
-            .font(.footnote).foregroundStyle(Palette.secondary)
+        HStack(alignment: .top, spacing: 8) {
+            Text("\(shared ? "Your name, time zone, people and lasting preferences, shared by your bots." : "What this bot learned about you.") \(layer.used) of \(layer.cap) in use.")
+                .font(.footnote).foregroundStyle(Palette.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            IconButton("Add memory", systemImage: "plus") {
+                withAnimation(Motion.layout) { editor = MemoryEditTarget(entry: nil, shared: shared, text: "") }
+            }
+            .disabled(memory.busy)
+            moreMenu(memory)
+        }
         if layer.entries.isEmpty {
             empty("brain", shared ? "Nothing shared yet." : "Nothing yet. What this bot learns about you shows up here, and you can change any of it.")
         }

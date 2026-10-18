@@ -101,6 +101,19 @@ export function SegmentedChoice<T extends string>({ selection, options, onChange
   )
 }
 
+/** Grok Bot's page tabs: plain labels, the chosen one on a light capsule. */
+export function TabChoice<T extends string>({ label, selection, options, onChange }: { label: string; selection: T; options: { id: T; label: string }[]; onChange: (id: T) => void }) {
+  return (
+    <div className="tab-choice" role="tablist" aria-label={label}>
+      {options.map((o) => (
+        <button key={o.id} role="tab" aria-selected={o.id === selection} className={`tab-choice-option ${o.id === selection ? 'on' : ''}`} onClick={() => onChange(o.id)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /** A list of choices, one per row with a checkmark: the replacement for `.inline` pickers. */
 export function ChoiceList<T extends string>({ selection, options, onChange }: { selection: T; options: { id: T; label: string; detail?: string | null }[]; onChange: (id: T) => void }) {
   return (
@@ -137,9 +150,9 @@ export function CardSection({ title, footer, accessory, children }: { title?: st
   const rows = Children.toArray(children)
   return (
     <section className="card-section">
-      {title ? (
+      {title || accessory ? (
         <div className="card-section-title">
-          <span style={{ ...font(13, 'semibold'), color: 'var(--text)' }}>{title}</span>
+          {title ? <span style={{ ...font(13, 'semibold'), color: 'var(--text)' }}>{title}</span> : null}
           <span style={{ flex: 1 }} />
           {accessory}
         </div>
