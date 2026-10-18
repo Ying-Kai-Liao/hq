@@ -58,7 +58,7 @@ export async function registerDevice(c: Ctx) {
   const s = await signed(c);
   const b = body(c);
   const name = str(b, "name");
-  const platform = oneOf(b, "platform", ["ios", "macos", "linux", "windows"] as const);
+  const platform = oneOf(b, "platform", ["ios", "macos", "linux", "windows", "android"] as const);
   const existing = await c.env.DB.prepare("SELECT * FROM devices WHERE owner_user_id = ? AND sign_pub = ?")
     .bind(u.userId, s.kid)
     .first<DeviceRow>();

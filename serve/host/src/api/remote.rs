@@ -59,6 +59,10 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             }
             json!({})
         }
+        "unregisterActivity" => {
+            hub.store.remove_activity_ticket(str_arg(&b, "botId")?, caller.device_key())?;
+            json!({})
+        }
         "pairing" => pairing(hub).await?,
         "devices" => {
             let connected = hub.connected.locked().clone();
