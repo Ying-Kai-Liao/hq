@@ -125,7 +125,8 @@ result shape back. Session ids from other harnesses are `<harness>:<id>`, so a s
 harness that made it. Settings permissions, hooks and per-request cost stay Claude-only.
 
 **Permission mode** (`lib/hq_settings.py`, 2026-10-19). An owner's run starts in the first mode that is set: the
-caller's (`HQ_PERMISSION_MODE`, which the bridge, `hq schedule`, `hq ask` and `hq remote` set only from their own
+caller's (`--permission-mode MODE` or `--bypass` on `hq <agent>`, else `HQ_PERMISSION_MODE`, which the bridge,
+`hq schedule`, `hq ask` and `hq remote` set only from their own
 `HQ_BRIDGE_`, `HQ_SCHED_`, `HQ_ASK_` and `HQ_REMOTE_PERMISSION_MODE`), this Mac's choice for the agent
 (`agents.<name>.permission_mode` in `~/.hq/settings.json`; `hq install` asks for someone's agent and saves the
 answer, `bypassPermissions` only on a yes), the agent's `settings.json` `permissions.defaultMode` (its author's
