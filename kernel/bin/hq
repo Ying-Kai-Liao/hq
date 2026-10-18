@@ -26,6 +26,7 @@
 #   hq memory search <words> [--agent NAME|--all]      search what the agents wrote down (hq-memory)
 #   hq project [ls|open ID|root|add ID [dir] [--in P] [--home [DIR]]]  projects: what each holds, its folder, its memory
 #   hq schedule [ls|add|rm|run|log|--install ...]      run agent tasks on a cron schedule (hq-sched)
+#   hq acp <agent> [--keep team,…]                     the agent as an ACP agent, one session per chat (hq-acp)
 #
 # Every run is pinned to a snapshot of the agent's package (bin/hq-pkg): edits, by anyone, become the next run's
 # version once they pass checks; running sessions keep theirs. Shared services and their secrets come from
@@ -52,7 +53,7 @@ set -euo pipefail
 src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
 HQ="$(cd "$(dirname "$src")/.." && pwd)"
 
-[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,28p' "$0" | sed 's/^#   //'; exit 0; }
+[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,29p' "$0" | sed 's/^#   //'; exit 0; }
 export HQ_ROOT=$HQ
 # Where things are, from the one place that knows (lib/hq_paths.py): HQ_HOME (~/hq) holding kernel/ and agents/ (each
 # agent: role/ its repo, memory/ data/ files/ its life), and ~/.hq (user.md, projects, this Mac's things). Exported
@@ -75,6 +76,7 @@ case $1 in
   who)                shift; exec "$HQ/bin/hq-who" "${@:---help}" ;;
   project)            shift; exec "$HQ/bin/hq-project" "$@" ;;
   schedule)           shift; exec "$HQ/bin/hq-sched" "${@:-ls}" ;;
+  acp)                shift; exec "$HQ/bin/hq-acp" "$@" ;;
 esac
 
 # An agent is a folder in the agents folder: its role (role/, its own repo: agent.md, skills, tools) next to its life
