@@ -205,7 +205,8 @@ apply to full `hq <agent>` runs.
   the Keychain as `google/<person>` and granted `agent@person`. Needs a Google Cloud OAuth client, and the bridge has
   no public URL: either the loopback redirect (the person pastes back the address their browser fails to open) or a
   small relay. Undecided.
-- **Shared browser logins:** the owner's browser profiles hold the agents' accounts. A profile opens in one run at a
+- **Shared browser logins** (deferred 2026-10-19 until two runs need one profile at once; who may use a login is
+  built: `hq auth share`): the owner's browser profiles hold the agents' accounts. A profile opens in one run at a
   time, so each run gets an APFS clone, thrown away after (a login refreshed during a run is lost). `chrome-agent`
   should become a browser profile (`browser/agent`, living in the Chrome app). It can't be merged into the
   jev-browser profile yet: yt-dlp couldn't decrypt 208 of that profile's 670 cookies, which are encrypted with a
