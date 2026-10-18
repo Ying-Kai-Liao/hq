@@ -25,6 +25,7 @@ interface Lift {
   width: number
   grab: Point
   at: Point
+  seq: number
 }
 
 export function BotRoster({ roster, compact, onContext }: {
@@ -46,6 +47,10 @@ export function BotRoster({ roster, compact, onContext }: {
   const [lift, setLift] = useState<Lift | null>(null)
   const ghost = useRef<HTMLDivElement>(null)
   const grab = useRef<Point>({ x: 0, y: 0 })
+  const settle = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Near the roster's top or bottom edge a drag scrolls it, from the last point the pointer was at.
+  const pointer = useRef<Point>({ x: 0, y: 0 })
+  const edgeScroll = useRef(0)
   const itemsByKey = useRef(new Map<string, RosterItem>())
   itemsByKey.current = new Map(roster.sections.flatMap((s) => s.items).map((item) => [refKey(item.ref), item]))
 
@@ -58,16 +63,38 @@ export function BotRoster({ roster, compact, onContext }: {
 
   // The row lifts: a copy follows the pointer from where it was grabbed; the row's slot stays open.
   const liftRow = (item: RosterItem, siblings: RosterItem[], from: Point) => {
+    // A lift during the last one's settle takes over from it.
+    if (settle.current) clearTimeout(settle.current)
+    settle.current = null
     const rect = rowRect(item)
     setBotDrag({ item, ids: siblings.map((s) => s.bot.id) })
     if (!rect) return
     grab.current = { x: from.x - rect.left, y: from.y - rect.top }
-    setLift({ item, width: rect.width, grab: grab.current, at: from })
+    setLift((last) => ({ item, width: rect.width, grab: grab.current, at: from, seq: (last?.seq ?? 0) + 1 }))
+  }
+
+  const dragOver = (at: Point, under: Element | null) => {
+    pointer.current = at
+    if (ghost.current) ghost.current.style.translate = ghostTranslate(at, grab.current)
+    makeRoom(under)
+    if (!edgeScroll.current) scrollAtEdge()
+  }
+
+  const scrollAtEdge = () => {
+    const current = drag.current
+    const scroller = current && rowElement(current.item)?.closest<HTMLElement>('.roster')
+    if (!scroller) return void (edgeScroll.current = 0)
+    const box = scroller.getBoundingClientRect()
+    const { x, y } = pointer.current
+    const reach = Math.max(0, box.top + EDGE - y) - Math.max(0, y - (box.bottom - EDGE))
+    if (!reach) return void (edgeScroll.current = 0)
+    scroller.scrollTop -= Math.round((reach / EDGE) * EDGE_SPEED)
+    makeRoom(document.elementFromPoint(x, y))
+    edgeScroll.current = requestAnimationFrame(scrollAtEdge)
   }
 
   // Any row of the same computer is a target; only rows with the same pin state make room.
-  const dragOver = (at: Point, under: Element | null) => {
-    if (ghost.current) ghost.current.style.translate = ghostTranslate(at, grab.current)
+  const makeRoom = (under: Element | null) => {
     const current = drag.current
     const row = under?.closest<HTMLElement>('[data-roster-row]')
     const item = row && itemsByKey.current.get(row.dataset.rosterRow!)
@@ -78,20 +105,29 @@ export function BotRoster({ roster, compact, onContext }: {
   }
 
   const endDrag = () => {
+    cancelAnimationFrame(edgeScroll.current)
+    edgeScroll.current = 0
+    settle.current = null
     setBotDrag(null)
     setLift(null)
   }
 
-  // The copy settles into the row's new slot, then the row shows again.
+  // The copy settles into the row's new slot (when it's in view), then the row shows again.
   const drop = () => {
     const current = drag.current
     if (!current) return endDrag()
+    cancelAnimationFrame(edgeScroll.current)
     if (current.ids.some((id, index) => id !== current.item.store.roster[index]?.id)) current.item.store.reorder(current.ids)
-    const slot = rowRect(current.item)
-    if (!slot || !ghost.current || reduceMotion()) return endDrag()
+    const row = rowElement(current.item)
+    // Measured where the row ends up, not partway through its slide.
+    for (const animation of row?.getAnimations() ?? []) animation.finish()
+    const slot = row?.getBoundingClientRect()
+    const view = row?.closest('.roster')?.getBoundingClientRect()
+    const visible = slot && view && slot.bottom > view.top && slot.top < view.bottom
+    if (!slot || !visible || !ghost.current || reduceMotion()) return endDrag()
     ghost.current.classList.add('settling')
     ghost.current.style.translate = `${slot.left}px ${slot.top}px`
-    setTimeout(endDrag, SETTLE_MS)
+    settle.current = setTimeout(endDrag, SETTLE_MS)
   }
 
   const row = (item: RosterItem, siblings: RosterItem[]) => {
@@ -109,10 +145,7 @@ export function BotRoster({ roster, compact, onContext }: {
         title={many ? `${item.bot.name} · ${item.store.hostName}` : item.bot.name}
         selected={isSelected}
         dragKey={key}
-        onHover={(on) => {
-          if (drag.current) return
-          setHovered((h) => (on ? key : h === key ? null : h))
-        }}
+        onHover={(on) => setHovered((h) => (on ? key : h === key ? null : h))}
         onClick={() => app.select(item.ref)}
         onContext={(x, y) => onContext(item.bot, item.store, x, y)}
         lifted={held && lift !== null}
@@ -140,7 +173,7 @@ export function BotRoster({ roster, compact, onContext }: {
   return (
     <>
       {sections}
-      {lift ? <RosterGhost lift={lift} ghost={ghost} compact={compact} /> : null}
+      {lift ? <RosterGhost key={lift.seq} lift={lift} ghost={ghost} compact={compact} /> : null}
     </>
   )
 }
@@ -206,9 +239,17 @@ const noMembers: Bot[] = []
 /** How long the lifted copy takes to settle into its slot (`--morph`). */
 const SETTLE_MS = 200
 
+/** How close to the roster's edge a drag starts scrolling it, and how fast (points per frame). */
+const EDGE = 36
+const EDGE_SPEED = 12
+
+function rowElement(item: RosterItem): HTMLElement | null {
+  return document.querySelector<HTMLElement>(`[data-roster-row="${CSS.escape(refKey(item.ref))}"]`)
+}
+
 /** Where a row is on screen now. */
 function rowRect(item: RosterItem): DOMRect | undefined {
-  return document.querySelector(`[data-roster-row="${CSS.escape(refKey(item.ref))}"]`)?.getBoundingClientRect()
+  return rowElement(item)?.getBoundingClientRect()
 }
 
 /** The lifted copy's `translate` that keeps the point it was grabbed by under the pointer. */

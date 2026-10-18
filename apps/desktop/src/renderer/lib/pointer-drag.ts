@@ -63,6 +63,9 @@ export function pointerDrag(handlers: PointerDragHandlers) {
         e.preventDefault()
         e.stopPropagation()
         cancel()
+        // The release still to come is the end of this gesture (unless a new press comes first).
+        window.addEventListener('pointerup', swallowNextClick, { once: true })
+        window.addEventListener('pointerdown', () => window.removeEventListener('pointerup', swallowNextClick), { once: true })
       }
       window.addEventListener('pointermove', move)
       window.addEventListener('pointerup', up)

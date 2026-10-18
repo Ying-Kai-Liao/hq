@@ -177,16 +177,18 @@ button {
   text-align: inherit;
 }
 /* Anything clickable shows the pointing hand; :where keeps it below each view's own cursor. */
-:where(button:not(:disabled), a[href], [role='button'], [role='tab'], [role='switch'], [role='menuitem'], [role='menuitemradio'], [role='option'], select, summary, label:has(input)) {
+:where(button:not(:disabled), a[href], [role='button'], [role='tab'], [role='switch'], [role='menuitem'], [role='menuitemradio'], [role='option'], select, summary) {
   cursor: pointer;
 }
 /* A drag in progress (lib/pointer-drag.ts, ResizeHandle) keeps its cursor wherever the pointer goes. */
 .pointer-dragging,
-.pointer-dragging * {
+.pointer-dragging *,
+.pointer-dragging *::after {
   cursor: grabbing !important;
 }
 .col-resizing,
-.col-resizing * {
+.col-resizing *,
+.col-resizing *::after {
   cursor: col-resize !important;
 }
 button:focus-visible,

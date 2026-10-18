@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import { ResizeHandle } from '../../components/Controls'
 import { usePresence } from '../../components/Overlay'
 
@@ -19,7 +19,6 @@ export function ChatSidePanel({ open, width, min, max, onResize, children }: {
   // Animate explicit open/close actions without animating the initial mount.
   const { mounted, shown } = usePresence(open, 300, false)
   const last = useRef({ width, children })
-  const [resizing, setResizing] = useState(false)
   if (open) last.current = { width, children }
   const content = open ? { width, children } : last.current
   // The content plus the edge's hairline.
@@ -28,8 +27,8 @@ export function ChatSidePanel({ open, width, min, max, onResize, children }: {
     <>
       <div className="side-panel-slot" style={{ width: open ? panelWidth : 0 }} />
       {mounted ? (
-        <div className={`side-panel ${resizing ? 'resizing' : ''}`} inert={!open} style={{ width: panelWidth, right: shown ? 0 : -panelWidth }}>
-          <ResizeHandle label="Resize panel" width={content.width} min={min} max={max} edge="leading" onResize={onResize} onDragging={setResizing} />
+        <div className="side-panel" inert={!open} style={{ width: panelWidth, right: shown ? 0 : -panelWidth }}>
+          <ResizeHandle label="Resize panel" width={content.width} min={min} max={max} edge="leading" onResize={onResize} />
           <div className="side-panel-content" style={{ width: content.width }}>{content.children}</div>
         </div>
       ) : null}

@@ -129,6 +129,10 @@ html[data-platform="darwin"] .sidebar-header {
 .roster-row.selected {
   background: var(--roster-selected);
 }
+/* Rows the pointer passes over while dragging don't light up. */
+.pointer-dragging .roster-row.hovered:not(.selected) {
+  background: none;
+}
 /* Dragging (iOS's lifted cell): the row's slot stays open while a smaller, translucent copy
    follows the pointer, then settles into the slot. */
 .roster-row.lifted {

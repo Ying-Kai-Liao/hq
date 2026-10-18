@@ -1,4 +1,4 @@
-import { Children, Fragment, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import { Children, Fragment, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import { Icon } from './Icon'
 import { AnchoredMenu, IconButtonBase, type MenuItem } from './Overlay'
 import { HStack, Spacer, VStack } from './Stack'
@@ -262,6 +262,9 @@ export function ResizeHandle({ label, width, min, max, edge, onResize, onDraggin
   onDragging?: (dragging: boolean) => void
 }) {
   const start = useRef<{ x: number; width: number } | null>(null)
+  useEffect(() => () => {
+    if (start.current) document.documentElement.classList.remove('col-resizing')
+  }, [])
   // Dragging toward the panel's outside grows it.
   const grow = edge === 'trailing' ? 1 : -1
   const end = () => {

@@ -406,7 +406,6 @@
   overflow: clip;
   overflow-clip-margin: 4px;
 }
-.side-panel.resizing { transition: none; }
 .side-panel-content {
   height: 100%;
   flex: none;
