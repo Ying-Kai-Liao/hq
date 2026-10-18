@@ -114,8 +114,9 @@ commit: <full sha>   updated: YYYY-MM-DD   by: <agent>
   right before editing and change only your sections.
 - `ID.md` and session files are yours alone.
 - Stay in your lane: work that belongs to another specialist goes to it as above, not done by you. Code
-  changes in someone's repo: unless the user asked you to make them, hand back a bounded request (what to change,
-  where, acceptance criteria) for the user to run through flow. You don't start flow yourself.
+  changes in a repo are coder's (when it is installed): unless the user asked you to make them yourself, hand back a
+  bounded request (what to change, where, acceptance criteria) for the user to give coder. You don't start flow or
+  coder yourself.
 
 ## End of every call
 Write the session file, append any decisions, update project and long-term memory if you learned something durable,
