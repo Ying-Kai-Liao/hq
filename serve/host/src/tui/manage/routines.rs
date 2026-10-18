@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use std::str::FromStr as _;
 
 use super::super::app::{App, Confirm, ConfirmAct, Editor, Focus, Overlay};
-use super::{Reply, RoutineField, RoutineForm, RoutineList, ctrl, newline, s};
+use super::{Page, Reply, RoutineField, RoutineForm, RoutineList, ctrl, newline, s};
 
 impl App {
     pub fn open_routines(&mut self) {
@@ -19,6 +19,10 @@ impl App {
     }
 
     pub(in crate::tui) fn routines_key(&mut self, mut l: RoutineList, k: KeyEvent) -> Option<Overlay> {
+        if let Some(page) = Page::Details.step(k) {
+            self.open_page(page);
+            return None;
+        }
         let n = l.items.as_ref().map_or(0, Vec::len);
         let current = l.items.as_ref().and_then(|v| v.get(l.cursor)).cloned();
         let bot = l.bot.clone();

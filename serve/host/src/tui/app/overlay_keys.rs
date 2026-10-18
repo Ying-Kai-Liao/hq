@@ -49,7 +49,7 @@ impl App {
             Action::NewGroup => self.new_group(),
             Action::Market => self.open_market(),
             Action::Memory => self.open_memory(),
-            Action::Routines => self.open_routines(),
+            Action::Details => self.open_routines(),
             Action::RefreshAgents => self.call("refreshBackends", json!({}), After::Backends),
             Action::Pair => self.open_pair(),
             Action::Usage => self.overlays.push(Overlay::Usage),

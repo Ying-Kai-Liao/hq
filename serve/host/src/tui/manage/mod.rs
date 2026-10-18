@@ -11,6 +11,7 @@ mod bot_chat;
 mod fields;
 mod market;
 mod memory;
+mod pages;
 mod replies;
 mod routines;
 mod skill;
@@ -18,6 +19,7 @@ mod skill;
 pub use analytics::AnalyticsSheet;
 pub use fields::{handoff_fields, memory_file_fields};
 pub use memory::{MemoryMode, MemorySheet, Section};
+pub use pages::Page;
 pub use routines::local_zone;
 pub use skill::SkillSheet;
 

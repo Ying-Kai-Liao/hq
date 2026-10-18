@@ -50,7 +50,7 @@ pub enum Action {
     NewGroup,
     Market,
     Memory,
-    Routines,
+    Details,
     RefreshAgents,
     Pair,
     Usage,
@@ -67,7 +67,7 @@ pub const ACTIONS: [(&str, &str, Action); 12] = [
     ("New group chat…", "m", Action::NewGroup),
     ("Extensions: agents, connectors, skills…", "A", Action::Market),
     ("Memory of this bot…", "M", Action::Memory),
-    ("Routines of this bot…", "R", Action::Routines),
+    ("Details of this bot…", "R", Action::Details),
     ("Refresh agents", "", Action::RefreshAgents),
     ("Pair a phone…", "P", Action::Pair),
     ("Usage", "U", Action::Usage),
@@ -203,6 +203,8 @@ pub struct Form {
     pub sub: usize,
     pub error: Option<String>,
     pub saving: bool,
+    /// The settings as opened, to tell edits apart.
+    pub opened: serde_json::Value,
 }
 
 impl Form {

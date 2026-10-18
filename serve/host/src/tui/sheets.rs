@@ -13,7 +13,7 @@ pub use memory_view::draw as memory;
 
 use super::app::{App, Editor};
 use super::manage::{
-    AgentSetup, Fields, Market, RoutineField, RoutineForm, RoutineList, Row, SetupRow, Submit, TABS, Tab,
+    AgentSetup, Fields, Market, Page, RoutineField, RoutineForm, RoutineList, Row, SetupRow, Submit, TABS, Tab,
 };
 use super::md::truncate;
 use super::view::{
@@ -54,11 +54,32 @@ fn name_of(app: &App, bot: &str) -> String {
     app.bots.get(bot).map_or_else(String::new, |b| b.name.clone())
 }
 
+/// A bot's pages on the top line (Details, Memory, Settings) with this one marked; returns the
+/// area under it.
+pub fn page_tabs(buf: &mut Buffer, inner: Rect, current: Page) -> Rect {
+    let t = theme();
+    let mut x = inner.x;
+    for page in Page::ALL {
+        let style = if page == current { t.text.patch(t.sel) } else { t.secondary.patch(t.panel) };
+        x = put(buf, x, inner.y, inner.right().saturating_sub(x), &format!(" {} ", page.label()), style) + 1;
+    }
+    rput(buf, inner.right(), inner.y, "⇧←→ page", t.dim.patch(t.panel));
+    Rect::new(inner.x, inner.y + 2, inner.width, inner.height.saturating_sub(2))
+}
+
 pub fn routines(buf: &mut Buffer, area: Rect, app: &App, l: &RoutineList) {
     let t = theme();
-    let r = centered(area, 90, 24);
-    let title = format!("{}'s routines", name_of(app, &l.bot));
+    let r = centered(area, 90, 28);
+    let title = name_of(app, &l.bot);
     let inner = frame_box(buf, r, t.text, t.panel, Some((&title, t.text)));
+    let mut inner = page_tabs(buf, inner, Page::Details);
+    if !app.screen.is_null() {
+        let on = app.bots.get(&l.bot).is_some_and(|b| b.computer);
+        put(buf, inner.x, inner.y, inner.width, "Use the computer", t.text.patch(t.panel));
+        rput(buf, inner.right(), inner.y, if on { "On" } else { "Off" }, t.secondary.patch(t.panel));
+        inner = Rect::new(inner.x, inner.y + 2, inner.width, inner.height.saturating_sub(2));
+    }
+    put(buf, inner.x, inner.y, inner.width, "Routines", t.bold.patch(t.panel));
     let list_h = usize::from(inner.height.saturating_sub(3)) / 2;
     match &l.items {
         None => {

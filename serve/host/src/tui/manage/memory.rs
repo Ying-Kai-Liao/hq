@@ -2,8 +2,8 @@
 //! log, and its project folder's own memory, driven from the keyboard.
 
 use super::super::app::{App, Confirm, ConfirmAct, Editor, Overlay};
-use super::Reply;
 use super::s;
+use super::{Page, Reply};
 use crossterm::event::{KeyCode, KeyEvent};
 use serde_json::{Value, json};
 
@@ -177,6 +177,10 @@ impl App {
                 }
             }
             return Some(Overlay::Memory(m));
+        }
+        if let Some(page) = Page::Memory.step(k) {
+            self.open_page(page);
+            return None;
         }
         let rows = m.rows();
         let selected = rows.get(m.cursor).cloned();

@@ -1,16 +1,19 @@
 //! A bot's memory: about you, this bot's own, its dreams and its project's memory.
 
-use super::{App, Buffer, Rect, centered, footer, frame_box, input_line, name_of, put, row, s, theme, u, window};
-use crate::tui::manage::{MemoryMode, MemorySheet, Section};
+use super::{
+    App, Buffer, Rect, centered, footer, frame_box, input_line, name_of, page_tabs, put, row, s, theme, u, window,
+};
+use crate::tui::manage::{MemoryMode, MemorySheet, Page, Section};
 use crate::tui::view::when;
 use ratatui::widgets::{Paragraph, Widget, Wrap};
 use serde_json::Value;
 
 pub fn draw(buf: &mut Buffer, area: Rect, app: &App, memory: &MemorySheet) {
     let palette = theme();
-    let rect = centered(area, 100, 30);
-    let title = format!("{} · Memory", name_of(app, &memory.bot));
+    let rect = centered(area, 100, 32);
+    let title = name_of(app, &memory.bot);
     let inner = frame_box(buf, rect, palette.text, palette.panel, Some((&title, palette.text)));
+    let inner = page_tabs(buf, inner, Page::Memory);
     tabs(buf, inner, memory);
     let body = Rect::new(inner.x, inner.y + 2, inner.width, inner.height.saturating_sub(5));
     let keys = match &memory.mode {

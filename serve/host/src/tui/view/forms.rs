@@ -5,7 +5,9 @@ use ratatui::layout::{Position, Rect};
 use ratatui::style::{Modifier, Style};
 
 use super::super::app::{App, COLORS, Editor, FIELDS, Field, Form, GroupField, GroupForm, SHAPES, tilde};
+use super::super::manage::Page;
 use super::super::md::{truncate, width as w};
+use super::super::sheets::page_tabs;
 use super::buffer::{centered, frame_box, put, put_line, restyle, rput, u};
 use super::chat::composer_lines;
 use super::overlay::input_line;
@@ -14,12 +16,13 @@ use super::style::{FACE, avatar, bot_color, face_style, theme};
 
 pub(super) fn form_view(buf: &mut Buffer, area: Rect, app: &App, f: &Form) {
     let t = theme();
-    let r = centered(area, 88, 32);
+    let r = centered(area, 88, if f.bot_id.is_some() { 34 } else { 32 });
     let title = match &f.bot_id {
-        Some(_) => format!("Edit {}", f.name.text),
+        Some(id) => app.bots.get(id).map_or_else(|| f.name.text.clone(), |b| b.name.clone()),
         None => "New bot · 2/2 name and looks".into(),
     };
     let inner = frame_box(buf, r, t.text, t.panel, Some((&title, t.text)));
+    let inner = if f.bot_id.is_some() { page_tabs(buf, inner, Page::Settings) } else { inner };
     let wide = inner.width >= 70;
     let fx = if wide { inner.x + 18 } else { inner.x };
     if wide {
