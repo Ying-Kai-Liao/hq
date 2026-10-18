@@ -15,9 +15,8 @@ today a run for someone else (`HQ_PERSON=sam`):
 - **collides on sessions.** `memory/sessions/ID.md` is overwritten at the end of every call, so Sam's call on a
   project wipes where the owner's call left off, and the other way round.
 - **mixes outputs.** `files/ID/` holds both people's renders and exports.
-- **can search past the denials.** `hq-memory search` is a command runs may use without asking. It reads
-  `user.md` and, with `--all`, every agent's memory, so a person's run can print what the Read rules hide (found
-  by reading the code; not tried).
+- **could search past the denials** (closed 2026-10-19). `hq-memory search` is a command runs may use without
+  asking, and it read `user.md` and, with `--all`, every agent's memory.
 
 ## Target
 
@@ -70,7 +69,7 @@ per-person data decides that in its own role.
 
 One at a time; each ends with its check.
 
-1. **Close the search hole** (small and independent: do it first, even before the rest). `hq-memory` in a run
+1. **Close the search hole** (done 2026-10-19, before the rest: for now it searches the agent's whole memory, which the run sees anyway; narrow it to `shared/` and `people/<id>/` with step 2). `hq-memory` in a run
    whose `HQ_PERSON` isn't the owner searches only that agent's `shared/` and `people/<id>/`, never `user.md`,
    other agents or `--all`.
    Check: as a test person, `hq-memory search --all <a word in user.md>` finds nothing.
