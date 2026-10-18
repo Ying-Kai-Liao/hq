@@ -70,9 +70,9 @@ impl Actor {
                     self.stop().await;
                 }
                 self.forget_session();
-                // Retain and summarize completed exchanges even when the user starts afresh.
+                // Retain and summarize completed exchanges even when the user starts afresh. The chat shows no line
+                // for it: the user just confirmed it.
                 let _ = self.dreamer.send(memory::DreamEvent::Flush);
-                self.notice("New session — the agent starts with a fresh context.", NoticeStyle::Divider);
             }
             Cmd::Reconfigure(cfg) => {
                 let cfg = *cfg;
