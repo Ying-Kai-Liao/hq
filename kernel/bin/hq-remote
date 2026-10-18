@@ -23,7 +23,7 @@ Code handoff, when you ask from inside a git repo (--no-code skips it):
   -c continues in the same worktree with the same agent session; changes you made since are not sent again.
 
 The run on the other machine is `hq ask` there (tagged via=ask), with --permission-mode from that machine's
-HQ_REMOTE_PERMISSION_MODE (default acceptEdits: it may edit files in its worktree, other tools follow its settings).
+HQ_REMOTE_PERMISSION_MODE when set, else the agent's settings.json defaultMode, else that machine's hq default (auto).
 Once per agent machine: macOS keeps the login keychain, where Claude Code keeps its login, away from ssh sessions, so
 run `claude setup-token` there and put the token in its ~/.hq/secrets/env as CLAUDE_CODE_OAUTH_TOKEN=... (chmod 600);
 remote runs use it, nothing else does.
@@ -269,7 +269,9 @@ def serve_run(req):
         argv.append('-c')
     for k, v in (req.get('opts') or {}).items():
         argv += [k, v]
-    env = dict(os.environ, HQ_ASK_PERMISSION_MODE=os.environ.get('HQ_REMOTE_PERMISSION_MODE', 'acceptEdits'))
+    env = dict(os.environ)
+    if os.environ.get('HQ_REMOTE_PERMISSION_MODE'):   # unset: the agent's mode, else hq's default (bin/hq)
+        env['HQ_ASK_PERMISSION_MODE'] = os.environ['HQ_REMOTE_PERMISSION_MODE']
     # Over ssh, macOS keeps the login keychain (where Claude Code keeps its login) out of reach: use the long-lived
     # token from `claude setup-token`, kept in hq's env file (ENV) as CLAUDE_CODE_OAUTH_TOKEN, for this run only.
     if 'CLAUDE_CODE_OAUTH_TOKEN' not in env:

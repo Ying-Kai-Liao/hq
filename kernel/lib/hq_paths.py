@@ -11,8 +11,8 @@ Two places, like ~/.claude for Claude Code:
           repo) and agents/ (one folder per agent: role/ is its repo, memory/ data/ files/ its life)
   ~/.hq   this Mac's hq, a real folder on the internal disk: what hq has lived (user.md, projects/, projects.json,
           agents.json, private-words: the hq-state repo, ~/.hq itself) and what only this machine needs, never
-          committed: secrets/ (auth.json, env), settings, job state, the cost ledger, store/ (role snapshots),
-          logs/, cache/
+          committed: secrets/ (auth.json, env), settings.json (hq_settings.py), job state, the cost ledger,
+          store/ (role snapshots), logs/, cache/
 
 HQ_HOME set: that folder instead of ~/hq. Before ~/.hq became a real folder it was a link to the hq folder; then the
 state is <home>/state, machine things are in ~/.config/hq, logs in ~/Library/Logs/hq, caches in ~/Library/Caches/hq

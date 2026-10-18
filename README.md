@@ -326,8 +326,17 @@ agent delivers with `hq-send`. Jobs are kept with the agent's life (`agents/<nam
 private, versioned with your memory and never part of a shared package. `hq schedule` lists jobs with their next run,
 `hq schedule log house <id>` shows the last run's output, `pause`/`resume`/`rm`/`run` do what they say. Run
 `hq schedule --install` once per Mac: a LaunchAgent ticks every minute, and a time missed while the Mac slept runs
-once on the next tick. Nobody approves tool calls in a scheduled run, so it uses `HQ_SCHED_PERMISSION_MODE`
-(default `bypassPermissions`, as Discord tasks do); the agent's own allow/deny rules still apply.
+once on the next tick. Nobody approves tool calls in a scheduled run: it starts in `HQ_SCHED_PERMISSION_MODE` when
+set, else in the agent's own mode, else in hq's default (`auto`, as every other run), and the agent's own allow/deny
+rules still apply.
+
+## Permission mode
+Every run starts in the first permission mode that is set: the caller's (`HQ_PERMISSION_MODE`; the bridge, schedules,
+`hq ask` and remote runs pass theirs from `HQ_BRIDGE_`, `HQ_SCHED_`, `HQ_ASK_` and `HQ_REMOTE_PERMISSION_MODE`), the
+agent's `settings.json` `permissions.defaultMode`, then hq's default, `auto`. To change hq's default on a Mac, put
+`{"permission_mode": "acceptEdits"}` (or another Claude Code mode) in its `~/.hq/settings.json`, hq's own settings:
+not secret and never committed. `hq doctor` shows the default in force. People other than you get their membership's
+mode (`hq auth member`).
 
 ## Memory layers
 1. **Identity and skills:** `agent.md` + `skills/` (including the ones it learned) + `capabilities.yaml`.
