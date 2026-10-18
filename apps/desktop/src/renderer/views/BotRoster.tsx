@@ -54,12 +54,13 @@ export function BotRoster({ roster, compact, onContext }: {
   const row = (item: RosterItem, siblings: RosterItem[]) => {
     const key = refKey(item.ref)
     const isSelected = sameRef(item.ref, selected)
+    // The held row is drawn as hovered: it is the only copy of itself while dragging (no drag image).
+    const held = botDrag?.item.bot.id === item.bot.id && botDrag.item.ref.computerId === item.ref.computerId
     const many = roster.sections.length > 1
     return (
       <RosterRow
         key={key}
-        dragging={botDrag?.item.bot.id === item.bot.id && botDrag.item.ref.computerId === item.ref.computerId}
-        background={isSelected ? 'var(--roster-selected)' : hovered === key ? 'var(--bubble-agent)' : 'transparent'}
+        background={isSelected ? 'var(--roster-selected)' : hovered === key || held ? 'var(--bubble-agent)' : 'transparent'}
         compact={compact}
         label={many ? `${item.bot.name}, on ${item.store.hostName}` : item.bot.name}
         title={many ? `${item.bot.name} · ${item.store.hostName}` : item.bot.name}
@@ -94,8 +95,7 @@ export function BotRoster({ roster, compact, onContext }: {
 }
 
 /** One roster button: drags to reorder, and slides when the others move. */
-function RosterRow({ dragging, background, compact, label, title, selected, onHover, onClick, onContext, onDragStart, onDragOver, onDrop, onDragEnd, children }: {
-  dragging: boolean
+function RosterRow({ background, compact, label, title, selected, onHover, onClick, onContext, onDragStart, onDragOver, onDrop, onDragEnd, children }: {
   background: string
   compact: boolean
   label: string
@@ -115,7 +115,7 @@ function RosterRow({ dragging, background, compact, label, title, selected, onHo
   return (
     <button
       ref={ref}
-      className={`roster-row ${dragging ? 'dragging' : ''}`}
+      className="roster-row"
       style={{ padding: compact ? 0 : '0 8px', background }}
       aria-label={label}
       aria-selected={selected}
@@ -132,6 +132,7 @@ function RosterRow({ dragging, background, compact, label, title, selected, onHo
         // Its own type, so the composer and other apps don't take it as text.
         e.dataTransfer.effectAllowed = 'move'
         e.dataTransfer.setData('application/x-codync-bot', label)
+        e.dataTransfer.setDragImage(blankDragImage, 0, 0)
         onDragStart()
       }}
       onDragEnter={onDragOver}
@@ -145,3 +146,6 @@ function RosterRow({ dragging, background, compact, label, title, selected, onHo
 }
 
 const noMembers: Bot[] = []
+
+/** A transparent pixel, so a dragged row has no translucent copy under the pointer; the row itself moves in the list. */
+const blankDragImage = Object.assign(new Image(), { src: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7' })
