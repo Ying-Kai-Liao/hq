@@ -107,6 +107,8 @@ pub struct Bot {
     pub hidden: bool,
     pub notify: bool,
     pub computer: bool,
+    /// The harness's own memory kept on beside Codync's; `None` where it has no switch.
+    pub harness_memory: Option<bool>,
     pub connectors: Vec<String>,
     pub skills: Vec<String>,
     pub status: Status,
@@ -215,6 +217,7 @@ impl Bot {
             hidden: v["hidden"].as_bool().unwrap_or(false),
             notify: v["notify"].as_bool().unwrap_or(true),
             computer: v["computer"].as_bool().unwrap_or(false),
+            harness_memory: v["harnessMemory"].as_bool(),
             connectors: strs(&v["connectors"]),
             skills: strs(&v["skills"]),
             status: match v["status"].as_str() {

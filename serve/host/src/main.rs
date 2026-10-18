@@ -525,6 +525,9 @@ async fn serve(bind: &str, port: u16) -> Result<()> {
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "codync_host=info".into()),
         )
+        // A failed log write would be reported with `eprintln!`, which panics when stderr is gone
+        // too (a closed terminal, a full disk): a log line must never take a task down.
+        .log_internal_errors(false)
         .init();
     let (store, host_id, token) = open_store()?;
     write_token_file(&token)?;

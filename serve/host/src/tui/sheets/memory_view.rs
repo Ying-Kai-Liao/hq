@@ -1,4 +1,4 @@
-//! A bot's memory: about you, this bot's own, its dreams and its project's memory.
+//! A bot's memory: about you, this bot's own, its dreams and Claude Code's own memory where it is kept on.
 
 use super::{
     App, Buffer, Rect, centered, footer, frame_box, input_line, name_of, page_tabs, put, row, s, theme, u, window,
@@ -45,9 +45,9 @@ pub fn draw(buf: &mut Buffer, area: Rect, app: &App, memory: &MemorySheet) {
                 dreams(buf, body, memory);
                 "←→ section · ↑↓ move · u undo · r refresh · Esc close"
             }
-            Section::Project => {
-                project(buf, body, memory);
-                "←→ section · read-only: the project's own notes · Esc close"
+            Section::Harness => {
+                harness(buf, body, memory);
+                "←→ section · read-only: Claude Code's own notes · r refresh · m turns them off · Esc close"
             }
         },
     };
@@ -82,12 +82,16 @@ fn tabs(buf: &mut Buffer, inner: Rect, memory: &MemorySheet) {
 fn entries(buf: &mut Buffer, body: Rect, app: &App, memory: &MemorySheet) {
     let palette = theme();
     let Some(view) = &memory.view else { return };
-    let note = match (memory.section, view["shared"] == true) {
-        (Section::Yours, true) => "Shared by your bots · s stops this bot using it",
-        (Section::Yours, false) => "This bot doesn't use what your bots share · s turns it on",
-        _ => "What this bot learned about you",
+    let bot = app.bots.get(&memory.bot);
+    let harness = app.harness_name(&memory.bot);
+    let note = match (memory.section, view["shared"] == true, bot.and_then(|b| b.harness_memory)) {
+        (Section::Yours, true, _) => "Shared by your bots · s stops this bot using it".to_owned(),
+        (Section::Yours, false, _) => "This bot doesn't use what your bots share · s turns it on".to_owned(),
+        (_, _, Some(true)) => format!("What this bot learned about you · {harness}'s own memory on · m turns it off"),
+        (_, _, Some(false)) => format!("What this bot learned about you · {harness}'s own memory off · m turns it on"),
+        (_, _, None) => "What this bot learned about you".to_owned(),
     };
-    put(buf, body.x, body.y, body.width, note, palette.secondary.patch(palette.panel));
+    put(buf, body.x, body.y, body.width, &note, palette.secondary.patch(palette.panel));
     let rows = memory.rows();
     if rows.is_empty() {
         let empty = if memory.section == Section::Yours {
@@ -240,7 +244,7 @@ fn note(buf: &mut Buffer, body: Rect, app: &App, memory: &MemorySheet, detail: O
     }
 }
 
-fn project(buf: &mut Buffer, body: Rect, memory: &MemorySheet) {
+fn harness(buf: &mut Buffer, body: Rect, memory: &MemorySheet) {
     let palette = theme();
     let Some(project) = memory.view.as_ref().map(|v| &v["projectMemory"]) else { return };
     put(
@@ -251,6 +255,11 @@ fn project(buf: &mut Buffer, body: Rect, memory: &MemorySheet) {
         &truncate(s(project, "path"), usize::from(body.width)),
         palette.dim.patch(palette.panel),
     );
+    if s(project, "text").is_empty() {
+        let empty = "Nothing yet. Claude Code's notes show up here once it saves some.";
+        put(buf, body.x, body.y + 2, body.width, empty, palette.secondary);
+        return;
+    }
     let text = Rect::new(body.x, body.y + 2, body.width, body.height.saturating_sub(2));
     Paragraph::new(s(project, "text"))
         .wrap(Wrap { trim: false })

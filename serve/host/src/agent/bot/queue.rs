@@ -1,6 +1,7 @@
 //! Commands from clients and the queue of turns waiting for the bot.
 
 use super::{Actor, CANCEL_GRACE, Cmd, Done, NoticeStyle, Queued, RESUME_PROMPT, RoutineCompletion, inflight_key};
+use crate::agent::own_memory;
 use crate::chat::memory;
 use crate::hub::BotStatus;
 use crate::market::requests;
@@ -70,18 +71,24 @@ impl Actor {
                     self.stop().await;
                 }
                 self.forget_session();
-                // Retain and summarize completed exchanges even when the user starts afresh.
+                // Retain and summarize completed exchanges even when the user starts afresh. The chat shows no line
+                // for it: the user just confirmed it.
                 let _ = self.dreamer.send(memory::DreamEvent::Flush);
-                self.notice("New session — the agent starts with a fresh context.", NoticeStyle::Divider);
             }
             Cmd::Reconfigure(cfg) => {
                 let cfg = *cfg;
+                // The harness reads its own memory's switch when it starts: an agent that can resume its session
+                // restarts into it, one that can't starts afresh.
+                let memory_changed = own_memory::kept(&cfg) != own_memory::kept(&self.cfg);
+                let resumes = self.conn.as_ref().is_none_or(|c| c.sessions.load);
                 let restart = cfg.backend != self.cfg.backend
                     || cfg.command != self.cfg.command
                     || cfg.cwd != self.cfg.cwd
                     || cfg.model != self.cfg.model
-                    || cfg.model_options != self.cfg.model_options;
-                self.tools_changed |= cfg.connectors != self.cfg.connectors || cfg.computer != self.cfg.computer;
+                    || cfg.model_options != self.cfg.model_options
+                    || (memory_changed && !resumes);
+                self.tools_changed |=
+                    cfg.connectors != self.cfg.connectors || cfg.computer != self.cfg.computer || memory_changed;
                 // Live sessions switch before their next turn (see `fast_mode`).
                 let fast_changed = cfg.fast_mode != self.cfg.fast_mode;
                 // Name, description and skill changes reach the agent as a profile update
@@ -89,6 +96,10 @@ impl Actor {
                 self.cfg = cfg;
                 if fast_changed {
                     self.fast_mode_changed();
+                }
+                if memory_changed {
+                    // Claude Code's notes come or go on the memory screen.
+                    memory::screen_changed(&self.hub, &self.cfg.id);
                 }
                 if restart {
                     self.files.cancel();
@@ -101,7 +112,7 @@ impl Actor {
                     if self.session_id.is_some() {
                         self.forget_session();
                         self.notice(
-                            "The agent, model, command or folder changed — the agent starts with a fresh context.",
+                            "The agent, model, command, folder or memory changed — the agent starts with a fresh context.",
                             NoticeStyle::Divider,
                         );
                     }

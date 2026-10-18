@@ -248,6 +248,7 @@ impl Hub {
         }
         validate(&cfg)?;
         crate::agent::workspace::prepare(&mut cfg)?;
+        crate::agent::own_memory::settle(&mut cfg, &row.config, patch);
         {
             let _g = self.emit_lock.locked();
             self.store.save_bot(&cfg)?;

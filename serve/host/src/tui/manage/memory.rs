@@ -1,5 +1,5 @@
 //! A bot's memory, as in the other apps: what it knows about you (shared by your bots) and on its own, its dream
-//! log, and its project folder's own memory, driven from the keyboard.
+//! log, and Claude Code's own memory where the user kept it on, driven from the keyboard.
 
 use super::super::app::{App, Confirm, ConfirmAct, Editor, Overlay};
 use super::s;
@@ -14,12 +14,12 @@ pub enum Section {
     /// Both layers' long-form files.
     Notes,
     Dreams,
-    /// The project folder's own memory (Claude Code's `MEMORY.md`), read-only.
-    Project,
+    /// Claude Code's own memory (its `MEMORY.md`), read-only, where the user kept it on.
+    Harness,
 }
 
 impl Section {
-    const ALL: [Self; 5] = [Self::Yours, Self::Bot, Self::Notes, Self::Dreams, Self::Project];
+    const ALL: [Self; 5] = [Self::Yours, Self::Bot, Self::Notes, Self::Dreams, Self::Harness];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -27,7 +27,7 @@ impl Section {
             Self::Bot => "This bot",
             Self::Notes => "Notes",
             Self::Dreams => "Dreams",
-            Self::Project => "Project memory",
+            Self::Harness => "Claude Code",
         }
     }
 
@@ -36,7 +36,7 @@ impl Section {
         match self {
             Self::Yours => Some(true),
             Self::Bot => Some(false),
-            Self::Notes | Self::Dreams | Self::Project => None,
+            Self::Notes | Self::Dreams | Self::Harness => None,
         }
     }
 }
@@ -106,7 +106,7 @@ impl MemorySheet {
                 }
                 return rows;
             }
-            Section::Project => return Vec::new(),
+            Section::Harness => return Vec::new(),
         };
         list.as_array().cloned().unwrap_or_default()
     }
@@ -116,16 +116,22 @@ impl MemorySheet {
         let key = |row: &Value| json!([row["id"], row["name"], row["shared"]]);
         let was = self.rows().get(self.cursor).map(key);
         self.view = Some(view);
+        if !self.sections().contains(&self.section) {
+            // Claude Code's memory was just turned off; its scroll position means nothing elsewhere.
+            self.section = Section::Bot;
+            self.cursor = 0;
+            return;
+        }
         let rows = self.rows();
         self.cursor = was
             .and_then(|k| rows.iter().position(|row| key(row) == k))
             .unwrap_or_else(|| self.cursor.min(rows.len().saturating_sub(1)));
     }
 
-    /// Sections worth showing: project memory only when the folder has one.
+    /// Sections worth showing: Claude Code's memory only when it is kept on.
     pub fn sections(&self) -> Vec<Section> {
-        let project = self.view.as_ref().is_some_and(|v| v["projectMemory"].is_object());
-        Section::ALL.into_iter().filter(|s| *s != Section::Project || project).collect()
+        let harness = self.view.as_ref().is_some_and(|v| v["projectMemory"].is_object());
+        Section::ALL.into_iter().filter(|s| *s != Section::Harness || harness).collect()
     }
 
     fn step(&mut self, by: isize) {
@@ -153,6 +159,12 @@ impl App {
         };
         self.sheet("memory", m.body(), Reply::Memory(bot));
         self.overlays.push(Overlay::Memory(m));
+    }
+
+    /// The name of the bot's harness as the agent list gives it ("Claude Code").
+    pub fn harness_name(&self, bot: &str) -> String {
+        let Some(backend) = self.bots.get(bot).map(|b| b.backend.as_str()) else { return String::new() };
+        self.backends.iter().find(|b| b["id"] == backend).map_or_else(|| backend.to_owned(), |b| s(b, "name"))
     }
 
     /// A bot's memory changed somewhere (its `memoryRev` moved): an open sheet fetches it again.
@@ -198,11 +210,11 @@ impl App {
         let entry = selected.as_ref().filter(|_| m.section.shared().is_some());
         match k.code {
             KeyCode::Esc | KeyCode::Char('q' | 'M') => return None,
-            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => m.step(1),
-            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => m.step(-1),
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => self.step_section(&mut m, 1),
+            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => self.step_section(&mut m, -1),
             KeyCode::Down | KeyCode::Char('j') => {
-                // Project memory scrolls by line; the other sections move between rows.
-                let last = if m.section == Section::Project {
+                // Claude Code's memory scrolls by line; the other sections move between rows.
+                let last = if m.section == Section::Harness {
                     m.view
                         .as_ref()
                         .map_or(0, |v| v["projectMemory"]["text"].as_str().unwrap_or_default().lines().count())
@@ -273,6 +285,7 @@ impl App {
                     Reply::MemorySaved(m.bot.clone()),
                 );
             }
+            KeyCode::Char('m') if !m.busy => return self.harness_memory_key(m),
             KeyCode::Char('D') if !rows.is_empty() && !m.busy => {
                 if let Some(shared) = m.section.shared() {
                     let c = Confirm {
@@ -298,6 +311,45 @@ impl App {
                 }
             }
             _ => {}
+        }
+        Some(Overlay::Memory(m))
+    }
+
+    /// Moves to another section. Claude Code writes its notes outside Codync, so nothing moves `memoryRev`: its
+    /// section reads them again on the way in.
+    fn step_section(&mut self, m: &mut MemorySheet, by: isize) {
+        m.step(by);
+        if m.section == Section::Harness {
+            m.busy = true;
+            self.sheet("memory", m.body(), Reply::Memory(m.bot.clone()));
+        }
+    }
+
+    /// `m`: turns the harness's own memory off, or asks first, saying what it costs, before turning it on.
+    fn harness_memory_key(&mut self, mut m: MemorySheet) -> Option<Overlay> {
+        match self.bots.get(&m.bot).and_then(|b| b.harness_memory) {
+            Some(true) => {
+                m.busy = true;
+                self.sheet(
+                    "updateBot",
+                    json!({"id": m.bot, "harnessMemory": false}),
+                    Reply::MemorySaved(m.bot.clone()),
+                );
+            }
+            Some(false) => {
+                // One line each in the confirmation: the info sheets' points, short.
+                let c = Confirm {
+                    title: format!("Turn on {}'s own memory?", self.harness_name(&m.bot)),
+                    detail: "It may store things twice; the two memories can disagree.".into(),
+                    note: "Forgetting something in Codync doesn't reach it.".into(),
+                    button: "Turn on",
+                    act: ConfirmAct::KeepHarnessMemory(m.bot.clone()),
+                };
+                self.overlays.push(Overlay::Memory(m));
+                self.overlays.push(Overlay::Confirm(c));
+                return None;
+            }
+            None => {}
         }
         Some(Overlay::Memory(m))
     }
@@ -380,5 +432,21 @@ mod tests {
         assert_eq!(m.cursor, 0, "entry 3 was pinned to the top");
         m.show(view([1, 2, 4]));
         assert_eq!(m.cursor, 0, "gone: the cursor stays in range");
+    }
+
+    #[test]
+    fn turning_claude_codes_memory_off_leaves_its_section() {
+        let entries = json!({"entries": [{"id": 1}, {"id": 2}]});
+        let mut m = MemorySheet {
+            bot: "b".into(),
+            view: Some(json!({"bot": entries, "projectMemory": {"path": "p", "text": "a\nb\nc\nd"}})),
+            section: Section::Harness,
+            cursor: 3,
+            mode: MemoryMode::Browse,
+            error: None,
+            busy: false,
+        };
+        m.show(json!({"bot": entries, "projectMemory": null}));
+        assert_eq!((m.section, m.cursor), (Section::Bot, 0), "its scroll position isn't a row");
     }
 }

@@ -16,7 +16,8 @@ const SEARCH_TEXT_CHARS: usize = 1_500;
 
 pub const INSTRUCTIONS: &str = "Your memory holds what you know about the user, and every session opens with it. \
 Save lasting facts about the user with remember, and keep entries true with revise_memory and archive_memory \
-(the [id] is in your instructions). Project and code knowledge belongs in the project's own files, not here. \
+(the [id] is in your instructions). Project and code knowledge worth keeping goes in a long-form note of yours on \
+that project, not in entries; don't make the project's CLAUDE.md or AGENTS.md your memory unless the user asks. \
 Lists, itineraries, histories and other detail longer than a sentence or two go in a long-form note on that topic \
 (listed in your instructions), not in entries. search_memory finds archived entries and lines of those notes; \
 search_history finds what was actually said in your past chats. When the user asks you to forget something, \
