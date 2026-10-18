@@ -342,11 +342,15 @@ rules still apply.
 
 ## Permission mode
 Every run starts in the first permission mode that is set: the caller's (`HQ_PERMISSION_MODE`; the bridge, schedules,
-`hq ask` and remote runs pass theirs from `HQ_BRIDGE_`, `HQ_SCHED_`, `HQ_ASK_` and `HQ_REMOTE_PERMISSION_MODE`), the
-agent's `settings.json` `permissions.defaultMode`, then hq's default, `auto`. To change hq's default on a Mac, put
-`{"permission_mode": "acceptEdits"}` (or another Claude Code mode) in its `~/.hq/settings.json`, hq's own settings:
-not secret and never committed. `hq doctor` shows the default in force. People other than you get their membership's
-mode (`hq auth member`).
+`hq ask` and remote runs pass theirs from `HQ_BRIDGE_`, `HQ_SCHED_`, `HQ_ASK_` and `HQ_REMOTE_PERMISSION_MODE`), your
+choice for that agent, the agent's `settings.json` `permissions.defaultMode`, then hq's default, `auto`. To change hq's
+default on a Mac, put `{"permission_mode": "acceptEdits"}` (or another Claude Code mode) in its `~/.hq/settings.json`,
+hq's own settings: not secret and never committed. `hq doctor` shows the default in force. People other than you get
+their membership's mode (`hq auth member`).
+
+An agent's `defaultMode` is its author's suggestion. Installing someone's agent shows it and asks whether to keep it
+(`bypassPermissions` only on a yes), and saves your answer in the same file, so an update of theirs can't change it:
+`{"agents": {"<agent>": {"permission_mode": "auto"}}}`. Edit that line to change it later.
 
 ## Memory layers
 1. **Identity and skills:** `agent.md` + `skills/` (including the ones it learned) + `capabilities.yaml`.

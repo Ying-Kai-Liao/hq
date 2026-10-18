@@ -43,7 +43,8 @@
 # (adapters/harness.py turns them into its flags). Callers ask for JSON output, a session to resume and a permission
 # mode with HQ_OUTPUT=json, HQ_RESUME and HQ_PERMISSION_MODE, the same for every harness.
 # Permission mode: HQ_PERMISSION_MODE (entry points set it from their own HQ_BRIDGE_/HQ_SCHED_/HQ_ASK_PERMISSION_MODE),
-# else the agent's settings.json defaultMode, else hq's default (lib/hq_settings.py: auto, or ~/.hq/settings.json).
+# else this Mac's choice for the agent (~/.hq/settings.json agents), else the agent's settings.json defaultMode (its
+# author's suggestion), else hq's default (lib/hq_settings.py: auto, or ~/.hq/settings.json).
 set -euo pipefail
 
 # Follow the script's own symlinks but keep the repo's logical path (it may be a symlink to a path with spaces).
@@ -226,6 +227,9 @@ export HQ_MODEL=${HQ_MODEL:-} HQ_EFFORT=${HQ_EFFORT:-$(field effort)} HQ_PROJECT
 # For this run only, like HQ_CLAUDE_ARGS below: a helper this agent starts runs on its own harness, in its own session.
 out_format=${HQ_OUTPUT:-} resume=${HQ_RESUME:-} perm_mode=${HQ_PERMISSION_MODE:-}
 unset HQ_HARNESS HQ_OUTPUT HQ_RESUME HQ_PERMISSION_MODE
+# The agent's defaultMode is its author's suggestion: this Mac's choice for the agent (hq install asks; agents in
+# ~/.hq/settings.json) wins over it, and the caller's over both.
+[[ -z $perm_mode ]] && perm_mode=$(python3 "$HQ/lib/hq_settings.py" permission_mode "$agent")
 # For anyone but the owner the membership sets the permission mode, whatever the caller asked for, and deny rules
 # only Claude Code can enforce keep the run on Claude Code.
 if [[ $p_owner == 0 ]]; then

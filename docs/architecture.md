@@ -126,8 +126,10 @@ harness that made it. Settings permissions, hooks and per-request cost stay Clau
 
 **Permission mode** (`lib/hq_settings.py`, 2026-10-19). An owner's run starts in the first mode that is set: the
 caller's (`HQ_PERMISSION_MODE`, which the bridge, `hq schedule`, `hq ask` and `hq remote` set only from their own
-`HQ_BRIDGE_`, `HQ_SCHED_`, `HQ_ASK_` and `HQ_REMOTE_PERMISSION_MODE`), the agent's `settings.json`
-`permissions.defaultMode`, then hq's default: `auto`, or `permission_mode` in this Mac's `~/.hq/settings.json` (hq's
+`HQ_BRIDGE_`, `HQ_SCHED_`, `HQ_ASK_` and `HQ_REMOTE_PERMISSION_MODE`), this Mac's choice for the agent
+(`agents.<name>.permission_mode` in `~/.hq/settings.json`; `hq install` asks for someone's agent and saves the
+answer, `bypassPermissions` only on a yes), the agent's `settings.json` `permissions.defaultMode` (its author's
+suggestion), then hq's default: `auto`, or `permission_mode` in this Mac's `~/.hq/settings.json` (hq's
 own settings: hq-wide, not secret, never committed; `hq doctor` shows the one in force). `bin/hq` writes that default
 into the run's settings, so only Claude Code runs get it; other harnesses tell only `bypassPermissions` apart from the
 rest, so for them an unset mode stays as before. A run for anyone but the owner takes its membership's mode instead.
