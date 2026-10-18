@@ -6,7 +6,8 @@ import MetricKit
 /// and binary + offset frames, never a message, reason or memory detail.
 public final class CrashReports: NSObject, MXMetricManagerSubscriber, Sendable {
     public static let shared = CrashReports()
-    private static let maxFrames = 50
+    /// A SwiftUI update alone runs dozens of frames deep: fewer would cut off the app's own.
+    private static let maxFrames = 200
 
     /// Subscribes once, at app launch (widgets and the notification extension never do).
     public func start() {

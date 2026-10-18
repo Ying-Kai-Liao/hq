@@ -120,6 +120,18 @@ enum VoiceSettings {
 }
 
 enum MicTap {
+    struct Unavailable: LocalizedError {
+        var errorDescription: String? { "no microphone is available right now" }
+    }
+
+    /// The microphone's format. With no usable input (no microphone, a route change, an
+    /// interruption) it's 0 Hz, and a tap on it raises an exception that ends the app: throws instead.
+    static func format(of input: AVAudioInputNode) throws -> AVAudioFormat {
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else { throw Unavailable() }
+        return format
+    }
+
     /// Microphone → 16 kHz mono PCM16 (little-endian) with a loudness level, 0…1. Built off the
     /// main actor: the block runs on the audio thread.
     nonisolated static func pcm16k(from format: AVAudioFormat,
