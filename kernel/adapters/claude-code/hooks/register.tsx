@@ -19,6 +19,9 @@ const spawned = new Map<string, Spawned>()
 const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
 const agentEffort = new Map<string, string>()
 const runningEffort = new Map<string, string>()
+// Agents that run as one long-lived session (`session: live` in agent.md): never a subagent here, since a subagent
+// runs with the caller's settings and permission mode, outside the agent's own session. Reached with `hq ask`.
+const liveAgents = new Set<string>()
 
 function frontmatter(text: string): { fields: Record<string, string>; body: string } {
   const m = /^---\n([\s\S]*?)\n---\n?/.exec(text)
@@ -100,6 +103,16 @@ async function projectContext($: EngineInterface, hq: string, cwd: string): Prom
   )
 }
 
+// A live agent takes work as a message to its session: the caller runs hq ask, which delivers it there.
+function liveAsk(hq: string, agent: string, task: string, project: string): string {
+  const q = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
+  return (
+    `hq:${agent} runs as one live session (session: live), not as a subagent. Send it the task with the Bash tool:\n\n` +
+    `${q(`${hq}/bin/hq`)} ask ${agent}${project ? ` -p ${project}` : ''} ${q(task)}\n\n` +
+    'and relay what it answers.'
+  )
+}
+
 export const register: Register = (on, options) => {
 
   // agentDir: the pinned snapshot from hq-pkg (or the live folder when versioning is unavailable).
@@ -156,6 +169,11 @@ export const register: Register = (on, options) => {
       // The pinned agent.md, so model and effort change with the version like everything else.
       const pinned = pkg && (await $.fs.exists(`${pkg.dir}/agent.md`)) ? `${pkg.dir}/agent.md` : file
       const { fields, body } = frontmatter(await $.fs.read(pinned))
+      if (fields.session === 'live') {
+        liveAgents.add(name)
+        continue
+      }
+      liveAgents.delete(name)
       if (EFFORTS.has(fields.effort ?? '')) agentEffort.set(name, fields.effort)
       else agentEffort.delete(name)
       const rendered = pkg && (await $.fs.exists(`${pkg.dir}/prompt.md`)) ? await $.fs.read(`${pkg.dir}/prompt.md`) : ''
@@ -304,6 +322,7 @@ export const register: Register = (on, options) => {
     }
     const task = rest.join(' ')
     if (!task) return { text: `hq: what should ${agent} do? /hq ${agent} [-p project] <task>` }
+    if (liveAgents.has(agent)) return { context: [liveAsk(hq, agent, task, project)] }
     return {
       context: [
         `The user asked to delegate this to the hq specialist \`hq:${agent}\`. Call the Agent tool with ` +
@@ -317,6 +336,9 @@ export const register: Register = (on, options) => {
 
   on('tool.call', { tool: 'mcp__hq__invoke' }, async ($, e) => {
     const input = e as unknown as { agent: string; task: string; project?: string }
+    if (liveAgents.has(input.agent)) {
+      return { result: liveAsk(await hqRoot($, options.hq_path), input.agent, input.task, input.project ?? '') }
+    }
     const prompt = (input.project ? `<hq project="${input.project}"/>\n` : '') + input.task
     const started = await $.agent.spawn({
       subagentType: `hq:${input.agent}`,
