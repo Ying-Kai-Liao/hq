@@ -57,31 +57,6 @@ public struct MemoryFileDetail: Decodable, Hashable, Sendable {
     public var versions: [MemoryFileVersion]
 }
 
-/// A bot's change to a memory file in the chat. Every field is optional so a newer host's card still decodes.
-public struct MemoryFileCard: Codable, Hashable, Sendable {
-    public var file: String?
-    public var shared: Bool?
-    /// done · pending · accepted · declined · undone · restored · failed
-    public var status: String?
-    /// `- ` removed and `+ ` added lines.
-    public var diff: String?
-    public var created: Bool?
-    public var deleted: Bool?
-    /// The change removes more than a quarter of the file.
-    public var big: Bool?
-    /// Why it was put back, or couldn't be made.
-    public var reason: String?
-
-    /// What the user can do with it now, as with a memory entry's card.
-    public var choice: MemoryWrite.Choice? {
-        switch status {
-        case "pending": .answer
-        case "done", "accepted": .undo
-        default: nil
-        }
-    }
-}
-
 extension HostClient {
     public func memoryFile(botId: String, file: String, shared: Bool) async throws -> MemoryFileDetail {
         struct Body: Encodable { var botId: String; var file: String; var shared: Bool }

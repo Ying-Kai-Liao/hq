@@ -49,14 +49,8 @@ struct ChatRow: View {
         default:
             if let request = entry.data.connectionRequest {
                 ConnectionRequestCard(entry: entry, request: request).padding(.top, 12)
-            } else if let card = entry.data.memory {
-                MemoryNoticeRow(entry: entry, card: card).padding(.top, 10)
-            } else if let card = entry.data.memoryFile {
-                MemoryFileRow(entry: entry, card: card).padding(.top, 10)
             } else if let card = entry.data.handoff {
                 HandoffCardRow(entry: entry, card: card).padding(.top, 10)
-            } else if let compaction = entry.data.compaction {
-                CompactionRow(entry: entry, compaction: compaction).padding(.top, 10)
             } else {
                 NoticeRow(entry: entry).padding(.top, 10)
             }

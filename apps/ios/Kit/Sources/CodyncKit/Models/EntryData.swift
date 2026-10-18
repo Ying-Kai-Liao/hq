@@ -2,10 +2,9 @@ import Foundation
 
 public struct EntryData: Codable, Hashable, Sendable {
     public var connectionRequest: ConnectionRequest?
-    /// A bot's memory write shown in the chat.
-    public var memory: MemoryWrite?
-    /// A bot's change to one of its memory files.
-    public var memoryFile: MemoryFileCard?
+    /// A memory line an older host put in the chat. Memory lives in the bot's memory settings, so it isn't shown.
+    public var memory: MemoryLine?
+    public var memoryFile: MemoryLine?
     /// notice: the agent summarized its context.
     public var compaction: Compaction?
     /// notice: the bot's chat starts over with this handoff.
@@ -56,29 +55,8 @@ public struct EntryData: Codable, Hashable, Sendable {
     }
 }
 
-/// A bot's memory write: a "Remembered" line the user can undo, or a card a bot that asks first waits on.
-/// Every field is optional so a newer host's card still decodes.
-public struct MemoryWrite: Codable, Hashable, Sendable {
-    /// remember · revise · archive
-    public var action: String?
-    /// done (undo offered) · pending (approve or decline) · accepted · declined · undone · failed
-    public var status: String?
-    public var text: String?
-    public var previous: String?
-    public var shared: Bool?
-    public var error: String?
-
-    /// What the user can do with it now.
-    public var choice: Choice? {
-        switch status {
-        case "pending": .answer
-        case "done", "accepted": .undo
-        default: nil
-        }
-    }
-
-    public enum Choice: Sendable { case answer, undo }
-}
+/// A memory line from an older host, known only to keep it out of the chat.
+public struct MemoryLine: Codable, Hashable, Sendable {}
 
 /// A file sent with a message; the agent reads it on the computer.
 public struct Attachment: Codable, Hashable, Sendable, Identifiable {

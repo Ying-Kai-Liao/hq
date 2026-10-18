@@ -1,36 +1,6 @@
 import CodyncKit
 import SwiftUI
 
-/// "Earlier context was summarized to make room." The harness's summary unfolds under it when there is one.
-struct CompactionRow: View {
-    let entry: Entry
-    let compaction: Compaction
-    @State private var expanded = false
-
-    var body: some View {
-        if let summary = compaction.summary, !summary.isEmpty {
-            Disclosure(isExpanded: $expanded) {
-                Text(summary)
-                    .font(.footnote)
-                    .foregroundStyle(Palette.secondary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } label: {
-                line
-            }
-            .padding(.horizontal, 12)
-        } else {
-            line.frame(maxWidth: .infinity)
-        }
-    }
-
-    private var line: some View {
-        Label(entry.data.text ?? "", systemImage: "arrow.down.right.and.arrow.up.left")
-            .font(.footnote)
-            .foregroundStyle(Palette.secondary)
-    }
-}
-
 /// The bot's chat starts over: what the new conversation carries, which the user can edit, or turn down to carry on.
 struct HandoffCardRow: View {
     let entry: Entry
@@ -74,7 +44,6 @@ struct HandoffCardRow: View {
                     .font(.footnote)
                     .foregroundStyle(Palette.secondary)
             }
-            .padding(.horizontal, 12)
         }
     }
 

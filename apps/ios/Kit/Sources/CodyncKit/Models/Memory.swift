@@ -82,10 +82,4 @@ extension HostClient {
     public func memoryCall(_ method: String, _ body: some Encodable) async throws {
         let _: Empty = try await call(method, body)
     }
-
-    /// Approves or declines a memory card, or (`accept` nil) undoes a "Remembered" line.
-    public func answerMemory(entryId: String, accept: Bool?) async throws {
-        struct Body: Encodable { var entryId: String; var accept: Bool? }
-        let _: Empty = try await call(accept == nil ? "undoMemory" : "answerMemory", Body(entryId: entryId, accept: accept))
-    }
 }

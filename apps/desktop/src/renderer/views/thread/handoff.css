@@ -1,7 +1,6 @@
 .handoff-line { display: inline-flex; align-items: center; gap: 6px; font-size: calc(12px * var(--scale)); color: var(--secondary); min-width: 0; }
 .handoff-line span { overflow-wrap: anywhere; }
-.handoff-center { display: flex; justify-content: center; }
-.handoff-folded { max-width: 620px; margin: 0 auto; padding: 0 12px; }
+.handoff-folded { max-width: 620px; }
 .handoff-card { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: var(--radius-l); background: var(--bubble-agent); max-width: 560px; }
 .handoff-actions { display: flex; align-items: center; gap: 8px; }
 .handoff-text { margin: 0; font-size: calc(12px * var(--scale)); color: var(--secondary); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; line-height: 1.45; }

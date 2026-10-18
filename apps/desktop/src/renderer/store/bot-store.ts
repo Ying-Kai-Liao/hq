@@ -199,24 +199,6 @@ export class BotStore extends BotSync {
     })()
   }
 
-  /** Approves or declines a memory card, or undoes a "Remembered" line; the card's update follows on the stream. */
-  answerMemory(entry: Entry, answer: 'approve' | 'decline' | 'undo') {
-    if (this.answering.has(entry.id)) return
-    this.answering.set(entry.id, answer)
-    this.changed()
-    void (async () => {
-      try {
-        await this.withLink((c) => answer === 'undo'
-          ? c.call('undoMemory', { entryId: entry.id })
-          : c.call('answerMemory', { entryId: entry.id, accept: answer === 'approve' }), true)
-      } catch (error) {
-        this.lastError = error instanceof Error ? error.message : String(error)
-      }
-      this.answering.delete(entry.id)
-      this.changed()
-    })()
-  }
-
   /** Saves the user's version of a handoff that hasn't been sent; whether it did. */
   async editHandoff(entry: Entry, text: string) {
     try {
