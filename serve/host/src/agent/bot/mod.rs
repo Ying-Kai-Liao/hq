@@ -379,10 +379,11 @@ impl Actor {
                     while let Some(inc) = self.conn.as_mut().and_then(|c| c.rx.try_recv().ok()) {
                         self.on_incoming(Some(inc)).await;
                     }
-                    let failed_session = self.turn_session.clone().filter(|_| done.as_ref().is_err_and(acp::may_end_session));
+                    let spent = self.active_routine.is_some() || done.as_ref().is_err_and(acp::may_end_session);
+                    let reload = self.turn_session.clone().filter(|_| spent);
                     self.finish_turn(&done);
-                    if let Some(sid) = failed_session {
-                        self.close_failed_session(&sid).await;
+                    if let Some(sid) = reload {
+                        self.close_reloadable(&sid).await;
                     }
                     self.next_in_queue(&done_tx).await;
                 }

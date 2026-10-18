@@ -288,6 +288,29 @@ async fn crash_resumes_the_same_session_and_publishes_one_result() {
 }
 
 #[tokio::test]
+async fn a_finished_run_closes_its_session_and_the_main_one_stays() {
+    let host = Host::start().await;
+    let bot = host.stable_bot("spent").await;
+    host.send(&bot, "MAIN_CHAT").await;
+    let main = host.wait_event("spent", "finished", "MAIN_CHAT").await;
+    let id = host.save(&bot, "one-off", "ONE_OFF", json!([{"type":"webhook"}]), 30).await;
+    host.call("runRoutine", json!({"botId":bot,"id":id})).await;
+    let run = host.wait_event("spent", "finished", "ONE_OFF").await;
+    let closed = host.wait_event("spent", "closed", "").await;
+    assert_eq!(closed["session"], run["session"]);
+    assert_ne!(run["session"], main["session"]);
+    host.send(&bot, "MAIN_AGAIN").await;
+    assert_eq!(host.wait_event("spent", "finished", "MAIN_AGAIN").await["session"], main["session"]);
+    assert_eq!(host.agent_events("spent").iter().filter(|e| e["event"] == "closed").count(), 1);
+    // The run's thread carries on in the run's session.
+    let run_id = host.call("routines", json!({"botId":bot})).await["runs"][0]["id"].as_str().unwrap().to_owned();
+    let thread = format!("routine-{run_id}");
+    host.call("send", json!({"botId":bot,"text":"IN_THREAD","threadId":thread,"clientNonce":"thread"})).await;
+    assert_eq!(host.wait_event("spent", "finished", "IN_THREAD").await["session"], run["session"]);
+    assert_eq!(host.wait_event("spent", "loaded", "").await["session"], run["session"]);
+}
+
+#[tokio::test]
 async fn busy_bot_keeps_work_pending_and_honors_pause_delete_and_edit_across_restart() {
     let mut host = Host::start().await;
     let bot = host.stable_bot("queue").await;
