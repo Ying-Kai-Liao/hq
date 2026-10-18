@@ -5,6 +5,7 @@ import { Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { Sheet } from '../../components/Overlay'
 import { font } from '../../lib/fonts'
+import { prefs, usePref } from '../../lib/prefs'
 import { useStore } from '../../store/context'
 import { UpdateNeededCard } from '../UpdateNeededCard'
 import { buildChat, rowIn, useArrivals, type ChatItem } from './chat-items'
@@ -50,6 +51,8 @@ export function ThreadView({ botId }: { botId: string }) {
   const root = useRef<HTMLDivElement>(null)
   const dock = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(800)
+  const [detailsWidth, setDetailsWidth] = usePref(prefs.detailsPanelWidth)
+  const [repliesWidth, setRepliesWidth] = usePref(prefs.repliesPanelWidth)
   useReading(store, botId, null)
 
   useLayoutEffect(() => {
@@ -67,6 +70,8 @@ export function ThreadView({ botId }: { botId: string }) {
   }, [])
 
   const wide = width >= WIDE
+  // The side panel's border drags its width, leaving the conversation at least 380 wide.
+  const panelWidth = (w: number) => Math.min(Math.max(260, w), width - 380)
   // A compact Details presentation dismisses once the window is wide enough for the inspector.
   useEffect(() => {
     if (wide) setCompactDetails(false)
@@ -167,7 +172,11 @@ export function ThreadView({ botId }: { botId: string }) {
           </div>
         ) : null}
       </div>
-      <ChatSidePanel open={wide && (!!openThread || showSettings)} width={openThread ? Math.min(420, width * 0.45) : 292}>
+      <ChatSidePanel
+        open={wide && (!!openThread || showSettings)}
+        width={panelWidth(openThread ? repliesWidth : detailsWidth)}
+        onResize={(w) => (openThread ? setRepliesWidth : setDetailsWidth)(panelWidth(w))}
+      >
         {openThread ? <RepliesView key={openThread} botId={botId} rootId={openThread} close={closeThread} /> : details}
       </ChatSidePanel>
 

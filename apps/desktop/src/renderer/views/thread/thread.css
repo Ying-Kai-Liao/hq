@@ -359,13 +359,27 @@
   flex: none;
   opacity: 0;
   transition: width var(--layout), opacity var(--morph);
-  overflow: hidden;
+  /* The margin lets the border's drag area reach into the conversation. */
+  overflow: clip;
+  overflow-clip-margin: 4px;
 }
 .side-panel.shown { opacity: 1; }
+.side-panel.resizing { transition: none; }
 .side-panel-border {
   width: 1px;
   background: var(--border);
   flex: none;
+  position: relative;
+  z-index: 7;
+}
+.side-panel-border::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 9px;
+  cursor: col-resize;
 }
 @keyframes panel-slide {
   from {
