@@ -99,7 +99,6 @@ html[data-window='island'] #root {
 :where(.island button) {
   border: 0;
   padding: 0;
-  cursor: default;
 }
 
 /* Closed: the wings on each side of the notch. */

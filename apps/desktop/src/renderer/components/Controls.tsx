@@ -267,12 +267,15 @@ export function ResizeHandle({ label, width, min, max, edge, onResize, onDraggin
   const end = () => {
     if (!start.current) return
     start.current = null
+    document.documentElement.classList.remove('col-resizing')
     onDragging?.(false)
   }
   const onPointerDown = (e: PointerEvent) => {
     if (e.button !== 0) return
     e.currentTarget.setPointerCapture(e.pointerId)
     start.current = { x: e.clientX, width }
+    // While dragging, the resize cursor stays wherever the pointer goes.
+    document.documentElement.classList.add('col-resizing')
     onDragging?.(true)
   }
   const onPointerMove = (e: PointerEvent) => {

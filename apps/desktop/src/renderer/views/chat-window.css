@@ -122,12 +122,46 @@ html[data-platform="darwin"] .sidebar-header {
 .roster-row.compact {
   padding: 0;
 }
-/* Hover is tracked in JS: a held row stays highlighted while it's dragged. */
+/* Hover is tracked in JS, so rows passed over during a drag don't light up. */
 .roster-row.hovered {
   background: var(--bubble-agent);
 }
 .roster-row.selected {
   background: var(--roster-selected);
+}
+/* Dragging (iOS's lifted cell): the row's slot stays open while a smaller, translucent copy
+   follows the pointer, then settles into the slot. */
+.roster-row.lifted {
+  opacity: 0;
+}
+.roster-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 400;
+  pointer-events: none;
+}
+.roster-ghost.settling {
+  transition: translate var(--morph);
+}
+.roster-ghost-card {
+  background: var(--roster-selected);
+  box-shadow: var(--shadow-l);
+  scale: 0.94;
+  opacity: 0.85;
+  animation: roster-lift var(--morph) both;
+  transition: scale var(--morph), opacity var(--morph);
+}
+.roster-ghost.settling .roster-ghost-card {
+  scale: 1;
+  opacity: 1;
+  box-shadow: none;
+}
+@keyframes roster-lift {
+  from {
+    scale: 1;
+    opacity: 1;
+  }
 }
 .bot-row {
   padding: 9px 0;
