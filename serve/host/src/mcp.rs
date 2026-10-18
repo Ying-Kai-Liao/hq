@@ -1,4 +1,4 @@
-//! Built-in stdio MCP servers: `chat` sends the user messages; `team` discovers and asks other bots; `computer`
+//! Built-in stdio MCP servers: `chat` sends the user messages and changes the bot's name and instructions; `team` discovers and asks other bots; `computer`
 //! operates the desktop when enabled. Calls go through authenticated loopback
 //! HTTP to the running host, which owns delegation and screen control.
 
@@ -52,7 +52,13 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
         // Listed by the host: they depend on this computer's driver.
         Server::Computer => ("codync-computer", INSTRUCTIONS, Value::Null),
         Server::Routines => ("codync-routines", crate::routines::INSTRUCTIONS, crate::routines::tools()),
-        Server::Chat => ("codync-chat", crate::chat::outbox::INSTRUCTIONS, crate::chat::outbox::tools()),
+        Server::Chat => {
+            let mut tools = crate::chat::outbox::tools();
+            if let Some(list) = tools.as_array_mut() {
+                list.extend(crate::chat::profile::tools());
+            }
+            ("codync-chat", crate::chat::outbox::INSTRUCTIONS, tools)
+        }
         Server::Team => ("codync-team", crate::chat::team::INSTRUCTIONS, crate::chat::team::tools()),
         Server::Memory => ("codync-memory", crate::chat::memory::INSTRUCTIONS, crate::chat::memory::tools()),
         Server::Composio => {
