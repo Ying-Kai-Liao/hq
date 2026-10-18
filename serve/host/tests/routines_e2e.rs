@@ -297,9 +297,10 @@ async fn an_agent_started_for_a_run_stops_when_the_run_ends() {
     host.send(&bot, "LATER").await;
     host.wait_event("only-runs", "finished", "LATER").await;
     let events = host.agent_events("only-runs");
-    // The message started the agent again: the run's agent stopped with the run instead of closing its session.
-    assert_eq!(events.iter().filter(|e| e["event"] == "initialize").count(), 2);
-    assert!(!events.iter().any(|e| e["event"] == "closed"));
+    let count = |event: &str| events.iter().filter(|e| e["event"] == event).count();
+    // The message started the agent again: the run's agent stopped with the run. Windows never stops an agent (it
+    // can't tell a dev server from an MCP server, see `lifecycle`), so there the run's session closes instead.
+    assert_eq!((count("initialize"), count("closed")), if cfg!(windows) { (1, 1) } else { (2, 0) });
 }
 
 #[tokio::test]
