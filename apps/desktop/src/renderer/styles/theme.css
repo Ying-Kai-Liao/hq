@@ -76,6 +76,19 @@
   --mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, 'DejaVu Sans Mono', monospace;
 }
 
+/* The type ramp (lib/fonts.ts maps the macOS style names onto it). It is declared again wherever
+   --scale is reset (the island stays at the default size), so it resolves against that scale. */
+:root,
+.island {
+  --text-large-title: calc(26px * var(--scale));
+  --text-title: calc(22px * var(--scale));
+  --text-title2: calc(17px * var(--scale));
+  --text-title3: calc(15px * var(--scale));
+  --text-body: calc(13px * var(--scale));
+  --text-callout: calc(12px * var(--scale));
+  --text-caption: calc(11px * var(--scale));
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #070707;
@@ -202,7 +215,33 @@ a {
   color: inherit;
 }
 
-/* Headings carry structure; each sets its own type with font(). */
+/* Layout and text primitives (components/Stack.tsx, Text.tsx). */
+.hstack {
+  display: flex;
+}
+.vstack {
+  display: flex;
+  flex-direction: column;
+}
+.spacer {
+  flex: 1;
+}
+.icon-slot {
+  flex: none;
+}
+.truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.line-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Headings carry structure; each sets its own type with Text. */
 h1,
 h2,
 h3 {

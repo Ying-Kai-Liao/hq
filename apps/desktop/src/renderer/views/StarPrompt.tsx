@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { Button } from '../components/Controls'
 import { Icon } from '../components/Icon'
 import { ModalHeader, Sheet } from '../components/Overlay'
-import { font } from '../lib/fonts'
+import { HStack, VStack } from '../components/Stack'
+import { Text } from '../components/Text'
 import { useModel } from '../lib/observable'
 import { prefs, usePref } from '../lib/prefs'
 import { afterStarAsk, dueStarAsk } from '../lib/star-ask'
@@ -44,19 +45,19 @@ export function StarPrompt() {
   const text = copy[due ?? 'first']
   return (
     <Sheet open={open} onClose={() => finish(false)}>
-      <div style={{ width: 420, display: 'flex', flexDirection: 'column' }}>
+      <VStack className="star-prompt">
         <ModalHeader title={text.title} />
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '0 24px 24px' }}>
+        <VStack align="center" gap={16} className="star-prompt-body">
           <Icon name="star" size={36} weight="light" color="var(--secondary)" />
-          <div style={{ ...font('callout'), color: 'var(--secondary)', textAlign: 'center' }}>{text.message}</div>
-          <div style={{ display: 'flex', gap: 12 }}>
+          <Text as="div" size="callout" tone="secondary" className="star-prompt-message">{text.message}</Text>
+          <HStack align="stretch" gap={12}>
             <Button kind="secondary" onClick={() => finish(false)}>
               Not now
             </Button>
             <Button onClick={() => finish(true)}>Star on GitHub</Button>
-          </div>
-        </div>
-      </div>
+          </HStack>
+        </VStack>
+      </VStack>
     </Sheet>
   )
 }

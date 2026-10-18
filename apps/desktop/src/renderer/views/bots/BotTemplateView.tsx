@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import type { BotDraft } from '@shared/models'
 import { Icon } from '../../components/Icon'
 import { ModalHeader } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { HStack, VStack } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import './bots.css'
 
 /** Swift's `JSONEncoder` with `.prettyPrinted, .sortedKeys, .withoutEscapingSlashes`; nil fields are left out. */
@@ -38,28 +39,24 @@ export function BotTemplateView({ draft }: { draft: BotDraft }) {
   })
 
   return (
-    <div style={{ width: 560, height: 540, display: 'flex', flexDirection: 'column', background: 'var(--background)' }}>
+    <VStack className="bot-template">
       <ModalHeader title="Create template" />
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 20, padding: '0 24px 24px' }}>
-        <span style={{ ...font('subheadline'), color: 'var(--secondary)' }}>{draft.name}</span>
-        <span style={{ ...font('callout'), color: 'var(--secondary)' }}>Copy this bot’s settings to reuse as a template. Conversation history and conversation ID are excluded.</span>
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', background: 'var(--surface)', borderRadius: 12 }}>
-          <pre className="selectable" style={{ ...font(12, 'regular', 'monospaced'), margin: 0, padding: 16, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+      <VStack gap={20} className="bot-template-body">
+        <Text size="subheadline" tone="secondary">{draft.name}</Text>
+        <Text size="callout" tone="secondary">Copy this bot’s settings to reuse as a template. Conversation history and conversation ID are excluded.</Text>
+        <div className="bot-template-code">
+          <pre className="selectable">
             {encoded}
           </pre>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ ...font('caption'), color: 'var(--secondary)', flex: 1 }}>Includes workspace preferences and agent configuration.</span>
-          <button
-            className="press"
-            style={{ ...font(13, 'semibold'), display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', color: 'var(--on-accent)', background: 'var(--accent-fill)', borderRadius: 9 }}
-            onClick={copy}
-          >
+        <HStack gap={8}>
+          <Text size="caption" tone="secondary" grow>Includes workspace preferences and agent configuration.</Text>
+          <button className="press bot-template-copy" onClick={copy}>
             <Icon key={copied ? 'checkmark' : 'square.on.square'} name={copied ? 'checkmark' : 'square.on.square'} size={13} weight="semibold" className="fade-in" />
             {copied ? 'Copied' : 'Copy template'}
           </button>
-        </div>
-      </div>
-    </div>
+        </HStack>
+      </VStack>
+    </VStack>
   )
 }

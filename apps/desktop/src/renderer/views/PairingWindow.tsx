@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import type { CloudStatus, PairingInfo } from '@shared/models'
 import { IconButton, Spinner } from '../components/Controls'
-import { font } from '../lib/fonts'
+import { HStack, VStack } from '../components/Stack'
+import { Text } from '../components/Text'
 import { LoopbackTransport } from '../client/host-client'
 import { useApp } from '../store/context'
+import './pairing-window.css'
 
 /** A one-time pairing QR (v3) from this computer: its keys, a code, and how to reach it. */
 export function PairingWindow() {
@@ -49,40 +51,40 @@ export function PairingWindow() {
   }, [info?.expiresAt, load])
 
   return (
-    <div style={{ width: 340, padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+    <VStack align="center" gap={12} className="pairing">
       {info && qr ? (
         <>
-          <div style={{ padding: 10, background: '#fff', borderRadius: 12 }}>
-            <img src={qr} alt={`Pairing code for ${name}`} width={200} height={200} style={{ display: 'block', imageRendering: 'pixelated' }} />
+          <div className="pairing-qr">
+            <img src={qr} alt={`Pairing code for ${name}`} width={200} height={200} />
           </div>
-          <div style={{ ...font('caption'), color: 'var(--secondary)', textAlign: 'center' }}>
+          <Text as="div" size="caption" tone="secondary" className="pairing-note">
             Scan with the Codync app or the iPhone Camera. No Tailscale or open ports needed: your iPhone connects directly on the same Wi-Fi, and through the encrypted relay anywhere else.
-          </div>
+          </Text>
           {cloud?.enabled !== true ? (
-            <div style={{ ...font('caption'), color: 'var(--attention)', textAlign: 'center' }}>
+            <Text as="div" size="caption" tone="attention" className="pairing-note">
               {info.urls.length === 0
                 ? 'No network address found and “Reach from anywhere” is off. Connect to Wi-Fi or turn it on.'
                 : `“Reach from anywhere” is off, so the iPhone only reaches ${name} on the same network.`}
-            </div>
+            </Text>
           ) : null}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <HStack gap={4}>
             {info.expiresAt ? (
-              <span style={{ ...font('caption2'), color: 'var(--tertiary)' }}>
+              <Text size="caption2" tone="tertiary">
                 Works once, until {new Date(info.expiresAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-              </span>
+              </Text>
             ) : null}
             <IconButton title="New code" icon="arrow.clockwise" onClick={() => void load()} />
             <IconButton title="Copy pairing link" icon="doc.on.doc" onClick={() => window.codync.app.copy(info.pairingUrl)} />
-          </div>
+          </HStack>
         </>
       ) : error ? (
         <>
-          <div style={{ ...font('caption'), color: 'var(--danger)', textAlign: 'center' }}>{error}</div>
+          <Text as="div" size="caption" tone="danger" className="pairing-note">{error}</Text>
           <IconButton title="Try again" icon="arrow.clockwise" onClick={() => void load()} />
         </>
       ) : (
         <Spinner size={20} />
       )}
-    </div>
+    </VStack>
   )
 }

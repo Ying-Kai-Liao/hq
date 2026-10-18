@@ -85,6 +85,9 @@
   border-radius: 50%;
   flex: none;
 }
+.island-dot.needs-you {
+  background: var(--warning);
+}
 .island-agent-name {
   font-size: 14px;
   font-weight: 600;
@@ -98,21 +101,21 @@
   text-overflow: ellipsis;
   min-width: 0;
 }
-.island-ellipsis {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
 
 /* Overview: the bot in focus and its steps, the others as pills. */
 .island-focus {
+  width: 322px;
   display: flex;
   align-items: center;
   gap: 13px;
   padding: 0 14px 0 19px;
   text-align: left;
   font: inherit;
+}
+/* No other bots beside it: it takes the whole row. */
+.island-focus.alone {
+  width: auto;
+  flex: 1;
 }
 .island-focus-text {
   flex: 1;
@@ -280,6 +283,9 @@
 .island-meter:hover {
   background: var(--island-fill);
   color: var(--text);
+}
+.island-mascot {
+  flex: none;
 }
 .island-meter-bar {
   width: 28px;

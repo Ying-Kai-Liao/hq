@@ -18,6 +18,12 @@ textarea.field-box {
 .field-box:focus {
   outline: 2px solid var(--secondary);
 }
+/* A custom agent's command. */
+.bot-command {
+  font-size: var(--text-callout);
+  font-weight: 400;
+  font-family: var(--mono);
+}
 
 .bot-form {
   height: 100%;
@@ -29,7 +35,80 @@ textarea.field-box {
   flex-direction: column;
   gap: 24px;
   padding: 14px;
-  font-size: calc(12px * var(--scale));
+  font-size: var(--text-callout);
+}
+.bot-editor-body {
+  flex: 1;
+  min-height: 0;
+}
+.workspace-pill-label {
+  max-width: 160px;
+}
+/* A plugin's switch beside its info button. */
+.plugin-toggle {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The model row and its options (AgentModelPicker). */
+.model-picker-label {
+  white-space: nowrap;
+}
+/* Loading and refresh share one fixed slot. */
+.model-picker-slot {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+}
+.model-picker-slot > * {
+  grid-area: 1 / 1;
+}
+.model-picker-refresh {
+  transition: opacity var(--fade);
+}
+.model-picker-refresh.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.model-picker-input {
+  width: 142px;
+  max-width: 100%;
+  min-width: 0;
+  text-align: right;
+  color: var(--text);
+  user-select: text;
+}
+
+/* Folder picker (FolderPicker). */
+.folder-back {
+  padding-left: 10px;
+}
+.folder-title {
+  flex: 1;
+  min-width: 0;
+}
+.folder-levels {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.folder-level-content {
+  gap: 14px;
+}
+.folder-use {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-body);
+  font-weight: 700;
+  color: var(--accent);
+}
+.folder-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .avatar-button {
@@ -41,6 +120,10 @@ textarea.field-box {
 .avatar-button.small {
   padding: 5px;
   border-radius: var(--radius-s);
+}
+.avatar-picker-panel {
+  width: 300px;
+  padding: 14px;
 }
 
 /* A selectable avatar shape or color, ringed when chosen. */
@@ -61,6 +144,12 @@ textarea.field-box {
   padding: 4px;
   overflow-x: auto;
 }
+.swatch-color {
+  display: block;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+}
 
 /* A picked bot: To: field and group editor. */
 .bot-chip {
@@ -73,6 +162,15 @@ textarea.field-box {
   flex: none;
   animation: chip-in var(--layout) both;
 }
+.bot-chip-name {
+  max-width: 220px;
+}
+.bot-chip-remove {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+}
 @keyframes chip-in {
   from {
     opacity: 0;
@@ -81,6 +179,7 @@ textarea.field-box {
 }
 .chip-row {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 6px;
   overflow-x: auto;
@@ -109,7 +208,31 @@ textarea.field-box {
   background: var(--background);
   color: var(--secondary);
   font-family: var(--mono);
-  font-size: calc(11px * var(--scale));
+  font-size: var(--text-caption);
+}
+
+/* The new message page's To: row (NewChatView). */
+.compose-to {
+  padding: 12px 22px;
+  font-size: var(--text-title3);
+  font-weight: 400;
+}
+.compose-to-label {
+  flex: none;
+}
+.compose-to-input {
+  flex: 1;
+  min-width: 200px;
+  color: var(--text);
+  user-select: text;
+}
+.compose-create-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--bubble-agent);
 }
 
 .compose-list {
@@ -161,7 +284,51 @@ textarea.field-box {
   }
 }
 
+/* Create template (BotTemplateView). */
+.bot-template {
+  width: 560px;
+  height: 540px;
+  background: var(--background);
+}
+.bot-template-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 24px 24px;
+}
+.bot-template-code {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: var(--radius-m);
+}
+.bot-template-code pre {
+  margin: 0;
+  padding: 16px;
+  font-family: var(--mono);
+  font-size: var(--text-callout);
+  font-weight: 400;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.bot-template-copy {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-radius: 9px;
+  background: var(--accent-fill);
+  color: var(--on-accent);
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
 /* Group editor (Grok Bot's group details): identity on top, then a plain member list. */
+.group-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
 .group-form {
   display: flex;
   flex-direction: column;
@@ -183,12 +350,12 @@ textarea.field-box {
   resize: none;
 }
 .group-name {
-  font-size: calc(22px * var(--scale));
+  font-size: var(--text-title);
   font-weight: 600;
   margin-top: 6px;
 }
 .group-about {
-  font-size: calc(13px * var(--scale));
+  font-size: var(--text-body);
   color: var(--secondary);
   line-height: 1.35;
 }
@@ -196,8 +363,21 @@ textarea.field-box {
 .group-about::placeholder {
   color: var(--tertiary);
 }
+.group-search {
+  margin: 6px 0;
+  background: var(--surface);
+}
+.group-note {
+  padding: 10px 0 0;
+}
+.group-delete {
+  align-self: flex-start;
+  font-size: var(--text-body);
+  font-weight: 400;
+  color: var(--danger);
+}
 .group-section-title {
-  font-size: calc(13px * var(--scale));
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--secondary);
   padding-bottom: 4px;
@@ -225,6 +405,11 @@ button.member-row:hover {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.member-add-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+}
 
 /* A member row that opens the bot's chat, with a remove button shown on hover. */
 .member-row.removable:hover {
@@ -246,4 +431,12 @@ button.member-row:hover {
 .member-row.removable:hover > :last-child,
 .member-row.removable:focus-within > :last-child {
   opacity: 1;
+}
+.model-picker-pill {
+  min-width: 0;
+  max-width: 160px;
+}
+.workspace-pill {
+  gap: 6px;
+  color: var(--text);
 }

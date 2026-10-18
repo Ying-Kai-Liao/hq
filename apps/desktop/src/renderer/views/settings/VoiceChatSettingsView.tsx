@@ -3,8 +3,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { HostClient } from '../../client/host-client'
 import { Button, CardForm, CardSection, ChoicePicker, IconButton, Spinner, ValueRow } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
-import { ModalHeader } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { ModalHeader, SheetPage } from '../../components/Overlay'
+import { HStack, Spacer, VStack } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import { usePref } from '../../lib/prefs'
 import { useStore } from '../../store/context'
 import { errorText, liveClient, Reveal } from './parts'
@@ -29,9 +30,9 @@ export function VoiceChatSettingsView({ showsHeader = true }: { showsHeader?: bo
       ? 'On-device speech, on this computer. Applies from the next call.'
       : onDeviceUnavailableReason()
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--background)', width: showsHeader ? 440 : undefined, height: showsHeader ? 600 : '100%' }}>
+    <SheetPage className={showsHeader ? 'settings-voice-sheet' : undefined}>
       {showsHeader ? <ModalHeader title="Voice chat" /> : null}
-      <div style={{ flex: 1, minHeight: 0 }}>
+      <div className="settings-voice-body">
         <CardForm>
           <CardSection title="Voice" footer={footer}>
             {[
@@ -67,7 +68,7 @@ export function VoiceChatSettingsView({ showsHeader = true }: { showsHeader?: bo
           {provider ? <ProviderVoiceSettings key={provider} provider={provider} /> : null}
         </CardForm>
       </div>
-    </div>
+    </SheetPage>
   )
 }
 
@@ -196,17 +197,17 @@ function ProviderVoiceSettings({ provider }: { provider: VoiceProvider }) {
     return <ChoicePicker selection={selection} options={options.map((m) => ({ id: m, label: m }))} onChange={onChange} />
   }
 
-  const dimmed = { opacity: hasKey ? 1 : 0.55, pointerEvents: hasKey ? undefined : ('none' as const), transition: 'opacity var(--layout)' }
+  const dimmed = hasKey ? 'settings-dimmable' : 'settings-dimmable dimmed'
   const keyArea = (
-    <div key="key" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <VStack key="key" gap={8}>
       {hasKey && !replacing ? (
         // The key is on the computer: say so, and offer test / replace / remove.
         <div className="settings-row">
           <Icon name="key.fill" size={13} color="var(--secondary)" />
-          <div className="settings-stack" style={{ flex: 1 }}>
-            <span style={{ color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Key saved</span>
-            <span style={{ ...font('caption'), color: 'var(--tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Stays on {store.hostName}</span>
-          </div>
+          <VStack grow className="settings-stack">
+            <Text tone="text" truncate>Key saved</Text>
+            <Text size="caption" tone="tertiary" truncate>Stays on {store.hostName}</Text>
+          </VStack>
           {busy ? (
             <Spinner />
           ) : (
@@ -219,8 +220,8 @@ function ProviderVoiceSettings({ provider }: { provider: VoiceProvider }) {
         </div>
       ) : (
         // Paste a key; the computer checks it with the provider before keeping it.
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div className="settings-row" style={{ gap: 8 }}>
+        <VStack gap={10}>
+          <HStack gap={8} className="settings-row">
             <input
               type="password"
               aria-label="API key"
@@ -228,7 +229,7 @@ function ProviderVoiceSettings({ provider }: { provider: VoiceProvider }) {
               value={key}
               spellCheck={false}
               autoComplete="off"
-              style={{ flex: 1, minWidth: 0 }}
+              className="settings-key-input"
               onChange={(e) => setKey(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && test()}
             />
@@ -239,29 +240,29 @@ function ProviderVoiceSettings({ provider }: { provider: VoiceProvider }) {
                 Save
               </Button>
             )}
-          </div>
-          <div className="settings-row" style={font('footnote')}>
-            <button style={{ color: 'var(--text)', textDecoration: 'underline' }} onClick={() => window.codync.app.openExternal(info.keyPage)}>
+          </HStack>
+          <Text as="div" size="footnote" className="settings-row">
+            <button className="settings-link" onClick={() => window.codync.app.openExternal(info.keyPage)}>
               Get a key from {info.name}
             </button>
-            <span style={{ flex: 1 }} />
+            <Spacer />
             {replacing ? (
-              <button style={{ color: 'var(--secondary)' }} onClick={() => { setReplacing(false); setKey(''); setResult(null) }}>
+              <button className="settings-quiet-button" onClick={() => { setReplacing(false); setKey(''); setResult(null) }}>
                 Cancel
               </button>
             ) : null}
-          </div>
-        </div>
+          </Text>
+        </VStack>
       )}
       <Reveal show={result !== null}>
         {result ? (
-          <span style={{ ...font('footnote'), display: 'flex', alignItems: 'center', gap: 5, color: result.ok ? 'var(--secondary)' : 'var(--danger)' }}>
+          <HStack as="span" gap={5} className={`settings-key-result ${result.ok ? '' : 'failed'}`}>
             <Icon name={result.ok ? 'checkmark.circle.fill' : 'exclamationmark.circle.fill'} size={10} />
             {result.text}
-          </span>
+          </HStack>
         ) : null}
       </Reveal>
-    </div>
+    </VStack>
   )
 
   return (
@@ -270,11 +271,11 @@ function ProviderVoiceSettings({ provider }: { provider: VoiceProvider }) {
         keyArea,
         ...(speechMode
           ? [
-              <div key="stt" style={dimmed}><ValueRow label="Speech to text">{picker(transcribeModel, models.transcribe, pick('transcribe', setTranscribeModel))}</ValueRow></div>,
-              <div key="tts" style={dimmed}><ValueRow label="Text to speech">{picker(speechModel, models.speech, pick('speech', setSpeechModel))}</ValueRow></div>,
+              <div key="stt" className={dimmed}><ValueRow label="Speech to text">{picker(transcribeModel, models.transcribe, pick('transcribe', setTranscribeModel))}</ValueRow></div>,
+              <div key="tts" className={dimmed}><ValueRow label="Text to speech">{picker(speechModel, models.speech, pick('speech', setSpeechModel))}</ValueRow></div>,
             ]
-          : [<div key="model" style={dimmed}><ValueRow label="Model">{picker(model, models.models, pick('realtime', setModel))}</ValueRow></div>]),
-        <div key="voice" style={dimmed}>
+          : [<div key="model" className={dimmed}><ValueRow label="Model">{picker(model, models.models, pick('realtime', setModel))}</ValueRow></div>]),
+        <div key="voice" className={dimmed}>
           <ValueRow label="Voice">
             <ChoicePicker
               selection={chosenVoice}
@@ -286,7 +287,7 @@ function ProviderVoiceSettings({ provider }: { provider: VoiceProvider }) {
             />
           </ValueRow>
         </div>,
-        <div key="minutes" style={dimmed}>
+        <div key="minutes" className={dimmed}>
           <ValueRow label="This month">≈ {voice.voiceMinutes(provider)} min</ValueRow>
         </div>,
       ]}

@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { isBelow } from '@shared/compat'
 import { CardForm, CardSection, IconButton, Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
-import { ModalHeader } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { ModalHeader, SheetPage } from '../../components/Overlay'
+import { Text } from '../../components/Text'
 import { useStore } from '../../store/context'
 import { MarkdownText } from '../thread/Markdown'
 import { SKILLS_HOST } from '../thread/slash-commands'
@@ -52,27 +52,27 @@ export function SkillSheet({ skill }: { skill: SkillRef }) {
   }
 
   const trailing = added ? (
-    <span title="Added" aria-label="Added" style={{ width: 32, display: 'grid', placeItems: 'center', color: 'var(--secondary)' }}>
+    <span title="Added" aria-label="Added" className="skill-added">
       <Icon name="checkmark" size={13} weight="semibold" />
     </span>
   ) : adding ? <Spinner /> : <IconButton title="Add" icon="plus" onClick={() => void add()} />
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--background)' }}>
+    <SheetPage>
       <ModalHeader title={skill.name} trailing={trailing} />
       <CardForm>
         {skill.description ? (
           <CardSection>
-            <span style={{ ...font('subheadline'), color: 'var(--secondary)' }}>{skill.description}</span>
+            <Text size="subheadline" tone="secondary">{skill.description}</Text>
           </CardSection>
         ) : null}
         {readable ? (
           <CardSection title="Instructions" footer={added ? 'Bots read these before using the skill.' : 'Add it to let bots use these instructions.'}>
-            {markdown ? <MarkdownText text={markdown} /> : markdown === '' ? <span style={{ color: 'var(--secondary)' }}>No instructions.</span> : error ? null : <Spinner />}
+            {markdown ? <MarkdownText text={markdown} /> : markdown === '' ? <Text tone="secondary">No instructions.</Text> : error ? null : <Spinner />}
           </CardSection>
         ) : null}
         {error ? <CardSection><ErrorText text={error} /></CardSection> : null}
       </CardForm>
-    </div>
+    </SheetPage>
   )
 }

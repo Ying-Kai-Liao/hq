@@ -37,7 +37,7 @@
   min-width: 0;
   align-items: baseline;
   gap: 6px;
-  font-size: calc(11px * var(--scale));
+  font-size: var(--text-caption);
   text-align: left;
 }
 
@@ -49,7 +49,7 @@
 
 .computer-roster-label > span {
   color: var(--tertiary);
-  font-size: calc(11px * var(--scale));
+  font-size: var(--text-caption);
   white-space: nowrap;
 }
 
@@ -87,7 +87,7 @@
 .computer-roster-empty {
   padding: 8px 10px 12px;
   color: var(--tertiary);
-  font-size: calc(11px * var(--scale));
+  font-size: var(--text-caption);
 }
 
 .sidebar.compact .computer-roster-toggle {

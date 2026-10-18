@@ -4,7 +4,8 @@ import { isGroup, isWorkingIn, type Bot } from '@shared/models'
 import { BotAvatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { usePresence } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { VStack } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import { useModel } from '../../lib/observable'
 import { useStore } from '../../store/context'
 import { MAX_FILE_SIZE, type OutgoingFile } from '../../store/bot-store'
@@ -157,18 +158,16 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
     call: ['waveform', 'Call'],
     send: ['arrow.up', 'Send'],
   } as const)[trailing]
-  const fill = trailing === 'interrupt' ? 'var(--danger-fill)' : trailing === 'send' ? (canSend ? 'var(--accent-fill)' : 'var(--accent-dim)') : 'var(--accent-fill)'
-  const ink = trailing === 'interrupt' ? 'var(--on-danger)' : trailing === 'send' ? (canSend ? 'var(--on-accent)' : 'var(--tertiary)') : 'var(--on-accent)'
   const enabled = trailing !== 'send' || canSend
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column' }}>
+    <VStack>
       <ComposerReveal open={suggestions.length > 0}>
         <div className="mentions">
           {suggestions.map((m) => (
             <button key={m.id} className="press mention" onClick={() => mention(m)}>
               <BotAvatar bot={m} size={18} animated={false} />
-              <span style={{ ...font('subheadline'), color: 'var(--text)' }}>{m.name}</span>
+              <Text size="subheadline" tone="text">{m.name}</Text>
             </button>
           ))}
         </div>
@@ -255,11 +254,10 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
               </button>
             ) : null}
             <button
-              className="press composer-send"
+              className={trailing === 'interrupt' ? 'press composer-send interrupt' : 'press composer-send'}
               disabled={!enabled}
               aria-label={label}
               title={label}
-              style={{ background: fill, color: ink }}
               onClick={() => {
                 if (trailing === 'interrupt') onInterrupt?.()
                 else if (trailing === 'stop') store.stop(botId)
@@ -276,7 +274,7 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
           </div>
         </div>
       </div>
-    </div>
+    </VStack>
   )
 }
 

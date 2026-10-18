@@ -1,24 +1,22 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import type { Bot } from '@shared/models'
 import { BotAvatar } from '../../components/Avatar'
-import { Switch } from '../../components/Controls'
+import { RowLabel, Switch } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
-import { usePresence } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { anchorPlacement, useEscape, usePresence } from '../../components/Overlay'
+import { VStack } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import './bots.css'
 
 /** A labeled input inside a section row: label (and an optional note) over the field, which they name. */
 export function Field({ label, detail, children }: { label: string; detail?: string | null; children: ReactNode }) {
   const id = useId()
   return (
-    <div role="group" aria-labelledby={`${id}-label`} aria-describedby={detail ? `${id}-detail` : undefined} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <span id={`${id}-label`} style={{ color: 'var(--text)' }}>{label}</span>
-        {detail ? <span id={`${id}-detail`} className="detail-note" title={detail} style={{ ...font('caption'), color: 'var(--secondary)', lineHeight: 1.35 }}>{detail}</span> : null}
-      </div>
+    <VStack gap={8} role="group" aria-labelledby={`${id}-label`} aria-describedby={detail ? `${id}-detail` : undefined}>
+      <RowLabel label={label} detail={detail} labelId={`${id}-label`} detailId={`${id}-detail`} />
       {children}
-    </div>
+    </VStack>
   )
 }
 
@@ -26,10 +24,7 @@ export function Field({ label, detail, children }: { label: string; detail?: str
 export function SwitchRow({ title, detail, on, onChange }: { title: string; detail?: string | null; on: boolean; onChange: (on: boolean) => void }) {
   return (
     <Switch on={on} onChange={onChange}>
-      <span style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <span style={{ color: 'var(--text)' }}>{title}</span>
-        {detail ? <span className="detail-note" title={detail} style={{ ...font('caption'), color: 'var(--secondary)', lineHeight: 1.35 }}>{detail}</span> : null}
-      </span>
+      <RowLabel label={title} detail={detail} />
     </Switch>
   )
 }
@@ -62,8 +57,8 @@ export function BotChip({ bot, onRemove }: { bot: Bot; onRemove: () => void }) {
   return (
     <span className="bot-chip">
       <BotAvatar bot={bot} size={20} animated={false} />
-      <span style={{ ...font('body'), color: 'var(--text)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{bot.name}</span>
-      <button style={{ width: 18, height: 18, display: 'grid', placeItems: 'center' }} aria-label={`Remove ${bot.name}`} title={`Remove ${bot.name}`} onClick={onRemove}>
+      <Text size="body" tone="text" truncate className="bot-chip-name">{bot.name}</Text>
+      <button className="bot-chip-remove" aria-label={`Remove ${bot.name}`} title={`Remove ${bot.name}`} onClick={onRemove}>
         <Icon name="xmark" size={10} weight="semibold" color="var(--secondary)" />
       </button>
     </span>
@@ -77,34 +72,11 @@ export function AnchoredPanel({ open, onClose, anchor, children }: { open: boole
   useLayoutEffect(() => {
     if (open && anchor.current) setRect(anchor.current.getBoundingClientRect())
   }, [open, anchor])
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.preventDefault()
-      e.stopPropagation()
-      onClose()
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [open, onClose])
+  useEscape(open, onClose)
   if (!mounted || !rect) return null
-  const W = window.innerWidth
-  const H = window.innerHeight
-  const below = H - rect.bottom >= rect.top
-  const leading = rect.left + rect.width / 2 < W * 0.6
-  const inset = Math.max(8, W - Math.min(320, W - 16) - 8)
   return createPortal(
     <div className={`anchored ${shown ? 'shown' : ''}`} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div
-        className="anchored-panel"
-        style={{
-          position: 'absolute',
-          [below ? 'top' : 'bottom']: below ? rect.bottom + 6 : H - rect.top + 6,
-          ...(leading ? { left: Math.min(Math.max(8, rect.left), inset) } : { right: Math.min(Math.max(8, W - rect.right), inset) }),
-          transformOrigin: `${below ? 'top' : 'bottom'} ${leading ? 'left' : 'right'}`,
-        }}
-      >
+      <div className="anchored-panel" style={anchorPlacement(rect).style}>
         {children}
       </div>
     </div>,

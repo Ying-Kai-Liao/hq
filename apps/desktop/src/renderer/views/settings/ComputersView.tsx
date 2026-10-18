@@ -5,7 +5,8 @@ import { newSSHProfile, type SSHProfile } from '@shared/ssh'
 import { Button, CardSection, IconButton, Spinner, Switch } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { Dialog, ModalHeader, Sheet, useDismiss } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { HStack, IconSlot, Spacer, VStack } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import { useModel } from '../../lib/observable'
 import { useAccount } from '../../store/account'
 import type { BotStore } from '../../store/bot-store'
@@ -15,6 +16,7 @@ import { deviceIcon, errorText, liveClient, relativeDay, Reveal, SectionHeader, 
 import { useSSH } from './ssh-model'
 import { SSHRow } from './SSHRow'
 import { VoiceChatSettingsView } from './VoiceChatSettingsView'
+import '../pairing-window.css'
 
 /**
  * Computers this app manages (itself and SSH), with their account, relay and authorized devices;
@@ -32,8 +34,8 @@ export function ComputersView() {
   const others = cloud.computers.filter((c) => !managedIds.has(c.computerId) && !reached.some((r) => r.id === c.computerId))
 
   return (
-    <div style={{ height: '100%', overflowY: 'auto', background: 'var(--background)' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 26, padding: '14px 14px 20px' }}>
+    <div className="settings-computers">
+      <VStack gap={26} className="settings-computers-content">
         {managed.map((store) => (
           <ManagedComputerCard key={store.computer.id} store={store} ssh={sshState.isSSH(store.computer.id)} />
         ))}
@@ -43,9 +45,9 @@ export function ComputersView() {
             <IconButton title="Add SSH computer" icon="plus" onClick={() => setEditing({ profile: newSSHProfile(window.codync.hostPort), isNew: true })} />
           </SectionHeader>
           <Reveal show={sshState.state.profiles.length === 0}>
-            <div style={{ ...font('callout'), color: 'var(--secondary)' }}>
+            <Text as="div" size="callout" tone="secondary">
               Run bots on another computer you reach with SSH. It needs codync-host installed; your SSH keys stay on {thisMac}.
-            </div>
+            </Text>
           </Reveal>
           {sshState.state.profiles.map((profile) => (
             <SSHRow key={profile.id} profile={profile} status={sshState.status(profile.id)} edit={() => setEditing({ profile, isNew: false })} />
@@ -57,9 +59,9 @@ export function ComputersView() {
             {account.isSignedIn ? <IconButton title="Refresh" icon="arrow.clockwise" onClick={() => void cloud.refresh()} /> : null}
           </SectionHeader>
           {!account.isSignedIn ? (
-            <div style={{ ...font('callout'), color: 'var(--secondary)' }}>Sign in to reach the other computers in your account from {thisMac}.</div>
+            <Text as="div" size="callout" tone="secondary">Sign in to reach the other computers in your account from {thisMac}.</Text>
           ) : reached.length === 0 && others.length === 0 ? (
-            <div style={{ ...font('callout'), color: 'var(--secondary)' }}>No other computers in your account yet.</div>
+            <Text as="div" size="callout" tone="secondary">No other computers in your account yet.</Text>
           ) : null}
           {reached.map((computer) => {
             const store = app.store(computer.id)
@@ -71,13 +73,13 @@ export function ComputersView() {
                 <div className="settings-row">
                   <ComputerBadge computer={store.computer} size={22} />
                   <div className="settings-stack">
-                    <span style={font('callout', 'medium')}>{store.hostName}</span>
-                    <span style={{ ...font('caption'), color: stale ? 'var(--attention)' : 'var(--secondary)' }}>
+                    <Text size="callout" weight="medium">{store.hostName}</Text>
+                    <Text size="caption" tone={stale ? 'attention' : 'secondary'}>
                       {stale ? `Older copy of this computer · ${statusText(store)}` : statusText(store)}
-                    </span>
+                    </Text>
                   </div>
                   <RouteIcon store={store} />
-                  <span style={{ flex: 1 }} />
+                  <Spacer />
                   <IconButton title={`Remove from ${thisMac}`} icon="minus.circle" onClick={() => app.detach(computer.id)} />
                 </div>
               </div>
@@ -89,14 +91,14 @@ export function ComputersView() {
               <div className="settings-row">
                 <ComputerBadge computer={{ id: computer.computerId, name: computer.name, signKey: computer.signKey, urls: [], device: computer.device ?? null }} size={22} />
                 <div className="settings-stack">
-                  <span style={font('callout', 'medium')}>{computer.name}</span>
-                  <span style={{ ...font('caption'), color: 'var(--secondary)' }}>{computer.online ? 'Online' : 'Offline'}</span>
+                  <Text size="callout" weight="medium">{computer.name}</Text>
+                  <Text size="caption" tone="secondary">{computer.online ? 'Online' : 'Offline'}</Text>
                 </div>
               </div>
             </div>
           ))}
         </div>
-      </div>
+      </VStack>
 
       <Sheet open={editing !== null} onClose={() => setEditing(null)} width={460}>
         {editing ? <SSHProfileEditor key={editing.profile.id} profile={editing.profile} isNew={editing.isNew} /> : null}
@@ -110,9 +112,9 @@ function RouteIcon({ store }: { store: BotStore }) {
   if (store.connection.kind !== 'online' || !store.hostRoute || store.hostRoute === 'loopback') return null
   const relay = store.hostRoute === 'relay'
   return (
-    <span title={relay ? 'Through Cloudflare (encrypted)' : 'Direct: Wi-Fi or Tailscale'} aria-label={relay ? 'Through Cloudflare' : 'Wi-Fi or Tailscale'} style={{ display: 'flex', color: 'var(--tertiary)' }}>
+    <HStack as="span" align="stretch" title={relay ? 'Through Cloudflare (encrypted)' : 'Direct: Wi-Fi or Tailscale'} aria-label={relay ? 'Through Cloudflare' : 'Wi-Fi or Tailscale'} className="settings-route">
       <Icon name={relay ? 'cloud' : 'wifi'} size={12} />
-    </span>
+    </HStack>
   )
 }
 
@@ -165,9 +167,9 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
 
   const owner = cloud?.owner ?? null
   const accountLine = (
-    <div className="settings-row" style={{ gap: 8 }}>
+    <HStack gap={8} className="settings-row">
       <Icon name={owner ? 'person.crop.circle.badge.checkmark' : 'person.crop.circle.badge.plus'} size={13} color="var(--secondary)" />
-      <span style={{ ...font('callout'), flex: 1 }}>
+      <Text size="callout" grow>
         {owner
           ? owner.userId === account.user?.userId
             ? 'In your account'
@@ -175,7 +177,7 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
           : account.isSignedIn
             ? 'Not in your account'
             : 'Sign in to add it to your account'}
-      </span>
+      </Text>
       {owner ? (
         <Button kind="secondary" onClick={() => setConfirmUnclaim(true)} disabled={busy || !online}>
           Remove from account
@@ -185,21 +187,21 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
           {busy ? 'Adding…' : 'Add to account'}
         </Button>
       ) : null}
-    </div>
+    </HStack>
   )
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+    <VStack gap={28}>
       <CardSection>
         {[
           <div key="header" className="settings-row">
             <ComputerBadge computer={store.computer} size={26} />
-            <div className="settings-stack" style={{ flex: 1 }}>
-              <span style={font('headline')}>{name}</span>
-              <span style={{ ...font('caption'), color: 'var(--secondary)' }}>
+            <VStack grow className="settings-stack">
+              <Text size="headline">{name}</Text>
+              <Text size="caption" tone="secondary">
                 {overSSH ? 'Over SSH' : isMacLabel} · {statusText(store)}
-              </span>
-            </div>
+              </Text>
+            </VStack>
             {overSSH ? (
               // This computer's voice settings are their own Settings page.
               <IconButton title="Voice chat" icon="waveform" selected={showVoice} disabled={!online} onClick={() => setShowVoice((s) => !s)} />
@@ -209,7 +211,7 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
           <Switch key="cloud" on={cloud?.enabled ?? false} disabled={busy || !online} onChange={(on) => run(() => app.cloud.setCloud(store, on))}>
             <span className="settings-stack">
               <span>Reach from anywhere</span>
-              <span style={{ ...font('caption'), color: cloud?.lastError ? 'var(--attention)' : 'var(--secondary)' }}>{cloudLine}</span>
+              <Text size="caption" tone={cloud?.lastError ? 'attention' : 'secondary'}>{cloudLine}</Text>
             </span>
           </Switch>,
           accountLine,
@@ -223,9 +225,9 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
                 >
                   <span className="settings-stack settings-appear">
                     <span>Skip the 6-digit check</span>
-                    <span style={{ ...font('caption'), color: autoApproval ? 'var(--attention)' : 'var(--secondary)' }}>
+                    <Text size="caption" tone={autoApproval ? 'attention' : 'secondary'}>
                       {autoApproval ? 'Devices on your account get in on their own.' : 'Each new device shows a code you approve here.'}
-                    </span>
+                    </Text>
                   </span>
                 </Switch>,
               ]
@@ -238,19 +240,19 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
           ? [<Spinner key="loading" />]
           : [
               ...(devices.length === 0
-                ? [<span key="none" style={{ color: 'var(--secondary)' }}>None yet. Pair an iPhone, or approve one from your account.</span>]
+                ? [<Text key="none" tone="secondary">None yet. Pair an iPhone, or approve one from your account.</Text>]
                 : []),
               ...devices.map((device) => (
-                <div key={device.key} className="settings-row settings-appear" style={{ gap: 8 }}>
-                  <span style={{ width: 18, display: 'flex', justifyContent: 'center', color: 'var(--secondary)' }}>
+                <HStack key={device.key} gap={8} className="settings-row settings-appear">
+                  <IconSlot width={18} tone="secondary">
                     <Icon name={deviceIcon(device.platform)} size={13} />
-                  </span>
-                  <div className="settings-stack" style={{ flex: 1 }}>
+                  </IconSlot>
+                  <VStack grow className="settings-stack">
                     <span>{device.name}</span>
-                    <span style={{ ...font('caption'), color: 'var(--tertiary)' }}>{deviceDetail(device)}</span>
-                  </div>
+                    <Text size="caption" tone="tertiary">{deviceDetail(device)}</Text>
+                  </VStack>
                   <IconButton title="Revoke access" icon="xmark.circle" onClick={() => setConfirmRevoke(device)} />
-                </div>
+                </HStack>
               )),
             ]}
       </CardSection>
@@ -301,7 +303,7 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
         actions={[{ title: 'Remove from account', destructive: true, action: () => run(() => app.cloud.unclaim(store)) }]}
         onClose={() => setConfirmUnclaim(false)}
       />
-    </div>
+    </VStack>
   )
 }
 
@@ -341,43 +343,42 @@ function PairingPanel({ store }: { store: BotStore }) {
     return () => clearTimeout(timer)
   }, [info?.expiresAt, load])
 
-  const caption = { ...font('caption'), textAlign: 'center' as const }
   return (
-    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+    <VStack align="center" gap={12} className="settings-pairing">
       {info && qr ? (
         <>
-          <div className="settings-appear" style={{ padding: 10, background: '#fff', borderRadius: 12 }}>
-            <img src={qr} alt={`Pairing code for ${name}`} width={200} height={200} style={{ display: 'block', imageRendering: 'pixelated' }} />
+          <div className="pairing-qr settings-appear">
+            <img src={qr} alt={`Pairing code for ${name}`} width={200} height={200} />
           </div>
-          <div style={{ ...caption, color: 'var(--secondary)' }}>
+          <Text as="div" size="caption" tone="secondary" className="settings-centered">
             Scan with the Codync app or the iPhone Camera. No Tailscale or open ports needed: your iPhone connects directly on the same Wi-Fi, and through the encrypted relay anywhere else.
-          </div>
+          </Text>
           {store.cloud?.enabled !== true ? (
-            <div style={{ ...caption, color: 'var(--attention)' }}>
+            <Text as="div" size="caption" tone="attention" className="settings-centered">
               {info.urls.length === 0
                 ? 'No network address found and “Reach from anywhere” is off. Connect to Wi-Fi or turn it on.'
                 : `“Reach from anywhere” is off, so the iPhone only reaches ${name} on the same network.`}
-            </div>
+            </Text>
           ) : null}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <HStack gap={4}>
             {info.expiresAt ? (
-              <span style={{ ...font('caption2'), color: 'var(--tertiary)' }}>
+              <Text size="caption2" tone="tertiary">
                 Works once, until {new Date(info.expiresAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-              </span>
+              </Text>
             ) : null}
             <IconButton title="New code" icon="arrow.clockwise" onClick={() => void load()} />
             <IconButton title="Copy pairing link" icon="doc.on.doc" onClick={() => window.codync.app.copy(info.pairingUrl)} />
-          </div>
+          </HStack>
         </>
       ) : error ? (
         <>
-          <div style={{ ...caption, color: 'var(--danger)' }}>{error}</div>
+          <Text as="div" size="caption" tone="danger" className="settings-centered">{error}</Text>
           <IconButton title="Try again" icon="arrow.clockwise" onClick={() => void load()} />
         </>
       ) : (
         <Spinner size={20} />
       )}
-    </div>
+    </VStack>
   )
 }
 // MARK: SSH
@@ -413,17 +414,17 @@ function SSHProfileEditor({ profile: initial, isNew }: { profile: SSHProfile; is
   }
 
   const field = (label: string, value: string, set: (v: string) => void, prompt: string) => (
-    <div className="settings-row" style={{ gap: 12 }}>
-      <span style={{ color: 'var(--text)' }}>{label}</span>
+    <HStack gap={12} className="settings-row">
+      <Text tone="text">{label}</Text>
       <input className="settings-field" aria-label={label} placeholder={prompt} value={value} spellCheck={false} onChange={(e) => set(e.target.value)} />
-    </div>
+    </HStack>
   )
 
   return (
     // Return in a field saves (the default action).
-    <div style={{ width: 460, display: 'flex', flexDirection: 'column' }} onKeyDown={(e) => e.key === 'Enter' && e.target instanceof HTMLInputElement && void save()}>
+    <VStack className="settings-ssh-editor" onKeyDown={(e) => e.key === 'Enter' && e.target instanceof HTMLInputElement && void save()}>
       <ModalHeader title={isNew ? 'Add SSH computer' : 'Edit SSH computer'} trailing={<IconButton title={isNew ? 'Add' : 'Save'} icon="checkmark" onClick={() => void save()} />} />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '4px 20px 20px' }}>
+      <VStack gap={16} className="settings-ssh-editor-body">
         <CardSection>
           {field('Name', profile.name, (name) => setProfile({ ...profile, name }), 'Optional')}
           {field('Host', profile.host, (host) => setProfile({ ...profile, host }), 'SSH alias or hostname')}
@@ -431,28 +432,28 @@ function SSHProfileEditor({ profile: initial, isNew }: { profile: SSHProfile; is
           {field('SSH port', port, setPort, 'From SSH config')}
           <div className="settings-row">
             <span>Key</span>
-            <span style={{ flex: 1 }} />
-            <span style={{ color: 'var(--secondary)' }}>{profile.identityFile?.split('/').pop() ?? 'ssh-agent / SSH config'}</span>
+            <Spacer />
+            <Text tone="secondary">{profile.identityFile?.split('/').pop() ?? 'ssh-agent / SSH config'}</Text>
             <IconButton
               title="Choose key file"
               icon="key"
               onClick={() => void bridge.chooseKey().then((path) => path && setProfile((p) => ({ ...p, identityFile: path })))}
             />
             {profile.identityFile ? (
-              <span className="settings-appear" style={{ display: 'flex' }}>
+              <HStack as="span" align="stretch" className="settings-appear">
                 <IconButton title="Use ssh-agent" icon="xmark.circle" onClick={() => setProfile({ ...profile, identityFile: null })} />
-              </span>
+              </HStack>
             ) : null}
           </div>
           {field('Codync port', remotePort, setRemotePort, '')}
         </CardSection>
-        <span style={{ ...font('caption'), color: 'var(--secondary)' }}>
+        <Text size="caption" tone="secondary">
           Codync opens an SSH tunnel to codync-host on that computer's loopback. It uses your SSH config and ssh-agent; agent forwarding stays off.
-        </span>
+        </Text>
         <Reveal show={problem !== null}>
-          <span style={{ ...font('caption'), color: 'var(--danger)' }}>{problem}</span>
+          <Text size="caption" tone="danger">{problem}</Text>
         </Reveal>
-      </div>
-    </div>
+      </VStack>
+    </VStack>
   )
 }

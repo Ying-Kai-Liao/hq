@@ -54,7 +54,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: calc(12px * var(--scale));
+  font-size: var(--text-callout);
   color: var(--secondary);
 }
 
@@ -71,7 +71,7 @@
 }
 .details-section-title {
   padding-left: 2px;
-  font-size: calc(13px * var(--scale));
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--text);
 }
@@ -80,20 +80,11 @@
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  font-size: calc(13px * var(--scale));
+  font-size: var(--text-body);
   color: var(--text);
 }
-.details-switch-text {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  flex: 1;
-  min-width: 0;
-}
-.details-switch-note {
-  font-size: calc(11px * var(--scale));
-  line-height: 1.35;
-  color: var(--secondary);
+.details-switch-control {
+  flex: none;
 }
 
 /* Every group in the inspector is an outlined card, like the routines; inputs take the fill. */
@@ -118,6 +109,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The Use the computer note is an instruction: it stays whole. */
+.details-tab .details-switch .detail-note {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
 }
 
 /* The panel is narrow: a row with a note puts its control under the label and note. */

@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { CardForm, CardSection, ChoiceList, IconButton, SegmentedChoice, Spinner } from '../../components/Controls'
-import { ModalHeader, useDismiss } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { ModalHeader, SheetPage, useDismiss } from '../../components/Overlay'
+import { VStack } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import { useStore } from '../../store/context'
 import { errorText, market, needsSignIn, type InstalledConnector, type MarketConnector, type MarketInput } from './market-models'
 import { ErrorText, Field, WebLink } from './pieces'
 import { usePlugins } from './plugins'
-
-const sheetBody = { display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--background)' } as const
 
 export function InstallConnectorSheet({ item, requestId, done }: { item: MarketConnector; requestId?: string; done: () => void }) {
   const store = useStore()
@@ -55,20 +54,20 @@ export function InstallConnectorSheet({ item, requestId, done }: { item: MarketC
 
   const missing = !option || option.inputs.some((i) => i.required && !(values[i.name] ?? i.default ?? ''))
   return (
-    <div style={sheetBody}>
+    <SheetPage>
       <ModalHeader
         title="Add connector"
         trailing={saving ? <Spinner /> : <IconButton title="Add" icon="plus" disabled={installed === null && missing} onClick={() => void install()} />}
       />
       <CardForm>
         <CardSection>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
-            <span style={font('title3', 'semibold')}>{item.title}</span>
-            {item.description ? <span style={{ color: 'var(--secondary)' }}>{item.description}</span> : null}
+          <VStack gap={6} className="market-card-header">
+            <Text size="title3" weight="semibold">{item.title}</Text>
+            {item.description ? <Text tone="secondary">{item.description}</Text> : null}
             {item.website && URL.canParse(item.website) ? (
-              <WebLink title={item.website} url={item.website} style={{ ...font('footnote'), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} />
+              <WebLink title={item.website} url={item.website} className="small truncate" />
             ) : null}
-          </div>
+          </VStack>
         </CardSection>
         {item.options.length > 1 ? (
           <CardSection title="Runs">
@@ -82,12 +81,12 @@ export function InstallConnectorSheet({ item, requestId, done }: { item: MarketC
         {option ? (
           <CardSection title="Setup" footer={`Keys are saved on ${store.hostName} only.`}>
             {option.inputs.length === 0 ? (
-              <span style={{ color: 'var(--secondary)' }}>
+              <Text tone="secondary">
                 {option.kind === 'remote' ? `No keys needed here. If ${item.title} wants you to sign in, its sign-in page opens next.` : 'No setup needed.'}
-              </span>
+              </Text>
             ) : null}
             {option.inputs.map((input) => (
-              <div key={input.name} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <VStack key={input.name} gap={4}>
                 <Field
                   label={input.name}
                   value={value(input)}
@@ -96,15 +95,15 @@ export function InstallConnectorSheet({ item, requestId, done }: { item: MarketC
                   onChange={(v) => setValues((old) => ({ ...old, [input.name]: v }))}
                 />
                 {input.description ? (
-                  <span style={{ ...font('caption'), color: 'var(--secondary)' }}>{input.description + (input.required ? '' : ' (optional)')}</span>
+                  <Text size="caption" tone="secondary">{input.description + (input.required ? '' : ' (optional)')}</Text>
                 ) : null}
-              </div>
+              </VStack>
             ))}
           </CardSection>
         ) : null}
         {error ? <CardSection><ErrorText text={error} /></CardSection> : null}
       </CardForm>
-    </div>
+    </SheetPage>
   )
 }
 
@@ -153,7 +152,7 @@ export function CustomConnectorSheet() {
   }
 
   return (
-    <div style={sheetBody}>
+    <SheetPage>
       <ModalHeader title="Custom connector" trailing={saving ? <Spinner /> : <IconButton title="Add" icon="plus" disabled={!ready} onClick={() => void save()} />} />
       <CardForm>
         <CardSection footer={footer}>
@@ -173,7 +172,7 @@ export function CustomConnectorSheet() {
         ) : null}
         {error ? <CardSection><ErrorText text={error} /></CardSection> : null}
       </CardForm>
-    </div>
+    </SheetPage>
   )
 }
 
@@ -199,7 +198,7 @@ export function NewSkillSheet() {
   }
 
   return (
-    <div style={sheetBody}>
+    <SheetPage>
       <ModalHeader
         title="New skill"
         trailing={saving ? <Spinner /> : <IconButton title="Save" icon="checkmark" disabled={!name.trim() || !instructions.trim()} onClick={() => void save()} />}
@@ -214,6 +213,6 @@ export function NewSkillSheet() {
         </CardSection>
         {error ? <CardSection><ErrorText text={error} /></CardSection> : null}
       </CardForm>
-    </div>
+    </SheetPage>
   )
 }

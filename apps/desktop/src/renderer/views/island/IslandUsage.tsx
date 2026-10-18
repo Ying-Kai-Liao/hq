@@ -1,6 +1,6 @@
 import type { UsageProvider, UsageWindow } from '@shared/models'
 import { prefs, usePref } from '../../lib/prefs'
-import { UsageBar } from '../settings/UsageLimits'
+import { UsageBar } from '../usage/UsageBar'
 import { mascotDataURL } from '../usage/ProviderMascot'
 import { providerTintCSS, resetDescription, tightest, windowTitle } from '../usage/usage-model'
 import type { IslandModel } from './island-model'
@@ -12,7 +12,7 @@ import type { IslandModel } from './island-model'
 function Mascot({ provider, size }: { provider: UsageProvider; size: number }) {
   const [style] = usePref(prefs.usageIconStyle)
   const src = mascotDataURL(provider, size, style, true)
-  return src ? <img src={src} alt="" width={size} height={size} style={{ flex: 'none' }} /> : null
+  return src ? <img src={src} alt="" width={size} height={size} className="island-mascot" /> : null
 }
 
 /** The limit closest to running out, across providers. */

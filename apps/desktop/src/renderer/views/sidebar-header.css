@@ -46,9 +46,20 @@
   .sidebar:not(.compact) .sidebar-header::before { backdrop-filter: none; }
 }
 
+/* The roster's computer summary and filter (ComputerFilterHeader). */
+.computer-filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 0;
+  font-size: var(--text-callout);
+  font-weight: 500;
+  color: var(--secondary);
+}
 .computer-filter-action {
   height: 32px;
-  min-width: 44px;
+  padding: 0 9px;
   justify-content: center;
   flex: none;
   border: 1px solid var(--chrome-stroke);

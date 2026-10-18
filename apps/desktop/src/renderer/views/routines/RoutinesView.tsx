@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { IconButton, Switch } from '../../components/Controls'
 import { Sheet } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { HStack, Spacer, VStack } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import { useStore } from '../../store/context'
 import { errorText, isActiveRun, type Routine, type RoutineListing, type RoutineRun } from './routine'
 import { RoutineEditorView } from './RoutineEditorView'
+import './routines.css'
 
 /** The open editor: on a routine, or (`routineId` null) setting up a new one. `id` is one per opening. */
 interface EditorTarget {
@@ -118,37 +120,37 @@ export function RoutinesView({ botId, initialId, onClose }: { botId: string; ini
 
   const editingRoutine = routines.find((r) => r.id === editing?.routineId) ?? null
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: onClose ? 16 : 10, color: 'var(--text)', ...font(13) }}>
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        <span style={{ ...font(13, 'semibold'), paddingLeft: 2 }}>Routines</span>
-        <span style={{ flex: 1 }} />
+    <VStack gap={onClose ? 16 : 10} className="routines">
+      <HStack>
+        <Text size="body" weight="semibold" className="routines-title">Routines</Text>
+        <Spacer />
         <IconButton title="Ask the bot for a routine" icon="text.bubble" disabled={store.isOffline} onClick={() => {
           store.setRoutineDraft(botId, 'I want a routine that ')
           onClose?.()
         }} />
         <IconButton title="Set up a routine" icon="plus" disabled={store.isOffline} onClick={() => open(null)} />
         {onClose ? <IconButton title="Close routines" icon="xmark" onClick={onClose} /> : null}
-      </div>
-      {loadError ? <span style={{ ...font('caption'), color: 'var(--danger)' }}>{loadError}</span> : null}
-      {error ? <span style={{ ...font('caption'), color: 'var(--danger)', userSelect: 'text' }}>{error}</span> : null}
+      </HStack>
+      {loadError ? <Text size="caption" tone="danger">{loadError}</Text> : null}
+      {error ? <Text size="caption" tone="danger" className="routines-error">{error}</Text> : null}
       {routines.length === 0 ? (
-        <div className="outlined-card" style={{ ...font(12), lineHeight: 1.45, color: 'var(--secondary)', padding: 14 }}>
+        <Text as="div" size="callout" tone="secondary" className="outlined-card routines-empty">
           {loaded ? 'No routines yet. Ask the bot for one, or set it up yourself with +.' : 'Loading routines…'}
-        </div>
+        </Text>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <VStack gap={8}>
           {routines.map((routine) => (
-            <div key={routine.id} className="outlined-card" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 14px' }}>
+            <HStack key={routine.id} gap={12} className="outlined-card routines-card">
               <button className="routine-row" onClick={() => open(routine.id)}>
-                <span style={{ color: 'var(--text)' }}>{routine.name}</span>
-                <span style={{ ...font('caption'), color: routine.lastError ? 'var(--danger)' : 'var(--secondary)' }}>{summary(routine)}</span>
+                <Text tone="text">{routine.name}</Text>
+                <Text size="caption" tone={routine.lastError ? 'danger' : 'secondary'}>{summary(routine)}</Text>
               </button>
-              <span aria-label={routine.name} style={{ display: 'flex' }}>
+              <HStack as="span" align="stretch" aria-label={routine.name}>
                 <Switch on={routine.enabled} disabled={busy || store.isOffline} onChange={(on) => void action('setRoutineEnabled', routine, on)} />
-              </span>
-            </div>
+              </HStack>
+            </HStack>
           ))}
-        </div>
+        </VStack>
       )}
       {/* A routine opened before the list arrived waits for it. */}
       <Sheet open={editing !== null && (editing.routineId === null || editingRoutine !== null)} onClose={() => setEditing(null)} width={540}>
@@ -161,6 +163,6 @@ export function RoutinesView({ botId, initialId, onClose }: { botId: string; ini
           />
         ) : null}
       </Sheet>
-    </div>
+    </VStack>
   )
 }

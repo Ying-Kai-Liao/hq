@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Backend } from '@shared/models'
 import { Button, DropdownMenu, IconButton, Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
-import { Dialog, useDismiss } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { Dialog, SheetPage, useDismiss } from '../../components/Overlay'
+import { HStack, Spacer, VStack } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import { useStore } from '../../store/context'
 import { ComputerBadge } from '../ComputerBadge'
 import { AgentSheet, AgentTile, NodeNotice } from './AgentSheet'
@@ -141,39 +142,39 @@ export function MarketplaceView({ computers, computer, onComputer, appsFirst = f
   const header = (
     <div className="market-heading">
       {/* Everything here lives on one computer; say which. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+      <HStack gap={10} shrink>
         <ComputerBadge computer={store.computer} size={32} />
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, whiteSpace: 'nowrap' }}>
-          <span style={{ ...font('title', 'semibold'), color: 'var(--text)' }}>Extensions</span>
+        <VStack shrink className="market-heading-titles">
+          <Text size="title" weight="semibold" tone="text">Extensions</Text>
           {computers.length > 1 ? (
             <DropdownMenu
               title="Switch computer"
-              style={{ display: 'flex', alignItems: 'center', gap: 4, ...font('subheadline'), color: 'var(--secondary)', minWidth: 0 }}
+              className="market-computer-switch"
               items={() => computers.map((c) => ({ title: c.name, selected: c.id === computer, action: () => onComputer(c.id) }))}
             >
-              <span aria-label={`Computer: ${store.hostName}`} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{store.hostName}</span>
+              <Text truncate aria-label={`Computer: ${store.hostName}`}>{store.hostName}</Text>
               <Icon name="chevron.down" size={10} weight="semibold" />
             </DropdownMenu>
           ) : (
-            <span style={{ ...font('subheadline'), color: 'var(--secondary)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{store.hostName}</span>
+            <Text size="subheadline" tone="secondary" truncate>{store.hostName}</Text>
           )}
-        </div>
-      </div>
-      <span style={{ flex: 1 }} />
+        </VStack>
+      </HStack>
+      <Spacer />
       <Button kind="secondary" onClick={() => setShowCredentials(true)}><Icon name="lock.shield" size={12} />Credentials</Button>
       {installedCount > 0 ? (
-        <button className="press" style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 'none' }} onClick={() => setShowInstalled(true)}>
-          <span style={{ display: 'flex' }}>
-            {plugins.installedConnectors.slice(0, 3).map((c, i) => (
-              <span key={c.id} style={{ marginLeft: i ? -8 : 0, display: 'flex' }}>
+        <button className="press market-installed" onClick={() => setShowInstalled(true)}>
+          <HStack as="span" align="stretch" className="market-installed-logos">
+            {plugins.installedConnectors.slice(0, 3).map((c) => (
+              <HStack as="span" align="stretch" key={c.id}>
                 <ServiceLogo name={c.name} registryName={c.registryName} size={26} />
-              </span>
+              </HStack>
             ))}
-          </span>
-          <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', color: 'var(--secondary)', whiteSpace: 'nowrap' }}>
-            <span>{installedCount} installed</span>
-            <span style={font('caption')}>Connectors & skills</span>
-          </span>
+          </HStack>
+          <VStack as="span" align="flex-start" className="market-installed-text">
+            <Text tone="secondary">{installedCount} installed</Text>
+            <Text size="caption" tone="secondary">Connectors & skills</Text>
+          </VStack>
           <Icon name="chevron.right" size={10} weight="semibold" color="var(--tertiary)" />
         </button>
       ) : null}
@@ -200,7 +201,7 @@ export function MarketplaceView({ computers, computer, onComputer, appsFirst = f
         <button
           aria-label="Clear search"
           title="Clear search"
-          style={{ display: 'flex', color: 'var(--tertiary)' }}
+          className="market-search-clear"
           onClick={() => {
             setSearch('')
             setAgentLimit(10)
@@ -213,7 +214,7 @@ export function MarketplaceView({ computers, computer, onComputer, appsFirst = f
     </div>
   )
 
-  const centered = (node: ReactNode) => <div style={{ display: 'flex', justifyContent: 'center' }}>{node}</div>
+  const centered = (node: ReactNode) => <HStack align="stretch" justify="center">{node}</HStack>
 
   const page = (
     <div className="market-page">
@@ -235,7 +236,7 @@ export function MarketplaceView({ computers, computer, onComputer, appsFirst = f
             {loadingConnectors ? (
               <SkeletonGrid />
             ) : connectors.items.length === 0 ? (
-              <span style={{ color: 'var(--secondary)' }}>{query ? `No connectors match “${query}”.` : "Couldn't load connectors."}</span>
+              <Text tone="secondary">{query ? `No connectors match “${query}”.` : "Couldn't load connectors."}</Text>
             ) : (
               <>
                 <ItemGrid>
@@ -301,10 +302,10 @@ export function MarketplaceView({ computers, computer, onComputer, appsFirst = f
               />
             </ItemGrid>
           </MarketSection>
-          {error ? <span style={{ ...font('footnote'), color: 'var(--danger)' }}>{error}</span> : null}
-          <span style={{ ...font('footnote'), color: 'var(--tertiary)' }}>
+          {error ? <Text size="footnote" tone="danger">{error}</Text> : null}
+          <Text size="footnote" tone="tertiary">
             Connectors come from the official MCP Registry, apps through Composio, skills from Anthropic, agents from the ACP registry. Everything installs on {store.hostName}.
-          </span>
+          </Text>
         </div>
       </div>
       {/* Dismissing slides the sheet away; clearing the caller's state would cut it off. */}
@@ -348,15 +349,13 @@ function AgentCard({ backend, onClick }: { backend: Backend; onClick: () => void
   return (
     <button className="agent-card" title={backend.name} onClick={onClick}>
       <AgentTile registry={backend.registry ?? backend.id} icon={24} tile={40} radius={11} />
-      <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3, minWidth: 0 }}>
-        <span style={{ ...font('subheadline', 'semibold'), color: 'var(--text)', ...ellipsis }}>{backend.name}</span>
-        <span style={{ ...font('caption'), color: 'var(--secondary)', ...ellipsis }}>{status}</span>
-      </span>
+      <VStack as="span" align="flex-start" gap={3} shrink>
+        <Text size="subheadline" weight="semibold" tone="text" truncate className="agent-card-line">{backend.name}</Text>
+        <Text size="caption" tone="secondary" truncate className="agent-card-line">{status}</Text>
+      </VStack>
     </button>
   )
 }
-
-const ellipsis = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' } as const
 
 // MARK: - Installed
 
@@ -388,9 +387,9 @@ function InstalledView({ back }: { back: () => void }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--background)' }}>
+    <SheetPage>
       <ScreenHeader title="Connectors & skills" onBack={back} />
-      <div style={{ flex: 1, minHeight: 0 }}>
+      <div className="market-installed-body">
         <div className="market-scroll">
           <div className="market-page-content">
             {empty ? <EmptyState icon="shippingbox" title="Nothing installed" detail="Connectors and skills you add show up here." /> : null}
@@ -443,18 +442,18 @@ function InstalledView({ back }: { back: () => void }) {
       <FormSheet open={viewingSkill !== null} onClose={() => setViewingSkill(null)}>
         {viewingSkill ? <SkillSheet key={viewingSkill.name} skill={viewingSkill} /> : null}
       </FormSheet>
-    </div>
+    </SheetPage>
   )
 }
 
 /** A quiet "nothing here" message (replaces `ContentUnavailableView`). */
 function EmptyState({ icon, title, detail }: { icon: string; title: string; detail: string }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '40px 0', textAlign: 'center' }}>
+    <VStack align="center" gap={8} className="market-empty">
       <Icon name={icon} size={28} color="var(--tertiary)" />
-      <span style={{ ...font('compactBody', 'semibold'), color: 'var(--text)' }}>{title}</span>
-      <span style={{ ...font('compactSecondary'), color: 'var(--secondary)' }}>{detail}</span>
-    </div>
+      <Text size="compactBody" weight="semibold" tone="text">{title}</Text>
+      <Text size="compactSecondary" tone="secondary">{detail}</Text>
+    </VStack>
   )
 }
 
@@ -463,7 +462,7 @@ function RemoveButton({ title, onClick }: { title: string; onClick: () => void }
     <button
       title="Remove"
       aria-label={`Remove ${title}`}
-      style={{ minWidth: 44, minHeight: 44, display: 'grid', placeItems: 'center', flex: 'none', color: 'var(--secondary)' }}
+      className="market-remove"
       onClick={(e) => {
         e.stopPropagation()
         onClick()

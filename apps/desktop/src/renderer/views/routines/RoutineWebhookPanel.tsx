@@ -1,10 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { IconButton } from '../../components/Controls'
 import { Dialog } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { HStack, VStack } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import { useStore } from '../../store/context'
 import { Field } from '../bots/parts'
 import { errorText, type RoutineWebhook } from './routine'
+import './routines.css'
 
 /** A saved webhook routine's address and key: copy either, reveal or replace the key. */
 export function RoutineWebhookPanel({ botId, routineId }: { botId: string; routineId: string }) {
@@ -38,22 +40,10 @@ export function RoutineWebhookPanel({ botId, routineId }: { botId: string; routi
   }, [routineId])
 
   const value = (text: string, copy: 'url' | 'key', extra?: ReactNode) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 6px 8px 12px', background: 'var(--bubble-user)', borderRadius: 12 }}>
-      <span
-        style={{
-          ...font('callout', undefined, 'monospaced'),
-          flex: 1,
-          minWidth: 0,
-          userSelect: 'text',
-          wordBreak: 'break-all',
-          display: '-webkit-box',
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: 'vertical',
-          overflow: 'hidden',
-        }}
-      >
+    <HStack gap={8} className="routine-webhook-value">
+      <Text size="callout" mono lines={2} grow className="routine-webhook-text">
         {text}
-      </span>
+      </Text>
       {extra}
       <IconButton
         title={copied === copy ? 'Copied' : 'Copy'}
@@ -64,12 +54,11 @@ export function RoutineWebhookPanel({ botId, routineId }: { botId: string; routi
           setCopied(copy)
         }}
       />
-    </div>
+    </HStack>
   )
 
-  const caption = { ...font('caption'), paddingLeft: 4, lineHeight: 1.4 }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <VStack gap={14}>
       {webhook ? (
         <>
           <Field label={webhook.url ? 'URL' : 'Local URL'}>{value(webhook.url ?? webhook.localUrl, 'url')}</Field>
@@ -83,17 +72,17 @@ export function RoutineWebhookPanel({ botId, routineId }: { botId: string; routi
               </>,
             )}
           </Field>
-          <span style={{ ...caption, color: 'var(--secondary)' }}>
+          <Text size="caption" tone="secondary" className="routine-caption">
             {webhook.url
               ? 'POST with Authorization: Bearer <key>. For GitHub, use content type application/json and the key as the secret. ' +
                 'Deliveries wait up to 72 hours while this computer is off. They pass through the Codync cloud, which can read them.'
               : 'The Codync cloud is off, so only this computer can send to it.'}
-          </span>
+          </Text>
         </>
       ) : error ? (
-        <span style={{ ...caption, color: 'var(--danger)' }}>{error}</span>
+        <Text size="caption" tone="danger" className="routine-caption">{error}</Text>
       ) : (
-        <span style={{ ...caption, color: 'var(--secondary)' }}>Loading webhook…</span>
+        <Text size="caption" tone="secondary" className="routine-caption">Loading webhook…</Text>
       )}
       <Dialog
         open={confirmRotate}
@@ -102,6 +91,6 @@ export function RoutineWebhookPanel({ botId, routineId }: { botId: string; routi
         actions={[{ title: 'Replace key', destructive: true, action: () => void load(true) }]}
         onClose={() => setConfirmRotate(false)}
       />
-    </div>
+    </VStack>
   )
 }

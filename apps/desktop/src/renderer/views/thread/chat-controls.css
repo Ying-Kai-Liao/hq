@@ -84,6 +84,7 @@
 }
 .jump-to-latest {
   position: absolute;
+  bottom: calc(var(--composer-height, 70px) + 10px);
   left: 50%;
   z-index: 5;
   transform: translateX(-50%);

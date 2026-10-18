@@ -1,0 +1,18 @@
+/* The pairing QR window (PairingWindow). */
+.pairing {
+  width: 340px;
+  padding: 16px;
+}
+/* White in both schemes, so cameras read the code (also the Computers page's pairing panel). */
+.pairing-qr {
+  padding: 10px;
+  background: #fff;
+  border-radius: var(--radius-m);
+}
+.pairing-qr img {
+  display: block;
+  image-rendering: pixelated;
+}
+.pairing-note {
+  text-align: center;
+}

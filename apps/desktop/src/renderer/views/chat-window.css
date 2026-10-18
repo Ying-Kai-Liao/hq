@@ -15,10 +15,46 @@
   justify-content: center;
   gap: 10px;
 }
+.empty-state-message {
+  max-width: 360px;
+  text-align: center;
+}
+.empty-state.local-recovery .empty-state-message {
+  text-align: left;
+}
+.empty-state-action {
+  margin-top: 4px;
+}
+
+/* The version mismatch notice above a computer's bots (UpdateNeededCard). */
+.update-needed {
+  padding: 14px;
+  background: var(--surface);
+  border-radius: var(--radius-l);
+}
+.update-needed-action {
+  margin-top: 4px;
+  align-self: flex-start;
+}
+
+/* The GitHub star ask (StarPrompt). */
+.star-prompt {
+  width: 420px;
+}
+.star-prompt-body {
+  padding: 0 24px 24px;
+}
+.star-prompt-message {
+  text-align: center;
+}
 
 .split {
   display: flex;
   height: 100%;
+}
+/* An open account panel or action menu takes the clicks. */
+.split.covered {
+  pointer-events: none;
 }
 
 .sidebar {
@@ -39,9 +75,23 @@
   align-items: center;
   gap: 6px;
   height: 54px;
+  padding-left: 18px;
   padding-right: 14px;
   flex: none;
   transition: opacity var(--layout), padding var(--layout);
+}
+/* Clears the traffic lights. */
+html[data-platform="darwin"] .sidebar-header {
+  padding-left: 80px;
+}
+.sidebar.compact .sidebar-header {
+  padding-left: 0;
+  opacity: 0;
+}
+/* The rail's computer filter. */
+.rail-header {
+  width: 70px;
+  align-self: center;
 }
 
 .roster {
@@ -63,10 +113,50 @@
 }
 .roster-row {
   width: 100%;
+  padding: 0 8px;
   border-radius: var(--radius-m);
   display: flex;
   transition: background-color var(--hover);
   flex: none;
+}
+.roster-row.compact {
+  padding: 0;
+}
+/* Hover is tracked in JS: a held row stays highlighted while it's dragged. */
+.roster-row.hovered {
+  background: var(--bubble-agent);
+}
+.roster-row.selected {
+  background: var(--roster-selected);
+}
+.bot-row {
+  padding: 9px 0;
+  width: 100%;
+}
+.bot-row-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  line-height: calc(16px * var(--scale));
+  transition: opacity var(--layout);
+}
+.bot-row-text.collapsed {
+  flex: none;
+  width: 0;
+  opacity: 0;
+}
+.unread-badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-fill);
+  color: var(--on-accent);
+  font-size: var(--text-caption);
+  font-weight: 600;
 }
 /* A selected row's fill doesn't touch its hovered neighbour's. */
 .roster-row + .roster-row {
@@ -84,6 +174,7 @@
 }
 
 .profile-avatar {
+  position: relative;
   width: 28px;
   height: 28px;
   border-radius: 50%;
@@ -91,6 +182,16 @@
   display: grid;
   place-items: center;
   flex: none;
+  overflow: hidden;
+}
+.profile-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.profile-avatar-busy {
+  position: absolute;
+  inset: 0;
 }
 
 .rail-actions {
@@ -109,6 +210,9 @@
   place-items: center;
   margin-top: 4px;
 }
+.rail-profile.open {
+  background: var(--bubble-agent);
+}
 
 
 .detail {
@@ -122,6 +226,12 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+/* Which computer a new chat goes to (ComputerPicker). */
+.compose-computer {
+  padding: 12px 22px 0;
+  font-size: var(--text-callout);
+  font-weight: 400;
 }
 /* The title bar strip of detail views that draw no top chrome of their own, so the window
    still moves from there. */
@@ -141,6 +251,13 @@
   justify-content: center;
   gap: 14px;
 }
+.empty-detail-crew > :not(:first-child) {
+  margin-left: -10px;
+}
+.empty-detail-message {
+  max-width: 420px;
+  text-align: center;
+}
 
 .context-layer {
   position: fixed;
@@ -158,8 +275,14 @@
   animation: panel-in var(--fade) both;
 }
 .account-panel {
+  left: 16px;
+  bottom: 64px;
   border-radius: var(--radius-l);
   transform-origin: bottom left;
+}
+/* Above the rail's profile button. */
+.account-panel.compact {
+  bottom: 68px;
 }
 .action-menu {
   width: 260px;
@@ -179,6 +302,10 @@
   height: 30px;
   padding: 0 10px;
   border-radius: var(--radius-s);
+  color: var(--text);
+}
+.panel-row.destructive {
+  color: var(--danger);
 }
 .panel-row.highlight {
   background: rgba(var(--text-rgb), 0.08);
@@ -198,6 +325,9 @@
   height: 30px;
   padding: 0 10px;
   color: var(--secondary);
+}
+.panel-error {
+  padding: 8px 10px;
 }
 
 /* Welcome, computer access and host state fill the window with no chrome: their top edge moves it. */

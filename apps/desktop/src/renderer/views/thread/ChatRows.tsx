@@ -5,8 +5,9 @@ import { BotAvatar } from '../../components/Avatar'
 import { Hairline, IconButton } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { AnchoredMenu, useContextMenu, type MenuItem, type ReactionPick } from '../../components/Overlay'
+import { HStack, VStack } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import { ThinkingOrb } from '../../components/ThinkingOrb'
-import { font, px } from '../../lib/fonts'
 import { avatarColor } from '../../lib/theme'
 import { useStore as useLiveStore, useStoreRef as useStore } from '../../store/context'
 import { QUICK_REACTIONS, type BotStore } from '../../store/bot-store'
@@ -35,34 +36,34 @@ export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrac
   switch (entry.kind) {
     case 'user':
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, paddingTop: groupStart ? 12 : 4 }}>
+        <VStack align="flex-end" gap={4} className={groupStart ? 'chat-row group-start' : 'chat-row'}>
           <UserBubble entry={entry} botWorking={!!chat && isWorking(chat)} reply={reply} />
           <ReactionsRow entry={entry} />
           {chip}
-        </div>
+        </VStack>
       )
     case 'agent':
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, paddingTop: groupStart ? 12 : 4 }}>
+        <VStack align="flex-start" gap={4} className={groupStart ? 'chat-row group-start' : 'chat-row'}>
           {chat && isGroup(chat) && groupStart ? <AuthorLabel botId={entry.data.author} /> : null}
           <AgentBubble entry={entry} openTrace={openTrace} reply={reply} />
-          <div style={{ paddingLeft: chat && isGroup(chat) ? 34 : 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <VStack gap={4} className={chat && isGroup(chat) ? 'chat-row-indent' : undefined}>
             <ReactionsRow entry={entry} />
             {chip}
-          </div>
-        </div>
+          </VStack>
+        </VStack>
       )
     case 'permission':
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingTop: 12 }}>
+        <VStack gap={4} className="chat-row group-start">
           {chat && isGroup(chat) ? <AuthorLabel botId={entry.data.author} /> : null}
           <LivePermission entry={entry} />
-        </div>
+        </VStack>
       )
     default:
-      if (entry.data.connectionRequest) return <div style={{ paddingTop: 12 }}><ConnectionRequestCard entry={entry} /></div>
-      if (entry.data.handoff) return <div style={{ paddingTop: 10 }}><HandoffNotice entry={entry} card={entry.data.handoff} /></div>
-      return <div style={{ paddingTop: 10 }}><NoticeRow entry={entry} /></div>
+      if (entry.data.connectionRequest) return <div className="chat-row group-start"><ConnectionRequestCard entry={entry} /></div>
+      if (entry.data.handoff) return <div className="chat-row notice"><HandoffNotice entry={entry} card={entry.data.handoff} /></div>
+      return <div className="chat-row notice"><NoticeRow entry={entry} /></div>
   }
 })
 
@@ -77,10 +78,10 @@ export function AuthorLabel({ botId }: { botId?: string | null }) {
   const store = useStore()
   const bot = botId ? store.bots.get(botId) : undefined
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+    <HStack gap={8}>
       {bot ? <BotAvatar bot={bot} size={26} animated={false} /> : null}
-      <span style={{ ...font('subheadline', 'medium'), color: bot ? avatarColor(bot.avatarColor) : 'var(--secondary)' }}>{store.authorName(botId)}</span>
-    </div>
+      <Text size="subheadline" weight="medium" tone="secondary" style={bot ? { color: avatarColor(bot.avatarColor) } : undefined}>{store.authorName(botId)}</Text>
+    </HStack>
   )
 }
 
@@ -97,19 +98,19 @@ export function ThreadChip({ summary, open }: { summary: ThreadSummary; open: ()
       aria-label={`View thread, ${summary.count} ${summary.count === 1 ? 'reply' : 'replies'}${unread > 0 ? `, ${unread} new` : ''}`}
     >
       {authors.length ? (
-        <span style={{ display: 'flex' }}>
-          {authors.map((b, i) => (
-            <span key={b.id} style={{ marginLeft: i ? -6 : 0 }}>
+        <HStack as="span" align="stretch" className="thread-chip-authors">
+          {authors.map((b) => (
+            <span key={b.id}>
               <BotAvatar bot={b} size={18} animated={false} />
             </span>
           ))}
-        </span>
+        </HStack>
       ) : null}
-      <span style={{ ...font('footnote', 'semibold'), color: 'var(--accent)' }}>{summary.count === 1 ? '1 reply' : `${summary.count} replies`}</span>
+      <Text size="footnote" weight="semibold" tone="accent">{summary.count === 1 ? '1 reply' : `${summary.count} replies`}</Text>
       {unread > 0 ? (
-        <span style={{ ...font('footnote', 'semibold'), color: 'var(--text)' }}>{unread} new</span>
+        <Text size="footnote" weight="semibold" tone="text">{unread} new</Text>
       ) : (
-        <span style={{ ...font('footnote'), color: 'var(--tertiary)' }}>{relativeTime.day(summary.lastAt)}</span>
+        <Text size="footnote" tone="tertiary">{relativeTime.day(summary.lastAt)}</Text>
       )}
       <Icon name="chevron.right" size={10} color="var(--tertiary)" />
     </button>
@@ -131,7 +132,7 @@ export function Bubble({ className, items, reactions, children }: { className: s
 
 /** The centered time label between runs of messages. */
 export function TimeSeparator({ date }: { date: number }) {
-  return <div style={{ ...font('footnote'), color: 'var(--tertiary)', textAlign: 'center', padding: '18px 0 6px' }}>{relativeTime.separator(date)}</div>
+  return <Text as="div" size="footnote" tone="tertiary" className="time-separator">{relativeTime.separator(date)}</Text>
 }
 
 const fullDate = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
@@ -167,24 +168,23 @@ export function UserBubble({ entry, botWorking, reply }: { entry: Entry; botWork
 
 function UserStatus({ entry, botWorking, hovering }: { entry: Entry; botWorking: boolean; hovering: boolean }) {
   const store = useStore()
-  const caption = { ...font('caption2'), color: 'var(--tertiary)' }
   switch (entry.data.status) {
     case 'sending':
-      return <span style={caption}>Sending…</span>
+      return <Text size="caption2" tone="tertiary">Sending…</Text>
     case 'queued':
-      return <span style={caption}>{botWorking ? 'Queued until this response finishes' : 'Queued'}</span>
+      return <Text size="caption2" tone="tertiary">{botWorking ? 'Queued until this response finishes' : 'Queued'}</Text>
     case 'failed':
       return (
-        <span style={{ display: 'flex', alignItems: 'center', gap: 2, ...font('caption2', 'semibold') }}>
-          <span style={{ color: 'var(--danger)', marginRight: 4 }}>Failed to send</span>
+        <HStack as="span" gap={2}>
+          <Text size="caption2" weight="semibold" tone="danger" className="user-status-error">Failed to send</Text>
           <IconButton title="Resend" icon="arrow.clockwise" size={24} onClick={() => store.retry(entry)} />
           <IconButton title="Delete" icon="trash" size={24} onClick={() => store.discard(entry)} />
-        </span>
+        </HStack>
       )
     case 'cancelled':
-      return <span style={caption}>Not sent — stopped</span>
+      return <Text size="caption2" tone="tertiary">Not sent — stopped</Text>
     default:
-      return <span style={{ ...font(11), color: 'var(--tertiary)', opacity: hovering ? 1 : 0, transition: 'opacity var(--hover)' }}>{relativeTime.time(entry.createdAt)}</span>
+      return <Text size="caption" tone="tertiary" className={hovering ? 'user-status-time shown' : 'user-status-time'}>{relativeTime.time(entry.createdAt)}</Text>
   }
 }
 
@@ -204,7 +204,7 @@ export function AgentBubble({ entry, openTrace, reply }: { entry: Entry; openTra
             { title: 'Show what it did', icon: 'list.bullet', action: openTrace },
           ]}
         >
-          {entry.data.files?.length ? <div style={{ display: 'grid', gap: 6 }}>{entry.data.files.map((file) => <FileDownloadCard key={file.id} entry={entry} file={file} />)}</div> : <MarkdownText text={entry.data.text ?? ''} />}
+          {entry.data.files?.length ? <div className="file-message-cards">{entry.data.files.map((file) => <FileDownloadCard key={file.id} entry={entry} file={file} />)}</div> : <MarkdownText text={entry.data.text ?? ''} />}
         </Bubble>
         <MessageActions className="trailing" visible={hovering} reactions={reactionPick(store, entry)} reply={reply} trace={openTrace} copy={copy} />
       </div>
@@ -217,30 +217,30 @@ export function NoticeRow({ entry }: { entry: Entry }) {
   if (entry.data.callSeconds !== undefined) {
     const s = entry.data.callSeconds
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6, ...font('footnote'), fontVariantNumeric: 'tabular-nums', color: 'var(--secondary)' }}>
-        <Icon name="waveform" size={10} />
-        {`${text} · ${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`}
-      </div>
+      <HStack justify="center" gap={6}>
+        <Icon name="waveform" size={10} color="var(--secondary)" />
+        <Text size="footnote" tone="secondary" tabular>{`${text} · ${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`}</Text>
+      </HStack>
     )
   }
   switch (entry.data.style) {
     case 'divider':
       return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0' }}>
-          <Hairline style={{ flex: 1 }} />
-          <span style={{ ...font('caption2'), color: 'var(--tertiary)', textAlign: 'center', maxWidth: 260 }}>{text}</span>
-          <Hairline style={{ flex: 1 }} />
-        </div>
+        <HStack gap={10} className="chat-notice-divider">
+          <Hairline grow />
+          <Text size="caption2" tone="tertiary" className="chat-notice-divider-text">{text}</Text>
+          <Hairline grow />
+        </HStack>
       )
     case 'error':
       return (
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: 12, borderRadius: 12, background: 'color-mix(in srgb, var(--danger) 12%, transparent)' }}>
+        <HStack align="flex-start" gap={8} className="chat-notice-error">
           <Icon name="exclamationmark.triangle.fill" size={10} color="var(--danger)" />
-          <span className="selectable" style={{ ...font('footnote'), color: 'var(--text)' }}>{text}</span>
-        </div>
+          <Text size="footnote" tone="text" className="selectable">{text}</Text>
+        </HStack>
       )
     default:
-      return <div style={{ ...font('footnote'), color: 'var(--secondary)', textAlign: 'center' }}>{text}</div>
+      return <Text as="div" size="footnote" tone="secondary" className="chat-notice">{text}</Text>
   }
 }
 
@@ -252,27 +252,27 @@ export function WorkingIndicator({ bot, thinking }: { bot: Bot; thinking: string
   const [expanded, setExpanded] = useState(false)
   const waiting = needsInput(bot)
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingRight: 40 }}>
+    <HStack gap={10} className="agent-inset">
       <button className="working" disabled={!thinking} onClick={() => setExpanded((e) => !e)} aria-expanded={thinking ? expanded : undefined}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <HStack as="span" gap={8}>
           <ThinkingOrb state={waiting ? 'listening' : 'working'} size={16} color={waiting ? 'var(--warning)' : 'var(--secondary)'} />
-          <span style={{ ...font('subheadline'), color: waiting ? 'var(--attention)' : 'var(--secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{bot.activity || 'Working…'}</span>
+          <Text size="subheadline" tone={waiting ? 'attention' : 'secondary'} truncate>{bot.activity || 'Working…'}</Text>
           {bot.startedAt ? <Timer since={bot.startedAt} /> : null}
           {thinking ? (
-            <span style={{ display: 'flex', transform: `rotate(${expanded ? 180 : 0}deg)`, transition: 'transform var(--layout)' }}>
+            <HStack as="span" align="stretch" className={expanded ? 'working-chevron expanded' : 'working-chevron'}>
               <Icon name="chevron.down" size={10} weight="semibold" color="var(--tertiary)" />
-            </span>
+            </HStack>
           ) : null}
-        </span>
+        </HStack>
         {expanded && thinking ? (
-          <div className="selectable thinking" style={{ ...font('footnote'), color: 'var(--secondary)' }} ref={(el) => {
+          <div className="selectable thinking" ref={(el) => {
             if (el) el.scrollTop = el.scrollHeight
           }}>
             {thinking}
           </div>
         ) : null}
       </button>
-    </div>
+    </HStack>
   )
 }
 
@@ -287,7 +287,7 @@ function Timer({ since }: { since: number }) {
   const h = Math.floor(s / 3600)
   const m = Math.floor((s % 3600) / 60)
   const sec = String(s % 60).padStart(2, '0')
-  return <span style={{ ...font('footnote'), fontVariantNumeric: 'tabular-nums', color: 'var(--tertiary)' }}>{h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`}</span>
+  return <Text size="footnote" tone="tertiary" tabular>{h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`}</Text>
 }
 
 /** The user's reactions under a message; clicking one takes it back. */
@@ -296,13 +296,13 @@ export function ReactionsRow({ entry }: { entry: Entry }) {
   const reactions = entry.data.reactions
   if (!reactions?.length) return null
   return (
-    <div style={{ display: 'flex', gap: 4 }}>
+    <HStack align="stretch" gap={4}>
       {reactions.map((emoji) => (
         <button key={emoji} className="press reaction-chip" title={`Remove ${emoji}`} aria-label={`Remove reaction ${emoji}`} onClick={() => store.react(entry, emoji)}>
-          <span style={{ fontSize: px(13) }}>{emoji}</span>
+          <Text size="body">{emoji}</Text>
         </button>
       ))}
-    </div>
+    </HStack>
   )
 }
 
@@ -320,7 +320,7 @@ function MessageActions({ visible, className, reactions, reply, trace, copy }: {
   const more = useRef<HTMLButtonElement>(null)
   const shown = visible || menu !== null
   return (
-    <div className={`message-actions ${className}`} style={{ opacity: shown ? 1 : 0, pointerEvents: shown ? 'auto' : 'none' }} aria-hidden={!shown}>
+    <div className={`message-actions ${className} ${shown ? 'shown' : ''}`} aria-hidden={!shown}>
       <button ref={smile} className="message-action" title="Add reaction" aria-label="Add reaction" onClick={() => setMenu('reactions')}>
         <Icon name="face.smiling" size={14} />
       </button>

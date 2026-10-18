@@ -4,7 +4,8 @@ import { BotAvatar, GroupAvatar } from '../../components/Avatar'
 import { Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { Sheet, usePresence } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { HStack, IconSlot, Spacer } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import { prefs, usePref } from '../../lib/prefs'
 import { useStore } from '../../store/context'
 import { UpdateNeededCard } from '../UpdateNeededCard'
@@ -145,21 +146,21 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
         <div className="top-chrome">
           <TopFade />
           <div className="top-chrome-row">
-            <span style={{ flex: 1 }} />
+            <Spacer />
             {(!showSettings || openThread || !wide) && !compactDetails ? (
               <MacChatButton className="ringed" title="Conversation details" icon="chevron.left.2" direction={[-1, 0]} onClick={toggleDetails} />
             ) : null}
           </div>
           {/* The call bar takes the pill's place; its frosted glass would show the name blurred. */}
           <button className={`title-pill ${calling ? 'hidden-by-call' : ''}`} inert={calling} onClick={toggleDetails} aria-label={`${bot?.name ?? 'Conversation'}, view details`} title="View conversation details">
-            <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <HStack as="span" gap={7}>
               {bot ? isGroup(bot) ? <GroupAvatar members={store.members(bot)} size={22} /> : <BotAvatar bot={bot} size={22} /> : null}
-              <span style={{ ...font(13, 'medium'), color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{bot?.name ?? ''}</span>
+              <Text size="body" weight="medium" tone="text" truncate>{bot?.name ?? ''}</Text>
               {/* Grok Bot's hint on hover: the pill opens the details. */}
               <span className="title-pill-chevron">
                 <Icon name="chevron.right" size={10} weight="semibold" color="var(--secondary)" />
               </span>
-            </span>
+            </HStack>
             {store.shownConnection.kind !== 'online' || store.mismatch ? <ConnectionSubtitle /> : null}
           </button>
         </div>
@@ -167,7 +168,7 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
         <div className="composer-dock" ref={dock}>
           <div className="composer-fade" />
           {store.mismatch ? (
-            <div style={{ padding: '0 16px 8px' }}>
+            <div className="composer-update-needed">
               <UpdateNeededCard />
             </div>
           ) : (
@@ -241,10 +242,10 @@ function ConnectionSubtitle() {
     return store.hostRoute === 'relay' ? 'Connected through Cloudflare' : store.hostRoute === 'direct' ? 'Connected over Wi-Fi or Tailscale' : store.hostRoute === 'loopback' ? 'Connected locally' : 'Connected'
   })()
   return (
-    <span style={{ display: 'flex', alignItems: 'center', gap: 6, ...font(11, 'medium'), color: 'var(--secondary)' }} title={`${store.hostName} · ${description}`} aria-label={`${store.hostName}, ${description}`}>
-      <span style={{ width: 12, display: 'flex', justifyContent: 'center' }}>{connecting ? <Spinner size={8} /> : <Icon name={symbol} size={8} weight="medium" />}</span>
-      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{store.connectionLabel}</span>
-    </span>
+    <HStack as="span" gap={6} className="title-pill-subtitle" title={`${store.hostName} · ${description}`} aria-label={`${store.hostName}, ${description}`}>
+      <IconSlot width={12}>{connecting ? <Spinner size={8} /> : <Icon name={symbol} size={8} weight="medium" />}</IconSlot>
+      <Text size="caption" weight="medium" truncate>{store.connectionLabel}</Text>
+    </HStack>
   )
 }
 
@@ -353,22 +354,22 @@ const Transcript = memo(function Transcript({ botId, openTrace, openThread, open
               {loadingEarlier ? <Spinner size={14} /> : 'Load earlier messages'}
             </button>
           ) : null}
-          {items.length === 0 && bot ? <div style={{ paddingTop: 40 }}>{isGroup(bot) ? <GroupIntroCard group={bot} /> : <IntroCard bot={bot} />}</div> : null}
+          {items.length === 0 && bot ? <div className="transcript-intro">{isGroup(bot) ? <GroupIntroCard group={bot} /> : <IntroCard bot={bot} />}</div> : null}
           {items.map((item) => (
             <div key={item.id} className={arrivals.has(item.id) ? rowIn(item) : undefined}>
               <Row item={item} chat={bot} openTrace={openTrace} openThread={openThread} openRoutine={openRoutine} openBotChat={openBotChat} />
             </div>
           ))}
           {bot && live ? (
-            <div className={arrivals.has('working') ? 'row-in' : undefined} style={{ paddingTop: 6 }}>
+            <div className={arrivals.has('working') ? 'chat-working row-in' : 'chat-working'}>
               <WorkingIndicator bot={bot} thinking={store.currentThinking(botId, null)} />
             </div>
           ) : null}
-          <div style={{ height: 8 }} />
+          <div className="chat-end" />
         </div>
       </div>
       {jump.mounted ? (
-        <div className={`jump-to-latest ${jump.shown ? 'shown' : ''}`} inert={!jump.shown} style={{ bottom: 'calc(var(--composer-height, 70px) + 10px)' }}>
+        <div className={`jump-to-latest ${jump.shown ? 'shown' : ''}`} inert={!jump.shown}>
           <MacChatButton
             title="Jump to latest"
             icon="arrow.down"
@@ -392,7 +393,7 @@ function Row({ item, chat, openTrace, openThread, openRoutine, openBotChat }: { 
   const e = item.entry
   if (e.kind === 'notice' && e.data.routineId) {
     return (
-      <button onClick={() => openRoutine(e.data.routineId!)} style={{ display: 'flex', alignItems: 'center', gap: 6, ...font('footnote'), color: 'var(--secondary)', padding: '10px 0', margin: '0 auto' }}>
+      <button className="chat-routine-notice" onClick={() => openRoutine(e.data.routineId!)}>
         <Icon name="clock.arrow.circlepath" size={10} />
         {e.data.text ?? 'Routine'}
       </button>
@@ -409,10 +410,10 @@ function GroupIntroCard({ group }: { group: Bot }) {
   return (
     <div className="intro-card">
       <GroupAvatar members={members} size={72} />
-      <div style={{ ...font('title2', 'semibold'), color: 'var(--text)' }}>{group.name}</div>
-      {group.name !== names.join(', ') ? <div style={{ ...font('subheadline'), color: 'var(--secondary)' }}>{names.join(' · ')}</div> : null}
-      {group.description ? <div style={{ ...font('subheadline'), color: 'var(--secondary)' }}>{group.description}</div> : null}
-      <div style={{ ...font('callout'), color: 'var(--secondary)', paddingTop: 4, lineHeight: 1.5, maxWidth: 360, textWrap: 'balance' }}>Everyone answers in turn. @mention a bot to ask just that one.</div>
+      <Text as="div" size="title2" weight="semibold" tone="text">{group.name}</Text>
+      {group.name !== names.join(', ') ? <Text as="div" size="subheadline" tone="secondary">{names.join(' · ')}</Text> : null}
+      {group.description ? <Text as="div" size="subheadline" tone="secondary">{group.description}</Text> : null}
+      <Text as="div" size="callout" tone="secondary" className="intro-card-hint balanced">Everyone answers in turn. @mention a bot to ask just that one.</Text>
     </div>
   )
 }
@@ -422,12 +423,12 @@ function IntroCard({ bot }: { bot: Bot }) {
   return (
     <div className="intro-card">
       <BotAvatar bot={bot} size={72} />
-      <div style={{ ...font('title2', 'semibold'), color: 'var(--text)' }}>{bot.name}</div>
-      <div style={{ ...font('callout'), color: 'var(--secondary)', overflowWrap: 'anywhere' }}>
+      <Text as="div" size="title2" weight="semibold" tone="text">{bot.name}</Text>
+      <Text as="div" size="callout" tone="secondary" className="intro-card-path">
         {bot.managedWorkspace ? `${store.backendName(bot.backend)} · Personal workspace` : `${store.backendName(bot.backend)} in ${bot.cwd}`}
-      </div>
-      {bot.description ? <div style={{ ...font('subheadline'), color: 'var(--secondary)' }}>{bot.description}</div> : null}
-      <div style={{ ...font('callout'), color: 'var(--secondary)', paddingTop: 4, lineHeight: 1.5 }}>Tell it what you need. You'll get a notification when it's done or needs you.</div>
+      </Text>
+      {bot.description ? <Text as="div" size="subheadline" tone="secondary">{bot.description}</Text> : null}
+      <Text as="div" size="callout" tone="secondary" className="intro-card-hint">Tell it what you need. You'll get a notification when it's done or needs you.</Text>
     </div>
   )
 }

@@ -3,8 +3,9 @@ import { isGroup, type Bot } from '@shared/models'
 import { BotAvatar, GroupAvatar } from '../../components/Avatar'
 import { IconButton, Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
-import { Dialog, ModalHeader, useDismiss } from '../../components/Overlay'
-import { font } from '../../lib/fonts'
+import { Dialog, ModalHeader, SheetPage, useDismiss } from '../../components/Overlay'
+import { VStack } from '../../components/Stack'
+import { Text } from '../../components/Text'
 import { useStore } from '../../store/context'
 import { errorText } from './drafts'
 import { AutoTextArea } from './parts'
@@ -60,16 +61,16 @@ export function GroupEditorView({ group, members: initialMembers = [] }: { group
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--background)' }}>
+    <SheetPage>
       <ModalHeader title={isNew ? 'New group chat' : 'Group chat'} trailing={saving ? <Spinner /> : <IconButton title={isNew ? 'Create' : 'Save'} icon="checkmark" disabled={!canSave} onClick={save} />} />
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+      <div className="group-scroll">
         <div className="group-form">
           <div className="group-identity">
             <GroupAvatar members={picked} size={84} />
             <input className="group-name" value={name} placeholder={defaultName} aria-label="Name" onChange={(e) => setName(e.target.value)} />
             <AutoTextArea className="group-about" value={about} placeholder="What this group works on" minRows={1} maxRows={4} onChange={setAbout} />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <VStack>
             <div className="group-section-title">Members</div>
             {picked.map((bot) => (
               <div key={bot.id} className="member-row fade-in">
@@ -81,8 +82,7 @@ export function GroupEditorView({ group, members: initialMembers = [] }: { group
             {adding ? (
               <>
                 <input
-                  className="field-box fade-in"
-                  style={{ margin: '6px 0', background: 'var(--surface)' }}
+                  className="field-box fade-in group-search"
                   autoFocus
                   value={query}
                   placeholder="Search bots"
@@ -95,31 +95,31 @@ export function GroupEditorView({ group, members: initialMembers = [] }: { group
                 {candidates.map((bot) => (
                   <button key={bot.id} className="member-row press fade-in" aria-label={`Add ${bot.name}`} onClick={() => toggle(bot.id)}>
                     <BotAvatar bot={bot} size={32} animated={false} />
-                    <span className="member-name" style={{ color: 'var(--secondary)' }}>{bot.name}</span>
+                    <Text tone="secondary" className="member-name">{bot.name}</Text>
                     <Icon name="plus.circle" size={18} color="var(--secondary)" />
                   </button>
                 ))}
               </>
             ) : candidates.length ? (
               <button className="member-row press" onClick={() => setAdding(true)}>
-                <span style={{ width: 32, display: 'grid', placeItems: 'center' }}>
+                <span className="member-add-icon">
                   <Icon name="plus" size={16} color="var(--secondary)" />
                 </span>
-                <span className="member-name" style={{ color: 'var(--secondary)' }}>Add Member</span>
+                <Text tone="secondary" className="member-name">Add Member</Text>
               </button>
             ) : null}
-            <div style={{ ...font('caption'), color: 'var(--tertiary)', padding: '10px 0 0' }}>Everyone answers in turn unless you @mention someone.</div>
-          </div>
-          {error ? <span className="fade-in" style={{ ...font('footnote'), color: 'var(--danger)' }}>{error}</span> : null}
+            <Text as="div" size="caption" tone="tertiary" className="group-note">Everyone answers in turn unless you @mention someone.</Text>
+          </VStack>
+          {error ? <Text size="footnote" tone="danger" className="fade-in">{error}</Text> : null}
           {current ? (
-            <button className="press" style={{ ...font('body'), color: 'var(--danger)', alignSelf: 'flex-start' }} onClick={() => setConfirmDelete(current)}>
+            <button className="press group-delete" onClick={() => setConfirmDelete(current)}>
               Delete group chat
             </button>
           ) : null}
         </div>
       </div>
       <DeleteBotDialog bot={confirmDelete} onClose={() => setConfirmDelete(null)} onDeleted={dismiss} />
-    </div>
+    </SheetPage>
   )
 }
 

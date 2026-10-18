@@ -15,6 +15,8 @@
 }
 .modal-content {
   position: relative;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
   background: var(--background);
   border-radius: var(--radius-xl);
   overflow: hidden;
@@ -46,6 +48,9 @@
   height: 48px;
   padding: 0 10px 0 16px;
   flex: none;
+}
+.modal-title {
+  flex: 1;
 }
 
 /* Sheets, dialogs and menus: one subtle outline over the fill. */
@@ -112,7 +117,7 @@
   gap: 8px;
 }
 .dialog-button {
-  font-size: calc(12px * var(--scale));
+  font-size: var(--text-callout);
   font-weight: 500;
   text-align: center;
   padding: 8px 0;
@@ -125,6 +130,14 @@
   background: var(--accent-fill);
   color: var(--on-accent);
 }
+/* A sheet's content: a full-height column on the page color (SheetPage). */
+.sheet-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--background);
+}
+
 [data-modal-card]:focus {
   outline: none;
 }
@@ -158,6 +171,7 @@
   opacity: 1;
 }
 .anchored-panel {
+  position: absolute;
   background: var(--bubble-agent);
   border-radius: var(--radius-l);
   box-shadow: var(--shadow-l);
@@ -167,6 +181,10 @@
 }
 .anchored.shown .anchored-panel {
   transform: none;
+}
+/* Quick reactions above a message's menu rows. */
+.menu-reactions {
+  padding-bottom: 4px;
 }
 .menu-panel {
   padding: 6px;
@@ -187,7 +205,7 @@
   width: 100%;
   padding: 6px 10px;
   border-radius: var(--radius-s);
-  font-size: calc(12px * var(--scale));
+  font-size: var(--text-callout);
   color: var(--text);
   transition: background-color var(--hover);
 }

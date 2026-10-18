@@ -45,7 +45,7 @@ export function Wings({ model, peek }: { model: IslandModel; peek: boolean }) {
               ))}
             </span>
           ) : focus.status === 'needsInput' ? (
-            <span className="island-dot" style={{ background: AMBER }} />
+            <span className="island-dot needs-you" />
           ) : (
             <ThinkingOrb size={14} color="#F5F6F8" />
           )}
@@ -67,7 +67,7 @@ export function Overview({ model }: { model: IslandModel }) {
   const steps = focus.steps.length ? focus.steps : [{ title: focus.detail, kind: 'other' }]
   return (
     <div className="island-row-cards">
-      <button className="island-card island-focus" style={others.length ? { width: 322 } : { flex: 1 }} onClick={() => model.openBot(focus.ref)} title="Open conversation">
+      <button className={`island-card island-focus ${others.length ? '' : 'alone'}`} onClick={() => model.openBot(focus.ref)} title="Open conversation">
         <span key={focus.ref} className={`island-swap-slot ${swap}`}>
           <BigCharacter bot={focus} size={70} mood={moodOf(focus)} badge={badgeOf(focus)} />
           <span className="island-focus-text">
@@ -75,7 +75,7 @@ export function Overview({ model }: { model: IslandModel }) {
             {steps.map((step, i) => (
               <span key={`${i}-${step.title}`} className={`island-step ${i === steps.length - 1 ? 'current' : ''}`}>
                 <Icon name={stepIcon(step.kind)} size={i === steps.length - 1 ? 13 : 12} scaled={false} />
-                <span className="island-ellipsis">{step.title}</span>
+                <span className="truncate">{step.title}</span>
               </span>
             ))}
           </span>
@@ -96,7 +96,7 @@ export function Overview({ model }: { model: IslandModel }) {
                 <CharacterAvatar shape={b.shape} color={b.color} size={24} mood={moodOf(b)} dark />
                 <StatusDot bot={b} />
               </span>
-              <span className="island-ellipsis">{b.name}</span>
+              <span className="truncate">{b.name}</span>
             </button>
           ))}
         </div>
@@ -166,7 +166,7 @@ export function Notice({ model, bot, failed }: { model: IslandModel; bot: Island
                 <div className="island-error">{bot.error ?? bot.detail}</div>
               </>
             ) : (
-              <div className="island-title island-ellipsis">{bot.detail}</div>
+              <div className="island-title truncate">{bot.detail}</div>
             )}
             <div className="island-buttons start">
               <Button onClick={() => model.openBot(bot.ref)}>Open conversation</Button>
