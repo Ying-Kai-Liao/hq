@@ -123,7 +123,7 @@ pub fn answer(hub: &Hub, notice_id: &str, accept: bool) -> Result<Value> {
         card.status = Status::Declined;
         if let Action::Remember { text, shared } = &action {
             let layer = (!(*shared && super::shared(&cfg))).then_some(cfg.id.as_str());
-            hub.store.memory_write(|c, _, _| mem::forbid(c, layer, text))?;
+            hub.store.memory_write(|c, _, _| mem::forbid(c, layer, text, card.message.as_deref()))?;
         }
     }
     Ok(update(hub, &notice, &cfg, &action, &card))
