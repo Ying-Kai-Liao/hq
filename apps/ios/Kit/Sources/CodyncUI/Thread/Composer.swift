@@ -348,9 +348,6 @@ struct Composer: View {
         case .fast:
             model.setFastMode(bot, !bot.fastMode)
             draft = ""
-        case .newSession:
-            model.newSession(bot.id)
-            draft = ""
         case .skill(let id):
             draft = "/\(id) "
         }

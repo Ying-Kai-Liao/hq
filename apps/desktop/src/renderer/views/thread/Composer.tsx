@@ -118,10 +118,6 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
         store.setFastMode(bot, !bot.fastMode)
         setDraft('')
         break
-      case 'newSession':
-        store.newSession(bot.id)
-        setDraft('')
-        break
       case 'skill':
         setDraft(`/${command.action.id} `)
         break
