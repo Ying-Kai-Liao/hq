@@ -3,5 +3,9 @@
   "builder": {
     "link": "Ying-Kai-Liao/hq-builder",
     "about": "builds your other agents with you: say what you need, it sets one up"
+  },
+  "coder": {
+    "link": "Ying-Kai-Liao/hq-coder",
+    "about": "writes code in your repos: bug fixes, features and tests, each as a pull request you review"
   }
 }

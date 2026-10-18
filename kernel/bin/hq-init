@@ -415,19 +415,19 @@ def starter():
     if have:
         say('✓', ', '.join(sorted(have)))
         return
-    starters = json.loads((LIB / 'starters.json').read_text())
+    starters = {n: s for n, s in json.loads((LIB / 'starters.json').read_text()).items()
+                if not n.startswith('$') and s.get('link')}
+    got = 0
     for name, s in starters.items():
-        if name.startswith('$'):
-            continue
-        if not s.get('link'):
-            say('-', 'no agents yet', 'hq new <name> "<what it does>"')
-            continue
         if offer(f'Install the {name}?', note=f'The agent that {s["about"]}.'):
             r = run(str(HQ / 'bin' / 'hq-pkg'), 'install', s['link'], '--as', name, '--yes')
+            got += r.returncode == 0
             say('✓' if r.returncode == 0 else '✗', name if r.returncode == 0 else f'{name} not installed',
                 s['link'] if r.returncode == 0 else (r.stderr or r.stdout).strip()[-200:])
         else:
-            say('-', 'no agents yet', f'later: hq install {s["link"]}')
+            say('-', f'no {name}', f'later: hq install {s["link"]}')
+    if not got:
+        say('-', 'no agents yet', 'hq new <name> "<what it does>"' if not starters else 'hq market finds more')
 
 
 def find_agents():
