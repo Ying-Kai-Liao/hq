@@ -54,13 +54,14 @@ pub fn python() -> &'static str {
     if cfg!(windows) { "python" } else { "python3" }
 }
 
-/// The agent command that runs a Python fixture (quoted for `sh -c` / `cmd /c`).
+/// The agent command that runs a Python fixture (quoted for `sh -c` / `cmd /c`). UTF-8 mode makes it read the host's
+/// UTF-8 the way real agents do: Windows Python reads pipes in the ANSI code page, turning a `”` into a lone surrogate.
 pub fn python_agent(script: &Path) -> String {
     let path = script.display().to_string();
     if cfg!(windows) {
-        format!("{} -u \"{path}\"", python())
+        format!("{} -X utf8 -u \"{path}\"", python())
     } else {
-        format!("{} -u '{}'", python(), path.replace('\'', "'\\''"))
+        format!("{} -X utf8 -u '{}'", python(), path.replace('\'', "'\\''"))
     }
 }
 
