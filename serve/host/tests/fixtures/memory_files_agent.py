@@ -39,7 +39,7 @@ for line in sys.stdin:
             head, _, body = command.partition("\n")
             verb, path = head.split(" ", 1)
             if verb == "WRITE":
-                with open(path, "w", encoding="utf-8") as f:
+                with open(path, "w", encoding="utf-8", newline="\n") as f:
                     f.write(body)
             elif os.path.exists(path):
                 os.remove(path)
