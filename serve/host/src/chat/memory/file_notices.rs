@@ -1,24 +1,14 @@
-//! A bot's changes to its memory files show in its chat: "Updated people.md" with the diff and an undo, a change
-//! the checks put back and why, or, for a bot that asks first, the change waiting for the user. The line is a
-//! notice whose `memoryFile` field says what happened, so an app that doesn't know it still shows the text.
+//! A bot's changes to its memory files don't show in the chat: the memory settings keep every version. Lines and
+//! cards that older hosts put in the chat ("Updated people.md" with an undo, a change to approve) still answer and
+//! undo for the apps that show them; their `memoryFile` field holds the change.
 
 use super::files::{self, Writer};
 use crate::hub::Hub;
-use crate::store::{BotConfig, EntryKind, Lane};
+use crate::store::BotConfig;
 use anyhow::{Result, anyhow, bail};
 use codync_mem::files::{self as mf, Author, Cause};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-
-/// What became of a bot's change.
-pub enum Outcome {
-    /// Written as this version.
-    Done(i64),
-    /// Failed a check and was put back, for this reason.
-    Restored(String),
-    /// Waiting for the user, who approves or declines it.
-    Pending,
-}
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -63,52 +53,6 @@ struct Card {
     base: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
-}
-
-/// Puts a line for a bot's change in the chat it was made from. `after` is empty for a deleted file.
-#[allow(clippy::too_many_arguments)]
-pub fn post(
-    hub: &Hub,
-    cfg: &BotConfig,
-    lane: &Lane,
-    layer: Option<&str>,
-    name: &str,
-    outcome: Outcome,
-    before: Option<&str>,
-    after: &str,
-) {
-    let deleted = matches!(outcome, Outcome::Done(_) | Outcome::Pending) && after.is_empty() && before.is_some();
-    let mut card = Card {
-        file: name.to_owned(),
-        shared: layer.is_none(),
-        status: Status::Done,
-        diff: mf::diff(before.unwrap_or_default(), after),
-        created: before.is_none(),
-        deleted,
-        big: before.is_some_and(|b| mf::drops_much(b, after)),
-        version: None,
-        previous: None,
-        content: None,
-        base: None,
-        reason: None,
-    };
-    match outcome {
-        Outcome::Done(version) => {
-            card.version = Some(version);
-            card.previous = previous(hub, layer, name, version);
-        }
-        Outcome::Restored(why) => {
-            card.status = Status::Restored;
-            card.reason = Some(why);
-        }
-        Outcome::Pending => {
-            card.status = Status::Pending;
-            card.content = (!deleted).then(|| after.to_owned());
-            card.base = before.map(mf::hash);
-        }
-    }
-    let turn = hub.store.max_turn(&lane.chat);
-    hub.add_entry(lane, EntryKind::Notice, turn, &data(cfg, &card));
 }
 
 /// The live version before `version`, which undo brings back.

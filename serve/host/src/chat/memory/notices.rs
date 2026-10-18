@@ -1,11 +1,11 @@
-//! A bot's memory writes show in its chat: a "Remembered" line the user can undo, or, for a bot that asks before
-//! acting, a card the user approves or declines. The line is an ordinary notice whose `memory` field says what
-//! happened, so an app that doesn't know it still shows the text.
+//! A bot's memory writes. They don't show in the chat: the user reviews and changes memory in the bot's memory
+//! settings. Lines and cards that older hosts put in the chat ("Remembered" with an undo, a card to approve) still
+//! answer and undo for the apps that show them; their `memory` field says what happened.
 
 use crate::hub::Hub;
-use crate::store::{BotConfig, EntryKind, Lane};
+use crate::store::{BotConfig, Lane};
 use anyhow::{Result, anyhow, bail};
-use codync_mem::store::{self as mem, Author, Entry, Error, New, Writer};
+use codync_mem::store::{self as mem, Entry, Error, New, Writer};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -47,7 +47,7 @@ pub fn typed(data: &Value) -> Vec<String> {
     codync_mem::evidence::typed(data["text"].as_str().unwrap_or_default(), &pasted)
 }
 
-/// Writes now, and says so in the chat with an undo.
+/// Writes now; the memory screen shows it.
 pub fn apply(
     hub: &Hub,
     cfg: &BotConfig,
@@ -56,38 +56,9 @@ pub fn apply(
     action: &Action,
 ) -> Result<Entry> {
     let lane = lane.unwrap_or_else(|| Lane::main(&cfg.id));
-    let (entry, previous) = write(hub, cfg, &lane, message.clone(), action)?;
-    let card = Card { status: Status::Done, entry: Some(entry.id), previous, message, error: None };
-    post(hub, cfg, &lane, action, &card);
+    let (entry, _) = write(hub, cfg, &lane, message, action)?;
     super::changed(hub, entry.bot.as_deref());
     Ok(entry)
-}
-
-/// Asks the user first: a card in the chat. The text is checked now, so the bot hears a refusal at once, and
-/// again when the user approves.
-pub fn propose(hub: &Hub, cfg: &BotConfig, lane: Option<Lane>, message: Option<String>, action: &Action) -> Result<()> {
-    let lane = lane.unwrap_or_else(|| Lane::main(&cfg.id));
-    let shared = super::shared(cfg);
-    let previous = match action {
-        Action::Remember { text, shared: wants } => {
-            let layer = (!(*wants && shared)).then_some(cfg.id.as_str());
-            hub.store.memory_read(|c| mem::admissible(c, Writer::Bot(&cfg.id), layer, text))?;
-            None
-        }
-        Action::Revise { entry, .. } | Action::Archive { entry } => {
-            if let Action::Revise { text, .. } = action {
-                codync_mem::check::text(text)?;
-            }
-            let current = hub.store.memory_read(|c| visible(c, *entry, &cfg.id, shared))?;
-            if current.author == Author::User {
-                return Err(Error::UsersOwn.into());
-            }
-            Some(current.text)
-        }
-    };
-    let card = Card { status: Status::Pending, entry: None, previous, message, error: None };
-    post(hub, cfg, &lane, action, &card);
-    Ok(())
 }
 
 /// The user approved or declined a card.
@@ -145,7 +116,7 @@ pub fn undo(hub: &Hub, notice_id: &str) -> Result<Value> {
                 mem::revise(c, Writer::User, id, previous.as_deref().unwrap_or(&entry.text), now, rev)?;
             }
             Action::Archive { .. } => {
-                mem::activate(c, id, now, rev)?;
+                mem::bring_back(c, id, now, rev)?;
             }
         }
         Ok(entry.bot)
@@ -205,11 +176,6 @@ fn write(
 fn visible(c: &rusqlite::Connection, id: i64, bot: &str, shared: bool) -> mem::Result<Entry> {
     let entry = mem::get(c, id)?.ok_or(Error::NotFound)?;
     if entry.bot.as_deref() == Some(bot) || (entry.bot.is_none() && shared) { Ok(entry) } else { Err(Error::NotFound) }
-}
-
-fn post(hub: &Hub, cfg: &BotConfig, lane: &Lane, action: &Action, card: &Card) {
-    let turn = hub.store.max_turn(&lane.chat);
-    hub.add_entry(lane, EntryKind::Notice, turn, &data(cfg, action, card));
 }
 
 fn update(hub: &Hub, notice: &crate::store::Entry, cfg: &BotConfig, action: &Action, card: &Card) -> Value {

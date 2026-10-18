@@ -1,9 +1,8 @@
 //! The bot's long-form memory tools, for agents that can't reach the folders with their own file tools.
 
-use super::file_notices::{self, Outcome};
 use super::files::{self, Writer};
 use crate::hub::Hub;
-use crate::store::{BotConfig, Lane, Permission};
+use crate::store::BotConfig;
 use anyhow::{Result, anyhow, bail};
 use codync_mem::files::{self as mf, Author, Cause};
 use serde_json::{Value, json};
@@ -21,7 +20,7 @@ pub fn definitions() -> [Value; 2] {
         }),
         json!({
             "name": "edit_memory",
-            "description": "Create, change or delete one of your long-form memory files: notes on one topic about the user, too detailed for a memory entry. Give old and new to replace text that appears once, content to write the whole file, or delete. A file starts with frontmatter whose description: line says when to read it, and holds at most 2,000 tokens. The user sees the change in the chat and can undo it; a bot that asks before acting shows it to the user for approval first.",
+            "description": "Create, change or delete one of your long-form memory files: notes on one topic about the user, too detailed for a memory entry. Give old and new to replace text that appears once, content to write the whole file, or delete. A file starts with frontmatter whose description: line says when to read it, and holds at most 2,000 tokens. The user sees every version in the bot's memory settings and can bring one back there.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -101,24 +100,9 @@ fn edit(hub: &Hub, cfg: &BotConfig, args: &Value) -> Result<Value> {
     if let Some(content) = &after {
         mf::check(content)?;
     }
-    let turn = hub.runtime(&cfg.id);
-    let lane = turn.lane.clone().unwrap_or_else(|| Lane::main(&cfg.id));
-    let asked = turn
-        .message
-        .as_deref()
-        .and_then(|id| hub.store.entry(id))
-        .is_some_and(|e| codync_mem::evidence::asks_to_remember(&super::notices::typed(&e.data).join("\n")));
-    let shown = after.as_deref().unwrap_or_default();
-    if cfg.permission != Permission::Auto && !asked {
-        file_notices::post(hub, cfg, &lane, layer.as_deref(), name, Outcome::Pending, before.as_deref(), shown);
-        return Ok(
-            json!({"status": "waitingForUser", "note": "Not changed yet: the user approves or declines it in the chat."}),
-        );
-    }
     let expected = before.as_deref().map(mf::hash);
     let cause = if after.is_some() { Cause::Edit } else { Cause::Delete };
     let writer = Writer { author: Author::Bot, bot: Some(cfg), cause };
-    let version = files::write(hub, layer.as_deref(), name, after.as_deref(), expected.as_deref(), writer)?;
-    file_notices::post(hub, cfg, &lane, layer.as_deref(), name, Outcome::Done(version.id), before.as_deref(), shown);
+    files::write(hub, layer.as_deref(), name, after.as_deref(), expected.as_deref(), writer)?;
     Ok(json!({"status": "saved", "file": name}))
 }
