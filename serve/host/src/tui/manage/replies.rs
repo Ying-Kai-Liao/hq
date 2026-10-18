@@ -20,8 +20,7 @@ impl App {
                     if let Overlay::Memory(m) = o
                         && m.bot == bot
                     {
-                        m.view = Some(v.clone());
-                        m.cursor = m.cursor.min(m.rows().len().saturating_sub(1));
+                        m.show(v.clone());
                         m.busy = false;
                         m.error = None;
                     }

@@ -4,6 +4,7 @@ use super::{
     App, Buffer, Rect, centered, footer, frame_box, input_line, name_of, page_tabs, put, row, s, theme, u, window,
 };
 use crate::tui::manage::{MemoryMode, MemorySheet, Page, Section};
+use crate::tui::md::truncate;
 use crate::tui::view::when;
 use ratatui::widgets::{Paragraph, Widget, Wrap};
 use serde_json::Value;
@@ -204,7 +205,14 @@ fn note(buf: &mut Buffer, body: Rect, app: &App, memory: &MemorySheet, detail: O
         put(buf, body.x, body.y, body.width, "Loading…", palette.dim.patch(palette.panel));
         return;
     };
-    put(buf, body.x, body.y, body.width, s(detail, "path"), palette.dim.patch(palette.panel));
+    put(
+        buf,
+        body.x,
+        body.y,
+        body.width,
+        &truncate(s(detail, "path"), usize::from(body.width)),
+        palette.dim.patch(palette.panel),
+    );
     let versions = detail["versions"].as_array().cloned().unwrap_or_default();
     let listed = u(versions.len().min(6));
     let text = Rect::new(body.x, body.y + 2, body.width, body.height.saturating_sub(4 + listed));
@@ -235,7 +243,14 @@ fn note(buf: &mut Buffer, body: Rect, app: &App, memory: &MemorySheet, detail: O
 fn project(buf: &mut Buffer, body: Rect, memory: &MemorySheet) {
     let palette = theme();
     let Some(project) = memory.view.as_ref().map(|v| &v["projectMemory"]) else { return };
-    put(buf, body.x, body.y, body.width, s(project, "path"), palette.dim.patch(palette.panel));
+    put(
+        buf,
+        body.x,
+        body.y,
+        body.width,
+        &truncate(s(project, "path"), usize::from(body.width)),
+        palette.dim.patch(palette.panel),
+    );
     let text = Rect::new(body.x, body.y + 2, body.width, body.height.saturating_sub(2));
     Paragraph::new(s(project, "text"))
         .wrap(Wrap { trim: false })

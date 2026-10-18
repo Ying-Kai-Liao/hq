@@ -80,8 +80,9 @@ impl App {
             }
             Submit::MemoryFile { bot, shared, name, base } => {
                 let file = name.clone().map_or_else(|| values.get("file").cloned().unwrap_or_default(), Value::from);
-                let body =
-                    json!({"botId": bot, "file": file, "shared": shared, "content": values["content"], "base": base});
+                // A note keeps its text as typed: trimming would drop its last line break.
+                let content = f.inputs.iter().find(|i| i.name == "content").map_or("", |i| i.ed.text.as_str());
+                let body = json!({"botId": bot, "file": file, "shared": shared, "content": content, "base": base});
                 self.sheet("saveMemoryFile", body, Reply::FieldsSaved);
             }
         }

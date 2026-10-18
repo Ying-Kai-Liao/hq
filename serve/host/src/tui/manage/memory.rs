@@ -111,6 +111,17 @@ impl MemorySheet {
         list.as_array().cloned().unwrap_or_default()
     }
 
+    /// Takes a fresh `memory` reply, keeping the cursor on the row it was on: pinning or archiving reorders them.
+    pub fn show(&mut self, view: Value) {
+        let key = |row: &Value| json!([row["id"], row["name"], row["shared"]]);
+        let was = self.rows().get(self.cursor).map(key);
+        self.view = Some(view);
+        let rows = self.rows();
+        self.cursor = was
+            .and_then(|k| rows.iter().position(|row| key(row) == k))
+            .unwrap_or_else(|| self.cursor.min(rows.len().saturating_sub(1)));
+    }
+
     /// Sections worth showing: project memory only when the folder has one.
     pub fn sections(&self) -> Vec<Section> {
         let project = self.view.as_ref().is_some_and(|v| v["projectMemory"].is_object());
@@ -348,3 +359,26 @@ impl App {
 
 /// What a new note starts with.
 const NOTE_TEMPLATE: &str = "---\ndescription: When to read this note\n---\n";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_cursor_follows_its_entry_when_pinning_reorders_them() {
+        let view = |ids: [i64; 3]| json!({"bot": {"entries": ids.map(|id| json!({"id": id}))}});
+        let mut m = MemorySheet {
+            bot: "b".into(),
+            view: Some(view([1, 2, 3])),
+            section: Section::Bot,
+            cursor: 2,
+            mode: MemoryMode::Browse,
+            error: None,
+            busy: false,
+        };
+        m.show(view([3, 1, 2]));
+        assert_eq!(m.cursor, 0, "entry 3 was pinned to the top");
+        m.show(view([1, 2, 4]));
+        assert_eq!(m.cursor, 0, "gone: the cursor stays in range");
+    }
+}
