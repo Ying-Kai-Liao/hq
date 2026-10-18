@@ -19,6 +19,10 @@ An adapter (discord_chat, telegram_chat, slack_chat) receives messages, turns ea
 Core.handle; the core calls the adapter back (the Adapter methods below) to post, show the working line, ask and
 react. Agents' own posts (hq-send) reach the thread through the run's outbox folder, HQ_BRIDGE_OUTBOX, or on
 Discord through the channel's webhook.
+Live agents (`session: live` in agent.md, e.g. coder) run as one session of their own: the owner's messages to one
+are typed into that session (hq-live send, reply=bridge:<box>) instead of starting a run, and its `hq-send --to
+bridge:<box>` posts land in the thread through outbox/live-<box>/. When no session runs, the message runs once as
+usual. Anyone else's messages to a live agent are refused.
 """
 from __future__ import annotations
 
@@ -43,6 +47,7 @@ P = paths()
 STATE_DIR = P['HQ_MACHINE'] / 'bridge'
 STATE = STATE_DIR / 'state.json'
 AUTH_BIN, HQ_BIN = str(KERNEL / 'bin' / 'hq-auth'), str(KERNEL / 'bin' / 'hq')
+LIVE_BIN = str(KERNEL / 'bin' / 'hq-live')
 KEEP = 5000   # threads and reply links kept in the state: the newest few thousand are enough to come back to
 
 
@@ -122,7 +127,7 @@ def read_state():
 
 def migrate(st):
     """State v2 from the Discord-only bridge's (v1): its webhooks, threads, inbox and Telegram rooms and replies."""
-    tables = ('conns', 'rooms', 'threads', 'replies', 'inbox', 'pending')
+    tables = ('conns', 'rooms', 'threads', 'replies', 'inbox', 'pending', 'live')
     if st.get('version') == 2:
         for t in tables:
             st.setdefault(t, {})
@@ -332,6 +337,7 @@ class Core:
         self.history: dict[str, list] = {}    # work key → the last user messages, for the router
         self.works: dict[str, str] = {}       # short id → work key, for Stop buttons
         self.jev = jev_config()
+        self.pumps: set[str] = set()          # connections whose live-agent outboxes are being posted
         self.hinted = set()
         try:   # show a reply's context use from this %; off (or anything not a number) never shows it
             self.ctx_show = float(os.environ.get('HQ_BRIDGE_CONTEXT_SHOW', '30').strip().rstrip('%'))
@@ -509,7 +515,57 @@ class Core:
         th['last'], th['at'] = agent, time.time()
         self.st['threads'][key] = self.st['threads'].pop(key)   # newest last, for pruning
         self.save()
+        if card(agent, 'session') == 'live':
+            if not r.get('owner'):
+                await ad.reply(m, f'{agent} takes work from the owner only.')
+                return
+            if await self.live(ad, key, agent, m, task):
+                return
         await self.deliver(ad, key, agent, m, task)
+
+    # ---- live agents ----
+
+    async def live(self, ad, key, agent, m, task):
+        """Types the owner's message into the agent's live session -> False when none runs (it then runs once)."""
+        box = short(key)
+        self.st['live'][box] = key
+        self.save()
+        (STATE_DIR / 'outbox' / f'live-{box}').mkdir(parents=True, exist_ok=True)
+        mid = short(f'{key}:{m.origin}:{time.time()}')
+        r = await asyncio.to_thread(subprocess.run, [LIVE_BIN, 'send', agent, '--reply', f'bridge:{box}', '--id', mid,
+                                                     '--', task], capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            log(f'live {agent} {key}: not delivered ({r.stderr.strip()[-200:]}); running it once')
+            return False
+        log(f'live {agent} {key}: delivered {mid}')
+        th = self.st['threads'][key]
+        await ad.post(th['conv'], 'hq', f'Sent to {agent}\'s live session. Its answers come here.')
+        asyncio.create_task(self.live_pump(ad))
+        return True
+
+    async def live_pump(self, ad):
+        """Posts what live sessions left for this connection's threads (hq-send --to bridge:<box>), every second."""
+        if ad.conn in self.pumps:
+            return
+        self.pumps.add(ad.conn)
+        try:
+            while True:
+                await asyncio.sleep(1)
+                for box, key in list(self.st['live'].items()):
+                    if not key.startswith(ad.conn + ':'):
+                        continue
+                    th = self.st['threads'].get(key)
+                    folder = STATE_DIR / 'outbox' / f'live-{box}'
+                    if th is None:   # the thread was pruned
+                        self.st['live'].pop(box, None)
+                        continue
+                    if folder.is_dir():
+                        try:
+                            await self.flush(ad, th['conv'], folder)
+                        except Exception as e:  # noqa: BLE001  one bad post must not stop the others
+                            log(f'live outbox {box}: {type(e).__name__}: {e}')
+        finally:
+            self.pumps.discard(ad.conn)
 
     # ---- the queue ----
 
@@ -737,7 +793,9 @@ class Core:
         return 'stopping'
 
     def resume(self, ad):
-        """Messages that waited for this connection when the bridge last stopped."""
+        """Messages that waited for this connection when the bridge last stopped, and live sessions' answers."""
+        if any(k.startswith(ad.conn + ':') for k in self.st['live'].values()):
+            asyncio.create_task(self.live_pump(ad))
         for wk, batches in list(self.inbox.items()):
             key, _, agent = wk.rpartition('#')
             if batches and key.startswith(ad.conn + ':') and wk not in self.busy and key in self.st['threads']:

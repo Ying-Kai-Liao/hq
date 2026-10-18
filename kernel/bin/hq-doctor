@@ -133,6 +133,11 @@ def repos_and_agents():
         if harness != 'claude' and not shutil.which(harness) \
                 and harness not in ('dsh', 'opencode'):   # those two run through npx when not installed
             notes.append(f'runs on {harness}, which is not installed')
+        live = ''
+        if re.search(r'^session:\s*live\s*$', (Path(o['dir']) / 'agent.md').read_text(), re.M):
+            at = run(str(HQ / 'bin' / 'hq-live'), 'where', name)
+            live = (f'live session in {at.stdout.strip()}' if at.returncode == 0 else
+                    f'live session not running (hq live start {name}); chats and hq ask run it once meanwhile')
         deps = run(str(HQ / 'bin' / 'hq-pkg'), 'deps', name)
         if deps.returncode:
             notes.append('missing ' + ', '.join(l.split()[0] for l in deps.stdout.splitlines()[2:] if l.strip())
@@ -141,6 +146,8 @@ def repos_and_agents():
             bad(f'{name}: {(problems.stdout + problems.stderr).strip().splitlines()[-1]}')
         else:
             (warn if notes else ok)(f'{name}' + (f' ({", ".join(notes)})' if notes else ''))
+        if live:
+            note(f'  {live}')
 
 
 def services():

@@ -21,6 +21,7 @@
 #   hq auth [ls|grant|revoke|set ...]                  which agent may use which service, as which account (hq-auth)
 #   hq cost [agents|agent <name>|...]                  what the agents cost, from the usage ledger (hq-cost)
 #   hq ask <agent> [-c] [--as NAME] "task"            ask an agent, get its answer back; -c continues (hq-ask)
+#   hq live start|where|send <agent> ...               agents that run as one live session (session: live) (hq-live)
 #   hq remote add|ls|rm ...  ·  hq ask <agent>@<machine>   agents on your other machines, over ssh (hq-remote)
 #   hq memory search <words> [--agent NAME|--all]      search what the agents wrote down (hq-memory)
 #   hq project [ls|open ID|root|add ID [dir] [--in P] [--home [DIR]]]  projects: what each holds, its folder, its memory
@@ -49,7 +50,7 @@ set -euo pipefail
 src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
 HQ="$(cd "$(dirname "$src")/.." && pwd)"
 
-[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,26p' "$0" | sed 's/^#   //'; exit 0; }
+[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,28p' "$0" | sed 's/^#   //'; exit 0; }
 export HQ_ROOT=$HQ
 # Where things are, from the one place that knows (lib/hq_paths.py): HQ_HOME (~/hq) holding kernel/ and agents/ (each
 # agent: role/ its repo, memory/ data/ files/ its life), and ~/.hq (user.md, projects, this Mac's things). Exported
@@ -62,6 +63,7 @@ case $1 in
   auth)               shift; exec "$HQ/bin/hq-auth" "${@:-ls}" ;;
   cost)               shift; exec "$HQ/bin/hq-cost" "${@:-agents}" ;;
   ask)                shift; exec "$HQ/bin/hq-ask" "${@:---help}" ;;
+  live)               shift; exec "$HQ/bin/hq-live" "${@:---help}" ;;
   init)               shift; exec "$HQ/bin/hq-init" "$@" ;;
   doctor)             shift; exec "$HQ/bin/hq-doctor" "$@" ;;
   backup)             shift; exec "$HQ/bin/hq-state" backup "$@" ;;

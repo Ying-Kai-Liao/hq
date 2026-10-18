@@ -178,6 +178,7 @@ kernel/                    the code
   bin/hq-auth              shared services: which agent may use which, as which account
   bin/hq-state             commit what was lived: state and agents repos (sqlite dumped as text), then each role
   bin/hq-ask               ask an agent and get its answer back; continue the conversation (-c)
+  bin/hq-live              live agents (session: live): start, find and message their one session
   bin/hq-remote            agents on your other machines over ssh: hq remote add, hq ask agent@machine
   bin/hq-memory            search the agents' memory and shared notes
   bin/hq-sched             scheduled agent jobs (cron, launchd)
@@ -305,6 +306,15 @@ continues the same conversation from the same directory, `--as NAME` names one t
 continued conversation keeps its model, effort and harness (`-H`). `--json` gives answer, session and cost for programs; `hq ask ls`
 lists the conversations. A Claude Code session can use it to work with a specialist over several turns in the
 specialist's own tools, where an `hq:<name>` subagent would run in the caller's. Tagged `via=ask` in the cost ledger.
+
+## Live agents
+An agent with `session: live` in its agent.md (coder) runs as one long-lived session that takes jobs one at a time:
+`hq live start coder` starts it in its home folder, in an Orca tab, a tmux session (`hq-coder`) or this terminal.
+`hq live where coder` finds it from its own process, however it was started. While it runs in Orca or tmux, the
+owner's chat messages to it and `hq ask coder "…"` are typed into it (`hq-live send`, a header the kernel writes
+with `reply=`) instead of starting a run; `hq ask` returns at once with an id and `hq ask --wait <id>` prints the
+answers, which the agent sends with `hq-send --to <reply>`. It is never an `hq:<name>` subagent, resource-manager
+never closes it, and anyone but the owner is refused. When it isn't running, a message runs it once as usual.
 
 ## Agents on your other machines
 An agent lives on the machine that has its tools. On a laptop, `install.sh` asks whether your agents run on another

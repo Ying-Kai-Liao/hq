@@ -4,6 +4,9 @@
 #   hq-send "text"                         a message
 #   hq-send --caption "text" FILE...       images show inline, anything else (html, pdf) as files
 #   hq-send --as image "🎨 generating…"    post as another agent (helpers reporting into the owner's thread)
+#   hq-send --to TARGET "text"|--caption…  answer a message a live session got (its header's reply=): ask:<id> (the
+#                                          caller's `hq ask --wait <id>`), bridge:<box> (the chat thread it came
+#                                          from), dm (Telegram, as below)
 #
 # Inside a Discord task (hq-bridge sets HQ_DISCORD_WEBHOOK_URL + HQ_DISCORD_THREAD_ID) it posts into that thread,
 # named after the agent. A tool that names a Telegram chat (HQ_TELEGRAM_BOT_TOKEN + HQ_TELEGRAM_CHAT_ID in its
@@ -15,6 +18,9 @@ set -euo pipefail
 
 as=${HQ_AGENT:-hq}
 [[ ${1:-} == --as ]] && { as=$2; shift 2; }
+to=""
+[[ ${1:-} == --to ]] && { to=$2; shift 2; }
+[[ ${1:-} == --as ]] && { as=$2; shift 2; }
 agent=$as
 # Discord shows the agent's display_name (agent.md frontmatter) when it has one
 eval "$(python3 "$(dirname "$0")/../lib/hq_paths.py" --sh)"   # HQ_AGENTS
@@ -23,7 +29,39 @@ card="$HQ_AGENTS/$as/role/agent.md"; [[ -f $card ]] || card="$HQ_AGENTS/$as/agen
 [[ -f $card ]] && name=$(sed -n 's/^display_name:[[:space:]]*//p' "$card" | head -1) && [[ -n $name ]] && as=$name
 caption=""
 [[ ${1:-} == --caption ]] && { caption=$2; shift 2; }
-[[ $# -gt 0 ]] || { echo 'usage: hq-send [--as AGENT] "text" | hq-send [--as AGENT] --caption "text" FILE...' >&2; exit 2; }
+[[ $# -gt 0 ]] || { echo 'usage: hq-send [--as AGENT] [--to TARGET] "text" | hq-send [--as AGENT] [--to TARGET] --caption "text" FILE...' >&2; exit 2; }
+
+# A live session's answer goes where its message said (reply=), whatever this process's environment holds.
+if [[ -n $to ]]; then
+  case $to in
+    ask:*|bridge:*)
+      id=${to#*:}
+      [[ $id =~ ^[A-Za-z0-9._-]+$ ]] || { echo "hq-send: bad target $to" >&2; exit 2; }
+      [[ $to == ask:* ]] && dest="$HQ_MACHINE/live/ask/$id.jsonl" || dest="$HQ_MACHINE/bridge/outbox/live-$id"
+      [[ -f $1 ]] && kind=files || kind=text
+      python3 - "$dest" "$agent" "$kind" "$caption" "$@" <<'PY'
+import json, os, sys, time
+dest, who, kind, caption, rest = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:]
+item = {'as': who, 'files': [os.path.abspath(f) for f in rest], 'caption': caption} if kind == 'files' \
+    else {'as': who, 'text': ' '.join(rest)}
+item['at'] = time.time()
+if dest.endswith('.jsonl'):   # hq ask --wait reads it line by line
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with open(dest, 'a') as f:
+        f.write(json.dumps(item, ensure_ascii=False) + '\n')
+else:                         # the bridge's outbox for that thread: whole files only
+    os.makedirs(dest, exist_ok=True)
+    name = os.path.join(dest, f'{time.time_ns()}.json')
+    with open(name + '.tmp', 'w') as f:
+        json.dump(item, f)
+    os.rename(name + '.tmp', name)
+PY
+      echo "sent to $to as $as"; exit 0 ;;
+    dm) unset HQ_DISCORD_WEBHOOK_URL HQ_DISCORD_THREAD_ID HQ_BRIDGE_OUTBOX ;;
+    here) echo "hq-send: reply=here means answer in the terminal, not with hq-send" >&2; exit 2 ;;
+    *) echo "hq-send: unknown target $to (ask:<id>, bridge:<box>, dm)" >&2; exit 2 ;;
+  esac
+fi
 
 if [[ -n ${HQ_DISCORD_WEBHOOK_URL:-} && -n ${HQ_DISCORD_THREAD_ID:-} ]]; then
   url="$HQ_DISCORD_WEBHOOK_URL?wait=true&thread_id=$HQ_DISCORD_THREAD_ID"
