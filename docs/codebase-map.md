@@ -32,7 +32,7 @@ hq/agents/                        the agents folder, $HQ_AGENTS: your private re
   .gitignore                        ignores everything else (kernel/lib/dot-hq.gitignore): from here down, this Mac only
   secrets/                          auth.json (grants and profiles, hq-auth), auth.log, env (bridge, Telegram, tokens);
                                     agents' file tools are denied it (bin/hq)
-  settings.json                     hq's own settings for this Mac, not secret (lib/hq_settings.py): permission_mode
+  settings.json                     hq's own settings for this Mac, not secret (lib/hq_settings.py): permission_mode, agents
   ask.json  remotes.json            hq ask conversations → sessions; other machines (hq-remote)
   cost.db                           the cost ledger (hq-cost)
   bridge/  sched/                   Discord thread → session map, attachments; last tick and runs per job
@@ -94,7 +94,7 @@ Paths in this table are inside `kernel/`, except `install.sh` and `.claude-plugi
 | `bin/hq-doctor` | python | Read-only checks with a fix for each: folders and links, tools, the state, agents and role repos (uncommitted, unpushed, no backup), agent checks, grants, plugin version, each `dev.hq.*` job (loaded, running, stuck in hq-uv = lost Full Disk Access) | you |
 | `lib/dot-hq.gitignore`, `lib/agents.gitignore`, `lib/user.md`, `lib/starters.json` | text | What `hq init` puts in a new ~/.hq and agents folder; the starter agents it offers (link null until published) | `hq-init` |
 | `lib/hq_paths.py` | python | The resolver: HQ_HOME, state, agents (address and `_REAL`), machine, logs, caches; `--sh` / `--json` | every tool, the adapter |
-| `lib/hq_settings.py` | python | hq's own settings (hq-wide, not secret): this Mac's `~/.hq/settings.json` over the defaults; today `permission_mode` (default `auto`), the mode a run starts in when neither the caller nor the agent sets one | `bin/hq`, `hq-doctor` |
+| `lib/hq_settings.py` | python | hq's own settings (hq-wide, not secret): this Mac's `~/.hq/settings.json` over the defaults; today `permission_mode` (default `auto`), the mode a run starts in when neither the caller nor the agent sets one, and `agents.<name>.permission_mode`, this Mac's choice over an agent's own (suggested) mode | `bin/hq`, `hq-doctor`, `hq-pkg` (install asks) |
 | `adapters/claude-code/hooks/hooks.json` | JSON | Loads `register.tsx` as the plugin's hooks module | Claude Code |
 | `adapters/claude-code/hooks/register.tsx` | TS | The Claude Code plugin: registers each agent as `hq:<name>` (pinned package, frontmatter `model`), puts project + memory in front of each spawn, applies `effort` per request, nudges for the session file, `/hq` and `mcp__hq__invoke` | Claude Code, every session |
 | `adapters/claude-code/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | JSON | Plugin manifest (option `hq_path`) and this repo as its marketplace | `install.sh` |

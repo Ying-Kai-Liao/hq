@@ -75,6 +75,7 @@ HQ = Path(os.environ.get('HQ_ROOT') or os.path.dirname(os.path.dirname(
     os.path.normpath(os.path.join(os.environ.get('PWD') or os.getcwd(), sys.argv[0])))))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
 from hq_paths import paths  # noqa: E402  the one place that knows where hq's folders are
+import hq_settings  # noqa: E402
 # The state folder and the agents folder, <home>/state and <home>/agents (lib/hq_paths.py). Each agent's role/ is a git
 # checkout (or a symlink into one, for an agent that lives in a folder of a bigger repo).
 STATE_ROOT, AGENTS = paths()['HQ_STATE'], paths()['HQ_AGENTS']
@@ -647,7 +648,7 @@ def review(home):
         settings = {}
     perms = settings.get('permissions', {})
     if perms.get('defaultMode'):
-        lines.append(f'  permission mode: {perms["defaultMode"]}'
+        lines.append(f'  suggested permission mode: {perms["defaultMode"]}'
                      + ('  ← runs every tool without asking' if perms['defaultMode'] == 'bypassPermissions' else ''))
     allow = perms.get('allow', [])
     if allow:
@@ -686,6 +687,30 @@ def review(home):
         lines.append(f'  asks for services: {", ".join(svc)}' + (f' (it defines {", ".join(own)})' if own else '')
                      + ': nothing is shared until you grant it')
     return '\n'.join(lines)
+
+
+def choose_mode(name, home):
+    """Someone's agent only suggests its permission mode (settings.json defaultMode): the mode it starts in on this Mac
+    is the installer's, kept in hq's settings so an update of theirs can't change it. bypassPermissions needs a yes."""
+    try:
+        mode = json.loads((home / 'settings.json').read_text()).get('permissions', {}).get('defaultMode')
+    except (OSError, ValueError):
+        mode = None
+    if not mode:
+        return
+    yours = hq_settings.get('permission_mode')
+    keep = mode != 'bypassPermissions'
+    if mode != yours and sys.stdin.isatty():
+        answer = input(f'  its author suggests permission mode {mode}; yours is {yours}. Start it in {mode}? '
+                       + ('[Y/n] ' if keep else '[y/N] ')).strip().lower()
+        keep = answer.startswith('y') if answer else keep
+    chosen = mode if keep else yours
+    try:
+        hq_settings.choose(name, 'permission_mode', chosen)
+    except (OSError, ValueError) as e:
+        print(f'hq-pkg: {name}: mode not saved ({e}): it starts in {mode}', file=sys.stderr)
+        return
+    print(f'  {name} starts in {chosen} (agents.{name}.permission_mode in {hq_settings.FILE})')
 
 
 def cmd_install(link, name=None, ask=False):
@@ -728,6 +753,7 @@ def cmd_install(link, name=None, ask=False):
                 state.rmdir()
             print(f'{name}: not installed')
             return
+        choose_mode(name, home)
     for d in ('memory/projects', 'memory/sessions'):
         (state / d).mkdir(parents=True, exist_ok=True)
     try:

@@ -120,6 +120,9 @@ def repos_and_agents():
     mode = own.get('permission_mode')
     note(f'permission mode: {mode or hq_settings.DEFAULTS["permission_mode"]} '
          f'({hq_settings.FILE if mode else "hq default"}) when neither the caller nor the agent sets one')
+    for name, chosen in sorted(own.get('agents', {}).items()):
+        if chosen.get('permission_mode'):
+            note(f'  {name}: {chosen["permission_mode"]}, your choice over its own settings')
     listed = json.loads(run(str(HQ / 'bin' / 'hq-pkg'), 'list', '--json').stdout or '{}')
     if not listed:
         warn('no agents: hq install <owner>/<repo>, or hq new <name> "<what it does>"')
