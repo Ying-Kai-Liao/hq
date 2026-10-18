@@ -46,7 +46,7 @@ const HELP: [(&str, &str, &str); 60] = [
     ("TYPE", "alt b / f", "word left / right"),
     ("TYPE", "^w ^u", "delete word / line"),
     ("TYPE", "@name", "group: ask just that bot"),
-    ("TYPE", "/", "commands: /fast, /new, skills"),
+    ("TYPE", "/", "commands: /fast, skills"),
     ("BOTS", "n", "new bot"),
     ("BOTS", "m", "new group chat"),
     ("BOTS", "e", "settings, or edit a group"),
