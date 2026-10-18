@@ -1,23 +1,42 @@
 import { useSyncExternalStore } from 'react'
 
-const darkQuery = window.matchMedia('(prefers-color-scheme: dark)')
-const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
-
-const subscribe = (query: MediaQueryList) => (cb: () => void) => {
-  query.addEventListener('change', cb)
-  return () => query.removeEventListener('change', cb)
+/**
+ * A media query read from one MediaQueryList and listened to on another: Chromium shares a list's
+ * `matches` with its change detection, so a read while the window is hidden can swallow the `change`
+ * and memoized canvases (avatars) keep the old appearance's ink. Showing or focusing the window
+ * checks again, so a missed change never outlives the next look at the window.
+ */
+function mediaQuery(media: string) {
+  const reads = window.matchMedia(media)
+  const events = window.matchMedia(media)
+  return {
+    get: () => reads.matches,
+    subscribe: (cb: () => void) => {
+      events.addEventListener('change', cb)
+      document.addEventListener('visibilitychange', cb)
+      window.addEventListener('focus', cb)
+      return () => {
+        events.removeEventListener('change', cb)
+        document.removeEventListener('visibilitychange', cb)
+        window.removeEventListener('focus', cb)
+      }
+    },
+  }
 }
 
+const darkQuery = mediaQuery('(prefers-color-scheme: dark)')
+const motionQuery = mediaQuery('(prefers-reduced-motion: reduce)')
+
 export function useDark() {
-  return useSyncExternalStore(subscribe(darkQuery), () => darkQuery.matches)
+  return useSyncExternalStore(darkQuery.subscribe, darkQuery.get)
 }
 
 export function useReduceMotion() {
-  return useSyncExternalStore(subscribe(motionQuery), () => motionQuery.matches)
+  return useSyncExternalStore(motionQuery.subscribe, motionQuery.get)
 }
 
-export const isDark = () => darkQuery.matches
-export const reduceMotion = () => motionQuery.matches
+export const isDark = darkQuery.get
+export const reduceMotion = motionQuery.get
 
 /** Palette values for drawing code (canvas) that can't read CSS variables. */
 export const palette = (dark: boolean) => ({

@@ -16,7 +16,13 @@ extension BotStore {
 
     func setComposerDraft(_ text: String, for botId: String, thread: String? = nil) {
         guard !retired else { return }
-        composerDrafts[composerKey(botId, thread)] = text.isEmpty ? nil : text
+        let key = composerKey(botId, thread)
+        if text.isEmpty {
+            composerPasted[key] = nil
+        } else if let pasted = pastedInsertion(from: composerDrafts[key] ?? "", to: text) {
+            composerPasted[key, default: []].append(pasted)
+        }
+        composerDrafts[key] = text.isEmpty ? nil : text
         persistComposerDrafts()
     }
 
@@ -37,7 +43,8 @@ extension BotStore {
     func sendComposerDraft(to botId: String, thread: String? = nil, files: [OutgoingFile] = []) -> Bool {
         let text = composerDraft(for: botId, thread: thread)
         guard !retired, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty else { return false }
-        send(text, to: botId, thread: thread, files: files)
+        let pasted = composerPasted[composerKey(botId, thread)] ?? []
+        send(text, to: botId, thread: thread, nonce: UUID().uuidString, files: files, pasted: pasted)
         setComposerDraft("", for: botId, thread: thread)
         return true
     }
@@ -47,7 +54,8 @@ extension BotStore {
         send(text, to: botId, thread: thread, nonce: UUID().uuidString, files: files)
     }
 
-    private func send(_ text: String, to botId: String, thread: String?, nonce: String, files: [OutgoingFile] = []) {
+    private func send(_ text: String, to botId: String, thread: String?, nonce: String, files: [OutgoingFile] = [],
+                      pasted: [String] = []) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !files.isEmpty, !retired else { return }
         var data = EntryData(text: trimmed, status: "sending", clientNonce: nonce)
@@ -67,10 +75,10 @@ extension BotStore {
             enqueue(remote, text: trimmed, botId: botId, thread: thread, nonce: nonce)
             return
         }
-        deliver(trimmed, botId: botId, thread: thread, nonce: nonce)
+        deliver(trimmed, botId: botId, thread: thread, nonce: nonce, pasted: pasted)
     }
 
-    private func deliver(_ text: String, botId: String, thread: String?, nonce: String) {
+    private func deliver(_ text: String, botId: String, thread: String?, nonce: String, pasted: [String] = []) {
         Task {
             do {
                 // Safe to repeat: the computer skips a nonce it already has.
@@ -86,7 +94,8 @@ extension BotStore {
                             ids?.append(id)
                         }
                     }
-                    return try await client.send(botId: botId, text: text, clientNonce: nonce, threadId: thread, attachments: ids)
+                    return try await client.send(botId: botId, text: text, clientNonce: nonce, threadId: thread, attachments: ids,
+                                                 pasted: pasted)
                 }
                 outgoingFiles[nonce] = nil
                 upsert(e)

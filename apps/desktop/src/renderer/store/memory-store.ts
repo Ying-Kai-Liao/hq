@@ -1,100 +1,138 @@
 import type { HostClient } from '../client/host-client'
 import { Observable } from '../lib/observable'
 
-export interface MemoryFact {
-  id: string
-  title: string
-  content: string
-  createdAt: number
-  kind: string
-  memoryType: string
-  scope: string
-  topicKey: string | null
+/** One memory entry (the host's `codync_mem::store::Entry`). */
+export interface MemoryEntry {
+  id: number
+  /** The bot whose own layer holds it; null for what all bots share. */
+  bot: string | null
+  state: 'active' | 'archived' | string
+  text: string
+  /** user · bot · dream · imported */
+  author: string
+  authorBot: string | null
   pinned: boolean
-  reviewAfter: string | null
-  revisionCount: number
-  source: string | null
+  evidence: string[]
+  createdAt: number
+  updatedAt: number
 }
 
-export interface MemoryDraft {
-  id?: string
-  title: string
-  content: string
-  scope: string
-  memoryType: string
-  topicKey: string
+export interface MemoryLayer { entries: MemoryEntry[]; used: number; cap: number }
+
+/** One dreaming run: what it added and archived; it can be undone. */
+export interface DreamRun {
+  id: number
+  at: number
+  undone: boolean
+  added: { id: number; text: string }[]
+  archived: { id: number; text: string }[]
+  /** Long-form files it added a line to. */
+  files?: { name: string; shared: boolean; version: number }[]
 }
 
-interface Listing { facts: MemoryFact[]; total: number; nextOffset: number | null }
-export interface MemoryDetail {
-  fact: MemoryFact
-  history: { result: string; history?: { version: number; title: string; content: string; created_at: string }[]; history_cursor?: number }
-  timeline: { result: string }
+/** A long-form memory file as the host last recorded it (`codync_mem::files::File`). */
+export interface MemoryFile {
+  bot: string | null
+  name: string
+  /** SHA-256 of what it holds; a save is made over it. */
+  hash: string
+  description: string | null
+  tokens: number
+  deleted: boolean
+  updatedAt: number
 }
 
-/** Owns requests, errors and stale-response protection for one bot's memory. */
+export interface MemoryFiles {
+  yours: { files: MemoryFile[]; folder: string }
+  bot: { files: MemoryFile[]; folder: string }
+  /** Tokens one file may hold, and files one folder may hold. */
+  cap: number
+  folderCap: number
+}
+
+export interface MemoryFileVersion {
+  id: number
+  /** null: the file was deleted. */
+  content: string | null
+  /** user · bot · dream · computer */
+  author: string
+  authorBot: string | null
+  /** edit · delete · restore · undo · dream */
+  cause: string
+  at: number
+}
+
+/** A file as it is on disk now, with its recent versions. */
+export interface MemoryFileDetail {
+  file: string
+  shared: boolean
+  content: string | null
+  hash: string | null
+  path: string
+  versions: MemoryFileVersion[]
+}
+
+export interface MemoryView {
+  /** Whether this bot uses what all bots share. */
+  shared: boolean
+  yours: MemoryLayer
+  bot: MemoryLayer
+  dreams: DreamRun[]
+  /** Claude Code's own notes for the bot's project folder, read-only. */
+  projectMemory: { path: string; text: string } | null
+  memoryRev: number
+  /** The long-form files of both layers. */
+  files?: MemoryFiles
+}
+
+/** One bot's memory: fetches it, and changes it through the host. */
 export class MemoryStore extends Observable {
-  facts: MemoryFact[] = []
-  query = ''
-  filter = 'all'
-  total = 0
-  nextOffset: number | null = null
-  loaded = false
+  view: MemoryView | null = null
   busy = false
   error: string | null = null
-  detail: MemoryDetail | null = null
-  backup = ''
   private request = 0
-  private detailRequest = 0
-  private searchTimer?: ReturnType<typeof setTimeout>
 
   constructor(readonly botId: string, private readonly client: () => Promise<HostClient>) { super() }
 
-  async load(more = false) {
+  async load() {
     const request = ++this.request
-    const offset = more ? this.nextOffset : 0
-    if (offset === null) return
-    this.error = null
-    this.changed()
     try {
-      const listing = await (await this.client()).call<Listing>('memory', {
-        botId: this.botId, query: this.query, filter: this.filter, offset,
-      }, 240_000)
-      if (request !== this.request) return
-      this.facts = more ? [...this.facts, ...listing.facts] : listing.facts
-      this.total = listing.total
-      this.nextOffset = listing.nextOffset
-      this.loaded = true
+      const view = await (await this.client()).call<MemoryView>('memory', { botId: this.botId })
+      if (request === this.request) {
+        this.view = view
+        this.error = null
+      }
     } catch (error) {
       if (request === this.request) this.error = message(error)
     }
     this.changed()
   }
 
-  search(query: string, filter = this.filter) {
-    this.query = query
-    this.filter = filter
-    ++this.request
-    // The search field shows `query`: re-render now, not when the debounced load lands.
-    this.changed()
-    clearTimeout(this.searchTimer)
-    this.searchTimer = setTimeout(() => { void this.load() }, 250)
+  /** A long-form file as it is now, with its versions. */
+  async file(name: string, shared: boolean): Promise<MemoryFileDetail | null> {
+    try {
+      return await (await this.client()).call<MemoryFileDetail>('memoryFile', { botId: this.botId, file: name, shared })
+    } catch (error) {
+      this.error = message(error)
+      this.changed()
+      return null
+    }
   }
 
+  /** Saves (`content`), deletes (neither) or brings back `version` of a file, over what was loaded (`base`). */
+  changeFile(name: string, shared: boolean, base: string | null, change: { content?: string; version?: number } = {}) {
+    const method = change.version !== undefined ? 'restoreMemoryFile' : change.content !== undefined ? 'saveMemoryFile' : 'deleteMemoryFile'
+    return this.mutate(method, { file: name, shared, base, ...change })
+  }
+
+  /** A memory method for this bot; reloads after it. */
   async mutate(method: string, body: object = {}) {
-    if (this.busy) return false
-    return this.perform(async () => {
-      await (await this.client()).call(method, { botId: this.botId, ...body }, 240_000)
-    })
-  }
-
-  private async perform(work: () => Promise<void>) {
     if (this.busy) return false
     this.busy = true
     this.error = null
     this.changed()
     try {
-      await work()
+      await (await this.client()).call(method, { botId: this.botId, ...body })
       await this.load()
       return true
     } catch (error) {
@@ -105,47 +143,28 @@ export class MemoryStore extends Observable {
       this.changed()
     }
   }
+}
 
-  async inspect(fact: MemoryFact, cursor?: number) {
-    const request = ++this.detailRequest
-    this.error = null
-    if (!cursor) this.detail = null
-    this.changed()
-    try {
-      const detail = await (await this.client()).call<MemoryDetail>('memoryDetail', {
-        botId: this.botId, id: fact.id, ...(cursor ? { historyCursor: cursor } : {}),
-      }, 240_000)
-      if (request === this.detailRequest) this.detail = detail
-    } catch (error) { if (request === this.detailRequest) this.error = message(error) }
-    this.changed()
+/** Who wrote an entry, for its detail line. */
+export function authorLabel(entry: MemoryEntry, botName: (id: string | null) => string) {
+  switch (entry.author) {
+    case 'user': return 'You wrote it'
+    case 'bot': return `${botName(entry.authorBot)} remembered it`
+    case 'dream': return 'Dreaming'
+    default: return 'Moved from the old memory'
   }
+}
 
-  async export() {
-    this.error = null
-    this.backup = ''
-    this.changed()
-    try {
-      const client = await this.client()
-      const result = await client.call<{ json?: string; uploadId?: string }>('exportMemory', { botId: this.botId }, 240_000)
-      this.backup = result.uploadId ? new TextDecoder('utf-8', { fatal: true }).decode(await client.readUpload(this.botId, result.uploadId)) : result.json ?? ''
-    } catch (error) { this.error = message(error) }
-    this.changed()
-  }
-
-  async import(text: string) {
-    try { JSON.parse(text) }
-    catch { this.error = 'Enter a valid Engram JSON backup.'; this.changed(); return false }
-    return this.perform(async () => {
-      const data = new TextEncoder().encode(text)
-      const client = await this.client()
-      if (data.length <= 384 * 1024) {
-        await client.call('importMemory', { botId: this.botId, json: text }, 240_000)
-      } else {
-        const uploadId = crypto.randomUUID()
-        await client.upload(this.botId, uploadId, 'engram-backup.json', data)
-        await client.call('importMemory', { botId: this.botId, uploadId }, 240_000)
-      }
-    })
+/** Who made a file's version and why, for its row. */
+export function versionLabel(version: MemoryFileVersion, botName: (id: string | null) => string) {
+  const by = version.author === 'user' ? 'You'
+    : version.author === 'bot' ? botName(version.authorBot)
+    : version.author === 'dream' ? 'Dreaming' : 'This computer'
+  switch (version.cause) {
+    case 'delete': return `${by} deleted it`
+    case 'restore': return `${by} brought back a version`
+    case 'undo': return `${by} undid a change`
+    default: return `${by} changed it`
   }
 }
 

@@ -5,7 +5,8 @@ import SwiftUI
 struct RoutinesView: View {
     let botId: String
     var initialId: String?
-    var close: (() -> Void)?
+    /// Goes back to the chat once a request to the bot is in the composer.
+    var leave: (() -> Void)?
     @Environment(BotStore.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var routines: [Routine] = []
@@ -18,17 +19,16 @@ struct RoutinesView: View {
     @State private var loadError: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: close == nil ? 10 : 16) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Routines")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Palette.text)
                     .padding(.leading, 2)
                 Spacer(minLength: 0)
                 askInChat
                 IconButton("Set up a routine", systemImage: "plus") { open(nil) }
                     .disabled(model.isOffline)
-                if let close { IconButton("Close routines", systemImage: "xmark", action: close) }
             }
             if let loadError { Text(loadError).font(.caption).foregroundStyle(Palette.danger) }
             if let error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
@@ -70,18 +70,13 @@ struct RoutinesView: View {
                     .lineSpacing(3)
                     .foregroundStyle(Palette.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(14)
-                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .outlinedCard(vertical: 14)
             } else {
-                VStack(spacing: 0) {
+                VStack(spacing: 8) {
                     ForEach(routines) { routine in
-                        if routine.id != routines.first?.id { Hairline() }
-                        row(routine)
+                        row(routine).outlinedCard(vertical: 0)
                     }
                 }
-                .padding(.horizontal, 14)
-                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
         }
     }
@@ -142,7 +137,7 @@ struct RoutinesView: View {
     private func edit(_ text: String) {
         animate {
             model.routineDrafts[botId] = text
-            close?()
+            leave?()
         }
     }
     private func action(_ method: String, _ routine: Routine, enabled: Bool? = nil) {

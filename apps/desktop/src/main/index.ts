@@ -153,6 +153,12 @@ function registerIPC(tray: Tray) {
   ipcMain.on('app:openExternal', (_e, url: string) => {
     if (/^(https?|mailto|x-apple\.systempreferences):/.test(url)) void shell.openExternal(url)
   })
+  ipcMain.on('app:openMemoryFile', (_e, path: string) => {
+    // A note's own name in a memory folder, nothing else: the renderer can't open arbitrary files through this.
+    if (/[\\/](shared-memory|bot-memory)[\\/][a-z0-9-]+\.md$/.test(path) && !/(^|[\\/])\.\.([\\/]|$)/.test(path)) {
+      void shell.openPath(path)
+    }
+  })
   ipcMain.on('app:openSettings', (_e, url: string) => {
     if (url.startsWith('x-apple.systempreferences:')) void shell.openExternal(url)
   })

@@ -117,6 +117,7 @@ export function ChatWindow() {
           }}
         />
       )}
+      {onboarded && accessSetup !== null && showsChat ? null : <div className="window-drag drag" />}
       {onboarded && accessSetup !== null ? <StarPrompt /> : null}
       <Sheet open={showAccess} onClose={() => setShowAccess(false)} width={660} height={Math.min(820, window.innerHeight - 80)}>
         <ModalHeader title="Computer access" />

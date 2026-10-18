@@ -1,46 +1,47 @@
 import CodyncKit
 import SwiftUI
 
+/// Writes one memory: a new one, or a change to an entry.
 struct MemoryEditorView: View {
     let memory: MemoryStore
-    @State var draft: MemoryDraft
+    let target: MemoryEditTarget
+    @State private var text: String
     @Environment(\.dismissModal) private var dismiss
+
+    init(memory: MemoryStore, target: MemoryEditTarget) {
+        self.memory = memory
+        self.target = target
+        _text = State(initialValue: target.text)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            ModalHeader(draft.id == nil ? "Add memory" : "Edit memory") { EmptyView() }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    field("Title", text: $draft.title)
-                    Text("Memory").font(.caption).foregroundStyle(Palette.secondary)
-                    TextEditor(text: $draft.content).frame(minHeight: 160).scrollContentBackground(.hidden)
-                        .padding(10).background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
-                    HStack(spacing: 14) {
-                        ForEach(["project", "personal", "global"], id: \.self) { scope in
-                            Button(scope == "personal" ? "About you" : scope == "global" ? "General" : "Work") {
-                                withAnimation(Motion.layout) { draft.scope = scope }
-                            }
-                            .fontWeight(draft.scope == scope ? .semibold : .regular)
-                        }
-                    }.buttonStyle(.plain)
-                    field("Category", text: $draft.memoryType)
-                    field("Topic (optional)", text: $draft.topicKey)
-                    if let error = memory.error { Text(error).foregroundStyle(Palette.danger) }
-                    Button(memory.busy ? "Saving…" : "Save") {
-                        Task { if await memory.save(draft) { dismiss() } }
+            ModalHeader(target.entry != nil ? "Edit memory" : target.shared ? "Add to what your bots share" : "Add memory") { EmptyView() }
+            VStack(alignment: .leading, spacing: 16) {
+                TextField("One short fact", text: $text, axis: .vertical)
+                    .lineLimit(2...6)
+                    .textFieldStyle(.plain)
+                    .padding(12)
+                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
+                if let error = memory.error { Text(error).foregroundStyle(Palette.danger) }
+                Button(memory.busy ? "Saving…" : "Save") {
+                    Task {
+                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if await memory.mutate("saveMemory", id: target.entry, shared: target.shared, text: trimmed) { dismiss() }
                     }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(memory.busy || draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }.padding(20)
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(memory.busy || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+            .padding(20)
         }
     }
+}
 
-    private func field(_ title: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.caption).foregroundStyle(Palette.secondary)
-            TextField(title, text: text).textFieldStyle(.plain).plainTextInput()
-                .padding(12).background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
-        }
-    }
+/// What the editor opens on: an entry (`entry`), or a new one in a layer.
+struct MemoryEditTarget: Identifiable {
+    let id = UUID()
+    let entry: Int64?
+    let shared: Bool
+    let text: String
 }

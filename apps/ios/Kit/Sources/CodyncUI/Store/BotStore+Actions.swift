@@ -175,6 +175,64 @@ extension BotStore {
         perform(replay: true) { _ = try await $0.updateBot(d) }
     }
 
+    /// Whether the bot may see and use the computer's screen.
+    public func setComputer(_ bot: Bot, _ computer: Bool) {
+        var d = BotDraft(bot)
+        d.computer = computer
+        bots[bot.id]?.computer = computer
+        perform(replay: true) { _ = try await $0.updateBot(d) }
+    }
+
+    /// Whether the bot uses the memory all bots share.
+    public func setSharedMemory(_ bot: Bot, _ shared: Bool) {
+        var d = BotDraft(bot)
+        d.sharedMemory = shared
+        bots[bot.id]?.sharedMemory = shared
+        perform(replay: true) { _ = try await $0.updateBot(d) }
+    }
+
+    public enum MemoryAnswer: Sendable { case approve, decline, undo }
+
+    /// Approves or declines a memory card, or undoes a "Remembered" line; the card's update follows on the stream.
+    public func answerMemory(_ entry: Entry, _ answer: MemoryAnswer) {
+        guard answering[entry.id] == nil else { return }
+        Motion.animate { answering[entry.id] = "memory" }
+        Task {
+            do {
+                let accept: Bool? = switch answer { case .approve: true; case .decline: false; case .undo: nil }
+                try await withLink(replay: true) { try await $0.answerMemory(entryId: entry.id, accept: accept) }
+            } catch {
+                lastError = error.localizedDescription
+            }
+            Motion.animate { answering[entry.id] = nil }
+        }
+    }
+
+    /// Saves the user's version of a handoff that hasn't been sent. Whether it did.
+    public func editHandoff(_ entry: Entry, text: String) async -> Bool {
+        do {
+            try await withLink(replay: true) { try await $0.editHandoff(entryId: entry.id, text: text) }
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Carries on with the bot's current conversation instead of the handoff.
+    public func keepConversation(_ entry: Entry) {
+        guard answering[entry.id] == nil else { return }
+        Motion.animate { answering[entry.id] = "handoff" }
+        Task {
+            do {
+                try await withLink(replay: true) { try await $0.keepConversation(entryId: entry.id) }
+            } catch {
+                lastError = error.localizedDescription
+            }
+            Motion.animate { answering[entry.id] = nil }
+        }
+    }
+
     public func setFastMode(_ bot: Bot, _ fastMode: Bool) {
         var d = BotDraft(bot)
         d.fastMode = fastMode

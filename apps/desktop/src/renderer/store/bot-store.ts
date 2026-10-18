@@ -39,7 +39,7 @@ export class BotStore extends BotSync {
 
   private outgoingFiles = new Map<string, OutgoingFile[]>()
 
-  send(text: string, botId: string, thread: string | null = null, files: OutgoingFile[] = [], nonce: string = crypto.randomUUID()) {
+  send(text: string, botId: string, thread: string | null = null, files: OutgoingFile[] = [], nonce: string = crypto.randomUUID(), pasted: string[] = []) {
     const trimmed = text.trim()
     if ((!trimmed && !files.length) || this.retired) return
     const data: Entry['data'] = { text: trimmed, status: 'sending', clientNonce: nonce }
@@ -67,7 +67,7 @@ export class BotStore extends BotSync {
               ids.push(id)
             }
           }
-          return client.send(botId, trimmed, nonce, thread, ids)
+          return client.send(botId, trimmed, nonce, thread, ids, pasted)
         }, true)
         this.outgoingFiles.delete(nonce)
         this.upsert(e)
@@ -199,6 +199,52 @@ export class BotStore extends BotSync {
     })()
   }
 
+  /** Approves or declines a memory card, or undoes a "Remembered" line; the card's update follows on the stream. */
+  answerMemory(entry: Entry, answer: 'approve' | 'decline' | 'undo') {
+    if (this.answering.has(entry.id)) return
+    this.answering.set(entry.id, answer)
+    this.changed()
+    void (async () => {
+      try {
+        await this.withLink((c) => answer === 'undo'
+          ? c.call('undoMemory', { entryId: entry.id })
+          : c.call('answerMemory', { entryId: entry.id, accept: answer === 'approve' }), true)
+      } catch (error) {
+        this.lastError = error instanceof Error ? error.message : String(error)
+      }
+      this.answering.delete(entry.id)
+      this.changed()
+    })()
+  }
+
+  /** Saves the user's version of a handoff that hasn't been sent; whether it did. */
+  async editHandoff(entry: Entry, text: string) {
+    try {
+      await this.withLink((c) => c.call('editHandoff', { entryId: entry.id, text }), true)
+      return true
+    } catch (error) {
+      this.lastError = error instanceof Error ? error.message : String(error)
+      this.changed()
+      return false
+    }
+  }
+
+  /** Carries on with the bot's current conversation instead of the handoff. */
+  keepConversation(entry: Entry) {
+    if (this.answering.has(entry.id)) return
+    this.answering.set(entry.id, 'handoff')
+    this.changed()
+    void (async () => {
+      try {
+        await this.withLink((c) => c.call('keepConversation', { entryId: entry.id }), true)
+      } catch (error) {
+        this.lastError = error instanceof Error ? error.message : String(error)
+      }
+      this.answering.delete(entry.id)
+      this.changed()
+    })()
+  }
+
   /** The roster's "Mark as read": the chat and all its threads. */
   markAllRead(botId: string) {
     const bot = this.bots.get(botId)
@@ -217,6 +263,16 @@ export class BotStore extends BotSync {
 
   setPinned(bot: Bot, pinned: boolean) {
     this.patchBot(bot, { pinned })
+  }
+
+  /** Whether the bot may see and use the computer's screen. */
+  setComputer(bot: Bot, computer: boolean) {
+    this.patchBot(bot, { computer })
+  }
+
+  /** Whether the bot uses the memory all bots share. */
+  setSharedMemory(bot: Bot, sharedMemory: boolean) {
+    this.patchBot(bot, { sharedMemory })
   }
 
   setHidden(bot: Bot, hidden: boolean) {

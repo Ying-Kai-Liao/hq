@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fastModeRefusal, fastModeShown } from '@shared/fast-mode'
 import { draftOf, type BotDraft, type DirListing } from '@shared/models'
+import { AgentIcon } from '../../components/AgentIcon'
 import { CharacterAvatar } from '../../components/Avatar'
 import { CardSection, ChoicePicker, DropdownMenu, IconButton, Pill, SearchField, Spinner, ValueRow } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
@@ -13,7 +14,6 @@ import { AgentModelPicker } from './AgentModelPicker'
 import { errorText, fillDefaults, isValid, lastPathComponent, normalized, usePlugins, type Plugins } from './drafts'
 import { FormSheet } from '../marketplace/pieces'
 import { SkillSheet, type SkillRef } from '../marketplace/SkillSheet'
-import { MemoryCard } from './MemoryView'
 import { AnchoredPanel, AutoTextArea, Field, SwitchRow } from './parts'
 import './bots.css'
 
@@ -60,8 +60,14 @@ export function BotEditorView({ draft: initial }: { draft: BotDraft }) {
   )
 }
 
+/**
+ * Which settings a form shows: all of them (a new bot, the editor sheet), what changes often
+ * (instructions, model, fast mode: the inspector's Details tab) or the rest (its Settings tab).
+ */
+export type FormPart = 'all' | 'often' | 'rarely'
+
 /** The desktop inspector next to a conversation: the same form, saved as you edit. */
-export function BotSettingsPanel({ botId }: { botId: string }) {
+export function BotSettingsPanel({ botId, part }: { botId: string; part: FormPart }) {
   const store = useStore()
   const plugins = usePlugins(store)
   const [draft, setDraft] = useState<BotDraft | null>(null)
@@ -87,15 +93,16 @@ export function BotSettingsPanel({ botId }: { botId: string }) {
     return () => clearTimeout(timer)
   }, [draft])
 
-  return draft ? <BotSettingsForm draft={draft} onChange={change} error={error} plugins={plugins} /> : null
+  return draft ? <BotSettingsForm draft={draft} onChange={change} error={error} plugins={plugins} part={part} /> : null
 }
 
-/** Bot settings: a big avatar (Grok Bot's), then sections in the Settings style (`CardSection`). */
-function BotSettingsForm({ draft, onChange, error, plugins }: {
+/** Bot settings, in sections in the Settings style (`CardSection`). */
+function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
   draft: BotDraft
   onChange: (update: (d: BotDraft) => BotDraft) => void
   error: string | null
   plugins: Plugins | null
+  part?: FormPart
 }) {
   const store = useStore()
   const [pickingAvatar, setPickingAvatar] = useState(false)
@@ -114,68 +121,97 @@ function BotSettingsForm({ draft, onChange, error, plugins }: {
   const connectors = plugins?.connectors ?? []
   const skills = plugins?.skills ?? []
 
+  const instructions = (
+    <Field label="Standing instructions" detail="Rules that always apply. Put task-specific requests in the chat instead.">
+      <AutoTextArea className="field-box" value={draft.description} placeholder="e.g. Reviews PRs. Never pushes without asking." minRows={3} maxRows={8} onChange={(v) => set('description', v)} />
+    </Field>
+  )
+  const model = [
+    <AgentModelPicker key="model" backend={draft.backend} models={models} selection={draft.model} onChange={setModel} options={draft.modelOptions ?? {}} onOptionsChange={setModelOptions} />,
+    (draft.backend !== 'custom' && models.catalog?.fastMode) || draft.fastMode || (saved?.backend === draft.backend && fastModeShown(saved)) ? (
+      // Shown while the agent offers it (its model list, or the bot's own sessions), or while it's on.
+      <div key="fast" className="fade-in">
+        <SwitchRow
+          title="Fast mode"
+          detail={(saved && fastModeRefusal(saved)) ?? 'Faster replies for more usage, on models that offer it.'}
+          on={draft.fastMode ?? false}
+          onChange={(on) => set('fastMode', on)}
+        />
+      </div>
+    ) : null,
+  ]
+
+  const agent = (
+    <div key="agent" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <ValueRow label="Agent">
+        <ChoicePicker
+          selection={draft.backend}
+          options={[
+            ...backends.map((b) => ({ id: b.id, label: b.available ? b.name : `${b.name} (not installed)`, leading: <AgentIcon registry={b.registry ?? b.id} size={14} /> })),
+            { id: 'custom', label: 'Custom command', leading: <AgentIcon registry="custom" size={14} /> },
+          ]}
+          onChange={(id) => set('backend', id)}
+        />
+      </ValueRow>
+      {backend && !backend.available ? <span style={{ ...font('caption'), color: 'var(--warning)' }}>{backend.installHint}</span> : null}
+      {draft.backend === 'custom' ? (
+        <input
+          className="field-box fade-in"
+          style={font('callout', undefined, 'monospaced')}
+          value={draft.command ?? ''}
+          placeholder="ACP command, e.g. my-agent --acp"
+          spellCheck={false}
+          onChange={(e) => set('command', e.target.value || null)}
+        />
+      ) : null}
+    </div>
+  )
+
+  if (part === 'often') {
+    return (
+      <div className="bot-form">
+        <div className="bot-form-content">
+          <CardSection title="Instructions">{instructions}</CardSection>
+          <CardSection title="Agent">
+            {agent}
+            {model}
+          </CardSection>
+          {error ? <span className="fade-in" style={{ ...font('footnote'), color: 'var(--danger)' }}>{error}</span> : null}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="bot-form">
       <div className="bot-form-content">
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
-          <button ref={avatarRef} className="avatar-button" title="Edit Bot avatar" aria-label="Edit Bot avatar" onClick={() => setPickingAvatar((p) => !p)}>
-            <CharacterAvatar shape={draft.avatarShape} color={draft.avatarColor} size={56} />
-          </button>
-          <AnchoredPanel open={pickingAvatar} onClose={() => setPickingAvatar(false)} anchor={avatarRef}>
-            <div style={{ padding: 14, width: 300 }}>
-              <AvatarPicker shape={draft.avatarShape} color={draft.avatarColor} onShape={(s) => set('avatarShape', s)} onColor={(c) => set('avatarColor', c)} />
-            </div>
-          </AnchoredPanel>
-        </div>
-
         <CardSection title="Profile">
+          <ValueRow label="Avatar">
+            <button ref={avatarRef} className="avatar-button small" title="Edit Bot avatar" aria-label="Edit Bot avatar" onClick={() => setPickingAvatar((p) => !p)}>
+              <CharacterAvatar shape={draft.avatarShape} color={draft.avatarColor} size={24} />
+            </button>
+            <AnchoredPanel open={pickingAvatar} onClose={() => setPickingAvatar(false)} anchor={avatarRef}>
+              <div style={{ padding: 14, width: 300 }}>
+                <AvatarPicker shape={draft.avatarShape} color={draft.avatarColor} onShape={(s) => set('avatarShape', s)} onColor={(c) => set('avatarColor', c)} />
+              </div>
+            </AnchoredPanel>
+          </ValueRow>
           {/* A new bot is named from its first conversations (Grok Bot's flow); rename it any time after. */}
           {draft.id ? (
             <Field label="Name">
               <input className="field-box" value={draft.name} placeholder="Name" onChange={(e) => set('name', e.target.value)} />
             </Field>
           ) : null}
-          <Field label="Standing instructions" detail="Rules that always apply. Put task-specific requests in the chat instead.">
-            <AutoTextArea className="field-box" value={draft.description} placeholder="e.g. Reviews PRs. Never pushes without asking." minRows={3} maxRows={8} onChange={(v) => set('description', v)} />
-          </Field>
+          {part === 'all' ? instructions : null}
         </CardSection>
 
-        <CardSection title="Agent">
+        {/* In the inspector the agent and its model are on the Details tab; what's left is where it works. */}
+        <CardSection title={part === 'all' ? 'Agent' : 'Workspace'}>
           <ValueRow label="Computer">
             <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{store.hostName}</span>
           </ValueRow>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <ValueRow label="Agent">
-              <ChoicePicker
-                selection={draft.backend}
-                options={[...backends.map((b) => ({ id: b.id, label: b.available ? b.name : `${b.name} (not installed)` })), { id: 'custom', label: 'Custom command' }]}
-                onChange={(id) => set('backend', id)}
-              />
-            </ValueRow>
-            {backend && !backend.available ? <span style={{ ...font('caption'), color: 'var(--warning)' }}>{backend.installHint}</span> : null}
-            {draft.backend === 'custom' ? (
-              <input
-                className="field-box fade-in"
-                style={font('callout', undefined, 'monospaced')}
-                value={draft.command ?? ''}
-                placeholder="ACP command, e.g. my-agent --acp"
-                spellCheck={false}
-                onChange={(e) => set('command', e.target.value || null)}
-              />
-            ) : null}
-          </div>
-          <AgentModelPicker backend={draft.backend} models={models} selection={draft.model} onChange={setModel} options={draft.modelOptions ?? {}} onOptionsChange={setModelOptions} />
-          {(draft.backend !== 'custom' && models.catalog?.fastMode) || draft.fastMode || (saved?.backend === draft.backend && fastModeShown(saved)) ? (
-            // Shown while the agent offers it (its model list, or the bot's own sessions), or while it's on.
-            <div className="fade-in">
-              <SwitchRow
-                title="Fast mode"
-                detail={(saved && fastModeRefusal(saved)) ?? 'Faster replies for more usage, on models that offer it.'}
-                on={draft.fastMode ?? false}
-                onChange={(on) => set('fastMode', on)}
-              />
-            </div>
-          ) : null}
+          {part === 'all' ? agent : null}
+          {part === 'all' ? model : null}
           <ValueRow
             label="Workspace"
             detail={
@@ -218,7 +254,7 @@ function BotSettingsForm({ draft, onChange, error, plugins }: {
 
         <CardSection title="Activity">
           <SwitchRow title="Notifications" detail="Get notified when this bot finishes or needs you" on={draft.notify ?? true} onChange={(on) => set('notify', on)} />
-          {store.screen ? (
+          {store.screen && part === 'all' ? (
             <SwitchRow
               title="Use the computer"
               detail={
@@ -251,8 +287,6 @@ function BotSettingsForm({ draft, onChange, error, plugins }: {
           onChange={(ids) => set('skills', ids)}
           onInfo={(s) => setViewingSkill({ id: s.id, name: s.name, description: s.detail })}
         />
-        {draft.id ? <MemoryCard botId={draft.id} /> : null}
-
         {error ? <span className="fade-in" style={{ ...font('footnote'), color: 'var(--danger)' }}>{error}</span> : null}
       </div>
       <FormSheet open={viewingSkill !== null} onClose={() => setViewingSkill(null)}>

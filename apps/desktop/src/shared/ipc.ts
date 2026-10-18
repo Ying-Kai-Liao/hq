@@ -193,6 +193,8 @@ export interface CodyncBridge {
     /** Error tracking: an uncaught error in this window (shared/error-report.ts). */
     reportError(report: ErrorReport): void
     openExternal(url: string): void
+    /** A long-form memory note in the user's editor; only paths inside a memory folder open. */
+    openMemoryFile(path: string): void
     copy(text: string): void
     /** Files picked in the system dialog: name and bytes. */
     pickFiles(): Promise<{ name: string; data: Uint8Array }[]>

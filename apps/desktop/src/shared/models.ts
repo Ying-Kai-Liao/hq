@@ -37,6 +37,10 @@ export interface Bot {
   skills: string[]
   /** The bot can see and operate the computer's desktop. */
   computer: boolean
+  /** Uses the memory all the user's bots share ("About you"). */
+  sharedMemory: boolean
+  /** Moves whenever memory changes, so an open memory screen fetches it again. */
+  memoryRev: number
   autoName: boolean
   createdAt: number
   rev: number
@@ -78,6 +82,8 @@ export function normalizeBot(raw: Partial<Bot> & { id: string }): Bot {
     connectors: raw.connectors ?? [],
     skills: raw.skills ?? [],
     computer: raw.computer ?? false,
+    sharedMemory: raw.sharedMemory ?? raw.managedWorkspace ?? false,
+    memoryRev: raw.memoryRev ?? 0,
     autoName: raw.autoName ?? false,
     createdAt,
     rev: raw.rev ?? 0,
@@ -154,14 +160,66 @@ export interface BotMessage {
   detail?: string
 }
 
+/** A bot's memory write: a "Remembered" line the user can undo, or a card a bot that asks first waits on. */
+export interface MemoryWrite {
+  action: 'remember' | 'revise' | 'archive' | string
+  /** done (undo offered) · pending (approve or decline) · accepted · declined · undone · failed */
+  status: string
+  text?: string
+  previous?: string
+  shared?: boolean
+  error?: string
+}
+
+/** A bot's change to a memory file: "Updated people.md" with the diff and an undo, a change put back and why, or
+ *  for a bot that asks first, the change waiting for the user. */
+export interface MemoryFileCard {
+  file?: string
+  shared?: boolean
+  /** done · pending · accepted · declined · undone · restored · failed */
+  status?: string
+  /** `- ` removed and `+ ` added lines. */
+  diff?: string
+  created?: boolean
+  deleted?: boolean
+  /** The change removes more than a quarter of the file. */
+  big?: boolean
+  /** Why it was put back, or couldn't be made. */
+  reason?: string
+}
+
+/** "Earlier context was summarized": the harness's summary, when it gave one. */
+export interface Compaction {
+  summary?: string | null
+  /** The host started it ahead of time; otherwise the harness did when its context filled. */
+  byHost?: boolean
+}
+
+/** What a new conversation carries when the bot's own chat starts over; editable until the next message sends it. */
+export interface HandoffCard {
+  /** draft · sent · kept */
+  status: string
+  /** cold · away · full */
+  reason?: string
+  text?: string
+}
+
 export interface EntryData {
   /** Structured conversation data added to the existing team-tool notice. */
   botMessage?: BotMessage
+  /** notice: the agent summarized its context (see `CompactionNotice`). */
+  compaction?: Compaction
+  /** notice: the bot's chat starts over with this handoff (see `HandoffNotice`). */
+  handoff?: HandoffCard
   heading?: string
   delegationId?: string
   sourceBotId?: string
   targetBotId?: string
   connectionRequest?: ConnectionRequest
+  /** A bot's memory write shown in the chat (see `MemoryNotice`). */
+  memory?: MemoryWrite
+  /** A bot's change to one of its memory files (see `MemoryFileNotice`). */
+  memoryFile?: MemoryFileCard
   routineId?: string
   runId?: string
   text?: string
@@ -425,6 +483,7 @@ export interface BotDraft {
   connectors?: string[]
   skills?: string[]
   computer?: boolean
+  sharedMemory?: boolean
 }
 
 export function draftOf(bot: Bot): BotDraft {

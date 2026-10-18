@@ -1,102 +1,122 @@
-import { useState, type ReactNode } from 'react'
-import { folderName, isGroup, isWorking, type Bot } from '@shared/models'
+import { isGroup, isWorking, type Bot } from '@shared/models'
 import { AgentIcon } from '../../components/AgentIcon'
-import { BotAvatar } from '../../components/Avatar'
-import { CardSection, IconButton } from '../../components/Controls'
+import { BotAvatar, GroupAvatar } from '../../components/Avatar'
+import { IconButton, Switch, TabChoice } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { font } from '../../lib/fonts'
 import { useStore } from '../../store/context'
 import { BotSettingsPanel } from '../bots/BotEditorView'
-import { ComputerBadge } from '../ComputerBadge'
+import { MemoryCard } from '../bots/MemoryView'
 import { RoutinesView } from '../routines/RoutinesView'
 import { MacChatButton } from './MacChatButton'
 import '../bots/bots.css'
+import './details-panel.css'
 
-const isMac = window.codync.platform === 'darwin'
+export type DetailsTab = 'details' | 'memory' | 'settings'
 
-/** The inspector beside a conversation: the computer, the agent, and the bot's settings. */
-export function DetailsPanel({ botId, routineId, editing, setEditing, editGroup, share, close }: {
+const TABS: { id: DetailsTab; label: string }[] = [
+  { id: 'details', label: 'Details' },
+  { id: 'memory', label: 'Memory' },
+  { id: 'settings', label: 'Settings' },
+]
+
+/** The inspector beside a conversation (Grok Bot's): who the bot is, then its details, memory and settings. */
+export function DetailsPanel({ botId, routineId, tab, setTab, editGroup, share, close }: {
   botId: string
   routineId: string | null
-  editing: boolean
-  setEditing: (on: boolean) => void
+  tab: DetailsTab
+  setTab: (tab: DetailsTab) => void
   editGroup: () => void
   share: () => void
   close: () => void
 }) {
   const store = useStore()
   const bot = store.bots.get(botId) ?? null
-  const [returnedFromSettings, setReturnedFromSettings] = useState(false)
-  let header: ReactNode
-  if (editing) {
-    header = (
-      <>
-        <RoundButton label="Back to details" symbol="chevron.left" action={() => {
-          setReturnedFromSettings(true)
-          setEditing(false)
-        }} />
-        <PanelTitle>Settings</PanelTitle>
-        <span style={{ flex: 1 }} />
-      </>
-    )
-  } else if (bot && isGroup(bot)) {
-    header = (
-      <>
-        <PanelTitle>Members</PanelTitle>
-        <span style={{ ...font(13), color: 'var(--tertiary)', flex: 1 }}>{bot.members.length}</span>
-      </>
-    )
-  } else {
-    header = (
-      <>
-        <PanelTitle>Details</PanelTitle>
-        <span style={{ flex: 1 }} />
-        <RoundButton label="Create template" symbol="square.and.arrow.up" action={share} />
-        <RoundButton label="Bot settings" symbol="gearshape" action={() => setEditing(true)} />
-      </>
-    )
-  }
+  const group = !!bot && isGroup(bot)
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--background)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 54, padding: '0 12px', flex: 'none' }}>
-        {header}
-        <RoundButton label="Close details" symbol="chevron.right.2" action={close} />
+    <div className="details-panel">
+      <div className="details-drag" />
+      <div className="details-actions">
+        {bot && !group ? <MacChatButton className="ringed" title="Create template" icon="square.and.arrow.up" onClick={share} /> : null}
+        <MacChatButton className="ringed" title="Close details" icon="xmark" onClick={close} />
       </div>
-      <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
-        {bot && isGroup(bot) ? (
+      <div className="details-scroll">
+        {bot ? <Identity bot={bot} /> : null}
+        {bot && group ? (
           <GroupMembersList group={bot} editGroup={editGroup} />
-        ) : editing ? (
-          <div className="panel-slide from-trailing" style={{ height: '100%' }}>
-            <BotSettingsPanel botId={botId} />
-          </div>
         ) : (
-          <div className={returnedFromSettings ? 'panel-slide from-leading' : undefined} style={{ height: '100%', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 28, padding: '4px 16px 24px' }}>
-              <ComputerSummary botId={botId} />
-              <RoutinesView botId={botId} initialId={routineId} />
-              {bot ? <AgentSummary bot={bot} /> : null}
+          <>
+            <TabChoice label="Conversation details" selection={tab} options={TABS} onChange={setTab} />
+            <div key={tab} className="details-tab fade-in">
+              {tab === 'details' ? (
+                <>
+                  <BotSettingsPanel botId={botId} part="often" />
+                  {bot ? <ComputerUse bot={bot} /> : null}
+                  <RoutinesView botId={botId} initialId={routineId} />
+                </>
+              ) : tab === 'memory' ? (
+                <MemoryCard botId={botId} />
+              ) : (
+                <BotSettingsPanel botId={botId} part="rarely" />
+              )}
             </div>
-          </div>
+          </>
         )}
       </div>
     </div>
   )
 }
 
-function PanelTitle({ children }: { children: ReactNode }) {
-  return <span style={{ ...font(15, 'semibold'), color: 'var(--text)', paddingLeft: 4 }}>{children}</span>
+/** The bot's avatar and name, and what runs it (a group: how many bots it has). */
+function Identity({ bot }: { bot: Bot }) {
+  const store = useStore()
+  const group = isGroup(bot)
+  return (
+    <div className="details-identity">
+      {group ? <GroupAvatar members={store.members(bot)} size={60} /> : <BotAvatar bot={bot} size={60} />}
+      <span className="details-name">{bot.name}</span>
+      <span className="details-subtitle">
+        {group ? (
+          `${bot.members.length} ${bot.members.length === 1 ? 'bot' : 'bots'}`
+        ) : (
+          <>
+            <AgentIcon registry={store.hello?.backends.find((b) => b.id === bot.backend)?.registry ?? bot.backend} size={12} />
+            {store.backendName(bot.backend)}
+            {bot.model ? ` · ${bot.model}` : null}
+          </>
+        )}
+      </span>
+    </div>
+  )
 }
 
-/** A single circular surface, shared with the floating transcript controls. */
-function RoundButton({ label, symbol, action }: { label: string; symbol: string; action: () => void }) {
-  return <MacChatButton title={label} icon={symbol} direction={symbol === 'chevron.right.2' ? [1, 0] : [0, 0]} onClick={action} />
+/** Whether this bot may use the computer, switched right here (also in Settings). */
+function ComputerUse({ bot }: { bot: Bot }) {
+  const store = useStore()
+  const screen = store.screen
+  if (!screen) return null
+  const ready = screen.platform === 'windows' || (screen.enabled && screen.connected && screen.capture && screen.input)
+  return (
+    <section className="details-section">
+      <span className="details-section-title">Computer</span>
+      <div className="outlined-card details-switch">
+        <span className="details-switch-text">
+          <span>Use the computer</span>
+          {ready ? null : <span className="details-switch-note">On that computer, open Codync → Settings → Computer access to set it up first.</span>}
+        </span>
+        <span style={{ display: 'flex', flex: 'none' }}>
+          <Switch label="Use the computer" on={bot.computer} disabled={store.isOffline} onChange={(on) => store.setComputer(bot, on)} />
+        </span>
+      </div>
+    </section>
+  )
 }
 
 /** A group's bots (Grok Bot's member list); clicking one opens its own chat. */
 function GroupMembersList({ group, editGroup }: { group: Bot; editGroup: () => void }) {
   const store = useStore()
   return (
-    <div style={{ height: '100%', overflowY: 'auto', padding: '0 20px' }}>
+    <div className="details-members">
       {store.members(group).map((bot) => (
         <div key={bot.id} className="member-row removable">
           <button className="member-open press" title={`Open ${bot.name}'s own chat`} onClick={() => store.setSelection(bot.id)}>
@@ -116,67 +136,5 @@ function GroupMembersList({ group, editGroup }: { group: Bot; editGroup: () => v
         <span className="member-name" style={{ color: 'var(--secondary)' }}>Add Member</span>
       </button>
     </div>
-  )
-}
-
-function ComputerSummary({ botId }: { botId: string }) {
-  const store = useStore()
-  const screen = store.screen
-  const ready = !store.isOffline && !!screen?.enabled && screen.connected && screen.capture
-  const symbol = !screen?.enabled ? 'power' : !screen.connected ? 'arrow.triangle.2.circlepath' : !screen.capture ? 'exclamationmark.circle' : screen.agentBot === botId ? 'cursorarrow.motionlines' : 'checkmark.circle'
-  const status = !screen?.enabled
-    ? 'Remote screen is off'
-    : !screen.connected
-      ? 'Connecting to computer…'
-      : !screen.capture
-        ? 'Screen recording permission needed'
-        : screen.agentBot === botId
-          ? `This bot is using your ${isMac ? 'Mac' : 'computer'}`
-          : 'Ready to connect'
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 16, background: 'var(--surface)', borderRadius: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <ComputerBadge computer={store.computer} size={32} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-          <span style={{ ...font(15, 'medium'), color: 'var(--text)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{store.hostName}</span>
-          <span style={{ ...font(13), color: 'var(--secondary)' }}>Remote screen</span>
-        </div>
-      </div>
-      {!store.isOffline ? (
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6, ...font(13), color: 'var(--text)' }}>
-          <Icon name={symbol} size={13} />
-          {status}
-        </span>
-      ) : null}
-      {ready ? <div style={{ ...font(12), color: 'var(--secondary)', marginTop: -8 }}>View and control this {isMac ? 'Mac' : 'computer'} from your iPhone.</div> : null}
-    </div>
-  )
-}
-
-function InfoRow({ label, children, title }: { label: string; children: ReactNode; title?: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, ...font(13) }}>
-      <span style={{ color: 'var(--secondary)' }}>{label}</span>
-      <span style={{ flex: 1, minWidth: 8 }} />
-      <span title={title} style={{ color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-        {children}
-      </span>
-    </div>
-  )
-}
-
-function AgentSummary({ bot }: { bot: Bot }) {
-  const store = useStore()
-  return (
-    <CardSection title="Agent" footer={bot.description || null}>
-      <InfoRow label="Runtime">
-        <AgentIcon registry={store.hello?.backends.find((b) => b.id === bot.backend)?.registry ?? bot.backend} size={14} />
-        <span>{store.backendName(bot.backend)}</span>
-      </InfoRow>
-      <InfoRow label={bot.managedWorkspace ? 'Workspace' : 'Folder'} title={bot.managedWorkspace ? 'Personal workspace, managed by Codync' : bot.cwd}>
-        {bot.managedWorkspace ? 'Personal' : folderName(bot)}
-      </InfoRow>
-      {bot.model ? <InfoRow label="Model">{bot.model}</InfoRow> : null}
-    </CardSection>
   )
 }

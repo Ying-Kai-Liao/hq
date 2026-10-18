@@ -155,8 +155,9 @@ export class HostClient {
     return (await this.call<{ entries: Entry[] }>('botConversation', { botId, peerId })).entries
   }
 
-  async send(botId: string, text: string, clientNonce: string, threadId: string | null, attachments: string[] | null) {
-    return (await this.call<{ entry: Entry }>('send', { botId, text, clientNonce, threadId, attachments })).entry
+  /** `pasted`: what the user pasted rather than typed, which memory never takes as their own words. */
+  async send(botId: string, text: string, clientNonce: string, threadId: string | null, attachments: string[] | null, pasted: string[] = []) {
+    return (await this.call<{ entry: Entry }>('send', { botId, text, clientNonce, threadId, attachments, ...(pasted.length ? { pasted } : {}) })).entry
   }
 
   /** Bytes per `upload` call: base64 of it stays well under the channel's 1 MiB message. */

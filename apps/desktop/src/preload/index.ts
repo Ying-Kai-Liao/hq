@@ -102,6 +102,7 @@ const bridge: CodyncBridge = {
   app: {
     reportError: (report) => ipcRenderer.send('app:reportError', report),
     openExternal: (url) => ipcRenderer.send('app:openExternal', url),
+    openMemoryFile: (path) => ipcRenderer.send('app:openMemoryFile', path),
     copy: (text) => ipcRenderer.send('app:copy', text),
     pickFiles: () => ipcRenderer.invoke('app:pickFiles'),
     readClipboardFiles: () => ipcRenderer.invoke('app:clipboardFiles'),

@@ -146,6 +146,8 @@ export function Dialog({ open, title, message, actions, cancel = 'Cancel', onClo
 export interface MenuItem {
   title: string
   icon?: string
+  /** A picture in the icon's place (an agent's logo). */
+  leading?: ReactNode
   selected?: boolean
   destructive?: boolean
   divider?: boolean
@@ -220,9 +222,9 @@ export function MenuPanel({ items, reactions, dismiss, maxHeight }: { items: Men
               item.action()
             }}
           >
-            {item.icon ? (
+            {item.leading || item.icon ? (
               <span className="menu-icon">
-                <Icon name={item.icon} size={12} />
+                {item.leading ?? (item.icon ? <Icon name={item.icon} size={12} /> : null)}
               </span>
             ) : null}
             <span className="menu-title">{item.title}</span>

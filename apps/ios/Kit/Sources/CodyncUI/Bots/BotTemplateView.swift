@@ -56,7 +56,6 @@ struct BotTemplateView: View {
         }
         .padding([.horizontal, .bottom], 24)
         }
-        .frame(width: 560, height: 540)
         .background(Palette.background)
     }
 }

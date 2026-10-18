@@ -211,3 +211,12 @@
   padding: 0 10px;
   color: var(--secondary);
 }
+
+/* Welcome, computer access and host state fill the window with no chrome: their top edge moves it. */
+.window-drag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+}
