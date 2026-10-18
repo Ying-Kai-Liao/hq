@@ -27,7 +27,7 @@ mod updates;
 
 pub(crate) use launch::{launch_commands, select_model, start_agent, system_prompt};
 
-use crate::agent::acp::{Acp, Incoming};
+use crate::agent::acp::{self, Acp, Incoming};
 use crate::agent::config::FastModeSupport;
 use crate::chat::context::{Identity, Snapshot};
 use crate::chat::group::GroupTurn;
@@ -379,7 +379,14 @@ impl Actor {
                     while let Some(inc) = self.conn.as_mut().and_then(|c| c.rx.try_recv().ok()) {
                         self.on_incoming(Some(inc)).await;
                     }
+                    let (session, routine) = (self.turn_session.clone(), self.active_routine.is_some());
+                    let failed = done.as_ref().is_err_and(acp::may_end_session);
                     self.finish_turn(&done);
+                    match session {
+                        Some(sid) if routine => self.release_spent(&sid).await,
+                        Some(sid) if failed => self.close_reloadable(&sid).await,
+                        _ => {}
+                    }
                     self.next_in_queue(&done_tx).await;
                 }
                 _ = flush_tick.tick() => {

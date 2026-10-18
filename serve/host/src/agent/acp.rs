@@ -37,10 +37,15 @@ type Pending = Arc<std::sync::Mutex<HashMap<i64, oneshot::Sender<Result<Value, V
 pub struct RpcError {
     pub code: i64,
     pub message: String,
+    /// The adapter's own category (`data.errorKind`: Claude's `rate_limit`, `overloaded`, …), kept only
+    /// when it's an identifier, as it can go to usage analytics.
+    pub kind: Option<String>,
 }
 
 /// ACP's "authentication required".
 pub const AUTH_REQUIRED: i64 = -32000;
+/// JSON-RPC's "internal error".
+pub const INTERNAL_ERROR: i64 = -32603;
 
 impl std::fmt::Display for RpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -57,6 +62,13 @@ pub fn needs_sign_in(e: &anyhow::Error) -> bool {
             .is_some_and(|r| r.code == AUTH_REQUIRED || r.message.to_lowercase().contains("auth"))
     };
     e.chain().any(rpc) || e.to_string().to_lowercase().contains("auth")
+}
+
+/// Whether a failed prompt may have left its session dead in the agent: an internal error the
+/// adapter gave no category. Claude's adapter answers every later prompt on a session whose query
+/// stream ended with one ("The Claude Agent session has ended") until the session is closed.
+pub fn may_end_session(e: &anyhow::Error) -> bool {
+    e.chain().filter_map(|c| c.downcast_ref::<RpcError>()).any(|r| r.code == INTERNAL_ERROR && r.kind.is_none())
 }
 
 /// A way an agent fails that the host itself recognizes, kept as a type so usage
@@ -106,7 +118,13 @@ impl Answer {
                     Some(d) => format!("{msg} ({d})"),
                     None => msg,
                 };
-                Err(RpcError { code: e["code"].as_i64().unwrap_or_default(), message }.into())
+                let kind = e["data"]["errorKind"]
+                    .as_str()
+                    .filter(|k| {
+                        !k.is_empty() && k.len() <= 40 && k.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+                    })
+                    .map(str::to_owned);
+                Err(RpcError { code: e["code"].as_i64().unwrap_or_default(), message, kind }.into())
             }
             // The reader drops every waiter when the process goes away.
             Err(_) => Err(Failure::error(FailureKind::Exited, "agent process exited")),
@@ -364,6 +382,20 @@ mod tests {
         ]);
         assert_eq!(content_text(&v), "a\nb");
         assert_eq!(truncate("héllo", 2), "h…");
+    }
+
+    #[tokio::test]
+    async fn an_error_keeps_the_adapters_category_only_when_it_is_an_identifier() {
+        let kind = |data: Value| async move {
+            let (tx, rx) = oneshot::channel();
+            let _ = tx.send(Err(json!({"code": -32603, "message": "Internal error", "data": data})));
+            let e = Answer { rx }.response().await.expect_err("an error answer");
+            e.downcast::<RpcError>().expect("an RpcError").kind
+        };
+        assert_eq!(kind(json!({"errorKind": "rate_limit"})).await.as_deref(), Some("rate_limit"));
+        assert_eq!(kind(json!({"errorKind": "Usage: /Users/me"})).await, None);
+        assert_eq!(kind(json!({"errorKind": ""})).await, None);
+        assert_eq!(kind(json!("details")).await, None);
     }
 
     #[cfg(unix)]
