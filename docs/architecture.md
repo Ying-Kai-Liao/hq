@@ -196,7 +196,8 @@ apply to full `hq <agent>` runs.
 but waits for an app):
 
 - **An `admin` level** (everything but the owner's logins, folder isolation off). On hold until the owner asks.
-- **Sign-in links** for a person's own accounts: an OAuth link sent in chat (Google first), with the token stored in
+- **Sign-in links** (deferred 2026-10-19 until someone needs their own account; meanwhile people use the owner's accounts
+  shared with them, `hq auth share`) for a person's own accounts: an OAuth link sent in chat (Google first), with the token stored in
   the Keychain as `google/<person>` and granted `agent@person`. Needs a Google Cloud OAuth client, and the bridge has
   no public URL: either the loopback redirect (the person pastes back the address their browser fails to open) or a
   small relay. Undecided.
