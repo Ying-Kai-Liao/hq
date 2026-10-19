@@ -25,7 +25,7 @@ hq/agents/                        the agents folder, $HQ_AGENTS: your private re
     jobs.json                         its scheduled jobs (hq-sched)
 ~/.hq/                            this Mac's hq, a real folder on the internal disk (like ~/.claude)
   user.md                           committed (the hq-state repo, $HQ_STATE): who hq works for, read by every agent
-  projects/<id>/                    committed: codebase.md, decisions.md, per-project notes shared by agents
+  projects/<id>/                    committed: codebase.md, verify.md, decisions.md, per-project notes shared by agents
   projects.json                     committed: project registry (bin/project-id): aliases, parent, home
   agents.json                       committed: installed agents and where their roles come from (hq-pkg save)
   private-words                     committed: words hq-pkg check --share refuses in a role

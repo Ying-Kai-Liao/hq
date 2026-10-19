@@ -206,7 +206,7 @@ agents/                    the agents folder (ignored by this repo; your hq-agen
   agents.json              which agents you have and where their roles come from
   private-words            words no shared role may contain (hq-pkg check --share)
   user.md                  who hq works for (incl. visual taste), read by every agent
-  projects/<id>/           codebase.md (shared project map) + decisions.md (append-only log)
+  projects/<id>/           codebase.md (shared project map) + verify.md (how to check a change) + decisions.md (append-only log)
   secrets/ … store/ logs/  this Mac only, never committed (snapshots of roles: store/<name>@<version>/)
 ```
 
