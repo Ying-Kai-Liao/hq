@@ -1,6 +1,6 @@
 // Builds the host the app bundles for the same environment as the app: node tools/native-host.mjs
 // dev|main compiles it in as CODYNC_ENV. Built on every package so a host made for another
-// environment is never shipped. macOS: build/native/codync-host (universal; Codync Dev: this Mac's
+// environment is never shipped. macOS: build/native/codync-host (universal; Kith Dev: this Mac's
 // architecture only, since it never leaves the Mac that built it). Windows:
 // build/native/codync-host.exe and codync-hostw.exe (runs it at sign-in), plus the computer-use
 // driver the host starts from beside itself. Linux apps use the installed host, so there's
@@ -21,7 +21,7 @@ const out = join(root, 'build/native')
 const tool = (name) => execFileSync('rustup', ['which', name], { cwd: host, encoding: 'utf8' }).trim()
 const [cargo, rustc] = [tool('cargo'), tool('rustc')]
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: 'inherit', env: { ...process.env, CODYNC_ENV: env, RUSTC: rustc } })
-// Codync Dev builds in the host's `dev-app` profile: seconds to rebuild instead of minutes.
+// Kith Dev builds in the host's `dev-app` profile: seconds to rebuild instead of minutes.
 const profile = env === 'dev' ? 'dev-app' : 'release'
 const build = (target) => run(cargo, ['build', '--profile', profile, '--manifest-path', join(host, 'Cargo.toml'), '--target', target])
 const built = (target, name) => join(host, 'target', target, profile, name)

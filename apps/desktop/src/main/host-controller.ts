@@ -15,7 +15,7 @@ export const devPort = process.env.CODYNC_PORT ? Number(process.env.CODYNC_PORT)
 export const port = devPort ?? identity.port
 export const dataDir = process.env.CODYNC_HOME ?? join(homedir(), identity.dataFolder)
 if (identity.environment === 'dev' && (port === 19222 || resolve(dataDir) === resolve(homedir(), '.codync'))) {
-  throw new Error('Codync Dev requires its own host port and data directory.')
+  throw new Error('Kith Dev requires its own host port and data directory.')
 }
 export const baseURL = `http://127.0.0.1:${port}`
 

@@ -12,7 +12,7 @@ function fixture(t: TestContext, platform = 'darwin') {
   t.after(() => rmSync(projectDir, { recursive: true, force: true }))
   mkdirSync(join(projectDir, 'resources'))
   writeFileSync(join(projectDir, 'resources/account-config.json'), JSON.stringify({ environment: 'dev' }))
-  return { electronPlatformName: platform, packager: { projectDir, appInfo: { id: 'com.pokai.Codync.dev' } } }
+  return { electronPlatformName: platform, packager: { projectDir, appInfo: { id: 'com.yingkailiao.kith.dev' } } }
 }
 
 test('macOS packaging requires the Apple logo manifest entry and every rendered weight', async (t) => {

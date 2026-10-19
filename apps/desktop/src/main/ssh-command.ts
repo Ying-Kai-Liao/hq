@@ -6,9 +6,9 @@ const REMOTE_PATH = '$PATH:/opt/homebrew/bin:/usr/local/bin:/home/linuxbrew/.lin
 /** The caller validates the port before constructing the remote shell command. */
 export const remoteInfoCommand = (port: number, folder = '.codync') => {
   // Only the fixed development folder is accepted; no arbitrary input enters this shell command.
-  const dev = folder === '.codync-dev'
+  const dev = folder === '.kith-dev'
   if (dev) {
-    return `sh -lc 'export CODYNC_HOME="$HOME/.codync-dev"; if [ -x "/Applications/Codync Dev.app/Contents/Resources/codync-host" ]; then exec "/Applications/Codync Dev.app/Contents/Resources/codync-host" info --json --port ${port}; elif [ -x "$HOME/.local/bin/codync-dev-host" ]; then exec "$HOME/.local/bin/codync-dev-host" info --json --port ${port}; else exit 127; fi'`
+    return `sh -lc 'export CODYNC_HOME="$HOME/.kith-dev"; if [ -x "/Applications/Kith Dev.app/Contents/Resources/codync-host" ]; then exec "/Applications/Kith Dev.app/Contents/Resources/codync-host" info --json --port ${port}; elif [ -x "$HOME/.local/bin/codync-dev-host" ]; then exec "$HOME/.local/bin/codync-dev-host" info --json --port ${port}; else exit 127; fi'`
   }
   return `sh -lc 'PATH="${REMOTE_PATH}" codync-host info --json --port ${port}'`
 }

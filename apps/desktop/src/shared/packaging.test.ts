@@ -22,14 +22,14 @@ test('Linux packages and Windows installation resources have separate developmen
 })
 
 test('development packaging registers only development callbacks and background helpers', () => {
-  assert.equal(dev.appId, 'com.pokai.Codync.dev')
-  assert.equal(dev.productName, 'Codync Dev')
+  assert.equal(dev.appId, 'com.yingkailiao.kith.dev')
+  assert.equal(dev.productName, 'Kith Dev')
   assert.equal(dev.publish, null)
   assert.ok(new RegExp(dev.mac.signIgnore[0]).test('CodyncDevScreen.app/Contents/Helpers/cua-driver'))
-  assert.deepEqual(dev.protocols.flatMap((p: { schemes: string[] }) => p.schemes), ['codync-dev', 'com.pokai.Codync.dev'])
+  assert.deepEqual(dev.protocols.flatMap((p: { schemes: string[] }) => p.schemes), ['codync-dev', 'com.yingkailiao.kith.dev'])
   assert.deepEqual(dev.mac.extraFiles.map((f: { to: string }) => f.to), [
     'Library/LoginItems/CodyncDevScreen.app',
-    'Library/LaunchAgents/com.pokai.Codync.dev.screen.plist',
+    'Library/LaunchAgents/com.yingkailiao.kith.dev.screen.plist',
   ])
   assert.ok(dev.win.extraResources.some((f: { to: string }) => f.to === 'codync-dev-hostw.exe'))
   assert.ok(!dev.win.extraResources.some((f: { to: string }) => f.to === 'codync-hostw.exe'))

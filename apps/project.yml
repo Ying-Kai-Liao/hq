@@ -55,8 +55,8 @@ settings:
       CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith.dev
       CODYNC_URL_SCHEME: codync-dev
       CODYNC_SCREEN_NAME: CodyncDevScreen
-      CODYNC_SCREEN_BUNDLE_ID: com.pokai.Codync.dev.screen
-      CODYNC_DATA_FOLDER: .codync-dev
+      CODYNC_SCREEN_BUNDLE_ID: com.yingkailiao.kith.dev.screen
+      CODYNC_DATA_FOLDER: .kith-dev
       CODYNC_APNS_ENVIRONMENT: sandbox
     DevRelease:
       CODYNC_ENV: dev
@@ -66,8 +66,8 @@ settings:
       CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith.dev
       CODYNC_URL_SCHEME: codync-dev
       CODYNC_SCREEN_NAME: CodyncDevScreen
-      CODYNC_SCREEN_BUNDLE_ID: com.pokai.Codync.dev.screen
-      CODYNC_DATA_FOLDER: .codync-dev
+      CODYNC_SCREEN_BUNDLE_ID: com.yingkailiao.kith.dev.screen
+      CODYNC_DATA_FOLDER: .kith-dev
       CODYNC_APNS_ENVIRONMENT: production
 schemes:
   iOS:
