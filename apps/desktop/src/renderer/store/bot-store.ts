@@ -120,8 +120,9 @@ export class BotStore extends BotSync {
     }
   }
 
-  stop(botId: string) {
-    this.perform((c) => c.call('stop', { botId }), true)
+  /** Stops the bot in its chat, or in the thread on `thread`; its other places keep working. */
+  stop(botId: string, thread: string | null = null) {
+    this.perform((c) => c.call('stop', thread ? { botId, threadId: thread } : { botId }), true)
   }
 
   newSession(botId: string) {

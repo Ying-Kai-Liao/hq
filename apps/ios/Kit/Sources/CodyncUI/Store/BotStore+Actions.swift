@@ -67,7 +67,8 @@ extension BotStore {
         }
     }
 
-    public func stop(_ botId: String) { perform(replay: true) { try await $0.stop(botId) } }
+    /// Stops the bot in its chat, or in the thread on `thread`; its other places keep working.
+    public func stop(_ botId: String, thread: String? = nil) { perform(replay: true) { try await $0.stop(botId, thread: thread) } }
     public func logCall(_ botId: String, seconds: Int) { perform { try await $0.logCall(botId, seconds: seconds) } }
     public func newSession(_ botId: String) { perform { try await $0.newSession(botId) } }
 

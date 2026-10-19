@@ -1,6 +1,19 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { draftOf, isChat, normalizeBot, type Entry } from './models.ts'
+import { draftOf, isChat, isWorkingIn, normalizeBot, type Entry } from './models.ts'
+
+test('a bot works in every place its host lists at once, and only there', () => {
+  const bot = normalizeBot({
+    id: 'b', status: 'working', workingChat: 'b',
+    workingLanes: [{ chat: 'b', thread: null }, { chat: 'b', thread: 'root' }, { chat: 'group' }],
+  })
+  assert.ok(isWorkingIn(bot, 'b', null))
+  assert.ok(isWorkingIn(bot, 'b', 'root'))
+  assert.ok(isWorkingIn(bot, 'group', undefined))
+  assert.ok(!isWorkingIn(bot, 'b', 'other'))
+  assert.ok(!isWorkingIn({ ...bot, workingLanes: [] }, 'b', null), 'an empty list means nowhere')
+  assert.ok(isWorkingIn({ ...bot, workingLanes: null }, 'b', null), 'an older host names one place')
+})
 
 test('a bot keeps its Fast mode through the settings draft', () => {
   const bot = normalizeBot({ id: 'b', backend: 'codex', fastMode: true })
