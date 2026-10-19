@@ -3,6 +3,7 @@
 use super::{Actor, CANCEL_GRACE, Cmd, Done, NoticeStyle, Queued, RESUME_PROMPT, RoutineCompletion, inflight_key};
 use crate::agent::own_memory;
 use crate::chat::memory;
+use crate::chat::router::{self, Route};
 use crate::hub::BotStatus;
 use crate::market::requests;
 use crate::store::{Lane, now_ms};
@@ -23,12 +24,16 @@ impl Actor {
                     self.next_in_queue(done_tx).await;
                 }
             }
-            Cmd::Send { lane, entry_id, text } => {
-                self.queue.push_back(Queued::User { lane, entry_id, text });
+            Cmd::Send { lane, entry_id, text, route } => {
+                if route {
+                    self.route_later(&lane, &entry_id);
+                }
+                self.queue.push_back(Queued::User { lane, entry_id, text, alone: false });
                 if self.turn.is_none() {
                     self.next_in_queue(done_tx).await;
                 }
             }
+            Cmd::Routed { entry_id, route } => self.apply_route(&entry_id, route).await,
             Cmd::Group(turn) => {
                 self.queue.push_back(Queued::Group(turn));
                 if self.turn.is_none() {
@@ -143,6 +148,81 @@ impl Actor {
         self.cancel_turn().await;
     }
 
+    /// A message the user sent while this bot answers them in the same lane: asks the router, in the
+    /// background, what it means for the running work. The message waits in the queue meanwhile.
+    fn route_later(&self, lane: &Lane, entry_id: &str) {
+        let (Some(task), true) = (self.turn_text.clone(), self.turn.is_some() && self.lane == *lane) else {
+            return;
+        };
+        let typed = |id: &str| {
+            self.hub.store.entry(id).and_then(|e| e.data["text"].as_str().map(str::to_owned)).unwrap_or_default()
+        };
+        let recent: Vec<String> = self
+            .queue
+            .iter()
+            .filter_map(|q| match q {
+                Queued::User { lane: l, entry_id, .. } if l == lane => Some(typed(entry_id)),
+                _ => None,
+            })
+            .collect();
+        let latest = typed(entry_id);
+        let (hub, bot, entry_id) = (self.hub.clone(), self.cfg.id.clone(), entry_id.to_owned());
+        tokio::spawn(async move {
+            let route = router::route(&hub, &task, &recent, &latest).await;
+            if route != Route::Merge
+                && let Err(error) = hub.send_cmd(&bot, Cmd::Routed { entry_id, route })
+            {
+                tracing::warn!(bot, error = format!("{error:#}"), "couldn't apply a routed message");
+            }
+        });
+    }
+
+    /// Acts on the router's answer, if the message still waits (or, for Stop, if its turn runs).
+    async fn apply_route(&mut self, entry_id: &str, route: Route) {
+        let pos = self.queue.iter().position(|q| matches!(q, Queued::User { entry_id: id, .. } if id == entry_id));
+        match route {
+            Route::Stop => {
+                if let Some(p) = pos {
+                    // It did its job by stopping; it isn't a message for the agent.
+                    self.queue.remove(p);
+                    self.set_user_status(entry_id, crate::chat::team::RequestStatus::Sent);
+                } else if !self.turn_entries.iter().any(|id| id == entry_id) {
+                    return;
+                }
+                self.stop().await;
+            }
+            Route::Interrupt => {
+                // Only while the work it corrects still runs; otherwise it waits like any message.
+                let (Some(p), Some(task)) = (pos, self.turn_text.clone()) else { return };
+                let running_here = matches!(self.queue.get(p), Some(Queued::User { lane, .. }) if *lane == self.lane);
+                if self.turn.is_none() || !running_here {
+                    return;
+                }
+                let Some(Queued::User { lane, entry_id, text, .. }) = self.queue.remove(p) else {
+                    unreachable!("position found a user message")
+                };
+                // The same work again, corrected, before anything else that waits.
+                let text = router::redo(&task, &text);
+                self.queue.push_front(Queued::User { lane, entry_id, text, alone: false });
+                self.notice("Stopping to start again with your correction.", NoticeStyle::Info);
+                self.cancel_turn().await;
+            }
+            Route::Separate => {
+                if let Some(Queued::User { alone, .. }) = pos.and_then(|p| self.queue.get_mut(p)) {
+                    *alone = true;
+                }
+            }
+            Route::Merge => {}
+        }
+    }
+
+    fn set_user_status(&self, entry_id: &str, status: crate::chat::team::RequestStatus) {
+        if let Some(mut e) = self.hub.store.entry(entry_id) {
+            e.data["status"] = json!(status);
+            self.hub.set_entry(entry_id, &e.data);
+        }
+    }
+
     /// Stops the running turn only (queued ones stay).
     pub(super) async fn cancel_turn(&mut self) {
         if self.turn.is_none() {
@@ -237,11 +317,17 @@ impl Actor {
             let Some(Queued::User { lane, .. }) = self.queue.front() else { continue };
             let lane = lane.clone();
             let mut batch = Vec::new();
-            while let Some(Queued::User { lane: l, .. }) = self.queue.front()
+            // A message on a different subject goes alone.
+            while let Some(Queued::User { lane: l, alone, .. }) = self.queue.front()
                 && *l == lane
+                && (batch.is_empty() || !*alone)
             {
+                let alone = *alone;
                 if let Some(Queued::User { entry_id, text, .. }) = self.queue.pop_front() {
                     batch.push((entry_id, text));
+                }
+                if alone {
+                    break;
                 }
             }
             let ids: Vec<String> = batch.iter().map(|(id, _)| id.clone()).collect();

@@ -1,5 +1,6 @@
 //! Conversation features on top of bots: messages to the user, group room turns,
-//! bot-to-bot requests, prompt snapshots, long-term memory and automatic bot names.
+//! bot-to-bot requests, prompt snapshots, long-term memory, automatic bot names and
+//! routing messages sent while a bot works.
 
 pub mod context;
 pub mod files;
@@ -11,5 +12,6 @@ pub mod oneshot;
 pub mod outbox;
 pub mod profile;
 pub mod prompt;
+pub mod router;
 pub mod team;
 pub mod uploads;

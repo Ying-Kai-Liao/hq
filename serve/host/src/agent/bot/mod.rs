@@ -59,6 +59,13 @@ pub enum Cmd {
         lane: Lane,
         entry_id: String,
         text: String,
+        /// Typed by the user: while the bot works in this lane, the router decides what it means for that work.
+        route: bool,
+    },
+    /// The router's answer for a message sent while the bot worked (see `chat::router`).
+    Routed {
+        entry_id: String,
+        route: crate::chat::router::Route,
     },
     BotRequest(crate::chat::team::BotRequest),
     /// `send_message` from the bot's `chat` MCP server: a message for the user, now.
@@ -97,6 +104,8 @@ enum Queued {
         lane: Lane,
         entry_id: String,
         text: String,
+        /// A different subject: goes as a turn of its own instead of joining the messages around it.
+        alone: bool,
     },
     BotRequest(crate::chat::team::BotRequest),
     /// A compaction the host decided on (see `compaction`); `idle` while the user is away.

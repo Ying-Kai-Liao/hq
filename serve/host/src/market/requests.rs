@@ -99,7 +99,7 @@ pub fn agent_signed_in(hub: &Hub, backend: &str) -> Result<()> {
             entry.data["status"] = "queued".into();
             hub.set_entry(&entry.id, &entry.data);
             let lane = Lane { chat: entry.bot_id.clone(), thread: entry.thread_id.clone() };
-            hub.send_cmd(&card.bot_id, Cmd::Send { lane, entry_id: entry.id, text: prompt })?;
+            hub.send_cmd(&card.bot_id, Cmd::Send { lane, entry_id: entry.id, text: prompt, route: false })?;
         }
     }
     Ok(())
@@ -321,7 +321,7 @@ fn complete(hub: &Arc<Hub>, e: &Entry, id: &str, note: String) -> Result<Value> 
         &json!({"text":note,"status":"queued","from":"host"}),
     )?;
     if added {
-        hub.send_cmd(&bot, Cmd::Send { lane, entry_id: ack.id, text: note })?;
+        hub.send_cmd(&bot, Cmd::Send { lane, entry_id: ack.id, text: note, route: false })?;
     }
     Ok(json!({"entry":entry}))
 }

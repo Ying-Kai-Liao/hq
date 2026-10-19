@@ -204,7 +204,7 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             if row.config.is_group() {
                 crate::chat::group::start(hub, &row.config, lane);
             } else {
-                hub.send_cmd(bot, Cmd::Send { lane, entry_id: e.id.clone(), text: prompt })?;
+                hub.send_cmd(bot, Cmd::Send { lane, entry_id: e.id.clone(), text: prompt, route: true })?;
             }
             json!({"entry": e})
         }

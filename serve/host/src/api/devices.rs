@@ -42,6 +42,8 @@ const LOCAL_ONLY: &[&str] = &[
     "reportError",
     // Voice keys are entered on the computer itself; phones only use them.
     "setVoiceKey",
+    // So is the message router's Jev key.
+    "setRouterKey",
     "pairing",
     "computerCall",
     "computerTools",

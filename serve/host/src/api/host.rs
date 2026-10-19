@@ -29,6 +29,8 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             tokio::task::spawn_blocking(move || crate::update::spawn_worker(port, force, skip_app_check)).await??;
             json!({"scheduled": true})
         }
+        "routerStatus" => crate::chat::router::status(&hub.store)?,
+        "setRouterKey" => crate::chat::router::set_key(hub, b["key"].as_str().unwrap_or_default()).await?,
         "voiceStatus" => crate::voice::status(&hub.store)?,
         "setVoiceKey" => {
             let provider = crate::voice::Provider::parse(str_arg(&b, "provider")?)?;
