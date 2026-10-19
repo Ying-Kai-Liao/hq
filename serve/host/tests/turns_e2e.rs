@@ -53,7 +53,7 @@ impl Host {
         std::fs::create_dir_all(&cwd).unwrap();
         let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(fixture);
         let bot = json!({
-            "name": name, "backend": "custom", "command": common::python_agent(&agent),
+            "name": name, "backend": "custom", "tasks": false, "command": common::python_agent(&agent),
             "cwd": cwd, "permission": "ask", "notify": false,
         });
         self.call("createBot", bot).await["bot"]["id"].as_str().unwrap().to_owned()

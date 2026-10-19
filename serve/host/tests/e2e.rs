@@ -112,7 +112,7 @@ async fn turn_with_approval_reaches_a_final_reply() {
         .call(
             "createBot",
             json!({
-                "name": "Tester", "backend": "custom", "command": common::python_agent(&agent),
+                "name": "Tester", "backend": "custom", "tasks": false, "command": common::python_agent(&agent),
                 "cwd": host.home.to_string_lossy(), "permission": "ask",
             }),
         )
@@ -161,7 +161,7 @@ async fn sent_messages_are_the_reply() {
         .call(
             "createBot",
             json!({
-                "name": "Tester", "backend": "custom", "command": common::python_agent(&agent),
+                "name": "Tester", "backend": "custom", "tasks": false, "command": common::python_agent(&agent),
                 "cwd": host.home.to_string_lossy(), "permission": "ask",
             }),
         )
@@ -341,7 +341,7 @@ async fn phone_pairs_and_chats_over_the_direct_channel() {
             2,
             "createBot",
             json!({
-                "name": "Tester", "backend": "custom", "command": common::python_agent(&agent),
+                "name": "Tester", "backend": "custom", "tasks": false, "command": common::python_agent(&agent),
                 "cwd": host.home.to_string_lossy(), "permission": "auto",
             }),
         )
@@ -371,7 +371,10 @@ async fn personal_workspaces_are_unique_persistent_and_optional() {
     let host = start_host().await;
     let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/workspace_agent.py");
     let first = host
-        .call("createBot", json!({"name": "One", "backend": "custom", "command": common::python_agent(&agent)}))
+        .call(
+            "createBot",
+            json!({"name": "One", "backend": "custom", "tasks": false, "command": common::python_agent(&agent)}),
+        )
         .await;
     let second = host.call("createBot", json!({"name": "Two", "backend": "claude", "cwd": ""})).await;
     let first = &first["bot"];
@@ -530,7 +533,7 @@ async fn wire_shape_matches_the_snapshot() {
         .call(
             "createBot",
             json!({
-                "name": "Tester", "backend": "custom", "command": common::python_agent(&agent),
+                "name": "Tester", "backend": "custom", "tasks": false, "command": common::python_agent(&agent),
                 "cwd": host.home.to_string_lossy(), "permission": "ask",
             }),
         )

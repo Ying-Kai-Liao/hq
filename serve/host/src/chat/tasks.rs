@@ -1,0 +1,87 @@
+//! Tasks: what the user says to a bot comes in bursts, and each burst is a task of its own. Its first message is a
+//! root in the bot's chat (`data.task`), the rest of it and the bot's answers its thread, with a fresh agent session
+//! (see `agent::bot::session`) that runs beside the bot's other tasks. Clients show a task inline while it's going and
+//! fold it into a card once it's idle.
+
+use crate::hub::Hub;
+use crate::store::{BotConfig, Entry, EntryKind, Lane};
+
+/// A task idle this long is over: the next message starts a new one.
+const IDLE_MS: i64 = 10 * 60 * 1000;
+
+/// How far back in the bot's chat the current task is looked for.
+const LOOKBACK: i64 = 50;
+
+/// The thread a message to `bot`'s chat continues, or `None` when it starts a task of its own: asked for
+/// (`new_task`), or no task is going (the newest is idle and not working).
+pub fn continued(hub: &Hub, bot: &BotConfig, new_task: bool, now: i64) -> Option<String> {
+    if new_task {
+        return None;
+    }
+    let root = current(hub, &bot.id)?;
+    let working = hub.working_lanes(bot).contains(&Lane::in_thread(&bot.id, &root.id));
+    goes_on(&root, working, now).then_some(root.id)
+}
+
+/// Marks a message as the start of a task.
+pub fn mark(data: &mut serde_json::Value) {
+    data["task"] = true.into();
+}
+
+/// Whether the root `entry` started a task.
+pub fn is_task(entry: &Entry) -> bool {
+    entry.data["task"] == true
+}
+
+/// The bot's newest task, if one is recent enough to look at.
+fn current(hub: &Hub, bot: &str) -> Option<Entry> {
+    let recent = match hub.store.history(bot, i64::MAX, LOOKBACK) {
+        Ok(recent) => recent,
+        Err(e) => {
+            tracing::warn!(bot, error = format!("{e:#}"), "couldn't read the chat for its current task");
+            return None;
+        }
+    };
+    recent.into_iter().rev().find(|e| e.kind == EntryKind::User.as_str() && is_task(e))
+}
+
+/// A task goes on while it works, and until it has been idle for [`IDLE_MS`].
+fn goes_on(root: &Entry, working: bool, now: i64) -> bool {
+    let last = root.data["thread"]["lastAt"].as_i64().filter(|&at| at > 0).unwrap_or(root.created_at);
+    working || now - last < IDLE_MS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn root(created_at: i64, last_at: Option<i64>) -> Entry {
+        let mut data = json!({"text": "fix the build", "task": true});
+        if let Some(at) = last_at {
+            data["thread"] = json!({"count": 2, "lastAt": at});
+        }
+        Entry {
+            id: "r".into(),
+            seq: 1,
+            bot_id: "b".into(),
+            thread_id: None,
+            rev: 1,
+            kind: "user".into(),
+            turn: 1,
+            data,
+            created_at,
+            updated_at: created_at,
+        }
+    }
+
+    #[test]
+    fn a_task_goes_on_until_ten_idle_minutes_unless_it_works() {
+        let now = 100 * IDLE_MS;
+        assert!(goes_on(&root(now - 60_000, None), false, now), "a minute after it started");
+        assert!(!goes_on(&root(now - IDLE_MS, None), false, now), "ten quiet minutes end it");
+        assert!(goes_on(&root(now - 3 * IDLE_MS, Some(now - 60_000)), false, now), "its last reply counts");
+        assert!(!goes_on(&root(now - 3 * IDLE_MS, Some(now - 2 * IDLE_MS)), false, now));
+        assert!(goes_on(&root(now - 3 * IDLE_MS, Some(now - 2 * IDLE_MS)), true, now), "a working task goes on");
+    }
+}

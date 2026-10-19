@@ -69,8 +69,7 @@ impl Host {
     }
 
     pub async fn bot(&self, name: &str, permission: &str) -> String {
-        let bot =
-            json!({"name": name, "backend": "custom", "command": "unused", "connectors": [], "permission": permission});
+        let bot = json!({"name": name, "backend": "custom", "tasks": false, "command": "unused", "connectors": [], "permission": permission});
         self.call("createBot", bot).await["bot"]["id"].as_str().unwrap().to_owned()
     }
 
@@ -90,7 +89,7 @@ impl Host {
     pub async fn fixture_bot(&self, name: &str, fixture: &str, args: &str) -> String {
         let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(fixture);
         let command = format!("{} {args}", super::python_agent(&script));
-        let bot = json!({"name": name, "backend": "custom", "command": command, "connectors": [], "notify": false});
+        let bot = json!({"name": name, "backend": "custom", "tasks": false, "command": command, "connectors": [], "notify": false});
         self.call("createBot", bot).await["bot"]["id"].as_str().unwrap().to_owned()
     }
 

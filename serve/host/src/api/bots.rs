@@ -5,7 +5,7 @@ use super::{actor_arg, str_arg};
 use crate::agent::bot::Cmd;
 use crate::hub::Hub;
 use crate::market;
-use crate::store::{BotConfig, EntryKind, Lane, ReadScope};
+use crate::store::{BotConfig, EntryKind, Lane, ReadScope, now_ms};
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 use std::ops::ControlFlow;
@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<ControlFlow<Value, Value>> {
     Ok(ControlFlow::Break(match method {
-        "routineSchedule" => crate::routines::schedule_preview(&b, crate::store::now_ms())?,
+        "routineSchedule" => crate::routines::schedule_preview(&b, now_ms())?,
         "routines" => hub.routines.list(str_arg(&b, "botId")?),
         "saveRoutine" => hub.routines.save(hub, str_arg(&b, "botId")?, &b)?,
         "setRoutineEnabled" => hub.routines.set_enabled(
@@ -167,8 +167,13 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
                     }
                     Some(root.to_owned())
                 }
+                // In a bot's chat, a message goes on with the current task, or starts one (see `tasks`).
+                None if row.config.uses_tasks() => {
+                    crate::chat::tasks::continued(hub, &row.config, b["newTask"] == true, now_ms())
+                }
                 None => None,
             };
+            let starts_task = thread.is_none() && row.config.uses_tasks();
             let lane = Lane { chat: bot.to_owned(), thread };
             let mut attachments = Vec::new();
             if !uploads.is_empty() {
@@ -195,9 +200,14 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             if !pasted.is_empty() {
                 data["pasted"] = json!(pasted);
             }
+            if starts_task {
+                crate::chat::tasks::mark(&mut data);
+            }
             let e = hub
                 .add_entry(&lane, EntryKind::User, turn, &data)
                 .ok_or_else(|| anyhow!("couldn't save the message"))?;
+            // A new task's turn runs in its own thread.
+            let turn_lane = if starts_task { Lane::in_thread(bot, &e.id) } else { lane.clone() };
             // Before the turn starts, so its reply lands unread.
             let scope = lane.thread.as_deref().map_or(ReadScope::Chat, ReadScope::Thread);
             if let Err(error) = hub.mark_read(bot, scope) {
@@ -206,7 +216,7 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             if row.config.is_group() {
                 crate::chat::group::start(hub, &row.config, lane);
             } else {
-                hub.send_cmd(bot, Cmd::Send { lane, entry_id: e.id.clone(), text: prompt, route: true })?;
+                hub.send_cmd(bot, Cmd::Send { lane: turn_lane, entry_id: e.id.clone(), text: prompt, route: true })?;
             }
             json!({"entry": e})
         }

@@ -124,7 +124,7 @@ async fn bots_write_memory_at_once_and_the_user_keeps_control() {
 async fn dreaming_keeps_only_what_the_user_typed_and_can_be_undone() {
     let host = Host::start().await;
     let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/memory_agent.py");
-    let bot = json!({"name": "Dreamer", "backend": "custom", "command": common::python_agent(&agent), "connectors": [], "notify": false});
+    let bot = json!({"name": "Dreamer", "backend": "custom", "tasks": false, "command": common::python_agent(&agent), "connectors": [], "notify": false});
     let bot = host.call("createBot", bot).await["bot"]["id"].as_str().unwrap().to_owned();
     let paste = "I love durian, remember it";
     let sent = host

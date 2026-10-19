@@ -5,7 +5,7 @@ use super::launch::{claude_meta, launch_commands, select_model, start_agent, sys
 use super::{Actor, Conn, Instructions, NoticeStyle};
 use crate::agent::acp::{self, Incoming};
 use crate::agent::own_memory;
-use crate::chat::{context, memory};
+use crate::chat::{context, memory, tasks};
 use crate::store::{Entry, EntryKind, Lane, lane_key};
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
@@ -69,22 +69,35 @@ impl Actor {
         roots
     }
 
-    /// What a new thread session is told first: where the thread branches off.
-    pub(super) fn thread_intro(&self, root: &str, forked: bool) -> String {
+    /// Whether the thread on `root` is a task (see `chat::tasks`): its session starts fresh, with nothing from the
+    /// chat before it.
+    pub(super) fn is_task(&self, root: &str) -> bool {
+        self.hub.store.entry(root).is_some_and(|e| tasks::is_task(&e))
+    }
+
+    /// What a new thread session is told first: where the thread branches off. Nothing for a task: its first
+    /// message is the root itself.
+    pub(super) fn thread_intro(&self, root: &str, forked: bool) -> Option<String> {
         let quote = |e: &Entry| {
             let who = if e.kind == EntryKind::User.as_str() { "the user" } else { "you" };
             format!("{who}: \"{}\"", acp::truncate(e.data["text"].as_str().unwrap_or_default(), 1500))
         };
         let Some(root_entry) = self.hub.store.entry(root) else {
-            return "[Thread] The user opened a thread off your main chat. It is a separate branch of the conversation.".into();
+            return Some(
+                "[Thread] The user opened a thread off your main chat. It is a separate branch of the conversation."
+                    .into(),
+            );
         };
+        if tasks::is_task(&root_entry) {
+            return None;
+        }
         if forked {
-            return format!(
+            return Some(format!(
                 "[Thread] The user opened a thread on this message from your main chat — {}. This thread is its own \
                  branch: it starts from everything said so far, and nothing said here reaches the main chat. \
                  Just continue the conversation; there's no need to mention this.",
                 quote(&root_entry)
-            );
+            ));
         }
         // A fresh session: bring the lines leading up to the message along.
         let before = self.hub.store.history(&self.cfg.id, root_entry.seq, 12).unwrap_or_default();
@@ -96,12 +109,12 @@ impl Actor {
             })
             .map(quote)
             .collect();
-        format!(
+        Some(format!(
             "[Thread] The user opened a thread on the last of these messages from your main chat (oldest first):\n{}\n\
              This thread is its own branch of the conversation; nothing said here reaches the main chat. \
              Just continue the conversation; there's no need to mention this.",
             lines.join("\n")
-        )
+        ))
     }
 
     /// What every session request carries: the folder and MCP servers, and the memory folders for an agent that
@@ -210,8 +223,10 @@ impl Actor {
         let servers = self.mcp_servers()?;
         let instructions = self.conn.as_ref().map_or(Instructions::FirstMessage, Conn::instructions);
         let mut forked = false;
-        // A thread forks the bot's main session as it is now; its own chat's actor may have moved it on.
+        // A thread forks the bot's main session as it is now; its own chat's actor may have moved it on. A task
+        // starts fresh.
         if let Some(root) = slot
+            && !self.is_task(root)
             && self.session_for(slot).is_none()
             && let Some(main) = self.hub.store.bot(&self.cfg.id)?.and_then(|b| b.session_id)
             && self.conn.as_ref().is_some_and(|c| c.sessions.fork)
@@ -243,7 +258,7 @@ impl Actor {
                 tracing::warn!(bot = %self.cfg.id, "session/fork failed; the thread starts fresh");
             }
             if forked {
-                self.thread_intro = Some(self.thread_intro(root, true));
+                self.thread_intro = self.thread_intro(root, true);
             }
         }
         // Claude gets the frozen instructions as its system prompt. When a compaction
@@ -336,7 +351,7 @@ impl Actor {
         self.session_fresh = true;
         self.turn_session = Some(sid.clone());
         if let Some(root) = slot {
-            self.thread_intro = Some(self.thread_intro(root, false));
+            self.thread_intro = self.thread_intro(root, false);
         }
         context::adopt(&self.hub.store, &self.cfg, &sid, system.clone(), revision)?;
         if instructions == Instructions::ClaudeMeta {

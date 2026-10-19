@@ -161,12 +161,14 @@ impl Store {
         logged("unread roots", roots).unwrap_or_default()
     }
 
-    /// Newest chat-visible line in the main chat for the roster preview, with its author
-    /// (`None` for the user; a group reply names the bot that wrote it).
+    /// Newest chat-visible line in the main chat or a task's thread for the roster preview, with its
+    /// author (`None` for the user; a group reply names the bot that wrote it).
     pub fn last_message(&self, id: &str) -> Option<LastMessage> {
         let c = self.db.locked();
         let row = c.query_row(
-            "SELECT kind, data, updated_at FROM entries WHERE bot_id = ?1 AND thread_id IS NULL AND
+            "SELECT kind, data, updated_at FROM entries WHERE bot_id = ?1 AND
+               (thread_id IS NULL OR EXISTS (SELECT 1 FROM entries root WHERE root.id = entries.thread_id AND
+                 json_extract(root.data, '$.task') = 1)) AND
                (kind = 'user' OR (kind = 'agent' AND json_extract(data, '$.final') = 1))
              ORDER BY seq DESC LIMIT 1",
             [id],
@@ -229,6 +231,7 @@ mod tests {
             shared_memory: None,
             harness_memory: false,
             auto_name: false,
+            tasks: None,
             created_at: 0,
         };
         s.save_bot(&cfg).unwrap();
@@ -255,6 +258,15 @@ mod tests {
         let r = s.mark_read("b1").unwrap();
         assert_eq!(s.unread("b1", r, ReadScope::Thread(&u.id)), 1);
         assert_eq!(s.unread("b1", r, ReadScope::All), 1);
+
+        // The roster previews a task's answer, never a reply in a plain thread.
+        assert_eq!(s.last_message("b1").unwrap().text, "yo!");
+        let task =
+            s.insert_entry(&Lane::main("b1"), EntryKind::User, 3, &serde_json::json!({"text": "deploy", "task": true}));
+        let task = task.unwrap();
+        let answer = serde_json::json!({"text": "deployed", "final": true});
+        s.insert_entry(&Lane::in_thread("b1", &task.id), EntryKind::Agent, 3, &answer).unwrap();
+        assert_eq!(s.last_message("b1").unwrap().text, "deployed");
 
         // A deleted bot stays deleted, and its winding-down actor leaves no lines behind.
         s.delete_bot("b1").unwrap();
