@@ -170,7 +170,7 @@ async function main() {
   let ch = await phone.relay(CLOUD, computerId, pairing.signKey);
   const hello = await ch.call("hello", {});
   check(hello.computerId === computerId && hello.boxKey === ref.b64url(pairing.boxKey), "inner hello returns computerId and boxKey");
-  for (let i = 0; i < 20; i++) await ch.call("sync", { since: 0 });
+  for (let i = 0; i < 20; i++) await ch.call("hello", {});
   check(true, "more than 16 messages on the regular link");
 
   const bot = (await ch.call("createBot", { name: "Tester", backend: "custom", command: `python3 '${FAKE_AGENT}'`, cwd: tmp, permission: "ask" })).bot.id;
