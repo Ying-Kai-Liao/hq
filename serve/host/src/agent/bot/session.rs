@@ -52,8 +52,12 @@ impl Actor {
         }
     }
 
-    /// Roots of the threads that have a session (stored or loaded).
-    pub(super) fn thread_roots(&self) -> Vec<String> {
+    /// Roots of the thread sessions this actor answers for: a thread's actor, its own; the bot's own chat's, those
+    /// of every thread without an actor of its own (loaded or only stored). Another actor's thread is that one's.
+    pub(super) fn own_thread_roots(&self) -> Vec<String> {
+        if !self.is_main() {
+            return self.home.thread.iter().filter(|_| self.home.chat == self.cfg.id).cloned().collect();
+        }
         let prefix = lane_key("session", &self.cfg.id, &Lane::main(&self.cfg.id)) + "/";
         let mut roots: Vec<String> = self.thread_sessions.keys().cloned().collect();
         roots.extend(
@@ -61,6 +65,7 @@ impl Actor {
         );
         roots.sort();
         roots.dedup();
+        roots.retain(|root| !self.hub.has_place(&self.cfg.id, &Lane::in_thread(&self.cfg.id, root)));
         roots
     }
 

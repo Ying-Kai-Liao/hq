@@ -208,3 +208,33 @@ async fn a_group_turn_runs_while_the_member_works_in_its_own_chat() {
     assert_ne!(session(&own), session(&room), "the group has its own session, not Ann's 1:1: {own} / {room}");
     assert!(!room.contains("task C"), "nothing from the 1:1 reaches the group's session: {room}");
 }
+
+#[tokio::test]
+async fn deleting_a_group_stops_its_members_there_and_nowhere_else() {
+    if python_missing() {
+        return;
+    }
+    let host = Host::start().await;
+    let ann = host.bot("Ann").await;
+    let group = host.call("createBot", json!({"name": "Team", "kind": "group", "members": [ann]})).await["bot"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    host.send(&ann, None, "task D: the long 1:1 job").await;
+    host.send(&group, None, "team: draft the plan").await;
+    host.wait_for(&group, None, |e| text(e).contains("draft the plan") && text(e).contains("step 1.")).await;
+    host.wait_for(&ann, None, |e| text(e).contains("task D") && text(e).contains("step 1.")).await;
+
+    host.call("deleteBot", json!({"botId": group})).await;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let lanes = host.bot_state(&ann).await["workingLanes"].clone();
+        if lanes.as_array().unwrap().iter().all(|l| l["chat"] == ann.as_str()) {
+            assert_eq!(lanes.as_array().unwrap().len(), 1, "Ann still works in her own chat: {lanes}");
+            break;
+        }
+        assert!(Instant::now() < deadline, "Ann still works in the deleted group: {lanes}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    host.wait_for(&ann, None, |e| text(e).contains("task D") && text(e).contains("step 20.")).await;
+}

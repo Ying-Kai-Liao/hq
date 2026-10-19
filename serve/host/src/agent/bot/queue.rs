@@ -56,7 +56,7 @@ impl Actor {
             Cmd::CancelAsk { id } => {
                 self.queue.retain(|q| !matches!(q, Queued::BotRequest(a) if a.expects_reply() && a.id == id));
                 if self.active_request.as_ref().is_some_and(|a| a.expects_reply() && a.id == id) {
-                    self.hub.team.cancel_from(&self.cfg.id);
+                    self.hub.team.cancel_from(&self.rt);
                     self.stop_requested = true;
                     // The request has expired. Kill only its process so a harness
                     // ignoring cooperative cancellation cannot block the queue.
@@ -111,9 +111,10 @@ impl Actor {
                     if let Some(c) = self.conn.take() {
                         c.acp.kill().await;
                     }
-                    for root in self.thread_roots() {
+                    for root in self.own_thread_roots() {
                         self.set_session(Some(&root), None);
                     }
+                    self.thread_sessions.clear();
                     // Its own chat's or group lane's session; a thread's went with the loop above.
                     if self.session_id.is_some() {
                         self.forget_session();
@@ -132,9 +133,9 @@ impl Actor {
 
     /// Stops this place: its running turn and everything queued here. The bot's other places carry on.
     pub(super) async fn stop(&mut self) {
-        // Requests to other bots and routines belong to the bot's own chat.
+        self.hub.team.cancel_from(&self.rt);
+        // Routines run in the bot's own chat.
         if self.is_main() {
-            self.hub.team.cancel_from(&self.cfg.id);
             if let Err(error) = self.hub.routines.cancel_queued(&self.hub.store, &self.cfg.id) {
                 tracing::error!(error = format!("{error:#}"), "couldn't cancel queued routines");
             }
@@ -370,15 +371,7 @@ impl Actor {
             r.message = None;
             r.session = None;
         });
-        self.end_team_turn();
-    }
-
-    /// The bot's requests to other bots end with its turn. They're tracked per bot, so only its own chat's actor
-    /// (where requests to it run too) ends them; a thread finishing mustn't cancel what the main chat asked.
-    pub(super) fn end_team_turn(&self) {
-        if self.is_main() {
-            self.hub.team.cancel_from(&self.cfg.id);
-        }
+        self.hub.team.cancel_from(&self.rt);
     }
 
     /// When `e` asks for signing in: marks the harness signed out and puts a sign-in card in the

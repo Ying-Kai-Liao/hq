@@ -23,6 +23,7 @@ mod fast_mode;
 mod files;
 mod launch;
 mod lifecycle;
+mod place;
 mod queue;
 mod session;
 mod turn;
@@ -36,8 +37,10 @@ use crate::chat::context::{Identity, Snapshot};
 use crate::chat::group::GroupTurn;
 use crate::chat::memory;
 use crate::hub::{BotStatus, Hub};
-use crate::store::{BotConfig, Entry, EntryKind, Lane, lane_key, now_ms};
+use crate::store::{BotConfig, Entry, EntryKind, Lane, lane_key};
 use anyhow::{Result, anyhow};
+use place::inflight_key;
+pub use place::{actor_key, bot_of, interrupted_places, place_of};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -124,36 +127,6 @@ pub struct BotHandle {
     pub task: tokio::task::JoinHandle<()>,
 }
 
-/// The runtime and kv name of the actor for `home`: the bot's id for its own chat, `bot|lane` for any other place.
-pub fn actor_key(bot: &str, home: &Lane) -> String {
-    if home.chat == bot && home.thread.is_none() { bot.to_owned() } else { format!("{bot}|{}", home.key()) }
-}
-
-/// The bot an actor key belongs to.
-pub fn bot_of(key: &str) -> &str {
-    key.split_once('|').map_or(key, |(bot, _)| bot)
-}
-
-/// The place an actor key names.
-pub fn place_of(key: &str) -> Lane {
-    let Some((_, place)) = key.split_once('|') else { return Lane::main(key) };
-    match place.split_once('/') {
-        Some((chat, root)) => Lane::in_thread(chat, root),
-        None => Lane::main(place),
-    }
-}
-
-/// The places besides its own chat where the previous host process cut off one of the bot's turns.
-pub fn interrupted_places(store: &crate::store::Store, bot: &str) -> Vec<Lane> {
-    let all = inflight_key("");
-    store
-        .kv_prefix(&inflight_key(&format!("{bot}|")))
-        .into_iter()
-        .filter(|k| store.kv_get(k).is_some_and(|v| !v.is_empty()))
-        .filter_map(|k| k.strip_prefix(&all).map(place_of))
-        .collect()
-}
-
 /// Starts the actor for `home`, one of the places the bot talks. All of a bot's actors share its `dreamer`.
 pub fn spawn(
     hub: Arc<Hub>,
@@ -171,14 +144,7 @@ pub fn spawn(
     } else {
         hub.store.kv_get(&lane_key("session", &cfg.id, &home)).filter(|s| !s.is_empty())
     };
-    // A turn the previous host process never finished (crash, update, restart), unless
-    // it's stale: an hour-old task is more likely unwanted than awaited (gawkbot's rule).
-    let interrupted = hub.store.kv_get(&inflight_key(&rt)).and_then(|v| {
-        let (started, thread) = v.split_once('\t').unwrap_or((&v, ""));
-        let started: i64 = started.parse().ok()?;
-        let thread = (!thread.is_empty()).then(|| thread.to_owned()).or_else(|| home.thread.clone());
-        (now_ms() - started < STALE_RESUME_MS).then(|| Lane { chat: home.chat.clone(), thread })
-    });
+    let interrupted = place::interrupted(&hub.store, &rt, &home);
     let fast_support = FastModeSupport::from_stored(hub.store.kv_get(&fast_mode::stored_key(&cfg.id)).as_deref());
     let support = fast_support.clone();
     hub.set_runtime(&rt, |r| r.fast_mode = support);
@@ -477,7 +443,7 @@ impl Actor {
             }
         }
         self.files.cancel();
-        self.end_team_turn();
+        self.hub.team.cancel_from(&self.rt);
         self.complete_request(Err(anyhow!("recipient shut down")), true);
         self.complete_group(Err(anyhow!("bot shut down")));
         if let Some(c) = self.conn.take() {
@@ -523,13 +489,6 @@ const RESUME_PROMPT: &str = "[Codync restarted on this computer and interrupted 
 
 /// How long a cancelled turn may take to wind down before its agent process is stopped.
 const CANCEL_GRACE: Duration = Duration::from_secs(15);
-
-/// An interrupted turn older than this isn't resumed.
-const STALE_RESUME_MS: i64 = 60 * 60 * 1000;
-
-fn inflight_key(bot_id: &str) -> String {
-    format!("turn.inflight.{bot_id}")
-}
 
 async fn recv_incoming(conn: &mut Option<Conn>) -> Option<Incoming> {
     match conn {

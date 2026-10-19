@@ -55,11 +55,45 @@ impl Hub {
         self.keep_awake.locked().set(false);
     }
 
-    /// Stops all of a deleted bot's actors and forgets their state.
+    /// Stops all of a deleted bot's actors and forgets their state; for a group, its members' actors in it.
     pub(super) fn remove_bot_actors(&self, id: &str) {
+        // Shut down only: a bot without actors (a group) has nothing to stop.
         let _ = self.send_cmd(id, Cmd::Shutdown);
         self.bots.locked().remove(id);
         self.runtime.locked().retain(|key, _| bot_of(key) != id);
+        self.close_group_places(id, &[]);
+    }
+
+    /// Stops the actors that bots other than `members` have in the group `group` (it was deleted, or they left it).
+    pub(super) fn close_group_places(&self, group: &str, members: &[String]) {
+        let closed: Vec<(String, BotHandle)> = {
+            let mut bots = self.bots.locked();
+            let leaving = bots.iter_mut().filter(|(bot, _)| !members.contains(bot));
+            leaving
+                .flat_map(|(_, actors)| {
+                    let keys: Vec<String> = actors
+                        .places
+                        .iter()
+                        .filter(|(_, (home, _))| home.chat == group)
+                        .map(|(k, _)| k.clone())
+                        .collect();
+                    keys.into_iter().filter_map(|k| actors.places.remove(&k).map(|(_, h)| (k, h))).collect::<Vec<_>>()
+                })
+                .collect()
+        };
+        let mut touched: Vec<String> = closed.iter().map(|(key, _)| bot_of(key).to_owned()).collect();
+        {
+            let mut runtime = self.runtime.locked();
+            for (key, handle) in closed {
+                // An actor that already stopped needs nothing more.
+                let _ = handle.tx.send(Cmd::Shutdown);
+                runtime.remove(&key);
+            }
+        }
+        touched.dedup();
+        for bot in touched {
+            self.emit_bot(&bot);
+        }
     }
 
     /// A command for a bot, delivered to the actor of the place it concerns: a message or a room turn to that
@@ -80,6 +114,8 @@ impl Hub {
             Cmd::Permission { ref entry_id, .. } | Cmd::Routed { ref entry_id, .. } => {
                 let lane = self.store.entry(entry_id).map(|e| Lane { chat: e.bot_id, thread: e.thread_id });
                 let key = lane.map_or_else(|| bot_id.to_owned(), |l| self.actor_in(bot_id, &l));
+                // A card in a place with no actor has no turn waiting on it; the bot's own chat drops the answer.
+                let key = if self.has_place(bot_id, &place_of(&key)) { key } else { bot_id.to_owned() };
                 self.send_to_actor(&key, cmd)
             }
             Cmd::CancelGroup { chat } => {
@@ -113,6 +149,11 @@ impl Hub {
             self.send_to_actor(&key, Cmd::Stop)?;
         }
         Ok(())
+    }
+
+    /// Whether the bot has an actor of its own for `home`.
+    pub fn has_place(&self, bot_id: &str, home: &Lane) -> bool {
+        self.bots.locked().get(bot_id).is_some_and(|a| a.places.contains_key(&actor_key(bot_id, home)))
     }
 
     fn deliver(&self, bot_id: &str, home: &Lane, cmd: Cmd) -> Result<()> {
@@ -174,11 +215,11 @@ impl Hub {
     }
 
     /// The bot as clients see it: its own chat's state while that is busy, else a place waiting on the user,
-    /// else one at work, else its own chat's. Fast mode is the bot's.
+    /// else one at work, else its own chat's (idle, or how its last turn ended). Fast mode is the bot's.
     pub fn bot_runtime(&self, bot_id: &str) -> Runtime {
         let runtime = self.runtime.locked();
         let main = runtime.get(bot_id).cloned().unwrap_or_default();
-        if main.status != BotStatus::Idle {
+        if matches!(main.status, BotStatus::Working | BotStatus::NeedsInput) {
             return main;
         }
         let others = || runtime.iter().filter(|(key, _)| *key != bot_id && bot_of(key) == bot_id).map(|(_, rt)| rt);
@@ -222,5 +263,39 @@ impl Hub {
         let name = self.bot_name(&member);
         r.activity = if r.activity.is_empty() { name } else { format!("{name}: {}", r.activity) };
         r
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::agent::config::FastModeSupport;
+    use crate::hub::{BotStatus, Hub};
+    use crate::remote::identity::Identity;
+    use crate::store::{Lane, Store};
+
+    #[tokio::test]
+    async fn a_bot_shows_a_working_place_over_how_its_chat_last_ended() {
+        let dir = std::env::temp_dir().join(format!("codync-actors-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let hub = Hub::new(store, "actors-test".into(), Identity::load_or_create(&dir).unwrap(), "test".into(), 0);
+        hub.set_runtime("b", |r| {
+            r.status = BotStatus::Error;
+            r.fast_mode = FastModeSupport::Unsupported;
+        });
+        assert_eq!(hub.bot_runtime("b").status, BotStatus::Error);
+
+        hub.set_runtime("b|b/root", |r| {
+            r.status = BotStatus::Working;
+            r.lane = Some(Lane::in_thread("b", "root"));
+        });
+        let shown = hub.bot_runtime("b");
+        assert_eq!(shown.status, BotStatus::Working, "a thread at work outranks the chat's failed turn");
+        assert_eq!(shown.lane, Some(Lane::in_thread("b", "root")));
+        assert_eq!(shown.fast_mode, FastModeSupport::Unsupported, "Fast mode is the bot's");
+
+        hub.set_runtime("b", |r| r.status = BotStatus::NeedsInput);
+        assert_eq!(hub.bot_runtime("b").status, BotStatus::NeedsInput, "the chat while it's busy");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -53,7 +53,7 @@ fn str_arg<'a>(b: &'a Value, k: &str) -> Result<&'a str> {
     b[k].as_str().ok_or_else(|| anyhow!("`{k}` is required"))
 }
 
-/// The actor a built-in tool call came from (its `CODYNC_ACTOR`), when it is one of `bot`'s; else its own chat's.
+/// The actor a built-in tool call came from (`actor`, set by `mcp.rs`), when it is one of `bot`'s; else its own chat's.
 fn actor_arg<'a>(b: &'a Value, bot: &'a str) -> &'a str {
     b["actor"].as_str().filter(|a| crate::agent::bot::bot_of(a) == bot).unwrap_or(bot)
 }

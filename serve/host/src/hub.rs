@@ -212,7 +212,9 @@ impl Hub {
             let _g = self.emit_lock.locked();
             self.store.save_bot(&cfg)?;
         }
-        if !cfg.is_group() {
+        if cfg.is_group() {
+            self.close_group_places(&id, &cfg.members);
+        } else {
             if crate::chat::memory::shared(&cfg) != crate::chat::memory::shared(&row.config) {
                 crate::chat::memory::changed(self, Some(&id));
             }

@@ -51,7 +51,8 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             }
         }
         "teamCall" => {
-            crate::chat::team::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?
+            let (bot, name) = (str_arg(&b, "botId")?, str_arg(&b, "name")?);
+            crate::chat::team::call(hub, actor_arg(&b, bot), name, &b["arguments"]).await?
         }
         "history" => {
             let bot = str_arg(&b, "botId")?;

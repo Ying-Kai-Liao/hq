@@ -98,7 +98,7 @@ impl Actor {
         self.announce = None;
         self.stop_requested = false;
         self.cancel_deadline = None;
-        self.hub.team.start_turn(&self.cfg.id, self.active_request.as_ref());
+        self.hub.team.start_turn(&self.rt, self.active_request.as_ref());
         self.exit_tail = None;
         self.seg = Seg::None;
         self.tools.clear();
@@ -154,7 +154,7 @@ impl Actor {
             if self.routine_completion.is_none() {
                 self.set_inflight(false);
             }
-            self.end_team_turn();
+            self.hub.team.cancel_from(&self.rt);
             self.hub.set_runtime(&self.rt, |r| {
                 r.status = BotStatus::Idle;
                 r.activity = String::new();
@@ -345,7 +345,7 @@ impl Actor {
             r.message = None;
             r.session = None;
         });
-        self.end_team_turn();
+        self.hub.team.cancel_from(&self.rt);
         // A room turn's news comes from the group once the room is done (see `group`).
         let more = self.queue.iter().any(|q| matches!(q, Queued::User { .. }));
         if !self.stop_requested

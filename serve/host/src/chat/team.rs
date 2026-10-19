@@ -223,15 +223,16 @@ fn visible_bot(hub: &Hub, id: &str) -> Result<BotConfig> {
         .ok_or_else(|| anyhow!("unknown or hidden bot"))
 }
 
-pub async fn call(hub: &Arc<Hub>, from: &str, name: &str, args: &Value) -> Result<Value> {
-    let source = visible_bot(hub, from)?;
+/// `actor` is the requesting place (`agent::bot::actor_key`).
+pub async fn call(hub: &Arc<Hub>, actor: &str, name: &str, args: &Value) -> Result<Value> {
+    let source = visible_bot(hub, crate::agent::bot::bot_of(actor))?;
     match name {
         "list_bots" => {
             let bots: Vec<Value> = hub
                 .store
                 .bots()?
                 .into_iter()
-                .filter(|b| !b.deleted && !b.config.hidden && !b.config.is_group() && b.config.id != from)
+                .filter(|b| !b.deleted && !b.config.hidden && !b.config.is_group() && b.config.id != source.id)
                 .map(|b| {
                     json!({
                         "id": b.config.id, "name": b.config.name, "description": b.config.description,
@@ -245,18 +246,18 @@ pub async fn call(hub: &Arc<Hub>, from: &str, name: &str, args: &Value) -> Resul
         "ask_bot" => {
             let to = args["botId"].as_str().ok_or_else(|| anyhow!("botId is required"))?;
             let message = args["message"].as_str().unwrap_or_default().trim();
-            ask(hub, &source, to, message, ASK_TIMEOUT).await
+            ask(hub, &source, actor, to, message, ASK_TIMEOUT).await
         }
         "message_bot" => {
             let to = args["botId"].as_str().ok_or_else(|| anyhow!("botId is required"))?;
             let message = args["message"].as_str().unwrap_or_default().trim();
-            message_bot(hub, &source, to, message)
+            message_bot(hub, &source, actor, to, message)
         }
         _ => bail!("unknown team tool: {name}"),
     }
 }
 
-fn message_bot(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str) -> Result<Value> {
+fn message_bot(hub: &Arc<Hub>, source: &BotConfig, actor: &str, to: &str, message: &str) -> Result<Value> {
     if message.is_empty() || message.len() > MAX_MESSAGE_BYTES {
         bail!("message must be nonempty and at most {MAX_MESSAGE_BYTES} bytes");
     }
@@ -264,7 +265,7 @@ fn message_bot(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str) -> R
         bail!("a bot cannot message itself");
     }
     let target = visible_bot(hub, to)?;
-    let hops = hub.team.reserve_message(&source.id)?;
+    let hops = hub.team.reserve_message(actor)?;
     let mut lifetime = MessageLifetime {
         hub: hub.clone(),
         sender: source.id.clone(),
@@ -302,19 +303,26 @@ fn message_bot(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str) -> R
     Ok(json!({"requestId": id, "botId": target.id, "name": target.name, "status": RequestStatus::Queued}))
 }
 
-async fn ask(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str, timeout: Duration) -> Result<Value> {
+async fn ask(
+    hub: &Arc<Hub>,
+    source: &BotConfig,
+    actor: &str,
+    to: &str,
+    message: &str,
+    timeout: Duration,
+) -> Result<Value> {
     if message.is_empty() || message.len() > MAX_MESSAGE_BYTES {
         bail!("message must be nonempty and at most {MAX_MESSAGE_BYTES} bytes");
     }
-    if !matches!(hub.bot_runtime(&source.id).status, BotStatus::Working | BotStatus::NeedsInput) {
+    if !matches!(hub.runtime(actor).status, BotStatus::Working | BotStatus::NeedsInput) {
         bail!("the requesting bot is no longer working");
     }
     let target = visible_bot(hub, to)?;
     let id = uuid::Uuid::new_v4().to_string();
-    let (mut cancelled, hops) = hub.team.begin(&id, &source.id, to)?;
+    let (mut cancelled, hops) = hub.team.begin(&id, actor, to)?;
     let mut pending =
         Pending { hub: hub.clone(), id: id.clone(), target: to.to_owned(), entries: vec![], finished: false };
-    if !matches!(hub.bot_runtime(&source.id).status, BotStatus::Working | BotStatus::NeedsInput) {
+    if !matches!(hub.runtime(actor).status, BotStatus::Working | BotStatus::NeedsInput) {
         bail!("the requesting bot is no longer working");
     }
     for (bot, heading) in [
