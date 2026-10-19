@@ -276,6 +276,11 @@ memory (hq memory replaces it) and the flow plugin (flow calls agents, not the o
 pinned skill, devops keeps vercel; finance and personal can't edit `~/.hermes`. Subagent calls (`hq:<name>` inside a
 session) use that session's settings instead.
 
+**Plugins**: a run turns on the hq plugin and whatever the agent's `settings.json` enables; every other installed plugin
+is off. For a plugin every agent on a Mac should load, list it in that Mac's `~/.hq/settings.json`:
+`{"plugins": ["jev-effort-router@jev-effort-router"]}` (ids as `claude plugin list` shows them). An agent whose
+`settings.json` sets that plugin in `enabledPlugins` keeps its own choice. `hq <agent> --inspect` shows what a run loads.
+
 **Model and effort** live in `agent.md`'s frontmatter (`model: sonnet`, `effort: low|medium|high|xhigh|max`), so they
 apply to both `hq <agent>` runs and `hq:<name>` subagents and change with the agent's version. Override one run with
 `hq <agent> -m MODEL -e EFFORT` (or `HQ_MODEL` / `HQ_EFFORT`); leave a field out to use your global setting.

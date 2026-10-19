@@ -272,7 +272,8 @@ fi
 # hq's secrets kept out of its file tools (they sit inside ~/.hq, which every run can read; tools get them from hq-auth),
 # and the writes PROTOCOL asks for allowed without a prompt (a one-shot run has no one to approve them): its memory,
 # its learned skills and the shared project files, each under its logical and its resolved path. Every installed plugin
-# but hq is off unless the agent's settings turn it on, so a plugin installed after the agent was made stays out.
+# but hq is off unless the agent's settings turn it on, so a plugin installed after the agent was made stays out; the
+# ones this Mac lists for every agent ("plugins" in ~/.hq/settings.json) are on unless the agent's settings say no.
 # Shared project files are writable for the owner; for anyone else only the current project's. A run no one chose a
 # mode for (no HQ_PERMISSION_MODE, no defaultMode in the agent's settings) starts in hq's default mode.
 state_projects="$HQ_STATE/projects"$'\n'"$HQ_STATE_REAL/projects"
@@ -295,17 +296,18 @@ s.setdefault("permissions", {}).setdefault("deny", []).extend(
 s["permissions"]["deny"].extend(d for d in os.environ["DENY"].split("\n") if d)   # from the membership of the person the run is for
 allow = s["permissions"].setdefault("allow", [])
 allow.extend(r for r in dict.fromkeys("Edit(/%s/**)" % d for d in os.environ["WRITABLE"].split("\n") if d.strip()) if r not in allow)
+sys.path.insert(0, os.environ["HQ_ROOT"] + "/lib")
+from hq_settings import get
 if not os.environ["PERM_MODE"]:
-    sys.path.insert(0, os.environ["HQ_ROOT"] + "/lib")
-    from hq_settings import get
     s["permissions"].setdefault("defaultMode", get("permission_mode"))
 try:
     installed = [p["id"] for p in json.loads(os.environ["PLUGINS"])]
 except (ValueError, KeyError, TypeError):
     installed = []
+every = get("plugins")
 on = s.setdefault("enabledPlugins", {})
 for p in installed:
-    on.setdefault(p, p == "hq@hq")
+    on.setdefault(p, p == "hq@hq" or p in every)
 json.dump(s, sys.stdout, indent=1)' > "$runs/$$.settings.json"
 fi
 
