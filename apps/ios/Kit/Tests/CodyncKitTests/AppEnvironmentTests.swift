@@ -4,7 +4,7 @@ import Testing
 
 struct AppEnvironmentTests {
     @Test func developmentWidgetsAndDataStaySeparateFromProduction() {
-        #expect(AppEnvironment.main.appGroup == "group.com.pokai.Codync")
+        #expect(AppEnvironment.main.appGroup == "group.com.yingkailiao.kith")
         #expect(AppEnvironment.main.link("computers").absoluteString == "codync://computers")
         #expect(AppEnvironment.dev.appGroup != AppEnvironment.main.appGroup)
         #expect(AppEnvironment.dev.link("computers").absoluteString == "codync-dev://computers")

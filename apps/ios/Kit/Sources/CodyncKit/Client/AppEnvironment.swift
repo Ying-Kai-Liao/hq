@@ -9,7 +9,7 @@ public enum AppEnvironment: String, Sendable {
         rawValue: Bundle.main.object(forInfoDictionaryKey: "CodyncEnvironment") as? String ?? "main"
     ) ?? .main
 
-    public var appGroup: String { self == .dev ? "group.com.pokai.Codync.dev" : "group.com.pokai.Codync" }
+    public var appGroup: String { self == .dev ? "group.com.yingkailiao.kith.dev" : "group.com.yingkailiao.kith" }
     public var urlScheme: String { self == .dev ? "codync-dev" : "codync" }
 
     public func link(_ destination: String) -> URL {

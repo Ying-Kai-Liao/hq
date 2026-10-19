@@ -1,7 +1,7 @@
 # Generate the Xcode project with: xcodegen generate --spec apps/project.yml
 name: Codync
 options:
-  bundleIdPrefix: com.pokai
+  bundleIdPrefix: com.yingkailiao
   deploymentTarget:
     iOS: "18.0"
     macOS: "14.0"
@@ -34,10 +34,10 @@ settings:
     DEAD_CODE_STRIPPING: YES
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     CODYNC_ENV: main
-    CODYNC_APP_NAME: Codync
-    CODYNC_IOS_BUNDLE_ID: com.pokai.Codync.ios
-    CODYNC_APP_GROUP: group.com.pokai.Codync
-    CODYNC_KEYCHAIN_GROUP: com.pokai.Codync
+    CODYNC_APP_NAME: Kith
+    CODYNC_IOS_BUNDLE_ID: com.yingkailiao.kith.ios
+    CODYNC_APP_GROUP: group.com.yingkailiao.kith
+    CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith
     CODYNC_URL_SCHEME: codync
     CODYNC_SCREEN_NAME: CodyncScreen
     CODYNC_SCREEN_BUNDLE_ID: com.pokai.Codync.screen
@@ -49,10 +49,10 @@ settings:
       CODYNC_APNS_ENVIRONMENT: production
     DevDebug:
       CODYNC_ENV: dev
-      CODYNC_APP_NAME: Codync Dev
-      CODYNC_IOS_BUNDLE_ID: com.pokai.Codync.ios.dev
-      CODYNC_APP_GROUP: group.com.pokai.Codync.dev
-      CODYNC_KEYCHAIN_GROUP: com.pokai.Codync.dev
+      CODYNC_APP_NAME: Kith Dev
+      CODYNC_IOS_BUNDLE_ID: com.yingkailiao.kith.ios.dev
+      CODYNC_APP_GROUP: group.com.yingkailiao.kith.dev
+      CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith.dev
       CODYNC_URL_SCHEME: codync-dev
       CODYNC_SCREEN_NAME: CodyncDevScreen
       CODYNC_SCREEN_BUNDLE_ID: com.pokai.Codync.dev.screen
@@ -60,10 +60,10 @@ settings:
       CODYNC_APNS_ENVIRONMENT: sandbox
     DevRelease:
       CODYNC_ENV: dev
-      CODYNC_APP_NAME: Codync Dev
-      CODYNC_IOS_BUNDLE_ID: com.pokai.Codync.ios.dev
-      CODYNC_APP_GROUP: group.com.pokai.Codync.dev
-      CODYNC_KEYCHAIN_GROUP: com.pokai.Codync.dev
+      CODYNC_APP_NAME: Kith Dev
+      CODYNC_IOS_BUNDLE_ID: com.yingkailiao.kith.ios.dev
+      CODYNC_APP_GROUP: group.com.yingkailiao.kith.dev
+      CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith.dev
       CODYNC_URL_SCHEME: codync-dev
       CODYNC_SCREEN_NAME: CodyncDevScreen
       CODYNC_SCREEN_BUNDLE_ID: com.pokai.Codync.dev.screen
