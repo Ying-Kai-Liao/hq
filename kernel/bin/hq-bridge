@@ -28,15 +28,23 @@ HQ_BRIDGE_DM_DEFAULT (the agent the owner's new DMs go to; default personal), HQ
 for more messages before a run starts; default 2), HQ_BRIDGE_ROUTER (jev or off; default jev when a Jev key is
 found), HQ_BRIDGE_INTERRUPT (off: corrections wait for the next turn instead of restarting the run),
 HQ_BRIDGE_CONTEXT_SHOW (a reply ends with a small "context N%" line once the thread's session is at least this full,
-in percent; default 30, off to never show it).
+in percent; default 30, off to never show it), HQ_BRIDGE_STALL (seconds the bridge may be stuck before it exits for
+launchd to start it again; default 180).
 State: ~/.hq/bridge/ (rooms, threads → sessions, the inbox, webhooks, downloaded attachments, run outboxes).
 Log: ~/.hq/logs/bridge.log.
+
+Self-healing: a watchdog thread exits the process when the event loop or its thread pool stops answering (launchd's
+KeepAlive starts it again); a connection that goes quiet (Discord: no gateway traffic, Telegram: no poll comes back)
+is restarted. What was sent while the bridge was away is answered once when it is back, marked late: Telegram keeps
+it until the saved offset confirms it, Discord's is read from history after the last message the bridge saw.
 """
 import asyncio
 import json
 import os
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 HQ = Path(__file__).resolve().parent.parent
@@ -127,15 +135,27 @@ def connections():
 
 
 async def supervise(adapter):
-    """One connection: run it, and when it drops or fails, start it again after a pause that grows to 5 min."""
-    import time
+    """One connection: run it, and when it drops, fails or goes quiet for adapter.quiet seconds, start it again after
+    a pause that grows to 5 min."""
     pause = 5
     while True:
         began = time.time()
+        adapter.alive = time.monotonic()
+        run = asyncio.create_task(adapter.start())
         try:
-            await adapter.start()
-            log(f'{adapter.conn}: connection ended')
+            while not run.done():
+                await asyncio.wait({run}, timeout=min(15, (adapter.quiet or 45) / 3))
+                silent = time.monotonic() - adapter.alive
+                if adapter.quiet and not run.done() and silent > adapter.quiet:
+                    log(f'{adapter.conn}: nothing from it for {silent:.0f}s; restarting the connection')
+                    run.cancel()
+                    await asyncio.wait({run}, timeout=30)   # a call stuck in a thread is left behind
+                    break
+            else:
+                run.result()
+                log(f'{adapter.conn}: connection ended')
         except asyncio.CancelledError:
+            run.cancel()
             raise
         except Exception as e:  # noqa: BLE001  never let one platform take the bridge down
             log(f'{adapter.conn}: {type(e).__name__}: {e}')
@@ -144,13 +164,40 @@ async def supervise(adapter):
         await asyncio.sleep(pause)
 
 
+async def heartbeat(beat, every):
+    """Proves that the loop runs and its thread pool (Telegram's polls, DNS lookups, hq-auth) has room."""
+    while True:
+        await asyncio.to_thread(time.monotonic)
+        beat[0] = time.monotonic()
+        await asyncio.sleep(every)
+
+
+def watchdog(beat, limit):
+    """A thread of its own: when the heartbeat stops for `limit` seconds the bridge is stuck, so it exits and
+    launchd (KeepAlive) starts it again."""
+    while True:
+        time.sleep(min(10, limit / 3))
+        silent = time.monotonic() - beat[0]
+        if silent > limit:
+            log(f'stuck: no heartbeat for {silent:.0f}s; exiting so launchd starts the bridge again')
+            os._exit(70)
+
+
+def guard():
+    """Starts the watchdog; -> the heartbeat task."""
+    limit = float(os.environ.get('HQ_BRIDGE_STALL') or 180)
+    beat = [time.monotonic()]
+    threading.Thread(target=watchdog, args=(beat, limit), daemon=True, name='hq-bridge-watchdog').start()
+    return asyncio.create_task(heartbeat(beat, min(5, limit / 4)))
+
+
 async def serve():
+    tasks = [guard()]
     core = Core()
     conns = await asyncio.to_thread(connections)
     if not conns:
         sys.exit(f"hq-bridge: no bots: set HQ_DISCORD_BOT_TOKEN in {paths()['HQ_SECRETS'] / 'env'}, or grant one "
                  f"(hq-auth set telegram/hq TELEGRAM_BOT_TOKEN; hq-auth grant bridge telegram telegram/hq)")
-    tasks = []
     for profile, platform, secrets in conns:
         try:
             if platform == 'discord':

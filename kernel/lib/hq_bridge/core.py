@@ -49,10 +49,17 @@ STATE = STATE_DIR / 'state.json'
 AUTH_BIN, HQ_BIN = str(KERNEL / 'bin' / 'hq-auth'), str(KERNEL / 'bin' / 'hq')
 LIVE_BIN = str(KERNEL / 'bin' / 'hq-live')
 KEEP = 5000   # threads and reply links kept in the state: the newest few thousand are enough to come back to
+LATE = 120    # seconds: a message older than this when it arrives was sent while the bridge was away
 
 
 def log(*a):
-    print('hq-bridge:', *a, flush=True)
+    print(time.strftime('%Y-%m-%d %H:%M:%S'), 'hq-bridge:', *a, flush=True)
+
+
+def late_note(sent):
+    """What the agent is told about a message that waited for the bridge."""
+    return (f'(Sent at {time.strftime("%Y-%m-%d %H:%M", time.localtime(sent))} while hq\'s chat bridge was away; it '
+            f'reached you at {time.strftime("%H:%M")}. Say briefly that you picked it up late.)\n\n')
 
 
 _dirs = {'at': 0.0, 'dirs': {}}
@@ -274,16 +281,19 @@ class Incoming:
     quoted: str = ''            # the text of a message replied to that isn't hq's
     files: list = field(default_factory=list)   # local paths of the files sent with it
     ref: object = None          # the adapter's own handle on the message (reactions)
+    sent: float | None = None   # when it was sent (unix time), so one that waited for the bridge is marked late
 
 
 class Adapter:
     """One connection (a bot on a platform). Subclasses fill these in; the core never touches the platform."""
     platform = ''
     footer = ''   # added to the task: where the answer goes and how to send files
+    quiet = None  # seconds without a sign of life (self.alive) after which hq-bridge restarts the connection
 
     def __init__(self, conn, secrets, core):
         self.conn, self.secrets, self.core = conn, secrets, core
         self.cs = core.st['conns'].setdefault(conn, {})   # this connection's own state (offsets, webhooks)
+        self.alive = time.monotonic()                     # start() sets it whenever it hears from the platform
 
     async def start(self):                          # connect and receive; returns or raises when the connection drops
         raise NotImplementedError
@@ -467,6 +477,8 @@ class Core:
             task = f'(Replying to: "{m.quoted[:1500]}")\n\n{task}'
         if m.files:
             task += '\n\nAttached files: ' + ', '.join(m.files)
+        if m.sent and time.time() - m.sent > LATE:
+            task = late_note(m.sent) + task
         agent = agent or (th or {}).get('last') or default or None
         if not agent:
             if not (m.addressed or m.private):
