@@ -10,6 +10,7 @@ import html
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -60,6 +61,7 @@ def _inline(t):
 
 class Telegram(Adapter):
     platform = 'telegram'
+    quiet = 300   # a poll returns within 70 s, a failed one is retried after at most 30 s
     footer = ('\n\n(From Telegram: your final answer is posted here automatically; Markdown shows as formatting. '
               'Send images and files with hq-send; files the user sent are listed as paths. Helpers you call post '
               'status with `hq-send --as <their name>`.)')
@@ -115,8 +117,9 @@ class Telegram(Adapter):
         except Exception as e:  # noqa: BLE001  the menu is a convenience
             log(f'{self.conn}: commands not set: {type(e).__name__}')
         self.core.resume(self)
-        offset = self.cs.get('offset', 0)
+        offset = self.cs.get('offset', 0)   # Telegram keeps what came while the bridge was away (24 h) until confirmed
         while True:
+            self.alive = time.monotonic()
             try:
                 res = await self.tg('getUpdates', offset=offset, timeout=50,
                                     allowed_updates=['message', 'callback_query'])
@@ -132,7 +135,9 @@ class Telegram(Adapter):
                 await asyncio.sleep(15)
                 continue
             for u in res.get('result', []):
-                offset = u['update_id'] + 1
+                self.alive = time.monotonic()
+                # before handling it: the save that queues its work also confirms it, so a restart never answers twice
+                offset = self.cs['offset'] = u['update_id'] + 1
                 try:
                     if u.get('message'):
                         m = await self.incoming(u['message'])
@@ -143,7 +148,6 @@ class Telegram(Adapter):
                 except Exception as e:  # noqa: BLE001  one bad message must not stop the bot
                     log(f'{self.conn}: message failed: {type(e).__name__}: {e}')
             if res.get('result'):
-                self.cs['offset'] = offset
                 self.core.save()
 
     async def incoming(self, m):
@@ -168,7 +172,7 @@ class Telegram(Adapter):
             return None
         return Incoming(uid=str(sender['id']), text=text, room=f'{self.conn}:{cid}', thread=thread,
                         origin={'chat': cid, 'message': mid}, private=private, addressed=addressed, quoted=quoted,
-                        files=await self.download(m), ref={'chat': cid, 'message': mid})
+                        files=await self.download(m), ref={'chat': cid, 'message': mid}, sent=m.get('date'))
 
     async def download(self, m):
         got = []
