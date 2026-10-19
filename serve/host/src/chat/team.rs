@@ -236,7 +236,7 @@ pub async fn call(hub: &Arc<Hub>, from: &str, name: &str, args: &Value) -> Resul
                     json!({
                         "id": b.config.id, "name": b.config.name, "description": b.config.description,
                         "backend": b.config.backend, "cwd": b.config.cwd,
-                        "status": hub.runtime(&b.config.id).status,
+                        "status": hub.bot_runtime(&b.config.id).status,
                     })
                 })
                 .collect();
@@ -306,7 +306,7 @@ async fn ask(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str, timeou
     if message.is_empty() || message.len() > MAX_MESSAGE_BYTES {
         bail!("message must be nonempty and at most {MAX_MESSAGE_BYTES} bytes");
     }
-    if !matches!(hub.runtime(&source.id).status, BotStatus::Working | BotStatus::NeedsInput) {
+    if !matches!(hub.bot_runtime(&source.id).status, BotStatus::Working | BotStatus::NeedsInput) {
         bail!("the requesting bot is no longer working");
     }
     let target = visible_bot(hub, to)?;
@@ -314,7 +314,7 @@ async fn ask(hub: &Arc<Hub>, source: &BotConfig, to: &str, message: &str, timeou
     let (mut cancelled, hops) = hub.team.begin(&id, &source.id, to)?;
     let mut pending =
         Pending { hub: hub.clone(), id: id.clone(), target: to.to_owned(), entries: vec![], finished: false };
-    if !matches!(hub.runtime(&source.id).status, BotStatus::Working | BotStatus::NeedsInput) {
+    if !matches!(hub.bot_runtime(&source.id).status, BotStatus::Working | BotStatus::NeedsInput) {
         bail!("the requesting bot is no longer working");
     }
     for (bot, heading) in [

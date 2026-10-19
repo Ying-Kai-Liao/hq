@@ -117,7 +117,8 @@ pub fn tools() -> Value {
     ])
 }
 
-pub async fn call(hub: &Arc<Hub>, bot: &str, name: &str, args: &Value) -> Result<Value> {
+/// `actor`: the bot's actor whose agent called (see `agent::bot::actor_key`); its request cards go where its turn talks.
+pub async fn call(hub: &Arc<Hub>, bot: &str, actor: &str, name: &str, args: &Value) -> Result<Value> {
     hub.store.bot(bot)?.filter(|b| !b.deleted && !b.config.is_group()).ok_or_else(|| anyhow!("unknown bot"))?;
     match name {
         "search_connectors" => super::browse_connectors(&hub.store, text(args, "query")?, "").await,
@@ -128,7 +129,7 @@ pub async fn call(hub: &Arc<Hub>, bot: &str, name: &str, args: &Value) -> Result
             if site.is_empty() || site.len() > 200 {
                 bail!("Give the website's domain or the app's name");
             }
-            let lane = hub.runtime(bot).lane.unwrap_or_else(|| Lane::main(bot));
+            let lane = hub.runtime(actor).lane.unwrap_or_else(|| Lane::main(bot));
             let reason: String = text(args, "reason")?.chars().take(400).collect();
             let entry = hub
                 .add_entry(
@@ -145,7 +146,7 @@ pub async fn call(hub: &Arc<Hub>, bot: &str, name: &str, args: &Value) -> Result
             if toolkit.len() > 100 || !toolkit.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-') {
                 bail!("Invalid app identifier");
             }
-            let lane = hub.runtime(bot).lane.unwrap_or_else(|| Lane::main(bot));
+            let lane = hub.runtime(actor).lane.unwrap_or_else(|| Lane::main(bot));
             let reason: String = text(args, "reason")?.chars().take(400).collect();
             // The card shows the app's own name and logo when Composio lists it.
             let listed = super::composio::toolkits(&hub.store, &toolkit, "")
@@ -185,7 +186,7 @@ pub async fn call(hub: &Arc<Hub>, bot: &str, name: &str, args: &Value) -> Result
                     bail!("Invalid credential destination");
                 }
             }
-            let lane = hub.runtime(bot).lane.unwrap_or_else(|| Lane::main(bot));
+            let lane = hub.runtime(actor).lane.unwrap_or_else(|| Lane::main(bot));
             let request = json!({"kind":if secret {RequestKind::Secret} else {RequestKind::Connection}, "status":RequestStatus::Pending, "title":title,
                 "registryName":registry, "connectorId":installed, "botId":bot,
                 "field":if secret {args["field"].clone()} else {Value::Null},
@@ -359,6 +360,7 @@ mod tests {
         let r = call(
             &hub,
             "bot",
+            "bot",
             "request_secret",
             &json!({"connectorId":"fixture","field":"API_KEY","location":"env","reason":"Connect the test service"}),
         )
@@ -395,6 +397,7 @@ mod tests {
         let r = call(
             &hub,
             "bot",
+            "bot",
             "request_login",
             &json!({"site":"https://www.GitHub.com/login","reason":"Sign in to open the PR"}),
         )
@@ -403,7 +406,7 @@ mod tests {
         let id = r["requestId"].as_str().unwrap();
         let done = finish(&hub, &json!({"entryId":id,"username":"kevin","value":"hunter2-private"})).await.unwrap();
         assert_eq!(done["entry"]["data"]["connectionRequest"]["status"], "ready");
-        let listed = call(&hub, "bot", "list_logins", &json!({})).await.unwrap();
+        let listed = call(&hub, "bot", "bot", "list_logins", &json!({})).await.unwrap();
         assert_eq!(listed["items"][0]["site"], "github.com");
         assert_eq!(listed["items"][0]["username"], "kevin");
         assert!(!listed.to_string().contains("hunter2-private"));
@@ -446,6 +449,7 @@ mod tests {
         let r = call(
             &hub,
             "bot",
+            "bot",
             "request_secret",
             &json!({"connectorId":"fixture","field":"API_KEY","location":"env","reason":"Test"}),
         )
@@ -464,6 +468,7 @@ mod tests {
         let (hub, dir) = fixture();
         let r = call(
             &hub,
+            "bot",
             "bot",
             "request_secret",
             &json!({"connectorId":"fixture","field":"API_KEY","location":"env","reason":"Test"}),

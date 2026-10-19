@@ -408,7 +408,7 @@ mod tests {
             tokio::time::timeout(Duration::from_secs(10), async {
                 loop {
                     tokio::time::sleep(Duration::from_millis(300)).await;
-                    let idle = ["a", "b"].iter().all(|b| self.hub.runtime(b).status == BotStatus::Idle);
+                    let idle = ["a", "b"].iter().all(|b| self.hub.bot_runtime(b).status == BotStatus::Idle);
                     if idle && self.hub.bots_json(0).unwrap().iter().all(|b| b["status"] == "idle") {
                         break;
                     }
@@ -539,7 +539,7 @@ mod tests {
         room.send("BLOCK everyone look", None).await;
         let hub = room.hub.clone();
         tokio::time::timeout(Duration::from_secs(10), async {
-            while hub.runtime("a").status != BotStatus::Working {
+            while hub.bot_runtime("a").status != BotStatus::Working {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
         })

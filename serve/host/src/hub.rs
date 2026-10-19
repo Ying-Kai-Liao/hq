@@ -1,7 +1,7 @@
 //! Shared host state: store, event fan-out, bot actors, push, usage.
 
 use crate::LockExt;
-use crate::agent::bot::{self, BotHandle, Cmd};
+use crate::agent::bot::{self, Cmd};
 use crate::api::devices::Pairing;
 use crate::remote::identity::Identity;
 use crate::remote::push;
@@ -14,10 +14,10 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, Weak};
 use tokio::sync::{broadcast, watch};
 
+mod actors;
 mod order;
 mod sync;
 
@@ -64,8 +64,12 @@ pub struct Hub {
     pub events: broadcast::Sender<Value>,
     /// Held across "mutate store + broadcast" so events leave in rev order.
     emit_lock: Mutex<()>,
-    bots: Mutex<HashMap<String, BotHandle>>,
+    /// Bot id -> its actors, one per place it talks (see `actors`).
+    bots: Mutex<HashMap<String, actors::BotActors>>,
+    /// Actor key (see `agent::bot::actor_key`) -> what that actor is doing.
     runtime: Mutex<HashMap<String, Runtime>>,
+    /// This hub, for starting actors from `&self`.
+    me: Weak<Hub>,
     pub phone_clients: AtomicUsize,
     pub usage: Mutex<Usage>,
     keep_awake: Mutex<service::KeepAwake>,
@@ -93,7 +97,8 @@ impl Hub {
     pub fn new(store: Store, host_id: String, identity: Identity, token: String, port: u16) -> Arc<Self> {
         let (events, _) = broadcast::channel(1024);
         let screen = Arc::new(Screen::new(Screen::load_enabled(&store), events.clone()));
-        Arc::new(Self {
+        Arc::new_cyclic(|me| Self {
+            me: me.clone(),
             analytics: crate::analytics::Analytics::load(&store),
             routines: crate::routines::Routines::default(),
             team: crate::chat::team::Requests::default(),
@@ -130,7 +135,7 @@ impl Hub {
             if row.deleted {
                 self.routines.disable_bot(&self.store, &row.config.id)?;
             } else if !row.config.is_group() {
-                self.spawn_bot(row.config);
+                self.spawn_bot(&row.config);
             }
         }
         crate::routines::start(self);
@@ -138,56 +143,10 @@ impl Hub {
         Ok(())
     }
 
-    fn spawn_bot(self: &Arc<Self>, cfg: BotConfig) {
-        let id = cfg.id.clone();
-        self.runtime.locked().insert(id.clone(), Runtime::default());
-        let handle = bot::spawn(self.clone(), cfg);
-        self.bots.locked().insert(id, handle);
-    }
-
-    /// Stops every bot actor (and so every agent process), waiting briefly for them to exit.
-    pub async fn shutdown(&self) {
-        self.routines.stop().await;
-        let handles: Vec<BotHandle> = self.bots.locked().drain().map(|(_, h)| h).collect();
-        let tasks: Vec<_> = handles
-            .into_iter()
-            .map(|h| {
-                let _ = h.tx.send(Cmd::Shutdown);
-                h.task
-            })
-            .collect();
-        if tokio::time::timeout(Duration::from_secs(5), futures::future::join_all(tasks)).await.is_err() {
-            tracing::warn!("some bots didn't stop within 5 s");
-        }
-        self.keep_awake.locked().set(false);
-    }
-
-    pub fn send_cmd(&self, bot_id: &str, cmd: Cmd) -> Result<()> {
-        let bots = self.bots.locked();
-        let h = bots.get(bot_id).ok_or_else(|| anyhow!("unknown bot"))?;
-        h.tx.send(cmd).map_err(|_| anyhow!("bot stopped"))
-    }
-
     // MARK: bots
 
     pub fn bot_name(&self, id: &str) -> String {
         self.store.bot(id).ok().flatten().map_or_else(|| "A deleted bot".into(), |b| b.config.name)
-    }
-
-    /// A group is busy while one of its members works in it: that member's status and activity.
-    fn group_runtime(&self, group: &BotConfig) -> Runtime {
-        let busy = {
-            let runtime = self.runtime.locked();
-            group.members.iter().find_map(|m| {
-                let r = runtime.get(m)?;
-                (r.status != BotStatus::Idle && r.lane.as_ref().is_some_and(|l| l.chat == group.id))
-                    .then(|| (m.clone(), r.clone()))
-            })
-        };
-        let Some((member, mut r)) = busy else { return Runtime::default() };
-        let name = self.bot_name(&member);
-        r.activity = if r.activity.is_empty() { name } else { format!("{name}: {}", r.activity) };
-        r
     }
 
     pub fn create_bot(self: &Arc<Self>, mut cfg: BotConfig) -> Result<Value> {
@@ -213,7 +172,7 @@ impl Hub {
             self.store.save_bot(&cfg)?;
         }
         if !cfg.is_group() {
-            self.spawn_bot(cfg.clone());
+            self.spawn_bot(&cfg);
         }
         self.emit_bot(&cfg.id);
         Ok(self.bot_value(&cfg.id).unwrap_or(Value::Null))
@@ -267,9 +226,7 @@ impl Hub {
         self.routines.disable_bot(&self.store, id)?;
         self.team.cancel_bot(id);
         self.groups.stop(self, id);
-        let _ = self.send_cmd(id, Cmd::Shutdown);
-        self.bots.locked().remove(id);
-        self.runtime.locked().remove(id);
+        self.remove_bot_actors(id);
         {
             let _g = self.emit_lock.locked();
             let rev = self.store.delete_bot(id)?;
@@ -358,14 +315,16 @@ impl Hub {
         }
     }
 
-    pub fn set_runtime(&self, id: &str, f: impl FnOnce(&mut Runtime)) {
+    /// Updates one actor's runtime (`key`: see `agent::bot::actor_key`) and tells clients about its bot.
+    pub fn set_runtime(&self, key: &str, f: impl FnOnce(&mut Runtime)) {
         let (before, after) = {
             let mut map = self.runtime.locked();
-            let rt = map.entry(id.to_owned()).or_default();
+            let rt = map.entry(key.to_owned()).or_default();
             let before = rt.clone();
             f(rt);
             (before, rt.clone())
         };
+        let id = bot::bot_of(key);
         if before.status != after.status
             || before.activity != after.activity
             || before.lane != after.lane
@@ -381,7 +340,7 @@ impl Hub {
             self.update_keep_awake();
         }
         if before.status != after.status {
-            push::live_activity_update(self, id, &after);
+            push::live_activity_update(self, id, &self.bot_runtime(id));
             // A group's Live Activity follows its busy member.
             for lane in [&before.lane, &after.lane].into_iter().flatten().filter(|l| l.chat != id) {
                 if let Ok(Some(group)) = self.store.bot(&lane.chat) {
@@ -391,8 +350,9 @@ impl Hub {
         }
     }
 
-    pub fn runtime(&self, id: &str) -> Runtime {
-        self.runtime.locked().get(id).cloned().unwrap_or_default()
+    /// One actor's runtime (`key`: a bot's id is its own chat's actor); [`Self::bot_runtime`] is the whole bot's.
+    pub fn runtime(&self, key: &str) -> Runtime {
+        self.runtime.locked().get(key).cloned().unwrap_or_default()
     }
 
     pub(crate) fn update_keep_awake(&self) {

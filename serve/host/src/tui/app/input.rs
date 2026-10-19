@@ -328,8 +328,9 @@ impl App {
             KeyCode::Char('s') => {
                 if let Some(b) = self.bot() {
                     if matches!(b.status, Status::Working | Status::NeedsInput) {
+                        // From the roster: the bot stops everywhere it works.
                         let id = b.id.clone();
-                        self.call("stop", json!({"botId": id}), After::Nothing);
+                        self.call("stop", json!({"botId": id, "all": true}), After::Nothing);
                         self.flash("Stopping…");
                     } else {
                         self.flash("Not working right now");

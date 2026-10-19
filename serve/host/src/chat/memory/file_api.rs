@@ -30,7 +30,7 @@ pub fn call(hub: &Hub, cfg: &BotConfig, method: &str, b: &Value) -> Result<Value
     let name = b["file"].as_str().ok_or_else(|| anyhow!("file required"))?;
     let layer = (b["shared"] != true).then_some(cfg.id.as_str());
     let base = b["base"].as_str().filter(|h| !h.is_empty());
-    let user = |cause| Writer { author: Author::User, bot: None, cause };
+    let user = |cause| Writer { author: Author::User, bot: None, session: None, cause };
     let version = match method {
         "memoryFile" => return detail(hub, cfg, layer, name),
         "saveMemoryFile" => {

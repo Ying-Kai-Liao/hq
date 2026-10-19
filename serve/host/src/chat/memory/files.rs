@@ -235,16 +235,23 @@ fn found(hub: &Hub, layer: Option<&str>, name: &str, after: Option<&OnDisk>) -> 
         mtime,
         size,
     };
-    record_bot_change(hub, &cfg, layer, &change)?;
+    record_bot_change(hub, &cfg, None, layer, &change)?;
     Ok(())
 }
 
-/// Records a bot's change and tells the other sessions; the one it was made in already knows.
-fn record_bot_change(hub: &Hub, cfg: &BotConfig, layer: Option<&str>, change: &Change<'_>) -> Result<Version> {
+/// Records a bot's change and tells the other sessions; the one it was made in (`session`, else the one at work)
+/// already knows.
+fn record_bot_change(
+    hub: &Hub,
+    cfg: &BotConfig,
+    session: Option<&str>,
+    layer: Option<&str>,
+    change: &Change<'_>,
+) -> Result<Version> {
     let heard = super::current_revision(&hub.store, &cfg.id);
     let version = hub.store.memory_write(|c, now, rev| mf::record(c, change, now, rev))?;
     super::changed(hub, layer);
-    if let Some(session) = hub.runtime(&cfg.id).session
+    if let Some(session) = session.map(str::to_owned).or_else(|| hub.bot_runtime(&cfg.id).session)
         && let Err(error) = super::heard_own_write(&hub.store, &cfg.id, &session, &heard)
     {
         tracing::warn!(bot = %cfg.id, error = format!("{error:#}"), "couldn't record the bot's own edit");
@@ -269,6 +276,8 @@ pub fn read(layer: Option<&str>, name: &str) -> Result<Option<String>> {
 pub struct Writer<'a> {
     pub author: Author,
     pub bot: Option<&'a BotConfig>,
+    /// The bot's session the change came from, which needs no notice of it; `None`: the one at work now.
+    pub session: Option<&'a str>,
     pub cause: Cause,
 }
 
@@ -314,7 +323,7 @@ pub fn write(
         size,
     };
     match writer.bot {
-        Some(cfg) if writer.author == Author::Bot => record_bot_change(hub, cfg, layer, &change),
+        Some(cfg) if writer.author == Author::Bot => record_bot_change(hub, cfg, writer.session, layer, &change),
         _ => {
             let version = hub.store.memory_write(|c, now, rev| mf::record(c, &change, now, rev))?;
             super::changed(hub, layer);
@@ -344,7 +353,7 @@ fn put(path: &Path, content: Option<&str>) -> Result<()> {
 /// Dreaming's notes: each appended to its file as a list line (a new file gets frontmatter first), and logged with
 /// the run. A run whose notes all failed and that changed nothing else is dropped.
 pub fn write_notes(hub: &Hub, cfg: &BotConfig, dream: i64, notes: &[codync_mem::dream::Note]) {
-    let writer = Writer { author: Author::Dream, bot: Some(cfg), cause: Cause::Dream };
+    let writer = Writer { author: Author::Dream, bot: Some(cfg), session: None, cause: Cause::Dream };
     for note in notes {
         let layer = note.bot.as_deref();
         let line = if note.text.starts_with(['-', '#', '*']) { note.text.clone() } else { format!("- {}", note.text) };
@@ -376,7 +385,7 @@ pub fn write_notes(hub: &Hub, cfg: &BotConfig, dream: i64, notes: &[codync_mem::
 
 /// Undoing a run puts back the files it appended to, newest note first. A file changed since keeps its change.
 pub fn undo_notes(hub: &Hub, dream: &codync_mem::dream::Dream) {
-    let writer = Writer { author: Author::User, bot: None, cause: Cause::Undo };
+    let writer = Writer { author: Author::User, bot: None, session: None, cause: Cause::Undo };
     for change in dream.files.iter().rev() {
         let layer = (!change.shared).then_some(dream.bot.as_str());
         let undone = (|| -> Result<Version> {

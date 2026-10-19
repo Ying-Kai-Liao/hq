@@ -94,7 +94,7 @@ impl Actor {
             tracing::warn!(bot = %self.cfg.id, error = format!("{error:#}"), "couldn't store Fast mode support");
         }
         self.fast_support = support.clone();
-        self.hub.set_runtime(&self.cfg.id, |r| r.fast_mode = support);
+        self.hub.set_runtime(&self.rt, |r| r.fast_mode = support);
     }
 }
 

@@ -76,7 +76,7 @@ pub fn answer(hub: &Hub, notice_id: &str, accept: bool) -> Result<Value> {
     let layer = layer(&cfg, &card)?;
     if accept {
         let cause = if card.deleted { Cause::Delete } else { Cause::Edit };
-        let writer = Writer { author: Author::Bot, bot: Some(&cfg), cause };
+        let writer = Writer { author: Author::Bot, bot: Some(&cfg), session: None, cause };
         match files::write(hub, layer.as_deref(), &card.file, card.content.as_deref(), card.base.as_deref(), writer) {
             Ok(version) => {
                 card.status = Status::Accepted;
@@ -106,7 +106,7 @@ pub fn undo(hub: &Hub, notice_id: &str) -> Result<Value> {
     };
     let expected = content(version)?.as_deref().map(mf::hash);
     let restore = card.previous.map(content).transpose()?.flatten();
-    let writer = Writer { author: Author::User, bot: None, cause: Cause::Undo };
+    let writer = Writer { author: Author::User, bot: None, session: None, cause: Cause::Undo };
     files::write(hub, layer.as_deref(), &card.file, restore.as_deref(), expected.as_deref(), writer)
         .map_err(|_| anyhow!("{} changed since. Open it in memory to bring back an earlier version.", card.file))?;
     card.status = Status::Undone;

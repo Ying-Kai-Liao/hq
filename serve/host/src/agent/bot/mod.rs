@@ -1,5 +1,7 @@
-//! One actor per bot. It owns the bot's ACP process and session, runs turns one
-//! at a time, and maps ACP `session/update`s onto transcript entries.
+//! One actor per place a bot talks (its own chat, each of its threads, each group lane). It owns
+//! that place's ACP process and session, runs its turns one at a time, and maps ACP
+//! `session/update`s onto transcript entries. Places run in parallel, like the hq bridge's
+//! per-thread workers: a long task in one never holds up another.
 //!
 //! Chat model (from Grok Bot): the thread only shows user messages, the *final*
 //! agent message of each turn, permission cards and notices. Narration between
@@ -12,8 +14,9 @@
 //! its next turn, and a turn cut off by a host restart is resumed.
 //!
 //! Lanes: besides its own chat, a bot talks in threads (each a session of its own,
-//! forked from the main one when the agent can fork) and in group chats (turns in
-//! its main session, written to the group's transcript; see `group`).
+//! forked from the main one when the agent can fork) and in group chats (a session of
+//! its own per group lane, written to the group's transcript; see `group`). The bot's
+//! own-chat actor also runs its routines and the requests other bots send it.
 
 mod compaction;
 mod fast_mode;
@@ -33,7 +36,7 @@ use crate::chat::context::{Identity, Snapshot};
 use crate::chat::group::GroupTurn;
 use crate::chat::memory;
 use crate::hub::{BotStatus, Hub};
-use crate::store::{BotConfig, Entry, EntryKind, Lane, now_ms};
+use crate::store::{BotConfig, Entry, EntryKind, Lane, lane_key, now_ms};
 use anyhow::{Result, anyhow};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -121,29 +124,73 @@ pub struct BotHandle {
     pub task: tokio::task::JoinHandle<()>,
 }
 
-pub fn spawn(hub: Arc<Hub>, cfg: BotConfig) -> BotHandle {
+/// The runtime and kv name of the actor for `home`: the bot's id for its own chat, `bot|lane` for any other place.
+pub fn actor_key(bot: &str, home: &Lane) -> String {
+    if home.chat == bot && home.thread.is_none() { bot.to_owned() } else { format!("{bot}|{}", home.key()) }
+}
+
+/// The bot an actor key belongs to.
+pub fn bot_of(key: &str) -> &str {
+    key.split_once('|').map_or(key, |(bot, _)| bot)
+}
+
+/// The place an actor key names.
+pub fn place_of(key: &str) -> Lane {
+    let Some((_, place)) = key.split_once('|') else { return Lane::main(key) };
+    match place.split_once('/') {
+        Some((chat, root)) => Lane::in_thread(chat, root),
+        None => Lane::main(place),
+    }
+}
+
+/// The places besides its own chat where the previous host process cut off one of the bot's turns.
+pub fn interrupted_places(store: &crate::store::Store, bot: &str) -> Vec<Lane> {
+    let all = inflight_key("");
+    store
+        .kv_prefix(&inflight_key(&format!("{bot}|")))
+        .into_iter()
+        .filter(|k| store.kv_get(k).is_some_and(|v| !v.is_empty()))
+        .filter_map(|k| k.strip_prefix(&all).map(place_of))
+        .collect()
+}
+
+/// Starts the actor for `home`, one of the places the bot talks. All of a bot's actors share its `dreamer`.
+pub fn spawn(
+    hub: Arc<Hub>,
+    cfg: BotConfig,
+    home: Lane,
+    dreamer: mpsc::UnboundedSender<memory::DreamEvent>,
+) -> BotHandle {
     let (tx, rx) = mpsc::unbounded_channel();
-    let session_id = hub.store.bot(&cfg.id).ok().flatten().and_then(|b| b.session_id);
+    let rt = actor_key(&cfg.id, &home);
+    // The session of the actor's own lane: the bot's main one, or a group lane's. A thread's is found by its root.
+    let session_id = if rt == cfg.id {
+        hub.store.bot(&cfg.id).ok().flatten().and_then(|b| b.session_id)
+    } else if home.chat == cfg.id {
+        None
+    } else {
+        hub.store.kv_get(&lane_key("session", &cfg.id, &home)).filter(|s| !s.is_empty())
+    };
     // A turn the previous host process never finished (crash, update, restart), unless
     // it's stale: an hour-old task is more likely unwanted than awaited (gawkbot's rule).
-    let interrupted = hub.store.kv_get(&inflight_key(&cfg.id)).and_then(|v| {
+    let interrupted = hub.store.kv_get(&inflight_key(&rt)).and_then(|v| {
         let (started, thread) = v.split_once('\t').unwrap_or((&v, ""));
         let started: i64 = started.parse().ok()?;
-        (now_ms() - started < STALE_RESUME_MS)
-            .then(|| Lane { chat: cfg.id.clone(), thread: (!thread.is_empty()).then(|| thread.to_owned()) })
+        let thread = (!thread.is_empty()).then(|| thread.to_owned()).or_else(|| home.thread.clone());
+        (now_ms() - started < STALE_RESUME_MS).then(|| Lane { chat: home.chat.clone(), thread })
     });
-    let dreamer = memory::spawn_dreamer(hub.clone(), cfg.id.clone());
-    let lane = Lane::main(&cfg.id);
     let fast_support = FastModeSupport::from_stored(hub.store.kv_get(&fast_mode::stored_key(&cfg.id)).as_deref());
     let support = fast_support.clone();
-    hub.set_runtime(&cfg.id, |r| r.fast_mode = support);
+    hub.set_runtime(&rt, |r| r.fast_mode = support);
     let actor = Actor {
         hub,
         cfg,
         conn: None,
         session_id,
         thread_sessions: HashMap::new(),
-        lane,
+        lane: home.clone(),
+        home,
+        rt,
         turn_session: None,
         thread_intro: None,
         active_group: None,
@@ -280,12 +327,17 @@ struct Actor {
     hub: Arc<Hub>,
     cfg: BotConfig,
     conn: Option<Conn>,
-    /// The main session: the bot's own chat and its group turns.
+    /// The session of the actor's own lane when it isn't a thread: the bot's main session in its own chat, a group
+    /// lane's in a group. None in a thread's actor, whose session is in `thread_sessions`.
     session_id: Option<String>,
     /// Thread root -> the thread's session (loaded from kv on first use).
     thread_sessions: HashMap<String, String>,
     /// Where the current (or last) turn talks; entries go there.
     lane: Lane,
+    /// The place this actor serves; its turns talk there (a routine run in the bot's own chat actor, in its thread).
+    home: Lane,
+    /// This actor's key for its runtime and its running-turn record (see [`actor_key`]).
+    rt: String,
     /// The session the current turn prompts.
     turn_session: Option<String>,
     /// Told on the first message of a new thread session: what the thread is about.
@@ -360,7 +412,9 @@ impl Actor {
     async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Cmd>, interrupted: Option<Lane>) {
         let (done_tx, mut done_rx) = mpsc::unbounded_channel::<Done>();
         let mut flush_tick = tokio::time::interval(Duration::from_millis(300));
-        if let Some(run) = self.hub.routines.recovery(&self.cfg.id) {
+        // Routines run in the bot's own chat actor.
+        let recovered = if self.is_main() { self.hub.routines.recovery(&self.cfg.id) } else { None };
+        if let Some(run) = recovered {
             self.active_routine = Some(run.id.clone());
             self.routine_deadline = Some(Instant::now() + self.hub.routines.timeout(&run.id));
             if let Some(root) = run.root_id {
@@ -423,7 +477,7 @@ impl Actor {
             }
         }
         self.files.cancel();
-        self.hub.team.cancel_from(&self.cfg.id);
+        self.end_team_turn();
         self.complete_request(Err(anyhow!("recipient shut down")), true);
         self.complete_group(Err(anyhow!("bot shut down")));
         if let Some(c) = self.conn.take() {
@@ -431,14 +485,15 @@ impl Actor {
         }
     }
 
-    fn id(&self) -> String {
-        self.cfg.id.clone()
+    /// The actor of the bot's own chat (it also runs routines and other bots' requests).
+    fn is_main(&self) -> bool {
+        self.rt == self.cfg.id
     }
 
     fn set_activity(&self, a: &str) {
-        if self.hub.runtime(&self.cfg.id).activity != a {
+        if self.hub.runtime(&self.rt).activity != a {
             let a = a.to_owned();
-            self.hub.set_runtime(&self.cfg.id, |r| {
+            self.hub.set_runtime(&self.rt, |r| {
                 if r.status == BotStatus::Working {
                     r.activity = a;
                 }
@@ -452,12 +507,11 @@ impl Actor {
         self.hub.add_entry(&self.lane, kind, turn, &data)
     }
 
-    /// A notice in the running turn's lane (or the bot's own chat between turns).
+    /// A notice in the running turn's lane (or the actor's own place between turns).
     fn notice(&self, text: &str, style: NoticeStyle) {
         let Some(turn) = self.turn else {
-            let main = Lane::main(&self.cfg.id);
-            let turn = self.hub.store.max_turn(&self.cfg.id);
-            self.hub.add_entry(&main, EntryKind::Notice, turn, &json!({"text": text, "style": style}));
+            let turn = self.hub.store.max_turn(&self.home.chat);
+            self.hub.add_entry(&self.home, EntryKind::Notice, turn, &json!({"text": text, "style": style}));
             return;
         };
         self.add(EntryKind::Notice, turn, json!({"text": text, "style": style}));

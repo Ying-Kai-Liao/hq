@@ -37,11 +37,13 @@ pub fn definitions() -> [Value; 2] {
     ]
 }
 
-pub async fn call(hub: &Arc<Hub>, cfg: &BotConfig, name: &str, args: &Value) -> Result<Value> {
+/// `actor`: the bot's actor whose agent called (see `agent::bot::actor_key`).
+pub async fn call(hub: &Arc<Hub>, cfg: &BotConfig, actor: &str, name: &str, args: &Value) -> Result<Value> {
     let (hub, cfg, name, args) = (hub.clone(), cfg.clone(), name.to_owned(), args.clone());
+    let session = hub.runtime(actor).session;
     tokio::task::spawn_blocking(move || match name.as_str() {
         "read_memory" => read(&hub, &cfg, &args),
-        "edit_memory" => edit(&hub, &cfg, &args),
+        "edit_memory" => edit(&hub, &cfg, session.as_deref(), &args),
         _ => bail!("unknown memory tool: {name}"),
     })
     .await?
@@ -74,7 +76,7 @@ fn read(hub: &Hub, cfg: &BotConfig, args: &Value) -> Result<Value> {
     Ok(json!({"file": name, "content": content}))
 }
 
-fn edit(hub: &Hub, cfg: &BotConfig, args: &Value) -> Result<Value> {
+fn edit(hub: &Hub, cfg: &BotConfig, session: Option<&str>, args: &Value) -> Result<Value> {
     let name = args["file"].as_str().ok_or_else(|| anyhow!("file required"))?;
     let layer = layer(cfg, args)?;
     files::scan(hub, cfg);
@@ -102,7 +104,7 @@ fn edit(hub: &Hub, cfg: &BotConfig, args: &Value) -> Result<Value> {
     }
     let expected = before.as_deref().map(mf::hash);
     let cause = if after.is_some() { Cause::Edit } else { Cause::Delete };
-    let writer = Writer { author: Author::Bot, bot: Some(cfg), cause };
+    let writer = Writer { author: Author::Bot, bot: Some(cfg), session, cause };
     files::write(hub, layer.as_deref(), name, after.as_deref(), expected.as_deref(), writer)?;
     Ok(json!({"status": "saved", "file": name}))
 }
