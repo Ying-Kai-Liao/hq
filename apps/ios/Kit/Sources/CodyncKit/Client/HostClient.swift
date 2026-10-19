@@ -195,6 +195,13 @@ public extension HostClient {
         return res.entry
     }
 
+    /// Takes back a message that still waits for its turn; the host marks it cancelled.
+    func unsend(botId: String, entryId: String) async throws -> Entry {
+        struct Res: Decodable { var entry: Entry }
+        let res: Res = try await call("unsend", ["botId": botId, "entryId": entryId])
+        return res.entry
+    }
+
     /// `threadId`: reply in the thread on that main-chat message.
     /// `pasted`: what the user pasted rather than typed, which memory never takes as their own words.
     /// `newTask`: start a task of its own rather than go on with the current one.
