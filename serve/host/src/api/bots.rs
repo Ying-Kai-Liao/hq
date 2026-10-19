@@ -244,6 +244,18 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             }
             json!({})
         }
+        // Takes back a message of the user's that still waits for its turn; taking it back twice is fine.
+        "unsend" => {
+            let (bot, entry_id) = (str_arg(&b, "botId")?, str_arg(&b, "entryId")?);
+            let e = hub.store.entry(entry_id).filter(|e| e.bot_id == bot && e.kind == EntryKind::User.as_str());
+            let e = e.ok_or_else(|| anyhow!("unknown message"))?;
+            let unsent =
+                e.data["status"] == "cancelled" || (e.data["status"] == "queued" && hub.unsend(bot, entry_id).await?);
+            if !unsent {
+                bail!("This message already went to the bot. Stop ends its turn.");
+            }
+            json!({"entry": hub.store.entry(entry_id)})
+        }
         "newSession" => {
             hub.send_cmd(str_arg(&b, "botId")?, Cmd::NewSession)?;
             json!({})

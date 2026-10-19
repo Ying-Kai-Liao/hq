@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 /// A bot's actors and the dreamer they share.
 pub struct BotActors {
@@ -151,6 +151,16 @@ impl Hub {
         Ok(())
     }
 
+    /// Takes back a message the user sent that still waits in one of the bot's places. Every actor is asked: the
+    /// one that queued it may serve another place (a routine run in a thread). Whether one had it.
+    pub async fn unsend(&self, bot_id: &str, entry_id: &str) -> Result<bool> {
+        let answers = self.actor_txs(bot_id, |_| true)?.into_iter().filter_map(|tx| {
+            let (reply, answer) = oneshot::channel();
+            tx.send(Cmd::Unsend { entry_id: entry_id.to_owned(), reply }).ok().map(|()| answer)
+        });
+        Ok(futures::future::join_all(answers).await.into_iter().any(|a| matches!(a, Ok(true))))
+    }
+
     /// Whether the bot has an actor of its own for `home`.
     pub fn has_place(&self, bot_id: &str, home: &Lane) -> bool {
         self.bots.locked().get(bot_id).is_some_and(|a| a.places.contains_key(&actor_key(bot_id, home)))
@@ -163,16 +173,19 @@ impl Hub {
     /// Sends `make()` to each running actor of the bot whose place passes `serves`. Fails only for an unknown bot,
     /// or when every actor it reached had stopped.
     fn each_actor(&self, bot_id: &str, serves: impl Fn(&Lane) -> bool, make: impl Fn() -> Cmd) -> Result<()> {
-        let txs: Vec<_> = {
-            let bots = self.bots.locked();
-            let actors = bots.get(bot_id).ok_or_else(|| anyhow!("unknown bot"))?;
-            actors.places.values().filter(|(home, _)| serves(home)).map(|(_, h)| h.tx.clone()).collect()
-        };
+        let txs = self.actor_txs(bot_id, serves)?;
         let reached = txs.iter().filter(|tx| tx.send(make()).is_ok()).count();
         if reached == 0 && !txs.is_empty() {
             return Err(anyhow!("bot stopped"));
         }
         Ok(())
+    }
+
+    /// The channels to the bot's running actors whose place passes `serves`.
+    fn actor_txs(&self, bot_id: &str, serves: impl Fn(&Lane) -> bool) -> Result<Vec<mpsc::UnboundedSender<Cmd>>> {
+        let bots = self.bots.locked();
+        let actors = bots.get(bot_id).ok_or_else(|| anyhow!("unknown bot"))?;
+        Ok(actors.places.values().filter(|(home, _)| serves(home)).map(|(_, h)| h.tx.clone()).collect())
     }
 
     /// The actor whose turn talks in `lane` right now, else the one that serves it.

@@ -4,6 +4,7 @@ use super::{Actor, CANCEL_GRACE, Cmd, Done, NoticeStyle, Queued, RESUME_PROMPT, 
 use crate::agent::own_memory;
 use crate::chat::memory;
 use crate::chat::router::{self, Route};
+use crate::chat::team::RequestStatus;
 use crate::hub::BotStatus;
 use crate::market::requests;
 use crate::store::{Lane, now_ms};
@@ -34,6 +35,9 @@ impl Actor {
                 }
             }
             Cmd::Routed { entry_id, route } => self.apply_route(&entry_id, route).await,
+            Cmd::Unsend { entry_id, reply } => {
+                let _ = reply.send(self.unsend(&entry_id));
+            }
             Cmd::Group(turn) => {
                 self.queue.push_back(Queued::Group(turn));
                 if self.turn.is_none() {
@@ -144,14 +148,24 @@ impl Actor {
             }
         }
         // Queued messages are dropped too: Stop means "stop everything here".
-        for queued in self.queue.drain(..) {
+        for queued in std::mem::take(&mut self.queue) {
             let Queued::User { entry_id, .. } = queued else { continue };
-            if let Some(mut e) = self.hub.store.entry(&entry_id) {
-                e.data["status"] = "cancelled".into();
-                self.hub.set_entry(&entry_id, &e.data);
-            }
+            self.set_user_status(&entry_id, RequestStatus::Cancelled);
         }
         self.cancel_turn().await;
+    }
+
+    /// Where a message of the user's waits in the queue.
+    fn queued_at(&self, entry_id: &str) -> Option<usize> {
+        self.queue.iter().position(|q| matches!(q, Queued::User { entry_id: id, .. } if id == entry_id))
+    }
+
+    /// Takes a message of the user's back out of the queue, if it still waits here. Whether it did.
+    fn unsend(&mut self, entry_id: &str) -> bool {
+        let Some(p) = self.queued_at(entry_id) else { return false };
+        self.queue.remove(p);
+        self.set_user_status(entry_id, RequestStatus::Cancelled);
+        true
     }
 
     /// A message the user sent while this bot answers them in the same lane: asks the router, in the
@@ -185,13 +199,13 @@ impl Actor {
 
     /// Acts on the router's answer, if the message still waits (or, for Stop, if its turn runs).
     async fn apply_route(&mut self, entry_id: &str, route: Route) {
-        let pos = self.queue.iter().position(|q| matches!(q, Queued::User { entry_id: id, .. } if id == entry_id));
+        let pos = self.queued_at(entry_id);
         match route {
             Route::Stop => {
                 if let Some(p) = pos {
                     // It did its job by stopping; it isn't a message for the agent.
                     self.queue.remove(p);
-                    self.set_user_status(entry_id, crate::chat::team::RequestStatus::Sent);
+                    self.set_user_status(entry_id, RequestStatus::Sent);
                 } else if !self.turn_entries.iter().any(|id| id == entry_id) {
                     return;
                 }
@@ -222,7 +236,7 @@ impl Actor {
         }
     }
 
-    fn set_user_status(&self, entry_id: &str, status: crate::chat::team::RequestStatus) {
+    fn set_user_status(&self, entry_id: &str, status: RequestStatus) {
         if let Some(mut e) = self.hub.store.entry(entry_id) {
             e.data["status"] = json!(status);
             self.hub.set_entry(entry_id, &e.data);
