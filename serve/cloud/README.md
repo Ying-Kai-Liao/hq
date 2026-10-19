@@ -66,8 +66,8 @@ npx wrangler deploy --env dev               # → https://dev-api.codync.dev
 ### Kith
 
 Kith runs its own copy on its own Cloudflare account, at workers.dev, without accounts: no Clerk secrets are set,
-so only QR pairing admits devices (the account routes answer 401). `kith-dev` serves every local build,
-`kith` builds made with `CODYNC_ENV=main`.
+so only QR pairing admits devices (the account routes answer 401). `kith-dev` serves every local build; builds
+made with `CODYNC_ENV=main` will need their own environment when we make them.
 
 ```bash
 npx wrangler login                                   # once, in a browser
