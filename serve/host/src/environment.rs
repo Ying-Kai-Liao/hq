@@ -34,7 +34,7 @@ impl Environment {
     pub const fn data_folder(self) -> &'static str {
         match self {
             Self::Main => ".codync",
-            Self::Dev => ".codync-dev",
+            Self::Dev => ".kith-dev",
         }
     }
 
@@ -42,7 +42,7 @@ impl Environment {
     pub const fn service_label(self) -> &'static str {
         match self {
             Self::Main => "com.pokai.codync.host",
-            Self::Dev => "com.pokai.codync.dev.host",
+            Self::Dev => "com.yingkailiao.kith.dev.host",
         }
     }
 
@@ -50,7 +50,7 @@ impl Environment {
     pub const fn systemd_unit(self) -> &'static str {
         match self {
             Self::Main => "codync-host.service",
-            Self::Dev => "codync-dev-host.service",
+            Self::Dev => "kith-dev-host.service",
         }
     }
 
@@ -73,7 +73,7 @@ impl Environment {
     pub const fn cloud_url(self) -> &'static str {
         match self {
             Self::Main => "https://api.codync.dev",
-            Self::Dev => "https://dev-api.codync.dev",
+            Self::Dev => "https://kith-cloud-dev.YOUR-SUBDOMAIN.workers.dev",
         }
     }
 
@@ -87,7 +87,7 @@ impl Environment {
     pub fn require_release_updates(self) -> anyhow::Result<()> {
         anyhow::ensure!(
             self == Self::Main,
-            "Codync Dev does not install production updates; rebuild the development app"
+            "Kith Dev does not install production updates; rebuild the development app"
         );
         Ok(())
     }
@@ -119,5 +119,13 @@ mod tests {
         }
         assert!(Dev.require_release_updates().is_err());
         assert!(Main.require_release_updates().is_ok());
+    }
+
+    #[test]
+    fn development_runs_as_kith_dev() {
+        assert_eq!(Dev.port(), 19223);
+        assert_eq!(Dev.data_folder(), ".kith-dev");
+        assert_eq!(Dev.service_label(), "com.yingkailiao.kith.dev.host");
+        assert_eq!(Dev.systemd_unit(), "kith-dev-host.service");
     }
 }
