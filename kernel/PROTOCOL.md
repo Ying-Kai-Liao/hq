@@ -37,6 +37,8 @@ part for everyone you work for, `{{SHARED_MEMORY}}/`: lessons about your craft o
 2. Read these if they exist (missing files are normal; don't mention them):
    - `{{PERSON_FILE}}`: who the user is, shared by all agents
    - `{{STATE}}/projects/ID/codebase.md`: the project map, shared by all agents
+   - `{{STATE}}/projects/ID/verify.md`: how to check a change works here, shared by all agents (when the task
+     changes or tests something)
    - `{{STATE}}/projects/ID/decisions.md`: the last 30 lines, plus every `open:` line (`grep '· open:'`)
    - `{{MEMORY_DIR}}/projects/ID.md`: your own notes on this project
    - `{{MEMORY_DIR}}/sessions/ID.md`: where your last call on this project left off
@@ -60,6 +62,7 @@ part for everyone you work for, `{{SHARED_MEMORY}}/`: lessons about your craft o
 | Learned skills | `{{PACKAGE}}/skills/learned/<name>/SKILL.md` | When you solve a non-trivial problem you'll meet again. Add it to the index in `MEMORY.md`. It becomes part of you: checked, versioned and shared with your package, so keep the user's personal details in memory, not here |
 | Project, yours | `{{MEMORY_DIR}}/projects/ID.md` | Your specialist knowledge of this project: decisions, assets, where your files are, open items |
 | Project, shared | `{{STATE}}/projects/ID/codebase.md` | Facts any agent needs: purpose, stack, layout, commands, conventions. Edit only sections you verified |
+| How to verify, shared | `{{STATE}}/projects/ID/verify.md` | How to prove a change works here: the tests and how to run them, how to try the real thing (command, page, device), test rigs and fixtures, what can't be tested and why. Whenever you work out something the next run would have to find again (a setup step, a flaky test, a trap), add it. Edit only lines you verified |
 | Decisions, shared | `{{STATE}}/projects/ID/decisions.md` | **Append only**, one line: `YYYY-MM-DD · {{AGENT}} · decision · why`. Write it in the highest project it holds for: a decision for the whole client goes to the parent, not to one repo. Something raised but not decided (a proposal waiting for the user, a question left open) is a line too: `YYYY-MM-DD · {{AGENT}} · open: question · options or context`. When it is settled, append the decision as usual, starting `settles <date of the open line>:` |
 | Things you made | `{{FILES_DIR}}/ID/` (`{{FILES_DIR}}/` without a project) | Finished outputs: renders, images, exports, generated pages, backups. Never in memory, data or `projects/`; not in git, so record where they are in your project notes |
 | Session | `{{MEMORY_DIR}}/sessions/ID.md` | **Overwrite** at the end of every call, max 30 lines: task, state, next step, open questions |
@@ -75,6 +78,13 @@ Not every context is a code project. Ongoing areas of life (expenses, calendar, 
 commit: <full sha>   updated: YYYY-MM-DD   by: <agent>
 # <project> — codebase map
 ## Purpose  ## Stack  ## Layout  ## Commands  ## Conventions  ## Gotchas
+```
+
+`verify.md` format (each line a fact you saw work or fail, with its date):
+```
+updated: YYYY-MM-DD   by: <agent>
+# <project> — how to verify
+## Tests  ## The real thing  ## Rigs and fixtures  ## Can't be tested here (and why)  ## Traps
 ```
 
 ## Rules
@@ -110,7 +120,7 @@ commit: <full sha>   updated: YYYY-MM-DD   by: <agent>
   path) to the caller. If the task came from chat (`HQ_VIA` is discord, telegram or slack), post one short status
   line there: `{{HQ}}/bin/hq-send --as {{AGENT}} "🎨 generating the infographic…"`, and nothing else. Ask the caller,
   not the user, when something is unclear.
-- Other agents may write to shared files at the same time: append to `decisions.md`; for `codebase.md`, re-read it
+- Other agents may write to shared files at the same time: append to `decisions.md`; for `codebase.md` and `verify.md`, re-read it
   right before editing and change only your sections.
 - `ID.md` and session files are yours alone.
 - Stay in your lane: work that belongs to another specialist goes to it as above, not done by you. Code

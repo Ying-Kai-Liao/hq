@@ -6,10 +6,16 @@ same name, so @ autocompletes; when the bot can't manage roles, a plain-text @ag
 work like a room with a default (the owner's: HQ_BRIDGE_DM_DEFAULT).
 
 Server: HQ_DISCORD_GUILD (name or ID) when the bot is in more than one.
+
+Every gateway frame (a heartbeat ack comes every ~41 s) is a sign of life; without any for `quiet` seconds hq-bridge
+restarts the connection. After each (re)connect the bridge reads what was sent since the last message it saw (at most
+24 h back) and handles each message once.
 """
 import asyncio
 import os
 import re
+import time
+from datetime import timedelta
 
 import discord
 
@@ -22,16 +28,19 @@ class Discord(Adapter):
     platform = 'discord'
     footer = ('\n\n(From Discord: this thread is your task. Your final answer is posted here automatically; use '
               'hq-send for images and files. Helpers you call post status with `hq-send --as <their name>`.)')
+    quiet = 180
 
     async def start(self):
         intents = discord.Intents.default()
         intents.message_content = True
-        self.client = client = discord.Client(intents=intents)
+        # debug events: on_socket_raw_receive fires for every gateway frame, the sign of life
+        self.client = client = discord.Client(intents=intents, enable_debug_events=True)
         self.hooks: dict[int, discord.Webhook] = {}
         self.roles: dict[int, str] = {}      # role id → agent
         self.guild = None
         self.cs.setdefault('hooks', {})
         ready = asyncio.Event()
+        tasks = []
 
         @client.event
         async def on_ready():
@@ -47,18 +56,16 @@ class Discord(Adapter):
             if not ready.is_set():   # on_ready fires again after reconnects
                 ready.set()
                 self.core.resume(self)
-                asyncio.create_task(self.rescan())
+                tasks.append(asyncio.create_task(self.rescan()))
+            tasks.append(asyncio.create_task(self.catch_up()))   # a new session: events in between are not replayed
+
+        @client.event
+        async def on_socket_raw_receive(_):
+            self.alive = time.monotonic()
 
         @client.event
         async def on_message(msg):
-            if msg.author.bot or msg.webhook_id:
-                return
-            try:
-                m = await self.incoming(msg)
-                if m:
-                    await self.core.handle(self, m)
-            except Exception as e:  # noqa: BLE001  one bad message must not stop the bot
-                log(f'{self.conn}: message failed: {type(e).__name__}: {e}')
+            await self.got(msg)
 
         @client.event
         async def on_interaction(it):
@@ -79,7 +86,60 @@ class Discord(Adapter):
                     await it.response.send_message('That question is someone else\'s, or already answered.',
                                                    ephemeral=True)
 
-        await client.start(self.secrets['DISCORD_BOT_TOKEN'])
+        try:
+            await client.start(self.secrets['DISCORD_BOT_TOKEN'])
+        finally:
+            for t in tasks:
+                t.cancel()
+            try:
+                await asyncio.wait_for(client.close(), 10)
+            except Exception:  # noqa: BLE001  a dead connection may not close cleanly
+                pass
+
+    async def got(self, msg):
+        """A message, live or read back after a reconnect: each is handled once."""
+        if msg.author.bot or msg.webhook_id or msg.id in self.cs.setdefault('seen', []):
+            return
+        self.cs['seen'] = self.cs['seen'][-499:] + [msg.id]   # saved with the work it queues
+        self.cs['last'] = max(self.cs.get('last', 0), msg.id)
+        try:
+            m = await self.incoming(msg)
+            if m:
+                await self.core.handle(self, m)
+        except Exception as e:  # noqa: BLE001  one bad message must not stop the bot
+            log(f'{self.conn}: message failed: {type(e).__name__}: {e}')
+
+    async def catch_up(self):
+        """Messages sent since the last one the bridge saw (at most 24 h back), oldest first. Without a last one
+        (the first run) there is nothing to catch up on."""
+        if not self.cs.get('last'):
+            return
+        day = discord.utils.time_snowflake(discord.utils.utcnow() - timedelta(hours=24))
+        after = discord.Object(id=max(self.cs['last'], day))
+        where = list(self.guild.text_channels)
+        try:
+            where += await self.guild.active_threads()
+        except discord.HTTPException as e:
+            log(f'{self.conn}: catch-up: no threads ({e})')
+        for room in self.core.st['rooms']:
+            if room.startswith(f'{self.conn}:dm:'):
+                try:
+                    where.append(await self.client.fetch_channel(int(room.rsplit(':', 1)[1])))
+                except discord.HTTPException:
+                    pass
+        missed = []
+        for ch in where:
+            try:
+                missed += [m async for m in ch.history(after=after, limit=100, oldest_first=True)]
+            except discord.HTTPException:
+                pass   # a channel the bot can't read
+        missed = [m for m in sorted(missed, key=lambda m: m.id)
+                  if not (m.author.bot or m.webhook_id or m.id in self.cs['seen'])]
+        if missed:
+            log(f'{self.conn}: catching up on {len(missed)} message(s) sent while away')
+        for msg in missed:
+            await self.got(msg)
+        self.core.save()
 
     async def setup(self):
         g = self.guild
@@ -172,7 +232,7 @@ class Discord(Adapter):
         admin = self.guild is not None and msg.author.id == self.guild.owner_id
         return Incoming(uid=str(msg.author.id), text=text, room=room, origin=origin, thread=thread,
                         private=private, addressed=addressed or private, room_agent=room_agent, admin=admin,
-                        files=files, ref=msg)
+                        files=files, ref=msg, sent=msg.created_at.timestamp())
 
     async def where(self, conv):
         cid = conv.get('thread') or conv.get('dm') or conv.get('channel')
