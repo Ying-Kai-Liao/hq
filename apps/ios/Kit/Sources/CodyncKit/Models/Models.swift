@@ -47,6 +47,8 @@ public struct Bot: Codable, Identifiable, Hashable, Sendable {
     public var memoryRev: Int64?
     /// Created without a name: the host names it after its first few conversations.
     public var autoName: Bool = false
+    /// Each burst of the user's chat is a task with its own thread and session. Nil: on; false keeps one conversation.
+    public var tasks: Bool?
     public var createdAt: Int64
 
     // Runtime, filled in by the host.
@@ -72,6 +74,8 @@ public struct Bot: Codable, Identifiable, Hashable, Sendable {
         return isWorking && (workingChat ?? id) == chat && workingThread == thread
     }
     public var needsInput: Bool { status == "needsInput" }
+    /// The user's messages to it are tasks (a group is one room).
+    public var usesTasks: Bool { !isGroup && tasks != false }
     public var folderName: String { managedWorkspace ? "Personal workspace" : (cwd as NSString).lastPathComponent }
 }
 
@@ -452,6 +456,7 @@ extension Bot {
         harnessMemory = try c.decodeIfPresent(Bool.self, forKey: .harnessMemory)
         memoryRev = try c.decodeIfPresent(Int64.self, forKey: .memoryRev)
         autoName = try c.decodeIfPresent(Bool.self, forKey: .autoName) ?? false
+        tasks = try c.decodeIfPresent(Bool.self, forKey: .tasks)
         createdAt = try c.decodeIfPresent(Int64.self, forKey: .createdAt) ?? 0
         rev = try c.decodeIfPresent(Int64.self, forKey: .rev) ?? 0
         status = try c.decodeIfPresent(String.self, forKey: .status) ?? "idle"

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { isBelow } from '@shared/compat'
 import { isGroup, isWorkingIn, type Bot } from '@shared/models'
+import { currentTask } from '@shared/tasks'
 import { BotAvatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { usePresence } from '../../components/Overlay'
@@ -52,12 +53,16 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
   const composing = useRef(false)
   /** Text pasted into this draft since the last send. */
   const pasted = useRef<string[]>([])
-  const working = !!bot && isWorkingIn(bot, botId, thread)
+  // In a bot's chat a message goes on with the current task: Stop and "working" are that task's.
+  const tasks = !thread && !!bot && bot.tasks
+  const place = thread ?? (tasks ? currentTask(store.chat(botId))?.id ?? null : null)
+  const [newTask, setNewTask] = useState(false)
+  const working = !!bot && isWorkingIn(bot, botId, place) && !newTask
   const empty = !draft.trim() && !files.length
   const canSend = !empty && (store.connection.kind === 'online' || (store.canQueue && !files.length))
   const canAttach = !!bot
 
-  const placeholder = thread ? 'Reply…' : bot && isGroup(bot) ? 'Message everyone · @ to ask one bot' : working ? `Queue a message for ${bot?.name ?? ''}` : `Ask ${bot?.name ?? ''}`
+  const placeholder = thread ? 'Reply…' : bot && isGroup(bot) ? 'Message everyone · @ to ask one bot' : newTask ? `New task for ${bot?.name ?? ''}` : working ? `Queue a message for ${bot?.name ?? ''}` : `Ask ${bot?.name ?? ''}`
 
   // A routine's "Try it" fills the box.
   const routineDraft = store.routineDrafts.get(botId)
@@ -144,8 +149,9 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
     const command = files.length ? null : builtInCommand(bot, draft)
     if (command) return run(command)
     if (!canSend) return
-    store.send(draft, botId, thread, files, undefined, pasted.current)
+    store.send(draft, botId, thread, files, undefined, pasted.current, newTask)
     pasted.current = []
+    setNewTask(false)
     setDraft('')
     setFiles([])
     field.current?.focus()
@@ -197,6 +203,20 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
             {canAttach ? (
               <button className="press composer-add" aria-label="Add files" title="Add files" onClick={() => void window.codync.app.pickFiles().then(append)}>
                 <Icon name="plus" size={13} weight="medium" color="var(--text)" />
+              </button>
+            ) : null}
+            {tasks ? (
+              <button
+                className={`press composer-add ${newTask ? 'on' : ''}`}
+                aria-label="New task"
+                title={newTask ? 'Your next message starts a new task' : 'New task'}
+                aria-pressed={newTask}
+                onClick={() => {
+                  setNewTask((on) => !on)
+                  field.current?.focus()
+                }}
+              >
+                <Icon name="square.and.pencil" size={12} weight="medium" color={newTask ? 'var(--accent)' : 'var(--text)'} />
               </button>
             ) : null}
             <div className="composer-field">
@@ -260,7 +280,7 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
               title={label}
               onClick={() => {
                 if (trailing === 'interrupt') onInterrupt?.()
-                else if (trailing === 'stop') store.stop(botId, thread)
+                else if (trailing === 'stop') store.stop(botId, place)
                 else if (trailing === 'call') onCall?.()
                 else submit()
               }}

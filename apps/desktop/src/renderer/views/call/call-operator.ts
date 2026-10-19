@@ -1,4 +1,5 @@
 import { isChat, isGroup, type Entry } from '@shared/models'
+import { chatAndTasks } from '@shared/tasks'
 import type { BotStore } from '../../store/bot-store'
 import { spokenText } from './voice'
 
@@ -110,8 +111,7 @@ export class CallOperator {
   private recent(count: number) {
     const name = this.store.bots.get(this.botId)?.name ?? 'bot'
     const n = Math.min(Math.max(count, 1), 20)
-    const messages = this.store
-      .chat(this.botId)
+    const messages = chatAndTasks(this.store.allEntries(this.botId))
       .filter(isChat)
       .slice(-n)
       .map((e) => ({
@@ -135,6 +135,6 @@ export class CallOperator {
   }
 
   private get pendingApproval(): Entry | undefined {
-    return this.store.chat(this.botId).findLast((e) => e.kind === 'permission' && e.data.status === 'pending')
+    return chatAndTasks(this.store.allEntries(this.botId)).findLast((e) => e.kind === 'permission' && e.data.status === 'pending')
   }
 }

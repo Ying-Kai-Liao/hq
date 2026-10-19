@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { draftOf, isGroup, isWorkingIn, type Bot, type BotDraft } from '@shared/models'
+import { draftOf, isGroup, isWorkingIn, type Bot, type BotDraft, type Entry } from '@shared/models'
+import { currentTask } from '@shared/tasks'
 import { BotAvatar, GroupAvatar } from '../../components/Avatar'
 import { Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
@@ -16,6 +17,7 @@ import { Composer } from './Composer'
 import { ChatSidePanel } from './ChatSidePanel'
 import { DetailsPanel, type DetailsTab } from './DetailsPanel'
 import { RepliesView } from './RepliesView'
+import { TaskRow } from './TaskRow'
 import { TraceView } from './TraceView'
 import { useReading } from './reading'
 import { GroupEditorView } from '../bots/GroupEditorView'
@@ -259,6 +261,7 @@ const Transcript = memo(function Transcript({ botId, openTrace, openThread, open
   // Rebuilt only when this chat changes: the store replaces a chat's list on every change.
   const entries = store.allEntries(botId)
   const all = useMemo(() => buildChat(store.chat(botId), true), [store, botId, entries])
+  const tasks = useTasks(store.chat(botId))
   // The newest 40 items first; older pages come in near the top.
   const [firstShown, setFirstShown] = useState<string | null>(null)
   const [loadingEarlier, setLoadingEarlier] = useState(false)
@@ -357,7 +360,20 @@ const Transcript = memo(function Transcript({ botId, openTrace, openThread, open
           {items.length === 0 && bot ? <div className="transcript-intro">{isGroup(bot) ? <GroupIntroCard group={bot} /> : <IntroCard bot={bot} />}</div> : null}
           {items.map((item) => (
             <div key={item.id} className={arrivals.has(item.id) ? rowIn(item) : undefined}>
-              <Row item={item} chat={bot} openTrace={openTrace} openThread={openThread} openRoutine={openRoutine} openBotChat={openBotChat} />
+              {item.kind === 'task' && bot ? (
+                <TaskRow
+                  root={item.entry}
+                  bot={bot}
+                  newest={item.entry.id === tasks.newest}
+                  now={tasks.now}
+                  choice={tasks.choices.get(item.entry.id)}
+                  setChoice={(open) => tasks.choose(item.entry.id, open)}
+                  openTrace={openTrace}
+                  openThread={openThread}
+                />
+              ) : (
+                <Row item={item} chat={bot} openTrace={openTrace} openThread={openThread} openRoutine={openRoutine} openBotChat={openBotChat} />
+              )}
             </div>
           ))}
           {bot && live ? (
@@ -385,11 +401,28 @@ const Transcript = memo(function Transcript({ botId, openTrace, openThread, open
   )
 })
 
+/**
+ * The chat's tasks on this device: the newest, which ones the user opened or folded, and the time, ticking so an
+ * idle task folds on its own.
+ */
+function useTasks(chat: Entry[]) {
+  const [choices, setChoices] = useState(() => new Map<string, boolean>())
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(tick)
+  }, [])
+  const choose = useCallback((id: string, open: boolean) => setChoices((c) => new Map(c).set(id, open)), [])
+  return { newest: currentTask(chat)?.id ?? null, now, choices, choose }
+}
+
 function Row({ item, chat, openTrace, openThread, openRoutine, openBotChat }: { item: ChatItem; chat: Bot | null; openTrace: () => void; openThread: (e: { id: string }) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void }) {
   if (item.kind === 'separator') {
     return <TimeSeparator date={item.date} />
   }
   if (item.kind === 'exchanges') return <BotMessageRow exchanges={item.exchanges} open={openBotChat} />
+  // Without its bot (deleted) a task is just its first message.
+  if (item.kind === 'task') return <ChatRow entry={item.entry} groupStart chat={chat} openTrace={openTrace} />
   const e = item.entry
   if (e.kind === 'notice' && e.data.routineId) {
     return (

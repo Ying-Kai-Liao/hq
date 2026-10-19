@@ -224,3 +224,6 @@
 .command-detail.warning {
   color: var(--attention);
 }
+.composer-add.on {
+  background: color-mix(in srgb, var(--accent) 16%, var(--composer-fill));
+}

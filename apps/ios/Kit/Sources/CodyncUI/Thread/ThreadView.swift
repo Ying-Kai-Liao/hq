@@ -24,6 +24,8 @@ public struct ThreadView: View {
     /// The chat stays on the newest message until the reader scrolls away.
     @State var following = true
     @State var loadingEarlier = false
+    /// Tasks the user opened or folded on this device; the rest follow their state.
+    @State var taskChoices: [String: Bool] = [:]
     @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     var bot: Bot? { model.bots[botId] }
@@ -101,6 +103,18 @@ public struct ThreadView: View {
             TimeSeparator(date: date)
         case .exchanges(let group):
             BotMessageRow(group: group) { botChat = BotChatTarget(id: group.peerId) }
+        case .task(let root):
+            if let bot {
+                TaskRow(root: root, bot: bot, newest: root.id == Tasks.current(in: model.chat(botId))?.id,
+                        choice: Binding(get: { taskChoices[root.id] }, set: { taskChoices[root.id] = $0 })) {
+                    showTrace = true
+                } openThread: {
+                    withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { openThread = ThreadTarget(id: root.id) }
+                }
+            } else {
+                // Without its bot (deleted) a task is just its first message.
+                ChatRow(entry: root, groupStart: true, chat: bot) { showTrace = true }
+            }
         case .entry(let e, let groupStart):
             if e.kind == "notice", let id = e.data.routineId {
                 Button {
@@ -217,6 +231,8 @@ struct ChatItem: Identifiable {
         case entry(Entry, groupStart: Bool)
         /// Main chat only: consecutive bot-to-bot exchanges with one peer.
         case exchanges(BotExchangeGroup)
+        /// Main chat only: a task's first message, shown with its thread or as a card (`TaskRow`).
+        case task(Entry)
     }
 
     let id: String
@@ -243,6 +259,9 @@ struct ChatItem: Identifiable {
             case .exchanges(let group):
                 out.append(ChatItem(id: id, kind: .exchanges(group)))
                 lastAuthor = nil
+            case .entry(let e) where groupingExchanges && e.isTask:
+                out.append(ChatItem(id: id, kind: .task(e)))
+                lastAuthor = nil
             case .entry(let e):
                 // In a group each bot is its own author.
                 let author = e.kind == "user" ? "user" : e.kind == "agent" ? "agent:\(e.data.author ?? "")" : e.kind
@@ -254,7 +273,11 @@ struct ChatItem: Identifiable {
     }
 
     var isUserMessage: Bool {
-        if case let .entry(entry, _) = kind { entry.kind == "user" } else { false }
+        switch kind {
+        case let .entry(entry, _): entry.kind == "user"
+        case .task: true
+        default: false
+        }
     }
 
 }

@@ -1,8 +1,9 @@
 import { isGroup, needsInput } from '@shared/models'
+import { chatAndTasks } from '@shared/tasks'
 import type { BotStore } from '../../store/bot-store'
 
 /**
- * While a call's audio is active, speaks each new final reply in the bot's main chat and
+ * While a call's audio is active, speaks each new final reply in the bot's main chat (and its tasks) and
  * announces when the bot starts waiting for an approval (kit BotStore `beginVoiceCall`). Only
  * entries newer (by rev) than the call's start count. Returns the function that stops it.
  */
@@ -24,6 +25,7 @@ export function watchVoiceCall(store: BotStore, botId: string, handlers: { speak
   return store.subscribe(() => {
     const group = store.bots.get(botId)
     const inGroup = !!group && isGroup(group)
+    const heard = new Set(chatAndTasks(store.allEntries(botId)).map((e) => e.id))
     for (const e of store.allEntries(botId)) {
       if (inGroup && e.kind === 'permission' && !cards.has(e.id)) {
         cards.add(e.id)
@@ -31,7 +33,7 @@ export function watchVoiceCall(store: BotStore, botId: string, handlers: { speak
       }
       if (!e.data.final || finals.has(e.id)) continue
       finals.add(e.id)
-      if (e.kind !== 'agent' || e.threadId || e.rev <= startRev || !e.data.text) continue
+      if (e.kind !== 'agent' || !heard.has(e.id) || e.rev <= startRev || !e.data.text) continue
       // In a group, a reply is said with its speaker's name.
       const speaker = inGroup ? nameOf(e.data.author) : undefined
       handlers.speak(speaker ? `${speaker}: ${e.data.text}` : e.data.text)

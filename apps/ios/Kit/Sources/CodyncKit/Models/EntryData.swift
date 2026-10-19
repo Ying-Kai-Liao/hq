@@ -39,6 +39,8 @@ public struct EntryData: Codable, Hashable, Sendable {
     public var author: String?
     /// On a main-chat message that has a thread: its replies.
     public var thread: ThreadSummary?
+    /// user, in the main chat: the first message of a task; the task goes on in its thread (see `Tasks`).
+    public var task: Bool?
     /// The user's emoji reactions, oldest first.
     public var reactions: [String]?
     /// Files sent with a user message.

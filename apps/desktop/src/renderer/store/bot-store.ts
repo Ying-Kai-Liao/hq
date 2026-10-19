@@ -39,7 +39,8 @@ export class BotStore extends BotSync {
 
   private outgoingFiles = new Map<string, OutgoingFile[]>()
 
-  send(text: string, botId: string, thread: string | null = null, files: OutgoingFile[] = [], nonce: string = crypto.randomUUID(), pasted: string[] = []) {
+  /** `newTask`: in a bot's chat, start a task rather than go on with the current one. */
+  send(text: string, botId: string, thread: string | null = null, files: OutgoingFile[] = [], nonce: string = crypto.randomUUID(), pasted: string[] = [], newTask = false) {
     const trimmed = text.trim()
     if ((!trimmed && !files.length) || this.retired) return
     const data: Entry['data'] = { text: trimmed, status: 'sending', clientNonce: nonce }
@@ -67,7 +68,7 @@ export class BotStore extends BotSync {
               ids.push(id)
             }
           }
-          return client.send(botId, trimmed, nonce, thread, ids, pasted)
+          return client.send(botId, trimmed, nonce, thread, ids, pasted, newTask)
         }, true)
         this.outgoingFiles.delete(nonce)
         this.upsert(e)

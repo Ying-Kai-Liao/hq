@@ -31,8 +31,14 @@ struct Composer: View {
     /// One line of the field's text, following Dynamic Type: the send button centers on the last line.
     @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
 
+    /// The next message starts a task of its own.
+    @State private var newTask = false
+
     private var bot: Bot? { model.bots[botId] }
-    private var working: Bool { bot?.isWorking(in: botId, thread: thread) == true }
+    private var tasks: Bool { thread == nil && bot?.usesTasks == true }
+    /// In a bot's chat a message goes on with the current task: Stop and "working" are that task's.
+    private var place: String? { thread ?? (tasks ? Tasks.current(in: model.chat(botId))?.id : nil) }
+    private var working: Bool { !newTask && bot?.isWorking(in: botId, thread: place) == true }
 
     private var isEmpty: Bool { draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty }
 
@@ -47,6 +53,7 @@ struct Composer: View {
         let name = bot?.name ?? ""
         if thread != nil { return "Reply…" }
         if bot?.isGroup == true { return "Message everyone · @ to ask one bot" }
+        if newTask { return "New task for \(name)" }
         return working ? "Queue a message for \(name)" : "Ask \(name)"
     }
 
@@ -113,6 +120,9 @@ struct Composer: View {
         HStack(alignment: .bottom, spacing: 8) {
             if canAttach { addButton }
             VStack(alignment: .leading, spacing: 0) {
+                if newTask {
+                    newTaskChip.transition(.move(edge: .bottom).combined(with: .opacity))
+                }
                 if !files.isEmpty {
                     fileChips.transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -123,6 +133,7 @@ struct Composer: View {
             .animation(Motion.layout, value: draft.count(where: \.isNewline))
         }
         .animation(Motion.layout, value: files.map(\.id))
+        .animation(Motion.layout, value: newTask)
         .dropDestination(for: PickedFile.self) { picked, _ in
             guard canAttach else { return false }
             append(picked.map(\.file))
@@ -177,7 +188,7 @@ struct Composer: View {
         return Button {
             switch state {
             case .interrupt: onInterrupt?()
-            case .stop: model.stop(botId, thread: thread)
+            case .stop: model.stop(botId, thread: place)
             case .call:
                 // The call takes the microphone.
                 dictation.stop()
@@ -261,7 +272,8 @@ struct Composer: View {
         }
     }
 
-    /// Photos, files or the clipboard, from a system menu; dropping files on the box works too.
+    /// Photos, files or the clipboard, from a system menu; dropping files on the box works too. In a bot's chat it
+    /// also starts a new task.
     @ViewBuilder private var addButton: some View {
             DropdownMenu {
                 var items = [MenuItem("Photos", icon: "photo.on.rectangle") { pickingPhotos = true },
@@ -269,9 +281,26 @@ struct Composer: View {
                 if UIPasteboard.general.hasImages || UIPasteboard.general.hasURLs {
                     items.append(MenuItem("Paste", icon: "doc.on.clipboard") { pasteFiles() })
                 }
+                if tasks && !newTask {
+                    items.append(MenuItem("New task", icon: "square.and.pencil") {
+                        newTask = true
+                        focused = true
+                    })
+                }
                 return items
             } label: { addLabel }
                 .accessibilityLabel("Add files")
+    }
+
+    /// Over the box while the next message starts a new task; its x goes back to the current one.
+    private var newTaskChip: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "square.and.pencil").font(.caption).foregroundStyle(Palette.accent)
+            Text("New task").font(.subheadline).foregroundStyle(Palette.text)
+            IconButton("Go on with the current task", systemImage: "xmark") { newTask = false }
+        }
+        .padding(.leading, 18)
+        .padding(.top, 8)
     }
 
     private var addLabel: some View {
@@ -358,9 +387,10 @@ struct Composer: View {
         if files.isEmpty, let command = SlashCommands.builtIn(for: bot, draft: draft) { return run(command) }
         guard canSend else { return }
         withAnimation(Motion.reduced(Motion.conversation, reduceMotion)) {
-            guard model.sendComposerDraft(to: botId, thread: thread, files: files) else { return }
+            guard model.sendComposerDraft(to: botId, thread: thread, files: files, newTask: newTask) else { return }
             draft = ""
             files = []
+            newTask = false
         }
     }
 }

@@ -197,15 +197,16 @@ public extension HostClient {
 
     /// `threadId`: reply in the thread on that main-chat message.
     /// `pasted`: what the user pasted rather than typed, which memory never takes as their own words.
+    /// `newTask`: start a task of its own rather than go on with the current one.
     func send(botId: String, text: String, clientNonce: String, threadId: String? = nil, attachments: [String]? = nil,
-              pasted: [String]? = nil) async throws -> Entry {
+              pasted: [String]? = nil, newTask: Bool = false) async throws -> Entry {
         struct Body: Encodable {
             var botId: String; var text: String; var clientNonce: String; var threadId: String?; var attachments: [String]?
-            var pasted: [String]?
+            var pasted: [String]?; var newTask: Bool?
         }
         struct Res: Decodable { var entry: Entry }
         let body = Body(botId: botId, text: text, clientNonce: clientNonce, threadId: threadId, attachments: attachments,
-                        pasted: pasted?.isEmpty == false ? pasted : nil)
+                        pasted: pasted?.isEmpty == false ? pasted : nil, newTask: newTask ? true : nil)
         let res: Res = try await call("send", body)
         return res.entry
     }
