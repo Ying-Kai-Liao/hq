@@ -47,19 +47,29 @@ public final class Analytics {
     }
 
     nonisolated static let endpoint = URL(string: "https://us.i.posthog.com/batch/")!
-    /// The project key comes from the build (`shared/Config/Secrets.plist`, copied into the app
-    /// as `Secrets.plist`; see apps/README.md). Never committed; nil or empty = analytics does nothing.
+    /// Public, write-only PostHog project key, built in like Codync's. A non-empty `Secrets.plist`
+    /// `POSTHOG_API_KEY` (see apps/README.md) overrides it; the in-app setting turns analytics off.
+    nonisolated static let defaultKey = "phc_DeF6pzdzBBusSKgu8V4PBAJKGfge4G9tMnxeuwwkjd7k"
     nonisolated static let bundledKey: String? = {
-        guard let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
-              let plist = NSDictionary(contentsOf: url),
-              let key = plist["POSTHOG_API_KEY"] as? String else { return nil }
-        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        let plist = Bundle.main.url(forResource: "Secrets", withExtension: "plist")
+            .flatMap { NSDictionary(contentsOf: $0) }
+        return resolveKey(override: plist?["POSTHOG_API_KEY"] as? String)
     }()
+    /// A non-empty override wins; absent or blank falls back to the built-in default.
+    nonisolated static func resolveKey(override: String?) -> String {
+        let trimmed = override?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? defaultKey : trimmed
+    }
     /// `Bool`, absent = on.
     public static let enabledKey = "analyticsEnabled"
     private static let installKey = "analyticsInstallID"
-    private static let identifiedKey = "analyticsIdentifiedUsers"
+    private static let identifiedKeyPrefix = "analyticsIdentifiedUsers"
+    /// Identified accounts are per PostHog project, so a changed key re-identifies them there.
+    private var identifiedKey: String {
+        var hash: UInt32 = 5381
+        for byte in (apiKey ?? "").utf8 { hash = hash &* 33 &+ UInt32(byte) }
+        return "\(Self.identifiedKeyPrefix).\(String(hash, radix: 16))"
+    }
     private static let batchSize = 20
     private static let maxPending = 500
     private static let flushDelay = Duration.seconds(30)
@@ -101,11 +111,11 @@ public final class Analytics {
     func record(_ name: String, _ extra: [String: Value]) {
         guard isEnabled, apiKey != nil else { return }
         if let user = userID() {
-            var identified = defaults.stringArray(forKey: Self.identifiedKey) ?? []
+            var identified = defaults.stringArray(forKey: identifiedKey) ?? []
             if !identified.contains(user) {
                 enqueue("$identify", user, ["$anon_distinct_id": .string(installID)])
                 identified.append(user)
-                defaults.set(identified, forKey: Self.identifiedKey)
+                defaults.set(identified, forKey: identifiedKey)
             }
             enqueue(name, user, extra)
         } else {
