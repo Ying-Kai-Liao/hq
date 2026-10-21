@@ -30,8 +30,9 @@ fn stub_script() -> &'static Path {
     static SCRIPT: OnceLock<PathBuf> = OnceLock::new();
     SCRIPT.get_or_init(|| {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("kith-discord-stub-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = std::env::temp_dir().join(format!("kith-discord-stub-{}", uuid::Uuid::new_v4()));
+        // a fresh, unguessable folder that must not exist yet: nothing planted there is followed
+        std::fs::create_dir(&dir).unwrap();
         let path = dir.join("channels_stub.py");
         std::fs::write(&path, STUB).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -499,6 +500,7 @@ async fn a_dropped_gateway_resumes_and_nothing_is_answered_twice() {
     r.fd.say(&house, OWNER, "during the drop", &json!({}), true, None);
     r.answered("during the drop").await;
     r.idle().await;
+    until("the gateway to be resumed", || r.fd.resumes.load(Ordering::SeqCst) >= 1).await;
     assert_eq!(
         (r.fd.identifies.load(Ordering::SeqCst), r.fd.resumes.load(Ordering::SeqCst)),
         (1, 1),
@@ -665,4 +667,34 @@ async fn several_servers_need_the_setting_and_a_matching_name_or_id_picks_one() 
         assert_eq!(r2.ad.rt.locked().guild.as_ref().map(|g| g.id.clone()).as_deref(), Some("101"));
         r2.stop();
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_channel_renamed_to_an_agents_name_is_that_agents_room() {
+    let r = Rig::new().await.started().await;
+    r.say(GENERAL, "chatter, nobody answers");
+    tokio::time::sleep(Duration::from_millis(300)).await; // handled (and ignored) under its old name
+    r.fd.rename(GENERAL, "shop");
+    // The rename reaches the adapter as an event; a message in the room is then the shop agent's without a mention.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    r.say(GENERAL, "two tins of beans");
+    assert_eq!(r.answered("two tins of beans").await.username.as_deref(), Some("shop"));
+    assert!(r.answers_with("chatter").is_empty(), "the first message was not for hq");
+    r.idle().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_counts_as_seen_only_once_it_is_handled() {
+    let r = Rig::new().await;
+    let seen =
+        |id: u64| r.core.conn_state(CONN)["seen"].as_array().is_some_and(|s| s.iter().any(|v| v.as_u64() == Some(id)));
+    let first = r.ad.claim(5).expect("a new message is taken");
+    assert!(r.ad.claim(5).is_none(), "not twice at once");
+    drop(first); // interrupted before the core had it
+    let again = r.ad.claim(5);
+    assert!(again.is_some() && !seen(5), "an interrupted message is read back, not lost");
+    r.ad.mark_seen(5);
+    drop(again);
+    assert!(r.ad.claim(5).is_none() && seen(5), "handled once");
+    assert_eq!(r.core.conn_state(CONN)["last"], 5);
 }

@@ -189,6 +189,10 @@ fn dispatch(d: &Arc<Discord>, w: &Wiring, session: &mut Option<Session>, f: &Val
                 }
             });
         }
+        Some("CHANNEL_CREATE" | "CHANNEL_UPDATE" | "THREAD_CREATE" | "THREAD_UPDATE") => {
+            d.channel_changed(data, false);
+        }
+        Some("CHANNEL_DELETE" | "THREAD_DELETE") => d.channel_changed(data, true),
         Some("RESUMED") => tracing::info!("{}: gateway resumed", d.conn),
         Some("MESSAGE_CREATE") => {
             let _ = w.messages.send(data.clone());

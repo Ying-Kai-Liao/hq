@@ -255,6 +255,15 @@ impl Fd {
         self.st.locked().channels.push(json!({"id": id, "type": 11, "name": name, "parent_id": parent}));
     }
 
+    /// A channel renamed: stored, and announced the way Discord does.
+    pub fn rename(&self, id: &str, name: &str) {
+        let mut st = self.st.locked();
+        let Some(c) = st.channels.iter_mut().find(|c| c["id"] == id) else { return };
+        c["name"] = json!(name);
+        let c = c.clone();
+        self.dispatch_locked(&mut st, "CHANNEL_UPDATE", &c);
+    }
+
     pub fn register_hook(&self, id: &str, channel: &str, token: &str) {
         self.st.locked().hooks.push(Hook { id: id.into(), channel: channel.into(), token: token.into() });
     }

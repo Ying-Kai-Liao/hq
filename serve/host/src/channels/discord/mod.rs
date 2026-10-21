@@ -34,7 +34,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use api::{Api, Body, api_error, id_of, id_value, multipart, snowflake_time, time_snowflake};
 use reqwest::Method;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tasks::{Guard, Tasks};
@@ -142,6 +142,17 @@ struct Rt {
     /// Role id -> agent.
     roles: HashMap<String, String>,
     chans: HashMap<String, Chan>,
+    /// Messages being handled now, so that a live one and the catch-up don't both take it.
+    inflight: HashSet<u64>,
+}
+
+/// A message being handled; it stops being in flight when this is dropped, however that happens.
+struct Claim<'a>(&'a Discord, u64);
+
+impl Drop for Claim<'_> {
+    fn drop(&mut self) {
+        self.0.rt.locked().inflight.remove(&self.1);
+    }
 }
 
 pub struct Discord {
@@ -184,6 +195,17 @@ impl Discord {
         user.clone_into(&mut rt.me);
         if let Some(app) = app {
             app.clone_into(&mut rt.app);
+        }
+    }
+
+    /// A channel was made, renamed or deleted: what is cached about it is changed to match.
+    fn channel_changed(&self, data: &Value, deleted: bool) {
+        let Some((id, chan)) = Chan::of(data) else { return };
+        let mut rt = self.rt.locked();
+        if deleted {
+            rt.chans.remove(&id);
+        } else {
+            rt.chans.insert(id, chan);
         }
     }
 
@@ -246,6 +268,8 @@ impl Discord {
     /// A session began: the server, its channels and roles, then what was missed. The first one of this
     /// connection also hands over what waited for the host and starts the rescan.
     async fn ready(self: &Arc<Self>, tasks: &Tasks) -> Result<()> {
+        // Where the catch-up starts is what was saved before any live message of this session moves it.
+        let last = self.core.conn_state(&self.conn)["last"].as_u64().unwrap_or(0);
         self.pick_guild().await?;
         if let Err(e) = self.setup().await {
             tracing::warn!("{}: setting up the server failed: {e:#}", self.conn);
@@ -258,7 +282,7 @@ impl Discord {
             tasks.spawn(async move { me.rescan().await });
         }
         let me = self.clone();
-        tasks.spawn(async move { me.catch_up().await }); // a new session: events in between are not replayed
+        tasks.spawn(async move { me.catch_up(last).await }); // a new session: events in between are not replayed
         Ok(())
     }
 
@@ -482,23 +506,7 @@ impl Discord {
         if !matches!(msg["type"].as_u64().unwrap_or(0), 0 | 19) {
             return; // joins, pins, "thread created": not something said to hq
         }
-        let fresh = self.core.update_conn(&self.conn, |cs| {
-            let Some(o) = cs.as_object_mut() else { return false };
-            let mut seen: Vec<Value> = o.get("seen").and_then(Value::as_array).cloned().unwrap_or_default();
-            if seen.iter().any(|s| s.as_u64() == Some(id)) {
-                return false;
-            }
-            let from = seen.len().saturating_sub(499);
-            seen = seen.split_off(from);
-            seen.push(json!(id));
-            let last = o.get("last").and_then(Value::as_u64).unwrap_or(0).max(id);
-            o.insert("seen".into(), Value::Array(seen));
-            o.insert("last".into(), json!(last));
-            true
-        });
-        if !fresh {
-            return;
-        }
+        let Some(claim) = self.claim(id) else { return };
         match self.incoming(msg).await {
             Ok(Some(m)) => {
                 if let Err(e) = self.core.handle(&self.as_adapter(), &m).await {
@@ -508,18 +516,47 @@ impl Discord {
             Ok(None) => {}
             Err(e) => tracing::warn!("{}: message failed: {e:#}", self.conn),
         }
+        // Marked once the core has the work (or decided there is none): a connection or host that ends before
+        // that reads the message back instead of losing it.
+        self.mark_seen(id);
+        drop(claim);
+    }
+
+    /// Takes a message to handle: None when it is being handled or was before.
+    fn claim(&self, id: u64) -> Option<Claim<'_>> {
+        if !self.rt.locked().inflight.insert(id) {
+            return None;
+        }
+        let claim = Claim(self, id);
+        let seen = self.core.conn_state(&self.conn)["seen"]
+            .as_array()
+            .is_some_and(|s| s.iter().any(|v| v.as_u64() == Some(id)));
+        (!seen).then_some(claim)
+    }
+
+    /// Remembers the message (the last 500) and moves where a catch-up starts.
+    fn mark_seen(&self, id: u64) {
+        self.core.update_conn(&self.conn, |cs| {
+            let Some(o) = cs.as_object_mut() else { return };
+            let mut seen: Vec<Value> = o.get("seen").and_then(Value::as_array).cloned().unwrap_or_default();
+            let from = seen.len().saturating_sub(499);
+            seen = seen.split_off(from);
+            seen.push(json!(id));
+            let last = o.get("last").and_then(Value::as_u64).unwrap_or(0).max(id);
+            o.insert("seen".into(), Value::Array(seen));
+            o.insert("last".into(), json!(last));
+        });
     }
 
     /// Messages sent since the last one seen (at most 24 h back), oldest first. Without a last one (the first
     /// run) there is nothing to catch up on.
-    async fn catch_up(self: Arc<Self>) {
-        if let Err(e) = self.catch_up_inner().await {
+    async fn catch_up(self: Arc<Self>, last: u64) {
+        if let Err(e) = self.catch_up_inner(last).await {
             tracing::warn!("{}: catch-up failed: {e:#}", self.conn);
         }
     }
 
-    async fn catch_up_inner(self: &Arc<Self>) -> Result<()> {
-        let last = self.core.conn_state(&self.conn)["last"].as_u64().unwrap_or(0);
+    async fn catch_up_inner(self: &Arc<Self>, last: u64) -> Result<()> {
         if last == 0 {
             return Ok(());
         }
@@ -914,6 +951,7 @@ impl Adapter for Discord {
                 rt.guild = None;
                 rt.roles.clear();
                 rt.chans.clear();
+                rt.inflight.clear();
             }
             let tasks = Tasks::default();
             let _ends_with_us = Guard(tasks.clone());
