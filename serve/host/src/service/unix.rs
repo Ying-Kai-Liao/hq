@@ -74,6 +74,33 @@ fn systemd_quote(s: &str, exec: bool) -> String {
     format!("\"{}\"", if exec { s.replace('$', "$$") } else { s })
 }
 
+/// The words to run the host behind, from `KITH_SERVE_LAUNCHER` or `launcher` in `<data dir>/config.json`
+/// (a JSON array of strings). launchd credits file access to the first program it starts, so a launcher
+/// that has it (hq's `hq-uv`) lets the host read folders on an external volume.
+fn launcher() -> Vec<String> {
+    let parse = |text: &str| serde_json::from_str::<Vec<String>>(text).ok().filter(|w| !w.is_empty());
+    if let Some(words) = std::env::var("KITH_SERVE_LAUNCHER").ok().and_then(|t| parse(&t)) {
+        return words;
+    }
+    let config = std::fs::read_to_string(data_dir().join("config.json")).ok();
+    config
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| parse(&v.get("launcher")?.to_string()))
+        .unwrap_or_default()
+}
+
+/// The `ProgramArguments` entries of the launchd job: the launcher's words, then the host and its arguments.
+fn program_arguments(launcher: &[String], exe: &str, port: u16) -> String {
+    launcher
+        .iter()
+        .map(String::as_str)
+        .chain([exe, "serve", "--port"])
+        .map(str::to_owned)
+        .chain([port.to_string()])
+        .map(|w| format!("<string>{}</string>", xml_escape(&w)))
+        .collect()
+}
+
 /// Installs and starts the host as a per-user background service. The current
 /// PATH is captured so the service finds `npx`, `claude`, `codex`, …
 pub fn install(port: u16) -> Result<()> {
@@ -91,7 +118,7 @@ pub fn install(port: u16) -> Result<()> {
 <plist version="1.0">
 <dict>
   <key>Label</key><string>{LABEL}</string>
-  <key>ProgramArguments</key><array><string>{exe}</string><string>serve</string><string>--port</string><string>{port}</string></array>
+  <key>ProgramArguments</key><array>{args}</array>
   <key>EnvironmentVariables</key><dict><key>PATH</key><string>{path}</string><key>KITH_SERVE_HOME</key><string>{data}</string>{hq}</dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -101,7 +128,7 @@ pub fn install(port: u16) -> Result<()> {
 </dict>
 </plist>
 "#,
-            exe = xml_escape(&exe),
+            args = program_arguments(&launcher(), &exe, port),
             path = xml_escape(&path),
             data = xml_escape(&data_dir().to_string_lossy()),
             hq = hq_bin
@@ -171,7 +198,20 @@ fn current_uid() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::systemd_quote;
+    use super::{program_arguments, systemd_quote};
+
+    #[test]
+    fn the_job_runs_behind_a_launcher_when_one_is_set() {
+        assert_eq!(
+            program_arguments(&[], "/h/kith-serve", 19224),
+            "<string>/h/kith-serve</string><string>serve</string><string>--port</string><string>19224</string>"
+        );
+        let launcher = ["/hq/hq-uv".to_owned(), "run".to_owned(), "a&b".to_owned()];
+        assert_eq!(
+            program_arguments(&launcher, "/h/kith-serve", 19224),
+            "<string>/hq/hq-uv</string><string>run</string><string>a&amp;b</string><string>/h/kith-serve</string><string>serve</string><string>--port</string><string>19224</string>"
+        );
+    }
 
     #[test]
     fn unit_values_stay_one_word() {

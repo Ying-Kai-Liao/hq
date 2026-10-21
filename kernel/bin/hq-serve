@@ -59,8 +59,14 @@ cmd_start() {
     fi
   fi
   [ -x "$BIN" ] || { echo "hq serve: no host binary at $built or $BIN: run hq serve start without --no-build" >&2; exit 1; }
-  # The job runs this checkout's hq, not whichever one the login shell finds first.
-  HQ_BIN="${HQ_BIN:-$REPO/kernel/bin/hq}" "$BIN" install --port $PORT
+  # The job runs this checkout's hq, not whichever one the login shell finds first. On macOS it runs behind hq-uv
+  # (the bridge's launcher, which has Full Disk Access) unless a launcher is already configured, so the host can
+  # read the agents folder on an external volume.
+  local hquv=$HOME/.hq/bin/hq-uv launcher=${KITH_SERVE_LAUNCHER:-}
+  if [ -z "$launcher" ] && [ "$(uname -s)" = Darwin ] && [ -x "$hquv" ] && ! grep -q '"launcher"' "$CONFIG" 2>/dev/null; then
+    launcher=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "$hquv" run --quiet --script "$REPO/kernel/bin/kith-serve-launch")
+  fi
+  KITH_SERVE_LAUNCHER=$launcher HQ_BIN="${HQ_BIN:-$REPO/kernel/bin/hq}" "$BIN" install --port $PORT
 }
 
 relay_url() {
