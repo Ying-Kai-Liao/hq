@@ -33,9 +33,11 @@ impl Registry {
         self.0.insert(platform.to_owned(), ctor);
     }
 
-    /// The adapters this host has. None yet: Discord, Telegram and Slack register here as they are ported.
+    /// The adapters this host has; Telegram and Slack register here as they are ported.
     pub fn builtin() -> Self {
-        Self::default()
+        let mut r = Self::default();
+        super::discord::register(&mut r);
+        r
     }
 }
 

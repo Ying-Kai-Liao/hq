@@ -34,6 +34,7 @@
 
 mod adapter;
 mod core;
+mod discord;
 mod hq;
 mod judge;
 mod manager;

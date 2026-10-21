@@ -78,6 +78,20 @@ The `channels` object in `config.json` (read at start):
 | `permission_mode` | unset | the owner's runs; unset leaves it to the agent, then hq |
 | `discord_guild` | unset | server name or id when the Discord bot is in several |
 
+### Discord
+
+`src/channels/discord/` (hand-rolled gateway and REST, no Discord crate) does what the bridge's
+`discord_chat.py` did, in one server: an `hq` category with a channel per agent (created, and its topic
+kept at the agent's description, within a minute of a new agent), a mentionable `@agent` role per agent when
+the bot has Manage Roles (plain `@agent` otherwise), a thread per task opened from the message, answers
+posted through the channel's webhook under the agent's display name (webhooks are kept in the connection's
+state, so the bridge's are reused), a `-# working…` line with a Stop button, "Who should take this?" buttons,
+DMs, attachments saved under `<data dir>/channels/attachments/`, and a read-back of what was sent since the
+last message seen (at most 24 h, once) after every new gateway session. `hq-send` keeps posting into the
+thread through `HQ_DISCORD_WEBHOOK_URL` and `HQ_DISCORD_THREAD_ID`. Grant it with
+`hq-auth grant serve discord <profile>` (secret `DISCORD_BOT_TOKEN`); no restart is needed. The bot needs the
+Message Content intent. For tests, `HQ_DISCORD_API_BASE` and `HQ_DISCORD_GATEWAY_URL` move both addresses.
+
 ## Updates
 
 This build never fetches releases; rebuild with `kith serve start`.
