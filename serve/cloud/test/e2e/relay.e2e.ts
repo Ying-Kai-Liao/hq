@@ -10,14 +10,14 @@ import { generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { networkInterfaces, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as ref from "../ref.ts";
 import { Channel, FakePhone, parsePairing, waitFor, type Json, type PairingInfo, type Wire } from "./phone.ts";
 
 const CLOUD_DIR = fileURLToPath(new URL("../..", import.meta.url));
 const ROOT = join(CLOUD_DIR, "..");
-const HOST_BIN = process.env.KITH_SERVE_HOST_BIN ?? join(process.env.CARGO_TARGET_DIR ?? join(ROOT, "host/target"), "debug/kith-serve");
+const HOST_BIN = process.env.KITH_SERVE_HOST_BIN ?? join(resolve(join(ROOT, "host"), process.env.CARGO_TARGET_DIR ?? "target"), "debug/kith-serve");
 const FAKE_AGENT = join(ROOT, "host/tests/fake_agent.py");
 const CLOUD_PORT = Number(process.env.CODYNC_E2E_CLOUD_PORT ?? 8787);
 const CLOUD = `http://127.0.0.1:${CLOUD_PORT}`;

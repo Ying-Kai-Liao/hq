@@ -69,6 +69,11 @@ check "an explicit HQ_BIN is kept" "grep -qx '/elsewhere/hq' '$STUB_LOG.hq'"
 : > "$STUB_LOG.build"; KITH_SERVE_ENV=main "$SERVE" start >/dev/null 2>&1
 check "an exported KITH_SERVE_ENV never reaches the build" "grep -q 'env=unset' '$STUB_LOG.build' && ! grep -q 'env=main' '$STUB_LOG.build'"
 
+# a relative CARGO_TARGET_DIR is resolved before the build moves into serve/host
+mkdir -p "$T/work"; rm -rf "$T/work/reltarget"; rm -f "$BIN"
+(cd "$T/work" && CARGO_TARGET_DIR=reltarget "$SERVE" start >/dev/null 2>&1)
+check "a relative CARGO_TARGET_DIR still installs the fresh build" "[ -x '$BIN' ] && [ -x '$T/work/reltarget/dev-app/kith-serve' ]"
+
 # a failing build keeps the old installed binary and exits non-zero, with the tail shown
 before=$(cksum < "$BIN")
 out=$(STUB_BUILD_FAIL=1 "$SERVE" start 2>&1); rc=$?
@@ -119,8 +124,10 @@ check "relay rejects a bad URL" "[ $rc != 0 ] && grep -q localhost '$CFG'"
 out=$("$SERVE" relay http://evil.example.com 2>&1); rc=$?
 check "relay rejects plain http to other hosts" "[ $rc != 0 ]"
 # two writers at once: both succeed, the file stays valid JSON, no temp files are left behind
-for i in 1 2 3 4 5 6; do "$SERVE" relay "https://r$i.example.workers.dev" >/dev/null 2>&1 & done; wait
-check "overlapping relay writes leave valid JSON and no temp files" "python3 -c 'import json; json.load(open(\"$CFG\"))' && [ \"\$(ls -A '$HOME/.kith/serve' | grep -c config.json.)\" = 0 ]"
+echo '{}' > "$CFG"; pids=(); for i in 1 2 3 4 5 6; do "$SERVE" relay "https://r$i.example.workers.dev" >/dev/null 2>&1 & pids+=($!); done
+failed=0; for p in "${pids[@]}"; do wait "$p" || failed=$((failed + 1)); done
+check "overlapping relay writes all succeed" "[ $failed = 0 ]"
+check "overlapping relay writes leave one of the urls and no temp files" "python3 -c 'import json; u=json.load(open(\"$CFG\"))[\"relay_url\"]; assert u in [\"https://r%d.example.workers.dev\" % i for i in range(1, 7)]' && [ \"\$(ls -A '$HOME/.kith/serve' | grep -c config.json.)\" = 0 ]"
 rm -rf "$HOME/.kith"
 "$SERVE" relay https://relay.example.workers.dev >/dev/null 2>&1
 check "relay creates the file and folder" "[ -f '$CFG' ]"

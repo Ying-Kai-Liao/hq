@@ -19,6 +19,8 @@ DATA=$HOME/.kith/serve
 BIN=$DATA/bin/kith-serve
 CONFIG=$DATA/config.json
 PORT=19224
+# The build runs inside serve/host, so a relative target dir is fixed against the caller's folder first.
+case ${CARGO_TARGET_DIR:-/} in /*) ;; *) export CARGO_TARGET_DIR=$PWD/$CARGO_TARGET_DIR ;; esac
 
 usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; }
 
@@ -78,7 +80,8 @@ except Exception: pass' "$CONFIG"
 relay_line() {
   local u=""
   if [ -x "$BIN" ]; then u=$("$BIN" cloud --port $PORT 2>/dev/null | sed -n 's/^url: *//p' | head -1 || true); fi
-  case $u in ""|-) u=$(relay_url) ;; *) echo "relay: $u (host)"; return 0 ;; esac
+  # "-" is the host saying it has no relay (the cloud is off): not a host that can't answer.
+  case $u in "") u=$(relay_url) ;; -) echo "relay: none (the cloud is off)"; return 0 ;; *) echo "relay: $u (host)"; return 0 ;; esac
   if [ -n "$u" ]; then echo "relay: $u (config.json)"; else echo "relay: built-in default (kith serve relay <url> to change)"; fi
 }
 
