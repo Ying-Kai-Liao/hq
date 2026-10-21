@@ -26,7 +26,7 @@ impl Drop for Host {
 
 impl Host {
     async fn start() -> Self {
-        let home = std::env::temp_dir().join(format!("codync-team-e2e-{}", uuid::Uuid::new_v4()));
+        let home = std::env::temp_dir().join(format!("kith-team-e2e-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&home).unwrap();
         let (child, base) = common::serve(&home).await;
         let mut host = Self { child, home, base, token: String::new() };

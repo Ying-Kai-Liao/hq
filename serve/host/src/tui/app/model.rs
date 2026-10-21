@@ -107,7 +107,7 @@ pub struct Bot {
     pub hidden: bool,
     pub notify: bool,
     pub computer: bool,
-    /// The harness's own memory kept on beside Codync's; `None` where it has no switch.
+    /// The harness's own memory kept on beside Kith's; `None` where it has no switch.
     pub harness_memory: Option<bool>,
     pub connectors: Vec<String>,
     pub skills: Vec<String>,

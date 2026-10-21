@@ -231,7 +231,7 @@ pub fn expand_command(store: &crate::store::Store, enabled: &[String], text: &st
     }
     let s = skills(store).into_iter().find(|s| s.id == id)?;
     let note = format!(
-        "[Codync: the user picked the \"{}\" skill for this message. Read {} first and follow it.]",
+        "[Kith: the user picked the \"{}\" skill for this message. Read {} first and follow it.]",
         s.name,
         s.dir().join("SKILL.md").display()
     );
@@ -307,7 +307,7 @@ mod tests {
         save(&store, "skills", std::slice::from_ref(&pdf)).expect("save skills");
         let on = ["pdf".to_owned()];
         let asked = expand_command(&store, &on, "/pdf  merge these ").expect("an enabled skill");
-        assert!(asked.starts_with("[Codync: the user picked the \"PDF\" skill"), "{asked}");
+        assert!(asked.starts_with("[Kith: the user picked the \"PDF\" skill"), "{asked}");
         assert!(asked.contains(&pdf.dir().join("SKILL.md").display().to_string()));
         assert!(asked.ends_with("]\n\nmerge these"), "{asked}");
         assert!(expand_command(&store, &on, "/pdf").expect("no task").ends_with("follow it.]"));

@@ -29,10 +29,10 @@ pub fn method(executable: &Path) -> Method {
 pub fn require_standalone(executable: &Path) -> Result<()> {
     match method(executable) {
         Method::Standalone => Ok(()),
-        Method::AppBundle => bail!("this host belongs to the Codync app; update the app from Settings > Updates"),
-        Method::Homebrew => bail!(
-            "this host belongs to Homebrew; run `brew upgrade leepokai/codync/codync-host`, then `codync-host install`"
-        ),
+        Method::AppBundle => bail!("this host belongs to the Kith app; update the app from Settings > Updates"),
+        Method::Homebrew => {
+            bail!("this host belongs to Homebrew; run `brew upgrade kith-serve`, then `kith-serve install`")
+        }
         Method::Development => bail!("this is a development build; rebuild it instead of replacing it with a release"),
     }
 }
@@ -83,7 +83,7 @@ where
     Restore: FnOnce() -> Restored,
     Restored: Future<Output = Result<()>>,
 {
-    let backup = target.with_file_name(format!(".codync-host-backup-{}", uuid::Uuid::new_v4()));
+    let backup = target.with_file_name(format!(".kith-serve-backup-{}", uuid::Uuid::new_v4()));
     std::fs::hard_link(target, &backup).context("creating the rollback copy")?;
     if let Err(error) = stop().await {
         let _ = std::fs::remove_file(&backup);
@@ -181,7 +181,7 @@ pub async fn apply(
         drop(service::lock_host().context("stop the manually started host before updating its executable")?);
     }
     let bytes = release::archive(release).await?;
-    let stage = target.with_file_name(format!(".codync-host-update-{}", uuid::Uuid::new_v4()));
+    let stage = target.with_file_name(format!(".kith-serve-update-{}", uuid::Uuid::new_v4()));
     let helpers: Vec<Helper> = HELPERS.iter().map(|name| Helper::new(target, name)).collect();
     let result = async {
         release::extract(&bytes, &release.platform, &stage)?;
@@ -195,7 +195,7 @@ pub async fn apply(
         let output = tokio::time::timeout(Duration::from_secs(10), output).await??;
         ensure!(
             output.status.success()
-                && String::from_utf8_lossy(&output.stdout).trim() == format!("codync-host {}", release.version),
+                && String::from_utf8_lossy(&output.stdout).trim() == format!("kith-serve {}", release.version),
             "downloaded executable reported the wrong version"
         );
         // Before anything stops: a release that needs a newer iPhone app than the App Store
@@ -262,7 +262,7 @@ pub async fn apply(
 
 /// Linux helpers in the host's archive: the Remote screen helper and the computer-use driver.
 /// The host starts them from beside itself, so an update replaces them there too.
-const HELPERS: &[&str] = &["codync-screen", "cua-driver"];
+const HELPERS: &[&str] = &["kith-screen", "cua-driver"];
 
 /// Swaps a helper beside the host for the staged one, keeping a copy to roll back to.
 struct Helper {

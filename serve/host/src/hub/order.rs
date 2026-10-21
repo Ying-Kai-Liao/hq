@@ -41,7 +41,7 @@ mod tests {
 
     #[tokio::test]
     async fn dragged_order_sticks_and_new_bots_go_on_top() {
-        let dir = std::env::temp_dir().join(format!("codync-order-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-order-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(std::path::Path::new(":memory:")).unwrap();
         let hub = Hub::new(store, "order-test".into(), Identity::load_or_create(&dir).unwrap(), "test".into(), 0);

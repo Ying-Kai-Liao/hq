@@ -36,8 +36,8 @@ pub(super) fn rgb(hex: u32) -> Color {
 pub fn theme() -> &'static Theme {
     static T: LazyLock<Theme> = LazyLock::new(|| {
         let color = std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty());
-        // COLORFGBG="15;0" is a dark background; "0;15" a light one. CODYNC_THEME wins.
-        let light = match std::env::var("CODYNC_THEME").as_deref() {
+        // COLORFGBG="15;0" is a dark background; "0;15" a light one. KITH_SERVE_THEME wins.
+        let light = match std::env::var("KITH_SERVE_THEME").as_deref() {
             Ok("light") => true,
             Ok("dark") => false,
             _ => std::env::var("COLORFGBG")

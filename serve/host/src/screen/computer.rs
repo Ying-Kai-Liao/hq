@@ -1,6 +1,6 @@
 //! Bots operating the computer: the `computer` MCP tools, who is in control, and signing in.
 //! Tools run on the computer-use driver (`cua.rs`); on Linux desktops it doesn't support, on
-//! Codync Screen's portal input (`helper_tools.rs`).
+//! Kith Screen's portal input (`helper_tools.rs`).
 
 #[cfg(target_os = "linux")]
 use super::helper_tools;
@@ -34,7 +34,7 @@ fn backend() -> Backend {
 
 impl Screen {
     /// Whether bots may use the computer here: Windows needs nothing else; macOS and Linux run
-    /// their part through Codync Screen, which runs while Remote screen is on.
+    /// their part through Kith Screen, which runs while Remote screen is on.
     pub(super) fn computer_use(&self) -> bool {
         cfg!(windows) || self.enabled()
     }
@@ -80,7 +80,7 @@ pub async fn computer(hub: &Arc<Hub>, bot: &str, name: &str, args: Value) -> Res
     }
     let screen = &hub.screen;
     if !screen.computer_use() {
-        bail!("Remote screen is turned off on this computer. Turn it on in Codync's menu there.");
+        bail!("Remote screen is turned off on this computer. Turn it on in Kith's menu there.");
     }
     let backend = backend();
     let read_only = match backend {
@@ -145,9 +145,9 @@ fn type_login_tool() -> Value {
 }
 
 /// Types a saved login only into its own site or app, and a password only into a password
-/// field, so a misled bot can't paste it into a page or chat that would show it. Codync Screen
+/// field, so a misled bot can't paste it into a page or chat that would show it. Kith Screen
 /// checks the focused field (accessibility): which app, which web page, whether it's secure.
-/// Windows has no Codync Screen to check it yet.
+/// Windows has no Kith Screen to check it yet.
 async fn type_login(hub: &Arc<Hub>, bot: &str, backend: Backend, args: Value) -> Result<Value> {
     if cfg!(windows) {
         bail!("type_login isn't available on Windows yet. Ask the user to sign in themselves.");

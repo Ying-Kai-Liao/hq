@@ -1,5 +1,5 @@
 //! The sessions of an hq agent's bot: `hq <agent> --launch-json` says how to start it (see `agent::hq`), and
-//! nothing of Codync's goes in with it — no instructions of its own, no `chat`/`memory`/`team`/`routines` servers,
+//! nothing of Kith's goes in with it — no instructions of its own, no `chat`/`memory`/`team`/`routines` servers,
 //! no memory snapshot, no dreaming. The agent's reply is its turn's text.
 
 use super::fast_mode::Listing;
@@ -16,7 +16,7 @@ impl Actor {
     }
 
     /// What the prompt of an hq bot's turn is: the user's words, with the notes the host owes the agent (an earlier
-    /// conversation's handoff, where a thread branches off). Nothing about Codync.
+    /// conversation's handoff, where a thread branches off). Nothing about Kith.
     pub(super) fn compose_hq(&mut self, text: &str) -> String {
         self.session_fresh = false;
         let mut prompt = text.to_owned();

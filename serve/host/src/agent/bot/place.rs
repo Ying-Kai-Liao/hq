@@ -76,7 +76,7 @@ mod tests {
 
     #[test]
     fn only_recent_interrupted_places_resume_and_old_records_are_cleared() {
-        let dir = std::env::temp_dir().join(format!("codync-place-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-place-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(&dir.join("db.sqlite")).unwrap();
         let recent = actor_key("b", &Lane::in_thread("b", "fresh"));

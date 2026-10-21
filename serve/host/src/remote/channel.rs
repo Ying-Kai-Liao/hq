@@ -614,7 +614,7 @@ mod tests {
     use ed25519_dalek::SigningKey;
 
     fn temp_hub() -> Arc<Hub> {
-        let dir = std::env::temp_dir().join(format!("codync-ch-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-ch-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(&dir.join("t.db")).unwrap();
         let identity = Identity::load_or_create(&dir).unwrap();

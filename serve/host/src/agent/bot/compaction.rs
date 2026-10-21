@@ -1,11 +1,11 @@
 //! The bot's conversations as they fill up ([design](../../../../docs/design/bot-memory.md#compaction)): what the
 //! agent reports about its context and its own compactions, and the compactions and rollovers the host starts. The
-//! rules are `codync_mem::compaction`; this records what it needs and acts on what it decides.
+//! rules are `kith_mem::compaction`; this records what it needs and acts on what it decides.
 
 use super::{Actor, Adapter, Done, Instructions, Queued};
 use crate::chat::{context, handoff, memory};
 use crate::store::{EntryKind, Lane, now_ms};
-use codync_mem::compaction::{self as rules, CacheLife, Conversation, Decision};
+use kith_mem::compaction::{self as rules, CacheLife, Conversation, Decision};
 use serde_json::{Value, json};
 
 /// Context use below which a fall isn't read as a compaction: a short session has little to summarize.

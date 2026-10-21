@@ -31,7 +31,7 @@ pub enum Author {
     User,
     Bot,
     Dream,
-    /// Changed outside Codync, or by no bot's tool call.
+    /// Changed outside Kith, or by no bot's tool call.
     Computer,
 }
 

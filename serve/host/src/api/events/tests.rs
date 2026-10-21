@@ -11,7 +11,7 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let dir = std::env::temp_dir().join(format!("codync-sync-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-sync-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(std::path::Path::new(":memory:")).unwrap();
         let hub = Hub::new(store, "sync-test".into(), Identity::load_or_create(&dir).unwrap(), "test".into(), 0);

@@ -153,7 +153,7 @@ impl App {
                 sh.exited = Some(code);
                 let how = if code == 0 { "Done" } else { "Stopped" };
                 sh.out.extend_from_slice(
-                    format!("\r\n\x1b[2m{how}. Press any key to go back to Codync.\x1b[0m\r\n").as_bytes(),
+                    format!("\r\n\x1b[2m{how}. Press any key to go back to Kith.\x1b[0m\r\n").as_bytes(),
                 );
             }
             _ => {}

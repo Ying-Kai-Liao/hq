@@ -2,12 +2,12 @@
 //! bots operate it through the built-in `computer` MCP server (`mcp.rs`, `computer.rs`).
 //!
 //! Capture, encoding and the phone's input live in a separate *screen helper*
-//! that connects to `~/.codync/screen.sock` — on macOS `CodyncScreen.app`
+//! that connects to `~/.kith/serve/screen.sock` — on macOS `KithScreen.app`
 //! (a signed bundle, so Screen Recording / Accessibility grants stick), on
-//! Linux `codync-screen` (xdg portals + `GStreamer`). The host stays the only
+//! Linux `kith-screen` (xdg portals + `GStreamer`). The host stays the only
 //! network-facing process: it relays WebRTC signaling, gates access (on by
 //! default where there is a desktop, toggled only from this computer) and arbitrates control between
-//! the user and bots. Bots act through the computer-use driver (`cua.rs`), which Codync Screen
+//! the user and bots. Bots act through the computer-use driver (`cua.rs`), which Kith Screen
 //! starts on macOS and the host starts on Windows and Linux.
 //!
 //! Helper protocol: newline-delimited JSON-RPC 2.0 over the socket.
@@ -155,7 +155,7 @@ impl Screen {
 
     fn link(&self) -> Result<Arc<Link>> {
         if !self.enabled() {
-            bail!("Remote screen is turned off on this computer. Turn it on in Codync's menu there.");
+            bail!("Remote screen is turned off on this computer. Turn it on in Kith's menu there.");
         }
         self.link.locked().clone().ok_or_else(|| anyhow!("The screen helper isn't running on this computer."))
     }

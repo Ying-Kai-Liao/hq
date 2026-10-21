@@ -222,7 +222,7 @@ pub(super) fn form_view(buf: &mut Buffer, area: Rect, app: &App, f: &Form) {
             inner.x,
             by - 1,
             inner.width,
-            "Set up on the computer: Codync → Settings → Computer access",
+            "Set up on the computer: Kith → Settings → Computer access",
             t.dim.patch(t.panel),
         );
     }

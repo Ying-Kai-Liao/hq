@@ -56,7 +56,7 @@ impl Screen {
     pub async fn offer(&self, owner: &str, sdp: &str, session: &str, display: Option<u32>) -> Result<Value> {
         let link = self.link()?;
         if !self.status.locked().capture {
-            bail!("Codync isn't allowed to record this computer's screen yet. Allow it in System Settings there.");
+            bail!("Kith isn't allowed to record this computer's screen yet. Allow it in System Settings there.");
         }
         let ice = {
             let sessions = self.sessions.locked();

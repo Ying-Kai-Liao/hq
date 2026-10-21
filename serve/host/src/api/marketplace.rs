@@ -245,7 +245,7 @@ mod tests {
 
     #[tokio::test]
     async fn new_installs_turn_on_for_every_bot() {
-        let dir = std::env::temp_dir().join(format!("codync-connectors-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-connectors-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let store = crate::store::Store::open(std::path::Path::new(":memory:")).expect("memory store");
         for (id, on) in [("a", json!([])), ("b", json!(["old"]))] {

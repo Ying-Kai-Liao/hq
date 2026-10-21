@@ -1,4 +1,4 @@
-//! A one-time move of the memory Codync kept before (an Engram database per bot, and the Markdown files before
+//! A one-time move of the memory Kith kept before (an Engram database per bot, and the Markdown files before
 //! that) into the host's memory tables. Each bot moves once; then the old files go.
 //!
 //! What the old opening showed comes in active, as far as the bot's cap allows: the profile and pinned facts
@@ -8,7 +8,7 @@
 use crate::hub::Hub;
 use crate::store::Store;
 use anyhow::{Context, Result};
-use codync_mem::store::{self as mem, Error, New, Writer};
+use kith_mem::store::{self as mem, Error, New, Writer};
 use std::path::Path;
 
 /// Prefix the old keeper put on notes.
@@ -91,8 +91,8 @@ fn import_bot(store: &Store, bot: &str, dir: &Path) -> Result<()> {
             if fact.pinned {
                 mem::pin(c, entry.id, true, fact.at, rev)?;
             }
-            let size = codync_mem::tokens::estimate(&entry.text);
-            if used + size <= codync_mem::tokens::BOT_CAP {
+            let size = kith_mem::tokens::estimate(&entry.text);
+            if used + size <= kith_mem::tokens::BOT_CAP {
                 used += size;
             } else {
                 mem::archive(c, Writer::Import, entry.id, None, fact.at, rev)?;

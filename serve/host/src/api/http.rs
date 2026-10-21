@@ -136,12 +136,12 @@ async fn oauth_callback(
         market::oauth::finish(&hub.store, q.state.as_deref().unwrap_or_default(), q.code.as_deref(), error.as_deref())
             .await;
     let (title, detail) = match &result {
-        Ok(c) => (format!("{} is connected", c.name), "You can close this tab and go back to Codync.".to_owned()),
+        Ok(c) => (format!("{} is connected", c.name), "You can close this tab and go back to Kith.".to_owned()),
         Err(e) => ("Sign-in didn't finish".to_owned(), format!("{e:#}")),
     };
     let escape = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
     axum::response::Html(format!(
-        "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width\"><title>Codync</title>\
+        "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width\"><title>Kith</title>\
          <body style=\"font:16px system-ui;margin:20vh auto;max-width:28em;padding:0 16px;text-align:center\">\
          <h2>{}</h2><p>{}</p></body>",
         escape(&title),
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn phone_streams_hold_pushes_until_the_last_one_closes() {
-        let dir = std::env::temp_dir().join(format!("codync-phone-events-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-phone-events-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let hub = Hub::new(
             crate::store::Store::open(std::path::Path::new(":memory:")).expect("store"),

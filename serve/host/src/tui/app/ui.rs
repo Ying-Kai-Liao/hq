@@ -93,7 +93,7 @@ pub enum ConfirmAct {
     NewSession(String),
     /// A bot's own memory, or (`true`) the one all bots share.
     ClearMemory(String, bool),
-    /// Keeps a bot's harness's own memory on beside Codync's.
+    /// Keeps a bot's harness's own memory on beside Kith's.
     KeepHarnessMemory(String),
     DeleteRoutine(String, String),
     RotateRoutineKey(String, String),

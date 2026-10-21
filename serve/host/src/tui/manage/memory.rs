@@ -315,7 +315,7 @@ impl App {
         Some(Overlay::Memory(m))
     }
 
-    /// Moves to another section. Claude Code writes its notes outside Codync, so nothing moves `memoryRev`: its
+    /// Moves to another section. Claude Code writes its notes outside Kith, so nothing moves `memoryRev`: its
     /// section reads them again on the way in.
     fn step_section(&mut self, m: &mut MemorySheet, by: isize) {
         m.step(by);
@@ -341,7 +341,7 @@ impl App {
                 let c = Confirm {
                     title: format!("Turn on {}'s own memory?", self.harness_name(&m.bot)),
                     detail: "It may store things twice; the two memories can disagree.".into(),
-                    note: "Forgetting something in Codync doesn't reach it.".into(),
+                    note: "Forgetting something in Kith doesn't reach it.".into(),
                     button: "Turn on",
                     act: ConfirmAct::KeepHarnessMemory(m.bot.clone()),
                 };

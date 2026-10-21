@@ -1,6 +1,6 @@
 //! The background service on Windows: the per-user Run key starts the host at
-//! sign-in through `codync-hostw.exe`, which keeps it running without a console
-//! window (`src/bin/codync-hostw.rs`).
+//! sign-in through `kith-servew.exe`, which keeps it running without a console
+//! window (`src/bin/kith-servew.rs`).
 
 use super::{current_exe, data_dir, run, wait_for_host_exit};
 use anyhow::{Context, Result, bail, ensure};
@@ -11,7 +11,7 @@ use std::process::{Command, Stdio};
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 const VALUE: &str = crate::environment::Environment::current().windows_value();
 const SUPERVISOR: &str = crate::environment::Environment::current().supervisor();
-const HOST: &str = "codync-host.exe";
+const HOST: &str = "kith-serve.exe";
 
 const DETACHED_PROCESS: u32 = 0x0000_0008;
 const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
@@ -20,7 +20,7 @@ const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
 const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
 
 /// Stops the running service. Its configuration stays for a later start; a
-/// manually started `codync-host serve` is left alone.
+/// manually started `kith-serve serve` is left alone.
 pub fn stop() -> Result<()> {
     // Not running is fine; `/T` takes the host and its agents with the supervisor.
     let _ = Command::new("taskkill")
@@ -62,8 +62,8 @@ pub fn require_executable(expected: &Path) -> Result<()> {
 
 /// Registers the host to start at sign-in and starts it now.
 pub fn install(port: u16) -> Result<()> {
-    let supervisor = current_exe().context("locating the codync-host binary")?.with_file_name(SUPERVISOR);
-    ensure!(supervisor.is_file(), "{} is missing; reinstall Codync", supervisor.display());
+    let supervisor = current_exe().context("locating the kith-serve binary")?.with_file_name(SUPERVISOR);
+    ensure!(supervisor.is_file(), "{} is missing; reinstall Kith", supervisor.display());
     std::fs::create_dir_all(data_dir()).context("creating the data directory")?;
     stop()?;
     let command = format!("\"{}\" serve --port {port}", supervisor.display());
@@ -88,7 +88,7 @@ fn configured() -> Result<(PathBuf, Vec<String>)> {
     parse_run_value(&String::from_utf8_lossy(&output.stdout)).context("cannot read the installed host service")
 }
 
-/// `    CodyncHost    REG_SZ    "C:\…\codync-hostw.exe" serve --port 19222` → its parts.
+/// `    KithServe    REG_SZ    "C:\…\kith-servew.exe" serve --port 19222` → its parts.
 fn parse_run_value(query: &str) -> Option<(PathBuf, Vec<String>)> {
     let value = query.lines().find_map(|line| Some(line.split_once("REG_SZ")?.1.trim()))?;
     let (program, args) = value.strip_prefix('"')?.split_once('"')?;
@@ -101,9 +101,9 @@ mod tests {
 
     #[test]
     fn reads_the_run_value() {
-        let query = "\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\r\n    CodyncHost    REG_SZ    \"C:\\Program Files\\Codync\\codync-hostw.exe\" serve --port 19222\r\n\r\n";
+        let query = "\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\r\n    KithServe    REG_SZ    \"C:\\Program Files\\Kith\\kith-servew.exe\" serve --port 19222\r\n\r\n";
         let (program, args) = parse_run_value(query).unwrap();
-        assert_eq!(program, PathBuf::from("C:\\Program Files\\Codync\\codync-hostw.exe"));
+        assert_eq!(program, PathBuf::from("C:\\Program Files\\Kith\\kith-servew.exe"));
         assert_eq!(args, ["serve", "--port", "19222"]);
     }
 }
