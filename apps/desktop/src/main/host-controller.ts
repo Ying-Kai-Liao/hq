@@ -9,7 +9,7 @@ import type { HostState, LocalHost } from '../shared/ipc'
 import { unregisterScreenAgent } from './screen'
 import { identity } from './environment'
 import { hostEnvironmentError } from '../shared/environment'
-import { isKithServeService } from '../shared/host-service'
+import { isKithServeService, launchdProgram, restartService, systemdProgram } from '../shared/host-service'
 
 /** `KITH_SERVE_PORT` / `KITH_SERVE_HOME` point the app at a dev host started with `kith-serve serve`. */
 export const devPort = process.env.KITH_SERVE_PORT ? Number(process.env.KITH_SERVE_PORT) : null
@@ -75,10 +75,7 @@ const serviceInstalled = () => serviceDefinition() !== null
 
 /** The program a launchd plist / systemd unit starts (`null`: not parseable). */
 function serviceProgram(definition: string): string | null {
-  const match = isMac
-    ? /<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]+)<\/string>/.exec(definition)
-    : /^ExecStart=\s*"?([^"\s]+)/m.exec(definition)
-  return match?.[1] ?? null
+  return isMac ? launchdProgram(definition) : systemdProgram(definition)
 }
 
 /**
@@ -213,9 +210,14 @@ export class HostController extends EventEmitter {
     if (this.installing) return
     this.installing = true
     try {
-      const result = isMac
-        ? await run('launchctl', ['kickstart', '-k', `gui/${process.getuid?.() ?? 501}/${identity.hostLabel}`])
-        : await run('systemctl', ['--user', 'restart', identity.systemdUnit])
+      const result = await restartService({
+        platform: isMac ? 'mac' : 'linux',
+        uid: process.getuid?.() ?? 501,
+        label: identity.hostLabel,
+        plistPath: join(homedir(), `Library/LaunchAgents/${identity.hostLabel}.plist`),
+        systemdUnit: identity.systemdUnit,
+        run,
+      })
       if (result.status !== 0) this.setState({ kind: 'failed', message: result.output || 'The host service could not be restarted.' })
       else this.failures = 0
     } finally {

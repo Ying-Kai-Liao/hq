@@ -172,19 +172,28 @@ struct BotSettingsForm: View {
         VStack(alignment: .leading, spacing: 30) {
             CardSection("Profile") {
                 VStack(alignment: .leading, spacing: 12) {
-                    Button {
-                        withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { pickingAvatar.toggle() }
-                    } label: {
+                    if let crew = CrewAvatar.name(for: draft) {
+                        // The portrait wins over the stored shape and colour, so there is nothing to pick.
                         ValueRow("Avatar") {
-                            CharacterAvatar(shape: draft.avatarShape, color: draft.avatarColor, size: 28)
+                            CharacterAvatar(crew: crew, size: 28)
                                 .padding(5)
                                 .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
-                        .contentShape(Rectangle())
+                    } else {
+                        Button {
+                            withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { pickingAvatar.toggle() }
+                        } label: {
+                            ValueRow("Avatar") {
+                                CharacterAvatar(shape: draft.avatarShape, color: draft.avatarColor, size: 28)
+                                    .padding(5)
+                                    .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Edit Bot avatar")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Edit Bot avatar")
-                    if pickingAvatar {
+                    if pickingAvatar, CrewAvatar.name(for: draft) == nil {
                         AvatarPicker(shape: $draft.avatarShape, color: $draft.avatarColor)
                             .transition(.opacity.combined(with: .move(edge: .top)))
                     }
