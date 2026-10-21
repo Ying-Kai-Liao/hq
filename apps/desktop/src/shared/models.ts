@@ -12,6 +12,8 @@ export interface Bot {
   description: string
   avatarColor: string
   avatarShape: string
+  /** `auto` | `crew:<name>` | `spare:<name>` | `shape`; hosts before this field send nothing, which is `auto`. */
+  avatarSource: string
   backend: string
   command?: string | null
   cwd: string
@@ -77,6 +79,7 @@ export function normalizeBot(raw: Partial<Bot> & { id: string }): Bot {
     description: raw.description ?? '',
     avatarColor: raw.avatarColor ?? 'blue',
     avatarShape: raw.avatarShape ?? 'blob',
+    avatarSource: raw.avatarSource ?? 'auto',
     backend: raw.backend ?? 'custom',
     command: raw.command ?? null,
     cwd: raw.cwd ?? '',
@@ -464,6 +467,7 @@ export interface BotDraft {
   description: string
   avatarColor: string
   avatarShape: string
+  avatarSource?: string
   backend: string
   command?: string | null
   cwd: string
@@ -488,6 +492,7 @@ export function draftOf(bot: Bot): BotDraft {
     description: bot.description,
     avatarColor: bot.avatarColor,
     avatarShape: bot.avatarShape,
+    avatarSource: bot.avatarSource,
     backend: bot.backend,
     command: bot.command ?? null,
     cwd: bot.managedWorkspace ? '' : bot.cwd,

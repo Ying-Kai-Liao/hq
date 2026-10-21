@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, type CSSProperties } from 'react'
 import { isGroup, isWorking, needsInput, type Bot } from '@shared/models'
-import { crewName } from '@shared/crew'
+import { avatarImage, type AvatarImage } from '@shared/crew'
 import { avatarColor, palette, useDark, useReduceMotion } from '../lib/theme'
 import { Icon } from './Icon'
 import './avatar.css'
@@ -212,19 +212,22 @@ export function moodOf(bot: Bot, animated = true): Mood {
   return needsInput(bot) ? 'needsInput' : isWorking(bot) ? 'working' : 'idle'
 }
 
-// Crew faces by agent name (the brand's crew/<agent>.png), bundled with the app, not served by the host.
+// Crew and spare faces (the brand's crew/<agent>.png, crew/spare/<name>.png), bundled with the app, not served by the host.
 const crewFaces = import.meta.glob<string>('../assets/crew/*.png', { eager: true, query: '?url', import: 'default' })
-const crewURL = new Map(Object.entries(crewFaces).map(([path, url]) => [path.split('/').pop()!.replace('.png', ''), url]))
+const spareFaces = import.meta.glob<string>('../assets/spare/*.png', { eager: true, query: '?url', import: 'default' })
+const faceURLs = (faces: Record<string, string>) => new Map(Object.entries(faces).map(([path, url]) => [path.split('/').pop()!.replace('.png', ''), url]))
+const crewURL = faceURLs(crewFaces)
+const spareURL = faceURLs(spareFaces)
 
-/** A crew member's portrait, or null without one (also the editor's preview). */
-export function CrewPortrait({ crew, size = 40 }: { crew: string; size?: number }) {
-  const face = crewURL.get(crew)
+/** A crew or spare portrait, or null without one (also the editor's preview). */
+export function CrewPortrait({ image, size = 40 }: { image: AvatarImage; size?: number }) {
+  const face = (image.kind === 'crew' ? crewURL : spareURL).get(image.name)
   return face ? <img className="avatar-crew" src={face} width={size} height={size} alt="" draggable={false} /> : null
 }
 
 export function BotAvatar({ bot, size = 40, animated = true }: { bot: Bot; size?: number; animated?: boolean }) {
-  const crew = crewName(bot)
-  if (crew && crewURL.has(crew)) return <CrewPortrait crew={crew} size={size} />
+  const image = avatarImage(bot)
+  if (image) return <CrewPortrait image={image} size={size} />
   return <CharacterAvatar shape={bot.avatarShape} color={bot.avatarColor} size={size} mood={moodOf(bot, animated)} />
 }
 
