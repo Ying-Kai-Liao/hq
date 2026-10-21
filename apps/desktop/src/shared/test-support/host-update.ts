@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import * as crypto from 'node:crypto'
 import * as path from 'node:path'
 import { environmentProfile, hostEnvironmentError } from '../environment.ts'
+import { isKithServeService } from '../host-service.ts'
 import { loadMainModule, settle } from './main-module.ts'
 
 export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; platform?: string; devPort?: string; installed?: boolean; missingBinary?: boolean; restartMarker?: boolean } = {}) {
@@ -56,6 +57,7 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; platf
     electron: { app: { isPackaged: true, getPath: () => '/prefs' } },
     './environment': { identity },
     '../shared/environment': { hostEnvironmentError },
+    '../shared/host-service': { isKithServeService },
     './screen': { unregisterScreenAgent: () => { order.push('unregisterScreen') } },
   }, {
     __dirname: '/app/out/main',
