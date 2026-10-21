@@ -63,9 +63,22 @@ impl Api {
 
     /// A call that waits out a short 429 (twice) instead of failing.
     pub async fn call_retry(&self, method: &str, params: &Value) -> Result<Value, TgError> {
+        self.waiting_out(|| self.call(method, params, CALL)).await
+    }
+
+    /// An upload with the same patience.
+    pub async fn upload_retry(&self, method: &str, params: &Value, field: &str, path: &str) -> Result<Value, TgError> {
+        self.waiting_out(|| self.upload(method, params, field, path)).await
+    }
+
+    async fn waiting_out<F, Fut>(&self, mut once: F) -> Result<Value, TgError>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = Result<Value, TgError>>,
+    {
         let mut tries = 0;
         loop {
-            match self.call(method, params, CALL).await {
+            match once().await {
                 Err(TgError::Http { code: 429, retry_after: Some(secs), .. })
                     if tries < 2 && secs <= RETRY_AFTER_MAX =>
                 {
@@ -78,7 +91,7 @@ impl Api {
     }
 
     /// A call with one file (`field`) read from `path`; the other parameters are form fields.
-    pub async fn upload(&self, method: &str, params: &Value, field: &str, path: &str) -> Result<Value, TgError> {
+    async fn upload(&self, method: &str, params: &Value, field: &str, path: &str) -> Result<Value, TgError> {
         let data = tokio::fs::read(path).await.map_err(|e| TgError::Net(format!("can't read the file: {e}")))?;
         let boundary = uuid::Uuid::new_v4().simple().to_string();
         let mut body = Vec::new();

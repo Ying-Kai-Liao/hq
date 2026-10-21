@@ -69,10 +69,13 @@ struct BotState {
     hang: bool,
     /// How many getUpdates still answer 409.
     conflict: usize,
-    /// How many sendMessage still answer 429.
+    /// How many sends (messages or files) still answer 429.
     rate_limit: usize,
     reject_html: bool,
     files: HashMap<String, Vec<u8>>,
+    /// How long a file download takes, and how many started.
+    file_delay: Duration,
+    file_hits: usize,
 }
 
 struct Bot {
@@ -133,8 +136,11 @@ async fn bot_call(
             ok(json!({"id": BOT_ID, "is_bot": true, "username": BOT}))
         }
         "sendMessage" | "sendPhoto" | "sendDocument" => {
-            if method == "sendMessage" && st.rate_limit > 0 {
+            if st.rate_limit > 0 {
                 st.rate_limit -= 1;
+                if let Some((_, call)) = st.calls.last_mut() {
+                    call["rejected"] = json!(true);
+                }
                 return failure(429, "Too Many Requests: retry after 1", &json!({"retry_after": 1}));
             }
             if method == "sendMessage" && st.reject_html && body.get("parse_mode").is_some() {
@@ -163,6 +169,12 @@ async fn bot_file(State(bot): Shared, Path((token, name)): Path<(String, String)
         return (StatusCode::NOT_FOUND, Vec::new());
     }
     let id = name.trim_start_matches("docs/").trim_end_matches(".txt");
+    let delay = {
+        let mut st = bot.state.locked();
+        st.file_hits += 1;
+        st.file_delay
+    };
+    tokio::time::sleep(delay).await;
     let found = bot.state.locked().files.get(id).cloned();
     found.map_or((StatusCode::NOT_FOUND, Vec::new()), |bytes| (StatusCode::OK, bytes))
 }
@@ -211,6 +223,11 @@ impl Bot {
     fn press(&self, from: i64, chat: i64, message: i64, data: &str) {
         self.push_update(&json!({"callback_query": {"id": format!("cb{data}"), "from": {"id": from, "is_bot": false},
             "data": data, "message": {"message_id": message, "chat": {"id": chat}}}}));
+    }
+
+    /// The calls Telegram did not refuse.
+    fn accepted(&self, method: &str) -> Vec<Value> {
+        self.calls(method).into_iter().filter(|c| c["rejected"].is_null()).collect()
     }
 
     fn calls(&self, method: &str) -> Vec<Value> {
@@ -614,8 +631,10 @@ async fn files_come_in_and_go_out() {
     let files: Vec<String> =
         ["a.png", "missing.png", "b.pdf"].iter().map(|n| outdir.join(n).to_string_lossy().into_owned()).collect();
     let conv = json!({"chat": DM, "reply_to": 7, "key": "telegram/hq:100:7"});
+    rig.bot.state.locked().rate_limit = 1; // the first upload is told to wait, then goes through
     tg.send_files(&conv, "house", &files, "see this").await.unwrap();
-    let (photos, docs) = (rig.bot.calls("sendPhoto"), rig.bot.calls("sendDocument"));
+    assert_eq!(rig.bot.calls("sendPhoto").len(), 2, "the photo was sent again after the 429");
+    let (photos, docs) = (rig.bot.accepted("sendPhoto"), rig.bot.accepted("sendDocument"));
     assert_eq!((photos.len(), docs.len()), (1, 1));
     let raw = photos[0]["raw"].as_str().unwrap();
     assert!(
@@ -767,4 +786,49 @@ fn markdown_becomes_the_same_html_as_the_bridge_made() {
 #[test]
 fn code_inside_a_link_text_is_restored() {
     assert_eq!(tg_html("[`code`](https://example.com)"), "<a href=\"https://example.com\"><code>code</code></a>");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chats_with_the_same_message_id_and_file_name_keep_their_own_files() {
+    let rig = Rig::new().await;
+    {
+        let mut st = rig.bot.state.locked();
+        st.files.insert("doc_a".into(), b"from chat a".to_vec());
+        st.files.insert("doc_b".into(), b"from chat b".to_vec());
+    }
+    let (_tg, task) = rig.run();
+    for (chat, id, tag) in [(DM, "doc_a", "msg-chat-a"), (101, "doc_b", "msg-chat-b")] {
+        let extra = json!({"message_id": 777, "document": {"file_id": id, "file_name": "notes.txt"}});
+        rig.bot.say(KAI, chat, &format!("@house {tag}"), 0, &extra);
+        until("the answer", || rig.bot.answers(tag) == 1).await;
+    }
+    let mut seen = Vec::new();
+    for call in rig.hq_calls() {
+        let task = call["task"].as_str().unwrap().to_owned();
+        let path = task.split("Attached files: ").nth(1).unwrap().split("\n\n(From").next().unwrap().to_owned();
+        seen.push((task.contains("msg-chat-a"), std::fs::read_to_string(&path).unwrap()));
+    }
+    assert_eq!(seen, [(true, "from chat a".to_owned()), (false, "from chat b".to_owned())]);
+    task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_offset_is_confirmed_only_once_the_message_is_queued() {
+    let rig = Rig::new().await;
+    {
+        let mut st = rig.bot.state.locked();
+        st.files.insert("slow".into(), b"x".to_vec());
+        st.file_delay = Duration::from_millis(700);
+    }
+    let (_tg, task) = rig.run();
+    let extra = json!({"document": {"file_id": "slow", "file_name": "a.txt"}});
+    let (uid, _) = rig.bot.say(KAI, DM, "@house msg-slow-file", 0, &extra);
+    until("the download to start", || rig.bot.state.locked().file_hits == 1).await;
+    // Something else saves the shared state while this message is still being fetched.
+    rig.core.with(core::Inner::save);
+    let offset = rig.state()["conns"]["telegram/hq"]["offset"].as_i64().unwrap_or(0);
+    assert!(offset <= uid, "the offset ran ahead of the unqueued message: {offset}");
+    until("the answer", || rig.bot.answers("msg-slow-file") == 1).await;
+    until("the offset", || rig.state()["conns"]["telegram/hq"]["offset"] == uid + 1).await;
+    task.abort();
 }

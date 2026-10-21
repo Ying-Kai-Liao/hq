@@ -246,16 +246,14 @@ impl Telegram {
             for u in updates.as_array().into_iter().flatten() {
                 self.alive.touch();
                 let Some(id) = u["update_id"].as_i64() else { continue };
-                // Before handling it: the save that queues its work also confirms it, so a restart never answers twice.
-                offset = id + 1;
-                self.core.with(|i| {
-                    let conn = i.st.conns.entry(self.conn.as_str()).or_insert_with(|| json!({}));
-                    conn["offset"] = json!(offset);
-                });
                 if let Err(e) = self.update(&this, u).await {
                     tracing::warn!("{}: message failed: {e:#}", self.conn); // one bad message must not stop the bot
                 }
-                self.save();
+                // Only now that its work is queued (and saved by the core): confirming it earlier would let another
+                // save record the offset without the task, and a restart would skip the message. A crash right here
+                // answers it again instead.
+                offset = id + 1;
+                self.core.update_conn(&self.conn, |c| c["offset"] = json!(offset));
             }
         }
     }
@@ -323,7 +321,8 @@ impl Telegram {
         })
     }
 
-    /// The files of a message, saved under the connection's attachments folder -> their paths.
+    /// The files of a message, saved under the connection's attachments folder (`<chat>/<message>`: message ids
+    /// are only unique within a chat) -> their paths.
     async fn download(&self, m: &Value) -> Vec<String> {
         let mut got = Vec::new();
         let photo = m["photo"].as_array().and_then(|p| p.last());
@@ -337,7 +336,7 @@ impl Telegram {
         ];
         for (kind, file) in kinds {
             let Some(file) = file.filter(|f| f.is_object()) else { continue };
-            match self.fetch(kind, file, &m["message_id"]).await {
+            match self.fetch(kind, file, &m["chat"]["id"], &m["message_id"]).await {
                 Ok(path) => got.push(path),
                 // Over Telegram's 20 MB for bots, or gone.
                 Err(e) => tracing::warn!("{}: file not downloaded: {e}", self.conn),
@@ -346,11 +345,11 @@ impl Telegram {
         got
     }
 
-    async fn fetch(&self, kind: &str, file: &Value, message: &Value) -> Result<String> {
+    async fn fetch(&self, kind: &str, file: &Value, chat: &Value, message: &Value) -> Result<String> {
         let id = file["file_id"].as_str().ok_or_else(|| anyhow!("no file id"))?;
         let got = self.tg("getFile", json!({"file_id": id})).await?;
         let remote = got["file_path"].as_str().ok_or_else(|| anyhow!("no file path"))?;
-        let folder = self.core.attachments_dir(&self.conn).join(id_text(message));
+        let folder = self.core.attachments_dir(&self.conn).join(id_text(chat)).join(id_text(message));
         tokio::fs::create_dir_all(&folder).await?;
         // The sender chooses a document's name: only its last part counts.
         let named = file["file_name"].as_str().and_then(|n| Path::new(n).file_name()).filter(|n| !n.is_empty());
@@ -523,7 +522,7 @@ impl Adapter for Telegram {
                 if let Some(to) = conv["reply_to"].as_i64() {
                     params["reply_parameters"] = json!({"message_id": to, "allow_sending_without_reply": true});
                 }
-                match self.api.upload(method, &params, field, f).await {
+                match self.api.upload_retry(method, &params, field, f).await {
                     Ok(sent) => self.link(&conv["chat"], &sent["message_id"], conv["key"].as_str().unwrap_or("")),
                     Err(e) => tracing::warn!("{}: file not sent: {e}", self.conn),
                 }
