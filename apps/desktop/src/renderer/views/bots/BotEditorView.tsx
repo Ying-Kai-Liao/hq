@@ -199,6 +199,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
                   source={draft.avatarSource ?? 'auto'}
                   shape={draft.avatarShape}
                   color={draft.avatarColor}
+                  isGroup={store.bots.get(draft.id ?? '')?.kind === 'group'}
                   auto={avatarImage({ id: draft.id ?? '', name: draft.name, kind: 'agent', avatarSource: 'auto' })}
                   onSource={(s) => set('avatarSource', s)}
                   // A shape or colour pick means the shape is what the bot shows.
@@ -351,12 +352,14 @@ function PluginToggles({ title, empty, items, selection, onChange, onInfo }: {
   )
 }
 
-function AvatarPicker({ source, shape, color, auto, onSource, onShape, onColor }: {
+function AvatarPicker({ source, shape, color, auto, isGroup, onSource, onShape, onColor }: {
   source: string
   shape: string
   color: string
   /** What Automatic shows for this bot. */
   auto: AvatarImage | null
+  /** A group's face is its members', so only the shape applies. */
+  isGroup: boolean
   onSource: (source: string) => void
   onShape: (s: string) => void
   onColor: (c: string) => void
@@ -372,6 +375,7 @@ function AvatarPicker({ source, shape, color, auto, onSource, onShape, onColor }
     })
   return (
     <VStack gap={12}>
+      {isGroup ? null : <>
       <div className="swatch-label">Automatic</div>
       <div className="swatch-grid">
         <button className={`swatch ${source === 'auto' ? 'on' : ''}`} aria-label="Automatic" aria-pressed={source === 'auto'} onClick={() => onSource('auto')}>
@@ -382,6 +386,7 @@ function AvatarPicker({ source, shape, color, auto, onSource, onShape, onColor }
       <div className="swatch-grid">{images('crew', CREW)}</div>
       <div className="swatch-label">Spares</div>
       <div className="swatch-grid">{images('spare', SPARES)}</div>
+      </>}
       <div className="swatch-label">Shapes</div>
       <div className="swatch-row">
         {AVATAR_SHAPES.map((s) => (

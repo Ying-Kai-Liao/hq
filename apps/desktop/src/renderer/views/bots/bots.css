@@ -124,6 +124,9 @@ textarea.field-box {
 .avatar-picker-panel {
   width: 300px;
   padding: 14px;
+  /* Tall with 25 portraits: scroll inside a short window rather than run off-screen. */
+  max-height: min(560px, calc(100vh - 120px));
+  overflow-y: auto;
 }
 
 /* A selectable avatar shape or color, ringed when chosen. */
