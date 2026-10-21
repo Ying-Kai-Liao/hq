@@ -8,10 +8,10 @@
 #                                          caller's `hq ask --wait <id>`), bridge:<box> (the chat thread it came
 #                                          from), dm (Telegram, as below)
 #
-# Inside a Discord task (hq-bridge sets HQ_DISCORD_WEBHOOK_URL + HQ_DISCORD_THREAD_ID) it posts into that thread,
+# Inside a Discord task (kith serve (formerly hq-bridge) sets HQ_DISCORD_WEBHOOK_URL + HQ_DISCORD_THREAD_ID) it posts into that thread,
 # named after the agent. A tool that names a Telegram chat (HQ_TELEGRAM_BOT_TOKEN + HQ_TELEGRAM_CHAT_ID in its
 # environment) posts there. Inside any other chat task (Telegram, Slack, a Discord DM) it leaves the message in the
-# run's outbox (HQ_BRIDGE_OUTBOX) and the bridge posts it into the thread. Otherwise it goes to Telegram:
+# run's outbox (HQ_BRIDGE_OUTBOX) and kith serve posts it into the thread. Otherwise it goes to Telegram:
 # HQ_TELEGRAM_BOT_TOKEN / HQ_TELEGRAM_CHAT_ID from ~/.hq/secrets/env (or the file HQ_TELEGRAM_ENV_FILE names
 # there). Never prints a token.
 set -euo pipefail

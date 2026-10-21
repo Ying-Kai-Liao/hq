@@ -4,7 +4,7 @@
   hq-auth ls                              every agent: the services it needs, its grant, whether the secrets resolve
   hq-auth grant <agent> <service> <profile>   let an agent use a service as that profile (e.g. notion/library);
                                           several agents as a,b,c, or --all for every agent whose needs list it;
-                                          several profiles as p1,p2 (the bridge: one bot each, telegram/hq,telegram/x)
+                                          several profiles as p1,p2 (the bridge or kith serve: one bot each, telegram/hq,telegram/x)
   hq-auth granted [--for AGENT] <service> the profiles granted, one per line
   hq-auth revoke <agent> <service>
   hq-auth set <profile> <VAR>             store a secret in the macOS Keychain (prompts; never echoed) and point
@@ -27,10 +27,10 @@ People (who may use which agent, and how; the run's person is HQ_PERSON, unset =
   hq-auth person <id> id=<new>            rename: memberships, grants, owned profiles and invites come along; the
                                           old id stays as an alias (bridge threads they started stay theirs)
   hq-auth handle <id> <platform> <user-id> | --rm   the person's account on a platform (numeric id, not a username)
-  hq-auth invite <id> [minutes]           a one-time code (default 15 minutes); they send /link CODE to the bridge
+  hq-auth invite <id> [minutes]           a one-time code (default 15 minutes); they send /link CODE to the bridge (kith serve)
   hq-auth link <platform> <user-id> <code>   bind that account to the code's person (the bridge calls it)
   hq-auth whois <platform> <user-id>      the person behind an account, or exit 1
-  hq-auth who <platform> <user-id>        the same as JSON for the bridge: {person, owner, was, owner_id,
+  hq-auth who <platform> <user-id>        the same as JSON for the bridge (kith serve): {person, owner, was, owner_id,
                                           owner_linked}; person null when no one is linked
   hq-auth preset <name> [mode=.. deny=a,b] [--trusted] [--rm]   a named bundle of permissions memberships point at
   hq-auth member <agent>[,..] <id> [preset=.. mode=.. deny=.. model=.. helpers=a,b budget=USD env.VAR=..] [--trusted] [--rm]
@@ -973,7 +973,7 @@ def main(argv):
             auth['grants'].setdefault(agent, {})[svc] = profiles if len(profiles) > 1 else profiles[0]
         save_auth(auth)
         for agent in names:
-            print(f'{agent} may use {svc} as {", ".join(profiles)}' + ('' if uses(agent) or agent == 'bridge'
+            print(f'{agent} may use {svc} as {", ".join(profiles)}' + ('' if uses(agent) or agent in ('bridge', 'serve')
                                                                        else f' (not in its needs yet)'))
     elif cmd == 'revoke' and len(rest) == 2:
         auth = load_auth()
