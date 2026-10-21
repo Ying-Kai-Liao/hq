@@ -4,11 +4,16 @@
 #   hq init [--from <github-user>]   set hq up on this Mac, or bring yours back on a new one (hq-init)
 #   hq doctor                     check the install: links, repos, agents, services, plugin, background jobs
 #   hq backup [--yes|--check|--nightly [off]]   everything to private GitHub repos, making the missing ones; --check says what isn't; --nightly at 03:00 (hq-state)
-#   hq ls                         list agents
+#   hq ls [--json]                list agents (--json: name, description, home, model, effort, harness, for programs)
 #   hq who <words>                which agent owns this work: skills, tools, "Not yours" lines searched (hq-who)
 #   hq <agent> [-p ID] [-m MODEL] [-e EFFORT] [-H HARNESS] [--permission-mode MODE|--bypass] [task...]  interactive without a task, one-shot with one
 #   hq <agent> --print [...]      show the assembled system prompt, don't run
 #   hq <agent> --inspect          start one run and report what it loads (tools, MCP servers, skills, plugins)
+#   hq <agent> --launch-json [--hold PID] [...]   for a program that starts the run itself (hq serve): one JSON object on stdout
+#                                 with everything the run needs (env, cwd, system_prompt, settings, MCP servers, directories,
+#                                 claude_args to give claude as-is). Claude only; ignores HQ_CLAUDE_ARGS/HQ_OUTPUT/HQ_RESUME.
+#                                 Nothing in it points at a temp file. The pinned snapshot (HQ_AGENT_DIR) is kept while --hold's
+#                                 pid (default: the caller) lives; pass the long-lived process's pid. HQ_VIA=<name> tags the cost ledger.
 #   hq versions|pin|unpin|rollback <agent> [VERSION]   agent package versions (hq-pkg)
 #   hq new <name> "<description>"                      start a new agent (hq-new)
 #   hq install <github-link> [--as NAME]               add an agent; each agent is its own git repo
@@ -53,7 +58,7 @@ set -euo pipefail
 src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
 HQ="$(cd "$(dirname "$src")/.." && pwd)"
 
-[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,29p' "$0" | sed 's/^#   //'; exit 0; }
+[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,35p' "$0" | sed 's/^#   //'; exit 0; }
 export HQ_ROOT=$HQ
 # Where things are, from the one place that knows (lib/hq_paths.py): HQ_HOME (~/hq) holding kernel/ and agents/ (each
 # agent: role/ its repo, memory/ data/ files/ its life), and ~/.hq (user.md, projects, this Mac's things). Exported
@@ -83,6 +88,24 @@ esac
 # (memory/, data/, files/). Older layouts: the role is the folder itself and the life is <state>/agents/<name>.
 agent_dir() { for d in "$HQ_AGENTS/$1/role" "$HQ_AGENTS/$1" "$HQ/agents/$1"; do [[ -f $d/agent.md ]] && { echo "$d"; return; }; done; }
 
+if [[ $1 == ls && ${2:-} == --json ]]; then
+  "$HQ/bin/hq-pkg" list --json | python3 -c '
+import json, os, re, sys
+def field(text, k):
+    m = re.match(r"---\n(.*?)\n---", text, re.S)
+    f = re.search(r"^%s:[ \t]*(.*?)[ \t]*$" % k, m.group(1), re.M) if m else None
+    return f.group(1) if f and f.group(1) else None
+out = []
+for name, o in json.load(sys.stdin).items():
+    text = open(o["dir"] + "/agent.md").read()
+    d = re.search(r"^description:\s*(.*)$", text, re.M)
+    home = o["dir"][:-5] if o["dir"].endswith("/role") else "%s/agents/%s" % (os.environ["HQ_STATE"], name)
+    h = field(text, "harness") or "claude"
+    out.append({"name": name, "description": d.group(1) if d else "", "home": home, "model": field(text, "model"),
+                "effort": field(text, "effort"), "harness": "claude" if h == "claude-code" else h})
+print(json.dumps(out))'
+  exit 0
+fi
 if [[ $1 == ls ]]; then
   "$HQ/bin/hq-pkg" list --json | python3 -c '
 import json, re, sys
@@ -100,7 +123,7 @@ if [[ $src_pkg == */role ]]; then home=${src_pkg%/role}; else home="$HQ_STATE/ag
 # Who the run is for: HQ_PERSON, set by the entry point (the bridge, a schedule) and inherited by every helper, so
 # access follows the person who asked however deep the calls go. Unset is the owner and changes nothing. A helper is
 # checked as one (--via the agent that called it). Fails closed: no answer from hq-auth, no run.
-caller=${HQ_AGENT:-}; [[ $caller == "$agent" ]] && caller=""; p_owner=1 p_mode="" p_model="" p_deny="" p_line=""
+caller=${HQ_AGENT:-}; [[ $caller == "$agent" ]] && caller=""; p_owner=1 p_mode="" p_model="" p_deny="" p_line="" p_env_names=""
 if [[ -n ${HQ_PERSON:-} ]]; then
   res=$("$HQ/bin/hq-auth" resolve "$agent" ${caller:+--via "$caller"}) \
     || { echo "hq: can't check whether ${HQ_PERSON} may use $agent (hq-auth resolve failed)" >&2; exit 1; }
@@ -114,7 +137,8 @@ attrs = " ".join("%s=\"%s\"" % (k, str(r[k]).replace("\"", "")) for k in ("perso
 print("p_line=%s" % q(" " + attrs))
 print("p_budget=%s p_budget_agent=%s p_was=%s" % (q(r.get("budget", "")), q(r.get("budget_agent") or ""), q(",".join(r.get("was", [])))))
 for k, v in r.get("env", {}).items():
-    print("export %s=%s" % (k, q(v)))')"
+    print("export %s=%s" % (k, q(v)))
+print("p_env_names=%s" % q(" ".join(r.get("env", {}))))')"
   [[ $p_allowed == 1 ]] || { echo "hq: $p_why (hq-auth member $agent ${HQ_PERSON})" >&2; exit 3; }
   if [[ -n $p_budget ]]; then   # the membership's monthly cap, for the agent they reached (the caller, for a helper)
     spent=$(HQ_PERSON_WAS=$p_was "$HQ/bin/hq-cost" spent "$HQ_PERSON" "$p_budget_agent" 2>/dev/null || echo 0)
@@ -179,10 +203,12 @@ sys.exit("hq: MCP servers not connected: %s" % bad if bad else 0)'
   exit $?
 fi
 
-print=0 project=""
+print=0 project="" launch=0 hold=""
 while [[ $# -gt 0 ]]; do
   case $1 in
     --print)      print=1; shift ;;
+    --launch-json) launch=1; shift ;;
+    --hold)       hold=$2; shift 2 ;;
     -p|--project) project=$2; shift 2 ;;
     -m|--model)   HQ_MODEL=$2; shift 2 ;;
     -e|--effort)  HQ_EFFORT=$2; shift 2 ;;
@@ -193,6 +219,9 @@ while [[ $# -gt 0 ]]; do
     *)            break ;;
   esac
 done
+# A program reads stdout as the JSON alone: whatever a helper prints on the way goes to stderr; fd 3 is the real stdout.
+[[ $print -eq 1 ]] && launch=0
+[[ $launch -eq 1 ]] && exec 3>&1 1>&2
 if [[ -n $project ]]; then
   "$HQ/bin/project-id" --list | cut -f1 | cut -d' ' -f1 | grep -qx -- "$project" \
     || { echo "hq: unknown project '$project'. Known: $("$HQ/bin/project-id" --list | cut -f1 | cut -d' ' -f1 | tr '\n' ' ')" >&2
@@ -220,7 +249,15 @@ $mems
 if [[ $print -eq 1 ]]; then printf '%s\n' "$prompt"; [[ $# -gt 0 ]] && printf '\n[task] %s\n' "$*"; exit 0; fi
 
 # Run files: in the snapshot (so cleanup sees the run), or a temp dir when running the live folder.
-if [[ $pkg == "$src_pkg" ]]; then runs=$(mktemp -d); else runs=$pkg/.runs; mkdir -p "$runs"; : > "$runs/$$"; fi
+# A launch-json run has no process of ours to wait for, so nothing it depends on lives here: the files below are read
+# back into the JSON and removed, and the snapshot is held by --hold's pid (a marker named for that pid, one per pid).
+if [[ $launch -eq 1 ]]; then
+  runs=$(mktemp -d); trap 'rm -rf "$runs"' EXIT
+  if [[ $pkg != "$src_pkg" ]]; then
+    [[ ${hold:=$PPID} =~ ^[0-9]+$ ]] || { echo "hq: --hold needs a process id" >&2; exit 1; }
+    mkdir -p "$pkg/.runs"; : > "$pkg/.runs/$hold.launch"
+  fi
+elif [[ $pkg == "$src_pkg" ]]; then runs=$(mktemp -d); else runs=$pkg/.runs; mkdir -p "$runs"; : > "$runs/$$"; fi
 # Model and effort from the pinned agent.md unless the caller chose (-m/-e, HQ_MODEL/HQ_EFFORT).
 field() { awk -v k="$1" 'NR==1 && /^---$/ {fm=1; next} fm && /^---$/ {exit} fm && $1 == k":" {sub(/^[^:]*:[ \t]*/, ""); print; exit}' "$pkg/agent.md" 2>/dev/null || true; }
 own=$(field harness); own=${own:-claude}; [[ $own == claude-code ]] && own=claude
@@ -232,6 +269,11 @@ export HQ_MODEL=${HQ_MODEL:-} HQ_EFFORT=${HQ_EFFORT:-$(field effort)} HQ_PROJECT
 # For this run only, like HQ_CLAUDE_ARGS below: a helper this agent starts runs on its own harness, in its own session.
 out_format=${HQ_OUTPUT:-} resume=${HQ_RESUME:-} perm_mode=${HQ_PERMISSION_MODE:-}
 unset HQ_HARNESS HQ_OUTPUT HQ_RESUME HQ_PERMISSION_MODE
+if [[ $launch -eq 1 ]]; then
+  [[ $harness == claude ]] || { echo "hq: $agent runs on $harness; --launch-json covers claude only for now" >&2; exit 1; }
+  out_format="" resume=""; unset HQ_CLAUDE_ARGS
+  export HQ_VIA=${HQ_VIA:-terminal}
+fi
 # The agent's defaultMode is its author's suggestion: this Mac's choice for the agent (hq install asks; agents in
 # ~/.hq/settings.json) wins over it, and the caller's over both.
 [[ -z $perm_mode ]] && perm_mode=$(python3 "$HQ/lib/hq_settings.py" permission_mode "$agent")
@@ -368,9 +410,22 @@ if [[ $harness != claude ]]; then
   exec python3 "$HQ/adapters/harness.py" "$harness" "${hargs[@]}" "$*"
 fi
 
-args=(--append-system-prompt "$prompt" "${dirs[@]}" --settings "$runs/$$.settings.json" --allowedTools "${allowed[@]}")
-args+=(--strict-mcp-config --mcp-config "$runs/$$.mcp.json")
-[[ -f $pkg/mcp.json ]] && args+=(--mcp-config "$pkg/mcp.json")
+# launch-json hands the settings and the MCP servers over inline (--settings and --mcp-config take JSON as well as a file).
+settings_arg="$runs/$$.settings.json" mcp_arg="$runs/$$.mcp.json"
+if [[ $launch -eq 1 ]]; then
+  settings_arg=$(cat "$runs/$$.settings.json")
+  mcp_files=("$runs/$$.mcp.json"); [[ -f $pkg/mcp.json ]] && mcp_files+=("$pkg/mcp.json")
+  mcp_arg=$(python3 -c '
+import json, sys
+servers = {}
+for f in sys.argv[1:]:
+    d = json.load(open(f))
+    servers.update(d.get("mcpServers", d))
+print(json.dumps({"mcpServers": servers}))' "${mcp_files[@]}")
+fi
+args=(--append-system-prompt "$prompt" "${dirs[@]}" --settings "$settings_arg" --allowedTools "${allowed[@]}")
+args+=(--strict-mcp-config --mcp-config "$mcp_arg")
+[[ $launch -eq 0 && -f $pkg/mcp.json ]] && args+=(--mcp-config "$pkg/mcp.json")
 grep -q '^global_skills: *true' "$pkg/capabilities.yaml" 2>/dev/null || args+=(--disable-slash-commands)
 [[ -n $HQ_MODEL ]] && args+=(--model "$HQ_MODEL")
 [[ -n $HQ_EFFORT ]] && args+=(--effort "$HQ_EFFORT")
@@ -380,6 +435,31 @@ grep -q '^global_skills: *true' "$pkg/capabilities.yaml" 2>/dev/null || args+=(-
 if [[ -n $resume ]]; then
   if [[ $resume == *:* ]]; then echo "hq: session $resume is not a Claude Code session; starting a new one" >&2
   else args+=(--resume "$resume"); fi
+fi
+if [[ $launch -eq 1 ]]; then
+  # The same lists, handed over as data: dirs[] holds --add-dir pairs, args[] is the argv to give claude.
+  add_dirs=$(for ((i = 1; i < ${#dirs[@]}; i += 2)); do printf '%s\n' "${dirs[i]}"; done)
+  allowed_tools=$(printf '%s\n' "${allowed[@]}")
+  grep -q '^global_skills: *true' "$pkg/capabilities.yaml" 2>/dev/null && no_slash=false || no_slash=true
+  ENV_NAMES="$(python3 "$HQ/lib/hq_paths.py" --sh | sed -n 's/^export \([A-Z_]*\)=.*/\1/p' | paste -sd' ' -) HQ_ROOT HQ_AGENT HQ_AGENT_DIR HQ_AGENT_HOME HQ_AGENT_VERSION HQ_MODEL HQ_EFFORT HQ_PROJECT HQ_PERSON HQ_VIA $p_env_names" \
+    ADD_DIRS=$add_dirs ALLOWED=$allowed_tools SETTINGS=$settings_arg MCP=$mcp_arg PROMPT=$prompt PERM_MODE=$perm_mode NO_SLASH=$no_slash \
+    python3 -c '
+import json, os
+e = os.environ.get
+import sys
+env = {k: os.environ[k] for k in e("ENV_NAMES").split() if k in os.environ}
+settings = json.loads(e("SETTINGS"))
+nz = lambda k: e(k) or None
+print(json.dumps({
+    "version": 1, "agent": e("HQ_AGENT"), "agent_version": e("HQ_AGENT_VERSION"), "harness": "claude", "cwd": os.getcwd(),
+    "env": env, "system_prompt": e("PROMPT"), "settings": settings, "mcp_servers": json.loads(e("MCP"))["mcpServers"],
+    "add_dirs": [d for d in e("ADD_DIRS").split("\n") if d], "allowed_tools": [a for a in e("ALLOWED").split("\n") if a],
+    "disable_slash_commands": e("NO_SLASH") == "true", "model": nz("HQ_MODEL"), "effort": nz("HQ_EFFORT"),
+    "permission_mode": e("PERM_MODE") or settings.get("permissions", {}).get("defaultMode"),
+    "cost_tag": {"agent": e("HQ_AGENT"), "version": e("HQ_AGENT_VERSION"), "model": nz("HQ_MODEL"), "effort": nz("HQ_EFFORT"),
+                 "via": e("HQ_VIA"), "project": nz("HQ_PROJECT"), "person": nz("HQ_PERSON")},
+    "claude_args": sys.argv[1:]}))' "${args[@]}" >&3
+  exit 0
 fi
 # Extra claude flags from a caller such as hq-bridge (e.g. --output-format json --resume <session>).
 # For anyone but the owner, permission flags in them are dropped: the membership's mode stands.
