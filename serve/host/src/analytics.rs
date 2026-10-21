@@ -1,4 +1,4 @@
-//! Product analytics (`PostHog`), on unless the computer's owner turned it off; sent only when a project key is configured
+//! Product analytics (`PostHog`), on unless the computer's owner turned it off; sent with a built-in project key unless the owner configures another
 //! (`setAnalytics`). Events name the feature that was used and never carry content:
 //! no message text, prompts, file names, paths or bot names.
 //! What is collected and why: docs/features/analytics.md.
@@ -387,18 +387,21 @@ pub async fn flush_before_exit(hub: &Hub) {
     }
 }
 
-/// Events go to this `PostHog` (US cloud) host, into the project whose write-only key the owner
-/// configures: `KITH_SERVE_POSTHOG_KEY`, or `posthog_key` in `<data dir>/config.json` (the file
-/// that holds `relay_url`). No key, no network call.
+/// Events go to this `PostHog` (US cloud) host. The project key is Kith's own write-only public
+/// key (safe to embed, like any client-side `PostHog` key), unless overridden: first
+/// `KITH_SERVE_POSTHOG_KEY`, then `posthog_key` in `<data dir>/config.json` (the file that holds
+/// `relay_url`). The owner's analytics off switch stops events before they reach this.
 const HOST: &str = "https://us.i.posthog.com";
+const BUILT_IN_KEY: &str = "phc_DeF6pzdzBBusSKgu8V4PBAJKGfge4G9tMnxeuwwkjd7k";
 
-fn project_key_from(config: &std::path::Path) -> Option<String> {
-    let from_env = std::env::var("KITH_SERVE_POSTHOG_KEY").ok();
+/// The key to send with: a non-empty env value, else a non-empty config.json one, else the built-in.
+fn project_key_from(config: &std::path::Path, env: Option<String>) -> String {
     let from_file = || {
         let bytes = std::fs::read(config).ok()?;
         serde_json::from_slice::<Value>(&bytes).ok()?.get("posthog_key")?.as_str().map(str::to_owned)
     };
-    from_env.or_else(from_file).map(|k| k.trim().to_owned()).filter(|k| !k.is_empty())
+    let usable = |k: String| Some(k.trim().to_owned()).filter(|k| !k.is_empty());
+    env.and_then(usable).or_else(|| from_file().and_then(usable)).unwrap_or_else(|| BUILT_IN_KEY.to_owned())
 }
 
 async fn send(batch: &[Value]) -> bool {
@@ -407,8 +410,9 @@ async fn send(batch: &[Value]) -> bool {
     if cfg!(debug_assertions) {
         return true;
     }
-    let key = project_key_from(&crate::service::data_dir().join("config.json"));
-    send_to(HOST, key.as_deref(), batch).await
+    let key =
+        project_key_from(&crate::service::data_dir().join("config.json"), std::env::var("KITH_SERVE_POSTHOG_KEY").ok());
+    send_to(HOST, Some(&key), batch).await
 }
 
 /// Posts one batch to `host`; without a key nothing is sent and the events are dropped.
@@ -444,21 +448,24 @@ mod tests {
     }
 
     #[test]
-    fn the_project_key_comes_from_config_json_and_empty_means_none() {
+    fn the_project_key_prefers_env_then_config_json_then_the_built_in() {
         let dir = std::env::temp_dir().join(format!("kith-analytics-key-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("config.json");
-        assert_eq!(project_key_from(&file), None);
+        let env = |s: &str| Some(s.to_owned());
+        assert_eq!(project_key_from(&file, None), BUILT_IN_KEY, "no config file");
         for (body, want) in [
-            ("", None),
-            ("nope", None),
-            (r#"{"posthog_key": ""}"#, None),
-            (r#"{"posthog_key": 3}"#, None),
-            (r#"{"posthog_key": " test-key "}"#, Some("test-key")),
+            ("", BUILT_IN_KEY),
+            ("nope", BUILT_IN_KEY),
+            (r#"{"posthog_key": ""}"#, BUILT_IN_KEY),
+            (r#"{"posthog_key": 3}"#, BUILT_IN_KEY),
+            (r#"{"posthog_key": " file-key "}"#, "file-key"),
         ] {
             std::fs::write(&file, body).unwrap();
-            assert_eq!(project_key_from(&file).as_deref(), want, "{body}");
+            assert_eq!(project_key_from(&file, None), want, "{body}");
+            assert_eq!(project_key_from(&file, env("  ")), want, "empty env is unset: {body}");
         }
+        assert_eq!(project_key_from(&file, env(" env-key ")), "env-key", "env beats the file");
         std::fs::remove_dir_all(&dir).ok();
     }
 
