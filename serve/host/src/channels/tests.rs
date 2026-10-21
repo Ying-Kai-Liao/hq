@@ -44,6 +44,7 @@ async fn until(what: &str, mut f: impl FnMut() -> bool) {
 
 /// A fake Jev: scores by keywords in the latest message. Returns it and the requests it got.
 async fn fake_jev() -> (Jev, Arc<Mutex<Vec<Value>>>) {
+    #[allow(clippy::unused_async)] // axum handlers are async
     async fn handler(State(seen): State<Arc<Mutex<Vec<Value>>>>, Json(body): Json<Value>) -> Json<Value> {
         let latest = body["state"]["latest"].as_str().unwrap_or("").to_owned();
         seen.locked().push(body.clone());
@@ -104,12 +105,11 @@ impl Opts {
 }
 
 impl Rig {
-    async fn new() -> Self {
-        Self::with(Opts::new()).await
+    fn new() -> Self {
+        Self::with(Opts::new())
     }
 
-    #[allow(clippy::unused_async)] // spawns the gate task: only valid inside a runtime
-    async fn with(opts: Opts) -> Self {
+    fn with(opts: Opts) -> Self {
         let dir = std::env::temp_dir().join(format!("kith-channels-{}", uuid::Uuid::new_v4()));
         let (bin, stub) = (dir.join("bin"), dir.join("stub"));
         std::fs::create_dir_all(&bin).unwrap();
@@ -212,7 +212,7 @@ fn echo(task: &str) -> String {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_unknown_sender_is_told_to_link() {
-    let r = Rig::new().await;
+    let r = Rig::new();
     let mut m = Rig::msg("77", "hello");
     m.private = true;
     r.send(&m).await;
@@ -222,12 +222,12 @@ async fn an_unknown_sender_is_told_to_link() {
     chatter.addressed = false;
     r.send(&chatter).await;
     assert_eq!(r.fake.replies().len(), 1);
-    assert!(r.calls("hq").is_empty());
+    assert!(r.calls("hq").is_empty(), "nothing ran");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn link_with_a_code_links_the_account() {
-    let r = Rig::new().await;
+    let r = Rig::new();
     r.send(&Rig::msg("55", "/link BADCODE1")).await;
     assert_eq!(r.fake.replies()[0], "that code did not work");
     r.send(&Rig::msg("55", "/link GOODCODE1")).await;
@@ -239,7 +239,7 @@ async fn link_with_a_code_links_the_account() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn at_agent_picks_the_agent_and_the_thread_resumes_its_session() {
-    let r = Rig::new().await;
+    let r = Rig::new();
     r.send(&Rig::msg("1", "@house hello")).await;
     until("the answer", || !r.fake.posts().is_empty()).await;
     assert_eq!(r.fake.posts()[0], ("house".into(), echo("hello")));
@@ -271,7 +271,7 @@ async fn at_agent_picks_the_agent_and_the_thread_resumes_its_session() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_room_default_and_the_default_command() {
-    let r = Rig::new().await;
+    let r = Rig::new();
     let mut chat = Rig::msg("1", "hi there");
     chat.addressed = false;
     r.send(&chat).await;
@@ -304,7 +304,7 @@ async fn the_room_default_and_the_default_command() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_owners_new_dm_goes_to_the_dm_default() {
-    let r = Rig::new().await;
+    let r = Rig::new();
     let mut dm = Rig::msg("1", "good morning");
     dm.room = "fake/x:dm".into();
     dm.private = true;
@@ -328,7 +328,7 @@ async fn the_owners_new_dm_goes_to_the_dm_default() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn who_should_take_this_then_a_button_picks() {
-    let r = Rig::new().await;
+    let r = Rig::new();
     r.send(&Rig::msg("1", "do the thing")).await;
     let (pid, agents) = r
         .fake
@@ -354,7 +354,7 @@ async fn who_should_take_this_then_a_button_picks() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_non_owner_runs_as_themselves_and_stays_out_of_others_threads() {
-    let r = Rig::new().await;
+    let r = Rig::new();
     r.send(&Rig::msg("2", "@shop milk please")).await;
     until("the guest's answer", || !r.fake.posts().is_empty()).await;
     assert_eq!(r.calls("hq")[0]["person"], "guest");
@@ -375,7 +375,7 @@ async fn a_non_owner_runs_as_themselves_and_stays_out_of_others_threads() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_live_agent_gets_the_message_typed_in_and_its_answers_are_posted() {
-    let r = Rig::new().await;
+    let r = Rig::new();
     r.send(&Rig::msg("1", "@coder build it")).await;
     let sent = r.calls("hq-live");
     assert_eq!(sent.len(), 1);
@@ -409,7 +409,7 @@ async fn a_live_agent_gets_the_message_typed_in_and_its_answers_are_posted() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_live_agent_without_a_session_runs_once_and_refuses_others() {
-    let r = Rig::new().await;
+    let r = Rig::new();
     r.put("live", &json!({"running": false}));
     r.send(&Rig::msg("1", "@coder quick one")).await;
     until("the one-off run", || !r.fake.posts().is_empty()).await;
@@ -428,7 +428,7 @@ async fn messages_that_wait_for_a_turn_become_one_prompt() {
     let mut opts = Opts::new();
     // The stub starts slowly on a busy machine: leave room between the two messages.
     opts.settings.debounce = Duration::from_secs(2);
-    let r = Rig::with(opts).await;
+    let r = Rig::with(opts);
     r.send(&Rig::msg("1", "@house one")).await;
     r.send(&Rig::in_thread(Rig::msg("1", "two"), "fake/x:room:1")).await;
     until("the merged answer", || !r.fake.posts().is_empty()).await;
@@ -441,7 +441,7 @@ async fn messages_that_wait_for_a_turn_become_one_prompt() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn messages_sent_while_it_works_run_together_next() {
-    let r = Rig::new().await;
+    let r = Rig::new();
     r.send(&Rig::msg("1", "@house SLEEP a")).await;
     until("the first run", || !r.calls("hq").is_empty()).await;
     let key = "fake/x:room:1";
@@ -459,7 +459,7 @@ async fn messages_sent_while_it_works_run_together_next() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn jev_stop_ends_the_run() {
     let (jev, seen) = fake_jev().await;
-    let r = Rig::with(Opts { jev: Some(jev), ..Opts::new() }).await;
+    let r = Rig::with(Opts { jev: Some(jev), ..Opts::new() });
     r.send(&Rig::msg("1", "@house SLOW work")).await;
     until("the run to start", || !r.calls("hq").is_empty()).await;
     r.send(&Rig::in_thread(Rig::msg("1", "STOPNOW please"), "fake/x:room:1")).await;
@@ -475,7 +475,7 @@ async fn jev_stop_ends_the_run() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn jev_interrupt_restarts_the_work_with_the_correction() {
     let (jev, _) = fake_jev().await;
-    let r = Rig::with(Opts { jev: Some(jev), ..Opts::new() }).await;
+    let r = Rig::with(Opts { jev: Some(jev), ..Opts::new() });
     r.send(&Rig::msg("1", "@house SLOW first")).await;
     until("the run to start", || !r.calls("hq").is_empty()).await;
     r.send(&Rig::in_thread(Rig::msg("1", "CORRECT it"), "fake/x:room:1")).await;
@@ -496,7 +496,7 @@ async fn jev_interrupt_restarts_the_work_with_the_correction() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn jev_separate_gives_a_different_subject_its_own_turn() {
     let (jev, _) = fake_jev().await;
-    let r = Rig::with(Opts { jev: Some(jev), ..Opts::new() }).await;
+    let r = Rig::with(Opts { jev: Some(jev), ..Opts::new() });
     r.send(&Rig::msg("1", "@house SLEEP first")).await;
     until("the run to start", || !r.calls("hq").is_empty()).await;
     r.send(&Rig::in_thread(Rig::msg("1", "OTHER subject"), "fake/x:room:1")).await;
@@ -513,12 +513,12 @@ async fn a_message_that_ends_mid_thought_waits_for_the_rest() {
     let mut opts = Opts { jev: Some(jev), ..Opts::new() };
     opts.settings.debounce = Duration::from_millis(1500);
     opts.settings.hold = Duration::from_secs(3);
-    let r = Rig::with(opts).await;
+    let r = Rig::with(opts);
     r.send(&Rig::msg("1", "@house first")).await;
     r.send(&Rig::in_thread(Rig::msg("1", "PARTIAL half a thought"), "fake/x:room:1")).await;
     // Past the debounce, inside the hold: still part of the same turn.
     tokio::time::sleep(Duration::from_millis(2200)).await;
-    assert!(r.calls("hq").is_empty());
+    assert!(r.calls("hq").is_empty(), "held for the rest");
     r.send(&Rig::in_thread(Rig::msg("1", "the rest"), "fake/x:room:1")).await;
     until("the answer", || !r.fake.posts().is_empty()).await;
     let calls = r.calls("hq");
@@ -534,7 +534,7 @@ async fn a_message_that_ends_mid_thought_waits_for_the_rest() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stop_and_the_stop_button() {
-    let r = Rig::new().await;
+    let r = Rig::new();
     r.send(&Rig::msg("1", "@house SLOW work")).await;
     let key = "fake/x:room:1";
     until("the run to start", || !r.calls("hq").is_empty()).await;
@@ -564,13 +564,13 @@ async fn stop_and_the_stop_button() {
     r.send(&Rig::in_thread(Rig::msg("1", "/stop"), key)).await;
     r.idle().await;
     assert!(r.fake.events().contains(&Event::React(Reaction::Stop)));
-    assert!(r.fake.posts().is_empty());
+    assert!(r.fake.posts().is_empty(), "stopped runs post nothing");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_run_waits_for_the_gate_and_can_be_stopped_while_it_waits() {
     let gate = GateSettings { max_running: 1, ..GateSettings::unlimited() };
-    let r = Rig::with(Opts { gate, gate_task: true, ..Opts::new() }).await;
+    let r = Rig::with(Opts { gate, gate_task: true, ..Opts::new() });
     let mut held = r.core.gate.enter("test:holder");
     let permit = held.granted().await;
     r.send(&Rig::msg("1", "@house waits")).await;
@@ -592,7 +592,7 @@ async fn a_run_waits_for_the_gate_and_can_be_stopped_while_it_waits() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn what_the_agent_sends_with_hq_send_is_posted_in_order() {
-    let r = Rig::new().await;
+    let r = Rig::new();
     r.send(&Rig::msg("1", "@house SEND things")).await;
     until("the answer", || r.fake.posts().len() == 2).await;
     let events = r.fake.events();
@@ -611,7 +611,7 @@ async fn what_the_agent_sends_with_hq_send_is_posted_in_order() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn late_messages_say_so_and_big_contexts_are_shown() {
-    let r = Rig::new().await;
+    let r = Rig::new();
     let mut late = Rig::msg("1", "@house BIGCTX hello");
     late.sent = Some(core::now() - 300.0);
     late.quoted = "an earlier note".into();
@@ -639,7 +639,7 @@ async fn late_messages_say_so_and_big_contexts_are_shown() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failed_run_says_so() {
-    let r = Rig::new().await;
+    let r = Rig::new();
     r.send(&Rig::msg("1", "@house FAIL please")).await;
     until("the failure", || !r.fake.posts().is_empty()).await;
     assert_eq!(r.fake.posts()[0], ("house".into(), "⚠️ house failed:\n```\nboom\n\n```".into()));
@@ -648,7 +648,7 @@ async fn a_failed_run_says_so() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn two_messages_at_once_in_one_thread_are_both_delivered() {
-    let r = Rig::new().await;
+    let r = Rig::new();
     r.send(&Rig::msg("1", "@house start")).await;
     r.idle().await;
     let key = "fake/x:room:1";
@@ -664,7 +664,7 @@ async fn two_messages_at_once_in_one_thread_are_both_delivered() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_connections_state_comes_over_from_the_bridge_and_only_that_one() {
-    let r = Rig::new().await;
+    let r = Rig::new();
     let bridge = json!({
         "version": 2,
         "conns": {"fake/a": {"offset": 5}, "fake/b": {"offset": 6}},
@@ -725,7 +725,7 @@ async fn connections_follow_the_grants_and_secrets_stay_out_of_logs() {
     let _guard = tracing::subscriber::set_default(subscriber);
 
     let (jev, _) = fake_jev().await;
-    let r = Rig::with(Opts { jev: Some(jev), ..Opts::new() }).await;
+    let r = Rig::with(Opts { jev: Some(jev), ..Opts::new() });
     let secret = "s3cr3t-bot-token-value";
     r.put("granted", &json!({"telegram": ["telegram/hq"], "slack": ["slack/x"], "discord": ["discord/hq"]}));
     r.put("secrets", &json!({"telegram/hq": {"TELEGRAM_BOT_TOKEN": secret}, "slack/x": {"SLACK_BOT_TOKEN": "xoxb-1"}}));
@@ -770,7 +770,7 @@ async fn connections_follow_the_grants_and_secrets_stay_out_of_logs() {
     // The grant is revoked: the connection stops.
     r.put("granted", &json!({}));
     manager.sync().await;
-    assert!(manager.running().is_empty());
+    assert!(manager.running().is_empty(), "revoked: stopped");
 
     let text = String::from_utf8(logs.0.locked().clone()).unwrap();
     assert!(text.contains("no adapter for slack"), "{text}");
@@ -799,4 +799,89 @@ async fn a_dropped_connection_starts_again_after_a_pause() {
     let task = tokio::spawn(supervise(ad, backoff));
     until("a restart of the quiet one", || quiet.starts.load(std::sync::atomic::Ordering::SeqCst) >= 2).await;
     task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn messages_that_arrive_while_a_turn_waits_for_the_gate_join_it() {
+    let gate = GateSettings { max_running: 1, ..GateSettings::unlimited() };
+    let r = Rig::with(Opts { gate, gate_task: true, ..Opts::new() });
+    let permit = r.core.gate.enter("test:holder").granted().await;
+    r.send(&Rig::msg("1", "@house first")).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    r.send(&Rig::in_thread(Rig::msg("1", "second"), "fake/x:room:1")).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(r.calls("hq").is_empty(), "waiting for room");
+    drop(permit);
+    until("the answer", || !r.fake.posts().is_empty()).await;
+    let calls = r.calls("hq");
+    assert_eq!(calls.len(), 1, "one turn for both");
+    let task = calls[0]["task"].as_str().unwrap();
+    assert!(task.contains("[1] first") && task.contains("[2] second"), "{task}");
+    r.idle().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_background_process_holding_the_output_does_not_hang_the_turn() {
+    let mut opts = Opts::new();
+    opts.settings.reader_grace = Duration::from_millis(300);
+    let r = Rig::with(opts);
+    r.send(&Rig::msg("1", "@house BGHOLD now")).await;
+    until("the answer", || !r.fake.posts().is_empty()).await;
+    assert_eq!(r.fake.posts()[0].1, echo("BGHOLD now"));
+    r.idle().await;
+    // What was left of the agent's process group was killed with it.
+    let pid = std::fs::read_to_string(r.dir.join("stub/bg.pid")).unwrap();
+    until("the background process to be gone", || {
+        !std::process::Command::new("kill").args(["-0", pid.trim()]).output().unwrap().status.success()
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_revoked_connection_takes_its_adapter_with_it() {
+    let fake = Arc::new(Fake::new("fake/r"));
+    let ad: Arc<dyn Adapter> = fake.clone();
+    let task = tokio::spawn(supervise(ad, Backoff::default()));
+    until("the adapter to start", || fake.starts.load(std::sync::atomic::Ordering::SeqCst) == 1).await;
+    task.abort();
+    until("the adapter's task to be dropped", || fake.dropped.load(std::sync::atomic::Ordering::SeqCst)).await;
+}
+
+#[tokio::test]
+async fn a_failing_grants_listing_keeps_the_connections() {
+    let r = Rig::with(Opts::new());
+    r.put("granted", &json!({"telegram": ["telegram/hq"]}));
+    r.put("secrets", &json!({"telegram/hq": {"TELEGRAM_BOT_TOKEN": "t"}}));
+    let mut registry = Registry::default();
+    registry.add(
+        "telegram",
+        Arc::new(|conn: &str, _: Secrets, _: Arc<Core>| -> anyhow::Result<Arc<dyn Adapter>> {
+            let ad: Arc<dyn Adapter> = Arc::new(Fake::new(conn));
+            Ok(ad)
+        }),
+    );
+    let mut manager = Manager::new(r.core.clone(), registry, Backoff::default());
+    manager.sync().await;
+    assert_eq!(manager.running(), ["telegram/hq"]);
+    r.put("granted", &json!({"_fail": true}));
+    manager.sync().await;
+    assert_eq!(manager.running(), ["telegram/hq"], "an error is not a revocation");
+    r.put("granted", &json!({}));
+    manager.sync().await;
+    assert!(manager.running().is_empty(), "revoked: stopped");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn adapters_can_look_at_rooms_and_threads() {
+    let r = Rig::new();
+    r.send(&Rig::msg("1", "/default house")).await;
+    r.send(&Rig::msg("1", "@house hi")).await;
+    until("the answer", || !r.fake.posts().is_empty()).await;
+    r.idle().await;
+    assert!(r.core.has_thread("fake/x:room:1") && !r.core.has_thread("fake/x:room:2"));
+    assert_eq!(r.core.room_default("fake/x:room").as_deref(), Some("house"));
+    assert_eq!(r.core.room_default("fake/x:other"), None);
+    assert_eq!(r.core.rooms("fake/x").len(), 1);
+    assert!(r.core.rooms("fake/y").is_empty(), "other connections have no rooms here");
+    assert!(r.core.attachments_dir("telegram/hq").ends_with("attachments/telegram_hq"));
 }

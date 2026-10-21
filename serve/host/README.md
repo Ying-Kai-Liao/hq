@@ -61,7 +61,9 @@ sessions, the queue with Jev routing, `hq <agent>` runs under the resource gate,
 the Python bridge. A bot is cut over by granting its profile to the client `serve` in hq-auth and revoking
 it from `bridge`: grants are checked every minute, and the first time a connection starts here its rooms,
 threads and queued messages are copied from `~/.hq/bridge/state.json` (read only). State lives in
-`<data dir>/channels/state.json`. `GET /health` has a `channels` object with each connection's state.
+`<data dir>/channels/state.json`. The bridge reads its grants only at start, so restart it after revoking
+(`launchctl kickstart -k gui/$UID/dev.hq.bridge`), and grant `jev-browser` to `serve` too or the router merges
+every message sent while an agent works. `GET /health` has a `channels` object with each connection's state.
 
 The `channels` object in `config.json` (read at start):
 

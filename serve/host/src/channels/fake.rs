@@ -4,8 +4,8 @@ use super::adapter::{Adapter, Alive, Ended, Fut, Incoming, Reaction};
 use crate::LockExt;
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -30,6 +30,8 @@ pub struct Fake {
     pub starts: AtomicUsize,
     /// What `start()` does: wait forever, or fail at once.
     pub fail_start: bool,
+    /// Set when a `start()` future is dropped.
+    pub dropped: Arc<AtomicBool>,
     pub quiet: Option<Duration>,
 }
 
@@ -42,6 +44,7 @@ impl Fake {
             threads: AtomicUsize::new(0),
             starts: AtomicUsize::new(0),
             fail_start: false,
+            dropped: Arc::new(AtomicBool::new(false)),
             quiet: None,
         }
     }
@@ -97,8 +100,16 @@ impl Adapter for Fake {
         &self.alive
     }
 
-    fn start(&self) -> Fut<'_, Result<()>> {
+    fn start(self: Arc<Self>) -> Fut<'static, Result<()>> {
         Box::pin(async move {
+            // Tells a test when the connection's task is dropped.
+            struct Dropped(Arc<AtomicBool>);
+            impl Drop for Dropped {
+                fn drop(&mut self) {
+                    self.0.store(true, Ordering::SeqCst);
+                }
+            }
+            let _dropped = Dropped(self.dropped.clone());
             self.starts.fetch_add(1, Ordering::SeqCst);
             if self.fail_start {
                 bail!("the platform said no");

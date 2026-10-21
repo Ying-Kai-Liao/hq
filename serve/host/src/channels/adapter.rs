@@ -168,8 +168,9 @@ pub trait Adapter: Send + Sync {
     }
     fn alive(&self) -> &Alive;
 
-    /// Connects and receives; returns or fails when the connection drops.
-    fn start(&self) -> Fut<'_, Result<()>>;
+    /// Connects and receives; returns or fails when the connection drops. It gets its own `Arc` so that it can
+    /// hand itself to [`Core::handle`] and the like (they take `&Arc<dyn Adapter>`): `let me: Arc<dyn Adapter> = self;`.
+    fn start(self: Arc<Self>) -> Fut<'static, Result<()>>;
     /// A short note from hq itself, answering `m`.
     fn reply<'a>(&'a self, m: &'a Incoming, text: &'a str) -> Fut<'a, Result<()>>;
     /// Where a new task's messages go: (thread key, conv). The core keeps conv (JSON) with the thread and adds `key`.

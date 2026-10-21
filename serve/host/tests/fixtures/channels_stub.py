@@ -12,7 +12,7 @@ The test makes symlinks <rig>/bin/hq, hq-auth and hq-live to this file; the rig'
 
 `hq <agent> <task>` answers {"result": "echo:<task>", "session_id": "sess-<agent>-<n>"}. A task that starts with
 SLOW sleeps until killed, SLEEP for 1.5 s; one containing SEND leaves two posts in HQ_BRIDGE_OUTBOX; FAIL exits 1;
-BIGCTX reports a context 60% full.
+BIGCTX reports a context 60% full, BGHOLD leaves a process holding its output open.
 """
 import json
 import os
@@ -71,7 +71,10 @@ if me == "hq-auth":
         save("people", people)
         print(person)
     elif cmd == "granted":
-        print("\n".join(load("granted", {}).get(args[-1], [])))
+        granted = load("granted", {})
+        if granted.get("_fail"):
+            fail("hq-auth: the auth file is locked")
+        print("\n".join(granted.get(args[-1], [])))
     elif cmd == "get":
         profile, var = args[args.index("--profile") + 1], args[-1]
         value = load("secrets", {}).get(profile, {}).get(var)
@@ -99,6 +102,12 @@ elif me == "hq":
     counts = load("sessions", {})
     counts[agent] = counts.get(agent, 0) + 1
     save("sessions", counts)
+    if "BGHOLD" in task:
+        # A background process that keeps stdout open after the agent is done.
+        import subprocess
+        bg = subprocess.Popen(["sleep", "60"], stdin=subprocess.DEVNULL)
+        with open(os.path.join(stub, "bg.pid"), "w", encoding="utf-8") as f:
+            f.write(str(bg.pid))
     if "SEND" in task:
         outbox = env["HQ_BRIDGE_OUTBOX"]
         for item in ({"as": "image", "text": "tool says hi"},

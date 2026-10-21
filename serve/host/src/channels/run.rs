@@ -8,27 +8,40 @@ use super::adapter::{Adapter, Ended};
 use super::core::Core;
 use super::queue::kill;
 use super::text::{context_pct, short};
+use crate::LockExt;
+use crate::agent::gate::Permit;
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::path::Path;
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::AsyncReadExt as _;
 
 /// While a run waits for the gate, its working line says why this often.
 const WAITING_EVERY: Duration = Duration::from_secs(3);
 
-/// Environment a run must not inherit: bot tokens and keys, and this is no agent's helper.
-fn withheld(name: &str) -> bool {
-    ["JEV_", "TELEGRAM_", "SLACK_", "DISCORD_", "HQ_DISCORD_"].iter().any(|p| name.starts_with(p))
-        || ["HQ_AGENT", "HQ_PERSON", "HQ_RESUME", "HQ_BRIDGE_OUTBOX"].contains(&name)
+/// What a run inherits of the host's environment: the plain login basics and hq's own settings. Nothing else
+/// (API keys, tokens, `KITH_*`): the bridge's runs had launchd's PATH and HOME and HQ_*, no more.
+fn inherited(name: &str) -> bool {
+    let basic = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "TMPDIR", "TZ", "TERM"].contains(&name)
+        || name.starts_with("LC_");
+    // No bot tokens or keys, and this is no agent's helper.
+    let hq = name.starts_with("HQ_")
+        && !name.starts_with("HQ_DISCORD_")
+        && !["HQ_AGENT", "HQ_PERSON", "HQ_RESUME", "HQ_BRIDGE_OUTBOX"].contains(&name);
+    basic || hq
 }
 
-async fn read_all(mut pipe: impl tokio::io::AsyncRead + Unpin) -> Vec<u8> {
-    let mut out = Vec::new();
-    let _ = pipe.read_to_end(&mut out).await;
-    out
+/// Reads a pipe into a buffer that stays readable if the reader is stopped.
+async fn read_into(mut pipe: impl tokio::io::AsyncRead + Unpin, into: Arc<Mutex<Vec<u8>>>) {
+    let mut chunk = [0u8; 8192];
+    while let Ok(n) = pipe.read(&mut chunk).await {
+        if n == 0 {
+            break;
+        }
+        into.locked().extend_from_slice(&chunk[..n]);
+    }
 }
 
 fn tail(bytes: &[u8], n: usize) -> String {
@@ -38,7 +51,29 @@ fn tail(bytes: &[u8], n: usize) -> String {
 }
 
 impl Core {
-    /// One agent turn in this thread.
+    /// Waits for the gate's permit, with the working line saying why it waits. None: stopped while waiting.
+    pub(super) async fn admit(&self, ad: &Arc<dyn Adapter>, wk: &str, cancel: &tokio::sync::Notify) -> Option<Permit> {
+        let mut admission = self.gate.enter(&format!("channels:{wk}"));
+        let waiting = async {
+            loop {
+                tokio::select! {
+                    permit = admission.granted() => break permit,
+                    () = tokio::time::sleep(WAITING_EVERY) => {
+                        let status = self.with(|i| i.busy.get(wk).map(|b| b.status.clone()));
+                        if let Some(status) = status.filter(|s| !s.is_null()) {
+                            ad.status_text(&status, &self.gate.waiting_text()).await;
+                        }
+                    }
+                }
+            }
+        };
+        tokio::select! {
+            permit = waiting => Some(permit),
+            () = cancel.notified() => None,
+        }
+    }
+
+    /// One agent turn in this thread. The permit is held until it ends.
     pub(super) async fn run(
         &self,
         ad: &Arc<dyn Adapter>,
@@ -46,6 +81,7 @@ impl Core {
         agent: &str,
         wk: &str,
         task: &str,
+        _permit: Permit,
     ) -> Result<Ended> {
         let (conv, person, session) = self.with(|i| {
             let th = i.st.threads.get(key);
@@ -58,7 +94,7 @@ impl Core {
         });
         let owner = if person.is_empty() { true } else { super::hq::resolve(&self.paths, &person, agent).await.owner };
         let mut env: Vec<(std::ffi::OsString, std::ffi::OsString)> =
-            std::env::vars_os().filter(|(k, _)| !k.to_str().is_some_and(withheld)).collect();
+            std::env::vars_os().filter(|(k, _)| k.to_str().is_some_and(inherited)).collect();
         let mut set = |k: &str, v: &str| env.push((k.into(), v.into()));
         set("HQ_VIA", ad.platform());
         set("HQ_OUTPUT", "json");
@@ -77,36 +113,9 @@ impl Core {
         for (k, v) in ad.env(&conv, agent) {
             set(&k, &v);
         }
-
-        let cancel = self.with(|i| i.busy.get(wk).map(|b| b.cancel.clone())).unwrap_or_default();
-        let mut admission = self.gate.enter(&format!("channels:{wk}"));
-        let permit = {
-            let waiting = async {
-                loop {
-                    tokio::select! {
-                        permit = admission.granted() => break permit,
-                        () = tokio::time::sleep(WAITING_EVERY) => {
-                            let status = self.with(|i| i.busy.get(wk).map(|b| b.status.clone()));
-                            if let Some(status) = status.filter(|s| !s.is_null()) {
-                                ad.status_text(&status, &self.gate.waiting_text()).await;
-                            }
-                        }
-                    }
-                }
-            };
-            tokio::select! {
-                permit = waiting => Some(permit),
-                () = cancel.notified() => None,
-            }
-        };
-        let ended = self.with(|i| i.busy.get(wk).and_then(|b| b.ended));
-        let Some(_permit) = permit else {
+        if let Some(ended) = self.with(|i| i.busy.get(wk).and_then(|b| b.ended)) {
             let _ = std::fs::remove_dir(&outbox);
-            return Ok(ended.unwrap_or(Ended::Stopped));
-        };
-        if let Some(ended) = ended {
-            let _ = std::fs::remove_dir(&outbox);
-            return Ok(ended); // stopped while it waited for room
+            return Ok(ended); // stopped before the process existed
         }
 
         let mut cmd = tokio::process::Command::new(&self.paths.hq_bin);
@@ -142,50 +151,75 @@ impl Core {
         {
             kill(pid); // Stop was pressed before the process existed
         }
-        let (stdout, stderr) = (child.stdout.take().context("stdout")?, child.stderr.take().context("stderr")?);
-        let (out_task, err_task) = (tokio::spawn(read_all(stdout)), tokio::spawn(read_all(stderr)));
+        let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
+            if let Some(pid) = pid {
+                kill(pid);
+            }
+            let _ = std::fs::remove_dir(&outbox);
+            anyhow::bail!("no pipes on the agent process");
+        };
+        let (out, err) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
+        let readers = [tokio::spawn(read_into(stdout, out.clone())), tokio::spawn(read_into(stderr, err.clone()))];
+        let stop_pump = Arc::new(tokio::sync::Notify::new());
         let pump = {
-            let (poll, ad, conv, outbox) = (self.settings.poll, ad.clone(), conv.clone(), outbox.clone());
+            let (poll, ad, conv, outbox, stop) =
+                (self.settings.poll, ad.clone(), conv.clone(), outbox.clone(), stop_pump.clone());
             tokio::spawn(async move {
                 loop {
-                    tokio::time::sleep(poll).await;
-                    flush(&ad, &conv, &outbox).await;
+                    tokio::select! {
+                        () = tokio::time::sleep(poll) => flush(&ad, &conv, &outbox).await,
+                        () = stop.notified() => break,
+                    }
                 }
             })
         };
-        let timed_out = tokio::time::timeout(self.settings.run_timeout, child.wait()).await.is_err();
-        if timed_out && let Some(pid) = pid {
-            kill(pid);
-        }
-        self.with(|i| i.busy.get_mut(wk).map(|b| b.exited = true));
-        let (out, err) = if timed_out {
-            out_task.abort();
-            err_task.abort();
-            (Vec::new(), b"timed out after 60 min".to_vec())
-        } else {
-            (out_task.await.unwrap_or_default(), err_task.await.unwrap_or_default())
+        // One budget for the process and for its output: an agent that leaves a background process holding the
+        // pipes open can't hang the turn.
+        let grace = self.settings.reader_grace;
+        let finished = async {
+            let _ = child.wait().await;
+            self.with(|i| i.busy.get_mut(wk).map(|b| b.exited = true));
+            let [out_reader, err_reader] = readers;
+            tokio::time::timeout(grace, async {
+                let _ = tokio::join!(out_reader, err_reader);
+            })
+            .await
+            .is_ok()
         };
-        pump.abort();
+        let outcome = tokio::time::timeout(self.settings.run_timeout, finished).await;
+        let timed_out = outcome.is_err();
+        if timed_out || matches!(outcome, Ok(false)) {
+            // Out of time, or output still open after the process left: whatever is left of its group goes too.
+            if let Some(pid) = pid {
+                kill(pid);
+            }
+            self.with(|i| i.busy.get_mut(wk).map(|b| b.exited = true));
+        }
+        stop_pump.notify_one();
+        let _ = pump.await; // a post in flight finishes before the last flush
         flush(ad, &conv, &outbox).await;
         let _ = std::fs::remove_dir(&outbox);
         if let Some(ended) = self.with(|i| i.busy.get(wk).and_then(|b| b.ended)) {
             return Ok(ended);
         }
+        let (out, err) = if timed_out {
+            (Vec::new(), b"timed out after 60 min".to_vec())
+        } else {
+            (out.locked().clone(), err.locked().clone())
+        };
 
         let (text, sid, pct) = if let Ok(res) = serde_json::from_slice::<Value>(&out) {
-            {
-                let mut text = res.get("result").and_then(Value::as_str).unwrap_or("").to_owned();
-                if res.get("is_error").and_then(Value::as_bool).unwrap_or(false) {
-                    let why = if text.is_empty() {
-                        res.get("subtype").and_then(Value::as_str).unwrap_or("error").to_owned()
-                    } else {
-                        text
-                    };
-                    text = format!("⚠️ {why}");
-                }
-                let sid = res.get("session_id").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
-                (text, sid, context_pct(&res))
+            let mut text = res.get("result").and_then(Value::as_str).unwrap_or("").to_owned();
+            if res.get("is_error").and_then(Value::as_bool).unwrap_or(false) {
+                let why = if text.is_empty() {
+                    res.get("subtype").and_then(Value::as_str).unwrap_or("error").to_owned()
+                } else {
+                    text
+                };
+                text = format!("⚠️ {why}");
             }
+            let sid = res.get("session_id").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+            (text, sid, context_pct(&res))
         } else {
             let shown = tail(if err.is_empty() { &out } else { &err }, 1500);
             (format!("⚠️ {agent} failed:\n```\n{shown}\n```"), None, None)
@@ -239,6 +273,37 @@ pub(super) async fn flush(ad: &Arc<dyn Adapter>, conv: &Value, outbox: &Path) {
                 // One failed post must not end the run's other posts.
                 tracing::warn!("{}: hq-send post failed: {e:#}", ad.conn());
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::inherited;
+
+    #[test]
+    fn runs_get_the_login_basics_and_hq_settings_only() {
+        for name in ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR", "TZ", "TERM", "HQ_HOME", "HQ_MODEL", "HQ_BIN"]
+        {
+            assert!(inherited(name), "{name} should reach a run");
+        }
+        for name in [
+            "ANTHROPIC_API_KEY",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "OPENAI_API_KEY",
+            "KITH_SERVE_HOME",
+            "JEV_API_KEY",
+            "TELEGRAM_BOT_TOKEN",
+            "SLACK_APP_TOKEN",
+            "DISCORD_BOT_TOKEN",
+            "HQ_DISCORD_BOT_TOKEN",
+            "HQ_AGENT",
+            "HQ_PERSON",
+            "HQ_RESUME",
+            "HQ_BRIDGE_OUTBOX",
+            "AWS_SECRET_ACCESS_KEY",
+        ] {
+            assert!(!inherited(name), "{name} must not reach a run");
         }
     }
 }

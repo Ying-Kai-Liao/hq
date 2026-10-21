@@ -25,6 +25,8 @@ pub struct Settings {
     pub hold: Duration,
     /// A run is killed after this long (not configurable).
     pub run_timeout: Duration,
+    /// After the agent process ends, how long its output may stay open before the rest of its group is killed.
+    pub reader_grace: Duration,
     /// How often the outbox and live outboxes are posted (not configurable).
     pub poll: Duration,
 }
@@ -42,6 +44,7 @@ impl Default for Settings {
             discord_guild: None,
             hold: Duration::from_secs(8),
             run_timeout: Duration::from_secs(3600),
+            reader_grace: Duration::from_secs(3),
             poll: Duration::from_secs(1),
         }
     }
@@ -127,7 +130,7 @@ mod tests {
     fn defaults_without_a_section() {
         let (s, w) = Settings::from_file(Some(&json!({"relay_url": "x"})));
         assert_eq!(s, Settings::default());
-        assert!(w.is_empty());
+        assert!(w.is_empty(), "no warnings for defaults");
     }
 
     #[test]

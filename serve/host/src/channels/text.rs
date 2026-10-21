@@ -90,6 +90,12 @@ pub fn context_pct(res: &Value) -> Option<f64> {
     Some(100.0 * used / num(main, "contextWindow"))
 }
 
+/// The last `n` characters of `s`.
+pub fn last_chars(s: &str, n: usize) -> &str {
+    let count = s.chars().count();
+    s.char_indices().nth(count.saturating_sub(n)).map_or(s, |(i, _)| &s[i..])
+}
+
 /// The first `n` characters of `s`.
 pub fn first_chars(s: &str, n: usize) -> &str {
     s.char_indices().nth(n).map_or(s, |(i, _)| &s[..i])
@@ -159,6 +165,12 @@ pub fn title(text: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn last_chars_keeps_the_end() {
+        assert_eq!(last_chars("abc", 5), "abc");
+        assert_eq!(last_chars("停一下好嗎", 2), "好嗎");
+    }
 
     #[test]
     fn short_texts_are_one_piece() {

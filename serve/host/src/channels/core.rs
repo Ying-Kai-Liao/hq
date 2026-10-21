@@ -57,6 +57,8 @@ pub(super) struct Busy {
     pub redo: bool,
     /// The adapter's working line.
     pub status: Value,
+    /// The turn waits for the gate: its batch is still in the inbox, so new messages join it.
+    pub waiting: bool,
     /// Wakes a turn that waits for the gate when it is stopped.
     pub cancel: Arc<tokio::sync::Notify>,
 }
@@ -64,6 +66,12 @@ pub(super) struct Busy {
 impl Busy {
     pub fn running(&self) -> bool {
         self.pid.is_some() && !self.exited
+    }
+
+    /// Something Stop can end: a turn waiting for the gate, running, or about to start.
+    pub fn stoppable(&self) -> bool {
+        // Batch taken, process not started yet: run() kills it at once.
+        self.waiting || self.running() || (self.pid.is_none() && !self.task.is_empty())
     }
 }
 
@@ -148,9 +156,27 @@ impl Core {
         text::chunks(text, n)
     }
 
-    /// Where downloaded attachments go.
-    pub fn attachments_dir(&self) -> std::path::PathBuf {
-        self.paths.data.join("attachments")
+    /// Where a connection's downloaded attachments go: one folder per connection.
+    pub fn attachments_dir(&self, conn: &str) -> std::path::PathBuf {
+        self.paths.data.join("attachments").join(conn.replace('/', "_"))
+    }
+
+    /// Whether a thread of this key exists.
+    pub fn has_thread(&self, key: &str) -> bool {
+        self.with(|i| i.st.threads.contains_key(key))
+    }
+
+    /// A room's default agent: None when the room has none set (an agent's own channel then defaults to it).
+    pub fn room_default(&self, room: &str) -> Option<String> {
+        self.with(|i| i.st.rooms.get(room)?.get("default")?.as_str().map(str::to_owned))
+    }
+
+    /// The rooms of a connection: (room key `<conn>:<chat>`, its settings).
+    pub fn rooms(&self, conn: &str) -> Vec<(String, Value)> {
+        let prefix = format!("{conn}:");
+        self.with(|i| {
+            i.st.rooms.iter().filter(|(k, _)| k.starts_with(&prefix)).map(|(k, v)| (k.clone(), v.clone())).collect()
+        })
     }
 
     /// The connection's own state (offsets, webhooks).

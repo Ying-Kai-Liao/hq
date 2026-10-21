@@ -57,11 +57,10 @@ pub async fn granted(paths: &Paths) -> Option<Vec<(String, String)>> {
     let mut out = Vec::new();
     for (platform, _) in PLATFORMS {
         let o = hq::output(&paths.auth_bin, &["granted", "--for", CLIENT, platform]).await?;
-        if o.status.success() {
-            out.extend(
-                String::from_utf8_lossy(&o.stdout).split_whitespace().map(|p| (p.to_owned(), platform.to_owned())),
-            );
+        if !o.status.success() {
+            return None; // an error is not "nothing granted": the connections that run keep running
         }
+        out.extend(String::from_utf8_lossy(&o.stdout).split_whitespace().map(|p| (p.to_owned(), platform.to_owned())));
     }
     Some(out)
 }
@@ -110,6 +109,15 @@ impl Backoff {
     }
 }
 
+/// Aborts the task when dropped.
+struct AbortOnDrop(JoinHandle<anyhow::Result<()>>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 /// One connection: runs it, and when it drops, fails or goes quiet for `quiet()` seconds, starts it again.
 pub async fn supervise(ad: Arc<dyn Adapter>, backoff: Backoff) {
     let conn = ad.conn().to_owned();
@@ -118,12 +126,12 @@ pub async fn supervise(ad: Arc<dyn Adapter>, backoff: Backoff) {
         let began = Instant::now();
         ad.alive().touch();
         set_state(&conn, "running");
-        let starter = ad.clone();
-        let mut run = tokio::spawn(async move { starter.start().await });
+        // Dropped with this task (a revoked grant aborts the supervisor): the adapter's task goes too.
+        let mut run = AbortOnDrop(tokio::spawn(ad.clone().start()));
         let check = ad.quiet().map_or(Duration::from_secs(15), |q| (q / 3).min(Duration::from_secs(15)));
         loop {
             tokio::select! {
-                done = &mut run => {
+                done = &mut run.0 => {
                     match done {
                         Ok(Ok(())) => tracing::info!("{conn}: connection ended"),
                         Ok(Err(e)) => tracing::warn!("{conn}: {e:#}"),
@@ -135,8 +143,8 @@ pub async fn supervise(ad: Arc<dyn Adapter>, backoff: Backoff) {
                     let silent = ad.alive().silent_for();
                     if let Some(quiet) = ad.quiet().filter(|q| silent > *q) {
                         tracing::warn!("{conn}: nothing from it for {}s (limit {}s); restarting the connection", silent.as_secs(), quiet.as_secs());
-                        run.abort();
-                        let _ = tokio::time::timeout(Duration::from_secs(30), &mut run).await; // a call stuck in a thread is left behind
+                        run.0.abort();
+                        let _ = tokio::time::timeout(Duration::from_secs(30), &mut run.0).await; // a call stuck in a thread is left behind
                         break;
                     }
                 }

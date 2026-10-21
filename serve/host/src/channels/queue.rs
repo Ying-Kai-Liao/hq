@@ -61,7 +61,7 @@ impl Core {
     fn remember(&self, wk: &str, m: &Incoming) {
         self.with(|i| {
             let recent = i.history.entry(wk.to_owned()).or_default();
-            recent.push(super::text::first_chars(&m.text, 1000).to_owned());
+            recent.push(super::text::last_chars(&m.text, 1000).to_owned());
             let excess = recent.len().saturating_sub(6);
             recent.drain(..excess);
         });
@@ -229,23 +229,8 @@ impl Core {
             while self.with(|i| i.busy.get_mut(wk).is_some_and(|b| std::mem::take(&mut b.hold))) {
                 tokio::time::sleep(self.settings.hold).await;
             }
-            let taken = self.with(|i| {
-                let q = i.st.inbox.get_mut(wk).filter(|q| !q.is_empty())?; // a "stop" came in during the wait
-                let batch = q.remove(0);
-                let b = i.busy.get_mut(wk)?;
-                b.cont = false; // whatever is queued now came in before this turn started
-                let redo = std::mem::take(&mut b.redo);
-                let task = format!("{}{}", if redo { INTERRUPTED } else { "" }, merged(&batch));
-                b.task.clone_from(&task);
-                b.batch = batch;
-                b.ended = None;
-                b.pid = None;
-                b.exited = false;
-                b.cancel = Arc::default();
-                i.save();
-                Some(task)
-            });
-            let Some(task) = taken else { continue };
+            // The working line shows while the turn waits for room, and its batch stays in the inbox until the gate
+            // lets it go: messages that arrive meanwhile still join it, and a correction can't miss it.
             let conv = self.conv_of(key);
             let status = match ad.status(&conv, agent, wid).await {
                 Ok(s) => s,
@@ -255,8 +240,36 @@ impl Core {
                     Value::Null
                 }
             };
-            self.with(|i| i.busy.get_mut(wk).map(|b| b.status.clone_from(&status)));
-            let ended = self.run(ad, key, agent, wk, &task).await?;
+            let cancel = self.with(|i| {
+                let b = i.busy.get_mut(wk)?;
+                b.status.clone_from(&status);
+                (b.waiting, b.ended, b.pid, b.exited, b.task, b.batch) =
+                    (true, None, None, false, String::new(), Vec::new());
+                b.cancel = Arc::default();
+                Some(b.cancel.clone())
+            });
+            let permit = match cancel {
+                Some(cancel) => self.admit(ad, wk, &cancel).await,
+                None => None,
+            };
+            let taken = self.with(|i| {
+                let b = i.busy.get_mut(wk)?;
+                b.waiting = false;
+                let q = i.st.inbox.get_mut(wk).filter(|q| !q.is_empty())?; // Stop emptied it while it waited
+                let batch = q.remove(0);
+                let b = i.busy.get_mut(wk)?;
+                b.cont = false; // whatever is queued now came in before this turn started
+                let redo = std::mem::take(&mut b.redo);
+                let task = format!("{}{}", if redo { INTERRUPTED } else { "" }, merged(&batch));
+                b.task.clone_from(&task);
+                b.batch = batch;
+                i.save();
+                Some(task)
+            });
+            let ended = match (permit, taken) {
+                (Some(permit), Some(task)) => self.run(ad, key, agent, wk, &task, permit).await?,
+                _ => Ended::Stopped,
+            };
             self.with(|i| i.busy.get_mut(wk).map(|b| b.status = Value::Null));
             ad.status_end(&conv, agent, &status, ended).await;
         }
@@ -268,9 +281,7 @@ impl Core {
             i.st.inbox.insert(wk.to_owned(), Vec::new());
             i.save();
             let now = i.busy.get_mut(wk)?;
-            // Batch taken, process not started yet: run() kills it at once.
-            let starting = now.pid.is_none() && !now.task.is_empty();
-            if starting || now.running() {
+            if now.stoppable() {
                 now.ended = Some(Ended::Stopped);
                 if let Some(pid) = now.pid {
                     kill(pid); // the worker says "stopped" when the run comes back
@@ -304,7 +315,7 @@ impl Core {
             return StopPress::NotYours;
         }
         let stopped = self.with(|i| {
-            let now = i.busy.get_mut(&wk).filter(|b| !(b.pid.is_some() && b.exited))?;
+            let now = i.busy.get_mut(&wk).filter(|b| b.waiting || !(b.pid.is_some() && b.exited))?;
             i.st.inbox.insert(wk.clone(), Vec::new());
             now.ended = Some(Ended::Stopped);
             if let Some(pid) = now.pid {
