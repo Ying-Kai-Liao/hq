@@ -109,7 +109,7 @@ pub async fn required(url: &str, headers: &std::collections::BTreeMap<String, St
         .header("accept", "application/json, text/event-stream")
         .json(&json!({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
             "protocolVersion": crate::mcp::PROTOCOL_VERSION, "capabilities": {},
-            "clientInfo": {"name": "codync", "version": env!("CARGO_PKG_VERSION")},
+            "clientInfo": {"name": "kith", "version": env!("CARGO_PKG_VERSION")},
         }}))
         .timeout(TIMEOUT);
     for (k, v) in headers {
@@ -212,7 +212,7 @@ pub async fn start(store: &Store, port: u16, id: &str, callback: Callback) -> Re
         Callback::Host => loopback_uri(port),
         Callback::App => app
             .clone()
-            .ok_or_else(|| anyhow!("The Codync cloud is off on this computer, so sign in from the computer itself."))?,
+            .ok_or_else(|| anyhow!("The Kith cloud is off on this computer, so sign in from the computer itself."))?,
     };
 
     let resource = resource_metadata(&url).await;
@@ -236,7 +236,7 @@ pub async fn start(store: &Store, port: u16, id: &str, callback: Callback) -> Re
         let res = crate::http()
             .post(&register)
             .json(&json!({
-                "client_name": "Codync",
+                "client_name": "Kith",
                 "redirect_uris": wanted,
                 "grant_types": ["authorization_code", "refresh_token"],
                 "response_types": ["code"],

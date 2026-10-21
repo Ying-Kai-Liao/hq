@@ -144,7 +144,7 @@ fn code_path(file: &str) -> &str {
     if absolute { path.rsplit(['/', '\\']).next().unwrap_or(path) } else { path }
 }
 
-/// Codync's own code, not a dependency's or the runtime's.
+/// Kith's own code, not a dependency's or the runtime's.
 fn in_app(file: &str) -> bool {
     let path = file.split_once("://").map_or(file, |(_, rest)| rest);
     !(path.contains("node_modules") || file.starts_with("node:") || path.contains(".cargo") || path.contains("/rustc/"))
@@ -169,10 +169,10 @@ mod tests {
         assert_eq!(code_path("src/agent/acp.rs"), "src/agent/acp.rs");
         assert_eq!(code_path("/Users/kevin/.cargo/registry/src/x/tokio-1.0/src/lib.rs"), "lib.rs");
         assert_eq!(
-            code_path("file:///Users/kevin/Codync.app/Contents/Resources/app.asar/out/renderer/assets/index-a1.js"),
+            code_path("file:///Users/kevin/Kith.app/Contents/Resources/app.asar/out/renderer/assets/index-a1.js"),
             "index-a1.js"
         );
-        assert_eq!(code_path(r"C:\Users\kevin\AppData\Local\Codync\resources\app.asar\out\main\index.js"), "index.js");
+        assert_eq!(code_path(r"C:\Users\kevin\AppData\Local\Kith\resources\app.asar\out\main\index.js"), "index.js");
         assert_eq!(code_path("file:///C:/Users/kevin/app.asar/out/renderer/index.js"), "index.js");
         assert!(in_app("src/agent/acp.rs"));
         assert!(!in_app("/Users/kevin/.cargo/registry/src/x/tokio-1.0/src/lib.rs"));
@@ -186,8 +186,8 @@ mod tests {
             "type": "TypeError <script>",
             "mechanism": "onerror",
             "frames": [
-                {"function": "render", "file": "file:///home/kevin/.mount_Codync/resources/app.asar/out/renderer/assets/index-a1.js", "line": 10, "column": 4},
-                {"function": "loadChat", "file": "file:///home/kevin/.mount_Codync/resources/app.asar/out/renderer/assets/index-a1.js", "line": 99, "column": 2},
+                {"function": "render", "file": "file:///home/kevin/.mount_Kith/resources/app.asar/out/renderer/assets/index-a1.js", "line": 10, "column": 4},
+                {"function": "loadChat", "file": "file:///home/kevin/.mount_Kith/resources/app.asar/out/renderer/assets/index-a1.js", "line": 99, "column": 2},
             ],
         });
         let p = Report::deserialize(&body).expect("a renderer report").properties();

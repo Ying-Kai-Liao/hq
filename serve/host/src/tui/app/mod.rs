@@ -406,10 +406,10 @@ pub fn mismatch_text(m: &crate::compat::Mismatch, host: &str) -> String {
     let host = if host.is_empty() { "the computer" } else { host };
     match m {
         crate::compat::Mismatch::UpdateApp { minimum } => {
-            format!("Update this app: {host} needs Codync {minimum} or newer here.")
+            format!("Update this app: {host} needs Kith {minimum} or newer here.")
         }
         crate::compat::Mismatch::UpdateHost { version, minimum } => format!(
-            "Update Codync on {host}: it runs {version}, this app needs {minimum} or newer. ^k → Check for updates."
+            "Update Kith on {host}: it runs {version}, this app needs {minimum} or newer. ^k → Check for updates."
         ),
     }
 }

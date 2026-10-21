@@ -1,5 +1,5 @@
 //! The memory crate's tables live in this database. Each change is one transaction stamped with the next `rev`,
-//! like every other mutation; see `codync_mem` and `chat::memory`.
+//! like every other mutation; see `kith_mem` and `chat::memory`.
 
 use super::{Store, next_rev, now_ms};
 use crate::LockExt;
@@ -10,7 +10,7 @@ impl Store {
     /// A memory change, in one transaction with its `rev`. The closure gets the time and the `rev` to stamp.
     pub fn memory_write<T>(
         &self,
-        change: impl FnOnce(&Connection, i64, i64) -> codync_mem::store::Result<T>,
+        change: impl FnOnce(&Connection, i64, i64) -> kith_mem::store::Result<T>,
     ) -> Result<T> {
         let mut c = self.db.locked();
         let tx = c.transaction()?;
@@ -21,7 +21,7 @@ impl Store {
         Ok(out)
     }
 
-    pub fn memory_read<T>(&self, read: impl FnOnce(&Connection) -> codync_mem::store::Result<T>) -> Result<T> {
+    pub fn memory_read<T>(&self, read: impl FnOnce(&Connection) -> kith_mem::store::Result<T>) -> Result<T> {
         Ok(read(&self.db.locked())?)
     }
 

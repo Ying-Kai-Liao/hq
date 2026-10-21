@@ -35,12 +35,19 @@ fi
 # Through ~/hq: the path agents see then has no volume name (and no spaces) in it.
 BIN=$KERNEL/bin/hq; [ -z "$CUSTOM_HOME" ] && BIN=$HOME/hq/kernel/bin/hq
 ln -sfn "$BIN" "$HOME/.local/bin/hq"
+# kith: the same command under its new name (kith serve ...); the kernel itself is renamed later.
+ln -sfn "${BIN%/hq}/kith" "$HOME/.local/bin/kith"
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "note: add ~/.local/bin to your PATH to use hq (e.g. in ~/.zshrc: export PATH=\"\$HOME/.local/bin:\$PATH\")" ;; esac
 
 if command -v claude >/dev/null; then
   claude plugin marketplace add "$ROOT" >/dev/null 2>&1 || true
   claude plugin install hq@hq >/dev/null 2>&1 || echo "note: the Claude Code plugin did not install: claude plugin install hq@hq"
   [ -z "$CUSTOM_HOME" ] || echo "note: set the plugin's hq_path to $KERNEL in /plugin"
+fi
+
+# Kith's host is optional and takes minutes to build, so it is never built here.
+if command -v cargo >/dev/null || ls "$HOME"/.rustup/toolchains/*/bin/cargo >/dev/null 2>&1; then
+  echo "note: kith serve start builds and runs Kith's host on this Mac (a few minutes the first time)"
 fi
 
 # Your folders, backups and a first agent; --from <user> brings back yours from GitHub.

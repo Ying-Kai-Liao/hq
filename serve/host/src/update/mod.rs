@@ -200,7 +200,7 @@ pub fn spawn_worker(port: u16, force: bool, skip_app_check: bool) -> Result<()> 
     install::require_standalone(&executable)?;
     ensure!(
         service::installed(),
-        "background updates require an installed host service; run `codync-host update` in a terminal"
+        "background updates require an installed host service; run `kith-serve update` in a terminal"
     );
     service::require_executable(&executable)?;
     let mut args = vec!["update".to_owned(), "--worker".to_owned(), "--port".to_owned(), port.to_string()];
@@ -233,23 +233,23 @@ fn spawn_job(executable: &Path, args: &[String]) -> Result<()> {
     if cfg!(target_os = "linux") {
         command = std::process::Command::new("systemd-run");
         command
-            .args(["--user", "--collect", "--unit=codync-host-update", "--property=Type=exec"])
-            .arg(format!("--setenv=CODYNC_HOME={}", service::data_dir().display()))
+            .args(["--user", "--collect", "--unit=kith-serve-update", "--property=Type=exec"])
+            .arg(format!("--setenv=KITH_SERVE_HOME={}", service::data_dir().display()))
             .arg("--")
             .arg(executable)
             .args(args);
     } else {
         // submit jobs do not restart on exit. Remove only a completed old job;
         // an active worker holds update.lock, acquired by our caller above.
-        let _ = std::process::Command::new("launchctl").args(["remove", "com.pokai.codync.update"]).output();
+        let _ = std::process::Command::new("launchctl").args(["remove", "dev.kith.serve.update"]).output();
         command = std::process::Command::new("launchctl");
         command
-            .args(["submit", "-l", "com.pokai.codync.update", "-o"])
+            .args(["submit", "-l", "dev.kith.serve.update", "-o"])
             .arg(service::data_dir().join("update.log"))
             .arg("-e")
             .arg(service::data_dir().join("update.log"))
             .args(["--", "/usr/bin/env"])
-            .arg(format!("CODYNC_HOME={}", service::data_dir().display()))
+            .arg(format!("KITH_SERVE_HOME={}", service::data_dir().display()))
             .arg(executable)
             .args(args);
     }
@@ -259,7 +259,8 @@ fn spawn_job(executable: &Path, args: &[String]) -> Result<()> {
 }
 
 pub async fn automatic_loop(hub: Arc<Hub>) {
-    if crate::environment::Environment::current() != crate::environment::Environment::Main {
+    // No update channel in this build: nothing to poll.
+    if crate::environment::Environment::current().require_release_updates().is_err() {
         return;
     }
     let mut last_check = None;

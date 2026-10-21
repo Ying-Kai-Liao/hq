@@ -5,7 +5,7 @@
 use crate::hub::Hub;
 use crate::store::{BotConfig, Lane};
 use anyhow::{Result, anyhow, bail};
-use codync_mem::store::{self as mem, Entry, Error, New, Writer};
+use kith_mem::store::{self as mem, Entry, Error, New, Writer};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -44,7 +44,7 @@ pub enum Status {
 pub fn typed(data: &Value) -> Vec<String> {
     let pasted: Vec<String> =
         data["pasted"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)).collect();
-    codync_mem::evidence::typed(data["text"].as_str().unwrap_or_default(), &pasted)
+    kith_mem::evidence::typed(data["text"].as_str().unwrap_or_default(), &pasted)
 }
 
 /// Writes now; the memory screen shows it.
@@ -80,7 +80,7 @@ pub fn answer(hub: &Hub, notice_id: &str, accept: bool) -> Result<Value> {
             Err(error)
                 if matches!(
                     error.downcast_ref::<Error>(),
-                    Some(Error::Refused(codync_mem::check::Refusal::Duplicate))
+                    Some(Error::Refused(kith_mem::check::Refusal::Duplicate))
                 ) =>
             {
                 card.status = Status::Accepted;

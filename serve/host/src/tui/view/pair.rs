@@ -46,7 +46,7 @@ pub(super) fn pair(buf: &mut Buffer, area: Rect, url: Option<&str>) {
         if url.starts_with("codync-dev:") {
             "Scan with Kith Dev on your iPhone:"
         } else {
-            "Scan with the Codync iPhone app, or open on the phone:"
+            "Scan with the Kith iPhone app, or open on the phone:"
         },
         t.secondary.patch(t.panel),
     );

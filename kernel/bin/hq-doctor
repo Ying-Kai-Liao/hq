@@ -323,11 +323,33 @@ def jobs():
             ok(f'{label}: loaded' + (f', last run ok' if code else ', not run yet'))
 
 
+def serve():
+    """Kith's host is optional: not installed is a note, not a problem."""
+    section('kith serve')
+    binary = HOME / '.kith/serve/bin/kith-serve'
+    if not binary.exists():
+        note('not installed (optional): kith serve start')
+        return
+    ok(f'host binary: {binary}')
+    info = run('launchctl', 'print', f'gui/{os.getuid()}/dev.kith.serve').stdout
+    if not info:
+        warn('dev.kith.serve is not loaded: kith serve start')
+    elif re.search(r'^\s*pid = \d+', info, re.M):
+        ok('dev.kith.serve: running')
+    else:
+        warn('dev.kith.serve is loaded but not running: kith serve restart (log in ~/.kith/serve)')
+    try:
+        relay = json.loads((HOME / '.kith/serve/config.json').read_text()).get('relay_url')
+    except Exception:
+        relay = None
+    ok('relay: set') if relay else note('relay: not set (kith serve relay <url>)')
+
+
 def main(argv):
     if '-h' in argv or '--help' in argv:
         print(__doc__.strip())
         return
-    for check in (folders, tools, repos_and_agents, services, people, plugin, jobs):
+    for check in (folders, tools, repos_and_agents, services, people, plugin, jobs, serve):
         try:
             check()
         except Exception as e:   # one broken check never hides the others

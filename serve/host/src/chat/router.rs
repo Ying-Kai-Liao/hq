@@ -109,7 +109,7 @@ impl Jev {
         let res = reqwest::Client::new()
             .post(&self.url)
             .bearer_auth(&self.key)
-            .header("User-Agent", "codync-host")
+            .header("User-Agent", "kith-serve")
             .json(&body)
             .timeout(TIMEOUT)
             .send()
@@ -192,7 +192,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_key_removes_the_saved_one() {
-        let dir = std::env::temp_dir().join(format!("codync-router-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-router-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(std::path::Path::new(":memory:")).unwrap();
         store.kv_set(SLOT, "vault:v1:sealed").unwrap();

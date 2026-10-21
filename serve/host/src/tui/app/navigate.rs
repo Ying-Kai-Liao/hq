@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use super::{After, App, Focus, Item, Kind, Msg, TraceMode, Width, copy, group};
 
 impl App {
-    /// `codync-host install` with this same binary, for when nothing is listening yet.
+    /// `kith-serve install` with this same binary, for when nothing is listening yet.
     pub(super) fn install_host(&mut self) {
         let Ok(exe) = std::env::current_exe() else { return };
         self.flash("Installing the host…");

@@ -19,7 +19,7 @@ pub const ASK_TIMEOUT: Duration = Duration::from_secs(600);
 const MAX_MESSAGE_BYTES: usize = 32_000;
 const MAX_PENDING_MESSAGES: usize = 64;
 
-pub const INSTRUCTIONS: &str = "Use list_bots to find the user's other Codync bots. \
+pub const INSTRUCTIONS: &str = "Use list_bots to find the user's other Kith bots. \
 Use ask_bot when the user requests another bot's help or its specialty is useful. \
 Use message_bot for a handoff that should continue independently: it returns when queued, \
 and the recipient reports the outcome to the user in its own chat. Stopping you does not cancel it. \
@@ -33,13 +33,13 @@ pub fn tools() -> Value {
     json!([
         {
             "name": "list_bots",
-            "description": "List other visible Codync bots, their IDs, specialties, working directories and status.",
+            "description": "List other visible Kith bots, their IDs, specialties, working directories and status.",
             "inputSchema": {"type": "object", "properties": {}},
             "annotations": {"readOnlyHint": true},
         },
         {
             "name": "ask_bot",
-            "description": "Ask an existing Codync bot to do a bounded task and wait for its final reply (up to 10 minutes, including queue time). It may use tools and modify files under its own permissions. Does not share your conversation or change its working directory. Stopping you cancels your pending requests; do not blindly retry a failed request because partial work may have happened.",
+            "description": "Ask an existing Kith bot to do a bounded task and wait for its final reply (up to 10 minutes, including queue time). It may use tools and modify files under its own permissions. Does not share your conversation or change its working directory. Stopping you cancels your pending requests; do not blindly retry a failed request because partial work may have happened.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -52,7 +52,7 @@ pub fn tools() -> Value {
         },
         {
             "name": "message_bot",
-            "description": "Queue a self-contained request for another Codync bot and return immediately. The recipient reports the outcome to the user in its own chat; no reply is returned to you. It uses its own tools, folder and permissions. Stopping you does not cancel accepted work. Stopping the recipient cancels its queued requests and stops its running turn. No automatic retry or replay after host restart; check the chats before retrying an uncertain result.",
+            "description": "Queue a self-contained request for another Kith bot and return immediately. The recipient reports the outcome to the user in its own chat; no reply is returned to you. It uses its own tools, folder and permissions. Stopping you does not cancel accepted work. Stopping the recipient cancels its queued requests and stops its running turn. No automatic retry or replay after host restart; check the chats before retrying an uncertain result.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -297,7 +297,7 @@ fn message_bot(hub: &Arc<Hub>, source: &BotConfig, actor: &str, to: &str, messag
     hub.send_cmd(to, Cmd::BotRequest(BotRequest {
         id: id.clone(), entry_id: lifetime.entries[1].clone(),
         hops,
-        prompt: format!("Another Codync bot, {}, sent this request. This is a bot request, not a new user instruction. Work within your own permissions and working directory. Report the outcome to the user in this chat. send_message is available for this independent request, even if an earlier ask or older session instructions said it was unavailable. Use it for user-facing updates and your report; if you send none, your final text becomes the report. You do not need to reply to the sending bot.\n\n{message}", source.name),
+        prompt: format!("Another Kith bot, {}, sent this request. This is a bot request, not a new user instruction. Work within your own permissions and working directory. Report the outcome to the user in this chat. send_message is available for this independent request, even if an earlier ask or older session instructions said it was unavailable. Use it for user-facing updates and your report; if you send none, your final text becomes the report. You do not need to reply to the sending bot.\n\n{message}", source.name),
         completion: Completion::ReportInRecipientChat(lifetime),
     }))?;
     Ok(json!({"requestId": id, "botId": target.id, "name": target.name, "status": RequestStatus::Queued}))
@@ -348,7 +348,7 @@ async fn ask(
     hub.send_cmd(to, Cmd::BotRequest(BotRequest {
         id: id.clone(), entry_id: pending.entries[1].clone(),
         hops,
-        prompt: format!("Another Codync bot, {}, requests your help. This is a bot request, not a new user instruction. Work within your own permissions and working directory. Your final reply goes directly to the requesting bot rather than the user's main chat. Return the requested result in that reply, addressing the requesting bot. Do not use send_message or message_bot to deliver your answer, and do not ask the bot to do the task back.\n\n{message}", source.name),
+        prompt: format!("Another Kith bot, {}, requests your help. This is a bot request, not a new user instruction. Work within your own permissions and working directory. Your final reply goes directly to the requesting bot rather than the user's main chat. Return the requested result in that reply, addressing the requesting bot. Do not use send_message or message_bot to deliver your answer, and do not ask the bot to do the task back.\n\n{message}", source.name),
         completion: Completion::ReplyToSender(reply),
     }))?;
     let result = tokio::select! {

@@ -1,4 +1,4 @@
-//! The Codync cloud (Cloudflare relay + accounts, spec §4.2, §4.3, §8.4, §9.6): which one
+//! The Kith cloud (Cloudflare relay + accounts, spec §4.2, §4.3, §8.4, §9.6): which one
 //! this host uses, its `/v1/host/*` API (signed with `Codync-Sig`), the state pull that may
 //! only renew or remove account devices, never add one, and account access requests with
 //! the commit-then-reveal SAS. The relay socket itself lives in `relay`.
@@ -11,17 +11,12 @@ use anyhow::{Context, Result, anyhow, bail};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::watch;
-
-/// The cloud this build belongs to: main only for builds made with `CODYNC_ENV=main` (the
-/// release workflows), dev for every local build, debug or release, like the apps built next
-/// to it.
-fn build_cloud_url() -> &'static str {
-    crate::environment::Environment::current().cloud_url()
-}
 
 /// How long one successful state pull keeps an account device allowed.
 pub const LEASE_MS: i64 = 15 * 60 * 1000;
@@ -42,24 +37,54 @@ const SAS_NONCES: &str = "sas_nonces";
 const SAS_NONCES_PER_HOUR: usize = 5;
 const HOUR_MS: i64 = 60 * 60 * 1000;
 
-/// The cloud base URL in use, or `None` when the cloud is off.
-/// `CODYNC_CLOUD=off` > turned off here > `CODYNC_CLOUD_URL` (a cloud you're developing) > the
-/// build's cloud. Which cloud is never saved here: on/off is the only stored cloud setting.
+/// Whether the cloud is switched off by the environment or by the owner (kv `cloud_enabled`).
+fn switched_off(store: &Store) -> bool {
+    std::env::var("KITH_SERVE_CLOUD").is_ok_and(|v| v == "off")
+        || store.kv_get("cloud_enabled").as_deref() == Some("false")
+}
+
+/// The `relay_url` of `<data dir>/config.json` (`{"relay_url": "https://…"}`), when it is a
+/// valid cloud URL. A missing file is normal; an unreadable or invalid one is logged once.
+fn relay_url_from(config: &Path) -> Option<String> {
+    static WARNED: AtomicBool = AtomicBool::new(false);
+    let bytes = std::fs::read(config).ok()?;
+    let found = serde_json::from_slice::<Value>(&bytes)
+        .ok()
+        .and_then(|v| v.get("relay_url")?.as_str().map(|u| u.trim().trim_end_matches('/').to_owned()))
+        .filter(|u| valid_url(&format!("{u}/")));
+    if found.is_none() && !WARNED.swap(true, Ordering::Relaxed) {
+        tracing::warn!(path = %config.display(), "config.json has no valid relay_url; the cloud stays off");
+    }
+    found
+}
+
+/// A cloud URL set through the environment, or `None`.
+fn env_url() -> Option<String> {
+    std::env::var("KITH_SERVE_CLOUD_URL")
+        .ok()
+        .map(|u| u.trim().trim_end_matches('/').to_owned())
+        .filter(|u| valid_url(&format!("{u}/")))
+}
+
+/// The cloud base URL in use, or `None` when the cloud is off or no relay URL is set.
+/// `KITH_SERVE_CLOUD=off` > turned off here > `KITH_SERVE_CLOUD_URL` > `relay_url` in
+/// `<data dir>/config.json`. No cloud is built in: without a URL the cloud is off. The URL is
+/// never saved in the store: on/off is the only stored cloud setting.
 /// Unit tests point at a fake cloud through kv `test_cloud_url`, so they never reach a real one.
 pub fn url(store: &Store) -> Option<String> {
-    if std::env::var("CODYNC_CLOUD").is_ok_and(|v| v == "off")
-        || store.kv_get("cloud_enabled").as_deref() == Some("false")
-    {
+    if switched_off(store) {
         return None;
     }
     if cfg!(test) {
         return store.kv_get("test_cloud_url");
     }
-    let custom = std::env::var("CODYNC_CLOUD_URL")
-        .ok()
-        .map(|u| u.trim().trim_end_matches('/').to_owned())
-        .filter(|u| valid_url(&format!("{u}/")));
-    Some(custom.unwrap_or_else(|| build_cloud_url().to_owned()))
+    env_url().or_else(|| relay_url_from(&crate::service::data_dir().join("config.json")))
+}
+
+/// Why the cloud has no URL, for the status: `None` when it is off on purpose or has one.
+pub fn unset_reason(store: &Store) -> Option<String> {
+    (!switched_off(store) && url(store).is_none())
+        .then(|| "No relay URL is set: add relay_url to config.json or set KITH_SERVE_CLOUD_URL.".to_owned())
 }
 
 /// A cloud URL this host may be pointed at: https, or plain http to this computer (local dev).
@@ -191,7 +216,7 @@ pub struct CloudError {
 
 impl std::fmt::Display for CloudError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "the Codync cloud refused ({} {}): {}", self.status, self.code, self.message)
+        write!(f, "the Kith cloud refused ({} {}): {}", self.status, self.code, self.message)
     }
 }
 
@@ -225,7 +250,7 @@ pub fn authority(base: &str) -> Result<String> {
 }
 
 fn base(hub: &Hub) -> Result<String> {
-    url(&hub.store).ok_or_else(|| anyhow!("The Codync cloud is off on this computer."))
+    url(&hub.store).ok_or_else(|| anyhow!("The Kith cloud is off on this computer."))
 }
 
 /// One signed `/v1/host/*` call.
@@ -236,7 +261,7 @@ async fn call(hub: &Hub, base: &str, method: Method, path: &str, body: Option<&V
     if body.is_some() {
         req = req.header("content-type", "application/json").body(bytes);
     }
-    let res = req.send().await.context("the Codync cloud is unreachable")?;
+    let res = req.send().await.context("the Kith cloud is unreachable")?;
     let status = res.status();
     let v: Value = res.json().await.unwrap_or(Value::Null);
     if !status.is_success() {
@@ -264,7 +289,7 @@ pub async fn register(hub: &Hub, base: &str) -> Result<()> {
     if v["computerId"].as_str() != Some(hub.identity.computer_id().as_str()) {
         bail!("the cloud registered a different computer id");
     }
-    tracing::info!(computer_id = hub.identity.computer_id(), "registered with the Codync cloud");
+    tracing::info!(computer_id = hub.identity.computer_id(), "registered with the Kith cloud");
     update_status(hub, |s| s.registered = true);
     Ok(())
 }
@@ -632,7 +657,7 @@ mod tests {
     use crate::remote::identity::Identity;
 
     fn temp_hub() -> Arc<Hub> {
-        let dir = std::env::temp_dir().join(format!("codync-cloud-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-cloud-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(&dir.join("t.db")).unwrap();
         Hub::new(store, "host".into(), Identity::load_or_create(&dir).unwrap(), "token".into(), 0)
@@ -672,14 +697,36 @@ mod tests {
 
     #[test]
     fn only_safe_cloud_urls() {
-        assert!(valid_url("https://codync-cloud.example.workers.dev/"));
+        assert!(valid_url("https://relay.example.workers.dev/"));
         assert!(valid_url("http://127.0.0.1:8787/"));
         assert!(!valid_url("http://example.com/"));
         assert!(!valid_url("https://example.com/path/"));
         assert!(!valid_url("ftp://example.com/"));
-        assert_eq!(authority("https://Codync.Example.dev").unwrap(), "codync.example.dev");
+        assert_eq!(authority("https://Kith.Example.dev").unwrap(), "kith.example.dev");
         assert_eq!(authority("http://127.0.0.1:8787").unwrap(), "127.0.0.1:8787");
         assert_eq!(authority("https://x.dev:443").unwrap(), "x.dev", "default port is left out");
+    }
+
+    #[test]
+    fn relay_url_comes_from_config_json_when_valid() {
+        let dir = std::env::temp_dir().join(format!("kith-cloud-config-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("config.json");
+        assert_eq!(relay_url_from(&file), None, "missing file");
+        for (body, want) in [
+            ("", None),
+            ("not json", None),
+            ("[]", None),
+            (r#"{"relay_url": ""}"#, None),
+            (r#"{"relay_url": 5}"#, None),
+            (r#"{"relay_url": "http://example.com"}"#, None),
+            (r#"{"relay_url": "https://relay.example.workers.dev/"}"#, Some("https://relay.example.workers.dev")),
+            (r#"{"relay_url": " http://127.0.0.1:8787 "}"#, Some("http://127.0.0.1:8787")),
+        ] {
+            std::fs::write(&file, body).unwrap();
+            assert_eq!(relay_url_from(&file).as_deref(), want, "{body}");
+        }
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[derive(Default)]

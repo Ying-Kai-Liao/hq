@@ -15,6 +15,9 @@ const TIMEOUT: Duration = Duration::from_secs(180);
 /// Claude gets a real system prompt, no tools, no settings and no saved session; an agent with ACP
 /// `systemPrompt` gets the instructions there, other harnesses inline. None of them may remember the job.
 pub async fn one_shot(hub: &Arc<Hub>, cfg: &BotConfig, system: &str, user: &str) -> Result<String> {
+    if cfg.is_hq() {
+        bail!("{} is an hq agent: the host runs no background jobs as it", cfg.name);
+    }
     let cwd = crate::service::data_dir().join("background");
     tokio::fs::create_dir_all(&cwd).await?;
     let cwd = cwd.to_string_lossy().into_owned();

@@ -4,7 +4,7 @@ use super::{file_notices, notices};
 use crate::hub::Hub;
 use crate::store::BotConfig;
 use anyhow::{Result, anyhow, bail};
-use codync_mem::store::{self as mem, Entry, Error, New, State, Writer};
+use kith_mem::store::{self as mem, Entry, Error, New, State, Writer};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -79,11 +79,11 @@ fn dispatch(hub: &Hub, method: &str, b: &Value) -> Result<Value> {
         }
         "undoDream" => {
             let id = id()?;
-            let dream = hub.store.memory_read(|c| codync_mem::dream::get(c, id))?;
+            let dream = hub.store.memory_read(|c| kith_mem::dream::get(c, id))?;
             if dream.is_none_or(|d| d.bot != cfg.id) {
                 bail!("unknown dream");
             }
-            let dream = hub.store.memory_write(|c, now, rev| codync_mem::dream::undo(c, id, now, rev))?;
+            let dream = hub.store.memory_write(|c, now, rev| kith_mem::dream::undo(c, id, now, rev))?;
             super::files::undo_notes(hub, &dream);
             // A run may have written to either layer.
             super::changed(hub, None);
@@ -115,11 +115,11 @@ fn edit(
 fn view(hub: &Hub, cfg: &BotConfig) -> Result<Value> {
     let bot = cfg.id.as_str();
     let (yours, own, dreams) = hub.store.memory_read(|c| {
-        Ok((mem::layer(c, None)?, mem::layer(c, Some(bot))?, codync_mem::dream::recent(c, bot, DREAMS_SHOWN)?))
+        Ok((mem::layer(c, None)?, mem::layer(c, Some(bot))?, kith_mem::dream::recent(c, bot, DREAMS_SHOWN)?))
     })?;
     let layer = |entries: Vec<Entry>, layer: Option<&str>| {
         let used: usize =
-            entries.iter().filter(|e| e.state == State::Active).map(|e| codync_mem::tokens::estimate(&e.text)).sum();
+            entries.iter().filter(|e| e.state == State::Active).map(|e| kith_mem::tokens::estimate(&e.text)).sum();
         json!({"entries": entries, "used": used, "cap": mem::cap(layer)})
     };
     Ok(json!({

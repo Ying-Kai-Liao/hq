@@ -25,7 +25,7 @@ const LINGER: Duration = Duration::from_secs(10 * 60);
 #[serde(rename_all = "camelCase")]
 pub enum Step {
     Install,
-    /// Codync's Node.js, for agents that run on it (one terminal for every agent).
+    /// Kith's Node.js, for agents that run on it (one terminal for every agent).
     Node,
     Login,
 }
@@ -93,7 +93,7 @@ impl Terms {
     }
 
     /// Starts `step` for `backend` (a sign-in `method` the agent advertised, or
-    /// Codync's own command for it), or returns the one already running.
+    /// Kith's own command for it), or returns the one already running.
     pub async fn start(
         self: &Arc<Self>,
         backend: &str,
@@ -107,7 +107,7 @@ impl Terms {
         let command = match step {
             Step::Node => format!("{} node", crate::shell::quote(&crate::service::current_exe()?.to_string_lossy())),
             Step::Install => {
-                let h = h.ok_or_else(|| anyhow!("Codync downloads {name} by itself"))?;
+                let h = h.ok_or_else(|| anyhow!("Kith downloads {name} by itself"))?;
                 h.install.and_then(backends::Install::command).ok_or_else(|| anyhow!("{}", h.setup))?
             }
             // Some CLIs (codex) delete the current credentials the moment a new sign-in starts.

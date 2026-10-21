@@ -12,10 +12,12 @@ use std::{
 
 pub struct Host {
     child: Child,
-    /// The host's `CODYNC_HOME`.
+    /// The host's `KITH_SERVE_HOME`.
     pub home: PathBuf,
     base: String,
     token: String,
+    /// Passed again when the host restarts.
+    env: Vec<(String, String)>,
 }
 
 impl Drop for Host {
@@ -32,17 +34,19 @@ impl Host {
 
     /// [`Self::start`] with extra environment variables for the host.
     pub async fn start_env(env: &[(&str, &str)]) -> Self {
-        let home = std::env::temp_dir().join(format!("codync-memory-e2e-{}", uuid::Uuid::new_v4()));
+        let home = std::env::temp_dir().join(format!("kith-memory-e2e-{}", uuid::Uuid::new_v4()));
         let (child, base) = super::serve_env(&home, env).await;
         let token = std::fs::read_to_string(home.join("token")).unwrap().trim().to_owned();
-        Self { child, home, base, token }
+        let env = env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+        Self { child, home, base, token, env }
     }
 
     /// Stops the host, lets `between` change its files, and starts it again on the same data.
     pub async fn restart(&mut self, between: impl FnOnce(&std::path::Path)) {
         super::stop(&mut self.child);
         between(&self.home);
-        let (child, base) = super::serve(&self.home).await;
+        let env: Vec<(&str, &str)> = self.env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let (child, base) = super::serve_env(&self.home, &env).await;
         self.child = child;
         self.base = base;
     }
@@ -58,6 +62,11 @@ impl Host {
             .unwrap();
         let ok = response.status().is_success();
         (ok, response.json().await.unwrap())
+    }
+
+    /// The roster as a client holds it after the event stream's catch-up.
+    pub async fn roster(&self) -> Vec<Value> {
+        super::snapshot(&self.base, &self.token).await["bots"].as_array().cloned().unwrap_or_default()
     }
 
     pub async fn call(&self, method: &str, body: Value) -> Value {

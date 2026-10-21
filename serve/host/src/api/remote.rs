@@ -118,7 +118,7 @@ async fn pairing(hub: &Arc<Hub>) -> Result<Value> {
     let urls = tokio::task::spawn_blocking(move || crate::service::addresses(port)).await?;
     let cloud = crate::remote::cloud::url(&hub.store);
     if urls.is_empty() && cloud.is_none() {
-        bail!("No network address a phone could reach, and the Codync cloud is off.");
+        bail!("No network address a phone could reach, and the Kith cloud is off.");
     }
     let issued = hub.pairing.locked().issue();
     hub.auth_changed();
