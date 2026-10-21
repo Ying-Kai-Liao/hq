@@ -3,7 +3,7 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use serde_json::{Value, json};
 
-use super::{After, App, Focus, Item, Msg, TraceMode, Width, copy, group};
+use super::{After, App, Focus, Item, Kind, Msg, TraceMode, Width, copy, group};
 
 impl App {
     /// `codync-host install` with this same binary, for when nothing is listening yet.
@@ -201,6 +201,13 @@ impl App {
             KeyCode::Char('K') if picked.as_ref().is_some_and(|e| e.data["handoff"]["status"] == "draft") => {
                 if let Some(e) = picked {
                     self.call("keepConversation", json!({"entryId": e.id}), After::Answered(e.id.clone()));
+                }
+            }
+            KeyCode::Char('u')
+                if picked.as_ref().is_some_and(|e| e.kind == Kind::User && e.data["status"] == "queued") =>
+            {
+                if let Some(e) = picked {
+                    self.call("unsend", json!({"botId": id, "entryId": e.id}), After::Nothing);
                 }
             }
             KeyCode::Enter | KeyCode::Char('r') if self.thread.is_some() => {

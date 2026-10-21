@@ -73,6 +73,11 @@ pub enum Cmd {
         entry_id: String,
         route: crate::chat::router::Route,
     },
+    /// The user took back a message: whether it still waited here (it leaves the queue, marked cancelled).
+    Unsend {
+        entry_id: String,
+        reply: tokio::sync::oneshot::Sender<bool>,
+    },
     BotRequest(crate::chat::team::BotRequest),
     /// `send_message` from the bot's `chat` MCP server: a message for the user, now.
     SendToUser {

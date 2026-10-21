@@ -27,8 +27,13 @@ impl Drop for Host {
 
 impl Host {
     pub async fn start() -> Self {
+        Self::start_env(&[]).await
+    }
+
+    /// [`Self::start`] with extra environment variables for the host.
+    pub async fn start_env(env: &[(&str, &str)]) -> Self {
         let home = std::env::temp_dir().join(format!("codync-memory-e2e-{}", uuid::Uuid::new_v4()));
-        let (child, base) = super::serve(&home).await;
+        let (child, base) = super::serve_env(&home, env).await;
         let token = std::fs::read_to_string(home.join("token")).unwrap().trim().to_owned();
         Self { child, home, base, token }
     }
