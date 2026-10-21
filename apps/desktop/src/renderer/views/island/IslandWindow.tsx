@@ -121,7 +121,7 @@ function Header({ model, mode }: { model: IslandModel; mode: IslandMode }) {
       <div className="island-tabs">
         {count ? <span className="island-count">{`${count} working`}</span> : null}
         <UsageMeter model={model} />
-        <button className="island-tab" title="Open Codync" aria-label="Open Codync" onClick={() => model.openApp()}>
+        <button className="island-tab" title="Open Kith" aria-label="Open Kith" onClick={() => model.openApp()}>
           <Icon name="arrow.up.right.square" size={13} scaled={false} />
         </button>
       </div>

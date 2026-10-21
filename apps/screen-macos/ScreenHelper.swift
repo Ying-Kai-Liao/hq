@@ -86,7 +86,7 @@ final class ScreenHelper {
             return try AXTree.focusedField(pid: (p["pid"] as? NSNumber).map { pid_t($0.int32Value) })
         case "driver":
             guard CGPreflightScreenCaptureAccess(), AXIsProcessTrusted() else {
-                throw HelperError("Set up Computer access in Codync → Settings on this computer first.")
+                throw HelperError("Set up Computer access in Kith → Settings on this computer first.")
             }
             return ["socket": try await driver.socket()]
         default:
@@ -140,7 +140,7 @@ final class ScreenHelper {
         }
         let status: [String: AnyHashable] = [
             "platform": "macos",
-            "permissionApp": Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Codync Screen",
+            "permissionApp": Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Kith Screen",
             "displays": displays,
             "capture": CGPreflightScreenCaptureAccess(),
             "input": AXIsProcessTrusted(),

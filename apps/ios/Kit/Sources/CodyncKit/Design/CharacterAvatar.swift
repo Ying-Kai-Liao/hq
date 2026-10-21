@@ -12,6 +12,8 @@ public struct CharacterAvatar: View {
     let size: CGFloat
     let mood: Mood
     let still: Bool
+    /// A crew member's own face (`CrewAvatar`), drawn instead of the dotted character.
+    var crew: String?
 
     /// `still` draws one frame of the mood (widgets and Live Activities render one frame);
     /// a change of mood then moves the halftone highlight and the eyes, animatable dot by dot.
@@ -34,17 +36,25 @@ public struct CharacterAvatar: View {
             size: size,
             mood: animated ? bot.mood : .idle
         )
+        crew = CrewAvatar.name(for: bot)
     }
 
     /// The bot's current mood, drawn as one frame.
     public init(bot: Bot, size: CGFloat = 40, still: Bool) {
         self.init(shape: bot.avatarShape, color: bot.avatarColor, size: size, mood: bot.mood, still: still)
+        crew = CrewAvatar.name(for: bot)
     }
 
     public var body: some View {
-        DottedBody(shape: shape, color: color, size: size, mood: mood, paused: still)
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
+        Group {
+            if let crew {
+                CrewAvatar.image(crew).resizable().scaledToFit()
+            } else {
+                DottedBody(shape: shape, color: color, size: size, mood: mood, paused: still)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
 

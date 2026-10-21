@@ -40,3 +40,9 @@
 .avatar-badge.unread {
   background: var(--accent-fill);
 }
+/* A crew member's own face (BotAvatar): the image is the whole avatar. */
+.avatar-crew {
+  flex: none;
+  display: block;
+  object-fit: contain;
+}

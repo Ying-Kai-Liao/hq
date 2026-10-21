@@ -10,10 +10,10 @@ struct HarnessMemorySheet: View {
     let readable: Bool
 
     private var details: [(icon: String, title: String, detail: String)] {
-        [("brain", "A memory of its own", "\(harness) keeps notes apart from Codync's memory. It's off by default, so this bot has one memory and you see and change all of it here."),
+        [("brain", "A memory of its own", "\(harness) keeps notes apart from Kith's memory. It's off by default, so this bot has one memory and you see and change all of it here."),
          ("square.on.square", "Remembered twice", "With both on, the bot may save the same thing twice, and the two can disagree after something changes."),
-         ("trash", "Forgetting", "Forgetting something here doesn't remove it from \(harness)'s notes. Codync can't change them."),
-         ("eye", "Where to see it", readable ? "Its notes show read-only under the \(harness) tab." : "Codync can't show it; look in \(harness) itself.")]
+         ("trash", "Forgetting", "Forgetting something here doesn't remove it from \(harness)'s notes. Kith can't change them."),
+         ("eye", "Where to see it", readable ? "Its notes show read-only under the \(harness) tab." : "Kith can't show it; look in \(harness) itself.")]
     }
 
     var body: some View {

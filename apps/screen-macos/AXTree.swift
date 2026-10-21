@@ -9,7 +9,7 @@ enum AXTree {
     /// where it belongs. An app keeps its focused control while in the background.
     static func focusedField(pid: pid_t?) throws -> [String: Any] {
         guard AXIsProcessTrusted() else {
-            throw HelperError("Codync Screen isn't allowed to read the screen's controls yet. Allow it under Privacy & Security → Accessibility.")
+            throw HelperError("Kith Screen isn't allowed to read the screen's controls yet. Allow it under Privacy & Security → Accessibility.")
         }
         let app = pid.flatMap { NSRunningApplication(processIdentifier: $0) } ?? NSWorkspace.shared.frontmostApplication
         guard let app else { throw HelperError(pid == nil ? "No app is in front." : "No app is running with pid \(pid ?? 0).") }

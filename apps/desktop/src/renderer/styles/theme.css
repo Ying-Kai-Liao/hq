@@ -1,44 +1,44 @@
-/* Black and white: a pure black (or white) ground, grey bubbles, and color that comes only
-   from the bots; amber marks "needs you" and red marks errors. (kit Palette) */
+/* The Kith brand tokens (brand.tokens.json, brand.dark.tokens.json): white or night ground, violet
+   accent, cool greys; amber marks "needs you" and red marks errors. (kit Palette) */
 :root {
   color-scheme: light dark;
   --background: #ffffff;
-  --surface: #f4f4f4;
-  --bubble-agent: #f0f0f0;
-  --bubble-user: #e2e2e2;
-  --border: #e6e6e6;
-  --text: #141414;
-  --text-rgb: 20, 20, 20;
-  --secondary: #6b6b6b;
-  --tertiary: #6e6e6e;
-  --accent-fill: #000000;
-  --accent: #000000;
+  --surface: #f6f6fa;
+  --bubble-agent: #f6f6fa;
+  --bubble-user: #e7e8ee;
+  --border: #e7e8ee;
+  --text: #14161b;
+  --text-rgb: 20, 22, 27;
+  --secondary: #6b7280;
+  --tertiary: #6b7280;
+  --accent-fill: #6a45f2;
+  --accent: #6a45f2;
   --on-accent: #ffffff;
-  --accent-dim: #d9d9d9;
-  --danger: #c23a2b;
+  --accent-dim: #e7e8ee;
+  --danger: #c93450;
   /* Destructive buttons: a deeper red that keeps white text readable in both schemes. */
-  --danger-fill: #c23a2b;
+  --danger-fill: #c93450;
   --on-danger: #ffffff;
   --warning: #f0a030;
   --on-warning: #000000;
   --attention: #936000;
-  --code-background: #f4f4f4;
-  --added: #2e7d32;
-  --removed: #c62828;
+  --code-background: #f6f6fa;
+  --added: #178357;
+  --removed: #c93450;
   /* Floating menus and account panel. */
-  --panel: #fafafa;
+  --panel: #ffffff;
   /* The Mac chat's bubbles (a step stronger than the iPhone's). */
-  --chat-agent: #eeeeee;
-  --chat-user: #e2e2e2;
+  --chat-agent: #f6f6fa;
+  --chat-user: #e7e8ee;
   /* Floating transcript controls (chevrons, Jump to latest, inspector actions). */
-  --chat-button: #eeeeee;
-  --composer-fill: #f3f3f3;
-  --chrome-fill: #f3f3f3;
+  --chat-button: #f6f6fa;
+  --composer-fill: #f6f6fa;
+  --chrome-fill: #f6f6fa;
   --chrome-stroke: rgba(0, 0, 0, 0.09);
   --stroke-strong: rgba(0, 0, 0, 0.14);
-  --roster-selected: #ececec;
+  --roster-selected: #e7e8ee;
   /* Grok's frosted floating surfaces (title pill, call bar). */
-  --frosted: rgba(244, 244, 244, 0.82);
+  --frosted: rgba(246, 246, 250, 0.82);
   /* The dim behind sheets and dialogs. */
   --scrim: rgba(0, 0, 0, 0.4);
 
@@ -91,35 +91,35 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #070707;
-    --surface: #111111;
-    --bubble-agent: #1c1c1c;
-    --bubble-user: #3a3a3a;
-    --border: #262626;
-    --text: #fafafa;
-    --text-rgb: 250, 250, 250;
-    --secondary: #a0a0a0;
-    --tertiary: #9a9a9a;
-    --accent-fill: #ffffff;
-    --accent: #ffffff;
-    --on-accent: #000000;
-    --accent-dim: #333333;
-    --danger: #f0a7a7;
+    --background: #14161b;
+    --surface: #1e2129;
+    --bubble-agent: #1e2129;
+    --bubble-user: #2c303a;
+    --border: #2c303a;
+    --text: #ffffff;
+    --text-rgb: 255, 255, 255;
+    --secondary: #b4bac4;
+    --tertiary: #b4bac4;
+    --accent-fill: #b49cff;
+    --accent: #b49cff;
+    --on-accent: #14161b;
+    --accent-dim: #2c303a;
+    --danger: #ff7a8e;
     --danger-fill: #b3261e;
-    --code-background: #111111;
+    --code-background: #1e2129;
     --attention: #ecaf52;
-    --added: #8fd18b;
-    --removed: #f0a7a7;
-    --panel: #1b1b1b;
-    --chat-agent: #262626;
-    --chat-user: #363636;
-    --chat-button: #303030;
-    --composer-fill: #2f2f2f;
-    --chrome-fill: #181818;
+    --added: #4cc38a;
+    --removed: #ff7a8e;
+    --panel: #1e2129;
+    --chat-agent: #1e2129;
+    --chat-user: #2c303a;
+    --chat-button: #2c303a;
+    --composer-fill: #1e2129;
+    --chrome-fill: #1e2129;
     --chrome-stroke: rgba(255, 255, 255, 0.10);
     --stroke-strong: rgba(255, 255, 255, 0.17);
-    --roster-selected: #292929;
-    --frosted: rgba(35, 35, 35, 0.82);
+    --roster-selected: #2c303a;
+    --frosted: rgba(30, 33, 41, 0.82);
   }
 }
 

@@ -6,9 +6,9 @@ import SwiftUI
 public struct AnalyticsSheet: View {
     private static let details: [(icon: String, title: String, detail: String)] = [
         ("chart.bar", "Features you use", "Opening the app, creating or deleting a bot, sending a message (how many attachments, never the files), running a routine or a voice call, installing a connector. Each comes with the app version, the platform, and the bot's agent and model."),
-        ("exclamationmark.triangle", "Crashes and errors", "When Codync crashes or an agent fails to answer: the kind of error and where in Codync's own code it happened. Never the error's message; file paths are cut down to Codync's own files."),
+        ("exclamationmark.triangle", "Crashes and errors", "When Kith crashes or an agent fails to answer: the kind of error and where in Kith's own code it happened. Never the error's message; file paths are cut down to Kith's own files."),
         ("globe", "Approximate location", "Country and city, looked up from your IP address. The IP address itself is never stored."),
-        ("person.crop.circle", "Who it belongs to", "Your Codync account when you're signed in, otherwise a random ID made on this device."),
+        ("person.crop.circle", "Who it belongs to", "Your Kith account when you're signed in, otherwise a random ID made on this device."),
         ("eye.slash", "Never shared", "Your messages, prompts, code, files, file names or paths, bot names, credentials, or anything your agents produce."),
         ("lock.shield", "How it's used", "Only to spot bugs sooner and see which features work and where people get stuck. Never sold, never used for ads or to track you across other apps and websites."),
         ("power", "Your choice", "Each iPhone and each computer has its own switch. Turning it off stops sending right away and drops anything not sent yet."),

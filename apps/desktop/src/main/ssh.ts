@@ -29,7 +29,7 @@ export function validate(p: SSHProfile): string | null {
   if (p.user !== null && !/^[A-Za-z_][A-Za-z0-9._-]*$/.test(p.user)) return "That user name isn't valid."
   const inRange = (n: number) => Number.isInteger(n) && n >= 1 && n <= 65535
   if (p.port !== null && !inRange(p.port)) return 'The SSH port must be between 1 and 65535.'
-  if (!inRange(p.remotePort)) return 'The Codync port must be between 1 and 65535.'
+  if (!inRange(p.remotePort)) return 'The Kith port must be between 1 and 65535.'
   if (p.identityFile !== null) {
     let ok = false
     try {
@@ -213,7 +213,7 @@ interface Token {
 }
 
 const signInRefused = (p: SSHProfile) =>
-  `${p.host} refused the key. Codync signs in with an SSH key (ssh-agent or the key file) and can't type a password or passphrase; make \`ssh ${p.host}\` work in Terminal without prompting, then connect again.`
+  `${p.host} refused the key. Kith signs in with an SSH key (ssh-agent or the key file) and can't type a password or passphrase; make \`ssh ${p.host}\` work in Terminal without prompting, then connect again.`
 
 class SSHComputers {
   profiles: SSHProfile[] = []
@@ -379,7 +379,7 @@ class SSHComputers {
         // Only plain host keys can be compared: a `@cert-authority` key is never what keyscan returns.
         const pinned = await this.recordedKeys(name, false)
         if (current.size > 0 && pinned.size > 0 && ![...current].some((k) => pinned.has(k))) {
-          return stop({ kind: 'failed', message: `The host key of ${profile.host} changed. This can mean someone is intercepting the connection. Codync won't connect until the old key is removed from known_hosts.` })
+          return stop({ kind: 'failed', message: `The host key of ${profile.host} changed. This can mean someone is intercepting the connection. Kith won't connect until the old key is removed from known_hosts.` })
         }
       }
       return { kind: 'retry', message: `SSH couldn't connect to ${profile.host}. ${lastLine(result.stderr)}` }

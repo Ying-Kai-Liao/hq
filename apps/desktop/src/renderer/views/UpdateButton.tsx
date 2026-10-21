@@ -44,8 +44,8 @@ export function UpdateBadge({ size }: { size: number }) {
       </button>
       <Dialog
         open={confirming}
-        title={`Update to Codync ${updates.availableVersion}?`}
-        message="Codync restarts to install it."
+        title={`Update to Kith ${updates.availableVersion}?`}
+        message="Kith restarts to install it."
         actions={[{ title: 'Update', action: () => window.codync.updates.install() }]}
         onClose={() => setConfirming(false)}
       />

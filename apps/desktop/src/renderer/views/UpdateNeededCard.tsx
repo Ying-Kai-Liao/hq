@@ -9,18 +9,18 @@ import { UpdateButton, useUpdates } from './UpdateButton'
 /** The words every client uses for a version mismatch (iOS, the TUI and this app). */
 export const updateNeededText = {
   title(m: VersionMismatch, host: string) {
-    return m.kind === 'updateApp' ? 'Update this app' : `Update Codync on ${host}`
+    return m.kind === 'updateApp' ? 'Update this app' : `Update Kith on ${host}`
   },
   detail(m: VersionMismatch, host: string, hostVersion: string | null | undefined, os: string | null | undefined, instructions = true) {
     if (m.kind === 'updateApp') {
-      const runs = hostVersion ? `${host} runs Codync ${hostVersion} and` : host
+      const runs = hostVersion ? `${host} runs Kith ${hostVersion} and` : host
       return `${runs} needs this app to be ${m.minimum} or newer. Your chats are safe on the computer.`
     }
     const how =
-      os === 'macos' ? 'Open Codync on that Mac and choose Check for Updates.'
+      os === 'macos' ? 'Open Kith on that Mac and choose Check for Updates.'
       : os === 'linux' ? 'Run codync-host update there.'
-      : 'Update Codync on that computer.'
-    const needs = `${host} runs Codync ${m.version}; this app needs ${m.minimum} or newer.`
+      : 'Update Kith on that computer.'
+    const needs = `${host} runs Kith ${m.version}; this app needs ${m.minimum} or newer.`
     return instructions ? `${needs} ${how}` : needs
   },
 }

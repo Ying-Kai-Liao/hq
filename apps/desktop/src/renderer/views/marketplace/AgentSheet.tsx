@@ -63,7 +63,7 @@ export function NodeNotice({ onAdd }: { onAdd: () => void }) {
       <Icon name="shippingbox" size={15} color="var(--secondary)" />
       <VStack as="span" gap={2} grow>
         <Text size="subheadline" weight="semibold" tone="text">Node.js isn't on {store.hostName}</Text>
-        <Text size="caption" tone="secondary">Some agents need it to run. Codync can add a copy just for them.</Text>
+        <Text size="caption" tone="secondary">Some agents need it to run. Kith can add a copy just for them.</Text>
       </VStack>
       <Button onClick={onAdd}>Add Node.js</Button>
     </div>
@@ -215,7 +215,7 @@ export function AgentSheet({ initial, recheck = false }: { initial: Backend; rec
             <SetupStepRow
               number={curated ? 2 : 1}
               title="Node.js"
-              detail={nodeMissing ? `${backend.name} runs on Node.js. Codync adds its own copy.` : `Added on ${host}.`}
+              detail={nodeMissing ? `${backend.name} runs on Node.js. Kith adds its own copy.` : `Added on ${host}.`}
               done={!nodeMissing}
               action={nodeMissing ? { label: 'Add', run: () => setRoute({ kind: 'node' }) } : null}
             />

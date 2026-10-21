@@ -52,7 +52,7 @@ export class CloudError extends Error {
       code === 'requestExpired' ? 'The request expired. Ask again.'
       : code === 'accountDeleted' ? 'This account was deleted.'
       : code === 'rateLimited' ? 'Too many requests. Try again in a little while.'
-      : (message ?? `Codync cloud error (${code})`),
+      : (message ?? `Kith cloud error (${code})`),
     )
   }
 

@@ -73,7 +73,7 @@ public struct UpdateNeededCard: View {
         switch mismatch {
         case .updateApp:
             guard let appUpdate else { return nil }
-            return ("Update Codync", { appUpdate() })
+            return ("Update Kith", { appUpdate() })
         case .updateHost:
             // The computer updates itself; the card says how.
             return nil
@@ -87,7 +87,7 @@ public enum UpdateNeededText {
     public static func title(_ mismatch: VersionMismatch, host: String) -> String {
         switch mismatch {
         case .updateApp: "Update this app"
-        case .updateHost: "Update Codync on \(host)"
+        case .updateHost: "Update Kith on \(host)"
         }
     }
 
@@ -95,15 +95,15 @@ public enum UpdateNeededText {
                               instructions: Bool = true) -> String {
         switch mismatch {
         case let .updateApp(minimum):
-            let runs = hostVersion.map { "\(host) runs Codync \($0) and" } ?? host
+            let runs = hostVersion.map { "\(host) runs Kith \($0) and" } ?? host
             return "\(runs) needs this app to be \(minimum) or newer. Your chats are safe on the computer."
         case let .updateHost(version, minimum):
             let how = switch os {
-            case "macos": "Open Codync on that Mac and choose Check for Updates."
+            case "macos": "Open Kith on that Mac and choose Check for Updates."
             case "linux": "Run codync-host update there."
-            default: "Update Codync on that computer."
+            default: "Update Kith on that computer."
             }
-            let needs = "\(host) runs Codync \(version); this app needs \(minimum) or newer."
+            let needs = "\(host) runs Kith \(version); this app needs \(minimum) or newer."
             return instructions ? "\(needs) \(how)" : needs
         }
     }
@@ -196,7 +196,7 @@ public struct AppUpdateReminder: View {
 
     public var body: some View {
         if let appUpdates, let version = appUpdates.newerApp {
-            UpdateReminderCard(title: "Codync \(version) is available",
+            UpdateReminderCard(title: "Kith \(version) is available",
                                detail: "You have \(AppVersion.current).",
                                actionTitle: appUpdate == nil ? nil : "Update",
                                action: { appUpdate?() },

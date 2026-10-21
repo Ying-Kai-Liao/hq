@@ -184,7 +184,7 @@ function PrivacySettings() {
   const setShared = (on: boolean) => void local?.setAnalytics(on).catch((e: unknown) => app.setError(errorText(e)))
   return (
     <>
-      <CardSection title="Privacy" footer="Which features you use, never your messages, code or files. Helps us spot bugs sooner and make Codync better for you.">
+      <CardSection title="Privacy" footer="Which features you use, never your messages, code or files. Helps us spot bugs sooner and make Kith better for you.">
         <HStack gap={4}>
           <span className={running ? undefined : 'settings-off'}>Share usage analytics</span>
           <IconButton title="About usage analytics" icon="info.circle" onClick={() => setAbout(true)} />
@@ -233,7 +233,7 @@ function UpdateSettings() {
     : null
   return (
     <CardForm>
-      <CardSection title="Codync" footer={footer}>
+      <CardSection title="Kith" footer={footer}>
         {[
           <ValueRow key="version" label="Version" detail={lastChecked}>
             <HStack as="span" gap={10}>
@@ -244,7 +244,7 @@ function UpdateSettings() {
           ...(updates.downloadPercent !== null
             ? [
                 <div key="progress" className="settings-row settings-appear">
-                  <ProgressBar value={updates.downloadPercent / 100} label={`Downloading Codync ${updates.availableVersion ?? ''}`} />
+                  <ProgressBar value={updates.downloadPercent / 100} label={`Downloading Kith ${updates.availableVersion ?? ''}`} />
                 </div>,
               ]
             : []),

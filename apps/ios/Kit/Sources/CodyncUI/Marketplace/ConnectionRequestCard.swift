@@ -200,7 +200,7 @@ struct CredentialsView: View {
                     if status?.onePasswordConnected == true {
                         Button("Disconnect") { save("") }.buttonStyle(SecondaryButtonStyle()).disabled(busy)
                     }
-                    Text("Use op://vault/item/field in a connector's credential field. Codync retrieves the value when the connector runs.")
+                    Text("Use op://vault/item/field in a connector's credential field. Kith retrieves the value when the connector runs.")
                         .font(.footnote).foregroundStyle(Palette.secondary)
                 }
                 if busy { Spinner() }

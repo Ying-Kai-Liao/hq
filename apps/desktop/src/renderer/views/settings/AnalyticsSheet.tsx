@@ -9,9 +9,9 @@ const PRIVACY_POLICY = 'https://codync.dev/privacy'
 /** What sharing usage analytics sends; the same text as the kit's and the terminal UI's, true to the privacy policy. */
 const details = [
   { icon: 'chart.bar', title: 'Features you use', detail: "Opening the app, creating or deleting a bot, sending a message (how many attachments, never the files), running a routine or a voice call, installing a connector. Each comes with the app version, the platform, and the bot's agent and model." },
-  { icon: 'exclamationmark.triangle', title: 'Crashes and errors', detail: "When Codync crashes or an agent fails to answer: the kind of error and where in Codync's own code it happened. Never the error's message; file paths are cut down to Codync's own files." },
+  { icon: 'exclamationmark.triangle', title: 'Crashes and errors', detail: "When Kith crashes or an agent fails to answer: the kind of error and where in Kith's own code it happened. Never the error's message; file paths are cut down to Kith's own files." },
   { icon: 'globe', title: 'Approximate location', detail: 'Country and city, looked up from your IP address. The IP address itself is never stored.' },
-  { icon: 'person.crop.circle', title: 'Who it belongs to', detail: "Your Codync account when you're signed in, otherwise a random ID made on this device." },
+  { icon: 'person.crop.circle', title: 'Who it belongs to', detail: "Your Kith account when you're signed in, otherwise a random ID made on this device." },
   { icon: 'eye.slash', title: 'Never shared', detail: 'Your messages, prompts, code, files, file names or paths, bot names, credentials, or anything your agents produce.' },
   { icon: 'lock.shield', title: "How it's used", detail: 'Only to spot bugs sooner and see which features work and where people get stuck. Never sold, never used for ads or to track you across other apps and websites.' },
   { icon: 'power', title: 'Your choice', detail: 'Each iPhone and each computer has its own switch. Turning it off stops sending right away and drops anything not sent yet.' },

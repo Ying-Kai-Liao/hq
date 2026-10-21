@@ -24,7 +24,7 @@ const updates: UpdateState = {
 
 const bridge: CodyncBridge = {
   platform: 'darwin',
-  appName: 'Codync',
+  appName: 'Kith',
   appScheme: 'codync',
   hostPort: 19222,
   appVersion: version,

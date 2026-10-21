@@ -21,7 +21,7 @@ export class ComputerAccess extends Observable {
     return computerAccessStep(window.codync.platform, this.app.local?.connection.kind === 'online', this.screen, this.agent)
   }
 
-  get helperName() { return this.screen?.permissionApp || 'Codync Screen' }
+  get helperName() { return this.screen?.permissionApp || 'Kith Screen' }
   get computerName() { return this.app.local?.hostName || window.codync.computerName || 'Your computer' }
   get error() { return this.checkError ?? this.actionError }
 

@@ -187,7 +187,7 @@ private struct ProviderVoiceSettings: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text("No \(provider.name) key on \(store.hostName)").foregroundStyle(Palette.text)
-                Text("Add it in Codync on that computer: Computers & devices, then Voice chat.")
+                Text("Add it in Kith on that computer: Computers & devices, then Voice chat.")
                     .font(.caption)
                     .foregroundStyle(Palette.secondary)
                     .fixedSize(horizontal: false, vertical: true)

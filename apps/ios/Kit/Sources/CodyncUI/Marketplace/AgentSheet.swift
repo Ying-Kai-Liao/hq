@@ -17,7 +17,7 @@ struct NodeNotice: View {
             VStack(alignment: .leading, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Node.js isn't on \(model.hostName)").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.text)
-                    Text("Some agents need it to run. Codync can add a copy just for them.")
+                    Text("Some agents need it to run. Kith can add a copy just for them.")
                         .font(.caption)
                         .foregroundStyle(Palette.secondary)
                 }
@@ -131,7 +131,7 @@ struct AgentSheet: View {
                         number: curated ? 2 : 1,
                         title: "Node.js",
                         detail: backend.needsNode
-                            ? "\(backend.name) runs on Node.js. Codync adds its own copy."
+                            ? "\(backend.name) runs on Node.js. Kith adds its own copy."
                             : "Added on \(model.hostName).",
                         done: !backend.needsNode,
                         action: backend.needsNode ? ("Add", { go(.node) }) : nil

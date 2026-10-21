@@ -11,10 +11,10 @@ import { Text } from '../../components/Text'
  */
 export function HarnessMemorySheet({ harness, readable }: { harness: string; readable: boolean }) {
   const details = [
-    { icon: 'brain', title: 'A memory of its own', detail: `${harness} keeps notes apart from Codync's memory. It's off by default, so this bot has one memory and you see and change all of it here.` },
+    { icon: 'brain', title: 'A memory of its own', detail: `${harness} keeps notes apart from Kith's memory. It's off by default, so this bot has one memory and you see and change all of it here.` },
     { icon: 'square.on.square', title: 'Remembered twice', detail: 'With both on, the bot may save the same thing twice, and the two can disagree after something changes.' },
-    { icon: 'trash', title: 'Forgetting', detail: `Forgetting something here doesn't remove it from ${harness}'s notes. Codync can't change them.` },
-    { icon: 'eye', title: 'Where to see it', detail: readable ? `Its notes show read-only under the ${harness} tab.` : `Codync can't show it; look in ${harness} itself.` },
+    { icon: 'trash', title: 'Forgetting', detail: `Forgetting something here doesn't remove it from ${harness}'s notes. Kith can't change them.` },
+    { icon: 'eye', title: 'Where to see it', detail: readable ? `Its notes show read-only under the ${harness} tab.` : `Kith can't show it; look in ${harness} itself.` },
   ]
   return (
     <SheetPage>

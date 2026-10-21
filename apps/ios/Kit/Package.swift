@@ -16,7 +16,7 @@ let package = Package(
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.18.0"),
     ],
     targets: [
-        .target(name: "CodyncKit", resources: [.copy("Resources/ThirdPartyNotices"), .process("Resources/ProviderIcons.xcassets")]),
+        .target(name: "CodyncKit", resources: [.copy("Resources/ThirdPartyNotices"), .process("Resources/ProviderIcons.xcassets"), .process("Resources/CrewAvatars.xcassets")]),
         .target(
             name: "CodyncUI",
             dependencies: [
