@@ -220,7 +220,7 @@ def people():
         if pid and pid not in folks:
             issues += 1
             bad(f'grants: {key} names {pid}, who is not a person: hq auth revoke {key} <service>')
-        if agent not in known | {'bridge'}:
+        if agent not in known | {'bridge', 'serve'}:
             issues += 1
             warn(f'grants: {agent} is not an installed agent')
     for name, prof in auth.get('profiles', {}).items():

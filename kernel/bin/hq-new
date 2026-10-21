@@ -6,7 +6,7 @@
 # Creates agent.md (frontmatter + section skeleton), capabilities.yaml, settings.json (every installed plugin off
 # except hq: an agent carries only its own tools), skills/learned/, and its state (memory/) in the state folder
 # (<home>/state; lib/hq_paths.py). No mcp.json: add one only if the
-# agent needs MCP servers. The Discord bridge creates #<name> within a minute.
+# agent needs MCP servers. Kith serve's Discord channel creates #<name> within a minute.
 set -euo pipefail
 
 # Follow the script's own symlinks but keep the repo's logical path (it may be a symlink to a path with spaces).

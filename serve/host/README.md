@@ -58,11 +58,12 @@ prints) and `MemAvailable` on Linux; a platform or read error counts as room. `G
 The host carries the routing core of hq's chat bridge (`src/channels/`): people, `@agent`, threads and
 sessions, the queue with Jev routing, `hq <agent>` runs under the resource gate, live agents and the
 `hq-send` outbox. The platform adapters plug into it one at a time; until one is ported its bots stay with
-the Python bridge. A bot is cut over by granting its profile to the client `serve` in hq-auth and revoking
-it from `bridge`: grants are checked every minute, and the first time a connection starts here its rooms,
-threads and queued messages are copied from `~/.hq/bridge/state.json` (read only). State lives in
-`<data dir>/channels/state.json`. The bridge reads its grants only at start, so restart it after revoking
-(`launchctl kickstart -k gui/$UID/dev.hq.bridge`), and grant `jev-browser` to `serve` too or the router merges
+the Python bridge. A bot is cut over by revoking its profile from `bridge` and restarting the bridge
+(`launchctl kickstart -k gui/$UID/dev.hq.bridge`; it reads its grants only at start), and only then granting
+it to the client `serve` in hq-auth: grants are checked every minute, and the first time a connection starts
+here its rooms, threads, last message seen and queued messages are copied from `~/.hq/bridge/state.json` (read
+only), which must happen after the bridge stopped handling messages. State lives in
+`<data dir>/channels/state.json`. Also grant `jev-browser` to `serve` too or the router merges
 every message sent while an agent works. `GET /health` has a `channels` object with each connection's state.
 
 **Telegram** (`src/channels/telegram/`) is ported: grant `telegram` profiles to `serve`
@@ -96,6 +97,20 @@ The `channels` object in `config.json` (read at start):
 | `context_show` | 30 | a reply ends with "context N%" from this fullness; `"off"` never |
 | `permission_mode` | unset | the owner's runs; unset leaves it to the agent, then hq |
 | `discord_guild` | unset | server name or id when the Discord bot is in several |
+
+### Discord
+
+`src/channels/discord/` (hand-rolled gateway and REST, no Discord crate) does what the bridge's
+`discord_chat.py` did, in one server: an `hq` category with a channel per agent (created, and its topic
+kept at the agent's description, within a minute of a new agent), a mentionable `@agent` role per agent when
+the bot has Manage Roles (plain `@agent` otherwise), a thread per task opened from the message, answers
+posted through the channel's webhook under the agent's display name (webhooks are kept in the connection's
+state, so the bridge's are reused), a `-# working…` line with a Stop button, "Who should take this?" buttons,
+DMs, attachments saved under `<data dir>/channels/attachments/`, and a read-back of what was sent since the
+last message seen (at most 24 h, once) after every new gateway session. `hq-send` keeps posting into the
+thread through `HQ_DISCORD_WEBHOOK_URL` and `HQ_DISCORD_THREAD_ID`. Grant it with
+`hq-auth grant serve discord <profile>` (secret `DISCORD_BOT_TOKEN`); no restart is needed. The bot needs the
+Message Content intent. For tests, `HQ_DISCORD_API_BASE` and `HQ_DISCORD_GATEWAY_URL` move both addresses.
 
 ## Updates
 

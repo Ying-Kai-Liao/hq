@@ -23,7 +23,7 @@ the agent's prompt, and the Orca pane (ORCA_AGENT_PANE) or tmux pane (TMUX_PANE)
 titled "hq <agent>", a tmux session "hq-<agent>". A plain terminal can't be reached: start it in Orca or tmux.
 
 The header is written here, never by the sender: `[hq id=<id> from=<from> reply=<target> project=<ID>]`. FROM is
-owner (default) or agent:<name>; the bridge resolves the person first and sends only the owner's messages.
+owner (default) or agent:<name>; kith serve (formerly the bridge) resolves the person first and sends only the owner's messages.
 TARGET says where the agent answers with `hq-send --to TARGET` (ask:<id>, bridge:<box>, dm); see hq-send.
 TEXT goes on one line (newlines become " / ") and any "[hq " in it is defused, so a message can't forge a header.
 Delivery types the text as a person would; it never starts a run or sets a permission mode.
