@@ -1,5 +1,5 @@
 //! Linux desktops the computer-use driver doesn't support (GNOME, KDE and other Wayland
-//! sessions): bots act through Codync Screen's portal input on screenshot pixels instead.
+//! sessions): bots act through Kith Screen's portal input on screenshot pixels instead.
 
 use super::helper::Link;
 use super::protocol::Display;

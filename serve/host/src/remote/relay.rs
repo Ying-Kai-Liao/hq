@@ -1,4 +1,4 @@
-//! The outbound WebSocket to this computer's relay in the Codync cloud (spec §7, §9.6).
+//! The outbound WebSocket to this computer's relay in the Kith cloud (spec §7, §9.6).
 //!
 //! Every connection runs the same order: register (once per URL) → connect with
 //! `Codync-Sig` → pull the cloud state (≤ 10 s; account devices wait for it) → publish the
@@ -63,7 +63,7 @@ pub async fn run(hub: Arc<Hub>) {
             s.connected = false;
             if url.is_none() {
                 s.owner = None;
-                s.last_error = None;
+                s.last_error = cloud::unset_reason(&hub.store);
             }
         });
         let restart = if let Some(url) = url {
@@ -114,7 +114,7 @@ async fn supervise(hub: &Arc<Hub>, url: &str) {
     loop {
         if !registered {
             if let Err(e) = cloud::register(hub, url).await {
-                tracing::warn!(error = format!("{e:#}"), "couldn't register with the Codync cloud");
+                tracing::warn!(error = format!("{e:#}"), "couldn't register with the Kith cloud");
                 cloud::update_status(hub, |s| s.last_error = Some(format!("{e:#}")));
                 sleep(register_wait.wait()).await;
                 continue;
@@ -537,7 +537,7 @@ mod tests {
     use x25519_dalek::StaticSecret;
 
     fn temp_hub() -> Arc<Hub> {
-        let dir = std::env::temp_dir().join(format!("codync-relay-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-relay-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(&dir.join("t.db")).unwrap();
         Hub::new(store, "host".into(), Identity::load_or_create(&dir).unwrap(), "token".into(), 0)

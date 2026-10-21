@@ -218,10 +218,10 @@ impl App {
                     ),
                     None => format!(
                         "Version {version} waits: couldn't check the App Store for the iPhone app {app}. \
-                         codync-host update --skip-app-check installs anyway"
+                         kith-serve update --skip-app-check installs anyway"
                     ),
                 }),
-                (Some(version), None) => self.flash(&format!("Version {version} is available: run codync-host update")),
+                (Some(version), None) => self.flash(&format!("Version {version} is available: run kith-serve update")),
                 (None, _) => self.flash("The host is up to date."),
             },
             After::Thread => {

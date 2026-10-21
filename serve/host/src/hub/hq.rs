@@ -143,7 +143,7 @@ mod tests {
     use crate::store::Store;
 
     fn hub() -> (Arc<Hub>, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join(format!("codync-hq-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-hq-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(Path::new(":memory:")).unwrap();
         let hub = Hub::new(store, "hq-test".into(), Identity::load_or_create(&dir).unwrap(), "test".into(), 0);
@@ -176,7 +176,7 @@ mod tests {
 
         hub.update_bot(&json!({"id": bot.id, "name": "Home", "pinned": true, "notify": false, "permission": "auto",
             "model": "opus", "hqAgent": "other", "backend": "codex"}))
-        .unwrap();
+            .unwrap();
         let done = hub.apply_hq_agents(&[agent(&dir, "house", "keeps the house tidy")]).unwrap();
         assert!(done.created.is_empty(), "never a second bot: {done:?}");
         let all = bots(&hub);

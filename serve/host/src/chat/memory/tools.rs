@@ -131,8 +131,8 @@ async fn search_memory(hub: &Arc<Hub>, cfg: &BotConfig, query: &str) -> Result<V
     let (hub, bot, shared, query) = (hub.clone(), cfg.id.clone(), super::shared(cfg), query.to_owned());
     let (found, lines) = tokio::task::spawn_blocking(move || {
         hub.store.memory_read(|c| {
-            let entries = codync_mem::store::search(c, &bot, &query, 20)?;
-            Ok((entries, codync_mem::files::search(c, &bot, shared, &query, 20)?))
+            let entries = kith_mem::store::search(c, &bot, &query, 20)?;
+            Ok((entries, kith_mem::files::search(c, &bot, shared, &query, 20)?))
         })
     })
     .await??;

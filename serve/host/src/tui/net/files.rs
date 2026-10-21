@@ -52,7 +52,7 @@ async fn save(client: &Client, entry: &str, meta: &SharedFile, id: &str, tx: &Un
         "invalid file metadata"
     );
     let dir = dirs::download_dir().or_else(dirs::home_dir).ok_or_else(|| anyhow!("No Downloads folder"))?;
-    let partial = Partial(dir.join(format!(".codync-{id}.partial")));
+    let partial = Partial(dir.join(format!(".kith-serve-{id}.partial")));
     let mut file = tokio::fs::OpenOptions::new().write(true).create_new(true).open(&partial.0).await?;
     let mut offset = 0;
     let mut hash = Sha256::new();

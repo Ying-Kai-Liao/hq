@@ -74,13 +74,13 @@ pub const DEFAULT_PORT: u16 = crate::environment::Environment::current().port();
 /// Marker between our command and a wrapped user status line.
 const STATUSLINE_MARK: &str = " statusline --";
 
-/// The user's home. Codync can't do anything useful without one, so its absence is fatal.
+/// The user's home. Kith can't do anything useful without one, so its absence is fatal.
 pub(crate) fn home() -> PathBuf {
-    dirs::home_dir().expect("HOME must be set: Codync keeps its data and agent settings there")
+    dirs::home_dir().expect("HOME must be set: Kith keeps its data and agent settings there")
 }
 
 pub fn data_dir() -> PathBuf {
-    std::env::var_os("CODYNC_HOME").map_or_else(default_data_dir, PathBuf::from)
+    std::env::var_os("KITH_SERVE_HOME").map_or_else(default_data_dir, PathBuf::from)
 }
 
 #[cfg(not(test))]
@@ -91,7 +91,7 @@ fn default_data_dir() -> PathBuf {
 /// Unit tests never see a real host's data: tests that start a hub run its start-up clean-up, which deletes files.
 #[cfg(test)]
 fn default_data_dir() -> PathBuf {
-    std::env::temp_dir().join(format!("codync-unit-{}", std::process::id()))
+    std::env::temp_dir().join(format!("kith-unit-{}", std::process::id()))
 }
 
 fn create_parent(file: &Path) -> Result<()> {
@@ -107,8 +107,7 @@ pub fn lock_host() -> Result<std::fs::File> {
     let path = data_dir().join("host.lock");
     create_parent(&path)?;
     let file = std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(path)?;
-    fs2::FileExt::try_lock_exclusive(&file)
-        .context("another codync-host is already running for this data directory")?;
+    fs2::FileExt::try_lock_exclusive(&file).context("another kith-serve is already running for this data directory")?;
     Ok(file)
 }
 
@@ -146,7 +145,7 @@ impl KeepAwake {
                     Command::new("systemd-inhibit")
                         .args([
                             "--what=sleep:idle",
-                            "--who=Codync",
+                            "--who=Kith",
                             "--why=A bot is working or a routine is scheduled",
                             "--mode=block",
                             "sleep",
@@ -307,9 +306,9 @@ fn write_settings(settings: &Path, v: &Value) -> Result<()> {
         .with_context(|| format!("writing {}", settings.display()))
 }
 
-/// Routes Claude Code's status line through `codync-host statusline` so usage
+/// Routes Claude Code's status line through `kith-serve statusline` so usage
 /// limits reach the host locally. An existing status line keeps working: it is
-/// wrapped (`codync-host statusline -- <original>`) and restored on uninstall.
+/// wrapped (`kith-serve statusline -- <original>`) and restored on uninstall.
 pub fn ensure_statusline(settings: &Path) -> Result<bool> {
     let mut v = read_settings(settings)?.unwrap_or_else(|| json!({}));
     let mut current = v["statusLine"]["command"].as_str().map(str::to_owned);
@@ -367,7 +366,7 @@ mod tests {
     use super::*;
 
     fn temp_settings(contents: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("codync-settings-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-settings-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("settings.json");
         std::fs::write(&f, contents).unwrap();
@@ -381,7 +380,7 @@ mod tests {
     #[test]
     fn unit_tests_keep_out_of_the_real_data_folder() {
         assert!(
-            std::env::var_os("CODYNC_HOME").is_some() || !data_dir().starts_with(home()),
+            std::env::var_os("KITH_SERVE_HOME").is_some() || !data_dir().starts_with(home()),
             "{}",
             data_dir().display()
         );
@@ -427,7 +426,7 @@ mod tests {
         assert!(ensure_statusline(&f).unwrap());
         assert!(!ensure_statusline(&f).unwrap(), "idempotent");
         assert!(read(&f)["statusLine"]["command"].as_str().unwrap().ends_with("statusline -- sh ~/mine.sh"));
-        let stale = r#"{"statusLine":{"type":"command","command":"'/gone/codync-host' statusline -- sh ~/mine.sh"}}"#;
+        let stale = r#"{"statusLine":{"type":"command","command":"'/gone/kith-serve' statusline -- sh ~/mine.sh"}}"#;
         std::fs::write(&f, stale).unwrap();
         assert!(ensure_statusline(&f).unwrap(), "re-points a moved host");
         let cmd = read(&f)["statusLine"]["command"].as_str().unwrap().to_owned();

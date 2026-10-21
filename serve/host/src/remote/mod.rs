@@ -1,5 +1,5 @@
 //! Reaching this computer from other devices: identity keys, wire crypto, the
-//! E2E channel, the Codync cloud and its relay socket, and push.
+//! E2E channel, the Kith cloud and its relay socket, and push.
 
 pub mod channel;
 pub mod cloud;

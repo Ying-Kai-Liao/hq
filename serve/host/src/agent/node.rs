@@ -1,6 +1,6 @@
 //! Node.js for the agents whose ACP adapter comes from npm (Claude, Codex, Gemini, …) and for
 //! installing npm CLIs: the computer's own when it has one, else a checksum-pinned official
-//! build that Codync adds into `~/.codync/node` when the user asks (an agent's setup, or
+//! build that Kith adds into `~/.kith/serve/node` when the user asks (an agent's setup, or
 //! installing an npm CLI).
 
 use crate::agent::{backends, registry};
@@ -25,12 +25,12 @@ fn archive(os: &str, arch: &str) -> Option<(&'static str, &'static str)> {
     })
 }
 
-/// `~/.codync/node/<version>`: Codync's Node.
+/// `~/.kith/serve/node/<version>`: Kith's Node.
 fn root() -> PathBuf {
     crate::service::data_dir().join("node").join(VERSION)
 }
 
-/// Where `npm install -g` puts CLIs when it runs on Codync's Node; outlives Node updates.
+/// Where `npm install -g` puts CLIs when it runs on Kith's Node; outlives Node updates.
 fn global_prefix() -> PathBuf {
     crate::service::data_dir().join("node").join("global")
 }
@@ -40,13 +40,13 @@ fn bin_dir(prefix: PathBuf) -> PathBuf {
     if cfg!(windows) { prefix } else { prefix.join("bin") }
 }
 
-/// Codync's Node and the CLIs installed with it, for the agent search path (after the
+/// Kith's Node and the CLIs installed with it, for the agent search path (after the
 /// computer's own, so its Node wins).
 pub fn search_dirs() -> [PathBuf; 2] {
     [bin_dir(root()), bin_dir(global_prefix())]
 }
 
-/// Node.js on a computer without its own: Codync's, missing or added.
+/// Node.js on a computer without its own: Kith's, missing or added.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
     Missing,
@@ -62,7 +62,7 @@ impl State {
     }
 }
 
-/// `None` while the computer has its own Node; otherwise whether Codync's is there.
+/// `None` while the computer has its own Node; otherwise whether Kith's is there.
 pub fn state() -> Option<State> {
     if backends::which("npx").is_some_and(|npx| !npx.starts_with(root())) {
         return None;
@@ -70,7 +70,7 @@ pub fn state() -> Option<State> {
     Some(if root().join(".installed").exists() { State::Added } else { State::Missing })
 }
 
-/// `codync-host node`: adds Codync's Node (an agent's setup step runs it in a terminal).
+/// `kith-serve node`: adds Kith's Node (an agent's setup step runs it in a terminal).
 pub async fn add() -> Result<()> {
     if state().is_none() {
         println!("This computer already has Node.js.");
@@ -81,17 +81,17 @@ pub async fn add() -> Result<()> {
     Ok(())
 }
 
-/// `codync-host npm …`: npm on the computer's Node, else on Codync's, whose global installs
+/// `kith-serve npm …`: npm on the computer's Node, else on Kith's, whose global installs
 /// land in `global_prefix`. Setup terminals install npm CLIs through it.
 pub async fn npm(args: &[String]) -> Result<i32> {
     let mut command =
-        if let Some(npm) = backends::which("npm") { tokio::process::Command::new(npm) } else { codync_npm().await? };
+        if let Some(npm) = backends::which("npm") { tokio::process::Command::new(npm) } else { kith_npm().await? };
     let status = command.args(args).status().await.context("running npm")?;
     Ok(status.code().unwrap_or(1))
 }
 
-/// npm on Codync's Node (downloaded first), with its own Node first on PATH.
-async fn codync_npm() -> Result<tokio::process::Command> {
+/// npm on Kith's Node (downloaded first), with its own Node first on PATH.
+async fn kith_npm() -> Result<tokio::process::Command> {
     install(&|line| println!("{line}")).await?;
     let bin = bin_dir(root());
     let mut command = tokio::process::Command::new(bin.join(if cfg!(windows) { "npm.cmd" } else { "npm" }));
@@ -108,7 +108,7 @@ async fn install(progress: &impl Fn(&str)) -> Result<()> {
         return Ok(());
     }
     let (platform, checksum) = archive(std::env::consts::OS, std::env::consts::ARCH)
-        .context("Codync has no Node.js build for this computer: install Node.js from nodejs.org")?;
+        .context("Kith has no Node.js build for this computer: install Node.js from nodejs.org")?;
     let name = format!("node-v{VERSION}-{platform}");
     let file = format!("{name}.{}", if cfg!(windows) { "zip" } else { "tar.gz" });
     progress("Downloading Node.js…");
@@ -149,7 +149,7 @@ fn place(root: &Path, stage: &Path, name: &str, file: &str, bytes: &[u8]) -> Res
     let out = std::process::Command::new(stage.join(&node)).arg("--version").output()?;
     let runs = out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == format!("v{VERSION}");
     ensure!(runs, "the downloaded Node.js doesn't run on this computer");
-    // Another process (a setup terminal's `codync-host npm`) may have finished first.
+    // Another process (a setup terminal's `kith-serve npm`) may have finished first.
     if !root.join(".installed").exists() {
         let _ = std::fs::remove_dir_all(root);
         std::fs::rename(stage.join(name), root)?;
@@ -158,7 +158,7 @@ fn place(root: &Path, stage: &Path, name: &str, file: &str, bytes: &[u8]) -> Res
     Ok(())
 }
 
-/// Older Nodes Codync downloaded (version-named folders; never `global` or a staging folder
+/// Older Nodes Kith downloaded (version-named folders; never `global` or a staging folder
 /// another process is still filling).
 fn remove_other_versions(root: &Path) {
     let Some(parent) = root.parent() else { return };

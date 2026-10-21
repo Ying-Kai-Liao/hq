@@ -77,7 +77,7 @@ fn systemd_quote(s: &str, exec: bool) -> String {
 /// Installs and starts the host as a per-user background service. The current
 /// PATH is captured so the service finds `npx`, `claude`, `codex`, …
 pub fn install(port: u16) -> Result<()> {
-    let exe = current_exe().context("locating the codync-host binary")?;
+    let exe = current_exe().context("locating the kith-serve binary")?;
     let exe = exe.to_string_lossy();
     let path = std::env::var("PATH").unwrap_or_default();
     let log = data_dir().join("host.log");
@@ -90,7 +90,7 @@ pub fn install(port: u16) -> Result<()> {
 <dict>
   <key>Label</key><string>{LABEL}</string>
   <key>ProgramArguments</key><array><string>{exe}</string><string>serve</string><string>--port</string><string>{port}</string></array>
-  <key>EnvironmentVariables</key><dict><key>PATH</key><string>{path}</string><key>CODYNC_HOME</key><string>{data}</string></dict>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>{path}</string><key>KITH_SERVE_HOME</key><string>{data}</string></dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ProcessType</key><string>Interactive</string>
@@ -115,10 +115,10 @@ pub fn install(port: u16) -> Result<()> {
         run("launchctl", &["bootstrap", &format!("gui/{uid}"), &file.to_string_lossy()])?;
     } else {
         let unit = format!(
-            "[Unit]\nDescription=Codync host\nAfter=network-online.target\n\n[Service]\nExecStart={exe} serve --port {port}\nEnvironment={path}\nEnvironment={data}\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n",
+            "[Unit]\nDescription=Kith host\nAfter=network-online.target\n\n[Service]\nExecStart={exe} serve --port {port}\nEnvironment={path}\nEnvironment={data}\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n",
             exe = systemd_quote(&exe, true),
             path = systemd_quote(&format!("PATH={path}"), false),
-            data = systemd_quote(&format!("CODYNC_HOME={}", data_dir().display()), false),
+            data = systemd_quote(&format!("KITH_SERVE_HOME={}", data_dir().display()), false),
         );
         let file = systemd_unit();
         create_parent(&file)?;
@@ -171,9 +171,9 @@ mod tests {
             systemd_quote(&format!("PATH={path}"), false),
             r#""PATH=/usr/bin:/mnt/c/Program Files/a\"b\\c:/x%%y""#
         );
-        let exe = systemd_quote("/home/me/My $bin/codync-host", true);
-        assert_eq!(exe, r#""/home/me/My $$bin/codync-host""#);
+        let exe = systemd_quote("/home/me/My $bin/kith-serve", true);
+        assert_eq!(exe, r#""/home/me/My $$bin/kith-serve""#);
         let parsed = shlex::split(&format!("{exe} serve")).unwrap();
-        assert_eq!(parsed[0].replace("%%", "%").replace("$$", "$"), "/home/me/My $bin/codync-host");
+        assert_eq!(parsed[0].replace("%%", "%").replace("$$", "$"), "/home/me/My $bin/kith-serve");
     }
 }

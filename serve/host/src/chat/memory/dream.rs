@@ -1,12 +1,12 @@
 //! Dreaming in the host: when a bot's run starts, what it reads, and running its model on the bot's own harness.
-//! What a run may change is the crate's decision (`codync_mem::dream`).
+//! What a run may change is the crate's decision (`kith_mem::dream`).
 
 use crate::LockExt;
 use crate::chat::{naming, oneshot};
 use crate::hub::Hub;
 use crate::store::{BotConfig, Entry, EntryKind, Store};
 use anyhow::{Result, anyhow};
-use codync_mem::dream::{self, Message, Outcome};
+use kith_mem::dream::{self, Message, Outcome};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -127,9 +127,9 @@ fn review_due(store: &Store, bot: &str) -> bool {
     if store.kv_get(&reviewed_key(bot)).as_deref() == Some(today().as_str()) {
         return false;
     }
-    store.memory_read(|c| codync_mem::store::layer(c, Some(bot))).is_ok_and(|entries| {
+    store.memory_read(|c| kith_mem::store::layer(c, Some(bot))).is_ok_and(|entries| {
         entries.iter().any(|e| {
-            e.state == codync_mem::store::State::Active && e.author != codync_mem::store::Author::User && dated(&e.text)
+            e.state == kith_mem::store::State::Active && e.author != kith_mem::store::Author::User && dated(&e.text)
         })
     })
 }
@@ -166,7 +166,7 @@ async fn run(hub: &Arc<Hub>, bot_id: &str) -> Result<Ran> {
     let messages: Vec<Message> = read.iter().filter_map(message).collect();
     let today = today();
     let review = review_due(&hub.store, bot_id);
-    let worth = messages.iter().any(|m| m.from_user && m.text.iter().any(|run| codync_mem::evidence::substantive(run)));
+    let worth = messages.iter().any(|m| m.from_user && m.text.iter().any(|run| kith_mem::evidence::substantive(run)));
     if !worth && !review {
         set_bookmark(&hub.store, bot_id, last_seq)?;
         return Ok(Ran::Done { more });

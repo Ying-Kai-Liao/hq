@@ -71,7 +71,7 @@ impl Store {
              CREATE INDEX IF NOT EXISTS entries_bot ON entries(bot_id, seq);",
         )?;
         migrate(&c)?;
-        codync_mem::schema::migrate(&c)?;
+        kith_mem::schema::migrate(&c)?;
         let secret_key = if path == Path::new(":memory:") {
             let mut key = vec![0; 32];
             getrandom::fill(&mut key).map_err(|_| anyhow::anyhow!("random key unavailable"))?;
@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn migrations_replace_the_old_ticket_table_and_add_threads() {
-        let dir = std::env::temp_dir().join(format!("codync-test-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let db = dir.join("t.db");
         {

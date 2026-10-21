@@ -33,7 +33,7 @@ def mcp_call(server_name, tool, arguments):
             return json.loads(mcp.stdout.readline())
 
         initialized = rpc(1, "initialize", {"protocolVersion": "2025-06-18"})
-        assert initialized["result"]["serverInfo"]["name"] == "codync-" + server_name
+        assert initialized["result"]["serverInfo"]["name"] == "kith-" + server_name
         tools = rpc(2, "tools/list", {})
         assert any(t["name"] == tool for t in tools["result"]["tools"])
         if server_name == "team":

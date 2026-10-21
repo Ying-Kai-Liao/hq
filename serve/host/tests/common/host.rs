@@ -12,7 +12,7 @@ use std::{
 
 pub struct Host {
     child: Child,
-    /// The host's `CODYNC_HOME`.
+    /// The host's `KITH_SERVE_HOME`.
     pub home: PathBuf,
     base: String,
     token: String,
@@ -34,7 +34,7 @@ impl Host {
 
     /// [`Self::start`] with extra environment variables for the host.
     pub async fn start_env(env: &[(&str, &str)]) -> Self {
-        let home = std::env::temp_dir().join(format!("codync-memory-e2e-{}", uuid::Uuid::new_v4()));
+        let home = std::env::temp_dir().join(format!("kith-memory-e2e-{}", uuid::Uuid::new_v4()));
         let (child, base) = super::serve_env(&home, env).await;
         let token = std::fs::read_to_string(home.join("token")).unwrap().trim().to_owned();
         let env = env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();

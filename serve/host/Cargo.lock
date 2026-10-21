@@ -585,64 +585,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 
 [[package]]
-name = "codync-host"
-version = "2.19.1"
-dependencies = [
- "anyhow",
- "axum",
- "base64 0.23.1",
- "chacha20poly1305",
- "chrono",
- "chrono-tz",
- "clap",
- "codync-mem",
- "croner",
- "crossterm",
- "dirs",
- "ed25519-dalek",
- "flate2",
- "fs2",
- "futures",
- "gethostname",
- "getrandom 0.4.3",
- "hkdf 0.13.0",
- "hmac 0.13.0",
- "if-addrs",
- "keyring",
- "libc",
- "portable-pty",
- "qrcode",
- "ratatui",
- "reqwest",
- "rusqlite",
- "semver",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "shlex",
- "tar",
- "tokio",
- "tokio-stream",
- "tokio-tungstenite",
- "tracing",
- "tracing-subscriber",
- "unicode-width",
- "uuid",
- "x25519-dalek",
- "zeroize",
-]
-
-[[package]]
-name = "codync-mem"
-version = "0.1.1"
-dependencies = [
- "rusqlite",
- "serde",
- "serde_json",
- "sha2 0.11.0",
-]
-
-[[package]]
 name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1972,6 +1914,64 @@ dependencies = [
  "security-framework 2.11.1",
  "security-framework 3.7.0",
  "windows-sys 0.60.2",
+ "zeroize",
+]
+
+[[package]]
+name = "kith-mem"
+version = "0.1.1"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+]
+
+[[package]]
+name = "kith-serve"
+version = "2.19.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64 0.23.1",
+ "chacha20poly1305",
+ "chrono",
+ "chrono-tz",
+ "clap",
+ "croner",
+ "crossterm",
+ "dirs",
+ "ed25519-dalek",
+ "flate2",
+ "fs2",
+ "futures",
+ "gethostname",
+ "getrandom 0.4.3",
+ "hkdf 0.13.0",
+ "hmac 0.13.0",
+ "if-addrs",
+ "keyring",
+ "kith-mem",
+ "libc",
+ "portable-pty",
+ "qrcode",
+ "ratatui",
+ "reqwest",
+ "rusqlite",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "shlex",
+ "tar",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite",
+ "tracing",
+ "tracing-subscriber",
+ "unicode-width",
+ "uuid",
+ "x25519-dalek",
  "zeroize",
 ]
 

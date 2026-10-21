@@ -36,7 +36,7 @@ pub fn line(line: &str) -> Shell {
 }
 
 #[cfg(windows)]
-const LINE_VAR: &str = "CODYNC_COMMAND_LINE";
+const LINE_VAR: &str = "KITH_SERVE_COMMAND_LINE";
 
 /// `cmd` has no `KEY=value cmd` syntax, so leading assignments become the environment.
 #[cfg(windows)]
@@ -60,7 +60,7 @@ pub fn exec(command: &str) -> Shell {
 pub fn user_path() -> Option<String> {
     use std::time::{Duration, Instant};
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    let file = std::env::temp_dir().join(format!("codync-path-{}", uuid::Uuid::new_v4()));
+    let file = std::env::temp_dir().join(format!("kith-path-{}", uuid::Uuid::new_v4()));
     let target = file.to_string_lossy().replace('\'', r"'\''");
     let mut child = std::process::Command::new(shell)
         .args(["-ilc", &format!("printf '%s' \"$PATH\" > '{target}'")])

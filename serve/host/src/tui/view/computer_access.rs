@@ -15,7 +15,7 @@ pub(super) fn status(screen: &Value, online: bool) -> &'static str {
         return "Computer access is off";
     }
     if screen["connected"] != true {
-        return "Start Codync Screen";
+        return "Start Kith Screen";
     }
     if screen["platform"] == "linux" && (screen["capture"] != true || screen["input"] != true) {
         return "Allow screen sharing and control";

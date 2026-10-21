@@ -24,8 +24,9 @@ impl Hub {
     /// Starts the bot's own chat, and any place where the previous host process cut off a turn so it resumes.
     pub(super) fn spawn_bot(self: &Arc<Self>, cfg: &BotConfig) {
         let id = cfg.id.clone();
-        // An hq agent keeps its own memory (in its folder): Codync's keeper never runs for it. Its sends go nowhere.
-        let dreamer = if cfg.is_hq() { mpsc::unbounded_channel().0 } else { memory::spawn_dreamer(self.clone(), id.clone()) };
+        // An hq agent keeps its own memory (in its folder): Kith's keeper never runs for it. Its sends go nowhere.
+        let dreamer =
+            if cfg.is_hq() { mpsc::unbounded_channel().0 } else { memory::spawn_dreamer(self.clone(), id.clone()) };
         let mut places = HashMap::new();
         let mut homes = vec![Lane::main(&id)];
         homes.extend(bot::interrupted_places(&self.store, &id));
@@ -308,7 +309,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_bot_shows_a_working_place_over_how_its_chat_last_ended() {
-        let dir = std::env::temp_dir().join(format!("codync-actors-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-actors-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(std::path::Path::new(":memory:")).unwrap();
         let hub = Hub::new(store, "actors-test".into(), Identity::load_or_create(&dir).unwrap(), "test".into(), 0);

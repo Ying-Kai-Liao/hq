@@ -6,7 +6,7 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// Runs `codync-host serve` for `home` until it answers: the process and its base URL. A port
+/// Runs `kith-serve serve` for `home` until it answers: the process and its base URL. A port
 /// picked here is only free for a moment; when something else takes it before the host binds, the
 /// host exits and this starts it again on another one.
 #[allow(dead_code)]
@@ -20,10 +20,10 @@ pub async fn serve_env(home: &Path, env: &[(&str, &str)]) -> (Child, String) {
     loop {
         let port = std::net::TcpListener::bind("127.0.0.1:0").expect("free port").local_addr().expect("port").port();
         let base = format!("http://127.0.0.1:{port}");
-        let mut child = Command::new(env!("CARGO_BIN_EXE_codync-host"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_kith-serve"))
             .args(["serve", "--bind", "127.0.0.1", "--port", &port.to_string()])
-            .env("CODYNC_HOME", home)
-            .env("CODYNC_CLOUD", "off")
+            .env("KITH_SERVE_HOME", home)
+            .env("KITH_SERVE_CLOUD", "off")
             // Never the hq on this computer: a test that wants one passes its own `HQ_BIN`.
             .env("HQ_BIN", "")
             .envs(env.iter().copied())

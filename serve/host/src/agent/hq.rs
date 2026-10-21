@@ -1,6 +1,6 @@
 //! hq agents as bots. hq says how to start an agent (`hq <agent> --launch-json`), the host starts it: this file
 //! runs the `hq` CLI and turns its answer into the ACP session request for claude-agent-acp. The host adds nothing
-//! of Codync's to such a bot, so the agent runs with its own prompt, memory, skills, servers and settings.
+//! of Kith's to such a bot, so the agent runs with its own prompt, memory, skills, servers and settings.
 
 use crate::store::BotConfig;
 use anyhow::{Context, Result, anyhow, bail};
@@ -15,7 +15,7 @@ const LIST_TIMEOUT: Duration = Duration::from_secs(30);
 const LAUNCH_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Test hosts name the ACP command that stands in for claude-agent-acp.
-pub const ACP_COMMAND_ENV: &str = "CODYNC_HQ_ACP_COMMAND";
+pub const ACP_COMMAND_ENV: &str = "KITH_SERVE_HQ_ACP_COMMAND";
 
 /// The `hq` to run: `HQ_BIN` when set (an empty value turns hq off), else `hq` on PATH, else `~/.local/bin/hq`.
 /// Blocking: looking on PATH may ask the login shell.
@@ -162,7 +162,10 @@ impl Launch {
         let mut options = Map::new();
         options.insert("settings".into(), settings);
         options.insert("strictMcpConfig".into(), true.into());
-        options.insert("mcpServers".into(), if self.mcp_servers.is_object() { self.mcp_servers.clone() } else { json!({}) });
+        options.insert(
+            "mcpServers".into(),
+            if self.mcp_servers.is_object() { self.mcp_servers.clone() } else { json!({}) },
+        );
         if !self.add_dirs.is_empty() {
             options.insert("additionalDirectories".into(), json!(self.add_dirs));
         }
@@ -221,7 +224,7 @@ mod tests {
     }
 
     #[test]
-    fn launch_json_becomes_claude_options_and_nothing_of_codyncs() {
+    fn launch_json_becomes_claude_options_and_nothing_of_serves() {
         let params = launch().session_params(&bot(None), None);
         assert_eq!(params["cwd"], "/agents/house");
         assert_eq!(params["mcpServers"], json!([]));
@@ -236,8 +239,8 @@ mod tests {
         assert_eq!((o["model"].as_str(), o["effort"].as_str()), (Some("haiku"), Some("low")));
         assert_eq!(o["settings"]["permissions"]["defaultMode"], "auto");
         assert!(o["settings"]["hooks"].is_object(), "hq's hook survives");
-        for codync in ["chat", "memory", "team", "routines", "connectors"] {
-            assert!(!meta.to_string().contains(&format!("\"{codync}\"")), "{codync}");
+        for server in ["chat", "memory", "team", "routines", "connectors"] {
+            assert!(!meta.to_string().contains(&format!("\"{server}\"")), "{server}");
         }
     }
 

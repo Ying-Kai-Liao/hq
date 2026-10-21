@@ -344,7 +344,7 @@ mod tests {
 
     impl Room {
         fn new() -> Self {
-            let dir = std::env::temp_dir().join(format!("codync-group-{}", uuid::Uuid::new_v4()));
+            let dir = std::env::temp_dir().join(format!("kith-group-{}", uuid::Uuid::new_v4()));
             std::fs::create_dir_all(&dir).unwrap();
             let store = Store::open(&dir.join("test.db")).unwrap();
             let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/team_agent.py");

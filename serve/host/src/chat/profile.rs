@@ -76,7 +76,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_bot_renames_itself_and_rewrites_its_instructions() {
-        let dir = std::env::temp_dir().join(format!("codync-profile-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-profile-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(std::path::Path::new(":memory:")).unwrap();
         let cfg: BotConfig = serde_json::from_value(

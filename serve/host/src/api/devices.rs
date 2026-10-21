@@ -122,7 +122,7 @@ impl RejectCode {
             Self::Revoked => "This device's access was removed on the computer.",
             Self::LeaseExpired => "The computer can't confirm this device's access right now. Try again shortly.",
             Self::BadSignature => "The device's signature didn't check out.",
-            Self::UnsupportedVersion => "Update Codync to connect to this computer.",
+            Self::UnsupportedVersion => "Update Kith to connect to this computer.",
             Self::PairingClosed => "Pairing isn't open. Show a new code on the computer.",
             Self::RateLimited => "Too many pairing attempts. Wait a minute and try again.",
         }

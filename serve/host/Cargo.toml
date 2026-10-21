@@ -1,13 +1,13 @@
 [package]
-name = "codync-host"
+name = "kith-serve"
 version = "2.19.1"
 edition = "2024"
 # let-chains (`if let … && let …`) need 1.88.
 rust-version = "1.88"
-default-run = "codync-host"
-description = "Runs your coding-agent bots and serves the Codync apps"
+default-run = "kith-serve"
+description = "Runs your coding-agent bots and serves the Kith apps"
 license = "Apache-2.0"
-repository = "https://github.com/leepokai/Codync"
+repository = "https://github.com/leepokai/Kith"
 
 # The memory crate builds here and is mirrored to its own repository (docs/design/bot-memory.md#packaging).
 [workspace]
@@ -20,7 +20,7 @@ base64 = "0.23.1"
 chacha20poly1305 = "0.11.0"
 chrono = "0.4.45"
 chrono-tz = "0.10.4"
-codync-mem = { path = "crates/memory" }
+kith-mem = { path = "crates/memory" }
 clap = { version = "4.6.7", features = ["derive", "env"] }
 croner = "3"
 crossterm = { version = "0.29", features = ["event-stream"] }
@@ -95,7 +95,7 @@ lto = "thin"
 codegen-units = 1
 strip = true
 
-# The host Kith Dev bundles (apps/desktop/tools/native-host.mjs): optimized like a release, but
+# The host the Kith desktop app bundles (apps/desktop/tools/native-host.mjs): optimized like a release, but
 # a host change rebuilds in about 25 s instead of 80 s per architecture.
 [profile.dev-app]
 inherits = "release"

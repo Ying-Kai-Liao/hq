@@ -86,7 +86,7 @@ mod tests {
 
     #[tokio::test]
     async fn reopening_restores_exact_text_and_clears_only_the_sent_destination() {
-        let dir = std::env::temp_dir().join(format!("codync-drafts-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-drafts-{}", uuid::Uuid::new_v4()));
         let path = dir.join("drafts.json");
         let mut store = Drafts::at(path.clone()).await.unwrap();
         let mut drafts = HashMap::from([

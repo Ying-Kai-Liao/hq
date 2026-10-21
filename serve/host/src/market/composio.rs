@@ -152,7 +152,7 @@ pub async fn set_key(store: &Store, key: &str) -> Result<Value> {
         let mut c = load(store)?.unwrap_or_default();
         key.clone_into(&mut c.key);
         if c.user_id.is_empty() {
-            c.user_id = format!("codync-{}", uuid::Uuid::new_v4());
+            c.user_id = format!("kith-{}", uuid::Uuid::new_v4());
         }
         save(store, &c)?;
     }
@@ -310,7 +310,7 @@ async fn managed_auth_config(key: &str, slug: &str) -> Result<String> {
     let v = post(
         key,
         "/auth_configs",
-        &json!({"toolkit": {"slug": slug}, "auth_config": {"type": "use_composio_managed_auth", "name": format!("Codync {slug}")}}),
+        &json!({"toolkit": {"slug": slug}, "auth_config": {"type": "use_composio_managed_auth", "name": format!("Kith {slug}")}}),
     )
     .await?;
     text(&v["auth_config"]["id"])
@@ -339,7 +339,7 @@ pub async fn connect_with_fields(
     let config = post(
         &c.key,
         "/auth_configs",
-        &json!({"toolkit": {"slug": slug}, "auth_config": {"type": "use_custom_auth", "authScheme": mode, "name": format!("Codync {slug}")}}),
+        &json!({"toolkit": {"slug": slug}, "auth_config": {"type": "use_custom_auth", "authScheme": mode, "name": format!("Kith {slug}")}}),
     )
     .await?;
     let config = text(&config["auth_config"]["id"])
