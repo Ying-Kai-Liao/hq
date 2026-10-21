@@ -1,0 +1,118 @@
+[
+ {
+  "md": "plain text",
+  "html": "plain text"
+ },
+ {
+  "md": "**bold** and *it* and _it2_ and __b2__ and ~~gone~~",
+  "html": "<b>bold</b> and <i>it</i> and <i>it2</i> and <b>b2</b> and <s>gone</s>"
+ },
+ {
+  "md": "a < b && c > d \"q\" 'x'",
+  "html": "a &lt; b &amp;&amp; c &gt; d \"q\" 'x'"
+ },
+ {
+  "md": "# Title\n## Sub heading\n####### seven\n#nospace\n#  \nnext",
+  "html": "<b>Title</b>\n<b>Sub heading</b>\n####### seven\n#nospace\n<b>next</b>"
+ },
+ {
+  "md": "- one\n* two\n+ three\n  - nested\n-notbullet\n* **bold item**",
+  "html": "• one\n• two\n• three\n  • nested\n-notbullet\n• <b>bold item</b>"
+ },
+ {
+  "md": "`code <x>` and ``empty`` and `multi\nline`",
+  "html": "<code>code &lt;x&gt;</code> and `<code>empty</code><code> and </code>multi\nline`"
+ },
+ {
+  "md": "[link](https://example.com/a?b=1&c=2) and [x](ftp://no) and [](http://e.com) and [t](http://)",
+  "html": "<a href=\"https://example.com/a?b=1&amp;c=2\">link</a> and [x](ftp://no) and [](http://e.com) and [t](http://)"
+ },
+ {
+  "md": "```python\nprint('hi <b>')\n```\nafter",
+  "html": "<pre><code class=\"language-python\">print(&#x27;hi &lt;b&gt;&#x27;)</code></pre>\nafter"
+ },
+ {
+  "md": "```\nno lang\n```",
+  "html": "<pre>no lang</pre>"
+ },
+ {
+  "md": "before ```not closed\nand more",
+  "html": "before ```not closed\nand more"
+ },
+ {
+  "md": "```js\na\n```\n\n```\nb\n```",
+  "html": "<pre><code class=\"language-js\">a</code></pre>\n\n<pre>b</pre>"
+ },
+ {
+  "md": "| a | b |\n|---|---|\n| 1 | 2 |\nnot table\n| only |",
+  "html": "<pre>| a | b |\n|---|---|\n| 1 | 2 |</pre>\nnot table\n| only |"
+ },
+ {
+  "md": "| a | b |  \n| 1 | 2 |",
+  "html": "<pre>| a | b |  \n| 1 | 2 |</pre>\n"
+ },
+ {
+  "md": "> quote one\n> quote two\nplain\n>tight\n>",
+  "html": "<blockquote>quote one\nquote two</blockquote>\nplain\n<blockquote>tight\n</blockquote>\n"
+ },
+ {
+  "md": "snake_case_name and 2*3*4 and a * b * c",
+  "html": "snake_case_name and 2*3*4 and a * b * c"
+ },
+ {
+  "md": "*not italic *  and * spaced*",
+  "html": "*not italic *  and * spaced*"
+ },
+ {
+  "md": "__init__ stays? and __x__y",
+  "html": "<b>init</b> stays? and __x__y"
+ },
+ {
+  "md": "mixed **bold with _italic_ inside** done",
+  "html": "mixed <b>bold with <i>italic</i> inside</b> done"
+ },
+ {
+  "md": "**unclosed bold and _unclosed",
+  "html": "**unclosed bold and _unclosed"
+ },
+ {
+  "md": "**a\nb** across lines",
+  "html": "**a\nb** across lines"
+ },
+ {
+  "md": "停一下 **好嗎** _好_",
+  "html": "停一下 <b>好嗎</b> <i>好</i>"
+ },
+ {
+  "md": "***triple*** and ****",
+  "html": "<b><i>triple</b></i> and ****"
+ },
+ {
+  "md": "line1\n\nline3  \n- [ ] task\n1. num",
+  "html": "line1\n\nline3  \n• [ ] task\n1. num"
+ },
+ {
+  "md": "emoji 🎉 **b** 😀 _i_",
+  "html": "emoji 🎉 <b>b</b> 😀 <i>i</i>"
+ },
+ {
+  "md": "tilde ~~a~~ ~~~~ ~~b\nc~~",
+  "html": "tilde <s>a</s> <s>~~ </s>b\nc~~"
+ },
+ {
+  "md": "*a*b and a*b* and (*paren*) and _a_b and (_p_)",
+  "html": "*a*b and a*b* and (<i>paren</i>) and _a_b and (<i>p</i>)"
+ },
+ {
+  "md": "# **bold heading**\n- `code` item",
+  "html": "<b><b>bold heading</b></b>\n• <code>code</code> item"
+ },
+ {
+  "md": "",
+  "html": ""
+ },
+ {
+  "md": "   ",
+  "html": "   "
+ }
+]
