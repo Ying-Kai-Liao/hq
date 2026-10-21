@@ -243,7 +243,7 @@ pub(crate) enum Instructions {
     FirstMessage,
 }
 
-/// Which adapter answered `initialize`, where Codync treats it apart from the others.
+/// Which adapter answered `initialize`, where Kith treats it apart from the others.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Adapter {
     /// claude-agent-acp: takes `_meta.systemPrompt` and `_meta.claudeCode.options`, and `/compact <instructions>`.
@@ -491,7 +491,7 @@ impl Actor {
 }
 
 /// Told to a bot whose turn the previous host process cut off (Grok Bot's upgrade resume).
-const RESUME_PROMPT: &str = "[Codync restarted on this computer and interrupted you mid-task. You've been resumed with your full conversation intact. Continue exactly where you left off and finish what you were doing. If your previous step already completed an action, do NOT repeat it — just carry on from there.]";
+const RESUME_PROMPT: &str = "[Kith restarted on this computer and interrupted you mid-task. You've been resumed with your full conversation intact. Continue exactly where you left off and finish what you were doing. If your previous step already completed an action, do NOT repeat it — just carry on from there.]";
 
 /// How long a cancelled turn may take to wind down before its agent process is stopped.
 const CANCEL_GRACE: Duration = Duration::from_secs(15);
@@ -509,7 +509,7 @@ mod tests {
     fn memory_work_reads_as_thinking() {
         assert_eq!(super::activity("mcp__chat__send_message"), "Typing…");
         assert_eq!(super::activity("mcp__memory__remember"), "Thinking…");
-        assert_eq!(super::activity("Write /Users/me/.codync/bots/b/bot-memory/trip.md"), "Thinking…");
+        assert_eq!(super::activity("Write /Users/me/.kith/serve/bots/b/bot-memory/trip.md"), "Thinking…");
         assert_eq!(super::activity("Terminal"), "Terminal");
     }
 }

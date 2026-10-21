@@ -62,7 +62,7 @@ impl Actor {
         }
         if remind_files && self.active_group.is_none() && self.active_request.is_none() && self.active_routine.is_none()
         {
-            prompt.push_str("\n\n[Codync: send_file(path, name?) shares any regular file up to 100 MiB as a downloadable card. Use it instead of sending a local path.]");
+            prompt.push_str("\n\n[Kith: send_file(path, name?) shares any regular file up to 100 MiB as a downloadable card. Use it instead of sending a local path.]");
         }
         Ok(prompt)
     }
@@ -340,7 +340,7 @@ impl Actor {
         {
             tracing::warn!(bot = %self.cfg.id, error = format!("{error:#}"), "couldn't record the profile update");
         }
-        // An hq agent keeps its own memory: Codync's keeper never reads its chat.
+        // An hq agent keeps its own memory: Kith's keeper never reads its chat.
         if let (Some(user), Some(agent), "end_turn", false) =
             (self.turn_text.take(), &final_text, stop_reason.as_str(), self.is_hq())
         {

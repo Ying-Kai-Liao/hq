@@ -1,6 +1,6 @@
 //! hq agents as bots, against a stub `hq` and a scripted ACP agent: the bot appears from `hq ls --json`, its first
 //! message starts the agent from `hq <agent> --launch-json`, and the session carries hq's prompt and servers and
-//! none of Codync's.
+//! none of Kith's.
 #![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -19,7 +19,7 @@ struct Setup {
 
 async fn start() -> Setup {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    let home = std::env::temp_dir().join(format!("codync-hq-e2e-{}", uuid::Uuid::new_v4()));
+    let home = std::env::temp_dir().join(format!("kith-hq-e2e-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&home).unwrap();
     let stub = fixtures.join("stub_hq.py");
     let acp = format!("{} claude", common::python_agent(&fixtures.join("instructions_agent.py")));
@@ -27,7 +27,7 @@ async fn start() -> Setup {
     let host = Host::start_env(&[
         ("HQ_BIN", &stub.to_string_lossy()),
         ("STUB_HQ_HOME", &home_text),
-        ("CODYNC_HQ_ACP_COMMAND", &acp),
+        ("KITH_SERVE_HQ_ACP_COMMAND", &acp),
     ])
     .await;
     Setup { host, home }
@@ -100,7 +100,7 @@ async fn an_hq_agent_appears_and_starts_from_launch_json() {
     assert_eq!(options["extraArgs"], json!({"disable-slash-commands": null}));
     assert_eq!(options["model"], "haiku");
     assert!(options["settings"]["hooks"].is_object());
-    assert!(!params.to_string().contains("Codync"), "nothing of the host's own instructions: {params}");
+    assert!(!params.to_string().contains("Kith"), "nothing of the host's own instructions: {params}");
 
     let prompts = s.requests("session/prompt");
     assert_eq!(prompts[0]["params"]["prompt"][0]["text"], "what do you keep track of?", "no bot profile around it");

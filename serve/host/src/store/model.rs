@@ -110,8 +110,8 @@ pub struct BotConfig {
     /// project folder (see `chat::memory::shared`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shared_memory: Option<bool>,
-    /// Keeps the harness's own memory (Claude Code's auto memory…) on beside Codync's. Off unless the user turns it
-    /// on, and only where Codync can turn it off (see `agent::own_memory::kept`). A client sending back the bot as
+    /// Keeps the harness's own memory (Claude Code's auto memory…) on beside Kith's. Off unless the user turns it
+    /// on, and only where Kith can turn it off (see `agent::own_memory::kept`). A client sending back the bot as
     /// it got it sends `null` where there is no switch.
     #[serde(default, deserialize_with = "null_as_false")]
     pub harness_memory: bool,
@@ -124,7 +124,7 @@ pub struct BotConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tasks: Option<bool>,
     /// The hq agent this bot runs (its folder name under `hq ls`). Set: the bot starts from `hq <agent> --launch-json`
-    /// with the agent's own prompt, memory, skills and servers, and none of Codync's (see `agent::hq`).
+    /// with the agent's own prompt, memory, skills and servers, and none of Kith's (see `agent::hq`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hq_agent: Option<String>,
     #[serde(default)]

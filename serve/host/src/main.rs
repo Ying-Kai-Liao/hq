@@ -1,4 +1,4 @@
-//! `codync-host`: runs coding-agent bots over ACP and serves the Codync apps.
+//! `kith-serve`: runs coding-agent bots over ACP and serves the Kith apps.
 
 mod agent;
 mod analytics;
@@ -56,11 +56,7 @@ pub fn http() -> &'static reqwest::Client {
 }
 
 #[derive(Parser)]
-#[command(
-    name = "codync-host",
-    version,
-    about = "Codync host: runs your coding-agent bots and serves the Codync phone app"
-)]
+#[command(name = "kith-serve", version, about = "Kith host: runs your coding-agent bots and serves the Kith phone app")]
 struct Cli {
     #[command(subcommand)]
     cmd: Option<Sub>,
@@ -76,7 +72,7 @@ enum Sub {
         #[arg(long, default_value = "0.0.0.0")]
         bind: String,
     },
-    /// Show a one-time pairing QR code for the Codync iOS app (the host must be running).
+    /// Show a one-time pairing QR code for the Kith iOS app (the host must be running).
     Pair {
         #[arg(long, default_value_t = service::DEFAULT_PORT)]
         port: u16,
@@ -105,7 +101,7 @@ enum Sub {
         #[command(subcommand)]
         action: Option<AccessAction>,
     },
-    /// Show or change the Codync cloud (reach this computer from anywhere).
+    /// Show or change the Kith cloud (reach this computer from anywhere).
     Cloud {
         #[arg(long, default_value_t = service::DEFAULT_PORT)]
         port: u16,
@@ -175,20 +171,20 @@ enum Sub {
         /// callers: for another computer, forward its port with `ssh -L` and use the tunnel.
         #[arg(long)]
         url: Option<String>,
-        /// Token for `--url` (default: this computer's `~/.codync/token`).
-        #[arg(long, env = "CODYNC_TOKEN", hide_env_values = true)]
+        /// Token for `--url` (default: this computer's `~/.kith/serve/token`).
+        #[arg(long, env = "KITH_SERVE_TOKEN", hide_env_values = true)]
         token: Option<String>,
         #[arg(long, default_value_t = service::DEFAULT_PORT)]
         port: u16,
     },
-    /// npm on this computer's Node, else on Codync's own (downloaded first): what setup
+    /// npm on this computer's Node, else on Kith's own (downloaded first): what setup
     /// terminals install npm CLIs with.
     #[command(hide = true)]
     Npm {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    /// Add Codync's own Node.js, for agents that run on it (an agent's setup step).
+    /// Add Kith's own Node.js, for agents that run on it (an agent's setup step).
     #[command(hide = true)]
     Node,
     /// Built-in MCP servers that bots are started with (stdio).
@@ -285,11 +281,11 @@ enum McpServer {
 }
 
 /// The database id + local API token live in the database; the token is mirrored to
-/// `~/.codync/token` (0600) for local helpers like the statusline command.
+/// `~/.kith/serve/token` (0600) for local helpers like the statusline command.
 fn open_store() -> Result<(store::Store, String, String)> {
     let dir = service::data_dir();
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-    let db = dir.join("codync.db");
+    let db = dir.join("serve.db");
     let store = store::Store::open(&db).with_context(|| format!("opening {}", db.display()))?;
     let host_id = if let Some(v) = store.kv_get("host_id") {
         v
@@ -385,14 +381,14 @@ async fn main() -> Result<()> {
             {
                 match service::ensure_statusline(&home.join(".claude/settings.json")) {
                     Ok(true) => println!(
-                        "Claude Code's status line now also reports usage limits to Codync (your own status line still shows)."
+                        "Claude Code's status line now also reports usage limits to Kith (your own status line still shows)."
                     ),
                     Ok(false) => {}
                     Err(e) => eprintln!("Couldn't set Claude Code's status line: {e}"),
                 }
             }
             service::install(port)?;
-            println!("Codync host installed and started on port {port}. Run `codync-host pair` to connect your phone.");
+            println!("Kith host installed and started on port {port}. Run `kith-serve pair` to connect your phone.");
             Ok(())
         }
         Sub::Compat => {
@@ -435,7 +431,7 @@ async fn main() -> Result<()> {
                         ),
                         None => println!(
                             "Waiting for the iPhone app {required}: couldn't check the App Store. \
-                             `codync-host update --skip-app-check` installs anyway"
+                             `kith-serve update --skip-app-check` installs anyway"
                         ),
                     }
                 }
@@ -447,7 +443,7 @@ async fn main() -> Result<()> {
         }
         Sub::Stop => {
             tokio::task::spawn_blocking(service::stop).await??;
-            println!("Codync host stopped.");
+            println!("Kith host stopped.");
             Ok(())
         }
         Sub::Uninstall => {
@@ -458,7 +454,7 @@ async fn main() -> Result<()> {
             {
                 eprintln!("Couldn't restore Claude Code's status line: {e:#}");
             }
-            println!("Codync host service removed. Data is kept in {}", service::data_dir().display());
+            println!("Kith host service removed. Data is kept in {}", service::data_dir().display());
             Ok(())
         }
         Sub::Status { port } => {
@@ -523,7 +519,7 @@ async fn serve(bind: &str, port: u16) -> Result<()> {
     cap_log();
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "codync_host=info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "kith_serve=info".into()),
         )
         // A failed log write would be reported with `eprintln!`, which panics when stderr is gone
         // too (a closed terminal, a full disk): a log line must never take a task down.
@@ -536,7 +532,7 @@ async fn serve(bind: &str, port: u16) -> Result<()> {
     let hub = hub::Hub::new(store, host_id, identity, token, port);
     hub.start()?;
     background::start(&hub);
-    tracing::info!(version = env!("CARGO_PKG_VERSION"), bind, port, "codync-host listening");
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), bind, port, "kith-serve listening");
     // Peer addresses: some settings may only be changed from this computer.
     let app = api::router(hub.clone()).into_make_service_with_connect_info::<std::net::SocketAddr>();
     // SSE/WebSocket clients can stay connected forever. Stop agents immediately
@@ -550,7 +546,7 @@ async fn serve(bind: &str, port: u16) -> Result<()> {
     hub.shutdown().await;
     agent::acp::stopped().await;
     analytics::flush_before_exit(&hub).await;
-    tracing::info!("codync-host stopped");
+    tracing::info!("kith-serve stopped");
     Ok(())
 }
 
@@ -582,10 +578,10 @@ async fn shutdown_signal() {
     }
 }
 
-/// Calls the running host's local API (`~/.codync/token` over loopback).
+/// Calls the running host's local API (`~/.kith/serve/token` over loopback).
 async fn local_call(port: u16, method: &str, body: serde_json::Value) -> Result<serde_json::Value> {
     let not_running =
-        || anyhow::anyhow!("codync-host isn't running here. Start it with `codync-host install` (or `serve`).");
+        || anyhow::anyhow!("kith-serve isn't running here. Start it with `kith-serve install` (or `serve`).");
     let token = std::fs::read_to_string(service::data_dir().join("token")).map_err(|_| not_running())?;
     let res = http()
         .post(format!("http://127.0.0.1:{port}/api/{method}"))
@@ -620,14 +616,14 @@ async fn pair(port: u16, as_json: bool) -> Result<()> {
     let url = p["pairingUrl"].as_str().unwrap_or_default();
     let code = qrcode::QrCode::new(url.as_bytes())?;
     println!("{}", code.render::<qrcode::render::unicode::Dense1x2>().quiet_zone(true).build());
-    println!("Scan with the Codync iOS app within 10 minutes, or open this link on the phone:\n{url}\n");
+    println!("Scan with the Kith iOS app within 10 minutes, or open this link on the phone:\n{url}\n");
     if hello["cloud"].is_null()
         && p["urls"].as_array().is_none_or(|u| {
             !u.iter().any(|u| u.as_str().is_some_and(|u| u.contains("://100.") || u.contains(".ts.net")))
         })
     {
         println!(
-            "Tip: the phone reaches this computer on the same network only. Turn on the Codync cloud or Tailscale to reach it from anywhere."
+            "Tip: the phone reaches this computer on the same network only. Turn on the Kith cloud or Tailscale to reach it from anywhere."
         );
     }
     Ok(())
@@ -660,7 +656,7 @@ async fn access(port: u16, action: AccessAction) -> Result<()> {
     let matching: Vec<&serde_json::Value> =
         requests.iter().filter(|r| r["requestId"] == request.as_str() || r["code"] == request.as_str()).collect();
     let [r] = matching.as_slice() else {
-        anyhow::bail!("No single request matches {request}. See `codync-host access list`.");
+        anyhow::bail!("No single request matches {request}. See `kith-serve access list`.");
     };
     let id = r["requestId"].as_str().unwrap_or_default();
     local_call(port, "decideAccessRequest", json!({"requestId": id, "approve": approve})).await?;
@@ -672,7 +668,7 @@ async fn access(port: u16, action: AccessAction) -> Result<()> {
 async fn info(port: u16, as_json: bool) -> Result<()> {
     let dir = service::data_dir();
     let (Some(id), Ok(token)) = (identity::Identity::load(&dir)?, std::fs::read_to_string(dir.join("token"))) else {
-        eprintln!("start codync-host once first");
+        eprintln!("start kith-serve once first");
         std::process::exit(1);
     };
     let running = http()

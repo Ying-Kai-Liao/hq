@@ -1,5 +1,5 @@
 //! Bot memory ([design](../../../../docs/design/bot-memory.md)): it records the person, not the work. The rules
-//! (store, checks, opening, dreaming) live in the `codync_mem` crate; this module runs them in the host: the
+//! (store, checks, opening, dreaming) live in the `kith_mem` crate; this module runs them in the host: the
 //! session opening, the bot's memory tools, the client API, the chat lines that show and undo a bot's writes,
 //! dreaming, and the one-time move from the old Engram memory.
 
@@ -31,7 +31,7 @@ pub fn shared(cfg: &BotConfig) -> bool {
 
 /// The memory section of a bot's instructions: its entries, then the index of its long-form files.
 pub fn opening(store: &Store, cfg: &BotConfig) -> String {
-    let entries = match store.memory_read(|c| codync_mem::opening::load(c, &cfg.id, shared(cfg))) {
+    let entries = match store.memory_read(|c| kith_mem::opening::load(c, &cfg.id, shared(cfg))) {
         Ok(opening) => opening.render(),
         Err(error) => {
             tracing::warn!(bot = %cfg.id, error = format!("{error:#}"), "couldn't read memory");
@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn a_session_hears_each_change_once_and_again_after_a_compaction() {
         let store =
-            Store::open(&std::env::temp_dir().join(format!("codync-memory-{}.db", uuid::Uuid::new_v4()))).unwrap();
+            Store::open(&std::env::temp_dir().join(format!("kith-memory-{}.db", uuid::Uuid::new_v4()))).unwrap();
         let cfg: BotConfig = serde_json::from_value(serde_json::json!({
             "id": "5f0c7a52-0000-4000-8000-000000000002", "name": "Fixer", "backend": "claude", "cwd": "/tmp",
         }))

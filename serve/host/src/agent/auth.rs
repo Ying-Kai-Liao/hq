@@ -1,5 +1,5 @@
 //! Signing agents in the ACP way, so every agent that speaks ACP can be set up
-//! from Codync, not just the ones we know by name.
+//! from Kith, not just the ones we know by name.
 //!
 //! A check starts the agent, reads the `authMethods` it advertises and takes the
 //! login it reports (`_auth/status_update`), or else tries `session/new`: `-32000`
@@ -102,7 +102,7 @@ pub async fn check(store: &Store, backend: &str) -> Result<Value> {
     CHECKED.locked().insert(backend.to_owned(), status.clone());
     let mut v = serde_json::to_value(&status)?;
     v["savedEnv"] = json!(saved_env(store, backend)?);
-    // Codync's own sign-in command (phone-friendly device flows where the CLI has one).
+    // Kith's own sign-in command (phone-friendly device flows where the CLI has one).
     v["login"] = json!(backends::login_available(backend));
     Ok(v)
 }
@@ -304,7 +304,7 @@ async fn start(store: &Store, backend: &str) -> Result<Started> {
                     "auth": {"terminal": true},
                     "_meta": {"terminal-auth": true, "parameterizedModelPicker": true},
                 },
-                "clientInfo": {"name": "codync", "title": "Codync", "version": env!("CARGO_PKG_VERSION")},
+                "clientInfo": {"name": "kith", "title": "Kith", "version": env!("CARGO_PKG_VERSION")},
             }),
         );
         match tokio::time::timeout(budget, init).await {
@@ -339,7 +339,7 @@ fn joined_args(v: &Value) -> String {
         .unwrap_or_default()
 }
 
-/// The agent's advertised sign-in methods, in Codync's terms.
+/// The agent's advertised sign-in methods, in Kith's terms.
 fn methods(backend: &str, init: &Value, cmd: &Cmd) -> Vec<Method> {
     let empty = Map::new();
     let mut out = init["authMethods"]

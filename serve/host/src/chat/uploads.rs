@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn chunks_append_and_retries_are_idempotent() {
-        let root = std::env::temp_dir().join(format!("codync-uploads-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("kith-uploads-{}", uuid::Uuid::new_v4()));
         let root = root.as_path();
         let id = uuid::Uuid::new_v4().to_string();
         assert!(dir(root, "../x").is_err());

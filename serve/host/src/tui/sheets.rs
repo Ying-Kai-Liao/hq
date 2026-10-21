@@ -239,7 +239,7 @@ pub fn market(buf: &mut Buffer, area: Rect, app: &App, m: &Market) {
             Row::Node => (
                 "+",
                 "Add Node.js".into(),
-                "Some agents need it to run. Codync adds a copy just for them.".into(),
+                "Some agents need it to run. Kith adds a copy just for them.".into(),
                 String::new(),
             ),
             Row::Agent(b) => {
@@ -337,7 +337,7 @@ pub fn agent(buf: &mut Buffer, area: Rect, app: &App, a: &AgentSetup) {
         let (icon, title, detail) = match rw {
             SetupRow::Install => ("↓", "Install".to_owned(), format!("Runs the official installer on {}.", app.host)),
             SetupRow::Node => {
-                ("↓", "Add Node.js".to_owned(), format!("{name} runs on Node.js. Codync adds its own copy."))
+                ("↓", "Add Node.js".to_owned(), format!("{name} runs on Node.js. Kith adds its own copy."))
             }
             SetupRow::Login => ("›_", "Sign in".to_owned(), format!("In a terminal on {}.", app.host)),
             SetupRow::Method(m) => {

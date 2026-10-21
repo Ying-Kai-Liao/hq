@@ -21,10 +21,10 @@ pub(super) fn claude_meta(cfg: &BotConfig, system: &str) -> Value {
     json!({"systemPrompt": {"append": system, "excludeDynamicSections": true}, "claudeCode": claude_options(cfg)})
 }
 
-/// Claude Code's own memory and its auto-dream stay off, so Codync's is the bot's one memory, unless the user kept
+/// Claude Code's own memory and its auto-dream stay off, so Kith's is the bot's one memory, unless the user kept
 /// them on; then Claude Code sets both itself ([design](../../../../docs/design/bot-memory.md#claude-codes-own-memory)).
 fn claude_options(cfg: &BotConfig) -> Value {
-    // The bot's replies and memory are Codync's own tools, which follow the bot's permission inside Codync: the
+    // The bot's replies and memory are Kith's own tools, which follow the bot's permission inside Kith: the
     // user's Claude Code auto-mode classifier mustn't refuse them (it blocked a reply naming the user's daughter).
     let mut settings = json!({"permissions": {"allow": ["mcp__chat", "mcp__memory"]}});
     if !crate::agent::own_memory::kept(cfg) {
@@ -109,7 +109,7 @@ pub(crate) async fn start_agent(command: &str, cwd: &str, env: &[(String, String
                     "session": {"compaction": {}},
                     "_meta": {"parameterizedModelPicker": true},
                 },
-                "clientInfo": {"name": "codync", "title": "Codync", "version": env!("CARGO_PKG_VERSION")},
+                "clientInfo": {"name": "kith", "title": "Kith", "version": env!("CARGO_PKG_VERSION")},
             }),
         ),
     )

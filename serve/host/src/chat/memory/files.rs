@@ -1,12 +1,12 @@
 //! Long-form memory on disk ([design](../../../../docs/design/bot-memory.md#long-form-memory)): the folders, the
 //! scan that turns what changed in them into versions, and the host's own compare-and-swap writes. The rules
-//! (names, checks, versions, the index) are `codync_mem::files`.
+//! (names, checks, versions, the index) are `kith_mem::files`.
 
 use crate::LockExt;
 use crate::hub::Hub;
 use crate::store::{BotConfig, Store};
 use anyhow::{Context, Result, anyhow, bail};
-use codync_mem::files::{self as mf, Author, Cause, Change, Version};
+use kith_mem::files::{self as mf, Author, Cause, Change, Version};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -303,8 +303,8 @@ pub fn write(
         return hub
             .store
             .memory_read(|c| {
-                let file = mf::get(c, layer, name)?.ok_or(codync_mem::store::Error::NotFound)?;
-                mf::version(c, file.version)?.ok_or(codync_mem::store::Error::NotFound)
+                let file = mf::get(c, layer, name)?.ok_or(kith_mem::store::Error::NotFound)?;
+                mf::version(c, file.version)?.ok_or(kith_mem::store::Error::NotFound)
             })
             .context("the file has no recorded version");
     }
@@ -352,7 +352,7 @@ fn put(path: &Path, content: Option<&str>) -> Result<()> {
 
 /// Dreaming's notes: each appended to its file as a list line (a new file gets frontmatter first), and logged with
 /// the run. A run whose notes all failed and that changed nothing else is dropped.
-pub fn write_notes(hub: &Hub, cfg: &BotConfig, dream: i64, notes: &[codync_mem::dream::Note]) {
+pub fn write_notes(hub: &Hub, cfg: &BotConfig, dream: i64, notes: &[kith_mem::dream::Note]) {
     let writer = Writer { author: Author::Dream, bot: Some(cfg), session: None, cause: Cause::Dream };
     for note in notes {
         let layer = note.bot.as_deref();
@@ -367,8 +367,7 @@ pub fn write_notes(hub: &Hub, cfg: &BotConfig, dream: i64, notes: &[codync_mem::
         });
         match written {
             Ok(version) => {
-                if let Err(error) =
-                    hub.store.memory_write(|c, _, _| codync_mem::dream::record_file(c, dream, version.id))
+                if let Err(error) = hub.store.memory_write(|c, _, _| kith_mem::dream::record_file(c, dream, version.id))
                 {
                     tracing::warn!(bot = %cfg.id, error = format!("{error:#}"), "couldn't log a dream's note");
                 }
@@ -378,13 +377,13 @@ pub fn write_notes(hub: &Hub, cfg: &BotConfig, dream: i64, notes: &[codync_mem::
             }
         }
     }
-    if let Err(error) = hub.store.memory_write(|c, _, _| codync_mem::dream::discard_if_empty(c, dream)) {
+    if let Err(error) = hub.store.memory_write(|c, _, _| kith_mem::dream::discard_if_empty(c, dream)) {
         tracing::warn!(bot = %cfg.id, error = format!("{error:#}"), "couldn't tidy the dream log");
     }
 }
 
 /// Undoing a run puts back the files it appended to, newest note first. A file changed since keeps its change.
-pub fn undo_notes(hub: &Hub, dream: &codync_mem::dream::Dream) {
+pub fn undo_notes(hub: &Hub, dream: &kith_mem::dream::Dream) {
     let writer = Writer { author: Author::User, bot: None, session: None, cause: Cause::Undo };
     for change in dream.files.iter().rev() {
         let layer = (!change.shared).then_some(dream.bot.as_str());

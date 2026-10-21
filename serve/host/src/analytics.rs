@@ -1,4 +1,4 @@
-//! Product analytics (`PostHog`), on unless the computer's owner turned it off
+//! Product analytics (`PostHog`), on unless the computer's owner turned it off; sent only when a project key is configured
 //! (`setAnalytics`). Events name the feature that was used and never carry content:
 //! no message text, prompts, file names, paths or bot names.
 //! What is collected and why: docs/features/analytics.md.
@@ -19,9 +19,6 @@ pub mod errors;
 const KV_ENABLED: &str = "analytics_enabled";
 /// The account the install id was last merged into (one `$identify` per account).
 const KV_IDENTIFIED: &str = "analytics_identified";
-/// Write-only project token: safe to ship in public builds.
-const TOKEN: &str = "phc_rQHvxdSFKnMquPfMjmiMhXhM4tqJ5qCYsWuVEoFxCCWX";
-const BATCH_URL: &str = "https://us.i.posthog.com/batch/";
 const FLUSH_EVERY: Duration = Duration::from_secs(30);
 /// Unsent events kept while offline; the oldest go first.
 const MAX_PENDING: usize = 500;
@@ -291,7 +288,7 @@ pub fn observe_call(hub: &Hub, caller: &Caller, method: &str, b: &Value) -> Opti
     Some((event, p))
 }
 
-/// Queues one event unless the owner turned analytics off. Signed in to a Codync account,
+/// Queues one event unless the owner turned analytics off. Signed in to a Kith account,
 /// events are linked to that account; otherwise to this install's random id. Both get a
 /// person profile.
 pub fn capture(hub: &Hub, event: Event, mut properties: Map<String, Value>) {
@@ -315,9 +312,9 @@ pub fn capture(hub: &Hub, event: Event, mut properties: Map<String, Value>) {
 
 fn queue(hub: &Hub, event: &str, distinct_id: &str, mut properties: Map<String, Value>) {
     properties.extend([
-        ("$lib".into(), "codync-host".into()),
+        ("$lib".into(), "kith-serve".into()),
         ("app_version".into(), env!("CARGO_PKG_VERSION").into()),
-        ("env".into(), (if option_env!("CODYNC_ENV") == Some("main") { "main" } else { "dev" }).into()),
+        ("env".into(), (if option_env!("KITH_SERVE_ENV") == Some("main") { "main" } else { "dev" }).into()),
         ("$os".into(), std::env::consts::OS.into()),
         ("arch".into(), std::env::consts::ARCH.into()),
         // Joins this computer's events across accounts and with its phones' `computer_paired`.
@@ -336,6 +333,7 @@ fn queue(hub: &Hub, event: &str, distinct_id: &str, mut properties: Map<String, 
 /// A computer's analytics key: a hash of its id, so a phone's `computer_paired` joins the
 /// computer's events without revealing the id the relay knows it by.
 pub fn computer_tag(computer_id: &str) -> String {
+    // The prefix is shared with the iPhone's test vector; it is a hash input, not a name.
     use sha2::{Digest as _, Sha256};
     use std::fmt::Write as _;
     let hash = Sha256::digest(format!("codync-analytics:{computer_id}"));
@@ -389,14 +387,35 @@ pub async fn flush_before_exit(hub: &Hub) {
     }
 }
 
+/// Events go to this `PostHog` (US cloud) host, into the project whose write-only key the owner
+/// configures: `KITH_SERVE_POSTHOG_KEY`, or `posthog_key` in `<data dir>/config.json` (the file
+/// that holds `relay_url`). No key, no network call.
+const HOST: &str = "https://us.i.posthog.com";
+
+fn project_key_from(config: &std::path::Path) -> Option<String> {
+    let from_env = std::env::var("KITH_SERVE_POSTHOG_KEY").ok();
+    let from_file = || {
+        let bytes = std::fs::read(config).ok()?;
+        serde_json::from_slice::<Value>(&bytes).ok()?.get("posthog_key")?.as_str().map(str::to_owned)
+    };
+    from_env.or_else(from_file).map(|k| k.trim().to_owned()).filter(|k| !k.is_empty())
+}
+
 async fn send(batch: &[Value]) -> bool {
     // Debug builds (`cargo test`, `cargo run`) are throwaway hosts: each e2e test's fresh
-    // home would count as a new user, and one built with `CODYNC_ENV=main` lands in production.
+    // home would count as a new user.
     if cfg!(debug_assertions) {
         return true;
     }
-    let body = json!({"api_key": TOKEN, "batch": batch});
-    match crate::http().post(BATCH_URL).json(&body).timeout(Duration::from_secs(15)).send().await {
+    let key = project_key_from(&crate::service::data_dir().join("config.json"));
+    send_to(HOST, key.as_deref(), batch).await
+}
+
+/// Posts one batch to `host`; without a key nothing is sent and the events are dropped.
+async fn send_to(host: &str, key: Option<&str>, batch: &[Value]) -> bool {
+    let Some(key) = key else { return true };
+    let body = json!({"api_key": key, "batch": batch});
+    match crate::http().post(format!("{host}/batch/")).json(&body).timeout(Duration::from_secs(15)).send().await {
         Ok(r) if r.status().is_success() => true,
         Ok(r) => {
             tracing::debug!(status = %r.status(), "analytics batch refused");
@@ -415,6 +434,61 @@ mod tests {
     use super::*;
 
     #[test]
+    fn no_codync_key_or_host_is_compiled_in() {
+        // Assembled at run time so this test doesn't trip over itself.
+        let old_host = ["codync", ".dev"].concat();
+        let old_key = ["phc_rQHv", "xdSF"].concat();
+        for source in [include_str!("analytics.rs"), include_str!("analytics/errors.rs")] {
+            assert!(!source.contains(&old_host) && !source.contains(&old_key));
+        }
+    }
+
+    #[test]
+    fn the_project_key_comes_from_config_json_and_empty_means_none() {
+        let dir = std::env::temp_dir().join(format!("kith-analytics-key-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("config.json");
+        assert_eq!(project_key_from(&file), None);
+        for (body, want) in [
+            ("", None),
+            ("nope", None),
+            (r#"{"posthog_key": ""}"#, None),
+            (r#"{"posthog_key": 3}"#, None),
+            (r#"{"posthog_key": " test-key "}"#, Some("test-key")),
+        ] {
+            std::fs::write(&file, body).unwrap();
+            assert_eq!(project_key_from(&file).as_deref(), want, "{body}");
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn a_batch_goes_to_the_configured_host_only_with_a_key() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let host = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut seen = Vec::new();
+            let mut chunk = [0u8; 4096];
+            while !String::from_utf8_lossy(&seen).contains("\"test-key\"") {
+                let n = socket.read(&mut chunk).await.unwrap();
+                assert!(n > 0, "connection closed before the body arrived");
+                seen.extend_from_slice(&chunk[..n]);
+            }
+            socket.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await.unwrap();
+            String::from_utf8_lossy(&seen).into_owned()
+        });
+        let batch = [json!({"event": "app_opened"})];
+        // No key: nothing is sent (the server would hang the test otherwise).
+        assert!(send_to(&host, None, &batch).await);
+        assert!(send_to(&host, Some("test-key"), &batch).await);
+        let request = server.await.unwrap();
+        assert!(request.starts_with("POST /batch/ "), "{request}");
+        assert!(request.contains("app_opened"));
+    }
+
+    #[test]
     fn observed_events_carry_no_content() {
         let b = json!({"botId": "b1", "text": "secret plan", "threadId": "e1", "attachments": ["u1", "u2"]});
         let (event, p) = observe(&Caller::Local, "send", &b).expect("send is tracked");
@@ -430,7 +504,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_resent_message_counts_once_and_names_its_agent() {
-        let dir = std::env::temp_dir().join(format!("codync-analytics-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-analytics-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(std::path::Path::new(":memory:")).unwrap();
         let hub = Hub::new(

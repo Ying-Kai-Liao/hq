@@ -1,4 +1,4 @@
-//! Windows' service runner: starts `codync-host.exe` beside it with the given
+//! Windows' service runner: starts `kith-serve.exe` beside it with the given
 //! arguments and no console window, and starts it again when it exits (what
 //! launchd's `KeepAlive` and systemd's `Restart=always` do elsewhere). It is a
 //! GUI-subsystem program, so signing in doesn't flash a console either.
@@ -17,9 +17,9 @@ fn main() {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     let Ok(exe) = std::env::current_exe() else { return };
-    let host = exe.with_file_name("codync-host.exe");
+    let host = exe.with_file_name("kith-serve.exe");
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let data = std::env::var_os("CODYNC_HOME")
+    let data = std::env::var_os("KITH_SERVE_HOME")
         .map(std::path::PathBuf::from)
         .or_else(|| dirs::home_dir().map(|h| h.join(environment::Environment::current().data_folder())));
     // One supervisor per data folder: the Run key and the app can both start one, and the second's
@@ -59,6 +59,6 @@ fn main() {
 
 #[cfg(not(windows))]
 fn main() {
-    eprintln!("codync-hostw only runs the host on Windows; use codync-host here.");
+    eprintln!("kith-servew only runs the host on Windows; use kith-serve here.");
     std::process::exit(2);
 }
