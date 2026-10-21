@@ -66,6 +66,14 @@ only), which must happen after the bridge stopped handling messages. State lives
 `<data dir>/channels/state.json`. Also grant `jev-browser` to `serve` too or the router merges
 every message sent while an agent works. `GET /health` has a `channels` object with each connection's state.
 
+**Telegram** (`src/channels/telegram/`) is ported: grant `telegram` profiles to `serve`
+(`hq-auth grant serve telegram <profile>`, secret `TELEGRAM_BOT_TOKEN`) and revoke them from `bridge`. It long-polls
+`getUpdates` and keeps the offset in the connection's state (the same key the bridge used, so imported state
+continues where the bridge stopped). While the bridge still polls the same bot Telegram answers 409; the host
+logs that, waits (30 s, doubling to 2 min) and keeps trying, so revoke the bridge's grant and restart it to end the
+overlap. Answers are Markdown shown as Telegram HTML, sent plain if Telegram refuses the formatting. The Bot API
+address is `https://api.telegram.org`, or `KITH_TELEGRAM_API` (a local Bot API server; tests use a fake).
+
 The `channels` object in `config.json` (read at start):
 
 | key | default | meaning |

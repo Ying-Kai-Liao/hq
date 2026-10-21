@@ -44,6 +44,7 @@ mod queue;
 mod run;
 mod settings;
 mod state;
+mod telegram;
 mod text;
 
 #[cfg(test)]
