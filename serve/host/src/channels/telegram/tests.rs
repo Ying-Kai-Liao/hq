@@ -924,7 +924,7 @@ async fn files_over_the_limit_are_not_downloaded() {
     let big = json!({"document": {"file_id": "huge", "file_name": "big.bin", "file_size": 33}});
     rig.bot.say(KAI, DM, "@house msg-big", 0, &big);
     until("the answer", || rig.bot.answers("msg-big") == 1).await;
-    assert!(rig.bot.calls("getFile").is_empty());
+    assert_eq!(rig.bot.calls("getFile").len(), 0);
     // It doesn't say, and the download goes over the limit: stopped, nothing kept.
     let unsized_file = json!({"document": {"file_id": "unsized", "file_name": "grows.bin"}});
     rig.bot.say(KAI, DM, "@house msg-grows", 0, &unsized_file);
