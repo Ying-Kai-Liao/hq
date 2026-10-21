@@ -53,6 +53,31 @@ Available memory is `kern.memorystatus_level` on macOS (the "free percentage" `m
 prints) and `MemAvailable` on Linux; a platform or read error counts as room. `GET /health` has a
 `gate` object with the running and waiting counts, the limits and the latest reading.
 
+## Chat channels (Discord, Telegram, Slack)
+
+The host carries the routing core of hq's chat bridge (`src/channels/`): people, `@agent`, threads and
+sessions, the queue with Jev routing, `hq <agent>` runs under the resource gate, live agents and the
+`hq-send` outbox. The platform adapters plug into it one at a time; until one is ported its bots stay with
+the Python bridge. A bot is cut over by granting its profile to the client `serve` in hq-auth and revoking
+it from `bridge`: grants are checked every minute, and the first time a connection starts here its rooms,
+threads and queued messages are copied from `~/.hq/bridge/state.json` (read only). State lives in
+`<data dir>/channels/state.json`. The bridge reads its grants only at start, so restart it after revoking
+(`launchctl kickstart -k gui/$UID/dev.hq.bridge`), and grant `jev-browser` to `serve` too or the router merges
+every message sent while an agent works. `GET /health` has a `channels` object with each connection's state.
+
+The `channels` object in `config.json` (read at start):
+
+| key | default | meaning |
+| --- | --- | --- |
+| `enabled` | true | false turns channels off |
+| `dm_default` | `personal` | the agent the owner's new DMs go to |
+| `debounce_s` | 2 | seconds a run waits for more messages |
+| `router` | `jev` | `off` merges every message sent while an agent works |
+| `interrupt` | true | false makes corrections wait for the next turn |
+| `context_show` | 30 | a reply ends with "context N%" from this fullness; `"off"` never |
+| `permission_mode` | unset | the owner's runs; unset leaves it to the agent, then hq |
+| `discord_guild` | unset | server name or id when the Discord bot is in several |
+
 ## Updates
 
 This build never fetches releases; rebuild with `kith serve start`.
