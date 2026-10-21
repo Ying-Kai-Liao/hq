@@ -13,6 +13,8 @@ public struct Bot: Codable, Identifiable, Hashable, Sendable {
     public var description: String
     public var avatarColor: String
     public var avatarShape: String
+    /// `auto` | `crew:<name>` | `spare:<name>` | `shape`; a host that doesn't send it means `auto`.
+    public var avatarSource: String = "auto"
     public var backend: String
     public var command: String?
     public var cwd: String
@@ -368,6 +370,8 @@ public struct BotDraft: Codable, Hashable, Sendable {
     public var description: String
     public var avatarColor: String
     public var avatarShape: String
+    /// Unset keeps the bot's; see `Bot.avatarSource`.
+    public var avatarSource: String?
     public var backend: String
     public var command: String?
     public var cwd: String
@@ -393,6 +397,7 @@ public struct BotDraft: Codable, Hashable, Sendable {
         self.description = description
         self.avatarColor = avatarColor
         self.avatarShape = avatarShape
+        avatarSource = "auto"
         self.backend = backend
         self.cwd = cwd
         self.permission = permission
@@ -404,6 +409,7 @@ public struct BotDraft: Codable, Hashable, Sendable {
         description = bot.description
         avatarColor = bot.avatarColor
         avatarShape = bot.avatarShape
+        avatarSource = bot.avatarSource
         backend = bot.backend
         command = bot.command
         cwd = bot.managedWorkspace ? "" : bot.cwd
@@ -435,6 +441,7 @@ extension Bot {
         description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
         avatarColor = try c.decodeIfPresent(String.self, forKey: .avatarColor) ?? "blue"
         avatarShape = try c.decodeIfPresent(String.self, forKey: .avatarShape) ?? "blob"
+        avatarSource = try c.decodeIfPresent(String.self, forKey: .avatarSource) ?? "auto"
         backend = try c.decodeIfPresent(String.self, forKey: .backend) ?? "custom"
         command = try c.decodeIfPresent(String.self, forKey: .command)
         cwd = try c.decodeIfPresent(String.self, forKey: .cwd) ?? ""
