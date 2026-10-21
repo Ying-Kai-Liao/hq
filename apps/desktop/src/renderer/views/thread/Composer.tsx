@@ -260,7 +260,7 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
               title={label}
               onClick={() => {
                 if (trailing === 'interrupt') onInterrupt?.()
-                else if (trailing === 'stop') store.stop(botId)
+                else if (trailing === 'stop') store.stop(botId, thread)
                 else if (trailing === 'call') onCall?.()
                 else submit()
               }}

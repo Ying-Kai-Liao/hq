@@ -51,9 +51,17 @@ export interface Bot {
   startedAt?: number | null
   workingChat?: string | null
   workingThread?: string | null
+  /** Every place it works in at once (its chat, threads, groups); null from a host that runs one place at a time. */
+  workingLanes?: WorkingLane[] | null
   unread: number
   lastMessage?: string | null
   lastAt: number
+}
+
+/** A place a bot works in: a chat (its own or a group) and, in a thread, the thread's root. */
+export interface WorkingLane {
+  chat: string
+  thread?: string | null
 }
 
 /** Lenient: a host that is a little newer or older than the app still yields a usable bot. */
@@ -95,6 +103,7 @@ export function normalizeBot(raw: Partial<Bot> & { id: string }): Bot {
     startedAt: raw.startedAt ?? null,
     workingChat: raw.workingChat ?? null,
     workingThread: raw.workingThread ?? null,
+    workingLanes: raw.workingLanes ?? null,
     unread: raw.unread ?? 0,
     lastMessage: raw.lastMessage ?? null,
     lastAt: raw.lastAt ?? createdAt,
@@ -106,7 +115,9 @@ export const isWorking = (b: Bot) => b.status === 'working' || b.status === 'nee
 export const needsInput = (b: Bot) => b.status === 'needsInput'
 /** Working right now in this chat's main conversation (`thread == null`) or in that thread. */
 export const isWorkingIn = (b: Bot, chat: string, thread: string | null | undefined) =>
-  isWorking(b) && (b.workingChat ?? b.id) === chat && (b.workingThread ?? null) === (thread ?? null)
+  b.workingLanes
+    ? b.workingLanes.some((l) => l.chat === chat && (l.thread ?? null) === (thread ?? null))
+    : isWorking(b) && (b.workingChat ?? b.id) === chat && (b.workingThread ?? null) === (thread ?? null)
 export const folderName = (b: Bot) =>
   b.managedWorkspace ? 'Personal workspace' : (b.cwd.split('/').filter(Boolean).pop() ?? b.cwd)
 

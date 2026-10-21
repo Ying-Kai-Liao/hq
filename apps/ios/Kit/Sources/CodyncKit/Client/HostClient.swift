@@ -244,8 +244,11 @@ public extension HostClient {
         let _: Empty = try await call("logCall", Body(botId: botId, seconds: seconds))
     }
 
-    func stop(_ botId: String) async throws {
-        let _: Empty = try await call("stop", ["botId": botId])
+    /// Stops the bot where the user pressed it: its chat, or the thread on `thread`.
+    func stop(_ botId: String, thread: String?) async throws {
+        var body = ["botId": botId]
+        body["threadId"] = thread
+        let _: Empty = try await call("stop", body)
     }
 
     func newSession(_ botId: String) async throws {

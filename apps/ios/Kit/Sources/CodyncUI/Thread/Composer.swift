@@ -177,7 +177,7 @@ struct Composer: View {
         return Button {
             switch state {
             case .interrupt: onInterrupt?()
-            case .stop: model.stop(botId)
+            case .stop: model.stop(botId, thread: thread)
             case .call:
                 // The call takes the microphone.
                 dictation.stop()

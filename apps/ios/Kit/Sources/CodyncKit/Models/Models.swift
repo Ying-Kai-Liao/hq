@@ -58,6 +58,8 @@ public struct Bot: Codable, Identifiable, Hashable, Sendable {
     /// Where the running turn talks: the chat (a bot's own, or a group) and thread root.
     public var workingChat: String?
     public var workingThread: String?
+    /// Every place it works in at once (its chat, threads, groups); nil from a host that runs one place at a time.
+    public var workingLanes: [WorkingLane]? = nil
     public var unread: Int
     public var lastMessage: String?
     public var lastAt: Int64
@@ -66,10 +68,22 @@ public struct Bot: Codable, Identifiable, Hashable, Sendable {
     public var isWorking: Bool { status == "working" || status == "needsInput" }
     /// Working right now in this chat's main conversation (`thread == nil`) or in that thread.
     public func isWorking(in chat: String, thread: String?) -> Bool {
-        isWorking && (workingChat ?? id) == chat && workingThread == thread
+        if let workingLanes { return workingLanes.contains(WorkingLane(chat: chat, thread: thread)) }
+        return isWorking && (workingChat ?? id) == chat && workingThread == thread
     }
     public var needsInput: Bool { status == "needsInput" }
     public var folderName: String { managedWorkspace ? "Personal workspace" : (cwd as NSString).lastPathComponent }
+}
+
+/// A place a bot works in: a chat (its own or a group) and, in a thread, the thread's root.
+public struct WorkingLane: Codable, Hashable, Sendable {
+    public var chat: String
+    public var thread: String?
+
+    public init(chat: String, thread: String?) {
+        self.chat = chat
+        self.thread = thread
+    }
 }
 
 /// Just enough of a `bot` event to detect deletions.
@@ -445,6 +459,7 @@ extension Bot {
         startedAt = try c.decodeIfPresent(Int64.self, forKey: .startedAt)
         workingChat = try c.decodeIfPresent(String.self, forKey: .workingChat)
         workingThread = try c.decodeIfPresent(String.self, forKey: .workingThread)
+        workingLanes = try c.decodeIfPresent([WorkingLane].self, forKey: .workingLanes)
         unread = try c.decodeIfPresent(Int.self, forKey: .unread) ?? 0
         lastMessage = try c.decodeIfPresent(String.self, forKey: .lastMessage)
         lastAt = try c.decodeIfPresent(Int64.self, forKey: .lastAt) ?? createdAt
