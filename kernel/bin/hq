@@ -29,7 +29,7 @@
 #   hq live start|where|send <agent> ...               agents that run as one live session (session: live) (hq-live)
 #   hq remote add|ls|rm ...  ·  hq ask <agent>@<machine>   agents on your other machines, over ssh (hq-remote)
 #   hq memory search <words> [--agent NAME|--all]      search what the agents wrote down (hq-memory)
-#   hq project [ls|open ID|root|add ID [dir] [--in P] [--home [DIR]]]  projects: what each holds, its folder, its memory
+#   hq project [ls [--json]|open ID|root|add ID [dir] [--in P] [--home [DIR]]]  projects: what each holds, its folder, its memory
 #   hq schedule [ls|add|rm|run|log|--install ...]      run agent tasks on a cron schedule (hq-sched)
 #   hq acp <agent> [--keep team,…]                     the agent as an ACP agent, one session per chat (hq-acp)
 #   hq serve start|stop|restart|status|relay [URL]     Kith's host on this Mac (launchd dev.kith.serve, port 19224); `kith` is the same command (hq-serve)
@@ -457,6 +457,7 @@ print(json.dumps({
     "env": env, "system_prompt": e("PROMPT"), "settings": settings, "mcp_servers": json.loads(e("MCP"))["mcpServers"],
     "add_dirs": [d for d in e("ADD_DIRS").split("\n") if d], "allowed_tools": [a for a in e("ALLOWED").split("\n") if a],
     "disable_slash_commands": e("NO_SLASH") == "true", "model": nz("HQ_MODEL"), "effort": nz("HQ_EFFORT"),
+    "project": nz("HQ_PROJECT"),
     "permission_mode": e("PERM_MODE") or settings.get("permissions", {}).get("defaultMode"),
     "cost_tag": {"agent": e("HQ_AGENT"), "version": e("HQ_AGENT_VERSION"), "model": nz("HQ_MODEL"), "effort": nz("HQ_EFFORT"),
                  "via": e("HQ_VIA"), "project": nz("HQ_PROJECT"), "person": nz("HQ_PERSON")},

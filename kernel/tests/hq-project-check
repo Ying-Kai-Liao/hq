@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# hq-project-check — `hq project ls --json`, `hq project add` and `hq <agent> --launch-json -p`, in a throwaway HOME
+# and HQ_HOME (the real ~/.hq is never read or written).
+#
+#   kernel/tests/hq-project-check     a few seconds; prints each check, exits 1 when one fails
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/hq-project-check.XXXXXX")
+trap 'rm -rf "$T"' EXIT
+export HOME=$T/home HQ_HOME=$T/hq
+unset HQ_PROJECT HQ_PERSON HQ_AGENT HQ_CLAUDE_ARGS HQ_HARNESS
+mkdir -p "$HOME" "$HQ_HOME/state" "$HQ_HOME/agents/echo/role" "$T/work/alpha" "$T/work/beta"
+printf -- '---\nname: echo\ndescription: test agent\n---\nYou echo.\n' > "$HQ_HOME/agents/echo/role/agent.md"
+HQ=$KERNEL/bin/hq
+fails=0
+check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; fails=$((fails + 1)); fi; }
+# is EXPR EXPECTED: the python expression EXPR over the JSON in $OUT (as d) prints EXPECTED. The JSON goes through the
+# environment, not through eval'd text, so quotes in it are harmless.
+is() { [ "$(EXPR=$1 OUT=$OUT python3 -c 'import json,os; d=json.loads(os.environ["OUT"]); print(eval(os.environ["EXPR"]))')" = "$2" ]; }
+launch() { OUT=$("$HQ" echo --launch-json "$@" 2>/dev/null); }
+
+OUT=$("$HQ" project ls --json); rc=$?
+check "ls --json on an empty registry" "[ $rc = 0 ] && is \"d['projects']\" '[]'"
+
+"$HQ" project add zeta "$T/work/alpha" </dev/null >/dev/null 2>&1; rc=$?
+check "add works without a terminal" "[ $rc = 0 ]"
+"$HQ" project add bad/id "$T/work/alpha" </dev/null >/dev/null 2>&1; rc=$?
+check "add refuses a bad id" "[ $rc != 0 ]"
+"$HQ" project add nodir "$T/nope" </dev/null >/dev/null 2>&1; rc=$?
+check "add refuses a missing folder" "[ $rc != 0 ]"
+OUT=$("$HQ" project add beta "$T/work/beta" --json 2>/dev/null)
+check "add --json prints the entry" "is \"d['id'], d['exists'], d['home']\" 'beta True None'"
+
+# a project with only a remote and no folder on this Mac, and one with a parent and a home
+printf '{"projects":{"zeta":{"remotes":["github.com/o/z"],"paths":["/nonexistent/zeta"]},"remote-only":{"remotes":["github.com/o/r"],"paths":[]},"alpha":{"remotes":[],"paths":["~/gone"],"home":"%s","parent":"zeta"}}}\n' "$T/work/alpha" > "$HQ_HOME/state/projects.json"
+OUT=$("$HQ" project ls --json)
+check "ls --json sorted by id" "is \"[p['id'] for p in d['projects']]\" \"['alpha', 'remote-only', 'zeta']\""
+check "exists is false for a project with no folder here" "is \"[p['exists'] for p in d['projects']]\" '[True, False, False]'"
+check "paths absolute, parent and memory set" "is \"d['projects'][0]['paths'][0] == '$HOME/gone' and d['projects'][0]['parent'] == 'zeta' and d['projects'][0]['memory'] == '$HQ_HOME/state/projects/alpha'\" True"
+
+cd "$T/work/beta" || exit 1
+launch -p alpha; rc=$?
+check "launch-json -p carries the project" "is \"d['project'], d['env']['HQ_PROJECT'], '<session project=\\\"alpha\\\"' in d['system_prompt']\" 'alpha alpha True'"
+launch -p alpha --launch-json
+check "launch-json -p in either argument order" "is \"d['project']\" alpha"
+launch
+check "launch-json with no -p and no project here: null" "is \"d['project']\" None"
+"$HQ" project add beta "$T/work/beta" </dev/null >/dev/null 2>&1
+launch
+check "launch-json resolves the project from the cwd" "is \"d['project']\" beta"
+"$HQ" echo --launch-json -p nope >/dev/null 2>"$T/err"; rc=$?
+check "launch-json -p with an unknown id fails with a message" "[ $rc != 0 ] && grep -q \"unknown project 'nope'\" $T/err"
+
+echo
+if [ $fails = 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi
