@@ -21,6 +21,7 @@
 mod compaction;
 mod fast_mode;
 mod files;
+mod hq;
 mod launch;
 mod lifecycle;
 mod place;

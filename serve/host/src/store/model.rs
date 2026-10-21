@@ -123,11 +123,20 @@ pub struct BotConfig {
     /// conversation in the bot's main session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tasks: Option<bool>,
+    /// The hq agent this bot runs (its folder name under `hq ls`). Set: the bot starts from `hq <agent> --launch-json`
+    /// with the agent's own prompt, memory, skills and servers, and none of Codync's (see `agent::hq`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hq_agent: Option<String>,
     #[serde(default)]
     pub created_at: i64,
 }
 
 impl BotConfig {
+    /// Whether the bot is an hq agent.
+    pub fn is_hq(&self) -> bool {
+        self.hq_agent.is_some()
+    }
+
     pub fn is_group(&self) -> bool {
         self.kind == BotKind::Group
     }

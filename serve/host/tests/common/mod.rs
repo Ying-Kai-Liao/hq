@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 /// Runs `codync-host serve` for `home` until it answers: the process and its base URL. A port
 /// picked here is only free for a moment; when something else takes it before the host binds, the
 /// host exits and this starts it again on another one.
+#[allow(dead_code)]
 pub async fn serve(home: &Path) -> (Child, String) {
     serve_env(home, &[]).await
 }
@@ -23,6 +24,8 @@ pub async fn serve_env(home: &Path, env: &[(&str, &str)]) -> (Child, String) {
             .args(["serve", "--bind", "127.0.0.1", "--port", &port.to_string()])
             .env("CODYNC_HOME", home)
             .env("CODYNC_CLOUD", "off")
+            // Never the hq on this computer: a test that wants one passes its own `HQ_BIN`.
+            .env("HQ_BIN", "")
             .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::null())

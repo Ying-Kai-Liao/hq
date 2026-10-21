@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex, Weak};
 use tokio::sync::{broadcast, watch};
 
 mod actors;
+mod hq;
 mod order;
 mod sync;
 
@@ -86,6 +87,8 @@ pub struct Hub {
     pub screen: Arc<Screen>,
     /// Setup terminals (installs, sign-ins).
     pub terms: Arc<crate::agent::term::Terms>,
+    /// One sync of the hq bots at a time (see `hq`).
+    hq_sync: tokio::sync::Mutex<()>,
 }
 
 impl Hub {
@@ -122,6 +125,7 @@ impl Hub {
             cloud: crate::remote::cloud::Cloud::default(),
             screen,
             terms: Arc::default(),
+            hq_sync: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -140,6 +144,7 @@ impl Hub {
         }
         crate::routines::start(self);
         crate::analytics::start(self);
+        hq::start(self);
         Ok(())
     }
 
@@ -188,6 +193,12 @@ impl Hub {
             }
         }
         let mut cfg: BotConfig = serde_json::from_value(merged)?;
+        // Which hq agent a bot is can't be edited, and it runs on Claude.
+        cfg.hq_agent.clone_from(&row.config.hq_agent);
+        if cfg.is_hq() {
+            cfg.backend.clone_from(&row.config.backend);
+            cfg.command = None;
+        }
         if cfg.name.trim().is_empty() {
             cfg.name.clone_from(&row.config.name);
         }
