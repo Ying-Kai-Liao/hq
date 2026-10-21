@@ -112,11 +112,11 @@ mod tests {
     fn nothing_set_means_the_defaults() {
         let (s, warnings) = Settings::from_sources(None, &env_of(&[]));
         assert_eq!(s, Settings::default());
-        assert!(warnings.is_empty());
+        assert_eq!(warnings, Vec::<String>::new());
         assert_eq!(s.idle_shutdown, Duration::from_secs(600));
         let (s, warnings) = Settings::from_sources(Some(&json!({"relay_url": "https://x"})), &env_of(&[]));
         assert_eq!(s, Settings::default());
-        assert!(warnings.is_empty());
+        assert_eq!(warnings, Vec::<String>::new());
     }
 
     #[test]
@@ -125,7 +125,7 @@ mod tests {
             "max_running_agents": 4, "min_free_memory_percent": 30, "max_swap_used_gb": 1.5, "idle_shutdown_minutes": 5
         });
         let (s, warnings) = Settings::from_sources(Some(&file), &env_of(&[]));
-        assert!(warnings.is_empty());
+        assert_eq!(warnings, Vec::<String>::new());
         assert_eq!(
             s,
             Settings {

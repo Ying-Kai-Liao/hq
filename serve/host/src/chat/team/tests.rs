@@ -28,6 +28,11 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::with_gate(None)
+    }
+
+    /// `slots`: a gate with that many agent slots (default: no limit).
+    fn with_gate(slots: Option<usize>) -> Self {
         let dir = std::env::temp_dir().join(format!("kith-team-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(&dir.join("test.db")).unwrap();
@@ -43,12 +48,18 @@ impl Fixture {
             .unwrap();
             store.save_bot(&cfg).unwrap();
         }
-        let hub = Hub::new(
+        let settings = crate::agent::gate::Settings {
+            max_running: slots.unwrap_or(1024),
+            ..crate::agent::gate::Settings::unlimited()
+        };
+        let gate = crate::agent::gate::Gate::new(settings, Box::new(crate::agent::gate::memory::System));
+        let hub = Hub::new_with_gate(
             store,
             "test-host".into(),
             crate::remote::identity::Identity::load_or_create(&dir).unwrap(),
             "test-token".into(),
             19222,
+            gate,
         );
         hub.start().unwrap();
         hub.set_runtime("a", |r| r.status = BotStatus::Working);
@@ -230,6 +241,23 @@ async fn timeout_and_recipient_errors_release_waiters() {
     f.until(|| f.hub.runtime("b").status == BotStatus::Idle).await;
     assert!(f.hub.team.0.locked().pending.is_empty());
     assert!(f.request("after timeout").await.unwrap().is_ok());
+    f.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_timed_out_ask_frees_the_recipients_slot_so_the_asker_gets_its_own_back() {
+    // One slot: `a` holds it, gives it up while it waits for `b`, whose request then takes it.
+    let f = Fixture::with_gate(Some(1));
+    let mut admission = f.hub.gate.enter("a");
+    let _a_turn = admission.try_take().expect("a's turn holds the only slot");
+    let source = visible_bot(&f.hub, "a").unwrap();
+    let asked = ask(&f.hub, &source, "a", "b", "BLOCK never answers", Duration::from_millis(200));
+    let error = tokio::time::timeout(Duration::from_secs(20), asked)
+        .await
+        .expect("the ask must not wait forever for a slot b still holds")
+        .unwrap_err();
+    assert!(error.to_string().contains("timed out"));
+    assert_eq!(f.hub.gate.status()["running"], 1, "only a's turn counts again");
     f.shutdown().await;
 }
 

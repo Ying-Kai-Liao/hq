@@ -164,3 +164,35 @@ fn a_parked_turn_that_ends_or_is_cancelled_does_not_leak_or_double_count() {
     let parked = gate.park("nobody");
     assert!(parked.slot.is_none());
 }
+
+#[test]
+fn parallel_asks_keep_the_slot_given_up_until_the_last_is_back() {
+    let (gate, _) = gate(1);
+    let mut a = gate.enter("a");
+    let _held = a.try_take().unwrap();
+    // `a` asks `b` and `c` side by side; both requests need the one slot.
+    let to_b = gate.park("a");
+    let to_c = gate.park("a");
+    assert_eq!(running(&gate), 0, "parked once, not twice");
+    let mut b = gate.enter("b");
+    let mut c = gate.enter("c");
+    let answering_b = b.try_take().expect("b runs");
+    assert!(c.try_take().is_none());
+
+    // b answers first: a must not take the slot back while c still works for it.
+    let waker = futures::task::noop_waker();
+    let mut cx = std::task::Context::from_waker(&waker);
+    let mut resume_b = Box::pin(to_b.resume());
+    assert!(resume_b.as_mut().poll(&mut cx).is_ready(), "not the last ask: nothing to wait for");
+    drop(answering_b);
+    gate.pump();
+    let answering_c = c.try_take().expect("c can start: a's slot is still given up");
+    assert_eq!(running(&gate), 1);
+
+    let mut resume_c = Box::pin(to_c.resume());
+    assert!(resume_c.as_mut().poll(&mut cx).is_pending());
+    drop(answering_c);
+    gate.pump();
+    assert!(resume_c.as_mut().poll(&mut cx).is_ready());
+    assert_eq!(running(&gate), 1, "a counts again, once");
+}

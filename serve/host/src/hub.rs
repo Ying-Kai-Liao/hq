@@ -100,6 +100,17 @@ impl Hub {
     }
 
     pub fn new(store: Store, host_id: String, identity: Identity, token: String, port: u16) -> Arc<Self> {
+        Self::new_with_gate(store, host_id, identity, token, port, new_gate())
+    }
+
+    pub fn new_with_gate(
+        store: Store,
+        host_id: String,
+        identity: Identity,
+        token: String,
+        port: u16,
+        gate: Arc<crate::agent::gate::Gate>,
+    ) -> Arc<Self> {
         let (events, _) = broadcast::channel(1024);
         let screen = Arc::new(Screen::new(Screen::load_enabled(&store), events.clone()));
         Arc::new_cyclic(|me| Self {
@@ -128,7 +139,7 @@ impl Hub {
             screen,
             terms: Arc::default(),
             hq_sync: tokio::sync::Mutex::new(()),
-            gate: new_gate(),
+            gate,
         })
     }
 

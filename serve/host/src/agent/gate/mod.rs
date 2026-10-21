@@ -39,12 +39,16 @@ const PARKED: u8 = 1;
 const DEAD: u8 = 2;
 
 /// One turn's hold on a slot. The slot is counted from admission until this is dropped.
-struct Slot(AtomicU8);
+struct Slot {
+    state: AtomicU8,
+    /// Asks of other bots this turn is waiting on right now; the slot is parked while there are any.
+    asks: AtomicUsize,
+}
 
 impl Slot {
     /// Counts a parked slot again. Does nothing for a slot that is active, or whose turn is over.
     fn activate(&self, gate: &Gate) {
-        if self.0.compare_exchange(PARKED, ACTIVE, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+        if self.state.compare_exchange(PARKED, ACTIVE, Ordering::AcqRel, Ordering::Acquire).is_ok() {
             gate.running.fetch_add(1, Ordering::AcqRel);
         }
     }
@@ -58,7 +62,7 @@ pub struct Permit {
 
 impl Drop for Permit {
     fn drop(&mut self) {
-        if self.slot.0.swap(DEAD, Ordering::AcqRel) == ACTIVE {
+        if self.slot.state.swap(DEAD, Ordering::AcqRel) == ACTIVE {
             self.gate.running.fetch_sub(1, Ordering::AcqRel);
         }
         self.gate.wake.notify_one();
@@ -181,7 +185,7 @@ impl Gate {
             match waiter.grant {
                 Grant::Turn(tx) => {
                     self.running.fetch_add(1, Ordering::AcqRel);
-                    let slot = Arc::new(Slot(AtomicU8::new(ACTIVE)));
+                    let slot = Arc::new(Slot { state: AtomicU8::new(ACTIVE), asks: AtomicUsize::new(0) });
                     st.slots.retain(|_, s| s.strong_count() > 0);
                     st.slots.insert(waiter.rt, Arc::downgrade(&slot));
                     // A receiver that is gone drops the permit, which gives the slot straight back.
@@ -264,18 +268,16 @@ impl Gate {
     /// Gives up `rt`'s slot while its turn waits on another bot's reply. Resume with [`Parked::resume`] before
     /// the answer reaches the agent. Nothing is parked when `rt` has no turn holding a slot.
     pub fn park(self: &Arc<Self>, rt: &str) -> Parked {
-        let slot = self
-            .state
-            .locked()
-            .slots
-            .get(rt)
-            .and_then(Weak::upgrade)
-            .filter(|slot| slot.0.compare_exchange(ACTIVE, PARKED, Ordering::AcqRel, Ordering::Acquire).is_ok());
-        if slot.is_some() {
+        let slot = self.state.locked().slots.get(rt).and_then(Weak::upgrade);
+        // Asks that run side by side share one parking: the first gives the slot up, the last takes it back.
+        if let Some(slot) = &slot
+            && slot.asks.fetch_add(1, Ordering::AcqRel) == 0
+            && slot.state.compare_exchange(ACTIVE, PARKED, Ordering::AcqRel, Ordering::Acquire).is_ok()
+        {
             self.running.fetch_sub(1, Ordering::AcqRel);
             self.wake.notify_one();
         }
-        Parked { gate: self.clone(), rt: rt.to_owned(), slot, waiting: None }
+        Parked { gate: self.clone(), rt: rt.to_owned(), counted: slot.is_some(), last: false, slot, waiting: None }
     }
 }
 
@@ -313,18 +315,35 @@ pub struct Parked {
     gate: Arc<Gate>,
     rt: String,
     slot: Option<Arc<Slot>>,
+    /// This ask still counts among the turn's outstanding ones.
+    counted: bool,
+    /// It was the last outstanding ask, so it is the one that takes the slot back.
+    last: bool,
     waiting: Option<u64>,
 }
 
 impl Parked {
     /// Waits for a slot again, ahead of turns that haven't started: this one is already part way through.
     pub async fn resume(mut self) {
+        // Other asks of the same turn are still out: the slot stays given up until the last one is back.
+        if !self.end_ask() {
+            return;
+        }
         // A turn that ended while parked has nothing to come back to.
-        let Some(slot) = self.slot.clone().filter(|s| s.0.load(Ordering::Acquire) == PARKED) else { return };
+        let Some(slot) = self.slot.clone().filter(|s| s.state.load(Ordering::Acquire) == PARKED) else { return };
         let (tx, rx) = oneshot::channel();
         self.waiting = Some(self.gate.enqueue(&self.rt, Grant::Resume(slot, tx), true));
         self.gate.pump();
         let _ = rx.await;
+    }
+
+    /// This ask is over. Whether it was the turn's last outstanding one.
+    fn end_ask(&mut self) -> bool {
+        if let (true, Some(slot)) = (self.counted, &self.slot) {
+            self.counted = false;
+            self.last = slot.asks.fetch_sub(1, Ordering::AcqRel) == 1;
+        }
+        self.last
     }
 }
 
@@ -335,7 +354,9 @@ impl Drop for Parked {
         }
         // Dropped before it got its slot back (the call was cancelled): count the turn again anyway, so the
         // slot is not lost for the rest of the turn.
-        if let Some(slot) = &self.slot {
+        if self.end_ask()
+            && let Some(slot) = &self.slot
+        {
             slot.activate(&self.gate);
         }
     }

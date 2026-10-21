@@ -359,8 +359,7 @@ async fn ask(
         _ = cancelled.changed() => Err(anyhow!("bot request cancelled")),
         () = tokio::time::sleep(timeout) => Err(anyhow!("bot request timed out; partial work may have happened")),
     };
-    parked.resume().await;
-    match result {
+    let outcome = match result {
         Ok(text) => {
             let reply = crate::agent::acp::truncate(&text, 4000);
             pending.finish(RequestStatus::Completed, &format!("Reply from {}:\n{reply}", target.name), Some(&reply));
@@ -370,7 +369,12 @@ async fn ask(
             pending.finish(RequestStatus::Failed, &format!("{error:#}"), None);
             Err(error)
         }
-    }
+    };
+    // Dropping the request tells the recipient to stop (a timed-out one would otherwise keep its slot), and only
+    // then does this turn wait for its own slot back.
+    drop(pending);
+    parked.resume().await;
+    outcome
 }
 
 #[cfg(test)]
