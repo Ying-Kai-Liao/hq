@@ -9,6 +9,7 @@ import type { HostState, LocalHost } from '../shared/ipc'
 import { unregisterScreenAgent } from './screen'
 import { identity } from './environment'
 import { hostEnvironmentError } from '../shared/environment'
+import { isKithServeService } from '../shared/host-service'
 
 /** `KITH_SERVE_PORT` / `KITH_SERVE_HOME` point the app at a dev host started with `kith-serve serve`. */
 export const devPort = process.env.KITH_SERVE_PORT ? Number(process.env.KITH_SERVE_PORT) : null
@@ -152,6 +153,8 @@ export class HostController extends EventEmitter {
     const program = definition === null ? null : serviceProgram(definition)
     if (!program || !existsSync(program)) return false
     const bin = this.binary
+    // The dev run's own binary can be the one `kith serve start` installed: still not ours to reinstall.
+    if (isKithServeService(definition!, program, homedir(), identity.dataFolder)) return true
     return !bin || (!serviceRuns(bin) && !samePath(resolved(program), resolved(bin)))
   }
 
