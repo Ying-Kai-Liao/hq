@@ -63,6 +63,23 @@ npx wrangler deploy --env dev               # → https://dev-api.codync.dev
 | `CLERK_AUTHORIZED_PARTIES` | var, optional | comma-separated; a token with `azp` must match |
 | `CLERK_JWT_KEY` | var, dev/e2e only | public key for networkless verification |
 
+### Kith
+
+Kith runs its own copy on its own Cloudflare account, at workers.dev, without accounts: no Clerk secrets are set,
+so only QR pairing admits devices (the account routes answer 401). `kith-dev` serves every local build; builds
+made with `CODYNC_ENV=main` will need their own environment when we make them.
+
+```bash
+npx wrangler login                                   # once, in a browser
+npx wrangler d1 create kith-dev                      # put its database_id in [env.kith-dev]
+npx wrangler d1 migrations apply kith-dev --env kith-dev --remote
+npx wrangler deploy --env kith-dev                   # → https://kith-cloud-dev.<account>.workers.dev
+curl https://kith-cloud-dev.<account>.workers.dev/v1/health
+```
+
+The host's default for each build is in `host/src/environment.rs` (`cloud_url`); `CODYNC_CLOUD_URL` overrides it
+for one host, `CODYNC_CLOUD=off` turns the cloud off. The phone learns the URL from the QR code.
+
 New computers are limited to 10 per IP per minute with the Workers Rate Limiting binding
 `REGISTER_LIMITER` (`[[ratelimits]]`; each environment needs its own `namespace_id`).
 Public routine webhook deliveries are limited to 60 per sender IP and hook per minute with

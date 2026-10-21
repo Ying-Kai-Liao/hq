@@ -62,3 +62,15 @@ vars = { CLERK_ISSUER = "https://clerk.test.local" }
 d1_databases = [{ binding = "DB", database_name = "codync-local", database_id = "local", migrations_dir = "migrations" }]
 durable_objects.bindings = [{ name = "RELAY", class_name = "ComputerRelay" }]
 ratelimits = [{ name = "REGISTER_LIMITER", namespace_id = "1003", simple = { limit = 10, period = 60 } }, { name = "TURN_LIMITER", namespace_id = "1013", simple = { limit = 12, period = 60 } }, { name = "HOOK_LIMITER", namespace_id = "1023", simple = { limit = 60, period = 60 } }]
+
+# kith-dev: Kith's own relay for every local build, on our Cloudflare account at workers.dev (no custom domain).
+# No Clerk secrets, so the account routes answer 401 and only QR-paired devices get in.
+[env.kith-dev]
+name = "kith-cloud-dev"
+routes = []
+workers_dev = true
+vars = { CLERK_ISSUER = "https://clerk.invalid" }
+d1_databases = [{ binding = "DB", database_name = "kith-dev", database_id = "f8912768-50ee-45b0-a2b0-320ab8468afe", migrations_dir = "migrations" }]
+durable_objects.bindings = [{ name = "RELAY", class_name = "ComputerRelay" }]
+ratelimits = [{ name = "REGISTER_LIMITER", namespace_id = "2002", simple = { limit = 10, period = 60 } }, { name = "TURN_LIMITER", namespace_id = "2012", simple = { limit = 12, period = 60 } }, { name = "HOOK_LIMITER", namespace_id = "2022", simple = { limit = 60, period = 60 } }]
+triggers = { crons = ["*/15 * * * *"] }

@@ -73,7 +73,7 @@ impl Environment {
     pub const fn cloud_url(self) -> &'static str {
         match self {
             Self::Main => "https://api.codync.dev",
-            Self::Dev => "https://dev-api.codync.dev",
+            Self::Dev => "https://kith-cloud-dev.YOUR-SUBDOMAIN.workers.dev",
         }
     }
 
