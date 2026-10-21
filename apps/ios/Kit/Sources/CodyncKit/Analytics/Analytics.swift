@@ -47,7 +47,15 @@ public final class Analytics {
     }
 
     nonisolated static let endpoint = URL(string: "https://us.i.posthog.com/batch/")!
-    static let apiKey = "phc_rQHvxdSFKnMquPfMjmiMhXhM4tqJ5qCYsWuVEoFxCCWX"
+    /// The project key comes from the build (`shared/Config/Secrets.plist`, copied into the app
+    /// as `Secrets.plist`; see apps/README.md). Never committed; nil or empty = analytics does nothing.
+    nonisolated static let bundledKey: String? = {
+        guard let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
+              let plist = NSDictionary(contentsOf: url),
+              let key = plist["POSTHOG_API_KEY"] as? String else { return nil }
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }()
     /// `Bool`, absent = on.
     public static let enabledKey = "analyticsEnabled"
     private static let installKey = "analyticsInstallID"
@@ -60,13 +68,16 @@ public final class Analytics {
     public var userID: @MainActor () -> String? = { nil }
     private let defaults: UserDefaults
     private let upload: @Sendable (Data) async -> Bool
+    private let apiKey: String?
     private(set) var pending: [Event] = []
     private var timer: Task<Void, Never>?
     private var sending = false
     private var foreground = false
 
-    init(defaults: UserDefaults = .standard, upload: @escaping @Sendable (Data) async -> Bool = Analytics.post) {
+    init(defaults: UserDefaults = .standard, apiKey: String? = Analytics.bundledKey,
+         upload: @escaping @Sendable (Data) async -> Bool = Analytics.post) {
         self.defaults = defaults
+        self.apiKey = apiKey
         self.upload = upload
     }
 
@@ -88,7 +99,7 @@ public final class Analytics {
 
     /// One event for the signed-in account (merging the install ID into it once), else the install ID.
     func record(_ name: String, _ extra: [String: Value]) {
-        guard isEnabled else { return }
+        guard isEnabled, apiKey != nil else { return }
         if let user = userID() {
             var identified = defaults.stringArray(forKey: Self.identifiedKey) ?? []
             if !identified.contains(user) {
@@ -123,8 +134,8 @@ public final class Analytics {
     func flush() {
         timer?.cancel()
         timer = nil
-        guard !sending, !pending.isEmpty, isEnabled,
-              let body = try? JSONEncoder().encode(Batch(api_key: Self.apiKey, batch: pending)) else { return }
+        guard !sending, !pending.isEmpty, isEnabled, let apiKey,
+              let body = try? JSONEncoder().encode(Batch(api_key: apiKey, batch: pending)) else { return }
         let sent = Set(pending.map(\.uuid))
         sending = true
         Task {

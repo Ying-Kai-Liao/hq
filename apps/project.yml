@@ -167,6 +167,12 @@ targets:
         script: |
           # The scheme chooses an environment independently of Debug/Release optimization.
           cp "$SRCROOT/shared/Config/$CODYNC_ENV.plist" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AccountConfig.plist"
+          # Optional, gitignored: the PostHog project key. Absent = analytics sends nothing.
+          if [ -f "$SRCROOT/shared/Config/Secrets.plist" ]; then
+            cp "$SRCROOT/shared/Config/Secrets.plist" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Secrets.plist"
+          else
+            rm -f "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Secrets.plist"
+          fi
     settings:
       base:
         PRODUCT_NAME: $(CODYNC_APP_NAME)
