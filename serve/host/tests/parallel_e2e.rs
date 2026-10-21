@@ -210,6 +210,26 @@ async fn a_group_turn_runs_while_the_member_works_in_its_own_chat() {
 }
 
 #[tokio::test]
+async fn a_new_session_starts_the_member_afresh_in_its_groups_too() {
+    if python_missing() {
+        return;
+    }
+    let host = Host::start().await;
+    let ann = host.bot("Ann").await;
+    let group = host.call("createBot", json!({"name": "Team", "kind": "group", "members": [ann]})).await["bot"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    host.send(&group, None, "team: first plan").await;
+    let first = host.wait_for(&group, None, |e| text(e).contains("first plan") && text(e).contains("step 20.")).await;
+
+    host.call("newSession", json!({"botId": ann})).await;
+    host.send(&group, None, "team: second plan").await;
+    let second = host.wait_for(&group, None, |e| text(e).contains("second plan") && text(e).contains("step 1.")).await;
+    assert_ne!(session(text(&first)), session(text(&second)), "{} / {}", text(&first), text(&second));
+}
+
+#[tokio::test]
 async fn deleting_a_group_stops_its_members_there_and_nowhere_else() {
     if python_missing() {
         return;

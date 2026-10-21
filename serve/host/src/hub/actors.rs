@@ -5,7 +5,7 @@ use super::{BotStatus, Hub, Runtime};
 use crate::LockExt;
 use crate::agent::bot::{self, BotHandle, Cmd, actor_key, bot_of, place_of};
 use crate::chat::memory;
-use crate::store::{BotConfig, Lane};
+use crate::store::{BotConfig, Lane, lane_key};
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -125,7 +125,26 @@ impl Hub {
             Cmd::RefreshTools => self.each_actor(bot_id, |_| true, || Cmd::RefreshTools),
             Cmd::Shutdown => self.each_actor(bot_id, |_| true, || Cmd::Shutdown),
             Cmd::Reconfigure(cfg) => self.each_actor(bot_id, |_| true, || Cmd::Reconfigure(cfg.clone())),
+            // A new session starts the bot afresh in its groups too; its threads keep theirs.
+            Cmd::NewSession => {
+                self.forget_group_sessions(bot_id);
+                self.each_actor(bot_id, |home| home.chat != bot_id, || Cmd::NewSession)?;
+                self.deliver(bot_id, &Lane::main(bot_id), Cmd::NewSession)
+            }
             cmd => self.deliver(bot_id, &Lane::main(bot_id), cmd),
+        }
+    }
+
+    /// Drops the stored sessions of the bot's group places (`lane_key("session", bot, group lane)`), so one without
+    /// a running actor starts afresh too.
+    fn forget_group_sessions(&self, bot_id: &str) {
+        let threads = lane_key("session", bot_id, &Lane::main(bot_id)) + "/";
+        for key in self.store.kv_prefix(&format!("lane.session.{bot_id}@")) {
+            if !key.starts_with(&threads)
+                && let Err(error) = self.store.kv_delete(&key)
+            {
+                tracing::warn!(bot = bot_id, error = format!("{error:#}"), "couldn't forget a group session");
+            }
         }
     }
 

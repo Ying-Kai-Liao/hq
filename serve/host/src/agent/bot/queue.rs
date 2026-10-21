@@ -71,6 +71,8 @@ impl Actor {
             Cmd::SendFile { path, name, cancelled, reply } => self.begin_file(path, name, cancelled, reply),
             Cmd::Stop => self.stop().await,
             Cmd::Permission { entry_id, option_id } => self.answer_permission(&entry_id, option_id).await,
+            // A group lane's (see `Hub::send_cmd`): a room turn that runs finishes; the next one starts afresh.
+            Cmd::NewSession if !self.is_main() => self.forget_session(),
             Cmd::NewSession => {
                 if self.turn.is_some() {
                     self.stop().await;

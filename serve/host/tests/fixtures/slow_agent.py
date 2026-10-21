@@ -1,10 +1,11 @@
 # ACP agent for the router and parallel tests: echoes its session and the whole prompt, then works
 # in short steps for ~6 s and stops at the next step after session/cancel. Each process names its
-# sessions after its pid, so a reply shows which agent process answered.
+# sessions after its pid and a count, so a reply shows which agent process and session answered.
 import json, os, sys, threading, time
 
 lock = threading.Lock()
 cancelled = set()
+sessions = 0
 
 
 def send(m):
@@ -36,7 +37,8 @@ for line in sys.stdin:
     if meth == "initialize":
         send({"jsonrpc": "2.0", "id": m["id"], "result": {"protocolVersion": 1, "agentCapabilities": {"loadSession": False}}})
     elif meth == "session/new":
-        send({"jsonrpc": "2.0", "id": m["id"], "result": {"sessionId": f"s{os.getpid()}"}})
+        sessions += 1
+        send({"jsonrpc": "2.0", "id": m["id"], "result": {"sessionId": f"s{os.getpid()}-{sessions}"}})
     elif meth == "session/prompt":
         said = " ".join(b.get("text", "") for b in p.get("prompt", []) if b.get("type") == "text")
         threading.Thread(target=turn, args=(m["id"], p["sessionId"], said), daemon=True).start()
