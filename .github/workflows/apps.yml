@@ -2,25 +2,13 @@ name: apps
 
 # Builds the iPhone app, the Mac app and the push relay, all unsigned. Separate from ci.yml
 # (kernel, host, cloud). The Mac app bundles the host, so serve/host changes trigger it too.
+# Path filtering happens in `changes`, not in `on.paths`, so the `apps` job always reports and can
+# be the one required check.
 on:
   pull_request:
     branches: [apps, serve, main]
-    paths:
-      - "apps/**"
-      - "serve/relay/**"
-      - "serve/host/**"
-      - "serve/docs/reference/fixtures/**"
-      - "serve/rust-toolchain.toml"
-      - ".github/workflows/apps.yml"
   push:
     branches: [apps]
-    paths:
-      - "apps/**"
-      - "serve/relay/**"
-      - "serve/host/**"
-      - "serve/docs/reference/fixtures/**"
-      - "serve/rust-toolchain.toml"
-      - ".github/workflows/apps.yml"
   workflow_dispatch:
 
 concurrency:
@@ -35,7 +23,46 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      ios: ${{ steps.f.outputs.ios }}
+      desktop: ${{ steps.f.outputs.desktop }}
+      relay: ${{ steps.f.outputs.relay }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: f
+        with:
+          filters: |
+            ios:
+              - 'apps/ios/**'
+              - 'apps/shared/**'
+              - 'apps/Codync.xcodeproj/**'
+              - 'apps/project.yml'
+              - '.github/workflows/apps.yml'
+            desktop:
+              - 'apps/desktop/**'
+              - 'apps/packaging/**'
+              - 'apps/shared/**'
+              - 'apps/screen-macos/**'
+              - 'apps/Codync.xcodeproj/**'
+              - 'apps/project.yml'
+              - 'serve/host/**'
+              - 'serve/rust-toolchain.toml'
+              - 'serve/docs/reference/fixtures/**'
+              - '.github/workflows/apps.yml'
+            relay:
+              - 'serve/relay/**'
+              - '.github/workflows/apps.yml'
+
   relay:
+    needs: changes
+    if: needs.changes.outputs.relay == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -55,6 +82,8 @@ jobs:
         run: npm test
 
   ios:
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
     runs-on: macos-26
     timeout-minutes: 40
     steps:
@@ -75,6 +104,8 @@ jobs:
           CODE_SIGNING_ALLOWED=NO
 
   desktop:
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
     runs-on: macos-26
     timeout-minutes: 60
     defaults:
@@ -112,3 +143,20 @@ jobs:
         run: npm run dist:mac:dev -- --publish never
       - name: Show the result
         run: ls -la dist
+
+  # The single check to require: passes when every needed job passed or was skipped by the
+  # filter, fails on any failure or cancellation.
+  apps:
+    if: always()
+    needs: [changes, relay, ios, desktop]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check results
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          case " $RESULTS " in
+            *" failure "*|*" cancelled "*) exit 1 ;;
+          esac

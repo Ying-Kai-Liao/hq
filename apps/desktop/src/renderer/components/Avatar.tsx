@@ -216,10 +216,15 @@ export function moodOf(bot: Bot, animated = true): Mood {
 const crewFaces = import.meta.glob<string>('../assets/crew/*.png', { eager: true, query: '?url', import: 'default' })
 const crewURL = new Map(Object.entries(crewFaces).map(([path, url]) => [path.split('/').pop()!.replace('.png', ''), url]))
 
+/** A crew member's portrait, or null without one (also the editor's preview). */
+export function CrewPortrait({ crew, size = 40 }: { crew: string; size?: number }) {
+  const face = crewURL.get(crew)
+  return face ? <img className="avatar-crew" src={face} width={size} height={size} alt="" draggable={false} /> : null
+}
+
 export function BotAvatar({ bot, size = 40, animated = true }: { bot: Bot; size?: number; animated?: boolean }) {
   const crew = crewName(bot)
-  const face = crew ? crewURL.get(crew) : undefined
-  if (face) return <img className="avatar-crew" src={face} width={size} height={size} alt="" draggable={false} />
+  if (crew && crewURL.has(crew)) return <CrewPortrait crew={crew} size={size} />
   return <CharacterAvatar shape={bot.avatarShape} color={bot.avatarColor} size={size} mood={moodOf(bot, animated)} />
 }
 

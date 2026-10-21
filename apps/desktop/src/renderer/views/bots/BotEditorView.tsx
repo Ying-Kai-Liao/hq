@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { fastModeRefusal, fastModeShown } from '@shared/fast-mode'
 import { draftOf, type BotDraft, type DirListing } from '@shared/models'
 import { AgentIcon } from '../../components/AgentIcon'
-import { CharacterAvatar } from '../../components/Avatar'
+import { crewName } from '@shared/crew'
+import { CharacterAvatar, CrewPortrait } from '../../components/Avatar'
 import { CardSection, ChoicePicker, DropdownMenu, IconButton, Pill, SearchField, Spinner, ValueRow } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { ModalHeader, Sheet, SheetPage, useDismiss } from '../../components/Overlay'
@@ -107,6 +108,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
 }) {
   const store = useStore()
   const [pickingAvatar, setPickingAvatar] = useState(false)
+  const crew = draft.id ? crewName({ id: draft.id, name: draft.name, kind: store.bots.get(draft.id)?.kind ?? 'agent' }) : null
   const [pickingFolder, setPickingFolder] = useState(false)
   const [viewingSkill, setViewingSkill] = useState<SkillRef | null>(null)
   const avatarRef = useRef<HTMLButtonElement>(null)
@@ -187,10 +189,15 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
       <div className="bot-form-content">
         <CardSection title="Profile">
           <ValueRow label="Avatar">
+            {crew ? (
+              // The portrait wins over the stored shape and colour (every bot has them, chosen or not), so nothing to pick.
+              <span className="avatar-button small"><CrewPortrait crew={crew} size={24} /></span>
+            ) : (
             <button ref={avatarRef} className="avatar-button small" title="Edit Bot avatar" aria-label="Edit Bot avatar" onClick={() => setPickingAvatar((p) => !p)}>
               <CharacterAvatar shape={draft.avatarShape} color={draft.avatarColor} size={24} />
             </button>
-            <AnchoredPanel open={pickingAvatar} onClose={() => setPickingAvatar(false)} anchor={avatarRef}>
+            )}
+            <AnchoredPanel open={pickingAvatar && !crew} onClose={() => setPickingAvatar(false)} anchor={avatarRef}>
               <div className="avatar-picker-panel">
                 <AvatarPicker shape={draft.avatarShape} color={draft.avatarColor} onShape={(s) => set('avatarShape', s)} onColor={(c) => set('avatarColor', c)} />
               </div>

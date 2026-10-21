@@ -29,6 +29,12 @@ public struct CharacterAvatar: View {
         self.still = still
     }
 
+    /// A crew member's portrait alone, for the editor preview.
+    public init(crew: String, size: CGFloat = 40) {
+        self.init(shape: "blob", color: "blue", size: size)
+        self.crew = crew
+    }
+
     public init(bot: Bot, size: CGFloat = 40, animated: Bool = true) {
         self.init(
             shape: bot.avatarShape,
