@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # hq-serve — run Kith's host (serve/host, binary kith-serve) on this Mac as a launchd job.
 #
-#   hq serve start [--no-build]   build the host if needed, install it to ~/.kith/serve/bin, load launchd job dev.kith.serve
+#   hq serve start [--no-build]   build the host (cargo skips what is fresh), install it to ~/.kith/serve/bin, load launchd job dev.kith.serve
 #   hq serve stop                 stop the job (keeps data and the job file)
 #   hq serve restart              stop, then start --no-build
 #   hq serve status               the host's own status, and whether the relay URL is set
@@ -33,17 +33,12 @@ find_cargo() {
 
 built_bin() { echo "${CARGO_TARGET_DIR:-$HOST/target}/dev-app/kith-serve"; }
 
-stale() {
-  local b=$1
-  [ -x "$b" ] || return 0
-  [ -n "$(find "$HOST/src" "$HOST/crates" "$HOST/Cargo.toml" "$HOST/Cargo.lock" -type f -newer "$b" 2>/dev/null | head -1)" ]
-}
-
 cmd_start() {
   local build=1 a
   for a in "$@"; do case $a in --no-build) build=0 ;; *) echo "hq serve start: unknown option $a" >&2; exit 2 ;; esac; done
   local built; built=$(built_bin)
-  if [ $build = 1 ] && stale "$built"; then
+  # Always ask cargo: its target dir may be shared across checkouts, so file times can't say what this tree built.
+  if [ $build = 1 ]; then
     local cargo; cargo=$(find_cargo) || { echo "hq serve: cargo not found (install Rust: https://rustup.rs)" >&2; exit 1; }
     echo "building kith-serve (dev-app profile)..."
     local log; log=$(mktemp "${TMPDIR:-/tmp}/hq-serve-build.XXXXXX")

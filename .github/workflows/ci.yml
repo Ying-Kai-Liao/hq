@@ -58,6 +58,8 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - name: Bridge check
         run: kernel/tests/hq-bridge-check
+      - name: Serve check
+        run: kernel/tests/hq-serve-check
 
   host-fmt:
     needs: changes

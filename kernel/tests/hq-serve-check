@@ -50,23 +50,16 @@ check "start builds with the dev-app profile" "grep -q 'cargo build --profile de
 check "start copies the binary to ~/.kith/serve/bin" "[ -x '$BIN' ]"
 check "start calls install --port 19224" "grep -q 'kith-serve install --port 19224' '$STUB_LOG'"
 
-# start again: fresh, so no second build; install is still called
+# start again: cargo is asked every time (it decides what is fresh); install is still called
 "$SERVE" start >/dev/null 2>&1
-check "second start does not rebuild" "[ $(count 'cargo build') = 1 ]"
+check "second start runs cargo again" "[ $(count 'cargo build') = 2 ]"
 check "second start installs again" "[ $(count 'kith-serve install') = 2 ]"
 
-# a source newer than the binary rebuilds
-sleep 1; touch "$T/repo/serve/host/src/main.rs"
-"$SERVE" start >/dev/null 2>&1
-check "newer source rebuilds" "[ $(count 'cargo build') = 2 ]"
-
-# --no-build skips the check
-sleep 1; touch "$T/repo/serve/host/src/main.rs"
+# --no-build never runs cargo
 "$SERVE" start --no-build >/dev/null 2>&1
-check "--no-build skips the build" "[ $(count 'cargo build') = 2 ]"
+check "--no-build never runs cargo" "[ $(count 'cargo build') = 2 ]"
 
 # a failing build keeps the old installed binary and exits non-zero, with the tail shown
-sleep 1; touch "$T/repo/serve/host/src/main.rs"
 before=$(cksum < "$BIN")
 out=$(STUB_BUILD_FAIL=1 "$SERVE" start 2>&1); rc=$?
 check "failed build exits non-zero" "[ $rc != 0 ]"
@@ -74,8 +67,12 @@ check "failed build shows the output tail" "echo \"\$out\" | grep -q 'boom line'
 check "failed build keeps the installed binary" "[ \"$before\" = \"\$(cksum < '$BIN')\" ]"
 
 # no cargo at all (and no rustup toolchains): a clear error
-out=$(PATH=$SYSPATH "$SERVE" start 2>&1); rc=$?
-check "no cargo: clear error" "[ $rc != 0 ] && echo \"\$out\" | grep -q 'cargo not found'"
+if PATH=$SYSPATH command -v cargo >/dev/null 2>&1; then
+  echo "skip no cargo: clear error (a system cargo is on $SYSPATH)"
+else
+  out=$(PATH=$SYSPATH "$SERVE" start 2>&1); rc=$?
+  check "no cargo: clear error" "[ $rc != 0 ] && echo \"\$out\" | grep -q 'cargo not found'"
+fi
 
 # stop and status forward to the host
 "$SERVE" stop >/dev/null 2>&1
