@@ -2,9 +2,9 @@ name: ci
 
 on:
   pull_request:
-    branches: [serve, main]
+    branches: [serve, main, apps]
   push:
-    branches: [serve]
+    branches: [serve, apps]
   workflow_dispatch:
 
 # One run per ref; a re-push to a PR cancels the older run, pushes to serve queue up.
