@@ -1,0 +1,262 @@
+//! What the channels ask hq: where its tools and agents are, who a sender is (`hq-auth who`), whether a person may
+//! use an agent (`hq-auth resolve`), and each agent's card (`agent.md`).
+
+use crate::LockExt;
+use serde_json::Value;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+const TOOL_TIMEOUT: Duration = Duration::from_secs(60);
+/// New agents show up without a restart.
+const AGENT_REFRESH: Duration = Duration::from_secs(30);
+
+/// Where hq's tools and folders are on this computer.
+#[derive(Clone, Debug)]
+pub struct Paths {
+    pub hq_bin: PathBuf,
+    pub auth_bin: PathBuf,
+    pub live_bin: PathBuf,
+    /// This Mac's hq (`~/.hq`): the bridge's state and the live outboxes `hq-send --to bridge:<box>` writes.
+    pub machine: PathBuf,
+    /// Folders with one folder per agent.
+    pub agent_roots: Vec<PathBuf>,
+    /// `<data dir>/channels`: this host's state, run outboxes and downloaded attachments.
+    pub data: PathBuf,
+}
+
+impl Paths {
+    /// Blocking: looking for `hq` may ask the login shell. None when there is no hq to run.
+    pub fn discover() -> Option<Self> {
+        let hq_bin = crate::agent::hq::bin()?;
+        let beside = |name: &str| {
+            let near = hq_bin.with_file_name(name);
+            if near.is_file() { near } else { crate::agent::backends::which(name).unwrap_or(near) }
+        };
+        let home = dirs::home_dir()?;
+        let hq_home =
+            std::env::var_os("HQ_HOME").filter(|h| !h.is_empty()).map_or_else(|| home.join("hq"), PathBuf::from);
+        let mut agent_roots = vec![hq_home.join("agents")];
+        // The kernel's own agents sit next to its bin folder.
+        if let Some(kernel) =
+            std::fs::canonicalize(&hq_bin).ok().and_then(|p| Some(p.parent()?.parent()?.to_path_buf()))
+        {
+            agent_roots.push(kernel.join("agents"));
+        }
+        let machine =
+            std::env::var_os("HQ_MACHINE").filter(|h| !h.is_empty()).map_or_else(|| home.join(".hq"), PathBuf::from);
+        Some(Self {
+            auth_bin: beside("hq-auth"),
+            live_bin: beside("hq-live"),
+            hq_bin,
+            machine,
+            agent_roots,
+            data: crate::service::data_dir().join("channels"),
+        })
+    }
+
+    /// The bridge's state file. Read only: the bridge keeps writing it for the connections it still runs.
+    pub fn bridge_state(&self) -> PathBuf {
+        self.machine.join("bridge").join("state.json")
+    }
+
+    /// Where `hq-send --to bridge:<box>` leaves what a live agent says.
+    pub fn live_outbox(&self, box_id: &str) -> PathBuf {
+        self.machine.join("bridge").join("outbox").join(format!("live-{box_id}"))
+    }
+}
+
+/// Runs a tool without a terminal: its output, or None when it can't start or takes too long.
+pub async fn output(bin: &Path, args: &[&str]) -> Option<std::process::Output> {
+    let child = tokio::process::Command::new(bin)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .ok()?;
+    tokio::time::timeout(TOOL_TIMEOUT, child.wait_with_output()).await.ok()?.ok()
+}
+
+/// A sender, as `hq-auth who <platform> <uid>` knows them.
+#[derive(Clone, Debug, Default)]
+pub struct Who {
+    pub person: Option<String>,
+    pub owner: bool,
+    /// Ids the person had before a rename.
+    pub was: Vec<String>,
+    pub owner_id: Option<String>,
+    pub owner_linked: bool,
+}
+
+impl Who {
+    fn parse(v: &Value) -> Self {
+        let text = |k: &str| v.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+        Self {
+            person: text("person"),
+            owner: v.get("owner").and_then(Value::as_bool).unwrap_or(false),
+            was: v
+                .get("was")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+                .unwrap_or_default(),
+            owner_id: text("owner_id"),
+            owner_linked: v.get("owner_linked").and_then(Value::as_bool).unwrap_or(false),
+        }
+    }
+
+    /// Whether `person` is this sender (also under an id they had before a rename).
+    pub fn is(&self, person: &str) -> bool {
+        self.person.as_deref() == Some(person) || self.was.iter().any(|w| w == person)
+    }
+}
+
+/// Whether a person may use an agent.
+#[derive(Clone, Debug, Default)]
+pub struct Access {
+    pub allowed: bool,
+    pub why: String,
+    pub owner: bool,
+}
+
+pub async fn who(paths: &Paths, platform: &str, uid: &str) -> Who {
+    let out = output(&paths.auth_bin, &["who", platform, uid]).await;
+    out.and_then(|o| serde_json::from_slice::<Value>(&o.stdout).ok())
+        .map_or_else(|| Who { owner: false, ..Who::default() }, |v| Who::parse(&v))
+}
+
+pub async fn resolve(paths: &Paths, person: &str, agent: &str) -> Access {
+    let out = output(&paths.auth_bin, &["resolve", agent, "--person", person]).await;
+    match out.and_then(|o| serde_json::from_slice::<Value>(&o.stdout).ok()) {
+        Some(v) => Access {
+            allowed: v.get("allowed").and_then(Value::as_bool).unwrap_or(false),
+            why: v.get("why").and_then(Value::as_str).unwrap_or("").to_owned(),
+            owner: v.get("owner").and_then(Value::as_bool).unwrap_or(false),
+        },
+        None => Access { why: format!("can't check whether {person} may use {agent}"), ..Access::default() },
+    }
+}
+
+/// `hq-auth link <platform> <uid> <code>` -> the person it linked, or the reason it refused.
+pub async fn link(paths: &Paths, platform: &str, uid: &str, code: &str) -> Result<String, String> {
+    match output(&paths.auth_bin, &["link", platform, uid, code]).await {
+        Some(o) if o.status.success() => Ok(String::from_utf8_lossy(&o.stdout).trim().to_owned()),
+        Some(o) => Err(String::from_utf8_lossy(&o.stderr).trim().trim_start_matches("hq-auth: ").to_owned()),
+        None => Err(String::new()),
+    }
+}
+
+/// The agents on this computer and their cards.
+pub struct Agents {
+    roots: Vec<PathBuf>,
+    cache: Mutex<Option<(Instant, BTreeMap<String, PathBuf>)>>,
+}
+
+impl Agents {
+    pub fn new(roots: Vec<PathBuf>) -> Self {
+        Self { roots, cache: Mutex::new(None) }
+    }
+
+    /// {agent: package folder}, looked up again at most every 30 s.
+    fn dirs(&self) -> BTreeMap<String, PathBuf> {
+        let mut cache = self.cache.locked();
+        if let Some((at, dirs)) = cache.as_ref()
+            && at.elapsed() < AGENT_REFRESH
+        {
+            return dirs.clone();
+        }
+        let mut out = BTreeMap::new();
+        for root in &self.roots {
+            let Ok(entries) = std::fs::read_dir(root) else { continue };
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let dir = entry.path();
+                // role/ next to the agent's life
+                let pkg = if dir.join("role/agent.md").is_file() { dir.join("role") } else { dir };
+                if !name.starts_with('.') && pkg.join("agent.md").is_file() {
+                    out.entry(name).or_insert(pkg);
+                }
+            }
+        }
+        *cache = Some((Instant::now(), out.clone()));
+        out
+    }
+
+    pub fn list(&self) -> Vec<String> {
+        self.dirs().into_keys().collect()
+    }
+
+    /// `key: value` from the agent's agent.md.
+    pub fn card(&self, agent: &str, key: &str) -> Option<String> {
+        let pkg = self.dirs().remove(agent)?;
+        let text = std::fs::read_to_string(pkg.join("agent.md")).ok()?;
+        text.lines()
+            .find_map(|l| l.strip_prefix(key)?.strip_prefix(':'))
+            .map(|v| v.trim().to_owned())
+            .filter(|v| !v.is_empty())
+    }
+
+    pub fn description(&self, agent: &str) -> String {
+        let d = self.card(agent, "description").unwrap_or_else(|| format!("hq {agent}"));
+        super::text::first_chars(&d, 1024).to_owned()
+    }
+
+    /// The name an agent posts under (`display_name` in agent.md); anything that isn't an agent stays as it is.
+    pub fn display_name(&self, agent: &str) -> String {
+        self.card(agent, "display_name").unwrap_or_else(|| agent.to_owned())
+    }
+
+    pub fn find(&self, word: &str) -> Option<String> {
+        let w = word.to_lowercase();
+        self.list().into_iter().find(|a| w == *a || w == cmd_name(a))
+    }
+
+    pub fn is_live(&self, agent: &str) -> bool {
+        self.card(agent, "session").as_deref() == Some("live")
+    }
+}
+
+/// Telegram commands: lowercase letters, digits and `_`.
+pub fn cmd_name(agent: &str) -> String {
+    agent.replace('-', "_")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agents_come_from_their_cards() {
+        let dir = std::env::temp_dir().join(format!("kith-agents-{}", uuid::Uuid::new_v4()));
+        for (name, card, sub) in [
+            ("house", "description: Keeps the house\ndisplay_name: Home\n", ""),
+            ("my-agent", "description: x\nsession: live\n", "role/"),
+            (".hidden", "description: no\n", ""),
+        ] {
+            std::fs::create_dir_all(dir.join(name).join(sub)).unwrap();
+            std::fs::write(dir.join(name).join(sub).join("agent.md"), card).unwrap();
+        }
+        std::fs::create_dir_all(dir.join("empty")).unwrap();
+        let agents = Agents::new(vec![dir.clone(), dir.join("missing")]);
+        assert_eq!(agents.list(), vec!["house", "my-agent"]);
+        assert_eq!(agents.display_name("house"), "Home");
+        assert_eq!(agents.display_name("nobody"), "nobody");
+        assert_eq!(agents.description("my-agent"), "x");
+        assert_eq!(agents.description("nobody"), "hq nobody");
+        assert_eq!(agents.find("MY_AGENT").as_deref(), Some("my-agent"));
+        assert_eq!(agents.find("house").as_deref(), Some("house"));
+        assert!(agents.find("empty").is_none());
+        assert!(agents.is_live("my-agent") && !agents.is_live("house"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_renamed_person_is_still_the_sender() {
+        let who = Who::parse(&serde_json::json!({"person": "kai", "was": ["old"], "owner": true}));
+        assert!(who.is("kai") && who.is("old") && !who.is("other"));
+        assert!(who.owner);
+    }
+}

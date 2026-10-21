@@ -1,0 +1,580 @@
+//! The core, the same on every platform: people, access, rooms, threads and sessions. The queue and the runs are
+//! in `queue.rs` and `run.rs`; this file is what happens to a message until it reaches the queue.
+//!
+//! Who answers a message: `@agent` (or `/agent`) at its start, or a mention anywhere; else, in a thread, the agent
+//! that answered last; else the room's default (an agent's own Discord channel defaults to that agent); else, when
+//! the bot was addressed, the bot asks "who should take this?" and never guesses. The first agent in a thread owns
+//! the task; one mentioned later answers in its own session there.
+
+use super::adapter::{Adapter, Incoming};
+use super::hq::{self, Access, Agents, Paths, Who};
+use super::judge::Judge;
+use super::settings::Settings;
+use super::state::{Imported, State};
+use super::text::{self, short};
+use crate::LockExt;
+use crate::agent::gate::Gate;
+use anyhow::Result;
+use serde_json::{Value, json};
+use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
+use std::sync::{Arc, Mutex};
+use tokio::task::JoinHandle;
+
+/// A message older than this when it arrives was sent while the host was away.
+const LATE_SECONDS: f64 = 120.0;
+/// How long "who should take this?" waits for a button.
+const ASK_EXPIRES: f64 = 86400.0;
+
+pub fn now() -> f64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64())
+}
+
+/// What the core is built from.
+pub struct Deps {
+    pub paths: Paths,
+    pub settings: Settings,
+    pub gate: Arc<Gate>,
+    pub judge: Judge,
+}
+
+/// The turn a thread's agent is running (or about to run, or between turns).
+#[allow(clippy::struct_excessive_bools)] // independent flags the worker and the router set and clear
+#[derive(Default)]
+pub(super) struct Busy {
+    /// The prompt of the current turn.
+    pub task: String,
+    /// The messages of the current turn, so a correction can run them again.
+    pub batch: Vec<String>,
+    pub pid: Option<u32>,
+    pub exited: bool,
+    pub ended: Option<super::adapter::Ended>,
+    /// The last message looked unfinished: give the rest time before starting.
+    pub hold: bool,
+    /// The next batch continues this same work (it was queued while the run waited for Jev).
+    pub cont: bool,
+    /// The next turn restarts corrected work.
+    pub redo: bool,
+    /// The adapter's working line.
+    pub status: Value,
+    /// Wakes a turn that waits for the gate when it is stopped.
+    pub cancel: Arc<tokio::sync::Notify>,
+}
+
+impl Busy {
+    pub fn running(&self) -> bool {
+        self.pid.is_some() && !self.exited
+    }
+}
+
+pub(super) struct Inner {
+    pub st: State,
+    pub path: std::path::PathBuf,
+    /// Work key (`<thread>#<agent>`) -> the running turn.
+    pub busy: HashMap<String, Busy>,
+    /// Work key -> the last user messages, for the router.
+    pub history: HashMap<String, Vec<String>>,
+    /// Short id -> work key, for Stop buttons.
+    pub works: HashMap<String, String>,
+}
+
+impl Inner {
+    pub fn save(&mut self) {
+        if let Err(e) = self.st.save(&self.path) {
+            tracing::error!(error = %e, "channels: can't write the state");
+        }
+    }
+}
+
+pub struct Core {
+    pub(super) paths: Paths,
+    pub settings: Settings,
+    pub(super) agents: Agents,
+    pub(super) gate: Arc<Gate>,
+    pub(super) judge: Judge,
+    pub(super) inner: Mutex<Inner>,
+    /// Connections whose live-agent outboxes are being posted.
+    pub(super) pumps: Mutex<HashMap<String, JoinHandle<()>>>,
+    hinted: Mutex<HashSet<String>>,
+}
+
+impl Core {
+    pub fn new(deps: Deps) -> Arc<Self> {
+        let path = deps.paths.data.join("state.json");
+        let st = State::load(&path);
+        Arc::new(Self {
+            agents: Agents::new(deps.paths.agent_roots.clone()),
+            paths: deps.paths,
+            settings: deps.settings,
+            gate: deps.gate,
+            judge: deps.judge,
+            inner: Mutex::new(Inner { st, path, busy: HashMap::new(), history: HashMap::new(), works: HashMap::new() }),
+            pumps: Mutex::new(HashMap::new()),
+            hinted: Mutex::new(HashSet::new()),
+        })
+    }
+
+    pub(super) fn with<R>(&self, f: impl FnOnce(&mut Inner) -> R) -> R {
+        f(&mut self.inner.locked())
+    }
+
+    // ---- helpers for adapters ----
+
+    /// The agents on this computer.
+    pub fn agents(&self) -> Vec<String> {
+        self.agents.list()
+    }
+
+    /// The name an agent posts under; anything that isn't an agent stays as it is.
+    pub fn display_name(&self, agent: &str) -> String {
+        self.agents.display_name(agent)
+    }
+
+    pub fn description(&self, agent: &str) -> String {
+        self.agents.description(agent)
+    }
+
+    /// Telegram commands: lowercase letters, digits and `_`.
+    pub fn cmd_name(agent: &str) -> String {
+        hq::cmd_name(agent)
+    }
+
+    pub fn find_agent(&self, word: &str) -> Option<String> {
+        self.agents.find(word)
+    }
+
+    /// Pieces of at most `n` characters, cut at line ends, with a code fence cut in two closed and reopened.
+    pub fn chunks(text: &str, n: usize) -> Vec<String> {
+        text::chunks(text, n)
+    }
+
+    /// Where downloaded attachments go.
+    pub fn attachments_dir(&self) -> std::path::PathBuf {
+        self.paths.data.join("attachments")
+    }
+
+    /// The connection's own state (offsets, webhooks).
+    pub fn conn_state(&self, conn: &str) -> Value {
+        self.with(|i| i.st.conns.get(conn).cloned().unwrap_or_else(|| json!({})))
+    }
+
+    /// Changes the connection's own state and saves it.
+    pub fn update_conn<R>(&self, conn: &str, f: impl FnOnce(&mut Value) -> R) -> R {
+        self.with(|i| {
+            let r = f(i.st.conns.entry(conn).or_insert_with(|| json!({})));
+            i.save();
+            r
+        })
+    }
+
+    /// A message of a thread (Telegram has no threads: a reply to one of these continues it).
+    pub fn link_reply(&self, conn: &str, chat: &str, msg_id: &str, key: &str) {
+        self.with(|i| {
+            i.st.replies.insert(format!("{conn}:{chat}:{msg_id}"), json!(key));
+        });
+    }
+
+    pub fn replied_thread(&self, conn: &str, chat: &str, msg_id: &str) -> Option<String> {
+        self.with(|i| i.st.replies.get(&format!("{conn}:{chat}:{msg_id}")).and_then(|v| v.as_str().map(str::to_owned)))
+    }
+
+    /// The first time a connection starts here, its threads, sessions, rooms and queued messages come over from
+    /// the bridge's state (read only: the bridge keeps its file for the connections it still runs).
+    pub fn import_bridge(&self, conn: &str) -> Option<Imported> {
+        if self.with(|i| i.st.conns.contains_key(conn)) {
+            return None;
+        }
+        let bridge =
+            std::fs::read(self.paths.bridge_state()).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok());
+        let imported = self.with(|i| {
+            let n = i.st.import_connection(&bridge.unwrap_or(Value::Null), conn);
+            i.save();
+            n
+        });
+        tracing::info!(
+            conn,
+            rooms = imported.rooms,
+            threads = imported.threads,
+            replies = imported.replies,
+            inbox = imported.inbox,
+            pending = imported.pending,
+            live = imported.live,
+            "channels: imported a connection's state from the bridge"
+        );
+        Some(imported)
+    }
+
+    // ---- people ----
+
+    /// The sender -> (person id, who) or (None, who) when hq doesn't know them.
+    async fn person(&self, ad: &Arc<dyn Adapter>, m: &Incoming) -> (Option<String>, Who) {
+        let mut w = hq::who(&self.paths, ad.platform(), &m.uid).await;
+        if w.person.is_none()
+            && m.admin
+            && let Some(owner) = w.owner_id.clone()
+            && !w.owner_linked
+        {
+            // The server's owner, until hq knows their account on this platform.
+            if self.hinted.locked().insert(ad.conn().to_owned()) {
+                tracing::info!(
+                    "{}: taking the server owner {} as {owner} (hq auth handle {owner} {} {} to say so)",
+                    ad.conn(),
+                    m.uid,
+                    ad.platform(),
+                    m.uid
+                );
+            }
+            w.person = Some(owner);
+            w.owner = true;
+        }
+        (w.person.clone(), w)
+    }
+
+    async fn usable(&self, person: &str) -> Vec<String> {
+        let checks = self.agents.list().into_iter().map(|a| async move {
+            let allowed = hq::resolve(&self.paths, person, &a).await.allowed;
+            (a, allowed)
+        });
+        futures::future::join_all(checks).await.into_iter().filter_map(|(a, ok)| ok.then_some(a)).collect()
+    }
+
+    /// Whether the sender is the person the thread belongs to (also under an id they had before a rename).
+    pub(super) fn owns(th: &Value, w: &Who) -> bool {
+        match th.get("person").and_then(Value::as_str).filter(|p| !p.is_empty()) {
+            Some(p) => w.is(p),
+            None => w.owner,
+        }
+    }
+
+    // ---- a message ----
+
+    pub async fn handle(self: &Arc<Self>, ad: &Arc<dyn Adapter>, m: &Incoming) -> Result<()> {
+        let text = m.text.as_str();
+        let (name, arg) = text::command(text).unwrap_or_default();
+        if name == "link"
+            && !arg.is_empty()
+            && arg.len() <= 12
+            && arg.len() >= 4
+            && arg.chars().all(|c| c.is_ascii_alphanumeric())
+        {
+            // A one-time code from hq-auth invite.
+            let linked = hq::link(&self.paths, ad.platform(), &m.uid, &arg).await;
+            tracing::info!("{} link {}: {}", ad.conn(), m.uid, if linked.is_ok() { "ok" } else { "refused" });
+            let said = match linked {
+                Ok(person) => format!("Linked: you are {person} in hq."),
+                Err(why) if why.is_empty() => "That code did not work.".into(),
+                Err(why) => why,
+            };
+            return ad.reply(m, &said).await;
+        }
+        let (person, w) = self.person(ad, m).await;
+        let key = m.thread.clone().filter(|t| self.with(|i| i.st.threads.contains_key(t)));
+        let th = key.as_ref().and_then(|k| self.with(|i| i.st.threads.get(k).cloned()));
+        let Some(person) = person else {
+            if m.private || m.addressed || th.is_some() {
+                ad.reply(
+                    m,
+                    "This account is not linked to hq yet. Ask the owner for a code, then send /link CODE here.",
+                )
+                .await?;
+            }
+            return Ok(());
+        };
+        if let Some(th) = &th
+            && !Self::owns(th, &w)
+        {
+            // Its sessions hold what the agents saw for them.
+            let owner = th.get("person").and_then(Value::as_str).filter(|p| !p.is_empty()).unwrap_or("the owner");
+            return ad.reply(m, &format!("This thread is {owner}'s. Start your own outside it.")).await;
+        }
+        let default = self.with(|i| {
+            let dm_default = self.settings.dm_default.clone();
+            let room = i.st.rooms.entry(m.room.as_str()).or_insert_with(|| json!({}));
+            if m.private && room.get("default").is_none() {
+                // A new DM: the owner's starts with the dm_default setting.
+                room["default"] = json!(if w.owner { dm_default } else { String::new() });
+                i.save();
+            }
+            let room = &i.st.rooms[m.room.as_str()];
+            let set = room.get("default").and_then(Value::as_str);
+            set.map_or_else(|| m.room_agent.clone().unwrap_or_default(), str::to_owned)
+        });
+        match name.as_str() {
+            "start" | "whoami" | "help" => {
+                let mut said = format!("You are {person} in hq.");
+                if !default.is_empty() {
+                    let _ = write!(said, " Messages without @agent here go to {default}.");
+                }
+                said += " Write @agent to pick one; /agents lists yours, /default sets this room's.";
+                return ad.reply(m, &said).await;
+            }
+            "agents" => {
+                let mine = self.usable(&person).await;
+                let list = if mine.is_empty() { "none yet".to_owned() } else { mine.join(", ") };
+                return ad
+                    .reply(m, &format!("Yours: {list}\nWrite @agent, or answer in a thread to go on with it."))
+                    .await;
+            }
+            "default" => return self.set_default(ad, m, &person, &arg, &default).await,
+            "stop" => {
+                let wk = key
+                    .as_ref()
+                    .zip(th.as_ref())
+                    .map(|(k, t)| format!("{k}#{}", t.get("last").and_then(Value::as_str).unwrap_or("")));
+                let active = wk.as_ref().filter(|wk| {
+                    self.with(|i| i.busy.contains_key(*wk) || i.st.inbox.get(*wk).is_some_and(|q| !q.is_empty()))
+                });
+                return match active {
+                    Some(wk) => self.stop(ad, wk, Some(m)).await,
+                    None => ad.reply(m, "Nothing is running here.").await,
+                };
+            }
+            _ => {}
+        }
+        let mut task = text.to_owned();
+        let leading = text::lead(text).and_then(|(word, rest)| Some((self.agents.find(&word)?, rest)));
+        let agent = if let Some((a, rest)) = leading {
+            if !rest.trim().is_empty() {
+                rest.trim().clone_into(&mut task);
+            }
+            Some(a)
+        } else {
+            text::mentions(text).iter().find_map(|x| self.agents.find(x))
+        };
+        if !m.quoted.is_empty() {
+            task = format!("(Replying to: \"{}\")\n\n{task}", text::first_chars(&m.quoted, 1500));
+        }
+        if !m.files.is_empty() {
+            let _ = write!(task, "\n\nAttached files: {}", m.files.join(", "));
+        }
+        if let Some(sent) = m.sent.filter(|s| now() - s > LATE_SECONDS) {
+            task = text::late_note(sent) + &task;
+        }
+        let last = th.as_ref().and_then(|t| t.get("last")).and_then(Value::as_str).filter(|l| !l.is_empty());
+        let agent = agent.or_else(|| last.map(str::to_owned)).or_else(|| Some(default).filter(|d| !d.is_empty()));
+        let Some(agent) = agent else {
+            if !(m.addressed || m.private) {
+                return Ok(()); // talk in a room with no default that isn't for hq
+            }
+            let mine = self.usable(&person).await;
+            if mine.is_empty() {
+                return ad.reply(m, "You have no agents yet. Ask the owner to add you.").await;
+            }
+            let pid = short(&format!("{}:{}:{}", m.room, m.origin, now()));
+            self.with(|i| {
+                i.st.pending.insert(
+                    pid.clone(),
+                    json!({"task": task, "text": text, "person": person, "room": m.room, "origin": m.origin,
+                           "thread": key, "private": m.private, "at": now()}),
+                );
+                i.st.pending.retain(|_, v| v.get("at").and_then(Value::as_f64).unwrap_or(0.0) >= now() - ASK_EXPIRES);
+                i.save();
+            });
+            return ad.ask(m, &pid, &mine).await;
+        };
+        self.begin(ad, m, &person, &agent, task, key).await
+    }
+
+    async fn set_default(
+        &self,
+        ad: &Arc<dyn Adapter>,
+        m: &Incoming,
+        person: &str,
+        arg: &str,
+        default: &str,
+    ) -> Result<()> {
+        if arg.is_empty() {
+            let said = if default.is_empty() {
+                "No default here: I ask who should take each message. /default <agent> sets one.".to_owned()
+            } else {
+                format!("Messages without @agent here go to {default}.")
+            };
+            return ad.reply(m, &said).await;
+        }
+        let new = if arg == "none" || arg == "-" {
+            String::new()
+        } else {
+            let agent = self.agents.find(arg);
+            let allowed = match &agent {
+                Some(a) => hq::resolve(&self.paths, person, a).await.allowed,
+                None => false,
+            };
+            match agent.filter(|_| allowed) {
+                Some(a) => a,
+                None => return ad.reply(m, &format!("No agent of yours called '{arg}'. /agents lists them.")).await,
+            }
+        };
+        self.with(|i| {
+            i.st.rooms.entry(m.room.as_str()).or_insert_with(|| json!({}))["default"] = json!(new);
+            i.save();
+        });
+        let said = if new.is_empty() {
+            "No default: I'll ask who should take each message.".to_owned()
+        } else {
+            format!("Messages without @agent here now go to {new}.")
+        };
+        ad.reply(m, &said).await
+    }
+
+    /// A button under "Who should take this?" -> false when it isn't this person's question (or it's gone).
+    pub async fn picked(self: &Arc<Self>, ad: &Arc<dyn Adapter>, pid: &str, agent: &str, uid: &str) -> Result<bool> {
+        let pend = self.with(|i| i.st.pending.get(pid).cloned());
+        let w = hq::who(&self.paths, ad.platform(), uid).await;
+        let text = |p: &Value, k: &str| p.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+        let Some(pend) = pend.filter(|p| w.is(&text(p, "person"))) else { return Ok(false) };
+        self.with(|i| {
+            i.st.pending.remove(pid);
+            i.save();
+        });
+        let thread = pend.get("thread").and_then(Value::as_str).map(str::to_owned);
+        let m = Incoming {
+            uid: uid.to_owned(),
+            text: text(&pend, "text"),
+            room: text(&pend, "room"),
+            origin: pend.get("origin").cloned().unwrap_or(Value::Null),
+            thread: thread.clone(),
+            private: pend.get("private").and_then(Value::as_bool).unwrap_or(false),
+            addressed: true,
+            ..Incoming::default()
+        };
+        let person = w.person.clone().unwrap_or_default();
+        self.begin(ad, &m, &person, agent, text(&pend, "task"), thread).await?;
+        Ok(true)
+    }
+
+    async fn begin(
+        self: &Arc<Self>,
+        ad: &Arc<dyn Adapter>,
+        m: &Incoming,
+        person: &str,
+        agent: &str,
+        task: String,
+        key: Option<String>,
+    ) -> Result<()> {
+        let access: Access = hq::resolve(&self.paths, person, agent).await;
+        if !access.allowed {
+            return ad
+                .reply(m, &format!("{}. Ask the owner to add you (hq auth member {agent} {person}).", access.why))
+                .await;
+        }
+        let known = key.filter(|k| self.with(|i| i.st.threads.contains_key(k)));
+        let key = if let Some(key) = known {
+            let conv = self.with(|i| i.st.threads[&key].get("conv").cloned().unwrap_or(Value::Null));
+            let conv = ad.follow(&conv, m);
+            self.with(|i| i.st.threads[&key]["conv"] = conv);
+            key
+        } else {
+            let (key, mut conv) = ad.open_thread(m, agent, &text::title(&m.text)).await?;
+            conv["key"] = json!(key);
+            self.with(|i| {
+                let th =
+                    i.st.threads
+                        .entry(key.as_str())
+                        .or_insert_with(|| json!({"person": person, "owner": agent, "room": m.room, "sessions": {}}));
+                th["conv"] = conv;
+            });
+            key
+        };
+        self.with(|i| {
+            if let Some(mut th) = i.st.threads.shift_remove(&key) {
+                th["last"] = json!(agent);
+                th["at"] = json!(now());
+                i.st.threads.insert(key.clone(), th); // newest last, for pruning
+            }
+            i.save();
+        });
+        if self.agents.is_live(agent) {
+            if !access.owner {
+                return ad.reply(m, &format!("{agent} takes work from the owner only.")).await;
+            }
+            if self.live(ad, &key, agent, m, &task).await {
+                return Ok(());
+            }
+        }
+        self.deliver(ad, &key, agent, m, task).await;
+        Ok(())
+    }
+
+    // ---- live agents ----
+
+    /// Types the owner's message into the agent's live session -> false when none runs (it then runs once).
+    async fn live(self: &Arc<Self>, ad: &Arc<dyn Adapter>, key: &str, agent: &str, m: &Incoming, task: &str) -> bool {
+        let box_id = short(key);
+        self.with(|i| {
+            i.st.live.insert(box_id.clone(), json!(key));
+            i.save();
+        });
+        let _ = std::fs::create_dir_all(self.paths.live_outbox(&box_id));
+        let mid = short(&format!("{key}:{}:{}", m.origin, now()));
+        let reply = format!("bridge:{box_id}");
+        let args = ["send", agent, "--reply", &reply, "--id", &mid, "--", task];
+        let sent = hq::output(&self.paths.live_bin, &args).await;
+        match sent {
+            Some(o) if o.status.success() => {}
+            other => {
+                let err = other.map(|o| String::from_utf8_lossy(&o.stderr).trim().to_owned()).unwrap_or_default();
+                let tail: String = err.chars().rev().take(200).collect::<Vec<_>>().into_iter().rev().collect();
+                tracing::warn!("live {agent} {key}: not delivered ({tail}); running it once");
+                return false;
+            }
+        }
+        tracing::info!("live {agent} {key}: delivered {mid}");
+        let conv = self.conv_of(key);
+        if let Err(e) =
+            ad.post(&conv, "hq", &format!("Sent to {agent}'s live session. Its answers come here."), None).await
+        {
+            tracing::warn!("live {agent} {key}: can't post the note: {e:#}");
+        }
+        self.ensure_pump(ad);
+        true
+    }
+
+    pub(super) fn conv_of(&self, key: &str) -> Value {
+        self.with(|i| i.st.threads.get(key).and_then(|t| t.get("conv").cloned()).unwrap_or(Value::Null))
+    }
+
+    /// Posts what live sessions left for this connection's threads (`hq-send --to bridge:<box>`), every second.
+    pub(super) fn ensure_pump(self: &Arc<Self>, ad: &Arc<dyn Adapter>) {
+        let conn = ad.conn().to_owned();
+        let mut pumps = self.pumps.locked();
+        if pumps.get(&conn).is_some_and(|h| !h.is_finished()) {
+            return;
+        }
+        let (core, ad) = (self.clone(), ad.clone());
+        pumps.insert(
+            conn.clone(),
+            tokio::spawn(async move {
+                let prefix = format!("{conn}:");
+                loop {
+                    tokio::time::sleep(core.settings.poll).await;
+                    let boxes: Vec<(String, String)> = core.with(|i| {
+                        i.st.live
+                            .iter()
+                            .filter_map(|(b, k)| Some((b.clone(), k.as_str()?.to_owned())))
+                            .filter(|(_, k)| k.starts_with(&prefix))
+                            .collect()
+                    });
+                    for (box_id, key) in boxes {
+                        let Some(thread_conv) = core
+                            .with(|i| i.st.threads.get(&key).map(|t| t.get("conv").cloned().unwrap_or(Value::Null)))
+                        else {
+                            core.with(|i| i.st.live.shift_remove(&box_id)); // the thread was pruned
+                            continue;
+                        };
+                        let folder = core.paths.live_outbox(&box_id);
+                        if folder.is_dir() {
+                            super::run::flush(&ad, &thread_conv, &folder).await;
+                        }
+                    }
+                }
+            }),
+        );
+    }
+
+    /// Stops a connection's background work (its live pump) when its grant is revoked.
+    pub fn forget(&self, conn: &str) {
+        if let Some(pump) = self.pumps.locked().remove(conn) {
+            pump.abort();
+        }
+    }
+}

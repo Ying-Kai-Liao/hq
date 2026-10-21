@@ -73,6 +73,7 @@ async fn health(State(hub): State<Arc<Hub>>) -> Json<Value> {
         "binaryHash": crate::service::binary_identity().map(|(_, hash)| hash),
         "busy": hub.busy(),
         "gate": hub.gate.status(),
+        "channels": crate::channels::status(),
     }))
 }
 
