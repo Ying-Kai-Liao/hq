@@ -28,6 +28,7 @@ mkdir -p "$CARGO_TARGET_DIR/dev-app"
 cat > "$CARGO_TARGET_DIR/dev-app/kith-serve" <<'EOS'
 #!/usr/bin/env bash
 echo "kith-serve $*" >> "$STUB_LOG"
+if [ "$1" = install ]; then echo "${HQ_BIN:-}" >> "$STUB_LOG.hq"; fi
 EOS
 chmod +x "$CARGO_TARGET_DIR/dev-app/kith-serve"
 EOF
@@ -49,6 +50,8 @@ check "start succeeds" "[ $rc = 0 ]"
 check "start builds with the dev-app profile" "grep -q 'cargo build --profile dev-app --manifest-path .*/serve/host/Cargo.toml' '$STUB_LOG'"
 check "start copies the binary to ~/.kith/serve/bin" "[ -x '$BIN' ]"
 check "start calls install --port 19224" "grep -q 'kith-serve install --port 19224' '$STUB_LOG'"
+
+check "start installs the job with this checkout's hq" "grep -q '/repo/kernel/bin/hq\$' '$STUB_LOG.hq'"
 
 # start again: cargo is asked every time (it decides what is fresh); install is still called
 "$SERVE" start >/dev/null 2>&1
