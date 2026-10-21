@@ -74,6 +74,12 @@ impl Actor {
             }
             Cmd::SendFile { path, name, cancelled, reply } => self.begin_file(path, name, cancelled, reply),
             Cmd::Stop => self.stop().await,
+            Cmd::IdleFor(reply) => {
+                let _ = reply.send(self.idle_for());
+            }
+            Cmd::StopIdle(reply) => {
+                let _ = reply.send(self.stop_idle().await);
+            }
             Cmd::Permission { entry_id, option_id } => self.answer_permission(&entry_id, option_id).await,
             // A group lane's (see `Hub::send_cmd`): a room turn that runs finishes; the next one starts afresh.
             Cmd::NewSession if !self.is_main() => self.forget_session(),
@@ -267,6 +273,10 @@ impl Actor {
     pub(super) async fn next_in_queue(&mut self, done_tx: &mpsc::UnboundedSender<Done>) {
         let main = Lane::main(&self.cfg.id);
         while self.turn.is_none() && self.routine_completion.is_none() && !self.queue.is_empty() {
+            // Every turn takes a slot from the gate first; without one this resumes when it is granted.
+            if !self.have_room() {
+                return;
+            }
             match self.queue.front() {
                 Some(Queued::Routine(_)) => {
                     let Some(Queued::Routine(id)) = self.queue.pop_front() else { unreachable!("front is a routine") };
@@ -474,6 +484,7 @@ impl Actor {
             );
             return;
         }
+        self.await_room().await;
         let prompt = if self.active_routine.is_some() {
             format!(
                 "{RESUME_PROMPT} This is still a scheduled routine run. If its instruction permits silence and there is nothing to report, return exactly (pass)."

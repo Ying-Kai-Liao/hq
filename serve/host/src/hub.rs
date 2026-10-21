@@ -89,6 +89,8 @@ pub struct Hub {
     pub terms: Arc<crate::agent::term::Terms>,
     /// One sync of the hq bots at a time (see `hq`).
     hq_sync: tokio::sync::Mutex<()>,
+    /// How many agent turns run at once, and whether memory has room for another.
+    pub gate: Arc<crate::agent::gate::Gate>,
 }
 
 impl Hub {
@@ -98,6 +100,17 @@ impl Hub {
     }
 
     pub fn new(store: Store, host_id: String, identity: Identity, token: String, port: u16) -> Arc<Self> {
+        Self::new_with_gate(store, host_id, identity, token, port, new_gate())
+    }
+
+    pub fn new_with_gate(
+        store: Store,
+        host_id: String,
+        identity: Identity,
+        token: String,
+        port: u16,
+        gate: Arc<crate::agent::gate::Gate>,
+    ) -> Arc<Self> {
         let (events, _) = broadcast::channel(1024);
         let screen = Arc::new(Screen::new(Screen::load_enabled(&store), events.clone()));
         Arc::new_cyclic(|me| Self {
@@ -126,6 +139,7 @@ impl Hub {
             screen,
             terms: Arc::default(),
             hq_sync: tokio::sync::Mutex::new(()),
+            gate,
         })
     }
 
@@ -142,6 +156,7 @@ impl Hub {
                 self.spawn_bot(&row.config);
             }
         }
+        tokio::spawn(crate::agent::gate::run(self.gate.clone(), Arc::downgrade(self)));
         crate::routines::start(self);
         crate::analytics::start(self);
         hq::start(self);
@@ -513,6 +528,15 @@ impl Hub {
     pub fn phone_connected(&self) -> bool {
         self.phone_clients.load(Ordering::Relaxed) > 0
     }
+}
+
+/// The gate with this host's settings. Unit tests never wait on a real machine's memory or slots.
+fn new_gate() -> Arc<crate::agent::gate::Gate> {
+    use crate::agent::gate::{Gate, Settings, memory};
+    if cfg!(test) {
+        return Gate::new(Settings::unlimited(), Box::new(memory::System));
+    }
+    Gate::new(Settings::load(), Box::new(memory::System))
 }
 
 fn validate(cfg: &BotConfig) -> Result<()> {

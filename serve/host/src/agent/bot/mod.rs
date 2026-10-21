@@ -26,6 +26,7 @@ mod launch;
 mod lifecycle;
 mod place;
 mod queue;
+mod room;
 mod session;
 mod turn;
 mod updates;
@@ -34,6 +35,7 @@ pub(crate) use launch::{launch_commands, select_model, start_agent, system_promp
 
 use crate::agent::acp::{self, Acp, Incoming};
 use crate::agent::config::FastModeSupport;
+use crate::agent::gate::{Admission, Permit};
 use crate::chat::context::{Identity, Snapshot};
 use crate::chat::group::GroupTurn;
 use crate::chat::memory;
@@ -101,6 +103,10 @@ pub enum Cmd {
         chat: String,
     },
     Stop,
+    /// The gate wants memory back: how long this actor has been at rest with an agent it could stop, if it is.
+    IdleFor(tokio::sync::oneshot::Sender<Option<Duration>>),
+    /// Stops the agent if it is still at rest. Whether it did.
+    StopIdle(tokio::sync::oneshot::Sender<bool>),
     Permission {
         entry_id: String,
         option_id: Option<String>,
@@ -198,6 +204,9 @@ pub fn spawn(
         tools_changed: false,
         fast_support,
         idle_checked: Instant::now(),
+        permit: None,
+        admission: None,
+        waiting_shown: false,
     };
     let task = tokio::spawn(actor.run(rx, interrupted));
     BotHandle { tx, task }
@@ -367,6 +376,12 @@ struct Actor {
     fast_support: FastModeSupport,
     /// When idle sessions and agents were last looked for.
     idle_checked: Instant,
+    /// The gate slot the running turn holds (see `room`); none between turns.
+    permit: Option<Permit>,
+    /// This actor's place in the gate's line, while it has turns queued and no slot.
+    admission: Option<Admission>,
+    /// The runtime shows "Waiting for room" for this actor.
+    waiting_shown: bool,
 }
 
 struct RoutineCompletion {
@@ -409,6 +424,11 @@ impl Actor {
                 }
                 Some(file) = self.files.rx.recv() => self.finish_file(file),
                 inc = recv_incoming(&mut self.conn) => self.on_incoming(inc).await,
+                permit = room::admitted(&mut self.admission) => {
+                    self.admission = None;
+                    self.permit = Some(permit);
+                    self.next_in_queue(&done_tx).await;
+                }
                 Some(done) = done_rx.recv() => {
                     // Updates sent before the prompt response are already queued; apply them first.
                     while let Some(inc) = self.conn.as_mut().and_then(|c| c.rx.try_recv().ok()) {
@@ -422,6 +442,8 @@ impl Actor {
                         Some(sid) if failed => self.close_reloadable(&sid).await,
                         _ => {}
                     }
+                    // The slot goes back; the next turn asks for one again, behind the bots already waiting.
+                    self.permit = None;
                     self.next_in_queue(&done_tx).await;
                 }
                 _ = flush_tick.tick() => {
@@ -447,6 +469,7 @@ impl Actor {
                     }
                 },
             }
+            self.tend_room();
         }
         self.files.cancel();
         self.hub.team.cancel_from(&self.rt);

@@ -26,6 +26,10 @@ pub async fn serve_env(home: &Path, env: &[(&str, &str)]) -> (Child, String) {
             .env("KITH_SERVE_CLOUD", "off")
             // Never the hq on this computer: a test that wants one passes its own `HQ_BIN`.
             .env("HQ_BIN", "")
+            // The test machine's memory and a two-agent limit must not hold a test back (see `gate_e2e`).
+            .env("KITH_SERVE_MAX_RUNNING_AGENTS", "64")
+            .env("KITH_SERVE_MIN_FREE_MEMORY_PERCENT", "0")
+            .env("KITH_SERVE_MAX_SWAP_USED_GB", "0")
             .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
