@@ -13,7 +13,6 @@ struct SettingsView: View {
     @Environment(\.openURL) private var openURL
     @State private var notificationsAllowed: Bool?
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
-    @AppStorage(Analytics.enabledKey) private var analyticsEnabled = true
     @State private var addingComputer = false
     @State private var confirmForget: Computer?
     @State private var confirmRevoke: CloudComputer?
@@ -21,7 +20,6 @@ struct SettingsView: View {
     @State private var confirmStartOver = false
     @State private var confirmRemoveCopy: CloudComputer?
     @State private var voice: VoiceTarget?
-    @State private var aboutAnalytics = false
 
     var body: some View {
         CardForm {
@@ -78,16 +76,6 @@ struct SettingsView: View {
                 notificationsRow
             }
 
-            CardSection(footer: "Which features you use, never your messages, code or files. Helps us spot bugs sooner and make Codync better for you.") {
-                HStack(spacing: 4) {
-                    Text("Share usage analytics").lineLimit(1).layoutPriority(1)
-                    IconButton("About usage analytics", systemImage: "info.circle") { aboutAnalytics = true }
-                    Toggle(isOn: Binding(get: { analyticsEnabled }, set: { Analytics.shared.setEnabled($0) })) { EmptyView() }
-                        .toggleStyle(.codync)
-                        .accessibilityLabel("Share usage analytics")
-                }
-            }
-
             if !hiddenBots.isEmpty {
                 CardSection("Hidden bots") {
                     ForEach(hiddenBots) { item in
@@ -141,7 +129,6 @@ struct SettingsView: View {
             PairingView(inModal: true)
         }
         .codyncSheet(item: $voice) { target in VoiceChatSettingsView().environment(target.store) }
-        .codyncSheet(isPresented: $aboutAnalytics) { AnalyticsSheet() }
         .codyncSheet(item: $access) { target in
             AccessRequestView(computer: target.computer, pending: accounts.pendingAccess[target.id] != nil)
         }

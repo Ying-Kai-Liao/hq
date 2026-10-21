@@ -191,7 +191,7 @@ final class AppStore {
 
     func pair(_ pairing: Pairing) async throws -> Computer {
         let computer = try await accounts.pair(pairing, deviceName: UIDevice.current.name, platform: "ios")
-        Analytics.shared.capture(.computerPaired, ["via": "qr", "computer": Analytics.computerTag(computer.id)])
+        Analytics.shared.capture(.computerPaired, ["via": "qr"])
         return computer
     }
 
