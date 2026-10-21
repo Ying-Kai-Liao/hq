@@ -1,4 +1,4 @@
-//! Product analytics (`PostHog`), on unless the computer's owner turned it off; sent only when a project key is configured
+//! Product analytics (`PostHog`), on unless the computer's owner turned it off; sent with a built-in project key unless the owner configures another
 //! (`setAnalytics`). Events name the feature that was used and never carry content:
 //! no message text, prompts, file names, paths or bot names.
 //! What is collected and why: docs/features/analytics.md.
