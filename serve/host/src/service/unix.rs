@@ -91,14 +91,14 @@ fn launcher() -> Vec<String> {
 
 /// The `ProgramArguments` entries of the launchd job: the launcher's words, then the host and its arguments.
 fn program_arguments(launcher: &[String], exe: &str, port: u16) -> String {
-    launcher
-        .iter()
-        .map(String::as_str)
-        .chain([exe, "serve", "--port"])
-        .map(str::to_owned)
-        .chain([port.to_string()])
-        .map(|w| format!("<string>{}</string>", xml_escape(&w)))
-        .collect()
+    let words = launcher.iter().map(String::as_str).chain([exe, "serve", "--port"]).map(str::to_owned);
+    let mut out = String::new();
+    for word in words.chain([port.to_string()]) {
+        out.push_str("<string>");
+        out.push_str(&xml_escape(&word));
+        out.push_str("</string>");
+    }
+    out
 }
 
 /// Installs and starts the host as a per-user background service. The current

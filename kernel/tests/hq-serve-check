@@ -84,16 +84,13 @@ out=$("$SERVE" status 2>&1)
 check "status forwards with the port" "grep -q 'kith-serve status --port 19224' '$STUB_LOG'"
 check "status says relay not set" "echo \"\$out\" | grep -q 'relay: not set'"
 
-# no hq-uv: no launcher; with one (macOS only): the job runs behind it
-check "no hq-uv, no launcher" "[ ! -s '$STUB_LOG.launcher' ] || ! grep -q . '$STUB_LOG.launcher'"
-if [ "$(uname -s)" = Darwin ]; then
-  mkdir -p "$HOME/.hq/bin"; printf '#!/bin/sh\n' > "$HOME/.hq/bin/hq-uv"; chmod +x "$HOME/.hq/bin/hq-uv"
-  : > "$STUB_LOG.launcher"; "$SERVE" start --no-build >/dev/null 2>&1
-  check "hq-uv present: install gets the launcher" "grep -q '\"/.hq/bin/hq-uv\",\"run\"\|hq-uv\", \"run\", \"--quiet\", \"--script\", \".*/kernel/bin/kith-serve-launch\"' '$STUB_LOG.launcher'"
-  : > "$STUB_LOG.launcher"; KITH_SERVE_LAUNCHER='["x"]' "$SERVE" start --no-build >/dev/null 2>&1
-  check "a configured launcher is kept" "grep -qx '\[\"x\"\]' '$STUB_LOG.launcher'"
-  rm -f "$HOME/.hq/bin/hq-uv"
-fi
+# no launcher unless one is configured: hq-uv alone changes nothing; a configured one is passed on
+mkdir -p "$HOME/.hq/bin"; printf '#!/bin/sh\n' > "$HOME/.hq/bin/hq-uv"; chmod +x "$HOME/.hq/bin/hq-uv"
+: > "$STUB_LOG.launcher"; "$SERVE" start --no-build >/dev/null 2>&1
+check "hq-uv present: no launcher by default" "! grep -q . '$STUB_LOG.launcher'"
+: > "$STUB_LOG.launcher"; KITH_SERVE_LAUNCHER='["x"]' "$SERVE" start --no-build >/dev/null 2>&1
+check "a configured launcher is kept" "grep -qx '\\[\"x\"\\]' '$STUB_LOG.launcher'"
+rm -f "$HOME/.hq/bin/hq-uv"
 
 # restart: stop, then install without building
 : > "$STUB_LOG"

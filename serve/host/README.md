@@ -24,8 +24,9 @@ and the status says no relay URL is set).
 
 launchd credits file access to the program it starts. To let the host read folders on an external
 volume (hq's agents), run it behind a launcher that has Full Disk Access: set `"launcher": [...]` in
-`config.json` or `KITH_SERVE_LAUNCHER='[...]'` when installing. `hq serve start` sets it to
-`hq-uv run --quiet --script kernel/bin/kith-serve-launch` when `~/.hq/bin/hq-uv` exists.
+`config.json` or `KITH_SERVE_LAUNCHER='[...]'` when installing. By default the job runs the host
+directly. Set `launcher` if your agents live on an external volume, e.g.
+`["~/.hq/bin/hq-uv", "run", "--quiet", "--script", "<repo>/kernel/bin/kith-serve-launch"]` (full paths).
 
 ## Updates
 

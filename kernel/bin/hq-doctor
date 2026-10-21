@@ -338,9 +338,6 @@ def serve():
         ok('dev.kith.serve: running')
     else:
         warn('dev.kith.serve is loaded but not running: kith serve restart (log in ~/.kith/serve)')
-    plist = HOME / 'Library/LaunchAgents/dev.kith.serve.plist'
-    if sys.platform == 'darwin' and plist.exists() and 'kith-serve-launch' not in plist.read_text():
-        note('dev.kith.serve has no launcher: it may not read agents on an external volume (give hq-uv Full Disk Access, kith serve restart)')
     try:
         relay = json.loads((HOME / '.kith/serve/config.json').read_text()).get('relay_url')
     except Exception:
