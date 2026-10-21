@@ -77,6 +77,8 @@ struct SlackState {
     rate_limit: usize,
     /// Markdown blocks are refused (an older workspace).
     reject_blocks: bool,
+    /// Plain-text posts are refused too.
+    reject_plain: bool,
     files: HashMap<String, Vec<u8>>,
     uploads: HashMap<String, Vec<u8>>,
     /// Bearer tokens the file downloads came with.
@@ -166,6 +168,10 @@ async fn api_call(
                 h.insert("retry-after", "1".parse().unwrap());
                 return (StatusCode::TOO_MANY_REQUESTS, h, Json(json!({"ok": false, "error": "ratelimited"})));
             }
+            if st.reject_plain && body["blocks"].is_null() {
+                reject(&mut st, "channel_not_found");
+                return ok(json!({"ok": false, "error": "channel_not_found"}));
+            }
             if st.reject_blocks && body["blocks"][0]["type"] == "markdown" {
                 reject(&mut st, "invalid_blocks");
                 return ok(json!({"ok": false, "error": "invalid_blocks"}));
@@ -188,7 +194,11 @@ async fn upload(State(fake): Shared, Path(id): Path<String>, body: Bytes) -> Sta
     StatusCode::OK
 }
 
-async fn download(State(fake): Shared, Path(name): Path<String>, headers: HeaderMap) -> (StatusCode, Vec<u8>) {
+async fn download(
+    State(fake): Shared,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> (StatusCode, [(&'static str, &'static str); 1], Vec<u8>) {
     let delay = {
         let mut st = fake.state.locked();
         st.download_auth.push(bearer(&headers));
@@ -196,7 +206,11 @@ async fn download(State(fake): Shared, Path(name): Path<String>, headers: Header
     };
     tokio::time::sleep(delay).await;
     let found = fake.state.locked().files.get(&name).cloned();
-    found.map_or((StatusCode::NOT_FOUND, Vec::new()), |b| (StatusCode::OK, b))
+    // Slack answers a link it won't serve with its sign-in page, status 200.
+    let kind = if name.starts_with("HTML") { "text/html; charset=utf-8" } else { "application/octet-stream" };
+    found.map_or((StatusCode::NOT_FOUND, [("content-type", kind)], Vec::new()), |b| {
+        (StatusCode::OK, [("content-type", kind)], b)
+    })
 }
 
 async fn socket(State(fake): Shared, ws: WebSocketUpgrade) -> impl IntoResponse {
@@ -223,6 +237,9 @@ async fn serve_socket(fake: Arc<Fake>, mut socket: WebSocket) {
             },
             () = tokio::time::sleep(Duration::from_millis(15)) => {
                 let next = fake.state.locked().pending.pop_front();
+                if next.as_ref().is_some_and(|e| e["type"] == "close-without-saying-so") {
+                    return;
+                }
                 if let Some(envelope) = next
                     && socket.send(Message::Text(envelope.to_string().into())).await.is_err()
                 {
@@ -671,7 +688,7 @@ async fn files_come_in_and_go_out() {
     let folder = rig.core.attachments_dir("slack/hq");
     assert_eq!(paths.len(), 1, "{task_text}");
     assert!(std::path::Path::new(paths[0]).starts_with(&folder), "inside the attachments folder: {}", paths[0]);
-    assert!(paths[0].ends_with("/notes.txt"));
+    assert!(paths[0].ends_with("/F1-notes.txt"), "{}", paths[0]);
     assert_eq!(std::fs::read(paths[0]).unwrap(), b"the notes");
     assert_eq!(rig.fake.state.locked().download_auth, [BOT_TOKEN], "downloaded with the bot token");
 
@@ -930,4 +947,125 @@ fn only_a_real_at_word_names_an_agent() {
 fn a_slack_timestamp_is_unix_seconds() {
     assert_eq!(text::sent("1700000000.000200"), Some(1_700_000_000.000_2));
     assert_eq!(text::sent("x"), None);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_socket_closed_without_a_disconnect_reconnects_in_run_and_keeps_order() {
+    let rig = Rig::new().await;
+    {
+        let mut st = rig.fake.state.locked();
+        st.files.insert("F1".into(), b"slow".to_vec());
+        st.file_delay = Duration::from_millis(500);
+    }
+    let (_s, task) = rig.run();
+    until("the first socket", || rig.fake.state.locked().connected == 1).await;
+    let url = format!("{}/files/F1", rig.fake.url);
+    rig.fake.say(
+        KAI,
+        DM,
+        "@house msg-first",
+        0,
+        &json!({"files": [{"id": "F1", "name": "n.txt", "url_private": url}]}),
+    );
+    until("the download to start", || !rig.fake.state.locked().download_auth.is_empty()).await;
+    rig.fake.state.locked().pending.push_back(json!({"type": "close-without-saying-so"}));
+    until("a second socket", || rig.fake.opened() == 2 && rig.fake.state.locked().connected == 2).await;
+    rig.fake.state.locked().file_delay = Duration::ZERO;
+    dm(&rig, "@house msg-second");
+    until("both answers", || rig.fake.answers("msg-first") == 1 && rig.fake.answers("msg-second") == 1).await;
+    let order: Vec<String> = rig.fake.texts().into_iter().filter(|t| t.contains("echo:")).collect();
+    assert!(order[0].contains("msg-first") && order[1].contains("msg-second"), "{order:?}");
+    assert_eq!(rig.fake.calls("auth.test").len(), 1, "no new login: run() itself reconnected");
+    assert!(!task.is_finished());
+    task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_edited_event_is_not_handled() {
+    let rig = Rig::new().await;
+    let (_s, task) = rig.run();
+    rig.fake.say(KAI, DM, "@house msg-edited", 0, &json!({"edited": {"user": KAI, "ts": "1760000001.000000"}}));
+    dm(&rig, "@house msg-plain");
+    until("the plain answer", || rig.fake.answers("msg-plain") == 1).await;
+    assert_eq!(rig.fake.answers("msg-edited"), 0);
+    task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_fallback_post_is_an_error() {
+    let rig = Rig::new().await;
+    let s = rig.slack(&rig.core);
+    // Blocks refused, and the plain text is refused too.
+    rig.fake.state.locked().reject_blocks = true;
+    rig.fake.state.locked().reject_plain = true;
+    let conv = json!({"channel": DM, "thread_ts": "1760000000.000007"});
+    assert!(s.post(&conv, "house", "hello", None).await.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_bot_token_goes_only_to_slack_hosts_and_a_sign_in_page_is_a_failure() {
+    let rig = Rig::new().await;
+    {
+        let mut st = rig.fake.state.locked();
+        st.files.insert("F1".into(), b"one".to_vec());
+        st.files.insert("HTML1".into(), b"<html>sign in</html>".to_vec());
+    }
+    let (_s, task) = rig.run();
+    // Same server, but another host name: not Slack's.
+    let elsewhere = rig.fake.url.replace("127.0.0.1", "localhost");
+    rig.fake.say(
+        KAI,
+        DM,
+        "@house msg-hosts",
+        0,
+        &json!({"files": [{"id": "F1", "name": "ok.txt", "url_private": format!("{}/files/F1", rig.fake.url)},
+                          {"id": "F2", "name": "other.txt", "url_private": format!("{elsewhere}/files/F1")},
+                          {"id": "H", "name": "login.txt", "url_private": format!("{}/files/HTML1", rig.fake.url)}]}),
+    );
+    until("the answer", || rig.fake.answers("msg-hosts") == 1).await;
+    let task_text = rig.hq_calls()[0]["task"].as_str().unwrap().to_owned();
+    assert!(task_text.contains("(file not downloaded: other.txt)"), "{task_text}");
+    assert!(task_text.contains("(file not downloaded: login.txt)"), "{task_text}");
+    assert!(task_text.contains("ok.txt"), "{task_text}");
+    assert_eq!(rig.fake.state.locked().download_auth.len(), 2, "never asked the other host");
+    assert!(walk(&rig.core.attachments_dir("slack/hq")).iter().all(|p| !p.ends_with("H-login.txt")));
+    task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn files_with_the_same_name_do_not_overwrite_each_other() {
+    let rig = Rig::new().await;
+    {
+        let mut st = rig.fake.state.locked();
+        st.files.insert("A".into(), b"first".to_vec());
+        st.files.insert("B".into(), b"second".to_vec());
+    }
+    let (_s, task) = rig.run();
+    let url = |n: &str| format!("{}/files/{n}", rig.fake.url);
+    rig.fake.say(
+        KAI,
+        DM,
+        "@house msg-same",
+        0,
+        &json!({"files": [{"id": "A", "name": "image.png", "url_private": url("A")},
+                          {"id": "B", "name": "image.png", "url_private": url("B")}]}),
+    );
+    until("the answer", || rig.fake.answers("msg-same") == 1).await;
+    let mut contents: Vec<Vec<u8>> =
+        walk(&rig.core.attachments_dir("slack/hq")).iter().map(|p| std::fs::read(p).unwrap()).collect();
+    contents.sort();
+    assert_eq!(contents, [b"first".to_vec(), b"second".to_vec()]);
+    task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_file_over_the_upload_cap_is_refused_before_reading_it() {
+    let rig = Rig::new().await;
+    let s = rig.slack(&rig.core);
+    let big = rig.dir.join("big.bin");
+    std::fs::File::create(&big).unwrap().set_len(super::outbound::MAX_UPLOAD + 1).unwrap(); // sparse
+    let conv = json!({"channel": DM, "thread_ts": "1760000000.000007"});
+    let err = s.send_files(&conv, "house", &[big.to_string_lossy().into_owned()], "x").await.unwrap_err();
+    assert!(err.to_string().contains("too big"), "{err}");
+    assert_eq!(rig.fake.calls("files.getUploadURLExternal").len(), 0);
 }

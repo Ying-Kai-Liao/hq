@@ -11,6 +11,21 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+const MB: u64 = 1024 * 1024;
+/// Files above this are not uploaded (read whole into memory first).
+pub(super) const MAX_UPLOAD: u64 = 100 * MB;
+
+#[derive(Debug)]
+struct TooBig(String);
+
+impl std::fmt::Display for TooBig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for TooBig {}
+
 /// The thread a note or a question goes to: the message's own, or one started on it. A direct message outside any
 /// thread gets its notes outside one too.
 fn thread_of(m: &Incoming, always: bool) -> Value {
@@ -37,6 +52,15 @@ impl Slack {
 
     /// One file to Slack's upload URL -> its id.
     async fn upload(&self, path: &str, name: &str) -> Result<String> {
+        let size = tokio::fs::metadata(path).await.context("can't read the file")?.len();
+        if size > MAX_UPLOAD {
+            return Err(TooBig(format!(
+                "{name} is too big to send ({} MB; the limit is {} MB)",
+                size / MB,
+                MAX_UPLOAD / MB
+            ))
+            .into());
+        }
         let data = tokio::fs::read(path).await.context("can't read the file")?;
         let fields = [("filename", name.to_owned()), ("length", data.len().to_string())];
         let got = self.api.form_retry("files.getUploadURLExternal", &fields).await?;
@@ -106,9 +130,7 @@ impl Adapter for Slack {
                 let blocks = json!([{"type": "markdown", "text": part}]);
                 if self.say(conv, agent, first_chars(&part, PLAIN), Some(blocks)).await.is_err() {
                     // A workspace without markdown blocks: plain text.
-                    if let Err(e) = self.say(conv, agent, &part, None).await {
-                        tracing::warn!("{}: answer not posted: {e}", self.conn);
-                    }
+                    self.say(conv, agent, &part, None).await?;
                 }
             }
             Ok(())
@@ -124,16 +146,20 @@ impl Adapter for Slack {
     ) -> Fut<'a, Result<()>> {
         Box::pin(async move {
             // Slack's external upload: ask for a URL per file, send the bytes there, then share them all at once.
-            let mut ready = Vec::new();
+            let (mut ready, mut refused) = (Vec::new(), Vec::new());
             for f in files.iter().filter(|f| Path::new(f).is_file()) {
                 let name = Path::new(f).file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
                 match self.upload(f, &name).await {
                     Ok(id) => ready.push(json!({"id": id, "title": name})),
+                    Err(e) if e.is::<TooBig>() => refused.push(format!("{e}")),
                     Err(e) => tracing::warn!("{}: file not sent: {e:#}", self.conn),
                 }
             }
+            let told = |refused: Vec<String>| {
+                if refused.is_empty() { Ok(()) } else { Err(anyhow::anyhow!(refused.join("; "))) }
+            };
             if ready.is_empty() {
-                return Ok(());
+                return told(refused);
             }
             let comment = format!("*{}* {caption}", self.core.display_name(agent));
             let fields = [
@@ -145,7 +171,7 @@ impl Adapter for Slack {
             if let Err(e) = self.api.form_retry("files.completeUploadExternal", &fields).await {
                 tracing::warn!("{}: files not shared: {e}", self.conn);
             }
-            Ok(())
+            told(refused)
         })
     }
 

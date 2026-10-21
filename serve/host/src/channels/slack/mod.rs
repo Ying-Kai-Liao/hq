@@ -33,7 +33,7 @@ use api::{Api, As, SlackError};
 use futures::{SinkExt as _, StreamExt as _};
 use serde_json::{Value, json};
 use std::collections::{HashSet, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
@@ -104,6 +104,9 @@ pub struct Slack {
     /// The app's bot user id, known after auth.test.
     me: Mutex<String>,
     seen: Mutex<Seen>,
+    /// The queue of the one task that handles messages, started on the first run and kept across sockets and
+    /// restarts of `run`, so two messages are never handled at once.
+    queue: OnceLock<mpsc::UnboundedSender<Work>>,
     pub pace: Pace,
     /// The socket is pinged every `pace.ping`, so a healthy one is never silent for longer.
     pub quiet: Duration,
@@ -133,6 +136,7 @@ impl Slack {
             alive: Alive::default(),
             me: Mutex::new(String::new()),
             seen: Mutex::new(Seen::default()),
+            queue: OnceLock::new(),
             pace: Pace::default(),
             quiet: Duration::from_secs(120),
         }
@@ -170,25 +174,28 @@ impl Slack {
         who["user_id"].as_str().unwrap_or("").clone_into(&mut self.me.locked());
         tracing::info!("{}: in {} as {}", self.conn, who["team"].as_str().unwrap_or(""), self.me());
         let this: Arc<dyn Adapter> = self.clone();
-        let (tx, mut rx) = mpsc::unbounded_channel::<Work>();
-        // One message at a time, in order, but off the socket: the reader must keep answering pings. The task is
-        // not tied to this connection: when the socket is replaced it finishes the messages already acknowledged
-        // (Slack won't send them again) and ends when `tx` is gone.
-        tokio::spawn({
-            let (me, this) = (self.clone(), this.clone());
-            async move {
+        let tx = self.queue.get_or_init(|| {
+            let (tx, mut rx) = mpsc::unbounded_channel::<Work>();
+            // One message at a time, in order, but off the socket: the reader must keep answering pings. The task
+            // belongs to the adapter, not to a socket: when the socket is replaced it finishes the messages already
+            // acknowledged (Slack won't send them again). It holds the adapter weakly and ends with it.
+            let weak = Arc::downgrade(self);
+            tokio::spawn(async move {
                 while let Some(Work::Event(e)) = rx.recv().await {
+                    let Some(me) = weak.upgrade() else { break };
+                    let this: Arc<dyn Adapter> = me.clone();
                     // One bad message must not stop the app.
                     if let Err(e) = me.message(&this, &e).await {
                         tracing::warn!("{}: message failed: {e:#}", me.conn);
                     }
                 }
-            }
+            });
+            tx
         });
         let mut resumed = false;
         loop {
-            self.session(&this, &tx, &mut resumed).await?;
-            // Slack asked for a new socket (they are replaced every few hours).
+            self.session(&this, tx, &mut resumed).await?;
+            // Slack asked for a new socket (they are replaced every few hours), or this one closed.
             tokio::time::sleep(self.pace.reconnect).await;
         }
     }
@@ -218,6 +225,25 @@ impl Slack {
             *resumed = true;
             self.core.resume(this);
         }
+        // A socket that closes or breaks is replaced like one Slack retires: only failing to open one ends `run`.
+        if let Err(e) = self.pump(this, tx, &mut sink, &mut stream).await {
+            tracing::info!("{}: socket lost, opening another: {e:#}", self.conn);
+        }
+        Ok(())
+    }
+
+    /// Reads one socket until it ends: Ok on a `disconnect` envelope, an error when it closes or breaks.
+    async fn pump<S, R>(
+        self: &Arc<Self>,
+        this: &Arc<dyn Adapter>,
+        tx: &mpsc::UnboundedSender<Work>,
+        sink: &mut S,
+        stream: &mut R,
+    ) -> Result<()>
+    where
+        S: futures::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+        R: futures::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+    {
         let mut ping = tokio::time::interval(self.pace.ping);
         ping.reset();
         loop {

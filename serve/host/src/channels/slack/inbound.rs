@@ -37,6 +37,7 @@ impl Slack {
         if e["bot_id"].as_str().is_some_and(|b| !b.is_empty())
             || !matches!(subtype, None | Some("file_share" | "thread_broadcast"))
             || user == me
+            || !e["edited"].is_null()
         {
             return None; // bots (hq's own posts too), edits, joins
         }
@@ -80,7 +81,7 @@ impl Slack {
     /// Files over the size limit are not fetched: the agent is told instead (second value).
     async fn download(&self, e: &Value) -> (Vec<String>, Vec<String>) {
         let (mut got, mut notes) = (Vec::new(), Vec::new());
-        for f in e["files"].as_array().into_iter().flatten() {
+        for (index, f) in e["files"].as_array().into_iter().flatten().enumerate() {
             let Some(url) = f["url_private_download"].as_str().or_else(|| f["url_private"].as_str()) else { continue };
             // The sender chooses the name: only its last part counts.
             let named = f["name"].as_str().or_else(|| f["id"].as_str()).unwrap_or("file");
@@ -94,7 +95,9 @@ impl Slack {
                 .attachments_dir(&self.conn)
                 .join(e["channel"].as_str().unwrap_or("").replace('/', "_"))
                 .join(e["ts"].as_str().unwrap_or("").replace('/', "_"));
-            let dest = folder.join(&name);
+            // Two files of one message may share a name: the file id (or position) keeps them apart.
+            let tag = f["id"].as_str().filter(|i| !i.is_empty()).map_or_else(|| index.to_string(), str::to_owned);
+            let dest = folder.join(format!("{}-{}", tag.replace('/', "_"), name));
             let saved = async {
                 tokio::fs::create_dir_all(&folder).await.map_err(|e| SlackError::Net(e.to_string()))?;
                 self.api.download(url, &dest, self.pace.max_file).await

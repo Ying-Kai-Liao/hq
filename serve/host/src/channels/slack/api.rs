@@ -150,13 +150,39 @@ impl Api {
         }
     }
 
+    /// Whether the bot token may be sent to `url`: https on slack.com or a subdomain, or the host of the API base
+    /// (a fake in tests).
+    fn trusts(&self, url: &str) -> bool {
+        let Ok(url) = reqwest::Url::parse(url) else { return false };
+        let Some(host) = url.host_str() else { return false };
+        if reqwest::Url::parse(&self.base)
+            .is_ok_and(|b| b.scheme() == url.scheme() && b.host_str() == Some(host) && b.port() == url.port())
+        {
+            return true;
+        }
+        url.scheme() == "https" && (host == "slack.com" || host.ends_with(".slack.com"))
+    }
+
     /// A file Slack holds (`url_private`), streamed to `dest` with the bot token; more than `max` bytes is refused
     /// and nothing is left behind.
     pub async fn download(&self, url: &str, dest: &std::path::Path, max: u64) -> Result<(), SlackError> {
         use futures::StreamExt as _;
         use tokio::io::AsyncWriteExt as _;
+        // The bot token goes only to Slack's own hosts: the URL comes from the event.
+        if !self.trusts(url) {
+            return Err(SlackError::Net("file is not on a Slack host".into()));
+        }
         let sent = crate::http().get(url).bearer_auth(&self.bot).timeout(TRANSFER).send().await;
         let res = sent.map_err(|e| self.net(e))?;
+        // A link that needs a sign-in answers 200 with the sign-in page.
+        let html = res
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.trim_start().to_ascii_lowercase().starts_with("text/html"));
+        if html {
+            return Err(SlackError::Net("Slack answered with a web page".into()));
+        }
         if !res.status().is_success() {
             let code = res.status().as_u16();
             return Err(SlackError::Http { code, description: "file not available".into(), retry_after: None });
