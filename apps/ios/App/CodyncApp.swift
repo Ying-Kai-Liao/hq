@@ -341,6 +341,7 @@ enum BotsWidgetFeed {
         let name: String
         let shape: String
         let color: String
+        let source: String
         let status: String
         let activity: String
         let message: String?
@@ -348,7 +349,7 @@ enum BotsWidgetFeed {
 
         init(_ bot: Bot, computerId: ComputerID) {
             self.computerId = computerId
-            id = bot.id; name = bot.name; shape = bot.avatarShape; color = bot.avatarColor
+            id = bot.id; name = bot.name; shape = bot.avatarShape; color = bot.avatarColor; source = bot.avatarSource
             status = bot.status; activity = bot.activity; message = bot.lastMessage; lastAt = bot.lastAt
         }
     }

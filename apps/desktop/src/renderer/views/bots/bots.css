@@ -124,6 +124,9 @@ textarea.field-box {
 .avatar-picker-panel {
   width: 300px;
   padding: 14px;
+  /* Tall with 25 portraits: scroll inside a short window rather than run off-screen. */
+  max-height: min(560px, calc(100vh - 120px));
+  overflow-y: auto;
 }
 
 /* A selectable avatar shape or color, ringed when chosen. */
@@ -137,6 +140,18 @@ textarea.field-box {
 }
 .swatch.on {
   box-shadow: inset 0 0 0 2px var(--accent);
+}
+.swatch-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px;
+}
+.swatch-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--secondary);
+  padding: 0 4px;
 }
 .swatch-row {
   display: flex;

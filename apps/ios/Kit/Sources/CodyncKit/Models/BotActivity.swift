@@ -24,6 +24,8 @@ public struct BotActivityAttributes: ActivityAttributes {
     public var name: String
     public var avatarShape: String
     public var avatarColor: String
+    /// The portrait to draw instead of the shape (`CrewAvatar` asset name); nil draws the shape.
+    public var avatarPortrait: String?
 
     public init(bot: Bot, computerId: ComputerID, link: URL? = nil) {
         self.link = link
@@ -32,5 +34,6 @@ public struct BotActivityAttributes: ActivityAttributes {
         name = bot.name
         avatarShape = bot.avatarShape
         avatarColor = bot.avatarColor
+        avatarPortrait = CrewAvatar.asset(for: bot)
     }
 }

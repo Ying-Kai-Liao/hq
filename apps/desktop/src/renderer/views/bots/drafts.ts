@@ -29,7 +29,7 @@ const pick = <T>(list: T[]) => list[Math.floor(Math.random() * list.length)]!
 
 /** A fresh draft: a random look, Claude, a personal workspace, automatic approvals. */
 export function newDraft(): BotDraft {
-  return { name: '', description: '', avatarColor: pick(AVATAR_COLORS).id, avatarShape: pick(AVATAR_SHAPES), backend: 'claude', cwd: '', permission: 'auto' }
+  return { name: '', description: '', avatarColor: pick(AVATAR_COLORS).id, avatarShape: pick(AVATAR_SHAPES), avatarSource: 'auto', backend: 'claude', cwd: '', permission: 'auto' }
 }
 
 /** A new bot may go without a name: the host names it after its first conversations. */

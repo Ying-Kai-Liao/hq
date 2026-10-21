@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { fastModeRefusal, fastModeShown } from '@shared/fast-mode'
 import { draftOf, type BotDraft, type DirListing } from '@shared/models'
 import { AgentIcon } from '../../components/AgentIcon'
-import { crewName } from '@shared/crew'
+import { avatarImage, CREW, SPARES, type AvatarImage } from '@shared/crew'
 import { CharacterAvatar, CrewPortrait } from '../../components/Avatar'
 import { CardSection, ChoicePicker, DropdownMenu, IconButton, Pill, SearchField, Spinner, ValueRow } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
@@ -108,7 +108,8 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
 }) {
   const store = useStore()
   const [pickingAvatar, setPickingAvatar] = useState(false)
-  const crew = draft.id ? crewName({ id: draft.id, name: draft.name, kind: store.bots.get(draft.id)?.kind ?? 'agent' }) : null
+  // What the avatar shows now; null when it is drawn as a shape.
+  const image = avatarImage({ id: draft.id ?? '', name: draft.name, kind: store.bots.get(draft.id ?? '')?.kind ?? 'agent', avatarSource: draft.avatarSource })
   const [pickingFolder, setPickingFolder] = useState(false)
   const [viewingSkill, setViewingSkill] = useState<SkillRef | null>(null)
   const avatarRef = useRef<HTMLButtonElement>(null)
@@ -189,17 +190,22 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
       <div className="bot-form-content">
         <CardSection title="Profile">
           <ValueRow label="Avatar">
-            {crew ? (
-              // The portrait wins over the stored shape and colour (every bot has them, chosen or not), so nothing to pick.
-              <span className="avatar-button small"><CrewPortrait crew={crew} size={24} /></span>
-            ) : (
             <button ref={avatarRef} className="avatar-button small" title="Edit Bot avatar" aria-label="Edit Bot avatar" onClick={() => setPickingAvatar((p) => !p)}>
-              <CharacterAvatar shape={draft.avatarShape} color={draft.avatarColor} size={24} />
+              {image ? <CrewPortrait image={image} size={24} /> : <CharacterAvatar shape={draft.avatarShape} color={draft.avatarColor} size={24} />}
             </button>
-            )}
-            <AnchoredPanel open={pickingAvatar && !crew} onClose={() => setPickingAvatar(false)} anchor={avatarRef}>
+            <AnchoredPanel open={pickingAvatar} onClose={() => setPickingAvatar(false)} anchor={avatarRef}>
               <div className="avatar-picker-panel">
-                <AvatarPicker shape={draft.avatarShape} color={draft.avatarColor} onShape={(s) => set('avatarShape', s)} onColor={(c) => set('avatarColor', c)} />
+                <AvatarPicker
+                  source={draft.avatarSource ?? 'auto'}
+                  shape={draft.avatarShape}
+                  color={draft.avatarColor}
+                  isGroup={store.bots.get(draft.id ?? '')?.kind === 'group'}
+                  auto={avatarImage({ id: draft.id ?? '', name: draft.name, kind: 'agent', avatarSource: 'auto' })}
+                  onSource={(s) => set('avatarSource', s)}
+                  // A shape or colour pick means the shape is what the bot shows.
+                  onShape={(s) => onChange((d) => ({ ...d, avatarShape: s, avatarSource: 'shape' }))}
+                  onColor={(c) => onChange((d) => ({ ...d, avatarColor: c, avatarSource: 'shape' }))}
+                />
               </div>
             </AnchoredPanel>
           </ValueRow>
@@ -346,12 +352,45 @@ function PluginToggles({ title, empty, items, selection, onChange, onInfo }: {
   )
 }
 
-function AvatarPicker({ shape, color, onShape, onColor }: { shape: string; color: string; onShape: (s: string) => void; onColor: (c: string) => void }) {
+function AvatarPicker({ source, shape, color, auto, isGroup, onSource, onShape, onColor }: {
+  source: string
+  shape: string
+  color: string
+  /** What Automatic shows for this bot. */
+  auto: AvatarImage | null
+  /** A group's face is its members', so only the shape applies. */
+  isGroup: boolean
+  onSource: (source: string) => void
+  onShape: (s: string) => void
+  onColor: (c: string) => void
+}) {
+  const images = (kind: AvatarImage['kind'], names: readonly string[]) =>
+    names.map((name) => {
+      const value = `${kind}:${name}`
+      return (
+        <button key={value} className={`swatch ${source === value ? 'on' : ''}`} aria-label={name} aria-pressed={source === value} onClick={() => onSource(value)}>
+          <CrewPortrait image={{ kind, name }} size={36} />
+        </button>
+      )
+    })
   return (
     <VStack gap={12}>
+      {isGroup ? null : <>
+      <div className="swatch-label">Automatic</div>
+      <div className="swatch-grid">
+        <button className={`swatch ${source === 'auto' ? 'on' : ''}`} aria-label="Automatic" aria-pressed={source === 'auto'} onClick={() => onSource('auto')}>
+          {auto ? <CrewPortrait image={auto} size={36} /> : null}
+        </button>
+      </div>
+      <div className="swatch-label">Crew</div>
+      <div className="swatch-grid">{images('crew', CREW)}</div>
+      <div className="swatch-label">Spares</div>
+      <div className="swatch-grid">{images('spare', SPARES)}</div>
+      </>}
+      <div className="swatch-label">Shapes</div>
       <div className="swatch-row">
         {AVATAR_SHAPES.map((s) => (
-          <button key={s} className={`swatch ${s === shape ? 'on' : ''}`} aria-label={`${s} shape`} aria-pressed={s === shape} onClick={() => onShape(s)}>
+          <button key={s} className={`swatch ${source === 'shape' && s === shape ? 'on' : ''}`} aria-label={`${s} shape`} aria-pressed={source === 'shape' && s === shape} onClick={() => onShape(s)}>
             <CharacterAvatar shape={s} color={color} size={36} />
           </button>
         ))}

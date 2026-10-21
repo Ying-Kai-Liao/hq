@@ -12,8 +12,8 @@ public struct CharacterAvatar: View {
     let size: CGFloat
     let mood: Mood
     let still: Bool
-    /// A crew member's own face (`CrewAvatar`), drawn instead of the dotted character.
-    var crew: String?
+    /// A portrait's asset name (`CrewAvatar`), drawn instead of the dotted character.
+    var portrait: String?
 
     /// `still` draws one frame of the mood (widgets and Live Activities render one frame);
     /// a change of mood then moves the halftone highlight and the eyes, animatable dot by dot.
@@ -29,10 +29,10 @@ public struct CharacterAvatar: View {
         self.still = still
     }
 
-    /// A crew member's portrait alone, for the editor preview.
-    public init(crew: String, size: CGFloat = 40) {
+    /// A portrait alone (a `CrewAvatar` asset), for the editor.
+    public init(portrait: String, size: CGFloat = 40) {
         self.init(shape: "blob", color: "blue", size: size)
-        self.crew = crew
+        self.portrait = portrait
     }
 
     public init(bot: Bot, size: CGFloat = 40, animated: Bool = true) {
@@ -42,19 +42,19 @@ public struct CharacterAvatar: View {
             size: size,
             mood: animated ? bot.mood : .idle
         )
-        crew = CrewAvatar.name(for: bot)
+        portrait = CrewAvatar.asset(for: bot)
     }
 
     /// The bot's current mood, drawn as one frame.
     public init(bot: Bot, size: CGFloat = 40, still: Bool) {
         self.init(shape: bot.avatarShape, color: bot.avatarColor, size: size, mood: bot.mood, still: still)
-        crew = CrewAvatar.name(for: bot)
+        portrait = CrewAvatar.asset(for: bot)
     }
 
     public var body: some View {
         Group {
-            if let crew {
-                CrewAvatar.image(crew).resizable().scaledToFit()
+            if let portrait {
+                CrewAvatar.image(portrait).resizable().scaledToFit()
             } else {
                 DottedBody(shape: shape, color: color, size: size, mood: mood, paused: still)
             }

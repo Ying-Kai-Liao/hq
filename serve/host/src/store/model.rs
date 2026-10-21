@@ -69,6 +69,10 @@ pub struct BotConfig {
     /// Grok-Bot-style character shape: blob | pebble | squircle | tablet | wedge | hex | cloud | teardrop.
     #[serde(default = "default_shape")]
     pub avatar_shape: String,
+    /// Where the avatar comes from: `auto` (a crew portrait matching the name, else the default),
+    /// `crew:<name>`, `spare:<name>`, or `shape` (draw `avatar_shape` in `avatar_color`).
+    #[serde(default = "default_avatar_source")]
+    pub avatar_source: String,
     /// Empty for a group.
     #[serde(default)]
     pub backend: String,
@@ -132,6 +136,23 @@ pub struct BotConfig {
 }
 
 impl BotConfig {
+    /// An avatar source the apps can't read becomes `auto`; image names are theirs to resolve
+    /// (an unknown one falls back to `auto` there too).
+    pub fn clean_avatar_source(&mut self) {
+        let ok = match self.avatar_source.split_once(':') {
+            None => matches!(self.avatar_source.as_str(), "auto" | "shape"),
+            Some((kind, name)) => {
+                matches!(kind, "crew" | "spare")
+                    && !name.is_empty()
+                    && name.len() <= 32
+                    && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            }
+        };
+        if !ok {
+            self.avatar_source = default_avatar_source();
+        }
+    }
+
     /// Whether the bot is an hq agent.
     pub fn is_hq(&self) -> bool {
         self.hq_agent.is_some()
@@ -156,6 +177,9 @@ fn default_color() -> String {
 }
 fn default_shape() -> String {
     "blob".into()
+}
+fn default_avatar_source() -> String {
+    "auto".into()
 }
 
 /// kv key for per-bot state in one lane (`what`: `session`, `seen`).
@@ -238,5 +262,21 @@ mod tests {
         assert_eq!(p, Permission::Auto);
         assert_eq!(serde_json::to_string(&Permission::Ask).unwrap(), "\"ask\"");
         assert!(serde_json::from_str::<Permission>("\"yolo\"").is_err(), "unknown modes are rejected at the boundary");
+    }
+
+    #[test]
+    fn avatar_source_defaults_to_auto_and_cleans_unknowns() {
+        let mut bot: BotConfig = serde_json::from_value(serde_json::json!({"id": "b", "name": "Seo"})).unwrap();
+        assert_eq!(bot.avatar_source, "auto", "bots saved before the field existed read as auto");
+        for ok in ["auto", "shape", "crew:builder", "spare:gradcap"] {
+            bot.avatar_source = ok.into();
+            bot.clean_avatar_source();
+            assert_eq!(bot.avatar_source, ok);
+        }
+        for bad in ["", "Crew:builder", "crew:", "spare:../x", "dotted", "crew:a:b"] {
+            bot.avatar_source = bad.into();
+            bot.clean_avatar_source();
+            assert_eq!(bot.avatar_source, "auto", "{bad}");
+        }
     }
 }

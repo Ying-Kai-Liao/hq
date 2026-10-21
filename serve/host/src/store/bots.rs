@@ -214,6 +214,7 @@ mod tests {
             description: String::new(),
             avatar_color: "blue".into(),
             avatar_shape: "blob".into(),
+            avatar_source: "auto".into(),
             backend: "claude".into(),
             command: None,
             cwd: "/tmp".into(),

@@ -654,7 +654,10 @@ struct BotLiveActivity: Widget {
     @ViewBuilder
     private func avatar(_ context: ActivityViewContext<BotActivityAttributes>, state: BotActivityPresentation, size: CGFloat) -> some View {
         ZStack {
-            if state.phase == .working {
+            if let portrait = context.attributes.avatarPortrait {
+                // A portrait is one frame: nothing to play while the bot works.
+                CharacterAvatar(portrait: portrait, size: size).transition(.opacity)
+            } else if state.phase == .working {
                 WorkingBotFace(shape: context.attributes.avatarShape, color: context.attributes.avatarColor,
                                since: context.state.startedAt ?? .now, size: size)
                     .transition(.opacity)
