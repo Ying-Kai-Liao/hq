@@ -168,6 +168,9 @@ struct UserBubble: View {
                 .contextActions(reactions: model.reactionPick(entry)) {
                     var items = [MenuItem("Copy", icon: "square.on.square") { Pasteboard.copy(entry.data.text) }]
                     if let reply { items.append(MenuItem("Reply in thread", icon: "arrowshape.turn.up.left", action: reply)) }
+                    if entry.data.status == "queued" {
+                        items.append(MenuItem("Unsend", icon: "arrow.uturn.backward") { model.unsend(entry) })
+                    }
                     return items
                 }
     }
@@ -177,9 +180,14 @@ struct UserBubble: View {
         case "sending":
             Text("Sending…").font(.caption2).foregroundStyle(Palette.tertiary)
         case "queued":
-            Text(botWorking ? "Queued until this response finishes" : "Queued")
-                .font(.caption2)
-                .foregroundStyle(Palette.tertiary)
+            HStack(spacing: 10) {
+                Text(botWorking ? "Queued until this response finishes" : "Queued").foregroundStyle(Palette.tertiary)
+                Button("Unsend", systemImage: "arrow.uturn.backward") { model.unsend(entry) }
+                    .labelStyle(.iconOnly)
+                    .help("Unsend")
+            }
+            .buttonStyle(.plain)
+            .font(.caption2)
         case "failed":
             HStack(spacing: 10) {
                 Text("Failed to send").foregroundStyle(Palette.danger)
@@ -189,7 +197,7 @@ struct UserBubble: View {
             .buttonStyle(.plain)
             .font(.caption2.bold())
         case "cancelled":
-            Text("Not sent — stopped").font(.caption2).foregroundStyle(Palette.tertiary)
+            Text("Not sent").font(.caption2).foregroundStyle(Palette.tertiary)
         case "waiting":
             HStack(spacing: 10) {
                 Text("Waiting for the computer to come online").foregroundStyle(Palette.tertiary)

@@ -94,6 +94,13 @@ extension BotStore {
         }
     }
 
+    /// Takes back a message that still waits for its turn; the host marks it cancelled.
+    public func unsend(_ entry: Entry) {
+        perform { client in
+            self.upsert(try await client.unsend(botId: entry.botId, entryId: entry.id))
+        }
+    }
+
     public func respond(_ entry: Entry, option: String?) {
         guard answering[entry.id] == nil else { return }
         Motion.animate { answering[entry.id] = option ?? "" }

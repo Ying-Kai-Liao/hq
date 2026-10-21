@@ -95,6 +95,15 @@ export class BotStore extends BotSync {
     this.scheduleSave()
   }
 
+  /** Takes back a message that still waits for its turn; the host marks it cancelled. */
+  unsend(entry: Entry) {
+    this.perform(async (c) => {
+      const res = await c.call<{ entry: Entry }>('unsend', { botId: entry.botId, entryId: entry.id })
+      this.upsert(res.entry)
+      this.changed()
+    })
+  }
+
   private markLocal(nonce: string, botId: string, status: string) {
     const list = this.entries.get(botId)
     const i = list?.findIndex((e) => e.id === `local-${nonce}`) ?? -1

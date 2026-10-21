@@ -153,6 +153,7 @@ export function UserBubble({ entry, botWorking, reply }: { entry: Entry; botWork
             items={() => [
               { title: 'Copy', icon: 'square.on.square', action: copy },
               ...(reply ? [{ title: 'Reply in thread', icon: 'arrowshape.turn.up.left', action: reply }] : []),
+              ...(status === 'queued' ? [{ title: 'Unsend', icon: 'arrow.uturn.backward', action: () => store.unsend(entry) }] : []),
             ]}
           >
             {entry.data.text}
@@ -172,7 +173,12 @@ function UserStatus({ entry, botWorking, hovering }: { entry: Entry; botWorking:
     case 'sending':
       return <Text size="caption2" tone="tertiary">Sending…</Text>
     case 'queued':
-      return <Text size="caption2" tone="tertiary">{botWorking ? 'Queued until this response finishes' : 'Queued'}</Text>
+      return (
+        <HStack as="span" gap={2}>
+          <Text size="caption2" tone="tertiary">{botWorking ? 'Queued until this response finishes' : 'Queued'}</Text>
+          <IconButton title="Unsend" icon="arrow.uturn.backward" size={24} onClick={() => store.unsend(entry)} />
+        </HStack>
+      )
     case 'failed':
       return (
         <HStack as="span" gap={2}>
@@ -182,7 +188,7 @@ function UserStatus({ entry, botWorking, hovering }: { entry: Entry; botWorking:
         </HStack>
       )
     case 'cancelled':
-      return <Text size="caption2" tone="tertiary">Not sent — stopped</Text>
+      return <Text size="caption2" tone="tertiary">Not sent</Text>
     default:
       return <Text size="caption" tone="tertiary" className={hovering ? 'user-status-time shown' : 'user-status-time'}>{relativeTime.time(entry.createdAt)}</Text>
   }
