@@ -52,6 +52,8 @@ const CHUNK: usize = 1900;
 const CATCH_UP_HOURS: u64 = 24;
 const WORKING: &str = "-# working…";
 const STOPPED: &str = "-# stopped";
+/// Larger attachments are not downloaded.
+const MAX_FILE: u64 = 25 * 1024 * 1024;
 const MANAGE_ROLES: u64 = 1 << 28;
 const ADMINISTRATOR: u64 = 1 << 3;
 
@@ -96,6 +98,11 @@ pub fn register(registry: &mut Registry) {
             Ok(ad)
         }),
     );
+}
+
+/// Agent text can't ping everyone or a role; a named user still can.
+fn no_mass_pings() -> Value {
+    json!({"parse": ["users"]})
 }
 
 #[derive(Clone, Debug)]
@@ -267,9 +274,7 @@ impl Discord {
 
     /// A session began: the server, its channels and roles, then what was missed. The first one of this
     /// connection also hands over what waited for the host and starts the rescan.
-    async fn ready(self: &Arc<Self>, tasks: &Tasks) -> Result<()> {
-        // Where the catch-up starts is what was saved before any live message of this session moves it.
-        let last = self.core.conn_state(&self.conn)["last"].as_u64().unwrap_or(0);
+    async fn ready(self: &Arc<Self>, tasks: &Tasks, last: u64) -> Result<()> {
         self.pick_guild().await?;
         if let Err(e) = self.setup().await {
             tracing::warn!("{}: setting up the server failed: {e:#}", self.conn);
@@ -303,25 +308,16 @@ impl Discord {
         self.core.description(agent).chars().take(1000).collect()
     }
 
-    /// Whether the server lacks a channel (or its topic) or role for an agent.
+    /// Whether the server lacks a channel or role for an agent.
     fn lacks(&self, channels: &[Value]) -> bool {
         let agents = self.core.agents();
         let rt = self.rt.locked();
         let missing_channel = agents
             .iter()
             .any(|a| !channels.iter().any(|c| Chan::of(c).is_some_and(|(_, c)| c.is_text() && c.name == *a)));
-        let category = channels.iter().find(|c| c["type"] == 4 && c["name"] == "hq").map(|c| &c["id"]);
-        let stale_topic = agents.iter().any(|a| {
-            channels.iter().any(|c| {
-                c["name"] == a.as_str()
-                    && c["type"] == 0
-                    && Some(&c["parent_id"]) == category
-                    && c["topic"].as_str().unwrap_or("") != self.topic_of(a)
-            })
-        });
         let manage = rt.guild.as_ref().is_some_and(|g| g.manage_roles);
         let missing_role = manage && agents.iter().any(|a| !rt.roles.values().any(|r| r == a));
-        missing_channel || stale_topic || missing_role
+        missing_channel || missing_role
     }
 
     async fn setup(&self) -> Result<()> {
@@ -348,15 +344,7 @@ impl Discord {
             let existing =
                 channels.iter().find(|c| c["name"] == agent.as_str() && matches!(c["type"].as_u64(), Some(0 | 5)));
             let id = if let Some(c) = existing {
-                let id = id_of(&c["id"]).unwrap_or_default();
-                // only the channels hq made: someone else's topic stays theirs
-                if c["parent_id"] == category.as_deref().map_or(Value::Null, |c| json!(c))
-                    && c["topic"].as_str().unwrap_or("") != topic
-                    && let Err(e) = self.send(Method::PATCH, &format!("/channels/{id}"), json!({"topic": topic})).await
-                {
-                    tracing::debug!("{}: topic of #{agent}: {e:#}", self.conn);
-                }
-                id
+                id_of(&c["id"]).unwrap_or_default()
             } else {
                 let made = self
                     .send(
@@ -447,7 +435,9 @@ impl Discord {
         let (Some(id), Some(token)) = (id_of(&hook["id"]), hook["token"].as_str()) else {
             bail!("Discord made a webhook without a token");
         };
-        let url = format!("{}/webhooks/{id}/{token}", self.api.base());
+        // unversioned, like the bridge's, so a rollback to discord.py reads it
+        let root = self.api.base().strip_suffix("/v10").unwrap_or(self.api.base());
+        let url = format!("{root}/webhooks/{id}/{token}");
         self.core.update_conn(&self.conn, |cs| {
             if !cs["hooks"].is_object() {
                 cs["hooks"] = json!({});
@@ -471,8 +461,14 @@ impl Discord {
         let (mut recreated, mut unarchived) = (false, false);
         loop {
             let url = self.hook(channel).await?;
+            let mut body = body.clone();
+            if method == Method::POST
+                && let Body::Json(v) = &mut body
+            {
+                v["allowed_mentions"] = no_mass_pings();
+            }
             let full = format!("{url}{suffix}?thread_id={thread}{}", if wait { "&wait=true" } else { "" });
-            let err = match self.api.call(method.clone(), &full, body.clone(), false).await {
+            let err = match self.api.call(method.clone(), &full, body, false).await {
                 Ok(v) => return Ok(v),
                 Err(e) => e,
             };
@@ -507,6 +503,9 @@ impl Discord {
             return; // joins, pins, "thread created": not something said to hq
         }
         let Some(claim) = self.claim(id) else { return };
+        // Marked before the core gets it, like the bridge did: a crash in between loses the message rather than
+        // running a task twice. The claim stays until the end so the catch-up can't take it meanwhile.
+        self.mark_seen(id);
         match self.incoming(msg).await {
             Ok(Some(m)) => {
                 if let Err(e) = self.core.handle(&self.as_adapter(), &m).await {
@@ -516,9 +515,6 @@ impl Discord {
             Ok(None) => {}
             Err(e) => tracing::warn!("{}: message failed: {e:#}", self.conn),
         }
-        // Marked once the core has the work (or decided there is none): a connection or host that ends before
-        // that reads the message back instead of losing it.
-        self.mark_seen(id);
         drop(claim);
     }
 
@@ -708,11 +704,16 @@ impl Discord {
             || thread.as_ref().is_some_and(|t| self.core.has_thread(t))
             || self.core.room_default(&room).is_some();
         let mut files = Vec::new();
+        let mut text = text;
         if ours {
             // only for messages hq may act on
             for a in msg["attachments"].as_array().into_iter().flatten() {
-                match self.download(&mid, a).await {
-                    Ok(p) => files.push(p),
+                match self.download(&mid, files.len(), a).await {
+                    Ok(Some(p)) => files.push(p),
+                    Ok(None) => {
+                        let name = a["filename"].as_str().unwrap_or("file");
+                        format!("{text}\n(file too big: {name})").trim().clone_into(&mut text);
+                    }
                     Err(e) => tracing::warn!("{}: an attachment wasn't saved: {e:#}", self.conn),
                 }
             }
@@ -735,8 +736,14 @@ impl Discord {
         }))
     }
 
-    async fn download(&self, mid: &str, attachment: &Value) -> Result<String> {
+    /// Saves an attachment under the connection's folder; None when it is over [`MAX_FILE`].
+    async fn download(&self, mid: &str, n: usize, attachment: &Value) -> Result<Option<String>> {
+        use futures::StreamExt as _;
+        use tokio::io::AsyncWriteExt as _;
         let url = attachment["url"].as_str().context("an attachment without a URL")?;
+        if attachment["size"].as_u64().is_some_and(|s| s > MAX_FILE) {
+            return Ok(None);
+        }
         let name = message::safe_name(attachment["filename"].as_str().unwrap_or(""), "file");
         let folder = self.core.attachments_dir(&self.conn).join(mid);
         tokio::fs::create_dir_all(&folder).await?;
@@ -744,10 +751,25 @@ impl Discord {
         if !resp.status().is_success() {
             bail!("the attachment answered {}", resp.status());
         }
-        let bytes = resp.bytes().await.map_err(|e| anyhow!("{}", e.without_url()))?;
-        let path = folder.join(name);
-        tokio::fs::write(&path, &bytes).await?;
-        Ok(path.to_string_lossy().into_owned())
+        // Two files with one name in a message keep both: the later ones get their number in front.
+        let mut path = folder.join(&name);
+        if tokio::fs::try_exists(&path).await? {
+            path = folder.join(format!("{n}-{name}"));
+        }
+        let mut file = tokio::fs::File::create(&path).await?;
+        let (mut size, mut stream) = (0u64, resp.bytes_stream());
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| anyhow!("{}", e.without_url()))?;
+            size += chunk.len() as u64;
+            if size > MAX_FILE {
+                drop(file);
+                let _ = tokio::fs::remove_file(&path).await;
+                return Ok(None);
+            }
+            file.write_all(&chunk).await?;
+        }
+        file.flush().await?;
+        Ok(Some(path.to_string_lossy().into_owned()))
     }
 
     // ---- buttons ----
@@ -825,7 +847,8 @@ impl Discord {
         Some((Self::place(&m.origin)?, id_of(&m.origin["message"])?))
     }
 
-    async fn say(&self, channel: &str, body: Value) -> Result<Value> {
+    async fn say(&self, channel: &str, mut body: Value) -> Result<Value> {
+        body["allowed_mentions"] = no_mass_pings();
         self.send(Method::POST, &format!("/channels/{channel}/messages"), body).await
     }
 
@@ -906,13 +929,13 @@ impl Discord {
                 .bot(
                     Method::POST,
                     &format!("/channels/{dm}/messages"),
-                    multipart(&json!({"content": content}), &loaded),
+                    multipart(&json!({"content": content, "allowed_mentions": no_mass_pings()}), &loaded),
                 )
                 .await?;
             return Ok(());
         }
         let (channel, thread) = Self::room_of(conv)?;
-        let mut payload = json!({"username": name});
+        let mut payload = json!({"username": name, "allowed_mentions": no_mass_pings()});
         if !caption.is_empty() {
             payload["content"] = json!(caption);
         }

@@ -58,11 +58,12 @@ prints) and `MemAvailable` on Linux; a platform or read error counts as room. `G
 The host carries the routing core of hq's chat bridge (`src/channels/`): people, `@agent`, threads and
 sessions, the queue with Jev routing, `hq <agent>` runs under the resource gate, live agents and the
 `hq-send` outbox. The platform adapters plug into it one at a time; until one is ported its bots stay with
-the Python bridge. A bot is cut over by granting its profile to the client `serve` in hq-auth and revoking
-it from `bridge`: grants are checked every minute, and the first time a connection starts here its rooms,
-threads and queued messages are copied from `~/.hq/bridge/state.json` (read only). State lives in
-`<data dir>/channels/state.json`. The bridge reads its grants only at start, so restart it after revoking
-(`launchctl kickstart -k gui/$UID/dev.hq.bridge`), and grant `jev-browser` to `serve` too or the router merges
+the Python bridge. A bot is cut over by revoking its profile from `bridge` and restarting the bridge
+(`launchctl kickstart -k gui/$UID/dev.hq.bridge`; it reads its grants only at start), and only then granting
+it to the client `serve` in hq-auth: grants are checked every minute, and the first time a connection starts
+here its rooms, threads, last message seen and queued messages are copied from `~/.hq/bridge/state.json` (read
+only), which must happen after the bridge stopped handling messages. State lives in
+`<data dir>/channels/state.json`. Also grant `jev-browser` to `serve` too or the router merges
 every message sent while an agent works. `GET /health` has a `channels` object with each connection's state.
 
 The `channels` object in `config.json` (read at start):

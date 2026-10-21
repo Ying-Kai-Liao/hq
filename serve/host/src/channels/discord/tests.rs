@@ -10,6 +10,7 @@ use super::{Config, Discord};
 use crate::LockExt;
 use crate::agent::gate::{Gate, Settings as GateSettings, memory};
 use crate::channels::adapter::Adapter;
+use crate::channels::adapter::Incoming;
 use crate::channels::core::{self, Core};
 use crate::channels::hq::Paths;
 use crate::channels::judge::Judge;
@@ -631,8 +632,10 @@ async fn a_new_agents_channel_is_made_and_a_deleted_one_comes_back_by_the_rescan
     assert_ne!(r.channel("shop"), shop);
     let topic =
         |name: &str| r.fd.st.locked().channels.iter().find(|c| c["name"] == name).map(|c| c["topic"].clone()).unwrap();
-    until("the topic to be put back", || topic("house") == json!("Keeps the house")).await;
+    // Someone else's edit of an existing channel's topic stays: only channels hq makes get one.
+    assert_eq!(topic("house"), json!("someone changed it"));
     assert_eq!(topic("shop"), json!("Shopping"));
+    assert!(r.fd.st.locked().requests("PATCH", "/channels/").is_empty(), "no channel was edited");
     r.stop();
 }
 
@@ -684,17 +687,89 @@ async fn a_channel_renamed_to_an_agents_name_is_that_agents_room() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_message_counts_as_seen_only_once_it_is_handled() {
+async fn a_message_is_marked_seen_before_the_core_gets_it_and_not_taken_twice() {
     let r = Rig::new().await;
     let seen =
         |id: u64| r.core.conn_state(CONN)["seen"].as_array().is_some_and(|s| s.iter().any(|v| v.as_u64() == Some(id)));
     let first = r.ad.claim(5).expect("a new message is taken");
     assert!(r.ad.claim(5).is_none(), "not twice at once");
-    drop(first); // interrupted before the core had it
-    let again = r.ad.claim(5);
-    assert!(again.is_some() && !seen(5), "an interrupted message is read back, not lost");
     r.ad.mark_seen(5);
-    drop(again);
-    assert!(r.ad.claim(5).is_none() && seen(5), "handled once");
+    drop(first);
+    assert!(r.ad.claim(5).is_none() && seen(5), "marked: a crash cannot run it twice");
     assert_eq!(r.core.conn_state(CONN)["last"], 5);
+
+    // Through the whole path: while a long task runs, its message is already remembered.
+    let r = Rig::new().await.started().await;
+    let id = r.say(&r.channel("house"), "SLOW job");
+    until("the agent to run", || !r.hq_calls().is_empty()).await;
+    assert!(
+        r.core.conn_state(CONN)["seen"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v.as_str() == Some(id.as_str()) || v.as_u64() == id.parse().ok())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_live_message_right_after_a_restart_does_not_hide_what_came_before() {
+    let mut r = Rig::new().await.started().await;
+    let house = r.channel("house");
+    r.say(&house, "msg-first");
+    r.answered("msg-first").await;
+    r.idle().await;
+    r.stop();
+    r.core.update_conn(CONN, |cs| cs["last"] = json!(time_snowflake(now_ms() - 30 * 3_600_000)));
+    r.fd.say(&house, OWNER, "msg-while-down", &json!({}), false, Some(now_ms() - 600_000));
+    *r.fd.after_ready.locked() = Some((house.clone(), "msg-live-at-once".into()));
+    r.restart();
+    r.ready().await;
+    r.answered("msg-live-at-once").await;
+    r.answered("msg-while-down").await;
+    r.idle().await;
+    assert_eq!((r.answers_with("msg-while-down").len(), r.answers_with("msg-live-at-once").len()), (1, 1));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_text_cannot_ping_everyone_or_a_role() {
+    let r = Rig::new().await.started().await;
+    let house = r.channel("house");
+    r.say(&house, "hello");
+    r.answered("hello").await;
+    r.idle().await;
+    let thread = r.threads()[0]["id"].as_str().unwrap().to_owned();
+    let conv = json!({"thread": thread, "channel": house, "key": "k"});
+    r.ad.post(&conv, "house", "@everyone look", None).await.unwrap();
+    r.ad.reply(&Incoming { origin: json!({"channel": house, "message": "1"}), ..Incoming::default() }, "hi")
+        .await
+        .unwrap();
+    let st = r.fd.st.locked();
+    let sent: Vec<Value> = st
+        .log
+        .iter()
+        .filter(|q| q.method == "POST" && (q.path.starts_with("/webhooks/") || q.path.ends_with("/messages")))
+        .map(|q| q.body.clone())
+        .collect();
+    assert!(sent.len() >= 3, "{sent:?}");
+    assert!(sent.iter().all(|b| b["allowed_mentions"] == json!({"parse": ["users"]})), "{sent:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn big_attachments_are_left_out_with_a_note_and_same_named_ones_both_stay() {
+    let r = Rig::new().await.started().await;
+    let house = r.channel("house");
+    let host = r.fd.st.locked().host.clone();
+    let url = format!("{host}/cdn/x");
+    let files = json!({"attachments": [
+        {"id": "1", "filename": "a.txt", "url": url},
+        {"id": "2", "filename": "a.txt", "url": url},
+        {"id": "3", "filename": "big.bin", "size": 30_000_000u64, "url": url}]});
+    let id = r.fd.say(&house, OWNER, "three files", &files, true, None);
+    r.answered("three files").await;
+    let dir = r.core.attachments_dir(CONN).join(&id);
+    assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "attachment-bytes");
+    assert_eq!(std::fs::read_to_string(dir.join("1-a.txt")).unwrap(), "attachment-bytes");
+    assert!(!dir.join("big.bin").exists());
+    assert!(r.hq_calls()[0]["task"].as_str().unwrap().contains("(file too big: big.bin)"));
+    r.idle().await;
 }

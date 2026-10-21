@@ -10,9 +10,11 @@
 //! outbox folder (`HQ_BRIDGE_OUTBOX`), a live agent's (`hq-send --to bridge:<box>`) through
 //! `~/.hq/bridge/outbox/live-<box>/`.
 //!
-//! Cutting a bot over from the bridge: `hq-auth grant serve <platform> <profile>`, then
-//! `hq-auth revoke bridge <platform>`. The bridge reads its grants only when it starts, so restart it
-//! after the revoke (`launchctl kickstart -k gui/$UID/dev.hq.bridge`) or both answer. The router needs the Jev
+//! Cutting a bot over from the bridge: first `hq-auth revoke bridge <platform>` and restart the bridge
+//! (`launchctl kickstart -k gui/$UID/dev.hq.bridge`; it reads its grants only when it starts), and only then
+//! `hq-auth grant serve <platform> <profile>`: this host copies the bridge's state (last message seen, threads)
+//! when the connection first starts, which must be after the bridge stopped handling messages, or what the
+//! bridge already answered is run again. The router needs the Jev
 //! key too: `hq-auth grant serve jev-browser <profile>`, or every message sent while an agent works is merged.
 //!
 //! State: `<data dir>/channels/state.json` (the bridge's v2 schema), run outboxes and attachments next to it. The

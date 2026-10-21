@@ -81,6 +81,8 @@ pub struct Fd {
     pub conns: AtomicUsize,
     pub identifies: AtomicUsize,
     pub resumes: AtomicUsize,
+    /// A live message the server sends right after READY: (channel, text).
+    pub after_ready: Mutex<Option<(String, String)>>,
 }
 
 fn now_ms() -> u64 {
@@ -123,7 +125,7 @@ impl Fs {
     }
 
     fn hook_url(&self, h: &Hook) -> String {
-        format!("{}/api/v10/webhooks/{}/{}", self.host, h.id, h.token)
+        format!("{}/api/webhooks/{}/{}", self.host, h.id, h.token)
     }
 
     pub fn hooks_of(&self, channel: &str) -> Vec<String> {
@@ -148,6 +150,7 @@ impl Fd {
             conns: AtomicUsize::new(0),
             identifies: AtomicUsize::new(0),
             resumes: AtomicUsize::new(0),
+            after_ready: Mutex::new(None),
         });
         let app = axum::Router::new().route("/gateway", get(ws)).fallback(rest).with_state(fd.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -305,6 +308,10 @@ async fn connection(fd: Arc<Fd>, mut sock: WebSocket) {
             if !send(&mut sock, &ready).await {
                 return;
             }
+            let live = fd.after_ready.locked().take();
+            if let Some((channel, text)) = live {
+                fd.say(&channel, OWNER, &text, &json!({}), true, None);
+            }
         }
         Some(6) => {
             fd.resumes.fetch_add(1, Ordering::SeqCst);
@@ -391,7 +398,7 @@ fn parse_multipart(ct: &str, body: &[u8]) -> (Value, Vec<(String, String)>) {
 impl Fd {
     #[allow(clippy::too_many_lines)]
     fn route(&self, method: &Method, uri: &Uri, ct: &str, body: &[u8]) -> (u16, Value) {
-        let path = uri.path().trim_start_matches("/api/v10").to_owned();
+        let path = uri.path().trim_start_matches("/api/v10").trim_start_matches("/api").to_owned();
         let query: BTreeMap<String, String> = uri
             .query()
             .unwrap_or("")

@@ -182,9 +182,11 @@ fn dispatch(d: &Arc<Discord>, w: &Wiring, session: &mut Option<Session>, f: &Val
             let url = data["resume_gateway_url"].as_str().map_or_else(|| d.cfg.gateway_url.clone(), socket_url);
             *session = Some(Session { id, url, seq: f["s"].as_u64() });
             d.set_me(data["user"]["id"].as_str().unwrap_or_default(), data["application"]["id"].as_str());
+            // Where the catch-up starts: read now, before a live message of this session can move it.
+            let last = d.core.conn_state(&d.conn)["last"].as_u64().unwrap_or(0);
             let (me, tasks, fatal) = (d.clone(), w.tasks.clone(), w.fatal_tx.clone());
             w.tasks.spawn(async move {
-                if let Err(e) = me.ready(&tasks).await {
+                if let Err(e) = me.ready(&tasks, last).await {
                     let _ = fatal.send(format!("{e:#}"));
                 }
             });

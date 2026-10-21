@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::time::Duration;
 
 /// Waits longer than this for one rate limit are given up on.
-const MAX_WAIT: Duration = Duration::from_secs(60);
+const MAX_WAIT: Duration = Duration::from_secs(300);
 const MAX_TRIES: usize = 6;
 
 /// A request body.
