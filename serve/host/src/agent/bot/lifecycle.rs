@@ -1,4 +1,5 @@
-//! Idle agents give their resources back. A session unused for [`IDLE`] is closed (a routine run's
+//! Idle agents give their resources back. A session unused for the idle time (`idle_shutdown_minutes`, 10 by
+//! default; see `gate::Settings`) is closed (a routine run's
 //! as soon as the run ends); once every session is idle, or a routine run ends with none other open,
 //! the agent stops with its process group.
 //! The next message starts the agent again and loads the session, so the conversation carries on.
@@ -9,9 +10,6 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-/// Coming back costs a relaunch plus `session/load` (seconds), so ordinary pauses in a chat
-/// stay warm.
-const IDLE: Duration = Duration::from_secs(30 * 60);
 /// How often an idle bot looks for something to give back.
 const CHECK_EVERY: Duration = Duration::from_secs(60);
 
@@ -24,12 +22,13 @@ enum Release {
     Agent,
 }
 
-/// `used`: each live session's last use. Only an agent that can close sessions releases them one
-/// by one; any agent that can load them is stopped once all are idle.
-fn plan(used: &HashMap<String, Instant>, started: Instant, can_close: bool, now: Instant) -> Release {
+/// `used`: each live session's last use; `after`: how long unused makes a session idle. Coming back costs a
+/// relaunch plus `session/load` (seconds), so ordinary pauses in a chat stay warm. Only an agent that can close
+/// sessions releases them one by one; any agent that can load them is stopped once all are idle.
+fn plan(used: &HashMap<String, Instant>, started: Instant, can_close: bool, now: Instant, after: Duration) -> Release {
     let mut idle: Vec<String> =
-        used.iter().filter(|(_, at)| now.duration_since(**at) >= IDLE).map(|(sid, _)| sid.clone()).collect();
-    if idle.len() == used.len() && now.duration_since(started) >= IDLE {
+        used.iter().filter(|(_, at)| now.duration_since(**at) >= after).map(|(sid, _)| sid.clone()).collect();
+    if idle.len() == used.len() && now.duration_since(started) >= after {
         Release::Agent
     } else if can_close && !idle.is_empty() {
         idle.sort();
@@ -55,7 +54,8 @@ impl Actor {
         if !conn.sessions.load {
             return;
         }
-        let release = plan(&conn.loaded, conn.started, conn.sessions.close, Instant::now());
+        let release =
+            plan(&conn.loaded, conn.started, conn.sessions.close, Instant::now(), self.hub.gate.settings.idle_shutdown);
         let leader = conn.acp.pid();
         if release == Release::Nothing || background_work(leader).await {
             return;
@@ -76,6 +76,32 @@ impl Actor {
         }
     }
 
+    /// How long this actor has been at rest with an agent that could be stopped and loaded again, for the gate to
+    /// pick the longest idle (see `Hub::reclaim_idle_agent`). `None`: busy, or nothing to stop.
+    pub(super) fn idle_for(&self) -> Option<Duration> {
+        let conn = self.conn.as_ref().filter(|c| c.sessions.load)?;
+        if !self.at_rest() {
+            return None;
+        }
+        let last_use = conn.loaded.values().copied().max().unwrap_or(conn.started);
+        Some(last_use.elapsed())
+    }
+
+    /// Stops an agent the gate asked for, unless something started since or it runs detached work.
+    pub(super) async fn stop_idle(&mut self) -> bool {
+        let Some(leader) = self.idle_for().and_then(|_| self.conn.as_ref().map(|c| c.acp.pid())) else {
+            return false;
+        };
+        if background_work(leader).await || !self.at_rest() {
+            return false;
+        }
+        tracing::info!(bot = %self.cfg.id, "stopping an idle agent to make room");
+        if let Some(conn) = self.conn.take() {
+            conn.acp.kill().await;
+        }
+        true
+    }
+
     fn at_rest(&self) -> bool {
         self.turn.is_none()
             && self.queue.is_empty()
@@ -89,7 +115,7 @@ impl Actor {
 
     /// A routine run's session is spent once the run is. When it was the only session open and nothing waits, the
     /// agent ran just for the run and stops with it, with everything it started; otherwise the session alone closes,
-    /// so a bot on a short schedule doesn't hold a set of MCP servers per run until [`IDLE`]. Opening the run's thread
+    /// so a bot on a short schedule doesn't hold a set of MCP servers per run until it has sat idle. Opening the run's thread
     /// loads it again.
     pub(super) async fn release_spent(&mut self, sid: &str) {
         let Some(conn) = &self.conn else { return };
@@ -202,6 +228,8 @@ fn detached_descendant(processes: &[(u32, u32)], leader: u32, session: impl Fn(u
 mod tests {
     use super::*;
 
+    const IDLE: Duration = Duration::from_secs(10 * 60);
+
     #[test]
     fn idle_sessions_close_one_by_one_and_an_idle_agent_stops() {
         let started = Instant::now();
@@ -210,15 +238,27 @@ mod tests {
         let used =
             |rows: &[(&str, Instant)]| rows.iter().map(|(s, at)| ((*s).to_owned(), *at)).collect::<HashMap<_, _>>();
         assert_eq!(
-            plan(&used(&[("main", fresh), ("t1", stale)]), started, true, now),
+            plan(&used(&[("main", fresh), ("t1", stale)]), started, true, now, IDLE),
             Release::Sessions(vec!["t1".into()])
         );
-        assert_eq!(plan(&used(&[("main", fresh), ("t1", stale)]), started, false, now), Release::Nothing);
-        assert_eq!(plan(&used(&[("main", stale), ("t1", stale)]), started, false, now), Release::Agent);
-        assert_eq!(plan(&used(&[]), started, true, now), Release::Agent);
+        assert_eq!(plan(&used(&[("main", fresh), ("t1", stale)]), started, false, now, IDLE), Release::Nothing);
+        assert_eq!(plan(&used(&[("main", stale), ("t1", stale)]), started, false, now, IDLE), Release::Agent);
+        assert_eq!(plan(&used(&[]), started, true, now, IDLE), Release::Agent);
         // A just-started agent isn't stopped before it had a chance to be used.
-        assert_eq!(plan(&used(&[]), now, true, now), Release::Nothing);
-        assert_eq!(plan(&used(&[("main", fresh)]), started, true, now), Release::Nothing);
+        assert_eq!(plan(&used(&[]), now, true, now, IDLE), Release::Nothing);
+        assert_eq!(plan(&used(&[("main", fresh)]), started, true, now, IDLE), Release::Nothing);
+    }
+
+    #[test]
+    fn the_idle_time_is_the_one_given() {
+        let started = Instant::now();
+        let used = HashMap::from([("main".to_owned(), started)]);
+        let at = |minutes: u64| started + Duration::from_secs(minutes * 60);
+        let short = Duration::from_secs(5 * 60);
+        assert_eq!(plan(&used, started, true, at(4), short), Release::Nothing);
+        assert_eq!(plan(&used, started, true, at(5), short), Release::Agent);
+        // The same wait is no idleness yet at the 30 minutes Codync used.
+        assert_eq!(plan(&used, started, true, at(5), Duration::from_secs(30 * 60)), Release::Nothing);
     }
 
     #[test]

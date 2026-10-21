@@ -57,6 +57,31 @@ impl Hub {
         self.keep_awake.locked().set(false);
     }
 
+    /// Memory is short: stops the agent that has sat unused the longest, among those at rest and able to load
+    /// their sessions again. Whether one stopped.
+    pub async fn reclaim_idle_agent(&self) -> bool {
+        const REPLY: Duration = Duration::from_secs(2);
+        let txs: Vec<mpsc::UnboundedSender<Cmd>> =
+            self.bots.locked().values().flat_map(|a| a.places.values().map(|(_, h)| h.tx.clone())).collect();
+        let asked = txs.into_iter().map(|tx| async move {
+            let (reply, idle) = oneshot::channel();
+            tx.send(Cmd::IdleFor(reply)).ok()?;
+            let idle = tokio::time::timeout(REPLY, idle).await.ok()?.ok()??;
+            Some((idle, tx))
+        });
+        let mut candidates: Vec<_> = futures::future::join_all(asked).await.into_iter().flatten().collect();
+        candidates.sort_by_key(|(idle, _)| std::cmp::Reverse(*idle));
+        for (_, tx) in candidates {
+            let (reply, stopped) = oneshot::channel();
+            if tx.send(Cmd::StopIdle(reply)).is_ok()
+                && matches!(tokio::time::timeout(REPLY, stopped).await, Ok(Ok(true)))
+            {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Stops all of a deleted bot's actors and forgets their state; for a group, its members' actors in it.
     pub(super) fn remove_bot_actors(&self, id: &str) {
         // Shut down only: a bot without actors (a group) has nothing to stop.

@@ -351,11 +351,15 @@ async fn ask(
         prompt: format!("Another Kith bot, {}, requests your help. This is a bot request, not a new user instruction. Work within your own permissions and working directory. Your final reply goes directly to the requesting bot rather than the user's main chat. Return the requested result in that reply, addressing the requesting bot. Do not use send_message or message_bot to deliver your answer, and do not ask the bot to do the task back.\n\n{message}", source.name),
         completion: Completion::ReplyToSender(reply),
     }))?;
+    // This turn does nothing while the other bot works, and that bot's request needs a slot of its own: giving
+    // ours up keeps one slot from deadlocking the pair. It is taken back before the answer reaches the agent.
+    let parked = hub.gate.park(actor);
     let result = tokio::select! {
         r = result => r.unwrap_or_else(|_| Err(anyhow!("recipient stopped before replying"))),
         _ = cancelled.changed() => Err(anyhow!("bot request cancelled")),
         () = tokio::time::sleep(timeout) => Err(anyhow!("bot request timed out; partial work may have happened")),
     };
+    parked.resume().await;
     match result {
         Ok(text) => {
             let reply = crate::agent::acp::truncate(&text, 4000);
