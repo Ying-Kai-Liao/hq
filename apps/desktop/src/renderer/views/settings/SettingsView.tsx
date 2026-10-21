@@ -223,11 +223,14 @@ function UsageLimitsList() {
 function UpdateSettings() {
   const updates = useUpdates()
   if (!updates) return null
-  const footer = !updates.supported
-    ? 'Updates are available in release builds.'
-    : updates.waitingForApp
-      ? `Waiting for iPhone app ${updates.waitingForApp} to pass App Store review.`
-      : null
+  const footer = (
+    <>
+      {updates.supported ? null : 'Automatic updates are off until Kith publishes its own releases. '}
+      <button className="settings-link" onClick={() => window.codync.app.openExternal('https://github.com/leepokai/Codync')}>
+        Built on Codync (Apache-2.0)
+      </button>
+    </>
+  )
   const lastChecked = updates.lastCheck
     ? `Last checked ${new Date(updates.lastCheck).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`
     : null

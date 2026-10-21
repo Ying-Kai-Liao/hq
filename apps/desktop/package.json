@@ -4,10 +4,9 @@
   "version": "2.19.1",
   "description": "Codync for macOS, Linux and Windows: your coding agents as teammates.",
   "author": {
-    "name": "leepokai",
-    "email": "109857817+leepokai@users.noreply.github.com"
+    "name": "Ying-Kai Liao"
   },
-  "homepage": "https://www.codync.dev",
+  "homepage": "https://github.com/Ying-Kai-Liao/hq",
   "license": "Apache-2.0",
   "private": true,
   "main": "out/main/index.js",

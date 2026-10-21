@@ -251,44 +251,19 @@ for (const block of ['disabled', 'focused', 'recentInput', 'busyHost'] as const)
   })
 }
 
-test('paired iPhones hold an incompatible release until the App Store catches up', async () => {
-  const f = updaterFixture()
+test('a build without an update feed never checks, and discards an update the old feed staged', async () => {
+  const f = updaterFixture({ feed: null })
+  assert.equal(f.updates.state.supported, false)
   f.updates.check()
-  await f.emit('update-available', { ...release, minApp: '2.11.0' })
-  assert.equal(f.updates.state.waitingForApp, '2.11.0')
-  assert.match(f.updates.state.error!, /iPhone app 2.11.0/)
-  assert.equal(f.calls.download, 0)
-  f.behavior.storeVersion = '2.11.0'
-  f.updates.check()
-  await f.emit('update-available', { ...release, minApp: '2.11.0' })
-  assert.equal(f.updates.state.waitingForApp, null)
-  assert.equal(f.calls.download, 1)
-})
-
-for (const condition of ['noPhones', 'compatibleHost', 'manualOffline'] as const) {
-  test(`compatibility permits download with ${condition}`, async () => {
-    const f = updaterFixture()
-    if (condition === 'noPhones') f.behavior.devices = []
-    if (condition === 'compatibleHost') f.behavior.minApp = '2.11.0'
-    if (condition === 'manualOffline') f.behavior.storeVersion = null
-    f.updates.check()
-    await f.emit('update-available', { ...release, minApp: '2.11.0' })
-    assert.equal(f.updates.state.waitingForApp, null)
-    assert.equal(f.calls.download, 1)
-  })
-}
-
-test('unattended updates wait when App Store or paired-device information is unknown', async () => {
-  const f = updaterFixture({ prefs: { updatesAutoDownload: true } })
-  f.behavior.storeVersion = null
-  f.behavior.hostFactsFail = true
-  await f.emit('update-available', { ...release, minApp: '2.11.0' })
-  assert.equal(f.calls.download, 0)
-  assert.equal(f.updates.state.waitingForApp, '2.11.0')
-  assert.equal(f.updates.state.error, null)
-  f.advance(3600_000)
-  await f.tick(3600_000)
-  assert.equal(f.calls.check, 1, 'held releases recheck hourly')
+  await f.tick(30_000)
+  assert.equal(f.calls.check, 0)
+  assert.equal(f.shipIt.removed, 1, 'the installer job that would apply it on quit is removed')
+  assert.deepEqual(f.removed, [
+    '/Users/me/Library/Caches/com.pokai.Codync.ShipIt',
+    '/Users/me/Library/Caches/codync-desktop-updater/pending',
+  ])
+  f.app.emit('before-quit', { preventDefault() {} })
+  assert.equal(f.calls.prepare + f.calls.install, 0)
 })
 
 test('repeated clicks during host shutdown must invoke the installer once', async () => {

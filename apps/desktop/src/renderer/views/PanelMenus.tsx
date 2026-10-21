@@ -65,12 +65,11 @@ export function AccountPanelLayer({ compact, approvals, onDismiss, onUsage, onSe
     page === 'support'
       ? [
           { title: 'Support', icon: 'chevron.left', action: () => setPage('main') },
-          { title: 'Help & documentation', icon: 'book', chevron: true, action: () => open('https://github.com/leepokai/codync#readme') },
-          { title: 'Report an issue', icon: 'bubble.left', chevron: true, action: () => open('https://github.com/leepokai/codync/issues') },
+          { title: 'Help & documentation', icon: 'book', chevron: true, action: () => open('https://github.com/Ying-Kai-Liao/hq#readme') },
+          { title: 'Report an issue', icon: 'bubble.left', chevron: true, action: () => open('https://github.com/Ying-Kai-Liao/hq/issues') },
         ]
       : [
           { title: 'Usage', icon: 'gauge.with.dots.needle.33percent', chevron: true, action: onUsage },
-          { title: 'Get Codync for mobile', icon: 'iphone', action: () => open('https://apps.apple.com/app/id6760984418') },
           { title: 'Support', icon: 'book.closed', chevron: true, action: () => setPage('support') },
           { title: 'Settings', icon: 'gearshape', detail: approvals > 0 ? String(approvals) : null, action: onSettings },
           ...auth,

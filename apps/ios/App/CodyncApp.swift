@@ -9,8 +9,6 @@ import WidgetKit
 struct CodyncApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var app = AppStore.shared
-    /// What the App Store has: greys out an update it doesn't have yet, reminds of newer ones.
-    @State private var updates = AppUpdates()
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("onboardingCompleted") private var onboardingCompleted = false
     /// Cold launch with a computer to reach: the splash covers its connect and catch-up.
@@ -27,9 +25,6 @@ struct CodyncApp: App {
                 .environment(app)
                 .environment(app.accounts)
                 .environment(app.account)
-                // A computer needs a newer app: its App Store page has the Update button.
-                .environment(\.appUpdate, AppUpdateAction { UIApplication.shared.open(AppStoreRelease.page) })
-                .environment(updates)
                 .tint(Palette.accent)
                 // No scroll indicators anywhere in the app.
                 .scrollIndicators(.never)
@@ -68,7 +63,6 @@ struct CodyncApp: App {
                     // Back in the app: a computer may have joined the account meanwhile.
                     if phase == .active {
                         Task { await app.accounts.refreshCloud() }
-                        Task { await updates.refresh() }
                     }
                 }
                 #if DEBUG

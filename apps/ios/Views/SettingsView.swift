@@ -109,7 +109,10 @@ struct SettingsView: View {
 
             CardSection {
                 ValueRow("App version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
-                Button("Source code") { openURL(URL(string: "https://github.com/leepokai/Codync")!) }
+                Button("Source code") { openURL(URL(string: "https://github.com/Ying-Kai-Liao/hq")!) }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Palette.text)
+                Button("Built on Codync (Apache-2.0)") { openURL(URL(string: "https://github.com/leepokai/Codync")!) }
                     .buttonStyle(.plain)
                     .foregroundStyle(Palette.text)
             }

@@ -14,16 +14,6 @@ public struct AnalyticsSheet: View {
         ("power", "Your choice", "Each iPhone and each computer has its own switch. Turning it off stops sending right away and drops anything not sent yet."),
     ]
 
-    /// The footer, with "Privacy Policy" an underlined link.
-    private static let policy: AttributedString = {
-        var text = AttributedString("See the Privacy Policy for details.")
-        if let range = text.range(of: "Privacy Policy") {
-            text[range].link = URL(string: "https://codync.dev/privacy")
-            text[range].underlineStyle = .single
-        }
-        return text
-    }()
-
     public init() {}
 
     public var body: some View {
@@ -46,11 +36,6 @@ public struct AnalyticsSheet: View {
                         }
                     }
                 }
-                Text(Self.policy)
-                    .font(.caption)
-                    .foregroundStyle(Palette.secondary)
-                    .tint(Palette.text)
-                    .padding(.horizontal, 2)
             }
         }
         .background(Palette.background)

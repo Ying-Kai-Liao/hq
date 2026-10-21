@@ -97,7 +97,7 @@ private struct InstallPage: View {
                     .padding(.top, 8)
 
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Install Codync\non your computer")
+                        Text("Install Kith\non your computer")
                             .font(.system(size: 30, weight: .semibold))
                             .tracking(-0.5)
                             .foregroundStyle(Palette.text)
@@ -110,25 +110,19 @@ private struct InstallPage: View {
 
                     VStack(alignment: .leading, spacing: 10) {
                         // Copied here, pasted on the computer (Universal Clipboard or a message to yourself).
-                        if os == .mac {
-                            Hint("Install with Homebrew")
-                            CommandBlock("brew install --cask leepokai/codync/codync")
-                            Hint("or download the Mac app")
-                            CommandBlock("https://github.com/leepokai/Codync/releases/latest/download/codync-macos.dmg")
-                        } else {
-                            Hint("Run the installer")
-                            CommandBlock("curl -fsSL https://raw.githubusercontent.com/leepokai/Codync/main/packaging/install.sh | sh\ncodync-host install")
-                            Hint("or install with Homebrew")
-                            CommandBlock("brew install leepokai/codync/codync-host\ncodync-host install")
-                        }
+                        // The same hq host on both systems; `os` only changes what the note says.
+                        Hint("Install hq")
+                        CommandBlock("https://github.com/Ying-Kai-Liao/hq")
+                        Hint("then start the host")
+                        CommandBlock("kith serve start")
+                        Hint("then show its pairing code")
+                        CommandBlock("~/.kith/serve/bin/kith-serve pair")
                         Text(os == .mac
-                             ? "Open Codync and it sets up the host on its own."
-                             : "codync-host install keeps it running in the background.")
+                             ? "The host keeps running in the background through launchd."
+                             : "The host runs as a systemd user service. Run loginctl enable-linger $USER to keep it running after logout.")
                             .font(.subheadline)
                             .foregroundStyle(Palette.secondary)
                             .contentTransition(.opacity)
-                        Hint("Every install option")
-                        CommandBlock("https://www.codync.dev/#install")
                     }
                     .animation(Motion.layout, value: os)
 

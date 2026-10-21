@@ -38,9 +38,9 @@ import Testing
 }
 
 @Test func routineWebhookDecodesWithAndWithoutTheCloud() throws {
-    let cloud = Data(#"{"url":"https://api.codync.dev/v1/hooks/c/r","localUrl":"http://127.0.0.1:19222/hooks/routines/r","key":"k","connected":true}"#.utf8)
+    let cloud = Data(#"{"url":"https://relay.example.test/v1/hooks/c/r","localUrl":"http://127.0.0.1:19222/hooks/routines/r","key":"k","connected":true}"#.utf8)
     let local = Data(#"{"url":null,"localUrl":"http://127.0.0.1:19222/hooks/routines/r","key":"k","connected":false}"#.utf8)
-    #expect(try JSONDecoder().decode(RoutineWebhook.self, from: cloud).url == "https://api.codync.dev/v1/hooks/c/r")
+    #expect(try JSONDecoder().decode(RoutineWebhook.self, from: cloud).url == "https://relay.example.test/v1/hooks/c/r")
     let off = try JSONDecoder().decode(RoutineWebhook.self, from: local)
     #expect(off.url == nil)
     #expect(off.localUrl.hasSuffix("/hooks/routines/r"))

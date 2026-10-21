@@ -13,7 +13,7 @@ export function HostStateView({ compact = false }: { compact?: boolean }) {
     case 'notInstalled':
       return <EmptyState compact={compact} icon="desktopcomputer" title={`Set up this ${isMac ? 'Mac' : 'computer'}`} message={`Codync runs your coding agents through the host, a small background service on this ${isMac ? 'Mac' : 'computer'}.`} action={['Install host', () => window.codync.host.install()]} />
     case 'missingBinary':
-      return <EmptyState compact={compact} icon="desktopcomputer.trianglebadge.exclamationmark" title="The host is missing" message={window.codync.appScheme === 'codync-dev' ? 'Rebuild Kith Dev with its development host, then open it again.' : "This copy of Codync doesn't include codync-host. Download Codync again from codync.dev or GitHub."} />
+      return <EmptyState compact={compact} icon="desktopcomputer.trianglebadge.exclamationmark" title="The host is missing" message={window.codync.appScheme === 'codync-dev' ? 'Rebuild Kith Dev with its development host, then open it again.' : "This copy of Kith doesn't include its host. Download Kith again from github.com/Ying-Kai-Liao/hq."} />
     case 'failed':
       return <EmptyState compact={compact} icon="desktopcomputer.trianglebadge.exclamationmark" title="The host isn't running" message={state.message} action={['Try again', () => window.codync.host.restart()]} />
     default:

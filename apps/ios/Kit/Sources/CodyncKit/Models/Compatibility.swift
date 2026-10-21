@@ -60,32 +60,3 @@ public enum AppVersion {
         return v.lexicographicallyPrecedes(m)
     }
 }
-
-/// The iPhone app in the App Store (iTunes lookup API).
-public enum AppStoreRelease {
-    public static let appID = "6760984418"
-    public static let page = URL(string: "https://apps.apple.com/app/id\(appID)")!
-
-    /// The version live in the App Store; nil when the lookup has no result.
-    public static func latestVersion(session: URLSession = .shared) async throws -> String? {
-        struct Lookup: Decodable {
-            struct Result: Decodable { var version: String? }
-            var results: [Result]
-        }
-        var request = URLRequest(url: URL(string: "https://itunes.apple.com/lookup?id=\(appID)")!)
-        request.timeoutInterval = 10
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        let (data, response) = try await session.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
-        return try JSONDecoder().decode(Lookup.self, from: data).results.first?.version
-    }
-}
-
-/// Newer releases worth a (dismissible) reminder while everything still works together.
-public enum UpdateReminder {
-    /// The App Store has a newer app than this one, and it wasn't dismissed.
-    public static func app(current: String, store: String?, dismissed: String?) -> String? {
-        guard let store, AppVersion.isBelow(current, store), store != dismissed else { return nil }
-        return store
-    }
-}
