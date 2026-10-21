@@ -7,6 +7,7 @@ set -uo pipefail
 
 KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
 T=$(mktemp -d "${TMPDIR:-/tmp}/hq-project-check.XXXXXX")
+T=$(cd "$T" && pwd -P)   # no double slash from TMPDIR, no /var -> /private/var symlink: hq prints normalized paths
 trap 'rm -rf "$T"' EXIT
 export HOME=$T/home HQ_HOME=$T/hq
 unset HQ_PROJECT HQ_PERSON HQ_AGENT HQ_CLAUDE_ARGS HQ_HARNESS
@@ -30,7 +31,7 @@ check "add refuses a bad id" "[ $rc != 0 ]"
 "$HQ" project add nodir "$T/nope" </dev/null >/dev/null 2>&1; rc=$?
 check "add refuses a missing folder" "[ $rc != 0 ]"
 OUT=$("$HQ" project add beta "$T/work/beta" --json 2>/dev/null)
-check "add --json prints the entry" "is \"d['id'], d['exists'], d['home']\" 'beta True None'"
+check "add --json prints the entry" "is \"d['id'] + ' ' + str(d['exists']) + ' ' + str(d['home'])\" 'beta True None'"
 
 # a project with only a remote and no folder on this Mac, and one with a parent and a home
 printf '{"projects":{"zeta":{"remotes":["github.com/o/z"],"paths":["/nonexistent/zeta"]},"remote-only":{"remotes":["github.com/o/r"],"paths":[]},"alpha":{"remotes":[],"paths":["~/gone"],"home":"%s","parent":"zeta"}}}\n' "$T/work/alpha" > "$HQ_HOME/state/projects.json"
@@ -41,7 +42,7 @@ check "paths absolute, parent and memory set" "is \"d['projects'][0]['paths'][0]
 
 cd "$T/work/beta" || exit 1
 launch -p alpha; rc=$?
-check "launch-json -p carries the project" "is \"d['project'], d['env']['HQ_PROJECT'], '<session project=\\\"alpha\\\"' in d['system_prompt']\" 'alpha alpha True'"
+check "launch-json -p carries the project" "is \"' '.join([d['project'], d['env']['HQ_PROJECT'], str('<session project=\\\"alpha\\\"' in d['system_prompt'])])\" 'alpha alpha True'"
 launch -p alpha --launch-json
 check "launch-json -p in either argument order" "is \"d['project']\" alpha"
 launch
