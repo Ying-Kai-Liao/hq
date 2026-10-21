@@ -24,6 +24,8 @@ This build never fetches releases; rebuild with `kith serve start`.
 
 ## Analytics (optional)
 
-Usage and error events go to a PostHog project only when its write-only key is set:
-`posthog_key` in `<data dir>/config.json` (same file as `relay_url`), or `KITH_SERVE_POSTHOG_KEY`.
-No key, no network call. The host is `https://us.i.posthog.com`.
+Usage and error events go to Kith's PostHog project (`https://us.i.posthog.com`) using a built-in
+write-only public key. To send to your own project instead, set `posthog_key` in
+`<data dir>/config.json` (same file as `relay_url`) or `KITH_SERVE_POSTHOG_KEY` (the env var wins).
+To turn analytics off, use the analytics off switch in the app settings; nothing is sent while it is off.
+Debug builds never send.
