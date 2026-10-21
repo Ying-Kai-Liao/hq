@@ -93,7 +93,8 @@ fn purge_dead_tickets(hub: &Hub) {
 fn faces(hub: &Hub, bot: &BotConfig, from: Option<&str>) -> Vec<Value> {
     let face = |c: &BotConfig| {
         json!({"id": c.id, "kind": c.kind, "members": c.members, "name": c.name,
-            "avatarColor": c.avatar_color, "avatarShape": c.avatar_shape})
+            "avatarColor": c.avatar_color, "avatarShape": c.avatar_shape,
+            "avatarSource": c.avatar_source})
     };
     let mut ids: Vec<&str> = bot.members.iter().take(2).map(String::as_str).collect();
     if let Some(from) = from.filter(|f| *f != bot.id && !ids.contains(f)) {
