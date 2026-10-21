@@ -62,6 +62,8 @@ impl Environment {
         }
     }
 
+    /// A Main Windows build must ship its `kith-servew.exe` under this name (a packaging step, not a
+    /// cargo target): the names differ so stopping one environment's host never kills the other's.
     #[cfg(any(windows, test))]
     pub const fn supervisor(self) -> &'static str {
         match self {

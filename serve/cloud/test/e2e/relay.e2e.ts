@@ -1,7 +1,7 @@
-// Cross-track integration test (spec §12.1): the real codync-host against `wrangler dev`, driven by a
-// fake phone. Run with `npm run e2e` after `cargo build` in host/ (or set CODYNC_HOST_BIN).
+// Cross-track integration test (spec §12.1): the real kith-serve against `wrangler dev`, driven by a
+// fake phone. Run with `npm run e2e` after `cargo build` in host/ (or set KITH_SERVE_HOST_BIN).
 //
-// Steps: local D1 + wrangler dev with a test Clerk key → host with CODYNC_CLOUD_URL → QR pairing over the
+// Steps: local D1 + wrangler dev with a test Clerk key → host with KITH_SERVE_CLOUD_URL → QR pairing over the
 // relay → chat through the relay → mailbox while the host is down → account claim + SAS access request →
 // cloud revocation → injected grant ignored → direct /channel and loopback-only bearer token.
 
@@ -10,14 +10,14 @@ import { generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { networkInterfaces, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as ref from "../ref.ts";
 import { Channel, FakePhone, parsePairing, waitFor, type Json, type PairingInfo, type Wire } from "./phone.ts";
 
 const CLOUD_DIR = fileURLToPath(new URL("../..", import.meta.url));
 const ROOT = join(CLOUD_DIR, "..");
-const HOST_BIN = process.env.CODYNC_HOST_BIN ?? join(ROOT, "host/target/debug/codync-host");
+const HOST_BIN = process.env.KITH_SERVE_HOST_BIN ?? join(resolve(join(ROOT, "host"), process.env.CARGO_TARGET_DIR ?? "target"), "debug/kith-serve");
 const FAKE_AGENT = join(ROOT, "host/tests/fake_agent.py");
 const CLOUD_PORT = Number(process.env.CODYNC_E2E_CLOUD_PORT ?? 8787);
 const CLOUD = `http://127.0.0.1:${CLOUD_PORT}`;
@@ -114,7 +114,7 @@ let host: ChildProcess | undefined;
 async function startHost() {
   hostPort ||= await freePort();
   // 0.0.0.0 so step 7 can prove a non-loopback bearer token is refused.
-  host = run(HOST_BIN, ["serve", "--bind", "0.0.0.0", "--port", String(hostPort)], { CODYNC_HOME: home, CODYNC_CLOUD_URL: CLOUD });
+  host = run(HOST_BIN, ["serve", "--bind", "0.0.0.0", "--port", String(hostPort)], { KITH_SERVE_HOME: home, KITH_SERVE_CLOUD_URL: CLOUD });
   await waitFor("host /health", () => fetch(`http://127.0.0.1:${hostPort}/health`).then((r) => r.ok || undefined).catch(() => undefined), 30_000);
 }
 
@@ -326,7 +326,7 @@ async function cleanup() {
 
 try {
   if (spawnSync(HOST_BIN, ["--version"]).error) {
-    throw new Error(`codync-host not found at ${HOST_BIN}; run \`cargo build\` in host/ or set CODYNC_HOST_BIN`);
+    throw new Error(`kith-serve not found at ${HOST_BIN}; run \`cargo build\` in host/ or set KITH_SERVE_HOST_BIN`);
   }
   await main();
   await cleanup();

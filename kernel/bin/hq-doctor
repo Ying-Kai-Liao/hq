@@ -338,11 +338,20 @@ def serve():
         ok('dev.kith.serve: running')
     else:
         warn('dev.kith.serve is loaded but not running: kith serve restart (log in ~/.kith/serve)')
+    # The running host knows its environment's override too; the file and the build's default are the fallback.
+    cloud = run(str(binary), 'cloud', '--port', '19224').stdout
+    url = next((l.split(':', 1)[1].strip() for l in cloud.splitlines() if l.startswith('url:')), '')
+    if url == '-':
+        ok('relay: none (the cloud is off)')
+        return
+    if url:
+        ok(f'relay: {url} (host)')
+        return
     try:
         relay = json.loads((HOME / '.kith/serve/config.json').read_text()).get('relay_url')
     except Exception:
         relay = None
-    ok('relay: set') if relay else note('relay: not set (kith serve relay <url>)')
+    ok(f'relay: {relay} (config.json)') if relay else ok('relay: built-in default (kith serve relay <url> to change)')
 
 
 def main(argv):

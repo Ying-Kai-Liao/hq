@@ -37,6 +37,20 @@ pub struct HqAgent {
     pub description: String,
     /// The agent's folder, where its bot works.
     pub home: String,
+    /// The agent's harness; hq before it listed one means Claude.
+    #[serde(default = "claude")]
+    pub harness: String,
+}
+
+fn claude() -> String {
+    "claude".into()
+}
+
+impl HqAgent {
+    /// Whether the host can run it: `hq <agent> --launch-json` covers Claude agents only.
+    pub fn runnable(&self) -> bool {
+        self.harness == "claude"
+    }
 }
 
 /// What `hq <agent> --launch-json` printed, the parts the host uses.

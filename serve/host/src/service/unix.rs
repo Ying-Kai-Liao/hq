@@ -101,19 +101,18 @@ fn program_arguments(launcher: &[String], exe: &str, port: u16) -> String {
     out
 }
 
-/// Installs and starts the host as a per-user background service. The current
-/// PATH is captured so the service finds `npx`, `claude`, `codex`, …
-pub fn install(port: u16) -> Result<()> {
-    let exe = current_exe().context("locating the kith-serve binary")?;
-    let exe = exe.to_string_lossy();
-    let path = std::env::var("PATH").unwrap_or_default();
-    // The login-shell PATH lookup would otherwise pick another hq than the one that installed the job.
-    let hq_bin = std::env::var("HQ_BIN").ok().filter(|s| !s.is_empty());
-    let log = data_dir().join("host.log");
-    std::fs::create_dir_all(data_dir()).context("creating the data directory")?;
-    if cfg!(target_os = "macos") {
-        let plist = format!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>
+/// The launchd job file. `hq_bin` pins the `hq` checkout the host runs agents from.
+fn plist_text(
+    launcher: &[String],
+    exe: &str,
+    port: u16,
+    path: &str,
+    data: &str,
+    hq_bin: Option<&str>,
+    log: &str,
+) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -128,14 +127,46 @@ pub fn install(port: u16) -> Result<()> {
 </dict>
 </plist>
 "#,
-            args = program_arguments(&launcher(), &exe, port),
-            path = xml_escape(&path),
-            data = xml_escape(&data_dir().to_string_lossy()),
-            hq = hq_bin
-                .as_deref()
-                .map(|b| format!("<key>HQ_BIN</key><string>{}</string>", xml_escape(b)))
-                .unwrap_or_default(),
-            log = xml_escape(&log.to_string_lossy()),
+        args = program_arguments(launcher, exe, port),
+        path = xml_escape(path),
+        data = xml_escape(data),
+        hq = hq_bin.map(|b| format!("<key>HQ_BIN</key><string>{}</string>", xml_escape(b))).unwrap_or_default(),
+        log = xml_escape(log),
+    )
+}
+
+/// The systemd user unit, with the same environment as the launchd job.
+fn unit_text(exe: &str, port: u16, path: &str, data: &str, hq_bin: Option<&str>) -> String {
+    format!(
+        "[Unit]\nDescription=Kith host\nAfter=network-online.target\n\n[Service]\nExecStart={exe} serve --port {port}\nEnvironment={path}\nEnvironment={data}\n{hq}Restart=always\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n",
+        exe = systemd_quote(exe, true),
+        path = systemd_quote(&format!("PATH={path}"), false),
+        data = systemd_quote(&format!("KITH_SERVE_HOME={data}"), false),
+        hq = hq_bin
+            .map(|b| format!("Environment={}\n", systemd_quote(&format!("HQ_BIN={b}"), false)))
+            .unwrap_or_default(),
+    )
+}
+
+/// Installs and starts the host as a per-user background service. The current
+/// PATH is captured so the service finds `npx`, `claude`, `codex`, …
+pub fn install(port: u16) -> Result<()> {
+    let exe = current_exe().context("locating the kith-serve binary")?;
+    let exe = exe.to_string_lossy();
+    let path = std::env::var("PATH").unwrap_or_default();
+    // The login-shell PATH lookup would otherwise pick another hq than the one that installed the job.
+    let hq_bin = std::env::var("HQ_BIN").ok().filter(|s| !s.is_empty());
+    let log = data_dir().join("host.log");
+    std::fs::create_dir_all(data_dir()).context("creating the data directory")?;
+    if cfg!(target_os = "macos") {
+        let plist = plist_text(
+            &launcher(),
+            &exe,
+            port,
+            &path,
+            &data_dir().to_string_lossy(),
+            hq_bin.as_deref(),
+            &log.to_string_lossy(),
         );
         let file = launchd_plist();
         create_parent(&file)?;
@@ -147,15 +178,7 @@ pub fn install(port: u16) -> Result<()> {
         std::fs::write(&file, plist).with_context(|| format!("writing {}", file.display()))?;
         run("launchctl", &["bootstrap", &format!("gui/{uid}"), &file.to_string_lossy()])?;
     } else {
-        let unit = format!(
-            "[Unit]\nDescription=Kith host\nAfter=network-online.target\n\n[Service]\nExecStart={exe} serve --port {port}\nEnvironment={path}\nEnvironment={data}\n{hq}Restart=always\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n",
-            exe = systemd_quote(&exe, true),
-            path = systemd_quote(&format!("PATH={path}"), false),
-            data = systemd_quote(&format!("KITH_SERVE_HOME={}", data_dir().display()), false),
-            hq = hq_bin
-                .map(|b| format!("Environment={}\n", systemd_quote(&format!("HQ_BIN={b}"), false)))
-                .unwrap_or_default(),
-        );
+        let unit = unit_text(&exe, port, &path, &data_dir().to_string_lossy(), hq_bin.as_deref());
         let file = systemd_unit();
         create_parent(&file)?;
         std::fs::write(&file, unit).with_context(|| format!("writing {}", file.display()))?;
@@ -198,7 +221,7 @@ fn current_uid() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{program_arguments, systemd_quote};
+    use super::{plist_text, program_arguments, systemd_quote, unit_text};
 
     #[test]
     fn the_job_runs_behind_a_launcher_when_one_is_set() {
@@ -224,5 +247,22 @@ mod tests {
         assert_eq!(exe, r#""/home/me/My $$bin/kith-serve""#);
         let parsed = shlex::split(&format!("{exe} serve")).unwrap();
         assert_eq!(parsed[0].replace("%%", "%").replace("$$", "$"), "/home/me/My $bin/kith-serve");
+    }
+
+    #[test]
+    fn the_job_files_keep_hq_bin_when_it_is_set() {
+        let plist =
+            plist_text(&[], "/h/kith-serve", 19224, "/usr/bin", "/d", Some("/my hq/kernel/bin/hq&"), "/d/host.log");
+        assert!(plist.contains("<key>HQ_BIN</key><string>/my hq/kernel/bin/hq&amp;</string>"), "{plist}");
+        assert!(plist.contains("<key>KITH_SERVE_HOME</key><string>/d</string>"));
+        let unit = unit_text("/h/kith-serve", 19224, "/usr/bin", "/d", Some("/my hq/kernel/bin/hq"));
+        assert!(unit.contains("Environment=\"HQ_BIN=/my hq/kernel/bin/hq\"\n"), "{unit}");
+        assert!(unit.contains("Environment=\"KITH_SERVE_HOME=/d\"\n"));
+    }
+
+    #[test]
+    fn the_job_files_have_no_hq_bin_when_it_is_not_set() {
+        assert!(!plist_text(&[], "/h/kith-serve", 19224, "/usr/bin", "/d", None, "/d/host.log").contains("HQ_BIN"));
+        assert!(!unit_text("/h/kith-serve", 19224, "/usr/bin", "/d", None).contains("HQ_BIN"));
     }
 }
