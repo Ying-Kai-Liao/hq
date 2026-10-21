@@ -28,7 +28,7 @@ mkdir -p "$CARGO_TARGET_DIR/dev-app"
 cat > "$CARGO_TARGET_DIR/dev-app/kith-serve" <<'EOS'
 #!/usr/bin/env bash
 echo "kith-serve $*" >> "$STUB_LOG"
-if [ "$1" = install ]; then echo "${HQ_BIN:-}" >> "$STUB_LOG.hq"; fi
+if [ "$1" = install ]; then echo "${HQ_BIN:-}" >> "$STUB_LOG.hq"; echo "${KITH_SERVE_LAUNCHER:-}" >> "$STUB_LOG.launcher"; fi
 EOS
 chmod +x "$CARGO_TARGET_DIR/dev-app/kith-serve"
 EOF
@@ -83,6 +83,14 @@ check "stop forwards" "grep -qx 'kith-serve stop' '$STUB_LOG'"
 out=$("$SERVE" status 2>&1)
 check "status forwards with the port" "grep -q 'kith-serve status --port 19224' '$STUB_LOG'"
 check "status says relay not set" "echo \"\$out\" | grep -q 'relay: not set'"
+
+# no launcher unless one is configured: hq-uv alone changes nothing; a configured one is passed on
+mkdir -p "$HOME/.hq/bin"; printf '#!/bin/sh\n' > "$HOME/.hq/bin/hq-uv"; chmod +x "$HOME/.hq/bin/hq-uv"
+: > "$STUB_LOG.launcher"; "$SERVE" start --no-build >/dev/null 2>&1
+check "hq-uv present: no launcher by default" "! grep -q . '$STUB_LOG.launcher'"
+: > "$STUB_LOG.launcher"; KITH_SERVE_LAUNCHER='["x"]' "$SERVE" start --no-build >/dev/null 2>&1
+check "a configured launcher is kept" "grep -qx '\\[\"x\"\\]' '$STUB_LOG.launcher'"
+rm -f "$HOME/.hq/bin/hq-uv"
 
 # restart: stop, then install without building
 : > "$STUB_LOG"

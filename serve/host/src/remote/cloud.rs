@@ -53,7 +53,7 @@ fn relay_url_from(config: &Path) -> Option<String> {
         .and_then(|v| v.get("relay_url")?.as_str().map(|u| u.trim().trim_end_matches('/').to_owned()))
         .filter(|u| valid_url(&format!("{u}/")));
     if found.is_none() && !WARNED.swap(true, Ordering::Relaxed) {
-        tracing::warn!(path = %config.display(), "config.json has no valid relay_url; the cloud stays off");
+        tracing::warn!(path = %config.display(), "config.json has no valid relay_url; the built-in relay (if any) is used");
     }
     found
 }
@@ -66,10 +66,23 @@ fn env_url() -> Option<String> {
         .filter(|u| valid_url(&format!("{u}/")))
 }
 
+/// The relay a Dev build uses when nothing else is set (the relay is public). Main has none.
+const DEV_RELAY: &str = "https://kith-cloud-dev.lykevin890919.workers.dev";
+
+fn default_url() -> Option<String> {
+    matches!(crate::environment::Environment::current(), crate::environment::Environment::Dev)
+        .then(|| DEV_RELAY.to_owned())
+}
+
+/// The first of the environment's URL, the config file's, the build's default.
+fn pick(env: Option<String>, config: Option<String>, default: Option<String>) -> Option<String> {
+    env.or(config).or(default)
+}
+
 /// The cloud base URL in use, or `None` when the cloud is off or no relay URL is set.
 /// `KITH_SERVE_CLOUD=off` > turned off here > `KITH_SERVE_CLOUD_URL` > `relay_url` in
-/// `<data dir>/config.json`. No cloud is built in: without a URL the cloud is off. The URL is
-/// never saved in the store: on/off is the only stored cloud setting.
+/// `<data dir>/config.json` > the built-in Dev relay (a Main build has none: the cloud stays off
+/// without a URL). The URL is never saved in the store: on/off is the only stored cloud setting.
 /// Unit tests point at a fake cloud through kv `test_cloud_url`, so they never reach a real one.
 pub fn url(store: &Store) -> Option<String> {
     if switched_off(store) {
@@ -78,7 +91,7 @@ pub fn url(store: &Store) -> Option<String> {
     if cfg!(test) {
         return store.kv_get("test_cloud_url");
     }
-    env_url().or_else(|| relay_url_from(&crate::service::data_dir().join("config.json")))
+    pick(env_url(), relay_url_from(&crate::service::data_dir().join("config.json")), default_url())
 }
 
 /// Why the cloud has no URL, for the status: `None` when it is off on purpose or has one.
@@ -727,6 +740,16 @@ mod tests {
             assert_eq!(relay_url_from(&file).as_deref(), want, "{body}");
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_relay_is_the_environments_then_the_files_then_the_default() {
+        let s = |u: &str| Some(u.to_owned());
+        assert_eq!(pick(s("e"), s("c"), s("d")), s("e"));
+        assert_eq!(pick(None, s("c"), s("d")), s("c"));
+        assert_eq!(pick(None, None, s("d")), s("d"));
+        assert_eq!(pick(None, None, None), None, "a Main build has no default");
+        assert!(valid_url(&format!("{DEV_RELAY}/")));
     }
 
     #[derive(Default)]

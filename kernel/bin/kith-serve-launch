@@ -1,0 +1,30 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
+"""kith-serve-launch — run a command as a child and pass signals on, for launchd.
+
+  kith-serve-launch COMMAND [ARGS...]
+
+launchd credits file access (Full Disk Access, external volumes) to the program it starts and to what that
+program spawns. Run behind hq-uv, which has that access, the kith host reads ~/hq like the bridge does. The
+command is a child, never an exec: an exec would replace hq-uv's process and lose the credit. SIGTERM, SIGINT and
+SIGHUP go to the child, and the exit code is the child's.
+"""
+import signal
+import subprocess
+import sys
+
+if len(sys.argv) < 2:
+    sys.exit("usage: kith-serve-launch COMMAND [ARGS...]")
+child = subprocess.Popen(sys.argv[1:])
+for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    signal.signal(sig, lambda n, _f: child.send_signal(n))
+while True:
+    try:
+        code = child.wait()
+        break
+    except KeyboardInterrupt:
+        continue
+sys.exit(code if code >= 0 else 128 - code)

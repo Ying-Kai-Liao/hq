@@ -59,7 +59,8 @@ cmd_start() {
     fi
   fi
   [ -x "$BIN" ] || { echo "hq serve: no host binary at $built or $BIN: run hq serve start without --no-build" >&2; exit 1; }
-  # The job runs this checkout's hq, not whichever one the login shell finds first.
+  # The job runs this checkout's hq, not whichever one the login shell finds first. A launcher (config.json
+  # `launcher` or KITH_SERVE_LAUNCHER) is opt-in per machine, e.g. when the agents live on an external volume.
   HQ_BIN="${HQ_BIN:-$REPO/kernel/bin/hq}" "$BIN" install --port $PORT
 }
 
