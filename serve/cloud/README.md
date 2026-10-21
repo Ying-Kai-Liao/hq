@@ -1,0 +1,95 @@
+# Codync cloud
+
+Cloudflare Worker for accounts and the off-LAN relay (spec: [docs/reference/remote-relay.md](../docs/reference/remote-relay.md)).
+
+- **`/v1` API** (`src/api.ts`, route groups in `src/routes/`): Clerk-authenticated account routes (devices, claims, computers, access
+  requests, grants), `Codync-Sig`-authenticated host routes (`/v1/host/*`), the Clerk webhook, and a
+  15-minute cron that expires requests and prunes nonces, and the public routine webhook route
+  `POST /v1/hooks/:computerId/:routineId` (spec §7.8). D1 schema: `migrations/` (later files rebuild some tables).
+- **`ComputerRelay`** (`src/relay.ts`): one Durable Object per computer (SQLite storage, WebSocket
+  Hibernation). It admits device sockets against the host-signed ACL, forwards channel frames it can't
+  read, reports presence, holds the offline mailbox, and queues routine webhook deliveries (`hookbox`,
+  checked against the keys the host registers; `src/hooks.ts`). It is reachable only through requests the Worker
+  builds itself (`X-Codync-Internal: 1`); `/internal/*` has no public route.
+- **Auth** (`src/auth.ts`): Clerk session JWTs via `@clerk/backend` (`CLERK_SECRET_KEY` → JWKS fetched and
+  cached per isolate; `CLERK_JWT_KEY` → networkless, dev/e2e only) and Ed25519 request signatures
+  (WebCrypto).
+
+The channel relay sees ciphertext and routing metadata. The account API also stores account/device metadata. It can shorten access (revoke, block) but never grant
+it: new devices come from the host's own QR pairing or its approval, and the ACL is signed by the host.
+
+## Test
+
+```bash
+npm ci
+npm run typecheck
+npm test          # vitest in workerd: vectors, Codync-Sig, API, DO relay/mailbox
+```
+
+`test/ref.ts` is a device/host reference implementation on `@noble/*`, checked against
+`docs/reference/fixtures/remote-relay-vectors.json` and reused by the relay tests and the e2e harness.
+
+The vitest pool's bundled workerd may trail wrangler's; `vitest.config.ts` pins the test compatibility
+date to the newest one it supports. `wrangler.toml` keeps the deploy date.
+
+### End to end (spec §12.1)
+
+```bash
+(cd ../host && cargo build)
+npm run e2e       # local D1 + wrangler dev + real codync-host + test/e2e/phone.ts
+```
+
+Env: `CODYNC_HOST_BIN` (default `../host/target/debug/codync-host`), `CODYNC_E2E_CLOUD_PORT` (default
+8787), `E2E_VERBOSE=1` to stream wrangler and host logs. Needs `python3` for the fake agent.
+
+## Deploy
+
+Development deployment (see [environment readiness](../docs/guides/environments-and-deployment.md); these commands change remote resources):
+
+```bash
+# Only if the database does not exist: npx wrangler d1 create codync-dev
+# Confirm its database_id in [env.dev] before applying migrations.
+npx wrangler d1 migrations apply codync-dev --env dev --remote
+npx wrangler secret put CLERK_SECRET_KEY --env dev
+npx wrangler secret put CLERK_WEBHOOK_SECRET --env dev
+npx wrangler deploy --env dev               # → https://dev-api.codync.dev
+```
+
+| Name | Kind | Purpose |
+|---|---|---|
+| `CLERK_SECRET_KEY` | secret | JWKS for session tokens |
+| `CLERK_WEBHOOK_SECRET` | secret | Svix signature on `/v1/webhooks/clerk` (`user.deleted`) |
+| `CLERK_ISSUER` | var | Clerk Frontend API URL; tokens must carry this `iss` |
+| `CLERK_AUTHORIZED_PARTIES` | var, optional | comma-separated; a token with `azp` must match |
+| `CLERK_JWT_KEY` | var, dev/e2e only | public key for networkless verification |
+
+### Kith
+
+Kith runs its own copy on its own Cloudflare account, at workers.dev, without accounts: no Clerk secrets are set,
+so only QR pairing admits devices (the account routes answer 401). `kith-dev` serves every local build; builds
+made with `CODYNC_ENV=main` will need their own environment when we make them.
+
+```bash
+npx wrangler login                                   # once, in a browser
+npx wrangler d1 create kith-dev                      # put its database_id in [env.kith-dev]
+npx wrangler d1 migrations apply kith-dev --env kith-dev --remote
+npx wrangler deploy --env kith-dev                   # → https://kith-cloud-dev.<account>.workers.dev
+curl https://kith-cloud-dev.<account>.workers.dev/v1/health
+```
+
+The host's default for each build is in `host/src/environment.rs` (`cloud_url`); `CODYNC_CLOUD_URL` overrides it
+for one host, `CODYNC_CLOUD=off` turns the cloud off. The phone learns the URL from the QR code.
+
+New computers are limited to 10 per IP per minute with the Workers Rate Limiting binding
+`REGISTER_LIMITER` (`[[ratelimits]]`; each environment needs its own `namespace_id`).
+Public routine webhook deliveries are limited to 60 per sender IP and hook per minute with
+`HOOK_LIMITER` (same binding kind, its own `namespace_id` per environment).
+
+## Remote screen relay
+
+`POST /v1/host/screen-ice` issues one-hour Cloudflare Realtime TURN credentials to a
+signed host belonging to an active account. The host first checks the calling
+device's screen permission. The Worker requires `TURN_KEY_ID`, `TURN_KEY_API_TOKEN`
+(server-only secrets) and `TURN_LIMITER` (12 issuances per account per minute).
+The credentials are never cached in HTTP caches or stored in D1. See
+[Remote screen setup and verification](../docs/features/remote-screen.md).
