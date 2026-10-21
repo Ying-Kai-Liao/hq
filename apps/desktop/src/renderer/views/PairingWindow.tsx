@@ -58,7 +58,7 @@ export function PairingWindow() {
             <img src={qr} alt={`Pairing code for ${name}`} width={200} height={200} />
           </div>
           <Text as="div" size="caption" tone="secondary" className="pairing-note">
-            Scan with the Codync app or the iPhone Camera. No Tailscale or open ports needed: your iPhone connects directly on the same Wi-Fi, and through the encrypted relay anywhere else.
+            Scan with the Kith app or the iPhone Camera. No Tailscale or open ports needed: your iPhone connects directly on the same Wi-Fi, and through the encrypted relay anywhere else.
           </Text>
           {cloud?.enabled !== true ? (
             <Text as="div" size="caption" tone="attention" className="pairing-note">

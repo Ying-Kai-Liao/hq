@@ -14,7 +14,7 @@ final class InputInjector {
 
     func perform(_ e: [String: Any], display: CGDirectDisplayID) async throws {
         guard AXIsProcessTrusted() else {
-            throw HelperError("Codync Screen isn't allowed to control this computer yet. Allow it under Privacy & Security → Accessibility.")
+            throw HelperError("Kith Screen isn't allowed to control this computer yet. Allow it under Privacy & Security → Accessibility.")
         }
         let origin = CGDisplayBounds(display).origin
         func point() throws -> CGPoint {

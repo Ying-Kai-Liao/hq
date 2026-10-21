@@ -86,7 +86,7 @@ export class Tray {
           items.push({ label: 'Rebuild Kith Dev with its development host.', enabled: false })
           break
         }
-        items.push({ label: 'Reinstall Codync or install the host with Homebrew.', enabled: false })
+        items.push({ label: 'Reinstall Kith or install the host with Homebrew.', enabled: false })
         items.push({ label: 'Copy host install command', click: () => clipboard.writeText('brew install leepokai/codync/codync-host') })
         break
       case 'notInstalled':

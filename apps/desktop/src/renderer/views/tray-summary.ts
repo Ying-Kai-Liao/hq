@@ -136,7 +136,7 @@ function screenSubtitle(app: AppModel) {
   const screen = local?.screen
   if (!local || !screen || !screen.enabled) return `Control this ${isMac ? 'Mac' : 'computer'} from your iPhone`
   if (app.screenNeedsApproval) return 'Needs approval in System Settings'
-  if (!screen.connected) return 'Starting Codync Screen…'
+  if (!screen.connected) return 'Starting Kith Screen…'
   if (!screen.capture || !screen.input) return 'Needs permission'
   if (screen.viewers > 0) return screen.viewers === 1 ? 'Your phone is viewing' : `${screen.viewers} viewers`
   const bot = screen.agentBot ? local.bots.get(screen.agentBot) : null

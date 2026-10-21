@@ -190,7 +190,7 @@ public struct ScreenView: View {
             }
         case .live, .closed:
             if screen?.input != true {
-                Text("View only. To allow control, open Codync → Settings → Computer access on the computer.")
+                Text("View only. To allow control, open Kith → Settings → Computer access on the computer.")
                     .font(.caption).padding(12)
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
                     .frame(maxHeight: .infinity, alignment: .bottom).padding(.bottom, 24)
@@ -209,8 +209,8 @@ public struct ScreenView: View {
         let s = screen
         let (icon, text): (String, String) =
             if model.connection != .online { ("wifi.slash", "This computer is offline.") }
-            else if s == nil { ("arrow.down.circle", "Update Codync on your computer to use its screen from here.") }
-            else { ("lock.display", s?.accessGuidance ?? "Set up Computer access in Codync on the computer.") }
+            else if s == nil { ("arrow.down.circle", "Update Kith on your computer to use its screen from here.") }
+            else { ("lock.display", s?.accessGuidance ?? "Set up Computer access in Kith on the computer.") }
         Overlay(icon: icon, text: text)
     }
 }

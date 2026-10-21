@@ -58,14 +58,14 @@ extension ScreenState {
         if platform == "windows" {
             return "Remote screen viewing is not available on Windows yet. Bots can still use apps on that computer."
         }
-        let setup = "On the computer, open Codync → Settings → Computer access. Permissions are set separately on each computer."
+        let setup = "On the computer, open Kith → Settings → Computer access. Permissions are set separately on each computer."
         if !enabled { return "Remote screen is off. \(setup)" }
-        if !connected { return "Codync Screen is not running. \(setup)" }
+        if !connected { return "Kith Screen is not running. \(setup)" }
         if !capture || (platform == "linux" && !input) {
             if platform == "linux" { return "Choose a screen and allow control in the system sharing dialog. \(setup)" }
-            return "Allow screen recording for \(permissionApp ?? "Codync Screen"). \(setup)"
+            return "Allow screen recording for \(permissionApp ?? "Kith Screen"). \(setup)"
         }
-        if !input { return "Allow computer control for \(permissionApp ?? "Codync Screen"). macOS may call this Device Control and Data Access or Accessibility. \(setup)" }
+        if !input { return "Allow computer control for \(permissionApp ?? "Kith Screen"). macOS may call this Device Control and Data Access or Accessibility. \(setup)" }
         return "Computer access is ready."
     }
 }

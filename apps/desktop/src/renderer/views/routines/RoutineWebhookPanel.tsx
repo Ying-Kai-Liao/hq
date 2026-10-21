@@ -75,8 +75,8 @@ export function RoutineWebhookPanel({ botId, routineId }: { botId: string; routi
           <Text size="caption" tone="secondary" className="routine-caption">
             {webhook.url
               ? 'POST with Authorization: Bearer <key>. For GitHub, use content type application/json and the key as the secret. ' +
-                'Deliveries wait up to 72 hours while this computer is off. They pass through the Codync cloud, which can read them.'
-              : 'The Codync cloud is off, so only this computer can send to it.'}
+                'Deliveries wait up to 72 hours while this computer is off. They pass through the Kith cloud, which can read them.'
+              : 'The Kith cloud is off, so only this computer can send to it.'}
           </Text>
         </>
       ) : error ? (

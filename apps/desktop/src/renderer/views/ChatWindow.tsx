@@ -124,7 +124,7 @@ export function ChatWindow() {
       <Dialog
         open={confirmReset}
         title="Reset all data?"
-        message="Signs out every account and deletes this computer's bots, conversations, keys and settings. Codync then starts over from the welcome screen."
+        message="Signs out every account and deletes this computer's bots, conversations, keys and settings. Kith then starts over from the welcome screen."
         actions={[{ title: 'Reset everything', destructive: true, action: () => void window.codync.app.resetAllData() }]}
         onClose={() => setConfirmReset(false)}
       />

@@ -85,7 +85,7 @@ export interface MemoryView {
   files?: MemoryFiles
 }
 
-const OLDER_HOST = "Update Codync on your computer to see this bot's memory."
+const OLDER_HOST = "Update Kith on your computer to see this bot's memory."
 
 /** One bot's memory: fetches it, and changes it through the host. */
 export class MemoryStore extends Observable {

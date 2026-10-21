@@ -230,7 +230,7 @@ public struct BotsWidgetCard: View {
                 .transition(.activityRow)
             }
             if bots.isEmpty {
-                Text("Create your first bot in Codync.")
+                Text("Create your first bot in Kith.")
                     .font(.system(size: 12)).foregroundStyle(Palette.secondary)
             }
         }

@@ -292,7 +292,7 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
       <Dialog
         open={confirmAutoApproval}
         title="Let account devices in without a code?"
-        message={`Any device signed in to your account gets full control of ${name}: its files, terminals and bots, with no check here. If someone gets into your account, or Codync's cloud is ever compromised, they could add their own device and you'd have no chance to stop it. Devices paired with a QR code aren't affected.`}
+        message={`Any device signed in to your account gets full control of ${name}: its files, terminals and bots, with no check here. If someone gets into your account, or Kith's cloud is ever compromised, they could add their own device and you'd have no chance to stop it. Devices paired with a QR code aren't affected.`}
         actions={[{ title: 'Skip the check', destructive: true, action: () => setApproval('auto') }]}
         onClose={() => setConfirmAutoApproval(false)}
       />
@@ -351,7 +351,7 @@ function PairingPanel({ store }: { store: BotStore }) {
             <img src={qr} alt={`Pairing code for ${name}`} width={200} height={200} />
           </div>
           <Text as="div" size="caption" tone="secondary" className="settings-centered">
-            Scan with the Codync app or the iPhone Camera. No Tailscale or open ports needed: your iPhone connects directly on the same Wi-Fi, and through the encrypted relay anywhere else.
+            Scan with the Kith app or the iPhone Camera. No Tailscale or open ports needed: your iPhone connects directly on the same Wi-Fi, and through the encrypted relay anywhere else.
           </Text>
           {store.cloud?.enabled !== true ? (
             <Text as="div" size="caption" tone="attention" className="settings-centered">
@@ -398,7 +398,7 @@ function SSHProfileEditor({ profile: initial, isNew }: { profile: SSHProfile; is
     const portText = port.trim()
     if (portText && !isInt(portText)) return setProblem('The SSH port must be a number.')
     const remote = remotePort.trim()
-    if (!isInt(remote)) return setProblem('The Codync port must be a number.')
+    if (!isInt(remote)) return setProblem('The Kith port must be a number.')
     const u = user.trim()
     const p: SSHProfile = {
       ...profile,
@@ -445,10 +445,10 @@ function SSHProfileEditor({ profile: initial, isNew }: { profile: SSHProfile; is
               </HStack>
             ) : null}
           </div>
-          {field('Codync port', remotePort, setRemotePort, '')}
+          {field('Kith port', remotePort, setRemotePort, '')}
         </CardSection>
         <Text size="caption" tone="secondary">
-          Codync opens an SSH tunnel to codync-host on that computer's loopback. It uses your SSH config and ssh-agent; agent forwarding stays off.
+          Kith opens an SSH tunnel to codync-host on that computer's loopback. It uses your SSH config and ssh-agent; agent forwarding stays off.
         </Text>
         <Reveal show={problem !== null}>
           <Text size="caption" tone="danger">{problem}</Text>

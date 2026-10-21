@@ -259,12 +259,12 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
               title="Use the computer"
               detail={
                 store.screen.platform !== 'windows' && !(store.screen.enabled && store.screen.connected && store.screen.capture && store.screen.input)
-                  ? 'Let this bot use apps. On that computer, open Codync → Settings → Computer access to set up permissions first.'
+                  ? 'Let this bot use apps. On that computer, open Kith → Settings → Computer access to set up permissions first.'
                   : store.screen.enabled
                   ? 'Let this bot see the screen and use the mouse and keyboard. You can watch and take over from your phone.'
                   : store.screen.computerUse
                     ? 'Let this bot see the screen and use the mouse and keyboard.'
-                    : "Let this bot see the screen and use the mouse and keyboard. On that computer, open Codync → Settings → Computer access to set up permissions first."
+                    : "Let this bot see the screen and use the mouse and keyboard. On that computer, open Kith → Settings → Computer access to set up permissions first."
               }
               on={draft.computer ?? false}
               onChange={(on) => set('computer', on)}

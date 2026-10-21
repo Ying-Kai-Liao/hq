@@ -18,7 +18,7 @@ public struct CloudError: LocalizedError, Sendable, Equatable {
         case "requestExpired": "The request expired. Ask again."
         case "accountDeleted": "This account was deleted."
         case "rateLimited": "Too many requests. Try again in a little while."
-        default: message ?? "Codync cloud error (\(code))"
+        default: message ?? "Kith cloud error (\(code))"
         }
     }
 

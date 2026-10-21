@@ -49,7 +49,7 @@ settings:
       CODYNC_APNS_ENVIRONMENT: production
     DevDebug:
       CODYNC_ENV: dev
-      CODYNC_APP_NAME: Kith Dev
+      CODYNC_APP_NAME: Kith
       CODYNC_IOS_BUNDLE_ID: com.yingkailiao.kith.ios.dev
       CODYNC_APP_GROUP: group.com.yingkailiao.kith.dev
       CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith.dev
@@ -60,7 +60,7 @@ settings:
       CODYNC_APNS_ENVIRONMENT: sandbox
     DevRelease:
       CODYNC_ENV: dev
-      CODYNC_APP_NAME: Kith Dev
+      CODYNC_APP_NAME: Kith
       CODYNC_IOS_BUNDLE_ID: com.yingkailiao.kith.ios.dev
       CODYNC_APP_GROUP: group.com.yingkailiao.kith.dev
       CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith.dev

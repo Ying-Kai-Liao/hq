@@ -16,7 +16,7 @@ final class Driver {
         if process?.isRunning == true { return path }
         let exe = Bundle.main.bundleURL.appending(path: "Contents/Helpers/cua-driver")
         guard FileManager.default.isExecutableFile(atPath: exe.path) else {
-            throw HelperError("The computer-use driver is missing from Codync Screen. Reinstall Codync.")
+            throw HelperError("The computer-use driver is missing from Kith Screen. Reinstall Kith.")
         }
         let dir = (path as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])

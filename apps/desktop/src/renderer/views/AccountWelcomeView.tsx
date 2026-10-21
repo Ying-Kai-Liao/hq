@@ -89,7 +89,7 @@ export function AccountWelcomeView({ onContinue }: { onContinue: () => void }) {
             )}
           </Button>
           {!account.isConfigured ? (
-            <Text as="div" size="footnote" tone="tertiary">Sign-in isn't configured in this build. You can still use Codync on this {deviceName}.</Text>
+            <Text as="div" size="footnote" tone="tertiary">Sign-in isn't configured in this build. You can still use Kith on this {deviceName}.</Text>
           ) : null}
           {account.errorMessage ? <Text as="div" size="footnote" tone="attention">{account.errorMessage}</Text> : null}
         </VStack>

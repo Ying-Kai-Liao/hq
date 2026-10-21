@@ -252,12 +252,12 @@ struct BotSettingsForm: View {
                           isOn: Binding(get: { draft.notify ?? true }, set: { draft.notify = $0 }))
                 if model.screen != nil, part == .all {
                     SwitchRow("Use the computer", detail: model.screen?.controlReady != true
-                        ? "Let this bot use apps. On that computer, open Codync → Settings → Computer access to set up permissions first."
+                        ? "Let this bot use apps. On that computer, open Kith → Settings → Computer access to set up permissions first."
                         : model.screen?.enabled == true
                         ? "Let this bot see the screen and use the mouse and keyboard. You can watch and take over from your phone."
                         : model.screen?.computerUse == true
                         ? "Let this bot see the screen and use the mouse and keyboard."
-                        : "Let this bot see the screen and use the mouse and keyboard. On that computer, open Codync → Settings → Computer access to set up permissions first.",
+                        : "Let this bot see the screen and use the mouse and keyboard. On that computer, open Kith → Settings → Computer access to set up permissions first.",
                               isOn: Binding(get: { draft.computer ?? false }, set: { draft.computer = $0 }))
                 }
             }

@@ -91,7 +91,7 @@ export function registerCloud(account: AccountService) {
       }
       return { ok: true, value: json }
     } catch {
-      return { ok: false, error: { status: 0, code: 'unreachable', message: "Can't reach the Codync cloud. Check your connection." } }
+      return { ok: false, error: { status: 0, code: 'unreachable', message: "Can't reach the Kith cloud. Check your connection." } }
     }
   })
 }

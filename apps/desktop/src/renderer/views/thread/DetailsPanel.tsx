@@ -101,7 +101,7 @@ function ComputerUse({ bot }: { bot: Bot }) {
     <section className="details-section">
       <span className="details-section-title">Computer</span>
       <div className="outlined-card details-switch">
-        <RowLabel grow label="Use the computer" detail={ready ? null : 'On that computer, open Codync → Settings → Computer access to set it up first.'} />
+        <RowLabel grow label="Use the computer" detail={ready ? null : 'On that computer, open Kith → Settings → Computer access to set it up first.'} />
         <HStack as="span" align="stretch" className="details-switch-control">
           <Switch label="Use the computer" on={bot.computer} disabled={store.isOffline} onChange={(on) => store.setComputer(bot, on)} />
         </HStack>

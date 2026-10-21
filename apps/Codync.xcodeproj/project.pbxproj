@@ -740,7 +740,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CODYNC_APNS_ENVIRONMENT = sandbox;
 				CODYNC_APP_GROUP = group.com.yingkailiao.kith.dev;
-				CODYNC_APP_NAME = "Kith Dev";
+				CODYNC_APP_NAME = Kith;
 				CODYNC_DATA_FOLDER = ".kith-dev";
 				CODYNC_ENV = dev;
 				CODYNC_IOS_BUNDLE_ID = com.yingkailiao.kith.ios.dev;
@@ -1253,7 +1253,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CODYNC_APNS_ENVIRONMENT = production;
 				CODYNC_APP_GROUP = group.com.yingkailiao.kith.dev;
-				CODYNC_APP_NAME = "Kith Dev";
+				CODYNC_APP_NAME = Kith;
 				CODYNC_DATA_FOLDER = ".kith-dev";
 				CODYNC_ENV = dev;
 				CODYNC_IOS_BUNDLE_ID = com.yingkailiao.kith.ios.dev;

@@ -8,7 +8,7 @@ import * as story from './story'
 
 const TYPING_MS = 1500
 
-export const DEMO_UNAVAILABLE = 'Not available in the web demo. Install Codync to use this.'
+export const DEMO_UNAVAILABLE = 'Not available in the web demo. Install Kith to use this.'
 
 export class FakeHost {
   readonly hostId = 'demo-host'

@@ -125,9 +125,9 @@ final class Session: NSObject {
         if on {
             // Wake a sleeping display, then keep it on while someone watches.
             var activity: IOPMAssertionID = 0
-            IOPMAssertionDeclareUserActivity("Codync remote screen" as CFString, kIOPMUserActiveLocal, &activity)
+            IOPMAssertionDeclareUserActivity("Kith remote screen" as CFString, kIOPMUserActiveLocal, &activity)
             IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
-                                        IOPMAssertionLevel(kIOPMAssertionLevelOn), "Codync remote screen" as CFString, &awake)
+                                        IOPMAssertionLevel(kIOPMAssertionLevelOn), "Kith remote screen" as CFString, &awake)
         } else if awake != 0 {
             IOPMAssertionRelease(awake)
             awake = 0

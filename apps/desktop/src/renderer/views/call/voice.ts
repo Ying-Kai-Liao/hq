@@ -111,7 +111,7 @@ export abstract class VoiceEngine extends Observable {
 }
 
 export const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e))
-export const MIC_DENIED = 'Allow the microphone for Codync in Settings to talk to your bots.'
+export const MIC_DENIED = 'Allow the microphone for Kith in Settings to talk to your bots.'
 
 // MARK: audio helpers
 

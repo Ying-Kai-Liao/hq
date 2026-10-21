@@ -23,30 +23,30 @@ public extension Color {
     }
 }
 
-/// Black and white: a pure black (or white) ground, grey bubbles, and color that
-/// comes only from the bots; amber marks "needs you" and red marks errors.
+/// The Kith brand tokens (brand.tokens.json, brand.dark.tokens.json): white or night ground,
+/// violet accent, cool greys; amber marks "needs you" and red marks errors.
 public enum Palette {
-    public static let background = Color(light: 0xFFFFFF, dark: 0x0A0A0A)
-    public static let surface = Color(light: 0xF4F4F4, dark: 0x141414)
-    public static let bubbleAgent = Color(light: 0xF0F0F0, dark: 0x1C1C1C)
-    public static let bubbleUser = Color(light: 0xE2E2E2, dark: 0x363636)
-    public static let border = Color(light: 0xE6E6E6, dark: 0x262626)
-    public static let text = Color(light: 0x141414, dark: 0xF2F2F2)
-    public static let secondary = Color(light: 0x6B6B6B, dark: 0x9A9A9A)
-    public static let tertiary = Color(light: 0x767676, dark: 0x929292)
+    public static let background = Color(light: 0xFFFFFF, dark: 0x14161B)
+    public static let surface = Color(light: 0xF6F6FA, dark: 0x1E2129)
+    public static let bubbleAgent = Color(light: 0xF6F6FA, dark: 0x1E2129)
+    public static let bubbleUser = Color(light: 0xE7E8EE, dark: 0x2C303A)
+    public static let border = Color(light: 0xE7E8EE, dark: 0x2C303A)
+    public static let text = Color(light: 0x14161B, dark: 0xFFFFFF)
+    public static let secondary = Color(light: 0x6B7280, dark: 0xB4BAC4)
+    public static let tertiary = Color(light: 0x6B7280, dark: 0xB4BAC4)
     /// Ink used for fills (primary buttons, the send button, unread badges).
-    public static let accentFill = Color(light: 0x000000, dark: 0xFFFFFF)
+    public static let accentFill = Color(light: 0x6A45F2, dark: 0xB49CFF)
     /// Ink readable as text and tint on the background.
-    public static let accent = Color(light: 0x000000, dark: 0xFFFFFF)
-    public static let onAccent = Color(light: 0xFFFFFF, dark: 0x000000)
-    public static let accentDim = Color(light: 0xD9D9D9, dark: 0x333333)
-    public static let danger = Color(light: 0xC23A2B, dark: 0xF0A7A7)
+    public static let accent = Color(light: 0x6A45F2, dark: 0xB49CFF)
+    public static let onAccent = Color(light: 0xFFFFFF, dark: 0x14161B)
+    public static let accentDim = Color(light: 0xE7E8EE, dark: 0x2C303A)
+    public static let danger = Color(light: 0xC93450, dark: 0xFF7A8E)
     public static let warning = Color(hex: 0xF0A030)
     /// A bot that needs you, in widgets and Live Activities: readable amber in both modes.
     public static let attention = Color(light: 0x936000, dark: 0xECAF52)
-    public static let codeBackground = Color(light: 0xF4F4F4, dark: 0x111111)
-    public static let added = Color(light: 0x2E7D32, dark: 0x8FD18B)
-    public static let removed = Color(light: 0xC62828, dark: 0xF0A7A7)
+    public static let codeBackground = Color(light: 0xF6F6FA, dark: 0x1E2129)
+    public static let added = Color(light: 0x178357, dark: 0x4CC38A)
+    public static let removed = Color(light: 0xC93450, dark: 0xFF7A8E)
 }
 
 public enum AvatarPalette {

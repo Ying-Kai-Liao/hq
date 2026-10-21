@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, type CSSProperties } from 'react'
 import { isGroup, isWorking, needsInput, type Bot } from '@shared/models'
+import { crewName } from '@shared/crew'
 import { avatarColor, palette, useDark, useReduceMotion } from '../lib/theme'
 import { Icon } from './Icon'
 import './avatar.css'
@@ -211,7 +212,14 @@ export function moodOf(bot: Bot, animated = true): Mood {
   return needsInput(bot) ? 'needsInput' : isWorking(bot) ? 'working' : 'idle'
 }
 
+// Crew faces by agent name (the brand's crew/<agent>.png), bundled with the app, not served by the host.
+const crewFaces = import.meta.glob<string>('../assets/crew/*.png', { eager: true, query: '?url', import: 'default' })
+const crewURL = new Map(Object.entries(crewFaces).map(([path, url]) => [path.split('/').pop()!.replace('.png', ''), url]))
+
 export function BotAvatar({ bot, size = 40, animated = true }: { bot: Bot; size?: number; animated?: boolean }) {
+  const crew = crewName(bot)
+  const face = crew ? crewURL.get(crew) : undefined
+  if (face) return <img className="avatar-crew" src={face} width={size} height={size} alt="" draggable={false} />
   return <CharacterAvatar shape={bot.avatarShape} color={bot.avatarColor} size={size} mood={moodOf(bot, animated)} />
 }
 

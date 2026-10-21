@@ -117,7 +117,7 @@ struct BotDetailsView: View {
                             .foregroundStyle(Palette.text)
                             .padding(.leading, 2)
                         SwitchRow("Use the computer",
-                                  detail: screen.controlReady == true ? nil : "On that computer, open Codync → Settings → Computer access to set it up first.",
+                                  detail: screen.controlReady == true ? nil : "On that computer, open Kith → Settings → Computer access to set it up first.",
                                   isOn: Binding(get: { bot.computer }, set: { model.setComputer(bot, $0) }))
                             .disabled(model.isOffline)
                             .outlinedCard()

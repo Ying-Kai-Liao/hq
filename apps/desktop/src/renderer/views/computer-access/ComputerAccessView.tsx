@@ -27,17 +27,17 @@ export function ComputerAccessView({ onContinue }: { onContinue?: (ready: boolea
       <div className="computer-access-content">
         <header className="computer-access-header">
           <div className="computer-access-identity">
-            <img src={appIcon} width={40} height={40} alt="Codync" />
+            <img src={appIcon} width={40} height={40} alt="Kith" />
             <div><span>This computer</span><strong>{access.computerName}</strong></div>
           </div>
           <h1>{ready ? 'Your computer is ready' : 'Computer access'}</h1>
           <p>{windows ? 'Let a bot work in your apps. You choose which bots can use this computer.' : 'Work in your apps with a bot, or access your screen from your phone. You choose which bots can use this computer.'}</p>
         </header>
         {step === 'host' ? <AccessNotice title="Waiting for your computer" icon="desktopcomputer">
-          Start or restart the host from Codync’s menu to continue. We’ll check again automatically.
+          Start or restart the host from Kith’s menu to continue. We’ll check again automatically.
         </AccessNotice> : null}
-        {step === 'unavailable' ? <AccessNotice title="Codync Screen is missing" icon="desktopcomputer.trianglebadge.exclamationmark">
-          Install the full Codync desktop app to finish setup.
+        {step === 'unavailable' ? <AccessNotice title="Kith Screen is missing" icon="desktopcomputer.trianglebadge.exclamationmark">
+          Install the full Kith desktop app to finish setup.
         </AccessNotice> : null}
         {access.error ? <AccessNotice title="Couldn’t finish setup" icon="exclamationmark.circle" error>{access.error}</AccessNotice> : null}
         <div className="computer-access-section-label">
@@ -46,17 +46,17 @@ export function ComputerAccessView({ onContinue }: { onContinue?: (ready: boolea
         </div>
         <div className="computer-access-steps">
           {windows ? <AccessRow title="Computer control" icon="cursorarrow.motionlines" detail="Bots can use apps on this computer. Remote screen viewing from your phone isn’t available on Windows yet." done={ready} /> : <>
-            <AccessRow title="Codync Screen" icon="desktopcomputer" detail="Runs in the background to share your screen and connect your controls." done={helperReady} active={['enable', 'helper', 'background'].includes(step)} status={step === 'background' ? 'Needs approval' : undefined}>
-              {['enable', 'helper'].includes(step) ? <Button disabled={busy !== null} onClick={() => void access.enable()}>{busy === 'enable' ? <><Spinner /> Starting…</> : step === 'helper' ? 'Start again' : 'Enable Codync Screen'}</Button> : null}
-              {step === 'background' ? <><p className="computer-access-inline-note">Allow Codync to run in the background in Login Items.</p><Button onClick={() => access.openSettings('background')}>Open Login Items <Icon name="arrow.up.right.square" size={10} /></Button></> : null}
+            <AccessRow title="Kith Screen" icon="desktopcomputer" detail="Runs in the background to share your screen and connect your controls." done={helperReady} active={['enable', 'helper', 'background'].includes(step)} status={step === 'background' ? 'Needs approval' : undefined}>
+              {['enable', 'helper'].includes(step) ? <Button disabled={busy !== null} onClick={() => void access.enable()}>{busy === 'enable' ? <><Spinner /> Starting…</> : step === 'helper' ? 'Start again' : 'Enable Kith Screen'}</Button> : null}
+              {step === 'background' ? <><p className="computer-access-inline-note">Allow Kith to run in the background in Login Items.</p><Button onClick={() => access.openSettings('background')}>Open Login Items <Icon name="arrow.up.right.square" size={10} /></Button></> : null}
             </AccessRow>
             {mac ? <>
-              <AccessRow title="Screen recording" icon="record.circle" detail="Lets Codync see your screen, including anything visible in your apps." done={screen?.capture === true} active={step === 'capture'}>
+              <AccessRow title="Screen recording" icon="record.circle" detail="Lets Kith see your screen, including anything visible in your apps." done={screen?.capture === true} active={step === 'capture'}>
                 {step === 'capture' ? <SettingsHint app={access.helperName} /> : null}
                 {canRequest ? request('capture', 'Allow screen recording') : null}
                 {access.requested.has('capture') ? <SettingsLink action={() => access.openSettings('capture')} /> : null}
               </AccessRow>
-              <AccessRow title="Control apps" icon="cursorarrow.motionlines" detail="Lets Codync click, type and interact with apps on your behalf." done={screen?.input === true} active={step === 'input'}>
+              <AccessRow title="Control apps" icon="cursorarrow.motionlines" detail="Lets Kith click, type and interact with apps on your behalf." done={screen?.input === true} active={step === 'input'}>
                 {step === 'input' ? <SettingsHint app={access.helperName} control /> : null}
                 {canRequest ? request('input', 'Allow computer control') : null}
                 {access.requested.has('input') ? <SettingsLink action={() => access.openSettings('input')} /> : null}

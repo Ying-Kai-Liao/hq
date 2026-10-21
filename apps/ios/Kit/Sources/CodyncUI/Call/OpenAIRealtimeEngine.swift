@@ -46,7 +46,7 @@ final class OpenAIRealtimeEngine: VoiceEngine {
 
     func start() async {
         guard await AVAudioApplication.requestRecordPermission() else {
-            return fail("Allow the microphone for Codync in Settings to talk to your bots.")
+            return fail("Allow the microphone for Kith in Settings to talk to your bots.")
         }
         do {
             let secret = try await credential()

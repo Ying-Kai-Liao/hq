@@ -55,7 +55,7 @@ public enum HostError: LocalizedError, Sendable, Equatable {
         case .unreachable: "Can't reach your computer. Is it on and connected to the internet?"
         case .computerOffline: "Your computer is offline."
         case let .unauthorized(message): message
-        case .upgradeRequired: "Update Codync to connect to this computer."
+        case .upgradeRequired: "Update Kith to connect to this computer."
         }
     }
 

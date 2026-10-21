@@ -29,7 +29,7 @@ final class AccountSession {
             guard session.status == .active, session.expireAt > .now,
                   let user = session.user, seen.insert(user.id).inserted else { return nil }
             return Account(id: user.id, sessionID: session.id,
-                           email: user.primaryEmailAddress?.emailAddress ?? "Codync account",
+                           email: user.primaryEmailAddress?.emailAddress ?? "Kith account",
                            avatarURL: URL(string: user.imageUrl).flatMap { $0.scheme == "https" ? $0 : nil })
         }
     }

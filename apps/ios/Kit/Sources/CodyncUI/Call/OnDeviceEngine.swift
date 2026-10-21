@@ -72,10 +72,10 @@ final class OnDeviceEngine: VoiceEngine {
 
     func start() async {
         guard await AVAudioApplication.requestRecordPermission() else {
-            return fail("Allow the microphone for Codync in Settings to talk to your bots.")
+            return fail("Allow the microphone for Kith in Settings to talk to your bots.")
         }
         guard await Self.speechAuthorized() else {
-            return fail("Allow Speech Recognition for Codync in Settings to talk to your bots.")
+            return fail("Allow Speech Recognition for Kith in Settings to talk to your bots.")
         }
         guard let recognizer, recognizer.isAvailable else {
             return fail("Speech recognition isn't available for this language right now.")

@@ -190,7 +190,7 @@ export class Updates extends EventEmitter {
     this.checked({ availableVersion: info.version, waitingForApp: waiting })
     if (waiting) {
       this.installWhenDownloaded = false
-      if (this.userInitiated) this.set({ error: `Codync ${info.version} needs the iPhone app ${waiting}, which isn't in the App Store yet. It installs once that version passes review.` })
+      if (this.userInitiated) this.set({ error: `Kith ${info.version} needs the iPhone app ${waiting}, which isn't in the App Store yet. It installs once that version passes review.` })
       this.userInitiated = false
       return
     }
