@@ -31,6 +31,11 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: 7FUM8A8H72
+    # A free Personal Team cannot sign Push, Sign in with Apple or communication notifications.
+    # KITH_PERSONAL_TEAM=YES swaps the iOS app to iOS.personal.entitlements without them.
+    KITH_PERSONAL_TEAM: "NO"
+    KITH_ENTITLEMENTS_SUFFIX_NO: ""
+    KITH_ENTITLEMENTS_SUFFIX_YES: .personal
     DEAD_CODE_STRIPPING: YES
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     CODYNC_ENV: main
@@ -179,7 +184,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: $(CODYNC_IOS_BUNDLE_ID)
         INFOPLIST_FILE: ios/Resources/Info.plist
         GENERATE_INFOPLIST_FILE: YES
-        CODE_SIGN_ENTITLEMENTS: ios/Resources/iOS.entitlements
+        CODE_SIGN_ENTITLEMENTS: ios/Resources/iOS$(KITH_ENTITLEMENTS_SUFFIX_$(KITH_PERSONAL_TEAM)).entitlements
         TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_KEY_CFBundleDisplayName: $(CODYNC_APP_NAME)
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
