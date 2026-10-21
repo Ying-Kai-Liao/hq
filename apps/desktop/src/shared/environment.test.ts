@@ -14,6 +14,17 @@ test('development installations cannot share production resources or update feed
   assert.equal(dev.releaseUpdates, false)
 })
 
+test('the development app installs as Kith Dev', () => {
+  const dev = environmentProfile('dev')
+  assert.equal(dev.name, 'Kith Dev')
+  assert.equal(dev.appId, 'com.yingkailiao.kith.dev')
+  assert.equal(dev.dataFolder, '.kith-dev')
+  assert.equal(dev.port, 19223)
+  assert.equal(dev.hostLabel, 'com.yingkailiao.kith.dev.host')
+  assert.equal(dev.systemdUnit, 'kith-dev-host.service')
+  assert.equal(dev.screenLabel, 'com.yingkailiao.kith.dev.screen')
+})
+
 test('a development app rejects production and old unidentified hosts', () => {
   assert.equal(hostEnvironmentError('main', undefined), null)
   assert.equal(hostEnvironmentError('main', 'main'), null)

@@ -64,7 +64,7 @@ for (const installed of ['mac', 'linux', 'production-only'] as const) {
     const root = mkdtempSync(join(tmpdir(), 'codync-dev-ssh-'))
     try {
       const home = join(root, 'user home')
-      const mac = join(root, 'Applications/Codync Dev.app/Contents/Resources/codync-host')
+      const mac = join(root, 'Applications/Kith Dev.app/Contents/Resources/codync-host')
       const linux = join(home, '.local/bin/codync-dev-host')
       const prod = join(home, '.local/bin/codync-host')
       for (const bin of [prod, ...(installed === 'mac' ? [mac] : installed === 'linux' ? [linux] : [])]) {
@@ -72,7 +72,7 @@ for (const installed of ['mac', 'linux', 'production-only'] as const) {
         writeFileSync(bin, '#!/bin/sh\nprintf "%s\\n" "$0" "$CODYNC_HOME" "$@"\n')
         chmodSync(bin, 0o755)
       }
-      const command = remoteInfoCommand(19223, '.codync-dev')
+      const command = remoteInfoCommand(19223, '.kith-dev')
         .replace(/^sh -lc '/, '').replace(/'$/, '')
         .replaceAll('/Applications/', `${root}/Applications/`)
       const result = spawnSync('/bin/sh', ['-c', command], {
@@ -80,7 +80,7 @@ for (const installed of ['mac', 'linux', 'production-only'] as const) {
       })
       assert.equal(result.status, installed === 'production-only' ? 127 : 0)
       if (installed !== 'production-only') {
-        assert.deepEqual(result.stdout.trim().split('\n'), [installed === 'mac' ? mac : linux, join(home, '.codync-dev'), 'info', '--json', '--port', '19223'])
+        assert.deepEqual(result.stdout.trim().split('\n'), [installed === 'mac' ? mac : linux, join(home, '.kith-dev'), 'info', '--json', '--port', '19223'])
       }
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -177,9 +177,9 @@ for (const [preferred, fallback] of [
 
 test('each copy of the app clears only its own leftover tunnels', () => {
   const tunnel = (dir: string) => ['/usr/bin/ssh', ...tunnelArguments(profile, 19333, '/Users/me', dir)].join(' ')
-  const dev = new RegExp(orphanTunnelPattern('/Users/me/.codync-dev'))
-  assert.match(tunnel('/Users/me/.codync-dev'), dev)
-  assert.doesNotMatch(tunnel('/Users/me/.codync-dev-feat-x'), dev)
-  assert.doesNotMatch(tunnel('/Users/me/xcodync-dev'), dev)
-  assert.doesNotMatch(tunnel('/Users/me/.codync-dev'), new RegExp(orphanTunnelPattern('/Users/me/.codync-dev-feat-x')))
+  const dev = new RegExp(orphanTunnelPattern('/Users/me/.kith-dev'))
+  assert.match(tunnel('/Users/me/.kith-dev'), dev)
+  assert.doesNotMatch(tunnel('/Users/me/.kith-dev-feat-x'), dev)
+  assert.doesNotMatch(tunnel('/Users/me/xkith-dev'), dev)
+  assert.doesNotMatch(tunnel('/Users/me/.kith-dev'), new RegExp(orphanTunnelPattern('/Users/me/.kith-dev-feat-x')))
 })

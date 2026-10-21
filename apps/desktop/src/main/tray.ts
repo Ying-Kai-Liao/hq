@@ -83,7 +83,7 @@ export class Tray {
     switch (state.kind) {
       case 'missingBinary':
         if (identity.environment === 'dev') {
-          items.push({ label: 'Rebuild Codync Dev with its development host.', enabled: false })
+          items.push({ label: 'Rebuild Kith Dev with its development host.', enabled: false })
           break
         }
         items.push({ label: 'Reinstall Codync or install the host with Homebrew.', enabled: false })

@@ -19,7 +19,7 @@ export const identity = environmentProfile(buildConfig.environment)
 
 // Before the single-instance lock, preferences, account restore or Chromium session is created.
 // A development run against its own host data (`CODYNC_HOME`, a worktree's sandbox) keeps all of
-// that there too, under its own name, so it runs beside the main checkout's Codync Dev.
+// that there too, under its own name, so it runs beside the main checkout's Kith Dev.
 if (identity.environment === 'dev') {
   const sandbox = app.isPackaged ? undefined : process.env.CODYNC_HOME
   app.setName(sandbox ? sandboxLabel(identity.name, sandbox) : identity.name)

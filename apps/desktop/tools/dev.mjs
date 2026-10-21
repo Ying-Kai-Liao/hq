@@ -1,8 +1,8 @@
-// `npm run dev`. The main checkout runs the default Codync Dev (its background host on 19223,
-// ~/.codync-dev). A linked worktree runs a sandbox beside it instead: host data in
-// ~/.codync-dev-<name>, a port kept in that folder's sandbox.json, its own app data, and a host
+// `npm run dev`. The main checkout runs the default Kith Dev (its background host on 19223,
+// ~/.kith-dev). A linked worktree runs a sandbox beside it instead: host data in
+// ~/.kith-dev-<name>, a port kept in that folder's sandbox.json, its own app data, and a host
 // this run builds, starts and stops. Flags (`npm run dev -- --list`): --shared takes the default
-// Codync Dev from a worktree, --sandbox runs a sandbox from the main checkout, --name <name> runs
+// Kith Dev from a worktree, --sandbox runs a sandbox from the main checkout, --name <name> runs
 // the sandbox of that name, --cloud lets the sandbox host use the dev cloud, --cdp opens the
 // DevTools protocol on the sandbox port + 10000, --list shows every sandbox, --prune deletes the
 // ones whose worktree is gone.
@@ -35,7 +35,7 @@ function run(cmd, args, env = process.env) {
   if (spawnSync(cmd, args, { stdio: 'inherit', env }).status !== 0) fail(`${basename(cmd)} ${args.join(' ')} failed.`)
 }
 
-/** Every sandbox on this computer: a `~/.codync-dev-<name>` folder with a sandbox.json. */
+/** Every sandbox on this computer: a `~/.kith-dev-<name>` folder with a sandbox.json. */
 function sandboxes() {
   return readdirSync(homedir())
     .filter((folder) => folder.startsWith(SANDBOX_PREFIX) && existsSync(join(homedir(), folder, 'sandbox.json')))
@@ -59,7 +59,7 @@ async function firstFreePort() {
   return fail('Every sandbox port (19300-19399) is taken. Delete old sandboxes: npm run dev -- --prune')
 }
 
-/** The host this worktree's code builds (or `CODYNC_HOST_BIN`), compiled for Codync Dev. */
+/** The host this worktree's code builds (or `CODYNC_HOST_BIN`), compiled for Kith Dev. */
 function buildHost() {
   if (process.env.CODYNC_HOST_BIN) return process.env.CODYNC_HOST_BIN
   if (process.platform === 'linux') {
@@ -141,7 +141,7 @@ async function sandbox() {
 
   const cdp = flags.cdp ? port + 10000 : null
   const command = `CODYNC_HOME="${home}" "${host}"`
-  console.log(`\nCodync Dev (${name}): a sandbox on port ${port}, data in ${home}${flags.cloud ? '' : ', dev cloud off'}`)
+  console.log(`\nKith Dev (${name}): a sandbox on port ${port}, data in ${home}${flags.cloud ? '' : ', dev cloud off'}`)
   console.log(`  pair a phone or simulator  ${command} pair --port ${port}`)
   console.log(`  terminal UI                ${command} tui --port ${port}`)
   if (cdp) console.log(`  DevTools protocol          127.0.0.1:${cdp}`)
@@ -158,7 +158,7 @@ async function sandbox() {
 if (flags.list || flags.prune) {
   await listAndPrune()
 } else {
-  if (flags.shared && (flags.sandbox || flags.name)) fail('--shared runs the default Codync Dev: leave out --sandbox and --name.')
+  if (flags.shared && (flags.sandbox || flags.name)) fail('--shared runs the default Kith Dev: leave out --sandbox and --name.')
   run(process.execPath, [join(desktop, 'tools/account-config.mjs'), 'dev'])
   // A fresh `npm ci` (a new worktree) can leave Electron's binary undownloaded.
   if (!existsSync(join(desktop, 'node_modules/electron/path.txt'))) run(process.execPath, [join(desktop, 'node_modules/electron/install.js')])
