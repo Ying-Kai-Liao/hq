@@ -119,7 +119,7 @@ private struct InstallPage: View {
                         CommandBlock("~/.kith/serve/bin/kith-serve pair")
                         Text(os == .mac
                              ? "The host keeps running in the background through launchd."
-                             : "Run the host under your own service manager to keep it running.")
+                             : "The host runs as a systemd user service. Run loginctl enable-linger $USER to keep it running after logout.")
                             .font(.subheadline)
                             .foregroundStyle(Palette.secondary)
                             .contentTransition(.opacity)

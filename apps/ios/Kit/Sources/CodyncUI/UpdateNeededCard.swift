@@ -57,7 +57,7 @@ public enum UpdateNeededText {
             return "\(runs) needs this app to be \(minimum) or newer. Your chats are safe on the computer."
         case let .updateHost(version, minimum):
             let how = switch os {
-            case "macos": "Open Kith on that Mac and choose Check for Updates."
+            case "macos": "Pull the latest hq on that Mac and run kith serve start there."
             default: "Update Kith on that computer."
             }
             let needs = "\(host) runs Kith \(version); this app needs \(minimum) or newer."

@@ -259,5 +259,8 @@ function discardStagedUpdate() {
   const label = `${identity.appId}.ShipIt`
   const caches = join(homedir(), 'Library/Caches')
   execFile('/bin/launchctl', ['remove', label], () => {})
-  for (const dir of [join(caches, label), join(caches, 'codync-desktop-updater', 'pending')]) rmSync(dir, { recursive: true, force: true })
+  for (const dir of [join(caches, label), join(caches, 'codync-desktop-updater', 'pending')]) {
+    // A leftover that can't be deleted must not stop the app from starting.
+    try { rmSync(dir, { recursive: true, force: true }) } catch {}
+  }
 }
