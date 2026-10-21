@@ -142,7 +142,7 @@ mod tests {
         assert!(!s.enabled && !s.router && !s.interrupt);
         assert_eq!((s.dm_default.as_str(), s.debounce, s.context_show), ("house", Duration::from_millis(500), None));
         assert_eq!((s.permission_mode.as_deref(), s.discord_guild.as_deref()), (Some("plan"), Some("Home")));
-        assert!(w.is_empty());
+        assert!(w.is_empty(), "no warnings for valid values");
 
         let (s, w) =
             Settings::from_file(Some(&json!({"channels": {"debounce_s": -1, "router": "x", "context_show": "45%"}})));

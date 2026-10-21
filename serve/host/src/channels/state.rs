@@ -175,9 +175,9 @@ mod tests {
     fn a_missing_or_broken_file_is_an_empty_state() {
         let dir = std::env::temp_dir().join(format!("kith-state-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        assert!(State::load(&dir.join("none.json")).threads.is_empty());
+        assert!(State::load(&dir.join("none.json")).threads.is_empty(), "missing file");
         std::fs::write(dir.join("bad.json"), "{not json").unwrap();
-        assert!(State::load(&dir.join("bad.json")).threads.is_empty());
+        assert!(State::load(&dir.join("bad.json")).threads.is_empty(), "broken file");
         std::fs::write(dir.join("old.json"), r#"{"version":2,"threads":{"a:1":{}}}"#).unwrap();
         let st = State::load(&dir.join("old.json"));
         assert!(st.threads.contains_key("a:1") && st.rooms.is_empty());
