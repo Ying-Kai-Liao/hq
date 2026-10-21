@@ -121,7 +121,9 @@ extension BotStore {
             bump(e.rev)
             acknowledgeVisibleConversations(e.botId, entry: e)
             let calls = Array(voiceCalls.values).filter { $0.botId == e.botId && e.rev > $0.startRev }
-            if e.kind == "agent", e.threadId == nil, e.data.final == true, known?.data.final != true, let text = e.data.text {
+            // The chat's replies and its tasks' are heard; other threads aren't.
+            let heard = e.threadId.map { root in chat(e.botId).contains { $0.id == root && $0.isTask } } ?? true
+            if e.kind == "agent", heard, e.data.final == true, known?.data.final != true, let text = e.data.text {
                 calls.forEach { $0.speak(spokenReply(e, text)) }
             }
             // A group has no status of its own: its members' approvals arrive as cards.

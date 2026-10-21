@@ -40,11 +40,11 @@ extension BotStore {
 
     /// Transfer to the outbox now; an eventual acknowledgement must not erase a newer draft.
     @discardableResult
-    func sendComposerDraft(to botId: String, thread: String? = nil, files: [OutgoingFile] = []) -> Bool {
+    func sendComposerDraft(to botId: String, thread: String? = nil, files: [OutgoingFile] = [], newTask: Bool = false) -> Bool {
         let text = composerDraft(for: botId, thread: thread)
         guard !retired, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty else { return false }
         let pasted = composerPasted[composerKey(botId, thread)] ?? []
-        send(text, to: botId, thread: thread, nonce: UUID().uuidString, files: files, pasted: pasted)
+        send(text, to: botId, thread: thread, nonce: UUID().uuidString, files: files, pasted: pasted, newTask: newTask)
         setComposerDraft("", for: botId, thread: thread)
         return true
     }
@@ -55,7 +55,7 @@ extension BotStore {
     }
 
     private func send(_ text: String, to botId: String, thread: String?, nonce: String, files: [OutgoingFile] = [],
-                      pasted: [String] = []) {
+                      pasted: [String] = [], newTask: Bool = false) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !files.isEmpty, !retired else { return }
         var data = EntryData(text: trimmed, status: "sending", clientNonce: nonce)
@@ -75,10 +75,11 @@ extension BotStore {
             enqueue(remote, text: trimmed, botId: botId, thread: thread, nonce: nonce)
             return
         }
-        deliver(trimmed, botId: botId, thread: thread, nonce: nonce, pasted: pasted)
+        deliver(trimmed, botId: botId, thread: thread, nonce: nonce, pasted: pasted, newTask: newTask)
     }
 
-    private func deliver(_ text: String, botId: String, thread: String?, nonce: String, pasted: [String] = []) {
+    private func deliver(_ text: String, botId: String, thread: String?, nonce: String, pasted: [String] = [],
+                         newTask: Bool = false) {
         Task {
             do {
                 // Safe to repeat: the computer skips a nonce it already has.
@@ -95,7 +96,7 @@ extension BotStore {
                         }
                     }
                     return try await client.send(botId: botId, text: text, clientNonce: nonce, threadId: thread, attachments: ids,
-                                                 pasted: pasted)
+                                                 pasted: pasted, newTask: newTask)
                 }
                 outgoingFiles[nonce] = nil
                 upsert(e)

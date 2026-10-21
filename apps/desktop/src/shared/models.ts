@@ -44,6 +44,8 @@ export interface Bot {
   /** Moves whenever memory changes, so an open memory screen fetches it again. */
   memoryRev: number
   autoName: boolean
+  /** Each burst of the user's chat is a task with its own thread and session; false keeps one conversation. */
+  tasks: boolean
   createdAt: number
   rev: number
   status: BotStatus | string
@@ -96,6 +98,8 @@ export function normalizeBot(raw: Partial<Bot> & { id: string }): Bot {
     harnessMemory: raw.harnessMemory ?? null,
     memoryRev: raw.memoryRev ?? 0,
     autoName: raw.autoName ?? false,
+    // A host sends `tasks` only when it's off; one without tasks never marks a message as one.
+    tasks: raw.kind !== 'group' && raw.tasks !== false,
     createdAt,
     rev: raw.rev ?? 0,
     status: raw.status ?? 'idle',
@@ -227,6 +231,8 @@ export interface EntryData {
   style?: string
   author?: string
   thread?: ThreadSummary
+  /** user, in the main chat: the first message of a task; the task goes on in its thread (see `tasks`). */
+  task?: boolean
   reactions?: string[]
   attachments?: Attachment[]
   files?: SharedFile[]

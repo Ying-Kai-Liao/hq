@@ -1,16 +1,20 @@
 import { useRef } from 'react'
 import { isChat, type Entry } from '@shared/models'
+import { isTask } from '@shared/tasks'
 import { groupExchanges, type BotExchange, type ChatSlot } from './bot-exchange'
 
 export type ChatItem =
   | { id: string; kind: 'separator'; date: number }
   | { id: string; kind: 'entry'; entry: Entry; groupStart: boolean }
   | { id: string; kind: 'exchanges'; entry: Entry; exchanges: BotExchange[] }
+  /** A task's first message: the task, shown inline with its thread or as a card (`TaskRow`). */
+  | { id: string; kind: 'task'; entry: Entry }
 
 /**
  * Chat-visible entries plus time separators (gaps > 1 h) and author grouping. A bot's messages
  * arrive whole (Grok Bot's `send_message`); what it writes along the way is trace. `grouped`
- * (the main transcript, not threads) folds runs of bot exchanges with one peer into one item.
+ * (the main transcript, not threads) folds runs of bot exchanges with one peer into one item,
+ * and makes each task one item.
  */
 export function buildChat(entries: Entry[], grouped = false): ChatItem[] {
   const out: ChatItem[] = []
@@ -23,8 +27,8 @@ export function buildChat(entries: Entry[], grouped = false): ChatItem[] {
       out.push({ id: `sep-${id}`, kind: 'separator', date: e.createdAt })
       lastAuthor = null
     }
-    if (exchanges) {
-      out.push({ id, kind: 'exchanges', entry: e, exchanges })
+    if (exchanges || (grouped && isTask(e))) {
+      out.push(exchanges ? { id, kind: 'exchanges', entry: e, exchanges } : { id, kind: 'task', entry: e })
       lastAuthor = null
       lastDate = e.createdAt
       continue
@@ -56,7 +60,7 @@ export function useArrivals(ids: string[], following: boolean): Set<string> {
 
 /** A new row pops in from its bubble's side. */
 export function rowIn(item: ChatItem): string {
-  return item.kind === 'entry' && item.entry.kind === 'user' ? 'row-in mine' : 'row-in'
+  return item.kind === 'task' || (item.kind === 'entry' && item.entry.kind === 'user') ? 'row-in mine' : 'row-in'
 }
 
 const time = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
