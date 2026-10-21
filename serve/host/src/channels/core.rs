@@ -444,14 +444,18 @@ impl Core {
 
     /// A button under "Who should take this?" -> false when it isn't this person's question (or it's gone).
     pub async fn picked(self: &Arc<Self>, ad: &Arc<dyn Adapter>, pid: &str, agent: &str, uid: &str) -> Result<bool> {
-        let pend = self.with(|i| i.st.pending.get(pid).cloned());
         let w = hq::who(&self.paths, ad.platform(), uid).await;
         let text = |p: &Value, k: &str| p.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-        let Some(pend) = pend.filter(|p| w.is(&text(p, "person"))) else { return Ok(false) };
-        self.with(|i| {
-            i.st.pending.remove(pid);
+        // Looking and taking are one step: of two presses at once, only one gets the question.
+        let claimed = self.with(|i| {
+            if !i.st.pending.get(pid).is_some_and(|p| w.is(&text(p, "person"))) {
+                return None;
+            }
+            let pend = i.st.pending.remove(pid);
             i.save();
+            pend
         });
+        let Some(pend) = claimed else { return Ok(false) };
         let thread = pend.get("thread").and_then(Value::as_str).map(str::to_owned);
         let m = Incoming {
             uid: uid.to_owned(),

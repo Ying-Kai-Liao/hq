@@ -885,3 +885,24 @@ async fn adapters_can_look_at_rooms_and_threads() {
     assert!(r.core.rooms("fake/y").is_empty(), "other connections have no rooms here");
     assert!(r.core.attachments_dir("telegram/hq").ends_with("attachments/telegram_hq"));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pressing_a_button_twice_at_once_runs_the_task_once() {
+    let r = Rig::new();
+    r.send(&Rig::msg("1", "do the thing")).await;
+    let pid = r
+        .fake
+        .events()
+        .into_iter()
+        .find_map(|e| match e {
+            Event::Ask { pid, .. } => Some(pid),
+            _ => None,
+        })
+        .expect("asked");
+    let (one, two) = tokio::join!(r.core.picked(&r.ad, &pid, "house", "1"), r.core.picked(&r.ad, &pid, "house", "1"));
+    let wins = [one.unwrap(), two.unwrap()];
+    assert_eq!(wins.iter().filter(|w| **w).count(), 1, "{wins:?}");
+    until("the answer", || !r.fake.posts().is_empty()).await;
+    r.idle().await;
+    assert_eq!(r.calls("hq").len(), 1);
+}
