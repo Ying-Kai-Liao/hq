@@ -124,15 +124,44 @@ impl Api {
         self.answer(sent).await
     }
 
-    /// A file Telegram holds (`file_path` from getFile).
-    pub async fn download(&self, file_path: &str) -> Result<Vec<u8>, TgError> {
+    /// A file Telegram holds (`file_path` from getFile), streamed to `dest`; more than `max` bytes is refused and
+    /// nothing is left behind.
+    pub async fn download(&self, file_path: &str, dest: &std::path::Path, max: u64) -> Result<(), TgError> {
+        use futures::StreamExt as _;
+        use tokio::io::AsyncWriteExt as _;
         let url = format!("{}/file/bot{}/{file_path}", self.base, self.token);
         let res = crate::http().get(url).timeout(UPLOAD).send().await.map_err(|e| self.net(e))?;
         if !res.status().is_success() {
             let code = res.status().as_u16();
             return Err(TgError::Http { code, description: "file not available".into(), retry_after: None });
         }
-        res.bytes().await.map(|b| b.to_vec()).map_err(|e| self.net(e))
+        let io = |e: std::io::Error| TgError::Net(format!("can't write the file: {e}"));
+        let mut out = tokio::fs::File::create(dest).await.map_err(io)?;
+        let (mut stream, mut size) = (res.bytes_stream(), 0u64);
+        let mut result = Ok(());
+        while let Some(chunk) = stream.next().await {
+            let chunk = match chunk {
+                Ok(c) => c,
+                Err(e) => {
+                    result = Err(self.net(e));
+                    break;
+                }
+            };
+            size += chunk.len() as u64;
+            if size > max {
+                result = Err(TgError::Net("file too big".into()));
+                break;
+            }
+            if let Err(e) = out.write_all(&chunk).await {
+                result = Err(io(e));
+                break;
+            }
+        }
+        drop(out);
+        if result.is_err() {
+            let _ = tokio::fs::remove_file(dest).await;
+        }
+        result
     }
 
     async fn answer(&self, sent: Result<reqwest::Response, reqwest::Error>) -> Result<Value, TgError> {

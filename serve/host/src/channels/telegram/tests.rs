@@ -249,6 +249,11 @@ impl Bot {
         self.texts().iter().filter(|t| t.contains("echo:") && t.contains(token)).count()
     }
 
+    /// Every call so far, in order: (method, body).
+    fn order(&self) -> Vec<(String, Value)> {
+        self.state.locked().calls.clone()
+    }
+
     fn logins(&self) -> usize {
         self.state.locked().logins
     }
@@ -331,7 +336,13 @@ impl Rig {
 
     /// Runs the adapter's `start` on its own.
     fn run(&self) -> (Arc<Telegram>, JoinHandle<anyhow::Result<()>>) {
-        let tg = Arc::new(self.telegram(&self.core));
+        self.run_with(|_| {})
+    }
+
+    fn run_with(&self, tune: impl FnOnce(&mut Telegram)) -> (Arc<Telegram>, JoinHandle<anyhow::Result<()>>) {
+        let mut tg = self.telegram(&self.core);
+        tune(&mut tg);
+        let tg = Arc::new(tg);
         let task = tokio::spawn(tg.clone().start());
         (tg, task)
     }
@@ -400,7 +411,7 @@ async fn messages_sent_while_down_are_answered_once_late_and_confirmed() {
 async fn a_hung_poll_is_replaced_by_a_new_connection() {
     let rig = Rig::new().await;
     let mut tg = rig.telegram(&rig.core);
-    tg.quiet = Duration::from_secs(1);
+    tg.quiet = Duration::from_secs(3);
     let backoff =
         Backoff { first: Duration::from_millis(50), max: Duration::from_millis(200), healthy: Duration::from_secs(60) };
     let supervised = tokio::spawn(supervise(Arc::new(tg), backoff));
@@ -568,6 +579,12 @@ async fn the_stop_button_stops_the_work() {
         rig.bot.calls("editMessageText").iter().map(|c| c["text"].as_str().unwrap().to_owned()).collect();
     assert!(edits.contains(&"<i>stopping…</i>".to_owned()), "{edits:?}");
     assert_eq!(rig.bot.calls("answerCallbackQuery")[1].get("text"), None);
+    // Telegram is answered before the slower edit.
+    let order = rig.bot.order();
+    let at = |f: &dyn Fn(&(String, Value)) -> bool| order.iter().position(f).unwrap();
+    let answered =
+        order.iter().enumerate().filter(|(_, (m, _))| m == "answerCallbackQuery").map(|(i, _)| i).nth(1).unwrap();
+    assert!(answered < at(&|(m, b)| m == "editMessageText" && b["text"] == "<i>stopping…</i>"), "{order:?}");
     // Pressed after it ended: nothing to stop, still no error.
     rig.bot.press(KAI, DM, line_id, &data);
     until("the last answer", || rig.bot.calls("answerCallbackQuery").len() == 3).await;
@@ -749,7 +766,9 @@ async fn the_token_never_shows_in_errors() {
     let err = api.call("getMe", &json!({}), Duration::from_secs(5)).await.unwrap_err();
     assert!(matches!(err, TgError::Net(_)));
     assert!(!err.to_string().contains("TESTTOKENVALUE"), "{err}");
-    let err = api.download("docs/x.txt").await.unwrap_err();
+    let dest = std::env::temp_dir().join(format!("kith-tg-{}", uuid::Uuid::new_v4()));
+    let err = api.download("docs/x.txt", &dest, 10).await.unwrap_err();
+    assert!(!dest.exists());
     assert!(!err.to_string().contains("TESTTOKENVALUE"), "{err}");
 }
 
@@ -831,4 +850,98 @@ async fn the_offset_is_confirmed_only_once_the_message_is_queued() {
     until("the answer", || rig.bot.answers("msg-slow-file") == 1).await;
     until("the offset", || rig.state()["conns"]["telegram/hq"]["offset"] == uid + 1).await;
     task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_update_that_hangs_is_given_up_without_restarting_the_connection() {
+    let rig = Rig::new().await;
+    {
+        let mut st = rig.bot.state.locked();
+        st.files.insert("slow".into(), b"x".to_vec());
+        st.file_delay = Duration::from_secs(30);
+    }
+    // quiet 2 s: an update may take 1 s.
+    let (_tg, task) = rig.run_with(|tg| tg.quiet = Duration::from_secs(2));
+    let extra = json!({"document": {"file_id": "slow", "file_name": "a.txt"}});
+    let (stuck, _) = rig.bot.say(KAI, DM, "@house msg-stuck", 0, &extra);
+    rig.bot.say(KAI, DM, "@house msg-next", 0, &json!({}));
+    until("the next message", || rig.bot.answers("msg-next") == 1).await;
+    until("the offset past the stuck one", || rig.bot.state.locked().offsets.iter().any(|o| *o > stuck + 1)).await;
+    assert_eq!(rig.bot.logins(), 1, "the connection was not restarted");
+    assert_eq!(rig.bot.answers("msg-stuck"), 0);
+    task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn replying_to_the_working_line_goes_on_with_the_task() {
+    let rig = Rig::new().await;
+    let (_tg, task) = rig.run();
+    let (_, first) = rig.bot.say(KAI, GROUP, "@hqbot @house SLEEP first", 0, &json!({}));
+    until("the working line", || rig.bot.calls("sendMessage").iter().any(|c| c["text"] == "working…")).await;
+    let line = loop {
+        let keys: Vec<String> = rig.state()["replies"].as_object().unwrap().keys().cloned().collect();
+        if let Some(k) = keys.iter().find(|k| !k.ends_with(&format!(":{first}"))) {
+            break k.rsplit(':').next().unwrap().parse::<i64>().unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    // In a group, a reply to a message of the bot is for it; it must continue the task, not ask who takes it.
+    rig.bot.say(
+        KAI,
+        GROUP,
+        "msg-follow",
+        0,
+        &json!({"reply_to_message": {"message_id": line, "from": {"id": BOT_ID, "is_bot": true}, "text": "working…"}}),
+    );
+    until("the answer", || rig.bot.answers("msg-follow") >= 1).await;
+    assert!(!rig.bot.texts().iter().any(|t| t == "Who should take this?"), "{:?}", rig.bot.texts());
+    assert!(rig.hq_calls().iter().all(|c| !c["task"].as_str().unwrap().contains("Replying to")));
+    task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_slow_pick_still_answers_the_button_and_runs_the_task() {
+    let rig = Rig::new().await;
+    let (_tg, task) = rig.run_with(|tg| tg.pace.pick_wait = Duration::ZERO);
+    rig.bot.say(KAI, GROUP, "@hqbot msg-slow-pick", 0, &json!({}));
+    until("the question", || !rig.bot.calls("sendMessage").is_empty()).await;
+    let ask = rig.bot.calls("sendMessage").remove(0);
+    let data = ask["reply_markup"]["inline_keyboard"][0][0]["callback_data"].as_str().unwrap().to_owned();
+    rig.bot.press(KAI, GROUP, 4, &data);
+    until("the answer to the press", || !rig.bot.calls("answerCallbackQuery").is_empty()).await;
+    assert_eq!(rig.bot.calls("answerCallbackQuery")[0].get("text"), None);
+    until("the task", || rig.bot.answers("msg-slow-pick") == 1).await;
+    until("the edit", || rig.bot.calls("editMessageText").iter().any(|c| c["text"] == "→ house")).await;
+    task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn files_over_the_limit_are_not_downloaded() {
+    let rig = Rig::new().await;
+    rig.bot.state.locked().files.insert("unsized".into(), vec![b'x'; 64]);
+    let (_tg, task) = rig.run_with(|tg| tg.pace.max_file = 32);
+    // Telegram says it is too big: nothing is asked for.
+    let big = json!({"document": {"file_id": "huge", "file_name": "big.bin", "file_size": 33}});
+    rig.bot.say(KAI, DM, "@house msg-big", 0, &big);
+    until("the answer", || rig.bot.answers("msg-big") == 1).await;
+    assert!(rig.bot.calls("getFile").is_empty());
+    // It doesn't say, and the download goes over the limit: stopped, nothing kept.
+    let unsized_file = json!({"document": {"file_id": "unsized", "file_name": "grows.bin"}});
+    rig.bot.say(KAI, DM, "@house msg-grows", 0, &unsized_file);
+    until("the second answer", || rig.bot.answers("msg-grows") == 1).await;
+    let tasks: Vec<String> = rig.hq_calls().iter().map(|c| c["task"].as_str().unwrap().to_owned()).collect();
+    assert!(tasks[0].contains("(file too big: big.bin)") && !tasks[0].contains("Attached files"), "{tasks:?}");
+    assert!(tasks[1].contains("(file too big: grows.bin)") && !tasks[1].contains("Attached files"), "{tasks:?}");
+    let kept: Vec<_> = walk(&rig.core.attachments_dir("telegram/hq"));
+    assert!(kept.is_empty(), "files: {kept:?}");
+    task.abort();
+}
+
+fn walk(dir: &std::path::Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let p = e.path();
+        if p.is_dir() { out.extend(walk(&p)) } else { out.push(p) }
+    }
+    out
 }

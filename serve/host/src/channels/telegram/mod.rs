@@ -44,11 +44,21 @@ pub struct Pace {
     pub error: Duration,
     /// A poll that waits for updates this long on Telegram's side.
     pub long_poll_s: u64,
+    /// How long a button press waits for the core before Telegram is answered without its verdict.
+    pub pick_wait: Duration,
+    /// Files above this many bytes are not downloaded (the cloud Bot API's getFile limit).
+    pub max_file: u64,
 }
 
 impl Default for Pace {
     fn default() -> Self {
-        Self { conflict: Duration::from_secs(30), error: Duration::from_secs(15), long_poll_s: 50 }
+        Self {
+            conflict: Duration::from_secs(30),
+            error: Duration::from_secs(15),
+            long_poll_s: 50,
+            pick_wait: Duration::from_secs(2),
+            max_file: 20 * 1024 * 1024,
+        }
     }
 }
 
@@ -246,9 +256,15 @@ impl Telegram {
             for u in updates.as_array().into_iter().flatten() {
                 self.alive.touch();
                 let Some(id) = u["update_id"].as_i64() else { continue };
-                if let Err(e) = self.update(&this, u).await {
-                    tracing::warn!("{}: message failed: {e:#}", self.conn); // one bad message must not stop the bot
+                // A stuck update (a hanging hq-auth, a slow download) must end before the supervisor decides the
+                // connection is dead: it would be aborted mid-way and replayed after every restart.
+                match tokio::time::timeout(self.handle_limit(), self.update(&this, u)).await {
+                    Ok(Ok(())) => {}
+                    // One bad message must not stop the bot.
+                    Ok(Err(e)) => tracing::warn!("{}: message failed: {e:#}", self.conn),
+                    Err(_) => tracing::warn!("{}: update {id} took too long; moving on", self.conn),
                 }
+                self.alive.touch();
                 // Only now that its work is queued (and saved by the core): confirming it earlier would let another
                 // save record the offset without the task, and a restart would skip the message. A crash right here
                 // answers it again instead.
@@ -256,6 +272,11 @@ impl Telegram {
                 self.core.update_conn(&self.conn, |c| c["offset"] = json!(offset));
             }
         }
+    }
+
+    /// How long one update may take: well under `quiet`.
+    fn handle_limit(&self) -> Duration {
+        self.quiet.saturating_sub(Duration::from_secs(30)).max(self.quiet / 2)
     }
 
     async fn update(self: &Arc<Self>, this: &Arc<dyn Adapter>, u: &Value) -> Result<()> {
@@ -305,6 +326,8 @@ impl Telegram {
         if !(private || addressed || thread.is_some()) {
             return None;
         }
+        let (files, notes) = self.download(m).await;
+        let text = notes.iter().fold(text, |t, n| if t.is_empty() { n.clone() } else { format!("{t}\n\n{n}") });
         Some(Incoming {
             uid: id_text(&sender["id"]),
             text,
@@ -314,7 +337,7 @@ impl Telegram {
             private,
             addressed,
             quoted,
-            files: self.download(m).await,
+            files,
             reference: json!({"chat": cid, "message": mid}),
             sent: m["date"].as_f64(),
             ..Incoming::default()
@@ -323,8 +346,9 @@ impl Telegram {
 
     /// The files of a message, saved under the connection's attachments folder (`<chat>/<message>`: message ids
     /// are only unique within a chat) -> their paths.
-    async fn download(&self, m: &Value) -> Vec<String> {
-        let mut got = Vec::new();
+    /// Files over the size limit are not fetched: the agent is told instead (second value).
+    async fn download(&self, m: &Value) -> (Vec<String>, Vec<String>) {
+        let (mut got, mut notes) = (Vec::new(), Vec::new());
         let photo = m["photo"].as_array().and_then(|p| p.last());
         let kinds = [
             ("photo", photo),
@@ -336,13 +360,21 @@ impl Telegram {
         ];
         for (kind, file) in kinds {
             let Some(file) = file.filter(|f| f.is_object()) else { continue };
+            self.alive.touch(); // a message with several files can take longer than a poll
+            let named = file["file_name"].as_str().unwrap_or(kind);
+            if file["file_size"].as_u64().is_some_and(|n| n > self.pace.max_file) {
+                notes.push(format!("(file too big: {named})"));
+                continue;
+            }
             match self.fetch(kind, file, &m["chat"]["id"], &m["message_id"]).await {
                 Ok(path) => got.push(path),
-                // Over Telegram's 20 MB for bots, or gone.
+                Err(e) if e.to_string().contains("file too big") => notes.push(format!("(file too big: {named})")),
+                // Gone, or over what getFile gives bots.
                 Err(e) => tracing::warn!("{}: file not downloaded: {e}", self.conn),
             }
         }
-        got
+        self.alive.touch();
+        (got, notes)
     }
 
     async fn fetch(&self, kind: &str, file: &Value, chat: &Value, message: &Value) -> Result<String> {
@@ -362,31 +394,48 @@ impl Telegram {
             std::ffi::OsStr::to_os_string,
         );
         let dest = folder.join(name);
-        tokio::fs::write(&dest, self.api.download(remote).await?).await?;
+        self.api.download(remote, &dest, self.pace.max_file).await?;
         Ok(dest.to_string_lossy().into_owned())
     }
 
     /// A press on an inline button.
-    async fn button(&self, this: &Arc<dyn Adapter>, q: &Value) {
+    async fn button(self: &Arc<Self>, this: &Arc<dyn Adapter>, q: &Value) {
         let data = q["data"].as_str().unwrap_or("");
         let msg = &q["message"];
         let (chat, mid) = (&msg["chat"]["id"], &msg["message_id"]);
         let uid = id_text(&q["from"]["id"]);
         let mut not_yours = false;
         if let Some(wid) = data.strip_prefix("stop:") {
-            match self.core.stop_pressed(this, wid, &uid).await {
-                StopPress::Stopping => self.edit(chat, mid, "<i>stopping…</i>", None).await,
-                StopPress::NotYours => not_yours = true,
-                StopPress::Finished => {}
+            let pressed = self.core.stop_pressed(this, wid, &uid).await;
+            self.answer_press(q, pressed == StopPress::NotYours).await; // Telegram's window for this is short
+            if pressed == StopPress::Stopping {
+                self.edit(chat, mid, "<i>stopping…</i>", None).await;
             }
+            return;
         } else if let Some(pick) = data.strip_prefix("pick:").filter(|p| p.matches(':').count() == 1) {
             let (pid, agent) = pick.split_once(':').unwrap_or_default();
-            match self.core.picked(this, pid, agent, &uid).await {
-                Ok(true) => self.edit(chat, mid, &format!("→ {}", escape(agent, true)), None).await,
-                Ok(false) => not_yours = true,
-                Err(e) => tracing::warn!("{}: pick failed: {e:#}", self.conn),
-            }
+            // Starting the task can take a while: if the core hasn't said yes or no soon, answer Telegram anyway
+            // and let it finish.
+            let mut task = tokio::spawn({
+                let (me, core, this) = (self.clone(), self.core.clone(), this.clone());
+                let (pid, agent, uid) = (pid.to_owned(), agent.to_owned(), uid.clone());
+                let (chat, mid) = (chat.clone(), mid.clone());
+                async move {
+                    let picked = core.picked(&this, &pid, &agent, &uid).await;
+                    match &picked {
+                        Ok(true) => me.edit(&chat, &mid, &format!("→ {}", escape(&agent, true)), None).await,
+                        Ok(false) => {}
+                        Err(e) => tracing::warn!("{}: pick failed: {e:#}", me.conn),
+                    }
+                    matches!(picked, Ok(false))
+                }
+            });
+            not_yours = matches!(tokio::time::timeout(self.pace.pick_wait, &mut task).await, Ok(Ok(true)));
         }
+        self.answer_press(q, not_yours).await;
+    }
+
+    async fn answer_press(&self, q: &Value, not_yours: bool) {
         let mut answer = json!({"callback_query_id": q["id"]});
         if not_yours {
             answer["text"] = json!("Only the person who asked can do that.");
@@ -449,7 +498,11 @@ impl Adapter for Telegram {
 
     fn reply<'a>(&'a self, m: &'a Incoming, text: &'a str) -> Fut<'a, Result<()>> {
         Box::pin(async move {
-            self.send(&m.origin["chat"], text, m.origin["message"].as_i64(), json!({})).await?;
+            let sent = self.send(&m.origin["chat"], text, m.origin["message"].as_i64(), json!({})).await?;
+            // A note inside a task's thread belongs to it: replying to it goes on with the task.
+            if let (Some(sent), Some(key)) = (sent, m.thread.as_deref().filter(|k| self.core.has_thread(k))) {
+                self.link(&m.origin["chat"], &sent["message_id"], key);
+            }
             Ok(())
         })
     }
@@ -538,6 +591,10 @@ impl Adapter for Telegram {
             let stop = json!({"inline_keyboard": [[{"text": "Stop", "callback_data": format!("stop:{wid}")}]]});
             let extra = json!({"reply_markup": stop, "disable_notification": true});
             let sent = self.send(&conv["chat"], "working…", conv["reply_to"].as_i64(), extra).await?;
+            if let Some(sent) = &sent {
+                // Replying to the working line goes on with the task, not a new one quoting "working…".
+                self.link(&conv["chat"], &sent["message_id"], conv["key"].as_str().unwrap_or(""));
+            }
             Ok(sent.map_or(Value::Null, |s| json!({"chat": conv["chat"], "message_id": s["message_id"], "stop": stop})))
         })
     }
@@ -558,14 +615,11 @@ impl Adapter for Telegram {
                 if has {
                     self.edit(&handle["chat"], &handle["message_id"], "<i>stopped</i>", None).await;
                 } else {
-                    let _ = self
-                        .send(
-                            &conv["chat"],
-                            "stopped",
-                            conv["reply_to"].as_i64(),
-                            json!({"disable_notification": true}),
-                        )
-                        .await;
+                    let extra = json!({"disable_notification": true});
+                    let sent = self.send(&conv["chat"], "stopped", conv["reply_to"].as_i64(), extra).await;
+                    if let Ok(Some(sent)) = sent {
+                        self.link(&conv["chat"], &sent["message_id"], conv["key"].as_str().unwrap_or(""));
+                    }
                 }
             } else if has {
                 let gone = json!({"chat_id": handle["chat"], "message_id": handle["message_id"]});
