@@ -25,6 +25,10 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # dorny/paths-filter lists a pull request's files through the API.
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       kernel: ${{ steps.f.outputs.kernel }}
       host: ${{ steps.f.outputs.host }}
@@ -37,14 +41,17 @@ jobs:
           filters: |
             kernel:
               - 'kernel/**'
-              - '.github/workflows/**'
+              - '.github/workflows/ci.yml'
             host:
               - 'serve/host/**'
               - 'serve/rust-toolchain.toml'
-              - '.github/workflows/**'
+              # crypto.rs compiles the shared test vectors in.
+              - 'serve/docs/reference/fixtures/**'
+              - '.github/workflows/ci.yml'
             cloud:
               - 'serve/cloud/**'
-              - '.github/workflows/**'
+              - 'serve/docs/reference/fixtures/**'
+              - '.github/workflows/ci.yml'
 
   kernel:
     needs: changes

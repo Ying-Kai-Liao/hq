@@ -10,7 +10,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/hq-serve-check.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 export HOME=$T/home
 mkdir -p "$HOME" "$T/repo/kernel/bin" "$T/repo/serve/host/src" "$T/stubs" "$T/target/dev-app"
-unset HQ_HOME CARGO_TARGET_DIR
+unset HQ_HOME CARGO_TARGET_DIR HQ_BIN KITH_SERVE_LAUNCHER KITH_SERVE_ENV
 export CARGO_TARGET_DIR=$T/target
 
 cp "$KERNEL/bin/hq-serve" "$KERNEL/bin/kith" "$T/repo/kernel/bin/"
@@ -23,6 +23,7 @@ touch "$T/repo/serve/host/Cargo.toml" "$T/repo/serve/host/Cargo.lock" "$T/repo/s
 cat > "$T/stubs/cargo" <<'EOF'
 #!/usr/bin/env bash
 echo "cargo $*" >> "$STUB_LOG"
+echo "$PWD env=${KITH_SERVE_ENV:-unset}" >> "$STUB_LOG.build"
 if [ -n "${STUB_BUILD_FAIL:-}" ]; then echo "error: boom line"; exit 101; fi
 mkdir -p "$CARGO_TARGET_DIR/dev-app"
 cat > "$CARGO_TARGET_DIR/dev-app/kith-serve" <<'EOS'
@@ -52,6 +53,7 @@ check "start copies the binary to ~/.kith/serve/bin" "[ -x '$BIN' ]"
 check "start calls install --port 19224" "grep -q 'kith-serve install --port 19224' '$STUB_LOG'"
 
 check "start installs the job with this checkout's hq" "grep -q '/repo/kernel/bin/hq\$' '$STUB_LOG.hq'"
+check "start builds from inside serve/host (the pinned toolchain applies)" "grep -q '/repo/serve/host env=' '$STUB_LOG.build'"
 
 # start again: cargo is asked every time (it decides what is fresh); install is still called
 "$SERVE" start >/dev/null 2>&1
@@ -61,6 +63,11 @@ check "second start installs again" "[ $(count 'kith-serve install') = 2 ]"
 # --no-build never runs cargo
 "$SERVE" start --no-build >/dev/null 2>&1
 check "--no-build never runs cargo" "[ $(count 'cargo build') = 2 ]"
+
+: > "$STUB_LOG.hq"; HQ_BIN=/elsewhere/hq "$SERVE" start --no-build >/dev/null 2>&1
+check "an explicit HQ_BIN is kept" "grep -qx '/elsewhere/hq' '$STUB_LOG.hq'"
+: > "$STUB_LOG.build"; KITH_SERVE_ENV=main "$SERVE" start >/dev/null 2>&1
+check "an exported KITH_SERVE_ENV never reaches the build" "grep -q 'env=unset' '$STUB_LOG.build' && ! grep -q 'env=main' '$STUB_LOG.build'"
 
 # a failing build keeps the old installed binary and exits non-zero, with the tail shown
 before=$(cksum < "$BIN")
@@ -82,7 +89,8 @@ fi
 check "stop forwards" "grep -qx 'kith-serve stop' '$STUB_LOG'"
 out=$("$SERVE" status 2>&1)
 check "status forwards with the port" "grep -q 'kith-serve status --port 19224' '$STUB_LOG'"
-check "status says relay not set" "echo \"\$out\" | grep -q 'relay: not set'"
+check "status says relay is the built-in default" "echo \"\$out\" | grep -q 'relay: built-in default'"
+check "relay with no argument says the default too" "'$SERVE' relay | grep -q 'built-in default'"
 
 # no launcher unless one is configured: hq-uv alone changes nothing; a configured one is passed on
 mkdir -p "$HOME/.hq/bin"; printf '#!/bin/sh\n' > "$HOME/.hq/bin/hq-uv"; chmod +x "$HOME/.hq/bin/hq-uv"
@@ -103,13 +111,16 @@ echo '{"other": 1}' > "$CFG"
 "$SERVE" relay https://relay.example.workers.dev >/dev/null 2>&1
 check "relay sets relay_url and keeps other keys" "python3 -c 'import json; c=json.load(open(\"$CFG\")); assert c==dict(other=1, relay_url=\"https://relay.example.workers.dev\")'"
 out=$("$SERVE" status 2>&1)
-check "status says relay set" "echo \"\$out\" | grep -q '^relay: set'"
+check "status shows the configured relay" "echo \"\$out\" | grep -q '^relay: https://relay.example.workers.dev (config.json)'"
 "$SERVE" relay http://localhost:8787 >/dev/null 2>&1
 check "relay accepts http://localhost" "grep -q localhost '$CFG'"
 out=$("$SERVE" relay ftp://nope 2>&1); rc=$?
 check "relay rejects a bad URL" "[ $rc != 0 ] && grep -q localhost '$CFG'"
 out=$("$SERVE" relay http://evil.example.com 2>&1); rc=$?
 check "relay rejects plain http to other hosts" "[ $rc != 0 ]"
+# two writers at once: both succeed, the file stays valid JSON, no temp files are left behind
+for i in 1 2 3 4 5 6; do "$SERVE" relay "https://r$i.example.workers.dev" >/dev/null 2>&1 & done; wait
+check "overlapping relay writes leave valid JSON and no temp files" "python3 -c 'import json; json.load(open(\"$CFG\"))' && [ \"\$(ls -A '$HOME/.kith/serve' | grep -c config.json.)\" = 0 ]"
 rm -rf "$HOME/.kith"
 "$SERVE" relay https://relay.example.workers.dev >/dev/null 2>&1
 check "relay creates the file and folder" "[ -f '$CFG' ]"

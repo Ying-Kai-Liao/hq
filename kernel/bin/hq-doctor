@@ -342,7 +342,7 @@ def serve():
         relay = json.loads((HOME / '.kith/serve/config.json').read_text()).get('relay_url')
     except Exception:
         relay = None
-    ok('relay: set') if relay else note('relay: not set (kith serve relay <url>)')
+    ok(f'relay: {relay}') if relay else ok('relay: built-in default (kith serve relay <url> to change)')
 
 
 def main(argv):

@@ -4,7 +4,7 @@
 #   hq serve start [--no-build]   build the host (cargo skips what is fresh), install it to ~/.kith/serve/bin, load launchd job dev.kith.serve
 #   hq serve stop                 stop the job (keeps data and the job file)
 #   hq serve restart              stop, then start --no-build
-#   hq serve status               the host's own status, and whether the relay URL is set
+#   hq serve status               the host's own status, and the relay in use
 #   hq serve relay [URL]          show or set the relay URL (~/.kith/serve/config.json); restart for it to take effect
 #
 # Data dir ~/.kith/serve, port 19224, launchd label dev.kith.serve, logs inside the data dir. The host's own
@@ -43,7 +43,9 @@ cmd_start() {
     echo "building kith-serve (dev-app profile)..."
     local log; log=$(mktemp "${TMPDIR:-/tmp}/hq-serve-build.XXXXXX")
     local lowprio=(); [ -x /usr/sbin/taskpolicy ] && lowprio=(/usr/sbin/taskpolicy -b)
-    if ! PATH="$(dirname "$cargo"):$PATH" ${lowprio[@]+"${lowprio[@]}"} "$cargo" build --profile dev-app --manifest-path "$HOST/Cargo.toml" >"$log" 2>&1; then
+    # Build from inside serve/ so serve/rust-toolchain.toml picks the pinned Rust under rustup. KITH_SERVE_ENV is
+    # read at compile time: an exported `main` would build a main host (other port, folder, label) for the dev slot.
+    if ! (cd "$HOST" && PATH="$(dirname "$cargo"):$PATH" exec env -u KITH_SERVE_ENV ${lowprio[@]+"${lowprio[@]}"} "$cargo" build --profile dev-app --manifest-path "$HOST/Cargo.toml") >"$log" 2>&1; then
       tail -n 30 "$log" >&2
       rm -f "$log"
       echo "hq serve: build failed; the installed host (if any) is unchanged" >&2
@@ -71,25 +73,32 @@ try: print(json.load(open(sys.argv[1])).get("relay_url") or "")
 except Exception: pass' "$CONFIG"
 }
 
+# The relay in use: ask the running host (it knows the environment's override too), else the file, else the
+# build's default (a kith serve build is Dev, which has a built-in relay).
+relay_line() {
+  local u=""
+  if [ -x "$BIN" ]; then u=$("$BIN" cloud --port $PORT 2>/dev/null | sed -n 's/^url: *//p' | head -1 || true); fi
+  case $u in ""|-) u=$(relay_url) ;; *) echo "relay: $u (host)"; return 0 ;; esac
+  if [ -n "$u" ]; then echo "relay: $u (config.json)"; else echo "relay: built-in default (kith serve relay <url> to change)"; fi
+}
+
 cmd_relay() {
-  if [ $# -eq 0 ]; then
-    local u; u=$(relay_url)
-    if [ -n "$u" ]; then echo "relay: $u"; else echo "relay: not set — kith serve relay <url>"; fi
-    return 0
-  fi
+  if [ $# -eq 0 ]; then relay_line; return 0; fi
   case $1 in
     https://?*|http://127.0.0.1|http://127.0.0.1[:/]*|http://localhost|http://localhost[:/]*) ;;
     *) echo "hq serve relay: the URL must start with https:// (or http://127.0.0.1 / http://localhost)" >&2; exit 2 ;;
   esac
   mkdir -p "$DATA"
   python3 - "$CONFIG" "$1" <<'PY'
-import json, os, sys
+import json, os, sys, tempfile
 path, url = sys.argv[1:3]
 try: cfg = json.load(open(path))
 except Exception: cfg = {}
 cfg['relay_url'] = url
-tmp = path + '.tmp'
-open(tmp, 'w').write(json.dumps(cfg, indent=2) + '\n')
+# A temp file of its own in the same folder, so two writers never share one and the rename stays atomic.
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or '.', prefix='.config.json.')
+with os.fdopen(fd, 'w') as f:
+    f.write(json.dumps(cfg, indent=2) + '\n')
 os.replace(tmp, path)
 PY
   echo "relay set. Run: kith serve restart"
@@ -97,7 +106,7 @@ PY
 
 cmd_status() {
   if [ -x "$BIN" ]; then "$BIN" status --port $PORT || true; else echo "kith-serve: not installed (kith serve start)"; fi
-  if [ -n "$(relay_url)" ]; then echo "relay: set"; else echo "relay: not set — kith serve relay <url>"; fi
+  relay_line
 }
 
 case ${1:-help} in

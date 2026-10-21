@@ -75,8 +75,13 @@ fn default_url() -> Option<String> {
 }
 
 /// The first of the environment's URL, the config file's, the build's default.
-fn pick(env: Option<String>, config: Option<String>, default: Option<String>) -> Option<String> {
-    env.or(config).or(default)
+/// The file is read only when the environment gives no URL, so an unused config entry never logs.
+fn pick(
+    env: Option<String>,
+    config: impl FnOnce() -> Option<String>,
+    default: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    env.or_else(config).or_else(default)
 }
 
 /// The cloud base URL in use, or `None` when the cloud is off or no relay URL is set.
@@ -91,7 +96,7 @@ pub fn url(store: &Store) -> Option<String> {
     if cfg!(test) {
         return store.kv_get("test_cloud_url");
     }
-    pick(env_url(), relay_url_from(&crate::service::data_dir().join("config.json")), default_url())
+    pick(env_url(), || relay_url_from(&crate::service::data_dir().join("config.json")), default_url)
 }
 
 /// Why the cloud has no URL, for the status: `None` when it is off on purpose or has one.
@@ -745,10 +750,18 @@ mod tests {
     #[test]
     fn the_relay_is_the_environments_then_the_files_then_the_default() {
         let s = |u: &str| Some(u.to_owned());
-        assert_eq!(pick(s("e"), s("c"), s("d")), s("e"));
-        assert_eq!(pick(None, s("c"), s("d")), s("c"));
-        assert_eq!(pick(None, None, s("d")), s("d"));
-        assert_eq!(pick(None, None, None), None, "a Main build has no default");
+        assert_eq!(pick(s("e"), || s("c"), || s("d")), s("e"));
+        assert_eq!(pick(None, || s("c"), || s("d")), s("c"));
+        assert_eq!(pick(None, || None, || s("d")), s("d"));
+        assert_eq!(pick(None, || None, || None), None, "a Main build has no default");
+        assert_eq!(
+            pick(
+                s("e"),
+                || panic!("the file is not read when the environment has a URL"),
+                || panic!("nor the default")
+            ),
+            s("e")
+        );
         assert!(valid_url(&format!("{DEV_RELAY}/")));
     }
 

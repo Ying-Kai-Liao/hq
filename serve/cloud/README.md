@@ -36,10 +36,10 @@ date to the newest one it supports. `wrangler.toml` keeps the deploy date.
 
 ```bash
 (cd ../host && cargo build)
-npm run e2e       # local D1 + wrangler dev + real codync-host + test/e2e/phone.ts
+npm run e2e       # local D1 + wrangler dev + real kith-serve + test/e2e/phone.ts
 ```
 
-Env: `CODYNC_HOST_BIN` (default `../host/target/debug/codync-host`), `CODYNC_E2E_CLOUD_PORT` (default
+Env: `KITH_SERVE_HOST_BIN` (default `$CARGO_TARGET_DIR/debug/kith-serve`, else `../host/target/debug/kith-serve`), `CODYNC_E2E_CLOUD_PORT` (default
 8787), `E2E_VERBOSE=1` to stream wrangler and host logs. Needs `python3` for the fake agent.
 
 ## Deploy

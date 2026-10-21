@@ -61,9 +61,10 @@ impl Hub {
     }
 
     pub async fn sync_hq_bots_with(self: &Arc<Self>, bin: &Path) -> Result<Synced> {
-        let agents = hq::list(bin).await?;
-        // Startup and the API can ask at once; one at a time, so an agent never gets two bots.
+        // Startup and the API can ask at once; one at a time, so an agent never gets two bots, and the lock is
+        // taken before listing so an older answer can't be applied after a newer one.
         let _one = self.hq_sync.lock().await;
+        let agents = hq::list(bin).await?;
         let hub = self.clone();
         tokio::task::spawn_blocking(move || hub.apply_hq_agents(&agents)).await?
     }
@@ -74,6 +75,10 @@ impl Hub {
         let mut done = Synced::default();
         let rows = self.store.bots()?;
         for agent in agents {
+            if !agent.runnable() {
+                tracing::debug!(agent = %agent.name, harness = %agent.harness, "hq agent is not a Claude agent; no bot");
+                continue;
+            }
             if !Path::new(&agent.home).is_dir() {
                 tracing::info!(agent = %agent.name, home = %agent.home, "hq agent folder missing; no bot");
                 continue;
@@ -113,7 +118,7 @@ impl Hub {
         }
         for row in &rows {
             let Some(name) = row.config.hq_agent.as_deref() else { continue };
-            let listed = agents.iter().any(|a| a.name == name && Path::new(&a.home).is_dir());
+            let listed = agents.iter().any(|a| a.name == name && a.runnable() && Path::new(&a.home).is_dir());
             if listed || row.deleted || row.config.hidden {
                 continue;
             }
@@ -153,7 +158,12 @@ mod tests {
     fn agent(dir: &Path, name: &str, description: &str) -> HqAgent {
         let home = dir.join(name);
         std::fs::create_dir_all(&home).unwrap();
-        HqAgent { name: name.into(), description: description.into(), home: home.to_string_lossy().into_owned() }
+        HqAgent {
+            name: name.into(),
+            description: description.into(),
+            home: home.to_string_lossy().into_owned(),
+            harness: "claude".into(),
+        }
     }
 
     fn bots(hub: &Hub) -> Vec<BotConfig> {
@@ -210,12 +220,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn only_claude_agents_get_bots() {
+        // What `hq ls --json` prints: an agent from an older hq has no harness, which means Claude.
+        let listed: Vec<HqAgent> = serde_json::from_str(
+            r#"[{"name":"a","home":"/x"},{"name":"b","home":"/x","harness":"claude"},{"name":"c","home":"/x","harness":"codex"}]"#,
+        )
+        .unwrap();
+        assert_eq!(listed.iter().map(HqAgent::runnable).collect::<Vec<_>>(), [true, true, false]);
+
+        let (hub, dir) = hub();
+        let mut codex = agent(&dir, "coder", "");
+        codex.harness = "codex".into();
+        let house = agent(&dir, "house", "");
+        let done = hub.apply_hq_agents(&[codex.clone(), house.clone()]).unwrap();
+        assert_eq!(done.created, ["house"], "no bot that would fail on every message");
+        // An agent that switches to another harness is taken off the roster like one that left hq.
+        let mut moved = house;
+        moved.harness = "codex".into();
+        let done = hub.apply_hq_agents(&[codex, moved]).unwrap();
+        assert_eq!(done.hidden, ["house"]);
+    }
+
+    #[tokio::test]
     async fn a_deleted_bot_and_a_missing_folder_make_no_bot() {
         let (hub, dir) = hub();
         let house = agent(&dir, "house", "");
         hub.apply_hq_agents(std::slice::from_ref(&house)).unwrap();
         hub.delete_bot(&bots(&hub)[0].id).unwrap();
-        let ghost = HqAgent { name: "ghost".into(), description: String::new(), home: "/no/such/folder".into() };
+        let ghost = HqAgent {
+            name: "ghost".into(),
+            description: String::new(),
+            home: "/no/such/folder".into(),
+            harness: "claude".into(),
+        };
         let done = hub.apply_hq_agents(&[house, ghost]).unwrap();
         assert_eq!(done, Synced::default());
         assert!(bots(&hub).is_empty());
