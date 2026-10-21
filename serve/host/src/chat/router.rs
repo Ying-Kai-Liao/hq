@@ -79,6 +79,8 @@ impl Jev {
         let key = if let Some(key) = std::env::var("JEV_API_KEY").ok().filter(|k| !k.is_empty()) {
             key
         } else {
+            // No saved key: don't touch the keychain for every message.
+            hub.store.kv_read(SLOT).ok().flatten()?;
             vault::unlock(hub.clone()).await.ok()?;
             vault::read(&hub.store, SLOT).ok().flatten().filter(|k| !k.is_empty())?
         };
@@ -142,8 +144,13 @@ pub async fn route(hub: &Arc<crate::hub::Hub>, task: &str, recent: &[String], la
 
 /// Saves the Jev key on this computer (empty removes it).
 pub async fn set_key(hub: &Arc<crate::hub::Hub>, key: &str) -> Result<Value> {
-    vault::unlock(hub.clone()).await?;
-    vault::write(&hub.store, SLOT, key.trim())?;
+    let key = key.trim();
+    if key.is_empty() {
+        hub.store.kv_delete(SLOT)?;
+    } else {
+        vault::unlock(hub.clone()).await?;
+        vault::write(&hub.store, SLOT, key)?;
+    }
     status(&hub.store)
 }
 
@@ -181,6 +188,20 @@ mod tests {
         assert_eq!(s(0.05, 0.95, 0.10, 0.93).decide(), Route::Interrupt);
         assert_eq!(s(0.05, 0.40, 0.80, 0.95).decide(), Route::Merge);
         assert_eq!(s(0.10, 0.20, 0.90, 0.10).decide(), Route::Merge);
+    }
+
+    #[tokio::test]
+    async fn an_empty_key_removes_the_saved_one() {
+        let dir = std::env::temp_dir().join(format!("codync-router-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        store.kv_set(SLOT, "vault:v1:sealed").unwrap();
+        let identity = crate::remote::identity::Identity::load_or_create(&dir).unwrap();
+        let hub = crate::hub::Hub::new(store, "router-test".into(), identity, "test".into(), 0);
+
+        let status = set_key(&hub, "  ").await.unwrap();
+        assert_eq!(status["configured"], json!(false));
+        assert!(Jev::configured(&hub).await.is_none());
     }
 
     #[test]
