@@ -41,7 +41,7 @@ settings:
     CODYNC_URL_SCHEME: codync
     CODYNC_SCREEN_NAME: CodyncScreen
     CODYNC_SCREEN_BUNDLE_ID: com.pokai.Codync.screen
-    CODYNC_DATA_FOLDER: .codync
+    CODYNC_DATA_FOLDER: .kith/serve-main
   configs:
     Debug:
       CODYNC_APNS_ENVIRONMENT: sandbox
@@ -56,7 +56,7 @@ settings:
       CODYNC_URL_SCHEME: codync-dev
       CODYNC_SCREEN_NAME: CodyncDevScreen
       CODYNC_SCREEN_BUNDLE_ID: com.yingkailiao.kith.dev.screen
-      CODYNC_DATA_FOLDER: .kith-dev
+      CODYNC_DATA_FOLDER: .kith/serve
       CODYNC_APNS_ENVIRONMENT: sandbox
     DevRelease:
       CODYNC_ENV: dev
@@ -67,7 +67,7 @@ settings:
       CODYNC_URL_SCHEME: codync-dev
       CODYNC_SCREEN_NAME: CodyncDevScreen
       CODYNC_SCREEN_BUNDLE_ID: com.yingkailiao.kith.dev.screen
-      CODYNC_DATA_FOLDER: .kith-dev
+      CODYNC_DATA_FOLDER: .kith/serve
       CODYNC_APNS_ENVIRONMENT: production
 schemes:
   iOS:

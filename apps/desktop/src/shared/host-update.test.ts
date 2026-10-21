@@ -49,7 +49,7 @@ test('failed stop reports the error and cancellation reinstalls the service once
   f.host.resumeAfterCancelledUpdate()
   f.host.resumeAfterCancelledUpdate()
   await settle()
-  assert.deepEqual(f.calls, [['stop'], ['install', '--port', '19222']])
+  assert.deepEqual(f.calls, [['stop'], ['install', '--port', '19225']])
   await f.tick(1000)
 })
 
@@ -57,7 +57,7 @@ test('new app launch reinstalls the host and clears restart marker only after he
   const f = hostUpdateFixture({ restartMarker: true })
   const starting = f.host.refresh()
   await settle()
-  assert.deepEqual(f.calls, [['install', '--port', '19222']])
+  assert.deepEqual(f.calls, [['install', '--port', '19225']])
   assert.equal(f.prefs.get('hostRestartAfterAppUpdate'), true)
   f.behavior.reachable = false
   await f.tick(1000)
@@ -120,7 +120,7 @@ test('development service installs on its own port', async () => {
   const f = hostUpdateFixture({ environment: 'dev' })
   const installing = f.host.install()
   await settle()
-  assert.deepEqual(f.calls, [['install', '--port', '19223']])
+  assert.deepEqual(f.calls, [['install', '--port', '19224']])
   await f.tick(1000)
   await installing
   assert.equal(f.host.state.kind, 'running')

@@ -7,7 +7,7 @@ import { loadMainModule, settle } from './main-module.ts'
 export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; platform?: string; devPort?: string; installed?: boolean; missingBinary?: boolean; restartMarker?: boolean } = {}) {
   const identity = environmentProfile(options.environment ?? 'main')
   const platform = options.platform ?? 'darwin'
-  const binary = platform === 'win32' ? '/bundle/codync-host.exe' : platform === 'linux' ? '/home/test/.local/bin/codync-host' : '/bundle/codync-host'
+  const binary = platform === 'win32' ? '/bundle/kith-serve.exe' : platform === 'linux' ? '/home/test/.local/bin/kith-serve' : '/bundle/kith-serve'
   const binaryBytes = Buffer.from('new signed host fixture')
   const persisted: Record<string, unknown> = { hostRestartAfterAppUpdate: options.restartMarker ?? false }
   const calls: string[][] = []
@@ -26,7 +26,7 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; platf
   }
   const service = () => {
     if (!behavior.installed) throw new Error('No service')
-    return binary.replace(/codync-host\.exe$/, identity.supervisor)
+    return binary.replace(/kith-serve\.exe$/, identity.supervisor)
   }
   const fs = {
     existsSync: (name: string) => !options.missingBinary && name === binary,
@@ -59,7 +59,7 @@ export function hostUpdateFixture(options: { environment?: 'main' | 'dev'; platf
     './screen': { unregisterScreenAgent: () => { order.push('unregisterScreen') } },
   }, {
     __dirname: '/app/out/main',
-    process: { env: options.devPort ? { CODYNC_PORT: options.devPort } : {}, resourcesPath: '/bundle' },
+    process: { env: options.devPort ? { KITH_SERVE_PORT: options.devPort } : {}, resourcesPath: '/bundle' },
     setTimeout: (callback: () => void, ms: number) => { const id = ++timerId; timers.set(id, { callback, ms }); return id },
     clearTimeout: (id: number) => timers.delete(id),
     fetch: async () => {

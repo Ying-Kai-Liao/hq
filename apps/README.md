@@ -21,3 +21,12 @@ nothing: no events are queued and no requests are made. The "Share usage analyti
 still shows.
 
 The desktop app sends nothing to PostHog itself; it goes through the host, which holds its own key.
+
+## Host and accounts
+
+The Mac app runs against `kith-serve` (built from `serve/host`): dev data in `~/.kith/serve` on
+port 19224, launchd job `dev.kith.serve`; main uses `~/.kith/serve-main`, 19225 and
+`dev.kith.serve.main`. If `kith serve start` already installed the job, the app adopts it and never
+rewrites its plist. Kith has no accounts: `shared/Config/*.plist` are empty, so Clerk and the
+account cloud stay off. The relay URL comes from the host's `config.json` (`relay_url`) and travels
+in the pairing link; the apps need no relay setting.

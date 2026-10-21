@@ -24,7 +24,7 @@ export interface LocalHost {
 export interface HostSnapshot {
   state: HostState
   local: LocalHost | null
-  /** Started against a manually run host (`CODYNC_PORT`). */
+  /** Started against a manually run host (`KITH_SERVE_PORT`). */
   dev: boolean
   logPath: string
 }

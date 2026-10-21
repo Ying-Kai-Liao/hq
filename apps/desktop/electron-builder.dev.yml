@@ -36,10 +36,10 @@ linux:
 win:
   artifactName: codync-dev-windows-x64.${ext}
   extraResources:
-    - from: build/native/codync-host.exe
-      to: codync-host.exe
-    - from: build/native/codync-dev-hostw.exe
-      to: codync-dev-hostw.exe
+    - from: build/native/kith-serve.exe
+      to: kith-serve.exe
+    - from: build/native/kith-servew.exe
+      to: kith-servew.exe
     - from: build/native/cua-driver.exe
       to: cua-driver.exe
     - from: build/native/cua-driver-uia.exe

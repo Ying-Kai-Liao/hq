@@ -46,7 +46,7 @@ export function ComputersView() {
           </SectionHeader>
           <Reveal show={sshState.state.profiles.length === 0}>
             <Text as="div" size="callout" tone="secondary">
-              Run bots on another computer you reach with SSH. It needs codync-host installed; your SSH keys stay on {thisMac}.
+              Run bots on another computer you reach with SSH. It needs kith-serve installed; your SSH keys stay on {thisMac}.
             </Text>
           </Reveal>
           {sshState.state.profiles.map((profile) => (
@@ -448,7 +448,7 @@ function SSHProfileEditor({ profile: initial, isNew }: { profile: SSHProfile; is
           {field('Kith port', remotePort, setRemotePort, '')}
         </CardSection>
         <Text size="caption" tone="secondary">
-          Kith opens an SSH tunnel to codync-host on that computer's loopback. It uses your SSH config and ssh-agent; agent forwarding stays off.
+          Kith opens an SSH tunnel to kith-serve on that computer's loopback. It uses your SSH config and ssh-agent; agent forwarding stays off.
         </Text>
         <Reveal show={problem !== null}>
           <Text size="caption" tone="danger">{problem}</Text>

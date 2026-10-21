@@ -24,7 +24,7 @@ function probe(installed: string[]) {
     for (const location of installed) {
       const directory = join(root, location)
       mkdirSync(directory, { recursive: true })
-      const binary = join(directory, 'codync-host')
+      const binary = join(directory, 'kith-serve')
       writeFileSync(binary, '#!/bin/sh\nprintf "%s\\n" "$0" "$@"\n')
       chmodSync(binary, 0o755)
     }
@@ -45,14 +45,14 @@ for (const location of locations) {
   test(`SSH finds a host installed in ${location}`, { skip: process.platform === 'win32' }, () => {
     const result = probe([location])
     assert.equal(result.status, 0)
-    assert.deepEqual(result.lines, [join(result.root, location, 'codync-host'), 'info', '--json', '--port', '19222'])
+    assert.deepEqual(result.lines, [join(result.root, location, 'kith-serve'), 'info', '--json', '--port', '19222'])
   })
 }
 
 test('SSH preserves the host selected by the remote PATH', { skip: process.platform === 'win32' }, () => {
   const result = probe(locations)
   assert.equal(result.status, 0)
-  assert.equal(result.lines[0], join(result.root, 'custom/bin/codync-host'))
+  assert.equal(result.lines[0], join(result.root, 'custom/bin/kith-serve'))
 })
 
 test('SSH reports command not found when no installation is reachable', { skip: process.platform === 'win32' }, () => {
@@ -64,15 +64,15 @@ for (const installed of ['mac', 'linux', 'production-only'] as const) {
     const root = mkdtempSync(join(tmpdir(), 'codync-dev-ssh-'))
     try {
       const home = join(root, 'user home')
-      const mac = join(root, 'Applications/Kith Dev.app/Contents/Resources/codync-host')
-      const linux = join(home, '.local/bin/codync-dev-host')
-      const prod = join(home, '.local/bin/codync-host')
+      const mac = join(root, 'Applications/Kith Dev.app/Contents/Resources/kith-serve')
+      const linux = join(home, '.kith/serve/bin/kith-serve')
+      const prod = join(home, '.local/bin/kith-serve')
       for (const bin of [prod, ...(installed === 'mac' ? [mac] : installed === 'linux' ? [linux] : [])]) {
         mkdirSync(join(bin, '..'), { recursive: true })
-        writeFileSync(bin, '#!/bin/sh\nprintf "%s\\n" "$0" "$CODYNC_HOME" "$@"\n')
+        writeFileSync(bin, '#!/bin/sh\nprintf "%s\\n" "$0" "$KITH_SERVE_HOME" "$@"\n')
         chmodSync(bin, 0o755)
       }
-      const command = remoteInfoCommand(19223, '.kith-dev')
+      const command = remoteInfoCommand(19224, '.kith/serve')
         .replace(/^sh -lc '/, '').replace(/'$/, '')
         .replaceAll('/Applications/', `${root}/Applications/`)
       const result = spawnSync('/bin/sh', ['-c', command], {
@@ -80,7 +80,7 @@ for (const installed of ['mac', 'linux', 'production-only'] as const) {
       })
       assert.equal(result.status, installed === 'production-only' ? 127 : 0)
       if (installed !== 'production-only') {
-        assert.deepEqual(result.stdout.trim().split('\n'), [installed === 'mac' ? mac : linux, join(home, '.kith-dev'), 'info', '--json', '--port', '19223'])
+        assert.deepEqual(result.stdout.trim().split('\n'), [installed === 'mac' ? mac : linux, join(home, '.kith/serve'), 'info', '--json', '--port', '19224'])
       }
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -140,7 +140,7 @@ for (const master of ['no', 'auto', 'yes', 'autoask']) {
       assert.equal(values.get('batchmode'), 'yes')
       assert.equal(values.get('localforward')?.replace(/[\[\]]/g, ''), '127.0.0.1:19333 127.0.0.1:19222')
       assert.ok(values.get('userknownhostsfile')?.includes(`${home}/.ssh/known_hosts`))
-      assert.ok(values.get('userknownhostsfile')?.includes(`${home}/.codync/ssh_known_hosts`))
+      assert.ok(values.get('userknownhostsfile')?.includes(`${home}/.kith/serve/ssh_known_hosts`))
     })
   })
 }
@@ -171,7 +171,7 @@ for (const [preferred, fallback] of [
   test(`SSH prefers ${preferred} over ${fallback}`, { skip: process.platform === 'win32' }, () => {
     const result = probe([preferred, fallback])
     assert.equal(result.status, 0)
-    assert.equal(result.lines[0], join(result.root, preferred, 'codync-host'))
+    assert.equal(result.lines[0], join(result.root, preferred, 'kith-serve'))
   })
 }
 

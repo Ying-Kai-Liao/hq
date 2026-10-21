@@ -6,7 +6,7 @@ export const SANDBOX_PREFIX = '.kith-dev-'
 /** A worktree folder name made safe for a data folder and a window title. */
 export const sandboxName = (folder: string) => folder.replace(/[^A-Za-z0-9._-]+/g, '-')
 
-/** Ports for sandboxes, lowest first, without the ones other sandboxes hold; 19222/19223 stay with Codync and Kith Dev. */
+/** Ports for sandboxes, lowest first, without the ones other sandboxes hold; 19224/19225 stay with the dev and main kith-serve. */
 export function sandboxPorts(claimed: Iterable<number>): number[] {
   const taken = new Set(claimed)
   return Array.from({ length: 100 }, (_, i) => 19300 + i).filter((port) => !taken.has(port))

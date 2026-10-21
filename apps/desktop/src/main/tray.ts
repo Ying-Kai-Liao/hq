@@ -87,7 +87,7 @@ export class Tray {
           break
         }
         items.push({ label: 'Reinstall Kith or install the host with Homebrew.', enabled: false })
-        items.push({ label: 'Copy host install command', click: () => clipboard.writeText('brew install leepokai/codync/codync-host') })
+        items.push({ label: 'Copy host install command', click: () => clipboard.writeText('kith serve start') })
         break
       case 'notInstalled':
         items.push({ label: 'Install host', click: () => void host.install() })

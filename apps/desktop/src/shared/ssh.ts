@@ -41,9 +41,9 @@ export interface SSHState {
   attachments: SSHAttachment[]
 }
 
-export const SSH_INSTALL_COMMAND = 'brew install leepokai/codync/codync-host && codync-host install'
+export const SSH_INSTALL_COMMAND = 'kith serve start'
 
-export const newSSHProfile = (remotePort = 19222): SSHProfile => ({
+export const newSSHProfile = (remotePort = 19224): SSHProfile => ({
   id: crypto.randomUUID(),
   host: '',
   port: null,
