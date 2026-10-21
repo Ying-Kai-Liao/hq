@@ -13,5 +13,6 @@ pub mod outbox;
 pub mod profile;
 pub mod prompt;
 pub mod router;
+pub mod tasks;
 pub mod team;
 pub mod uploads;

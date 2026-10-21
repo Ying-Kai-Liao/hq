@@ -52,7 +52,7 @@ impl Host {
     async fn bot(&self, name: &str) -> String {
         let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/slow_agent.py");
         let bot = json!({
-            "name": name, "backend": "custom", "command": common::python_agent(&agent),
+            "name": name, "backend": "custom", "tasks": false, "command": common::python_agent(&agent),
             "cwd": self.home, "permission": "auto", "notify": false,
         });
         self.call("createBot", bot).await["bot"]["id"].as_str().unwrap().to_owned()

@@ -119,6 +119,10 @@ pub struct BotConfig {
     /// until the user renames it.
     #[serde(default)]
     pub auto_name: bool,
+    /// Each burst of the user's chat is a task of its own (see `chat::tasks`). Unset: on. Off keeps one endless
+    /// conversation in the bot's main session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tasks: Option<bool>,
     #[serde(default)]
     pub created_at: i64,
 }
@@ -126,6 +130,11 @@ pub struct BotConfig {
 impl BotConfig {
     pub fn is_group(&self) -> bool {
         self.kind == BotKind::Group
+    }
+
+    /// Whether the user's messages to this bot are tasks (a group's never are: it's one room).
+    pub fn uses_tasks(&self) -> bool {
+        !self.is_group() && self.tasks != Some(false)
     }
 }
 

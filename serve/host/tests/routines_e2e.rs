@@ -70,7 +70,7 @@ impl Host {
         self.call(
             "createBot",
             json!({
-                "name": name, "backend": "custom", "cwd": cwd, "permission": "ask", "notify": false,
+                "name": name, "backend": "custom", "tasks": false, "cwd": cwd, "permission": "ask", "notify": false,
                 "command": common::python_agent(&agent),
             }),
         )

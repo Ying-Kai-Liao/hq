@@ -117,7 +117,7 @@ impl Actor {
             self.profile_resend.insert(sid.clone());
         }
         if let Some(root) = self.lane.thread.clone() {
-            self.thread_intro = Some(self.thread_intro(&root, false));
+            self.thread_intro = self.thread_intro(&root, false);
         }
         let mut c = self.conversation(&sid);
         c.compacted(self.compacting.is_some(), self.compacting == Some(true), now_ms());

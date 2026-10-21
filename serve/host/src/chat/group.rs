@@ -352,7 +352,7 @@ mod tests {
                 let cwd = dir.join(id);
                 std::fs::create_dir_all(&cwd).unwrap();
                 let cfg: BotConfig = serde_json::from_value(json!({
-                    "id": id, "name": id, "backend": "fixture", "cwd": cwd,
+                    "id": id, "name": id, "backend": "fixture", "cwd": cwd, "tasks": false,
                     "command": crate::shell::python(&agent), "notify": false,
                 }))
                 .unwrap();
