@@ -1,0 +1,114 @@
+# Packaging for macOS (DMG + zip for updates), Linux (AppImage, deb, tar.gz) and Windows (NSIS).
+# CI puts the native pieces in place first (see .github/workflows/release-desktop.yml):
+#   build/native/codync-host        the host for this platform (macOS: universal)
+#   build/native/codync-host.exe    Windows: the host, and codync-hostw.exe that runs it at sign-in
+#   build/native/codync-speech      macOS on-device speech helper
+#   build/native/CodyncScreen.app   macOS screen helper (Xcode `Screen` target, with cua-driver inside)
+#   build/native/cua-driver.exe     Windows: the computer-use driver and its UI Automation helper
+beforePack: tools/verify-build.cjs
+appId: com.pokai.Codync
+productName: Codync
+copyright: ""
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+extraResources:
+  - from: resources/account-config.json
+    to: account-config.json
+  - from: resources/tray
+    to: tray
+protocols:
+  - name: Codync
+    schemes: [codync, com.pokai.Codync]
+publish:
+  provider: github
+  owner: leepokai
+  repo: Codync
+  releaseType: release
+
+mac:
+  category: public.app-category.developer-tools
+  # The Mac app's Icon Composer icon: Assets.car for macOS 26 (no gray icon frame) plus an icns.
+  icon: resources/AppIcon.icon
+  target:
+    - target: dmg
+      arch: universal
+    - target: zip
+      arch: universal
+  # The zip (update feed) takes this name; the DMG sets its own.
+  artifactName: codync-macos.${ext}
+  hardenedRuntime: true
+  # The computer-use driver keeps its maker's Developer ID signature (packaging/cua-driver).
+  signIgnore:
+    - CodyncScreen\.app/Contents/Helpers/cua-driver$
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: Talk to your bots in a voice call.
+    NSSpeechRecognitionUsageDescription: Your words are transcribed on this Mac and sent to your bot as a message.
+    # generate_appcast signs the zip only when the app inside names this key (packaging/updates).
+    SUPublicEDKey: /WvuKYw0ghkj3ExQbCejTquAcozuP1Llo2k8TIvx0Mc=
+  # The host ships inside the Mac app; Linux uses the installed codync-host (an AppImage's
+  # mount path changes every launch, so a service can't point into it).
+  extraResources:
+    - from: build/native/codync-host
+      to: codync-host
+    - from: build/native/codync-speech
+      to: codync-speech
+  extraFiles:
+    # Registered with SMAppService.agent when Remote screen is turned on.
+    - from: build/native/CodyncScreen.app
+      to: Library/LoginItems/CodyncScreen.app
+    - from: resources/mac/com.pokai.Codync.screen.plist
+      to: Library/LaunchAgents/com.pokai.Codync.screen.plist
+  notarize: true
+dmg:
+  artifactName: codync-macos.dmg
+  background: build/dmg-background.tiff
+  window: { width: 660, height: 400 }
+  iconSize: 128
+  iconTextSize: 13
+  contents:
+    - { x: 170, y: 200, type: file }
+    - { x: 490, y: 200, type: link, path: /Applications }
+
+linux:
+  category: Development
+  icon: resources/icon.png
+  executableName: codync
+  synopsis: Your coding agents as teammates
+  target: [AppImage, deb, tar.gz]
+  artifactName: codync-linux-${arch}.${ext}
+  desktop:
+    entry:
+      StartupWMClass: Codync
+
+win:
+  icon: resources/icon.png
+  target:
+    - target: nsis
+      arch: x64
+  artifactName: codync-windows-x64.${ext}
+  # The host ships inside the app, as on macOS: a per-user install keeps its path stable for
+  # the sign-in entry that starts it.
+  extraResources:
+    - from: build/native/codync-host.exe
+      to: codync-host.exe
+    - from: build/native/codync-hostw.exe
+      to: codync-hostw.exe
+    # The computer-use driver bots act through; the host starts it from beside itself.
+    - from: build/native/cua-driver.exe
+      to: cua-driver.exe
+    - from: build/native/cua-driver-uia.exe
+      to: cua-driver-uia.exe
+    - from: build/native/cua-driver.LICENSE
+      to: cua-driver.LICENSE
+    # The tray icon (template glyphs are for macOS).
+    - from: resources/icon.png
+      to: icon.png
+nsis:
+  oneClick: true
+  perMachine: false

@@ -7,3 +7,17 @@ __pycache__/
 # Older layouts kept state/ and .store/ here; still ignored so a private state folder can never be committed.
 /state/
 .store/
+
+# apps/ and serve/ (from kith-app's root .gitignore)
+xcuserdata/
+DerivedData/
+/build/
+apps/desktop/build/
+.build/
+.swiftpm/
+Package.resolved
+# Xcode Cloud resolves packages only from the checked-in pins
+!apps/Codync.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+*.p8
+.dev.vars
+.wrangler/

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>clerkPublishableKey</key>
+	<string>pk_live_Y2xlcmsuY29keW5jLmRldiQ</string>
+	<key>cloudURL</key>
+	<string>https://api.codync.dev</string>
+</dict>
+</plist>

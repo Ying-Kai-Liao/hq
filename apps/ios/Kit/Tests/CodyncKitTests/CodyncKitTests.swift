@@ -1,0 +1,116 @@
+import Foundation
+import Testing
+@testable import CodyncKit
+
+@Test func parsesHostEvents() throws {
+    let url = try #require(Bundle.module.url(forResource: "events", withExtension: "txt", subdirectory: "Fixtures"))
+    let lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n")
+    let events = lines.compactMap { HostClient.parseEvent(Data($0.dropFirst(5).utf8)) }
+    #expect(events.count == 6)
+    guard case let .hello(hostId, rev, usage, _) = events[0] else { Issue.record("hello"); return }
+    #expect(hostId == "h1" && rev == 42 && usage.providers.first?.windows.first?.percent == 8)
+    guard case let .bot(bot) = events[1] else { Issue.record("bot"); return }
+    #expect(bot.name == "Rex" && bot.command == nil && !bot.isWorking)
+    guard case let .entry(perm) = events[2] else { Issue.record("perm"); return }
+    #expect(perm.isChat && perm.data.options?.first?.kind == "allow_once")
+    guard case let .entry(tool) = events[3] else { Issue.record("tool"); return }
+    #expect(!tool.isChat && tool.data.diffs?.first?.added == 1)
+    guard case let .botDeleted(id, _) = events[4] else { Issue.record("deleted"); return }
+    #expect(id == "b2")
+}
+
+@Test func relativeTime() {
+    let now = Date(timeIntervalSince1970: 1_000_000)
+    #expect(RelativeTime.short(now.addingTimeInterval(-30), now: now) == "now")
+    #expect(RelativeTime.short(now.addingTimeInterval(-600), now: now) == "10m")
+    #expect(RelativeTime.short(now.addingTimeInterval(-7200), now: now) == "2h")
+}
+
+@Test func parsesScreenEvents() throws {
+    let e = HostClient.parseEvent(Data(#"{"type":"screen","screen":{"enabled":true,"connected":true,"capture":true,"displays":[{"id":1,"name":"Built-in","width":1512,"height":982,"main":true}],"agentBot":"b1"}}"#.utf8))
+    guard case let .screen(s) = e else { Issue.record("screen"); return }
+    #expect(s.available && s.agentBot == "b1" && s.mainDisplay?.width == 1512 && !s.userControl)
+}
+
+@Test func screenViewportMapsAndZooms() {
+    // A 16:10 display in a wider landscape phone view: letterboxed left and right.
+    var v = ScreenViewport(display: CGSize(width: 1600, height: 1000), view: CGSize(width: 800, height: 400))
+    #expect(v.scale == 0.4)
+    #expect(v.crop == nil)
+    #expect(v.toDisplay(CGPoint(x: 400, y: 200)) == CGPoint(x: 800, y: 500))
+    #expect(v.frame(of: v.displayBounds) == CGRect(x: 80, y: 0, width: 640, height: 400))
+
+    // Pinch keeps the point under the fingers still.
+    let anchor = CGPoint(x: 600, y: 100)
+    let before = v.toDisplay(anchor)
+    v.zoom(by: 2, at: anchor)
+    let after = v.toDisplay(anchor)
+    #expect(abs(before.x - after.x) < 0.001 && abs(before.y - after.y) < 0.001)
+    let crop = v.crop!
+    #expect(v.displayBounds.contains(crop))
+    #expect(abs(crop.width / crop.height - 2) < 0.001)
+
+    // Panning never leaves the display.
+    v.pan(by: CGPoint(x: 10_000, y: 10_000))
+    #expect(v.visible.minX == 0 && v.visible.minY == 0)
+
+    // The cursor pulls the view along.
+    v.follow(CGPoint(x: 1590, y: 990))
+    #expect(v.visible.maxX == 1600 && v.visible.maxY == 1000)
+
+    v.zoom(by: 1000, at: .zero)
+    #expect(v.zoom == v.maxZoom && v.scale == 4)
+}
+
+@Test func parsesClaudeResetText() throws {
+    let taipei = try #require(TimeZone(identifier: "Asia/Taipei"))
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = taipei
+    let now = try #require(cal.date(from: DateComponents(year: 2026, month: 9, day: 25, hour: 17, minute: 20)))
+    let at = { (m: Int, d: Int, h: Int, min: Int, y: Int) in cal.date(from: DateComponents(year: y, month: m, day: d, hour: h, minute: min)) }
+    #expect(UsageWindow.parseReset("Sep 25 at 7:30pm (Asia/Taipei)", now: now) == at(9, 25, 19, 30, 2026))
+    #expect(UsageWindow.parseReset("Sep 26 at 12pm (Asia/Taipei)", now: now) == at(9, 26, 12, 0, 2026))
+    #expect(UsageWindow.parseReset("Jan 2 at 12am (Asia/Taipei)", now: now) == at(1, 2, 0, 0, 2027))
+    #expect(UsageWindow.parseReset("5am (Asia/Taipei)", now: now) == at(9, 26, 5, 0, 2026))
+    #expect(UsageWindow.parseReset("soon") == nil)
+}
+
+// MARK: - Version compatibility (mirrors host/src/compat.rs)
+
+@Test func versionsParseLikeTheHost() {
+    #expect(AppVersion.parse("2.4.1") == [2, 4, 1])
+    #expect(AppVersion.parse(" v2.4 ") == [2, 4, 0])
+    #expect(AppVersion.parse("3") == [3, 0, 0])
+    #expect(AppVersion.parse("2.4.0-beta.1+77") == [2, 4, 0])
+    for bad in ["", "abc", "2.x", "2.4.0.1", "-1.0.0", "2..0", "+1.0.0", "２.4.0"] {
+        #expect(AppVersion.parse(bad) == nil, "\(bad)")
+    }
+    #expect(AppVersion.isBelow("2.9.9", "2.10.0"))
+    #expect(!AppVersion.isBelow("2.4.0", "2.4.0"))
+    #expect(!AppVersion.isBelow("2.4.0-dev", "2.4.0"))
+    // Unreadable versions never lock anyone out.
+    #expect(!AppVersion.isBelow("", "2.4.0"))
+    #expect(!AppVersion.isBelow("2.0.0", "garbage"))
+}
+
+@Test func mismatchNamesTheSideToUpdate() {
+    #expect(VersionMismatch.check(app: "2.4.0", minHost: "2.3.0", hostVersion: "2.4.0", minApp: "2.3.0") == nil)
+    #expect(VersionMismatch.check(app: "2.4.0", minHost: "2.3.0", hostVersion: "2.6.0", minApp: "2.5.0") == .updateApp(minimum: "2.5.0"))
+    #expect(VersionMismatch.check(app: "2.6.0", minHost: "2.5.0", hostVersion: "2.4.0", minApp: "2.3.0") == .updateHost(version: "2.4.0", minimum: "2.5.0"))
+    // Hosts from before minApp: only this app's floor applies.
+    #expect(VersionMismatch.check(app: "2.4.0", minHost: "2.3.0", hostVersion: "2.3.1", minApp: nil) == nil)
+    #expect(VersionMismatch.check(app: "2.4.0", minHost: "2.3.0", hostVersion: "2.2.3", minApp: nil) == .updateHost(version: "2.2.3", minimum: "2.3.0"))
+    #expect(VersionMismatch.check(app: "", minHost: "2.3.0", hostVersion: "2.6.0", minApp: "2.5.0") == nil)
+}
+
+@Test func remindersShowOnlyNewerReleasesNotDismissed() {
+    #expect(UpdateReminder.app(current: "2.4.0", store: "2.5.0", dismissed: nil) == "2.5.0")
+    #expect(UpdateReminder.app(current: "2.4.0", store: "2.5.0", dismissed: "2.5.0") == nil)
+    // Dismissing one release doesn't hide the next one.
+    #expect(UpdateReminder.app(current: "2.4.0", store: "2.6.0", dismissed: "2.5.0") == "2.6.0")
+    #expect(UpdateReminder.app(current: "2.5.0", store: "2.5.0", dismissed: nil) == nil)
+    // A store that lags behind this build (TestFlight, review) or can't be read says nothing.
+    #expect(UpdateReminder.app(current: "2.5.0", store: "2.4.0", dismissed: nil) == nil)
+    #expect(UpdateReminder.app(current: "2.5.0", store: nil, dismissed: nil) == nil)
+    #expect(UpdateReminder.app(current: "", store: "2.5.0", dismissed: nil) == nil)
+}
