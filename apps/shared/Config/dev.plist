@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Kith has no accounts: QR pairing only, and the pairing link carries the relay URL (the host's
+	     config.json relay_url). Empty keys keep Clerk and the account cloud off in every build. -->
+	<key>clerkPublishableKey</key>
+	<string></string>
+	<key>cloudURL</key>
+	<string></string>
+</dict>
+</plist>

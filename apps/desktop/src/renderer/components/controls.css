@@ -1,0 +1,347 @@
+.styled-button {
+  font-size: var(--text-callout);
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: transform var(--press), opacity var(--press);
+}
+.styled-button.primary {
+  background: var(--accent-fill);
+  color: var(--on-accent);
+}
+.styled-button.secondary {
+  background: var(--bubble-user);
+  color: var(--text);
+}
+.styled-button:active:not(:disabled) {
+  transform: scale(0.98);
+  opacity: 0.85;
+}
+.styled-button:disabled {
+  opacity: 0.4;
+}
+
+.spinner {
+  animation: spin 0.8s linear infinite;
+  flex: none;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.switch:disabled {
+  opacity: 0.4;
+}
+.switch-label {
+  flex: 1;
+  min-width: 0;
+}
+.switch-track {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  background: var(--bubble-user);
+  flex: none;
+  transition: background-color var(--hover);
+}
+.switch-track.on {
+  background: var(--accent-fill);
+}
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform var(--hover), background-color var(--hover);
+}
+.switch-track.on .switch-knob {
+  transform: translateX(14px);
+  background: var(--on-accent);
+}
+
+.choice-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-callout);
+  color: var(--text);
+  padding: 5px 9px;
+  border-radius: var(--radius-s);
+  max-width: 100%;
+}
+.choice-picker.outlined {
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.choice-picker.fits {
+  width: 100%;
+}
+.choice-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.segmented {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bubble-user);
+  border-radius: var(--radius-pill);
+}
+.segmented-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--background);
+  transition: transform var(--morph);
+}
+.segmented-option {
+  position: relative;
+  flex: 1;
+  text-align: center;
+  font-size: var(--text-caption);
+  font-weight: 500;
+  color: var(--secondary);
+  padding: 5px 0;
+  white-space: nowrap;
+}
+.segmented-option.on {
+  color: var(--text);
+}
+
+/* Grok Bot's list cards (routines, the computer switch): an outline on the page, no fill. */
+.outlined-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+}
+
+.tab-choice {
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+}
+.tab-choice-option {
+  height: calc(24px * var(--scale));
+  padding: 0 calc(10px * var(--scale));
+  border-radius: var(--radius-pill);
+  font-size: var(--text-body);
+  color: var(--secondary);
+  white-space: nowrap;
+  transition: background-color var(--hover), color var(--hover);
+}
+.tab-choice-option:hover {
+  color: var(--text);
+}
+.tab-choice-option.on {
+  background: var(--chat-button);
+  color: var(--text);
+}
+
+.choice-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.choice-row-label {
+  flex: 1;
+}
+/* The checkmark beside a choice: its space is kept when it's off. */
+.check-slot {
+  display: flex;
+  opacity: 0;
+}
+.check-slot.on {
+  opacity: 1;
+}
+
+.card-form {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--background);
+}
+.card-form-content {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 14px;
+  font-size: var(--text-callout);
+}
+
+.card-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+.card-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 2px;
+}
+.card-section-rows {
+  background: var(--surface);
+  border-radius: var(--radius-l);
+  display: flex;
+  flex-direction: column;
+}
+.card-row {
+  /* 28 pt of content plus the row's own padding. */
+  min-height: 52px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+}
+.card-row > * {
+  flex: 1;
+  min-width: 0;
+}
+.card-section-footer {
+  font-size: var(--text-caption);
+  color: var(--secondary);
+  line-height: 1.4;
+  padding: 0 2px;
+}
+
+.hairline {
+  height: 1px;
+  background: var(--border);
+  flex: none;
+}
+@media (min-resolution: 2dppx) {
+  .hairline {
+    height: 0.5px;
+  }
+}
+.hairline.grow {
+  flex: 1;
+}
+.hairline.inset {
+  margin: 0 16px;
+}
+
+.value-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.value-row-value {
+  color: var(--secondary);
+}
+/* A row's note under its title (RowLabel). */
+.detail-note {
+  font-size: var(--text-caption);
+  color: var(--secondary);
+  line-height: 1.35;
+}
+
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--bubble-agent);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-callout);
+}
+.search-field input {
+  flex: 1;
+  min-width: 0;
+}
+/* A panel's resizable edge: a hairline with a wider grab area (ResizeHandle). */
+.resize-handle {
+  width: 1px;
+  flex: none;
+  background: var(--border);
+  position: relative;
+  z-index: 7;
+  touch-action: none;
+}
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 9px;
+  cursor: col-resize;
+}
+
+.search-field:focus-within {
+  outline: 2px solid var(--secondary);
+}
+/* The clear button gets a 24 pt target around its small glyph. */
+.search-clear {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: -6px -6px -6px 0;
+  color: var(--tertiary);
+}
+
+.disclosure-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.disclosure-chevron {
+  display: flex;
+  color: var(--secondary);
+  transition: transform var(--layout);
+}
+.disclosure-chevron.open {
+  transform: rotate(90deg);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border-radius: var(--radius-s);
+}
+.pill.outlined {
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.progress-track {
+  width: 100%;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--bubble-user);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--accent-fill);
+  transform-origin: left;
+  transition: transform var(--layout);
+}

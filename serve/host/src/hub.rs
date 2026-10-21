@@ -185,6 +185,7 @@ impl Hub {
                 return Ok(self.bot_value(&existing).unwrap_or(Value::Null));
             }
         }
+        cfg.clean_avatar_source();
         validate(&cfg)?;
         crate::agent::workspace::prepare(&mut cfg)?;
         {
@@ -231,6 +232,7 @@ impl Hub {
         if cfg.is_group() {
             cfg.members = crate::chat::group::valid_members(&self.store, &cfg.id, &cfg.members)?;
         }
+        cfg.clean_avatar_source();
         validate(&cfg)?;
         crate::agent::workspace::prepare(&mut cfg)?;
         crate::agent::own_memory::settle(&mut cfg, &row.config, patch);

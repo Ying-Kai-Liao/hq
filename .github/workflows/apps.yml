@@ -1,0 +1,162 @@
+name: apps
+
+# Builds the iPhone app, the Mac app and the push relay, all unsigned. Separate from ci.yml
+# (kernel, host, cloud). The Mac app bundles the host, so serve/host changes trigger it too.
+# Path filtering happens in `changes`, not in `on.paths`, so the `apps` job always reports and can
+# be the one required check.
+on:
+  pull_request:
+    branches: [apps, serve, main]
+  push:
+    branches: [apps]
+  workflow_dispatch:
+
+concurrency:
+  group: apps-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  WRANGLER_SEND_METRICS: "false"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      ios: ${{ steps.f.outputs.ios }}
+      desktop: ${{ steps.f.outputs.desktop }}
+      relay: ${{ steps.f.outputs.relay }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: f
+        with:
+          filters: |
+            ios:
+              - 'apps/ios/**'
+              - 'apps/shared/**'
+              - 'apps/Codync.xcodeproj/**'
+              - 'apps/project.yml'
+              - '.github/workflows/apps.yml'
+            desktop:
+              - 'apps/desktop/**'
+              - 'apps/packaging/**'
+              - 'apps/shared/**'
+              - 'apps/screen-macos/**'
+              - 'apps/Codync.xcodeproj/**'
+              - 'apps/project.yml'
+              - 'serve/host/**'
+              - 'serve/rust-toolchain.toml'
+              - 'serve/docs/reference/fixtures/**'
+              - '.github/workflows/apps.yml'
+            relay:
+              - 'serve/relay/**'
+              - '.github/workflows/apps.yml'
+
+  relay:
+    needs: changes
+    if: needs.changes.outputs.relay == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: serve/relay
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: serve/relay/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+
+  ios:
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: build/dd/SourcePackages
+          key: ${{ runner.os }}-ios-packages-${{ hashFiles('apps/ios/Kit/Package.swift', 'apps/Codync.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+      # The project is committed (xcodegen output), so there is nothing to generate.
+      - name: Build iOS Dev for the simulator
+        run: >-
+          xcodebuild build
+          -project apps/Codync.xcodeproj
+          -scheme "iOS Dev"
+          -configuration DevDebug
+          -derivedDataPath build/dd
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO
+
+  desktop:
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: macos-26
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      # rustup reads serve/rust-toolchain.toml from here; tools/native-host.mjs builds with it.
+      - name: Install pinned toolchain
+        working-directory: serve
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: serve/host
+          shared-key: desktop-macos
+      - name: Native pieces
+        run: |
+          mkdir -p build/native
+          # SF Symbols masks and the DMG background are generated at build time, never committed.
+          npm run icons
+          swift ../packaging/dmg/background.swift build/dmg-background.tiff
+      - name: Build the Mac dev app (unsigned)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run dist:mac:dev -- --publish never
+      - name: Show the result
+        run: ls -la dist
+
+  # The single check to require: passes when every needed job passed or was skipped by the
+  # filter, fails on any failure or cancellation.
+  apps:
+    if: always()
+    needs: [changes, relay, ios, desktop]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check results
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          case " $RESULTS " in
+            *" failure "*|*" cancelled "*) exit 1 ;;
+          esac

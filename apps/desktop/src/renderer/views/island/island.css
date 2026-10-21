@@ -1,0 +1,284 @@
+/* The island window is a transparent panel: only the black shape is drawn. */
+html[data-window='island'],
+html[data-window='island'] body,
+html[data-window='island'] #root {
+  background: transparent;
+}
+
+/* Always black like the notch, so always the dark palette, at the default text size. */
+.island {
+  --text: #f5f6f8;
+  --text-rgb: 245, 246, 248;
+  --secondary: #8e939c;
+  --tertiary: #5f646d;
+  --accent-fill: #f5f6f8;
+  --on-accent: #0b0c0e;
+  --bubble-user: rgba(255, 255, 255, 0.09);
+  --danger: #ff8d97;
+  --island-card: #141518;
+  --bubble-agent: rgba(255, 255, 255, 0.12);
+  --warning: #f0a030;
+  --island-shape: #000000;
+  --island-raised: #22242a;
+  --island-fill: rgba(255, 255, 255, 0.08);
+  --island-quiet: #6b7079;
+  /* A spring with a little overshoot to open, a plain ease to fold. */
+  --island-spring: cubic-bezier(0.32, 1.22, 0.42, 1);
+  --island-fold: cubic-bezier(0.45, 0, 0.2, 1);
+  --scale: 1;
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--text);
+  font-size: 13px;
+  transition: width 0.52s var(--island-spring), height 0.52s var(--island-spring), opacity 0.2s var(--ease);
+}
+.island.shrinking {
+  transition: width 0.34s var(--island-fold), height 0.34s var(--island-fold), opacity 0.2s var(--ease);
+}
+/* Resting over the notch (or as a strip at a plain top edge): nothing to see. Folding into it,
+   the shape shrinks first and only then fades, so it visibly goes back into the notch. */
+.island[data-mode='hidden'] {
+  opacity: 0;
+}
+.island.shrinking[data-mode='hidden'] {
+  transition: width 0.34s var(--island-fold), height 0.34s var(--island-fold), opacity 0.16s var(--ease) 0.3s;
+}
+
+/* The wings or the open views; leaving, they blur away while the shape folds. */
+.island-layer {
+  position: absolute;
+  inset: 0;
+}
+.island-layer.leaving {
+  opacity: 0;
+  filter: blur(8px);
+  transform: scale(0.97);
+  transition: opacity 0.16s var(--ease), filter 0.16s var(--ease), transform 0.16s var(--ease);
+  pointer-events: none;
+}
+
+.island-body {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--island-shape);
+  transition: border-radius 0.34s var(--ease);
+}
+
+/* Concave corners where the shape meets the top edge, so it flows out of the screen's border. */
+.island-ear {
+  position: absolute;
+  top: 0;
+  width: 14px;
+  height: 14px;
+}
+.island-ear.left {
+  left: -14px;
+  background: radial-gradient(circle at 0 100%, transparent 13.5px, var(--island-shape) 14px);
+}
+.island-ear.right {
+  right: -14px;
+  background: radial-gradient(circle at 100% 100%, transparent 13.5px, var(--island-shape) 14px);
+}
+.island.edge .island-ear {
+  width: 10px;
+  height: 10px;
+}
+.island.edge .island-ear.left {
+  left: -10px;
+  background: radial-gradient(circle at 0 100%, transparent 9.5px, var(--island-shape) 10px);
+}
+.island.edge .island-ear.right {
+  right: -10px;
+  background: radial-gradient(circle at 100% 100%, transparent 9.5px, var(--island-shape) 10px);
+}
+
+/* Bare buttons; :where keeps this below each element's own padding. */
+:where(.island button) {
+  border: 0;
+  padding: 0;
+}
+
+/* Closed: the wings on each side of the notch. */
+.island-wings {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.island-wing-left,
+.island-wing-right {
+  position: relative;
+  width: 52px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+/* Peeking, the notch is only 32 pt wider on each side: the whole character sits in that strip,
+   never half behind the camera. */
+.island-wings.peeking .island-wing-left {
+  width: 32px;
+}
+.island-wings-label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--secondary);
+}
+.island-wing-avatar {
+  position: relative;
+  display: block;
+}
+.island-cluster {
+  display: grid;
+  grid-template-columns: repeat(2, 11px);
+  gap: 1px;
+  justify-items: center;
+}
+.island-cluster-bot {
+  position: relative;
+}
+
+/* Open: the header beside the notch. */
+.island-header {
+  animation: island-in 0.3s 0.3s var(--ease) backwards;
+  position: absolute;
+  top: 2px;
+  left: 14px;
+  right: 14px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.island-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.island-tab {
+  width: 30px;
+  height: 30px;
+  border-radius: 15px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: var(--secondary);
+  transition: background-color var(--hover), color var(--hover);
+}
+.island-tab:hover {
+  background: var(--island-fill);
+  color: var(--text);
+}
+.island-tab.selected {
+  background: var(--bubble-agent);
+  color: var(--text);
+}
+.island-count {
+  font-size: 12px;
+  color: var(--secondary);
+  margin-right: 4px;
+}
+
+/* Another bot takes a slot (or joins a row): it springs in out of a blur. */
+.island-swap {
+  animation: island-swap 0.38s var(--island-spring) both;
+}
+@keyframes island-swap {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+    transform: translateY(6px) scale(0.92);
+  }
+}
+/* The bot's part of a card, as one piece that can swap. */
+.island-swap-slot {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: inherit;
+}
+.island-message-bot {
+  display: block;
+  flex: none;
+}
+
+/* Opening, the views arrive once the shape has grown; switching tabs, the next view fades in
+   over the one leaving (the shape keeps its size). */
+.island-views {
+  animation: island-in 0.3s 0.16s var(--ease) backwards;
+}
+.island-content {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  animation: island-switch 0.24s var(--ease) backwards;
+}
+.island-content.leaving {
+  opacity: 0;
+  filter: blur(3px);
+  transition: opacity 0.14s var(--ease), filter 0.14s var(--ease);
+  pointer-events: none;
+}
+@keyframes island-switch {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+  }
+}
+@keyframes island-in {
+  from {
+    opacity: 0;
+    filter: blur(8px);
+    transform: scale(0.97);
+  }
+}
+
+.island-card {
+  position: relative;
+  height: 100%;
+  box-sizing: border-box;
+  border-radius: 20px;
+  background: var(--island-card);
+  overflow: hidden;
+  color: var(--text);
+}
+.island-row-cards,
+.island-with-minis {
+  display: flex;
+  height: 100%;
+  gap: 10px;
+}
+.island-with-minis {
+  gap: 0;
+}
+.island-with-minis > .island-card {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .island,
+  .island.shrinking,
+  .island-body {
+    transition: none;
+  }
+  .island-views,
+  .island-content,
+  .island-header,
+  .island-swap {
+    animation: none;
+  }
+  .island-layer.leaving,
+  .island-content.leaving {
+    transition: none;
+  }
+}

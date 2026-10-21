@@ -7,6 +7,7 @@
     "event:bot.bot.autoName": "bool",
     "event:bot.bot.avatarColor": "string",
     "event:bot.bot.avatarShape": "string",
+    "event:bot.bot.avatarSource": "string",
     "event:bot.bot.backend": "string",
     "event:bot.bot.command": "string",
     "event:bot.bot.computer": "bool",

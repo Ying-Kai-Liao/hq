@@ -1,0 +1,243 @@
+# Generate the Xcode project with: xcodegen generate --spec apps/project.yml
+name: Codync
+options:
+  bundleIdPrefix: com.yingkailiao
+  deploymentTarget:
+    iOS: "18.0"
+    macOS: "14.0"
+  createIntermediateGroups: true
+  fileTypes:
+    icon:
+      file: true
+packages:
+  Clerk:
+    url: https://github.com/clerk/clerk-ios
+    exactVersion: 1.5.6
+  CodyncKit:
+    path: ios/Kit
+  WebRTC:
+    url: https://github.com/stasel/WebRTC
+    exactVersion: 153.0.0
+configs:
+  Debug: debug
+  Release: release
+  DevDebug: debug
+  DevRelease: release
+settings:
+  base:
+    MARKETING_VERSION: 2.19.1
+    CURRENT_PROJECT_VERSION: 24
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: 7FUM8A8H72
+    # A free Personal Team cannot sign Push, Sign in with Apple or communication notifications.
+    # KITH_PERSONAL_TEAM=YES swaps the iOS app to iOS.personal.entitlements without them.
+    KITH_PERSONAL_TEAM: "NO"
+    KITH_ENTITLEMENTS_SUFFIX_NO: ""
+    KITH_ENTITLEMENTS_SUFFIX_YES: .personal
+    DEAD_CODE_STRIPPING: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    CODYNC_ENV: main
+    CODYNC_APP_NAME: Kith
+    CODYNC_IOS_BUNDLE_ID: com.yingkailiao.kith.ios
+    CODYNC_APP_GROUP: group.com.yingkailiao.kith
+    CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith
+    CODYNC_URL_SCHEME: codync
+    CODYNC_SCREEN_NAME: CodyncScreen
+    CODYNC_SCREEN_BUNDLE_ID: com.pokai.Codync.screen
+    CODYNC_DATA_FOLDER: .kith/serve-main
+  configs:
+    Debug:
+      CODYNC_APNS_ENVIRONMENT: sandbox
+    Release:
+      CODYNC_APNS_ENVIRONMENT: production
+    DevDebug:
+      CODYNC_ENV: dev
+      CODYNC_APP_NAME: Kith
+      CODYNC_IOS_BUNDLE_ID: com.yingkailiao.kith.ios.dev
+      CODYNC_APP_GROUP: group.com.yingkailiao.kith.dev
+      CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith.dev
+      CODYNC_URL_SCHEME: codync-dev
+      CODYNC_SCREEN_NAME: CodyncDevScreen
+      CODYNC_SCREEN_BUNDLE_ID: com.yingkailiao.kith.dev.screen
+      CODYNC_DATA_FOLDER: .kith/serve
+      CODYNC_APNS_ENVIRONMENT: sandbox
+    DevRelease:
+      CODYNC_ENV: dev
+      CODYNC_APP_NAME: Kith
+      CODYNC_IOS_BUNDLE_ID: com.yingkailiao.kith.ios.dev
+      CODYNC_APP_GROUP: group.com.yingkailiao.kith.dev
+      CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith.dev
+      CODYNC_URL_SCHEME: codync-dev
+      CODYNC_SCREEN_NAME: CodyncDevScreen
+      CODYNC_SCREEN_BUNDLE_ID: com.yingkailiao.kith.dev.screen
+      CODYNC_DATA_FOLDER: .kith/serve
+      CODYNC_APNS_ENVIRONMENT: production
+schemes:
+  iOS:
+    build:
+      targets:
+        iOS: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  iOS Dev:
+    build:
+      targets:
+        iOS: all
+    run:
+      config: DevDebug
+    archive:
+      config: DevRelease
+  Screen:
+    build:
+      targets:
+        Screen: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  Screen Dev:
+    build:
+      targets:
+        Screen: all
+    run:
+      config: DevDebug
+    archive:
+      config: DevRelease
+targets:
+  # Screen capture, input and WebRTC for Remote screen. A separate signed bundle so
+  # macOS's Screen Recording / Accessibility grants belong to it (see host/src/screen/).
+  Screen:
+    type: application
+    platform: macOS
+    sources:
+      - screen-macos
+      - path: desktop/resources/AppIcon.icon
+        buildPhase: resources
+    dependencies:
+      - package: WebRTC
+    settings:
+      base:
+        INFOPLIST_FILE: screen-macos/Info.plist
+        PRODUCT_NAME: $(CODYNC_SCREEN_NAME)
+        PRODUCT_BUNDLE_IDENTIFIER: $(CODYNC_SCREEN_BUNDLE_ID)
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSUIElement: YES
+        INFOPLIST_KEY_CFBundleDisplayName: $(CODYNC_APP_NAME) Screen
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_CFBundleIconName: AppIcon
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_APP_SANDBOX: NO
+        SKIP_INSTALL: YES
+    postBuildScripts:
+      # The computer-use driver bots act through (host/src/screen/cua.rs), pinned and checked
+      # by packaging/cua-driver. Its own Developer ID signature stays: it is never re-signed.
+      - name: Embed cua-driver
+        basedOnDependencyAnalysis: false
+        script: |
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+          node "$SRCROOT/packaging/cua-driver/fetch.mjs" darwin "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
+  iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: ios
+        excludes:
+          - Widgets
+          - NotificationService
+          - WhatsNew.md
+          # The app's shared Swift package (models, client, screens), added as a package below.
+          - Kit
+      # The widget's bot buttons run this intent in the app.
+      - ios/Widgets/OpenBotIntent.swift
+    dependencies:
+      - package: Clerk
+        product: ClerkKit
+      - package: CodyncKit
+        product: CodyncKit
+      - package: CodyncKit
+        product: CodyncUI
+      - target: Widgets
+        embed: true
+      - target: NotificationService
+        embed: true
+    postBuildScripts:
+      - name: Codync environment
+        basedOnDependencyAnalysis: false
+        showEnvVars: false
+        script: |
+          # The scheme chooses an environment independently of Debug/Release optimization.
+          cp "$SRCROOT/shared/Config/$CODYNC_ENV.plist" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AccountConfig.plist"
+          # Optional, gitignored: the PostHog project key. Absent = analytics sends nothing.
+          if [ -f "$SRCROOT/shared/Config/Secrets.plist" ]; then
+            cp "$SRCROOT/shared/Config/Secrets.plist" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Secrets.plist"
+          else
+            rm -f "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Secrets.plist"
+          fi
+    settings:
+      base:
+        PRODUCT_NAME: $(CODYNC_APP_NAME)
+        PRODUCT_BUNDLE_IDENTIFIER: $(CODYNC_IOS_BUNDLE_ID)
+        INFOPLIST_FILE: ios/Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: ios/Resources/iOS$(KITH_ENTITLEMENTS_SUFFIX_$(KITH_PERSONAL_TEAM)).entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_KEY_CFBundleDisplayName: $(CODYNC_APP_NAME)
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
+        INFOPLIST_KEY_NSCameraUsageDescription: Scan the pairing code shown on your computer.
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Talk to your bots in a voice call.
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Your words are transcribed on this iPhone and sent to your bot as a message.
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: Codync connects to the computer running your bots on your local network.
+        # Portrait everywhere except the screen viewer (AppDelegate + OrientationLock).
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Black / white instead of the system blue in menus, alerts and system sheets.
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+  Widgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - ios/Widgets
+    dependencies:
+      - package: CodyncKit
+        product: CodyncKit
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    settings:
+      base:
+        PRODUCT_NAME: CodyncWidgets
+        PRODUCT_BUNDLE_IDENTIFIER: $(CODYNC_IOS_BUNDLE_ID).LiveActivity
+        INFOPLIST_FILE: ios/Widgets/Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: ios/Widgets/Resources/Widgets.entitlements
+        INFOPLIST_KEY_CFBundleDisplayName: $(CODYNC_APP_NAME)
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+  # Opens end-to-end sealed alert text (spec §6.7) with this account's push key from the shared Keychain.
+  NotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - ios/NotificationService
+    dependencies:
+      - package: CodyncKit
+        product: CodyncKit
+    settings:
+      base:
+        PRODUCT_NAME: CodyncNotificationService
+        PRODUCT_BUNDLE_IDENTIFIER: $(CODYNC_IOS_BUNDLE_ID).NotificationService
+        INFOPLIST_FILE: ios/NotificationService/Info.plist
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: ios/NotificationService/NotificationService.entitlements
+        INFOPLIST_KEY_CFBundleDisplayName: $(CODYNC_APP_NAME)
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES

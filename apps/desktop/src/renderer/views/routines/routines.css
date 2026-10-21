@@ -1,0 +1,183 @@
+/* A routine form's text field: plain, filled, rounded (kit `routineInput`). */
+.routine-input {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  outline: none;
+  border-radius: var(--radius-m);
+  background: var(--bubble-user);
+  color: var(--text);
+  font: inherit;
+  user-select: text;
+  resize: none;
+}
+.routine-input:focus {
+  outline: 2px solid var(--secondary);
+}
+.routine-input::placeholder {
+  color: var(--secondary);
+}
+textarea.routine-input {
+  field-sizing: content;
+  min-height: calc(3lh + 24px);
+  max-height: calc(8lh + 24px);
+}
+.routine-cron-input {
+  font-size: var(--text-body);
+  font-weight: 400;
+  font-family: var(--mono);
+}
+
+/* A routine's editor (RoutineEditorView): the card fits the form. */
+.routine-editor {
+  max-height: 700px;
+  min-height: 0;
+  background: var(--background);
+  color: var(--text);
+  font-size: var(--text-body);
+  font-weight: 400;
+}
+.routine-form {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.routine-form-body,
+.routine-editor-footer {
+  padding: 20px;
+}
+.routine-editor-footer {
+  flex: none;
+}
+.routine-caption {
+  padding-left: 4px;
+  line-height: 1.4;
+}
+.routine-loading {
+  color: var(--secondary);
+}
+.routine-advanced {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding-left: 4px;
+  font-size: var(--text-caption);
+  font-weight: 400;
+  color: var(--secondary);
+}
+.routine-chevron {
+  display: flex;
+  transition: transform var(--layout);
+}
+.routine-chevron.open {
+  transform: rotate(180deg);
+}
+.routine-retry {
+  align-self: flex-start;
+}
+.routine-error {
+  font-size: var(--text-callout);
+  font-weight: 400;
+  color: var(--danger);
+  user-select: text;
+}
+.routine-error-icon {
+  margin-top: 1px;
+}
+.routine-offline {
+  font-size: var(--text-caption);
+  font-weight: 400;
+  color: var(--danger);
+}
+.routine-form:disabled {
+  opacity: 0.6;
+}
+
+/* Cron and time zone side by side, stacked when the card is narrow. */
+.routine-cron {
+  container-type: inline-size;
+}
+.routine-cron-fields {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.routine-cron-fields > :first-child {
+  flex: 1;
+  min-width: 220px;
+}
+.routine-cron-fields > :last-child {
+  width: 170px;
+  flex: none;
+}
+/* The schedule check under the fields. */
+.routine-cron-preview {
+  padding-left: 4px;
+}
+.routine-cron-error {
+  line-height: 1.4;
+}
+.routine-cron-hint {
+  white-space: pre;
+}
+@container (max-width: 400px) {
+  .routine-cron-fields {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+  .routine-cron-fields > :first-child,
+  .routine-cron-fields > :last-child {
+    width: auto;
+    min-width: 0;
+  }
+}
+
+/* A webhook's URL or key with its actions (RoutineWebhookPanel). */
+.routine-webhook-value {
+  padding: 8px 6px 8px 12px;
+  background: var(--bubble-user);
+  border-radius: var(--radius-m);
+}
+.routine-webhook-text {
+  user-select: text;
+  word-break: break-all;
+}
+
+/* The routine list (RoutinesView). */
+.routines {
+  color: var(--text);
+  font-size: var(--text-body);
+  font-weight: 400;
+}
+.routines-title {
+  padding-left: 2px;
+}
+.routines-error {
+  user-select: text;
+}
+.routines-empty {
+  padding: 14px;
+  line-height: 1.45;
+}
+.routines-card {
+  padding: 0 14px;
+}
+.routine-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 0;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.routine-fade {
+  animation: fade-in var(--hover) both;
+}
