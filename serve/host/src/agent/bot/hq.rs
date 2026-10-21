@@ -82,13 +82,7 @@ impl Actor {
             }
         }
         if let Some(sid) = current {
-            if !self.conn.as_ref().is_some_and(|c| c.sessions.load) {
-                self.notice(
-                    "This agent can't resume sessions after a restart — starting a fresh one.",
-                    NoticeStyle::Divider,
-                );
-                self.set_session(slot, None);
-            } else {
+            if self.conn.as_ref().is_some_and(|c| c.sessions.load) {
                 self.hub.set_runtime(&self.rt, |r| r.activity = "Resuming session…".into());
                 let res = self.session_request("session/load", launch.session_params(&self.cfg, Some(&sid))).await;
                 let Some(conn) = self.conn.as_mut() else { return res.map(drop) };
@@ -113,6 +107,12 @@ impl Actor {
                         );
                     }
                 }
+            } else {
+                self.notice(
+                    "This agent can't resume sessions after a restart — starting a fresh one.",
+                    NoticeStyle::Divider,
+                );
+                self.set_session(slot, None);
             }
         }
         let res = self.session_request("session/new", launch.session_params(&self.cfg, None)).await?;
