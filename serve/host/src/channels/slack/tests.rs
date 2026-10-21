@@ -82,6 +82,8 @@ struct SlackState {
     /// Bearer tokens the file downloads came with.
     download_auth: Vec<String>,
     envelope: u64,
+    /// How long a file download takes.
+    file_delay: Duration,
 }
 
 struct Fake {
@@ -187,9 +189,14 @@ async fn upload(State(fake): Shared, Path(id): Path<String>, body: Bytes) -> Sta
 }
 
 async fn download(State(fake): Shared, Path(name): Path<String>, headers: HeaderMap) -> (StatusCode, Vec<u8>) {
-    let mut st = fake.state.locked();
-    st.download_auth.push(bearer(&headers));
-    st.files.get(&name).cloned().map_or((StatusCode::NOT_FOUND, Vec::new()), |b| (StatusCode::OK, b))
+    let delay = {
+        let mut st = fake.state.locked();
+        st.download_auth.push(bearer(&headers));
+        st.file_delay
+    };
+    tokio::time::sleep(delay).await;
+    let found = fake.state.locked().files.get(&name).cloned();
+    found.map_or((StatusCode::NOT_FOUND, Vec::new()), |b| (StatusCode::OK, b))
 }
 
 async fn socket(State(fake): Shared, ws: WebSocketUpgrade) -> impl IntoResponse {
@@ -720,6 +727,41 @@ async fn files_over_the_limit_are_not_downloaded() {
     let left = walk(&rig.core.attachments_dir("slack/hq"));
     assert_eq!(left.len(), 0, "{left:?}");
     task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_file_that_cannot_be_fetched_does_not_lose_the_message() {
+    let rig = Rig::new().await;
+    let (_s, task) = rig.run();
+    let url = format!("{}/files/GONE", rig.fake.url);
+    rig.fake.say(
+        KAI,
+        DM,
+        "@house msg-gone",
+        0,
+        &json!({"files": [{"id": "GONE", "name": "gone.txt", "url_private": url}]}),
+    );
+    until("the answer", || rig.fake.answers("msg-gone") == 1).await;
+    let task_text = rig.hq_calls()[0]["task"].as_str().unwrap().to_owned();
+    assert!(task_text.contains("(file not downloaded: gone.txt)"), "{task_text}");
+    task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_already_acknowledged_is_answered_after_its_socket_is_gone() {
+    let rig = Rig::new().await;
+    {
+        let mut st = rig.fake.state.locked();
+        st.files.insert("F1".into(), b"slow notes".to_vec());
+        st.file_delay = Duration::from_millis(600);
+    }
+    let (_s, task) = rig.run();
+    let url = format!("{}/files/F1", rig.fake.url);
+    rig.fake.say(KAI, DM, "@house msg-slow", 0, &json!({"files": [{"id": "F1", "name": "n.txt", "url_private": url}]}));
+    until("the download to start", || !rig.fake.state.locked().download_auth.is_empty()).await;
+    task.abort(); // the connection is replaced while the message is still being taken in
+    until("the answer", || rig.fake.answers("msg-slow") == 1).await;
+    assert!(rig.hq_calls()[0]["task"].as_str().unwrap().contains("n.txt"));
 }
 
 fn walk(dir: &std::path::Path) -> Vec<PathBuf> {

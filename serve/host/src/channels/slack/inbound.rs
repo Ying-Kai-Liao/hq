@@ -22,7 +22,10 @@ impl Slack {
         let (files, notes) = self.download(e).await;
         m.files = files;
         m.text = notes.iter().fold(m.text, |t, n| if t.is_empty() { n.clone() } else { format!("{t}\n\n{n}") });
-        self.core.handle(this, &m).await
+        // A stuck core (a hanging hq-auth) must end well before the supervisor decides the connection is dead.
+        tokio::time::timeout(self.handle_limit(), self.core.handle(this, &m))
+            .await
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("took too long")))
     }
 
     /// The event as the core's message (without its files), or None for bots, edits, joins and chatter in a room
@@ -79,7 +82,6 @@ impl Slack {
         let (mut got, mut notes) = (Vec::new(), Vec::new());
         for f in e["files"].as_array().into_iter().flatten() {
             let Some(url) = f["url_private_download"].as_str().or_else(|| f["url_private"].as_str()) else { continue };
-            self.alive.touch(); // a message with several files can take longer than a ping
             // The sender chooses the name: only its last part counts.
             let named = f["name"].as_str().or_else(|| f["id"].as_str()).unwrap_or("file");
             let name = Path::new(named).file_name().map_or_else(|| "file".into(), |n| n.to_string_lossy().into_owned());
@@ -100,10 +102,12 @@ impl Slack {
             match saved.await {
                 Ok(()) => got.push(dest.to_string_lossy().into_owned()),
                 Err(e) if e.to_string().contains("file too big") => notes.push(format!("(file too big: {name})")),
-                Err(e) => tracing::warn!("{}: file not downloaded: {e}", self.conn),
+                Err(e) => {
+                    tracing::warn!("{}: file not downloaded: {e}", self.conn);
+                    notes.push(format!("(file not downloaded: {name})"));
+                }
             }
         }
-        self.alive.touch();
         (got, notes)
     }
 

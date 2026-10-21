@@ -96,15 +96,6 @@ impl Seen {
     }
 }
 
-/// Aborts the task when dropped (the supervisor aborts `start`; the handler must go with it).
-struct Guard(tokio::task::JoinHandle<()>);
-
-impl Drop for Guard {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
 pub struct Slack {
     conn: String,
     api: Api,
@@ -180,23 +171,20 @@ impl Slack {
         tracing::info!("{}: in {} as {}", self.conn, who["team"].as_str().unwrap_or(""), self.me());
         let this: Arc<dyn Adapter> = self.clone();
         let (tx, mut rx) = mpsc::unbounded_channel::<Work>();
-        // One message at a time, in order, but off the socket: the reader must keep answering pings.
-        let _handler = Guard(tokio::spawn({
+        // One message at a time, in order, but off the socket: the reader must keep answering pings. The task is
+        // not tied to this connection: when the socket is replaced it finishes the messages already acknowledged
+        // (Slack won't send them again) and ends when `tx` is gone.
+        tokio::spawn({
             let (me, this) = (self.clone(), this.clone());
             async move {
                 while let Some(Work::Event(e)) = rx.recv().await {
-                    // A stuck message (a hanging hq-auth, a slow download) must end before the supervisor decides
-                    // the connection is dead.
-                    match tokio::time::timeout(me.handle_limit(), me.message(&this, &e)).await {
-                        Ok(Ok(())) => {}
-                        // One bad message must not stop the app.
-                        Ok(Err(e)) => tracing::warn!("{}: message failed: {e:#}", me.conn),
-                        Err(_) => tracing::warn!("{}: a message took too long; moving on", me.conn),
+                    // One bad message must not stop the app.
+                    if let Err(e) = me.message(&this, &e).await {
+                        tracing::warn!("{}: message failed: {e:#}", me.conn);
                     }
-                    me.alive.touch();
                 }
             }
-        }));
+        });
         let mut resumed = false;
         loop {
             self.session(&this, &tx, &mut resumed).await?;
