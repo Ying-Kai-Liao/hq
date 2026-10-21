@@ -14,7 +14,7 @@ if (!['darwin', 'win32'].includes(process.platform)) process.exit(0)
 const env = process.argv[2]
 if (!['dev', 'main'].includes(env)) throw new Error(`unknown environment ${env}`)
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const host = join(root, '../../host')
+const host = join(root, '../../serve/host')
 const out = join(root, 'build/native')
 // The pinned toolchain (rust-toolchain.toml) through rustup, even when another cargo (Homebrew's)
 // comes first on PATH: only rustup's has the x86_64 target.
@@ -30,7 +30,7 @@ if (process.platform === 'win32') {
   const target = 'x86_64-pc-windows-msvc'
   build(target)
   for (const exe of ['codync-host.exe', 'codync-hostw.exe']) copyFileSync(built(target, exe), join(out, env === 'dev' && exe === 'codync-hostw.exe' ? 'codync-dev-hostw.exe' : exe))
-  run(process.execPath, [join(root, '../../packaging/cua-driver/fetch.mjs'), 'windows-x86_64', out])
+  run(process.execPath, [join(root, '../packaging/cua-driver/fetch.mjs'), 'windows-x86_64', out])
 } else {
   const native = process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'
   const targets = env === 'dev' ? [native] : ['aarch64-apple-darwin', 'x86_64-apple-darwin']

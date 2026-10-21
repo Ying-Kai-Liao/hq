@@ -604,7 +604,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\nnode \"$SRCROOT/../packaging/cua-driver/fetch.mjs\" darwin \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\n";
+			shellScript = "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\nnode \"$SRCROOT/packaging/cua-driver/fetch.mjs\" darwin \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\n";
 		};
 		9900BE8858E71975C4052787 /* Codync environment */ = {
 			isa = PBXShellScriptBuildPhase;

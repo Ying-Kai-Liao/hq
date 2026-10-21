@@ -38,7 +38,7 @@ try {
       annotations: { readOnlyHint: t.read_only, destructiveHint: t.destructive, idempotentHint: t.idempotent, openWorldHint: t.open_world },
     }
   })
-  const out = join(dirname(fileURLToPath(import.meta.url)), '../../host/src/screen/cua_tools.json')
+  const out = join(dirname(fileURLToPath(import.meta.url)), '../../../serve/host/src/screen/cua_tools.json')
   writeFileSync(out, `${JSON.stringify(tools, null, 1)}\n`)
   console.log(`${tools.length} tools → ${out}`)
 } finally {

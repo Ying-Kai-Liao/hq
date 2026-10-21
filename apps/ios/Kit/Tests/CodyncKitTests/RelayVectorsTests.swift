@@ -9,7 +9,7 @@ struct Vectors: Sendable {
     var json: [String: Any] { (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:] }
 
     static let shared = Vectors(data: (try? Data(contentsOf: URL(filePath: #filePath).deletingLastPathComponent()
-            .appending(path: "../../../../../docs/reference/fixtures/remote-relay-vectors.json").standardized)) ?? Data())
+            .appending(path: "../../../../../serve/docs/reference/fixtures/remote-relay-vectors.json").standardized)) ?? Data())
 
     subscript(_ section: String) -> [String: Any] { json[section] as? [String: Any] ?? [:] }
 

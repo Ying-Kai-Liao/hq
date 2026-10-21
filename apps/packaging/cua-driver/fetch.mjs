@@ -18,7 +18,7 @@ const spec = pin.targets[target]
 if (!spec || !out) throw new Error(`usage: fetch.mjs <${Object.keys(pin.targets).join('|')}> <dir> [<license dir>]`)
 
 const sha256 = (data) => createHash('sha256').update(data).digest('hex')
-const cache = join(here, '../../build/cua-driver')
+const cache = join(here, '../../../build/cua-driver')
 const archive = join(cache, spec.asset)
 if (!existsSync(archive) || sha256(readFileSync(archive)) !== spec.sha256) {
   const url = `https://github.com/trycua/cua/releases/download/${pin.tag}/${spec.asset}`

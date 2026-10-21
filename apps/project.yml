@@ -135,7 +135,7 @@ targets:
         basedOnDependencyAnalysis: false
         script: |
           export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
-          node "$SRCROOT/../packaging/cua-driver/fetch.mjs" darwin "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
+          node "$SRCROOT/packaging/cua-driver/fetch.mjs" darwin "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
   iOS:
     type: application
     platform: iOS

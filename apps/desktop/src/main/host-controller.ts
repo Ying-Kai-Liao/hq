@@ -94,7 +94,7 @@ export class HostController extends EventEmitter {
       process.env.CODYNC_HOST_BIN ?? null,
       ...(identity.environment === 'dev' ? [
         join(__dirname, '../../build/native/codync-host'),
-        join(__dirname, '../../../../host/target/debug/codync-host'),
+        join(__dirname, '../../../../serve/host/target/debug/codync-host'),
         join(homedir(), '.local/bin/codync-dev-host'),
       ] : [
         join(homedir(), '.local/bin/codync-host'),
