@@ -23,11 +23,8 @@ extraResources:
 protocols:
   - name: Codync
     schemes: [codync, com.pokai.Codync]
-publish:
-  provider: github
-  owner: leepokai
-  repo: Codync
-  releaseType: release
+# No update feed until Kith publishes its own (src/shared/update-feed.ts).
+publish: null
 
 mac:
   category: public.app-category.developer-tools

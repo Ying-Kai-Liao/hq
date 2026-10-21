@@ -9,16 +9,16 @@ import { prefs, usePref } from '../lib/prefs'
 import { afterStarAsk, dueStarAsk } from '../lib/star-ask'
 import { useApp } from '../store/context'
 
-const REPO = 'https://github.com/leepokai/Codync'
+const REPO = 'https://github.com/Ying-Kai-Liao/hq'
 
 const copy = {
   first: {
-    title: 'Star Codync on GitHub',
-    message: 'Codync is free and open source. A star on GitHub is how other people find it.',
+    title: 'Star Kith on GitHub',
+    message: 'Kith is free and open source. A star on GitHub is how other people find it.',
   },
   second: {
-    title: 'Enjoying Codync?',
-    message: "You've been using Codync for a while. If it saves you trips to your desk, a star on GitHub helps other people find it.",
+    title: 'Enjoying Kith?',
+    message: "You've been using Kith for a while. If it saves you trips to your desk, a star on GitHub helps other people find it.",
   },
 }
 

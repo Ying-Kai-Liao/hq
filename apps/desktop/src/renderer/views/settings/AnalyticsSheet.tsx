@@ -4,8 +4,6 @@ import { ModalHeader, SheetPage } from '../../components/Overlay'
 import { HStack, IconSlot, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
 
-const PRIVACY_POLICY = 'https://codync.dev/privacy'
-
 /** What sharing usage analytics sends; the same text as the kit's and the terminal UI's, true to the privacy policy. */
 const details = [
   { icon: 'chart.bar', title: 'Features you use', detail: "Opening the app, creating or deleting a bot, sending a message (how many attachments, never the files), running a routine or a voice call, installing a connector. Each comes with the app version, the platform, and the bot's agent and model." },
@@ -24,15 +22,6 @@ export function AnalyticsSheet() {
       <ModalHeader title="Usage analytics" />
       <CardForm>
         <CardSection
-          footer={
-            <>
-              See the{' '}
-              <button className="settings-link" onClick={() => window.codync.app.openExternal(PRIVACY_POLICY)}>
-                Privacy Policy
-              </button>{' '}
-              for details.
-            </>
-          }
         >
           {details.map((d) => (
             <HStack key={d.title} align="flex-start" className="settings-row">

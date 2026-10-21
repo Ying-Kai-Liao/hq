@@ -1,12 +1,12 @@
 import { execFile } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { existsSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, ipcMain, powerMonitor, shell } from 'electron'
 import electronUpdater, { type UpdateInfo } from 'electron-updater'
-import { isBelow, parseVersion } from '../shared/compat'
 import type { UpdateState } from '../shared/ipc'
+import { UPDATE_FEED } from '../shared/update-feed'
 import { isMainEnvironment } from './account'
 import { identity } from './environment'
 import { prefs, type HostController } from './host-controller'
@@ -15,11 +15,13 @@ const { autoUpdater } = electronUpdater
 
 /**
  * The app's own updates (electron-updater, GitHub releases; packaged `main` builds only, so a
- * local `dev` build never replaces itself with a release). Codync
+ * local `dev` build never replaces itself with a release). Off until Kith publishes its own
+ * feed (`UPDATE_FEED`): the builds carry no feed, and a download the earlier Codync-fed
+ * updater staged is discarded at launch. Codync
  * coordinates its background services before the installer replaces the app: the host is
  * stopped first, and a restart marker makes the next launch reinstall it from the new bundle.
  */
-const enabled = app.isPackaged && isMainEnvironment()
+const enabled = app.isPackaged && isMainEnvironment() && UPDATE_FEED !== null
 
 export class Updates extends EventEmitter {
   state: UpdateState = {
@@ -42,7 +44,6 @@ export class Updates extends EventEmitter {
   private preparing: Promise<boolean> | null = null
   private prepared = false
   private updateGeneration = 0
-  private appStoreVersion: string | null = null
 
   constructor(private host: HostController) {
     super()
@@ -59,8 +60,12 @@ export class Updates extends EventEmitter {
     this.on('change', () => {
       for (const w of windows()) w.webContents.send('updates:change', this.state)
     })
+    if (!enabled) {
+      if (app.isPackaged) discardStagedUpdate()
+      else removeStuckShipIt()
+      return
+    }
     removeStuckShipIt()
-    if (!enabled) return
     // macOS relaunches the updated app from the background, behind the app in front, and ignores
     // `app.focus` there (cooperative activation); opening its own bundle brings it forward.
     if (prefs.get('updateRelaunchInFront') === true) {
@@ -72,7 +77,7 @@ export class Updates extends EventEmitter {
     autoUpdater.autoInstallOnAppQuit = true
     autoUpdater.on('checking-for-update', () => this.set({ checking: true, error: null }))
     autoUpdater.on('update-not-available', () => this.upToDate())
-    autoUpdater.on('update-available', (info) => void this.available(info))
+    autoUpdater.on('update-available', (info) => this.available(info))
     autoUpdater.on('download-progress', ({ percent }) => {
       const rounded = Math.floor(percent)
       if (this.state.downloadPercent !== null && rounded !== this.state.downloadPercent) this.set({ downloadPercent: rounded })
@@ -144,10 +149,10 @@ export class Updates extends EventEmitter {
     this.userInitiated = false
   }
 
-  /** Daily, or hourly while a release waits for the iPhone app to pass review. */
+  /** Daily. */
   private scheduled() {
     if (!this.state.autoCheck || this.state.checking || this.state.staged) return
-    const interval = this.state.waitingForApp ? 3600_000 : 24 * 3600_000
+    const interval = 24 * 3600_000
     if (this.state.lastCheck && Date.now() - this.state.lastCheck < interval - 60_000) return
     this.userInitiated = false
     void autoUpdater.checkForUpdates().catch(() => {})
@@ -165,51 +170,17 @@ export class Updates extends EventEmitter {
 
   /** The sidebar's Update badge: restarts into the available release, downloading it first. */
   installNow() {
-    if (!enabled || !this.state.availableVersion || this.state.waitingForApp) return
+    if (!enabled || !this.state.availableVersion) return
     if (this.state.staged) return void this.install(true)
     this.installWhenDownloaded = true
     this.check()
   }
 
-  /**
-   * A release that needs a newer iPhone app than the App Store has (still in review) waits,
-   * so paired iPhones aren't asked for an update they can't get yet. Without an answer from
-   * the App Store, background checks wait and a check the person started goes ahead.
-   */
-  private async available(info: UpdateInfo) {
-    const required = (info as UpdateInfo & { minApp?: string }).minApp
-    let waiting: string | null = null
-    if (required) {
-      const [hostMinApp, iphones] = await this.localHostFacts()
-      this.appStoreVersion = (await appStoreVersion()) ?? this.appStoreVersion
-      const storeHas = this.appStoreVersion && parseVersion(this.appStoreVersion) && !isBelow(this.appStoreVersion, required)
-      if (isBelow(hostMinApp ?? '0', required) && iphones !== false && !storeHas && !(this.appStoreVersion === null && this.userInitiated)) {
-        waiting = required
-      }
-    }
-    this.checked({ availableVersion: info.version, waitingForApp: waiting })
-    if (waiting) {
-      this.installWhenDownloaded = false
-      if (this.userInitiated) this.set({ error: `Kith ${info.version} needs the iPhone app ${waiting}, which isn't in the App Store yet. It installs once that version passes review.` })
-      this.userInitiated = false
-      return
-    }
+  private available(info: UpdateInfo) {
+    this.checked({ availableVersion: info.version, waitingForApp: null })
     if (this.userInitiated || this.state.autoDownload) {
       this.set({ downloadPercent: 0 })
       void autoUpdater.downloadUpdate().catch(() => {})
-    }
-  }
-
-  /** The local host's `minApp` and whether an iPhone is paired with it. */
-  private async localHostFacts(): Promise<[string | null, boolean | null]> {
-    try {
-      const [hello, devices] = await Promise.all([
-        this.host.call<{ minApp?: string }>('hello'),
-        this.host.call<{ devices: { platform?: string }[] }>('devices'),
-      ])
-      return [hello.minApp ?? null, devices.devices.some((d) => d.platform === 'ios')]
-    } catch {
-      return [null, null]
     }
   }
 
@@ -278,13 +249,15 @@ function removeStuckShipIt() {
   })
 }
 
-/** The iPhone app's version live in the App Store (iTunes lookup); null when unknown. */
-async function appStoreVersion(): Promise<string | null> {
-  try {
-    const res = await fetch('https://itunes.apple.com/lookup?id=6760984418', { signal: AbortSignal.timeout(10_000), cache: 'no-store' })
-    const json = (await res.json()) as { results?: { version?: string }[] }
-    return json.results?.[0]?.version ?? null
-  } catch {
-    return null
-  }
+/**
+ * Throws away a release the earlier updater staged (it came from Codync's feed): macOS's
+ * installer job (ShipIt) would otherwise apply it when the app quits, and electron-updater
+ * keeps the download in its cache.
+ */
+function discardStagedUpdate() {
+  if (process.platform !== 'darwin') return
+  const label = `${identity.appId}.ShipIt`
+  const caches = join(homedir(), 'Library/Caches')
+  execFile('/bin/launchctl', ['remove', label], () => {})
+  for (const dir of [join(caches, label), join(caches, 'codync-desktop-updater', 'pending')]) rmSync(dir, { recursive: true, force: true })
 }
