@@ -5,7 +5,7 @@ import Testing
 @MainActor
 @Test func analyticsIsOnByDefaultAndIdentifiesAccountsOnce() throws {
     let defaults = try #require(UserDefaults(suiteName: "AnalyticsTests-\(UUID())"))
-    let analytics = Analytics(defaults: defaults) { _ in false }
+    let analytics = Analytics(defaults: defaults, apiKey: "test-key") { _ in false }
 
     // On until turned off; off drops what's queued and records nothing more.
     #expect(analytics.isEnabled)
@@ -87,7 +87,7 @@ import Testing
 
     // Recorded like any other event: off records nothing.
     let defaults = try #require(UserDefaults(suiteName: "CrashReportsTests-\(UUID())"))
-    let analytics = Analytics(defaults: defaults) { _ in false }
+    let analytics = Analytics(defaults: defaults, apiKey: "test-key") { _ in false }
     analytics.record("$exception", p)
     #expect(analytics.pending.first?.properties["process"] == .string("ios"))
     #expect(analytics.pending.first?.properties["$lib"] == .string("codync-ios"))
