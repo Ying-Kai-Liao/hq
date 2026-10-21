@@ -23,6 +23,8 @@ pub async fn serve_env(home: &Path, env: &[(&str, &str)]) -> (Child, String) {
             .args(["serve", "--bind", "127.0.0.1", "--port", &port.to_string()])
             .env("CODYNC_HOME", home)
             .env("CODYNC_CLOUD", "off")
+            // Never the hq on this computer: a test that wants one passes its own `HQ_BIN`.
+            .env("HQ_BIN", "")
             .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::null())

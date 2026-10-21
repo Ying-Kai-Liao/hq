@@ -172,6 +172,9 @@ impl Actor {
     /// Makes sure the agent runs and `slot`'s session (main, or a thread's) is live;
     /// sets `turn_session`. A thread without one forks the main session when it can.
     pub(super) async fn ensure_session(&mut self, slot: Option<&str>) -> Result<()> {
+        if self.is_hq() {
+            return self.ensure_hq_session(slot).await;
+        }
         if !self.cfg.connectors.is_empty()
             || self.hub.store.kv_read(&format!("agent-env:{}", self.cfg.backend))?.is_some()
         {

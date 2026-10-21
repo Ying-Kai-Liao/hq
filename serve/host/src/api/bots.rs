@@ -69,6 +69,8 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
         "createBot" => {
             let mut b = b;
             b["id"] = "".into();
+            // Only the hq sync makes a bot of an hq agent.
+            b["hqAgent"] = Value::Null;
             // Connectors are on for a new bot unless the client picked them.
             // Without a credential store (headless Linux) no connector can run, so the bot starts with none.
             if b["connectors"].is_null() && b["kind"] != "group" {
@@ -90,6 +92,11 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             let cfg: BotConfig = serde_json::from_value(b).context("invalid bot")?;
             let hub = hub.clone();
             json!({"bot": tokio::task::spawn_blocking(move || hub.create_bot(cfg)).await??})
+        }
+        // Looks for hq agents now; the answer says what changed (the roster events carry the bots).
+        "syncHqBots" => {
+            let hub = hub.clone();
+            json!(hub.sync_hq_bots().await?.json())
         }
         "updateBot" => {
             let hub = hub.clone();

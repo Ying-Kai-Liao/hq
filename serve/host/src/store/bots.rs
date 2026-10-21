@@ -232,6 +232,7 @@ mod tests {
             harness_memory: false,
             auto_name: false,
             tasks: None,
+            hq_agent: None,
             created_at: 0,
         };
         s.save_bot(&cfg).unwrap();
