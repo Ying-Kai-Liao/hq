@@ -59,7 +59,8 @@ cmd_start() {
     fi
   fi
   [ -x "$BIN" ] || { echo "hq serve: no host binary at $built or $BIN: run hq serve start without --no-build" >&2; exit 1; }
-  "$BIN" install --port $PORT
+  # The job runs this checkout's hq, not whichever one the login shell finds first.
+  HQ_BIN="${HQ_BIN:-$REPO/kernel/bin/hq}" "$BIN" install --port $PORT
 }
 
 relay_url() {

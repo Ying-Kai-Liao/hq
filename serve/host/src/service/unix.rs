@@ -80,6 +80,8 @@ pub fn install(port: u16) -> Result<()> {
     let exe = current_exe().context("locating the kith-serve binary")?;
     let exe = exe.to_string_lossy();
     let path = std::env::var("PATH").unwrap_or_default();
+    // The login-shell PATH lookup would otherwise pick another hq than the one that installed the job.
+    let hq_bin = std::env::var("HQ_BIN").ok().filter(|s| !s.is_empty());
     let log = data_dir().join("host.log");
     std::fs::create_dir_all(data_dir()).context("creating the data directory")?;
     if cfg!(target_os = "macos") {
@@ -90,7 +92,7 @@ pub fn install(port: u16) -> Result<()> {
 <dict>
   <key>Label</key><string>{LABEL}</string>
   <key>ProgramArguments</key><array><string>{exe}</string><string>serve</string><string>--port</string><string>{port}</string></array>
-  <key>EnvironmentVariables</key><dict><key>PATH</key><string>{path}</string><key>KITH_SERVE_HOME</key><string>{data}</string></dict>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>{path}</string><key>KITH_SERVE_HOME</key><string>{data}</string>{hq}</dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ProcessType</key><string>Interactive</string>
@@ -102,6 +104,10 @@ pub fn install(port: u16) -> Result<()> {
             exe = xml_escape(&exe),
             path = xml_escape(&path),
             data = xml_escape(&data_dir().to_string_lossy()),
+            hq = hq_bin
+                .as_deref()
+                .map(|b| format!("<key>HQ_BIN</key><string>{}</string>", xml_escape(b)))
+                .unwrap_or_default(),
             log = xml_escape(&log.to_string_lossy()),
         );
         let file = launchd_plist();
@@ -115,10 +121,13 @@ pub fn install(port: u16) -> Result<()> {
         run("launchctl", &["bootstrap", &format!("gui/{uid}"), &file.to_string_lossy()])?;
     } else {
         let unit = format!(
-            "[Unit]\nDescription=Kith host\nAfter=network-online.target\n\n[Service]\nExecStart={exe} serve --port {port}\nEnvironment={path}\nEnvironment={data}\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n",
+            "[Unit]\nDescription=Kith host\nAfter=network-online.target\n\n[Service]\nExecStart={exe} serve --port {port}\nEnvironment={path}\nEnvironment={data}\n{hq}Restart=always\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n",
             exe = systemd_quote(&exe, true),
             path = systemd_quote(&format!("PATH={path}"), false),
             data = systemd_quote(&format!("KITH_SERVE_HOME={}", data_dir().display()), false),
+            hq = hq_bin
+                .map(|b| format!("Environment={}\n", systemd_quote(&format!("HQ_BIN={b}"), false)))
+                .unwrap_or_default(),
         );
         let file = systemd_unit();
         create_parent(&file)?;
