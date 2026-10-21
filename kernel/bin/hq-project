@@ -2,10 +2,12 @@
 """hq-project — the projects hq knows: what each holds, where its files are, what the agents wrote about it.
 
   hq project [dir]                                   the project here (or at dir) and the ones it sits in
-  hq project ls                                      every project, as a tree
-  hq project add ID [dir] [--in PARENT] [--home [DIR]]
+  hq project ls [--json]                             every project, as a tree; --json: {"projects":[{id, paths, home,
+                                                     remotes, parent, memory, exists}]} sorted by id, paths absolute
+  hq project add ID [dir] [--in PARENT] [--home [DIR]] [--json]
                                                      register or change one (bin/project-id --register); a bare
-                                                     --home makes one: inside the parent's home, else <root>/ID
+                                                     --home makes one: inside the parent's home, else <root>/ID;
+                                                     --json prints the entry as ls --json does
   hq project root [DIR]                              where new homes go (default ~/Documents); DIR changes it
   hq project open [ID] [claude options]              work on the whole project: Claude Code in its home (else its
                                                      folder) with every project it holds that is on this Mac
@@ -66,6 +68,27 @@ def show(projects, pid, children):
         print('  holds   ' + ', '.join(children[pid]))
 
 
+def entry(pid, p):
+    """One project as ls --json and add --json print it: absolute paths, `exists` = a folder of it is on this Mac."""
+    absp = lambda d: os.path.abspath(os.path.expanduser(d))
+    paths = [absp(d) for d in p.get('paths', [])]
+    home = absp(p['home']) if p.get('home') else None
+    return {'id': pid, 'paths': paths, 'home': home, 'remotes': list(p.get('remotes', [])),
+            'parent': p.get('parent') or None, 'memory': str(STATE / 'projects' / pid),
+            'exists': any(os.path.isdir(d) for d in ([home] if home else []) + paths)}
+
+
+def add(argv):
+    if '--json' not in argv:
+        return subprocess.call([str(BIN / 'project-id'), '--register', *argv])
+    run = subprocess.run([str(BIN / 'project-id'), '--register', *[a for a in argv if a != '--json']],
+                         stdout=subprocess.PIPE, text=True)
+    if run.returncode == 0:
+        pid = run.stdout.strip().splitlines()[-1]
+        print(json.dumps(entry(pid, registry()[pid])))
+    return run.returncode
+
+
 def lines(*args):
     run = subprocess.run([str(BIN / 'project-id'), *args], capture_output=True, text=True)
     return [l.split('\t') for l in run.stdout.splitlines() if l] if run.returncode == 0 else None
@@ -113,7 +136,7 @@ def main(argv):
     if argv[:1] in (['-h'], ['--help']):
         print(__doc__.strip()); return 0
     if argv[:1] == ['add']:
-        return subprocess.call([str(BIN / 'project-id'), '--register', *argv[1:]])
+        return add(argv[1:])
     if argv[:1] == ['root']:
         return subprocess.call([str(BIN / 'project-id'), '--root', *argv[1:]])
     if argv[:1] == ['open']:
@@ -124,6 +147,9 @@ def main(argv):
         if p.get('parent') in projects:
             children.setdefault(p['parent'], []).append(pid)
 
+    if argv[:1] == ['ls'] and '--json' in argv:
+        print(json.dumps({'projects': [entry(pid, p) for pid, p in sorted(projects.items())]}))
+        return 0
     if argv[:1] == ['ls']:
         if not projects:
             print('no projects yet. Register one: hq project add <id> [dir] [--in PARENT] [--home [DIR]]')
