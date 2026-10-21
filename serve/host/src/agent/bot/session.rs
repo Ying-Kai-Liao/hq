@@ -133,7 +133,7 @@ impl Actor {
     /// ACP connectors, team collaboration, and optional computer control.
     pub(super) fn mcp_servers(&self) -> Result<Value> {
         let Ok(exe) = std::env::current_exe() else {
-            tracing::warn!("can't locate codync-host for MCP servers");
+            tracing::warn!("can't locate kith-serve for MCP servers");
             return Ok(json!([]));
         };
         let port = self.hub.port;
@@ -155,7 +155,7 @@ impl Actor {
         ];
         for name in builtin.into_iter().flatten() {
             let env = if name == "memory" {
-                json!([{"name":"CODYNC_MEMORY_LANE", "value":self.slot(&self.lane).unwrap_or_default()}])
+                json!([{"name":"KITH_SERVE_MEMORY_LANE", "value":self.slot(&self.lane).unwrap_or_default()}])
             } else {
                 json!([])
             };
@@ -172,6 +172,9 @@ impl Actor {
     /// Makes sure the agent runs and `slot`'s session (main, or a thread's) is live;
     /// sets `turn_session`. A thread without one forks the main session when it can.
     pub(super) async fn ensure_session(&mut self, slot: Option<&str>) -> Result<()> {
+        if self.is_hq() {
+            return self.ensure_hq_session(slot).await;
+        }
         if !self.cfg.connectors.is_empty()
             || self.hub.store.kv_read(&format!("agent-env:{}", self.cfg.backend))?.is_some()
         {
@@ -197,7 +200,7 @@ impl Actor {
             own_memory::apply(&self.cfg, &mut env, &mut candidates).await;
             if self.cfg.backend == "codex" && !env.iter().any(|(k, _)| k == "CODEX_CONFIG") {
                 // Codex's `/compact` takes no instructions: the keep-list is its config's `compact_prompt`.
-                let config = json!({"compact_prompt": codync_mem::compaction::KEEP});
+                let config = json!({"compact_prompt": kith_mem::compaction::KEEP});
                 env.push(("CODEX_CONFIG".into(), config.to_string()));
             }
             let mut last_err = None;

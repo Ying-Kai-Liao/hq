@@ -28,7 +28,7 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let dir = std::env::temp_dir().join(format!("codync-team-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-team-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Store::open(&dir.join("test.db")).unwrap();
         let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/team_agent.py");
@@ -287,7 +287,7 @@ async fn queued_requests_are_not_merged_and_cancelled_requests_never_execute() {
 #[tokio::test]
 async fn recipient_startup_failure_and_deletion_finish_the_request() {
     let f = Fixture::new();
-    f.hub.update_bot(&json!({"id": "b", "command": "/codync-nonexistent-test-agent"})).unwrap();
+    f.hub.update_bot(&json!({"id": "b", "command": "/kith-nonexistent-test-agent"})).unwrap();
     assert!(f.request("start failure").await.unwrap().unwrap_err().to_string().contains("couldn't start"));
     assert!(f.hub.team.0.locked().pending.is_empty());
     let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/team_agent.py");
@@ -453,7 +453,7 @@ async fn message_failures_finish_notices_and_release_capacity() {
         f.until(|| f.hub.team.0.locked().messages == 0).await;
         assert!(f.notices(&receipt).iter().all(|e| e.data["status"] == "failed"));
     }
-    f.hub.update_bot(&json!({"id": "b", "command": "/codync-nonexistent-test-agent"})).unwrap();
+    f.hub.update_bot(&json!({"id": "b", "command": "/kith-nonexistent-test-agent"})).unwrap();
     let receipt = f.message("startup failure").await;
     let receipt = receipt.unwrap();
     f.until(|| f.hub.team.0.locked().messages == 0).await;

@@ -6,6 +6,7 @@ pub mod auth;
 pub mod backends;
 pub mod bot;
 pub mod config;
+pub mod hq;
 pub mod node;
 pub mod own_memory;
 pub mod registry;

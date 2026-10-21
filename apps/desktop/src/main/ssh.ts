@@ -184,7 +184,7 @@ async function healthOf(baseURL: string): Promise<{ computerId?: string } | null
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-/** What `codync-host info --json` prints. */
+/** What `kith-serve info --json` prints. */
 interface RemoteInfo {
   name: string
   computerId: string
@@ -388,14 +388,14 @@ class SSHComputers {
     const info = parseInfo(result.stdout)
     if (!info) {
       if (result.status === 0) return stop({ kind: 'notInstalled' })
-      return stop({ kind: 'failed', message: `codync-host on ${profile.host} couldn't report its identity. Run \`codync-host install\` there. ${lastLine(result.stderr)}` })
+      return stop({ kind: 'failed', message: `kith-serve on ${profile.host} couldn't report its identity. Run \`kith-serve install\` there. ${lastLine(result.stderr)}` })
     }
     if (!consistent(info.computerId, info.signKey)) return stop({ kind: 'failed', message: `${profile.host} reported an invalid identity.` })
     if (profile.computerId && profile.computerId !== info.computerId) {
       return stop({ kind: 'failed', message: `${profile.host} is now a different computer than the one saved. If it was reinstalled, remove it and add it again.` })
     }
     if (!profile.computerId) this.remember(id, info.computerId, info.name)
-    if (!info.running) return { kind: 'retry', message: `codync-host is installed on ${info.name} but not running. Run \`codync-host install\` there.` }
+    if (!info.running) return { kind: 'retry', message: `kith-serve is installed on ${info.name} but not running. Run \`kith-serve install\` there.` }
 
     // Tunnel: a free loopback port each attempt; a port taken in between just makes ssh exit (ExitOnForwardFailure).
     let lastProblem = ''

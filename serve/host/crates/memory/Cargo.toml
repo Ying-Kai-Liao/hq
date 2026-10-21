@@ -1,11 +1,10 @@
 [package]
-name = "codync-mem"
+name = "kith-mem"
 version = "0.1.1"
 edition = "2024"
 rust-version = "1.88"
 description = "Memory for coding-agent bots: one store, the rules for who may write it, and what each session sees"
 license = "Apache-2.0"
-repository = "https://github.com/leepokai/codync-mem"
 readme = "README.md"
 keywords = ["agent", "memory", "acp", "sqlite"]
 categories = ["database"]
@@ -22,7 +21,7 @@ sha2 = "0.11.0"
 [dev-dependencies]
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 
-# Written out instead of inherited from the Codync workspace, so the crate also builds on its own.
+# Written out instead of inherited from the Kith workspace, so the crate also builds on its own.
 [lints.rust]
 unsafe_code = "forbid"
 unused_qualifications = "warn"

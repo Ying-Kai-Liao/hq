@@ -18,7 +18,7 @@ export const updateNeededText = {
     }
     const how =
       os === 'macos' ? 'Open Kith on that Mac and choose Check for Updates.'
-      : os === 'linux' ? 'Run codync-host update there.'
+      : os === 'linux' ? 'Run kith-serve update there.'
       : 'Update Kith on that computer.'
     const needs = `${host} runs Kith ${m.version}; this app needs ${m.minimum} or newer.`
     return instructions ? `${needs} ${how}` : needs

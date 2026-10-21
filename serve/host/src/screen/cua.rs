@@ -1,10 +1,10 @@
 //! The computer-use driver bots act through: cua-driver (MIT, <https://github.com/trycua/cua>),
 //! pinned in `packaging/cua-driver/driver.json` and shipped beside the host (macOS: inside
-//! Codync Screen). It works on apps in the background, by accessibility element where it can.
+//! Kith Screen). It works on apps in the background, by accessibility element where it can.
 //!
 //! One daemon serves every bot, started on first use and stopped with whoever started it. On
-//! macOS Codync Screen starts it (`driver` request), so macOS counts its Accessibility and
-//! Screen Recording use as Codync Screen's and the grants the user gave stay the only ones; on
+//! macOS Kith Screen starts it (`driver` request), so macOS counts its Accessibility and
+//! Screen Recording use as Kith Screen's and the grants the user gave stay the only ones; on
 //! Windows and Linux the host starts it. Requests use the daemon's line protocol: one JSON object
 //! per line, `{method: "call", name, args, session_id, client_kind}` → `{ok, result | error}`.
 
@@ -31,7 +31,7 @@ pub(super) fn read_only(name: &str) -> bool {
     TOOLS.iter().any(|t| t["name"] == name && t["annotations"]["readOnlyHint"] == true)
 }
 
-/// The daemon's own descriptions for this platform, for the tools Codync offers.
+/// The daemon's own descriptions for this platform, for the tools Kith offers.
 pub(super) async fn tools(screen: &Screen) -> Vec<Value> {
     let live = async {
         let list =
@@ -69,7 +69,7 @@ pub(super) async fn tools(screen: &Screen) -> Vec<Value> {
 
 /// Runs one driver tool for `bot`: `{content, isError?}` for the agent.
 pub(super) async fn call(screen: &Screen, bot: &str, name: &str, args: Value) -> Result<Value> {
-    let body = json!({"method": "call", "name": name, "args": args, "session_id": format!("codync-{bot}"), "client_kind": "cli"});
+    let body = json!({"method": "call", "name": name, "args": args, "session_id": format!("kith-{bot}"), "client_kind": "cli"});
     let mut result = request(&screen.driver.endpoint(screen).await?, body).await?;
     let mut out = json!({"content": agent_content(&mut result)});
     if result["isError"] == true {
@@ -135,11 +135,11 @@ pub(super) struct Driver {
 }
 
 impl Driver {
-    /// macOS: Codync Screen runs the daemon, so its grants are the ones that count.
+    /// macOS: Kith Screen runs the daemon, so its grants are the ones that count.
     #[cfg(target_os = "macos")]
     async fn endpoint(&self, screen: &Screen) -> Result<String> {
         let res = screen.link()?.request("driver", json!({})).await?;
-        res["socket"].as_str().map(str::to_owned).context("Codync Screen didn't start the computer-use driver")
+        res["socket"].as_str().map(str::to_owned).context("Kith Screen didn't start the computer-use driver")
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -165,7 +165,7 @@ pub(super) fn executable() -> Option<std::path::PathBuf> {
 }
 
 /// Linux sessions the driver works on in the background: X11 and Sway. Elsewhere (GNOME, KDE
-/// and other Wayland desktops) bots use Codync Screen's portal input instead.
+/// and other Wayland desktops) bots use Kith Screen's portal input instead.
 #[cfg(target_os = "linux")]
 pub(super) fn linux_session() -> bool {
     let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some()
@@ -191,7 +191,7 @@ fn x_display() -> Option<String> {
 /// closes then (`CUA_DRIVER_PARENT_LIVENESS_STDIN`), crash or not.
 #[cfg(not(target_os = "macos"))]
 async fn start() -> Result<(tokio::process::Child, String)> {
-    let exe = executable().context("The computer-use driver isn't installed next to codync-host. Reinstall Codync.")?;
+    let exe = executable().context("The computer-use driver isn't installed next to kith-serve. Reinstall Kith.")?;
     #[cfg(windows)]
     let endpoint = endpoint_name();
     #[cfg(target_os = "linux")]
@@ -223,7 +223,7 @@ async fn start() -> Result<(tokio::process::Child, String)> {
     let mut child = cmd.spawn().with_context(|| format!("can't start {}", exe.display()))?;
     for _ in 0..100 {
         if let Some(status) = child.try_wait()? {
-            bail!("the computer-use driver exited ({status}); see cua-driver.log in Codync's data folder");
+            bail!("the computer-use driver exited ({status}); see cua-driver.log in Kith's data folder");
         }
         if request(&endpoint, json!({"method": "list", "client_kind": "cli"})).await.is_ok() {
             tracing::info!(endpoint, "computer-use driver started");
@@ -235,15 +235,15 @@ async fn start() -> Result<(tokio::process::Child, String)> {
 }
 
 /// A socket in a directory only this user can open (whoever reaches it can drive the desktop),
-/// short enough for `sun_path`: under the login session's runtime dir, else Codync's data dir,
+/// short enough for `sun_path`: under the login session's runtime dir, else Kith's data dir,
 /// both private to this user already.
 #[cfg(target_os = "linux")]
 fn endpoint_name() -> Result<String> {
     use std::os::unix::fs::PermissionsExt;
     let parent = std::env::var_os("XDG_RUNTIME_DIR").map_or_else(crate::service::data_dir, std::path::PathBuf::from);
     let folder = match crate::environment::Environment::current() {
-        crate::environment::Environment::Main => "codync-cua",
-        crate::environment::Environment::Dev => "codync-dev-cua",
+        crate::environment::Environment::Main => "kith-serve-main-cua",
+        crate::environment::Environment::Dev => "kith-serve-cua",
     };
     let dir = parent.join(folder);
     std::fs::create_dir_all(&dir)?;
@@ -256,7 +256,7 @@ fn endpoint_name() -> Result<String> {
 /// A random pipe name: Windows lets another process add an instance to a name it can guess.
 #[cfg(windows)]
 fn endpoint_name() -> String {
-    format!(r"\\.\pipe\codync-cua-{}", uuid::Uuid::new_v4())
+    format!(r"\\.\pipe\kith-cua-{}", uuid::Uuid::new_v4())
 }
 
 #[cfg(test)]

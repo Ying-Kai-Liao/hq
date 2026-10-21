@@ -132,7 +132,7 @@ fn status_line(buf: &mut Buffer, r: Rect, app: &mut App) {
     };
     let pill_style = if t.color { pill_style } else { t.sel };
     let mut x = put(buf, r.x, r.y, r.width, pill, pill_style) + 1;
-    let host = if app.host.is_empty() { "codync" } else { &app.host };
+    let host = if app.host.is_empty() { "kith" } else { &app.host };
     x = put(buf, x, r.y, 24, host, t.bold.patch(t.panel)) + 2;
     let c = app.counts();
     let marks = [("◆", t.amber, 1), ("⠹", t.secondary, 2), ("●", t.bold, 3), ("×", t.red, 4)];

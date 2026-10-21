@@ -1,5 +1,5 @@
-# Runs in the codync-mem mirror, where this folder is the repository root. In Codync it is inert: GitHub reads
-# only the root .github, and Codync's host workflow checks the crate there.
+# Runs in the kith-mem mirror, where this folder is the repository root. In Kith it is inert: GitHub reads
+# only the root .github, and Kith's host workflow checks the crate there.
 name: CI
 
 on:

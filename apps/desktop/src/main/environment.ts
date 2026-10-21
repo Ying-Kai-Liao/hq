@@ -18,10 +18,10 @@ if (buildConfig.environment !== 'main' && buildConfig.environment !== 'dev') thr
 export const identity = environmentProfile(buildConfig.environment)
 
 // Before the single-instance lock, preferences, account restore or Chromium session is created.
-// A development run against its own host data (`CODYNC_HOME`, a worktree's sandbox) keeps all of
+// A development run against its own host data (`KITH_SERVE_HOME`, a worktree's sandbox) keeps all of
 // that there too, under its own name, so it runs beside the main checkout's Kith Dev.
 if (identity.environment === 'dev') {
-  const sandbox = app.isPackaged ? undefined : process.env.CODYNC_HOME
+  const sandbox = app.isPackaged ? undefined : process.env.KITH_SERVE_HOME
   app.setName(sandbox ? sandboxLabel(identity.name, sandbox) : identity.name)
   app.setPath('userData', sandbox ? join(sandbox, 'desktop') : join(app.getPath('appData'), identity.name))
 }

@@ -2,7 +2,6 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
 use super::super::manage::AnalyticsSheet;
@@ -19,13 +18,13 @@ const DETAILS: [(&str, &str); 7] = [
     ),
     (
         "Crashes and errors",
-        "When Codync crashes or an agent fails to answer: the kind of error and where in Codync's own code it happened. Never the error's message; file paths are cut down to Codync's own files.",
+        "When Kith crashes or an agent fails to answer: the kind of error and where in Kith's own code it happened. Never the error's message; file paths are cut down to Kith's own files.",
     ),
     (
         "Approximate location",
         "Country and city, looked up from your IP address. The IP address itself is never stored.",
     ),
-    ("Who it belongs to", "Your Codync account when you're signed in, otherwise a random ID made on this device."),
+    ("Who it belongs to", "Your Kith account when you're signed in, otherwise a random ID made on this device."),
     (
         "Never shared",
         "Your messages, prompts, code, files, file names or paths, bot names, credentials, or anything your agents produce.",
@@ -58,10 +57,6 @@ pub(super) fn analytics(buf: &mut Buffer, area: Rect, s: &AnalyticsSheet) {
         lines.extend(md::wrap(&[Span::styled(detail, t.secondary)], width, &[Span::raw(" ")], &[Span::raw(" ")]));
         lines.push(Line::default());
     }
-    lines.push(Line::from(vec![
-        Span::styled(" See the Privacy Policy for details: ", t.dim),
-        Span::styled("https://codync.dev/privacy", t.dim.add_modifier(Modifier::UNDERLINED)),
-    ]));
     let h = usize::from(body.height);
     let max = lines.len().saturating_sub(h);
     s.max_scroll.set(max);

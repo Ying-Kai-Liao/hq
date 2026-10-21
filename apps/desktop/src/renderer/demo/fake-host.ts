@@ -2,7 +2,7 @@ import type { CallError } from '@shared/ipc'
 import { isChat, normalizeBot, type Bot, type BotDraft, type Entry, type GroupDraft } from '@shared/models'
 import * as story from './story'
 
-// An in-memory codync-host for the website demo: the methods the renderer calls, with the
+// An in-memory kith-serve for the website demo: the methods the renderer calls, with the
 // host's JSON shapes (host/src/api/), and the events stream (hello, then catch-up in rev
 // order, then live). Every mutation stamps a global rev, like the real host.
 

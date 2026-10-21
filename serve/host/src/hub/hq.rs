@@ -1,0 +1,223 @@
+//! The roster of hq agents: each agent `hq ls --json` lists is a bot (see `agent::hq`). The host looks at startup,
+//! every [`EVERY`] and when the app asks (`syncHqBots`).
+
+use super::Hub;
+use crate::agent::hq::{self, HqAgent};
+use crate::store::BotConfig;
+use anyhow::Result;
+use serde_json::{Value, json};
+use std::path::Path;
+use std::sync::Arc;
+use std::time::Duration;
+
+/// How often the host looks again. An agent made with `hq` shows up within this, or at once on `syncHqBots`.
+const EVERY: Duration = Duration::from_secs(300);
+
+/// Kv key: the bot was hidden because its agent left `hq ls` (a bot the user hid is not shown again).
+fn gone_key(bot: &str) -> String {
+    format!("hq.gone.{bot}")
+}
+
+/// What one sync did, by agent name.
+#[derive(Debug, Default, PartialEq)]
+pub struct Synced {
+    pub created: Vec<String>,
+    pub updated: Vec<String>,
+    pub hidden: Vec<String>,
+    pub unhidden: Vec<String>,
+}
+
+impl Synced {
+    pub fn json(&self) -> Value {
+        json!({"created": self.created, "updated": self.updated, "hidden": self.hidden, "unhidden": self.unhidden})
+    }
+}
+
+/// Looks every [`EVERY`], starting now. Runs on the host's runtime for as long as it lives.
+pub fn start(hub: &Arc<Hub>) {
+    // Unit tests build hubs of their own and must never reach the hq on this computer.
+    if cfg!(test) {
+        return;
+    }
+    let hub = hub.clone();
+    tokio::spawn(async move {
+        loop {
+            if let Err(error) = hub.sync_hq_bots().await {
+                tracing::info!(error = format!("{error:#}"), "hq bots not synced");
+            }
+            tokio::time::sleep(EVERY).await;
+        }
+    });
+}
+
+impl Hub {
+    /// Finds hq (see [`hq::bin`]) and syncs the bots with `hq ls --json`. Fails, with one line to log, when there is
+    /// no hq or it can't list: the bots already there stay as they are.
+    pub async fn sync_hq_bots(self: &Arc<Self>) -> Result<Synced> {
+        let Some(bin) = tokio::task::spawn_blocking(hq::bin).await? else {
+            anyhow::bail!("no hq found (HQ_BIN, PATH or ~/.local/bin/hq)");
+        };
+        self.sync_hq_bots_with(&bin).await
+    }
+
+    pub async fn sync_hq_bots_with(self: &Arc<Self>, bin: &Path) -> Result<Synced> {
+        let agents = hq::list(bin).await?;
+        // Startup and the API can ask at once; one at a time, so an agent never gets two bots.
+        let _one = self.hq_sync.lock().await;
+        let hub = self.clone();
+        tokio::task::spawn_blocking(move || hub.apply_hq_agents(&agents)).await?
+    }
+
+    /// Brings the bots to `agents`: a new agent gets a bot; a known one keeps what the user set and takes hq's
+    /// description and folder; one that left `hq ls` is hidden, and shown again when it comes back.
+    fn apply_hq_agents(self: &Arc<Self>, agents: &[HqAgent]) -> Result<Synced> {
+        let mut done = Synced::default();
+        let rows = self.store.bots()?;
+        for agent in agents {
+            if !Path::new(&agent.home).is_dir() {
+                tracing::info!(agent = %agent.name, home = %agent.home, "hq agent folder missing; no bot");
+                continue;
+            }
+            let mine = |b: &&crate::store::BotRow| b.config.hq_agent.as_deref() == Some(agent.name.as_str());
+            let Some(row) = rows.iter().find(mine) else {
+                self.create_bot(new_bot(agent))?;
+                done.created.push(agent.name.clone());
+                continue;
+            };
+            // A bot the user deleted stays deleted.
+            if row.deleted {
+                continue;
+            }
+            let mut patch = serde_json::Map::new();
+            if row.config.description != agent.description {
+                patch.insert("description".into(), agent.description.clone().into());
+            }
+            if row.config.cwd != agent.home {
+                patch.insert("cwd".into(), agent.home.clone().into());
+            }
+            let came_back = row.config.hidden && self.store.kv_get(&gone_key(&row.config.id)).is_some();
+            if came_back {
+                patch.insert("hidden".into(), false.into());
+            }
+            if patch.is_empty() {
+                continue;
+            }
+            patch.insert("id".into(), row.config.id.clone().into());
+            self.update_bot(&Value::Object(patch))?;
+            if came_back {
+                self.store.kv_delete(&gone_key(&row.config.id))?;
+                done.unhidden.push(agent.name.clone());
+            } else {
+                done.updated.push(agent.name.clone());
+            }
+        }
+        for row in &rows {
+            let Some(name) = row.config.hq_agent.as_deref() else { continue };
+            let listed = agents.iter().any(|a| a.name == name && Path::new(&a.home).is_dir());
+            if listed || row.deleted || row.config.hidden {
+                continue;
+            }
+            // A running turn goes on: hiding only takes the bot off the roster.
+            self.store.kv_set(&gone_key(&row.config.id), "1")?;
+            self.update_bot(&json!({"id": row.config.id, "hidden": true}))?;
+            done.hidden.push(name.to_owned());
+        }
+        Ok(done)
+    }
+}
+
+/// An agent's first bot. Permission is Ask: the agent's requests become approval cards until the user says otherwise.
+/// One endless conversation (no task per message), like talking to the agent in a terminal.
+fn new_bot(agent: &HqAgent) -> BotConfig {
+    serde_json::from_value(json!({
+        "id": "", "name": agent.name, "description": agent.description, "backend": "claude", "cwd": agent.home,
+        "hqAgent": agent.name, "permission": "ask", "tasks": false, "connectors": [], "skills": [],
+    }))
+    .expect("a valid bot")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::remote::identity::Identity;
+    use crate::store::Store;
+
+    fn hub() -> (Arc<Hub>, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("kith-hq-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open(Path::new(":memory:")).unwrap();
+        let hub = Hub::new(store, "hq-test".into(), Identity::load_or_create(&dir).unwrap(), "test".into(), 0);
+        (hub, dir)
+    }
+
+    fn agent(dir: &Path, name: &str, description: &str) -> HqAgent {
+        let home = dir.join(name);
+        std::fs::create_dir_all(&home).unwrap();
+        HqAgent { name: name.into(), description: description.into(), home: home.to_string_lossy().into_owned() }
+    }
+
+    fn bots(hub: &Hub) -> Vec<BotConfig> {
+        hub.store.bots().unwrap().into_iter().filter(|b| !b.deleted).map(|b| b.config).collect()
+    }
+
+    #[tokio::test]
+    async fn an_agent_gets_one_bot_whose_edits_a_resync_keeps() {
+        let (hub, dir) = hub();
+        let house = agent(&dir, "house", "keeps the house");
+        let done = hub.apply_hq_agents(std::slice::from_ref(&house)).unwrap();
+        assert_eq!(done.created, ["house"]);
+        let bot = bots(&hub).remove(0);
+        assert_eq!(
+            (bot.hq_agent.as_deref(), bot.backend.as_str(), bot.cwd.as_str()),
+            (Some("house"), "claude", house.home.as_str())
+        );
+        assert_eq!(bot.permission, crate::store::Permission::Ask, "approval cards until the user says otherwise");
+        assert!(bot.model.is_none() && bot.connectors.is_empty() && bot.skills.is_empty());
+
+        hub.update_bot(&json!({"id": bot.id, "name": "Home", "pinned": true, "notify": false, "permission": "auto",
+            "model": "opus", "hqAgent": "other", "backend": "codex"}))
+            .unwrap();
+        let done = hub.apply_hq_agents(&[agent(&dir, "house", "keeps the house tidy")]).unwrap();
+        assert!(done.created.is_empty(), "never a second bot: {done:?}");
+        let all = bots(&hub);
+        assert_eq!(all.len(), 1);
+        let kept = &all[0];
+        assert_eq!(
+            (kept.name.as_str(), kept.pinned, kept.notify, kept.model.as_deref()),
+            ("Home", true, Some(false), Some("opus"))
+        );
+        assert_eq!(kept.permission, crate::store::Permission::Auto);
+        assert_eq!((kept.hq_agent.as_deref(), kept.backend.as_str()), (Some("house"), "claude"), "not editable");
+        assert_eq!(kept.description, "keeps the house tidy", "hq's description");
+    }
+
+    #[tokio::test]
+    async fn a_gone_agent_is_hidden_and_comes_back_but_a_users_hide_stays() {
+        let (hub, dir) = hub();
+        let (house, money) = (agent(&dir, "house", ""), agent(&dir, "money", ""));
+        hub.apply_hq_agents(&[house.clone(), money.clone()]).unwrap();
+        let id = |name: &str| bots(&hub).into_iter().find(|b| b.name == name).unwrap().id;
+        hub.update_bot(&json!({"id": id("money"), "hidden": true})).unwrap();
+
+        let done = hub.apply_hq_agents(&[]).unwrap();
+        assert_eq!(done.hidden, ["house"], "money was hidden already");
+        assert!(bots(&hub).iter().all(|b| b.hidden), "hidden, not deleted");
+
+        let done = hub.apply_hq_agents(&[house, money]).unwrap();
+        assert_eq!(done.unhidden, ["house"]);
+        let hidden: Vec<_> = bots(&hub).into_iter().filter(|b| b.hidden).map(|b| b.name).collect();
+        assert_eq!(hidden, ["money"], "the user's own hide is theirs");
+    }
+
+    #[tokio::test]
+    async fn a_deleted_bot_and_a_missing_folder_make_no_bot() {
+        let (hub, dir) = hub();
+        let house = agent(&dir, "house", "");
+        hub.apply_hq_agents(std::slice::from_ref(&house)).unwrap();
+        hub.delete_bot(&bots(&hub)[0].id).unwrap();
+        let ghost = HqAgent { name: "ghost".into(), description: String::new(), home: "/no/such/folder".into() };
+        let done = hub.apply_hq_agents(&[house, ghost]).unwrap();
+        assert_eq!(done, Synced::default());
+        assert!(bots(&hub).is_empty());
+    }
+}

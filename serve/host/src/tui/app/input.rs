@@ -460,7 +460,7 @@ mod tests {
     // Terminals escape dropped paths the way Unix shells do.
     #[test]
     fn dropped_paths_are_files_only() {
-        let dir = std::env::temp_dir().join(format!("codync-drop-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("kith-drop-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let a = dir.join("a b.txt");
         std::fs::write(&a, "x").expect("write");

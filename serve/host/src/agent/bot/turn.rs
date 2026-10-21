@@ -26,6 +26,9 @@ impl Actor {
     /// The prompt for `text` in session `sid`: what the agent should hear first (its profile, a handoff, a thread's
     /// start, a memory change) and after (a profile update, how to share files).
     async fn compose(&mut self, sid: &str, text: &str) -> Result<String> {
+        if self.is_hq() {
+            return Ok(self.compose_hq(text));
+        }
         let instructions = self.conn.as_ref().map_or(Instructions::FirstMessage, Conn::instructions);
         let mut snapshot = self.snapshot(sid).await?;
         let remind_files = !snapshot.system.contains("send_file");
@@ -59,7 +62,7 @@ impl Actor {
         }
         if remind_files && self.active_group.is_none() && self.active_request.is_none() && self.active_routine.is_none()
         {
-            prompt.push_str("\n\n[Codync: send_file(path, name?) shares any regular file up to 100 MiB as a downloadable card. Use it instead of sending a local path.]");
+            prompt.push_str("\n\n[Kith: send_file(path, name?) shares any regular file up to 100 MiB as a downloadable card. Use it instead of sending a local path.]");
         }
         Ok(prompt)
     }
@@ -126,8 +129,10 @@ impl Actor {
         });
 
         // Memory files changed since (in an editor, say) reach the opening or the next notice.
-        let (hub, cfg) = (self.hub.clone(), self.cfg.clone());
-        let _ = tokio::task::spawn_blocking(move || memory::files::scan(&hub, &cfg)).await;
+        if !self.is_hq() {
+            let (hub, cfg) = (self.hub.clone(), self.cfg.clone());
+            let _ = tokio::task::spawn_blocking(move || memory::files::scan(&hub, &cfg)).await;
+        }
         let slot = self.slot(&lane);
         if let Some(deadline) = self.routine_deadline {
             tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), self.ensure_session(slot.as_deref()))
@@ -210,7 +215,9 @@ impl Actor {
         }
         self.after_turn(done);
         // The bot's own edits to its memory files, checked and shown in the chat it made them from.
-        memory::files::scan_after_turn(self.hub.clone(), self.cfg.clone());
+        if !self.is_hq() {
+            memory::files::scan_after_turn(self.hub.clone(), self.cfg.clone());
+        }
         if let (Some(conn), Some(sid)) = (self.conn.as_mut(), &self.turn_session)
             && let Some(used) = conn.loaded.get_mut(sid)
         {
@@ -333,7 +340,10 @@ impl Actor {
         {
             tracing::warn!(bot = %self.cfg.id, error = format!("{error:#}"), "couldn't record the profile update");
         }
-        if let (Some(user), Some(agent), "end_turn") = (self.turn_text.take(), &final_text, stop_reason.as_str()) {
+        // An hq agent keeps its own memory: Kith's keeper never reads its chat.
+        if let (Some(user), Some(agent), "end_turn", false) =
+            (self.turn_text.take(), &final_text, stop_reason.as_str(), self.is_hq())
+        {
             let turn = crate::chat::naming::Turn { user, agent: agent.clone() };
             let _ = self.dreamer.send(memory::DreamEvent::Turn(turn));
         }

@@ -65,7 +65,7 @@ impl Store {
         c.execute("UPDATE bots SET rev = ?2, deleted = 1, session_id = NULL WHERE id = ?1", params![id, rev])?;
         c.execute("DELETE FROM kv WHERE k IN (SELECT 'read.' || id FROM entries WHERE bot_id = ?1)", [id])?;
         c.execute("DELETE FROM entries WHERE bot_id = ?1", [id])?;
-        codync_mem::store::drop_bot(&c, id)?;
+        kith_mem::store::drop_bot(&c, id)?;
         // Its dreaming bookmark, notices' revisions and the record of its moved memory.
         c.execute("DELETE FROM kv WHERE k GLOB ?1", [format!("memory.*{id}*")])?;
         // Lane state (see `lane_key`) it owned, or that bots kept in it.
@@ -232,6 +232,7 @@ mod tests {
             harness_memory: false,
             auto_name: false,
             tasks: None,
+            hq_agent: None,
             created_at: 0,
         };
         s.save_bot(&cfg).unwrap();

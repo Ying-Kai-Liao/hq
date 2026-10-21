@@ -1,5 +1,5 @@
-// `npm run dev`. The main checkout runs the default Kith Dev (its background host on 19223,
-// ~/.kith-dev). A linked worktree runs a sandbox beside it instead: host data in
+// `npm run dev`. The main checkout runs the default Kith Dev (its background host on 19224,
+// ~/.kith/serve). A linked worktree runs a sandbox beside it instead: host data in
 // ~/.kith-dev-<name>, a port kept in that folder's sandbox.json, its own app data, and a host
 // this run builds, starts and stops. Flags (`npm run dev -- --list`): --shared takes the default
 // Kith Dev from a worktree, --sandbox runs a sandbox from the main checkout, --name <name> runs
@@ -59,15 +59,15 @@ async function firstFreePort() {
   return fail('Every sandbox port (19300-19399) is taken. Delete old sandboxes: npm run dev -- --prune')
 }
 
-/** The host this worktree's code builds (or `CODYNC_HOST_BIN`), compiled for Kith Dev. */
+/** The host this worktree's code builds (or `KITH_SERVE_BIN`), compiled for Kith Dev. */
 function buildHost() {
-  if (process.env.CODYNC_HOST_BIN) return process.env.CODYNC_HOST_BIN
+  if (process.env.KITH_SERVE_BIN) return process.env.KITH_SERVE_BIN
   if (process.platform === 'linux') {
-    run('cargo', ['build', '--manifest-path', join(root, 'host/Cargo.toml')], { ...process.env, CODYNC_ENV: 'dev' })
-    return join(process.env.CARGO_TARGET_DIR ?? join(root, 'host/target'), 'debug/codync-host')
+    run('cargo', ['build', '--manifest-path', join(desktop, '../../serve/host/Cargo.toml')], { ...process.env, KITH_SERVE_ENV: 'dev' })
+    return join(process.env.CARGO_TARGET_DIR ?? join(desktop, '../../serve/host/target'), 'debug/kith-serve')
   }
   run(process.execPath, [join(desktop, 'tools/native-host.mjs'), 'dev'])
-  return join(desktop, 'build/native', windows ? 'codync-host.exe' : 'codync-host')
+  return join(desktop, 'build/native', windows ? 'kith-serve.exe' : 'kith-serve')
 }
 
 /** electron-vite leaves Electron running when it stops alone, so the app gets its own process group and stops as a whole. */
@@ -112,7 +112,7 @@ async function sandbox() {
 
   const host = buildHost()
   const log = join(home, 'host.log')
-  const hostEnv = { ...process.env, CODYNC_HOME: home, ...(flags.cloud ? {} : { CODYNC_CLOUD: 'off' }) }
+  const hostEnv = { ...process.env, KITH_SERVE_HOME: home, ...(flags.cloud ? {} : { KITH_SERVE_CLOUD: 'off' }) }
   const out = openSync(log, 'a')
   const hostProcess = spawn(host, ['serve', '--port', String(port)], { env: hostEnv, stdio: ['ignore', out, out] })
   hostProcess.on('error', (e) => fail(`Couldn't start ${host}: ${e.message}`))
@@ -140,13 +140,13 @@ async function sandbox() {
   }
 
   const cdp = flags.cdp ? port + 10000 : null
-  const command = `CODYNC_HOME="${home}" "${host}"`
+  const command = `KITH_SERVE_HOME="${home}" "${host}"`
   console.log(`\nKith Dev (${name}): a sandbox on port ${port}, data in ${home}${flags.cloud ? '' : ', dev cloud off'}`)
   console.log(`  pair a phone or simulator  ${command} pair --port ${port}`)
   console.log(`  terminal UI                ${command} tui --port ${port}`)
   if (cdp) console.log(`  DevTools protocol          127.0.0.1:${cdp}`)
   console.log('')
-  const appEnv = { ...process.env, CODYNC_HOME: home, CODYNC_PORT: String(port), ...(cdp ? { CODYNC_REMOTE_DEBUG: String(cdp) } : {}) }
+  const appEnv = { ...process.env, KITH_SERVE_HOME: home, KITH_SERVE_PORT: String(port), ...(cdp ? { CODYNC_REMOTE_DEBUG: String(cdp) } : {}) }
   app = startApp(appEnv)
   app.child.on('exit', (code) => stop(code ?? 0))
   app.child.on('error', (e) => {

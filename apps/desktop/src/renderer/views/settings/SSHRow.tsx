@@ -25,7 +25,7 @@ export function SSHRow({ profile, status, edit, attached = true }: { profile: SS
       case 'failed':
         return status.message
       case 'notInstalled':
-        return dev ? `Install Kith Dev on ${profile.host} and open it once. On Linux, install the development host as ~/.local/bin/codync-dev-host.` : `codync-host isn't installed on ${profile.host}. Install it there:`
+        return dev ? `Install Kith Dev on ${profile.host} and open it once. On Linux, run "kith serve start" there.` : `kith-serve isn't installed on ${profile.host}. Install it there:`
     }
   })()
   const problem = status.kind === 'retrying' || status.kind === 'failed' || status.kind === 'notInstalled'

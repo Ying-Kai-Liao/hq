@@ -26,7 +26,7 @@ const bridge: CodyncBridge = {
   platform: 'darwin',
   appName: 'Kith',
   appScheme: 'codync',
-  hostPort: 19222,
+  hostPort: 19224,
   appVersion: version,
   computerName: HOST_NAME,
   // Opens the group at launch, like the website's screenshot.

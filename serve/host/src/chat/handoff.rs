@@ -6,7 +6,7 @@
 use crate::hub::Hub;
 use crate::store::{BotConfig, Entry, EntryKind, Lane, Store};
 use anyhow::{Result, anyhow, bail};
-use codync_mem::compaction::{Handoff, Request};
+use kith_mem::compaction::{Handoff, Request};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 

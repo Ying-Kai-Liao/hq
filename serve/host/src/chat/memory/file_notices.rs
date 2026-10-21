@@ -6,7 +6,7 @@ use super::files::{self, Writer};
 use crate::hub::Hub;
 use crate::store::BotConfig;
 use anyhow::{Result, anyhow, bail};
-use codync_mem::files::{self as mf, Author, Cause};
+use kith_mem::files::{self as mf, Author, Cause};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# kith — the same command as hq until the kernel is renamed (kith serve ... == hq serve ...).
+set -euo pipefail
+src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
+exec "$(cd "$(dirname "$src")" && pwd)/hq" "$@"

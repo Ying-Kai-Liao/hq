@@ -1,5 +1,5 @@
-//! The harnesses' own memory, turned off wherever Codync can, so a bot has one memory and the user sees all of it:
-//! every bot unless the user keeps its harness's memory on, and Codync's background jobs
+//! The harnesses' own memory, turned off wherever Kith can, so a bot has one memory and the user sees all of it:
+//! every bot unless the user keeps its harness's memory on, and Kith's background jobs
 //! ([design](../../../docs/design/bot-memory.md#instructions-in-every-harness)). Claude Code also gets its settings
 //! through `_meta` (see `agent::bot`).
 
@@ -20,8 +20,8 @@ pub fn args(backend: &str) -> &'static str {
     }
 }
 
-/// Whether Codync can turn the bot's harness's own memory off, and so offers the user a switch for it. Qwen Code
-/// reads it from the workspace folder, which Codync writes only in a bot's own workspace: a project folder's files
+/// Whether Kith can turn the bot's harness's own memory off, and so offers the user a switch for it. Qwen Code
+/// reads it from the workspace folder, which Kith writes only in a bot's own workspace: a project folder's files
 /// are the user's.
 pub fn switchable(cfg: &BotConfig) -> bool {
     match cfg.backend.as_str() {
@@ -31,7 +31,7 @@ pub fn switchable(cfg: &BotConfig) -> bool {
     }
 }
 
-/// Whether the user kept the bot's harness's own memory on beside Codync's.
+/// Whether the user kept the bot's harness's own memory on beside Kith's.
 pub fn kept(cfg: &BotConfig) -> bool {
     cfg.harness_memory && switchable(cfg)
 }
@@ -56,7 +56,7 @@ pub async fn apply(cfg: &BotConfig, env: &mut Vec<(String, String)>, commands: &
     }
 }
 
-/// Turns the harness's own memory off for one launch in `workspace`, a folder of Codync's own: its environment,
+/// Turns the harness's own memory off for one launch in `workspace`, a folder of Kith's own: its environment,
 /// its command, and the settings it reads from the folder.
 pub async fn turn_off(backend: &str, workspace: &str, env: &mut Vec<(String, String)>, commands: &mut [String]) {
     switch_off(backend, env, commands);
@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn workspace_settings_keep_what_the_user_set() {
-        let dir = std::env::temp_dir().join(format!("codync-own-memory-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-own-memory-{}", uuid::Uuid::new_v4()));
         let file = dir.join(".qwen/settings.json");
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
         std::fs::write(&file, r#"{"model": {"name": "qwen3"}, "memory": {"other": 1}}"#).unwrap();
@@ -154,7 +154,7 @@ mod tests {
     }
 
     #[test]
-    fn the_switch_is_offered_only_where_codync_can_turn_it_off() {
+    fn the_switch_is_offered_only_where_kith_can_turn_it_off() {
         let id = "5f0c7a52-0000-4000-8000-000000000004";
         let bot = |backend: &str, cwd: &str| -> BotConfig {
             serde_json::from_value(

@@ -741,7 +741,7 @@
 				CODYNC_APNS_ENVIRONMENT = sandbox;
 				CODYNC_APP_GROUP = group.com.yingkailiao.kith.dev;
 				CODYNC_APP_NAME = Kith;
-				CODYNC_DATA_FOLDER = ".kith-dev";
+				CODYNC_DATA_FOLDER = ".kith/serve";
 				CODYNC_ENV = dev;
 				CODYNC_IOS_BUNDLE_ID = com.yingkailiao.kith.ios.dev;
 				CODYNC_KEYCHAIN_GROUP = com.yingkailiao.kith.dev;
@@ -845,7 +845,7 @@
 				CODYNC_APNS_ENVIRONMENT = production;
 				CODYNC_APP_GROUP = group.com.yingkailiao.kith;
 				CODYNC_APP_NAME = Kith;
-				CODYNC_DATA_FOLDER = .codync;
+				CODYNC_DATA_FOLDER = ".kith/serve-main";
 				CODYNC_ENV = main;
 				CODYNC_IOS_BUNDLE_ID = com.yingkailiao.kith.ios;
 				CODYNC_KEYCHAIN_GROUP = com.yingkailiao.kith;
@@ -1098,7 +1098,7 @@
 				CODYNC_APNS_ENVIRONMENT = sandbox;
 				CODYNC_APP_GROUP = group.com.yingkailiao.kith;
 				CODYNC_APP_NAME = Kith;
-				CODYNC_DATA_FOLDER = .codync;
+				CODYNC_DATA_FOLDER = ".kith/serve-main";
 				CODYNC_ENV = main;
 				CODYNC_IOS_BUNDLE_ID = com.yingkailiao.kith.ios;
 				CODYNC_KEYCHAIN_GROUP = com.yingkailiao.kith;
@@ -1254,7 +1254,7 @@
 				CODYNC_APNS_ENVIRONMENT = production;
 				CODYNC_APP_GROUP = group.com.yingkailiao.kith.dev;
 				CODYNC_APP_NAME = Kith;
-				CODYNC_DATA_FOLDER = ".kith-dev";
+				CODYNC_DATA_FOLDER = ".kith/serve";
 				CODYNC_ENV = dev;
 				CODYNC_IOS_BUNDLE_ID = com.yingkailiao.kith.ios.dev;
 				CODYNC_KEYCHAIN_GROUP = com.yingkailiao.kith.dev;

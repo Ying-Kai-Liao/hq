@@ -379,7 +379,7 @@ fn classify(p: Provider, models: &[Model]) -> (Vec<String>, Vec<String>, Vec<Str
 /// Names a speaker is likely to say that speech-to-text would otherwise misspell: the app and
 /// the bots on this computer.
 fn spoken_names(store: &Store) -> Vec<String> {
-    let mut names = vec!["Codync".to_owned()];
+    let mut names = vec!["Kith".to_owned()];
     for bot in store.bots().unwrap_or_default() {
         if !bot.deleted && !names.contains(&bot.config.name) {
             names.push(bot.config.name);
@@ -401,7 +401,7 @@ pub async fn transcribe(store: &Store, p: Provider, model: &str, audio: &str) ->
     let names = spoken_names(store);
     let text = match p {
         Provider::OpenAi => {
-            let boundary = format!("codync-{}", uuid::Uuid::new_v4().simple());
+            let boundary = format!("kith-{}", uuid::Uuid::new_v4().simple());
             let mut body = Vec::with_capacity(wav.len() + 512);
             body.extend_from_slice(
                 format!("--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n{model}\r\n").as_bytes(),

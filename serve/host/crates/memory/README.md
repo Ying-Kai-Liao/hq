@@ -1,7 +1,7 @@
-# codync-mem
+# kith-mem
 
 Specially designed for bot-based memory: the memory system the coding-agent bots in
-[Codync](https://github.com/leepokai/Codync) run on, as a standalone crate.
+[Kith](https://github.com/Ying-Kai-Liao/hq) (originally extracted from [Codync](https://github.com/leepokai/Codync)) run on, as a standalone crate.
 
 - **It records the person, not the work.** Project knowledge stays in the harness's own files (`AGENTS.md`,
   `CLAUDE.md`); the full conversation stays in your transcript.
@@ -17,20 +17,20 @@ transaction, so a memory change commits together with whatever the caller record
 
 ## Status
 
-0.x, developed inside Codync and mirrored here read-only. The API changes with Codync. Report issues here;
-send pull requests to [Codync's `dev` branch](https://github.com/leepokai/Codync) (`host/crates/memory`).
+0.x, developed inside Kith and mirrored here read-only. The API changes with Kith. Report issues here;
+send pull requests to [Kith's `dev` branch](https://github.com/leepokai/Kith) (`host/crates/memory`).
 
 ## Use
 
 ```sh
-cargo add codync-mem
+cargo add kith-mem
 ```
 
 ```rust
-use codync_mem::rusqlite::Connection;
+use kith_mem::rusqlite::Connection;
 
 let mut conn = Connection::open_in_memory()?;
-codync_mem::schema::migrate(&conn)?;
+kith_mem::schema::migrate(&conn)?;
 ```
 
 The crate re-exports the `rusqlite` it builds against: use that one, because a build can link only one

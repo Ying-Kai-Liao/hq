@@ -30,7 +30,7 @@ def log(event, sid, text):
 def prompt(request, stop):
     sid = request["params"]["sessionId"]
     text = request["params"]["prompt"][0]["text"]
-    resumed = "[Codync restarted" in text
+    resumed = "[Kith restarted" in text
     with lock:
         if resumed:
             text = sessions[sid]
@@ -89,7 +89,7 @@ def verify_routine_tools():
             return json.loads(result["content"][0]["text"])
 
         init = rpc("initialize", {"protocolVersion": "2025-06-18"})
-        assert init["serverInfo"]["name"] == "codync-routines"
+        assert init["serverInfo"]["name"] == "kith-routines"
         names = {t["name"] for t in rpc("tools/list", {})["tools"]}
         assert names == {"list_routines", "save_routine", "set_routine_enabled",
                          "delete_routine", "run_routine", "routine_webhook"}, names

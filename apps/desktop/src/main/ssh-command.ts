@@ -4,17 +4,18 @@ import type { SSHProfile } from '../shared/ssh.ts'
 const REMOTE_PATH = '$PATH:/opt/homebrew/bin:/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:/Applications/Codync.app/Contents/Resources'
 
 /** The caller validates the port before constructing the remote shell command. */
-export const remoteInfoCommand = (port: number, folder = '.codync') => {
+export const remoteInfoCommand = (port: number, folder = '.kith/serve-main') => {
   // Only the fixed development folder is accepted; no arbitrary input enters this shell command.
-  const dev = folder === '.kith-dev'
+  // Kith Dev uses its own bundled host, else the one `kith serve start` installs in the data folder.
+  const dev = folder === '.kith/serve'
   if (dev) {
-    return `sh -lc 'export CODYNC_HOME="$HOME/.kith-dev"; if [ -x "/Applications/Kith Dev.app/Contents/Resources/codync-host" ]; then exec "/Applications/Kith Dev.app/Contents/Resources/codync-host" info --json --port ${port}; elif [ -x "$HOME/.local/bin/codync-dev-host" ]; then exec "$HOME/.local/bin/codync-dev-host" info --json --port ${port}; else exit 127; fi'`
+    return `sh -lc 'export KITH_SERVE_HOME="$HOME/.kith/serve"; if [ -x "/Applications/Kith Dev.app/Contents/Resources/kith-serve" ]; then exec "/Applications/Kith Dev.app/Contents/Resources/kith-serve" info --json --port ${port}; elif [ -x "$HOME/.kith/serve/bin/kith-serve" ]; then exec "$HOME/.kith/serve/bin/kith-serve" info --json --port ${port}; else exit 127; fi'`
   }
-  return `sh -lc 'PATH="${REMOTE_PATH}" codync-host info --json --port ${port}'`
+  return `sh -lc 'PATH="${REMOTE_PATH}" kith-serve info --json --port ${port}'`
 }
 
-/** `dir` is this app's host data folder (`~/.codync`, or a development sandbox's). */
-export const knownHostsFiles = (h: string, dir = `${h}/.codync`) => [`${h}/.ssh/known_hosts`, `${dir}/ssh_known_hosts`]
+/** `dir` is this app's host data folder (`~/.kith/serve`, or a development sandbox's). */
+export const knownHostsFiles = (h: string, dir = `${h}/.kith/serve`) => [`${h}/.ssh/known_hosts`, `${dir}/ssh_known_hosts`]
 
 /** `pkill -f` pattern for the tunnels that use `dir`'s known_hosts file: this copy's own, never another copy's. */
 export const orphanTunnelPattern = (dir: string) => `^/usr/bin/ssh -N .*${dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/ssh_known_hosts`
@@ -41,7 +42,7 @@ export function resolveArguments(p: SSHProfile) {
 }
 
 /** The remote command is fixed; only the validated port number goes into it. */
-export const infoArguments = (p: SSHProfile, h: string, folder = '.codync', dir = `${h}/${folder}`) => [
+export const infoArguments = (p: SSHProfile, h: string, folder = '.kith/serve-main', dir = `${h}/${folder}`) => [
   '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ForwardAgent=no', '-o', 'ForwardX11=no',
   ...hostKeyOptions(h, dir), ...targetOptions(p),
   '--', p.host, remoteInfoCommand(p.remotePort, folder),

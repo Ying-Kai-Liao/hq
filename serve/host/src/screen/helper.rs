@@ -55,7 +55,7 @@ impl Link {
 #[cfg(windows)]
 pub async fn serve_helpers(_screen: Arc<Screen>) {}
 
-/// Accepts screen helpers on `~/.codync/screen.sock`. The newest connection wins.
+/// Accepts screen helpers on `~/.kith/serve/screen.sock`. The newest connection wins.
 #[cfg(unix)]
 pub async fn serve_helpers(screen: Arc<Screen>) {
     let path = crate::service::data_dir().join("screen.sock");
@@ -107,12 +107,12 @@ pub(super) fn graphical_session() -> bool {
         || has(std::path::Path::new("/tmp/.X11-unix"), "X")
 }
 
-/// Linux: the host runs `codync-screen` itself while Remote screen is on (on macOS
-/// launchd runs Codync Screen for the app). Restarts it if it exits; stops it when turned off.
+/// Linux: the host runs `kith-screen` itself while Remote screen is on (on macOS
+/// launchd runs Kith Screen for the app). Restarts it if it exits; stops it when turned off.
 #[cfg(target_os = "linux")]
 pub async fn supervise_linux_helper(screen: Arc<Screen>) {
-    let exe = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("codync-screen")));
-    let program = exe.filter(|p| p.is_file()).unwrap_or_else(|| "codync-screen".into());
+    let exe = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("kith-screen")));
+    let program = exe.filter(|p| p.is_file()).unwrap_or_else(|| "kith-screen".into());
     let mut child: Option<tokio::process::Child> = None;
     let mut backoff = Duration::from_secs(1);
     loop {
@@ -120,7 +120,7 @@ pub async fn supervise_linux_helper(screen: Arc<Screen>) {
         if screen.enabled() && !running {
             match tokio::process::Command::new(&program).kill_on_drop(true).spawn() {
                 Ok(c) => child = Some(c),
-                Err(error) => tracing::warn!(%error, program = %program.display(), "can't start codync-screen"),
+                Err(error) => tracing::warn!(%error, program = %program.display(), "can't start kith-screen"),
             }
             tokio::time::sleep(backoff).await;
             backoff = (backoff * 2).min(Duration::from_secs(30));

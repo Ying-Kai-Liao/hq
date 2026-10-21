@@ -1,4 +1,4 @@
-/** Installed identities. Production values stay unchanged when adding Kith Dev. */
+/** Installed identities. The host's half (data folder, port, service names) mirrors serve/host/src/environment.rs. */
 export function environmentProfile(environment: 'main' | 'dev') {
   const dev = environment === 'dev'
   return {
@@ -6,12 +6,12 @@ export function environmentProfile(environment: 'main' | 'dev') {
     name: dev ? 'Kith Dev' : 'Codync',
     appId: dev ? 'com.yingkailiao.kith.dev' : 'com.pokai.Codync',
     scheme: dev ? 'codync-dev' : 'codync',
-    dataFolder: dev ? '.kith-dev' : '.codync',
-    port: dev ? 19223 : 19222,
-    hostLabel: dev ? 'com.yingkailiao.kith.dev.host' : 'com.pokai.codync.host',
-    systemdUnit: dev ? 'kith-dev-host.service' : 'codync-host.service',
-    windowsService: dev ? 'CodyncDevHost' : 'CodyncHost',
-    supervisor: dev ? 'codync-dev-hostw.exe' : 'codync-hostw.exe',
+    dataFolder: dev ? '.kith/serve' : '.kith/serve-main',
+    port: dev ? 19224 : 19225,
+    hostLabel: dev ? 'dev.kith.serve' : 'dev.kith.serve.main',
+    systemdUnit: dev ? 'kith-serve.service' : 'kith-serve-main.service',
+    windowsService: dev ? 'KithServe' : 'KithServeMain',
+    supervisor: dev ? 'kith-servew.exe' : 'kith-servew-main.exe',
     screenLabel: dev ? 'com.yingkailiao.kith.dev.screen' : 'com.pokai.Codync.screen',
     screenName: dev ? 'CodyncDevScreen' : 'CodyncScreen',
     releaseUpdates: !dev,

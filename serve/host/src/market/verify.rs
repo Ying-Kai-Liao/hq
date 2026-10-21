@@ -47,7 +47,7 @@ pub async fn verify(store: &Store, id: &str, port: u16) -> Result<Value> {
             (
                 1,
                 "initialize",
-                json!({"protocolVersion":crate::mcp::PROTOCOL_VERSION,"capabilities":{},"clientInfo":{"name":"Codync","version":env!("CARGO_PKG_VERSION")}}),
+                json!({"protocolVersion":crate::mcp::PROTOCOL_VERSION,"capabilities":{},"clientInfo":{"name":"Kith","version":env!("CARGO_PKG_VERSION")}}),
             ),
             (2, "tools/list", json!({})),
         ] {

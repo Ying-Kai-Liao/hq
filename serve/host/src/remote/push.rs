@@ -1,4 +1,4 @@
-//! Push via the Codync relay (it holds the APNs key; the host only holds opaque
+//! Push via the Kith relay (it holds the APNs key; the host only holds opaque
 //! per-device tickets the relay issued to the phone).
 //!
 //! Alerts cover completion, input requests, and failures;
@@ -33,7 +33,7 @@ static GONE: Mutex<Vec<String>> = Mutex::new(Vec::new());
 const SWIFT_REFERENCE_EPOCH: f64 = 978_307_200.0;
 
 fn relay_url(hub: &Hub) -> Option<String> {
-    std::env::var("CODYNC_RELAY_URL").ok().or_else(|| hub.store.kv_get("relay_url")).filter(|u| !u.is_empty())
+    std::env::var("KITH_SERVE_RELAY_URL").ok().or_else(|| hub.store.kv_get("relay_url")).filter(|u| !u.is_empty())
 }
 
 /// True when `key` was sent less than `min_gap` ago; otherwise records now.
@@ -116,9 +116,9 @@ pub fn notify(hub: &Hub, bot: &BotConfig, from: Option<&str>, title: &str, body:
     let Some(relay) = relay_url(hub) else { return };
     // The relay and APNs only see a generic line; the real one is sealed to each device (§6.7).
     let generic = match kind {
-        AlertKind::NeedsInput => "A bot needs your response. Open Codync to review.",
-        AlertKind::Done => "Your task is complete. Open Codync to read the result.",
-        AlertKind::Failed => "A task could not finish. Open Codync to review the issue.",
+        AlertKind::NeedsInput => "A bot needs your response. Open Kith to review.",
+        AlertKind::Done => "Your task is complete. Open Kith to read the result.",
+        AlertKind::Failed => "A task could not finish. Open Kith to review the issue.",
     };
     let subtitle = match kind {
         AlertKind::Done => "Task complete",
@@ -145,7 +145,7 @@ pub fn notify(hub: &Hub, bot: &BotConfig, from: Option<&str>, title: &str, body:
         }
         notifications.push(json!({
             "ticket": t.ticket,
-            "alert": {"title": "Codync", "body": generic},
+            "alert": {"title": "Kith", "body": generic},
             "mutableContent": true,
             "threadId": format!("{computer_id}:{}", bot.id),
             "category": kind,

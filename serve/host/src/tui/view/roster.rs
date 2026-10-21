@@ -21,7 +21,7 @@ pub(super) fn roster(buf: &mut Buffer, r: Rect, app: &mut App, narrow: bool) {
     if narrow {
         fill(buf, Rect::new(r.x, r.y, r.width, 1), t.panel);
     }
-    put(buf, x0 + 1, r.y, wd.saturating_sub(10), if app.host.is_empty() { "codync" } else { &app.host }, t.bold);
+    put(buf, x0 + 1, r.y, wd.saturating_sub(10), if app.host.is_empty() { "kith" } else { &app.host }, t.bold);
     rput(buf, r.right() - 1, r.y, &format!("{} chat{}", bots.len(), if bots.len() == 1 { "" } else { "s" }), t.dim);
     if !narrow {
         hline(buf, x0, r.y + 1, wd, t.line);

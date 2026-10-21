@@ -35,7 +35,7 @@ async fn moves_old_memory_once_and_keeps_the_layers_apart() {
         std::fs::create_dir_all(legacy.join("log")).unwrap();
         std::fs::write(legacy.join("profile.md"), "- (2026-01-01) 偏好繁體中文\n- (2026-01-02) Lives in Taipei\n")
             .unwrap();
-        std::fs::write(legacy.join("log/2026-02.md"), "- (2026-02-02) Shipped Codync\n").unwrap();
+        std::fs::write(legacy.join("log/2026-02.md"), "- (2026-02-02) Shipped Kith\n").unwrap();
         std::fs::create_dir_all(&engram).unwrap();
         let db = rusqlite::Connection::open(engram.join("engram.db")).unwrap();
         db.execute_batch(
@@ -52,7 +52,7 @@ async fn moves_old_memory_once_and_keeps_the_layers_apart() {
     .await;
 
     let view = host.memory(&a).await;
-    assert_eq!(texts(&view["bot"], "active"), ["Shipped Codync", "Lives in Taipei", "偏好繁體中文"]);
+    assert_eq!(texts(&view["bot"], "active"), ["Shipped Kith", "Lives in Taipei", "偏好繁體中文"]);
     assert_eq!(view["bot"]["entries"][0]["author"], "imported");
     assert!(!legacy.exists(), "the old files go once moved");
     let view = host.memory(&b).await;

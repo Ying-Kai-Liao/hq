@@ -31,7 +31,7 @@ test('development packaging registers only development callbacks and background 
     'Library/LoginItems/CodyncDevScreen.app',
     'Library/LaunchAgents/com.yingkailiao.kith.dev.screen.plist',
   ])
-  assert.ok(dev.win.extraResources.some((f: { to: string }) => f.to === 'codync-dev-hostw.exe'))
-  assert.ok(!dev.win.extraResources.some((f: { to: string }) => f.to === 'codync-hostw.exe'))
+  assert.ok(dev.win.extraResources.some((f: { to: string }) => f.to === 'kith-servew.exe'))
+  assert.ok(!dev.win.extraResources.some((f: { to: string }) => f.to === 'kith-servew-main.exe'))
   assert.equal(dev.linux.executableName, 'codync-dev')
 })

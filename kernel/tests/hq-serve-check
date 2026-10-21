@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# hq-serve-check — `hq serve` and `kith` against a stub cargo and a stub kith-serve, in a throwaway HOME and a
+# throwaway copy of the repo layout (the real ~/.kith, launchd and host are never touched).
+#
+#   kernel/tests/hq-serve-check     a few seconds; prints each check, exits 1 when one fails
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/hq-serve-check.XXXXXX")
+trap 'rm -rf "$T"' EXIT
+export HOME=$T/home
+mkdir -p "$HOME" "$T/repo/kernel/bin" "$T/repo/serve/host/src" "$T/stubs" "$T/target/dev-app"
+unset HQ_HOME CARGO_TARGET_DIR
+export CARGO_TARGET_DIR=$T/target
+
+cp "$KERNEL/bin/hq-serve" "$KERNEL/bin/kith" "$T/repo/kernel/bin/"
+# `kith` forwards to the hq next to it: here a stub that shows what it got.
+printf '#!/usr/bin/env bash\necho "hq-stub $*"\n' > "$T/repo/kernel/bin/hq"
+chmod +x "$T/repo/kernel/bin/"*
+touch "$T/repo/serve/host/Cargo.toml" "$T/repo/serve/host/Cargo.lock" "$T/repo/serve/host/src/main.rs"
+
+# Stub cargo: counts builds, writes the "built" binary (a stub kith-serve that logs its arguments), or fails on demand.
+cat > "$T/stubs/cargo" <<'EOF'
+#!/usr/bin/env bash
+echo "cargo $*" >> "$STUB_LOG"
+if [ -n "${STUB_BUILD_FAIL:-}" ]; then echo "error: boom line"; exit 101; fi
+mkdir -p "$CARGO_TARGET_DIR/dev-app"
+cat > "$CARGO_TARGET_DIR/dev-app/kith-serve" <<'EOS'
+#!/usr/bin/env bash
+echo "kith-serve $*" >> "$STUB_LOG"
+EOS
+chmod +x "$CARGO_TARGET_DIR/dev-app/kith-serve"
+EOF
+chmod +x "$T/stubs/cargo"
+export STUB_LOG=$T/log
+: > "$STUB_LOG"
+SYSPATH=/usr/bin:/bin:/usr/sbin:/sbin
+export PATH=$T/stubs:$SYSPATH
+SERVE=$T/repo/kernel/bin/hq-serve
+BIN=$HOME/.kith/serve/bin/kith-serve
+
+fails=0
+check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; fails=$((fails + 1)); fi; }
+count() { grep -c "$1" "$STUB_LOG" || true; }
+
+# start: builds when missing, copies, installs on 19224
+out=$("$SERVE" start 2>&1); rc=$?
+check "start succeeds" "[ $rc = 0 ]"
+check "start builds with the dev-app profile" "grep -q 'cargo build --profile dev-app --manifest-path .*/serve/host/Cargo.toml' '$STUB_LOG'"
+check "start copies the binary to ~/.kith/serve/bin" "[ -x '$BIN' ]"
+check "start calls install --port 19224" "grep -q 'kith-serve install --port 19224' '$STUB_LOG'"
+
+# start again: cargo is asked every time (it decides what is fresh); install is still called
+"$SERVE" start >/dev/null 2>&1
+check "second start runs cargo again" "[ $(count 'cargo build') = 2 ]"
+check "second start installs again" "[ $(count 'kith-serve install') = 2 ]"
+
+# --no-build never runs cargo
+"$SERVE" start --no-build >/dev/null 2>&1
+check "--no-build never runs cargo" "[ $(count 'cargo build') = 2 ]"
+
+# a failing build keeps the old installed binary and exits non-zero, with the tail shown
+before=$(cksum < "$BIN")
+out=$(STUB_BUILD_FAIL=1 "$SERVE" start 2>&1); rc=$?
+check "failed build exits non-zero" "[ $rc != 0 ]"
+check "failed build shows the output tail" "echo \"\$out\" | grep -q 'boom line'"
+check "failed build keeps the installed binary" "[ \"$before\" = \"\$(cksum < '$BIN')\" ]"
+
+# no cargo at all (and no rustup toolchains): a clear error
+if PATH=$SYSPATH command -v cargo >/dev/null 2>&1; then
+  echo "skip no cargo: clear error (a system cargo is on $SYSPATH)"
+else
+  out=$(PATH=$SYSPATH "$SERVE" start 2>&1); rc=$?
+  check "no cargo: clear error" "[ $rc != 0 ] && echo \"\$out\" | grep -q 'cargo not found'"
+fi
+
+# stop and status forward to the host
+"$SERVE" stop >/dev/null 2>&1
+check "stop forwards" "grep -qx 'kith-serve stop' '$STUB_LOG'"
+out=$("$SERVE" status 2>&1)
+check "status forwards with the port" "grep -q 'kith-serve status --port 19224' '$STUB_LOG'"
+check "status says relay not set" "echo \"\$out\" | grep -q 'relay: not set'"
+
+# restart: stop, then install without building
+: > "$STUB_LOG"
+"$SERVE" restart >/dev/null 2>&1
+check "restart stops then installs, no build" "[ \"\$(tr '\n' '|' < '$STUB_LOG')\" = 'kith-serve stop|kith-serve install --port 19224|' ]"
+
+# relay: set, keep other keys, reject bad URLs
+CFG=$HOME/.kith/serve/config.json
+echo '{"other": 1}' > "$CFG"
+"$SERVE" relay https://relay.example.workers.dev >/dev/null 2>&1
+check "relay sets relay_url and keeps other keys" "python3 -c 'import json; c=json.load(open(\"$CFG\")); assert c==dict(other=1, relay_url=\"https://relay.example.workers.dev\")'"
+out=$("$SERVE" status 2>&1)
+check "status says relay set" "echo \"\$out\" | grep -q '^relay: set'"
+"$SERVE" relay http://localhost:8787 >/dev/null 2>&1
+check "relay accepts http://localhost" "grep -q localhost '$CFG'"
+out=$("$SERVE" relay ftp://nope 2>&1); rc=$?
+check "relay rejects a bad URL" "[ $rc != 0 ] && grep -q localhost '$CFG'"
+out=$("$SERVE" relay http://evil.example.com 2>&1); rc=$?
+check "relay rejects plain http to other hosts" "[ $rc != 0 ]"
+rm -rf "$HOME/.kith"
+"$SERVE" relay https://relay.example.workers.dev >/dev/null 2>&1
+check "relay creates the file and folder" "[ -f '$CFG' ]"
+check "relay with no argument shows it" "'$SERVE' relay | grep -q relay.example.workers.dev"
+
+# kith forwards everything to hq; a symlink to it works too
+out=$("$T/repo/kernel/bin/kith" serve status --x 2>&1)
+check "kith forwards to hq" "[ \"\$out\" = 'hq-stub serve status --x' ]"
+ln -s "$T/repo/kernel/bin/kith" "$T/stubs/kith"
+check "kith through a symlink forwards" "[ \"\$(kith serve help)\" = 'hq-stub serve help' ]"
+
+# the real hq dispatches `serve` to hq-serve
+out=$("$KERNEL/bin/hq" serve help 2>&1)
+check "hq serve help prints usage" "echo \"\$out\" | grep -q 'hq serve start'"
+
+[ $fails = 0 ] && echo "all good" || { echo "$fails check(s) failed"; exit 1; }

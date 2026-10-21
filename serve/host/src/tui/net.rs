@@ -24,7 +24,7 @@ const SLOW: [&str; 7] = [
     "importConnectors",
 ];
 
-pub const NOT_INSTALLED: &str = "The Codync host isn't set up on this computer yet.";
+pub const NOT_INSTALLED: &str = "The Kith host isn't set up on this computer yet.";
 
 /// How long a command keeps trying while the host can't be reached (it is restarting, say).
 const PATIENCE: Duration = Duration::from_secs(20);
@@ -72,7 +72,7 @@ impl Client {
                     tokio::time::sleep(Duration::from_millis(500)).await;
                 }
                 Err(e) if e.is_timeout() => return Err("The host took too long to answer.".to_owned()),
-                Err(_) => return Err(format!("Can't reach codync-host at {}. Is it running?", self.base)),
+                Err(_) => return Err(format!("Can't reach kith-serve at {}. Is it running?", self.base)),
             }
         };
         let ok = res.status().is_success();
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn saved_files_never_overwrite_or_escape() {
-        let dir = std::env::temp_dir().join(format!("codync-dl-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kith-dl-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         assert_eq!(super::free_path(&dir, "../a.txt"), dir.join("a.txt"));
         assert_eq!(super::free_path(&dir, "/etc/b.txt"), dir.join("b.txt"));

@@ -1,11 +1,11 @@
 //! The bot's conversations as they fill up ([design](../../../../docs/design/bot-memory.md#compaction)): what the
 //! agent reports about its context and its own compactions, and the compactions and rollovers the host starts. The
-//! rules are `codync_mem::compaction`; this records what it needs and acts on what it decides.
+//! rules are `kith_mem::compaction`; this records what it needs and acts on what it decides.
 
 use super::{Actor, Adapter, Done, Instructions, Queued};
 use crate::chat::{context, handoff, memory};
 use crate::store::{EntryKind, Lane, now_ms};
-use codync_mem::compaction::{self as rules, CacheLife, Conversation, Decision};
+use kith_mem::compaction::{self as rules, CacheLife, Conversation, Decision};
 use serde_json::{Value, json};
 
 /// Context use below which a fall isn't read as a compaction: a short session has little to summarize.
@@ -67,6 +67,9 @@ impl Actor {
     /// The command that makes the agent compact, with the keep-list where it takes one. Before the agent runs, its
     /// harness stands in for the adapter.
     fn compact_command(&self) -> Option<String> {
+        if self.is_hq() {
+            return None;
+        }
         let adapter = self.conn.as_ref().map_or(
             match self.cfg.backend.as_str() {
                 "claude" => Adapter::Claude,
@@ -95,6 +98,9 @@ impl Actor {
     /// The agent summarized its context: the next turn gets freshly rendered instructions and memory (see
     /// `context`), a harness that got them in its first message gets them again, and the chat shows the summary.
     pub(super) fn compacted(&mut self, id: &str, summary: Option<String>) {
+        if self.is_hq() {
+            return;
+        }
         let Some(sid) = self.turn_session.clone() else { return };
         match context::bump_epoch(&self.hub.store, &self.cfg.id, &sid, id) {
             Ok(true) => {}
@@ -165,7 +171,8 @@ impl Actor {
                 "turn usage"
             );
         }
-        if !self.in_main_chat() {
+        // An hq agent's context is its own: Claude Code compacts it, and no handoff is drafted.
+        if !self.in_main_chat() || self.is_hq() {
             return;
         }
         let Some(sid) = self.turn_session.clone() else { return };
@@ -199,6 +206,9 @@ impl Actor {
     /// While the bot is at rest: compact before an hour-long cache expires, and once the next message should start
     /// a new conversation, put the handoff in the chat for the user to review.
     pub(super) fn tend_idle(&mut self) {
+        if self.is_hq() {
+            return;
+        }
         let Some(sid) = self.session_id.clone() else { return };
         let c = self.settle_kept(&sid);
         if c.last_turn == 0 {

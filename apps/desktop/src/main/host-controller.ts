@@ -9,12 +9,13 @@ import type { HostState, LocalHost } from '../shared/ipc'
 import { unregisterScreenAgent } from './screen'
 import { identity } from './environment'
 import { hostEnvironmentError } from '../shared/environment'
+import { isKithServeService } from '../shared/host-service'
 
-/** `CODYNC_PORT` / `CODYNC_HOME` point the app at a dev host started with `codync-host serve`. */
-export const devPort = process.env.CODYNC_PORT ? Number(process.env.CODYNC_PORT) : null
+/** `KITH_SERVE_PORT` / `KITH_SERVE_HOME` point the app at a dev host started with `kith-serve serve`. */
+export const devPort = process.env.KITH_SERVE_PORT ? Number(process.env.KITH_SERVE_PORT) : null
 export const port = devPort ?? identity.port
-export const dataDir = process.env.CODYNC_HOME ?? join(homedir(), identity.dataFolder)
-if (identity.environment === 'dev' && (port === 19222 || resolve(dataDir) === resolve(homedir(), '.codync'))) {
+export const dataDir = process.env.KITH_SERVE_HOME ?? join(homedir(), identity.dataFolder)
+if (identity.environment === 'dev' && (port === 19225 || resolve(dataDir) === resolve(homedir(), '.kith/serve-main'))) {
   throw new Error('Kith Dev requires its own host port and data directory.')
 }
 export const baseURL = `http://127.0.0.1:${port}`
@@ -43,7 +44,7 @@ export function run(bin: string, args: string[]): Promise<{ status: number; outp
     // A command that never finishes would leave the window on "Starting the host…" for good.
     execFile(bin, args, { maxBuffer: 8 * 1024 * 1024, windowsHide: true, timeout: 120_000 }, (error, stdout, stderr) => {
       const status = error ? (typeof error.code === 'number' ? error.code : 1) : 0
-      resolve({ status, output: `${stdout}${stderr}`.trim() || (error?.killed ? `codync-host ${args[0]} didn't finish within 2 minutes.` : '') })
+      resolve({ status, output: `${stdout}${stderr}`.trim() || (error?.killed ? `kith-serve ${args[0]} didn't finish within 2 minutes.` : '') })
     })
   })
 }
@@ -53,7 +54,7 @@ const isWindows = platform() === 'win32'
 /** macOS and Windows ship the host inside the app; Linux uses the installed one. */
 export const bundlesHost = isMac || isWindows
 
-/** The service definition `codync-host install` wrote (`null`: not installed). */
+/** The service definition `kith-serve install` wrote (`null`: not installed). */
 function serviceDefinition(): string | null {
   try {
     if (isWindows) {
@@ -72,8 +73,16 @@ function serviceDefinition(): string | null {
 
 const serviceInstalled = () => serviceDefinition() !== null
 
+/** The program a launchd plist / systemd unit starts (`null`: not parseable). */
+function serviceProgram(definition: string): string | null {
+  const match = isMac
+    ? /<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]+)<\/string>/.exec(definition)
+    : /^ExecStart=\s*"?([^"\s]+)/m.exec(definition)
+  return match?.[1] ?? null
+}
+
 /**
- * Manages the local codync-host (binary, background service, health): bundled with the app,
+ * Manages the local kith-serve (binary, background service, health): bundled with the app,
  * else a Homebrew / cargo install.
  */
 export class HostController extends EventEmitter {
@@ -86,22 +95,30 @@ export class HostController extends EventEmitter {
   private expectedHash: string | null = null
   private failures = 0
   private preparingForUpdate = false
+  /**
+   * A service this app didn't write (`kith serve start` installs dev.kith.serve with HQ_BIN in its
+   * environment, running ~/.kith/serve/bin/kith-serve). The app uses it as its host and never
+   * reinstalls it: a reinstall would rewrite the plist for the bundled binary and drop HQ_BIN.
+   * Windows services stay the app's own.
+   */
+  private adopted = false
 
   get binary(): string | null {
     const candidates = [
-      app.isPackaged && isMac ? join(process.resourcesPath, 'codync-host') : null,
-      app.isPackaged && isWindows ? join(process.resourcesPath, 'codync-host.exe') : null,
-      process.env.CODYNC_HOST_BIN ?? null,
+      app.isPackaged && isMac ? join(process.resourcesPath, 'kith-serve') : null,
+      app.isPackaged && isWindows ? join(process.resourcesPath, 'kith-serve.exe') : null,
+      process.env.KITH_SERVE_BIN ?? null,
       ...(identity.environment === 'dev' ? [
-        join(__dirname, '../../build/native/codync-host'),
-        join(__dirname, '../../../../serve/host/target/debug/codync-host'),
-        join(homedir(), '.local/bin/codync-dev-host'),
+        join(__dirname, '../../build/native/kith-serve'),
+        join(process.env.CARGO_TARGET_DIR ?? join(__dirname, '../../../../serve/host/target'), 'dev-app/kith-serve'),
+        // What `kith serve start` installs.
+        join(homedir(), '.kith/serve/bin/kith-serve'),
       ] : [
-        join(homedir(), '.local/bin/codync-host'),
-        '/opt/homebrew/bin/codync-host',
-        '/usr/local/bin/codync-host',
-        '/usr/bin/codync-host',
-        join(homedir(), '.cargo/bin/codync-host'),
+        join(homedir(), '.local/bin/kith-serve'),
+        '/opt/homebrew/bin/kith-serve',
+        '/usr/local/bin/kith-serve',
+        '/usr/bin/kith-serve',
+        join(homedir(), '.cargo/bin/kith-serve'),
       ]),
     ]
     return candidates.find((c): c is string => !!c && existsSync(c)) ?? null
@@ -129,8 +146,22 @@ export class HostController extends EventEmitter {
     return prefs.get('hostUninstalled') === true
   }
 
+  /** The installed service runs a binary that exists and isn't the bundled one. */
+  private foreignService() {
+    if (devPort !== null || isWindows) return false
+    const definition = serviceDefinition()
+    const program = definition === null ? null : serviceProgram(definition)
+    if (!program || !existsSync(program)) return false
+    const bin = this.binary
+    // The dev run's own binary can be the one `kith serve start` installed: still not ours to reinstall.
+    if (isKithServeService(definition!, program, homedir(), identity.dataFolder)) return true
+    return !bin || (!serviceRuns(bin) && !samePath(resolved(program), resolved(bin)))
+  }
+
   async refresh() {
     if (this.preparingForUpdate) return
+    this.adopted = this.foreignService()
+    if (this.adopted) return this.connect()
     if (!this.binary && devPort === null) return this.setState({ kind: 'missingBinary' })
     if (devPort === null && prefs.get('hostRestartAfterAppUpdate') === true && serviceInstalled()) return this.install()
     if (devPort === null && !serviceInstalled()) {
@@ -155,6 +186,7 @@ export class HostController extends EventEmitter {
   /** A service operation must never invoke the other environment's binary. */
   async install() {
     const bin = this.binary
+    if (this.adopted) return this.kickstart()
     if (this.preparingForUpdate || this.installing || !bin || devPort !== null) return
     this.installing = true
     this.stopLoop()
@@ -171,6 +203,21 @@ export class HostController extends EventEmitter {
       }
     } catch (error) {
       this.setState({ kind: 'failed', message: error instanceof Error ? error.message : String(error) })
+    } finally {
+      this.installing = false
+    }
+  }
+
+  /** Asks the service manager to restart an adopted service; the health loop picks it up again. */
+  private async kickstart() {
+    if (this.installing) return
+    this.installing = true
+    try {
+      const result = isMac
+        ? await run('launchctl', ['kickstart', '-k', `gui/${process.getuid?.() ?? 501}/${identity.hostLabel}`])
+        : await run('systemctl', ['--user', 'restart', identity.systemdUnit])
+      if (result.status !== 0) this.setState({ kind: 'failed', message: result.output || 'The host service could not be restarted.' })
+      else this.failures = 0
     } finally {
       this.installing = false
     }
@@ -201,7 +248,8 @@ export class HostController extends EventEmitter {
 
   async uninstall(): Promise<boolean> {
     const bin = this.binary
-    if (!bin || devPort !== null) return false
+    // An adopted service belongs to `kith serve`; stop it there.
+    if (!bin || devPort !== null || this.adopted) return false
     try {
       await this.verifyBinary(bin)
       this.stopLoop()
@@ -223,7 +271,7 @@ export class HostController extends EventEmitter {
    * running program). Linux uses the installed host, which an app update leaves alone.
    */
   async prepareForUpdate() {
-    if (devPort !== null || !bundlesHost) return
+    if (devPort !== null || !bundlesHost || this.adopted) return
     if (this.installing) throw new Error('The host is being installed. Try again when it finishes.')
     this.preparingForUpdate = true
     if (serviceInstalled()) prefs.set('hostRestartAfterAppUpdate', true)
@@ -245,7 +293,7 @@ export class HostController extends EventEmitter {
 
   async isIdleForUpdate(): Promise<boolean> {
     if (this.installing || this.preparingForUpdate || devPort !== null) return false
-    if (!serviceInstalled()) return true
+    if (this.adopted || !serviceInstalled()) return true
     const health = await fetchHealth()
     return health?.busy === false
   }
@@ -278,7 +326,7 @@ export class HostController extends EventEmitter {
     }
     void (async () => {
       const bin = this.binary
-      if (bin && devPort === null) this.expectedHash = await hashFile(bin)
+      if (bin && devPort === null && !this.adopted) this.expectedHash = await hashFile(bin)
       void tick()
     })()
   }
@@ -294,7 +342,7 @@ export class HostController extends EventEmitter {
     }
     const token = await readToken()
     if (!token) return false
-    if (devPort === null) {
+    if (devPort === null && !this.adopted) {
       // A rebuild can change the host without changing the release version.
       const bin = this.binary
       if (!this.expectedHash || !bin) return false
@@ -345,8 +393,8 @@ const samePath = (a: string | undefined, b: string) => (isWindows ? a?.toLowerCa
 function serviceRuns(bin: string) {
   const service = serviceDefinition()
   if (service === null) return false
-  // Windows' service starts the launcher next to the host (codync-hostw.exe).
-  const runs = (path: string) => service.includes(isWindows ? path.replace(/codync-host\.exe$/, identity.supervisor) : path)
+  // Windows' service starts the launcher next to the host (kith-servew.exe).
+  const runs = (path: string) => service.includes(isWindows ? path.replace(/kith-serve\.exe$/, identity.supervisor) : path)
   return runs(bin) || runs(resolved(bin))
 }
 
