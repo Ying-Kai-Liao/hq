@@ -51,6 +51,8 @@ export function systemdProgram(definition: string): string | null {
       i += 2
     } else out += SYSTEMD_ESCAPES[next] ?? next
   }
+  // The installer doubles `%` (specifiers) and `$` (variables); systemd undoes that when it runs the unit.
+  out = out.replace(/%%/g, '%').replace(/\$\$/g, '$')
   return out === '' ? null : out
 }
 

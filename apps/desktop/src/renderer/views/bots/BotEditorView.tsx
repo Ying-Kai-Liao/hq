@@ -108,7 +108,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
 }) {
   const store = useStore()
   const [pickingAvatar, setPickingAvatar] = useState(false)
-  const crew = draft.id ? crewName({ id: draft.id, name: draft.name, kind: 'bot' }) : null
+  const crew = draft.id ? crewName({ id: draft.id, name: draft.name, kind: store.bots.get(draft.id)?.kind ?? 'agent' }) : null
   const [pickingFolder, setPickingFolder] = useState(false)
   const [viewingSkill, setViewingSkill] = useState<SkillRef | null>(null)
   const avatarRef = useRef<HTMLButtonElement>(null)

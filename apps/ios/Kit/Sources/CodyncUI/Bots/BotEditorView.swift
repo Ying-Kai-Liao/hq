@@ -172,7 +172,7 @@ struct BotSettingsForm: View {
         VStack(alignment: .leading, spacing: 30) {
             CardSection("Profile") {
                 VStack(alignment: .leading, spacing: 12) {
-                    if let crew = CrewAvatar.name(for: draft) {
+                    if let crew = CrewAvatar.name(for: draft, isGroup: model.bots[draft.id ?? ""]?.isGroup ?? false) {
                         // The portrait wins over the stored shape and colour, so there is nothing to pick.
                         ValueRow("Avatar") {
                             CharacterAvatar(crew: crew, size: 28)
@@ -193,7 +193,7 @@ struct BotSettingsForm: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("Edit Bot avatar")
                     }
-                    if pickingAvatar, CrewAvatar.name(for: draft) == nil {
+                    if pickingAvatar, CrewAvatar.name(for: draft, isGroup: model.bots[draft.id ?? ""]?.isGroup ?? false) == nil {
                         AvatarPicker(shape: $draft.avatarShape, color: $draft.avatarColor)
                             .transition(.opacity.combined(with: .move(edge: .top)))
                     }

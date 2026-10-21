@@ -224,8 +224,7 @@ export function CrewPortrait({ crew, size = 40 }: { crew: string; size?: number 
 
 export function BotAvatar({ bot, size = 40, animated = true }: { bot: Bot; size?: number; animated?: boolean }) {
   const crew = crewName(bot)
-  const portrait = crew ? <CrewPortrait crew={crew} size={size} /> : null
-  if (portrait) return portrait
+  if (crew && crewURL.has(crew)) return <CrewPortrait crew={crew} size={size} />
   return <CharacterAvatar shape={bot.avatarShape} color={bot.avatarColor} size={size} mood={moodOf(bot, animated)} />
 }
 

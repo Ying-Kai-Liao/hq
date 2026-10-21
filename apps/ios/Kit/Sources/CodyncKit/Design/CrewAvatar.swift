@@ -16,9 +16,9 @@ public enum CrewAvatar {
 
     /// A saved bot's draft in the editor: its portrait replaces the avatar picker, because the
     /// portrait wins over any stored shape and colour (every bot has them, chosen or not).
-    public static func name(for draft: BotDraft) -> String? {
+    public static func name(for draft: BotDraft, isGroup: Bool) -> String? {
         guard let id = draft.id else { return nil }
-        return name(id: id, name: draft.name, isGroup: false)
+        return name(id: id, name: draft.name, isGroup: isGroup)
     }
 
     static func name(id botId: String, name botName: String, isGroup: Bool) -> String? {

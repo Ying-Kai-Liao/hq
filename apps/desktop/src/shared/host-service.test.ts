@@ -25,6 +25,7 @@ test('systemd ExecStart: plain, prefixed and quoted programs', () => {
   assert.equal(systemdProgram('ExecStart=/home/me/My\\sTools/k a'), '/home/me/My Tools/k')
   assert.equal(systemdProgram('ExecStart="/h/a\\"b\\\\c/k" x'), '/h/a"b\\c/k')
   assert.equal(systemdProgram('ExecStart="/h/a\\x20b/k"'), '/h/a b/k')
+  assert.equal(systemdProgram('ExecStart="/h/50%% Tools/$$bin/k" serve'), '/h/50% Tools/$bin/k')
   assert.equal(systemdProgram('[Service]\nRestart=always'), null)
 })
 
