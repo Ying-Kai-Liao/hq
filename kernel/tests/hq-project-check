@@ -43,7 +43,7 @@ check "paths absolute, parent and memory set" "is \"d['projects'][0]['paths'][0]
 cd "$T/work/beta" || exit 1
 launch -p alpha; rc=$?
 check "launch-json -p carries the project" "is \"' '.join([d['project'], d['env']['HQ_PROJECT'], str('<session project=\\\"alpha\\\"' in d['system_prompt'])])\" 'alpha alpha True'"
-launch -p alpha --launch-json
+OUT=$("$HQ" echo -p alpha --launch-json 2>/dev/null)
 check "launch-json -p in either argument order" "is \"d['project']\" alpha"
 launch
 check "launch-json with no -p and no project here: null" "is \"d['project']\" None"
