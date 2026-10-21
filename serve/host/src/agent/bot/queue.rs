@@ -56,7 +56,7 @@ impl Actor {
             Cmd::CancelAsk { id } => {
                 self.queue.retain(|q| !matches!(q, Queued::BotRequest(a) if a.expects_reply() && a.id == id));
                 if self.active_request.as_ref().is_some_and(|a| a.expects_reply() && a.id == id) {
-                    self.hub.team.cancel_from(&self.cfg.id);
+                    self.hub.team.cancel_from(&self.rt);
                     self.stop_requested = true;
                     // The request has expired. Kill only its process so a harness
                     // ignoring cooperative cancellation cannot block the queue.
@@ -71,6 +71,8 @@ impl Actor {
             Cmd::SendFile { path, name, cancelled, reply } => self.begin_file(path, name, cancelled, reply),
             Cmd::Stop => self.stop().await,
             Cmd::Permission { entry_id, option_id } => self.answer_permission(&entry_id, option_id).await,
+            // A group lane's (see `Hub::send_cmd`): a room turn that runs finishes; the next one starts afresh.
+            Cmd::NewSession if !self.is_main() => self.forget_session(),
             Cmd::NewSession => {
                 if self.turn.is_some() {
                     self.stop().await;
@@ -111,9 +113,11 @@ impl Actor {
                     if let Some(c) = self.conn.take() {
                         c.acp.kill().await;
                     }
-                    for root in self.thread_roots() {
+                    for root in self.own_thread_roots() {
                         self.set_session(Some(&root), None);
                     }
+                    self.thread_sessions.clear();
+                    // Its own chat's or group lane's session; a thread's went with the loop above.
                     if self.session_id.is_some() {
                         self.forget_session();
                         self.notice(
@@ -129,15 +133,19 @@ impl Actor {
         true
     }
 
+    /// Stops this place: its running turn and everything queued here. The bot's other places carry on.
     pub(super) async fn stop(&mut self) {
-        self.hub.team.cancel_from(&self.cfg.id);
-        if let Err(error) = self.hub.routines.cancel_queued(&self.hub.store, &self.cfg.id) {
-            tracing::error!(error = format!("{error:#}"), "couldn't cancel queued routines");
+        self.hub.team.cancel_from(&self.rt);
+        // Routines run in the bot's own chat.
+        if self.is_main() {
+            if let Err(error) = self.hub.routines.cancel_queued(&self.hub.store, &self.cfg.id) {
+                tracing::error!(error = format!("{error:#}"), "couldn't cancel queued routines");
+            }
+            if self.active_routine.is_none() {
+                self.hub.routines.release(&self.cfg.id);
+            }
         }
-        if self.active_routine.is_none() {
-            self.hub.routines.release(&self.cfg.id);
-        }
-        // Queued messages are dropped too: Stop means "stop everything".
+        // Queued messages are dropped too: Stop means "stop everything here".
         for queued in self.queue.drain(..) {
             let Queued::User { entry_id, .. } = queued else { continue };
             if let Some(mut e) = self.hub.store.entry(&entry_id) {
@@ -166,13 +174,13 @@ impl Actor {
             })
             .collect();
         let latest = typed(entry_id);
-        let (hub, bot, entry_id) = (self.hub.clone(), self.cfg.id.clone(), entry_id.to_owned());
+        let (hub, actor, entry_id) = (self.hub.clone(), self.rt.clone(), entry_id.to_owned());
         tokio::spawn(async move {
             let route = router::route(&hub, &task, &recent, &latest).await;
             if route != Route::Merge
-                && let Err(error) = hub.send_cmd(&bot, Cmd::Routed { entry_id, route })
+                && let Err(error) = hub.send_to_actor(&actor, Cmd::Routed { entry_id, route })
             {
-                tracing::warn!(bot, error = format!("{error:#}"), "couldn't apply a routed message");
+                tracing::warn!(actor, error = format!("{error:#}"), "couldn't apply a routed message");
             }
         });
     }
@@ -357,7 +365,7 @@ impl Actor {
         if self.routine_completion.is_none() {
             self.set_inflight(false);
         }
-        self.hub.set_runtime(&self.id(), |r| {
+        self.hub.set_runtime(&self.rt, |r| {
             r.status = BotStatus::Error;
             r.activity = "Couldn't start".into();
             r.started_at = None;
@@ -365,7 +373,7 @@ impl Actor {
             r.message = None;
             r.session = None;
         });
-        self.hub.team.cancel_from(&self.cfg.id);
+        self.hub.team.cancel_from(&self.rt);
     }
 
     /// When `e` asks for signing in: marks the harness signed out and puts a sign-in card in the
@@ -470,7 +478,7 @@ impl Actor {
             (Some(root), true) => format!("{}\t{root}", now_ms()),
             (None, true) => now_ms().to_string(),
         };
-        if let Err(error) = self.hub.store.kv_set(&inflight_key(&self.cfg.id), &value) {
+        if let Err(error) = self.hub.store.kv_set(&inflight_key(&self.rt), &value) {
             tracing::warn!(bot = %self.cfg.id, error = format!("{error:#}"), "couldn't record the running turn");
         }
     }

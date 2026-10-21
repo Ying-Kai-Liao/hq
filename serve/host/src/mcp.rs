@@ -115,9 +115,12 @@ async fn computer_tools(port: u16, token: &str) -> Value {
 }
 
 /// One tool call through the host. Failures are tool errors the agent can read, not protocol errors.
-async fn call(port: u16, token: &str, bot: &str, params: &Value, server: Server) -> Value {
+/// `actor`: the `--bot` this server was started with, the key of the bot's actor that runs it
+/// (see `agent::bot::actor_key`), so a call reaches the turn of the place it came from.
+async fn call(port: u16, token: &str, actor: &str, params: &Value, server: Server) -> Value {
     let body = json!({
-        "botId": bot,
+        "botId": crate::agent::bot::bot_of(actor),
+        "actor": actor,
         "memoryLane": std::env::var("CODYNC_MEMORY_LANE").ok(),
         "name": params["name"],
         "arguments": params.get("arguments").filter(|a| a.is_object()).cloned().unwrap_or_else(|| json!({})),

@@ -1,7 +1,6 @@
 //! Bot snapshots shared by full, incremental and live synchronization.
 
 use super::Hub;
-use crate::LockExt;
 use crate::store::{BotRow, ReadScope};
 use anyhow::Result;
 use serde_json::{Value, json};
@@ -25,8 +24,12 @@ impl Hub {
                 ..self.group_runtime(cfg)
             }
         } else {
-            self.runtime.locked().get(&cfg.id).cloned().unwrap_or_default()
+            self.bot_runtime(&cfg.id)
         };
+        // Every place it works in at once; `workingChat`/`workingThread` name one of them.
+        let lanes: Vec<Value> =
+            self.working_lanes(cfg).iter().map(|l| json!({"chat": l.chat, "thread": l.thread})).collect();
+        v["workingLanes"] = lanes.into();
         let last = self.store.last_message(&cfg.id);
         v["rev"] = row.rev.into();
         v["deleted"] = row.deleted.into();

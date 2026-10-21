@@ -101,7 +101,7 @@ async fn stop_ends_a_turn_whose_agent_ignores_the_cancel() {
 }
 
 #[tokio::test]
-async fn a_member_busy_elsewhere_answers_only_the_latest_room_turn() {
+async fn a_member_busy_in_its_own_chat_still_answers_the_room() {
     if python_missing() {
         return;
     }
@@ -121,22 +121,16 @@ async fn a_member_busy_elsewhere_answers_only_the_latest_room_turn() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     host.call("send", json!({"botId": group, "text": "first"})).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    host.call("send", json!({"botId": group, "text": "second"})).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    std::fs::write(folder.join("release"), "").unwrap();
 
+    // The room has its own session (and agent): it answers while the member's own chat still waits.
     let reply =
         host.wait_for(&group, Duration::from_secs(30), |e| e["kind"] == "agent" && e["data"]["final"] == true).await;
     assert_eq!(reply["data"]["text"], "reply: group");
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    // The room turn "second" replaced was skipped: no room prompt saw "first" without "second".
+    assert!(!folder.join("release").exists());
     let prompts = std::fs::read_to_string(folder.join("prompts.jsonl")).unwrap();
-    let rooms: Vec<&str> = prompts.lines().filter(|p| p.contains("[Group chat")).collect();
-    assert!(rooms.iter().any(|p| p.contains("User: second")), "{rooms:?}");
-    assert!(!rooms.iter().any(|p| p.contains("User: first") && !p.contains("User: second")), "{rooms:?}");
-    let finals = host.entries(&group).await.into_iter().filter(|e| e["kind"] == "agent" && e["data"]["final"] == true);
-    assert_eq!(finals.count(), 1);
+    let room = prompts.lines().find(|p| p.contains("[Group chat")).unwrap();
+    assert!(!room.contains("BLOCK"), "nothing from the member's own chat reaches the room's session: {room}");
+    std::fs::write(folder.join("release"), "").unwrap();
 }
 
 /// A final reply that starts with `speed` and quotes `word` from its prompt.

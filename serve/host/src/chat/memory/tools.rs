@@ -88,28 +88,29 @@ pub fn tools() -> Value {
     tools
 }
 
-pub async fn call(hub: &Arc<Hub>, bot_id: &str, name: &str, args: &Value) -> Result<Value> {
+/// `actor`: the bot's actor whose agent called (see `agent::bot::actor_key`); its turn is where a write came from.
+pub async fn call(hub: &Arc<Hub>, bot_id: &str, actor: &str, name: &str, args: &Value) -> Result<Value> {
     let cfg = hub.store.bot(bot_id)?.filter(|b| !b.deleted).ok_or_else(|| anyhow!("unknown bot"))?.config;
     let text = || args["text"].as_str().map(str::to_owned).ok_or_else(|| anyhow!("text required"));
     let id = || args["id"].as_i64().ok_or_else(|| anyhow!("id required"));
     match name {
-        "remember" => write(hub, &cfg, Action::Remember { text: text()?, shared: args["shared"] == true }).await,
-        "revise_memory" => write(hub, &cfg, Action::Revise { entry: id()?, text: text()? }).await,
-        "archive_memory" => write(hub, &cfg, Action::Archive { entry: id()? }).await,
+        "remember" => write(hub, &cfg, actor, Action::Remember { text: text()?, shared: args["shared"] == true }).await,
+        "revise_memory" => write(hub, &cfg, actor, Action::Revise { entry: id()?, text: text()? }).await,
+        "archive_memory" => write(hub, &cfg, actor, Action::Archive { entry: id()? }).await,
         "search_memory" => search_memory(hub, &cfg, args["query"].as_str().unwrap_or_default()).await,
         "search_history" => search_history(hub, &cfg, args).await,
-        "read_memory" | "edit_memory" => super::file_tools::call(hub, &cfg, name, args).await,
+        "read_memory" | "edit_memory" => super::file_tools::call(hub, &cfg, actor, name, args).await,
         _ => bail!("unknown memory tool: {name}"),
     }
 }
 
 /// Writes at once, whatever the bot's permission: memory isn't an action on the user's computer, and the user
 /// reviews and changes it in the bot's memory settings.
-async fn write(hub: &Arc<Hub>, cfg: &BotConfig, action: Action) -> Result<Value> {
+async fn write(hub: &Arc<Hub>, cfg: &BotConfig, actor: &str, action: Action) -> Result<Value> {
     let hub = hub.clone();
     let cfg = cfg.clone();
+    let turn = hub.runtime(actor);
     tokio::task::spawn_blocking(move || {
-        let turn = hub.runtime(&cfg.id);
         let before = super::current_revision(&hub.store, &cfg.id);
         let entry = notices::apply(&hub, &cfg, turn.lane, turn.message, &action)?;
         // The session that wrote it needs no notice about its own write.

@@ -98,7 +98,7 @@ impl Actor {
         self.announce = None;
         self.stop_requested = false;
         self.cancel_deadline = None;
-        self.hub.team.start_turn(&self.cfg.id, self.active_request.as_ref());
+        self.hub.team.start_turn(&self.rt, self.active_request.as_ref());
         self.exit_tail = None;
         self.seg = Seg::None;
         self.tools.clear();
@@ -112,7 +112,7 @@ impl Actor {
         self.set_inflight(
             self.active_request.is_none() && self.active_group.is_none() && self.active_routine.is_none(),
         );
-        self.hub.set_runtime(&self.id(), |r| {
+        self.hub.set_runtime(&self.rt, |r| {
             r.status = BotStatus::Working;
             r.activity = match (self.compacting.is_some(), hidden) {
                 (true, _) => "Summarizing the earlier conversation…",
@@ -137,7 +137,7 @@ impl Actor {
             self.ensure_session(slot.as_deref()).await?;
         }
         let session = self.turn_session.clone();
-        self.hub.set_runtime(&self.id(), |r| r.session.clone_from(&session));
+        self.hub.set_runtime(&self.rt, |r| r.session.clone_from(&session));
         if let Some(sid) = session {
             self.sync_fast_mode(&sid).await;
         }
@@ -154,8 +154,8 @@ impl Actor {
             if self.routine_completion.is_none() {
                 self.set_inflight(false);
             }
-            self.hub.team.cancel_from(&self.cfg.id);
-            self.hub.set_runtime(&self.id(), |r| {
+            self.hub.team.cancel_from(&self.rt);
+            self.hub.set_runtime(&self.rt, |r| {
                 r.status = BotStatus::Idle;
                 r.activity = String::new();
                 r.started_at = None;
@@ -180,7 +180,7 @@ impl Actor {
         let sid = self.turn_session.clone().ok_or_else(|| anyhow!("no session"))?;
         let prompt =
             if std::mem::take(&mut self.raw_prompt) { text.to_owned() } else { self.compose(&sid, text).await? };
-        self.hub.set_runtime(&self.id(), |r| r.activity = "Thinking…".into());
+        self.hub.set_runtime(&self.rt, |r| r.activity = "Thinking…".into());
         let acp = self.conn.as_ref().ok_or_else(|| anyhow!("agent not running"))?.acp.clone();
         let params = json!({
             "sessionId": sid,
@@ -337,7 +337,7 @@ impl Actor {
             let turn = crate::chat::naming::Turn { user, agent: agent.clone() };
             let _ = self.dreamer.send(memory::DreamEvent::Turn(turn));
         }
-        self.hub.set_runtime(&self.id(), |r| {
+        self.hub.set_runtime(&self.rt, |r| {
             r.status = if failed { BotStatus::Error } else { BotStatus::Idle };
             r.activity = String::new();
             r.started_at = None;
@@ -345,7 +345,7 @@ impl Actor {
             r.message = None;
             r.session = None;
         });
-        self.hub.team.cancel_from(&self.cfg.id);
+        self.hub.team.cancel_from(&self.rt);
         // A room turn's news comes from the group once the room is done (see `group`).
         let more = self.queue.iter().any(|q| matches!(q, Queued::User { .. }));
         if !self.stop_requested
@@ -383,7 +383,7 @@ impl Actor {
         } else {
             TurnSource::User
         };
-        let started = self.hub.runtime(&self.id()).started_at.unwrap_or_else(now_ms);
+        let started = self.hub.runtime(&self.rt).started_at.unwrap_or_else(now_ms);
         let ms = now_ms() - started;
         analytics::turn_finished(&self.hub, &self.cfg.backend, outcome, stop_reason, failure, source, ms);
     }

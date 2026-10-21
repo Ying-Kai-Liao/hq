@@ -1,9 +1,11 @@
-# ACP agent for the router test: echoes the whole prompt, then works in short steps for ~6 s
-# and stops at the next step after session/cancel.
-import json, sys, threading, time
+# ACP agent for the router and parallel tests: echoes its session and the whole prompt, then works
+# in short steps for ~6 s and stops at the next step after session/cancel. Each process names its
+# sessions after its pid and a count, so a reply shows which agent process and session answered.
+import json, os, sys, threading, time
 
 lock = threading.Lock()
 cancelled = set()
+sessions = 0
 
 
 def send(m):
@@ -19,7 +21,7 @@ def text(sid, t):
 
 def turn(rid, sid, prompt):
     cancelled.discard(sid)
-    text(sid, "got: " + prompt + "\n")
+    text(sid, f"[{sid}] got: " + prompt + "\n")
     for i in range(20):
         time.sleep(0.3)
         if sid in cancelled:
@@ -35,7 +37,8 @@ for line in sys.stdin:
     if meth == "initialize":
         send({"jsonrpc": "2.0", "id": m["id"], "result": {"protocolVersion": 1, "agentCapabilities": {"loadSession": False}}})
     elif meth == "session/new":
-        send({"jsonrpc": "2.0", "id": m["id"], "result": {"sessionId": "s1"}})
+        sessions += 1
+        send({"jsonrpc": "2.0", "id": m["id"], "result": {"sessionId": f"s{os.getpid()}-{sessions}"}})
     elif meth == "session/prompt":
         said = " ".join(b.get("text", "") for b in p.get("prompt", []) if b.get("type") == "text")
         threading.Thread(target=turn, args=(m["id"], p["sessionId"], said), daemon=True).start()

@@ -39,9 +39,10 @@ pub fn tools() -> Value {
     }])
 }
 
-pub async fn call(hub: &Arc<Hub>, bot: &str, name: &str, args: &Value) -> Result<Value> {
+/// `actor`: the bot's actor whose agent called (see `agent::bot::actor_key`); the message goes to its turn.
+pub async fn call(hub: &Arc<Hub>, actor: &str, name: &str, args: &Value) -> Result<Value> {
     if name == "send_file" {
-        return send_file(hub, bot, args).await;
+        return send_file(hub, actor, args).await;
     }
     if name != "send_message" {
         bail!("unknown chat tool: {name}");
@@ -51,7 +52,7 @@ pub async fn call(hub: &Arc<Hub>, bot: &str, name: &str, args: &Value) -> Result
         bail!("text must be nonempty and at most {MAX_MESSAGE_BYTES} bytes");
     }
     let (reply, delivered) = tokio::sync::oneshot::channel();
-    hub.send_cmd(bot, Cmd::SendToUser { text: text.to_owned(), reply })?;
+    hub.send_to_actor(actor, Cmd::SendToUser { text: text.to_owned(), reply })?;
     tokio::time::timeout(DELIVERY_TIMEOUT, delivered)
         .await
         .map_err(|_| anyhow!("the bot didn't take the message in time"))?
@@ -66,7 +67,7 @@ impl Drop for CancelCopy {
     }
 }
 
-async fn send_file(hub: &Arc<Hub>, bot: &str, args: &Value) -> Result<Value> {
+async fn send_file(hub: &Arc<Hub>, actor: &str, args: &Value) -> Result<Value> {
     let path = args["path"].as_str().filter(|s| !s.is_empty()).ok_or_else(|| anyhow!("path is required"))?;
     let name = match args.get("name") {
         Some(value) => Some(crate::chat::files::name(value.as_str().ok_or_else(|| anyhow!("name must be a string"))?)?),
@@ -74,7 +75,7 @@ async fn send_file(hub: &Arc<Hub>, bot: &str, args: &Value) -> Result<Value> {
     };
     let guard = CancelCopy(Arc::new(std::sync::atomic::AtomicBool::new(false)));
     let (reply, delivered) = tokio::sync::oneshot::channel();
-    hub.send_cmd(bot, Cmd::SendFile { path: path.to_owned(), name, cancelled: guard.0.clone(), reply })?;
+    hub.send_to_actor(actor, Cmd::SendFile { path: path.to_owned(), name, cancelled: guard.0.clone(), reply })?;
     let result = tokio::time::timeout(Duration::from_secs(60), delivered).await;
     let delivered = result.map_err(|_| anyhow!("file sharing timed out; check the conversation before retrying"))?;
     delivered.map_err(|_| anyhow!("file sharing interrupted"))??;

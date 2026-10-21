@@ -1,7 +1,7 @@
 //! Bot and chat methods: roster, messages, uploads, memory, routines and the bots' own MCP calls.
 
 use super::marketplace::connector_ids;
-use super::str_arg;
+use super::{actor_arg, str_arg};
 use crate::agent::bot::Cmd;
 use crate::hub::Hub;
 use crate::market;
@@ -39,18 +39,20 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
         )?,
         "routineCall" => crate::routines::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"])?,
         "memoryCall" => {
-            crate::chat::memory::tool_call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?
+            let (bot, name) = (str_arg(&b, "botId")?, str_arg(&b, "name")?);
+            crate::chat::memory::tool_call(hub, bot, actor_arg(&b, bot), name, &b["arguments"]).await?
         }
         "chatCall" => {
             let (bot, name) = (str_arg(&b, "botId")?, str_arg(&b, "name")?);
             if crate::chat::profile::TOOLS.contains(&name) {
                 crate::chat::profile::call(hub, bot, name, &b["arguments"]).await?
             } else {
-                crate::chat::outbox::call(hub, bot, name, &b["arguments"]).await?
+                crate::chat::outbox::call(hub, actor_arg(&b, bot), name, &b["arguments"]).await?
             }
         }
         "teamCall" => {
-            crate::chat::team::call(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, &b["arguments"]).await?
+            let (bot, name) = (str_arg(&b, "botId")?, str_arg(&b, "name")?);
+            crate::chat::team::call(hub, actor_arg(&b, bot), name, &b["arguments"]).await?
         }
         "history" => {
             let bot = str_arg(&b, "botId")?;
@@ -217,11 +219,18 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             let e = hub.add_entry(&Lane::main(bot), EntryKind::Notice, hub.store.max_turn(bot), &data);
             json!({"entry": e})
         }
+        // Stops where the user pressed it: the bot's chat, or the thread `threadId`; `all` stops the bot everywhere.
+        // A group stops as a whole.
         "stop" => {
             let bot = str_arg(&b, "botId")?;
             match hub.store.bot(bot)? {
                 Some(row) if row.config.is_group() => hub.groups.stop(hub, bot),
-                _ => hub.send_cmd(bot, Cmd::Stop)?,
+                _ if b["all"] == true => hub.send_cmd(bot, Cmd::Stop)?,
+                _ => {
+                    let lane =
+                        b["threadId"].as_str().map_or_else(|| Lane::main(bot), |root| Lane::in_thread(bot, root));
+                    hub.stop_place(bot, &lane)?;
+                }
             }
             json!({})
         }

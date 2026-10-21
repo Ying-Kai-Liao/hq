@@ -225,7 +225,7 @@ async fn timeout_and_recipient_errors_release_waiters() {
         assert!(f.hub.team.0.locked().pending.is_empty());
     }
     let source = visible_bot(&f.hub, "a").unwrap();
-    let error = ask(&f.hub, &source, "b", "BLOCK timed request", Duration::from_millis(100)).await.unwrap_err();
+    let error = ask(&f.hub, &source, "a", "b", "BLOCK timed request", Duration::from_millis(100)).await.unwrap_err();
     assert!(error.to_string().contains("timed out"));
     f.until(|| f.hub.runtime("b").status == BotStatus::Idle).await;
     assert!(f.hub.team.0.locked().pending.is_empty());
@@ -275,7 +275,7 @@ async fn queued_requests_are_not_merged_and_cancelled_requests_never_execute() {
     let third = f.request("BLOCK third request");
     f.until(|| f.prompts().len() == 3).await;
     let source = visible_bot(&f.hub, "c").unwrap();
-    let error = ask(&f.hub, &source, "b", "must never run", Duration::from_millis(30)).await.unwrap_err();
+    let error = ask(&f.hub, &source, "c", "b", "must never run", Duration::from_millis(30)).await.unwrap_err();
     assert!(error.to_string().contains("timed out"));
     std::fs::write(f.dir.join("b/release"), "").unwrap();
     assert!(third.await.unwrap().is_ok());

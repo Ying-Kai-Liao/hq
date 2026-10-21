@@ -187,7 +187,7 @@ impl Actor {
         if let Some(e) = self.add(EntryKind::Permission, turn, data) {
             self.perms.insert(e.id, rpc_id);
         }
-        self.hub.set_runtime(&self.cfg.id, |r| {
+        self.hub.set_runtime(&self.rt, |r| {
             r.status = BotStatus::NeedsInput;
             r.activity = format!("Needs approval: {title}");
         });
@@ -218,7 +218,7 @@ impl Actor {
             self.hub.set_entry(entry_id, &e.data);
         }
         if self.perms.is_empty() && self.turn.is_some() {
-            self.hub.set_runtime(&self.cfg.id, |r| {
+            self.hub.set_runtime(&self.rt, |r| {
                 r.status = BotStatus::Working;
                 r.activity = "Continuing…".into();
             });

@@ -94,6 +94,7 @@ impl Actor {
             tracing::warn!(bot = %self.cfg.id, error = format!("{error:#}"), "couldn't store Fast mode support");
         }
         self.fast_support = support.clone();
+        // Clients read Fast mode from the bot's own chat's runtime (`Hub::bot_runtime`), whichever place learned it.
         self.hub.set_runtime(&self.cfg.id, |r| r.fast_mode = support);
     }
 }

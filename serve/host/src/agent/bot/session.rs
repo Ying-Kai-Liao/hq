@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 impl Actor {
     /// Which session a lane's turns use: a thread of the bot's own chat has its own
-    /// (by root); its chat and every group lane use the main one.
+    /// (by root); otherwise the actor's own (`session_id`: its main one, or a group lane's).
     pub(super) fn slot(&self, lane: &Lane) -> Option<String> {
         (lane.chat == self.cfg.id).then(|| lane.thread.clone()).flatten()
     }
@@ -32,7 +32,12 @@ impl Actor {
     pub(super) fn set_session(&mut self, slot: Option<&str>, sid: Option<&str>) {
         let Some(root) = slot else {
             self.session_id = sid.map(str::to_owned);
-            if let Err(error) = self.hub.store.set_session(&self.cfg.id, sid) {
+            let stored = if self.is_main() {
+                self.hub.store.set_session(&self.cfg.id, sid)
+            } else {
+                self.hub.store.kv_set(&lane_key("session", &self.cfg.id, &self.home), sid.unwrap_or_default())
+            };
+            if let Err(error) = stored {
                 tracing::warn!(bot = %self.cfg.id, error = format!("{error:#}"), "couldn't store the session");
             }
             return;
@@ -47,8 +52,12 @@ impl Actor {
         }
     }
 
-    /// Roots of the threads that have a session (stored or loaded).
-    pub(super) fn thread_roots(&self) -> Vec<String> {
+    /// Roots of the thread sessions this actor answers for: a thread's actor, its own; the bot's own chat's, those
+    /// of every thread without an actor of its own (loaded or only stored). Another actor's thread is that one's.
+    pub(super) fn own_thread_roots(&self) -> Vec<String> {
+        if !self.is_main() {
+            return self.home.thread.iter().filter(|_| self.home.chat == self.cfg.id).cloned().collect();
+        }
         let prefix = lane_key("session", &self.cfg.id, &Lane::main(&self.cfg.id)) + "/";
         let mut roots: Vec<String> = self.thread_sessions.keys().cloned().collect();
         roots.extend(
@@ -56,6 +65,7 @@ impl Actor {
         );
         roots.sort();
         roots.dedup();
+        roots.retain(|root| !self.hub.has_place(&self.cfg.id, &Lane::in_thread(&self.cfg.id, root)));
         roots
     }
 
@@ -136,9 +146,10 @@ impl Actor {
             } else {
                 json!([])
             };
+            // `--bot` names this actor, so tool calls reach the turn of the place they came from.
             servers.push(json!({
                 "name": name, "command": exe,
-                "args": ["mcp", name, "--bot", self.cfg.id, "--port", port.to_string()],
+                "args": ["mcp", name, "--bot", self.rt, "--port", port.to_string()],
                 "env": env,
             }));
         }
@@ -161,13 +172,13 @@ impl Actor {
             c.acp.kill().await;
         }
         if self.conn.is_none() {
-            let (hub, id) = (self.hub.clone(), self.cfg.id.clone());
+            let (hub, rt) = (self.hub.clone(), self.rt.clone());
             let mut candidates = launch_commands(&self.cfg, move |msg: &str| {
                 let msg = msg.to_owned();
-                hub.set_runtime(&id, |r| r.activity = msg);
+                hub.set_runtime(&rt, |r| r.activity = msg);
             })
             .await?;
-            self.hub.set_runtime(&self.id(), |r| r.activity = "Starting agent…".into());
+            self.hub.set_runtime(&self.rt, |r| r.activity = "Starting agent…".into());
             // Keys saved from an "environment variable" sign-in.
             let mut env = crate::agent::auth::env(&self.hub.store, &self.cfg.backend)?;
             own_memory::apply(&self.cfg, &mut env, &mut candidates).await;
@@ -199,12 +210,13 @@ impl Actor {
         let servers = self.mcp_servers()?;
         let instructions = self.conn.as_ref().map_or(Instructions::FirstMessage, Conn::instructions);
         let mut forked = false;
+        // A thread forks the bot's main session as it is now; its own chat's actor may have moved it on.
         if let Some(root) = slot
             && self.session_for(slot).is_none()
-            && let Some(main) = self.session_id.clone()
+            && let Some(main) = self.hub.store.bot(&self.cfg.id)?.and_then(|b| b.session_id)
             && self.conn.as_ref().is_some_and(|c| c.sessions.fork)
         {
-            self.hub.set_runtime(&self.cfg.id, |r| r.activity = "Opening the thread…".into());
+            self.hub.set_runtime(&self.rt, |r| r.activity = "Opening the thread…".into());
             let mut params = self.session_params(&servers, Some(&main));
             // The fork keeps the instructions its main session runs with, so it shares its cached prompt.
             let parent = self.snapshot(&main).await?;
@@ -258,7 +270,7 @@ impl Actor {
                 self.set_session(slot, None);
                 return Box::pin(self.ensure_session(slot)).await;
             }
-            self.hub.set_runtime(&self.cfg.id, |r| r.activity = "Resuming session…".into());
+            self.hub.set_runtime(&self.rt, |r| r.activity = "Resuming session…".into());
             let mut params = self.session_params(&servers, Some(&sid));
             if let Some(s) = &snapshot {
                 params["_meta"] = claude_meta(&self.cfg, &s.system);
@@ -347,9 +359,10 @@ impl Actor {
         Err(acp::Failure::error(acp::FailureKind::Timeout, message))
     }
 
-    /// Drops the main ACP session so the next turn starts a fresh one.
+    /// Drops the session of the actor's own place so its next turn starts a fresh one.
     pub(super) fn forget_session(&mut self) {
-        self.set_session(None, None);
+        let slot = self.slot(&self.home);
+        self.set_session(slot.as_deref(), None);
     }
 }
 

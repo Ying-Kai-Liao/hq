@@ -123,6 +123,8 @@ pub struct Bot {
     /// Where the running turn talks: a chat (`None` = its own) and a thread in it.
     pub working_chat: Option<String>,
     pub working_thread: Option<String>,
+    /// Every place it works in at once, as (chat, thread); `None` from a host that runs one place at a time.
+    pub working_lanes: Option<Vec<(String, Option<String>)>>,
 }
 
 fn strs(v: &Value) -> Vec<String> {
@@ -235,12 +237,21 @@ impl Bot {
             members: strs(&v["members"]),
             working_chat: v["workingChat"].as_str().map(str::to_owned),
             working_thread: v["workingThread"].as_str().map(str::to_owned),
+            working_lanes: v["workingLanes"].as_array().map(|lanes| {
+                lanes
+                    .iter()
+                    .filter_map(|l| Some((l["chat"].as_str()?.to_owned(), l["thread"].as_str().map(str::to_owned))))
+                    .collect()
+            }),
         })
     }
 
-    /// Whether the running turn talks in this chat: its main lane (`None`) or that thread.
+    /// Whether a turn talks in this chat now: its main lane (`None`) or that thread.
     pub fn works_in(&self, thread: Option<&str>) -> bool {
-        self.away().is_none() && self.working_thread.as_deref() == thread
+        match &self.working_lanes {
+            Some(lanes) => lanes.iter().any(|(chat, t)| *chat == self.id && t.as_deref() == thread),
+            None => self.away().is_none() && self.working_thread.as_deref() == thread,
+        }
     }
 
     /// The other chat (a group) the running turn talks in, if it isn't this bot's own.

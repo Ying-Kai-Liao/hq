@@ -1,6 +1,11 @@
 //! Admission, capacity and the wait graph for bot requests.
+//!
+//! A requester is a place's actor key (`agent::bot::actor_key`): a bot's chat, threads and groups each
+//! have their own turns, hops and outgoing requests. A recipient is a bot id, the actor of its own chat.
+//! Message quotas count per bot.
 
 use crate::LockExt;
+use crate::agent::bot::bot_of;
 use anyhow::{Result, bail};
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -37,7 +42,7 @@ impl Requests {
         if state.messages >= MAX_PENDING_MESSAGES {
             bail!("too many pending bot messages");
         }
-        let count = state.messages_by_sender.entry(from.to_owned()).or_default();
+        let count = state.messages_by_sender.entry(bot_of(from).to_owned()).or_default();
         if *count >= MAX_PENDING_MESSAGES_PER_SENDER {
             bail!("too many pending bot messages from this bot (limit {MAX_PENDING_MESSAGES_PER_SENDER})");
         }
@@ -61,7 +66,7 @@ impl Requests {
         let mut state = self.0.locked();
         let hops = state.next_hop(from)?;
         let requests = &mut state.pending;
-        if from == to {
+        if bot_of(from) == to {
             bail!("a bot cannot ask itself");
         }
         if requests.len() >= 64 {
@@ -85,22 +90,24 @@ impl Requests {
         Ok((rx, hops))
     }
 
-    pub fn cancel_from(&self, bot: &str) {
+    /// Ends one place's turn: its requests are cancelled and it can't start more until its next turn.
+    pub fn cancel_from(&self, actor: &str) {
         let mut state = self.0.locked();
-        state.active.remove(bot);
-        for request in state.pending.values().filter(|r| r.from == bot) {
+        state.active.remove(actor);
+        for request in state.pending.values().filter(|r| r.from == actor) {
             request.cancel.send_replace(true);
         }
     }
 
-    pub fn start_turn(&self, bot: &str, request: Option<&BotRequest>) {
-        self.0.locked().active.insert(bot.to_owned(), request.map_or(0, |r| r.hops));
+    pub fn start_turn(&self, actor: &str, request: Option<&BotRequest>) {
+        self.0.locked().active.insert(actor.to_owned(), request.map_or(0, |r| r.hops));
     }
 
+    /// A deleted bot: every place's requests, and every request to it.
     pub fn cancel_bot(&self, bot: &str) {
         let mut state = self.0.locked();
-        state.active.remove(bot);
-        for request in state.pending.values().filter(|r| r.from == bot || r.to == bot) {
+        state.active.retain(|actor, _| bot_of(actor) != bot);
+        for request in state.pending.values().filter(|r| bot_of(&r.from) == bot || r.to == bot) {
             request.cancel.send_replace(true);
         }
     }
@@ -134,6 +141,27 @@ mod tests {
         drop(state);
         requests.start_turn("a", None);
         assert_eq!(requests.reserve_message("a").unwrap(), 1);
+    }
+
+    #[test]
+    fn each_place_of_a_bot_has_its_own_requests() {
+        let requests = Requests::default();
+        requests.start_turn("a", None);
+        requests.start_turn("a|a/root", None);
+        let (main, _) = requests.begin("main", "a", "b").unwrap();
+        let (thread, _) = requests.begin("thread", "a|a/root", "b").unwrap();
+        assert!(requests.begin("self", "a|a/root", "a").unwrap_err().to_string().contains("itself"));
+
+        requests.cancel_from("a");
+        assert!(*main.borrow());
+        assert!(!*thread.borrow(), "the chat's turn ending leaves the thread's ask waiting");
+        assert!(requests.reserve_message("a|a/root").is_ok(), "the thread is still working");
+        assert!(requests.reserve_message("a").is_err());
+        assert_eq!(requests.0.locked().messages_by_sender["a"], 1, "quotas count per bot");
+
+        requests.cancel_bot("a");
+        assert!(*thread.borrow());
+        assert!(requests.0.locked().active.is_empty());
     }
 
     #[test]
