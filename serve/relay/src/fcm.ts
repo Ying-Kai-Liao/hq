@@ -68,7 +68,7 @@ export class FcmClient {
   }
 
   async push(token: string, data: Record<string, string>, urgent: boolean, validateOnly = false): Promise<void> {
-    const message = { fid: token, data, android: { priority: urgent ? "HIGH" : "NORMAL", ttl: "3600s" } };
+    const message = { token, data, android: { priority: urgent ? "HIGH" : "NORMAL", ttl: "3600s" } };
     if (encoder.encode(JSON.stringify(message)).length > 4096) throw new FcmError("payload too large");
     for (let attempt = 0; attempt < 2; attempt++) {
       const accessToken = await this.accessToken();

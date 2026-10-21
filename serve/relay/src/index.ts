@@ -31,7 +31,7 @@ interface ApnsTicket { p?: "apns"; t: string; e: ApnsEnv; k: Kind; b?: string }
 interface FcmTicket { p: "fcm"; t: string; k: Kind; c: string; h: string; b?: string; r?: string }
 type TicketPayload = ApnsTicket | FcmTicket;
 
-const BUNDLE_ID = "com.pokai.Codync.ios";
+const BUNDLE_ID = "com.yingkailiao.kith.ios";
 
 // ---- tickets (AES-GCM, key from TICKET_KEY) ----
 
