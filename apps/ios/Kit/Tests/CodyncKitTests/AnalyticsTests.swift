@@ -95,3 +95,23 @@ import Testing
     analytics.record("$exception", p)
     #expect(analytics.pending.isEmpty)
 }
+
+@Test func secretsOverrideBeatsTheBuiltInKeyAndBlankFallsBack() {
+    #expect(Analytics.resolveKey(override: " other-key\n") == "other-key")
+    #expect(Analytics.resolveKey(override: "") == Analytics.defaultKey)
+    #expect(Analytics.resolveKey(override: "  ") == Analytics.defaultKey)
+    #expect(Analytics.resolveKey(override: nil) == Analytics.defaultKey)
+}
+
+@MainActor
+@Test func aChangedKeyIdentifiesTheAccountAgain() throws {
+    let defaults = try #require(UserDefaults(suiteName: "AnalyticsTests-\(UUID())"))
+    var identifies: [Int] = []
+    for key in ["key-a", "key-a", "key-b"] {
+        let analytics = Analytics(defaults: defaults, apiKey: key) { _ in false }
+        analytics.userID = { "user-1" }
+        analytics.capture(.appOpened)
+        identifies.append(analytics.pending.filter { $0.event == "$identify" }.count)
+    }
+    #expect(identifies == [1, 0, 1])
+}
