@@ -32,7 +32,7 @@ const sender: typeof fetch = async function(this: unknown, url, options) {
   assert.equal(String(url), "https://fcm.googleapis.com/v1/projects/test-codync/messages:send");
   assert.equal(new Headers(options?.headers).get("Authorization"), "Bearer test-access");
   const payload = JSON.parse(String(options?.body));
-  assert.equal(payload.message.fid, "CaseSensitiveToken");
+  assert.equal(payload.message.token, "CaseSensitiveToken");
   assert.equal("notification" in payload.message, false);
   assert.deepEqual(payload.message.data, { sealed: "ciphertext" });
   sends++;

@@ -11,16 +11,23 @@ assert.equal(await openTicket(other, ticket), null);
 assert.equal(await openTicket(env, ticket.slice(0, -2) + "AA"), null);
 console.log("ticket tests ok");
 
-const registration = { token: "ab".repeat(32), env: "sandbox", kind: "alert", bundleId: "com.pokai.Codync.ios.dev" };
+const registration = { token: "ab".repeat(32), env: "sandbox", kind: "alert", bundleId: "com.yingkailiao.kith.ios.dev" };
 const response = await worker.fetch(new Request("https://relay.test/register", { method: "POST", body: JSON.stringify(registration) }), env);
 assert.equal(response.status, 200);
 const registered = await response.json() as { ticket: string };
 assert.equal((await openTicket(env, registered.ticket))?.b, registration.bundleId);
-assert.equal(apnsTopic(undefined, "alert"), "com.pokai.Codync.ios");
-assert.equal(apnsTopic(registration.bundleId, "liveactivity"), "com.pokai.Codync.ios.dev.push-type.liveactivity");
+assert.equal(apnsTopic(undefined, "alert"), "com.yingkailiao.kith.ios");
+assert.equal(apnsTopic(registration.bundleId, "liveactivity"), "com.yingkailiao.kith.ios.dev.push-type.liveactivity");
 assert.throws(() => apnsTopic("another.app", "alert"));
 const invalid = await worker.fetch(new Request("https://relay.test/register", { method: "POST", body: JSON.stringify({ ...registration, bundleId: "another.app" }) }), env);
 assert.equal(invalid.status, 400);
+for (const id of ["com.yingkailiao.kith.ios", "com.yingkailiao.kith.ios.dev"]) {
+  const ok = await worker.fetch(new Request("https://relay.test/register", { method: "POST", body: JSON.stringify({ ...registration, bundleId: id }) }), env);
+  assert.equal(ok.status, 200);
+}
+// Codync's IDs are not this relay's anymore.
+const codync = await worker.fetch(new Request("https://relay.test/register", { method: "POST", body: JSON.stringify({ ...registration, bundleId: "com.pokai.Codync.ios" }) }), env);
+assert.equal(codync.status, 400);
 assert.deepEqual([...latestTicketIndices([
   { t: "ab", e: "sandbox", k: "alert" },
   { t: "ab", e: "sandbox", k: "alert", b: registration.bundleId },
