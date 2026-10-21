@@ -5,9 +5,9 @@
 
 Links and folders, the tools hq needs, one backup line (state, memories and each agent: on GitHub,
 behind, or on this Mac only), hq's default permission mode, each agent's checks, services and grants, the people
-setup (memberships, grants and profiles naming no one, shared logins, free shells), the Claude Code plugin, and the
-background jobs: loaded, running, and not stuck (a job whose hq-uv never starts its script has usually lost Full Disk
-Access).
+setup (memberships, grants and profiles naming no one, shared logins, free shells), the Claude Code plugin (and the
+plugins this Mac turns on for every agent), and the background jobs: loaded, running, and not stuck (a job whose
+hq-uv never starts its script has usually lost Full Disk Access).
 """
 import json, os, plistlib, re, shutil, subprocess, sys
 from pathlib import Path
@@ -261,9 +261,10 @@ def plugin():
     section('Claude Code plugin')
     want = json.loads((HQ / 'adapters/claude-code/.claude-plugin/plugin.json').read_text()).get('version')
     try:
-        inst = json.loads((HOME / '.claude/plugins/installed_plugins.json').read_text())['plugins'].get('hq@hq', [])
+        installed = json.loads((HOME / '.claude/plugins/installed_plugins.json').read_text())['plugins']
     except (OSError, ValueError, KeyError):
-        inst = []
+        installed = {}
+    inst = installed.get('hq@hq', [])
     have = inst[0].get('version') if inst else None
     if not have:
         bad('the hq plugin is not installed: run install.sh')
@@ -277,6 +278,12 @@ def plugin():
         src = None
     if src and Path(os.path.realpath(src)) != Path(os.path.realpath(P['HQ_HOME'])):
         warn(f'the plugin\'s marketplace is {src}, not the hq folder: run install.sh')
+    every = hq_settings.get('plugins')
+    if every:
+        note(f'every agent also gets: {", ".join(every)} (plugins in {hq_settings.FILE})')
+    for p in every:
+        if p not in installed:
+            warn(f'{p} is in plugins but not installed: claude plugin install {p}')
 
 
 def jobs():

@@ -32,7 +32,7 @@ hq/agents/                        the agents folder, $HQ_AGENTS: your private re
   .gitignore                        ignores everything else (kernel/lib/dot-hq.gitignore): from here down, this Mac only
   secrets/                          auth.json (grants and profiles, hq-auth), auth.log, env (bridge, Telegram, tokens);
                                     agents' file tools are denied it (bin/hq)
-  settings.json                     hq's own settings for this Mac, not secret (lib/hq_settings.py): permission_mode, agents
+  settings.json                     hq's own settings for this Mac, not secret (lib/hq_settings.py): permission_mode, plugins, agents
   ask.json  remotes.json            hq ask conversations → sessions; other machines (hq-remote)
   cost.db                           the cost ledger (hq-cost)
   bridge/  sched/                   Discord thread → session map, attachments; last tick and runs per job
@@ -93,10 +93,10 @@ Paths in this table are inside `kernel/`, except `install.sh` and `.claude-plugi
 | `bin/hq-acp` | python | `hq acp <agent> [--keep …]`: the agent as an ACP agent for clients like Codync. Runs claude-agent-acp with `adapters/acp/claude-via-hq` as its claude; drops the client's MCP servers (except `--keep`) and `_meta.systemPrompt`; gives each group chat its own agent session (map in `~/.hq/acp/<agent>.json`), rewriting session ids both ways so the client only sees its own; logs in `~/.hq/logs/acp/` | an ACP client (a Codync bot's `command`) |
 | `bin/hq-send` | bash | Delivers a result: into the Discord thread when inside one, into the bridge's outbox (`HQ_BRIDGE_OUTBOX`) inside any other chat task, else Telegram | agents |
 | `bin/hq-init` | python | Setup, safe to repeat: checks git (+ identity), claude, gh, uv; makes ~/.hq and the agents folder git repos with a first commit and `user.md`; offers private GitHub backups; installs what agents.json lists; offers a starter (`lib/starters.json`). `--from <user>` clones that user's hq-state and hq-agents first (a new Mac) | `install.sh` (last step), you |
-| `bin/hq-doctor` | python | Read-only checks with a fix for each: folders and links, tools, the state, agents and role repos (uncommitted, unpushed, no backup), agent checks, grants, plugin version, each `dev.hq.*` job (loaded, running, stuck in hq-uv = lost Full Disk Access) | you |
+| `bin/hq-doctor` | python | Read-only checks with a fix for each: folders and links, tools, the state, agents and role repos (uncommitted, unpushed, no backup), agent checks, grants, plugin version, the `plugins` every agent gets (and any not installed), each `dev.hq.*` job (loaded, running, stuck in hq-uv = lost Full Disk Access) | you |
 | `lib/dot-hq.gitignore`, `lib/agents.gitignore`, `lib/user.md`, `lib/starters.json` | text | What `hq init` puts in a new ~/.hq and agents folder; the starter agents it offers (link null until published) | `hq-init` |
 | `lib/hq_paths.py` | python | The resolver: HQ_HOME, state, agents (address and `_REAL`), machine, logs, caches; `--sh` / `--json` | every tool, the adapter |
-| `lib/hq_settings.py` | python | hq's own settings (hq-wide, not secret): this Mac's `~/.hq/settings.json` over the defaults; today `permission_mode` (default `auto`), the mode a run starts in when neither the caller nor the agent sets one, and `agents.<name>.permission_mode`, this Mac's choice over an agent's own (suggested) mode | `bin/hq`, `hq-doctor`, `hq-pkg` (install asks) |
+| `lib/hq_settings.py` | python | hq's own settings (hq-wide, not secret): this Mac's `~/.hq/settings.json` over the defaults; today `permission_mode` (default `auto`), the mode a run starts in when neither the caller nor the agent sets one, `plugins`, plugin ids every agent's run turns on (the agent's own `enabledPlugins` wins), and `agents.<name>.permission_mode`, this Mac's choice over an agent's own (suggested) mode | `bin/hq`, `hq-doctor`, `hq-pkg` (install asks) |
 | `adapters/claude-code/hooks/hooks.json` | JSON | Loads `register.tsx` as the plugin's hooks module | Claude Code |
 | `adapters/claude-code/hooks/register.tsx` | TS | The Claude Code plugin: registers each agent as `hq:<name>` (pinned package, frontmatter `model`), puts project + memory in front of each spawn, applies `effort` per request, nudges for the session file, `/hq` and `mcp__hq__invoke` | Claude Code, every session |
 | `adapters/acp/claude-via-hq`, `adapters/acp/shim/claude` | bash, python | The SDK's claude binary: saves the SDK's args and runs `hq <agent>` with the shim first on PATH; the shim merges hq's args with the SDK's (one appended system prompt, hq's first; the client's permission mode wins). Codync's memory keeper runs on plain claude | `bin/hq-acp` (via claude-agent-acp) |
@@ -132,7 +132,8 @@ bridge, `HQ_VIA=discord`, `telegram` or `slack`, `HQ_BRIDGE_OUTBOX`, `HQ_PERSON`
 1. `bin/hq` → `hq-pkg resolve <agent>`: unchanged package → its current snapshot; changed → check, snapshot into
    `~/.hq/store`, commit to the agent's repo; failing check → the last good version.
 2. Prompt = snapshot `prompt.md` (agent.md body + PROTOCOL.md) with placeholders filled + `MEMORY.md` + session tag.
-3. Settings = snapshot `settings.json` + a SessionStart hook → `hq-cost tag`. MCP = `hq-auth mcp-config <agent>` +
+3. Settings = snapshot `settings.json` + a SessionStart hook → `hq-cost tag`; installed plugins off but `hq@hq` and
+   `plugins` from `~/.hq/settings.json`, unless the agent's `enabledPlugins` sets them. MCP = `hq-auth mcp-config <agent>` +
    the package's `mcp.json`. `--model`/`--effort` from frontmatter.
 4. `exec claude`. The agent reads skills from `{{AGENT_DIR}}`, writes memory to `{{HOME_DIR}}`, delivers with `hq-send`.
 
