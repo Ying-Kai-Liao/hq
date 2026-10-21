@@ -37,6 +37,7 @@ impl Registry {
     pub fn builtin() -> Self {
         let mut registry = Self::default();
         registry.add("telegram", super::telegram::constructor());
+        registry.add("slack", super::slack::constructor());
         registry
     }
 }

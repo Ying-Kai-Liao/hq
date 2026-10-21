@@ -73,6 +73,17 @@ logs that, waits (30 s, doubling to 2 min) and keeps trying, so revoke the bridg
 overlap. Answers are Markdown shown as Telegram HTML, sent plain if Telegram refuses the formatting. The Bot API
 address is `https://api.telegram.org`, or `KITH_TELEGRAM_API` (a local Bot API server; tests use a fake).
 
+**Slack** (`src/channels/slack/`) is ported: grant `slack` profiles to `serve` (`hq-auth grant serve slack <profile>`,
+secrets `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`) and revoke them from `bridge`. It runs in Socket Mode (no public
+URL): `apps.connections.open` with the app token, a websocket, every envelope acknowledged on arrival and handled
+after. A task is a Slack thread; `@agent` as plain text picks the agent, mentioning the app or a DM addresses hq,
+commands start with `!` (`!link CODE`, `!agents`, `!default`, `!stop`, `!whoami`). Agents post under their display
+name (needs `chat:write.customize`). The app needs bot scopes `app_mentions:read`, `channels:history`,
+`groups:history`, `im:history`, `chat:write`, `chat:write.customize`, `files:read`, `files:write`,
+`reactions:write`, events `message.channels`, `message.groups`, `message.im` and `app_mention`, Interactivity on
+(the Stop and pick buttons) and Socket Mode on. The Web API address is `https://slack.com/api`, or `KITH_SLACK_API`
+(tests use a fake).
+
 The `channels` object in `config.json` (read at start):
 
 | key | default | meaning |
