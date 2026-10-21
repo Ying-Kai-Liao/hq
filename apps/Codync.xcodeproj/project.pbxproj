@@ -623,7 +623,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# The scheme chooses an environment independently of Debug/Release optimization.\ncp \"$SRCROOT/shared/Config/$CODYNC_ENV.plist\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AccountConfig.plist\"\n";
+			shellScript = "# The scheme chooses an environment independently of Debug/Release optimization.\ncp \"$SRCROOT/shared/Config/$CODYNC_ENV.plist\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AccountConfig.plist\"\n# Optional, gitignored: the PostHog project key. Absent = analytics sends nothing.\nif [ -f \"$SRCROOT/shared/Config/Secrets.plist\" ]; then\n  cp \"$SRCROOT/shared/Config/Secrets.plist\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Secrets.plist\"\nelse\n  rm -f \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Secrets.plist\"\nfi\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
