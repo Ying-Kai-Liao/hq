@@ -61,6 +61,8 @@ struct HostSide {
     let socket: FakeSocket
     var sealer: RelayCrypto.FrameSealer?
     var opener: RelayCrypto.FrameOpener?
+    /// The labels the device's hello verified under, like the host: either family is accepted.
+    var family: LabelFamily = .codync
 
     init(_ socket: FakeSocket) { self.socket = socket }
 
@@ -85,14 +87,15 @@ struct HostSide {
         let n = Data(base64URL: hello["n"] as? String ?? "") ?? Data()
         let cid = RelayCrypto.computerIdRaw(signKey: v.b64("keys", "hostSignPub"))
         let sig = Data(base64URL: hello["sig"] as? String ?? "") ?? Data()
-        #expect(try Curve25519.Signing.PublicKey(rawRepresentation: dk)
-            .isValidSignature(sig, for: RelayCrypto.hs1Input(cid: cid, dk: dk, ekD: ekD, n: n)))
+        let devicePub = try Curve25519.Signing.PublicKey(rawRepresentation: dk)
+        let verified = LabelFamily.newestFirst.first { devicePub.isValidSignature(sig, for: RelayCrypto.hs1Input($0, cid: cid, dk: dk, ekD: ekD, n: n)) }
+        family = try #require(verified)
         let ekH = Curve25519.KeyAgreement.PrivateKey()
-        let th = RelayCrypto.transcriptHash(cid: cid, dk: dk, ekD: ekD, n: n, ekH: ekH.publicKey.rawRepresentation)
+        let th = RelayCrypto.transcriptHash(family, cid: cid, dk: dk, ekD: ekD, n: n, ekH: ekH.publicKey.rawRepresentation)
         await push(["t": "welcome", "v": 1, "ek": ekH.publicKey.rawRepresentation.base64URL, "sig": try hostKey.signature(for: th).base64URL])
-        let keys = RelayCrypto.channelKeys(sharedSecret: try RelayCrypto.sharedSecret(ekH, ekD), transcriptHash: th)
-        sealer = RelayCrypto.FrameSealer(key: keys.h2d)
-        opener = RelayCrypto.FrameOpener(key: keys.d2h)
+        let keys = RelayCrypto.channelKeys(family, sharedSecret: try RelayCrypto.sharedSecret(ekH, ekD), transcriptHash: th)
+        sealer = RelayCrypto.FrameSealer(family: family, key: keys.h2d)
+        opener = RelayCrypto.FrameOpener(family: family, key: keys.d2h)
         return hello
     }
 
@@ -138,9 +141,10 @@ private func waitFor(_ states: AsyncStream<LinkState>, _ match: (LinkState) -> B
     return nil
 }
 
-@Test(.timeLimit(.minutes(1))) func directChannelMultiplexesCallsAndStreams() async throws {
+@Test(.timeLimit(.minutes(1)), arguments: LabelFamily.allCases)
+func directChannelMultiplexesCallsAndStreams(_ family: LabelFamily) async throws {
     let (dial, sockets) = fakeDialer()
-    var computer = v.computer
+    var computer = Vectors.load(family).computer
     computer.boxKey = nil
     computer.urls = ["http://127.0.0.1:1"]
     let t = ChannelTransport(computer: computer, identity: v.identity, pairingCode: nil, dial: dial, watchesNetwork: false)
@@ -155,6 +159,7 @@ private func waitFor(_ states: AsyncStream<LinkState>, _ match: (LinkState) -> B
     var host = HostSide(socket)
     let h = try await host.accept()
     #expect(h["pair"] == nil)
+    #expect(host.family == family, "the channel runs on the labels of the pairing")
 
     // Every consumer sees the same state.
     #expect(await waitFor(a) { $0 == .ready(.direct) } == .ready(.direct))
@@ -282,9 +287,10 @@ private func waitFor(_ states: AsyncStream<LinkState>, _ match: (LinkState) -> B
     await second.shutdown()
 }
 
-@Test(.timeLimit(.minutes(1))) func relayPresenceAndMailbox() async throws {
+@Test(.timeLimit(.minutes(1)), arguments: LabelFamily.allCases)
+func relayPresenceAndMailbox(_ family: LabelFamily) async throws {
     let (dial, sockets) = fakeDialer()
-    var computer = v.computer
+    var computer = Vectors.load(family).computer
     computer.urls = []
     computer.cloud = URL(string: "https://cloud.example.dev")
     let t = ChannelTransport(computer: computer, identity: v.identity, pairingCode: nil, dial: dial, watchesNetwork: false)
@@ -294,9 +300,10 @@ private func waitFor(_ states: AsyncStream<LinkState>, _ match: (LinkState) -> B
     let socket = try #require(await it.next())
     guard case let .relay(request) = socket.endpoint else { Issue.record("not relay"); return }
     #expect(request.url?.absoluteString == "wss://cloud.example.dev/v1/relay/device/\(computer.id)?v=1")
-    let sig = request.value(forHTTPHeaderField: "Codync-Sig") ?? ""
+    let sig = request.value(forHTTPHeaderField: "Kith-Sig") ?? ""
     #expect(sig.hasPrefix("v=1,kid=\(v.identity.publicKey),ts="))
     var relay = HostSide(socket)
+    relay.family = family
 
     await relay.push(["t": "presence", "online": false, "lastSeenAt": 1_790_000_000_000])
     let seen = Date(milliseconds: 1_790_000_000_000)
@@ -311,8 +318,8 @@ private func waitFor(_ states: AsyncStream<LinkState>, _ match: (LinkState) -> B
     let blob = try #require(Data(base64URL: put["d"] as? String ?? ""))
     let epk = blob.prefix(32), mboxSig = blob.dropFirst(32).prefix(64), ct = blob.dropFirst(96)
     let cid = RelayCrypto.computerIdRaw(signKey: v.b64("keys", "hostSignPub"))
-    #expect(v.deviceSign.publicKey.isValidSignature(mboxSig, for: RelayCrypto.label("codync/mbox/v1") + cid + epk + ct))
-    let key = RelayCrypto.mailboxKey(sharedSecret: try RelayCrypto.sharedSecret(v.hostBox, Data(epk)), cid: cid,
+    #expect(v.deviceSign.publicKey.isValidSignature(mboxSig, for: RelayCrypto.label(relay.family, "mbox/v1") + cid + epk + ct))
+    let key = RelayCrypto.mailboxKey(relay.family, sharedSecret: try RelayCrypto.sharedSecret(v.hostBox, Data(epk)), cid: cid,
                                      dk: v.b64("keys", "deviceSignPub"), epk: Data(epk))
     let box = try ChaChaPoly.SealedBox(nonce: ChaChaPoly.Nonce(data: Data(count: 12)), ciphertext: ct.dropLast(16), tag: ct.suffix(16))
     let inner = object(String(decoding: try ChaChaPoly.open(box, using: key, authenticating: v.b64("keys", "deviceSignPub") + Data(nonce.utf8)), as: UTF8.self))

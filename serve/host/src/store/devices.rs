@@ -46,6 +46,7 @@ pub struct PushTicket {
     pub ticket: String,
     pub push_key: Option<String>,
     pub ctx: Option<String>,
+    pub device_key: String,
 }
 
 const DEVICE_COLS: &str = "key, name, platform, source, grant_id, scopes, lease_until, created_at, last_seen_at";
@@ -170,8 +171,8 @@ impl Store {
 
     pub fn push_tickets(&self) -> Vec<PushTicket> {
         let c = self.db.locked();
-        let rows = c.prepare("SELECT ticket, push_key, ctx FROM push_tickets WHERE rowid IN (SELECT MAX(rowid) FROM push_tickets GROUP BY device_key) ORDER BY rowid").and_then(|mut st| {
-            st.query_map([], |r| Ok(PushTicket { ticket: r.get(0)?, push_key: r.get(1)?, ctx: r.get(2)? }))?
+        let rows = c.prepare("SELECT ticket, push_key, ctx, device_key FROM push_tickets WHERE rowid IN (SELECT MAX(rowid) FROM push_tickets GROUP BY device_key) ORDER BY rowid").and_then(|mut st| {
+            st.query_map([], |r| Ok(PushTicket { ticket: r.get(0)?, push_key: r.get(1)?, ctx: r.get(2)?, device_key: r.get(3)? }))?
                 .collect::<rusqlite::Result<Vec<_>>>()
         });
         logged("push tickets", rows).unwrap_or_default()

@@ -101,7 +101,7 @@ async function cloud(method: string, path: string, o: { token?: string; key?: re
   const headers: Record<string, string> = {};
   if (o.token) headers.Authorization = `Bearer ${o.token}`;
   if (o.body !== undefined) headers["Content-Type"] = "application/json";
-  if (o.key) headers["Codync-Sig"] = ref.signRequest(o.key, { method, authority: `127.0.0.1:${CLOUD_PORT}`, pathAndQuery: path, body: bytes });
+  if (o.key) headers["Kith-Sig"] = ref.signRequest(o.key, { method, authority: `127.0.0.1:${CLOUD_PORT}`, pathAndQuery: path, body: bytes });
   const res = await fetch(CLOUD + path, { method, headers, body: bytes.length ? bytes : undefined });
   return { status: res.status, body: await res.json() };
 }

@@ -8,7 +8,7 @@ extraMetadata:
   desktopName: codync-dev.desktop
 protocols:
   - name: Kith Dev
-    schemes: [codync-dev, com.yingkailiao.kith.dev]
+    schemes: [kith-dev, codync-dev, com.yingkailiao.kith.dev]
 publish: null
 mac:
   # Kith Dev only runs on the Mac that built it: an app folder for its architecture, signed

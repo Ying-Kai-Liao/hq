@@ -35,15 +35,15 @@ async function newUser(name = "a") {
 type User = Awaited<ReturnType<typeof newUser>>;
 
 /** Claims `host` into `user`'s account the way the Mac app does (§4.2 A). */
-async function claim(user: User, host: TestHost) {
+async function claim(user: User, host: TestHost, family?: ref.Family) {
   const c = await call("POST", "/v1/claims", { token: user.token });
   expect(c.status).toBe(200);
-  return call("POST", `/v1/claims/${c.body.claimId}/complete`, { token: user.token, body: claimBody(c.body, user.userId, host) });
+  return call("POST", `/v1/claims/${c.body.claimId}/complete`, { token: user.token, body: claimBody(c.body, user.userId, host, family) });
 }
 
-function claimBody(c: Json, userId: string, host: TestHost) {
+function claimBody(c: Json, userId: string, host: TestHost, family?: ref.Family) {
   const boxKey = ref.b64url(host.box.pub);
-  const canonical = ref.claimCanonical(c.claimId, c.nonce, userId, host.cid, boxKey);
+  const canonical = ref.claimCanonical(c.claimId, c.nonce, userId, host.cid, boxKey, family);
   return {
     computerId: host.cid,
     signKey: ref.b64url(host.sign.pub),
@@ -87,13 +87,13 @@ describe("basics", () => {
   it("bounces a connector sign-in to the app", async () => {
     const res = await SELF.fetch(`${ORIGIN}/v1/oauth/callback?code=abc&state=xyz`, { redirect: "manual" });
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("codync://oauth?code=abc&state=xyz");
+    expect(res.headers.get("Location")).toBe("kith://oauth?code=abc&state=xyz");
   });
 
   it("keeps development connector callbacks separate from production", async () => {
     const res = await SELF.fetch(`${ORIGIN}/v1/oauth/callback/dev?code=abc&state=xyz`, { redirect: "manual" });
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("codync-dev://oauth?code=abc&state=xyz");
+    expect(res.headers.get("Location")).toBe("kith-dev://oauth?code=abc&state=xyz");
   });
 
   it("health", async () => {
@@ -143,7 +143,7 @@ describe("Clerk", () => {
   });
 });
 
-describe("Codync-Sig over HTTP", () => {
+describe("Kith-Sig over HTTP", () => {
   const register = (key: ref.SignKey, o: { nonce?: string; ts?: number; authority?: string } = {}) =>
     call("POST", "/v1/host/register", {
       key,
@@ -193,6 +193,24 @@ describe("Codync-Sig over HTTP", () => {
     expect(statuses[10]).toBe(429);
   });
 
+  it("still accepts the pre-rename Codync-Sig header and codync-sig-v1 prefix", async () => {
+    const key = ref.signKey();
+    const body = ref.enc.encode(JSON.stringify({ boxKey: ref.b64url(ref.boxKey().pub), name: "Mac", platform: "macos", version: "2.2.0" }));
+    ref.useFamily("codync");
+    let sig: string;
+    try {
+      sig = ref.signRequest(key, { method: "POST", authority: AUTHORITY, pathAndQuery: "/v1/host/register", body });
+    } finally {
+      ref.useFamily("kith");
+    }
+    const res = await worker.fetch(
+      new Request(`https://${AUTHORITY}/v1/host/register`, { method: "POST", headers: { "Codync-Sig": sig }, body }),
+      env,
+      {} as ExecutionContext,
+    );
+    expect(res.status).toBe(200);
+  });
+
   it("binds the body", async () => {
     const key = ref.signKey();
     const body = ref.enc.encode(JSON.stringify({ boxKey: ref.b64url(ref.boxKey().pub), name: "Mac", platform: "macos", version: "2.2.0" }));
@@ -200,7 +218,7 @@ describe("Codync-Sig over HTTP", () => {
     const res = await worker.fetch(
       new Request(`https://${AUTHORITY}/v1/host/register`, {
         method: "POST",
-        headers: { "Codync-Sig": sig },
+        headers: { "Kith-Sig": sig },
         body: ref.enc.encode(ref.dec.decode(body).replace("Mac", "Evil")),
       }),
       env,
@@ -257,6 +275,12 @@ describe("claims", () => {
     const list = await call("GET", "/v1/computers", { token: u.token });
     expect(list.body.computers.map((c: Json) => c.computerId)).toEqual([host.cid]);
     expect(list.body.computers[0].access).toBeNull();
+  });
+
+  it("still accepts a claim a host signed under the pre-rename codync labels", async () => {
+    const u = await newUser();
+    const host = await newHost();
+    expect((await claim(u, host, "codync")).status).toBe(200);
   });
 
   it("creates the computer row from the signed boxKey when the host never registered", async () => {

@@ -2,7 +2,8 @@ import CryptoKit
 import Foundation
 
 // The relay protocol's cryptography (docs/reference/remote-relay.md §5, §6), checked field by field
-// against docs/reference/fixtures/remote-relay-vectors.json. Labels are ASCII without a trailing NUL.
+// against docs/reference/fixtures/remote-relay-vectors.json (`codync/*` labels) and remote-relay-vectors.kith.json
+// (`kith/*`). Labels are ASCII without a trailing NUL.
 
 extension Data {
     /// Strict base64url without padding (RFC 4648 §5).
@@ -38,6 +39,40 @@ public enum RelayCryptoError: Error, Equatable {
     case malformed
 }
 
+/// Which family of domain-separation labels a pairing speaks. Pairings made before the Kith rename keep
+/// `codync/*` until they are paired again; new ones use `kith/*`. The host accepts either, so an updated
+/// app still talks to a host that hasn't updated yet by keeping the old labels for old pairings.
+public enum LabelFamily: String, Codable, Sendable, CaseIterable {
+    case codync
+    case kith
+
+    /// Newest first: the order a verifier tries them in.
+    static let newestFirst: [LabelFamily] = [.kith, .codync]
+
+    public init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .codync
+    }
+
+    /// `<family>/<rest>`, e.g. `kith/hs1/v1`.
+    func label(_ rest: String) -> String { "\(rawValue)/\(rest)" }
+
+    /// The first host release that verifies `kith/*` labels. Older hosts only know `codync/*`. Guessing too
+    /// high is safe (a new host accepts `codync/*` as well); guessing too low would get the request denied.
+    static let firstKithHostVersion = [2, 20, 0]
+
+    /// The labels to use toward a host that reports `version` (an account computer that was never paired
+    /// by QR): a host that predates the rename gets the old ones.
+    public static func forHost(version: String?) -> LabelFamily {
+        guard let version else { return .codync }
+        let parts = version.split(separator: ".").prefix(3).map { Int($0.prefix { $0.isNumber }) ?? 0 }
+        let padded = parts + Array(repeating: 0, count: max(0, 3 - parts.count))
+        return padded.lexicographicallyPrecedes(firstKithHostVersion) ? .codync : .kith
+    }
+
+    /// The pairing-link scheme: `kith://` / `kith-dev://` for new links, `codync://` / `codync-dev://` for old ones.
+    init(scheme: String) { self = scheme.hasPrefix("kith") ? .kith : .codync }
+}
+
 public enum RelayCrypto {
     /// Largest plaintext chunk per frame (§6.3).
     static let chunkSize = 256 * 1024
@@ -51,6 +86,7 @@ public enum RelayCrypto {
     }
 
     static func label(_ s: String) -> Data { Data(s.utf8) }
+    static func label(_ f: LabelFamily, _ rest: String) -> Data { label(f.label(rest)) }
 
     static func u64be(_ v: UInt64) -> Data { withUnsafeBytes(of: v.bigEndian) { Data($0) } }
 
@@ -67,7 +103,7 @@ public enum RelayCrypto {
     }
 
     /// `offerId` of a pairing code (§4.1).
-    static func offerId(code: Data) -> String { sha256(label("codync/offer/v1"), code).prefix(16).base64URL }
+    static func offerId(_ f: LabelFamily, code: Data) -> String { sha256(label(f, "offer/v1"), code).prefix(16).base64URL }
 
     // MARK: X25519 + HKDF
 
@@ -82,33 +118,36 @@ public enum RelayCrypto {
         HKDF<SHA256>.extract(inputKeyMaterial: SymmetricKey(data: ikm), salt: salt).withUnsafeBytes { Data($0) }
     }
 
-    static func expand(_ prk: Data, _ info: String) -> SymmetricKey {
-        HKDF<SHA256>.expand(pseudoRandomKey: prk, info: label(info), outputByteCount: 32)
+    static func expand(_ prk: Data, _ f: LabelFamily, _ info: String) -> SymmetricKey {
+        HKDF<SHA256>.expand(pseudoRandomKey: prk, info: label(f, info), outputByteCount: 32)
     }
 
     // MARK: handshake (§6.2)
 
-    static func hs1Input(cid: Data, dk: Data, ekD: Data, n: Data) -> Data {
-        label("codync/hs1/v1") + cid + dk + ekD + n
+    static func hs1Input(_ f: LabelFamily, cid: Data, dk: Data, ekD: Data, n: Data) -> Data {
+        label(f, "hs1/v1") + cid + dk + ekD + n
     }
 
-    static func transcriptHash(cid: Data, dk: Data, ekD: Data, n: Data, ekH: Data) -> Data {
-        sha256(label("codync/hs2/v1"), cid, dk, ekD, n, ekH)
+    static func transcriptHash(_ f: LabelFamily, cid: Data, dk: Data, ekD: Data, n: Data, ekH: Data) -> Data {
+        sha256(label(f, "hs2/v1"), cid, dk, ekD, n, ekH)
     }
 
     struct ChannelKeys {
+        /// The labels this channel runs under; frames use them as AAD.
+        var family: LabelFamily
         var prk: Data
         var d2h: SymmetricKey
         var h2d: SymmetricKey
     }
 
-    static func channelKeys(sharedSecret ss: Data, transcriptHash th: Data) -> ChannelKeys {
+    static func channelKeys(_ f: LabelFamily, sharedSecret ss: Data, transcriptHash th: Data) -> ChannelKeys {
         let prk = extract(salt: th, ikm: ss)
-        return ChannelKeys(prk: prk, d2h: expand(prk, "codync/d2h/v1"), h2d: expand(prk, "codync/h2d/v1"))
+        return ChannelKeys(family: f, prk: prk, d2h: expand(prk, f, "d2h/v1"), h2d: expand(prk, f, "h2d/v1"))
     }
 
     /// The device's half of one handshake: fresh ephemeral key and nonce each connection.
     struct Handshake {
+        let family: LabelFamily
         let cid: Data
         let dk: Data
         let hostSignKey: Curve25519.Signing.PublicKey
@@ -120,6 +159,7 @@ public enum RelayCrypto {
             guard let sk = Data(base64URL: computer.signKey), sk.count == 32,
                   let hostKey = try? Curve25519.Signing.PublicKey(rawRepresentation: sk),
                   computerId(signKey: sk) == computer.id else { throw RelayCryptoError.badKey }
+            family = computer.labelFamily
             cid = computerIdRaw(signKey: sk)
             dk = deviceKey
             hostSignKey = hostKey
@@ -128,41 +168,45 @@ public enum RelayCrypto {
         }
 
         var ekD: Data { ephemeral.publicKey.rawRepresentation }
-        var signInput: Data { hs1Input(cid: cid, dk: dk, ekD: ekD, n: n) }
+        var signInput: Data { hs1Input(family, cid: cid, dk: dk, ekD: ekD, n: n) }
 
         /// Checks `welcome.sig` against the pinned host key, then derives both directions' keys.
         func finish(ekH: Data, sig: Data) throws -> ChannelKeys {
-            let th = transcriptHash(cid: cid, dk: dk, ekD: ekD, n: n, ekH: ekH)
+            let th = transcriptHash(family, cid: cid, dk: dk, ekD: ekD, n: n, ekH: ekH)
             guard hostSignKey.isValidSignature(sig, for: th) else { throw RelayCryptoError.badSignature }
-            return channelKeys(sharedSecret: try sharedSecret(ephemeral, ekH), transcriptHash: th)
+            return channelKeys(family, sharedSecret: try sharedSecret(ephemeral, ekH), transcriptHash: th)
         }
     }
 
     // MARK: frames (§6.3)
 
     static func frameNonce(_ c: UInt64) -> Data { Data(count: 4) + u64be(c) }
-    static func frameAAD(_ c: UInt64) -> Data { label("codync/frame/v1") + u64be(c) }
+    static func frameAAD(_ f: LabelFamily, _ c: UInt64) -> Data { label(f, "frame/v1") + u64be(c) }
 
-    static func sealFrame(key: SymmetricKey, counter c: UInt64, final: Bool, chunk: Data) throws -> Data {
+    static func sealFrame(_ f: LabelFamily, key: SymmetricKey, counter c: UInt64, final: Bool, chunk: Data) throws -> Data {
         let box = try ChaChaPoly.seal(Data([final ? 0 : 1]) + chunk, using: key,
-                                      nonce: ChaChaPoly.Nonce(data: frameNonce(c)), authenticating: frameAAD(c))
+                                      nonce: ChaChaPoly.Nonce(data: frameNonce(c)), authenticating: frameAAD(f, c))
         return box.ciphertext + box.tag
     }
 
-    static func openFrame(key: SymmetricKey, counter c: UInt64, d: Data) throws -> (final: Bool, chunk: Data) {
+    static func openFrame(_ f: LabelFamily, key: SymmetricKey, counter c: UInt64, d: Data) throws -> (final: Bool, chunk: Data) {
         guard d.count >= 17 else { throw RelayCryptoError.malformed }
         let box = try ChaChaPoly.SealedBox(nonce: ChaChaPoly.Nonce(data: frameNonce(c)), ciphertext: d.dropLast(16), tag: d.suffix(16))
-        guard let plain = try? ChaChaPoly.open(box, using: key, authenticating: frameAAD(c)),
+        guard let plain = try? ChaChaPoly.open(box, using: key, authenticating: frameAAD(f, c)),
               let flag = plain.first, flag <= 1 else { throw RelayCryptoError.decryptFailed }
         return (flag == 0, plain.dropFirst())
     }
 
     /// One direction's sender: every inner message becomes ≤ 256 KiB chunks with consecutive counters.
     struct FrameSealer {
+        let family: LabelFamily
         let key: SymmetricKey
         private(set) var counter: UInt64 = 0
 
-        init(key: SymmetricKey) { self.key = key }
+        init(family: LabelFamily, key: SymmetricKey) {
+            self.family = family
+            self.key = key
+        }
 
         /// Past 2^32 frames the channel must be replaced (`4011 rekey`).
         var exhausted: Bool { counter >= 1 << 32 }
@@ -173,7 +217,7 @@ public enum RelayCrypto {
             repeat {
                 let chunk = rest.prefix(RelayCrypto.chunkSize)
                 rest = rest.dropFirst(chunk.count)
-                out.append((counter, try sealFrame(key: key, counter: counter, final: rest.isEmpty, chunk: Data(chunk))))
+                out.append((counter, try sealFrame(family, key: key, counter: counter, final: rest.isEmpty, chunk: Data(chunk))))
                 counter += 1
             } while !rest.isEmpty
             return out
@@ -182,12 +226,14 @@ public enum RelayCrypto {
 
     /// One direction's receiver: demands the exact next counter and reassembles chunks.
     struct FrameOpener {
+        let family: LabelFamily
         let key: SymmetricKey
         let limit: Int
         private(set) var counter: UInt64 = 0
         private var buffer = Data()
 
-        init(key: SymmetricKey, limit: Int = RelayCrypto.maxInbound) {
+        init(family: LabelFamily, key: SymmetricKey, limit: Int = RelayCrypto.maxInbound) {
+            self.family = family
             self.key = key
             self.limit = limit
         }
@@ -195,7 +241,7 @@ public enum RelayCrypto {
         /// A whole message once its last chunk arrived, else nil.
         mutating func open(c: UInt64, d: Data) throws -> Data? {
             guard c == counter else { throw RelayCryptoError.badCounter }
-            let (final, chunk) = try openFrame(key: key, counter: c, d: d)
+            let (final, chunk) = try openFrame(family, key: key, counter: c, d: d)
             counter += 1
             guard buffer.count + chunk.count <= limit else { throw RelayCryptoError.tooLarge }
             buffer += chunk
@@ -216,59 +262,66 @@ public enum RelayCrypto {
 
     /// Seals one inner message for an offline host. A fresh ephemeral key every time (MUST):
     /// the fixed nonce is only safe because the key is never reused.
-    static func sealMailbox(_ plaintext: Data, hostBoxKey: Data, computerId: ComputerID, deviceKey dk: Data, clientNonce: String,
+    static func sealMailbox(_ plaintext: Data, family f: LabelFamily, hostBoxKey: Data, computerId: ComputerID, deviceKey dk: Data, clientNonce: String,
                             sign: (Data) throws -> Data,
                             ephemeral: Curve25519.KeyAgreement.PrivateKey = .init()) throws -> Mailbox {
         guard let cid = computerIdRaw(computerId) else { throw RelayCryptoError.badKey }
         let epk = ephemeral.publicKey.rawRepresentation
         let ss = try sharedSecret(ephemeral, hostBoxKey)
-        let prk = extract(salt: label("codync/mbox/v1") + cid + dk + epk, ikm: ss)
-        let box = try ChaChaPoly.seal(plaintext, using: expand(prk, "codync/mbox-key/v1"),
+        let prk = extract(salt: label(f, "mbox/v1") + cid + dk + epk, ikm: ss)
+        let box = try ChaChaPoly.seal(plaintext, using: expand(prk, f, "mbox-key/v1"),
                                       nonce: ChaChaPoly.Nonce(data: Data(count: 12)), authenticating: dk + Data(clientNonce.utf8))
         let ct = box.ciphertext + box.tag
-        return Mailbox(epk: epk, ciphertext: ct, sig: try sign(label("codync/mbox/v1") + cid + epk + ct))
+        return Mailbox(epk: epk, ciphertext: ct, sig: try sign(label(f, "mbox/v1") + cid + epk + ct))
     }
 
-    static func mailboxKey(sharedSecret ss: Data, cid: Data, dk: Data, epk: Data) -> SymmetricKey {
-        expand(extract(salt: label("codync/mbox/v1") + cid + dk + epk, ikm: ss), "codync/mbox-key/v1")
+    static func mailboxKey(_ f: LabelFamily, sharedSecret ss: Data, cid: Data, dk: Data, epk: Data) -> SymmetricKey {
+        expand(extract(salt: label(f, "mbox/v1") + cid + dk + epk, ikm: ss), f, "mbox-key/v1")
     }
 
     // MARK: push (§6.7)
 
-    static func pushKey(sharedSecret ss: Data, cid: Data, pushKey: Data, epk: Data) -> SymmetricKey {
-        expand(extract(salt: label("codync/push/v1") + cid + pushKey + epk, ikm: ss), "codync/push-key/v1")
+    static func pushKey(_ f: LabelFamily, sharedSecret ss: Data, cid: Data, pushKey: Data, epk: Data) -> SymmetricKey {
+        expand(extract(salt: label(f, "push/v1") + cid + pushKey + epk, ikm: ss), f, "push-key/v1")
     }
 
-    /// Opens `sealed = b64url(epk ‖ ct)` with the device's push key.
+    /// Opens `sealed = b64url(epk ‖ ct)` with the device's push key. The AEAD tag says which label family
+    /// the host sealed it under, so both are tried: an update never strands a notification.
     static func openPush(sealed: String, computerId: ComputerID, pushPrivate: Curve25519.KeyAgreement.PrivateKey) throws -> Data {
         guard let raw = Data(base64URL: sealed), raw.count > 32 + 16, let cid = computerIdRaw(computerId) else { throw RelayCryptoError.malformed }
         let epk = raw.prefix(32)
         let ct = raw.dropFirst(32)
-        let key = pushKey(sharedSecret: try sharedSecret(pushPrivate, Data(epk)), cid: cid,
-                          pushKey: pushPrivate.publicKey.rawRepresentation, epk: Data(epk))
+        let ss = try sharedSecret(pushPrivate, Data(epk))
         let box = try ChaChaPoly.SealedBox(nonce: ChaChaPoly.Nonce(data: Data(count: 12)), ciphertext: ct.dropLast(16), tag: ct.suffix(16))
-        guard let plain = try? ChaChaPoly.open(box, using: key, authenticating: cid) else { throw RelayCryptoError.decryptFailed }
-        return plain
+        for f in LabelFamily.newestFirst {
+            let key = pushKey(f, sharedSecret: ss, cid: cid, pushKey: pushPrivate.publicKey.rawRepresentation, epk: Data(epk))
+            if let plain = try? ChaChaPoly.open(box, using: key, authenticating: cid) { return plain }
+        }
+        throw RelayCryptoError.decryptFailed
     }
 
     // MARK: SAS (§4.2 B)
 
-    static func sasCommit(deviceKey dk: Data, deviceNonce nD: Data) -> Data {
-        sha256(label("codync/sascommit/v1"), dk, nD)
+    static func sasCommit(_ f: LabelFamily, deviceKey dk: Data, deviceNonce nD: Data) -> Data {
+        sha256(label(f, "sascommit/v1"), dk, nD)
     }
 
-    static func sasCode(hostSignKey: Data, deviceKey dk: Data, deviceNonce nD: Data, hostNonce nH: Data) -> String {
-        let h = sha256(label("codync/sas/v2"), hostSignKey, dk, nD, nH)
+    static func sasCode(_ f: LabelFamily, hostSignKey: Data, deviceKey dk: Data, deviceNonce nD: Data, hostNonce nH: Data) -> String {
+        let h = sha256(label(f, "sas/v2"), hostSignKey, dk, nD, nH)
         let v = h.prefix(4).reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
         let s = String(v % 1_000_000)
         return String(repeating: "0", count: 6 - s.count) + s
     }
 
-    // MARK: Codync-Sig (§5)
+    // MARK: Kith-Sig (§5)
 
-    static func requestSigInput(method: String, authority: String, pathAndQuery: String, ts: Int64, nonce: String, body: Data) -> Data {
+    /// The `Kith-Sig` header name. The cloud still accepts `Codync-Sig` and the `codync-sig-v1` prefix from older apps.
+    static let signatureHeaderName = "Kith-Sig"
+
+    static func requestSigInput(method: String, authority: String, pathAndQuery: String, ts: Int64, nonce: String, body: Data,
+                                family: LabelFamily = .kith) -> Data {
         Data([
-            "codync-sig-v1", method.uppercased(), authority.lowercased(), pathAndQuery,
+            "\(family.rawValue)-sig-v1", method.uppercased(), authority.lowercased(), pathAndQuery,
             String(ts), nonce, sha256(body).base64URL,
         ].joined(separator: "\n").utf8)
     }

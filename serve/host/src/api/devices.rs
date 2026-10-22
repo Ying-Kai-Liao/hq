@@ -184,10 +184,14 @@ impl Pairing {
         Issued { code: crypto::b64(&code), expires_at }
     }
 
-    /// The live codes as ACL offers: `(offerId, expiresAt)`.
+    /// The live codes as ACL offers: `(offerId, expiresAt)`. Each code is offered under both label
+    /// families: a link shown before the Kith rename (`codync://`) is still redeemable by an updated app.
     pub fn offers(&mut self) -> Vec<(String, i64)> {
         self.prune(now_ms());
-        self.codes.iter().map(|c| (crypto::offer_id(&c.code), c.expires_at)).collect()
+        self.codes
+            .iter()
+            .flat_map(|c| crypto::Labels::ALL.map(|l| (crypto::offer_id(l, &c.code), c.expires_at)))
+            .collect()
     }
 
     /// Whether any code is still unused and unexpired.
@@ -254,8 +258,10 @@ mod tests {
         assert!(!p.open());
         let first = p.issue();
         assert!(p.open());
-        let offer = crypto::offer_id(&crypto::unb64_n(&first.code).unwrap());
-        assert_eq!(p.offers(), [(offer, first.expires_at)]);
+        let code = crypto::unb64_n(&first.code).unwrap();
+        let (kith, codync) =
+            (crypto::offer_id(crypto::Labels::Kith, &code), crypto::offer_id(crypto::Labels::Codync, &code));
+        assert_eq!(p.offers(), [(kith, first.expires_at), (codync, first.expires_at)]);
         assert!(!p.redeem("CAgICAgICAgICAgICAgICA"));
         assert!(p.redeem(&first.code));
         assert!(!p.redeem(&first.code), "single use");

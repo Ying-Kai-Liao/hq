@@ -336,7 +336,7 @@ pub fn computer_tag(computer_id: &str) -> String {
     // The prefix is shared with the iPhone's test vector; it is a hash input, not a name.
     use sha2::{Digest as _, Sha256};
     use std::fmt::Write as _;
-    let hash = Sha256::digest(format!("codync-analytics:{computer_id}"));
+    let hash = Sha256::digest(format!("kith-analytics:{computer_id}"));
     hash[..8].iter().fold(String::new(), |mut s, b| {
         let _ = write!(s, "{b:02x}");
         s
@@ -546,7 +546,7 @@ mod tests {
     #[test]
     fn computer_tag_matches_the_iphone() {
         // Same vector as the iPhone's AnalyticsTests.
-        assert_eq!(computer_tag("AAECAwQFBgcICQoLDA0ODw"), "2d6878bee20aba04");
+        assert_eq!(computer_tag("AAECAwQFBgcICQoLDA0ODw"), "2fccc19384635242");
     }
 
     #[test]

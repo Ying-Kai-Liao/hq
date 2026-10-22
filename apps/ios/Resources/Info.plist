@@ -16,6 +16,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>$(CODYNC_URL_SCHEME)</string>
+				<string>$(CODYNC_LEGACY_URL_SCHEME)</string>
 				<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 			</array>
 		</dict>

@@ -269,9 +269,15 @@ public extension HostClient {
     }
 
     /// Push tickets are bound to this device's key; `pushKey` lets the host seal notification text (§6.7).
-    func registerDevice(ticket: String, relay: String, name: String, pushKey: String?, ctx: String) async throws {
-        struct Body: Encodable { var ticket: String; var relay: String; var name: String; var pushKey: String?; var ctx: String }
-        let _: Empty = try await call("registerDevice", Body(ticket: ticket, relay: relay, name: name, pushKey: pushKey, ctx: ctx))
+    /// `labels` says which crypto labels the pairing uses, so the host seals pushes under the same ones;
+    /// a host that predates the rename ignores it, and omitting it means the old labels.
+    func registerDevice(ticket: String, relay: String, name: String, pushKey: String?, ctx: String,
+                        labels: LabelFamily = .codync) async throws {
+        struct Body: Encodable {
+            var ticket: String; var relay: String; var name: String; var pushKey: String?; var ctx: String; var labels: String?
+        }
+        let _: Empty = try await call("registerDevice", Body(ticket: ticket, relay: relay, name: name, pushKey: pushKey, ctx: ctx,
+                                                             labels: labels == .kith ? labels.rawValue : nil))
     }
 
     /// Stops this device's alerts; used when notifications are switched off in the app.

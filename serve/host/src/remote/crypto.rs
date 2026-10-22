@@ -16,6 +16,45 @@ use hkdf::Hkdf;
 use sha2::{Digest, Sha256};
 use x25519_dalek::{PublicKey, StaticSecret};
 
+/// Which family of domain-separation labels a pairing uses. Pairings made before the Kith
+/// rename keep `codync/*` until re-paired, so every construction takes the labels it runs
+/// under: the host learns them from whichever the device's signature verifies under.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Labels {
+    Codync,
+    Kith,
+}
+
+impl Labels {
+    /// Newest first: the order a verifier tries them in.
+    pub const ALL: [Labels; 2] = [Labels::Kith, Labels::Codync];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Labels::Codync => "codync",
+            Labels::Kith => "kith",
+        }
+    }
+
+    /// A stored or announced label name; anything unknown reads as the legacy labels.
+    pub fn from_name(name: Option<&str>) -> Labels {
+        if name == Some("kith") { Labels::Kith } else { Labels::Codync }
+    }
+
+    /// `<family>/<rest>`, e.g. `kith/hs1/v1`.
+    fn label(self, rest: &str) -> Vec<u8> {
+        format!("{}/{rest}", self.name()).into_bytes()
+    }
+
+    /// The `-Sig` header name: `Kith-Sig` or `Codync-Sig`.
+    pub fn sig_header(self) -> &'static str {
+        match self {
+            Labels::Codync => "Codync-Sig",
+            Labels::Kith => "Kith-Sig",
+        }
+    }
+}
+
 /// Largest plaintext chunk in one frame (§6.3).
 pub const CHUNK: usize = 256 * 1024;
 /// A channel is rekeyed (closed with `4011`) before either counter reaches this (§3.5).
@@ -102,13 +141,20 @@ fn aead(key: &[u8; 32]) -> ChaCha20Poly1305 {
 // MARK: handshake (§6.2)
 
 /// What the device signs in `hello`.
-pub fn hs1_input(cid_raw: &[u8; 16], dk: &[u8; 32], ek_d: &[u8; 32], n: &[u8; 32]) -> Vec<u8> {
-    [b"codync/hs1/v1".as_slice(), cid_raw, dk, ek_d, n].concat()
+pub fn hs1_input(l: Labels, cid_raw: &[u8; 16], dk: &[u8; 32], ek_d: &[u8; 32], n: &[u8; 32]) -> Vec<u8> {
+    [l.label("hs1/v1").as_slice(), cid_raw, dk, ek_d, n].concat()
 }
 
 /// `TH`: what the host signs in `welcome`, and the HKDF salt.
-pub fn transcript_hash(cid_raw: &[u8; 16], dk: &[u8; 32], ek_d: &[u8; 32], n: &[u8; 32], ek_h: &[u8; 32]) -> [u8; 32] {
-    sha256(&[b"codync/hs2/v1", cid_raw, dk, ek_d, n, ek_h])
+pub fn transcript_hash(
+    l: Labels,
+    cid_raw: &[u8; 16],
+    dk: &[u8; 32],
+    ek_d: &[u8; 32],
+    n: &[u8; 32],
+    ek_h: &[u8; 32],
+) -> [u8; 32] {
+    sha256(&[&l.label("hs2/v1"), cid_raw, dk, ek_d, n, ek_h])
 }
 
 /// Per-direction channel keys.
@@ -117,11 +163,11 @@ pub struct Keys {
     pub h2d: [u8; 32],
 }
 
-pub fn channel_keys(shared: &[u8; 32], th: &[u8; 32]) -> Keys {
+pub fn channel_keys(l: Labels, shared: &[u8; 32], th: &[u8; 32]) -> Keys {
     let hk = Hkdf::<Sha256>::new(Some(th), shared);
     let mut keys = Keys { d2h: [0; 32], h2d: [0; 32] };
-    hk.expand(b"codync/d2h/v1", &mut keys.d2h).expect("32 bytes is a valid HKDF-SHA256 output length");
-    hk.expand(b"codync/h2d/v1", &mut keys.h2d).expect("32 bytes is a valid HKDF-SHA256 output length");
+    hk.expand(&l.label("d2h/v1"), &mut keys.d2h).expect("32 bytes is a valid HKDF-SHA256 output length");
+    hk.expand(&l.label("h2d/v1"), &mut keys.h2d).expect("32 bytes is a valid HKDF-SHA256 output length");
     keys
 }
 
@@ -133,21 +179,21 @@ fn frame_nonce(c: u64) -> Nonce {
     n.into()
 }
 
-fn frame_aad(c: u64) -> Vec<u8> {
-    [b"codync/frame/v1".as_slice(), &c.to_be_bytes()].concat()
+fn frame_aad(l: Labels, c: u64) -> Vec<u8> {
+    [l.label("frame/v1").as_slice(), &c.to_be_bytes()].concat()
 }
 
-pub fn seal_frame(key: &[u8; 32], c: u64, last: bool, chunk: &[u8]) -> Vec<u8> {
+pub fn seal_frame(l: Labels, key: &[u8; 32], c: u64, last: bool, chunk: &[u8]) -> Vec<u8> {
     let plaintext = [&[if last { FLAG_FINAL } else { FLAG_MORE }], chunk].concat();
     aead(key)
-        .encrypt(&frame_nonce(c), Payload { msg: &plaintext, aad: &frame_aad(c) })
+        .encrypt(&frame_nonce(c), Payload { msg: &plaintext, aad: &frame_aad(l, c) })
         .expect("ChaCha20-Poly1305 accepts any chunk up to 256 KiB")
 }
 
 /// Returns `(last, chunk)`.
-pub fn open_frame(key: &[u8; 32], c: u64, d: &[u8]) -> Result<(bool, Vec<u8>)> {
+pub fn open_frame(l: Labels, key: &[u8; 32], c: u64, d: &[u8]) -> Result<(bool, Vec<u8>)> {
     let mut plain = aead(key)
-        .decrypt(&frame_nonce(c), Payload { msg: d, aad: &frame_aad(c) })
+        .decrypt(&frame_nonce(c), Payload { msg: d, aad: &frame_aad(l, c) })
         .map_err(|_| anyhow!("frame doesn't decrypt"))?;
     ensure!(!plain.is_empty(), "empty frame");
     let flag = plain.remove(0);
@@ -160,13 +206,14 @@ pub fn open_frame(key: &[u8; 32], c: u64, d: &[u8]) -> Result<(bool, Vec<u8>)> {
 
 /// The sending half of a channel direction: counts frames from 0.
 pub struct Sealer {
+    labels: Labels,
     key: [u8; 32],
     next: u64,
 }
 
 impl Sealer {
-    pub fn new(key: [u8; 32]) -> Self {
-        Self { key, next: 0 }
+    pub fn new(labels: Labels, key: [u8; 32]) -> Self {
+        Self { labels, key, next: 0 }
     }
 
     /// One inner message as `f` frames (`{"t":"f","c","d"}`), or `None` once the counter must rekey.
@@ -183,7 +230,7 @@ impl Sealer {
                 .map(|(i, chunk)| {
                     let c = self.next;
                     self.next += 1;
-                    serde_json::json!({"t": "f", "c": c, "d": b64(&seal_frame(&self.key, c, i + 1 == total, chunk))})
+                    serde_json::json!({"t": "f", "c": c, "d": b64(&seal_frame(self.labels, &self.key, c, i + 1 == total, chunk))})
                 })
                 .collect(),
         )
@@ -203,6 +250,7 @@ pub enum FrameError {
 
 /// The receiving half: requires consecutive counters and reassembles chunks.
 pub struct Opener {
+    labels: Labels,
     key: [u8; 32],
     next: u64,
     buf: Vec<u8>,
@@ -210,8 +258,8 @@ pub struct Opener {
 }
 
 impl Opener {
-    pub fn new(key: [u8; 32], limit: usize) -> Self {
-        Self { key, next: 0, buf: vec![], limit }
+    pub fn new(labels: Labels, key: [u8; 32], limit: usize) -> Self {
+        Self { labels, key, next: 0, buf: vec![], limit }
     }
 
     /// Feeds one `f` frame; returns a whole inner message once its last chunk arrived.
@@ -224,7 +272,7 @@ impl Opener {
             return Err(FrameError::Protocol);
         }
         let d = frame["d"].as_str().and_then(|d| unb64(d).ok()).ok_or(FrameError::Protocol)?;
-        let (last, chunk) = open_frame(&self.key, c, &d).map_err(|_| FrameError::Protocol)?;
+        let (last, chunk) = open_frame(self.labels, &self.key, c, &d).map_err(|_| FrameError::Protocol)?;
         self.next += 1;
         if self.buf.len() + chunk.len() > self.limit {
             return Err(FrameError::TooLarge);
@@ -237,6 +285,7 @@ impl Opener {
 // MARK: mailbox (§6.4)
 
 /// Verifies and decrypts a mailbox blob sent by `dk`; returns the inner JSON bytes.
+/// The device's signature is bound to its label family, so whichever verifies is the one used.
 pub fn open_mailbox(
     box_secret: &StaticSecret,
     cid_raw: &[u8; 16],
@@ -249,26 +298,35 @@ pub fn open_mailbox(
     let (sig, ct) = rest.split_at(64);
     let epk: [u8; 32] = epk.try_into()?;
     let sig: [u8; 64] = sig.try_into()?;
-    verify(dk, &[b"codync/mbox/v1".as_slice(), cid_raw, &epk, ct].concat(), &sig)?;
-    let key = mailbox_key(&x25519(box_secret, &epk)?, cid_raw, dk, &epk);
+    let l = Labels::ALL
+        .into_iter()
+        .find(|l| verify(dk, &[l.label("mbox/v1").as_slice(), cid_raw, &epk, ct].concat(), &sig).is_ok())
+        .ok_or_else(|| anyhow!("bad signature"))?;
+    let key = mailbox_key(l, &x25519(box_secret, &epk)?, cid_raw, dk, &epk);
     aead(&key)
         .decrypt(&[0u8; 12].into(), Payload { msg: ct, aad: &[dk.as_slice(), client_nonce.as_bytes()].concat() })
         .map_err(|_| anyhow!("mailbox blob doesn't decrypt"))
 }
 
-fn mailbox_key(shared: &[u8; 32], cid_raw: &[u8; 16], dk: &[u8; 32], epk: &[u8; 32]) -> [u8; 32] {
-    hkdf_key(&[b"codync/mbox/v1".as_slice(), cid_raw, dk, epk].concat(), shared, b"codync/mbox-key/v1")
+fn mailbox_key(l: Labels, shared: &[u8; 32], cid_raw: &[u8; 16], dk: &[u8; 32], epk: &[u8; 32]) -> [u8; 32] {
+    hkdf_key(&[l.label("mbox/v1").as_slice(), cid_raw, dk, epk].concat(), shared, &l.label("mbox-key/v1"))
 }
 
 // MARK: push (§6.7)
 
 /// Seals a notification's `{"title","body"}` JSON to a device's push key with a fresh
 /// ephemeral key (`eph`; tests pass a fixed one). Returns `sealed`.
-pub fn seal_push(cid_raw: &[u8; 16], push_key: &[u8; 32], plaintext: &[u8], eph: &StaticSecret) -> Result<String> {
+pub fn seal_push(
+    l: Labels,
+    cid_raw: &[u8; 16],
+    push_key: &[u8; 32],
+    plaintext: &[u8],
+    eph: &StaticSecret,
+) -> Result<String> {
     let epk = x25519_pub(eph);
     let shared = x25519(eph, push_key)?;
     let key =
-        hkdf_key(&[b"codync/push/v1".as_slice(), cid_raw, push_key, &epk].concat(), &shared, b"codync/push-key/v1");
+        hkdf_key(&[l.label("push/v1").as_slice(), cid_raw, push_key, &epk].concat(), &shared, &l.label("push-key/v1"));
     let ct = aead(&key)
         .encrypt(&[0u8; 12].into(), Payload { msg: plaintext, aad: cid_raw })
         .map_err(|_| anyhow!("push payload too large"))?;
@@ -277,38 +335,53 @@ pub fn seal_push(cid_raw: &[u8; 16], push_key: &[u8; 32], plaintext: &[u8], eph:
 
 // MARK: SAS, offers, canonical strings (§4, §5)
 
-pub fn sas_commit(dk: &[u8; 32], device_nonce: &[u8; 32]) -> [u8; 32] {
-    sha256(&[b"codync/sascommit/v1", dk, device_nonce])
+pub fn sas_commit(l: Labels, dk: &[u8; 32], device_nonce: &[u8; 32]) -> [u8; 32] {
+    sha256(&[&l.label("sascommit/v1"), dk, device_nonce])
 }
 
 /// The 6-digit code both screens show.
-pub fn sas_code(host_sign_pub: &[u8; 32], dk: &[u8; 32], device_nonce: &[u8; 32], host_nonce: &[u8; 32]) -> String {
-    let h = sha256(&[b"codync/sas/v2", host_sign_pub, dk, device_nonce, host_nonce]);
+pub fn sas_code(
+    l: Labels,
+    host_sign_pub: &[u8; 32],
+    dk: &[u8; 32],
+    device_nonce: &[u8; 32],
+    host_nonce: &[u8; 32],
+) -> String {
+    let h = sha256(&[&l.label("sas/v2"), host_sign_pub, dk, device_nonce, host_nonce]);
     let n = u32::from_be_bytes([h[0], h[1], h[2], h[3]]) % 1_000_000;
     format!("{n:06}")
 }
 
 /// The ACL `offers[].id` (and relay `pair=`) for a pairing code.
-pub fn offer_id(code: &[u8; 16]) -> String {
-    b64(&sha256(&[b"codync/offer/v1", code])[..16])
+pub fn offer_id(l: Labels, code: &[u8; 16]) -> String {
+    b64(&sha256(&[&l.label("offer/v1"), code])[..16])
 }
 
 /// What the host signs to join an account (`claimSign`).
-pub fn claim_input(claim_id: &str, nonce: &str, user_id: &str, computer_id: &str, box_key: &str) -> String {
-    format!("codync/claim/v1\n{claim_id}\n{nonce}\n{user_id}\n{computer_id}\n{box_key}")
+pub fn claim_input(l: Labels, claim_id: &str, nonce: &str, user_id: &str, computer_id: &str, box_key: &str) -> String {
+    format!("{}/claim/v1\n{claim_id}\n{nonce}\n{user_id}\n{computer_id}\n{box_key}", l.name())
 }
 
-/// The `Codync-Sig` signing input.
-pub fn request_sig_input(method: &str, authority: &str, path_query: &str, ts: i64, nonce: &str, body: &[u8]) -> String {
+/// The `Kith-Sig` / `Codync-Sig` signing input (`kith-sig-v1` / `codync-sig-v1`).
+pub fn request_sig_input(
+    l: Labels,
+    method: &str,
+    authority: &str,
+    path_query: &str,
+    ts: i64,
+    nonce: &str,
+    body: &[u8],
+) -> String {
     format!(
-        "codync-sig-v1\n{}\n{}\n{path_query}\n{ts}\n{nonce}\n{}",
+        "{}-sig-v1\n{}\n{}\n{path_query}\n{ts}\n{nonce}\n{}",
+        l.name(),
         method.to_ascii_uppercase(),
         authority.to_ascii_lowercase(),
         b64(&sha256(&[body]))
     )
 }
 
-/// The `Codync-Sig` header value.
+/// The `Kith-Sig` / `Codync-Sig` header value.
 pub fn request_sig_header(key: &SigningKey, ts: i64, nonce: &str, input: &str) -> String {
     let kid = b64(key.verifying_key().as_bytes());
     let sig = b64(&sign(key, input.as_bytes()));
@@ -321,8 +394,12 @@ mod tests {
     use super::*;
     use serde_json::Value;
 
-    fn vectors() -> Value {
-        serde_json::from_str(include_str!("../../../docs/reference/fixtures/remote-relay-vectors.json")).unwrap()
+    fn vectors(l: Labels) -> Value {
+        let json = match l {
+            Labels::Codync => include_str!("../../../docs/reference/fixtures/remote-relay-vectors.json"),
+            Labels::Kith => include_str!("../../../docs/reference/fixtures/remote-relay-vectors.kith.json"),
+        };
+        serde_json::from_str(json).unwrap()
     }
 
     fn b(v: &Value) -> Vec<u8> {
@@ -351,9 +428,9 @@ mod tests {
         Keys { host, host_box, device }
     }
 
-    #[test]
-    fn handshake_vectors() {
-        let v = vectors();
+    #[allow(clippy::many_single_char_names)] // vector sections, named as in the JSON
+    fn handshake_vectors_for(l: Labels) {
+        let v = vectors(l);
         let k = keys(&v);
         let h = &v["handshake"];
         let cid = computer_id_raw(k.host.verifying_key().as_bytes());
@@ -365,13 +442,13 @@ mod tests {
         assert_eq!(b64(&ek_h), h["hostEphPub"]);
         let n = b32(&h["n"]);
 
-        let hs1 = hs1_input(&cid, &dk, &ek_d, &n);
+        let hs1 = hs1_input(l, &cid, &dk, &ek_d, &n);
         assert_eq!(b64(&hs1), h["hs1SignInput"]);
         let sig = sign(&k.device, &hs1);
         assert_eq!(b64(&sig), h["hs1Sig"]);
         verify(&dk, &hs1, &sig).unwrap();
 
-        let th = transcript_hash(&cid, &dk, &ek_d, &n, &ek_h);
+        let th = transcript_hash(l, &cid, &dk, &ek_d, &n, &ek_h);
         assert_eq!(b64(&th), h["transcriptHash"]);
         assert_eq!(b64(&sign(&k.host, &th)), h["hs2Sig"]);
 
@@ -380,7 +457,7 @@ mod tests {
         assert_eq!(b64(&ss), h["sharedSecret"]);
         let (prk, _) = Hkdf::<Sha256>::extract(Some(&th), &ss);
         assert_eq!(b64(&prk), h["prk"]);
-        let keys = channel_keys(&ss, &th);
+        let keys = channel_keys(l, &ss, &th);
         assert_eq!(b64(&keys.d2h), h["kD2H"]);
         assert_eq!(b64(&keys.h2d), h["kH2D"]);
 
@@ -390,9 +467,9 @@ mod tests {
         assert!(verify(&dk, &tampered, &sig).is_err());
     }
 
-    #[test]
-    fn frame_vectors() {
-        let v = vectors();
+    #[allow(clippy::many_single_char_names)] // vector sections, named as in the JSON
+    fn frame_vectors_for(l: Labels) {
+        let v = vectors(l);
         let h = &v["handshake"];
         let (d2h, h2d) = (b32(&h["kD2H"]), b32(&h["kH2D"]));
         for f in v["frames"].as_array().unwrap() {
@@ -403,18 +480,18 @@ mod tests {
             let plaintext = b(&f["plaintext"]);
             assert_eq!(plaintext[0], u8::from(!last));
             assert_eq!(&plaintext[1..], msg);
-            let d = seal_frame(key, c, last, msg);
+            let d = seal_frame(l, key, c, last, msg);
             assert_eq!(b64(&d), f["d"]);
-            assert_eq!(open_frame(key, c, &d).unwrap(), (last, msg.to_vec()));
-            assert!(open_frame(key, c + 1, &d).is_err(), "the counter is bound to the frame");
+            assert_eq!(open_frame(l, key, c, &d).unwrap(), (last, msg.to_vec()));
+            assert!(open_frame(l, key, c + 1, &d).is_err(), "the counter is bound to the frame");
         }
     }
 
     #[test]
     fn sealer_and_opener_chunk_count_and_limit() {
         let key = [7u8; 32];
-        let mut sealer = Sealer::new(key);
-        let mut opener = Opener::new(key, 1024 * 1024);
+        let mut sealer = Sealer::new(Labels::Kith, key);
+        let mut opener = Opener::new(Labels::Kith, key, 1024 * 1024);
         let big = vec![b'x'; CHUNK * 2 + 5];
         let frames = sealer.seal(&big).unwrap();
         assert_eq!(frames.len(), 3);
@@ -429,19 +506,18 @@ mod tests {
         let a = sealer.seal(b"a").unwrap();
         let b = sealer.seal(b"b").unwrap();
         assert_eq!(opener.open(&b[0]), Err(FrameError::Protocol));
-        let mut small = Opener::new(key, 4);
-        let mut s2 = Sealer::new(key);
+        let mut small = Opener::new(Labels::Kith, key, 4);
+        let mut s2 = Sealer::new(Labels::Kith, key);
         assert_eq!(small.open(&s2.seal(b"12345").unwrap()[0]), Err(FrameError::TooLarge));
         drop(a);
 
-        let mut near_end = Sealer { key, next: REKEY_AT - 1 };
+        let mut near_end = Sealer { labels: Labels::Kith, key, next: REKEY_AT - 1 };
         assert!(near_end.seal(b"x").is_some());
         assert!(near_end.seal(b"x").is_none(), "no frame may use counter 2^32");
     }
 
-    #[test]
-    fn mailbox_vector_opens() {
-        let v = vectors();
+    fn mailbox_vector_opens_for(l: Labels) {
+        let v = vectors(l);
         let k = keys(&v);
         let m = &v["mailbox"];
         let cid = computer_id_raw(k.host.verifying_key().as_bytes());
@@ -451,7 +527,7 @@ mod tests {
         assert_eq!(b64(&epk), m["ephPub"]);
         let ss = x25519(&k.host_box, &epk).unwrap();
         assert_eq!(b64(&ss), m["sharedSecret"]);
-        assert_eq!(b64(&mailbox_key(&ss, &cid, &dk, &epk)), m["key"]);
+        assert_eq!(b64(&mailbox_key(l, &ss, &cid, &dk, &epk)), m["key"]);
         let blob = b(&m["blob"]);
         assert_eq!(blob, [epk.as_slice(), &b(&m["sig"]), &b(&m["ciphertext"])].concat());
 
@@ -467,9 +543,8 @@ mod tests {
         assert!(open_mailbox(&k.host_box, &cid, &other, nonce, &blob).is_err(), "sender is authenticated");
     }
 
-    #[test]
-    fn push_vector_seals() {
-        let v = vectors();
+    fn push_vector_seals_for(l: Labels) {
+        let v = vectors(l);
         let k = keys(&v);
         let p = &v["push"];
         let cid = computer_id_raw(k.host.verifying_key().as_bytes());
@@ -480,26 +555,26 @@ mod tests {
         assert_eq!(b64(&x25519_pub(&eph)), p["ephPub"]);
         let ss = x25519(&eph, &push_key).unwrap();
         assert_eq!(b64(&ss), p["sharedSecret"]);
-        let sealed = seal_push(&cid, &push_key, p["plaintext"].as_str().unwrap().as_bytes(), &eph).unwrap();
+        let sealed = seal_push(l, &cid, &push_key, p["plaintext"].as_str().unwrap().as_bytes(), &eph).unwrap();
         assert_eq!(sealed, p["sealed"]);
     }
 
-    #[test]
     #[allow(clippy::many_single_char_names)] // vector sections, named as in the JSON
-    fn sas_offer_claim_and_request_sig_vectors() {
-        let v = vectors();
+    fn sas_offer_claim_and_request_sig_vectors_for(l: Labels) {
+        let v = vectors(l);
         let k = keys(&v);
         let dk = k.device.verifying_key().to_bytes();
         let s = &v["sas"];
         let (nd, nh) = (b32(&s["deviceNonce"]), b32(&s["hostNonce"]));
-        assert_eq!(b64(&sas_commit(&dk, &nd)), s["commit"]);
-        assert_eq!(sas_code(k.host.verifying_key().as_bytes(), &dk, &nd, &nh), s["code"]);
+        assert_eq!(b64(&sas_commit(l, &dk, &nd)), s["commit"]);
+        assert_eq!(sas_code(l, k.host.verifying_key().as_bytes(), &dk, &nd, &nh), s["code"]);
 
         let p = &v["pairing"];
-        assert_eq!(offer_id(&unb64_n(p["code"].as_str().unwrap()).unwrap()), p["offerId"]);
+        assert_eq!(offer_id(l, &unb64_n(p["code"].as_str().unwrap()).unwrap()), p["offerId"]);
 
         let c = &v["claim"];
         let input = claim_input(
+            l,
             c["claimId"].as_str().unwrap(),
             c["nonce"].as_str().unwrap(),
             c["userId"].as_str().unwrap(),
@@ -514,6 +589,7 @@ mod tests {
         let ts = r["ts"].as_i64().unwrap();
         let nonce = r["nonce"].as_str().unwrap();
         let input = request_sig_input(
+            l,
             r["method"].as_str().unwrap(),
             r["authority"].as_str().unwrap(),
             r["pathAndQuery"].as_str().unwrap(),
@@ -523,11 +599,47 @@ mod tests {
         );
         assert_eq!(input, r["canonical"]);
         let header = request_sig_header(&k.device, ts, nonce, &input);
-        assert_eq!(format!("Codync-Sig: {header}"), r["header"]);
+        assert_eq!(format!("{}: {header}", l.sig_header()), r["header"]);
 
         let a = &v["acl"];
         let json = a["json"].as_str().unwrap();
         assert_eq!(b64(json.as_bytes()), a["d"]);
         assert_eq!(b64(&sign(&k.host, json.as_bytes())), a["sig"]);
+    }
+
+    #[test]
+    fn handshake_vectors() {
+        for l in Labels::ALL {
+            handshake_vectors_for(l);
+        }
+    }
+
+    #[test]
+    fn frame_vectors() {
+        for l in Labels::ALL {
+            frame_vectors_for(l);
+        }
+    }
+
+    #[test]
+    fn mailbox_vector_opens() {
+        for l in Labels::ALL {
+            mailbox_vector_opens_for(l);
+        }
+    }
+
+    #[test]
+    fn push_vector_seals() {
+        for l in Labels::ALL {
+            push_vector_seals_for(l);
+        }
+    }
+
+    #[allow(clippy::many_single_char_names)] // vector sections, named as in the JSON
+    #[test]
+    fn sas_offer_claim_and_request_sig_vectors() {
+        for l in Labels::ALL {
+            sas_offer_claim_and_request_sig_vectors_for(l);
+        }
     }
 }

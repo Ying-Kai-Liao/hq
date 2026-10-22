@@ -67,7 +67,7 @@ export async function call(method: string, path: string, o: CallOptions = {}): P
   if (o.token) headers.Authorization = `Bearer ${o.token}`;
   if (o.body !== undefined) headers["Content-Type"] = "application/json";
   if (o.key) {
-    headers["Codync-Sig"] = signRequest(o.key, {
+    headers["Kith-Sig"] = signRequest(o.key, {
       method,
       authority: o.authority ?? AUTHORITY,
       pathAndQuery: path,
@@ -161,7 +161,7 @@ export async function upgrade(
   const res = await SELF.fetch(ORIGIN + path, {
     headers: {
       Upgrade: "websocket",
-      "Codync-Sig": signRequest(key, { method: "GET", authority: o.authority ?? AUTHORITY, pathAndQuery: path, nonce: o.nonce }),
+      "Kith-Sig": signRequest(key, { method: "GET", authority: o.authority ?? AUTHORITY, pathAndQuery: path, nonce: o.nonce }),
     },
   });
   if (res.status !== 101) return { status: res.status, body: await res.json() };

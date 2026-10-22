@@ -75,7 +75,7 @@ public final class BotStore {
     public var lastError: String?
     /// The open conversation (navigation path).
     public var selection: String?
-    /// The remote screen viewer (iPhone); `codync://screen` opens it.
+    /// The remote screen viewer (iPhone); `kith://screen` opens it.
     public var screenRequest: ScreenRequest?
 
     // Platform hooks (push registration, Live Activities, widgets).

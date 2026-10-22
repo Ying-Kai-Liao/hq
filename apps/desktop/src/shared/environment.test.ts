@@ -25,6 +25,13 @@ test('the development app installs as Kith Dev', () => {
   assert.equal(dev.screenLabel, 'com.yingkailiao.kith.dev.screen')
 })
 
+test('links use the kith schemes and the codync ones stay registered', () => {
+  assert.equal(environmentProfile('main').scheme, 'kith')
+  assert.equal(environmentProfile('dev').scheme, 'kith-dev')
+  assert.equal(environmentProfile('main').legacyScheme, 'codync')
+  assert.equal(environmentProfile('dev').legacyScheme, 'codync-dev')
+})
+
 test('a development app rejects production and old unidentified hosts', () => {
   assert.equal(hostEnvironmentError('main', undefined), null)
   assert.equal(hostEnvironmentError('main', 'main'), null)

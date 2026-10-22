@@ -209,7 +209,7 @@ export interface CodyncBridge {
     openSettings(url: string): void
     /**
      * Opens `url` in the system browser and resolves with the URL it returns to on `scheme`
-     * (`codync://…`), like ASWebAuthenticationSession. Rejects when cancelled or timed out.
+     * (`kith://…`), like ASWebAuthenticationSession. Rejects when cancelled or timed out.
      */
     authenticate(url: string, scheme: string): Promise<string>
     /** macOS: registers or removes the Codync Screen agent (SMAppService). */

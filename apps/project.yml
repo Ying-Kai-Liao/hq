@@ -43,7 +43,8 @@ settings:
     CODYNC_IOS_BUNDLE_ID: com.yingkailiao.kith.ios
     CODYNC_APP_GROUP: group.com.yingkailiao.kith
     CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith
-    CODYNC_URL_SCHEME: codync
+    CODYNC_URL_SCHEME: kith
+    CODYNC_LEGACY_URL_SCHEME: codync
     CODYNC_SCREEN_NAME: CodyncScreen
     CODYNC_SCREEN_BUNDLE_ID: com.pokai.Codync.screen
     CODYNC_DATA_FOLDER: .kith/serve-main
@@ -58,7 +59,8 @@ settings:
       CODYNC_IOS_BUNDLE_ID: com.yingkailiao.kith.ios.dev
       CODYNC_APP_GROUP: group.com.yingkailiao.kith.dev
       CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith.dev
-      CODYNC_URL_SCHEME: codync-dev
+      CODYNC_URL_SCHEME: kith-dev
+      CODYNC_LEGACY_URL_SCHEME: codync-dev
       CODYNC_SCREEN_NAME: CodyncDevScreen
       CODYNC_SCREEN_BUNDLE_ID: com.yingkailiao.kith.dev.screen
       CODYNC_DATA_FOLDER: .kith/serve
@@ -69,7 +71,8 @@ settings:
       CODYNC_IOS_BUNDLE_ID: com.yingkailiao.kith.ios.dev
       CODYNC_APP_GROUP: group.com.yingkailiao.kith.dev
       CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith.dev
-      CODYNC_URL_SCHEME: codync-dev
+      CODYNC_URL_SCHEME: kith-dev
+      CODYNC_LEGACY_URL_SCHEME: codync-dev
       CODYNC_SCREEN_NAME: CodyncDevScreen
       CODYNC_SCREEN_BUNDLE_ID: com.yingkailiao.kith.dev.screen
       CODYNC_DATA_FOLDER: .kith/serve
