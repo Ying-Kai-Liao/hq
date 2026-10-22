@@ -10,6 +10,7 @@ import { Icon } from '../../components/Icon'
 import { ModalHeader, Sheet, SheetPage, useDismiss } from '../../components/Overlay'
 import { HStack, IconSlot, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
+import { paletteColor, paletteValue } from '@shared/living-bots'
 import { AVATAR_PALETTE } from '../../lib/theme'
 import { useStore } from '../../store/context'
 import { useAgentModels } from './agent-models'
@@ -376,7 +377,7 @@ function PluginToggles({ title, empty, items, selection, onChange, onInfo }: {
 
 function AvatarPicker({ source, color, auto, isGroup, onSource, onColor }: {
   source: string
-  /** The palette id the bot wears; empty is its original colours. */
+  /** The bot's avatarColor: a `kith:<palette id>` pick; anything else is its original colours. */
   color: string
   /** What Automatic shows for this bot. */
   auto: AvatarImage | null
@@ -399,7 +400,7 @@ function AvatarPicker({ source, color, auto, isGroup, onSource, onColor }: {
     })
   if (isGroup) return <div className="swatch-label">A group wears the Kith cube.</div>
   const original = picked ? { kind: source.split(':')[0] as AvatarImage['kind'], name: source.split(':')[1]! } : auto
-  const known = AVATAR_PALETTE.some((c) => c.id === color)
+  const known = !!paletteColor(color)
   return (
     <VStack gap={12}>
       <div className="swatch-label">Automatic</div>
@@ -418,7 +419,7 @@ function AvatarPicker({ source, color, auto, isGroup, onSource, onColor }: {
           {original ? <CrewPortrait image={original} size={26} /> : null}
         </button>
         {AVATAR_PALETTE.map((c) => (
-          <button key={c.id} className={`swatch ${c.id === color ? 'on' : ''}`} aria-label={c.id} aria-pressed={c.id === color} onClick={() => onColor(c.id)}>
+          <button key={c.id} className={`swatch ${paletteValue(c.id) === color ? 'on' : ''}`} aria-label={c.id} aria-pressed={paletteValue(c.id) === color} onClick={() => onColor(paletteValue(c.id))}>
             <span className="swatch-color" style={{ background: `linear-gradient(135deg, ${c.a}, ${c.b})` }} />
           </button>
         ))}

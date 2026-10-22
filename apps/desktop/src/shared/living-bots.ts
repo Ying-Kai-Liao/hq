@@ -37,8 +37,14 @@ const eyes = eyesJson as unknown as { palette: PaletteColor[]; bots: Record<stri
 /** The 15 named colour pairs a bot can wear (the default is its untouched body). */
 export const PALETTE: readonly PaletteColor[] = eyes.palette
 
-/** The pair for an avatarColor, or null for the original body (empty, or an id this app doesn't know). */
-export function paletteColor(id: string | undefined | null): PaletteColor | null {
+/** What avatarColor holds for a palette pick. Bare ids (`blue`, `green`...) are the old colours, not picks. */
+export const PALETTE_PREFIX = 'kith:'
+export const paletteValue = (id: string) => `${PALETTE_PREFIX}${id}`
+
+/** The pair for an avatarColor, or null for the original body (empty, an old bare id, or an id this app doesn't know). */
+export function paletteColor(value: string | undefined | null): PaletteColor | null {
+  if (!value?.startsWith(PALETTE_PREFIX)) return null
+  const id = value.slice(PALETTE_PREFIX.length)
   return PALETTE.find((c) => c.id === id) ?? null
 }
 

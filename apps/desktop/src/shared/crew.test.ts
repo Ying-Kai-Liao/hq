@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { avatarImage, CREW, crewName, SPARES } from './crew.ts'
-import { PALETTE, paletteColor, rigOf } from './living-bots.ts'
+import { PALETTE, paletteColor, paletteValue, rigOf } from './living-bots.ts'
 
 const bot = (id: string, name: string, kind = 'agent', avatarSource?: string) => ({ id, name, kind, avatarSource })
 
@@ -53,10 +53,12 @@ test('every crew member and spare has an eye rig, and so does the kith cube', ()
   assert.equal(rigOf('coder')!.detail, true)
 })
 
-test('an avatar colour is a palette id; empty and old ids keep the original body', () => {
+test('an avatar colour is a `kith:` palette pick; empty and old ids keep the original body', () => {
   assert.equal(PALETTE.length, 15)
-  assert.deepEqual(paletteColor('coral'), PALETTE.find((c) => c.id === 'coral'))
-  for (const old of ['', 'black', 'brown', 'red', 'orange', 'yellow', 'magenta', 'gray', undefined]) assert.equal(paletteColor(old), null)
+  assert.deepEqual(paletteColor('kith:coral'), PALETTE.find((c) => c.id === 'coral'))
+  assert.equal(paletteValue('coral'), 'kith:coral')
+  // Old bots carry bare ids, some of which (blue, green, cyan, violet) are also palette names: they must not recolour.
+  for (const old of ['', 'black', 'brown', 'red', 'orange', 'yellow', 'magenta', 'gray', 'blue', 'green', 'cyan', 'violet', 'coral', 'kith:nope', 'kith:', undefined]) assert.equal(paletteColor(old), null)
 })
 
 test('an image this app does not know falls back to auto', () => {
