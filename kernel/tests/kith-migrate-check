@@ -30,7 +30,8 @@ echo "launchctl $*" >> "$STUB_LOG"
 touch "$STUB_LOADED"
 case $1 in
   print) grep -qx "${2##*/}" "$STUB_LOADED" ;;
-  bootout) grep -vx "${2##*/}" "$STUB_LOADED" > "$STUB_LOADED.new"; mv "$STUB_LOADED.new" "$STUB_LOADED" ;;
+  bootout) if [ "${STUB_STUCK:-}" != "${2##*/}" ]; then   # STUB_STUCK=<label>: bootout never unloads it
+             grep -vx "${2##*/}" "$STUB_LOADED" > "$STUB_LOADED.new"; mv "$STUB_LOADED.new" "$STUB_LOADED"; fi ;;
   bootstrap)
     label=$(basename "$3" .plist)
     if [ -n "${STUB_LAUNCHCTL_FAIL:-}" ]; then echo "Bootstrap failed: 5" >&2; exit 5; fi
@@ -250,6 +251,10 @@ check "bootstrap failing twice with EIO is retried; the job ends up loaded" \
   "[ $rc = 0 ] && grep -qx dev.kith.cost $STUB_LOADED && [ \$(grep -c 'bootstrap .*dev.kith.cost.plist' $STUB_LOG) = 3 ] && grep -qx dev.kith.sched $STUB_LOADED && ! grep -q '^dev.hq' $STUB_LOADED"
 build; STUB_EIO=dev.kith.cost:9 mig; rc=$?
 check "a job that never loads stops the migration, resumable, with a message" "[ $rc != 0 ] && sees 'stopped:' && sees 'dev.kith.cost.plist failed (exit 5)' && [ -L $HOME/.hq ]"
+build; echo dev.kith.cost >> "$STUB_LOADED"; STUB_STUCK=dev.kith.cost STUB_EIO=dev.kith.cost:9 mig; rc=$?
+check "a label that shows as loaded does not count as success when every bootstrap failed" \
+  "[ $rc != 0 ] && sees 'dev.kith.cost.plist failed (exit 5)'"
+build; STUB_EIO=dev.kith.cost:9 mig
 rm -f "$STUB_LOADED.eio"
 mig; rc=$?
 check "and running it again finishes" "[ $rc = 0 ] && grep -qx dev.kith.cost $STUB_LOADED"
