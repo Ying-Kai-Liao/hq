@@ -132,6 +132,9 @@ check "doctor says unmigrated before" "sees 'not migrated'"
 echo "4242 /bin/bash $HOME/kith/kernel/bin/kith echo do the thing" > "$STUB_PS"
 mig; rc=$?
 check "refuses while an agent run is active" "[ $rc != 0 ] && sees 'an agent run is going' && snap | cmp -s - $T/s0"
+echo "4243 claude -p hi HOME=$HOME KITH_AGENT=echo PATH=/usr/bin" > "$STUB_PS"   # a running session: no kith process left, only its environment
+mig; rc=$?
+check "refuses while an agent session is running (seen by its environment)" "[ $rc != 0 ] && sees 'agent session is running (echo' && snap | cmp -s - $T/s0"
 rm -f "$STUB_PS"
 python3 -c 'import fcntl,sys,time; f=open(sys.argv[1],"rb"); fcntl.flock(f,2); print("held",flush=True); time.sleep(20)' "$HOME/.hq/ask.lock" > "$T/held" &
 holder=$!
@@ -207,6 +210,23 @@ mig; rc=$?
 check "a name in both ~/.hq and ~/.kith refuses, changing nothing" "[ $rc != 0 ] && sees 'serve is in both' && snap | cmp -s - $T/c0"
 mig --force; rc=$?
 check "--force does not override a name clash" "[ $rc != 0 ] && snap | cmp -s - $T/c0"
+build; cp "$LA/dev.hq.cost.plist" "$LA/dev.kith.cost.plist"; snap > "$T/j0"
+mig; rc=$?
+check "a dev.kith.<x> job that already exists beside dev.hq.<x> refuses, changing nothing" "[ $rc != 0 ] && sees 'dev.hq.cost and dev.kith.cost are both installed' && snap | cmp -s - $T/j0"
+
+# stopped after ~/.hq became a link but before the move was recorded as finished: the retry must not replay the renames
+build; snap > "$T/r0"
+STUB_LAUNCHCTL_FAIL=1 mig
+python3 -I -c 'import json,sys; p=sys.argv[1]; m=json.load(open(p)); m["steps"]["move"]["finished"]=False; json.dump(m,open(p,"w"))' "$HOME/.kith/migrate-manifest.json"
+mig; rc=$?
+check "a retry after the link was made does not replay the move" "[ $rc = 0 ] && [ -L $HOME/.hq ] && [ -f $HOME/.kith/user.md ] && [ -d $HOME/.kith/serve ]"
+mig --undo; rc=$?
+check "and the undo after that still restores everything" "[ $rc = 0 ] && snap | cmp -s - $T/r0"
+
+build; : > "$STUB_LOG"; STUB_LAUNCHCTL_FAIL=1 mig
+: > "$STUB_LOG"; mig --undo
+check "undo from a half-way state reloads the original jobs" "grep -q 'bootstrap gui/[0-9]* .*dev.hq.cost.plist' $STUB_LOG && grep -q 'bootstrap gui/[0-9]* .*dev.hq.sched.plist' $STUB_LOG"
+
 build; echo "9 /bin/bash $HOME/kith/kernel/bin/kith echo hi" > "$STUB_PS"
 mig --force; rc=$?
 check "--force goes on although an agent run is active" "[ $rc = 0 ] && sees 'going on although'"

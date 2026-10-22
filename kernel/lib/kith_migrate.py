@@ -194,10 +194,16 @@ def active():
         pass
     quiet = {'migrate', 'doctor', 'ls', 'init', 'project', 'memory', 'who', 'auth', 'cost', 'serve', 'schedule', 'backup',
              'versions', 'history', 'deps', 'market', 'search', 'remote'}
-    ps = sh('ps', '-axo', 'pid=,command=').stdout
+    # `ps e` appends each process's environment: a running session (claude, a harness) has replaced the kith command
+    # that started it, but still carries KITH_AGENT / HQ_AGENT
+    ps = sh('ps', 'axeww', '-o', 'pid=,command=').stdout
     for line in ps.splitlines():
         pid, _, cmd = line.strip().partition(' ')
         if pid == str(os.getpid()):
+            continue
+        env = re.search(r'(?:^|\s)(?:KITH|HQ)_AGENT=(\S+)', cmd)
+        if env:
+            why.append(f'an agent session is running ({env.group(1)}, pid {pid})')
             continue
         mo = re.search(r'(?:^|[\s/])(?:kith|hq)(-ask|-acp)?\s+(?:-\S+\s+)*([A-Za-z][\w-]*)', cmd)
         if mo and mo.group(2) not in quiet and 'sh -c' not in cmd:
@@ -205,8 +211,11 @@ def active():
     return why
 
 
-def problems():
+def problems(resumed=False):
     out = []
+    if not resumed:   # a second job under the new name would be overwritten, and undo would delete it
+        out += [f'dev.hq.{j} and dev.kith.{j} are both installed: remove one, then run again'
+                for j in jobs_of() if (LA / f'dev.kith.{j}.plist').exists()]
     if NEW.exists() and not real_dir(NEW):
         out.append(f'{NEW} exists and is not a folder')
     if real_dir(OLD) and real_dir(NEW):
@@ -258,7 +267,7 @@ def u_backup(m):
 
 
 def s_stop(m, dry):
-    js = jobs_of()
+    js = sorted(set(jobs_of()) | set(m['steps']['stop'].get('jobs', [])))   # a resumed run no longer sees plists it retired
     say('boot out ' + (', '.join('dev.hq.' + j for j in js) if js else 'no dev.hq.* jobs (none installed)'))
     if dry:
         return
@@ -268,7 +277,15 @@ def s_stop(m, dry):
 
 
 def u_stop(m):
-    pass   # the jobs come back with the plists (u_jobs); a job stopped here and never replaced is restarted there
+    """The original jobs come back last, after the state and links are as they were: a RunAtLoad job starts at once."""
+    b = Path(m['backup'])
+    for j in m['steps'].get('stop', {}).get('jobs', []):
+        saved = b / 'files' / 'Library/LaunchAgents' / f'dev.hq.{j}.plist'
+        if saved.exists():
+            copy(saved, LA / f'dev.hq.{j}.plist')
+            if j in m.get('was_loaded', []):
+                sh('launchctl', 'bootout', f'gui/{UID}/dev.hq.{j}')
+                bootstrap(LA / f'dev.hq.{j}.plist')
 
 
 def s_move(m, dry):
@@ -281,6 +298,9 @@ def s_move(m, dry):
         st['replaced_empty'] = []
         save(m)
     NEW.mkdir(exist_ok=True)
+    if OLD.is_symlink():   # stopped after the last rename: the layout is done, replaying the moves would see one folder twice
+        MARKER.write_text('')
+        return
     for name in st['planned']:
         src, dst = OLD / name, NEW / name
         if src.exists() or src.is_symlink():
@@ -288,6 +308,7 @@ def s_move(m, dry):
                 if real_dir(dst) and not any(dst.iterdir()):
                     dst.rmdir()
                     st['replaced_empty'].append(name)
+                    save(m)
                 else:
                     raise Stop(f'{name} is in both {OLD} and {NEW}')
             os.rename(src, dst)
@@ -337,8 +358,10 @@ def s_exclude(m, dry):
     names = sorted({e.name for e in NEW.iterdir()} - set(m['steps']['move'].get('planned', [])) - {'.git'}
                    | {MANIFEST.name, MARKER.name})
     f = git / 'info/exclude'
-    st['file'] = str(f)
-    st['original'] = f.read_text() if f.exists() else None
+    if 'file' not in st:   # the original goes into the manifest before the file changes, and stays there on a retry
+        st['file'] = str(f)
+        st['original'] = f.read_text() if f.exists() else None
+        save(m)
     base = st['original'] or ''
     add = [f'/{n}' for n in names if f'/{n}' not in base.splitlines()]
     f.parent.mkdir(exist_ok=True)
@@ -371,8 +394,9 @@ def s_home(m, dry):
         if os.path.realpath(new) != os.path.realpath(target):
             raise Stop(f'{new} exists and is not the Kith folder ({os.path.realpath(new)})')
         return
+    st['created'] = True   # recorded first: a crash between the two lines must still be undone
+    save(m)
     new.symlink_to(target)
-    st['created'] = True
 
 
 def u_home(m):
@@ -396,7 +420,9 @@ def s_bin(m, dry):
     else:
         st['skipped'] = f'{cmd} is not there'
         return
-    st['before'] = {n: (os.readlink(BIN / n) if (BIN / n).is_symlink() else None) for n in ('kith', 'hq')}
+    if 'before' not in st:   # the first run's record is the one that counts
+        st['before'] = {n: (os.readlink(BIN / n) if (BIN / n).is_symlink() else None) for n in ('kith', 'hq')}
+        save(m)
     BIN.mkdir(parents=True, exist_ok=True)
     for n in ('kith', 'hq'):
         p = BIN / n
@@ -462,14 +488,12 @@ def s_jobs(m, dry):
     st = m['steps']['jobs']
     st.setdefault('done', {})
     LA.mkdir(parents=True, exist_ok=True)
-    b = Path(m['backup'])
-    for j in sorted(set(old) | set(st['done'])):
+    # the plan is the jobs stopped in step 2, not what is on disk now: an installer that failed after retiring the old
+    # plist leaves nothing under dev.hq.* to find on the retry
+    for j in sorted(set(old) | set(m['steps']['stop'].get('jobs', []))):
         if st['done'].get(j):
             continue
         oldp, newp = LA / f'dev.hq.{j}.plist', LA / f'dev.kith.{j}.plist'
-        if newp.exists() and not oldp.exists():
-            st['done'][j] = 'already'
-            continue
         if j in INSTALLERS:
             r = subprocess.run([str(KERNEL / 'bin' / INSTALLERS[j][0]), *INSTALLERS[j][1:]], capture_output=True, text=True,
                                env=clean_env())
@@ -478,35 +502,34 @@ def s_jobs(m, dry):
             oldp.unlink(missing_ok=True)   # the installer retires it; make sure
             st['done'][j] = 'installer'
         else:
-            pl = rewrite_plist(plistlib.loads(oldp.read_bytes()))
-            pl['Label'] = f'dev.kith.{j}'
-            newp.write_bytes(plistlib.dumps(pl))
+            if oldp.exists():
+                pl = rewrite_plist(plistlib.loads(oldp.read_bytes()))
+                pl['Label'] = f'dev.kith.{j}'
+                newp.write_bytes(plistlib.dumps(pl))
             if j in m.get('was_loaded', []):
+                sh('launchctl', 'bootout', f'gui/{UID}/dev.kith.{j}')
                 bootstrap(newp)
-            oldp.unlink()
+            oldp.unlink(missing_ok=True)
             st['done'][j] = 'rewritten'
         save(m)
     if serve.exists():
         before = serve.read_bytes()
         pl = plistlib.loads(before)
         if str(OLD) in json.dumps(pl):
+            st['serve_rewritten'] = True
+            save(m)
             serve.write_bytes(plistlib.dumps(rewrite_plist(pl)))
             sh('launchctl', 'bootout', f'gui/{UID}/dev.kith.serve')
             bootstrap(serve)
-            st['serve_rewritten'] = True
 
 
 def u_jobs(m):
+    """Stop and remove the replacements. The original jobs come back in u_stop, after the state is moved back."""
     st = m['steps'].get('jobs', {})
     b = Path(m['backup'])
     for j in sorted(set(st.get('done', {})) | set(m['steps'].get('stop', {}).get('jobs', []))):
         sh('launchctl', 'bootout', f'gui/{UID}/dev.kith.{j}')
         (LA / f'dev.kith.{j}.plist').unlink(missing_ok=True)
-        saved = b / 'files' / 'Library/LaunchAgents' / f'dev.hq.{j}.plist'
-        if saved.exists():
-            copy(saved, LA / f'dev.hq.{j}.plist')
-            if j in m.get('was_loaded', []):
-                bootstrap(LA / f'dev.hq.{j}.plist')
     saved = b / 'files/Library/LaunchAgents/dev.kith.serve.plist'
     if st.get('serve_rewritten') and saved.exists():
         copy(saved, LA / 'dev.kith.serve.plist')
@@ -532,8 +555,10 @@ def s_plugin(m, dry):
         st['skipped'] = 'claude is not installed'
         say('claude is not on PATH: plugin left as it is (install.sh does it later)')
         return
-    have = installed_plugins()
-    st['had_hq'], st['had_kith'] = 'hq@hq' in have, 'kith@kith' in have
+    if 'had_hq' not in st:
+        have = installed_plugins()
+        st['had_hq'], st['had_kith'] = 'hq@hq' in have, 'kith@kith' in have
+        save(m)
     home = os.path.realpath(HOME / 'kith' if (HOME / 'kith').exists() else HOME / 'hq')
     sh('claude', 'plugin', 'marketplace', 'add', home)
     r = sh('claude', 'plugin', 'install', 'kith@kith')
@@ -582,7 +607,11 @@ def s_settings(m, dry):
     st = m['steps']['settings']
     st.setdefault('files', {})
     for f in (CLAUDE / 'settings.json', NEW / 'settings.json'):
-        if not f.is_file() or str(f) in st['files']:
+        rec = st['files'].get(str(f))
+        if rec and f.is_file() and digest(f) == rec['before']:   # recorded, but the write did not happen
+            f.write_text(rewritten(f, f.read_text()))
+            continue
+        if not f.is_file() or rec:
             continue
         text = f.read_text()
         new = rewritten(f, text)
@@ -595,8 +624,10 @@ def s_settings(m, dry):
             continue
         src = Path(m['backup']) / 'files' / f.relative_to(HOME) if f.parent == CLAUDE \
             else Path(m['backup']) / 'dot-hq' / f.name
+        st['files'][str(f)] = {'before': hashlib.sha256(text.encode()).hexdigest(),
+                               'after': hashlib.sha256(new.encode()).hexdigest(), 'backup': str(src)}
+        save(m)   # the record first: a crash after the write must still be undone
         f.write_text(new)
-        st['files'][str(f)] = {'before': hashlib.sha256(text.encode()).hexdigest(), 'after': digest(f), 'backup': str(src)}
 
 
 def u_settings(m):
@@ -638,7 +669,7 @@ def migrate(dry=False, force=False):
         return 1
     resumed = m is not None
     print(('resuming a stopped migration' if resumed else 'migrating') + (' (dry run: nothing changes)' if dry else '') + ':')
-    bad = problems()
+    bad = problems(resumed)
     if resumed:   # entries already moved are not clashes
         planned = set(m['steps'].get('move', {}).get('planned', []))
         bad = [b for b in bad if b.split(' ', 1)[0] not in planned]
