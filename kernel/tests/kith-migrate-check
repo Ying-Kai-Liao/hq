@@ -60,7 +60,9 @@ snap() {
 import hashlib, os, sys
 root = sys.argv[1]
 for d, dirs, files in os.walk(root):
-    dirs[:] = sorted(x for x in dirs if not x.startswith('.kith-migrate-backup-'))
+    # not ~/.local/state or ~/.config either: `kith doctor` runs gh, which writes its device id there (on CI, not on a Mac)
+    dirs[:] = sorted(x for x in dirs if not x.startswith('.kith-migrate-backup-')
+                     and os.path.join(d, x) not in (root + '/.local/state', root + '/.config'))
     for n in sorted(dirs + files):
         p = os.path.join(d, n)
         if n == 'migrate-manifest.json' or (n == 'index' and d.endswith('/.git')):
