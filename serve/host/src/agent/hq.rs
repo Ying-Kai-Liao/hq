@@ -318,7 +318,11 @@ pub async fn memory_search(agent: &str, query: &str, limit: usize) -> Result<Vec
     let out = run(&bin, &args, None, SEARCH_TIMEOUT).await?;
     let found: Value =
         serde_json::from_str(out.trim()).context("`kith memory search --json` didn't print a JSON object")?;
-    found["hits"].as_array().cloned().ok_or_else(|| anyhow!("`kith memory search --json` printed no `hits` list"))
+    let hits = found["hits"].as_array().ok_or_else(|| anyhow!("`kith memory search --json` printed no `hits` list"))?;
+    if !hits.iter().all(Value::is_object) {
+        bail!("`kith memory search --json` printed hits that aren't objects");
+    }
+    Ok(hits.clone())
 }
 
 /// `kith project add <id> <path>`: kith's own error text on failure (a taken id, a path that isn't a folder…).
