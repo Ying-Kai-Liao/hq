@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# kith-auth-op-check — op:// secrets in kith-auth, with a fake `op` and a fake `security` on PATH, in a throwaway HOME and
+# KITH_HOME (the real ~/.kith and the real Keychain are never touched; no value here is a real secret).
+#
+#   kernel/tests/kith-auth-op-check     a few seconds; prints each check, exits 1 when one fails
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-auth-op-check.XXXXXX")
+T=$(cd "$T" && pwd -P)
+trap 'rm -rf "$T"' EXIT
+export HOME=$T/home KITH_HOME=$T/kith
+unset KITH_STATE HQ_STATE KITH_PROJECT KITH_PERSON KITH_AGENT KITH_AUTH HQ_HOME KITH_AUTH_PROFILE
+mkdir -p "$HOME" "$KITH_HOME/state" "$T/bin"
+FAKE_VALUE=fake-value-9f3a
+FAKE_TOKEN=fake-token-77c1
+export FAKE_TOKEN
+cat > "$T/bin/op" <<'FAKE'
+#!/bin/sh
+[ "$1" = read ] && [ "$2" = --no-newline ] || exit 2
+[ "$OP_SERVICE_ACCOUNT_TOKEN" = "$FAKE_TOKEN" ] || exit 3
+case "$3" in op://vault/item/field) printf %s fake-value-9f3a ;; *) echo "secret stderr" >&2; exit 1 ;; esac
+FAKE
+cat > "$T/bin/security" <<'FAKE'
+#!/bin/sh
+[ "$2" = -s ] && [ "$3" = kith/1password/default ] && [ -n "${FAKE_KEYCHAIN:-}" ] && { echo "$FAKE_KEYCHAIN"; exit 0; }
+exit 44
+FAKE
+chmod +x "$T/bin/op" "$T/bin/security"
+PY3=$(command -v python3)
+SYS=/usr/bin:/bin
+# a machine with a real op in the system dirs would break the "op missing" check
+if [ -x /usr/bin/op ] || [ -x /bin/op ] || [ -x /opt/homebrew/bin/op ] || [ -x /usr/local/bin/op ]; then
+  echo "skip: a real op is installed"; exit 0
+fi
+export PATH=$T/bin:$(dirname "$PY3"):$SYS
+
+A=$KITH_HOME/agents
+for a in reader other; do
+  mkdir -p "$A/$a/role"
+  printf -- '---\nname: %s\ndescription: t\n---\nx\n' $a > "$A/$a/role/agent.md"
+  printf 'needs: [notion]\n' > "$A/$a/role/capabilities.yaml"
+done
+KA=$KERNEL/bin/kith-auth
+fails=0
+OUT=
+check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; [ -n "${VERBOSE:-}" ] && echo "$OUT"; fails=$((fails + 1)); fi; }
+
+"$KA" ref notion/lib NOTION_API_KEY op://vault/item/field >/dev/null
+AUTHJ=$(find "$KITH_HOME" -name auth.json | head -1)
+LOG=$(dirname "$AUTHJ")/auth.log
+grant() { python3 - "$AUTHJ" "$1" <<'PY'
+import json, sys
+p, mode = sys.argv[1:]
+d = json.load(open(p))
+if mode == 'with-token':
+    d['profiles']['1password/lab'] = {'OP_SERVICE_ACCOUNT_TOKEN': 'env:FAKE_TOKEN'}
+    d['grants']['reader'] = {'notion': 'notion/lib', '1password': '1password/lab'}
+else:
+    d['profiles'].pop('1password/lab', None)
+    d['grants']['reader'] = {'notion': 'notion/lib'}
+json.dump(d, open(p, 'w'))
+PY
+}
+
+grant with-token
+OUT=$("$KA" get --for reader notion NOTION_API_KEY 2>&1); rc=$?
+check "get: the granted agent resolves the op:// ref with its 1password profile's token" "[ $rc = 0 ] && [ \"\$OUT\" = $FAKE_VALUE ]"
+OUT=$("$KA" exec --for reader notion -- sh -c 'printf %s "$NOTION_API_KEY"' 2>&1)
+check "exec: the value is in the command's environment" "[ \"\$OUT\" = $FAKE_VALUE ]"
+OUT=$("$KA" get --for other notion NOTION_API_KEY 2>&1); rc=$?
+check "an ungranted agent is refused" "[ $rc != 0 ] && ! printf %s \"\$OUT\" | grep -q $FAKE_VALUE"
+OUT=$("$KA" ls 2>&1)
+check "ls shows the op-backed secret ok" "printf %s \"\$OUT\" | grep -q 'notion .*notion/lib .*ok'"
+check "auth.log: lines with the 1password marker; no value, no token" "grep -q 'get NOTION_API_KEY (1password)' \"$LOG\" && grep -q 'exec (1password)' \"$LOG\" && ! grep -q -e $FAKE_VALUE -e $FAKE_TOKEN \"$LOG\""
+
+grant without
+OUT=$("$KA" get --for reader notion NOTION_API_KEY 2>&1); rc=$?
+check "no token anywhere: the worded error, no value" "[ $rc != 0 ] && printf %s \"\$OUT\" | grep -q 'no 1Password token: paste it in Kith' && ! printf %s \"\$OUT\" | grep -q $FAKE_VALUE"
+OUT=$(FAKE_KEYCHAIN=$FAKE_TOKEN "$KA" get --for reader notion NOTION_API_KEY 2>&1)
+check "the Keychain item kith/1password/default works with no auth.json entry" "[ \"\$OUT\" = $FAKE_VALUE ]"
+OUT=$(FAKE_KEYCHAIN=wrong-token "$KA" get --for reader notion NOTION_API_KEY 2>&1); rc=$?
+check "a token without access: 'could not read', never the token" "[ $rc != 0 ] && printf %s \"\$OUT\" | grep -q 'could not read the 1Password reference' && ! printf %s \"\$OUT\" | grep -q wrong-token"
+OUT=$(FAKE_KEYCHAIN=$FAKE_TOKEN PATH=$SYS "$KA" get --for reader notion NOTION_API_KEY 2>&1); rc=$?
+check "op missing: the worded error" "[ $rc != 0 ] && printf %s \"\$OUT\" | grep -q '1Password CLI not installed: brew install 1password-cli'"
+"$KA" ref notion/lib NOTION_API_KEY op://vault/item/other >/dev/null
+OUT=$(FAKE_KEYCHAIN=$FAKE_TOKEN "$KA" get --for reader notion NOTION_API_KEY 2>&1); rc=$?
+check "op fails for the reference: 'could not read', not op's stderr" "[ $rc != 0 ] && printf %s \"\$OUT\" | grep -q 'could not read' && ! printf %s \"\$OUT\" | grep -q 'secret stderr'"
+OUT=$("$KA" ref notion/lib NOTION_API_KEY not-a-ref 2>&1); rc=$?
+check "ref refuses something that is not op://" "[ $rc != 0 ]"
+
+[ $fails = 0 ] && echo "all ok" || { echo "$fails failed"; exit 1; }

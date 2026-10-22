@@ -9,6 +9,8 @@
   kith-auth revoke <agent> <service>
   kith-auth set <profile> <VAR>             store a secret in the macOS Keychain (prompts; never echoed) and point
                                           the profile at it
+  kith-auth ref <profile> <VAR> <op://vault/item/field>   point the profile's secret at a 1Password reference (nothing
+                                          is read or printed; needs the token: kith-auth set 1password/default OP_SERVICE_ACCOUNT_TOKEN)
   kith-auth mcp-config <agent>              the --mcp-config JSON for an agent's granted MCP services (bin/kith uses it)
   kith-auth mcp-names <agent>               the same servers by name and real command only: reads auth.json, no secrets, no keychain,
                                           no browser profile (what kith <agent> --info-json lists)
@@ -70,7 +72,12 @@ one run can have it open at a time. A service gets $KITH_BROWSER and $KITH_BROWS
 is left out of a run when it can't drive the profile's browser (a profile is only ever opened by the browser that
 made it).
 
-Secret sources in a profile: "keychain:SERVICE#ACCOUNT", "env-file:PATH#VAR", "env:VAR". A `login` service (codex,
+Secret sources in a profile: "keychain:SERVICE#ACCOUNT", "env-file:PATH#VAR", "env:VAR", and a bare
+"op://vault/item/field" (1Password): resolved with `op read` at the moment of use, with the service-account token
+(OP_SERVICE_ACCOUNT_TOKEN) of the 1password profile granted to the agent, else profile 1password/default, else the
+Keychain item kith/1password/default that Kith's Credentials screen and `kith-auth set 1password/default
+OP_SERVICE_ACCOUNT_TOKEN` both write. Needs `brew install 1password-cli`. Values are never cached or logged.
+`kith-auth ref <profile> <VAR> op://...` writes such a reference. A `login` service (codex,
 a Chrome profile) has no secrets here: the tool keeps its own login, and the grant only says who may use it.
 
 The agent comes from KITH_AGENT (set by bin/kith) or --for (an agent's own tool naming its owner). This is least
@@ -251,7 +258,55 @@ def grant_for(auth, agent, svc):
     return profile
 
 
-def resolve_ref(ref):
+OP_KEYCHAIN = 'keychain:kith/1password/default#OP_SERVICE_ACCOUNT_TOKEN'   # the one token store, shared with kith serve
+OP_NO_CLI = '1Password CLI not installed: brew install 1password-cli'
+OP_NO_TOKEN = ('no 1Password token: paste it in Kith\'s Credentials or '
+               'kith-auth set 1password/default OP_SERVICE_ACCOUNT_TOKEN')
+OP_FAILED = 'could not read the 1Password reference; check the service account\'s vault access'
+
+
+def find_op():
+    """The op binary: PATH first, then the usual brew spots (launchd runs have a thin PATH)."""
+    for d in os.environ.get('PATH', '').split(os.pathsep):
+        if d and os.access(os.path.join(d, 'op'), os.X_OK) and os.path.isfile(os.path.join(d, 'op')):
+            return os.path.join(d, 'op')
+    return next((p for p in ('/opt/homebrew/bin/op', '/usr/local/bin/op') if os.access(p, os.X_OK)), None)
+
+
+def op_token(agent=None):
+    """The 1Password service-account token: the profile granted to the agent for 1password, else 1password/default,
+    else the fixed Keychain item. Always through resolve_ref, never through op itself."""
+    auth = load_auth()
+    profile = granted(auth, agent, '1password')[0] if agent else None
+    for name in (profile, '1password/default'):
+        ref = auth['profiles'].get(name, {}).get('OP_SERVICE_ACCOUNT_TOKEN') if name else None
+        if ref:
+            return None if ref.startswith('op://') else resolve_ref(ref)
+    return resolve_ref(OP_KEYCHAIN)
+
+
+def op_read(ref, agent=None):
+    """(value, why not): `op read` of an op:// reference with the token in op's environment only. why is words, never
+    the value, the token or op's own output."""
+    if len(ref) > 2048 or '\r' in ref or '\n' in ref:
+        return None, OP_FAILED
+    op = find_op()
+    if not op:
+        return None, OP_NO_CLI
+    token = op_token(agent)
+    if not token:
+        return None, OP_NO_TOKEN
+    try:
+        r = subprocess.run([op, 'read', '--no-newline', ref], capture_output=True, text=True, timeout=20,
+                           stdin=subprocess.DEVNULL, env={**os.environ, 'OP_SERVICE_ACCOUNT_TOKEN': token})
+    except (subprocess.TimeoutExpired, OSError):
+        return None, OP_FAILED
+    return (r.stdout, '') if r.returncode == 0 and r.stdout else (None, OP_FAILED)
+
+
+def resolve_ref(ref, agent=None):
+    if ref.startswith('op://'):
+        return op_read(ref, agent)[0]
     kind, _, rest = ref.partition(':')
     if kind == 'env':
         return os.environ.get(rest)
@@ -276,7 +331,7 @@ def resolve_ref(ref):
     return None
 
 
-def secrets(auth, svc, profile):
+def secrets(auth, svc, profile, agent=None):
     """{VAR: value} for every secret the service needs, from the profile. Exits if one is missing."""
     refs = auth['profiles'].get(profile)
     if refs is None:
@@ -284,11 +339,22 @@ def secrets(auth, svc, profile):
     out = {}
     for var in service(svc).get('secrets', []):
         ref = refs.get(var)
-        value = resolve_ref(ref) if ref else None
+        if ref and ref.startswith('op://'):
+            value, why = op_read(ref, agent)
+            if not value:
+                die(f'{profile}: {var}: {why}')
+        else:
+            value = resolve_ref(ref, agent) if ref else None
         if not value:
             die(f'{profile}: {var} does not resolve ({ref or "not set"}; kith-auth set {profile} {var})')
         out[var] = value
     return out
+
+
+def op_backed(auth, profile, vars_):
+    """' (1password)' when any of these secrets of the profile comes from 1Password: a marker for auth.log."""
+    refs = auth['profiles'].get(profile, {})
+    return ' (1password)' if any(str(refs.get(v, '')).startswith('op://') for v in vars_) else ''
 
 
 def browser_profile(auth, agent):
@@ -371,7 +437,7 @@ def cmd_ls():
             refs = auth['profiles'].get(profile)
             try:
                 missing = [v for v in service(svc).get('secrets', [])
-                           if not (refs and refs.get(v) and resolve_ref(refs[v]))]
+                           if not (refs and refs.get(v) and resolve_ref(refs[v], agent))]
             except SystemExit:
                 missing = ['unknown service']
             status = 'ok' if refs is not None and not missing else \
@@ -399,7 +465,7 @@ def cmd_mcp_config(agent):
                   f'(kith-auth grant {agent} {svc} <profile>)', file=sys.stderr)
             continue
         try:
-            secrets(auth, svc, profile)    # skip a server whose secrets don't resolve instead of failing at start
+            secrets(auth, svc, profile, agent)    # skip a server whose secrets don't resolve instead of failing at start
         except SystemExit:
             print(f'kith: {agent}: {svc} skipped this run, its secrets don\'t resolve (kith-auth ls)', file=sys.stderr)
             continue
@@ -439,8 +505,8 @@ def cmd_exec(args):
     svc, cmd = args[0], args[2:]
     auth = load_auth()
     profile = grant_for(auth, agent, svc)
-    env = sync_env({**os.environ, **settings(auth, agent, svc), **secrets(auth, svc, profile)})
-    audit(agent, svc, profile, 'exec')
+    env = sync_env({**os.environ, **settings(auth, agent, svc), **secrets(auth, svc, profile, agent)})
+    audit(agent, svc, profile, 'exec' + op_backed(auth, profile, service(svc).get('secrets', [])))
     os.execvpe(cmd[0], cmd, env)
 
 
@@ -455,9 +521,23 @@ def cmd_get(args):
     if var not in service(svc).get('secrets', []):
         die(f'{svc} declares no secret {var}')
     profile = grant_for(auth, agent, svc)
-    value = secrets(auth, svc, profile)[var]
-    audit(agent, svc, profile, f'get {var}')
+    value = secrets(auth, svc, profile, agent)[var]
+    audit(agent, svc, profile, f'get {var}' + op_backed(auth, profile, [var]))
     print(value)
+
+
+def cmd_ref(profile, var, ref):
+    """Point a profile's secret at a 1Password reference. Reads nothing: the reference is not secret, the value is."""
+    if '/' not in profile:
+        die('profiles are named <service>/<account>, e.g. notion/library', 2)
+    if var not in service(profile.split('/', 1)[0]).get('secrets', []):
+        die(f'{profile.split("/", 1)[0]} declares no secret {var}')
+    if not ref.startswith('op://') or len(ref) > 2048 or len(ref.split('/')) < 5 or '\r' in ref or '\n' in ref:
+        die('a 1Password reference looks like op://vault/item/field', 2)
+    auth = load_auth()
+    auth['profiles'].setdefault(profile, {})[var] = ref
+    save_auth(auth)
+    print(f'{profile} {var} now reads {ref} (resolved by op at use)')
 
 
 def cmd_set(profile, var):
@@ -996,6 +1076,8 @@ def main(argv):
         print(f'{rest[0]} may no longer use {rest[1]}')
     elif cmd == 'set' and len(rest) == 2:
         cmd_set(*rest)
+    elif cmd == 'ref' and len(rest) == 3:
+        cmd_ref(*rest)
     elif cmd == 'env' and len(rest) >= 2:
         agent, svc, pairs = rest[0], rest[1], rest[2:]
         service(svc)
