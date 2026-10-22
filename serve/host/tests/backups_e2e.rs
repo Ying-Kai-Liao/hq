@@ -211,9 +211,9 @@ async fn a_busy_service_is_not_depletion() {
     s.limit("primary", Some(limited("overloaded", 600)));
     let notice = s.ask_for_notice("hello", "The agent failed").await;
     assert!(notice.contains("Internal error"), "{notice}");
-    assert!(s.prompts("claude:work").is_empty());
+    assert_eq!(s.prompts("claude:work"), Vec::<String>::new());
     assert_eq!(s.backups_file(), json!({}), "nothing marked out");
-    assert!(s.backup_launches().is_empty());
+    assert_eq!(s.backup_launches(), Vec::<String>::new());
 }
 
 #[tokio::test]
@@ -222,7 +222,7 @@ async fn without_a_chain_a_limit_is_the_error_it_always_was() {
     s.limit("primary", Some(limited("rate_limit", 600)));
     s.ask_for_notice("hello", "The agent failed").await;
     assert_eq!(s.prompts("primary").len(), 1);
-    assert!(s.backup_launches().is_empty());
+    assert_eq!(s.backup_launches(), Vec::<String>::new());
     assert_eq!(s.backups_file(), json!({}), "no file of state either");
     assert!(!s.host.home.join("backups.json").exists());
 }
@@ -312,7 +312,7 @@ async fn an_entry_hq_will_not_run_is_skipped() {
     s.ask("hello").await;
 
     assert_eq!(s.answers().await[0].1, json!("claude:work"));
-    assert!(s.prompts("codex").is_empty());
+    assert_eq!(s.prompts("codex"), Vec::<String>::new());
     assert_eq!(s.backup_launches(), vec!["codex", "claude:work"]);
 }
 
@@ -330,7 +330,7 @@ async fn a_codex_backup_gets_acps_own_session_parameters() {
     let modes = s.requests("codex", "session/set_mode");
     assert_eq!(modes.len(), 1, "the agent's permission mode reaches the backup");
     assert_eq!(modes[0]["params"]["modeId"], "read-only", "hq's `default` is Codex's read-only");
-    assert!(s.requests("primary", "session/set_mode").is_empty());
+    assert_eq!(s.requests("primary", "session/set_mode"), Vec::<Value>::new());
     let prompt = &s.prompts("codex")[0];
     assert!(
         prompt.contains("You are house, the household keeper."),
@@ -345,7 +345,7 @@ async fn a_turn_that_already_acted_is_not_run_again_on_the_next_entry() {
 
     s.ask_for_notice("TOOL edit the file", "The agent failed").await;
 
-    assert!(s.prompts("claude:work").is_empty(), "its edit would have been done twice");
+    assert_eq!(s.prompts("claude:work"), Vec::<String>::new(), "its edit would have been done twice");
     assert_eq!(s.backups_file()["claude"]["reason"], "rate_limit", "but the entry is out for the next turn");
     s.ask("next").await;
     assert_eq!(s.answers().await[0].1, json!("claude:work"));
