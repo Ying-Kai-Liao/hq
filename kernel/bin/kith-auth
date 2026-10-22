@@ -10,6 +10,8 @@
   kith-auth set <profile> <VAR>             store a secret in the macOS Keychain (prompts; never echoed) and point
                                           the profile at it
   kith-auth mcp-config <agent>              the --mcp-config JSON for an agent's granted MCP services (bin/kith uses it)
+  kith-auth mcp-names <agent>               the same servers by name and real command only: reads auth.json, no secrets, no keychain,
+                                          no browser profile (what kith <agent> --info-json lists)
   kith-auth exec [--for AGENT] <service> -- CMD...   run CMD with that service's secrets in its environment only
   kith-auth get  [--for AGENT] [--profile P] <service> <VAR>   print one secret, for an agent's own tool to call;
                                           --profile picks one of several granted profiles
@@ -416,6 +418,17 @@ def cmd_mcp_config(agent):
             'args': ['exec', '--for', agent, svc, '--', mcp['command'], *[expand(a) for a in mcp.get('args', [])]],
             'env': env,
         }
+    print(json.dumps({'mcpServers': servers}))
+
+
+def cmd_mcp_names(agent):
+    """The servers cmd_mcp_config would start, without resolving anything: read-only, safe to call often."""
+    auth = load_auth()
+    servers = {}
+    for svc in needs(agent):
+        spec = service(svc)
+        if spec.get('kind') == 'mcp' and granted(auth, agent, svc)[0]:
+            servers[svc] = {'command': spec['mcp']['command']}
     print(json.dumps({'mcpServers': servers}))
 
 
@@ -1054,6 +1067,8 @@ def main(argv):
         die(f'{cmd}: see kith-auth --help', 2)
     elif cmd == 'mcp-config' and len(rest) == 1:
         cmd_mcp_config(rest[0])
+    elif cmd == 'mcp-names' and len(rest) == 1:
+        cmd_mcp_names(rest[0])
     elif cmd == 'exec':
         cmd_exec(rest)
     elif cmd == 'get':

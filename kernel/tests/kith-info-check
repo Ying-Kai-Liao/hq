@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# kith-info-check — `kith <agent> --info-json` and `kith memory ls|search --json` over a fixture agent, a fake cost.db, a
+# jobs.json and scheduler state, in a throwaway HOME and KITH_HOME (the real ~/.kith is never read or written).
+#
+#   kernel/tests/kith-info-check     a few seconds; prints each check, exits 1 when one fails
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-info-check.XXXXXX")
+T=$(cd "$T" && pwd -P)
+trap 'rm -rf "$T"' EXIT
+export HOME=$T/home KITH_HOME=$T/kith
+unset KITH_STATE HQ_STATE KITH_PROJECT KITH_PERSON KITH_AGENT KITH_PERMISSION_MODE HQ_HOME
+mkdir -p "$HOME" "$KITH_HOME/state"
+KITH_MACHINE=$KITH_HOME/state   # bin/kith exports KITH_STATE, which makes the state folder the machine folder too
+A=$KITH_HOME/agents/echo
+mkdir -p "$A/role/skills/greet" "$A/role/skills/learned/tidy" "$A/memory/projects/alpha" "$A/memory/sessions" "$KITH_MACHINE/sched"
+cat > "$A/role/agent.md" <<'EOF'
+---
+name: echo
+description: test agent
+model: sonnet
+effort: low
+---
+You echo things back.
+
+## How you work
+Say it again.
+
+## Not yours
+Taxes -> finance.
+EOF
+printf -- '---\nname: greet\ndescription: Say hello\n---\nbody\n' > "$A/role/skills/greet/SKILL.md"
+printf -- '---\nname: tidy\ndescription: >\n  Tidy up\n  the notes\n---\nbody\n' > "$A/role/skills/learned/tidy/SKILL.md"
+printf 'needs: []\ntools:\n  - tools/echo.py   # says it\n  - Read\nstate:\n  - data/x\n' > "$A/role/capabilities.yaml"
+printf '{"mcpServers":{"web":{"url":"https://example.com/mcp/SECRETVALUE?token=SECRETVALUE","headers":{"Authorization":"SECRETVALUE"}},"loc":{"command":"/usr/bin/node","args":["x"],"env":{"K":"SECRETVALUE"}}}}\n' > "$A/role/mcp.json"
+printf '# memory\npantry has flour\n' > "$A/memory/MEMORY.md"
+printf 'plan\n' > "$A/memory/projects/alpha/plan.md"
+printf '[{"id":"daily","cron":"0 8 * * *","task":"say hi"},{"id":"off","cron":"0 9 * * 1","task":"x","paused":true}]\n' > "$A/jobs.json"
+printf '{"tick":"2026-10-22T10:00","last":{"echo/daily":{"at":"2026-10-22T08:00","pid":999999,"log":"/x","why":"due"}}}\n' > "$KITH_MACHINE/sched/state.json"
+NOW=$(python3 -c 'import datetime as d; print(d.datetime.now(d.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z"))')
+OLD=$(python3 -c 'import datetime as d; print((d.datetime.now(d.timezone.utc)-d.timedelta(days=100)).strftime("%Y-%m-%dT%H:%M:%S.000Z"))')
+python3 - "$KITH_MACHINE/cost.db" "$NOW" "$OLD" <<'EOF'
+import sqlite3, sys
+db, now, old = sys.argv[1:]
+c = sqlite3.connect(db)
+c.executescript('''create table req (id text primary key, session text, ts text, project text, model text, agent text,
+  turn text, input int, output int, cache_read int, cache_write int, cost real);
+  create table runs (session text primary key, agent text, version text, model text, effort text, via text,
+  project text, started text, person text);
+  create view hq_req as select req.*, runs.agent as hq_agent from req left join runs using (session);''')
+c.execute("insert into runs (session, agent) values ('s1', 'echo'), ('s2', 'other')")
+c.executemany('insert into req (id, session, ts, model, agent, cost) values (?,?,?,?,?,?)',
+              [('a', 's1', now, 'claude-sonnet-5-5', 'main', 0.5), ('b', 's1', old, 'claude-opus-5-5', 'main', 2.0),
+               ('c', 's2', now, 'claude-sonnet-5-5', 'main', 9.0)])
+c.commit()
+EOF
+KITH=$KERNEL/bin/kith; [ -n "${VERBOSE:-}" ] && { echo "machine=$KITH_MACHINE" >&2; ls -R "$KITH_MACHINE" >&2; }
+fails=0
+check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; [ -n "${VERBOSE:-}" ] && echo "$OUT"; fails=$((fails + 1)); fi; }
+# is EXPR EXPECTED: the python expression EXPR over the JSON in $OUT (as d) prints EXPECTED.
+is() { [ "$(EXPR=$1 OUT=$OUT python3 -c 'import json,os; d=json.loads(os.environ["OUT"]); print(eval(os.environ["EXPR"]))')" = "$2" ]; }
+
+OUT=$("$KITH" echo --info-json 2>"$T/err"); rc=$?
+check "info-json exits 0 and is one JSON object" "[ $rc = 0 ] && is \"d['version'], d['agent'], d['errors']\" \"(1, 'echo', {})\""
+check "frontmatter and home" "is \"(d['description'], d['harness'], d['model'], d['effort'], d['home'] == '$A')\" \"('test agent', 'claude', 'sonnet', 'low', True)\""
+check "permission mode is kith's default" "is \"d['permission_mode']\" auto"
+check "role: intro and every section in order" "is \"(d['role']['intro'], [s['title'] for s in d['role']['sections']], d['role']['sections'][1]['text'])\" \"('You echo things back.', ['How you work', 'Not yours'], 'Taxes -> finance.')\""
+check "package without a remote: version null, not dirty" "is \"(d['package']['version'], d['package']['remote'], d['package']['dirty'], d['package']['unpushed'], d['package']['pinned'])\" \"(None, None, False, False, None)\""
+check "skills: package and learned (folded description)" "is \"[(s['name'], s['description'], s['source']) for s in d['skills']]\" \"[('greet', 'Say hello', 'package'), ('tidy', 'Tidy up the notes', 'learned')]\""
+check "tools without comments" "is \"d['tools']\" \"['tools/echo.py', 'Read']\""
+check "mcp servers: kinds, bin name, url without query" "is \"d['mcp_servers']\" \"[{'name': 'web', 'kind': 'http', 'command': None, 'url': 'https://example.com'}, {'name': 'loc', 'kind': 'stdio', 'command': 'node', 'url': None}]\""
+check "no secret anywhere in the output" "! printf %s \"\$OUT\" | grep -q SECRETVALUE"
+check "projects: id, file count" "is \"[(p['id'], p['files']) for p in d['projects']]\" \"[('alpha', 1)]\""
+check "schedules: paused has no next run, last run from state" "is \"[(j['id'], j['paused'], j['next_run'] is None, j['last_run'] is not None, j['last_status']) for j in d['schedules']]\" \"[('daily', False, False, True, 'done'), ('off', True, True, False, None)]\""
+check "cost: this agent's rows only, windows by age" "is \"(d['cost']['today'], d['cost']['month'], d['cost']['all'], d['cost']['requests_month'], d['cost']['by_model_month'], d['cost']['since'] is not None)\" \"(0.5, 0.5, 2.5, 1, [{'model': 'claude-sonnet-5-5', 'usd': 0.5}], True)\""
+check "memory: md files relative to dir, with sizes" "is \"(d['memory']['dir'] == '$A/memory', sorted(f['path'] for f in d['memory']['files']), d['memory']['total_bytes'])\" \"(True, ['MEMORY.md', 'projects/alpha/plan.md'], 31)\""
+
+# each part fails soft
+printf 'not json' > "$KITH_MACHINE/sched/state.json"; printf '{broken' > "$A/jobs.json"; printf '{broken' > "$A/role/mcp.json"
+rm "$KITH_MACHINE/cost.db"
+OUT=$("$KITH" echo --info-json 2>/dev/null); rc=$?
+check "broken jobs.json, mcp.json and no cost.db: exit 0, null parts, errors say why" "[ $rc = 0 ] && is \"(d['schedules'], d['cost'], d['mcp_servers'], sorted(d['errors']))\" \"(None, None, None, ['cost', 'mcp_servers', 'schedules'])\" && is \"d['skills'] is not None and d['role'] is not None\" True"
+check "a part that failed does not blank the others" "is \"len(d['skills'])\" 2"
+
+# an agent with nothing but agent.md
+mkdir -p "$KITH_HOME/agents/bare/role"
+printf -- '---\nname: bare\ndescription: nothing else\nharness: codex\n---\nHi.\n' > "$KITH_HOME/agents/bare/role/agent.md"
+OUT=$("$KITH" bare --info-json 2>/dev/null); rc=$?
+check "bare agent on another harness prints info" "[ $rc = 0 ] && is \"(d['harness'], d['model'], d['skills'], d['tools'], d['mcp_servers'], d['permission_mode'], d['role']['sections'])\" \"('codex', None, [], [], [], None, [])\""
+"$KITH" nope --info-json >/dev/null 2>"$T/err"; rc=$?
+check "unknown agent: exit 1 and a message" "[ $rc = 1 ] && grep -q \"no agent 'nope'\" $T/err"
+
+# a run for someone other than the owner gets no agent details
+KITH_PERSON=mallory "$KITH" echo --info-json >/dev/null 2>"$T/err"; rc=$?
+check "info-json refused for a guest run" "[ $rc = 1 ] && grep -q 'for the owner' $T/err"
+
+# memory --json
+OUT=$("$KITH" memory ls --agent echo --json)
+check "memory ls --json" "is \"(d['dir'] == '$A/memory', sorted(f['path'] for f in d['files']), sorted(d['files'][0]))\" \"(True, ['MEMORY.md', 'projects/alpha/plan.md'], ['bytes', 'modified', 'path'])\""
+OUT=$("$KITH" memory search flour --agent echo --json)
+check "memory search --json: relative path, line, snippet" "is \"[(h['path'], h['line'], 'flour' in h['snippet']) for h in d['hits']]\" \"[('MEMORY.md', 1, True)]\""
+OUT=$("$KITH" memory search zzzznothing --agent echo --json)
+check "memory search --json with no hits" "is \"d['hits']\" '[]'"
+check "memory ls text output unchanged" "\"$KITH\" memory ls --agent echo | grep -q \"echo .*$A/memory/MEMORY.md\""
+
+echo
+if [ $fails = 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi

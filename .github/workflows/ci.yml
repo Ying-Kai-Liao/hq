@@ -71,6 +71,8 @@ jobs:
         run: kernel/tests/kith-project-check
       - name: Serve check
         run: kernel/tests/kith-serve-check
+      - name: Info check
+        run: kernel/tests/kith-info-check
       - name: Migrate check
         run: kernel/tests/kith-migrate-check
 

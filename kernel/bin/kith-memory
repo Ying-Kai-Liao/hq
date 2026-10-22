@@ -3,6 +3,8 @@
 
   kith-memory search <words> [--agent NAME | --all] [-n N]   ranked matches as path:line and the passage
   kith-memory ls [--agent NAME | --all]                      the memory files and their sizes
+  kith-memory ls --agent NAME --json                         {dir, files: [{path, bytes, modified}]} for programs
+  kith-memory search <words> --agent NAME --json [-n N]      {hits: [{path, line, snippet}]}, path relative to memory/
 
 Searches the markdown in the state folder: an agent's memory/ (MEMORY.md, topic files, projects/, sessions/) and its
 learned skills, plus what all agents share: user.md and projects/ (project maps, decisions). Inside a kith run
@@ -17,7 +19,7 @@ In a run for someone other than the owner (KITH_PERSON, checked with kith-auth) 
 memory and theirs (memory/shared/, memory/people/<id>/), its learned skills, their people/<id>.md and the current
 project's shared files: never user.md, the owner's memory, other people, other agents, --agent or --all.
 """
-import json, os, re, sqlite3, subprocess, sys
+import datetime as dt, json, os, re, sqlite3, subprocess, sys
 from pathlib import Path
 
 KITH = Path(__file__).resolve().parent.parent
@@ -58,6 +60,24 @@ def files(scope, guest=None):
     for f in shared:
         if f.is_file():
             yield 'shared', f
+
+
+def listing(agent, guest=None):
+    """{dir, files, total_bytes} for the agent's memory/ folder, for programs (ls --json, kith-info): paths relative
+    to dir, markdown only like the search. A guest sees their own part only."""
+    home = lives().get(agent)
+    if home is None:
+        raise ValueError('no agent %r' % agent)
+    mem = home / 'memory'
+    rows = []
+    for _, f in files(agent, guest):
+        try:
+            rel, st = f.relative_to(mem), f.stat()
+        except (ValueError, OSError):
+            continue   # learned skills and shared files are searched, but are not memory/
+        rows.append({'path': str(rel), 'bytes': st.st_size,
+                     'modified': dt.datetime.fromtimestamp(st.st_mtime).astimezone().isoformat(timespec='seconds')})
+    return {'dir': str(mem), 'files': rows, 'total_bytes': sum(r['bytes'] for r in rows)}
 
 
 def guest_run():
@@ -120,7 +140,7 @@ def main(argv):
     if not argv or argv[0] in ('-h', '--help'):
         print(__doc__.strip()); return
     cmd, rest = argv[0], argv[1:]
-    scope, limit, words = os.environ.get('KITH_AGENT') or None, 10, []
+    scope, limit, words, as_json = os.environ.get('KITH_AGENT') or None, 10, [], False
     own = scope
     i = 0
     while i < len(rest):
@@ -128,12 +148,19 @@ def main(argv):
         if a == '--agent': scope = rest[i + 1]; i += 2
         elif a == '--all': scope = None; own = None; i += 1
         elif a == '-n': limit = int(rest[i + 1]); i += 2
+        elif a == '--json': as_json = True; i += 1
         else: words.append(a); i += 1
     guest = guest_run()
     if guest:   # their own agent's memory only, whatever they asked for
         if not own:
             sys.exit('kith-memory: a run for someone other than the owner searches its own agent only')
         scope = own
+    if as_json and cmd == 'ls':
+        if not scope or scope not in lives():
+            sys.exit('kith-memory: ls --json needs --agent NAME of an installed agent')
+        out = listing(scope, guest)
+        print(json.dumps({'dir': out['dir'], 'files': out['files']}))
+        return
     if cmd == 'ls':
         for a, f in files(scope, guest):
             print('%-10s %6d  %s' % (a, f.stat().st_size, f))
@@ -143,6 +170,16 @@ def main(argv):
     if scope and scope not in lives():
         sys.exit('kith-memory: no agent %r' % scope)
     hits, n = search(' '.join(words), scope, limit, guest)
+    if as_json:   # paths relative to the agent's memory/ when inside it, else absolute (learned skills, shared files)
+        def rel(a, p):
+            mem = lives().get(a)
+            try:
+                return str(Path(p).relative_to(mem / 'memory')) if mem else p
+            except ValueError:
+                return p
+        print(json.dumps({'hits': [{'agent': a, 'path': rel(a, p), 'line': line, 'snippet': ' '.join(t.split())[:400]}
+                                   for a, p, line, t in hits]}, ensure_ascii=False))
+        return
     where = 'every agent' if scope is None else scope
     if not hits:
         print('no matches in %d passages (%s and shared)%s' % (n, where, '; try --all' if own and not guest else '')); return
