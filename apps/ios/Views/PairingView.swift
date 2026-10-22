@@ -112,7 +112,7 @@ private struct InstallPage: View {
                         // Copied here, pasted on the computer (Universal Clipboard or a message to yourself).
                         // The same hq host on both systems; `os` only changes what the note says.
                         Hint("Install hq")
-                        CommandBlock("https://github.com/Ying-Kai-Liao/hq")
+                        CommandBlock("https://github.com/Ying-Kai-Liao/kith")
                         Hint("then start the host")
                         CommandBlock("kith serve start")
                         Hint("then show its pairing code")

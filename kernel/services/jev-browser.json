@@ -5,7 +5,7 @@
   "mcp": {
     "command": "npx",
     "args": ["-y", "-p", "jev-browser@latest", "jev-browser-mcp"],
-    "env": { "JEV_BROWSER": "$HQ_BROWSER", "JEV_BROWSER_PROFILE": "$HQ_BROWSER_PROFILE" }
+    "env": { "JEV_BROWSER": "$KITH_BROWSER", "JEV_BROWSER_PROFILE": "$KITH_BROWSER_PROFILE" }
   },
   "secrets": ["TYPESAFE_API_KEY"]
 }

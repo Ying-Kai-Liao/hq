@@ -9,7 +9,7 @@ import { prefs, usePref } from '../lib/prefs'
 import { afterStarAsk, dueStarAsk } from '../lib/star-ask'
 import { useApp } from '../store/context'
 
-const REPO = 'https://github.com/Ying-Kai-Liao/hq'
+const REPO = 'https://github.com/Ying-Kai-Liao/kith'
 
 const copy = {
   first: {

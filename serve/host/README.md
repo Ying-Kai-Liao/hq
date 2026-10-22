@@ -7,9 +7,9 @@ Kith's host: runs coding-agent bots over ACP and serves the Kith apps. Built on
 
 The crate builds the same program under two names: `kith` and `kith-serve` (the name the launchd job and the apps
 use). As `kith`, `kith serve <install|stop|status|...>` runs the host, `kith --version` prints the version, and any other
-command (`kith <agent>`, `kith doctor`, `kith serve start|restart|relay`) is exec'd to the kernel's `bin/hq` with the
+command (`kith <agent>`, `kith doctor`, `kith serve start|restart|relay`) is exec'd to the kernel's `bin/kith` with the
 same arguments (`src/kernel.rs`: the one place that names the entry point and the lookup: `$KITH_KERNEL`, then
-`../share/kith/kernel` beside the real binary, then `~/hq/kernel`). As `kith-serve` the host never looks for a kernel.
+`../share/kith/kernel` beside the real binary, then `~/kith/kernel`). As `kith-serve` the host never looks for a kernel.
 `kith serve start` on a packaged install copies the `kith` binary to `~/.kith/serve/bin/kith-serve`.
 Releases (`.github/workflows/release.yml`, `scripts/package-release.sh`) pack `bin/kith` with the kernel.
 
@@ -33,10 +33,10 @@ and the status says no relay URL is set).
 ## Launcher (macOS)
 
 launchd credits file access to the program it starts. To let the host read folders on an external
-volume (hq's agents), run it behind a launcher that has Full Disk Access: set `"launcher": [...]` in
+volume (kith's agents), run it behind a launcher that has Full Disk Access: set `"launcher": [...]` in
 `config.json` or `KITH_SERVE_LAUNCHER='[...]'` when installing. By default the job runs the host
 directly. Set `launcher` if your agents live on an external volume, e.g.
-`["~/.hq/bin/hq-uv", "run", "--quiet", "--script", "<repo>/kernel/bin/kith-serve-launch"]` (full paths).
+`["~/.kith/bin/kith-uv", "run", "--quiet", "--script", "<repo>/kernel/bin/kith-serve-launch"]` (full paths).
 
 ## Resource limits
 
@@ -65,29 +65,29 @@ prints) and `MemAvailable` on Linux; a platform or read error counts as room. `G
 
 ## Chat channels (Discord, Telegram, Slack)
 
-The host carries the routing core of hq's chat bridge (`src/channels/`): people, `@agent`, threads and
-sessions, the queue with Jev routing, `hq <agent>` runs under the resource gate, live agents and the
-`hq-send` outbox. The platform adapters plug into it one at a time; until one is ported its bots stay with
+The host carries the routing core of kith's chat bridge (`src/channels/`): people, `@agent`, threads and
+sessions, the queue with Jev routing, `kith <agent>` runs under the resource gate, live agents and the
+`kith-send` outbox. The platform adapters plug into it one at a time; until one is ported its bots stay with
 the Python bridge. A bot is cut over by revoking its profile from `bridge` and restarting the bridge
-(`launchctl kickstart -k gui/$UID/dev.hq.bridge`; it reads its grants only at start), and only then granting
-it to the client `serve` in hq-auth: grants are checked every minute, and the first time a connection starts
-here its rooms, threads, last message seen and queued messages are copied from `~/.hq/bridge/state.json` (read
+(`launchctl kickstart -k gui/$UID/dev.kith.bridge`; it reads its grants only at start), and only then granting
+it to the client `serve` in kith-auth: grants are checked every minute, and the first time a connection starts
+here its rooms, threads, last message seen and queued messages are copied from `~/.kith/bridge/state.json` (read
 only), which must happen after the bridge stopped handling messages. State lives in
 `<data dir>/channels/state.json`. Also grant `jev-browser` to `serve` too or the router merges
 every message sent while an agent works. `GET /health` has a `channels` object with each connection's state.
 
 **Telegram** (`src/channels/telegram/`) is ported: grant `telegram` profiles to `serve`
-(`hq-auth grant serve telegram <profile>`, secret `TELEGRAM_BOT_TOKEN`) and revoke them from `bridge`. It long-polls
+(`kith-auth grant serve telegram <profile>`, secret `TELEGRAM_BOT_TOKEN`) and revoke them from `bridge`. It long-polls
 `getUpdates` and keeps the offset in the connection's state (the same key the bridge used, so imported state
 continues where the bridge stopped). While the bridge still polls the same bot Telegram answers 409; the host
 logs that, waits (30 s, doubling to 2 min) and keeps trying, so revoke the bridge's grant and restart it to end the
 overlap. Answers are Markdown shown as Telegram HTML, sent plain if Telegram refuses the formatting. The Bot API
 address is `https://api.telegram.org`, or `KITH_TELEGRAM_API` (a local Bot API server; tests use a fake).
 
-**Slack** (`src/channels/slack/`) is ported: grant `slack` profiles to `serve` (`hq-auth grant serve slack <profile>`,
+**Slack** (`src/channels/slack/`) is ported: grant `slack` profiles to `serve` (`kith-auth grant serve slack <profile>`,
 secrets `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`) and revoke them from `bridge`. It runs in Socket Mode (no public
 URL): `apps.connections.open` with the app token, a websocket, every envelope acknowledged on arrival and handled
-after. A task is a Slack thread; `@agent` as plain text picks the agent, mentioning the app or a DM addresses hq,
+after. A task is a Slack thread; `@agent` as plain text picks the agent, mentioning the app or a DM addresses kith,
 commands start with `!` (`!link CODE`, `!agents`, `!default`, `!stop`, `!whoami`). Agents post under their display
 name (needs `chat:write.customize`). The app needs bot scopes `app_mentions:read`, `channels:history`,
 `groups:history`, `im:history`, `chat:write`, `chat:write.customize`, `files:read`, `files:write`,
@@ -105,22 +105,22 @@ The `channels` object in `config.json` (read at start):
 | `router` | `jev` | `off` merges every message sent while an agent works |
 | `interrupt` | true | false makes corrections wait for the next turn |
 | `context_show` | 30 | a reply ends with "context N%" from this fullness; `"off"` never |
-| `permission_mode` | unset | the owner's runs; unset leaves it to the agent, then hq |
+| `permission_mode` | unset | the owner's runs; unset leaves it to the agent, then kith |
 | `discord_guild` | unset | server name or id when the Discord bot is in several |
 
 ### Discord
 
 `src/channels/discord/` (hand-rolled gateway and REST, no Discord crate) does what the bridge's
-`discord_chat.py` did, in one server: an `hq` category with a channel per agent (created, and its topic
+`discord_chat.py` did, in one server: an `kith` category with a channel per agent (created, and its topic
 kept at the agent's description, within a minute of a new agent), a mentionable `@agent` role per agent when
 the bot has Manage Roles (plain `@agent` otherwise), a thread per task opened from the message, answers
 posted through the channel's webhook under the agent's display name (webhooks are kept in the connection's
 state, so the bridge's are reused), a `-# working…` line with a Stop button, "Who should take this?" buttons,
 DMs, attachments saved under `<data dir>/channels/attachments/`, and a read-back of what was sent since the
-last message seen (at most 24 h, once) after every new gateway session. `hq-send` keeps posting into the
-thread through `HQ_DISCORD_WEBHOOK_URL` and `HQ_DISCORD_THREAD_ID`. Grant it with
-`hq-auth grant serve discord <profile>` (secret `DISCORD_BOT_TOKEN`); no restart is needed. The bot needs the
-Message Content intent. For tests, `HQ_DISCORD_API_BASE` and `HQ_DISCORD_GATEWAY_URL` move both addresses.
+last message seen (at most 24 h, once) after every new gateway session. `kith-send` keeps posting into the
+thread through `KITH_DISCORD_WEBHOOK_URL` and `KITH_DISCORD_THREAD_ID`. Grant it with
+`kith-auth grant serve discord <profile>` (secret `DISCORD_BOT_TOKEN`); no restart is needed. The bot needs the
+Message Content intent. For tests, `KITH_DISCORD_API_BASE` and `KITH_DISCORD_GATEWAY_URL` move both addresses.
 
 ## Updates
 

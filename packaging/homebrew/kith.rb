@@ -27,12 +27,13 @@ class Kith < Formula
 
   def install
     bin.install "bin/kith"
+    bin.install_symlink bin/"kith" => "hq"   # the old name keeps working
     (share/"kith").install Dir["share/kith/*"], Dir["share/kith/.claude-plugin"]
   end
 
   def caveats
     <<~EOS
-      The kernel ships with this install (#{opt_pkgshare}/kernel). To set up your hq folder, agents and the
+      The kernel ships with this install (#{opt_pkgshare}/kernel). To set up your kith folder, agents and the
       Claude Code plugin, run the installer once:
         curl -fsSL https://raw.githubusercontent.com/Ying-Kai-Liao/kith/main/scripts/install.sh | sh
       Then `kith serve start` runs the host on this Mac.
@@ -41,6 +42,7 @@ class Kith < Formula
 
   test do
     assert_match version.to_s, shell_output("#{bin}/kith --version")
-    assert_predicate share/"kith/kernel/bin/hq", :exist?
+    assert_predicate share/"kith/kernel/bin/kith", :exist?
+    assert_predicate bin/"hq", :exist?
   end
 end

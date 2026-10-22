@@ -22,15 +22,17 @@ use tokio::io::AsyncReadExt as _;
 const WAITING_EVERY: Duration = Duration::from_secs(3);
 
 /// What a run inherits of the host's environment: the plain login basics and hq's own settings. Nothing else
-/// (API keys, tokens, `KITH_*`): the bridge's runs had launchd's PATH and HOME and HQ_*, no more.
+/// (API keys, tokens, `KITH_*`): the bridge's runs had launchd's PATH and HOME and HQ_*, no more (KITH_* is the same settings under their new names).
 fn inherited(name: &str) -> bool {
     let basic = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "TMPDIR", "TZ", "TERM"].contains(&name)
         || name.starts_with("LC_");
     // No bot tokens or keys, and this is no agent's helper.
+    let kith =
+        ["KITH_HOME", "KITH_STATE", "KITH_MACHINE", "KITH_MODEL", "KITH_KERNEL_BIN", "KITH_KERNEL"].contains(&name);
     let hq = name.starts_with("HQ_")
         && !name.starts_with("HQ_DISCORD_")
         && !["HQ_AGENT", "HQ_PERSON", "HQ_RESUME", "HQ_BRIDGE_OUTBOX"].contains(&name);
-    basic || hq
+    basic || hq || kith
 }
 
 /// Reads a pipe into a buffer that stays readable if the reader is stopped.
@@ -95,23 +97,28 @@ impl Core {
         let owner = if person.is_empty() { true } else { super::hq::resolve(&self.paths, &person, agent).await.owner };
         let mut env: Vec<(std::ffi::OsString, std::ffi::OsString)> =
             std::env::vars_os().filter(|(k, _)| k.to_str().is_some_and(inherited)).collect();
-        let mut set = |k: &str, v: &str| env.push((k.into(), v.into()));
-        set("HQ_VIA", ad.platform());
-        set("HQ_OUTPUT", "json");
+        // Both spellings of a kernel setting: the kernel reads KITH_<X>, role repos written before the rename HQ_<X>.
+        let mut set = |name: &str, v: &str| {
+            for (k, v) in crate::kernel::both(name, v) {
+                env.push((k.into(), v.into()));
+            }
+        };
+        set("VIA", ad.platform());
+        set("OUTPUT", "json");
         if let Some(mode) = &self.settings.permission_mode {
-            set("HQ_PERMISSION_MODE", mode); // unset: the agent's mode, else hq's default
+            set("PERMISSION_MODE", mode); // unset: the agent's mode, else hq's default
         }
         if !owner {
-            set("HQ_PERSON", &person); // bin/hq checks the membership again and sets their mode
+            set("PERSON", &person); // bin/hq checks the membership again and sets their mode
         }
         if let Some(session) = &session {
-            set("HQ_RESUME", session); // any harness: bin/hq starts a new session when this one is another harness's
+            set("RESUME", session); // any harness: bin/hq starts a new session when this one is another harness's
         }
         let outbox = self.paths.data.join("outbox").join(short(&format!("{wk}{}", super::core::now())));
         std::fs::create_dir_all(&outbox).with_context(|| format!("creating {}", outbox.display()))?;
-        set("HQ_BRIDGE_OUTBOX", &outbox.to_string_lossy());
+        set("BRIDGE_OUTBOX", &outbox.to_string_lossy());
         for (k, v) in ad.env(&conv, agent) {
-            set(&k, &v);
+            env.push((k.into(), v.into())); // already under both spellings
         }
         if let Some(ended) = self.with(|i| i.busy.get(wk).and_then(|b| b.ended)) {
             let _ = std::fs::remove_dir(&outbox);
@@ -258,7 +265,7 @@ pub(super) async fn flush(ad: &Arc<dyn Adapter>, conv: &Value, outbox: &Path) {
             if std::fs::remove_file(&f).is_err() {
                 continue;
             }
-            let who = item.get("as").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("hq");
+            let who = item.get("as").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("kith");
             let files: Vec<String> = item
                 .get("files")
                 .and_then(Value::as_array)
@@ -271,7 +278,7 @@ pub(super) async fn flush(ad: &Arc<dyn Adapter>, conv: &Value, outbox: &Path) {
             };
             if let Err(e) = sent {
                 // One failed post must not end the run's other posts.
-                tracing::warn!("{}: hq-send post failed: {e:#}", ad.conn());
+                tracing::warn!("{}: kith-send post failed: {e:#}", ad.conn());
             }
         }
     }
@@ -283,8 +290,22 @@ mod tests {
 
     #[test]
     fn runs_get_the_login_basics_and_hq_settings_only() {
-        for name in ["PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR", "TZ", "TERM", "HQ_HOME", "HQ_MODEL", "HQ_BIN"]
-        {
+        for name in [
+            "PATH",
+            "HOME",
+            "USER",
+            "LANG",
+            "LC_ALL",
+            "TMPDIR",
+            "TZ",
+            "TERM",
+            "HQ_HOME",
+            "HQ_MODEL",
+            "HQ_BIN",
+            "KITH_HOME",
+            "KITH_MODEL",
+            "KITH_KERNEL_BIN",
+        ] {
             assert!(inherited(name), "{name} should reach a run");
         }
         for name in [
@@ -297,6 +318,10 @@ mod tests {
             "SLACK_APP_TOKEN",
             "DISCORD_BOT_TOKEN",
             "HQ_DISCORD_BOT_TOKEN",
+            "KITH_DISCORD_BOT_TOKEN",
+            "KITH_AGENT",
+            "KITH_PERSON",
+            "KITH_BRIDGE_OUTBOX",
             "HQ_AGENT",
             "HQ_PERSON",
             "HQ_RESUME",

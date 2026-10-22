@@ -1,7 +1,7 @@
 # kith-mem
 
 Specially designed for bot-based memory: the memory system the coding-agent bots in
-[Kith](https://github.com/Ying-Kai-Liao/hq) (originally extracted from [Codync](https://github.com/leepokai/Codync)) run on, as a standalone crate.
+[Kith](https://github.com/Ying-Kai-Liao/kith) (originally extracted from [Codync](https://github.com/leepokai/Codync)) run on, as a standalone crate.
 
 - **It records the person, not the work.** Project knowledge stays in the harness's own files (`AGENTS.md`,
   `CLAUDE.md`); the full conversation stays in your transcript.

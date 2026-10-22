@@ -1,54 +1,70 @@
 #!/usr/bin/env bash
-# Set up hq on this Mac: the hq command, the Claude Code plugin, then `hq init` (your folders, backups, a starter
-# agent). Safe to run again.
+# Set up Kith on this Mac: the kith command (and hq, its old name), the Claude Code plugin, then `kith init` (your
+# folders, backups, a starter agent). Safe to run again.
 #
-#   git clone https://github.com/Ying-Kai-Liao/hq ~/hq && ~/hq/install.sh
-#   ~/hq/install.sh --from <your-github-user>      a new Mac: brings back your state and agents
+#   git clone https://github.com/Ying-Kai-Liao/kith ~/kith && ~/kith/install.sh
+#   ~/kith/install.sh --from <your-github-user>      a new Mac: brings back your state and agents
 #
-# This folder is the hq folder: kernel/ is the code (this repo), and next to it, ignored by this repo, agents/ (your
-# agents, their own private repo). ~/.hq is this Mac's hq: hq's knowledge (user.md, projects, agents.json; your
+# This folder is the Kith folder: kernel/ is the code (this repo), and next to it, ignored by this repo, agents/ (your
+# agents, their own private repo). ~/.kith is this Mac's Kith: its knowledge (user.md, projects, agents.json; your
 # hq-state repo) and machine-only things (secrets/, job state, logs). See docs/architecture.md.
+#
+# A Mac that ran hq keeps working untouched: ~/.hq stays its state until `kith migrate` moves it to ~/.kith, ~/hq stays
+# a link to the same folder as ~/kith, and the hq command still works.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd -P)"
 KERNEL=$ROOT/kernel
-CUSTOM_HOME=${HQ_HOME:-}   # set by you, before the resolver below fills HQ_HOME in
+CUSTOM_HOME=${KITH_HOME:-${HQ_HOME:-}}   # set by you, before the resolver fills KITH_HOME in
 mkdir -p "$HOME/.local/bin"
-chmod +x "$KERNEL/bin/"* "$KERNEL/lib/hq_paths.py"
+chmod +x "$KERNEL/bin/"* "$KERNEL/lib/kith_paths.py"
 
-# ~/hq is hq's stable address, a link to this folder, so tools and agents never need to know where it really is
-# (an external disk, a path with spaces). HQ_HOME points elsewhere instead (kernel/lib/hq_paths.py).
-if [ -z "$CUSTOM_HOME" ] && [ "$ROOT" != "$HOME/hq" ]; then
-  if [ ! -e "$HOME/hq" ]; then ln -s "$ROOT" "$HOME/hq"
-  elif [ "$(cd "$HOME/hq" && pwd -P)" != "$ROOT" ]; then
-    echo "install: ~/hq already exists and is not this folder: move it, or set HQ_HOME to use another folder" >&2; exit 1
+# ~/kith is Kith's stable address, a link to this folder, so tools and agents never need to know where it really is
+# (an external disk, a path with spaces). ~/hq is the same link under the old name. KITH_HOME points elsewhere
+# instead (kernel/lib/kith_paths.py).
+link_home() {   # link_home NAME: ~/NAME -> this folder, unless it is something else
+  if [ ! -e "$HOME/$1" ] && [ ! -L "$HOME/$1" ]; then ln -s "$ROOT" "$HOME/$1"
+  elif [ "$(cd "$HOME/$1" && pwd -P)" != "$ROOT" ]; then return 1
   fi
+}
+if [ -z "$CUSTOM_HOME" ]; then
+  # a clone made at ~/kith is its own address; ~/hq is still linked to it for the tools that use the old name
+  [ "$ROOT" = "$HOME/kith" ] || link_home kith || { echo "install: ~/kith already exists and is not this folder: move it, or set KITH_HOME to use another folder" >&2; exit 1; }
+  link_home hq || echo "note: ~/hq is another folder; ~/kith is the address Kith uses"
 fi
-# ~/.hq is a real folder on this Mac (hq init fills it). Before 2026-10-15 it was a link to the hq folder: that layout
-# keeps working (state in <hq>/state, machine things in ~/.config/hq) until it is moved; see docs/architecture.md.
+# ~/.kith is a real folder on this Mac (kith init fills it). A Mac that ran hq has ~/.hq instead and keeps using it
+# until `kith migrate`; before 2026-10-15 ~/.hq was a link to the Kith folder: that layout keeps working too (state in
+# <kith>/state, machine things in ~/.config/hq).
 if [ -L "$HOME/.hq" ]; then
-  echo "note: ~/.hq is a link (the older layout); hq keeps using <hq>/state and ~/.config/hq until you move them"
+  echo "note: ~/.hq is a link (the older layout); kith keeps using <kith>/state and ~/.config/hq until you move them"
+elif [ -d "$HOME/.hq" ]; then
+  echo "note: this Mac's state is still ~/.hq; kith migrate moves it to ~/.kith (everything works until then)"
 else
-  mkdir -p "$HOME/.hq/secrets" && chmod 700 "$HOME/.hq/secrets"
+  mkdir -p "$HOME/.kith/secrets" && chmod 700 "$HOME/.kith/secrets"
+  touch "$HOME/.kith/.migrated"   # ~/.kith is this Mac's folder (lib/kith_paths.py reads the marker)
 fi
 
-# Through ~/hq: the path agents see then has no volume name (and no spaces) in it.
-BIN=$KERNEL/bin/hq; [ -z "$CUSTOM_HOME" ] && BIN=$HOME/hq/kernel/bin/hq
-ln -sfn "$BIN" "$HOME/.local/bin/hq"
-# kith: the same command under its new name (kith serve ...); the kernel itself is renamed later.
-# A packaged install (bin/kith beside share/kith/, from the release tarball) links the Rust binary instead.
+# Through ~/kith: the path agents see then has no volume name (and no spaces) in it.
+BIN=$KERNEL/bin/kith; [ -z "$CUSTOM_HOME" ] && BIN=$HOME/kith/kernel/bin/kith
+# A packaged install (bin/kith beside share/kith/, from the release tarball) links the Rust binary instead; it answers
+# to hq as well. Either way hq is only another name for the same command.
 PACKAGED_KITH=$ROOT/../../bin/kith   # ROOT is a real path (pwd -P)
 if [ -x "$PACKAGED_KITH" ] && [ ! -d "$ROOT/serve/host" ]; then
-  ln -sfn "$(cd "$(dirname "$PACKAGED_KITH")" && pwd -P)/kith" "$HOME/.local/bin/kith"
+  CMD="$(cd "$(dirname "$PACKAGED_KITH")" && pwd -P)/kith"
 else
-  ln -sfn "${BIN%/hq}/kith" "$HOME/.local/bin/kith"
+  CMD=$BIN
 fi
-case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "note: add ~/.local/bin to your PATH to use hq (e.g. in ~/.zshrc: export PATH=\"\$HOME/.local/bin:\$PATH\")" ;; esac
+ln -sfn "$CMD" "$HOME/.local/bin/kith"
+ln -sfn "$CMD" "$HOME/.local/bin/hq"
+case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "note: add ~/.local/bin to your PATH to use kith (e.g. in ~/.zshrc: export PATH=\"\$HOME/.local/bin:\$PATH\")" ;; esac
 
 if command -v claude >/dev/null; then
   claude plugin marketplace add "$ROOT" >/dev/null 2>&1 || true
-  claude plugin install hq@hq >/dev/null 2>&1 || echo "note: the Claude Code plugin did not install: claude plugin install hq@hq"
-  [ -z "$CUSTOM_HOME" ] || echo "note: set the plugin's hq_path to $KERNEL in /plugin"
+  claude plugin install kith@kith >/dev/null 2>&1 || echo "note: the Claude Code plugin did not install: claude plugin install kith@kith"
+  if claude plugin list 2>/dev/null | grep -q 'hq@hq'; then
+    echo "note: the old plugin hq@hq is still installed (subagents hq:<agent>): kith migrate removes it, or claude plugin uninstall hq@hq"
+  fi
+  [ -z "$CUSTOM_HOME" ] || echo "note: set the plugin's kith_path to $KERNEL in /plugin"
 fi
 
 # Kith's host is optional and takes minutes to build, so it is never built here.
@@ -57,4 +73,4 @@ if [ -d "$ROOT/serve/host" ] && { command -v cargo >/dev/null || ls "$HOME"/.rus
 fi
 
 # Your folders, backups and a first agent; --from <user> brings back yours from GitHub.
-exec "$KERNEL/bin/hq-init" "$@"
+exec "$KERNEL/bin/kith-init" "$@"

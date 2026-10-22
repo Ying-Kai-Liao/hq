@@ -31,7 +31,7 @@ const STOP_EMOJI: &str = "🫡";
 const REDO_EMOJI: &str = "✍";
 /// How much of an answer goes into one message (4096 after formatting).
 const CHUNK: usize = 3000;
-const FOOTER: &str = "\n\n(From Telegram: your final answer is posted here automatically; Markdown shows as formatting. Send images and files with hq-send; files the user sent are listed as paths. Helpers you call post status with `hq-send --as <their name>`.)";
+const FOOTER: &str = "\n\n(From Telegram: your final answer is posted here automatically; Markdown shows as formatting. send images and files with kith-send; files the user sent are listed as paths. Helpers you call post status with `kith-send --as <their name>`.)";
 /// How often the agents are looked at again for the / menu.
 const MENU_REFRESH: Duration = Duration::from_secs(60);
 
@@ -178,7 +178,7 @@ impl Telegram {
             json!({"command": "agents", "description": "the agents you can use"}),
             json!({"command": "default", "description": "which agent answers messages without @agent here"}),
             json!({"command": "stop", "description": "stop the agent working on this (reply to its message)"}),
-            json!({"command": "whoami", "description": "who you are in hq"}),
+            json!({"command": "whoami", "description": "who you are in kith"}),
         ]);
         Value::Array(commands)
     }

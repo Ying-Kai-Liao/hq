@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""harness.py — run an hq agent on a harness other than Claude Code (bin/hq calls it; not for people).
+"""harness.py — run a kith agent on a harness other than Claude Code (bin/kith calls it; not for people).
 
   harness.py <harness> [--output json] [--resume SESSION] [--permission-mode MODE] [-- task...]
 
-bin/hq builds everything a run needs, whatever the harness: the prompt (agent.md + PROTOCOL + memory + project), the
+bin/kith builds everything a run needs, whatever the harness: the prompt (agent.md + PROTOCOL + memory + project), the
 directories, the MCP servers the agent is granted, the model and effort. This turns that into one CLI's flags:
 
   codex     OpenAI Codex CLI          codex exec --json · developer_instructions · sandbox writable roots · MCP
@@ -14,33 +14,33 @@ directories, the MCP servers the agent is granted, the model and effort. This tu
   dsh       DeepSeek Harness          dsh --profile headless --json · instructions in front of the first task
   opencode  opencode                  opencode run --format json · instructions and MCP through OPENCODE_CONFIG_CONTENT
 
-Inputs from bin/hq's environment: HQ_RUN_PROMPT (the prompt file), HQ_RUN_DIRS (directories, one per line),
-HQ_RUN_MCP (MCP config files, one per line, each {"mcpServers": {...}}), HQ_RUN_GLOBAL_SKILLS (1: the harness's own
-skills and plugins stay on), HQ_MODEL, HQ_EFFORT, plus HQ_AGENT, HQ_PROJECT, HQ_VIA for the cost ledger.
+Inputs from bin/kith's environment: KITH_RUN_PROMPT (the prompt file), KITH_RUN_DIRS (directories, one per line),
+KITH_RUN_MCP (MCP config files, one per line, each {"mcpServers": {...}}), KITH_RUN_GLOBAL_SKILLS (1: the harness's own
+skills and plugins stay on), KITH_MODEL, KITH_EFFORT, plus KITH_AGENT, KITH_PROJECT, KITH_VIA for the cost ledger.
 
 With a task the answer goes to stdout: the text alone, or with --output json one object in the shape `claude -p
---output-format json` has (result, session_id, is_error, total_cost_usd, num_turns), so hq ask and the bridge read
+--output-format json` has (result, session_id, is_error, total_cost_usd, num_turns), so kith ask and the bridge read
 every harness the same way. Session ids come back as "<harness>:<id>"; a --resume naming another harness (or a bare
 Claude id) starts a new session instead. Without a task: the harness's own interactive session.
 
-What only Claude Code runs have: the agent's settings.json (permissions, hooks), hq-cost's per-request ledger (here
+What only Claude Code runs have: the agent's settings.json (permissions, hooks), kith-cost's per-request ledger (here
 one row per run, with the harness's own cost when it reports one), and for agy and hermes, per-run MCP servers.
 """
 import datetime as dt, json, os, shutil, subprocess, sys, uuid
 from pathlib import Path
 
-HQ = Path(__file__).resolve().parent.parent
+KITH = Path(__file__).resolve().parent.parent
 HARNESSES = ('codex', 'pi', 'agy', 'hermes', 'qwen', 'dsh', 'opencode')
 
 
 def note(msg):
-    print('hq: %s' % msg, file=sys.stderr)
+    print('kith: %s' % msg, file=sys.stderr)
 
 
 def mcp_servers():
-    """The granted servers and the agent's own (bin/hq passes both files), merged; later files win."""
+    """The granted servers and the agent's own (bin/kith passes both files), merged; later files win."""
     servers = {}
-    for f in filter(None, os.environ.get('HQ_RUN_MCP', '').split('\n')):
+    for f in filter(None, os.environ.get('KITH_RUN_MCP', '').split('\n')):
         try:
             servers.update(json.loads(Path(f).read_text()).get('mcpServers') or {})
         except (OSError, ValueError) as e:
@@ -66,15 +66,15 @@ def instructions_first(prompt, task):
 class Run:
     def __init__(self, harness, task, output, resume, permission_mode):
         self.harness, self.task, self.output, self.mode = harness, task, output, permission_mode or ''
-        self.prompt_file = os.environ['HQ_RUN_PROMPT']
+        self.prompt_file = os.environ['KITH_RUN_PROMPT']
         self.prompt = Path(self.prompt_file).read_text()
-        self.dirs = [d for d in os.environ.get('HQ_RUN_DIRS', '').split('\n') if d]
-        self.model, self.effort = os.environ.get('HQ_MODEL', ''), os.environ.get('HQ_EFFORT', '')
-        self.global_skills = os.environ.get('HQ_RUN_GLOBAL_SKILLS') == '1'
+        self.dirs = [d for d in os.environ.get('KITH_RUN_DIRS', '').split('\n') if d]
+        self.model, self.effort = os.environ.get('KITH_MODEL', ''), os.environ.get('KITH_EFFORT', '')
+        self.global_skills = os.environ.get('KITH_RUN_GLOBAL_SKILLS') == '1'
         self.mcp = mcp_servers()
         self.bypass = self.mode == 'bypassPermissions'
         self.env = dict(os.environ)
-        for k in [k for k in self.env if k.startswith('HQ_RUN_')]:
+        for k in [k for k in self.env if k.startswith('KITH_RUN_')]:
             self.env.pop(k)
         self.resume = None
         if resume:
@@ -261,8 +261,8 @@ class Run:
         self.unsupported_mcp()
         if self.model:
             note('dsh picks its model in its profile (dsh web → Models), not per run; ignoring %s' % self.model)
-        if 'DEEPSEEK_API_KEY' not in self.env:   # hq's own key when the agent is granted the deepseek service
-            k = subprocess.run([str(HQ / 'bin/hq-auth'), 'get', 'deepseek', 'DEEPSEEK_API_KEY'],
+        if 'DEEPSEEK_API_KEY' not in self.env:   # kith's own key when the agent is granted the deepseek service
+            k = subprocess.run([str(KITH / 'bin/kith-auth'), 'get', 'deepseek', 'DEEPSEEK_API_KEY'],
                                capture_output=True, text=True, env=self.env)
             if k.returncode == 0 and k.stdout.strip():
                 self.env['DEEPSEEK_API_KEY'] = k.stdout.strip()
@@ -343,7 +343,7 @@ class Run:
         self.stdin = None
         argv = getattr(self, self.harness)()
         if not shutil.which(argv[0]):
-            sys.exit('hq: %s is not installed (%s); see kernel/adapters/harness.py' % (argv[0], self.harness))
+            sys.exit('kith: %s is not installed (%s); see kernel/adapters/harness.py' % (argv[0], self.harness))
         if self.task is None:
             os.execvpe(argv[0], argv, self.env)
         p = subprocess.run(argv, env=self.env, input=self.stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -382,14 +382,14 @@ def jsonl(text):
 
 
 def record(harness, session, model, task, usage, cost):
-    """One ledger row per run (hq-cost record); cost tracking never fails a run."""
+    """One ledger row per run (kith-cost record); cost tracking never fails a run."""
     if not session:
         return
     row = {'id': '%s@%s' % (session, dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%S.%f')),
            'session': session, 'model': '%s/%s' % (harness, model) if model != harness else harness,
            'turn': ' '.join((task or '').split())[:100], 'cost': cost, **usage}
     try:
-        subprocess.run([str(HQ / 'bin/hq-cost'), 'record'], input=json.dumps(row), text=True, timeout=15,
+        subprocess.run([str(KITH / 'bin/kith-cost'), 'record'], input=json.dumps(row), text=True, timeout=15,
                        capture_output=True)
     except (OSError, subprocess.SubprocessError):
         pass
@@ -397,7 +397,7 @@ def record(harness, session, model, task, usage, cost):
 
 def main(argv):
     if not argv or argv[0] not in HARNESSES:
-        sys.exit('hq: unknown harness %r; one of: claude, %s' % (argv[0] if argv else '', ', '.join(HARNESSES)))
+        sys.exit('kith: unknown harness %r; one of: claude, %s' % (argv[0] if argv else '', ', '.join(HARNESSES)))
     harness, rest, opts = argv[0], argv[1:], {'--output': None, '--resume': None, '--permission-mode': None}
     while rest and rest[0] in opts:
         opts[rest[0]] = rest[1]

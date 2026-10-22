@@ -162,7 +162,7 @@ export class HostClient {
     return (await this.call<{ entry: Entry }>('send', { botId, text, clientNonce, threadId, attachments, ...(pasted.length ? { pasted } : {}), ...(newTask ? { newTask } : {}), ...(place ?? {}) })).entry
   }
 
-  /** hq's project registry; without hq the host answers `projects: []` and an `error` line. */
+  /** Kith's project registry; without Kith the host answers `projects: []` and an `error` line. */
   projects(refresh = false) {
     return this.call<{ projects: ProjectInfo[]; error?: string }>('projects', refresh ? { refresh: true } : {}, 30_000)
   }

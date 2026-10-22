@@ -1,12 +1,12 @@
 # The agents' lives: each agent's memory and data (and jobs, private learned skills). What is not in here:
-# role/ — each agent's own repo (hq-pkg commits and pushes it); files/ — what agents made, kept on disk only.
+# role/ — each agent's own repo (kith-pkg commits and pushes it); files/ — what agents made, kept on disk only.
 .DS_Store
 /.store/
 /.repos/
 /.mv-*/
 */role
 */files/
-# live databases: committed as text dumps (hq-state dump), not as binaries
+# live databases: committed as text dumps (kith-state dump), not as binaries
 */data/*.db
 */data/*.db-*
 */data/**/*.db

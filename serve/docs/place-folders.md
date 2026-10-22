@@ -1,8 +1,8 @@
 # Place folders: API contract
 
-Every place a bot talks in (its own chat, a thread or task, a member's lane in a group) can work in an hq project
+Every place a bot talks in (its own chat, a thread or task, a member's lane in a group) can work in an kith project
 or a folder the user picked. The agent then loads that project's context (CLAUDE.md, codebase.md, verify.md,
-decisions, project memory) the way `hq <agent> -p <project>` does in a terminal.
+decisions, project memory) the way `kith <agent> -p <project>` does in a terminal.
 
 All methods are `POST /api/<method>` (loopback bearer token) or the same call over a phone's E2E channel. A paired
 phone needs only the Control scope: none of these methods is in `LOCAL_ONLY` (`api/devices.rs`).
@@ -26,9 +26,9 @@ Wherever a client reads a place, it gets `folder`:
 
 ```json
 { "kind": "project" | "folder" | "workspace",
-  "project": "hq",                 // only kind "project"
+  "project": "kith",                 // only kind "project"
   "path": "/abs/path" | null,      // where the agent works; null while a project's folder isn't known yet
-  "name": "hq",                    // project id, folder name, or "Workspace"
+  "name": "kith",                    // project id, folder name, or "Workspace"
   "inherited": false,              // true: the place has no pick of its own
   "missing": true }                // only when the project has no folder on this Mac, or the folder is gone
 ```
@@ -48,8 +48,8 @@ response. `folder` is null for a group's payloads.
 
 `{ "refresh"?: true }` -> `{ "projects": [ { "id", "path": string|null, "paths": [string], "parent": string|null, "exists": bool } ], "error"?: string }`
 
-hq's registry (`hq project ls --json`, a few seconds cached). `path` is the project's home if that is a folder
-here, else the first path that is; `exists` is false when none is. Without hq, or when it fails: `projects: []`
+kith's registry (`kith project ls --json`, a few seconds cached). `path` is the project's home if that is a folder
+here, else the first path that is; `exists` is false when none is. Without kith, or when it fails: `projects: []`
 and `error` with the reason, never an error status.
 
 ### `recentFolders`
@@ -79,7 +79,7 @@ and adds fields; "up" at the home folder no longer leads to `/Users`; a path out
 `botId` names the bot (for a group lane, the member). The place is its own chat, or the thread on message
 `threadId`, or the group lane `chat` (the group's id). Give exactly one of:
 
-- `project`: a registered hq project id (checked against `hq project ls`),
+- `project`: a registered kith project id (checked against `kith project ls`),
 - `folder`: an absolute path inside the browsable roots,
 - `clear`: forget the place's pick, so it inherits again.
 
@@ -89,14 +89,14 @@ process restarts in the new folder on the next message, and a turn cut off by a 
 bot's other places are untouched. Setting what the place already works in is a no-op (no reset). Two clients setting
 at once: the last write wins. The `bot` event fires, and the pick goes to `recentFolders`.
 
-Errors (HTTP 400): unknown bot or thread, unknown project, folder outside the roots or not a folder, hq missing.
+Errors (HTTP 400): unknown bot or thread, unknown project, folder outside the roots or not a folder, kith missing.
 
 ### `registerProject`
 
 `{ "id", "path" }` -> `{ "project": <as in projects> }`
 
-Runs `hq project add <id> <path>`. `id` is lowercase words joined by single dashes; `path` a folder inside the
-browsable roots. hq's own error passes through (HTTP 400), for example when the id exists.
+Runs `kith project add <id> <path>`. `id` is lowercase words joined by single dashes; `path` a folder inside the
+browsable roots. kith's own error passes through (HTTP 400), for example when the id exists.
 
 ### Starting folder on creation
 
@@ -109,11 +109,11 @@ browsable roots. hq's own error passes through (HTTP 400), for example when the 
 
 ## What the host runs
 
-| place | hq bots | other backends |
+| place | kith bots | other backends |
 | --- | --- | --- |
-| project | `hq <agent> --launch-json -p <id> ...` run in the project's folder; ACP `cwd` = that folder | the project's folder as `cwd` |
-| folder | `hq <agent> --launch-json ...` run in the folder, no `-p` (hq finds a project from the cwd) | the folder as `cwd` |
-| nothing | as before (hq's `cwd`, else the bot's folder) | the bot's `cwd` |
+| project | `kith <agent> --launch-json -p <id> ...` run in the project's folder; ACP `cwd` = that folder | the project's folder as `cwd` |
+| folder | `kith <agent> --launch-json ...` run in the folder, no `-p` (kith finds a project from the cwd) | the folder as `cwd` |
+| nothing | as before (kith's `cwd`, else the bot's folder) | the bot's `cwd` |
 
 The project's folder is its home if that is a folder here, else its first path that is. If the project has none
 on this computer, the agent works in the bot's folder, `-p` is still passed, and the chat gets a notice. A picked

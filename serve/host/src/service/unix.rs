@@ -130,7 +130,13 @@ fn plist_text(
         args = program_arguments(launcher, exe, port),
         path = xml_escape(path),
         data = xml_escape(data),
-        hq = hq_bin.map(|b| format!("<key>HQ_BIN</key><string>{}</string>", xml_escape(b))).unwrap_or_default(),
+        hq = hq_bin
+            .map(|b| {
+                // Both names: apps that recognise this job by HQ_BIN keep doing so (the kernel's entry point is KITH_KERNEL_BIN now).
+                let b = xml_escape(b);
+                format!("<key>KITH_KERNEL_BIN</key><string>{b}</string><key>HQ_BIN</key><string>{b}</string>")
+            })
+            .unwrap_or_default(),
         log = xml_escape(log),
     )
 }
@@ -143,7 +149,13 @@ fn unit_text(exe: &str, port: u16, path: &str, data: &str, hq_bin: Option<&str>)
         path = systemd_quote(&format!("PATH={path}"), false),
         data = systemd_quote(&format!("KITH_SERVE_HOME={data}"), false),
         hq = hq_bin
-            .map(|b| format!("Environment={}\n", systemd_quote(&format!("HQ_BIN={b}"), false)))
+            .map(|b| {
+                use std::fmt::Write as _;
+                ["KITH_KERNEL_BIN", "HQ_BIN"].iter().fold(String::new(), |mut out, k| {
+                    let _ = writeln!(out, "Environment={}", systemd_quote(&format!("{k}={b}"), false));
+                    out
+                })
+            })
             .unwrap_or_default(),
     )
 }
@@ -154,8 +166,8 @@ pub fn install(port: u16) -> Result<()> {
     let exe = current_exe().context("locating the kith-serve binary")?;
     let exe = exe.to_string_lossy();
     let path = std::env::var("PATH").unwrap_or_default();
-    // The login-shell PATH lookup would otherwise pick another hq than the one that installed the job.
-    let hq_bin = std::env::var("HQ_BIN").ok().filter(|s| !s.is_empty());
+    // The login-shell PATH lookup would otherwise pick another kith than the one that installed the job.
+    let hq_bin = ["KITH_KERNEL_BIN", "HQ_BIN"].iter().find_map(|k| std::env::var(k).ok()).filter(|s| !s.is_empty());
     let log = data_dir().join("host.log");
     std::fs::create_dir_all(data_dir()).context("creating the data directory")?;
     if cfg!(target_os = "macos") {
@@ -254,9 +266,11 @@ mod tests {
         let plist =
             plist_text(&[], "/h/kith-serve", 19224, "/usr/bin", "/d", Some("/my hq/kernel/bin/hq&"), "/d/host.log");
         assert!(plist.contains("<key>HQ_BIN</key><string>/my hq/kernel/bin/hq&amp;</string>"), "{plist}");
+        assert!(plist.contains("<key>KITH_KERNEL_BIN</key><string>/my hq/kernel/bin/hq&amp;</string>"), "{plist}");
         assert!(plist.contains("<key>KITH_SERVE_HOME</key><string>/d</string>"));
         let unit = unit_text("/h/kith-serve", 19224, "/usr/bin", "/d", Some("/my hq/kernel/bin/hq"));
         assert!(unit.contains("Environment=\"HQ_BIN=/my hq/kernel/bin/hq\"\n"), "{unit}");
+        assert!(unit.contains("Environment=\"KITH_KERNEL_BIN=/my hq/kernel/bin/hq\"\n"), "{unit}");
         assert!(unit.contains("Environment=\"KITH_SERVE_HOME=/d\"\n"));
     }
 

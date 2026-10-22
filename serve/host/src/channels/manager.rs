@@ -186,7 +186,7 @@ impl Manager {
     /// Starts the granted connections that aren't running and stops the ones whose grant is gone.
     pub async fn sync(&mut self) {
         let Some(grants) = granted(&self.core.paths).await else {
-            tracing::warn!("channels: can't ask hq-auth which bots are granted; keeping what runs");
+            tracing::warn!("channels: can't ask kith-auth which bots are granted; keeping what runs");
             return;
         };
         self.running.retain(|_, task| !task.is_finished());

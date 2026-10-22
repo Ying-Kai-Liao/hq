@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# hq-serve-check — `hq serve` and `kith` against a stub cargo and a stub kith-serve, in a throwaway HOME and a
+# kith-serve-check — `kith serve` and `kith` against a stub cargo and a stub kith-serve, in a throwaway HOME and a
 # throwaway copy of the repo layout (the real ~/.kith, launchd and host are never touched).
 #
-#   kernel/tests/hq-serve-check     a few seconds; prints each check, exits 1 when one fails
+#   kernel/tests/kith-serve-check     a few seconds; prints each check, exits 1 when one fails
 set -uo pipefail
 
 KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
-T=$(mktemp -d "${TMPDIR:-/tmp}/hq-serve-check.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-serve-check.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 export HOME=$T/home
 mkdir -p "$HOME" "$T/repo/kernel/bin" "$T/repo/serve/host/src" "$T/stubs" "$T/target/dev-app"
-unset HQ_HOME CARGO_TARGET_DIR HQ_BIN KITH_SERVE_LAUNCHER KITH_SERVE_ENV
+unset KITH_HOME CARGO_TARGET_DIR KITH_KERNEL_BIN HQ_BIN KITH_SERVE_LAUNCHER KITH_SERVE_ENV
 export CARGO_TARGET_DIR=$T/target
 
-cp "$KERNEL/bin/hq-serve" "$KERNEL/bin/kith" "$T/repo/kernel/bin/"
-# `kith` forwards to the hq next to it: here a stub that shows what it got.
-printf '#!/usr/bin/env bash\necho "hq-stub $*"\n' > "$T/repo/kernel/bin/hq"
+cp "$KERNEL/bin/kith-serve" "$T/repo/kernel/bin/"
+# The kernel command next to kith-serve (what the job runs agents with): a stub that shows what it got.
+printf '#!/usr/bin/env bash\necho "kith-stub $*"\n' > "$T/repo/kernel/bin/kith"
 chmod +x "$T/repo/kernel/bin/"*
 touch "$T/repo/serve/host/Cargo.toml" "$T/repo/serve/host/Cargo.lock" "$T/repo/serve/host/src/main.rs"
 
@@ -29,7 +29,7 @@ mkdir -p "$CARGO_TARGET_DIR/dev-app"
 cat > "$CARGO_TARGET_DIR/dev-app/kith-serve" <<'EOS'
 #!/usr/bin/env bash
 echo "kith-serve $*" >> "$STUB_LOG"
-if [ "$1" = install ]; then echo "${HQ_BIN:-}" >> "$STUB_LOG.hq"; echo "${KITH_SERVE_LAUNCHER:-}" >> "$STUB_LOG.launcher"; fi
+if [ "$1" = install ]; then echo "${KITH_KERNEL_BIN:-}" >> "$STUB_LOG.kith"; echo "${HQ_BIN:-}" >> "$STUB_LOG.hqbin"; echo "${KITH_SERVE_LAUNCHER:-}" >> "$STUB_LOG.launcher"; fi
 EOS
 chmod +x "$CARGO_TARGET_DIR/dev-app/kith-serve"
 EOF
@@ -38,7 +38,7 @@ export STUB_LOG=$T/log
 : > "$STUB_LOG"
 SYSPATH=/usr/bin:/bin:/usr/sbin:/sbin
 export PATH=$T/stubs:$SYSPATH
-SERVE=$T/repo/kernel/bin/hq-serve
+SERVE=$T/repo/kernel/bin/kith-serve
 BIN=$HOME/.kith/serve/bin/kith-serve
 
 fails=0
@@ -52,7 +52,7 @@ check "start builds with the dev-app profile" "grep -q 'cargo build --profile de
 check "start copies the binary to ~/.kith/serve/bin" "[ -x '$BIN' ]"
 check "start calls install --port 19224" "grep -q 'kith-serve install --port 19224' '$STUB_LOG'"
 
-check "start installs the job with this checkout's hq" "grep -q '/repo/kernel/bin/hq\$' '$STUB_LOG.hq'"
+check "start installs the job with this checkout's kith" "grep -q '/repo/kernel/bin/kith\$' '$STUB_LOG.kith'"
 check "start builds from inside serve/host (the pinned toolchain applies)" "grep -q '/repo/serve/host env=' '$STUB_LOG.build'"
 
 # start again: cargo is asked every time (it decides what is fresh); install is still called
@@ -64,8 +64,8 @@ check "second start installs again" "[ $(count 'kith-serve install') = 2 ]"
 "$SERVE" start --no-build >/dev/null 2>&1
 check "--no-build never runs cargo" "[ $(count 'cargo build') = 2 ]"
 
-: > "$STUB_LOG.hq"; HQ_BIN=/elsewhere/hq "$SERVE" start --no-build >/dev/null 2>&1
-check "an explicit HQ_BIN is kept" "grep -qx '/elsewhere/hq' '$STUB_LOG.hq'"
+: > "$STUB_LOG.kith"; KITH_KERNEL_BIN=/elsewhere/kith "$SERVE" start --no-build >/dev/null 2>&1
+check "an explicit KITH_KERNEL_BIN is kept (and handed on as HQ_BIN too)" "grep -qx '/elsewhere/kith' '$STUB_LOG.kith' && grep -qx /elsewhere/kith '$STUB_LOG.hqbin'"
 : > "$STUB_LOG.build"; KITH_SERVE_ENV=main "$SERVE" start >/dev/null 2>&1
 check "an exported KITH_SERVE_ENV never reaches the build" "grep -q 'env=unset' '$STUB_LOG.build' && ! grep -q 'env=main' '$STUB_LOG.build'"
 
@@ -98,12 +98,12 @@ check "status says relay is the built-in default" "echo \"\$out\" | grep -q 'rel
 check "relay with no argument says the default too" "'$SERVE' relay | grep -q 'built-in default'"
 
 # no launcher unless one is configured: hq-uv alone changes nothing; a configured one is passed on
-mkdir -p "$HOME/.hq/bin"; printf '#!/bin/sh\n' > "$HOME/.hq/bin/hq-uv"; chmod +x "$HOME/.hq/bin/hq-uv"
+mkdir -p "$HOME/.kith/bin"; printf '#!/bin/sh\n' > "$HOME/.kith/bin/hq-uv"; chmod +x "$HOME/.kith/bin/hq-uv"
 : > "$STUB_LOG.launcher"; "$SERVE" start --no-build >/dev/null 2>&1
 check "hq-uv present: no launcher by default" "! grep -q . '$STUB_LOG.launcher'"
 : > "$STUB_LOG.launcher"; KITH_SERVE_LAUNCHER='["x"]' "$SERVE" start --no-build >/dev/null 2>&1
 check "a configured launcher is kept" "grep -qx '\\[\"x\"\\]' '$STUB_LOG.launcher'"
-rm -f "$HOME/.hq/bin/hq-uv"
+rm -f "$HOME/.kith/bin/hq-uv"
 
 # restart: stop, then install without building
 : > "$STUB_LOG"
@@ -133,22 +133,18 @@ rm -rf "$HOME/.kith"
 check "relay creates the file and folder" "[ -f '$CFG' ]"
 check "relay with no argument shows it" "'$SERVE' relay | grep -q relay.example.workers.dev"
 
-# kith forwards everything to hq; a symlink to it works too
-out=$("$T/repo/kernel/bin/kith" serve status --x 2>&1)
-check "kith forwards to hq" "[ \"\$out\" = 'hq-stub serve status --x' ]"
-ln -s "$T/repo/kernel/bin/kith" "$T/stubs/kith"
-check "kith through a symlink forwards" "[ \"\$(kith serve help)\" = 'hq-stub serve help' ]"
-
-# the real hq dispatches `serve` to hq-serve
-out=$("$KERNEL/bin/hq" serve help 2>&1)
-check "hq serve help prints usage" "echo \"\$out\" | grep -q 'hq serve start'"
+# the real kith dispatches `serve` to kith-serve
+out=$("$KERNEL/bin/kith" serve help 2>&1)
+check "kith serve help prints usage" "echo \"\$out\" | grep -q 'kith serve start'"
+ln -s "$KERNEL/bin/kith" "$T/stubs/kith"
+check "kith through a symlink dispatches serve too" "kith serve help | grep -q 'kith serve start'"
 
 # a packaged install (no serve/ source): installs the kith binary beside share/ under the name kith-serve, no cargo
 P=$T/pkg; mkdir -p "$P/bin" "$P/share/kith/kernel/bin" "$HOME/.kith/serve"
-cp "$KERNEL/bin/hq-serve" "$P/share/kith/kernel/bin/"
-printf '#!/usr/bin/env bash\necho "kith-bin $*" >> "$STUB_LOG"\n' > "$P/bin/kith"; chmod +x "$P/bin/kith" "$P/share/kith/kernel/bin/hq-serve"
+cp "$KERNEL/bin/kith-serve" "$P/share/kith/kernel/bin/"
+printf '#!/usr/bin/env bash\necho "kith-bin $*" >> "$STUB_LOG"\n' > "$P/bin/kith"; chmod +x "$P/bin/kith" "$P/share/kith/kernel/bin/kith-serve"
 rm -rf "$HOME/.kith/serve/bin"; : > "$STUB_LOG"
-out=$("$P/share/kith/kernel/bin/hq-serve" start 2>&1); rc=$?
+out=$("$P/share/kith/kernel/bin/kith-serve" start 2>&1); rc=$?
 check "packaged start succeeds" "[ $rc = 0 ]"
 check "packaged start never runs cargo" "! grep -q '^cargo' '$STUB_LOG'"
 check "packaged start installs the kith binary as kith-serve" "cmp -s '$P/bin/kith' '$BIN'"
@@ -156,7 +152,7 @@ check "packaged start installs the job" "grep -q 'install --port 19224' '$STUB_L
 
 # the Mac app's main bundle (share/kith/env says main) keeps to the main data dir and port, never the dev ones
 echo main > "$P/share/kith/env"; rm -rf "$HOME/.kith/serve/bin"; : > "$STUB_LOG"
-out=$("$P/share/kith/kernel/bin/hq-serve" start 2>&1); rc=$?
+out=$("$P/share/kith/kernel/bin/kith-serve" start 2>&1); rc=$?
 check "main bundle start succeeds" "[ $rc = 0 ]"
 check "main bundle installs under serve-main" "cmp -s '$P/bin/kith' '$HOME/.kith/serve-main/bin/kith-serve'"
 check "main bundle uses port 19225" "grep -q 'install --port 19225' '$STUB_LOG'"

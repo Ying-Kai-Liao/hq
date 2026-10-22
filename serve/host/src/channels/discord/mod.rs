@@ -1,8 +1,8 @@
 //! Discord: one bot in one server, ported from the bridge's `discord_chat.py`. Every agent has its own channel in
 //! the `hq` category (a room whose default is that agent); any other channel is a room too, answered when an agent
 //! or the bot is mentioned, or once it has a default (`/default <agent>`). A task is a thread; agents post in it
-//! through the channel's webhook under their display name, and `hq-send` (`HQ_DISCORD_WEBHOOK_URL`,
-//! `HQ_DISCORD_THREAD_ID`) posts there too. Each agent has a mentionable role of the same name, so `@` completes;
+//! through the channel's webhook under their display name, and `kith-send` (`KITH_DISCORD_WEBHOOK_URL`,
+//! `KITH_DISCORD_THREAD_ID`) posts there too. Each agent has a mentionable role of the same name, so `@` completes;
 //! when the bot can't manage roles, a plain-text `@agent` works the same. DMs with the bot work like a room with a
 //! default (the owner's: `channels.dm_default`).
 //!
@@ -12,7 +12,7 @@
 //! supervisor restarts the connection. After each new session the adapter reads what was sent since the last
 //! message it saw (at most 24 h back) and handles each message once.
 //!
-//! Both of Discord's addresses can be moved for tests: `HQ_DISCORD_API_BASE` and `HQ_DISCORD_GATEWAY_URL`
+//! Both of Discord's addresses can be moved for tests: `KITH_DISCORD_API_BASE` and `KITH_DISCORD_GATEWAY_URL` (or the old HQ_ names)
 //! (read here only, when the adapter is made).
 //!
 //! The library is by hand (`tokio-tungstenite` for the gateway, `reqwest` for REST): the dependency list is
@@ -64,22 +64,22 @@ pub struct Config {
     pub gateway_url: String,
     pub quiet: Duration,
     pub rescan: Duration,
-    /// `channels.discord_guild`: used by the first profile, `discord/hq`, like `HQ_DISCORD_GUILD` was.
+    /// `channels.discord_guild`: used by the first profile, `discord/hq`, like `KITH_DISCORD_GUILD` was.
     pub guild: Option<String>,
 }
 
 impl Config {
     pub fn from_env(guild: Option<String>) -> Self {
         let var = |name: &str, default: &str| {
-            std::env::var(name)
-                .ok()
+            crate::kernel::var(name)
+                .and_then(|v| v.into_string().ok())
                 .map(|v| v.trim().to_owned())
                 .filter(|v| !v.is_empty())
                 .unwrap_or_else(|| default.to_owned())
         };
         Self {
-            api_base: var("HQ_DISCORD_API_BASE", API_BASE),
-            gateway_url: var("HQ_DISCORD_GATEWAY_URL", GATEWAY),
+            api_base: var("DISCORD_API_BASE", API_BASE),
+            gateway_url: var("DISCORD_GATEWAY_URL", GATEWAY),
             quiet: QUIET,
             rescan: RESCAN,
             guild,
@@ -332,10 +332,10 @@ impl Discord {
                 }
             }
         }
-        let category = match channels.iter().find(|c| c["type"] == 4 && c["name"] == "hq") {
+        let category = match channels.iter().find(|c| c["type"] == 4 && (c["name"] == "kith" || c["name"] == "hq")) /* "hq": made before the rename */ {
             Some(c) => id_of(&c["id"]),
             None => id_of(
-                &self.send(Method::POST, &format!("/guilds/{gid}/channels"), json!({"name": "hq", "type": 4})).await?["id"],
+                &self.send(Method::POST, &format!("/guilds/{gid}/channels"), json!({"name": "kith", "type": 4})).await?["id"],
             ),
         };
         let agents = self.core.agents();
@@ -426,11 +426,13 @@ impl Discord {
             return Ok(url);
         }
         let listed = self.get(&format!("/channels/{channel}/webhooks")).await?;
-        let mine =
-            listed.as_array().and_then(|l| l.iter().find(|w| w["name"] == "hq" && w["token"].is_string())).cloned();
+        let mine = listed
+            .as_array()
+            .and_then(|l| l.iter().find(|w| (w["name"] == "kith" || w["name"] == "hq") && w["token"].is_string()))
+            .cloned();
         let hook = match mine {
             Some(h) => h,
-            None => self.send(Method::POST, &format!("/channels/{channel}/webhooks"), json!({"name": "hq"})).await?,
+            None => self.send(Method::POST, &format!("/channels/{channel}/webhooks"), json!({"name": "kith"})).await?,
         };
         let (Some(id), Some(token)) = (id_of(&hook["id"]), hook["token"].as_str()) else {
             bail!("Discord made a webhook without a token");
@@ -785,31 +787,32 @@ impl Discord {
         let uid = id_of(&it["member"]["user"]["id"]).or_else(|| id_of(&it["user"]["id"])).unwrap_or_default();
         let app = id_of(&it["application_id"]).unwrap_or_else(|| self.rt.locked().app.clone());
         let me = self.as_adapter();
-        let (content, private) = if let Some(wid) = cid.strip_prefix("hq-stop:") {
-            self.defer(&id, token).await;
-            match self.core.stop_pressed(&me, wid, &uid).await {
-                StopPress::NotYours => ("Only the person who started this can stop it.", true),
-                StopPress::Finished => ("-# finished", false),
-                StopPress::Stopping => ("-# stopping…", false),
-            }
-        } else if let Some(rest) = cid.strip_prefix("hq-pick:") {
-            self.defer(&id, token).await;
-            let mut parts = rest.splitn(2, ':');
-            let (pid, agent) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
-            match self.core.picked(&me, pid, agent, &uid).await {
-                Ok(true) => {
-                    self.finish_press(&app, token, &format!("→ {agent}"), false).await;
-                    return;
+        let (content, private) =
+            if let Some(wid) = cid.strip_prefix("kith-stop:").or_else(|| cid.strip_prefix("hq-stop:")) {
+                self.defer(&id, token).await;
+                match self.core.stop_pressed(&me, wid, &uid).await {
+                    StopPress::NotYours => ("Only the person who started this can stop it.", true),
+                    StopPress::Finished => ("-# finished", false),
+                    StopPress::Stopping => ("-# stopping…", false),
                 }
-                Ok(false) => ("That question is someone else's, or already answered.", true),
-                Err(e) => {
-                    tracing::warn!("{}: picking an agent failed: {e:#}", self.conn);
-                    ("That didn't work; try again.", true)
+            } else if let Some(rest) = cid.strip_prefix("kith-pick:").or_else(|| cid.strip_prefix("hq-pick:")) {
+                self.defer(&id, token).await;
+                let mut parts = rest.splitn(2, ':');
+                let (pid, agent) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+                match self.core.picked(&me, pid, agent, &uid).await {
+                    Ok(true) => {
+                        self.finish_press(&app, token, &format!("→ {agent}"), false).await;
+                        return;
+                    }
+                    Ok(false) => ("That question is someone else's, or already answered.", true),
+                    Err(e) => {
+                        tracing::warn!("{}: picking an agent failed: {e:#}", self.conn);
+                        ("That didn't work; try again.", true)
+                    }
                 }
-            }
-        } else {
-            return;
-        };
+            } else {
+                return;
+            };
         self.finish_press(&app, token, content, private).await;
     }
 
@@ -893,7 +896,7 @@ impl Discord {
 
     fn stop_button(wid: &str) -> Value {
         // custom_id is handled in the gateway's interactions: the button survives restarts
-        json!([{"type": 1, "components": [{"type": 2, "style": 2, "label": "Stop", "custom_id": format!("hq-stop:{wid}")}]}])
+        json!([{"type": 1, "components": [{"type": 2, "style": 2, "label": "Stop", "custom_id": format!("kith-stop:{wid}")}]}])
     }
 
     /// Edits (or deletes) a working line made by [`Adapter::status`].
@@ -954,8 +957,8 @@ impl Adapter for Discord {
     }
 
     fn footer(&self) -> &'static str {
-        "\n\n(From Discord: this thread is your task. Your final answer is posted here automatically; use hq-send \
-         for images and files. Helpers you call post status with `hq-send --as <their name>`.)"
+        "\n\n(From Discord: this thread is your task. Your final answer is posted here automatically; use kith-send \
+         for images and files. Helpers you call post status with `kith-send --as <their name>`.)"
     }
 
     fn quiet(&self) -> Option<Duration> {
@@ -996,7 +999,7 @@ impl Adapter for Discord {
             if let Some(thread) = id_of(&o["thread"]) {
                 // a thread hq didn't start: the task lives in it as it is
                 if let Some(channel) = id_of(&o["channel"]) {
-                    let _ = self.hook(&channel).await; // so that hq-send works here from the first run
+                    let _ = self.hook(&channel).await; // so that kith-send works here from the first run
                 }
                 return Ok((format!("{conn}:{thread}"), json!({"thread": o["thread"], "channel": o["channel"]})));
             }
@@ -1107,7 +1110,7 @@ impl Adapter for Discord {
             let buttons: Vec<Value> = agents
                 .iter()
                 .take(25)
-                .map(|a| json!({"type": 2, "style": 2, "label": a.chars().take(80).collect::<String>(), "custom_id": format!("hq-pick:{pid}:{a}")}))
+                .map(|a| json!({"type": 2, "style": 2, "label": a.chars().take(80).collect::<String>(), "custom_id": format!("kith-pick:{pid}:{a}")}))
                 .collect();
             let rows: Vec<Value> = buttons.chunks(5).map(|row| json!({"type": 1, "components": row})).collect();
             self.reply_to(m, &json!({"content": "Who should take this?", "components": rows})).await
@@ -1126,13 +1129,18 @@ impl Adapter for Discord {
 
     fn env(&self, conv: &Value, _agent: &str) -> Vec<(String, String)> {
         if !conv["dm"].is_null() {
-            return Vec::new(); // no webhooks in a DM: hq-send goes through the outbox
+            return Vec::new(); // no webhooks in a DM: kith-send goes through the outbox
         }
         let (Some(channel), Some(thread)) = (id_of(&conv["channel"]), id_of(&conv["thread"])) else {
             return Vec::new();
         };
         match self.saved_hook(&channel) {
-            Some(url) => vec![("HQ_DISCORD_WEBHOOK_URL".into(), url), ("HQ_DISCORD_THREAD_ID".into(), thread)],
+            Some(url) => {
+                let mut env = Vec::new();
+                env.extend(crate::kernel::both("DISCORD_WEBHOOK_URL", &url));
+                env.extend(crate::kernel::both("DISCORD_THREAD_ID", &thread));
+                env
+            }
             None => Vec::new(),
         }
     }

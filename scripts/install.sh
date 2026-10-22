@@ -5,8 +5,8 @@
 #   curl -fsSL .../install.sh | sh -s -- --from <your-github-user>     a new Mac: brings your state and agents back
 #
 # Puts bin/kith and share/kith/ (the kernel, the Claude Code plugin) under ~/.kith, then runs the packaged
-# install.sh: ~/hq, the hq and kith commands in ~/.local/bin, the plugin, `hq init`. Run it again to upgrade; your
-# agents (~/hq/agents) and state (~/.hq) are never touched. Arguments go to `hq init`.
+# install.sh: ~/kith, the kith and hq (its old name) commands in ~/.local/bin, the plugin, `kith init`. Run it again to upgrade; your
+# agents (~/kith/agents) and state (~/.kith, or ~/.hq until kith migrate) are never touched. Arguments go to `kith init`.
 #
 # Environment:
 #   KITH_VERSION          a release to install (1.2.3 or v1.2.3); default the latest
@@ -82,7 +82,7 @@ for part in kernel .claude-plugin install.sh LICENSE README.md; do
 done
 say "installed kith to $PREFIX"
 
-# The rest (~/hq, the commands, the plugin, hq init) is the repo's install.sh, packaged: one place for it.
+# The rest (~/kith, the commands, the plugin, kith init) is the repo's install.sh, packaged: one place for it.
 rm -rf "$WORK"
 # `curl | sh` leaves stdin on the script; give setup the terminal back so it can ask its questions.
 if [ ! -t 0 ] && [ -z "${KITH_INSTALL_YES:-}" ] && { : </dev/tty; } 2>/dev/null; then exec </dev/tty; fi

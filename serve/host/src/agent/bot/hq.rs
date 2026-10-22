@@ -45,7 +45,7 @@ impl Actor {
         self.hub.set_runtime(&self.rt, |r| r.activity = "Starting agent…".into());
         let agent = self.cfg.hq_agent.clone().ok_or_else(|| anyhow!("not an hq agent"))?;
         let Some(bin) = tokio::task::spawn_blocking(hq::bin).await? else {
-            bail!("hq isn't installed on this computer (set HQ_BIN, or put `hq` on PATH)");
+            bail!("kith isn't installed on this computer (set KITH_KERNEL_BIN, or put `kith` on PATH)");
         };
         // The place's own folder or project, else the bot's default; hq runs in it so the kernel finds the project.
         let target = folder::resolve(&self.hub.store, &self.cfg, &self.lane_of(slot)).await;
@@ -56,7 +56,7 @@ impl Actor {
         if target.explicit {
             launch.cwd.clone_from(&target.cwd);
         }
-        // The process carries hq's env (HQ_PROJECT, the cost tag) and its folder: a place that needs others gets a
+        // The process carries kith's env (KITH_PROJECT, the cost tag) and its folder: a place that needs others gets a
         // process of its own, started again here (the sessions it held load again on their next turn).
         let started_as = (launch.env(), launch.cwd(&self.cfg).to_owned());
         if self.conn.is_some()

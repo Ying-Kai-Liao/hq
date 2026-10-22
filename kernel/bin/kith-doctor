@@ -1,0 +1,380 @@
+#!/usr/bin/env python3
+"""kith-doctor — check this Mac's kith and say what to fix. Changes nothing.
+
+  kith doctor            every check: ✓ fine, ! worth a look, ✗ broken (exit 1 when anything is broken)
+
+Links and folders, the tools kith needs, one backup line (state, memories and each agent: on GitHub,
+behind, or on this Mac only), kith's default permission mode, each agent's checks, services and grants, the people
+setup (memberships, grants and profiles naming no one, shared logins, free shells), the Claude Code plugin (and the
+plugins this Mac turns on for every agent), and the background jobs: loaded, running, and not stuck (a job whose
+the uv launcher (kith-uv, or hq-uv before the rename) never starts its script has usually lost Full Disk Access).
+"""
+import json, os, plistlib, re, shutil, subprocess, sys
+from pathlib import Path
+
+KITH = Path(os.environ.get('KITH_ROOT') or os.path.dirname(os.path.dirname(
+    os.path.normpath(os.path.join(os.environ.get('PWD') or os.getcwd(), sys.argv[0])))))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'lib'))
+from kith_paths import paths  # noqa: E402  the one place that knows where kith's folders are
+import kith_settings  # noqa: E402
+
+P = paths()
+HOME = Path.home()
+BAD = []
+
+
+def run(*args, cwd=None):
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True)
+
+
+def ok(text):
+    print(f'  ✓ {text}')
+
+
+def warn(text):
+    print(f'  ! {text}')
+
+
+def bad(text):
+    BAD.append(text)
+    print(f'  ✗ {text}')
+
+
+def note(text):
+    print(f'  · {text}')
+
+
+def section(title):
+    print(title)
+
+
+def folders():
+    section('folders')
+    home, state = P['KITH_HOME'], P['KITH_STATE']
+    if (home / 'kernel' / 'bin' / 'kith').exists():
+        ok(f'kith folder: {home}' + (f' -> {P["KITH_HOME_REAL"]}' if P['KITH_HOME_REAL'] != home else ''))
+    else:
+        bad(f'no kernel in {home} (KITH_HOME, else ~/kith): run install.sh from the kith folder')
+    dot = P['KITH_MACHINE']
+    if dot == HOME / '.hq':
+        warn('this Mac\'s kith is still ~/.hq: kith migrate moves it to ~/.kith (everything works until then)')
+    elif dot.is_dir() and not dot.is_symlink():
+        ok(f'this Mac\'s kith: {dot}')
+    else:
+        warn('~/.kith is not a real folder (the layout before 2026-10-15): state and machine things are elsewhere')
+    sec = P['KITH_SECRETS']
+    if sec != P['KITH_MACHINE'] and sec.is_dir() and (sec.stat().st_mode & 0o077):
+        bad(f'{sec} can be read by others: chmod 700 {sec}')
+    here = Path(os.path.realpath(KITH / 'bin' / 'kith'))
+    link, old_link = HOME / '.local/bin/kith', HOME / '.local/bin/hq'
+    if link.exists() and Path(os.path.realpath(link)) == here:
+        ok('kith command: ~/.local/bin/kith')
+    elif old_link.exists() and Path(os.path.realpath(old_link)) == here:
+        warn('only the old command ~/.local/bin/hq leads to this kernel (it works the same): run install.sh to add kith')
+    else:
+        bad('~/.local/bin/kith does not lead to this kernel: run install.sh')
+    if str(HOME / '.local/bin') not in os.environ.get('PATH', '').split(':'):
+        warn('~/.local/bin is not on PATH: add it in ~/.zshrc to type kith')
+    for old in (HOME / '.config/hq', HOME / 'Library/Logs/hq', HOME / 'Library/Caches/hq', HOME / '.config/kith', HOME / 'Library/Logs/kith', HOME / 'Library/Caches/kith'):
+        if old.exists() and dot.is_dir() and not dot.is_symlink():
+            warn(f'{old} is left from the older layout: its contents belong in {dot}')
+
+
+def tools():
+    section('tools')
+    for key in ('user.name', 'user.email'):
+        if not run('git', 'config', '--global', key).stdout.strip():
+            bad(f'git has no {key}: git config --global {key} "..."')
+    ok('git') if shutil.which('git') else bad('git is missing: xcode-select --install')
+    ok('claude') if shutil.which('claude') else bad('claude is missing: https://claude.com/claude-code')
+    other = [h for h in ('codex', 'pi', 'agy', 'hermes', 'qwen', 'dsh', 'opencode') if shutil.which(h)]
+    note('other harnesses: ' + (', '.join(other) or 'none') + ' (an agent runs on one with harness: in agent.md)')
+    if not shutil.which('gh'):
+        warn('gh is missing: backups, sharing and kith search need it (brew install gh)')
+    elif run('gh', 'auth', 'status').returncode:
+        warn('gh is not logged in: gh auth login')
+    else:
+        ok('gh')
+
+
+def backup():
+    for folder, label in ((P['KITH_STATE'], 'state'), (P['KITH_AGENTS'], 'agents')):
+        if not (folder / '.git').exists():
+            bad(f'{label}: {folder} is not a git repo: kith init')
+    line = run(str(KITH / 'bin' / 'kith-state'), 'backup', '--check').stdout.strip()
+    mark, _, text = line.partition(' ')
+    {'✓': ok, '!': warn}.get(mark, note)(text or 'backup: the check printed nothing')
+    if any((HOME / f'Library/LaunchAgents/dev.{n}.backup.plist').exists() for n in ('kith', 'hq')):
+        note('every night at 03:00 (dev.kith.backup, or dev.hq.backup before migrate; log logs/backup.log)')
+    elif mark in ('✓', '!'):
+        warn('backups run only when you ask: kith backup --nightly runs them every night')
+
+
+def repos_and_agents():
+    section('backup')
+    backup()
+    section('agents')
+    user = P['KITH_STATE'] / 'user.md'
+    if not user.exists():
+        bad(f'no {user}: kith init')
+    elif 'updated: never' in user.read_text():
+        warn('user.md is still the template: tell your agents (the builder) about yourself')
+    own, why = kith_settings.read()
+    if why:
+        bad(f'{why}: runs use the default instead')
+    mode = own.get('permission_mode')
+    note(f'permission mode: {mode or kith_settings.DEFAULTS["permission_mode"]} '
+         f'({kith_settings.FILE if mode else "kith default"}) when neither the caller nor the agent sets one')
+    for name, chosen in sorted(own.get('agents', {}).items()):
+        if chosen.get('permission_mode'):
+            note(f'  {name}: {chosen["permission_mode"]}, your choice over its own settings')
+    listed = json.loads(run(str(KITH / 'bin' / 'kith-pkg'), 'list', '--json').stdout or '{}')
+    if not listed:
+        warn('no agents: kith install <owner>/<repo>, or kith new <name> "<what it does>"')
+    for name, o in sorted(listed.items()):
+        problems = run(str(KITH / 'bin' / 'kith-pkg'), 'check', name)
+        notes = []
+        if o.get('dirty'):
+            notes.append('uncommitted edits')
+        m = re.search(r'^harness:\s*(\S+)', (Path(o['dir']) / 'agent.md').read_text(), re.M)
+        harness = {'claude-code': 'claude'}.get(m.group(1), m.group(1)) if m else 'claude'
+        if harness != 'claude' and not shutil.which(harness) \
+                and harness not in ('dsh', 'opencode'):   # those two run through npx when not installed
+            notes.append(f'runs on {harness}, which is not installed')
+        live = ''
+        if re.search(r'^session:\s*live\s*$', (Path(o['dir']) / 'agent.md').read_text(), re.M):
+            at = run(str(KITH / 'bin' / 'kith-live'), 'where', name)
+            live = (f'live session in {at.stdout.strip()}' if at.returncode == 0 else
+                    f'live session not running (kith live start {name}); chats and kith ask run it once meanwhile')
+            live += ('; starts at login (dev.kith.live)' if kith_settings.get('live_at_login', name)
+                     else f'; not at login (kith live login on {name})')
+        deps = run(str(KITH / 'bin' / 'kith-pkg'), 'deps', name)
+        if deps.returncode:
+            notes.append('missing ' + ', '.join(l.split()[0] for l in deps.stdout.splitlines()[2:] if l.strip())
+                         + f': kith deps {name} --install')
+        if problems.returncode:
+            bad(f'{name}: {(problems.stdout + problems.stderr).strip().splitlines()[-1]}')
+        else:
+            (warn if notes else ok)(f'{name}' + (f' ({", ".join(notes)})' if notes else ''))
+        if live:
+            note(f'  {live}')
+
+
+def services():
+    section('services')
+    r = run(str(KITH / 'bin' / 'kith-auth'), 'ls')
+    if r.returncode:
+        bad(f'kith-auth ls failed: {(r.stderr or r.stdout).strip()[:200]}')
+        return
+    agent, n = '', 0
+    for line in r.stdout.splitlines():
+        if line and not line.startswith(' '):
+            agent = line.strip()
+            continue
+        parts = line.split()
+        if len(parts) >= 3 and parts[0] != 'browser':   # the browser line says where the profile is, not ok
+            n += 1
+            if parts[-1] != 'ok':
+                bad(f'{agent}: {" ".join(parts)}')
+    if n:
+        ok(f'{n} grant(s) checked')
+
+
+def people():
+    """The people tables in auth.json: rows and grants that name someone or something that isn't there, logins
+    shared with everyone, free shells, and the Discord settings from before people."""
+    section('people')
+    try:
+        auth = json.loads(Path(os.environ.get('KITH_AUTH') or P['KITH_SECRETS'] / 'auth.json').read_text())
+    except FileNotFoundError:
+        note('no auth.json yet')
+        return
+    except ValueError as e:
+        bad(f'auth.json is not valid JSON ({e})')
+        return
+    folks, members = auth.get('people', {}), auth.get('members', {})
+    known = set(json.loads(run(str(KITH / 'bin' / 'kith-pkg'), 'list', '--json').stdout or '{}'))
+    owners = [p for p, v in folks.items() if v.get('owner')]
+    if not folks:
+        note('no people: only you use kith (kith auth person <you> owner, then kith auth invite <id> for others)')
+        return
+    if len(owners) != 1:
+        bad(f'{len(owners)} owners in people ({", ".join(owners) or "none"}): kith auth person <you> owner')
+    issues = 0
+    for agent, rows in members.items():
+        if agent not in known:
+            issues += 1
+            warn(f'members: {agent} is not an installed agent ({", ".join(rows)}): kith auth member {agent} <id> --rm')
+        for pid, row in rows.items():
+            if pid != '*' and pid not in folks:
+                issues += 1
+                bad(f'members: {agent} names {pid}, who is not a person: kith auth member {agent} {pid} --rm')
+            if row.get('preset') and row['preset'] not in auth.get('presets', {}) | {'guest': 0, 'member': 0}:
+                issues += 1
+                bad(f'members: {pid} on {agent} uses preset {row["preset"]}, which does not exist')
+            mode = row.get('mode') or auth.get('presets', {}).get(row.get('preset', ''), {}).get('mode')
+            if mode == 'bypassPermissions':
+                issues += 1
+                trusted = row.get('trusted') if row.get('mode') else \
+                    auth.get('presets', {}).get(row.get('preset', ''), {}).get('trusted')
+                warn(
+                    f'members: {"everyone" if pid == "*" else pid} on {agent} has a free shell (bypassPermissions)'
+                    + ('' if trusted else ' without --trusted, so it runs in default mode'))
+    for key in auth.get('grants', {}):
+        agent, _, pid = key.partition('@')
+        if pid and pid not in folks:
+            issues += 1
+            bad(f'grants: {key} names {pid}, who is not a person: kith auth revoke {key} <service>')
+        if agent not in known | {'bridge', 'serve'}:
+            issues += 1
+            warn(f'grants: {agent} is not an installed agent')
+    for name, prof in auth.get('profiles', {}).items():
+        who = prof.get('person')
+        if who and who != '*' and who not in folks:
+            issues += 1
+            bad(f'profiles: {name} belongs to {who}, who is not a person: kith auth owner {name} <id>|-|default')
+        for pid in prof.get('with', []):
+            if pid not in folks:
+                issues += 1
+                bad(f'profiles: {name} is shared with {pid}, who is not a person: kith auth share {name} {pid} --rm')
+        svc = KITH / 'services' / f'{name.split("/", 1)[0]}.json'
+        spec = json.loads(svc.read_text()) if svc.is_file() else {}
+        if who == '*' and spec.get('personal', spec.get('kind') in ('login', 'browser')):
+            issues += 1
+            warn(f'profiles: {name} is a login shared with everyone who may use its agents (kith auth owner {name} default '
+                 'to make it yours again)')
+    gone = set()
+    for d in sorted(P['KITH_AGENTS'].iterdir()) if P['KITH_AGENTS'].is_dir() else []:
+        for sub in ('memory', 'files'):
+            gone |= {p.name for p in (d / sub / 'people').glob('*') if p.is_dir() and p.name not in folks}
+    gone |= {p.stem for p in (P['KITH_STATE'] / 'people').glob('*.md') if p.stem not in folks}
+    for pid in sorted(gone):
+        issues += 1
+        warn(f'memory and files are kept for {pid}, who is not a person any more: '
+             f'agents/*/memory/people/{pid}, agents/*/files/people/{pid}, people/{pid}.md (delete them by hand)')
+    env = P['KITH_SECRETS'] / 'env'
+    old = {k for k, _, _ in (l.strip().partition('=') for l in env.read_text().splitlines())} if env.exists() else set()
+    for k in sorted(old & {p + n for p in ('KITH_', 'HQ_') for n in ('DISCORD_REPLY_TO', 'DISCORD_ALLOWED_IDS', 'DISCORD_OWNER_ID')}):
+        issues += 1
+        warn(f'{k} in {env} is from before people and is ignored now: remove it (kith auth handle / invite instead)')
+    if not issues:
+        others = len(folks) - len(owners)
+        ok(f'{len(folks)} people ({others} besides you), {sum(len(r) for r in members.values())} membership(s)')
+
+
+def plugin():
+    section('Claude Code plugin')
+    want = json.loads((KITH / 'adapters/claude-code/.claude-plugin/plugin.json').read_text()).get('version')
+    try:
+        installed = json.loads((HOME / '.claude/plugins/installed_plugins.json').read_text())['plugins']
+    except (OSError, ValueError, KeyError):
+        installed = {}
+    inst = installed.get('kith@kith') or installed.get('hq@hq', [])   # hq@hq: before the rename
+    have = inst[0].get('version') if inst else None
+    if not have:
+        bad('the kith plugin is not installed: run install.sh')
+    elif 'kith@kith' not in installed:
+        warn('the plugin is still installed as hq@hq (subagents hq:<agent>): kith migrate, or install.sh, moves it to kith@kith')
+    elif have != want:
+        warn(f'plugin {have} installed, the kernel has {want}: claude plugin install kith@kith (then restart sessions)')
+    else:
+        ok(f'kith plugin {have}')
+    try:
+        known = json.loads((HOME / '.claude/plugins/known_marketplaces.json').read_text())
+        src = (known.get('kith') or known['hq'])['source'].get('path')
+    except (OSError, ValueError, KeyError):
+        src = None
+    if src and Path(os.path.realpath(src)) != Path(os.path.realpath(P['KITH_HOME'])):
+        warn(f'the plugin\'s marketplace is {src}, not the kith folder: run install.sh')
+    every = kith_settings.get('plugins')
+    if every:
+        note(f'every agent also gets: {", ".join(every)} (plugins in {kith_settings.FILE})')
+    for p in every:
+        if p not in installed:
+            warn(f'{p} is in plugins but not installed: claude plugin install {p}')
+
+
+def jobs():
+    plists = sorted([*(HOME / 'Library/LaunchAgents').glob('dev.kith.*.plist'),
+                     *(HOME / 'Library/LaunchAgents').glob('dev.hq.*.plist')])   # dev.hq.*: installed before the rename
+    section('background jobs' + ('' if plists else ' (none)'))
+    uid = os.getuid()
+    for f in plists:
+        try:
+            pl = plistlib.loads(f.read_bytes())
+        except Exception as e:
+            bad(f'{f.name}: unreadable ({e})')
+            continue
+        label, argv = pl.get('Label', f.stem), pl.get('ProgramArguments', [])
+        missing = [a for a in argv if a.startswith('/') and not os.path.exists(a)]
+        if missing:
+            bad(f'{label}: runs {missing[0]}, which is not there (reinstall the job)')
+            continue
+        info = run('launchctl', 'print', f'gui/{uid}/{label}').stdout
+        if not info:
+            bad(f'{label}: not loaded (launchctl bootstrap gui/{uid} {f})')
+            continue
+        pid = re.search(r'^\s*pid = (\d+)', info, re.M)
+        code = re.search(r'last exit code = (-?\d+)', info)
+        if pl.get('KeepAlive'):
+            if not pid:
+                bad(f'{label}: should always run but is not running')
+                continue
+            stuck = argv and argv[0].endswith(('kith-uv', 'hq-uv')) and not run('pgrep', '-P', pid.group(1)).stdout.strip()
+            if stuck:
+                bad(f'{label}: the uv launcher never started its script: give {argv[0]} Full Disk Access '
+                    f'(System Settings → Privacy & Security), then launchctl kickstart -k gui/{uid}/{label}')
+            else:
+                ok(f'{label}: running')
+        elif code and code.group(1) not in ('0',):
+            bad(f'{label}: last run failed (exit {code.group(1)}); see {pl.get("StandardErrorPath", "its log")}')
+        else:
+            ok(f'{label}: loaded' + (f', last run ok' if code else ', not run yet'))
+
+
+def serve():
+    """Kith's host is optional: not installed is a note, not a problem."""
+    section('kith serve')
+    binary = HOME / '.kith/serve/bin/kith-serve'
+    if not binary.exists():
+        note('not installed (optional): kith serve start')
+        return
+    ok(f'host binary: {binary}')
+    info = run('launchctl', 'print', f'gui/{os.getuid()}/dev.kith.serve').stdout
+    if not info:
+        warn('dev.kith.serve is not loaded: kith serve start')
+    elif re.search(r'^\s*pid = \d+', info, re.M):
+        ok('dev.kith.serve: running')
+    else:
+        warn('dev.kith.serve is loaded but not running: kith serve restart (log in ~/.kith/serve)')
+    # The running host knows its environment's override too; the file and the build's default are the fallback.
+    cloud = run(str(binary), 'cloud', '--port', '19224').stdout
+    url = next((l.split(':', 1)[1].strip() for l in cloud.splitlines() if l.startswith('url:')), '')
+    if url == '-':
+        ok('relay: none (the cloud is off)')
+        return
+    if url:
+        ok(f'relay: {url} (host)')
+        return
+    try:
+        relay = json.loads((HOME / '.kith/serve/config.json').read_text()).get('relay_url')
+    except Exception:
+        relay = None
+    ok(f'relay: {relay} (config.json)') if relay else ok('relay: built-in default (kith serve relay <url> to change)')
+
+
+def main(argv):
+    if '-h' in argv or '--help' in argv:
+        print(__doc__.strip())
+        return
+    for check in (folders, tools, repos_and_agents, services, people, plugin, jobs, serve):
+        try:
+            check()
+        except Exception as e:   # one broken check never hides the others
+            bad(f'{check.__name__}: the check itself failed ({e!r})')
+    print(f'\n{len(BAD)} problem(s)' if BAD else '\nall good')
+    sys.exit(1 if BAD else 0)
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

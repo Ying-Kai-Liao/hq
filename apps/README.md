@@ -15,7 +15,7 @@ cp apps/shared/Config/Secrets.example.plist apps/shared/Config/Secrets.plist
 # put the project key in the POSTHOG_API_KEY string
 ```
 
-On Kai's Mac the key sits in `~/.hq/secrets/posthog-key`; `sh apps/tools/write-secrets.sh`
+On Kai's Mac the key sits in `~/.kith/secrets/posthog-key`; `sh apps/tools/write-secrets.sh`
 writes `Secrets.plist` from it (it never prints the key). An empty or missing value falls back
 to the built-in default.
 
