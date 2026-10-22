@@ -46,6 +46,13 @@ impl Registry {
 /// Connection -> state, for the host's status.
 static STATES: Mutex<BTreeMap<String, &'static str>> = Mutex::new(BTreeMap::new());
 
+/// Why channels are not running at all, for the host's status.
+static OFF: Mutex<Option<&'static str>> = Mutex::new(None);
+
+pub fn set_off(why: &'static str) {
+    *OFF.locked() = Some(why);
+}
+
 fn set_state(conn: &str, state: &'static str) {
     STATES.locked().insert(conn.to_owned(), state);
 }
@@ -53,7 +60,11 @@ fn set_state(conn: &str, state: &'static str) {
 /// The connections and what they are doing: `running`, `reconnecting` or `no adapter`.
 pub fn status() -> Value {
     let states = STATES.locked();
-    json!({"connections": states.iter().map(|(conn, state)| json!({"name": conn, "state": state})).collect::<Vec<_>>()})
+    let connections = states.iter().map(|(conn, state)| json!({"name": conn, "state": state})).collect::<Vec<_>>();
+    match *OFF.locked() {
+        Some(why) => json!({"off": why, "connections": connections}),
+        None => json!({"connections": connections}),
+    }
 }
 
 /// The profiles granted to this host: (profile, platform). None when hq-auth can't be asked.

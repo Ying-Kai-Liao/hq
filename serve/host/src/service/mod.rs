@@ -84,13 +84,13 @@ pub fn data_dir() -> PathBuf {
 }
 
 #[cfg(not(test))]
-fn default_data_dir() -> PathBuf {
+pub(crate) fn default_data_dir() -> PathBuf {
     home().join(crate::environment::Environment::current().data_folder())
 }
 
 /// Unit tests never see a real host's data: tests that start a hub run its start-up clean-up, which deletes files.
 #[cfg(test)]
-fn default_data_dir() -> PathBuf {
+pub(crate) fn default_data_dir() -> PathBuf {
     std::env::temp_dir().join(format!("kith-unit-{}", std::process::id()))
 }
 

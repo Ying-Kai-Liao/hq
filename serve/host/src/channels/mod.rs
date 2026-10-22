@@ -21,6 +21,10 @@
 //! first time a connection starts here its entries are copied from the bridge's `~/.hq/bridge/state.json`, which
 //! is only read.
 //!
+//! A host whose `KITH_SERVE_HOME` is not the default data folder runs no channels (hq-auth and `~/.hq` are global, so a
+//! test host would take over the real bots): it asks neither hq-auth nor reads the bridge's state. `KITH_SERVE_CHANNELS=1`
+//! opts a non-default home in; `/health` shows `channels.off` with the reason.
+//!
 //! Settings: the `channels` object in `<data dir>/config.json`, read at start:
 //! `enabled` (default true), `dm_default` (the agent the owner's new DMs go to, default `personal`),
 //! `debounce_s` (seconds to wait for more messages before a run starts, default 2), `router` (`jev` or `off`,
@@ -61,6 +65,7 @@ pub use manager::Registry;
 pub use manager::status;
 
 use crate::hub::Hub;
+use std::path::Path;
 use std::sync::Arc;
 
 /// Starts the channels in the background: nothing happens without hq, or with `channels.enabled` off.
@@ -72,13 +77,103 @@ async fn run(hub: Arc<Hub>) {
     let settings = settings::Settings::load();
     if !settings.enabled {
         tracing::info!("channels are off (channels.enabled in config.json)");
+        manager::set_off("disabled");
         return;
     }
-    let Some(paths) = tokio::task::spawn_blocking(hq::Paths::discover).await.ok().flatten() else {
-        tracing::info!("channels: no hq found; chat channels are off");
-        return;
+    let opt_in = std::env::var_os(OPT_IN_ENV).is_some_and(|v| v == "1");
+    let home = crate::service::data_dir();
+    let paths = match prepare(&home, &crate::service::default_data_dir(), opt_in, hq::Paths::discover).await {
+        Ok(Some(paths)) => paths,
+        Ok(None) => {
+            tracing::info!("channels: no hq found; chat channels are off");
+            return;
+        }
+        Err(why) => {
+            tracing::info!("channels are off: {why}; set {OPT_IN_ENV}=1 to run them in this home anyway");
+            manager::set_off(why);
+            return;
+        }
     };
     let judge = judge::Judge::from_hub(hub.clone(), paths.clone());
     let core = Core::new(core::Deps { paths, settings, gate: hub.gate.clone(), judge });
     manager::Manager::new(core, Registry::builtin(), manager::Backoff::default()).run().await;
+}
+
+/// Env var that lets a host with a temporary `KITH_SERVE_HOME` run channels anyway.
+const OPT_IN_ENV: &str = "KITH_SERVE_CHANNELS";
+
+/// Why channels must not start in `home`: hq-auth and `~/.hq` are global, so a throwaway host would otherwise
+/// connect Kai's real bots (second Telegram poller, double Discord answers) and import the bridge's state.
+fn home_guard(home: &Path, default: &Path, opt_in: bool) -> Option<&'static str> {
+    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    (!opt_in && canon(home) != canon(default)).then_some("temporary home")
+}
+
+/// Looks for hq (which is what reads grants and the bridge's state later) only when the home allows channels.
+async fn prepare(
+    home: &Path,
+    default: &Path,
+    opt_in: bool,
+    discover: impl FnOnce() -> Option<hq::Paths> + Send + 'static,
+) -> Result<Option<hq::Paths>, &'static str> {
+    if let Some(why) = home_guard(home, default, opt_in) {
+        return Err(why);
+    }
+    Ok(tokio::task::spawn_blocking(discover).await.ok().flatten())
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("kith-guard-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn default_home_runs_and_others_do_not() {
+        let (default, other) = (tmp("default"), tmp("other"));
+        assert_eq!(home_guard(&default, &default, false), None);
+        assert_eq!(home_guard(&other, &default, false), Some("temporary home"));
+        assert_eq!(home_guard(&other, &default, true), None);
+    }
+
+    #[test]
+    fn a_symlink_to_the_default_is_the_default() {
+        let default = tmp("sym-default");
+        let link = tmp("sym-parent").join("link");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&default, &link).unwrap();
+        assert_eq!(home_guard(&link, &default, false), None);
+    }
+
+    #[test]
+    fn uncanonicalizable_paths_compare_as_given() {
+        let (a, b) = (PathBuf::from("/nonexistent/kith-a"), PathBuf::from("/nonexistent/kith-b"));
+        assert_eq!(home_guard(&a, &a, false), None);
+        assert_eq!(home_guard(&a, &b, false), Some("temporary home"));
+    }
+
+    #[tokio::test]
+    async fn a_temporary_home_never_looks_for_hq_unless_opted_in() {
+        let (default, other) = (tmp("p-default"), tmp("p-other"));
+        let called = Arc::new(AtomicBool::new(false));
+        let probe = |called: Arc<AtomicBool>| {
+            move || {
+                called.store(true, Ordering::SeqCst);
+                None
+            }
+        };
+        let off = prepare(&other, &default, false, probe(called.clone())).await;
+        assert_eq!(off.unwrap_err(), "temporary home");
+        assert!(!called.load(Ordering::SeqCst), "no grants or bridge state may be reached");
+        let on = prepare(&other, &default, true, probe(called.clone())).await;
+        assert!(on.unwrap().is_none());
+        assert!(called.load(Ordering::SeqCst));
+        assert!(prepare(&default, &default, false, probe(called)).await.is_ok());
+    }
 }
