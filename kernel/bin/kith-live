@@ -33,6 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'lib'))
 from kith_paths import paths, launcher, retire_old_job  # noqa: E402
+import kith_launchd  # noqa: E402
 import kith_settings  # noqa: E402
 
 P = paths()
@@ -179,11 +180,9 @@ def install():
         'EnvironmentVariables': {'HOME': str(Path.home()), 'KITH_HOME': str(P['KITH_HOME']),
                                  'PATH': os.environ.get('PATH', '/usr/bin:/bin')},
         'StandardOutPath': str(LOG), 'StandardErrorPath': str(LOG)}))
-    uid = os.getuid()
     retire_old_job('live')
-    subprocess.run(['launchctl', 'bootout', f'gui/{uid}/{LABEL}'], capture_output=True)
     # bootstrap runs it once now (RunAtLoad): fine, a session that runs is left alone
-    subprocess.run(['launchctl', 'bootstrap', f'gui/{uid}', str(PLIST)], check=True)
+    kith_launchd.reload_or_exit(LABEL, PLIST)
 
 
 def uninstall():

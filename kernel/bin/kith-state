@@ -34,6 +34,7 @@ from pathlib import Path
 KITH = Path(os.environ.get('KITH_ROOT') or os.path.dirname(os.path.dirname(
     os.path.normpath(os.path.join(os.environ.get('PWD') or os.getcwd(), sys.argv[0])))))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+import kith_launchd  # noqa: E402
 from kith_paths import paths, retire_old_job, launcher as kith_launcher  # noqa: E402  the one place that knows where kith's folders are
 STATE, AGENTS = paths()['KITH_STATE'], paths()['KITH_AGENTS']
 sys.stdout.reconfigure(line_buffering=True)   # in order with the tools it runs, also when piped
@@ -217,10 +218,9 @@ def backup(yes):
 
 
 def nightly(on):
-    uid = os.getuid()
     retire_old_job('backup')
-    subprocess.run(['launchctl', 'bootout', f'gui/{uid}/{LABEL}'], capture_output=True)
     if not on:
+        kith_launchd.unload(LABEL)
         PLIST.unlink(missing_ok=True)
         print(f'removed {LABEL}: backups run only when you ask (kith backup)')
         return
@@ -238,7 +238,7 @@ def nightly(on):
         'EnvironmentVariables': {'HOME': str(Path.home()), 'KITH_HOME': str(p['KITH_HOME']),
                                  'PATH': os.environ.get('PATH', '/usr/bin:/bin')},
         'StandardOutPath': str(logs / 'backup.log'), 'StandardErrorPath': str(logs / 'backup.log')}))
-    subprocess.run(['launchctl', 'bootstrap', f'gui/{uid}', str(PLIST)], check=True)
+    kith_launchd.reload_or_exit(LABEL, PLIST)
     print(f'every night at 03:00 ({LABEL}); log {logs / "backup.log"}')
 
 

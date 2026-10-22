@@ -34,6 +34,7 @@
 #   kith project [ls [--json]|open ID|root|add ID [dir] [--in P] [--home [DIR]]]  projects: what each holds, its folder, its memory
 #   kith schedule [ls|add|rm|run|log|--install ...]      run agent tasks on a cron schedule (kith-sched)
 #   kith acp <agent> [--keep team,…]                     the agent as an ACP agent, one session per chat (kith-acp)
+#   kith migrate [--dry-run|--undo|--force]            move this Mac from ~/.hq and the dev.hq.* jobs to ~/.kith and dev.kith.*, reversibly (kith-migrate)
 #   kith serve start|stop|restart|status|relay [URL]     Kith's host on this Mac (launchd dev.kith.serve, port 19224); `kith` is the same command (kith-serve)
 #
 # Every run is pinned to a snapshot of the agent's package (bin/kith-pkg): edits, by anyone, become the next run's
@@ -62,6 +63,8 @@ src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *
 KITH="$(cd "$(dirname "$src")/.." && pwd)"
 
 [[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,38p' "$0" | sed 's/^#   //'; exit 0; }
+# migrate runs before the paths below are exported: it moves what they point at, and its children must see the new ones
+[[ $1 == migrate ]] && exec "$KITH/bin/kith-migrate" "${@:2}"
 . "$KITH/lib/kith-env.sh"   # KITH_X and the old HQ_X agree (role repos read HQ_X)
 export KITH_ROOT=$KITH
 # Where things are, from the one place that knows (lib/kith_paths.py): KITH_HOME (~/kith) holding kernel/ and agents/ (each

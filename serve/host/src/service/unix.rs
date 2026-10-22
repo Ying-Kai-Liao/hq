@@ -12,10 +12,7 @@ const UNIT: &str = crate::environment::Environment::current().systemd_unit();
 /// A manually started daemon is never mistaken for the service we own.
 pub fn stop() -> Result<()> {
     if cfg!(target_os = "macos") {
-        let _ = Command::new("launchctl")
-            .args(["bootout", &format!("gui/{}/{LABEL}", current_uid())])
-            .stderr(Stdio::null())
-            .status()?;
+        launchd::unload(&mut launchctl, &target())?;
     } else if installed() {
         run("systemctl", &["--user", "stop", UNIT])?;
     }
@@ -24,7 +21,7 @@ pub fn stop() -> Result<()> {
 
 pub fn start() -> Result<()> {
     if cfg!(target_os = "macos") {
-        run("launchctl", &["bootstrap", &format!("gui/{}", current_uid()), &launchd_plist().to_string_lossy()])
+        launchd::reload(&mut launchctl, &domain(), &target(), &launchd_plist())
     } else {
         run("systemctl", &["--user", "start", UNIT])
     }
@@ -182,13 +179,11 @@ pub fn install(port: u16) -> Result<()> {
         );
         let file = launchd_plist();
         create_parent(&file)?;
-        let uid = current_uid();
         // Not loaded yet is the normal case here.
-        let _ =
-            Command::new("launchctl").args(["bootout", &format!("gui/{uid}/{LABEL}")]).stderr(Stdio::null()).status();
+        launchd::unload(&mut launchctl, &target())?;
         wait_for_host_exit()?;
         std::fs::write(&file, plist).with_context(|| format!("writing {}", file.display()))?;
-        run("launchctl", &["bootstrap", &format!("gui/{uid}"), &file.to_string_lossy()])?;
+        launchd::reload(&mut launchctl, &domain(), &target(), &file)?;
     } else {
         let unit = unit_text(&exe, port, &path, &data_dir().to_string_lossy(), hq_bin.as_deref());
         let file = systemd_unit();
@@ -206,10 +201,7 @@ pub fn install(port: u16) -> Result<()> {
 /// Best effort: every step tolerates "already gone".
 pub fn uninstall() {
     if cfg!(target_os = "macos") {
-        let _ = Command::new("launchctl")
-            .args(["bootout", &format!("gui/{}/{LABEL}", current_uid())])
-            .stderr(Stdio::null())
-            .status();
+        let _ = launchd::unload(&mut launchctl, &target());
         let _ = std::fs::remove_file(launchd_plist());
     } else {
         let _ = run("systemctl", &["--user", "disable", "--now", UNIT]);
@@ -220,6 +212,185 @@ pub fn uninstall() {
 
 pub fn installed() -> bool {
     if cfg!(target_os = "macos") { launchd_plist().exists() } else { systemd_unit().exists() }
+}
+
+fn domain() -> String {
+    format!("gui/{}", current_uid())
+}
+
+fn target() -> String {
+    format!("gui/{}/{LABEL}", current_uid())
+}
+
+/// Runs the real `launchctl`: (exit code, stderr).
+fn launchctl(args: &[&str]) -> (i32, String) {
+    match Command::new("launchctl").args(args).stdin(Stdio::null()).output() {
+        Ok(o) => (o.status.code().unwrap_or(-1), String::from_utf8_lossy(&o.stderr).trim().to_owned()),
+        Err(e) => (-1, format!("cannot run launchctl: {e}")),
+    }
+}
+
+/// `launchctl bootout` returns before the job is gone, and a `bootstrap` of the same label straight after fails with
+/// EIO (5). So: wait until `print` says the job is gone, retry the bootstrap, and check the job is loaded at the end.
+mod launchd {
+    use anyhow::{Result, bail};
+    use std::path::Path;
+    use std::time::{Duration, Instant};
+
+    pub type Runner<'a> = dyn FnMut(&[&str]) -> (i32, String) + 'a;
+
+    const RETRIES: usize = 5;
+    const BACKOFF_MS: [u64; 4] = [500, 1000, 2000, 2000];
+    const GONE_TIMEOUT: Duration = Duration::from_secs(10);
+
+    fn loaded(run: &mut Runner, target: &str) -> bool {
+        run(&["print", target]).0 == 0
+    }
+
+    pub fn unload(run: &mut Runner, target: &str) -> Result<()> {
+        unload_within(run, target, GONE_TIMEOUT, Duration::from_millis(200))
+    }
+
+    fn unload_within(run: &mut Runner, target: &str, timeout: Duration, poll: Duration) -> Result<()> {
+        // Not loaded is the normal case: the exit code is ignored.
+        run(&["bootout", target]);
+        let deadline = Instant::now() + timeout;
+        while loaded(run, target) {
+            if Instant::now() > deadline {
+                bail!("{target} is still loaded {}s after launchctl bootout", timeout.as_secs());
+            }
+            std::thread::sleep(poll);
+        }
+        Ok(())
+    }
+
+    pub fn reload(run: &mut Runner, domain: &str, target: &str, plist: &Path) -> Result<()> {
+        reload_with(run, domain, target, plist, |attempt| {
+            std::thread::sleep(Duration::from_millis(BACKOFF_MS[attempt.min(BACKOFF_MS.len() - 1)]));
+        })
+    }
+
+    fn reload_with(
+        run: &mut Runner,
+        domain: &str,
+        target: &str,
+        plist: &Path,
+        mut pause: impl FnMut(usize),
+    ) -> Result<()> {
+        let plist = plist.to_string_lossy();
+        let mut last = String::new();
+        let mut bootstrapped = false;
+        for attempt in 0..RETRIES {
+            let (code, err) = run(&["bootstrap", domain, &plist]);
+            if code == 0 {
+                bootstrapped = true;
+                break;
+            }
+            last = err;
+            // 5 is EIO, 37 "already in progress"; anything else (a bad plist) will not get better.
+            if !matches!(code, 5 | 37) || attempt == RETRIES - 1 {
+                break;
+            }
+            pause(attempt);
+        }
+        // A loaded job is not enough: it may be another install's plist that is running (two restarts racing).
+        if !bootstrapped || !loaded(run, target) {
+            bail!(
+                "{target} is not loaded (plist {plist}); last launchctl said: {}. Load it by hand: launchctl bootstrap {domain} \"{plist}\"",
+                if last.is_empty() { "nothing" } else { &last }
+            );
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::path::PathBuf;
+
+        type Calls = std::rc::Rc<std::cell::RefCell<Vec<String>>>;
+
+        /// A launchctl that fails `bootstrap` `fail_times` times with `code`, then loads the job.
+        fn fake(fail_times: usize, code: i32) -> (impl FnMut(&[&str]) -> (i32, String), Calls) {
+            let log = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            let seen = log.clone();
+            let (mut failed, mut is_loaded) = (0, false);
+            (
+                move |args: &[&str]| {
+                    seen.borrow_mut().push(args[0].to_owned());
+                    match args[0] {
+                        "bootstrap" if failed < fail_times => {
+                            failed += 1;
+                            (code, "Bootstrap failed: 5: Input/output error".into())
+                        }
+                        "bootstrap" => {
+                            is_loaded = true;
+                            (0, String::new())
+                        }
+                        "print" => (if is_loaded { 0 } else { 113 }, String::new()),
+                        _ => (0, String::new()),
+                    }
+                },
+                log,
+            )
+        }
+
+        #[test]
+        fn bootstrap_is_retried_after_eio_until_it_loads() {
+            let (mut run, log) = fake(2, 5);
+            let mut pauses = 0;
+            reload_with(&mut run, "gui/1", "gui/1/x", &PathBuf::from("/p.plist"), |_| pauses += 1).unwrap();
+            assert_eq!(pauses, 2);
+            assert_eq!(log.borrow().iter().filter(|c| *c == "bootstrap").count(), 3);
+        }
+
+        #[test]
+        fn a_job_that_never_loads_is_an_error_with_the_manual_command() {
+            let (mut run, log) = fake(usize::MAX, 5);
+            let err = reload_with(&mut run, "gui/1", "gui/1/x", &PathBuf::from("/p.plist"), |_| {}).unwrap_err();
+            let text = err.to_string();
+            assert!(text.contains("gui/1/x") && text.contains("/p.plist") && text.contains("Input/output"), "{text}");
+            assert!(text.contains("launchctl bootstrap gui/1"), "{text}");
+            assert_eq!(log.borrow().iter().filter(|c| *c == "bootstrap").count(), RETRIES);
+        }
+
+        #[test]
+        fn a_job_loaded_by_someone_else_is_not_a_success() {
+            let mut run = |args: &[&str]| match args[0] {
+                "bootstrap" => (5, "Bootstrap failed: 5: Input/output error".to_owned()),
+                _ => (0, String::new()),
+            };
+            assert!(reload_with(&mut run, "gui/1", "gui/1/x", &PathBuf::from("/p.plist"), |_| {}).is_err());
+        }
+
+        #[test]
+        fn a_bad_plist_is_not_retried() {
+            let (mut run, log) = fake(usize::MAX, 133);
+            assert!(reload_with(&mut run, "gui/1", "gui/1/x", &PathBuf::from("/p.plist"), |_| {}).is_err());
+            assert_eq!(log.borrow().iter().filter(|c| *c == "bootstrap").count(), 1);
+        }
+
+        #[test]
+        fn unload_waits_until_the_job_is_gone() {
+            let mut prints = 0;
+            let mut run = |args: &[&str]| {
+                if args[0] == "print" {
+                    prints += 1;
+                    return (if prints < 3 { 0 } else { 113 }, String::new());
+                }
+                (3, "No such process".into())
+            };
+            unload_within(&mut run, "gui/1/x", Duration::from_secs(5), Duration::from_millis(1)).unwrap();
+            assert_eq!(prints, 3);
+        }
+
+        #[test]
+        fn unload_gives_up_when_the_job_stays() {
+            let mut run = |_: &[&str]| (0, String::new());
+            let err = unload_within(&mut run, "gui/1/x", Duration::from_millis(20), Duration::from_millis(5));
+            assert!(err.is_err());
+        }
+    }
 }
 
 fn current_uid() -> String {

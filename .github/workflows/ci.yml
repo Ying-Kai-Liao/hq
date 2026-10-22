@@ -65,12 +65,16 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - name: Bridge check
         run: kernel/tests/kith-bridge-check
+      - name: Launchd check
+        run: kernel/tests/kith-launchd-check
       - name: Project check
         run: kernel/tests/kith-project-check
       - name: Serve check
         run: kernel/tests/kith-serve-check
       - name: Info check
         run: kernel/tests/kith-info-check
+      - name: Migrate check
+        run: kernel/tests/kith-migrate-check
 
   host-fmt:
     needs: changes

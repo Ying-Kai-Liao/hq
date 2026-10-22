@@ -49,6 +49,7 @@ from pathlib import Path
 
 KITH = Path(__file__).resolve().parent.parent
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+import kith_launchd  # noqa: E402
 from kith_paths import paths, launcher as uv_launcher, retire_old_job, sync_env  # noqa: E402  the one place that knows where kith's folders are
 from kith_bridge.core import STATE_DIR, Core, agents, log, read_state  # noqa: E402
 LABEL = 'dev.kith.bridge'
@@ -106,7 +107,7 @@ def install():
 </dict></plist>
 """)
     retire_old_job('bridge')
-    os.system(f'launchctl bootout gui/{os.getuid()}/{LABEL} 2>/dev/null; launchctl bootstrap gui/{os.getuid()} "{plist}"')
+    kith_launchd.reload_or_exit(LABEL, plist)
     print(f'installed {plist}; logs in {LOG}')
 
 
