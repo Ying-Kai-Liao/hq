@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { chipOf, needsConfirm, normalizeFolder, pickerSections, projectAt, projectIdFromName, selectionOfRecent } from './place-folders.ts'
+import { chipOf, defaultFolderOf, needsConfirm, normalizeFolder, pickerSections, projectAt, projectIdFromName, selectionOfRecent } from './place-folders.ts'
 
 test('a folder name becomes a lowercase-kebab project id', () => {
   assert.equal(projectIdFromName('My Project_v2'), 'my-project-v2')
@@ -46,4 +46,13 @@ test('an older host without folder reads as absent; the chip names the place', (
 test('only a place with messages asks before a fresh session', () => {
   assert.equal(needsConfirm(0), false)
   assert.equal(needsConfirm(3), true)
+})
+
+test('a new task starts in the bot’s default, not in the chat’s own pick', () => {
+  const chat = { kind: 'project' as const, project: 'beta', path: '/b', name: 'beta', inherited: false }
+  const base = { folder: chat, project: 'alpha', cwd: '/w', managedWorkspace: false }
+  assert.equal(defaultFolderOf(base)?.name, 'alpha')
+  assert.equal(defaultFolderOf({ ...base, project: null })?.name, 'w')
+  assert.equal(defaultFolderOf({ ...base, project: null, managedWorkspace: true })?.kind, 'workspace')
+  assert.equal(defaultFolderOf({ ...base, folder: null }), null)
 })

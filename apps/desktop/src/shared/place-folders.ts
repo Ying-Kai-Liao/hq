@@ -101,3 +101,15 @@ export function chipOf(folder: PlaceFolder) {
 
 /** Changing the folder starts a fresh session; only worth a confirm when there is a conversation to lose. */
 export const needsConfirm = (messages: number) => messages > 0
+
+/**
+ * Where a new task of this bot starts when nothing is picked: its default project, else its own folder or
+ * workspace. Not the chat's current folder, which a pick on the chat may have changed.
+ */
+export function defaultFolderOf(bot: { folder: PlaceFolder | null; project: string | null; cwd: string; managedWorkspace: boolean }): PlaceFolder | null {
+  // A host without place folders sends none; then there is nothing to show.
+  if (!bot.folder) return null
+  if (bot.project) return { kind: 'project', project: bot.project, path: null, name: bot.project, inherited: true }
+  if (bot.managedWorkspace || !bot.cwd) return { kind: 'workspace', path: null, name: 'Workspace', inherited: true }
+  return { kind: 'folder', path: bot.cwd, name: lastComponent(bot.cwd), inherited: true }
+}

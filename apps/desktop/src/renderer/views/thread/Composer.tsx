@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { isBelow } from '@shared/compat'
 import { isGroup, isWorkingIn, type Bot } from '@shared/models'
+import { defaultFolderOf } from '@shared/place-folders'
 import { currentTask } from '@shared/tasks'
 import { BotAvatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
@@ -197,7 +198,7 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
           <CommandMenu commands={menu.shown} index={menu.index} hover={menu.hover} pick={run} />
           <ComposerReveal open={newTask && !!bot?.folder}>
             <div className="place-chip-row composer-folder">
-              <StartingFolderChip inherited={bot?.folder ?? null} value={taskFolder} onChange={setTaskFolder} />
+              <StartingFolderChip inherited={bot ? defaultFolderOf(bot) : null} value={taskFolder} onChange={setTaskFolder} />
             </div>
           </ComposerReveal>
           <ComposerReveal open={files.length > 0}>

@@ -39,6 +39,8 @@ export class BotStore extends BotSync {
   override retire() { this.fileDownloads.retire(); super.retire() }
 
   private outgoingFiles = new Map<string, OutgoingFile[]>()
+  /** The folder picked for a message that has not reached the host yet, so Resend keeps it. */
+  private outgoingPlaces = new Map<string, StartingFolder>()
 
   /** Where each thread works, as the host last said (`thread`, `setPlaceFolder`); keyed `bot:root`. */
   private threadFolders = new Map<string, PlaceFolder | null>()
@@ -49,6 +51,7 @@ export class BotStore extends BotSync {
     const trimmed = text.trim()
     if ((!trimmed && !files.length) || this.retired) return
     const data: Entry['data'] = { text: trimmed, status: 'sending', clientNonce: nonce }
+    if (place) this.outgoingPlaces.set(nonce, place)
     if (files.length) {
       data.attachments = files.map((f) => ({ id: f.id, name: f.name, size: f.data.length }))
       this.outgoingFiles.set(nonce, files)
@@ -76,6 +79,7 @@ export class BotStore extends BotSync {
           return client.send(botId, trimmed, nonce, thread, ids, pasted, newTask, place)
         }, true)
         this.outgoingFiles.delete(nonce)
+        this.outgoingPlaces.delete(nonce)
         this.upsert(e)
         this.changed()
       } catch (error) {
@@ -90,11 +94,15 @@ export class BotStore extends BotSync {
     const text = entry.data.text ?? ''
     if (!text && !files.length) return
     this.entries.set(entry.botId, this.allEntries(entry.botId).filter((e) => e.id !== entry.id))
-    this.send(text, entry.botId, entry.threadId ?? null, files, entry.data.clientNonce ?? crypto.randomUUID())
+    const place = (entry.data.clientNonce && this.outgoingPlaces.get(entry.data.clientNonce)) || null
+    this.send(text, entry.botId, entry.threadId ?? null, files, entry.data.clientNonce ?? crypto.randomUUID(), [], false, place)
   }
 
   discard(entry: Entry) {
-    if (entry.data.clientNonce) this.outgoingFiles.delete(entry.data.clientNonce)
+    if (entry.data.clientNonce) {
+      this.outgoingFiles.delete(entry.data.clientNonce)
+      this.outgoingPlaces.delete(entry.data.clientNonce)
+    }
     this.entries.set(entry.botId, this.allEntries(entry.botId).filter((e) => e.id !== entry.id))
     this.changed()
     this.scheduleSave()

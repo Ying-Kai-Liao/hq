@@ -54,12 +54,13 @@ export function NewChatView({ group, onClose }: { group: boolean; onClose: () =>
     if (el) el.scrollTo({ left: el.scrollWidth, behavior: 'smooth' })
   }, [recipients])
 
-  const open = (id: string) => {
+  // `folder`: only for one bot's own chat; a group has none.
+  const open = (id: string, folder: StartingPick | null = null) => {
     const text = draft.trim()
     store.setSelection(id)
-    if (text) store.send(text, id, null, [], undefined, [], false, startFolder?.start ?? null)
+    if (text) store.send(text, id, null, [], undefined, [], false, folder?.start ?? null)
     // With nothing to send, the pick goes straight to the chat's place.
-    else if (startFolder) store.setPlaceFolder(id, startFolder.start).catch((e: unknown) => store.setError(errorText(e)))
+    else if (folder) store.setPlaceFolder(id, folder.start).catch((e: unknown) => store.setError(errorText(e)))
     onClose()
   }
 
@@ -80,7 +81,7 @@ export function NewChatView({ group, onClose }: { group: boolean; onClose: () =>
   const start = () => {
     if (recipients.length === 0) return
     if (recipients.length === 1) {
-      if (!group) open(recipients[0]!)
+      if (!group) open(recipients[0]!, startFolder)
       return
     }
     store
