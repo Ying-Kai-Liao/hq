@@ -14,7 +14,7 @@ use std::time::Duration;
 const EVERY: Duration = Duration::from_secs(300);
 
 /// Kv key: the bot was hidden because its agent left `hq ls` (a bot the user hid is not shown again).
-fn gone_key(bot: &str) -> String {
+pub(crate) fn gone_key(bot: &str) -> String {
     format!("hq.gone.{bot}")
 }
 

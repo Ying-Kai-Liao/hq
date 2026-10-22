@@ -29,6 +29,30 @@ elif args[:2] == ["project", "add"]:
     projects.append({"id": args[2], "paths": [args[3]], "home": args[3], "remotes": [], "parent": None,
                      "memory": None, "exists": True})
     json.dump({"projects": projects}, open(path, "w", encoding="utf-8"))
+elif args == ["house", "--info-json"]:
+    fail = os.path.join(home, "info_fail")
+    if os.path.exists(fail):
+        print(open(fail, encoding="utf-8").read(), file=sys.stderr)
+        sys.exit(1)
+    memory = os.path.join(home, "memory")
+    names = sorted(n for n in os.listdir(memory) if os.path.isfile(os.path.join(memory, n))) if os.path.isdir(memory) else []
+    files = [{"path": n, "bytes": os.path.getsize(os.path.join(memory, n)), "modified": "2026-10-22T00:00:00Z"} for n in names]
+    print(json.dumps({
+        "version": 1, "agent": "house", "description": "Keeps the house", "harness": "claude", "model": None,
+        "effort": None, "permission_mode": None, "home": home,
+        "role": {"path": home + "/role", "intro": "Keeps the house.", "sections": [{"title": "Not yours", "text": "Money."}]},
+        "package": {"version": None, "remote": None, "dirty": False, "unpushed": 0, "pinned": None},
+        "skills": [], "tools": [], "mcp_servers": [], "plugins": [], "projects": [], "schedules": [], "cost": None,
+        "memory": {"dir": memory, "files": files, "total_bytes": sum(f["bytes"] for f in files)}, "errors": {},
+        "future_key": True,
+    }))
+elif args[:2] == ["memory", "search"]:
+    if os.path.exists(os.path.join(home, "search_fail")):
+        print("search broke", file=sys.stderr)
+        sys.exit(1)
+    n = int(args[args.index("-n") + 1])
+    hit = {"path": "notes.md", "line": 1, "snippet": f"{args[2]} agent={args[args.index('--agent') + 1]}"}
+    print(json.dumps({"hits": ([hit] * 3)[:n]}))
 elif args[:2] == ["house", "--launch-json"]:
     fail = os.path.join(home, "fail")
     if os.path.exists(fail):
