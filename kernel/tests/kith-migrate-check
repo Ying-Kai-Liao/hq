@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+# kith-migrate-check — `kith migrate`, `kith migrate --undo` and `kith doctor`'s migration lines, end to end in a
+# throwaway HOME that mimics a live hq install: ~/.hq (a git repo), ~/.kith/serve, ~/hq -> the repo, dev.hq.* plists in
+# ~/Library/LaunchAgents, ~/.local/bin links, a Claude Code plugin registry. launchctl, claude and ps are stubs on PATH,
+# so nothing real is touched (the real ~/.hq, ~/.kith, launchd and ~/.claude are never read or written).
+#
+#   kernel/tests/kith-migrate-check     ~20 seconds; prints each check, exits 1 when one fails
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+REPO="$(cd "$KERNEL/.." && pwd -P)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-migrate-check.XXXXXX")
+T=$(cd "$T" && pwd -P)
+trap 'rm -rf "$T"' EXIT
+export PYTHONPYCACHEPREFIX=$T/pycache PYTHONDONTWRITEBYTECODE=1
+export HOME=$T/home STUB_LOG=$T/stub.log STUB_PS=$T/ps.txt
+unset KITH_HOME HQ_HOME KITH_STATE HQ_STATE KITH_AGENT KITH_PERSON KITH_MACHINE HQ_MACHINE
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1
+KITH=$KERNEL/bin/kith
+fails=0
+check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; sed 's/^/     | /' "$T/out" 2>/dev/null | tail -12; fails=$((fails + 1)); fi; }
+
+mkdir -p "$T/stubs"
+cat > "$T/stubs/launchctl" <<'EOF'
+#!/usr/bin/env bash
+echo "launchctl $*" >> "$STUB_LOG"
+if [ "$1" = bootstrap ] && [ -n "${STUB_LAUNCHCTL_FAIL:-}" ]; then echo "Bootstrap failed: 5" >&2; exit 5; fi
+exit 0
+EOF
+cat > "$T/stubs/ps" <<'EOF'
+#!/usr/bin/env bash
+[ -f "$STUB_PS" ] && cat "$STUB_PS"; exit 0
+EOF
+cat > "$T/stubs/claude" <<'EOF'
+#!/usr/bin/env python3
+# Does to the plugin registry what the real one would, so the test can see the result.
+import json, os, sys
+open(os.environ['STUB_LOG'], 'a').write('claude ' + ' '.join(sys.argv[1:]) + '\n')
+d = os.path.expanduser('~/.claude/plugins/')
+inst, known = d + 'installed_plugins.json', d + 'known_marketplaces.json'
+a = sys.argv[1:]
+def edit(path, fn):
+    j = json.load(open(path)); fn(j); json.dump(j, open(path, 'w'))
+if a[:3] == ['plugin', 'marketplace', 'add']:
+    edit(known, lambda j: j.update(kith={'source': {'source': 'directory', 'path': a[3]}}))
+elif a[:2] == ['plugin', 'install']:
+    edit(inst, lambda j: j['plugins'].update({a[2]: [{'version': '1'}]}))
+elif a[:2] == ['plugin', 'uninstall']:
+    edit(inst, lambda j: j['plugins'].pop(a[2], None))
+elif a[:3] == ['plugin', 'marketplace', 'remove']:
+    edit(known, lambda j: j.pop(a[3], None))
+EOF
+chmod +x "$T/stubs/"*
+export PATH=$T/stubs:$PATH
+
+# snap: everything under $HOME that migrate may touch: type, mode, content hash or link target. Not the backup folder
+# (it is meant to appear), not the manifest (it holds timestamps) and not .git/index (git status rewrites its cache).
+snap() {
+  python3 -I - "$HOME" 2>/dev/null <<'EOF'
+import hashlib, os, sys
+root = sys.argv[1]
+for d, dirs, files in os.walk(root):
+    dirs[:] = sorted(x for x in dirs if not x.startswith('.kith-migrate-backup-'))
+    for n in sorted(dirs + files):
+        p = os.path.join(d, n)
+        if n == 'migrate-manifest.json' or (n == 'index' and d.endswith('/.git')):
+            continue
+        st = os.lstat(p)
+        if os.path.islink(p):
+            print(p, 'L', os.readlink(p))
+        elif os.path.isdir(p):
+            print(p, 'D', oct(st.st_mode))
+        else:
+            print(p, 'F', oct(st.st_mode), hashlib.sha256(open(p, 'rb').read()).hexdigest())
+EOF
+}
+
+state_repo() {   # the hq-state repo: gitignore keeps secrets and machine things out of it, like the real one
+  cd "$HOME/.hq" || return 1
+  git init -q && git remote add origin https://example.invalid/me/hq-state.git
+  printf 'secrets/\nlogs/\ncache/\nsched/\nbin/\nstore/\nbridge/\nask.*\ncost.db\n' > .gitignore
+  echo "# me" > user.md; echo '{}' > agents.json; echo '{}' > projects.json; echo "notes" > projects/p/a.md
+  printf '{"plugins":["hq@hq","other@x"],"note":"%s/.hq/bin/hq-uv"}\n' "$HOME" > settings.json
+  echo '{"last":{}}' > sched/state.json; : > ask.lock; echo '{}' > ask.json; printf 'x\0y' > cost.db
+  printf '#!/bin/sh\n' > bin/hq-uv; chmod +x bin/hq-uv; echo log > logs/a.log; echo key > secrets/env
+  git add -A && git commit -qm init
+}
+
+build() {   # the live layout, scaled down
+  rm -rf "$HOME"; : > "$STUB_LOG"; rm -f "$STUB_PS"
+  mkdir -p "$HOME/.hq"/{bin,logs,secrets,sched,projects/p,store,cache,bridge/disabled} "$HOME/.kith/serve" "$HOME/.kith/hq-serve" \
+           "$HOME/Library/LaunchAgents" "$HOME/.local/bin" "$HOME/.claude/plugins/cache/hq/hq/1"
+  chmod 700 "$HOME/.hq/secrets"
+  (state_repo)
+  echo data > "$HOME/.kith/serve/data.db"; echo co > "$HOME/.kith/hq-serve/README"
+  ln -s "$REPO" "$HOME/hq"
+  ln -s "$HOME/hq/kernel/bin/kith" "$HOME/.local/bin/kith"; ln -s "$HOME/hq/kernel/bin/hq" "$HOME/.local/bin/hq"
+  python3 -I - "$HOME" <<'EOF'
+import plistlib, sys
+h = sys.argv[1]
+def job(name, script, extra=()):
+    plistlib.dump({'Label': 'dev.hq.' + name, 'ProgramArguments': [h + '/.hq/bin/hq-uv', 'run', '--quiet', '--script',
+                   h + '/hq/kernel/bin/hq-' + script, *extra], 'StartInterval': 60,
+                   'EnvironmentVariables': {'HOME': h, 'HQ_HOME': h + '/hq'},
+                   'StandardOutPath': h + '/.hq/logs/' + name + '.log'},
+                  open(h + '/Library/LaunchAgents/dev.hq.%s.plist' % name, 'wb'))
+for n, s, x in (('sched', 'sched', ['tick']), ('cost', 'cost', ['sync']), ('backup', 'state', ['backup', '--yes']),
+                ('live', 'live', ['login', 'run']), ('house', 'sched', ['house']), ('monitor', 'sched', ['monitor'])):
+    job(n, s, x)
+plistlib.dump({'Label': 'dev.kith.serve', 'ProgramArguments': [h + '/.kith/serve/bin/kith-serve', 'run'], 'KeepAlive': True},
+              open(h + '/Library/LaunchAgents/dev.kith.serve.plist', 'wb'))
+EOF
+  printf '{"permissions":{"allow":["Read(%s/.hq/**)","Edit(~/.hq/projects/**)"]},"enabledPlugins":{"hq@hq":true}}\n' "$HOME" \
+    > "$HOME/.claude/settings.json"
+  echo '{"version":2,"plugins":{"hq@hq":[{"version":"1"}]}}' > "$HOME/.claude/plugins/installed_plugins.json"
+  printf '{"hq":{"source":{"source":"directory","path":"%s"}}}\n' "$REPO" > "$HOME/.claude/plugins/known_marketplaces.json"
+  echo '{"name":"hq"}' > "$HOME/.claude/plugins/cache/hq/hq/1/plugin.json"
+}
+mig() { "$KITH" migrate "$@" > "$T/out" 2> "$T/err"; local rc=$?; cat "$T/err" >> "$T/out"; return $rc; }
+sees() { grep -q -- "$1" "$T/out"; }
+plist_has() { python3 -I -c 'import plistlib,sys; print(sys.argv[2] in str(plistlib.load(open(sys.argv[1],"rb"))))' "$1" "$2" | grep -q True; }
+LA=$HOME/Library/LaunchAgents
+
+# ---- 1. the whole way round -------------------------------------------------------------------------------------------
+build; snap > "$T/s0"
+mig --dry-run; rc=$?
+check "--dry-run succeeds and lists the steps" "[ $rc = 0 ] && sees 'dev.hq.sched -> dev.kith.sched (through kith-sched --install)' && sees 'dev.hq.cost -> dev.kith.cost (plist rewritten)'"
+check "--dry-run changes nothing (no backup, no manifest)" "snap | cmp -s - $T/s0 && ! ls -d $HOME/.kith-migrate-backup-* 2>/dev/null && [ ! -e $HOME/.kith/migrate-manifest.json ]"
+"$KITH" doctor > "$T/out" 2>&1
+check "doctor says unmigrated before" "sees 'not migrated'"
+
+echo "4242 /bin/bash $HOME/kith/kernel/bin/kith echo do the thing" > "$STUB_PS"
+mig; rc=$?
+check "refuses while an agent run is active" "[ $rc != 0 ] && sees 'an agent run is going' && snap | cmp -s - $T/s0"
+rm -f "$STUB_PS"
+python3 -c 'import fcntl,sys,time; f=open(sys.argv[1],"rb"); fcntl.flock(f,2); print("held",flush=True); time.sleep(20)' "$HOME/.hq/ask.lock" > "$T/held" &
+holder=$!
+while ! grep -q held "$T/held"; do sleep 0.1; done
+mig; rc=$?
+check "refuses while the ask lock is held" "[ $rc != 0 ] && sees 'ask.lock' && snap | cmp -s - $T/s0"
+kill $holder 2>/dev/null; wait $holder 2>/dev/null
+
+mig; rc=$?
+check "migrate succeeds" "[ $rc = 0 ] && sees 'done.'"
+check "~/.hq is a link to ~/.kith, marker written" "[ -L $HOME/.hq ] && [ \"\$(readlink $HOME/.hq)\" = $HOME/.kith ] && [ -f $HOME/.kith/.migrated ]"
+check "serve/ kept its data; state moved in" "[ \"\$(cat $HOME/.kith/serve/data.db)\" = data ] && [ -f $HOME/.kith/user.md ] && [ -f $HOME/.kith/secrets/env ] && [ -f $HOME/.kith/hq-serve/README ]"
+{ git -C "$HOME/.kith" status --short; git -C "$HOME/.kith" log --oneline; } > "$T/out" 2>&1
+check "state repo works in ~/.kith: remote and log kept, only settings.json (its paths) changed" \
+  "[ \"\$(git -C $HOME/.kith remote get-url origin)\" = https://example.invalid/me/hq-state.git ] && [ \"\$(git -C $HOME/.kith log --oneline | wc -l | tr -d ' ')\" = 1 ] && [ \"\$(git -C $HOME/.kith status --porcelain)\" = ' M settings.json' ]"
+check "serve/ and hq-serve/ cannot be committed by kith backup" "git -C $HOME/.kith check-ignore -q serve/data.db && git -C $HOME/.kith check-ignore -q hq-serve/README"
+check "kith_paths resolves the state to ~/.kith" "python3 \"\$KERNEL/lib/kith_paths.py\" --sh | grep -q \"KITH_STATE=$HOME/.kith\$\""
+check "~/kith links where ~/hq does; ~/hq stays" "[ \"\$(readlink $HOME/kith)\" = \"\$REPO\" ] && [ \"\$(readlink $HOME/hq)\" = \"\$REPO\" ]"
+check "kith and hq commands lead to ~/kith/.../kith" "[ \"\$(readlink $HOME/.local/bin/kith)\" = $HOME/kith/kernel/bin/kith ] && [ \"\$(readlink $HOME/.local/bin/hq)\" = $HOME/kith/kernel/bin/kith ]"
+check "every dev.hq.* job became dev.kith.*" \
+  "[ \"\$(ls $LA | tr '\n' ' ')\" = 'dev.kith.backup.plist dev.kith.cost.plist dev.kith.house.plist dev.kith.live.plist dev.kith.monitor.plist dev.kith.sched.plist dev.kith.serve.plist ' ]"
+check "sched plist came from its installer (new label, kith-sched, launcher kept under ~/.kith/bin)" \
+  "plist_has $LA/dev.kith.sched.plist $HOME/.kith/bin/hq-uv && plist_has $LA/dev.kith.sched.plist kernel/bin/kith-sched"
+check "rewritten plists name ~/.kith and kith-* only" \
+  "plist_has $LA/dev.kith.cost.plist $HOME/.kith/bin/hq-uv && plist_has $LA/dev.kith.cost.plist $HOME/kith/kernel/bin/kith-cost && ! grep -l '/.hq' $LA/*.plist"
+check "dev.kith.serve was not touched or restarted" "! grep -q 'dev.kith.serve' $STUB_LOG && plist_has $LA/dev.kith.serve.plist kith-serve"
+check "old jobs booted out, new ones loaded" "grep -q 'bootout gui/[0-9]*/dev.hq.cost' $STUB_LOG && grep -q 'bootstrap gui/[0-9]* .*dev.kith.cost.plist' $STUB_LOG && grep -q 'bootstrap gui/[0-9]* .*dev.kith.sched.plist' $STUB_LOG"
+check "plugin switched: kith@kith in, hq@hq out" \
+  "grep -q 'claude plugin install kith@kith' $STUB_LOG && grep -q 'claude plugin uninstall hq@hq' $STUB_LOG && grep -q kith@kith $HOME/.claude/plugins/installed_plugins.json && ! grep -q hq@hq $HOME/.claude/plugins/installed_plugins.json"
+check "settings paths rewritten to ~/.kith" \
+  "grep -q '$HOME/.kith/\\*\\*' $HOME/.claude/settings.json && grep -q '~/.kith/projects' $HOME/.claude/settings.json && ! grep -q '/\\.hq' $HOME/.claude/settings.json && grep -q '$HOME/.kith/bin/hq-uv' $HOME/.kith/settings.json && grep -q '\"kith@kith\"' $HOME/.kith/settings.json"
+check "a backup of the original exists, whole" "[ -f $HOME/.kith-migrate-backup-*/dot-hq/user.md ] && [ -d $HOME/.kith-migrate-backup-*/dot-hq/.git ] && [ -f $HOME/.kith-migrate-backup-*/files/Library/LaunchAgents/dev.hq.sched.plist ]"
+check "the manifest says done" "python3 -I -c 'import json; m=json.load(open(\"$HOME/.kith/migrate-manifest.json\")); assert m[\"status\"]==\"done\"'"
+out=$("$KITH" doctor 2>&1)
+check "doctor reports migrated, on ~/.kith, nothing left on hq names" \
+  "echo \"\$out\" | grep -q 'migrated: this Mac' && echo \"\$out\" | grep -q \"this Mac's kith: $HOME/.kith\" && ! echo \"\$out\" | grep -q 'still on an hq name'"
+
+snap > "$T/s1"
+mig; rc=$?
+check "a second migrate is a no-op" "[ $rc = 0 ] && sees 'already migrated' && snap | cmp -s - $T/s1"
+
+mig --undo; rc=$?
+check "--undo succeeds" "[ $rc = 0 ] && sees 'undone.'"
+check "after --undo everything is byte for byte as it was" "snap > $T/s2; cmp -s $T/s0 $T/s2 || diff $T/s0 $T/s2 | head"
+check "after --undo ~/.hq is a real folder with a clean git repo" \
+  "[ -d $HOME/.hq ] && [ ! -L $HOME/.hq ] && [ -z \"\$(git -C $HOME/.hq status --porcelain)\" ] && [ \"\$(git -C $HOME/.hq remote get-url origin)\" = https://example.invalid/me/hq-state.git ]"
+check "after --undo the marker, manifest and ~/kith are gone, the backup stays" \
+  "[ ! -e $HOME/.kith/.migrated ] && [ ! -e $HOME/.kith/migrate-manifest.json ] && [ ! -e $HOME/kith ] && ls -d $HOME/.kith-migrate-backup-* >/dev/null"
+check "after --undo the old jobs and plugin are loaded again" \
+  "grep -q 'bootstrap gui/[0-9]* .*dev.hq.sched.plist' $STUB_LOG && grep -q hq@hq $HOME/.claude/plugins/installed_plugins.json"
+mig --undo; rc=$?
+check "--undo twice says there is nothing to undo" "[ $rc != 0 ] && sees 'nothing to undo'"
+
+# ---- 2. a migration that stops half way: continue it, or undo it -----------------------------------------------------
+sleep 1   # the backup folder is named by the second
+STUB_LAUNCHCTL_FAIL=1 mig; rc=$?
+check "a failing step stops the migration and says how to go on" "[ $rc != 0 ] && sees 'stopped:' && sees 'kith migrate --undo'"
+out=$("$KITH" doctor 2>&1)
+check "doctor reports the half-migrated state" "echo \"\$out\" | grep -q 'partly migrated'"
+mig; rc=$?
+check "running migrate again resumes and finishes" "[ $rc = 0 ] && sees 'move: already done' && [ -L $HOME/.hq ] && [ ! -e $LA/dev.hq.sched.plist ] && [ -f $LA/dev.kith.sched.plist ]"
+check "resuming made the same result as a clean run" "snap | cmp -s - $T/s1 || snap | diff - $T/s1 | head"
+check "resuming did not make a second backup" "[ \$(ls -d $HOME/.kith-migrate-backup-* | wc -l | tr -d ' ') = 2 ]"
+mig --undo
+sleep 1
+STUB_LAUNCHCTL_FAIL=1 mig
+mig --undo; rc=$?
+check "--undo from a half-migrated state restores everything" "[ $rc = 0 ] && snap | cmp -s - $T/s0"
+
+# ---- 3. what it refuses, and what it leaves alone ---------------------------------------------------------------------
+build; mkdir "$HOME/.hq/serve"; echo mine > "$HOME/.hq/serve/x"; snap > "$T/c0"
+mig; rc=$?
+check "a name in both ~/.hq and ~/.kith refuses, changing nothing" "[ $rc != 0 ] && sees 'serve is in both' && snap | cmp -s - $T/c0"
+mig --force; rc=$?
+check "--force does not override a name clash" "[ $rc != 0 ] && snap | cmp -s - $T/c0"
+build; echo "9 /bin/bash $HOME/kith/kernel/bin/kith echo hi" > "$STUB_PS"
+mig --force; rc=$?
+check "--force goes on although an agent run is active" "[ $rc = 0 ] && sees 'going on although'"
+rm -rf "$HOME"; mkdir -p "$HOME"
+mig; rc=$?
+check "a Mac that never had ~/.hq has nothing to migrate" "[ $rc = 0 ] && sees 'nothing to migrate' && [ ! -e $HOME/.kith ]"
+
+echo; [ $fails = 0 ] && echo "all kith-migrate checks passed" || echo "$fails failed"
+exit $((fails > 0))

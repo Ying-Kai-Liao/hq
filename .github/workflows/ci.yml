@@ -69,6 +69,8 @@ jobs:
         run: kernel/tests/kith-project-check
       - name: Serve check
         run: kernel/tests/kith-serve-check
+      - name: Migrate check
+        run: kernel/tests/kith-migrate-check
 
   host-fmt:
     needs: changes
