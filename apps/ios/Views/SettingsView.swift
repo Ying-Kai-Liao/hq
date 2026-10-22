@@ -497,12 +497,12 @@ enum TextSizePreference: String, CaseIterable {
 private struct TextSizeOverride: ViewModifier {
     @AppStorage(TextSizePreference.key) private var stored = TextSizePreference.system.rawValue
 
+    @Environment(\.dynamicTypeSize) private var system
+
+    /// One branch only: a conditional would give the root two view identities and reset navigation
+    /// and open sheets whenever the setting changes.
     func body(content: Content) -> some View {
-        if let size = TextSizePreference(stored: stored).size {
-            content.dynamicTypeSize(size)
-        } else {
-            content
-        }
+        content.dynamicTypeSize(TextSizePreference(stored: stored).size ?? system)
     }
 }
 
