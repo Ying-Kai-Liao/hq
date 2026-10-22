@@ -64,7 +64,7 @@ extension BotStore {
     }
 
     private func noteHostVersion(_ new: HostVersion) {
-        let cached = cacheStamp.map { $0 != "\(Self.appBuild)/\(new.version)" } ?? false
+        let cached = cacheStamp.map { $0 != "\(Self.appBuild)/\(new.version)\(Self.cacheSchema)" } ?? false
         if cached || (hostVersion.map { $0.version != new.version } ?? false) {
             // A different host version or app build: data may carry new fields, so fetch it all again.
             refetchAll()
