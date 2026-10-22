@@ -10,7 +10,7 @@ name or URL without its query: never env or headers), plugins, projects, schedul
 memory. Every part fails soft: on an error its key is null and errors.<key> says why in one line. Exit 0 whenever the
 agent exists; exit 1 with a message on stderr when it doesn't.
 """
-import datetime as dt, importlib.machinery, importlib.util, json, os, re, sqlite3, subprocess, sys
+import datetime as dt, importlib.machinery, importlib.util, json, os, plistlib, re, sqlite3, subprocess, sys
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -195,7 +195,103 @@ def projects(home):
     return out
 
 
-def schedules(name):
+# Words that only launch the real program in a LaunchAgent's ProgramArguments (and their flags). Only the leading run of
+# them is dropped, so the program's own arguments (`run --quiet`) survive.
+LAUNCHERS = {'hq-uv', 'kith-uv', 'uv', 'run', '--quiet', '--script', 'python', 'python3', 'bash', 'sh', 'zsh', 'env'}
+
+
+def plist_cron(p):
+    """(cron, extra) from a LaunchAgent plist: StartCalendarInterval, else StartInterval, else no cron."""
+    cal = p.get('StartCalendarInterval')
+    if isinstance(cal, dict):
+        cal = [cal]
+    if isinstance(cal, list) and cal and all(isinstance(c, dict) for c in cal):
+        keys = ('Minute', 'Hour', 'Day', 'Month', 'Weekday')
+        rows = [[c.get(k) for k in keys] for c in cal]
+        for r in rows:
+            if r[4] == 7:
+                r[4] = 0   # launchd takes 0 and 7 for Sunday
+        differ = [i for i in range(5) if len({str(r[i]) for r in rows}) > 1]
+        if len(differ) <= 1:
+            fields = []
+            for i in range(5):
+                vals = sorted({r[i] for r in rows if r[i] is not None}) if i in differ else rows[0][i]
+                if i in differ and any(r[i] is None for r in rows):
+                    vals = None
+                fields.append('*' if vals is None else ','.join(map(str, vals)) if isinstance(vals, list) else str(vals))
+            return ' '.join(fields), ''
+        return ' '.join('*' if v is None else str(v) for v in rows[0]), ' (+%d more times)' % (len(rows) - 1)
+    sec = p.get('StartInterval')
+    if isinstance(sec, int) and sec > 0:
+        if sec % 60 == 0:
+            m = sec // 60
+            return ('* * * * *' if m == 1 else '*/%d * * * *' % m) if m < 60 else None, '' if m < 60 else ' (every %d min)' % m
+        return None, ' (every %d s)' % sec
+    return None, ''
+
+
+def plist_task(p):
+    args = [a for a in (p.get('ProgramArguments') or [p.get('Program')]) if isinstance(a, str)]
+    words = [os.path.basename(a) if a.startswith('/') else a for a in args]   # a path says nothing to a person
+    i = 0
+    while i < len(words) and (words[i] in LAUNCHERS or ('=' in words[i] and not words[i].startswith('-'))):
+        if words[i] in ('bash', 'sh', 'zsh') and i + 2 < len(words) + 0 and words[i + 1] == '-c':
+            # `sh -c "<string>"`: the string may hold inline env or tokens, so only its first word shows
+            first = [w for w in args[i + 2].split() if '=' not in w][:1]
+            return os.path.basename(first[0])[:200] if first else ''
+        i += 1
+    return ' '.join(words[i:])
+
+
+def own_file(name, fname):
+    """Whether a plist file name belongs to this agent: dev.hq.<name>.plist or dev.hq.<name>.<x>.plist (also dev.kith)."""
+    parts = fname[:-len('.plist')].split('.')
+    return len(parts) >= 3 and parts[0] == 'dev' and parts[1] in ('hq', 'kith') and parts[2] == name
+
+
+def launchd_jobs(name, sched, now, errors):
+    """This agent's own LaunchAgents (dev.hq.<name>[.x], dev.kith.<name>[.x]), read from the plists, never via launchctl."""
+    d = Path.home() / 'Library' / 'LaunchAgents'
+    if not d.is_dir():
+        return []
+    out, bad = [], []
+    for f in sorted(d.glob('dev.*.plist')):
+        if not f.name.startswith(('dev.hq.', 'dev.kith.')):
+            continue
+        if not own_file(name, f.name):
+            continue   # other agents' plists are neither read nor reported
+        try:
+            p = plistlib.loads(f.read_bytes())
+            label = p.get('Label')
+            if not isinstance(label, str):
+                continue
+            rest = label.split('.', 2)[2] if label.count('.') >= 2 else ''
+            if label.split('.')[0] != 'dev' or label.split('.')[1] not in ('hq', 'kith') or rest.split('.')[0] != name:
+                continue
+            cron, extra = plist_cron(p)
+            task = (plist_task(p) + extra)[:200]
+            nxt = None
+            if cron and not p.get('Disabled'):
+                try:
+                    n = sched.next_time(sched.parse(cron), now)
+                    nxt = n.astimezone().isoformat(timespec='seconds') if n else None
+                except (ValueError, KeyError, AttributeError):
+                    pass
+            last = None
+            so = p.get('StandardOutPath')
+            if isinstance(so, str) and os.path.isfile(so):
+                last = dt.datetime.fromtimestamp(os.path.getmtime(so)).astimezone().isoformat(timespec='seconds')
+            out.append({'id': label, 'cron': cron, 'task': task, 'paused': bool(p.get('Disabled')), 'last_run': last,
+                        'last_status': None, 'next_run': nxt, 'source': 'launchd'})
+        except Exception as e:   # one broken plist must not drop the others
+            bad.append('%s: %s' % (f.name, one_line(e)))
+    if bad:
+        errors['schedules'] = '; '.join(bad)[:300]
+    return out
+
+
+def schedules(name, errors=None):
+    errors = {} if errors is None else errors
     sched = tool('kith-sched')
     f = sched.jobs_file(name)
     jobs = read_json(f) if f.exists() else []
@@ -221,8 +317,8 @@ def schedules(name):
         # The scheduler records when and where a run started, not how it ended: running or done, as `kith schedule log` says.
         status = ('running' if sched.running(l.get('pid')) else 'done') if l else None
         out.append({'id': j.get('id'), 'cron': j.get('cron'), 'task': j.get('task', ''), 'paused': paused,
-                    'last_run': at, 'last_status': status, 'next_run': nxt})
-    return out
+                    'last_run': at, 'last_status': status, 'next_run': nxt, 'source': 'kith'})
+    return out + launchd_jobs(name, sched, now, errors)
 
 
 def cost(name):
@@ -294,7 +390,7 @@ def main(argv):
             'package': part('package', package, name, role), 'skills': part('skills', skills, role, home),
             'tools': part('tools', tools, role), 'mcp_servers': part('mcp_servers', mcp_servers, name, role),
             'plugins': part('plugins', plugins, role), 'projects': part('projects', projects, home),
-            'schedules': part('schedules', schedules, name), 'cost': part('cost', cost, name),
+            'schedules': part('schedules', schedules, name, errors), 'cost': part('cost', cost, name),
             'memory': part('memory', memory, name), 'errors': errors}
     print(json.dumps(info, ensure_ascii=False))
 

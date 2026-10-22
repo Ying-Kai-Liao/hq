@@ -33,14 +33,16 @@ Passed through as is: read the keys you know and ignore the rest. Only `memory.d
   "skills": [ { "name", "description", "source": "package"|"learned"|"global" } ], "tools": [str],
   "mcp_servers": [ { "name", "kind", "command"|null, "url"|null } ], "plugins": [str],
   "projects": [ { "id", "files", "modified"|null } ],
-  "schedules": [ { "id", "cron", "task", "paused", "last_run"|null, "last_status"|null, "next_run"|null } ],
+  "schedules": [ { "id", "cron", "task", "paused", "last_run"|null, "last_status"|null, "next_run"|null,
+                  "source": "kith"|"launchd" } ],
   "cost": { "currency": "USD", "today", "week", "month", "all", "requests_month",
             "by_model_month": [ { "model", "usd" } ], "since"|null } | null,
   "memory": { "dir": "/abs", "files": [ { "path" /*relative*/, "bytes", "modified" } ], "total_bytes" },
   "errors": { "<key>": "reason" } }
 ```
 
-Values to know: `schedules[].last_status` is `"running"`, `"done"` or null (never ok/failed), and `package.version`
+Values to know: `schedules[].source` says where a job comes from (`kith` = kith-sched, `launchd` = the agent's own LaunchAgent, whose `id` is its Label and `last_status` is always null); apps may ignore it.
+Also: `schedules[].last_status` is `"running"`, `"done"` or null (never ok/failed), and `package.version`
 is a fingerprint hash such as `393def5f55`, not a semver number. `errors` names the parts kith could not read (for example `cost`), so a page can say so instead of showing nothing.
 
 ## `kithMemoryFile { botId, path }`
