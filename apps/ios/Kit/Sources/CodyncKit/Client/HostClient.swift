@@ -318,6 +318,24 @@ public extension HostClient {
         return try await call("listDirs", Body(path: path, showHidden: showHidden ? true : nil))
     }
 
+    // MARK: kith bot details (serve/docs/bot-info.md)
+
+    func kithInfo(botId: String, refresh: Bool = false) async throws -> KithInfoResponse {
+        struct Body: Encodable { var botId: String; var refresh: Bool? }
+        // The host waits up to 45 s for kith.
+        return try await call("kithInfo", Body(botId: botId, refresh: refresh ? true : nil), timeout: 60)
+    }
+
+    func kithMemoryFile(botId: String, path: String) async throws -> KithMemoryFile {
+        struct Body: Encodable { var botId: String; var path: String }
+        return try await call("kithMemoryFile", Body(botId: botId, path: path), timeout: 30)
+    }
+
+    func kithMemorySearch(botId: String, query: String, limit: Int = 30) async throws -> KithSearchResult {
+        struct Body: Encodable { var botId: String; var query: String; var limit: Int }
+        return try await call("kithMemorySearch", Body(botId: botId, query: query, limit: limit), timeout: 30)
+    }
+
     // MARK: place folders
 
     func projects(refresh: Bool = false) async throws -> ProjectList {
