@@ -444,6 +444,11 @@ impl Actor {
         if inherits(self, &self.home) {
             self.reset_own().await;
         }
+        // A turn this actor runs for another place (a routine in a thread) follows that place's folder.
+        let running = self.lane.clone();
+        if self.turn.is_some() && running != self.home && inherits(self, &running) {
+            self.reset_place(&running).await;
+        }
         if self.is_main() {
             for root in self.own_thread_roots() {
                 if inherits(self, &Lane::in_thread(&self.cfg.id, &root)) {

@@ -25,7 +25,7 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
         }
         "listDirs" => {
             // Marking projects is a courtesy: without hq the folders list as plain ones.
-            let projects = hq::projects(false).await.unwrap_or_else(|_| hq::cached_projects());
+            let projects = hq::projects_soon().await;
             let path = b["path"].as_str().map(str::to_owned);
             let hidden = b["showHidden"] == true;
             tokio::task::spawn_blocking(move || folder::list_dirs(path.as_deref(), hidden, &projects)).await??
