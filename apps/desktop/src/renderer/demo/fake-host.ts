@@ -272,6 +272,11 @@ export class FakeHost {
         return { devices: [] }
       case 'voiceStatus':
         return { providers: [] }
+      case 'voiceLocalStatus':
+      case 'voiceLocalPrepare':
+        return { available: true, model: 'phonon-31m-en', state: 'ready', voices: ['alba', 'ben'], defaultVoice: 'alba' }
+      case 'voiceLocalSpeak':
+        return { audio: SILENT_WAV, format: 'wav', sampleRate: 24000 }
       case 'composioStatus':
         return { configured: false, keyUrl: '' }
       case 'credentialStatus':
@@ -321,5 +326,26 @@ export class FakeHost {
 function fail(message: string): CallError {
   return { status: 400, message }
 }
+
+/** 0.1 s of silence as a 24 kHz mono 16-bit WAV, base64: what a demo call "speaks". */
+const SILENT_WAV = (() => {
+  const data = 4800
+  const bytes = new Uint8Array(44 + data)
+  const view = new DataView(bytes.buffer)
+  const text = (at: number, s: string) => [...s].forEach((c, i) => (bytes[at + i] = c.charCodeAt(0)))
+  text(0, 'RIFF')
+  view.setUint32(4, 36 + data, true)
+  text(8, 'WAVEfmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, 24000, true)
+  view.setUint32(28, 48000, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  text(36, 'data')
+  view.setUint32(40, data, true)
+  return btoa(String.fromCharCode(...bytes))
+})()
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))

@@ -5,6 +5,7 @@ import {
   chosenVoice,
   engine,
   isVoiceProvider,
+  KITH_ENGINE,
   language,
   mode,
   pause,
@@ -42,6 +43,8 @@ export const VoiceSettings = {
   voice: chosenVoice,
   isSpeechMode: (p: VoiceProvider) => mode(p).get() === 'speech',
   remember: rememberStatus,
+  /** Kith voice is picked: on-device listening, speech from the computer. */
+  isKith: () => engine.get() === KITH_ENGINE,
   /** A pause this long (seconds) ends what you're saying and sends it. */
   pause: () => (pause.get() > 0 ? pause.get() : 1.5),
   /** AVSpeechUtterance's rate (0…1, 0.5 normal), as the Mac stores it. */
@@ -64,6 +67,8 @@ export type VoicePhase = 'starting' | 'listening' | 'speaking' | 'failed'
 export abstract class VoiceEngine extends Observable {
   phase: VoicePhase = 'starting'
   failure: string | null = null
+  /** Something went wrong or is slow, but the call goes on (a clip that wouldn't speak, a voice downloading). */
+  warning: string | null = null
   /** Microphone loudness, 0…1, while listening. Read every frame; not observed. */
   level = 0
   abstract readonly provider: VoiceProvider | null
@@ -86,6 +91,12 @@ export abstract class VoiceEngine extends Observable {
     this.changed()
   }
   protected mutedChanged(_on: boolean) {}
+
+  protected setWarning(warning: string | null) {
+    if (warning === this.warning) return
+    this.warning = warning
+    this.changed()
+  }
 
   protected setPhase(phase: VoicePhase) {
     this.phase = phase
