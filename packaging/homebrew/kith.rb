@@ -28,6 +28,7 @@ class Kith < Formula
 
   def install
     bin.install "bin/kith"
+    bin.install "bin/kith-tts" if File.exist?("bin/kith-tts")   # local voice helper, Apple silicon builds only
     bin.install_symlink bin/"kith" => "hq"   # the old name keeps working
     (share/"kith").install Dir["share/kith/*"], Dir["share/kith/.claude-plugin"]
   end

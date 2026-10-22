@@ -53,7 +53,12 @@ jobs:
           key: release-${{ matrix.target }}
       - name: Build
         run: cd serve/host && cargo build --release --locked --bin kith --target ${{ matrix.target }}
+      - name: Build kith-tts (local voice; Apple silicon only)
+        if: matrix.arch == 'arm64'
+        run: cd serve/host && cargo build --release --locked -p kith-tts --target ${{ matrix.target }}
       - name: Pack
+        env:
+          KITH_TTS_BIN: ${{ matrix.arch == 'arm64' && format('serve/host/target/{0}/release/kith-tts', matrix.target) || '' }}
         run: scripts/package-release.sh "${{ steps.v.outputs.version }}" ${{ matrix.arch }} "serve/host/target/${{ matrix.target }}/release/kith" dist
       - name: Smoke test (arm64 runs natively)
         if: matrix.arch == 'arm64'
