@@ -283,6 +283,11 @@ or a secret that doesn't resolve costs the agent that service for the run, never
 a shell can read what your user can). `kith:<name>` subagents run inside the calling session and share its MCP
 servers; give an agent with its own credentials a full `kith <name>` run when it needs them.
 
+1Password: `brew install 1password-cli`, create a 1Password service account with read access to one dedicated vault, then
+paste its token in Kith > Credentials > 1Password, or run `kith-auth set 1password/default OP_SERVICE_ACCOUNT_TOKEN`.
+Point a secret at an item with `kith-auth ref <profile> <VAR> op://vault/item/field`; `op` reads it at use, nothing is
+cached on disk.
+
 ## Settings
 `kith <agent>` runs a normal Claude Code session: your global settings, hooks, skills and the repo's own config all
 load. The agent's `settings.json` (rendered into the snapshot) is merged on top to narrow it per agent: all agents turn off Claude Code's own auto

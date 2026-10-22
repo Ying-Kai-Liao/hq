@@ -10,7 +10,8 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/kith-auth-op-check.XXXXXX")
 T=$(cd "$T" && pwd -P)
 trap 'rm -rf "$T"' EXIT
 export HOME=$T/home KITH_HOME=$T/kith
-unset KITH_STATE HQ_STATE KITH_PROJECT KITH_PERSON KITH_AGENT KITH_AUTH HQ_HOME KITH_AUTH_PROFILE
+export KITH_AUTH=$T/secrets/auth.json   # auth.json and auth.log live here, not under KITH_HOME
+unset KITH_STATE HQ_STATE KITH_PROJECT KITH_PERSON KITH_AGENT HQ_HOME KITH_AUTH_PROFILE
 mkdir -p "$HOME" "$KITH_HOME/state" "$T/bin"
 FAKE_VALUE=fake-value-9f3a
 FAKE_TOKEN=fake-token-77c1
@@ -47,8 +48,8 @@ OUT=
 check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; [ -n "${VERBOSE:-}" ] && echo "$OUT"; fails=$((fails + 1)); fi; }
 
 "$KA" ref notion/lib NOTION_API_KEY op://vault/item/field >/dev/null
-AUTHJ=$(find "$KITH_HOME" -name auth.json | head -1)
-LOG=$(dirname "$AUTHJ")/auth.log
+AUTHJ=$KITH_AUTH
+LOG=$T/secrets/auth.log
 grant() { python3 - "$AUTHJ" "$1" <<'PY'
 import json, sys
 p, mode = sys.argv[1:]

@@ -73,6 +73,8 @@ jobs:
         run: kernel/tests/kith-serve-check
       - name: Info check
         run: kernel/tests/kith-info-check
+      - name: Auth op:// check
+        run: kernel/tests/kith-auth-op-check
       - name: Migrate check
         run: kernel/tests/kith-migrate-check
 
