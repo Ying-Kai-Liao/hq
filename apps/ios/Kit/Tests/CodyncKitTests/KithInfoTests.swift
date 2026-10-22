@@ -101,3 +101,12 @@ private func houseInfo() throws -> KithInfo {
     let sections = BotSections(hqAgent: "house", info: info)
     #expect(sections.instructions && sections.backendPicker && !sections.harnessMemoryTab)
 }
+
+@Test func rolePromptJoinsIntroAndEverySection() throws {
+    let role = try #require(try houseInfo().role)
+    let prompt = try #require(role.prompt)
+    #expect(prompt.hasPrefix(role.intro.trimmingCharacters(in: .whitespacesAndNewlines)))
+    #expect(role.sections.allSatisfy { prompt.contains("## \($0.title)") })
+    let empty = try decode(KithRole.self, #"{"intro":" ","sections":[]}"#)
+    #expect(empty.prompt == nil)
+}
