@@ -63,7 +63,7 @@ Old `HQ_*` variables, `dev.hq.*` jobs and `hq-agent` repos are still read.
 
 The download installs the `kith` binary and the kernel under `~/.kith`, then runs the same `install.sh`; run it again to
 upgrade. `KITH_VERSION`, `KITH_PREFIX` and `KITH_INSTALL_TARBALL` (a local file) are in the script's header. Homebrew:
-`packaging/homebrew/kith.rb` (for the tap `Ying-Kai-Liao/homebrew-kith`). Releases are built by `.github/workflows/release.yml`
+`packaging/homebrew/kith.rb` (for the tap [`Ying-Kai-Liao/homebrew-kith`](https://github.com/Ying-Kai-Liao/homebrew-kith)). Releases are built by `.github/workflows/release.yml`
 on a `v*` tag.
 
 `kith` is one binary: `kith serve <...>` is the host, `kith --version`, and every other `kith <args>` runs the kernel's
