@@ -39,7 +39,7 @@ import Testing
     #expect(analytics.pending[2].properties["$process_person_profile"] == .bool(true))
 
     // The computer key matches the host's (host/src/analytics.rs `computer_tag_matches_the_iphone`).
-    #expect(Analytics.computerTag("AAECAwQFBgcICQoLDA0ODw") == "2d6878bee20aba04")
+    #expect(Analytics.computerTag("AAECAwQFBgcICQoLDA0ODw") == "2fccc19384635242")
 
     // Turning it off drops what wasn't sent.
     analytics.setEnabled(false)

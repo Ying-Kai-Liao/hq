@@ -20,7 +20,7 @@ extension ChannelTransport {
         let inner = try JSONEncoder().encode(Inner(b: Send(botId: botId, text: text, clientNonce: clientNonce, threadId: threadId),
                                                    ts: Int64(Date.now.timeIntervalSince1970 * 1000)))
         // A fresh ephemeral key on every seal, retries included (§6.4 MUST).
-        let sealed = try RelayCrypto.sealMailbox(inner, hostBoxKey: bk, computerId: computer.id, deviceKey: identity.deviceKey,
+        let sealed = try RelayCrypto.sealMailbox(inner, family: computer.labelFamily, hostBoxKey: bk, computerId: computer.id, deviceKey: identity.deviceKey,
                                                  clientNonce: clientNonce, sign: identity.sign)
         struct Put: Encodable { var t = "mbox.put"; var nonce: String; var d: String }
         let put = String(decoding: try JSONEncoder().encode(Put(nonce: clientNonce, d: sealed.blob.base64URL)), as: UTF8.self)

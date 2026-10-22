@@ -5,7 +5,9 @@ export function environmentProfile(environment: 'main' | 'dev') {
     environment,
     name: dev ? 'Kith Dev' : 'Codync',
     appId: dev ? 'com.yingkailiao.kith.dev' : 'com.pokai.Codync',
-    scheme: dev ? 'codync-dev' : 'codync',
+    scheme: dev ? 'kith-dev' : 'kith',
+    /** The scheme links used before the rename: still opened, never produced. */
+    legacyScheme: dev ? 'codync-dev' : 'codync',
     dataFolder: dev ? '.kith/serve' : '.kith/serve-main',
     port: dev ? 19224 : 19225,
     hostLabel: dev ? 'dev.kith.serve' : 'dev.kith.serve.main',

@@ -32,14 +32,17 @@ public struct AccessTicket: Codable, Hashable, Sendable, Identifiable {
     public var computerId: ComputerID
     /// The host key the SAS was computed with; pinned once the request is approved.
     public var signKey: String
+    /// The label family the SAS was computed under; the pairing keeps it. nil = a ticket from before the Kith rename.
+    public var labels: LabelFamily?
     public var id: String { requestId }
 
-    public init(requestId: String, expiresAt: Int64, code: String, computerId: ComputerID, signKey: String) {
+    public init(requestId: String, expiresAt: Int64, code: String, computerId: ComputerID, signKey: String, labels: LabelFamily? = nil) {
         self.requestId = requestId
         self.expiresAt = expiresAt
         self.code = code
         self.computerId = computerId
         self.signKey = signKey
+        self.labels = labels
     }
 }
 

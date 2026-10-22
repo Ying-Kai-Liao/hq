@@ -43,7 +43,7 @@ pub(super) fn pair(buf: &mut Buffer, area: Rect, url: Option<&str>) {
         inner.x,
         y,
         inner.width,
-        if url.starts_with("codync-dev:") {
+        if url.starts_with("kith-dev:") {
             "Scan with Kith Dev on your iPhone:"
         } else {
             "Scan with the Kith iPhone app, or open on the phone:"

@@ -70,7 +70,7 @@ export class Plugins extends Observable {
 
   /**
    * Signs in to a remote connector (host/src/market/oauth.rs). With an `app` callback the system
-   * browser returns `codync://oauth?…` and the code goes to the host; with `host` the browser
+   * browser returns `kith://oauth?…` and the code goes to the host; with `host` the browser
    * returns to the host directly and we wait for the connector to flip to signed in.
    * Returns quietly when the user cancels.
    */

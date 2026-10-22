@@ -22,7 +22,7 @@ extraResources:
     to: tray
 protocols:
   - name: Codync
-    schemes: [codync, com.pokai.Codync]
+    schemes: [kith, codync, com.pokai.Codync]
 # No update feed until Kith publishes its own (src/shared/update-feed.ts).
 publish: null
 

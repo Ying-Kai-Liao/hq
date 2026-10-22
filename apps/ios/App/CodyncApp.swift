@@ -67,13 +67,13 @@ struct CodyncApp: App {
                 }
                 #if DEBUG
                 .task {
-                    // Simulator/UI-test pairing: SIMCTL_CHILD_CODYNC_PAIR_URL=codync://pair?...
+                    // Simulator/UI-test pairing: SIMCTL_CHILD_CODYNC_PAIR_URL=kith://pair?...
                     if let s = ProcessInfo.processInfo.environment["CODYNC_PAIR_URL"], let p = Pairing(string: s) {
                         _ = try? await app.pair(p)
                     }
                     if ProcessInfo.processInfo.environment["CODYNC_OPEN_USAGE"] != nil { app.tab = .state; app.showUsage = true }
                     if ProcessInfo.processInfo.environment["CODYNC_STATE_SURFACE"] != nil { app.tab = .state }
-                    // Screenshots: CODYNC_OPEN_URL=codync://bot/<botId>?scope=local&computer=<id>, without the system prompt.
+                    // Screenshots: CODYNC_OPEN_URL=kith://bot/<botId>?scope=local&computer=<id>, without the system prompt.
                     if let s = ProcessInfo.processInfo.environment["CODYNC_OPEN_URL"], let url = URL(string: s) {
                         try? await Task.sleep(for: .seconds(1))
                         app.open(url)
@@ -194,7 +194,7 @@ final class AppStore {
             Task { await account.handle(url) }
             return
         }
-        guard url.scheme == AppEnvironment.current.urlScheme else { return }
+        guard let scheme = url.scheme, AppEnvironment.current.accepts(scheme: scheme) else { return }
         switch url.host() {
         case "pair":
             // Scanned with the Camera app: pair right away.

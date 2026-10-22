@@ -3,7 +3,7 @@ import CodyncKit
 import SwiftUI
 
 /// Signs in to a remote connector (host/src/market/oauth.rs). From the phone, the system sign-in sheet
-/// catches the return (`codync://oauth?…`) and hands the code to the host; on the computer itself
+/// catches the return (`kith://oauth?…`) and hands the code to the host; on the computer itself
 /// the browser returns to the host directly and we wait for the connector to flip to signed in.
 @MainActor
 struct ConnectorSignInFlow {

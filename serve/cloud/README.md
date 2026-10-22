@@ -3,7 +3,7 @@
 Cloudflare Worker for accounts and the off-LAN relay (spec: [docs/reference/remote-relay.md](../docs/reference/remote-relay.md)).
 
 - **`/v1` API** (`src/api.ts`, route groups in `src/routes/`): Clerk-authenticated account routes (devices, claims, computers, access
-  requests, grants), `Codync-Sig`-authenticated host routes (`/v1/host/*`), the Clerk webhook, and a
+  requests, grants), `Kith-Sig`-authenticated host routes (the pre-rename `Codync-Sig` is still accepted) (`/v1/host/*`), the Clerk webhook, and a
   15-minute cron that expires requests and prunes nonces, and the public routine webhook route
   `POST /v1/hooks/:computerId/:routineId` (spec §7.8). D1 schema: `migrations/` (later files rebuild some tables).
 - **`ComputerRelay`** (`src/relay.ts`): one Durable Object per computer (SQLite storage, WebSocket
@@ -23,7 +23,7 @@ it: new devices come from the host's own QR pairing or its approval, and the ACL
 ```bash
 npm ci
 npm run typecheck
-npm test          # vitest in workerd: vectors, Codync-Sig, API, DO relay/mailbox
+npm test          # vitest in workerd: vectors, Kith-Sig, API, DO relay/mailbox
 ```
 
 `test/ref.ts` is a device/host reference implementation on `@noble/*`, checked against

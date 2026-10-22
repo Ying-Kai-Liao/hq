@@ -1,6 +1,6 @@
 // Clerk-authenticated account routes: devices, claims, computers, access requests and grants.
 
-import { computerIdFor, fromB64url, randomId, utf8, verifyEd25519 } from "../auth";
+import { computerIdFor, fromB64url, LABEL_FAMILIES, randomId, utf8, verifyEd25519, type LabelFamily } from "../auth";
 import {
   ApiError,
   audit,
@@ -27,8 +27,14 @@ const CLAIM_TTL_MS = 5 * 60_000;
 const REQUEST_TTL_MS = 10 * 60_000;
 const REQUESTS_PER_HOUR = 20;
 
-export const claimCanonical = (claimId: string, nonce: string, userId: string, computerId: string, boxKey: string) =>
-  ["codync/claim/v1", claimId, nonce, userId, computerId, boxKey].join("\n");
+export const claimCanonical = (
+  claimId: string,
+  nonce: string,
+  userId: string,
+  computerId: string,
+  boxKey: string,
+  family: LabelFamily = "kith",
+) => [`${family}/claim/v1`, claimId, nonce, userId, computerId, boxKey].join("\n");
 
 export async function me(c: Ctx) {
   const u = await user(c);
@@ -155,8 +161,16 @@ export async function completeClaim(c: Ctx, [claimId]: string[]) {
     .bind(claimId, u.userId)
     .first<{ nonce: string }>();
   if (!claim) throw new ApiError("notFound");
-  const canonical = claimCanonical(claimId, claim.nonce, u.userId, computerId, boxKey);
-  if (!(await verifyEd25519(fromB64url(signKey, 32)!, sig, utf8(canonical)))) throw new ApiError("badSignature");
+  // A host that hasn't updated yet signs the claim under the `codync` labels.
+  const signer = fromB64url(signKey, 32)!;
+  let signedClaim = false;
+  for (const family of LABEL_FAMILIES) {
+    if (await verifyEd25519(signer, sig, utf8(claimCanonical(claimId, claim.nonce, u.userId, computerId, boxKey, family)))) {
+      signedClaim = true;
+      break;
+    }
+  }
+  if (!signedClaim) throw new ApiError("badSignature");
   const existing = await c.env.DB.prepare("SELECT status FROM computers WHERE id = ?").bind(computerId).first<{ status: string }>();
   if (existing && existing.status !== "active") throw new ApiError("forbidden");
 
@@ -191,7 +205,7 @@ export async function completeClaim(c: Ctx, [claimId]: string[]) {
 export async function listComputers(c: Ctx) {
   const u = await user(c);
   let deviceId: string | null = null;
-  if (c.req.headers.has("Codync-Sig")) {
+  if (c.req.headers.has("Kith-Sig") || c.req.headers.has("Codync-Sig")) {
     const s = await signed(c);
     const d = await c.env.DB.prepare(
       "UPDATE devices SET last_used_at = ? WHERE owner_user_id = ? AND sign_pub = ? AND revoked_at IS NULL RETURNING id",

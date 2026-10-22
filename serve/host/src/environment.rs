@@ -74,8 +74,8 @@ impl Environment {
 
     pub const fn url_scheme(self) -> &'static str {
         match self {
-            Self::Main => "codync",
-            Self::Dev => "codync-dev",
+            Self::Main => "kith",
+            Self::Dev => "kith-dev",
         }
     }
 

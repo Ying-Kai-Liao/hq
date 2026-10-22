@@ -246,17 +246,21 @@ impl Phone {
         let ek = x25519_dalek::StaticSecret::from(crypto::random::<32>());
         let ek_pub = crypto::x25519_pub(&ek);
         let n = crypto::random::<32>();
-        let sig = crypto::sign(key, &crypto::hs1_input(&cid, &dk, &ek_pub, &n));
+        let sig = crypto::sign(key, &crypto::hs1_input(crypto::Labels::Kith, &cid, &dk, &ek_pub, &n));
         let hello = json!({"t": "hello", "v": 1, "dk": crypto::b64(&dk), "ek": crypto::b64(&ek_pub),
             "n": crypto::b64(&n), "sig": crypto::b64(&sig), "pair": pair});
         ws.send(hello.to_string().into()).await.unwrap();
         let welcome: Value = serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
         assert_eq!(welcome["t"], "welcome", "{welcome}");
         let ek_h: [u8; 32] = crypto::unb64_n(welcome["ek"].as_str().unwrap()).unwrap();
-        let th = crypto::transcript_hash(&cid, &dk, &ek_pub, &n, &ek_h);
+        let th = crypto::transcript_hash(crypto::Labels::Kith, &cid, &dk, &ek_pub, &n, &ek_h);
         crypto::verify(sk, &th, &crypto::unb64_n(welcome["sig"].as_str().unwrap()).unwrap()).unwrap();
-        let keys = crypto::channel_keys(&crypto::x25519(&ek, &ek_h).unwrap(), &th);
-        Self { ws, sealer: crypto::Sealer::new(keys.d2h), opener: crypto::Opener::new(keys.h2d, 16 << 20) }
+        let keys = crypto::channel_keys(crypto::Labels::Kith, &crypto::x25519(&ek, &ek_h).unwrap(), &th);
+        Self {
+            ws,
+            sealer: crypto::Sealer::new(crypto::Labels::Kith, keys.d2h),
+            opener: crypto::Opener::new(crypto::Labels::Kith, keys.h2d, 16 << 20),
+        }
     }
 
     async fn send(&mut self, v: Value) {

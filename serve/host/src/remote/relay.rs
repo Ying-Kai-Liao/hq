@@ -1,7 +1,7 @@
 //! The outbound WebSocket to this computer's relay in the Kith cloud (spec §7, §9.6).
 //!
 //! Every connection runs the same order: register (once per URL) → connect with
-//! `Codync-Sig` → pull the cloud state (≤ 10 s; account devices wait for it) → publish the
+//! `Kith-Sig` → pull the cloud state (≤ 10 s; account devices wait for it) → publish the
 //! signed ACL → `acl.ok` → `ready`. Then device links are multiplexed onto `channel::run`
 //! (the relay only ever sees ciphertext), queued mailbox sends are delivered in order and
 //! acknowledged, and every change to the device table republishes the ACL. Once ready, the
@@ -171,7 +171,7 @@ type Sink = futures::stream::SplitSink<
 async fn session(hub: &Arc<Hub>, base: &str) -> Result<Option<u16>> {
     let mut req = relay_url(base)?.into_client_request()?;
     let sig = hub.identity.sign_request("GET", &cloud::authority(base)?, PATH, b"");
-    req.headers_mut().insert("Codync-Sig", sig.parse()?);
+    req.headers_mut().insert(crypto::Labels::Kith.sig_header(), sig.parse()?);
     let (ws, _) = timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(req))
         .await
         .map_err(|_| anyhow!("timed out connecting to the relay"))??;
@@ -559,11 +559,19 @@ mod tests {
     }
 
     fn check_sig(req: &Request, sign_pub: &[u8; 32], authority: &str) -> bool {
-        let h = req.headers().get("codync-sig").and_then(|v| v.to_str().ok()).unwrap_or_default();
+        let h = req.headers().get("kith-sig").and_then(|v| v.to_str().ok()).unwrap_or_default();
         let field = |k: &str| h.split(',').find_map(|p| p.strip_prefix(&format!("{k}="))).unwrap_or_default();
         let ts: i64 = field("ts").parse().unwrap_or(0);
         let path = req.uri().path_and_query().unwrap().as_str();
-        let input = crypto::request_sig_input(req.method().as_str(), authority, path, ts, field("nonce"), b"");
+        let input = crypto::request_sig_input(
+            crypto::Labels::Kith,
+            req.method().as_str(),
+            authority,
+            path,
+            ts,
+            field("nonce"),
+            b"",
+        );
         field("kid") == b64(sign_pub)
             && crypto::verify(sign_pub, input.as_bytes(), &crypto::unb64_n(field("sig")).unwrap()).is_ok()
     }
@@ -579,7 +587,7 @@ mod tests {
             .route(
                 "/v1/host/register",
                 post(move |State(f): State<Arc<Fake>>, req: Request| async move {
-                    let ok = req.headers().contains_key("codync-sig");
+                    let ok = req.headers().contains_key("kith-sig");
                     f.signatures_ok.lock().unwrap().push(ok);
                     axum::Json(json!({"computerId": cid, "owned": false}))
                 }),
@@ -639,20 +647,20 @@ mod tests {
     }
 
     /// Device side of §6.4, for the test.
-    fn seal_mailbox(hub: &Hub, device: &SigningKey, nonce: &str, plain: &[u8]) -> String {
+    fn seal_mailbox(l: crypto::Labels, hub: &Hub, device: &SigningKey, nonce: &str, plain: &[u8]) -> String {
         let cid = hub.identity.cid_raw();
         let dk = device.verifying_key().to_bytes();
         let eph = StaticSecret::from(crypto::random::<32>());
         let epk = crypto::x25519_pub(&eph);
         let ss = crypto::x25519(&eph, &hub.identity.box_pub()).unwrap();
-        let salt = [b"codync/mbox/v1".as_slice(), &cid, &dk, &epk].concat();
+        let salt = [format!("{}/mbox/v1", l.name()).as_bytes(), &cid, &dk, &epk].concat();
         let mut key = [0u8; 32];
-        Hkdf::<Sha256>::new(Some(&salt), &ss).expand(b"codync/mbox-key/v1", &mut key).unwrap();
+        Hkdf::<Sha256>::new(Some(&salt), &ss).expand(format!("{}/mbox-key/v1", l.name()).as_bytes(), &mut key).unwrap();
         let aad = [dk.as_slice(), nonce.as_bytes()].concat();
         let ct = chacha20poly1305::ChaCha20Poly1305::new(&key.into())
             .encrypt(&[0u8; 12].into(), Payload { msg: plain, aad: &aad })
             .unwrap();
-        let sig = crypto::sign(device, &[b"codync/mbox/v1".as_slice(), &cid, &epk, &ct].concat());
+        let sig = crypto::sign(device, &[format!("{}/mbox/v1", l.name()).as_bytes(), &cid, &epk, &ct].concat());
         b64(&[epk.as_slice(), &sig, &ct].concat())
     }
 
@@ -698,7 +706,7 @@ mod tests {
         let bot_id = bot["id"].as_str().unwrap().to_owned();
         let nonce = "3F2504E0-4F89-11D3-9A0C-0305E82C3301";
         let inner = json!({"m": "send", "b": {"botId": bot_id, "text": "hi", "clientNonce": nonce}, "ts": now_ms()});
-        let blob = seal_mailbox(&hub, &phone, nonce, inner.to_string().as_bytes());
+        let blob = seal_mailbox(crypto::Labels::Kith, &hub, &phone, nonce, inner.to_string().as_bytes());
         let stranger = SigningKey::from_bytes(&crypto::random());
         *fake.script.lock().unwrap() = vec![
             json!({"t": "mbox.item", "seq": 1, "from": dk, "nonce": nonce, "d": blob, "exp": now_ms() + 1000}),
@@ -835,7 +843,7 @@ mod tests {
         let bot_id = hub.create_bot(cfg).unwrap()["id"].as_str().unwrap().to_owned();
         let nonce = "9A1B2C3D-4F89-11D3-9A0C-0305E82C3301";
         let inner = json!({"m": "send", "b": {"botId": bot_id, "text": "hi", "clientNonce": nonce}, "ts": now_ms()});
-        let blob = seal_mailbox(&hub, &phone, nonce, inner.to_string().as_bytes());
+        let blob = seal_mailbox(crypto::Labels::Codync, &hub, &phone, nonce, inner.to_string().as_bytes());
         *fake.script.lock().unwrap() =
             vec![json!({"t": "mbox.item", "seq": 1, "from": dk, "nonce": nonce, "d": blob, "exp": now_ms() + 1000})];
 

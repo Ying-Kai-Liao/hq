@@ -8,7 +8,7 @@ import { sshStatusDetail } from '@shared/ssh-startup'
 
 export function SSHRow({ profile, status, edit, attached = true }: { profile: SSHProfile; status: SSHStatus; attached?: boolean; edit: () => void }) {
   const bridge = window.codync.ssh
-  const dev = window.codync.appScheme === 'codync-dev'
+  const dev = window.codync.appScheme === 'kith-dev'
   const target = `${profile.user ? `${profile.user}@` : ''}${profile.host}${profile.port !== null ? `:${profile.port}` : ''}`
   const line = (() => {
     switch (status.kind) {

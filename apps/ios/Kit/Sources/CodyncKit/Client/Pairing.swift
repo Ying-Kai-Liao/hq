@@ -1,7 +1,8 @@
 import Foundation
 
 /// A scanned QR / pairing link (§4.1). Short-lived: only the resulting `Computer` is kept.
-/// `codync://pair?v=3&name=…&id=<computerId>&sk=…&bk=…&code=…&urls=a,b&cloud=…`
+/// `kith://pair?v=3&name=…&id=<computerId>&sk=…&bk=…&code=…&urls=a,b&cloud=…` (a host that predates the
+/// Kith rename still shows `codync://…`, and its pairing keeps the `codync/*` crypto labels).
 public struct Pairing: Hashable, Sendable {
     public var computer: Computer
     public var code: String
@@ -37,7 +38,7 @@ public struct Pairing: Hashable, Sendable {
     }
 
     public static func parse(_ url: URL) throws(Problem) -> Pairing {
-        guard url.scheme == AppEnvironment.current.urlScheme, url.host() == "pair",
+        guard let scheme = url.scheme, AppEnvironment.current.accepts(scheme: scheme), url.host() == "pair",
               let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { throw .notPairingLink }
         let q = Dictionary(items.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { a, _ in a })
         guard q["v"] == "3" else { throw .outdatedHost }
@@ -54,7 +55,8 @@ public struct Pairing: Hashable, Sendable {
         }
         guard !urls.isEmpty || cloud != nil else { throw .invalid }
         let name = q["name"].flatMap { $0.isEmpty ? nil : $0 } ?? "My computer"
-        return Pairing(computer: Computer(id: id, name: name, signKey: sk, boxKey: bk, urls: urls, cloud: cloud), code: code)
+        let labels = LabelFamily(scheme: scheme)
+        return Pairing(computer: Computer(id: id, name: name, signKey: sk, boxKey: bk, urls: urls, cloud: cloud, labels: labels), code: code)
     }
 
     init(computer: Computer, code: String) {
@@ -63,7 +65,7 @@ public struct Pairing: Hashable, Sendable {
     }
 
     /// The relay's pairing socket parameter.
-    var offerId: String? { Data(base64URL: code).map(RelayCrypto.offerId(code:)) }
+    var offerId: String? { Data(base64URL: code).map { RelayCrypto.offerId(computer.labelFamily, code: $0) } }
 
     static func isDirectURL(_ s: String) -> Bool {
         guard let u = URL(string: s), u.scheme == "http" || u.scheme == "https", u.host() != nil else { return false }

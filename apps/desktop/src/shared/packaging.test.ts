@@ -26,7 +26,7 @@ test('development packaging registers only development callbacks and background 
   assert.equal(dev.productName, 'Kith Dev')
   assert.equal(dev.publish, null)
   assert.ok(new RegExp(dev.mac.signIgnore[0]).test('CodyncDevScreen.app/Contents/Helpers/cua-driver'))
-  assert.deepEqual(dev.protocols.flatMap((p: { schemes: string[] }) => p.schemes), ['codync-dev', 'com.yingkailiao.kith.dev'])
+  assert.deepEqual(dev.protocols.flatMap((p: { schemes: string[] }) => p.schemes), ['kith-dev', 'codync-dev', 'com.yingkailiao.kith.dev'])
   assert.deepEqual(dev.mac.extraFiles.map((f: { to: string }) => f.to), [
     'Library/LoginItems/CodyncDevScreen.app',
     'Library/LaunchAgents/com.yingkailiao.kith.dev.screen.plist',

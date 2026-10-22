@@ -43,7 +43,7 @@ export class Wire {
   static connect(url: string, key?: ref.SignKey): Wire {
     const u = new URL(url);
     const headers: Record<string, string> = {};
-    if (key) headers["Codync-Sig"] = ref.signRequest(key, { method: "GET", authority: u.host, pathAndQuery: u.pathname + u.search });
+    if (key) headers["Kith-Sig"] = ref.signRequest(key, { method: "GET", authority: u.host, pathAndQuery: u.pathname + u.search });
     // undici's WebSocket takes headers in its init object (not in the DOM typings).
     return new Wire(new WebSocket(url, { headers } as unknown as string[]));
   }
@@ -75,11 +75,11 @@ export interface PairingInfo {
   cloud: string | null;
 }
 
-/** Parses a v3 `codync://pair?…` link (§4.1; `codync-dev://` from a development host), refusing a mismatched computerId. */
+/** Parses a v3 `kith://pair?…` link (§4.1; `kith-dev://` from a development host; the pre-rename `codync` schemes are still accepted), refusing a mismatched computerId. */
 export function parsePairing(link: string): PairingInfo {
   const u = new URL(link);
   const q = u.searchParams;
-  if (!["codync:", "codync-dev:"].includes(u.protocol) || q.get("v") !== "3") throw new Error(`not a v3 pairing link: ${link}`);
+  if (!["kith:", "kith-dev:", "codync:", "codync-dev:"].includes(u.protocol) || q.get("v") !== "3") throw new Error(`not a v3 pairing link: ${link}`);
   const signKey = ref.unb64url(q.get("sk") ?? "");
   if (ref.computerId(signKey) !== q.get("id")) throw new Error("pairing link id doesn't match sk");
   return {

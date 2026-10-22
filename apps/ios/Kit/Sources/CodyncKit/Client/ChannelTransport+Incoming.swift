@@ -134,8 +134,8 @@ extension ChannelTransport {
     }
 
     func install(_ keys: RelayCrypto.ChannelKeys, route: HostRoute) {
-        link?.sealer = RelayCrypto.FrameSealer(key: keys.d2h)
-        link?.opener = RelayCrypto.FrameOpener(key: keys.h2d)
+        link?.sealer = RelayCrypto.FrameSealer(family: keys.family, key: keys.d2h)
+        link?.opener = RelayCrypto.FrameOpener(family: keys.family, key: keys.h2d)
         refusals = 0
         setState(.ready(route))
         if pairingCode == nil {

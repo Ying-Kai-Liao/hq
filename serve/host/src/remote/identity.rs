@@ -103,13 +103,13 @@ impl Identity {
         crypto::sign(&self.sign, msg)
     }
 
-    /// `Codync-Sig` header value for a request to `authority` (the lowercase Host header,
+    /// `Kith-Sig` header value for a request to `authority` (the lowercase Host header,
     /// with a non-default port). The spec's `sign_request(method, path_query, body)`
     /// plus the authority, which the signature covers.
     pub fn sign_request(&self, method: &str, authority: &str, path_query: &str, body: &[u8]) -> String {
         let ts = crate::store::now_ms();
         let nonce = b64(&crypto::random::<16>());
-        let input = crypto::request_sig_input(method, authority, path_query, ts, &nonce, body);
+        let input = crypto::request_sig_input(crypto::Labels::Kith, method, authority, path_query, ts, &nonce, body);
         crypto::request_sig_header(&self.sign, ts, &nonce, &input)
     }
 }
@@ -180,6 +180,7 @@ mod tests {
         let field = |k: &str| header.split(',').find_map(|p| p.strip_prefix(&format!("{k}="))).unwrap().to_owned();
         assert_eq!(field("kid"), id.sign_pub_b64());
         let input = crypto::request_sig_input(
+            crypto::Labels::Kith,
             "POST",
             "cloud.example:8787",
             "/v1/host/register",

@@ -4,14 +4,14 @@ import Testing
 
 private let v = Vectors.shared
 
-private func link(_ overrides: [String: String?] = [:]) -> String {
+private func link(_ overrides: [String: String?] = [:], scheme: String = "kith") -> String {
     var q: [String: String?] = [
         "v": "3", "name": "Kevin's Mac", "id": v.str("keys", "computerId"), "sk": v.str("keys", "hostSignPub"),
         "bk": v.str("keys", "hostBoxPub"), "code": v.str("pairing", "code"),
         "urls": "http://192.168.1.5:19222,http://100.64.1.2:19222", "cloud": "https://codync-cloud-staging.example.workers.dev",
     ]
     for (k, value) in overrides { q[k] = value }
-    var comps = URLComponents(string: "codync://pair")!
+    var comps = URLComponents(string: "\(scheme)://pair")!
     comps.queryItems = q.keys.sorted().compactMap { k in q[k]!.map { URLQueryItem(name: k, value: $0) } }
     return comps.string!
 }
@@ -25,11 +25,39 @@ private func link(_ overrides: [String: String?] = [:]) -> String {
     #expect(p.computer.urls == ["http://192.168.1.5:19222", "http://100.64.1.2:19222"])
     #expect(p.computer.cloud?.absoluteString == "https://codync-cloud-staging.example.workers.dev")
     #expect(p.code == v.str("pairing", "code"))
-    #expect(p.offerId == v.str("pairing", "offerId"))
+    // A kith:// link starts a pairing on the kith/* labels.
+    #expect(p.computer.labelFamily == .kith)
+    #expect(p.offerId == Vectors.kith.str("pairing", "offerId"))
     #expect(Pairing(string: link()) == p)
     // Either route alone is enough.
     #expect(Pairing(string: link(["urls": nil])) != nil)
     #expect(Pairing(string: link(["cloud": nil])) != nil)
+}
+
+@Test func aPreRenameLinkStillPairsWithTheOldLabels() throws {
+    for scheme in ["codync"] {
+        let p = try Pairing.parse(link(scheme: scheme))
+        #expect(p.computer.labelFamily == .codync)
+        #expect(p.offerId == v.str("pairing", "offerId"))
+    }
+    // The old and new offer ids differ, so the host registers both.
+    #expect(v.str("pairing", "offerId") != Vectors.kith.str("pairing", "offerId"))
+}
+
+@Test func aStoredComputerWithoutLabelsReadsAsCodync() throws {
+    let stored = Data(#"{"id":"x","name":"Mac","signKey":"k","urls":[]}"#.utf8)
+    #expect(try JSONDecoder().decode(Computer.self, from: stored).labelFamily == .codync)
+    var kith = Computer(id: "x", name: "Mac", signKey: "k", labels: .kith)
+    #expect(try JSONDecoder().decode(Computer.self, from: JSONEncoder().encode(kith)).labelFamily == .kith)
+    kith.labels = nil
+    #expect(try JSONDecoder().decode(Computer.self, from: JSONEncoder().encode(kith)).labelFamily == .codync)
+}
+
+@Test func hostVersionPicksLabelsForAccountComputers() {
+    #expect(LabelFamily.forHost(version: nil) == .codync)
+    #expect(LabelFamily.forHost(version: "2.19.1") == .codync)
+    #expect(LabelFamily.forHost(version: "2.20.0") == .kith)
+    #expect(LabelFamily.forHost(version: "3.0") == .kith)
 }
 
 @Test func rejectsBadPairingLinks() {
@@ -43,7 +71,7 @@ private func link(_ overrides: [String: String?] = [:]) -> String {
     #expect(throws: Pairing.Problem.invalid) { try Pairing.parse(link(["urls": nil, "cloud": nil])) }
     #expect(throws: Pairing.Problem.notPairingLink) { try Pairing.parse("https://example.com") }
     // The old token-based link is not accepted.
-    #expect(throws: Pairing.Problem.outdatedHost) { try Pairing.parse("codync://pair?name=Mac&token=t0k&urls=http%3A%2F%2Fa%3A1") }
+    #expect(throws: Pairing.Problem.outdatedHost) { try Pairing.parse("kith://pair?name=Mac&token=t0k&urls=http%3A%2F%2Fa%3A1") }
 }
 
 @Test func botLinksStayInTheirContext() throws {
@@ -55,12 +83,14 @@ private func link(_ overrides: [String: String?] = [:]) -> String {
     let ref = BotReference(accountId: "user_alice", computerId: v.str("keys", "computerId"), botId: "b1")
 
     let url = alice.botURL(ref)
-    #expect(url.absoluteString == "codync://bot/b1?scope=\(alice.id)&computer=\(ref.computerId)")
+    #expect(url.absoluteString == "kith://bot/b1?scope=\(alice.id)&computer=\(ref.computerId)")
     #expect(alice.reference(from: url) == ref)
     #expect(bob.reference(from: url) == nil)
     #expect(local.reference(from: url) == nil)
-    #expect(alice.reference(from: URL(string: "codync://bot/b1")!) == nil)
-    #expect(alice.reference(from: URL(string: "codync://bot/b1?scope=\(alice.id)&computer=nope")!) == nil)
+    #expect(alice.reference(from: URL(string: "kith://bot/b1")!) == nil)
+    #expect(alice.reference(from: URL(string: "kith://bot/b1?scope=\(alice.id)&computer=nope")!) == nil)
+    // Links made before the rename keep working.
+    #expect(alice.reference(from: URL(string: "codync://bot/b1?scope=\(alice.id)&computer=\(ref.computerId)")!) == ref)
     let localRef = BotReference(accountId: nil, computerId: ref.computerId, botId: "b1")
     #expect(local.reference(from: local.botURL(localRef)) == localRef)
 }

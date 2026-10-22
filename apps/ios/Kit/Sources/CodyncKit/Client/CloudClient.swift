@@ -91,13 +91,15 @@ public struct CloudClient: Sendable {
 
     /// Commit → wait for the host's nonce → reveal. Returns once `code` can be shown.
     /// The device nonce lives only in memory here, so a cloud can't learn it before the host committed.
-    public func requestAccess(_ id: ComputerID, signKey: String) async throws -> AccessTicket {
+    public func requestAccess(_ id: ComputerID, signKey: String, hostVersion: String? = nil) async throws -> AccessTicket {
         guard let identity else { throw CloudError(status: 0, code: "noDeviceKey", message: "Sign in again on this device.") }
         guard let hostKey = Data(base64URL: signKey), hostKey.count == 32, RelayCrypto.computerId(signKey: hostKey) == id else {
             throw CloudError(status: 0, code: "badSignKey", message: "This computer's key doesn't match its ID.")
         }
+        // A host that predates the Kith rename can only verify the commit under the old labels.
+        let family = LabelFamily.forHost(version: hostVersion)
         let nD = Data.random(32)
-        let commit = RelayCrypto.sasCommit(deviceKey: identity.deviceKey, deviceNonce: nD).base64URL
+        let commit = RelayCrypto.sasCommit(family, deviceKey: identity.deviceKey, deviceNonce: nD).base64URL
         struct Created: Decodable { var requestId: String; var expiresAt: Int64 }
         let created: Created = try await request("POST", "v1/computers/\(id)/access-requests", body: ["commit": commit], signed: true)
 
@@ -118,8 +120,8 @@ public struct CloudClient: Sendable {
             }
         }
         try await send("POST", "v1/access-requests/\(created.requestId)/reveal", body: ["nonce": nD.base64URL], signed: true)
-        let code = RelayCrypto.sasCode(hostSignKey: hostKey, deviceKey: identity.deviceKey, deviceNonce: nD, hostNonce: hostNonce ?? Data())
-        return AccessTicket(requestId: created.requestId, expiresAt: created.expiresAt, code: code, computerId: id, signKey: signKey)
+        let code = RelayCrypto.sasCode(family, hostSignKey: hostKey, deviceKey: identity.deviceKey, deviceNonce: nD, hostNonce: hostNonce ?? Data())
+        return AccessTicket(requestId: created.requestId, expiresAt: created.expiresAt, code: code, computerId: id, signKey: signKey, labels: family)
     }
 
     public func accessStatus(_ requestId: String) async throws -> AccessStatus {
@@ -158,7 +160,7 @@ public struct CloudClient: Sendable {
         if signed, let identity {
             let header = try identity.signatureHeader(method: method, authority: RelayCrypto.authority(of: url),
                                                       pathAndQuery: RelayCrypto.pathAndQuery(of: url), body: data)
-            req.setValue(header, forHTTPHeaderField: "Codync-Sig")
+            req.setValue(header, forHTTPHeaderField: RelayCrypto.signatureHeaderName)
         }
         let (bytes, response) = try await session.data(for: req)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
