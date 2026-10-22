@@ -13,7 +13,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/kith-migrate-check.XXXXXX")
 T=$(cd "$T" && pwd -P)
 trap 'rm -rf "$T"' EXIT
 export PYTHONPYCACHEPREFIX=$T/pycache PYTHONDONTWRITEBYTECODE=1
-export HOME=$T/home STUB_LOG=$T/stub.log STUB_PS=$T/ps.txt
+export HOME=$T/home STUB_LOADED=$T/loaded.txt KITH_MIGRATE_BACKOFF=0.01 KITH_MIGRATE_LAUNCHD_WAIT=2 STUB_LOG=$T/stub.log STUB_PS=$T/ps.txt
 unset KITH_HOME HQ_HOME KITH_STATE HQ_STATE KITH_AGENT KITH_PERSON KITH_MACHINE HQ_MACHINE
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_NOSYSTEM=1
 KITH=$KERNEL/bin/kith
@@ -23,9 +23,23 @@ check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; sed 's/^/     
 mkdir -p "$T/stubs"
 cat > "$T/stubs/launchctl" <<'EOF'
 #!/usr/bin/env bash
+# Keeps a list of loaded labels ($STUB_LOADED), like launchd: print says whether a label is loaded, bootout unloads it,
+# bootstrap loads the plist's label. STUB_LAUNCHCTL_FAIL: every bootstrap fails. STUB_EIO=<label>:<n>: that label's first
+# n bootstraps fail with EIO (5), as a bootstrap straight after a bootout does.
 echo "launchctl $*" >> "$STUB_LOG"
-if [ "$1" = bootstrap ] && [ -n "${STUB_LAUNCHCTL_FAIL:-}" ]; then echo "Bootstrap failed: 5" >&2; exit 5; fi
-exit 0
+touch "$STUB_LOADED"
+case $1 in
+  print) grep -qx "${2##*/}" "$STUB_LOADED" ;;
+  bootout) grep -vx "${2##*/}" "$STUB_LOADED" > "$STUB_LOADED.new"; mv "$STUB_LOADED.new" "$STUB_LOADED" ;;
+  bootstrap)
+    label=$(basename "$3" .plist)
+    if [ -n "${STUB_LAUNCHCTL_FAIL:-}" ]; then echo "Bootstrap failed: 5" >&2; exit 5; fi
+    if [ -n "${STUB_EIO:-}" ] && [ "${STUB_EIO%%:*}" = "$label" ]; then
+      n=$(cat "$STUB_LOADED.eio" 2>/dev/null || echo 0)
+      if [ "$n" -lt "${STUB_EIO##*:}" ]; then echo $((n + 1)) > "$STUB_LOADED.eio"; echo "Bootstrap failed: 5: Input/output error" >&2; exit 5; fi
+    fi
+    echo "$label" >> "$STUB_LOADED" ;;
+esac
 EOF
 cat > "$T/stubs/ps" <<'EOF'
 #!/usr/bin/env bash
@@ -89,7 +103,8 @@ state_repo() {   # the hq-state repo: gitignore keeps secrets and machine things
 }
 
 build() {   # the live layout, scaled down
-  rm -rf "$HOME"; : > "$STUB_LOG"; rm -f "$STUB_PS"
+  rm -rf "$HOME"; : > "$STUB_LOG"; rm -f "$STUB_PS" "$STUB_LOADED.eio"
+  printf 'dev.hq.%s\n' sched cost backup live house monitor > "$STUB_LOADED"; echo dev.kith.serve >> "$STUB_LOADED"
   mkdir -p "$HOME/.hq"/{bin,logs,secrets,sched,projects/p,store,cache,bridge/disabled} "$HOME/.kith/serve" "$HOME/.kith/hq-serve" \
            "$HOME/Library/LaunchAgents" "$HOME/.local/bin" "$HOME/.claude/plugins/cache/hq/hq/1"
   chmod 700 "$HOME/.hq/secrets"
@@ -228,6 +243,18 @@ check "and the undo after that still restores everything" "[ $rc = 0 ] && snap |
 build; : > "$STUB_LOG"; STUB_LAUNCHCTL_FAIL=1 mig
 : > "$STUB_LOG"; mig --undo
 check "undo from a half-way state reloads the original jobs" "grep -q 'bootstrap gui/[0-9]* .*dev.hq.cost.plist' $STUB_LOG && grep -q 'bootstrap gui/[0-9]* .*dev.hq.sched.plist' $STUB_LOG"
+
+# launchd's bootstrap fails with EIO right after a bootout: retried, and the job ends up loaded
+build; STUB_EIO=dev.kith.cost:2 mig; rc=$?
+check "bootstrap failing twice with EIO is retried; the job ends up loaded" \
+  "[ $rc = 0 ] && grep -qx dev.kith.cost $STUB_LOADED && [ \$(grep -c 'bootstrap .*dev.kith.cost.plist' $STUB_LOG) = 3 ] && grep -qx dev.kith.sched $STUB_LOADED && ! grep -q '^dev.hq' $STUB_LOADED"
+build; STUB_EIO=dev.kith.cost:9 mig; rc=$?
+check "a job that never loads stops the migration, resumable, with a message" "[ $rc != 0 ] && sees 'stopped:' && sees 'dev.kith.cost.plist failed (exit 5)' && [ -L $HOME/.hq ]"
+rm -f "$STUB_LOADED.eio"
+mig; rc=$?
+check "and running it again finishes" "[ $rc = 0 ] && grep -qx dev.kith.cost $STUB_LOADED"
+mig --undo; rc=$?
+check "undo after that unloads the new jobs and loads the old ones" "[ $rc = 0 ] && grep -qx dev.hq.cost $STUB_LOADED && ! grep -q '^dev.kith.cost' $STUB_LOADED"
 
 build; echo "9 /bin/bash $HOME/kith/kernel/bin/kith echo hi" > "$STUB_PS"
 mig --force; rc=$?

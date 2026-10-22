@@ -273,7 +273,7 @@ def s_stop(m, dry):
         return
     m['steps']['stop']['jobs'] = js
     for j in js:
-        sh('launchctl', 'bootout', f'gui/{UID}/dev.hq.{j}')
+        bootout(f'dev.hq.{j}')
 
 
 def u_stop(m):
@@ -284,7 +284,7 @@ def u_stop(m):
         if saved.exists():
             copy(saved, LA / f'dev.hq.{j}.plist')
             if j in m.get('was_loaded', []):
-                sh('launchctl', 'bootout', f'gui/{UID}/dev.hq.{j}')
+                bootout(f'dev.hq.{j}')
                 bootstrap(LA / f'dev.hq.{j}.plist')
 
 
@@ -462,10 +462,34 @@ def rewrite_plist(o):
     return o
 
 
+def loaded(label):
+    return sh('launchctl', 'print', f'gui/{UID}/{label}').returncode == 0
+
+
+def bootout(label):
+    """bootout returns before the job is torn down: a bootstrap straight after it can fail with EIO. Wait until it is gone."""
+    sh('launchctl', 'bootout', f'gui/{UID}/{label}')
+    end = time.time() + float(os.environ.get('KITH_MIGRATE_LAUNCHD_WAIT', '10'))
+    while loaded(label):
+        if time.time() > end:
+            say(f'{label} is still shown by launchd after the wait: going on')
+            return
+        time.sleep(0.2)
+
+
 def bootstrap(plist):
-    r = sh('launchctl', 'bootstrap', f'gui/{UID}', plist)
-    if r.returncode:
-        raise Stop(f'launchctl bootstrap {plist} failed: {r.stderr.strip()}')
+    """Load a job; retry the errors launchd gives while it is still tearing the old one down (5 EIO, 37), then check it is loaded."""
+    label = plistlib.loads(Path(plist).read_bytes()).get('Label', Path(plist).stem)
+    pause = float(os.environ.get('KITH_MIGRATE_BACKOFF', '0.5'))
+    for attempt in range(5):
+        r = sh('launchctl', 'bootstrap', f'gui/{UID}', plist)
+        if r.returncode == 0:
+            break
+        if r.returncode not in (5, 37) or attempt == 4:
+            raise Stop(f'launchctl bootstrap {plist} failed (exit {r.returncode}): {r.stderr.strip()}')
+        time.sleep(pause * 2 ** attempt)
+    if not loaded(label):
+        raise Stop(f'{label} is not loaded after launchctl bootstrap {plist}')
 
 
 INSTALLERS = {'sched': ['kith-sched', '--install'], 'backup': ['kith-state', 'backup', '--nightly']}
@@ -499,6 +523,8 @@ def s_jobs(m, dry):
                                env=clean_env())
             if r.returncode or not newp.exists():
                 raise Stop(f'dev.kith.{j}: its installer failed ({(r.stderr or r.stdout).strip()[-200:]})')
+            if not loaded(f'dev.kith.{j}'):
+                raise Stop(f'dev.kith.{j} is installed but launchd does not show it loaded')
             oldp.unlink(missing_ok=True)   # the installer retires it; make sure
             st['done'][j] = 'installer'
         else:
@@ -507,7 +533,7 @@ def s_jobs(m, dry):
                 pl['Label'] = f'dev.kith.{j}'
                 newp.write_bytes(plistlib.dumps(pl))
             if j in m.get('was_loaded', []):
-                sh('launchctl', 'bootout', f'gui/{UID}/dev.kith.{j}')
+                bootout(f'dev.kith.{j}')
                 bootstrap(newp)
             oldp.unlink(missing_ok=True)
             st['done'][j] = 'rewritten'
@@ -519,7 +545,7 @@ def s_jobs(m, dry):
             st['serve_rewritten'] = True
             save(m)
             serve.write_bytes(plistlib.dumps(rewrite_plist(pl)))
-            sh('launchctl', 'bootout', f'gui/{UID}/dev.kith.serve')
+            bootout(f'dev.kith.serve')
             bootstrap(serve)
 
 
@@ -528,12 +554,12 @@ def u_jobs(m):
     st = m['steps'].get('jobs', {})
     b = Path(m['backup'])
     for j in sorted(set(st.get('done', {})) | set(m['steps'].get('stop', {}).get('jobs', []))):
-        sh('launchctl', 'bootout', f'gui/{UID}/dev.kith.{j}')
+        bootout(f'dev.kith.{j}')
         (LA / f'dev.kith.{j}.plist').unlink(missing_ok=True)
     saved = b / 'files/Library/LaunchAgents/dev.kith.serve.plist'
     if st.get('serve_rewritten') and saved.exists():
         copy(saved, LA / 'dev.kith.serve.plist')
-        sh('launchctl', 'bootout', f'gui/{UID}/dev.kith.serve')
+        bootout(f'dev.kith.serve')
         bootstrap(LA / 'dev.kith.serve.plist')
 
 
