@@ -33,7 +33,7 @@ EOF
 printf -- '---\nname: greet\ndescription: Say hello\n---\nbody\n' > "$A/role/skills/greet/SKILL.md"
 printf -- '---\nname: tidy\ndescription: >\n  Tidy up\n  the notes\n---\nbody\n' > "$A/role/skills/learned/tidy/SKILL.md"
 printf 'needs: []\ntools:\n  - tools/echo.py   # says it\n  - Read\nstate:\n  - data/x\n' > "$A/role/capabilities.yaml"
-printf '{"mcpServers":{"web":{"url":"https://example.com/mcp?token=SECRETVALUE","headers":{"Authorization":"SECRETVALUE"}},"loc":{"command":"/usr/bin/node","args":["x"],"env":{"K":"SECRETVALUE"}}}}\n' > "$A/role/mcp.json"
+printf '{"mcpServers":{"web":{"url":"https://example.com/mcp/SECRETVALUE?token=SECRETVALUE","headers":{"Authorization":"SECRETVALUE"}},"loc":{"command":"/usr/bin/node","args":["x"],"env":{"K":"SECRETVALUE"}}}}\n' > "$A/role/mcp.json"
 printf '# memory\npantry has flour\n' > "$A/memory/MEMORY.md"
 printf 'plan\n' > "$A/memory/projects/alpha/plan.md"
 printf '[{"id":"daily","cron":"0 8 * * *","task":"say hi"},{"id":"off","cron":"0 9 * * 1","task":"x","paused":true}]\n' > "$A/jobs.json"
@@ -69,7 +69,7 @@ check "role: intro and every section in order" "is \"(d['role']['intro'], [s['ti
 check "package without a remote: version null, not dirty" "is \"(d['package']['version'], d['package']['remote'], d['package']['dirty'], d['package']['unpushed'], d['package']['pinned'])\" \"(None, None, False, False, None)\""
 check "skills: package and learned (folded description)" "is \"[(s['name'], s['description'], s['source']) for s in d['skills']]\" \"[('greet', 'Say hello', 'package'), ('tidy', 'Tidy up the notes', 'learned')]\""
 check "tools without comments" "is \"d['tools']\" \"['tools/echo.py', 'Read']\""
-check "mcp servers: kinds, bin name, url without query" "is \"d['mcp_servers']\" \"[{'name': 'web', 'kind': 'http', 'command': None, 'url': 'https://example.com/mcp'}, {'name': 'loc', 'kind': 'stdio', 'command': 'node', 'url': None}]\""
+check "mcp servers: kinds, bin name, url without query" "is \"d['mcp_servers']\" \"[{'name': 'web', 'kind': 'http', 'command': None, 'url': 'https://example.com'}, {'name': 'loc', 'kind': 'stdio', 'command': 'node', 'url': None}]\""
 check "no secret anywhere in the output" "! printf %s \"\$OUT\" | grep -q SECRETVALUE"
 check "projects: id, file count" "is \"[(p['id'], p['files']) for p in d['projects']]\" \"[('alpha', 1)]\""
 check "schedules: paused has no next run, last run from state" "is \"[(j['id'], j['paused'], j['next_run'] is None, j['last_run'] is not None, j['last_status']) for j in d['schedules']]\" \"[('daily', False, False, True, 'done'), ('off', True, True, False, None)]\""
@@ -90,6 +90,10 @@ OUT=$("$KITH" bare --info-json 2>/dev/null); rc=$?
 check "bare agent on another harness prints info" "[ $rc = 0 ] && is \"(d['harness'], d['model'], d['skills'], d['tools'], d['mcp_servers'], d['permission_mode'], d['role']['sections'])\" \"('codex', None, [], [], [], None, [])\""
 "$KITH" nope --info-json >/dev/null 2>"$T/err"; rc=$?
 check "unknown agent: exit 1 and a message" "[ $rc = 1 ] && grep -q \"no agent 'nope'\" $T/err"
+
+# a run for someone other than the owner gets no agent details
+KITH_PERSON=mallory "$KITH" echo --info-json >/dev/null 2>"$T/err"; rc=$?
+check "info-json refused for a guest run" "[ $rc = 1 ] && grep -q 'for the owner' $T/err"
 
 # memory --json
 OUT=$("$KITH" memory ls --agent echo --json)

@@ -100,12 +100,12 @@ def caps_list(text, key):
 
 
 def strip_url(u):
-    """The URL without userinfo, query and fragment: those are where tokens go."""
+    """scheme://host[:port] only: userinfo, path, query and fragment are where tokens go."""
     s = urlsplit(u)
     host = s.hostname or ''
     if s.port:
         host += ':%d' % s.port
-    return urlunsplit((s.scheme, host, s.path, '', ''))
+    return urlunsplit((s.scheme, host, '', '', ''))
 
 
 def mcp_rows(servers):
@@ -129,12 +129,13 @@ def read_json(path):
 
 def package(name, role):
     pkg = tool('kith-pkg')
-    good, pin = pkg.pointers(name)
+    ptr = pkg.STORE / '.pointers'   # pkg.pointers() would create the folder: this path stays read-only
+    good, pin = ptr / f'{name}.good', ptr / f'{name}.pin'
     out = {'version': pkg.read(good) or None, 'remote': None, 'dirty': False, 'unpushed': False,
            'pinned': pkg.read(pin) or None}
     if pkg.owned(role):
         remote = pkg.git(role, 'remote', 'get-url', 'origin', timeout=5).stdout.strip()
-        out['remote'] = (strip_url(remote) if '://' in remote else remote) or None
+        out['remote'] = re.sub(r'(?<=://)[^/@]*@', '', remote) or None   # keeps the path; userinfo can hold a token
         out['dirty'] = bool(pkg.git(role, 'status', '--porcelain', '--', '.', timeout=5).stdout.strip())
         ahead = pkg.git(role, 'rev-list', '--count', '@{u}..HEAD', timeout=5).stdout.strip()
         out['unpushed'] = ahead.isdigit() and int(ahead) > 0
@@ -158,11 +159,12 @@ def tools(role):
 
 def mcp_servers(name, role):
     servers = {}
-    # The services it needs and is granted; only their names and shapes are read below.
-    granted = subprocess.run([sys.executable, str(BIN / 'kith-auth'), 'mcp-config', name], capture_output=True,
+    # The services it needs and is granted, by name and real command: mcp-names resolves no secrets (no keychain).
+    granted = subprocess.run([sys.executable, str(BIN / 'kith-auth'), 'mcp-names', name], capture_output=True,
                              text=True, timeout=5)
-    if granted.returncode == 0:
-        servers.update(json.loads(granted.stdout).get('mcpServers', {}))
+    if granted.returncode != 0:
+        raise RuntimeError('kith-auth mcp-names: %s' % (granted.stderr.strip().splitlines() or ['failed'])[-1])
+    servers.update(json.loads(granted.stdout).get('mcpServers', {}))
     own = role / 'mcp.json'
     if own.is_file():
         d = read_json(own)
@@ -228,7 +230,7 @@ def cost(name):
     if not db.is_file():
         raise FileNotFoundError('no cost ledger at %s' % db)
     since = tool('kith-cost').since_of
-    c = sqlite3.connect('file:%s?mode=ro' % db, uri=True, timeout=1)
+    c = sqlite3.connect(db.as_uri() + '?mode=ro', uri=True, timeout=1)
     try:
         t, w, m = since('today'), since('week'), since('month')
         row = c.execute('''select coalesce(sum(case when ts >= ? then cost end), 0),
@@ -266,6 +268,8 @@ def main(argv):
         print(__doc__.strip())
         sys.exit(0 if argv and argv[0] in ('-h', '--help') else 2)
     name = argv[0]
+    if tool('kith-memory').guest_run():   # the owner's whole agent: not for a run on someone else's behalf
+        sys.exit('kith: --info-json is for the owner, not a run for %s' % os.environ.get('KITH_PERSON'))
     found = find_agent(name)
     if not found:
         sys.exit("kith: no agent '%s' (try: kith ls)" % name)
