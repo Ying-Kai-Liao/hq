@@ -28,6 +28,9 @@ try:
     GRACE = float(os.environ.get("KITH_SERVE_KILL_GRACE_S", "20"))
 except ValueError:
     GRACE = 20.0
+# float() takes "inf", "nan" and negatives; none is a grace period (inf would never fire, a negative would kill at once).
+if not 0 <= GRACE < 3600:
+    GRACE = 20.0
 child = subprocess.Popen(sys.argv[1:])
 killer = None
 

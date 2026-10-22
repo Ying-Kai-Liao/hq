@@ -16,11 +16,14 @@ use std::time::{Duration, Instant};
 /// Exit code of a stalled host (`EX_SOFTWARE`, as the bridge uses).
 pub const EXIT_CODE: i32 = 70;
 const DEFAULT_STALL_S: u64 = 180;
+/// Below this a healthy host could trip: a beat is up to `BEAT_EVERY` old and the check runs every `CHECK_EVERY`.
+const MIN_STALL_S: u64 = 30;
 const BEAT_EVERY: Duration = Duration::from_secs(5);
 const CHECK_EVERY: Duration = Duration::from_secs(15);
 
 /// The stall limit: `KITH_SERVE_WATCHDOG_STALL_S`, then `watchdog_stall_s` in config.json, else 180 s.
-/// `None` when it is 0 or "off" (disabled). Anything unusable falls back to the next source.
+/// `None` when it is 0 or "off" (disabled). Anything unusable falls back to the next source; a limit under
+/// `MIN_STALL_S` is raised to it.
 pub fn limit_from(file: Option<&Value>, env: Option<&str>) -> Option<Duration> {
     let parse = |raw: &str| -> Option<Option<u64>> {
         let raw = raw.trim();
@@ -34,7 +37,7 @@ pub fn limit_from(file: Option<&Value>, env: Option<&str>) -> Option<Duration> {
         let v = file?.get("watchdog_stall_s")?;
         v.as_u64().map(|n| (n > 0).then_some(n)).or_else(|| v.as_str().and_then(parse))
     };
-    from_env.or_else(from_file).unwrap_or(Some(DEFAULT_STALL_S)).map(Duration::from_secs)
+    from_env.or_else(from_file).unwrap_or(Some(DEFAULT_STALL_S)).map(|n| Duration::from_secs(n.max(MIN_STALL_S)))
 }
 
 /// Whether a heartbeat last stamped `since_beat` ago is a stall.
@@ -134,7 +137,9 @@ mod tests {
         let s = |n| Some(Duration::from_secs(n));
         assert_eq!(limit_from(None, None), s(180));
         assert_eq!(limit_from(Some(&json!({"watchdog_stall_s": 60})), None), s(60));
-        assert_eq!(limit_from(Some(&json!({"watchdog_stall_s": 60})), Some("30")), s(30));
+        assert_eq!(limit_from(Some(&json!({"watchdog_stall_s": 60})), Some("45")), s(45));
+        // Too short to be safe with a 5 s beat and a 15 s check: raised to the floor.
+        assert_eq!(limit_from(None, Some("1")), s(30));
         assert_eq!(limit_from(Some(&json!({"watchdog_stall_s": 0})), None), None);
         assert_eq!(limit_from(Some(&json!({"watchdog_stall_s": "off"})), None), None);
         assert_eq!(limit_from(None, Some("0")), None);

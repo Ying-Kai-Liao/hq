@@ -52,4 +52,20 @@ p.send_signal(signal.SIGTERM)
 code = p.wait(timeout=15)
 check("a child that obeys SIGTERM ends at once with its signal code", code == 128 + signal.SIGTERM and time.monotonic() - start < 5, code)
 
+# A grace that is not a sane number falls back to the default instead of killing at once or never.
+for bad in ("inf", "nan", "-5"):
+    p = subprocess.Popen(
+        [sys.executable, LAUNCH, sys.executable, "-c", hang],
+        env={**env, "KITH_SERVE_KILL_GRACE_S": bad},
+        start_new_session=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    p.stdout.readline()
+    p.send_signal(signal.SIGTERM)
+    time.sleep(2)
+    check(f"KITH_SERVE_KILL_GRACE_S={bad} keeps the default grace", p.poll() is None, p.poll())
+    os.killpg(p.pid, signal.SIGKILL)  # the launcher and its SIGTERM-ignoring child
+    p.wait()
+
 sys.exit(1 if failed else 0)

@@ -44,7 +44,7 @@ hasn't exited 20 s later (`KITH_SERVE_KILL_GRACE_S`), so a hung host can't keep 
 ## Watchdog
 
 `kith serve` checks itself every 15 s: a task proves the async runtime and its blocking pool still answer. If
-that stops for `watchdog_stall_s` (default 180) the host logs an error and exits with code 70, and launchd's
+that stops for `watchdog_stall_s` (default 180, at least 30) the host logs an error and exits with code 70, and launchd's
 `KeepAlive` starts a new one. Set `watchdog_stall_s` in `config.json` or `KITH_SERVE_WATCHDOG_STALL_S` (the
 variable wins); `0` or `off` disables it. Read at start. Sleep doesn't count (the clock stops while the Mac
 sleeps). The job has no `ThrottleInterval`, so launchd's 10 s default applies to the restart.
