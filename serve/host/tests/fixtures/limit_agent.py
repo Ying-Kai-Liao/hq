@@ -48,12 +48,17 @@ for line in sys.stdin:
         send({"id": message["id"], "result": {"protocolVersion": 1, "agentCapabilities": capabilities}})
     elif method == "session/new":
         sessions += 1
-        send({"id": message["id"], "result": {"sessionId": f"{account}-s{sessions}"}})
+        modes = {"availableModes": [{"id": "read-only"}, {"id": "auto"}, {"id": "full-access"}]}
+        send({"id": message["id"], "result": {"sessionId": f"{account}-s{sessions}", "modes": modes}})
     elif method == "session/prompt":
         sid = params["sessionId"]
         text = " ".join(b.get("text", "") for b in params["prompt"])
         limit = limits()
         if limit:
+            if "TOOL" in text:
+                # It did something before the limit hit.
+                update(sid, {"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Edit", "kind": "edit",
+                             "status": "completed"})
             if limit.get("via") == "rejected":
                 info = {"status": "rejected", "rateLimitType": "five_hour", "resetsAt": limit.get("resetsAt")}
                 update(sid, {"sessionUpdate": "usage_update", "used": 1, "size": 200000}, {"_claude/rateLimit": info})

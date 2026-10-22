@@ -327,9 +327,26 @@ async fn a_codex_backup_gets_acps_own_session_parameters() {
     let new = &s.requests("codex", "session/new")[0]["params"];
     assert_eq!(new["mcpServers"][0]["name"], "pantry", "servers as ACP's list");
     assert!(new.get("_meta").is_none(), "nothing of Claude's: {new}");
+    let modes = s.requests("codex", "session/set_mode");
+    assert_eq!(modes.len(), 1, "the agent's permission mode reaches the backup");
+    assert_eq!(modes[0]["params"]["modeId"], "read-only", "hq's `default` is Codex's read-only");
+    assert!(s.requests("primary", "session/set_mode").is_empty());
     let prompt = &s.prompts("codex")[0];
     assert!(
         prompt.contains("You are house, the household keeper."),
         "the agent's instructions reach a Codex that can't take them as system prompt: {prompt}"
     );
+}
+
+#[tokio::test]
+async fn a_turn_that_already_acted_is_not_run_again_on_the_next_entry() {
+    let s = start(&["claude:work"]).await;
+    s.limit("primary", Some(limited("rate_limit", 3600)));
+
+    s.ask_for_notice("TOOL edit the file", "The agent failed").await;
+
+    assert!(s.prompts("claude:work").is_empty(), "its edit would have been done twice");
+    assert_eq!(s.backups_file()["claude"]["reason"], "rate_limit", "but the entry is out for the next turn");
+    s.ask("next").await;
+    assert_eq!(s.answers().await[0].1, json!("claude:work"));
 }

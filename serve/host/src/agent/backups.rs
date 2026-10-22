@@ -20,8 +20,10 @@ pub const USAGE_95: &str = "usage_95";
 pub const EARLY_PERCENT: f64 = 95.0;
 /// How long an entry stays out when the provider didn't say when its limit lifts; it is checked again then.
 pub const UNKNOWN_RESET_SECS: i64 = 3600;
-/// A chain is asked of hq at most this often per agent.
-const CHAIN_FRESH: Duration = Duration::from_secs(30);
+/// A chain with backups is asked of hq again after this long, in the background (hq checks each entry's login, which
+/// can take a while); one without backups after [`CHAIN_FRESH_EMPTY`].
+const CHAIN_FRESH: Duration = Duration::from_secs(5 * 60);
+const CHAIN_FRESH_EMPTY: Duration = Duration::from_secs(15 * 60);
 /// An entry hq couldn't launch (not logged in, not allowed for this person) isn't asked again for this long.
 const UNAVAILABLE_FOR: Duration = Duration::from_secs(120);
 /// A usage reading older than this says nothing about now.
@@ -31,8 +33,9 @@ const READING_STALE_SECS: i64 = 30 * 60;
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default)]
 pub struct ChainEntry {
     pub id: String,
+    /// `null` from hq for an id it could not make sense of: not runnable.
     #[serde(default)]
-    pub harness: String,
+    pub harness: Option<String>,
     #[serde(default)]
     pub account: Option<String>,
     #[serde(default)]
@@ -46,15 +49,28 @@ pub struct ChainEntry {
 impl ChainEntry {
     /// The host can start these harnesses; others in the registry are skipped until it learns them.
     fn runnable(&self) -> bool {
-        matches!(self.harness.as_str(), "claude" | "codex")
+        matches!(self.harness.as_deref(), Some("claude" | "codex"))
     }
 }
 
-/// `kith <agent> --backups-json`.
+/// `kith <agent> --backups-json`, entry by entry: one that doesn't parse is left out, not the whole chain.
 #[derive(Deserialize)]
 pub struct ChainDoc {
     #[serde(default)]
-    pub chain: Vec<ChainEntry>,
+    chain: Vec<serde_json::Value>,
+}
+
+impl ChainDoc {
+    pub fn entries(self) -> Vec<ChainEntry> {
+        self.chain
+            .into_iter()
+            .filter_map(|v| {
+                serde_json::from_value(v)
+                    .inspect_err(|error| tracing::warn!(%error, "a backup chain entry didn't parse; left out"))
+                    .ok()
+            })
+            .collect()
+    }
 }
 
 /// An entry that is out, as `backups.json` keeps it.
@@ -102,6 +118,10 @@ struct Inner {
     readings: HashMap<String, Reading>,
     /// (agent, entry) -> when to ask again.
     unavailable: HashMap<(String, String), Instant>,
+    /// Agents whose chain is being fetched in the background.
+    refreshing: HashSet<String>,
+    /// Counts changes of `out`, so the file is never overwritten by an older copy.
+    seq: u64,
 }
 
 type Clock = Box<dyn Fn() -> i64 + Send + Sync>;
@@ -109,6 +129,8 @@ type Clock = Box<dyn Fn() -> i64 + Send + Sync>;
 pub struct Backups {
     path: PathBuf,
     inner: std::sync::Mutex<Inner>,
+    /// The `seq` last written to the file; held while writing.
+    written: std::sync::Mutex<u64>,
     now: Clock,
 }
 
@@ -122,43 +144,59 @@ impl Backups {
     }
 
     pub fn with_clock(path: PathBuf, now: Clock) -> Self {
-        Self { path, inner: std::sync::Mutex::default(), now }
+        Self { path, inner: std::sync::Mutex::default(), written: std::sync::Mutex::default(), now }
     }
 
     pub fn now(&self) -> i64 {
         (self.now)()
     }
 
-    /// The state with `backups.json` read on first use and entries already back dropped.
-    fn state(&self) -> std::sync::MutexGuard<'_, Inner> {
-        let mut inner = self.inner.locked();
-        if !inner.loaded {
-            inner.loaded = true;
-            inner.out = std::fs::read_to_string(&self.path)
-                .ok()
-                .and_then(|text| serde_json::from_str(&text).ok())
-                .unwrap_or_default();
+    /// Runs `f` on the state with `backups.json` read on first use and entries already back dropped. What `f` (or
+    /// the dropping) changed in the out list is written after the lock is released.
+    fn with<R>(&self, f: impl FnOnce(&mut Inner, i64) -> R) -> R {
+        let (result, write) = {
+            let mut inner = self.inner.locked();
+            if !inner.loaded {
+                inner.loaded = true;
+                inner.out = std::fs::read_to_string(&self.path)
+                    .ok()
+                    .and_then(|text| serde_json::from_str(&text).ok())
+                    .unwrap_or_default();
+            }
+            let now = self.now();
+            let before = inner.out.clone();
+            inner.out.retain(|_, o| o.out_until > now);
+            let result = f(&mut inner, now);
+            let write = (inner.out != before).then(|| {
+                inner.seq += 1;
+                (inner.seq, serde_json::to_vec_pretty(&inner.out))
+            });
+            (result, write)
+        };
+        if let Some((seq, Ok(bytes))) = write {
+            self.write(seq, &bytes);
         }
-        let (now, before) = (self.now(), inner.out.len());
-        inner.out.retain(|_, o| o.out_until > now);
-        if inner.out.len() != before {
-            self.save(&inner);
-        }
-        inner
+        result
     }
 
-    /// Written whole to a neighbor and renamed over, so a crash leaves the old file or the new one.
-    fn save(&self, inner: &Inner) {
-        let write = || -> std::io::Result<()> {
+    /// Written whole to a neighbor and renamed over, so a crash leaves the old file or the new one; a copy older than
+    /// the one on disk is dropped.
+    fn write(&self, seq: u64, bytes: &[u8]) {
+        let mut written = self.written.locked();
+        if seq <= *written {
+            return;
+        }
+        let save = || -> std::io::Result<()> {
             if let Some(dir) = self.path.parent() {
                 std::fs::create_dir_all(dir)?;
             }
             let tmp = self.path.with_extension("json.tmp");
-            std::fs::write(&tmp, serde_json::to_vec_pretty(&inner.out)?)?;
+            std::fs::write(&tmp, bytes)?;
             std::fs::rename(&tmp, &self.path)
         };
-        if let Err(error) = write() {
-            tracing::warn!(error = %error, "couldn't save backups.json");
+        match save() {
+            Ok(()) => *written = seq,
+            Err(error) => tracing::warn!(%error, "couldn't save backups.json"),
         }
     }
 
@@ -166,52 +204,68 @@ impl Backups {
     /// now). Idempotent: two turns hitting the same limit mark it once. A real refusal replaces an early mark, and a
     /// later reset replaces an earlier one. Whether anything changed.
     pub fn mark_out(&self, id: &str, until: Option<i64>, reason: &str) -> bool {
-        let mut inner = self.state();
-        let now = self.now();
-        let until = until.filter(|u| *u > now).unwrap_or(now + UNKNOWN_RESET_SECS);
-        let since = inner.out.get(id).map_or(now, |o| o.since);
-        if let Some(o) = inner.out.get(id)
-            && o.out_until >= until
-            && (o.reason == reason || reason == USAGE_95)
-        {
-            return false;
-        }
-        let reason = if reason == USAGE_95 && inner.out.get(id).is_some_and(|o| o.reason == RATE_LIMIT) {
-            RATE_LIMIT
-        } else {
-            reason
-        };
-        inner.out.insert(id.to_owned(), Out { out_until: until, reason: reason.to_owned(), since });
-        self.save(&inner);
-        tracing::info!(entry = id, reason, until, "backup entry marked out");
-        true
+        self.with(|inner, now| {
+            let until = until.filter(|u| *u > now).unwrap_or(now + UNKNOWN_RESET_SECS);
+            let since = inner.out.get(id).map_or(now, |o| o.since);
+            if let Some(o) = inner.out.get(id)
+                && o.out_until >= until
+                && (o.reason == reason || reason == USAGE_95)
+            {
+                return false;
+            }
+            let reason = if reason == USAGE_95 && inner.out.get(id).is_some_and(|o| o.reason == RATE_LIMIT) {
+                RATE_LIMIT
+            } else {
+                reason
+            };
+            inner.out.insert(id.to_owned(), Out { out_until: until, reason: reason.to_owned(), since });
+            tracing::info!(entry = id, reason, until, "backup entry marked out");
+            true
+        })
     }
 
-    #[cfg(test)]
     pub fn out(&self) -> BTreeMap<String, Out> {
-        self.state().out.clone()
+        self.with(|inner, _| inner.out.clone())
     }
 
     #[cfg(test)]
     pub fn is_out(&self, id: &str) -> bool {
-        self.state().out.contains_key(id)
+        self.with(|inner, _| inner.out.contains_key(id))
     }
 
     // MARK: the chain
 
-    /// The chain hq gave within the last [`CHAIN_FRESH`]; `None` means ask again.
-    pub fn fresh_chain(&self, agent: &str) -> Option<Vec<ChainEntry>> {
-        let inner = self.inner.locked();
-        inner.chains.get(agent).filter(|(at, _)| at.elapsed() < CHAIN_FRESH).map(|(_, c)| c.clone())
+    /// The last chain hq gave however old, and how long ago; `None` before the first.
+    pub fn chain_state(&self, agent: &str) -> Option<(Duration, Vec<ChainEntry>)> {
+        self.inner.locked().chains.get(agent).map(|(at, c)| (at.elapsed(), c.clone()))
     }
 
     /// The last chain hq gave however old (a turn that failed needs it, not a fresh one).
     pub fn known_chain(&self, agent: &str) -> Option<Vec<ChainEntry>> {
-        self.inner.locked().chains.get(agent).map(|(_, c)| c.clone())
+        self.chain_state(agent).map(|(_, c)| c)
     }
 
-    pub fn set_chain(&self, agent: &str, chain: Vec<ChainEntry>) {
-        self.inner.locked().chains.insert(agent.to_owned(), (Instant::now(), chain));
+    /// Whether the chain is old enough to ask hq again: an agent without backups is asked rarely.
+    pub fn chain_stale(age: Duration, chain: &[ChainEntry]) -> bool {
+        age >= if chain.len() > 1 { CHAIN_FRESH } else { CHAIN_FRESH_EMPTY }
+    }
+
+    /// Takes the right to fetch `agent`'s chain; false when someone already is.
+    pub fn begin_refresh(&self, agent: &str) -> bool {
+        self.inner.locked().refreshing.insert(agent.to_owned())
+    }
+
+    /// The fetch ended. A failure keeps the chain known before (and looks again after the usual wait), or none.
+    pub fn end_refresh(&self, agent: &str, chain: Option<Vec<ChainEntry>>) {
+        let mut inner = self.inner.locked();
+        inner.refreshing.remove(agent);
+        let chain = chain.or_else(|| inner.chains.get(agent).map(|(_, c)| c.clone())).unwrap_or_default();
+        inner.chains.insert(agent.to_owned(), (Instant::now(), chain));
+    }
+
+    /// Whether anything is out now (the feature is in use).
+    pub fn any_out(&self) -> bool {
+        !self.out().is_empty()
     }
 
     /// Every account entry any agent's chain named, for the usage poll: `(id, harness, account)`.
@@ -221,7 +275,7 @@ impl Backups {
             .chains
             .values()
             .flat_map(|(_, chain)| chain)
-            .filter_map(|e| Some((e.id.clone(), e.harness.clone(), e.account.clone()?)))
+            .filter_map(|e| Some((e.id.clone(), e.harness.clone()?, e.account.clone()?)))
             .filter(|(id, harness, _)| id.starts_with(&format!("{harness}:")))
             .collect();
         all.sort();
@@ -288,8 +342,10 @@ impl Backups {
         if chain.len() < 2 {
             return Pick::Primary;
         }
-        let mut inner = self.state();
-        let now = self.now();
+        self.with(|inner, now| Self::pick_in(inner, now, agent, chain, skip))
+    }
+
+    fn pick_in(inner: &mut Inner, now: i64, agent: &str, chain: &[ChainEntry], skip: &HashSet<String>) -> Pick {
         let mut outs = Vec::new();
         let mut soft = None;
         for (i, entry) in chain.iter().enumerate() {
@@ -311,9 +367,8 @@ impl Backups {
             if skip.contains(&entry.id) {
                 continue;
             }
-            if let Some(until) = Self::early(&inner, &entry.id, now) {
+            if let Some(until) = Self::early(inner, &entry.id, now) {
                 inner.out.insert(entry.id.clone(), Out { out_until: until, reason: USAGE_95.into(), since: now });
-                self.save(&inner);
                 tracing::info!(entry = %entry.id, until, "backup entry marked out at {EARLY_PERCENT}% usage");
                 outs.push((entry.id.clone(), until));
                 soft.get_or_insert(i);
@@ -393,7 +448,7 @@ mod tests {
 
     fn entry(id: &str, ready: bool) -> ChainEntry {
         let (harness, account) = id.split_once(':').map_or((id, None), |(h, a)| (h, Some(a.to_owned())));
-        let harness = harness.trim_end_matches("-api").to_owned();
+        let harness = Some(harness.trim_end_matches("-api").to_owned());
         let kind = if id == "claude" { "primary" } else { "subscription" };
         ChainEntry { id: id.into(), harness, account, kind: kind.into(), ready, why: None }
     }
@@ -408,6 +463,43 @@ mod tests {
 
     fn backup(id: &str) -> Pick {
         Pick::Backup(entry(id, true))
+    }
+
+    #[test]
+    fn one_entry_hq_could_not_read_does_not_drop_the_chain() {
+        // What `kith_accounts.chain()` prints for a hand-edited bad id, between two good entries.
+        let doc: ChainDoc = serde_json::from_value(serde_json::json!({"version": 1, "agent": "a", "chain": [
+            {"id": "claude", "harness": "claude", "account": null, "kind": "primary", "ready": true},
+            {"id": "nope:", "harness": null, "account": null, "kind": "unknown", "ready": false, "why": "bad id"},
+            {"id": 7},
+            {"id": "codex", "harness": "codex", "account": null, "kind": "subscription", "ready": true}
+        ]}))
+        .unwrap();
+        let chain = doc.entries();
+        assert_eq!(chain.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["claude", "nope:", "codex"]);
+        assert!(!chain[1].runnable());
+        let b = Rig::new().backups();
+        assert_eq!(b.pick("a", &chain, &HashSet::new()), Pick::Primary);
+    }
+
+    #[test]
+    fn the_kernels_own_output_parses() {
+        // Printed by `kernel/lib/kith_accounts.py backups-json` for `backups: [claude:work, "bad id!", codex,
+        // claude-api:main]`, none of the accounts set up.
+        let real = r#"{"version": 1, "agent": "house", "chain": [{"id": "claude", "harness": "claude", "account": null, "kind": "primary", "ready": true}, {"id": "claude:work", "harness": "claude", "account": "work", "kind": "subscription", "ready": false, "why": "no account work"}, {"id": "bad id!", "harness": null, "account": null, "kind": "unknown", "ready": false, "why": "'bad id!' is not a backup id: use <harness> or <harness>:<name> (claude, claude:work, claude-api:main, codex)"}, {"id": "codex", "harness": "codex", "account": null, "kind": "subscription", "ready": true}, {"id": "claude-api:main", "harness": "claude", "account": "main", "kind": "api-key", "ready": false, "why": "no anthropic/main key granted to house"}]}"#;
+        let chain = serde_json::from_str::<ChainDoc>(real).unwrap().entries();
+        assert_eq!(chain.len(), 5);
+        assert_eq!(chain[2].harness, None);
+        assert!(chain[0].ready && !chain[1].ready && chain[3].ready);
+        let b = Rig::new().backups();
+        b.end_refresh("house", Some(chain.clone()));
+        assert_eq!(b.accounts(), vec![("claude:work".to_owned(), "claude".to_owned(), "work".to_owned())]);
+        assert_eq!(b.pick("house", &chain, &HashSet::new()), Pick::Primary);
+        b.mark_out("claude", None, RATE_LIMIT);
+        assert!(
+            matches!(b.pick("house", &chain, &HashSet::new()), Pick::Backup(e) if e.id == "codex"),
+            "the bad id and the unready ones are passed over"
+        );
     }
 
     #[test]
@@ -450,7 +542,8 @@ mod tests {
         let chain = vec![
             entry("claude", false),
             entry("claude:work", false),
-            ChainEntry { harness: "cursor".into(), ..entry("cursor", true) },
+            ChainEntry { harness: Some("cursor".into()), ..entry("cursor", true) },
+            ChainEntry { harness: None, ready: false, ..entry("bogus", false) },
             entry("codex", true),
         ];
         assert_eq!(b.pick("a", &chain, &HashSet::new()), backup("codex"));
@@ -601,9 +694,15 @@ mod tests {
     fn the_chain_is_asked_for_once_in_a_while() {
         let rig = Rig::new();
         let b = rig.backups();
-        assert!(b.fresh_chain("a").is_none());
-        b.set_chain("a", chain());
-        assert_eq!(b.fresh_chain("a").map(|c| c.len()), Some(3));
+        assert!(b.chain_state("a").is_none());
+        assert!(b.begin_refresh("a") && !b.begin_refresh("a"), "one fetch at a time");
+        b.end_refresh("a", Some(chain()));
+        assert_eq!(b.known_chain("a").map(|c| c.len()), Some(3));
+        assert!(!Backups::chain_stale(Duration::from_secs(60), &chain()));
+        assert!(Backups::chain_stale(Duration::from_secs(600), &chain()));
+        assert!(!Backups::chain_stale(Duration::from_secs(600), &[]), "an agent without backups is asked rarely");
+        b.end_refresh("a", None);
+        assert_eq!(b.known_chain("a").map(|c| c.len()), Some(3), "a failed fetch keeps what was known");
         assert_eq!(b.accounts(), vec![("claude:work".to_owned(), "claude".to_owned(), "work".to_owned())]);
     }
 }

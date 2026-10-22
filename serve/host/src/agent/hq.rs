@@ -390,7 +390,7 @@ pub async fn backups(bin: &Path, agent: &str) -> Result<Vec<crate::agent::backup
     let out = run(bin, &[agent, "--backups-json"], None, LIST_TIMEOUT).await?;
     let doc: crate::agent::backups::ChainDoc = serde_json::from_str(out.trim())
         .with_context(|| format!("`kith {agent} --backups-json` didn't print a chain"))?;
-    Ok(doc.chain)
+    Ok(doc.entries())
 }
 
 impl Launch {

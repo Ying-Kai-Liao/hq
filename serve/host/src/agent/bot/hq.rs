@@ -6,12 +6,54 @@ use super::fast_mode::Listing;
 use super::launch::{launch_commands, start_agent};
 use super::{Actor, NoticeStyle};
 use crate::agent::acp::Incoming;
-use crate::agent::backups::{ChainEntry, NoAccount, Pick};
+use crate::agent::backups::{Backups, ChainEntry, NoAccount, Pick};
 use crate::agent::{folder, hq};
+use crate::hub::Hub;
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+/// Asks hq for `agent`'s chain now and remembers the answer; a failure is logged and leaves what was known.
+pub(super) async fn fetch_chain(hub: &Hub, agent: &str) -> Vec<ChainEntry> {
+    let got = match tokio::task::spawn_blocking(hq::bin).await {
+        Ok(Some(bin)) => hq::backups(&bin, agent)
+            .await
+            .inspect_err(|error| tracing::warn!(agent, error = format!("{error:#}"), "couldn't read the backup chain"))
+            .ok(),
+        _ => None,
+    };
+    hub.backups.end_refresh(agent, got);
+    hub.backups.known_chain(agent).unwrap_or_default()
+}
+
+/// [`fetch_chain`] in the background, one at a time per agent.
+fn refresh_chain_later(hub: &Arc<Hub>, agent: &str) {
+    if hub.backups.begin_refresh(agent) {
+        let (hub, agent) = (hub.clone(), agent.to_owned());
+        tokio::spawn(async move { drop(fetch_chain(&hub, &agent).await) });
+    }
+}
+
+/// What a Codex backup's `permission_mode` (the agent's, in Claude's words) means to codex-acp's session modes.
+fn codex_mode(permission: &str) -> Option<&'static str> {
+    match permission {
+        "plan" | "default" => Some("read-only"),
+        "acceptEdits" | "auto" => Some("auto"),
+        "bypassPermissions" => Some("full-access"),
+        _ => None,
+    }
+}
+
+/// The environment of the agent process. The keys the host holds for Claude are the primary's login and win over
+/// `CLAUDE_CONFIG_DIR` and `apiKeyHelper`, so a backup that has a login of its own gets none of them.
+fn process_env(saved: Vec<(String, String)>, launch: &hq::Launch, backup: bool) -> Vec<(String, String)> {
+    let own_login = backup && (!launch.is_codex() || launch.env.get("KITH_ACCOUNT").is_some_and(|a| !a.is_empty()));
+    let mut env = if own_login { Vec::new() } else { saved };
+    env.extend(launch.env());
+    env
+}
 
 impl Actor {
     pub(super) fn is_hq(&self) -> bool {
@@ -61,20 +103,36 @@ impl Actor {
         }
     }
 
-    /// The agent's backup chain, as hq said it within the last half minute. None, or any failure, is an empty chain.
+    /// The agent's backup chain as last known. Never makes a turn wait for hq: a chain gone stale is fetched again in
+    /// the background, and one never fetched is too, unless backups are in use (something is out), when this turn
+    /// needs it to pick. No chain, or any failure, is an empty chain.
     async fn hq_chain(&self, agent: &str) -> Vec<ChainEntry> {
-        if let Some(chain) = self.hub.backups.fresh_chain(agent) {
-            return chain;
-        }
-        let chain = match tokio::task::spawn_blocking(hq::bin).await {
-            Ok(Some(bin)) => hq::backups(&bin, agent).await.unwrap_or_else(|error| {
-                tracing::debug!(agent, error = format!("{error:#}"), "no backup chain");
+        match self.hub.backups.chain_state(agent) {
+            Some((age, chain)) => {
+                if Backups::chain_stale(age, &chain) {
+                    refresh_chain_later(&self.hub, agent);
+                }
+                chain
+            }
+            None if self.hub.backups.any_out() => fetch_chain(&self.hub, agent).await,
+            None => {
+                refresh_chain_later(&self.hub, agent);
                 Vec::new()
-            }),
-            _ => Vec::new(),
-        };
-        self.hub.backups.set_chain(agent, chain.clone());
-        chain
+            }
+        }
+    }
+
+    /// A Codex backup's new session starts in the mode that matches the agent's permission mode, when the adapter lists
+    /// it. Left as it is when it doesn't, or when the call fails.
+    async fn set_codex_mode(&mut self, sid: &str, res: &Value, permission: Option<&str>) {
+        let Some(mode) = permission.and_then(codex_mode) else { return };
+        let listed = res["modes"]["availableModes"].as_array();
+        if listed.is_some_and(|modes| !modes.iter().any(|m| m["id"] == mode)) {
+            return;
+        }
+        if let Err(error) = self.session_request("session/set_mode", json!({"sessionId": sid, "modeId": mode})).await {
+            tracing::warn!(mode, error = format!("{error:#}"), "couldn't set the backup's permission mode");
+        }
     }
 
     /// `session/new` and `session/load` for `launch`: Claude's `_meta` for Claude, ACP's own parameters for a Codex
@@ -181,8 +239,7 @@ impl Actor {
             self.conn_started_as = Some(started_as);
             self.conn_serving.clone_from(&self.serving);
             let provider = if launch.is_codex() { "codex" } else { self.cfg.backend.as_str() };
-            let mut env = crate::agent::auth::env(&self.hub.store, provider)?;
-            env.extend(launch.env());
+            let env = process_env(crate::agent::auth::env(&self.hub.store, provider)?, &launch, backup.is_some());
             let candidates = match std::env::var(hq::ACP_COMMAND_ENV) {
                 Ok(command) if !command.is_empty() => vec![command],
                 _ => {
@@ -264,6 +321,9 @@ impl Actor {
         // The model was chosen by hq (`-m`), so the host doesn't set it again.
         self.note_options(&sid, &res, Listing::Session);
         self.hq_set_session(slot, &sid);
+        if launch.is_codex() {
+            self.set_codex_mode(&sid, &res, launch.permission_mode.as_deref()).await;
+        }
         self.session_fresh = true;
         self.turn_session = Some(sid);
         if backup.is_some() {
@@ -287,5 +347,52 @@ impl Actor {
             self.thread_intro = self.thread_intro(root, false);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn launch(provider: &str, account: &str) -> hq::Launch {
+        serde_json::from_value(json!({"harness": provider, "env": {"KITH_ACCOUNT": account}})).unwrap()
+    }
+
+    fn keys() -> Vec<(String, String)> {
+        vec![("ANTHROPIC_API_KEY".into(), "k".into()), ("CLAUDE_CODE_OAUTH_TOKEN".into(), "t".into())]
+    }
+
+    fn names(env: &[(String, String)]) -> Vec<&str> {
+        env.iter().map(|(k, _)| k.as_str()).collect()
+    }
+
+    #[test]
+    fn a_backup_never_runs_on_the_primarys_saved_keys() {
+        let primary = process_env(keys(), &launch("claude", ""), false);
+        assert!(names(&primary).contains(&"ANTHROPIC_API_KEY"), "the agent's own login keeps its keys");
+        for (harness, account) in [("claude", "work"), ("claude", ""), ("codex", "work")] {
+            let env = process_env(keys(), &launch(harness, account), true);
+            assert!(
+                !names(&env).iter().any(|k| ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"].contains(k)),
+                "{harness}:{account} kept a host key: {:?}",
+                names(&env)
+            );
+            assert!(names(&env).contains(&"KITH_ACCOUNT"), "kith's own env still goes");
+        }
+        // The ambient Codex login uses the keys saved for Codex.
+        assert!(
+            names(&process_env(vec![("OPENAI_API_KEY".into(), "k".into())], &launch("codex", ""), true))
+                .contains(&"OPENAI_API_KEY")
+        );
+    }
+
+    #[test]
+    fn claudes_permission_modes_map_to_codexs() {
+        assert_eq!(codex_mode("default"), Some("read-only"));
+        assert_eq!(codex_mode("plan"), Some("read-only"));
+        assert_eq!(codex_mode("acceptEdits"), Some("auto"));
+        assert_eq!(codex_mode("auto"), Some("auto"));
+        assert_eq!(codex_mode("bypassPermissions"), Some("full-access"));
+        assert_eq!(codex_mode("surprise"), None);
     }
 }

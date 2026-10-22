@@ -136,6 +136,7 @@ impl Actor {
         self.turn_prompt = Some((text.to_owned(), hidden));
         self.turn_tried.clear();
         self.limit_seen = None;
+        self.attempt_effects = false;
         self.exhausted = None;
         self.reuse_prompt = false;
         self.attempt_prompt = None;

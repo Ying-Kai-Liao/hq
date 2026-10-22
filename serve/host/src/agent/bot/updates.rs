@@ -49,6 +49,9 @@ impl Actor {
 
     pub(super) fn on_update(&mut self, u: &Value) {
         let turn = self.turn.unwrap_or(0);
+        if matches!(u["sessionUpdate"].as_str(), Some("tool_call" | "tool_call_update")) && u["status"] == "completed" {
+            self.attempt_effects = true;
+        }
         match u["sessionUpdate"].as_str().unwrap_or_default() {
             "agent_message_chunk" => {
                 let t = acp::content_text(&u["content"]);

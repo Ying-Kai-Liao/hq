@@ -75,6 +75,11 @@ fn merge(hub: &Hub, id: &'static str, name: &'static str, source: &'static str, 
 pub async fn poll(hub: Arc<Hub>) {
     loop {
         refresh(&hub).await;
+        // The extra accounts take a while and only the backup chains read them: not part of anyone's usage request.
+        tokio::spawn({
+            let hub = hub.clone();
+            async move { refresh_accounts(&hub).await }
+        });
         tokio::time::sleep(POLL_EVERY).await;
     }
 }
@@ -86,29 +91,32 @@ pub async fn refresh(hub: &Hub) {
     if let Some(windows) = claude_cli_usage(None).await {
         merge(hub, "claude", "Claude", "claude", windows);
     }
-    refresh_accounts(hub).await;
 }
 
 /// The extra accounts of the backup chains (`claude:<name>`, `codex:<name>`), each read under its own login folder so
 /// the early switch knows how full it is. The same free local reads as above; nothing here costs model quota.
 async fn refresh_accounts(hub: &Hub) {
     let machine = crate::kernel::machine_dir(&crate::service::home());
-    for (id, harness, account) in hub.backups.accounts() {
+    // Together: each read may take up to a minute.
+    futures::future::join_all(hub.backups.accounts().into_iter().map(|(id, harness, account)| {
         let folder = machine.join("accounts").join(&harness).join(&account);
-        if !folder.is_dir() {
-            continue;
-        }
-        let windows = match harness.as_str() {
-            "claude" => claude_cli_usage(Some(folder)).await,
-            "codex" => {
-                tokio::task::spawn_blocking(move || codex_usage_in(&folder.join("sessions"))).await.ok().flatten()
+        async move {
+            if !folder.is_dir() {
+                return;
             }
-            _ => None,
-        };
-        if let Some(windows) = windows {
-            hub.backups.record_reading(&id, windows);
+            let windows = match harness.as_str() {
+                "claude" => claude_cli_usage(Some(folder)).await,
+                "codex" => {
+                    tokio::task::spawn_blocking(move || codex_usage_in(&folder.join("sessions"))).await.ok().flatten()
+                }
+                _ => None,
+            };
+            if let Some(windows) = windows {
+                hub.backups.record_reading(&id, windows);
+            }
         }
-    }
+    }))
+    .await;
 }
 
 /// `claude -p /usage`: Claude Code's own local usage report, no model call. `config` is another account's

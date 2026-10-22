@@ -216,6 +216,7 @@ pub fn spawn(
         turn_prompt: None,
         turn_tried: HashSet::new(),
         limit_seen: None,
+        attempt_effects: false,
         exhausted: None,
         tools_changed: false,
         fast_support,
@@ -405,6 +406,8 @@ struct Actor {
     turn_tried: HashSet<String>,
     /// A `rejected` rate-limit update in this turn, with the reset time it carried.
     limit_seen: Option<acp::Depleted>,
+    /// A tool call completed in this attempt of the turn: it did something that can't be run again.
+    attempt_effects: bool,
     /// Set when the turn ended out of usage with nowhere left to go: what to tell the user.
     exhausted: Option<String>,
     /// Connectors changed: restart the agent before the next turn so the

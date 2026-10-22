@@ -39,10 +39,23 @@ impl Actor {
         let Some(Depleted { resets_at }) = self.depletion(done) else { return false };
         let Some(agent) = self.cfg.hq_agent.clone() else { return false };
         // No chain, no change: the turn fails with the agent's own error, as it does without backups.
-        let Some(chain) = self.hub.backups.known_chain(&agent).filter(|c| c.len() > 1) else { return false };
+        let chain = match self.hub.backups.known_chain(&agent) {
+            Some(chain) => chain,
+            // The chain is only fetched on this path when nothing was out before: the turn that just failed is the
+            // first to need it.
+            None => super::hq::fetch_chain(&self.hub, &agent).await,
+        };
+        if chain.len() < 2 {
+            return false;
+        }
         let failed = self.serving.clone().unwrap_or_else(|| chain[0].id.clone());
         self.hub.backups.mark_out(&failed, resets_at, RATE_LIMIT);
         self.turn_tried.insert(failed.clone());
+        // What the attempt already did can't be done twice: the entry is out for the next turn, this one ends here.
+        if self.attempt_effects || !self.sent.is_empty() {
+            tracing::info!(bot = %self.cfg.id, entry = %failed, "turn ran out of usage after acting; not repeating it");
+            return false;
+        }
         let Some((text, hidden)) = self.turn_prompt.clone() else { return false };
         // A turn that resumes after a restart has nothing of its own to send again.
         if hidden || self.turn_tried.len() > MAX_MOVES {
@@ -59,6 +72,7 @@ impl Actor {
         self.drop_attempt();
         self.reuse_prompt = true;
         self.limit_seen = None;
+        self.attempt_effects = false;
         self.hub.set_runtime(&self.rt, |r| r.activity = "Switching account…".into());
         let lane = self.lane.clone();
         if let Err(e) = self.begin_prompt(&lane, &text, false, done_tx).await {
