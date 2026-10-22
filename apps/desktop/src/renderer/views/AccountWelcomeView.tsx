@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react'
-import { CharacterAvatar, type Mood } from '../components/Avatar'
+import { LiveBot, type Mood } from '../components/Avatar'
 import { Button, Spinner } from '../components/Controls'
 import { Icon } from '../components/Icon'
 import { HStack, Spacer, VStack } from '../components/Stack'
@@ -98,12 +98,12 @@ export function AccountWelcomeView({ onContinue }: { onContinue: () => void }) {
   )
 }
 
-const crew: { shape: string; color: string; size: number; x: number; y: number; mood: Mood }[] = [
-  { shape: 'blob', color: 'blue', size: 92, x: 0, y: 0, mood: 'working' },
-  { shape: 'squircle', color: 'orange', size: 64, x: -104, y: -34, mood: 'idle' },
-  { shape: 'teardrop', color: 'violet', size: 58, x: 100, y: -46, mood: 'working' },
-  { shape: 'hex', color: 'green', size: 48, x: -76, y: 64, mood: 'idle' },
-  { shape: 'cloud', color: 'magenta', size: 52, x: 84, y: 58, mood: 'needsInput' },
+const crew: { name: string; size: number; x: number; y: number; mood: Mood }[] = [
+  { name: 'builder', size: 92, x: 0, y: 0, mood: 'working' },
+  { name: 'designer', size: 64, x: -104, y: -34, mood: 'idle' },
+  { name: 'coder', size: 58, x: 100, y: -46, mood: 'working' },
+  { name: 'lab', size: 48, x: -76, y: 64, mood: 'idle' },
+  { name: 'house', size: 52, x: 84, y: 58, mood: 'needsInput' },
 ]
 
 /** The animated bot group from the first iPhone onboarding screen. */
@@ -124,7 +124,7 @@ function WelcomeCrew({ shown }: { shown: boolean }) {
     <div aria-hidden className="welcome-crew">
       {crew.map((m, i) => (
         <div
-          key={m.shape}
+          key={m.name}
           className="welcome-crew-member"
           style={{
             transform: `translate(calc(-50% + ${m.x}px), calc(-50% + ${m.y + (reduce ? 0 : Math.sin(t * 1.3 + i * 1.7) * 5)}px)) scale(${shown ? 1 : 0.3})`,
@@ -132,7 +132,7 @@ function WelcomeCrew({ shown }: { shown: boolean }) {
             transition: `opacity 0.7s var(--ease-out) ${i * 0.07}s, scale 0.7s var(--ease-out) ${i * 0.07}s`,
           }}
         >
-          <CharacterAvatar shape={m.shape} color={m.color} size={m.size} mood={m.mood} />
+          <LiveBot face={{ kind: 'crew', name: m.name }} size={m.size} id={m.name} mood={m.mood} />
         </div>
       ))}
     </div>
@@ -155,7 +155,7 @@ function WelcomeChatGlimpse({ shown }: { shown: boolean }) {
         <Text size="subheadline" tone="text" className="welcome-bubble user">Fix the flaky login test</Text>
       </HStack>
       <HStack align="flex-end" gap={8} style={rise}>
-        <CharacterAvatar shape="blob" color="blue" size={28} mood={replied ? 'idle' : 'working'} />
+        <LiveBot face={{ kind: 'crew', name: 'builder' }} size={28} id="builder" mood={replied ? 'idle' : 'working'} />
         {replied ? (
           <Text size="subheadline" tone="text" className="welcome-bubble agent">
             Done. It raced the session refresh; tests pass on fix/login.

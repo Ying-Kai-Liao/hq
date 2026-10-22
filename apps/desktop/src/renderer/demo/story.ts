@@ -11,11 +11,11 @@ export type SeedBot = Pick<Bot, 'id' | 'name' | 'description' | 'avatarColor' | 
   Partial<Pick<Bot, 'avatarSource' | 'kind' | 'members' | 'permission' | 'status' | 'activity' | 'unread'>>
 
 export const bots: SeedBot[] = [
-  { id: 'pacer', name: 'Pacer', description: 'Owns the pace math', avatarColor: 'orange', avatarShape: 'squircle', backend: 'claude', model: 'opus', permission: 'ask', status: 'needsInput', activity: 'Needs approval: Edit src/pace.js', unread: 1 },
-  { id: 'scout', name: 'Scout', description: 'Finds things in the repo and builds them', avatarColor: 'green', avatarShape: 'cloud', avatarSource: 'shape', backend: 'codex', model: null, unread: 1 },
+  { id: 'pacer', name: 'Pacer', description: 'Owns the pace math', avatarColor: '', avatarShape: 'blob', backend: 'claude', model: 'opus', permission: 'ask', status: 'needsInput', activity: 'Needs approval: Edit src/pace.js', unread: 1 },
+  { id: 'scout', name: 'Scout', description: 'Finds things in the repo and builds them', avatarColor: 'mint', avatarShape: 'blob', backend: 'codex', model: null, unread: 1 },
   { id: 'reviewer', name: 'Reviewer', description: 'Reviews every change before it ships', avatarColor: 'violet', avatarShape: 'blob', backend: 'claude', model: 'sonnet', unread: 1 },
-  { id: 'relay', name: 'Relay', description: 'Writes the release notes', avatarColor: 'blue', avatarShape: 'tablet', avatarSource: 'spare:globe', backend: 'codex', model: null, unread: 1 },
-  { id: 'ship', kind: 'group', members: ['pacer', 'scout', 'reviewer'], name: 'Ship room', description: 'Getting weeklyTotals out', avatarColor: 'gray', avatarShape: 'blob', backend: '', model: null },
+  { id: 'relay', name: 'Relay', description: 'Writes the release notes', avatarColor: 'sky', avatarShape: 'blob', avatarSource: 'spare:globe', backend: 'codex', model: null, unread: 1 },
+  { id: 'ship', kind: 'group', members: ['pacer', 'scout', 'reviewer'], name: 'Ship room', description: 'Getting weeklyTotals out', avatarColor: '', avatarShape: 'blob', backend: '', model: null },
 ]
 
 export const cwd = CWD

@@ -12,9 +12,6 @@ export const providerTintCSS = (id: string) => (id === 'claude' ? '#D97757' : 'v
 /** ACP registry id of the provider's agent, for its logo. */
 export const providerRegistry = (id: string) => (['claude', 'codex'].includes(id) ? `${id}-acp` : id)
 
-/** The character that stands for this provider. */
-export const mascotShape = (id: string) => (id === 'codex' ? 'hex' : 'blob')
-
 export const tightest = (p: UsageProvider) => p.windows.reduce<UsageWindow | null>((a, w) => (!a || w.percent > a.percent ? w : a), null)
 
 /** "Session" for the 5-hour window, "Opus" for "Weekly · Opus", else the label. */
