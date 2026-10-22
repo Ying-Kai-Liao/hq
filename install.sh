@@ -27,8 +27,9 @@ link_home() {   # link_home NAME: ~/NAME -> this folder, unless it is something 
   elif [ "$(cd "$HOME/$1" && pwd -P)" != "$ROOT" ]; then return 1
   fi
 }
-if [ -z "$CUSTOM_HOME" ] && [ "$ROOT" != "$HOME/kith" ]; then
-  link_home kith || { echo "install: ~/kith already exists and is not this folder: move it, or set KITH_HOME to use another folder" >&2; exit 1; }
+if [ -z "$CUSTOM_HOME" ]; then
+  # a clone made at ~/kith is its own address; ~/hq is still linked to it for the tools that use the old name
+  [ "$ROOT" = "$HOME/kith" ] || link_home kith || { echo "install: ~/kith already exists and is not this folder: move it, or set KITH_HOME to use another folder" >&2; exit 1; }
   link_home hq || echo "note: ~/hq is another folder; ~/kith is the address Kith uses"
 fi
 # ~/.kith is a real folder on this Mac (kith init fills it). A Mac that ran hq has ~/.hq instead and keeps using it

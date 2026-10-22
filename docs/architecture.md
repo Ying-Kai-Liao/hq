@@ -135,7 +135,7 @@ own settings: kith-wide, not secret, never committed; `kith doctor` shows the on
 into the run's settings, so only Claude Code runs get it; other harnesses tell only `bypassPermissions` apart from the
 rest, so for them an unset mode stays as before. A run for anyone but the owner takes its membership's mode instead.
 
-**Channels** (`bin/kith-bridge`, `lib/hq_bridge/`, `bin/kith-send`; 2026-10-19). One bridge process for every platform
+**Channels** (`bin/kith-bridge`, `lib/kith_bridge/`, `bin/kith-send`; 2026-10-19). One bridge process for every platform
 and every bot. Each bot is a connection: a `discord/`, `telegram/` or `slack/` profile granted to `bridge` (a grant
 can hold a list, one bot each), plus the Discord token in `KITH_DISCORD_BOT_TOKEN` as `discord/kith`. Every connection
 runs and restarts on its own. `core.py` holds what is the same everywhere; an adapter per platform

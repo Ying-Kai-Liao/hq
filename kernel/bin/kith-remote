@@ -48,9 +48,13 @@ SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ControlMa
 
 def remotes():
     try:
-        return json.loads(CONF.read_text())
+        r = json.loads(CONF.read_text())
     except (OSError, ValueError):
         return {}
+    for m in r.values():   # entries saved before the rename keep the remote command under 'hq'
+        if isinstance(m, dict) and 'kith' not in m and 'hq' in m:
+            m['kith'] = m['hq']
+    return r
 
 
 def save_remotes(r):
@@ -249,6 +253,8 @@ def serve_run(req):
         wt = repo.parent / 'wt' / cid
         if not wt.exists():
             git('worktree', 'add', '-q', '-B', branch, str(wt), 'refs/hq/in/' + cid, cwd=repo)
+        else:   # a conversation begun before the rename keeps its hq/<agent>/<id> branch
+            branch = git('branch', '--show-current', cwd=wt, check=False) or branch
         work = wt  # the root, so the whole tree is in reach; the caller's subfolder is named in the task
         where = ('You are working in a handoff worktree of the caller\'s repo, %s, on branch %s, which starts from '
                  'their working tree (uncommitted changes included)%s. Make code changes here and commit them; the '

@@ -221,7 +221,7 @@ export const register: Register = (on, options) => {
   on('agent.spawn', async ($, e, next) => {
     if (!e.subagentType.startsWith('kith:')) return next(e)
     const kith = await kithRoot($, (options.kith_path || options.hq_path))
-    const agent = e.subagentType.slice(3)
+    const agent = e.subagentType.slice(5)   // after "kith:"
     const cwd = e.cwd ?? (await $.session.cwd())
 
     // A run for someone other than the owner (KITH_PERSON, from bin/kith) may start only the helpers that person may

@@ -697,8 +697,9 @@ class Core:
         env = dict(os.environ, KITH_VIA=ad.platform, KITH_OUTPUT='json')
         if os.environ.get('KITH_BRIDGE_PERMISSION_MODE'):   # unset: the agent's mode, else kith's default (bin/kith)
             env['KITH_PERMISSION_MODE'] = os.environ['KITH_BRIDGE_PERMISSION_MODE']
-        for k in [k for k in env if k.startswith(('JEV_', 'TELEGRAM_', 'SLACK_', 'DISCORD_', 'KITH_DISCORD_'))
-                  or k in ('KITH_AGENT', 'KITH_PERSON', 'KITH_RESUME', 'KITH_BRIDGE_OUTBOX')]:
+        for k in [k for k in env if k.startswith(('JEV_', 'TELEGRAM_', 'SLACK_', 'DISCORD_', 'KITH_DISCORD_', 'HQ_DISCORD_'))
+                  or k in ('KITH_AGENT', 'KITH_PERSON', 'KITH_RESUME', 'KITH_BRIDGE_OUTBOX',
+                     'HQ_AGENT', 'HQ_PERSON', 'HQ_RESUME', 'HQ_BRIDGE_OUTBOX')]:
             env.pop(k)   # no bot tokens or keys, and this is no agent's helper
         if not r.get('owner'):   # bin/kith checks the membership again and sets their mode
             env['KITH_PERSON'] = person

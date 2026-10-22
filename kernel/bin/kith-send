@@ -15,6 +15,7 @@
 # KITH_TELEGRAM_BOT_TOKEN / KITH_TELEGRAM_CHAT_ID from ~/.kith/secrets/env (or the file KITH_TELEGRAM_ENV_FILE names
 # there). Never prints a token.
 set -euo pipefail
+. "$(dirname "$0")/../lib/kith-env.sh"   # old HQ_X callers and secrets/env: KITH_X and HQ_X agree
 
 as=${KITH_AGENT:-kith}
 [[ ${1:-} == --as ]] && { as=$2; shift 2; }
@@ -92,7 +93,7 @@ PY
   exit 0
 fi
 
-[[ -f $KITH_SECRETS/env ]] && { set -a; . "$KITH_SECRETS/env"; set +a; }
+[[ -f $KITH_SECRETS/env ]] && { set -a; . "$KITH_SECRETS/env"; set +a; kith_env_sync; }   # the file may still say HQ_TELEGRAM_*
 # Or borrow a bot from another tool's env file (e.g. a Hermes profile): KITH_TELEGRAM_ENV_FILE names a file with
 # TELEGRAM_BOT_TOKEN and TELEGRAM_HOME_CHANNEL.
 tg_file=${KITH_TELEGRAM_ENV_FILE:-}
