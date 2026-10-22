@@ -222,13 +222,24 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             if starts_task {
                 crate::chat::tasks::mark(&mut data);
             }
+            // Before the message is saved, so a failure leaves nothing behind; a new task's place exists only once its
+            // first message does.
+            if let Some(checked) = start_in.as_ref().filter(|_| !starts_task) {
+                hub.apply_change(bot, &lane, checked)?;
+            }
             let e = hub
                 .add_entry(&lane, EntryKind::User, turn, &data)
                 .ok_or_else(|| anyhow!("couldn't save the message"))?;
             // A new task's turn runs in its own thread.
             let turn_lane = if starts_task { Lane::in_thread(bot, &e.id) } else { lane.clone() };
-            if let Some(checked) = start_in {
-                hub.apply_change(bot, &turn_lane, &checked)?;
+            if let Some(checked) = start_in.as_ref().filter(|_| starts_task)
+                && let Err(error) = hub.apply_change(bot, &turn_lane, checked)
+            {
+                // The task never starts: take the message back.
+                let mut data = e.data.clone();
+                data["status"] = "cancelled".into();
+                let _ = hub.store.update_entry(&e.id, &data);
+                return Err(error);
             }
             // Before the turn starts, so its reply lands unread.
             let scope = lane.thread.as_deref().map_or(ReadScope::Chat, ReadScope::Thread);

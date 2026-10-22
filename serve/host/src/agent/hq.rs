@@ -168,6 +168,25 @@ struct Listing {
     projects: Vec<Project>,
 }
 
+/// The projects without making a chat load wait on hq: the last list however old (refreshed behind the call when it
+/// is stale), or, before there is one, hq's answer for at most two seconds.
+pub async fn projects_soon() -> Vec<Project> {
+    let cached = PROJECTS.locked().clone();
+    match cached {
+        Some((at, list)) => {
+            if at.elapsed() >= PROJECTS_FRESH {
+                tokio::spawn(async { drop(projects(true).await) });
+            }
+            list
+        }
+        None => tokio::time::timeout(Duration::from_secs(2), projects(false))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default(),
+    }
+}
+
 /// `hq project ls --json`, reused for a few seconds unless `fresh`. Fails when hq is missing or the command does.
 pub async fn projects(fresh: bool) -> Result<Vec<Project>> {
     if !fresh

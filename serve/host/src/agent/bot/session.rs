@@ -410,10 +410,11 @@ impl Actor {
                 c.acp.kill().await;
             }
         }
+        // Cleared in the store too: a turn already starting its session would write the old id back.
         if lane.chat == self.cfg.id
             && let Some(root) = &lane.thread
         {
-            self.thread_sessions.remove(root);
+            self.set_session(Some(root), None);
         }
     }
 

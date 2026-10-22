@@ -205,6 +205,7 @@ pub fn spawn(
         stop_requested: false,
         cancel_deadline: None,
         exit_tail: None,
+        conn_started_as: None,
         tools_changed: false,
         fast_support,
         idle_checked: Instant::now(),
@@ -373,6 +374,8 @@ struct Actor {
     cancel_deadline: Option<Instant>,
     /// Last stderr lines of an agent process that just exited.
     exit_tail: Option<String>,
+    /// hq bots: the env and folder the agent process was started with.
+    conn_started_as: Option<(Vec<(String, String)>, String)>,
     /// Connectors changed: restart the agent before the next turn so the
     /// session is resumed with the new MCP servers.
     tools_changed: bool,

@@ -105,7 +105,7 @@ impl Hub {
         };
         let eff = folder::effective(&self.store, &row.config, lane);
         let projects = match eff.pick {
-            Some(Pick::Project(_)) => hq::projects(false).await.unwrap_or_else(|_| hq::cached_projects()),
+            Some(Pick::Project(_)) => hq::projects_soon().await,
             _ => Vec::new(),
         };
         Ok(folder::describe(&eff, &row.config, &projects))
@@ -140,6 +140,14 @@ impl Hub {
         let main = Lane::main(bot_id);
         if inherits(&main) {
             self.forget_stored(bot_id, &main);
+            bot::forget_inflight(&self.store, bot_id, &main);
+        }
+        // Places that were cut off mid-turn but never stored a session.
+        for key in self.store.kv_prefix(&format!("turn.inflight.{bot_id}|")) {
+            let lane = bot::place_of(key.trim_start_matches("turn.inflight."));
+            if inherits(&lane) {
+                bot::forget_inflight(&self.store, bot_id, &lane);
+            }
         }
         let prefix = format!("lane.session.{bot_id}@");
         for key in self.store.kv_prefix(&prefix) {

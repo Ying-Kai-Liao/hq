@@ -56,7 +56,17 @@ impl Actor {
         if target.explicit {
             launch.cwd.clone_from(&target.cwd);
         }
+        // The process carries hq's env (HQ_PROJECT, the cost tag) and its folder: a place that needs others gets a
+        // process of its own, started again here (the sessions it held load again on their next turn).
+        let started_as = (launch.env(), launch.cwd(&self.cfg).to_owned());
+        if self.conn.is_some()
+            && self.conn_started_as.as_ref() != Some(&started_as)
+            && let Some(c) = self.conn.take()
+        {
+            c.acp.kill().await;
+        }
         if self.conn.is_none() {
+            self.conn_started_as = Some(started_as);
             let mut env = crate::agent::auth::env(&self.hub.store, &self.cfg.backend)?;
             env.extend(launch.env());
             let candidates = match std::env::var(hq::ACP_COMMAND_ENV) {
