@@ -88,7 +88,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             }
             ready
         }
-        "credentialStatus" => market::passwords::status(&hub.store)?,
+        "credentialStatus" => market::passwords::status(&hub.store).await?,
         "credentialLogins" => market::logins::list(&hub.store)?,
         "credentialSaveLogin" => {
             let login = market::logins::save(
