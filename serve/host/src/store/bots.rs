@@ -234,6 +234,7 @@ mod tests {
             auto_name: false,
             tasks: None,
             hq_agent: None,
+            project: None,
             created_at: 0,
         };
         s.save_bot(&cfg).unwrap();

@@ -91,10 +91,6 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             }
             serde_json::to_value(&*hub.usage.locked())?
         }
-        "listDirs" => {
-            let path = b["path"].as_str().map(std::path::PathBuf::from);
-            tokio::task::spawn_blocking(move || list_dirs(path)).await??
-        }
         "agentSetup" => {
             let step: crate::agent::term::Step =
                 serde_json::from_value(b["step"].clone()).context("`step` is install or login")?;
@@ -188,34 +184,6 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             crate::screen::computer(hub, str_arg(&b, "botId")?, str_arg(&b, "name")?, args).await?
         }
         _ => return Ok(ControlFlow::Continue(b)),
-    }))
-}
-
-/// Blocking (`std::fs`): call through `spawn_blocking`.
-fn list_dirs(path: Option<std::path::PathBuf>) -> Result<Value> {
-    let dir = match path {
-        Some(p) => p,
-        None => dirs::home_dir().ok_or_else(|| anyhow!("no home directory"))?,
-    };
-    let mut dirs: Vec<Value> = std::fs::read_dir(&dir)
-        .with_context(|| format!("listing {}", dir.display()))?
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-        .filter_map(|e| {
-            let name = e.file_name().to_string_lossy().into_owned();
-            if name.starts_with('.') {
-                return None;
-            }
-            let p = e.path();
-            Some(json!({"name": name, "path": p.to_string_lossy(), "isGit": p.join(".git").exists()}))
-        })
-        .collect();
-    dirs.sort_by_key(|d| d["name"].as_str().unwrap_or_default().to_lowercase());
-    Ok(json!({
-        "path": dir.to_string_lossy(),
-        "parent": dir.parent().map(|p| p.to_string_lossy().into_owned()),
-        "isGit": dir.join(".git").exists(),
-        "dirs": dirs,
     }))
 }
 

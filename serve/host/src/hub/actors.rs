@@ -152,6 +152,16 @@ impl Hub {
             Cmd::RefreshTools => self.each_actor(bot_id, |_| true, || Cmd::RefreshTools),
             Cmd::Shutdown => self.each_actor(bot_id, |_| true, || Cmd::Shutdown),
             Cmd::Reconfigure(cfg) => self.each_actor(bot_id, |_| true, || Cmd::Reconfigure(cfg.clone())),
+            // The folder of a place changed: its actor, and the bot's own chat's when that holds the place's session.
+            Cmd::ResetPlace { ref lane } => {
+                let lane = lane.clone();
+                let main = Lane::main(bot_id);
+                self.each_actor(
+                    bot_id,
+                    |home| *home == lane || (lane.thread.is_some() && lane.chat == bot_id && *home == main),
+                    || Cmd::ResetPlace { lane: lane.clone() },
+                )
+            }
             // A new session starts the bot afresh in its groups too; its threads keep theirs.
             Cmd::NewSession => {
                 self.forget_group_sessions(bot_id);

@@ -43,7 +43,7 @@ use crate::hub::{BotStatus, Hub};
 use crate::store::{BotConfig, Entry, EntryKind, Lane, lane_key};
 use anyhow::{Result, anyhow};
 use place::inflight_key;
-pub use place::{actor_key, bot_of, interrupted_places, place_of};
+pub use place::{actor_key, bot_of, forget_inflight, interrupted_places, place_of};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -112,6 +112,10 @@ pub enum Cmd {
         option_id: Option<String>,
     },
     NewSession,
+    /// The folder of a place changed (see `agent::folder`): its session ends, its agent restarts in the new folder.
+    ResetPlace {
+        lane: Lane,
+    },
     Reconfigure(Box<BotConfig>),
     Shutdown,
 }

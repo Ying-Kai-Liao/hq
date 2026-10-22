@@ -1,7 +1,7 @@
 //! Bot snapshots shared by full, incremental and live synchronization.
 
 use super::Hub;
-use crate::store::{BotRow, ReadScope};
+use crate::store::{BotRow, Lane, ReadScope};
 use anyhow::Result;
 use serde_json::{Value, json};
 
@@ -14,6 +14,8 @@ impl Hub {
         v["harnessMemory"] =
             (!cfg.is_group() && crate::agent::own_memory::switchable(cfg)).then_some(cfg.harness_memory).into();
         if !cfg.is_group() {
+            // The bot's own chat; a thread's comes with the thread (`thread`).
+            v["folder"] = crate::agent::folder::describe_cached(&self.store, cfg, &Lane::main(&cfg.id));
             v["sharedMemory"] = crate::chat::memory::shared(cfg).into();
             v["memoryRev"] = self.store.memory_rev().into();
         }

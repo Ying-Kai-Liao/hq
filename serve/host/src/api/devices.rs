@@ -236,6 +236,10 @@ mod tests {
             assert!(permit(&both, m).is_err(), "{m} is loopback only");
         }
         assert!(permit(&both, "send").is_ok());
+        // The folder pickers of the phone apps: Control scope is enough, as for `updateBot` and `listDirs`.
+        for m in ["projects", "recentFolders", "listDirs", "setPlaceFolder", "registerProject"] {
+            assert!(permit(&control, m).is_ok(), "{m}");
+        }
         assert!(permit(&both, "screenOffer").is_ok());
         assert!(permit(&both, "screenPrepare").is_ok());
         assert!(permit(&control, "screenPrepare").is_err());

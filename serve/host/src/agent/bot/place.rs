@@ -40,6 +40,24 @@ pub(super) fn interrupted(store: &Store, key: &str, home: &Lane) -> Option<Lane>
     (now_ms() - started < STALE_RESUME_MS).then(|| Lane { chat: home.chat.clone(), thread })
 }
 
+/// A turn the previous host process cut off in `lane` must not resume once the place's folder changed: drops the
+/// record of its own actor, and the bot's own chat's when that one was running a turn there (a routine in a thread).
+pub fn forget_inflight(store: &Store, bot: &str, lane: &Lane) {
+    let own = actor_key(bot, lane);
+    let mut keys = vec![own.clone()];
+    if own != bot
+        && let Some(v) = store.kv_get(&inflight_key(bot))
+        && v.split_once('\t').is_some_and(|(_, root)| lane.chat == bot && lane.thread.as_deref() == Some(root))
+    {
+        keys.push(bot.to_owned());
+    }
+    for key in keys {
+        if let Err(error) = store.kv_set(&inflight_key(&key), "") {
+            tracing::warn!(bot, error = format!("{error:#}"), "couldn't clear a running-turn record");
+        }
+    }
+}
+
 /// The places besides its own chat where the previous host process cut off one of the bot's turns. Records too old
 /// to resume are cleared, so they don't start an actor again on every host start.
 pub fn interrupted_places(store: &Store, bot: &str) -> Vec<Lane> {

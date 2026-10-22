@@ -65,6 +65,8 @@ impl Hub {
         // taken before listing so an older answer can't be applied after a newer one.
         let _one = self.hq_sync.lock().await;
         let agents = hq::list(bin).await?;
+        // Rosters carry each place's folder; knowing the projects now lets them name a project's path.
+        tokio::spawn(async { drop(hq::projects(true).await) });
         let hub = self.clone();
         tokio::task::spawn_blocking(move || hub.apply_hq_agents(&agents)).await?
     }

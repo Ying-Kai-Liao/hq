@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""A stand-in for the `hq` CLI: `ls --json` lists one agent, `<agent> --launch-json` describes how to start it.
+"""A stand-in for the `hq` CLI: `ls --json` lists one agent, `<agent> --launch-json` describes how to start it,
+`project ls --json` lists the projects in `projects.json` (`{"projects": [...]}`) and `project add <id> <path>` adds one.
 
 STUB_HQ_HOME is the agent's folder. Every call is appended to calls.jsonl there (arguments, HQ_VIA, working
 directory). A file named `fail` in that folder makes --launch-json fail with its text on stderr.
@@ -16,6 +17,18 @@ with open(os.path.join(home, "calls.jsonl"), "a", encoding="utf-8") as log:
 if args == ["ls", "--json"]:
     print(json.dumps([{"name": "house", "description": "Keeps the house", "home": home, "model": None,
                        "effort": None, "harness": "claude"}]))
+elif args[:2] == ["project", "ls"]:
+    path = os.path.join(home, "projects.json")
+    print(open(path, encoding="utf-8").read() if os.path.exists(path) else '{"projects": []}')
+elif args[:2] == ["project", "add"]:
+    path = os.path.join(home, "projects.json")
+    projects = json.load(open(path, encoding="utf-8"))["projects"] if os.path.exists(path) else []
+    if any(p["id"] == args[2] for p in projects):
+        print(f"project {args[2]} already exists", file=sys.stderr)
+        sys.exit(1)
+    projects.append({"id": args[2], "paths": [args[3]], "home": args[3], "remotes": [], "parent": None,
+                     "memory": None, "exists": True})
+    json.dump({"projects": projects}, open(path, "w", encoding="utf-8"))
 elif args[:2] == ["house", "--launch-json"]:
     fail = os.path.join(home, "fail")
     if os.path.exists(fail):

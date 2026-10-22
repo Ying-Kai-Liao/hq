@@ -15,6 +15,8 @@ struct Setup {
     host: Host,
     /// The agent's folder.
     home: PathBuf,
+    /// Folders the tests pick from (alpha, beta, plain): a browsable root of the host.
+    area: PathBuf,
 }
 
 async fn start() -> Setup {
@@ -24,18 +26,25 @@ async fn start() -> Setup {
     let stub = fixtures.join("stub_hq.py");
     let acp = format!("{} claude", common::python_agent(&fixtures.join("instructions_agent.py")));
     let home_text = home.to_string_lossy().into_owned();
+    let area = std::env::temp_dir().join(format!("kith-hq-e2e-area-{}", uuid::Uuid::new_v4()));
+    for dir in ["alpha", "beta", "plain", ".dot"] {
+        std::fs::create_dir_all(area.join(dir)).unwrap();
+    }
+    let area = area.canonicalize().unwrap();
     let host = Host::start_env(&[
         ("HQ_BIN", &stub.to_string_lossy()),
         ("STUB_HQ_HOME", &home_text),
         ("KITH_SERVE_HQ_ACP_COMMAND", &acp),
+        ("KITH_SERVE_FOLDER_ROOTS", &area.to_string_lossy()),
     ])
     .await;
-    Setup { host, home }
+    Setup { host, home, area }
 }
 
 impl Drop for Setup {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.home);
+        let _ = std::fs::remove_dir_all(&self.area);
     }
 }
 
@@ -61,9 +70,62 @@ impl Setup {
         self.lines("requests.jsonl").into_iter().filter(|r| r["method"] == method).collect()
     }
 
+    fn dir(&self, name: &str) -> PathBuf {
+        self.area.join(name)
+    }
+
+    /// Registers `alpha` and `beta` (folders of `area`) as hq projects.
+    fn register_projects(&self) {
+        let one = |id: &str| {
+            let path = self.dir(id).to_string_lossy().into_owned();
+            json!({"id": id, "paths": [path], "home": path, "remotes": [], "parent": null, "memory": null, "exists": true})
+        };
+        let list = json!({"projects": [one("alpha"), one("beta")]});
+        std::fs::write(self.home.join("projects.json"), list.to_string()).unwrap();
+    }
+
+    /// The launches of `hq house --launch-json` that ran in `dir`.
+    fn launches_in(&self, dir: &Path) -> Vec<Value> {
+        self.launches().into_iter().filter(|c| same_dir(c["cwd"].as_str().unwrap(), dir)).collect()
+    }
+
+    /// A message in the thread on `root` and the agent's final answer to it.
+    async fn thread_reply(&self, bot: &str, root: &str, text: &str) {
+        let finals = |entries: &Value| {
+            let all = entries["entries"].as_array().unwrap();
+            all.iter().filter(|e| e["kind"] == "agent" && e["data"]["final"] == true).count()
+        };
+        let before = finals(&self.host.call("thread", json!({"botId": bot, "rootId": root})).await);
+        let nonce = uuid::Uuid::new_v4().to_string();
+        self.host.call("send", json!({"botId": bot, "text": text, "threadId": root, "clientNonce": nonce})).await;
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while finals(&self.host.call("thread", json!({"botId": bot, "rootId": root})).await) <= before {
+            assert!(Instant::now() < deadline, "no answer in the thread to {text:?}");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    /// The `house` bot with its chat as one conversation (no tasks) that has run once, and the message that opens
+    /// a thread.
+    async fn house_chat(&self) -> (String, String) {
+        let id = self.house().await["id"].as_str().unwrap().to_owned();
+        self.host.call("updateBot", json!({"id": id, "tasks": false})).await;
+        self.host.reply(&id, "hello").await;
+        let history = self.host.call("history", json!({"botId": id})).await;
+        let user = history["entries"].as_array().unwrap().iter().find(|e| e["kind"] == "user").unwrap().clone();
+        (id, user["id"].as_str().unwrap().to_owned())
+    }
+
     fn launches(&self) -> Vec<Value> {
         self.lines("calls.jsonl").into_iter().filter(|c| c["args"][1] == "--launch-json").collect()
     }
+}
+
+/// The ACP requests the agent started in `dir` got (the fixture logs into its working folder).
+fn requests_in(dir: &Path, method: &str) -> Vec<Value> {
+    let text = std::fs::read_to_string(dir.join("requests.jsonl")).unwrap_or_default();
+    let all = text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap());
+    all.filter(|r| r["method"] == method).collect()
 }
 
 fn same_dir(a: &str, b: &Path) -> bool {
@@ -156,4 +218,217 @@ async fn syncing_again_makes_no_second_bot() {
     assert_eq!(done["created"], json!([]));
     let houses = s.host.roster().await.into_iter().filter(|b| b["hqAgent"] == "house").count();
     assert_eq!(houses, 1);
+}
+
+#[tokio::test]
+async fn a_place_in_a_project_launches_hq_for_it_and_runs_in_its_folder() {
+    let s = start().await;
+    s.register_projects();
+    let id = s.house().await["id"].as_str().unwrap().to_owned();
+    s.host.call("updateBot", json!({"id": id, "tasks": false})).await;
+    let set = s.host.call("setPlaceFolder", json!({"botId": id, "project": "alpha"})).await;
+    let alpha = s.dir("alpha");
+    assert_eq!(set["folder"]["kind"], "project");
+    assert_eq!((set["folder"]["project"].as_str(), set["folder"]["inherited"].as_bool()), (Some("alpha"), Some(false)));
+    assert!(same_dir(set["folder"]["path"].as_str().unwrap(), &alpha));
+
+    s.host.reply(&id, "work on alpha").await;
+
+    let launches = s.launches_in(&alpha);
+    assert_eq!(launches.len(), 1, "hq runs in the project's folder: {:?}", s.launches());
+    let args = launches[0]["args"].as_array().unwrap();
+    assert_eq!(&args[..4], [json!("house"), json!("--launch-json"), json!("-p"), json!("alpha")]);
+    let new = requests_in(&alpha, "session/new");
+    assert_eq!(new.len(), 1);
+    assert!(
+        same_dir(new[0]["params"]["cwd"].as_str().unwrap(), &alpha),
+        "the session works in the folder, not the agent's home"
+    );
+    // The history read says where the place works.
+    let history = s.host.call("history", json!({"botId": id})).await;
+    assert_eq!(history["folder"]["project"], "alpha");
+}
+
+#[tokio::test]
+async fn a_plain_folder_is_the_cwd_and_asks_hq_for_no_project() {
+    let s = start().await;
+    let (id, _) = s.house_chat().await;
+    let plain = s.dir("plain");
+    s.host.call("setPlaceFolder", json!({"botId": id, "folder": plain})).await;
+    s.host.reply(&id, "in the plain folder").await;
+
+    let launches = s.launches_in(&plain);
+    assert_eq!(launches.len(), 1, "{:?}", s.launches());
+    assert_eq!(launches[0]["args"], json!(["house", "--launch-json"]), "no -p: hq finds a project from the cwd");
+    let new = requests_in(&plain, "session/new");
+    assert!(same_dir(new[0]["params"]["cwd"].as_str().unwrap(), &plain));
+    assert!(requests_in(&plain, "session/load").is_empty());
+}
+
+#[tokio::test]
+async fn changing_a_places_folder_starts_a_fresh_session_for_that_place_only() {
+    let s = start().await;
+    s.register_projects();
+    let (id, root) = s.house_chat().await;
+    let (alpha, beta) = (s.dir("alpha"), s.dir("beta"));
+    // `house_chat` already ran the chat once in the agent's folder. The chat now works in alpha, the thread keeps
+    // the agent's own folder.
+    s.host.call("setPlaceFolder", json!({"botId": id, "project": "alpha"})).await;
+    s.host.reply(&id, "in alpha").await;
+    s.thread_reply(&id, &root, "in the thread").await;
+    assert_eq!(requests_in(&s.home, "session/new").len(), 2, "the chat's first session, and the thread's");
+    assert_eq!(requests_in(&alpha, "session/new").len(), 1);
+
+    // Same value again: nothing restarts.
+    s.host.call("setPlaceFolder", json!({"botId": id, "project": "alpha"})).await;
+    s.host.reply(&id, "still alpha").await;
+    assert_eq!(s.launches_in(&alpha).len(), 1);
+    assert_eq!(requests_in(&alpha, "session/new").len(), 1);
+
+    // Another project: a fresh session in beta, the old one never loaded.
+    let moved = s.host.call("setPlaceFolder", json!({"botId": id, "project": "beta"})).await;
+    assert_eq!(moved["folder"]["project"], "beta");
+    s.host.reply(&id, "now beta").await;
+    assert_eq!(requests_in(&beta, "session/new").len(), 1);
+    assert!(requests_in(&beta, "session/load").is_empty() && requests_in(&alpha, "session/load").is_empty());
+    assert_eq!(s.launches_in(&beta)[0]["args"], json!(["house", "--launch-json", "-p", "beta"]));
+
+    // The thread was left alone: same agent process, same session.
+    s.thread_reply(&id, &root, "thread again").await;
+    assert_eq!(requests_in(&s.home, "session/new").len(), 2);
+    assert!(requests_in(&s.home, "session/load").is_empty());
+
+    // Clearing the pick goes back to the agent's folder, and starts afresh there too.
+    let cleared = s.host.call("setPlaceFolder", json!({"botId": id, "clear": true})).await;
+    assert_eq!(cleared["folder"]["inherited"], true);
+    s.host.reply(&id, "back home").await;
+    assert_eq!(requests_in(&s.home, "session/new").len(), 3, "the chat's new session");
+    assert!(requests_in(&s.home, "session/load").is_empty());
+}
+
+#[tokio::test]
+async fn the_bots_default_project_resets_only_the_places_that_follow_it() {
+    let s = start().await;
+    s.register_projects();
+    let (id, root) = s.house_chat().await;
+    let (alpha, beta) = (s.dir("alpha"), s.dir("beta"));
+    s.thread_reply(&id, &root, "thread").await;
+    // The chat picked beta itself; the thread follows the bot.
+    s.host.call("setPlaceFolder", json!({"botId": id, "project": "beta"})).await;
+    s.host.reply(&id, "beta").await;
+
+    s.host.call("updateBot", json!({"id": id, "project": "alpha"})).await;
+    s.thread_reply(&id, &root, "thread in alpha").await;
+    assert_eq!(requests_in(&alpha, "session/new").len(), 1, "the thread follows the new default");
+    assert!(requests_in(&alpha, "session/load").is_empty());
+    assert_eq!(s.launches_in(&alpha)[0]["args"], json!(["house", "--launch-json", "-p", "alpha"]));
+    let folder = s.host.call("thread", json!({"botId": id, "rootId": root})).await["folder"].clone();
+    assert_eq!((folder["project"].as_str(), folder["inherited"].as_bool()), (Some("alpha"), Some(true)));
+    s.host.reply(&id, "still beta").await;
+    assert_eq!(requests_in(&beta, "session/new").len(), 1, "the chat kept its session");
+    assert!(requests_in(&beta, "session/load").is_empty());
+}
+
+#[tokio::test]
+async fn a_project_without_a_folder_here_falls_back_with_a_notice_and_still_passes_p() {
+    let s = start().await;
+    let gone = s.dir("gone");
+    let entry = json!({"id": "lost", "paths": [gone], "home": null, "remotes": [], "parent": null, "memory": null, "exists": false});
+    std::fs::write(s.home.join("projects.json"), json!({"projects": [entry]}).to_string()).unwrap();
+    let (id, _) = s.house_chat().await;
+    s.host.call("setPlaceFolder", json!({"botId": id, "project": "lost"})).await;
+    s.host.reply(&id, "somewhere").await;
+    let launch = s.launches().into_iter().rfind(|c| c["args"].as_array().unwrap().contains(&json!("lost"))).unwrap();
+    assert_eq!(&launch["args"].as_array().unwrap()[2..], [json!("-p"), json!("lost")]);
+    assert!(same_dir(launch["cwd"].as_str().unwrap(), &s.home), "the bot's own folder");
+    let history = s.host.call("history", json!({"botId": id})).await;
+    let said = |e: &Value| {
+        e["kind"] == "notice" && e["data"]["text"].as_str().is_some_and(|t| t.contains("no folder on this computer"))
+    };
+    assert!(history["entries"].as_array().unwrap().iter().any(said), "{history}");
+}
+
+#[tokio::test]
+async fn pickers_list_projects_recent_folders_and_browsable_directories() {
+    let s = start().await;
+    s.register_projects();
+    let (id, _) = s.house_chat().await;
+
+    let projects = s.host.call("projects", json!({})).await;
+    let ids: Vec<&str> = projects["projects"].as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["alpha", "beta"]);
+    assert_eq!(projects["projects"][0]["exists"], true);
+    assert!(same_dir(projects["projects"][0]["path"].as_str().unwrap(), &s.dir("alpha")));
+
+    s.host.call("setPlaceFolder", json!({"botId": id, "folder": s.dir("plain")})).await;
+    s.host.call("setPlaceFolder", json!({"botId": id, "project": "beta"})).await;
+    let recent = s.host.call("recentFolders", json!({})).await["folders"].clone();
+    assert_eq!((recent[0]["name"].as_str(), recent[0]["project"].as_str()), (Some("beta"), Some("beta")));
+    assert_eq!((recent[1]["name"].as_str(), recent[1]["project"].as_str()), (Some("plain"), None));
+    std::fs::remove_dir_all(s.dir("plain")).unwrap();
+    let after = s.host.call("recentFolders", json!({})).await;
+    assert_eq!(after["folders"].as_array().unwrap().len(), 1, "a deleted folder drops out");
+
+    let listing = s.host.call("listDirs", json!({"path": s.area})).await;
+    let names: Vec<&str> = listing["dirs"].as_array().unwrap().iter().map(|d| d["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["alpha", "beta"], "dot folders stay out: {listing}");
+    assert_eq!(listing["dirs"][0]["project"], "alpha");
+    assert_eq!(listing["dirs"][1]["project"], "beta");
+    assert!(listing["roots"].as_array().unwrap().iter().any(|r| same_dir(r["path"].as_str().unwrap(), &s.area)));
+    let hidden = s.host.call("listDirs", json!({"path": s.area, "showHidden": true})).await;
+    assert!(hidden["dirs"].as_array().unwrap().iter().any(|d| d["name"] == ".dot"));
+
+    let outside = s.host.refused("listDirs", json!({"path": "/etc"})).await;
+    assert!(outside.contains("outside"), "{outside}");
+    let climb = s.dir("alpha").join("..").join("..").join("..");
+    let escape = s.host.refused("listDirs", json!({"path": climb})).await;
+    assert!(escape.contains("outside"), "{escape}");
+    let refused = s.host.refused("setPlaceFolder", json!({"botId": id, "folder": "/etc"})).await;
+    assert!(refused.contains("outside"), "{refused}");
+    let unknown = s.host.refused("setPlaceFolder", json!({"botId": id, "project": "nope"})).await;
+    assert!(unknown.contains("unknown project"), "{unknown}");
+}
+
+#[tokio::test]
+async fn registering_a_project_runs_hq_project_add_and_passes_its_error_through() {
+    let s = start().await;
+    let added = s.host.call("registerProject", json!({"id": "gamma", "path": s.dir("plain")})).await;
+    assert_eq!(added["project"]["id"], "gamma");
+    assert!(same_dir(added["project"]["path"].as_str().unwrap(), &s.dir("plain")));
+    let again = s.host.refused("registerProject", json!({"id": "gamma", "path": s.dir("plain")})).await;
+    assert!(again.contains("already exists"), "hq's own words: {again}");
+    let bad_id = s.host.refused("registerProject", json!({"id": "Not Kebab", "path": s.dir("plain")})).await;
+    assert!(bad_id.contains("project id"), "{bad_id}");
+    let outside = s.host.refused("registerProject", json!({"id": "etc", "path": "/etc"})).await;
+    assert!(outside.contains("outside"), "{outside}");
+}
+
+#[tokio::test]
+async fn a_new_task_starts_in_the_folder_the_message_picked() {
+    let s = start().await;
+    s.register_projects();
+    let id = s.house().await["id"].as_str().unwrap().to_owned();
+    // Tasks on (hq bots start without): the message opens a thread, which runs in alpha from its first turn.
+    s.host.call("updateBot", json!({"id": id, "tasks": true})).await;
+    let sent =
+        s.host.call("send", json!({"botId": id, "text": "a task", "clientNonce": "t1", "project": "alpha"})).await;
+    let task = sent["entry"]["id"].as_str().unwrap().to_owned();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while requests_in(&s.dir("alpha"), "session/prompt").is_empty() {
+        assert!(Instant::now() < deadline, "the task never ran in alpha");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(requests_in(&s.dir("alpha"), "session/new").len(), 1);
+    let thread = s.host.call("thread", json!({"botId": id, "rootId": task})).await;
+    assert_eq!(thread["folder"]["project"], "alpha", "{thread}");
+    let main = s.host.call("history", json!({"botId": id})).await;
+    assert_eq!(main["folder"]["inherited"], true, "the chat itself keeps the agent's folder");
+}
+
+#[tokio::test]
+async fn without_hq_projects_is_empty_and_says_why() {
+    let host = Host::start().await;
+    let answer = host.call("projects", json!({})).await;
+    assert_eq!(answer["projects"], json!([]));
+    assert!(answer["error"].as_str().is_some_and(|e| e.contains("hq")), "{answer}");
 }
