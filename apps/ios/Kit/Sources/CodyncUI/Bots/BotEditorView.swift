@@ -88,6 +88,8 @@ struct BotSettingsForm: View {
     var computer: Binding<ComputerID>?
     var scrolls = true
     var part: FormPart = .all
+    /// An hq bot's details sheet shows kith's copy of some facts: those cards go (`BotSections`).
+    var shown = BotSections.all
     @Environment(BotStore.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pickingFolder = false
@@ -121,9 +123,9 @@ struct BotSettingsForm: View {
     /// What changes often: on the details sheet's Details page.
     private var oftenSections: some View {
         VStack(alignment: .leading, spacing: 30) {
-            CardSection("Instructions") { instructions }
+            if shown.instructions { CardSection("Instructions") { instructions } }
             CardSection("Agent") {
-                agentPicker
+                if shown.backendPicker { agentPicker }
                 modelPicker
             }
             if let error {

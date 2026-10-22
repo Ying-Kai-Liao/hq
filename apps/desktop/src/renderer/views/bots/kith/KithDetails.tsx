@@ -1,6 +1,6 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
-  ago, cronWords, formatUsd, lastRunText, packageNotes, shortVersion, splitRoleSections, topModels,
+  ago, cronWords, formatUsd, lastRunText, packageNotes, rolePrompt, shortVersion, topModels,
   type KithInfo, type KithMcp, type KithSchedule, type KithSkill,
 } from '@shared/kith-info'
 import { Button, Disclosure, IconButton, Pill, Spinner } from '../../../components/Controls'
@@ -68,52 +68,23 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 const Failed = ({ what }: { what: string }) => <p className="kith-muted kith-failed">Couldn't read {what}</p>
 
-/** Long markdown stops at about four lines until "More". */
-function Clamped({ text }: { text: string }) {
-  const [open, setOpen] = useState(false)
-  const [long, setLong] = useState(false)
-  const box = useRef<HTMLDivElement>(null)
-  // Measured while clamped: "More" only shows when four lines don't hold it.
-  useLayoutEffect(() => {
-    const el = box.current
-    if (el && !open) setLong(el.scrollHeight > el.clientHeight + 1)
-  }, [text, open])
-  return (
-    <div className="kith-clamped">
-      <div ref={box} className={open ? undefined : 'kith-clamp'}><MarkdownText text={text} /></div>
-      {long ? <button className="kith-link press" onClick={() => setOpen(!open)}>{open ? 'Less' : 'More'}</button> : null}
-    </div>
-  )
-}
-
+/** The description stays in view; the long role prompt (the agent's instructions) is one row, closed until opened. */
 function About({ info, failed }: { info: KithInfo; failed: boolean }) {
-  const sections = info.role ? splitRoleSections(info.role.sections) : { notYours: [], rest: [] }
-  return (
-    <>
-      <Section title="About">
-        <div className="outlined-card kith-card">
-          {failed ? <Failed what="the role" /> : <>
-            {info.description ? <p className="kith-description">{info.description}</p> : null}
-            {info.role?.intro ? <Clamped text={info.role.intro} /> : null}
-            {sections.rest.map((s) => <RoleRow key={s.title} title={s.title} text={s.text} />)}
-          </>}
-        </div>
-      </Section>
-      {sections.notYours.map((s) => (
-        <Section key={s.title} title="Not this bot's job">
-          <div className="outlined-card kith-card"><MarkdownText text={s.text} /></div>
-        </Section>
-      ))}
-    </>
-  )
-}
-
-function RoleRow({ title, text }: { title: string; text: string }) {
   const [open, setOpen] = useState(false)
+  const prompt = rolePrompt(info.role)
   return (
-    <Disclosure expanded={open} onToggle={() => setOpen(!open)} label={<span className="kith-row-title">{title}</span>}>
-      <MarkdownText text={text} />
-    </Disclosure>
+    <Section title="About">
+      <div className="outlined-card kith-card">
+        {failed ? <Failed what="the role" /> : <>
+          {info.description ? <p className="kith-description">{info.description}</p> : null}
+          {prompt ? (
+            <Disclosure expanded={open} onToggle={() => setOpen(!open)} label={<span className="kith-row-title">Instructions</span>}>
+              <MarkdownText text={prompt} />
+            </Disclosure>
+          ) : null}
+        </>}
+      </div>
+    </Section>
   )
 }
 

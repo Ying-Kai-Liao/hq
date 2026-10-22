@@ -12,12 +12,14 @@ import { HStack, IconSlot, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
 import { AVATAR_COLORS, AVATAR_SHAPES } from '../../lib/theme'
 import { useStore } from '../../store/context'
+import { botSections } from '@shared/bot-sections'
 import { useAgentModels } from './agent-models'
 import { AgentModelPicker } from './AgentModelPicker'
 import { errorText, fillDefaults, isValid, lastPathComponent, normalized, usePlugins, type Plugins } from './drafts'
 import { FormSheet } from '../marketplace/pieces'
 import { SkillSheet, type SkillRef } from '../marketplace/SkillSheet'
 import { AnchoredPanel, AutoTextArea, Field, SwitchRow } from './parts'
+import { useKithInfo } from './kith/use-kith'
 import './bots.css'
 
 /** Create or edit a bot in a modal: the settings form plus Close / Save. */
@@ -130,6 +132,10 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
 
   const backends = store.hello?.backends ?? []
   const backend = backends.find((b) => b.id === draft.backend)
+  // An hq bot's Details and Settings tabs sit beside the Kith sections, which show the same facts: those cards go.
+  // The editor sheet has no Kith sections, so it keeps everything.
+  const kith = useKithInfo(draft.id ?? '')
+  const shown = botSections(saved?.hqAgent, part === 'all' || kith?.unsupported ? null : (kith?.info ?? null))
   const connectors = plugins?.connectors ?? []
   const skills = plugins?.skills ?? []
 
@@ -153,7 +159,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
     ) : null,
   ]
 
-  const agent = (
+  const agent = shown.backendPicker ? (
     <VStack key="agent" gap={8}>
       <ValueRow label="Agent">
         <ChoicePicker
@@ -176,13 +182,13 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
         />
       ) : null}
     </VStack>
-  )
+  ) : null
 
   if (part === 'often') {
     return (
       <div className="bot-form">
         <div className="bot-form-content">
-          <CardSection title="Instructions">{instructions}</CardSection>
+          {shown.instructions ? <CardSection title="Instructions">{instructions}</CardSection> : null}
           <CardSection title="Agent">
             {agent}
             {model}

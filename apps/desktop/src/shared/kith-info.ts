@@ -244,6 +244,13 @@ export function splitRoleSections(sections: KithRoleSection[]): { notYours: Kith
   return { notYours: sections.filter(isBoundary), rest: sections.filter((s) => !isBoundary(s)) }
 }
 
+/** The whole role prompt as one markdown text: the intro, then every section under its title. Null when there is none. */
+export function rolePrompt(role: { intro: string; sections: KithRoleSection[] } | null): string | null {
+  if (!role) return null
+  const parts = [role.intro.trim(), ...role.sections.map((s) => `## ${s.title}\n\n${s.text.trim()}`)].filter(Boolean)
+  return parts.length ? parts.join('\n\n') : null
+}
+
 /** An older host answers an unknown method with 404: the kith sections stay hidden then. */
 export function isUnsupportedHost(error: unknown): boolean {
   const e = error as { status?: number; message?: string } | null
