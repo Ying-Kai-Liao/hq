@@ -47,5 +47,7 @@ if (process.platform === 'win32') {
   mkdirSync(join(kith, 'bin'), { recursive: true })
   run('lipo', ['-create', '-output', join(kith, 'bin/kith'), ...targets.map((t) => built(t, 'kith'))])
   run('sh', [join(root, '../../scripts/stage-kernel.sh'), join(kith, 'share/kith')])
+  // kernel/bin/hq-serve reads this to use the main environment's data dir and port instead of the dev ones.
+  writeFileSync(join(kith, 'share/kith/env'), `${env}\n`)
 }
 console.log(`host: ${env}`)
