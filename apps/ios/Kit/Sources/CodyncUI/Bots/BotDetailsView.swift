@@ -26,6 +26,8 @@ struct BotDetailsView: View {
     @State private var saveError: String?
     @State private var saving: Task<Void, Never>?
     @State private var template: EditorRequest?
+    /// A kith bot's details (serve/docs/bot-info.md); nil for any other bot. Kept while `bot` events arrive.
+    @State private var kith: KithInfoStore?
 
     init(botId: String, request: DetailsRequest) {
         self.botId = botId
@@ -49,9 +51,16 @@ struct BotDetailsView: View {
             .padding(.bottom, 24)
         }
         .scrollDismissesKeyboard(.interactively)
+        .modifier(KithRefresh(store: kith))
         .background(Palette.background)
         .overlay(alignment: .topTrailing) { actions }
         .task(id: botId) { draft = bot.map(BotDraft.init) }
+        .task(id: "\(botId)/\(bot?.hqAgent ?? "")") {
+            guard let bot, let agent = bot.hqAgent, !bot.isGroup, !agent.isEmpty else { kith = nil; return }
+            let store = kith?.botId == botId ? kith! : KithInfoStore(botId: botId) { try await model.ready() }
+            kith = store
+            await store.load()
+        }
         .onChange(of: draft) { _, draft in autosave(draft) }
         .codyncSheet(item: $template) { BotTemplateView(draft: $0.draft) }
     }
@@ -98,6 +107,7 @@ struct BotDetailsView: View {
             }
             .font(.footnote)
             .foregroundStyle(Palette.secondary)
+            if let agent = bot.hqAgent, let kith { KithIdentityLine(agent: agent, store: kith) }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 64)
@@ -107,6 +117,7 @@ struct BotDetailsView: View {
         switch tab {
         case .details:
             VStack(alignment: .leading, spacing: 28) {
+                if let kith { KithDetailsSections(store: kith) }
                 if let draft = Binding($draft) {
                     BotSettingsForm(draft: draft, error: saveError, scrolls: false, part: .often)
                 }
@@ -126,7 +137,10 @@ struct BotDetailsView: View {
                 RoutinesView(botId: botId, initialId: routineId) { dismiss() }
             }
         case .memory:
-            MemoryCard(botId: botId)
+            VStack(alignment: .leading, spacing: 20) {
+                if let kith { KithMemorySection(store: kith) }
+                MemoryCard(botId: botId)
+            }
         case .settings:
             if let draft = Binding($draft) {
                 BotSettingsForm(draft: draft, error: saveError, scrolls: false, part: .rarely)
@@ -147,6 +161,19 @@ struct BotDetailsView: View {
             } catch {
                 saveError = error.localizedDescription
             }
+        }
+    }
+}
+
+/// Pull to refresh asks kith again (`refresh: true`); other bots keep a page that doesn't pull.
+private struct KithRefresh: ViewModifier {
+    let store: KithInfoStore?
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if let store {
+            content.refreshable { await store.load(refresh: true) }
+        } else {
+            content
         }
     }
 }

@@ -22,6 +22,8 @@ public struct Bot: Codable, Identifiable, Hashable, Sendable {
     public var managedWorkspace: Bool = false
     /// The bot's default hq project; places with no pick of their own work there. Nil from an older host.
     public var project: String?
+    /// The kith agent this bot is; only on bots made from a kith agent (host sends it, camelCase).
+    public var hqAgent: String?
     /// Where the bot's own chat works; nil for a group or an older host.
     public var folder: PlaceFolder?
     /// `ask` or `auto`.
@@ -459,6 +461,7 @@ extension Bot {
         cwd = try c.decodeIfPresent(String.self, forKey: .cwd) ?? ""
         managedWorkspace = try c.decodeIfPresent(Bool.self, forKey: .managedWorkspace) ?? false
         project = try c.decodeIfPresent(String.self, forKey: .project)
+        hqAgent = try c.decodeIfPresent(String.self, forKey: .hqAgent)
         folder = try? c.decodeIfPresent(PlaceFolder.self, forKey: .folder)
         permission = try c.decodeIfPresent(String.self, forKey: .permission) ?? "auto"
         model = try c.decodeIfPresent(String.self, forKey: .model)
