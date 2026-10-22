@@ -15,13 +15,7 @@ STAGE=$(mktemp -d "${TMPDIR:-/tmp}/kith-pack.XXXXXX")
 trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/$NAME/bin" "$STAGE/$NAME/share/kith" "$OUT"
 install -m 755 "$BIN" "$STAGE/$NAME/bin/kith"
-S=$STAGE/$NAME/share/kith
-cp -R "$ROOT/kernel" "$S/kernel"
-cp -R "$ROOT/.claude-plugin" "$S/.claude-plugin"
-cp "$ROOT/install.sh" "$ROOT/LICENSE" "$ROOT/README.md" "$S/"
-# Tests and caches are for the repo, not the install.
-rm -rf "$S/kernel/tests"
-find "$S" \( -name __pycache__ -o -name .DS_Store \) -prune -exec rm -rf {} +
+sh "$ROOT/scripts/stage-kernel.sh" "$STAGE/$NAME/share/kith"
 tar -C "$STAGE" -czf "$OUT/$NAME.tar.gz" "$NAME"
 (cd "$OUT" && shasum -a 256 "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
 echo "$OUT/$NAME.tar.gz"

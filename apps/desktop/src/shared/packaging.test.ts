@@ -35,3 +35,11 @@ test('development packaging registers only development callbacks and background 
   assert.ok(!dev.win.extraResources.some((f: { to: string }) => f.to === 'kith-servew-main.exe'))
   assert.equal(dev.linux.executableName, 'codync-dev')
 })
+
+test('the Mac app bundles the service binary and the kith release layout', () => {
+  const to = (prod.mac.extraResources as { from: string; to: string }[]).map((f) => f.to)
+  assert.ok(to.includes('kith-serve'))
+  assert.ok(to.includes('kith'))
+  // Windows keeps its own entries.
+  assert.ok(prod.win.extraResources.some((f: { to: string }) => f.to === 'kith-serve.exe'))
+})
