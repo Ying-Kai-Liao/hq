@@ -1,5 +1,5 @@
 {
-  "description": "A browser profile: the logins an agent's browser tools share, kept in ~/.hq/browsers/<name> (hq-auth browser)",
+  "description": "A browser profile: the logins an agent's browser tools share, kept in ~/.kith/browsers/<name> (kith-auth browser)",
   "kind": "browser",
   "secrets": []
 }

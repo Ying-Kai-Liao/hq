@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# kith-project-check — `kith project ls --json`, `kith project add` and `kith <agent> --launch-json -p`, in a throwaway HOME
+# and KITH_HOME (the real ~/.kith is never read or written).
+#
+#   kernel/tests/kith-project-check     a few seconds; prints each check, exits 1 when one fails
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-project-check.XXXXXX")
+T=$(cd "$T" && pwd -P)   # no double slash from TMPDIR, no /var -> /private/var symlink: kith prints normalized paths
+trap 'rm -rf "$T"' EXIT
+export HOME=$T/home KITH_HOME=$T/kith
+unset KITH_PROJECT KITH_PERSON KITH_AGENT KITH_CLAUDE_ARGS KITH_HARNESS
+mkdir -p "$HOME" "$KITH_HOME/state" "$KITH_HOME/agents/echo/role" "$T/work/alpha" "$T/work/beta"
+printf -- '---\nname: echo\ndescription: test agent\n---\nYou echo.\n' > "$KITH_HOME/agents/echo/role/agent.md"
+KITH=$KERNEL/bin/kith
+fails=0
+check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; fails=$((fails + 1)); fi; }
+# is EXPR EXPECTED: the python expression EXPR over the JSON in $OUT (as d) prints EXPECTED. The JSON goes through the
+# environment, not through eval'd text, so quotes in it are harmless.
+is() { [ "$(EXPR=$1 OUT=$OUT python3 -c 'import json,os; d=json.loads(os.environ["OUT"]); print(eval(os.environ["EXPR"]))')" = "$2" ]; }
+launch() { OUT=$("$KITH" echo --launch-json "$@" 2>/dev/null); }
+
+OUT=$("$KITH" project ls --json); rc=$?
+check "ls --json on an empty registry" "[ $rc = 0 ] && is \"d['projects']\" '[]'"
+
+"$KITH" project add zeta "$T/work/alpha" </dev/null >/dev/null 2>&1; rc=$?
+check "add works without a terminal" "[ $rc = 0 ]"
+"$KITH" project add bad/id "$T/work/alpha" </dev/null >/dev/null 2>&1; rc=$?
+check "add refuses a bad id" "[ $rc != 0 ]"
+"$KITH" project add nodir "$T/nope" </dev/null >/dev/null 2>&1; rc=$?
+check "add refuses a missing folder" "[ $rc != 0 ]"
+OUT=$("$KITH" project add beta "$T/work/beta" --json 2>/dev/null)
+check "add --json prints the entry" "is \"d['id'] + ' ' + str(d['exists']) + ' ' + str(d['home'])\" 'beta True None'"
+
+# a project with only a remote and no folder on this Mac, and one with a parent and a home
+printf '{"projects":{"zeta":{"remotes":["github.com/o/z"],"paths":["/nonexistent/zeta"]},"remote-only":{"remotes":["github.com/o/r"],"paths":[]},"alpha":{"remotes":[],"paths":["~/gone"],"home":"%s","parent":"zeta"}}}\n' "$T/work/alpha" > "$KITH_HOME/state/projects.json"
+OUT=$("$KITH" project ls --json)
+check "ls --json sorted by id" "is \"[p['id'] for p in d['projects']]\" \"['alpha', 'remote-only', 'zeta']\""
+check "exists is false for a project with no folder here" "is \"[p['exists'] for p in d['projects']]\" '[True, False, False]'"
+check "paths absolute, parent and memory set" "is \"d['projects'][0]['paths'][0] == '$HOME/gone' and d['projects'][0]['parent'] == 'zeta' and d['projects'][0]['memory'] == '$KITH_HOME/state/projects/alpha'\" True"
+
+cd "$T/work/beta" || exit 1
+launch -p alpha; rc=$?
+check "launch-json -p carries the project" "is \"' '.join([d['project'], d['env']['KITH_PROJECT'], str('<session project=\\\"alpha\\\"' in d['system_prompt'])])\" 'alpha alpha True'"
+OUT=$("$KITH" echo -p alpha --launch-json 2>/dev/null)
+check "launch-json -p in either argument order" "is \"d['project']\" alpha"
+launch
+check "launch-json with no -p and no project here: null" "is \"d['project']\" None"
+"$KITH" project add beta "$T/work/beta" </dev/null >/dev/null 2>&1
+launch
+check "launch-json resolves the project from the cwd" "is \"d['project']\" beta"
+"$KITH" echo --launch-json -p nope >/dev/null 2>"$T/err"; rc=$?
+check "launch-json -p with an unknown id fails with a message" "[ $rc != 0 ] && grep -q \"unknown project 'nope'\" $T/err"
+
+echo
+if [ $fails = 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi

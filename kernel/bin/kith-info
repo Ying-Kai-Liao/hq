@@ -1,0 +1,399 @@
+#!/usr/bin/env python3
+"""kith-info — everything the bot detail page shows about one agent, as one JSON object.
+
+  kith-info <agent>      (also: kith <agent> --info-json)
+
+Read-only and local: no network, no git fetch, nothing written, so a program may call it every few seconds. Prints
+version 1 of the contract: description, harness/model/effort/permission mode, the role (intro and every ## section of
+agent.md), the package (version, remote, dirty, unpushed, pinned), skills, tools, MCP servers (name, kind, command
+name or URL without its query: never env or headers), plugins, projects, schedules, cost (from the usage ledger) and
+memory. Every part fails soft: on an error its key is null and errors.<key> says why in one line. Exit 0 whenever the
+agent exists; exit 1 with a message on stderr when it doesn't.
+"""
+import datetime as dt, importlib.machinery, importlib.util, json, os, plistlib, re, sqlite3, subprocess, sys
+from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
+
+BIN = Path(__file__).resolve().parent
+KITH = BIN.parent
+sys.path.insert(0, str(KITH / 'lib'))
+from kith_paths import paths  # noqa: E402  the one place that knows where kith's folders are
+import kith_settings  # noqa: E402
+
+P = paths()
+STATE, AGENTS, MACHINE = P['KITH_STATE'], P['KITH_AGENTS'], P['KITH_MACHINE']
+
+
+def tool(name):
+    """Another kernel script as a module (they have no .py suffix); their main() is guarded."""
+    loader = importlib.machinery.SourceFileLoader(name.replace('-', '_'), str(BIN / name))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def one_line(e):
+    return ' '.join(str(e).split())[:200] or type(e).__name__
+
+
+def frontmatter(text):
+    m = re.match(r'---\n(.*?)\n---[ \t]*(?:\n|$)', text, re.S)
+    return (m.group(1) if m else ''), (text[m.end():] if m else text)
+
+
+def field(fm, key):
+    """A frontmatter value: one line, or the indented lines of a folded (>) or literal (|) block."""
+    m = re.search(rf'^{key}:[ \t]*(.*)$((?:\n[ \t]+.*)*)', fm, re.M)
+    if not m:
+        return None
+    v = m.group(1).strip()
+    if v in ('>', '|', '>-', '|-', '>+', '|+'):
+        v = ' '.join(l.strip() for l in m.group(2).splitlines() if l.strip())
+    return v.strip('"\'') or None
+
+
+def find_agent(name):
+    """(role folder, life folder) or None; the same lookup as bin/kith's agent_dir."""
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', name):
+        return None
+    for d in (AGENTS / name / 'role', AGENTS / name, KITH / 'agents' / name):
+        if (d / 'agent.md').is_file():
+            return d, (d.parent if d.name == 'role' else STATE / 'agents' / name)
+    return None
+
+
+def role_parts(body):
+    """(intro, [{title, text}]): the text before the first ## heading, then every ## section in order."""
+    intro, sections, fence = [], [], False
+    for line in body.splitlines():
+        if line.lstrip().startswith('```'):
+            fence = not fence
+        m = None if fence or line.startswith('###') else re.match(r'##[ \t]+(.*?)[ \t]*#*[ \t]*$', line)
+        if m:
+            sections.append({'title': m.group(1), 'lines': []})
+        else:
+            (sections[-1]['lines'] if sections else intro).append(line)
+    return ('\n'.join(intro).strip(),
+            [{'title': s['title'], 'text': '\n'.join(s['lines']).strip()} for s in sections])
+
+
+def skill_rows(root, source):
+    rows = []
+    for f in sorted(root.glob('*/SKILL.md')):
+        fm = frontmatter(f.read_text(errors='replace'))[0]
+        rows.append({'name': field(fm, 'name') or f.parent.name, 'description': field(fm, 'description') or '',
+                     'source': source})
+    return rows
+
+
+def caps_list(text, key):
+    """The '- item' lines under `key:` in capabilities.yaml (loose YAML with comments: no parser, stdlib only)."""
+    m = re.search(rf'^{key}:[ \t]*\n((?:[ \t]*(?:-.*)?(?:#.*)?\n?)*)', text, re.M)
+    out = []
+    for line in (m.group(1) if m else '').splitlines():
+        if re.match(r'\s*-\s', line):
+            item = re.sub(r'\s+#.*$', '', line.strip()[1:]).strip()
+            if item:
+                out.append(item)
+    return out
+
+
+def strip_url(u):
+    """scheme://host[:port] only: userinfo, path, query and fragment are where tokens go."""
+    s = urlsplit(u)
+    host = s.hostname or ''
+    if s.port:
+        host += ':%d' % s.port
+    return urlunsplit((s.scheme, host, '', '', ''))
+
+
+def mcp_rows(servers):
+    rows = []
+    for name, c in servers.items():
+        if not isinstance(c, dict):
+            continue
+        url = c.get('url')
+        kind = c.get('type') if c.get('type') in ('stdio', 'http', 'sse') else ('http' if url else 'stdio')
+        rows.append({'name': name, 'kind': kind,
+                     'command': os.path.basename(str(c['command'])) if c.get('command') else None,
+                     'url': strip_url(url) if url else None})
+    return rows
+
+
+def read_json(path):
+    return json.loads(Path(path).read_text())
+
+
+# --- the parts ---------------------------------------------------------------------------------------------------------
+
+def package(name, role):
+    pkg = tool('kith-pkg')
+    ptr = pkg.STORE / '.pointers'   # pkg.pointers() would create the folder: this path stays read-only
+    good, pin = ptr / f'{name}.good', ptr / f'{name}.pin'
+    out = {'version': pkg.read(good) or None, 'remote': None, 'dirty': False, 'unpushed': False,
+           'pinned': pkg.read(pin) or None}
+    if pkg.owned(role):
+        remote = pkg.git(role, 'remote', 'get-url', 'origin', timeout=5).stdout.strip()
+        out['remote'] = re.sub(r'(?<=://)[^/@]*@', '', remote) or None   # keeps the path; userinfo can hold a token
+        out['dirty'] = bool(pkg.git(role, 'status', '--porcelain', '--', '.', timeout=5).stdout.strip())
+        ahead = pkg.git(role, 'rev-list', '--count', '@{u}..HEAD', timeout=5).stdout.strip()
+        out['unpushed'] = ahead.isdigit() and int(ahead) > 0
+    return out
+
+
+def skills(role, home):
+    rows = skill_rows(role / 'skills', 'package')
+    for learned in (role / 'skills' / 'learned', home / 'skills' / 'learned'):
+        rows += skill_rows(learned, 'learned')
+    caps = role / 'capabilities.yaml'
+    if caps.is_file() and re.search(r'^global_skills: *true', caps.read_text(errors='replace'), re.M):
+        rows += skill_rows(Path.home() / '.claude' / 'skills', 'global')
+    return rows
+
+
+def tools(role):
+    f = role / 'capabilities.yaml'
+    return caps_list(f.read_text(errors='replace'), 'tools') if f.is_file() else []
+
+
+def mcp_servers(name, role):
+    servers = {}
+    # The services it needs and is granted, by name and real command: mcp-names resolves no secrets (no keychain).
+    granted = subprocess.run([sys.executable, str(BIN / 'kith-auth'), 'mcp-names', name], capture_output=True,
+                             text=True, timeout=5)
+    if granted.returncode != 0:
+        raise RuntimeError('kith-auth mcp-names: %s' % (granted.stderr.strip().splitlines() or ['failed'])[-1])
+    servers.update(json.loads(granted.stdout).get('mcpServers', {}))
+    own = role / 'mcp.json'
+    if own.is_file():
+        d = read_json(own)
+        servers.update(d.get('mcpServers', d))
+    return mcp_rows(servers)
+
+
+def plugins(role):
+    on = {'kith@kith': True}
+    on.update({p: True for p in kith_settings.get('plugins')})
+    try:
+        on.update(read_json(role / 'settings.json').get('enabledPlugins', {}))
+    except (OSError, ValueError):
+        pass
+    return sorted(p for p, v in on.items() if v)
+
+
+def projects(home):
+    out = []
+    root = home / 'memory' / 'projects'
+    for d in sorted(root.iterdir()) if root.is_dir() else []:
+        if not d.is_dir() or d.name.startswith('.'):
+            continue
+        fs = [f for f in d.rglob('*') if f.is_file() and not f.name.startswith('.')]
+        out.append({'id': d.name, 'files': len(fs),
+                    'modified': dt.datetime.fromtimestamp(max(f.stat().st_mtime for f in fs)).astimezone()
+                    .isoformat(timespec='seconds') if fs else None})
+    return out
+
+
+# Words that only launch the real program in a LaunchAgent's ProgramArguments (and their flags). Only the leading run of
+# them is dropped, so the program's own arguments (`run --quiet`) survive.
+LAUNCHERS = {'hq-uv', 'kith-uv', 'uv', 'run', '--quiet', '--script', 'python', 'python3', 'bash', 'sh', 'zsh', 'env'}
+
+
+def plist_cron(p):
+    """(cron, extra) from a LaunchAgent plist: StartCalendarInterval, else StartInterval, else no cron."""
+    cal = p.get('StartCalendarInterval')
+    if isinstance(cal, dict):
+        cal = [cal]
+    if isinstance(cal, list) and cal and all(isinstance(c, dict) for c in cal):
+        keys = ('Minute', 'Hour', 'Day', 'Month', 'Weekday')
+        rows = [[c.get(k) for k in keys] for c in cal]
+        for r in rows:
+            if r[4] == 7:
+                r[4] = 0   # launchd takes 0 and 7 for Sunday
+        differ = [i for i in range(5) if len({str(r[i]) for r in rows}) > 1]
+        if len(differ) <= 1:
+            fields = []
+            for i in range(5):
+                vals = sorted({r[i] for r in rows if r[i] is not None}) if i in differ else rows[0][i]
+                if i in differ and any(r[i] is None for r in rows):
+                    vals = None
+                fields.append('*' if vals is None else ','.join(map(str, vals)) if isinstance(vals, list) else str(vals))
+            return ' '.join(fields), ''
+        return ' '.join('*' if v is None else str(v) for v in rows[0]), ' (+%d more times)' % (len(rows) - 1)
+    sec = p.get('StartInterval')
+    if isinstance(sec, int) and sec > 0:
+        if sec % 60 == 0:
+            m = sec // 60
+            return ('* * * * *' if m == 1 else '*/%d * * * *' % m) if m < 60 else None, '' if m < 60 else ' (every %d min)' % m
+        return None, ' (every %d s)' % sec
+    return None, ''
+
+
+def plist_task(p):
+    args = [a for a in (p.get('ProgramArguments') or [p.get('Program')]) if isinstance(a, str)]
+    words = [os.path.basename(a) if a.startswith('/') else a for a in args]   # a path says nothing to a person
+    i = 0
+    while i < len(words) and (words[i] in LAUNCHERS or ('=' in words[i] and not words[i].startswith('-'))):
+        if words[i] in ('bash', 'sh', 'zsh') and i + 2 < len(words) + 0 and words[i + 1] == '-c':
+            # `sh -c "<string>"`: the string may hold inline env or tokens, so only its first word shows
+            first = [w for w in args[i + 2].split() if '=' not in w][:1]
+            return os.path.basename(first[0])[:200] if first else ''
+        i += 1
+    return ' '.join(words[i:])
+
+
+def own_file(name, fname):
+    """Whether a plist file name belongs to this agent: dev.hq.<name>.plist or dev.hq.<name>.<x>.plist (also dev.kith)."""
+    parts = fname[:-len('.plist')].split('.')
+    return len(parts) >= 3 and parts[0] == 'dev' and parts[1] in ('hq', 'kith') and parts[2] == name
+
+
+def launchd_jobs(name, sched, now, errors):
+    """This agent's own LaunchAgents (dev.hq.<name>[.x], dev.kith.<name>[.x]), read from the plists, never via launchctl."""
+    d = Path.home() / 'Library' / 'LaunchAgents'
+    if not d.is_dir():
+        return []
+    out, bad = [], []
+    for f in sorted(d.glob('dev.*.plist')):
+        if not f.name.startswith(('dev.hq.', 'dev.kith.')):
+            continue
+        if not own_file(name, f.name):
+            continue   # other agents' plists are neither read nor reported
+        try:
+            p = plistlib.loads(f.read_bytes())
+            label = p.get('Label')
+            if not isinstance(label, str):
+                continue
+            rest = label.split('.', 2)[2] if label.count('.') >= 2 else ''
+            if label.split('.')[0] != 'dev' or label.split('.')[1] not in ('hq', 'kith') or rest.split('.')[0] != name:
+                continue
+            cron, extra = plist_cron(p)
+            task = (plist_task(p) + extra)[:200]
+            nxt = None
+            if cron and not p.get('Disabled'):
+                try:
+                    n = sched.next_time(sched.parse(cron), now)
+                    nxt = n.astimezone().isoformat(timespec='seconds') if n else None
+                except (ValueError, KeyError, AttributeError):
+                    pass
+            last = None
+            so = p.get('StandardOutPath')
+            if isinstance(so, str) and os.path.isfile(so):
+                last = dt.datetime.fromtimestamp(os.path.getmtime(so)).astimezone().isoformat(timespec='seconds')
+            out.append({'id': label, 'cron': cron, 'task': task, 'paused': bool(p.get('Disabled')), 'last_run': last,
+                        'last_status': None, 'next_run': nxt, 'source': 'launchd'})
+        except Exception as e:   # one broken plist must not drop the others
+            bad.append('%s: %s' % (f.name, one_line(e)))
+    if bad:
+        errors['schedules'] = '; '.join(bad)[:300]
+    return out
+
+
+def schedules(name, errors=None):
+    errors = {} if errors is None else errors
+    sched = tool('kith-sched')
+    f = sched.jobs_file(name)
+    jobs = read_json(f) if f.exists() else []
+    last = sched.machine().get('last', {})
+    now = dt.datetime.now()
+    out = []
+    for j in jobs:
+        paused = bool(j.get('paused'))
+        nxt = None
+        if not paused:
+            try:
+                n = sched.next_time(sched.parse(j['cron']), now)
+                nxt = n.astimezone().isoformat(timespec='seconds') if n else None
+            except (ValueError, KeyError, AttributeError):
+                pass
+        l = last.get('%s/%s' % (name, j.get('id')), {})
+        at = None
+        if l.get('at'):
+            try:
+                at = dt.datetime.fromisoformat(l['at']).astimezone().isoformat(timespec='seconds')
+            except ValueError:
+                at = l['at']
+        # The scheduler records when and where a run started, not how it ended: running or done, as `kith schedule log` says.
+        status = ('running' if sched.running(l.get('pid')) else 'done') if l else None
+        out.append({'id': j.get('id'), 'cron': j.get('cron'), 'task': j.get('task', ''), 'paused': paused,
+                    'last_run': at, 'last_status': status, 'next_run': nxt, 'source': 'kith'})
+    return out + launchd_jobs(name, sched, now, errors)
+
+
+def cost(name):
+    db = MACHINE / 'cost.db'
+    if not db.is_file():
+        raise FileNotFoundError('no cost ledger at %s' % db)
+    since = tool('kith-cost').since_of
+    c = sqlite3.connect(db.as_uri() + '?mode=ro', uri=True, timeout=1)
+    try:
+        t, w, m = since('today'), since('week'), since('month')
+        row = c.execute('''select coalesce(sum(case when ts >= ? then cost end), 0),
+                                  coalesce(sum(case when ts >= ? then cost end), 0),
+                                  coalesce(sum(case when ts >= ? then cost end), 0), coalesce(sum(cost), 0),
+                                  count(case when ts >= ? then 1 end), min(ts)
+                           from hq_req where hq_agent = ?''', (t, w, m, m, name)).fetchone()
+        models = c.execute('''select model, sum(cost) s from hq_req where hq_agent = ? and ts >= ? and model is not null
+                              group by model order by s desc''', (name, m)).fetchall()
+    finally:
+        c.close()
+    r = lambda v: round(v or 0, 4)
+    return {'currency': 'USD', 'today': r(row[0]), 'week': r(row[1]), 'month': r(row[2]), 'all': r(row[3]),
+            'requests_month': row[4], 'by_model_month': [{'model': mo, 'usd': r(s)} for mo, s in models],
+            'since': row[5]}
+
+
+def memory(name):
+    return tool('kith-memory').listing(name)
+
+
+def permission_mode(name, role, harness):
+    chosen = os.environ.get('KITH_PERMISSION_MODE') or kith_settings.get('permission_mode', name)
+    if chosen or harness != 'claude':
+        return chosen or None
+    try:   # the agent author's suggestion, then kith's default: what bin/kith's settings step ends up with
+        mode = read_json(role / 'settings.json').get('permissions', {}).get('defaultMode')
+    except (OSError, ValueError):
+        mode = None
+    return mode or kith_settings.get('permission_mode')
+
+
+def main(argv):
+    if len(argv) != 1 or argv[0] in ('-h', '--help'):
+        print(__doc__.strip())
+        sys.exit(0 if argv and argv[0] in ('-h', '--help') else 2)
+    name = argv[0]
+    if tool('kith-memory').guest_run():   # the owner's whole agent: not for a run on someone else's behalf
+        sys.exit('kith: --info-json is for the owner, not a run for %s' % os.environ.get('KITH_PERSON'))
+    found = find_agent(name)
+    if not found:
+        sys.exit("kith: no agent '%s' (try: kith ls)" % name)
+    role, home = found
+    errors = {}
+
+    def part(key, fn, *args):
+        try:
+            return fn(*args)
+        except Exception as e:   # each part stands alone: one broken file must not blank the page
+            errors[key] = one_line(e)
+            return None
+
+    fm, body = frontmatter((role / 'agent.md').read_text(errors='replace'))
+    harness = field(fm, 'harness') or 'claude'
+    harness = 'claude' if harness == 'claude-code' else harness
+    rp = part('role', role_parts, body)
+    info = {'version': 1, 'agent': name, 'description': field(fm, 'description') or '', 'harness': harness,
+            'model': field(fm, 'model'), 'effort': field(fm, 'effort'),
+            'permission_mode': part('permission_mode', permission_mode, name, role, harness), 'home': str(home),
+            'role': {'path': str(role / 'agent.md'), 'intro': rp[0], 'sections': rp[1]} if rp else None,
+            'package': part('package', package, name, role), 'skills': part('skills', skills, role, home),
+            'tools': part('tools', tools, role), 'mcp_servers': part('mcp_servers', mcp_servers, name, role),
+            'plugins': part('plugins', plugins, role), 'projects': part('projects', projects, home),
+            'schedules': part('schedules', schedules, name, errors), 'cost': part('cost', cost, name),
+            'memory': part('memory', memory, name), 'errors': errors}
+    print(json.dumps(info, ensure_ascii=False))
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

@@ -1,0 +1,22 @@
+#!/bin/bash
+# Called by the Agent SDK (claude-agent-acp, started by bin/kith-acp) as its claude binary. Saves the SDK's args, then
+# runs `kith <agent>` with a claude shim first on PATH; the shim merges kith's args with the saved ones.
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+# Subcommands and --version (`claude auth status`, …) aren't sessions: the real claude answers them.
+case ${1:-} in
+  -v|--version|"") exec claude "$@" ;;
+  -*) ;;
+  *) exec claude "$@" ;;
+esac
+# Codync's memory keeper (kith-acp left a marker): a no-tools summary run, not the agent's work.
+keeper=${KITH_ACP_LOG:?}/keeper-${KITH_ACP_PID:-none}
+if [[ -e $keeper ]]; then
+  rm -f "$keeper"
+  exec claude "$@"
+fi
+argf=$(mktemp "${TMPDIR:-/tmp}/kith-acp.XXXXXX")
+[[ $# -gt 0 ]] && printf '%s\0' "$@" > "$argf"
+export KITH_ACP_ARGS=$argf KITH_ACP_REAL_CLAUDE=$(command -v claude)
+export PATH=$here/shim:$PATH
+exec "$here/../../bin/kith" "$KITH_ACP_AGENT" __hq_acp__

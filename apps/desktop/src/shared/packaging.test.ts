@@ -1,0 +1,45 @@
+import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
+import { readFileSync } from 'node:fs'
+import { test } from 'node:test'
+const require = createRequire(import.meta.url)
+const dev = require('../../tools/dev-builder.cjs')
+const { AppInfo } = require('app-builder-lib/out/appInfo')
+const { getWindowsInstallationDirName, getWindowsInstallationAppPackageName } = require('app-builder-lib/out/targets/targetUtil')
+const { parse } = require('yaml')
+const prod = parse(readFileSync(new URL('../../electron-builder.yml', import.meta.url), 'utf8'))
+const metadata = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
+
+test('Linux packages and Windows installation resources have separate development names', () => {
+  const mainInfo = new AppInfo({ config: prod, metadata })
+  const devInfo = new AppInfo({ config: dev, metadata: { ...metadata, ...dev.extraMetadata } })
+  assert.equal(mainInfo.linuxPackageName, 'codync-desktop')
+  assert.equal(devInfo.linuxPackageName, 'codync-desktop-dev')
+  assert.notEqual(devInfo.updaterCacheDirName, mainInfo.updaterCacheDirName)
+  assert.notEqual(getWindowsInstallationDirName(devInfo, true), getWindowsInstallationDirName(mainInfo, true))
+  assert.notEqual(getWindowsInstallationAppPackageName(devInfo.name), getWindowsInstallationAppPackageName(mainInfo.name))
+  assert.equal(dev.extraMetadata.desktopName, 'codync-dev.desktop')
+})
+
+test('development packaging registers only development callbacks and background helpers', () => {
+  assert.equal(dev.appId, 'com.yingkailiao.kith.dev')
+  assert.equal(dev.productName, 'Kith Dev')
+  assert.equal(dev.publish, null)
+  assert.ok(new RegExp(dev.mac.signIgnore[0]).test('CodyncDevScreen.app/Contents/Helpers/cua-driver'))
+  assert.deepEqual(dev.protocols.flatMap((p: { schemes: string[] }) => p.schemes), ['kith-dev', 'codync-dev', 'com.yingkailiao.kith.dev'])
+  assert.deepEqual(dev.mac.extraFiles.map((f: { to: string }) => f.to), [
+    'Library/LoginItems/CodyncDevScreen.app',
+    'Library/LaunchAgents/com.yingkailiao.kith.dev.screen.plist',
+  ])
+  assert.ok(dev.win.extraResources.some((f: { to: string }) => f.to === 'kith-servew.exe'))
+  assert.ok(!dev.win.extraResources.some((f: { to: string }) => f.to === 'kith-servew-main.exe'))
+  assert.equal(dev.linux.executableName, 'codync-dev')
+})
+
+test('the Mac app bundles the service binary and the kith release layout', () => {
+  const to = (prod.mac.extraResources as { from: string; to: string }[]).map((f) => f.to)
+  assert.ok(to.includes('kith-serve'))
+  assert.ok(to.includes('kith'))
+  // Windows keeps its own entries.
+  assert.ok(prod.win.extraResources.some((f: { to: string }) => f.to === 'kith-serve.exe'))
+})

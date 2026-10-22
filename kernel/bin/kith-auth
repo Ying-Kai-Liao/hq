@@ -1,0 +1,1087 @@
+#!/usr/bin/env python3
+"""kith-auth — which agent may use which shared service, and with which account.
+
+  kith-auth ls                              every agent: the services it needs, its grant, whether the secrets resolve
+  kith-auth grant <agent> <service> <profile>   let an agent use a service as that profile (e.g. notion/library);
+                                          several agents as a,b,c, or --all for every agent whose needs list it;
+                                          several profiles as p1,p2 (the bridge or kith serve: one bot each, telegram/hq,telegram/x)
+  kith-auth granted [--for AGENT] <service> the profiles granted, one per line
+  kith-auth revoke <agent> <service>
+  kith-auth set <profile> <VAR>             store a secret in the macOS Keychain (prompts; never echoed) and point
+                                          the profile at it
+  kith-auth mcp-config <agent>              the --mcp-config JSON for an agent's granted MCP services (bin/kith uses it)
+  kith-auth mcp-names <agent>               the same servers by name and real command only: reads auth.json, no secrets, no keychain,
+                                          no browser profile (what kith <agent> --info-json lists)
+  kith-auth exec [--for AGENT] <service> -- CMD...   run CMD with that service's secrets in its environment only
+  kith-auth get  [--for AGENT] [--profile P] <service> <VAR>   print one secret, for an agent's own tool to call;
+                                          --profile picks one of several granted profiles
+  kith-auth env  <agent> <service> [VAR=value | VAR=]  this agent's own settings for a service (not secrets), e.g.
+                                          kith-auth env personal jev-browser JEV_BROWSER_HEADED=1; VAR= drops one
+  kith-auth browser <name> [<browser>]      a browser profile (its logins, in ~/.kith/browsers/<name>) and the browser
+                                          that made it: chrome, chromium, msedge, firefox, or an app's path
+
+People (who may use which agent, and how; the run's person is KITH_PERSON, unset = the owner):
+  kith-auth people [ID ...] [--matrix]      each person: their accounts, the profiles they own, every agent they can
+                                          reach (own row, everyone row, helper) with its mode, and the account each
+                                          service would really use in their runs; ID for one person in full (the
+                                          owner's agents too); --matrix: agents × people at a glance
+  kith-auth person <id> [name=.. lang=.. tz=.. owner] [--rm]   a person; `owner` marks you (one owner)
+  kith-auth person <id> id=<new>            rename: memberships, grants, owned profiles and invites come along; the
+                                          old id stays as an alias (bridge threads they started stay theirs)
+  kith-auth handle <id> <platform> <user-id> | --rm   the person's account on a platform (numeric id, not a username)
+  kith-auth invite <id> [minutes]           a one-time code (default 15 minutes); they send /link CODE to the bridge (kith serve)
+  kith-auth link <platform> <user-id> <code>   bind that account to the code's person (the bridge calls it)
+  kith-auth whois <platform> <user-id>      the person behind an account, or exit 1
+  kith-auth who <platform> <user-id>        the same as JSON for the bridge (kith serve): {person, owner, was, owner_id,
+                                          owner_linked}; person null when no one is linked
+  kith-auth preset <name> [mode=.. deny=a,b] [--trusted] [--rm]   a named bundle of permissions memberships point at
+  kith-auth member <agent>[,..] <id> [preset=.. mode=.. deny=.. model=.. helpers=a,b budget=USD env.VAR=..] [--trusted] [--rm]
+                                          let a person use an agent, with their own settings on top of the agent's;
+                                          <id> '*' is everyone kith knows (not unknown senders); their own row wins.
+                                          mode=bypassPermissions is a free shell on this Mac as you: refused unless
+                                          --trusted (a row or preset without it runs in default mode).
+                                          budget=20: at most $20 a calendar month of their runs of that agent
+                                          (helpers they reach through it included; kith cost people shows it)
+  kith-auth owner <profile> <id>|-|default  the profile is that person's (their logins, their calendar); - = shared;
+                                          default: logins and browser profiles are the owner's, keys and bots shared
+  kith-auth share <profile> <id>[,..] [--rm]   it stays its owner's, and these people's runs may use it too (through
+                                          the agents granted it that they may use)
+  kith-auth may <id> <agent> [--via AGENT]  exit 0 if the person may use the agent (--via: called as AGENT's helper)
+  kith-auth resolve <agent> [--person ID] [--via AGENT]   the run's effective person settings, as JSON (bin/kith uses it)
+
+Three layers, so sharing an agent never shares an account:
+  kernel/services/<name>.json   what a service is: kind (mcp | cli | login), how to start it, which env vars it needs.
+                                In the repo; no secrets.
+  agents/<a>/capabilities.yaml  `needs: [service, ...]`: what the agent asks for. Part of the agent package.
+  ~/.kith/secrets/auth.json      profiles (an account: where each secret comes from) and grants (agent → service →
+                                profile). Yours alone, never in the repo. Holds references, not secret values.
+                                Also env (agent → service → VAR: value): plain settings that override the
+                                service's own env for that agent only.
+
+People are tables in the same file, each fact in one place: people (who someone is, their handles), presets
+(named permissions), members (agent → person → preset and overrides: access is the row existing) and grants keyed
+`<agent>@<person>` for a person's own accounts, tried before the agent's. A profile with "person" is that person's:
+a run for anyone else never gets it, whatever the grants say. The owner may use every agent with no membership.
+
+Browser profiles: logins belong to a browser profile, not to a tool, so every browser tool an agent has (each
+service with "browsers" in its json) opens the agent's one profile: `kith-auth grant <agent> browser browser/<name>`;
+without a grant, the agent's own (browser/<agent>). Agents granted the same profile share its logins, though only
+one run can have it open at a time. A service gets $KITH_BROWSER and $KITH_BROWSER_PROFILE for its env and args, and
+is left out of a run when it can't drive the profile's browser (a profile is only ever opened by the browser that
+made it).
+
+Secret sources in a profile: "keychain:SERVICE#ACCOUNT", "env-file:PATH#VAR", "env:VAR". A `login` service (codex,
+a Chrome profile) has no secrets here: the tool keeps its own login, and the grant only says who may use it.
+
+The agent comes from KITH_AGENT (set by bin/kith) or --for (an agent's own tool naming its owner). This is least
+privilege between cooperating agents, not a sandbox: an agent with a shell can still read files it can see.
+"""
+import getpass
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+KITH = Path(os.environ.get('KITH_ROOT') or os.path.dirname(os.path.dirname(
+    os.path.normpath(os.path.join(os.environ.get('PWD') or os.getcwd(), sys.argv[0])))))
+SERVICES = KITH / 'services'
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+from kith_paths import paths, sync_env  # noqa: E402  the one place that knows where kith's folders are
+STATE_ROOT, AGENTS = paths()['KITH_STATE'], paths()['KITH_AGENTS']  # <home>/state, <home>/agents
+
+
+def agent_dirs():
+    out = {}
+    for root in (AGENTS, KITH / 'agents'):
+        for d in sorted(root.iterdir()) if root.is_dir() else []:
+            pkg = d / 'role' if (d / 'role' / 'agent.md').is_file() else d   # role/ next to the agent's life
+            if not d.name.startswith('.') and (pkg / 'agent.md').is_file():
+                out.setdefault(d.name, pkg)
+    return out
+AUTH = Path(os.environ.get('KITH_AUTH') or paths()['KITH_SECRETS'] / 'auth.json')
+LOG = AUTH.with_name('auth.log')   # every secret handed out: when, to whom, for which service; never the value
+
+
+def die(msg, code=1):
+    print(f'kith-auth: {msg}', file=sys.stderr)
+    sys.exit(code)
+
+
+def load_auth():
+    try:
+        data = json.loads(AUTH.read_text())
+    except FileNotFoundError:
+        data = {}
+    except ValueError as e:
+        die(f'{AUTH}: invalid JSON ({e})')
+    for table in ('profiles', 'grants', 'env', 'people', 'presets', 'members', 'invites'):
+        data.setdefault(table, {})
+    return data
+
+
+def save_auth(data):
+    AUTH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = AUTH.with_name(AUTH.name + '.tmp')
+    now = time.time()
+    data['invites'] = {c: i for c, i in data.get('invites', {}).items() if i.get('expires', 0) > now}
+    data = {k: v for k, v in data.items() if v or k in ('profiles', 'grants', 'env')}   # no empty people tables
+    tmp.write_text(json.dumps(data, indent=2) + '\n')
+    os.chmod(tmp, 0o600)
+    tmp.rename(AUTH)
+
+
+def service_file(name):
+    """kernel/services/<name>.json, else one an installed agent brings in its role's services/ (an agent shared by
+    someone else can carry the definition of a service the kernel doesn't have)."""
+    f = SERVICES / f'{name}.json'
+    if f.is_file():
+        return f
+    for pkg in agent_dirs().values():
+        if (pkg / 'services' / f'{name}.json').is_file():
+            return pkg / 'services' / f'{name}.json'
+    return None
+
+
+def service(name):
+    f = service_file(name)
+    if not f:
+        die(f"no service '{name}' (kernel/services/, or an agent's services/)")
+    return json.loads(f.read_text())
+
+
+def needs(agent):
+    f = agent_dirs().get(agent, AGENTS / agent) / 'capabilities.yaml'
+    m = re.search(r'^needs:\s*\[([^\]]*)\]', f.read_text(), re.M) if f.exists() else None
+    return [s.strip() for s in m.group(1).split(',') if s.strip()] if m else []
+
+
+def agents():
+    return sorted(agent_dirs())
+
+
+def owner(auth):
+    return next((p for p, v in auth['people'].items() if v.get('owner')), None)
+
+
+def acting(auth):
+    """The person this run works for: KITH_PERSON, set by the entry point (the bridge, a schedule) and inherited by
+    every helper; unset is the owner."""
+    return canonical(auth, os.environ.get('KITH_PERSON') or owner(auth) or '')
+
+
+def is_owner(auth, person):
+    return not person or person == owner(auth)
+
+
+EVERYONE = '*'   # a membership row for every person kith knows (never an unknown sender); a person's own row wins
+
+
+def row_of(auth, agent, person):
+    """The person's membership of agent: their own row, else the agent's `*` row, else None."""
+    rows = auth['members'].get(agent, {})
+    return rows.get(person, rows.get(EVERYONE))
+
+
+def may(auth, person, agent, via=None):
+    """(allowed, why). Access is a membership row; a helper is allowed when the caller's membership lists it."""
+    person = canonical(auth, person)
+    if is_owner(auth, person):
+        return True, 'owner'
+    if person not in auth['people']:
+        return False, f"'{person}' is not a person in kith (kith-auth people)"
+    if row_of(auth, agent, person) is not None:
+        return True, 'member' if person in auth['members'].get(agent, {}) else 'member (everyone)'
+    if via and agent in (row_of(auth, via, person) or {}).get('helpers', []):
+        return True, f'helper of {via}'
+    return False, f'{person} may not use {agent}' + (f' (not in their {via} helpers)' if via else '')
+
+
+SHARED = '*'      # a profile's person: shared on purpose, even for a service whose profiles are personal
+
+
+def personal(svc):
+    """Whether a service's profiles belong to someone unless marked shared: logins (a Chrome profile, a ChatGPT
+    login) and browser profiles are; API keys and bots aren't. A service json can say "personal": true or false."""
+    f = service_file(svc)
+    spec = json.loads(f.read_text()) if f else {}
+    return spec.get('personal', spec.get('kind') in ('login', 'browser'))
+
+
+def owner_of(auth, profile):
+    """Whose a profile is: its "person", else the owner's when its service is personal, else no one's (shared).
+    With no owner named yet, "the owner" still owns it, so other people's runs are refused all the same."""
+    belongs = auth['profiles'].get(profile, {}).get('person')
+    if belongs == SHARED:
+        return None
+    if belongs:
+        return belongs
+    return (owner(auth) or 'the owner') if personal(profile.split('/', 1)[0]) else None
+
+
+def granted(auth, agent, svc, person=None):
+    """(profile, why not, refused): the person's own grant (<agent>@<person>) first, then the agent's. A profile that belongs
+    to someone else is never handed over, so a missing personal grant can't fall back to another person's account."""
+    person = acting(auth) if person is None else person
+    profile = (auth['grants'].get(f'{agent}@{person}', {}).get(svc) if person else None) \
+        or auth['grants'].get(agent, {}).get(svc)
+    if isinstance(profile, list):   # several (the bridge's bots): the first, unless the caller picks one (--profile)
+        pick = os.environ.get('KITH_AUTH_PROFILE')
+        profile = pick if pick in profile else None if pick else (profile[0] if profile else None)
+    if not profile:
+        return None, f'{agent} has no grant for {svc} (kith-auth grant {agent} {svc} <profile>)', False
+    belongs = owner_of(auth, profile)
+    lent = auth['profiles'].get(profile, {}).get('with', [])
+    if belongs and person and belongs != person and canonical(auth, person) not in lent:   # owner runs: never refused
+        return None, (f'{profile} is {belongs}\'s and this run is for {person or "no one"} '
+                      f'(kith-auth grant {agent}@{person} {svc} <their profile>)'), True
+    return profile, '', False
+
+
+def grant_for(auth, agent, svc):
+    """The profile name this agent may use for svc, or exit with why not."""
+    if not agent:
+        die(f'who is asking for {svc}? (KITH_AGENT is not set; tools pass --for <agent>)')
+    profile, why, _ = granted(auth, agent, svc)
+    if not profile:
+        die(why)
+    return profile
+
+
+def resolve_ref(ref):
+    kind, _, rest = ref.partition(':')
+    if kind == 'env':
+        return os.environ.get(rest)
+    if kind == 'env-file':
+        path, _, var = rest.partition('#')
+        try:
+            for line in Path(os.path.expanduser(path)).read_text().splitlines():
+                k, sep, v = re.sub(r'^export\s+', '', line.strip()).partition('=')
+                if sep and k.strip() == var:
+                    return v.strip().strip('"\'')
+        except OSError:
+            return None
+        return None
+    if kind == 'keychain':
+        svc, _, account = rest.partition('#')
+        try:   # a locked keychain or an access prompt must not hang a headless run
+            r = subprocess.run(['security', 'find-generic-password', '-s', svc, '-a', account, '-w'],
+                               capture_output=True, text=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            return None
+        return r.stdout.rstrip('\n') if r.returncode == 0 else None
+    return None
+
+
+def secrets(auth, svc, profile):
+    """{VAR: value} for every secret the service needs, from the profile. Exits if one is missing."""
+    refs = auth['profiles'].get(profile)
+    if refs is None:
+        die(f"no profile '{profile}' in {AUTH}")
+    out = {}
+    for var in service(svc).get('secrets', []):
+        ref = refs.get(var)
+        value = resolve_ref(ref) if ref else None
+        if not value:
+            die(f'{profile}: {var} does not resolve ({ref or "not set"}; kith-auth set {profile} {var})')
+        out[var] = value
+    return out
+
+
+def browser_profile(auth, agent):
+    """(profile name, browser, folder) of the browser profile this agent's browser tools open. Without a grant, the
+    agent's own; for someone other than the owner, one of their own (the agent's own holds the owner's logins).
+    Exits when the granted profile is someone else's."""
+    person = acting(auth)
+    name, why, refused = granted(auth, agent, 'browser')
+    if refused:
+        die(why)
+    name = name or (f'browser/{agent}' if is_owner(auth, person) else f'browser/{agent}-{person}')
+    return name, auth['profiles'].get(name, {}).get('browser'), paths()['KITH_MACHINE'] / 'browsers' / name.split('/', 1)[1]
+
+
+def drives(spec, browser):
+    """Whether a browser service can run that browser (an app path counts when it lists "path")."""
+    can = spec.get('browsers', [])
+    return browser in can or ('path' in can and '/' in browser)
+
+
+def settings(auth, agent, svc):
+    """The service's env with this agent's own overrides on top; $KITH_AGENT in a value is this agent, $KITH_BROWSER
+    and $KITH_BROWSER_PROFILE its browser profile. Exits when a browser service can't drive that profile's browser."""
+    os.environ['KITH_AGENT'] = agent
+    for k, v in paths().items():   # $KITH_MACHINE and the rest, also when kith-auth runs on its own
+        os.environ.setdefault(k, str(v))
+    spec = service(svc)
+    if spec.get('browsers'):
+        name, browser, folder = browser_profile(auth, agent)
+        browser = browser or spec['browsers'][0]   # a new profile starts in the service's first browser
+        if not drives(spec, browser):
+            die(f'{svc} can\'t drive {browser}, the browser of {name} ({agent}\'s profile; kith-auth browser)')
+        folder.parent.mkdir(mode=0o700, parents=True, exist_ok=True)   # logins: this user only
+        os.environ.update(KITH_BROWSER=browser, KITH_BROWSER_PROFILE=str(folder))
+    sync_env()   # $HQ_X in a service's env values (written before the rename) expands too
+    env = {**spec.get('mcp', {}).get('env', {}), **auth['env'].get(agent, {}).get(svc, {})}
+    return {k: expand(v) for k, v in env.items()}
+
+
+def uses_browser(agent):
+    return any(service_file(s) and service(s).get('browsers') for s in needs(agent))
+
+
+def audit(agent, svc, profile, how):
+    """One line per secret handed out. --for can name any agent, so the log records who was really running too."""
+    try:
+        with open(LOG, 'a') as f:
+            f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')}\t{how}\t{svc}\t{profile}\tfor={agent}"
+                    f"\trun={os.environ.get('KITH_AGENT', '-')}\tppid={os.getppid()}"
+                    f"\tperson={os.environ.get('KITH_PERSON') or 'owner'}\n")
+    except OSError:
+        pass
+
+
+def expand(text):
+    return os.path.expandvars(os.path.expanduser(text)) if isinstance(text, str) else text
+
+
+def take_for(args):
+    agent = os.environ.get('KITH_AGENT', '')
+    if args[:1] == ['--for']:
+        agent, args = args[1], args[2:]
+    return agent, args
+
+
+def cmd_ls():
+    auth = load_auth()
+    for agent in agents():
+        wanted = needs(agent)
+        granted = auth['grants'].get(agent, {})
+        if not wanted and not granted:
+            continue
+        print(agent)
+        for svc, profile in sorted((s, p) for s in (set(wanted) | set(granted)) - {'browser'}   # browser: own line
+                                   for p in (granted.get(s) if isinstance(granted.get(s), list) else [granted.get(s)])):
+            if not profile:
+                print(f'  {svc:<14} NOT GRANTED')
+                continue
+            note = '' if svc in wanted else '  (granted, not in needs)'
+            refs = auth['profiles'].get(profile)
+            try:
+                missing = [v for v in service(svc).get('secrets', [])
+                           if not (refs and refs.get(v) and resolve_ref(refs[v]))]
+            except SystemExit:
+                missing = ['unknown service']
+            status = 'ok' if refs is not None and not missing else \
+                'no such profile' if refs is None else 'missing ' + ', '.join(missing)
+            print(f'  {svc:<14} {profile:<24} {status}{note}')
+            for var, value in auth['env'].get(agent, {}).get(svc, {}).items():
+                print(f'  {"":<14} {var}={value}')
+        if uses_browser(agent) or 'browser' in granted:
+            name, browser, folder = browser_profile(auth, agent)
+            own = '' if 'browser' in granted else '  (its own; no browser grant)'
+            print(f'  {"browser":<14} {name:<24} {browser or "not set"}, ~/{folder.relative_to(Path.home())}{own}')
+
+
+def cmd_mcp_config(agent):
+    auth = load_auth()
+    servers = {}
+    for svc in needs(agent):
+        spec = service(svc)
+        if spec.get('kind') != 'mcp':
+            continue
+        profile, why, refused = granted(auth, agent, svc)
+        if not profile:
+            print(f'kith: {agent}: {svc} left out this run: {why}' if refused else
+                  f'kith: {agent} needs {svc} but has no grant; running without it '
+                  f'(kith-auth grant {agent} {svc} <profile>)', file=sys.stderr)
+            continue
+        try:
+            secrets(auth, svc, profile)    # skip a server whose secrets don't resolve instead of failing at start
+        except SystemExit:
+            print(f'kith: {agent}: {svc} skipped this run, its secrets don\'t resolve (kith-auth ls)', file=sys.stderr)
+            continue
+        try:
+            env = settings(auth, agent, svc)   # also skip a browser tool that can't drive the agent's profile
+        except SystemExit:
+            print(f'kith: {agent}: {svc} skipped this run', file=sys.stderr)
+            continue
+        mcp = spec['mcp']
+        if os.environ.get('KITH_PERSON'):
+            env['KITH_PERSON'] = os.environ['KITH_PERSON']   # the server's own kith-auth exec decides for the same person
+        # Secrets are resolved when the server starts, inside kith-auth exec, so they never land in a config file
+        # or in the agent's own environment.
+        servers[svc] = {
+            'command': str(KITH / 'bin' / 'kith-auth'),
+            'args': ['exec', '--for', agent, svc, '--', mcp['command'], *[expand(a) for a in mcp.get('args', [])]],
+            'env': env,
+        }
+    print(json.dumps({'mcpServers': servers}))
+
+
+def cmd_mcp_names(agent):
+    """The servers cmd_mcp_config would start, without resolving anything: read-only, safe to call often."""
+    auth = load_auth()
+    servers = {}
+    for svc in needs(agent):
+        spec = service(svc)
+        if spec.get('kind') == 'mcp' and granted(auth, agent, svc)[0]:
+            servers[svc] = {'command': spec['mcp']['command']}
+    print(json.dumps({'mcpServers': servers}))
+
+
+def cmd_exec(args):
+    agent, args = take_for(args)
+    if len(args) < 3 or args[1] != '--':
+        die('exec [--for AGENT] <service> -- CMD...', 2)
+    svc, cmd = args[0], args[2:]
+    auth = load_auth()
+    profile = grant_for(auth, agent, svc)
+    env = sync_env({**os.environ, **settings(auth, agent, svc), **secrets(auth, svc, profile)})
+    audit(agent, svc, profile, 'exec')
+    os.execvpe(cmd[0], cmd, env)
+
+
+def cmd_get(args):
+    agent, args = take_for(args)
+    if args[:1] == ['--profile']:
+        os.environ['KITH_AUTH_PROFILE'], args = args[1], args[2:]
+    if len(args) != 2:
+        die('get [--for AGENT] <service> <VAR>', 2)
+    svc, var = args
+    auth = load_auth()
+    if var not in service(svc).get('secrets', []):
+        die(f'{svc} declares no secret {var}')
+    profile = grant_for(auth, agent, svc)
+    value = secrets(auth, svc, profile)[var]
+    audit(agent, svc, profile, f'get {var}')
+    print(value)
+
+
+def cmd_set(profile, var):
+    if '/' not in profile:
+        die('profiles are named <service>/<account>, e.g. notion/library', 2)
+    if var not in service(profile.split('/', 1)[0]).get('secrets', []):
+        die(f'{profile.split("/", 1)[0]} declares no secret {var}')
+    value = getpass.getpass(f'{profile} {var}: ')
+    if not value:
+        die('nothing entered; unchanged')
+    kc = f'kith/{profile}'
+    r = subprocess.run(['security', 'add-generic-password', '-U', '-s', kc, '-a', var, '-w', value],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        die(f'keychain: {r.stderr.strip()}')
+    auth = load_auth()
+    auth['profiles'].setdefault(profile, {})[var] = f'keychain:{kc}#{var}'
+    save_auth(auth)
+    print(f'stored in Keychain as {kc} / {var}; {profile} now reads it from there')
+
+
+# A membership with no preset is a guest's. `default` mode in a one-shot run means only what the agent's own
+# settings allow runs (house's own tool, not any shell command); auth.json presets of the same name replace these.
+PRESETS = {'guest': {'mode': 'default'}, 'member': {'mode': 'acceptEdits'}}
+# Modes that run any command without asking: a free shell on this Mac, as the owner. Only the owner has one, unless
+# a membership or preset was set with --trusted.
+FREE_SHELL = {'bypassPermissions'}
+
+
+def preset(auth, name):
+    return auth['presets'].get(name) or PRESETS.get(name) or die(f"no preset '{name}' (kith-auth preset {name} mode=..)")
+
+
+def resolve(auth, agent, person, via=None):
+    """What a run of agent for person gets: whether it may run, and the person's settings over the agent's. A helper
+    reached through the caller's helpers list runs with the caller's membership, so calling one never loosens it."""
+    person = canonical(auth, person)
+    ok, why = may(auth, person, agent, via)
+    me = auth['people'].get(person, {})
+    out = {'person': person, 'owner': is_owner(auth, person), 'allowed': ok, 'why': why,
+           **{k: me[k] for k in ('name', 'lang', 'tz') if k in me}}
+    if not ok or out['owner']:
+        return out
+    row = row_of(auth, agent, person)
+    if row is None:
+        row = row_of(auth, via, person)
+    p = preset(auth, row.get('preset', 'guest'))
+    out.update(preset=row.get('preset', 'guest'), mode=mode_of(row, p),
+               deny=list(dict.fromkeys(p.get('deny', []) + row.get('deny', []))),
+               model=row.get('model', ''), env=row.get('env', {}), helpers=row.get('helpers', []),
+               budget=row.get('budget', ''), budget_agent=agent if row_of(auth, agent, person) is not None else via,
+               was=auth['people'].get(person, {}).get('was', []))
+    return out
+
+
+def mode_of(row, p):
+    """The membership's mode; a free shell set without --trusted (say, by hand in auth.json) falls back to default."""
+    mode = row.get('mode') or p.get('mode', 'default')
+    trusted = row.get('trusted') if row.get('mode') else p.get('trusted')
+    return 'default' if mode in FREE_SHELL and not trusted else mode
+
+
+def check_free_shell(mode, flags, what):
+    if mode in FREE_SHELL and '--trusted' not in flags:
+        die(f'{what}: mode={mode} runs any command on this Mac as you, unasked. Add --trusted if you mean it', 2)
+
+
+def pairs(args, allowed):
+    """key=value arguments, `--rm` and bare flags, checked against the keys a command takes."""
+    out, flags = {}, set()
+    for a in args:
+        k, eq, v = a.partition('=')
+        if not eq:
+            flags.add(a)
+            continue
+        if k not in allowed and not (k.startswith('env.') and 'env.' in allowed):
+            die(f'unknown setting {k} (takes {", ".join(sorted(allowed))})', 2)
+        out[k] = v
+    return out, flags
+
+
+def need_person(auth, pid):
+    if pid not in auth['people']:
+        die(f"no person '{pid}' (kith-auth person {pid} name=..)")
+
+
+def services_of(auth, agent, person):
+    """Every service a run of agent could be handed: its needs, its grants and the person's own grants."""
+    out = set(needs(agent)) | set(auth['grants'].get(agent, {})) | set(auth['grants'].get(f'{agent}@{person}', {}))
+    if uses_browser(agent):
+        out.add('browser')
+    return sorted(out)
+
+
+def access(auth, person):
+    """[(agent, how, settings)]: every agent the person can reach. how: owner, own, everyone, or helper of X."""
+    if is_owner(auth, person):
+        return [(a, 'owner', {}) for a in agents()]
+    out, seen = [], set()
+    for agent in agents():
+        rows = auth['members'].get(agent, {})
+        if person in rows or EVERYONE in rows:
+            out.append((agent, 'own' if person in rows else 'everyone', resolve(auth, agent, person)))
+            seen.add(agent)
+    for agent, _, r in list(out):
+        for h in r.get('helpers', []):
+            if h not in seen and h in agent_dirs():
+                out.append((h, f'helper of {agent}', resolve(auth, h, person, agent)))
+                seen.add(h)
+    return out
+
+
+def account_line(auth, agent, svc, person):
+    if svc == 'browser':
+        try:
+            return browser_profile(auth, agent)[0] + ('' if auth['grants'].get(agent, {}).get('browser') or
+                                                       auth['grants'].get(f'{agent}@{person}', {}).get('browser')
+                                                       else '  (its own, made on first use)')
+        except SystemExit:
+            return 'LEFT OUT: ' + granted(auth, agent, 'browser', person)[1]
+    profile, why, refused = granted(auth, agent, svc, person)
+    if refused:
+        return 'LEFT OUT: ' + why.split(' (')[0]
+    if not profile:
+        return 'no grant'
+    mine = auth['grants'].get(f'{agent}@{person}', {}).get(svc) == profile
+    whose = owner_of(auth, profile)
+    lent = person in auth['profiles'].get(profile, {}).get('with', [])
+    return profile + ('  (their own)' if mine else f'  ({whose}\'s, shared with them)' if whose and lent
+                      else f'  ({whose}\'s)' if whose else '  (shared)')
+
+
+def cmd_people(args):
+    auth = load_auth()
+    if not auth['people']:
+        print('no people yet: kith-auth person <you> name=.. owner, then kith-auth person <id> for each other person')
+        return
+    if '--matrix' in args:
+        return matrix(auth)
+    full = bool(args)
+    order = sorted(auth['people'], key=lambda p: (not auth['people'][p].get('owner'), p))
+    for pid in args or order:
+        need_person(auth, pid)
+        os.environ['KITH_PERSON'] = pid                      # browser_profile and settings read it
+        p = auth['people'][pid]
+        extra = ', '.join([f'{k} {p[k]}' for k in ('name', 'lang', 'tz') if p.get(k)]
+                          + ([f'formerly {",".join(p["was"])}'] if p.get('was') else []))
+        print(f'{pid}{"  (owner)" if p.get("owner") else ""}{"  · " + extra if extra else ""}')
+        handles = ', '.join(f'{plat} {uid}' for plat, uid in sorted(p.get('handles', {}).items()))
+        hint = f'kith-auth handle {pid} <platform> <user-id>' if p.get('owner') else f'kith-auth invite {pid}'
+        print(f'  {"accounts":<9} {handles or "none linked (" + hint + ")"}')
+        owns = sorted(n for n in auth['profiles'] if owner_of(auth, n) in (pid, 'the owner' if p.get('owner') else pid))
+        if owns:
+            print(f'  {"owns":<9} {", ".join(owns)}')
+        reach = access(auth, pid)
+        if p.get('owner') and not full:
+            print(f'  {"agents":<9} all {len(reach)} (owner; kith-auth people {pid} for each one\'s accounts)')
+            print()
+            continue
+        if not reach:
+            print(f'  {"agents":<9} none (kith-auth member <agent> {pid})')
+        for agent, how, r in reach:
+            bits = [] if how == 'owner' else [r['preset'], r['mode']]
+            bits += [f'deny {",".join(r["deny"])}'] if r.get('deny') else []
+            bits += [f'model {r["model"]}'] if r.get('model') else []
+            bits += [f'budget ${r["budget"]}/month'] if r.get('budget') and not how.startswith('helper') else []
+            bits += [f'helpers {",".join(r["helpers"])}'] if r.get('helpers') and not how.startswith('helper') else []
+            bits += [f'{k}={v}' for k, v in r.get('env', {}).items()]
+            tag = '' if how in ('own', 'owner') else f'  [{how}]'
+            print(f'  {agent:<9} {" · ".join(bits)}{tag}'.rstrip())
+            for svc in services_of(auth, agent, pid):
+                print(f'  {"":<9}   {svc:<12} {account_line(auth, agent, svc, pid)}')
+        print()
+
+
+def matrix(auth):
+    """Agents down, people across: how each person reaches each agent."""
+    order = sorted(auth['people'], key=lambda p: (not auth['people'][p].get('owner'), p))
+    cells = {}
+    for pid in order:
+        for agent, how, r in access(auth, pid):
+            cells[agent, pid] = 'owner' if how == 'owner' else \
+                (r['preset'] + ('*' if how == 'everyone' else '') if not how.startswith('helper') else 'helper')
+    width = max([len(p) for p in order] + [7]) + 2
+    print(f'{"":<18}' + ''.join(f'{p:<{width}}' for p in order))
+    for agent in agents():
+        print(f'{agent:<18}' + ''.join(f'{cells.get((agent, p), "-"):<{width}}' for p in order))
+    print('\n* from the everyone row · helper: only when called by an agent that lists it · - no access')
+
+
+def cmd_person(args):
+    if not args:
+        die('person <id> [name=.. lang=.. tz=.. owner] [--rm]', 2)
+    pid, (kv, flags) = args[0], pairs(args[1:], {'name', 'lang', 'tz', 'id'})
+    if not re.fullmatch(r'[a-z][a-z0-9-]*', pid):
+        die('a person id is lowercase letters, digits and -, e.g. sam', 2)
+    auth = load_auth()
+    if 'id' in kv:
+        return rename(auth, pid, kv.pop('id'))
+    if '--rm' in flags:
+        auth['people'].pop(pid, None)
+        for rows in auth['members'].values():
+            rows.pop(pid, None)
+        auth['members'] = {a: r for a, r in auth['members'].items() if r}
+        auth['grants'] = {k: g for k, g in auth['grants'].items() if not k.endswith(f'@{pid}')}
+        save_auth(auth)
+        kept = sorted({label for label, _ in person_folders(pid)})
+        print(f'{pid} removed, with their memberships and grants (profiles they own are kept)'
+              + (f'; their memory and files in {", ".join(kept)} are kept (delete them by hand)' if kept else ''))
+        return
+    if pid not in auth['people'] and canonical(auth, pid) != pid:
+        die(f"'{pid}' was renamed to {canonical(auth, pid)}")
+    p = auth['people'].setdefault(pid, {})
+    p.update({k: v for k, v in kv.items() if v})
+    for k in [k for k, v in kv.items() if not v]:
+        p.pop(k, None)
+    if 'owner' in flags:
+        was = owner(auth)
+        if was and was != pid:   # the old owner's logins stay theirs: pin the ones that were theirs by default
+            pinned = [n for n, prof in auth['profiles'].items() if not prof.get('person') and owner_of(auth, n)]
+            for n in pinned:
+                auth['profiles'][n]['person'] = was
+            if pinned:
+                print(f'kept {was}\'s: {", ".join(sorted(pinned))} (kith-auth owner <profile> {pid} to hand one over)')
+            print(f'note: anyone using this Mac account, and {was}\'s KITH_DISCORD_OWNER_ID, still run as the owner')
+        for other in auth['people'].values():
+            other.pop('owner', None)
+        p['owner'] = True
+    save_auth(auth)
+    print(f'{pid}: ' + (', '.join(f'{k} {v}' for k, v in p.items() if k not in ('handles', 'was')) or 'added'))
+
+
+def rename(auth, old, new):
+    """A person's new id, carried through every table that names them. The old id stays in `was`, so what outside
+    auth.json still says old (a bridge thread they started, the cost ledger) keeps meaning them."""
+    need_person(auth, old)
+    if not re.fullmatch(r'[a-z][a-z0-9-]*', new):
+        die('a person id is lowercase letters, digits and -, e.g. sam', 2)
+    if new in auth['people'] or any(new in p.get('was', []) for p in auth['people'].values()):
+        die(f"'{new}' is already a person (or one's old id)")
+    p = auth['people'].pop(old)
+    p['was'] = list(dict.fromkeys(p.get('was', []) + [old]))
+    auth['people'][new] = p
+    for rows in auth['members'].values():
+        if old in rows:
+            rows[new] = rows.pop(old)
+    auth['grants'] = {(k.rsplit('@', 1)[0] + '@' + new if k.endswith(f'@{old}') else k): g
+                      for k, g in auth['grants'].items()}
+    owned = [n for n, prof in auth['profiles'].items() if prof.get('person') == old]
+    for n in owned:
+        auth['profiles'][n]['person'] = new
+    for prof in auth['profiles'].values():
+        if old in prof.get('with', []):
+            prof['with'] = [new if x == old else x for x in prof['with']]
+    for inv in auth['invites'].values():
+        if inv.get('person') == old:
+            inv['person'] = new
+    save_auth(auth)
+    moved = move_life(old, new)
+    print(f'{old} is now {new}' + (f'; owns {", ".join(sorted(owned))}' if owned else '')
+          + (f'; moved their memory and files in {", ".join(moved)}' if moved else '')
+          + ' (profile names stay as they are: they name accounts, not people)')
+
+
+def person_folders(pid):
+    """(label, path) of what kith keeps for a person outside auth.json: each agent's memory/people/<id> and
+    files/people/<id>, and <state>/people/<id>.md."""
+    for d in sorted(AGENTS.iterdir()) if AGENTS.is_dir() else []:
+        for sub in ('memory', 'files'):
+            p = d / sub / 'people' / pid
+            if p.exists():
+                yield d.name, p
+    p = STATE_ROOT / 'people' / f'{pid}.md'
+    if p.exists():
+        yield 'people', p
+
+
+def move_life(old, new):
+    moved = []
+    for label, p in list(person_folders(old)):
+        dest = p.with_name(f'{new}.md' if p.suffix == '.md' else new)
+        if dest.exists():
+            print(f'note: {dest} is already there; {p} left as it is', file=sys.stderr)
+            continue
+        p.rename(dest)
+        moved.append(label)
+    return sorted(set(moved))
+
+
+def canonical(auth, pid):
+    """The person's id now, for an id that may be an old one."""
+    if pid in auth['people']:
+        return pid
+    return next((p for p, v in auth['people'].items() if pid in v.get('was', [])), pid)
+
+
+def cmd_handle(args):
+    if len(args) != 3:
+        die('handle <id> <platform> <user-id> | handle <id> <platform> --rm', 2)
+    pid, plat, uid = args
+    auth = load_auth()
+    need_person(auth, pid)
+    if uid == '--rm':
+        auth['people'][pid].get('handles', {}).pop(plat, None)
+        save_auth(auth)
+        print(f'{pid}: no {plat} account')
+        return
+    bind(auth, pid, plat, uid)
+    save_auth(auth)
+    print(f'{pid} is {plat} {uid}')
+
+
+def bind(auth, pid, plat, uid):
+    if not re.fullmatch(r'-?\d+|[A-Z0-9]+', uid):
+        die(f'{plat} user ids are numbers (Telegram, Discord) or Slack ids like U0123ABC, not usernames', 2)
+    for other, p in auth['people'].items():
+        if other != pid and p.get('handles', {}).get(plat) == uid:
+            die(f'{plat} {uid} is already {other}')
+    auth['people'][pid].setdefault('handles', {})[plat] = uid
+
+
+def cmd_whois(args):
+    if len(args) != 2:
+        die('whois <platform> <user-id>', 2)
+    auth = load_auth()
+    for pid, p in auth['people'].items():
+        if p.get('handles', {}).get(args[0]) == args[1]:
+            print(pid)
+            return
+    sys.exit(1)
+
+
+def cmd_who(args):
+    if len(args) != 2:
+        die('who <platform> <user-id>', 2)
+    auth = load_auth()
+    pid = next((p for p, v in auth['people'].items() if v.get('handles', {}).get(args[0]) == args[1]), None)
+    me = owner(auth)
+    print(json.dumps({'person': pid, 'owner': bool(pid) and is_owner(auth, pid),
+                      'was': auth['people'][pid].get('was', []) if pid else [], 'owner_id': me,
+                      'owner_linked': bool(me and auth['people'][me].get('handles', {}).get(args[0]))}))
+
+
+def cmd_invite(args):
+    if len(args) not in (1, 2):
+        die('invite <id> [minutes]', 2)
+    auth = load_auth()
+    need_person(auth, args[0])
+    minutes = int(args[1]) if len(args) == 2 else 15
+    alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'   # no 0/O or 1/I to misread
+    code = ''.join(alphabet[b % len(alphabet)] for b in os.urandom(6))
+    auth['invites'][code] = {'person': args[0], 'expires': time.time() + minutes * 60}
+    save_auth(auth)
+    print(f'{code}\n{args[0]} sends "/link {code}" to the kith bot on any platform within {minutes} minutes')
+
+
+def cmd_link(args):
+    if len(args) != 3:
+        die('link <platform> <user-id> <code>', 2)
+    plat, uid, code = args
+    auth = load_auth()
+    inv = auth['invites'].pop(code.strip().upper(), None)
+    if not inv or inv['expires'] < time.time():
+        save_auth(auth)
+        die('that code is unknown or expired; ask for a new one (kith-auth invite <id>)')
+    bind(auth, inv['person'], plat, uid)
+    save_auth(auth)
+    print(inv['person'])
+
+
+def cmd_preset(args):
+    if not args:
+        die('preset <name> [mode=.. deny=a,b] [--rm]', 2)
+    name, (kv, flags) = args[0], pairs(args[1:], {'mode', 'deny'})
+    auth = load_auth()
+    if '--rm' in flags:
+        auth['presets'].pop(name, None)
+    else:
+        p = auth['presets'].setdefault(name, dict(PRESETS.get(name, {})))
+        if 'mode' in kv:
+            check_free_shell(kv['mode'], flags, f'preset {name}')
+            p['mode'] = kv['mode']
+            p.pop('trusted', None)
+            if kv['mode'] in FREE_SHELL:
+                p['trusted'] = True
+        if 'deny' in kv:
+            p['deny'] = [d for d in kv['deny'].split(',') if d]
+    save_auth(auth)
+    print(f'{name}: {json.dumps(preset(auth, name)) if name in auth["presets"] or name in PRESETS else "removed"}')
+
+
+def cmd_member(args):
+    if len(args) < 2:
+        die('member <agent>[,..] <id> [preset=.. mode=.. deny=.. model=.. helpers=a,b budget=USD env.VAR=..] [--trusted] [--rm]', 2)
+    names, pid = [a for a in args[0].split(',') if a], args[1]
+    kv, flags = pairs(args[2:], {'preset', 'mode', 'deny', 'model', 'helpers', 'budget', 'env.'})
+    if kv.get('budget'):
+        try:
+            if float(kv['budget']) < 0:
+                raise ValueError
+        except ValueError:
+            die('budget is dollars a month, e.g. budget=20', 2)
+    auth = load_auth()
+    if pid != EVERYONE:
+        need_person(auth, pid)
+    for agent in names:
+        if agent not in agent_dirs():
+            die(f"no agent '{agent}' (kith ls)")
+        if '--rm' in flags:
+            auth['members'].get(agent, {}).pop(pid, None)
+            if not auth['members'].get(agent):
+                auth['members'].pop(agent, None)
+            print(f'{pid} may no longer use {agent}')
+            continue
+        if kv.get('mode'):
+            check_free_shell(kv['mode'], flags, f'{pid} on {agent}')
+        row = auth['members'].setdefault(agent, {}).setdefault(pid, {})
+        if 'mode' in kv:
+            row.pop('trusted', None)
+            if kv['mode'] in FREE_SHELL:
+                row['trusted'] = True
+        for k, v in kv.items():
+            if k.startswith('env.'):
+                env = row.setdefault('env', {})
+                env.update({k[4:]: v}) if v else env.pop(k[4:], None)
+                if not env:
+                    row.pop('env')
+            elif k in ('deny', 'helpers'):
+                row[k] = [x for x in v.split(',') if x]
+            elif v:
+                row[k] = v
+            else:
+                row.pop(k, None)
+        if 'preset' in row:
+            preset(auth, row['preset'])
+        if pid == EVERYONE:
+            p = preset(auth, row.get('preset', 'guest'))
+            r = {'preset': row.get('preset', 'guest'), 'mode': mode_of(row, p),
+                 'deny': p.get('deny', []) + row.get('deny', []), 'helpers': row.get('helpers', [])}
+        else:
+            r = resolve(auth, agent, pid)
+        print(f'{"everyone kith knows" if pid == EVERYONE else pid} may use {agent}: preset {r["preset"]}, mode {r["mode"]}'
+              + (f', deny {",".join(r["deny"])}' if r['deny'] else '')
+              + (f', helpers {",".join(r["helpers"])}' if r['helpers'] else '')
+              + (f', budget ${r["budget"]}/month' if r.get('budget') else '')
+              + (' (a free shell on this Mac: trusted)' if r['mode'] in FREE_SHELL else ''))
+    save_auth(auth)
+
+
+def cmd_owner(args):
+    if len(args) != 2:
+        die('owner <profile> <id>|-|default', 2)
+    prof, pid = args
+    auth = load_auth()
+    if prof not in auth['profiles']:
+        die(f"no profile '{prof}'")
+    if pid == '-':
+        auth['profiles'][prof]['person'] = SHARED
+    elif pid == 'default':
+        auth['profiles'][prof].pop('person', None)
+    else:
+        need_person(auth, pid)
+        auth['profiles'][prof]['person'] = pid
+    save_auth(auth)
+    who = owner_of(auth, prof)
+    print(f'{prof}: ' + (f'{who}\'s; runs for anyone else never get it' if who else 'shared with everyone who may use '
+                         'the agents granted it') + (' (the default for its service)' if pid == 'default' else ''))
+
+
+def cmd_share(args):
+    if len(args) not in (2, 3) or (len(args) == 3 and args[2] != '--rm'):
+        die('share <profile> <id>[,..] [--rm]', 2)
+    prof, ids = args[0], [i for i in args[1].split(',') if i]
+    auth = load_auth()
+    if prof not in auth['profiles']:
+        die(f"no profile '{prof}'")
+    for pid in ids:
+        need_person(auth, pid)
+    p = auth['profiles'][prof]
+    lent = [x for x in p.get('with', []) if x not in ids] if len(args) == 3 else list(dict.fromkeys(p.get('with', []) + ids))
+    if lent:
+        p['with'] = lent
+    else:
+        p.pop('with', None)
+    save_auth(auth)
+    who = owner_of(auth, prof)
+    print(f'{prof}: {who or "shared"}\'s' + (f', shared with {", ".join(lent)}' if lent else ', shared with no one else'))
+
+
+def take_opts(args, names):
+    opts, rest = {}, []
+    it = iter(args)
+    for a in it:
+        if a in names:
+            opts[a] = next(it, '')
+        else:
+            rest.append(a)
+    return opts, rest
+
+
+def main(argv):
+    if not argv or argv[0] in ('-h', '--help'):
+        print(__doc__.strip())
+        return
+    cmd, rest = argv[0], argv[1:]
+    if cmd == 'ls':
+        cmd_ls()
+    elif cmd == 'grant' and len(rest) == 3:
+        who, svc, profile = rest
+        service(svc)
+        # agent@person: that person's own account for the agent (tried first in their runs)
+        base = lambda a: a.split('@', 1)[0]
+        uses = (lambda a: uses_browser(base(a))) if svc == 'browser' else (lambda a: svc in needs(base(a)))
+        names = [a for a in agents() if uses(a)] if who == '--all' else [a for a in who.split(',') if a]
+        if not names:
+            die(f'no agent lists {svc} in its needs' if who == '--all' else 'no agent named', 2)
+        auth = load_auth()
+        for a in names:
+            if '@' in a:
+                need_person(auth, a.split('@', 1)[1])
+        profiles = [p for p in profile.split(',') if p]
+        if any(not p.startswith(svc + '/') for p in profiles):
+            die(f'a {svc} grant takes {svc}/<account> profiles', 2)
+        for p in profiles:
+            auth['profiles'].setdefault(p, {})
+        for agent in names:
+            auth['grants'].setdefault(agent, {})[svc] = profiles if len(profiles) > 1 else profiles[0]
+        save_auth(auth)
+        for agent in names:
+            print(f'{agent} may use {svc} as {", ".join(profiles)}' + ('' if uses(agent) or agent in ('bridge', 'serve')
+                                                                       else f' (not in its needs yet)'))
+    elif cmd == 'revoke' and len(rest) == 2:
+        auth = load_auth()
+        auth['grants'].get(rest[0], {}).pop(rest[1], None)
+        save_auth(auth)
+        print(f'{rest[0]} may no longer use {rest[1]}')
+    elif cmd == 'set' and len(rest) == 2:
+        cmd_set(*rest)
+    elif cmd == 'env' and len(rest) >= 2:
+        agent, svc, pairs = rest[0], rest[1], rest[2:]
+        service(svc)
+        auth = load_auth()
+        mine = auth['env'].setdefault(agent, {}).setdefault(svc, {})
+        for pair in pairs:
+            var, eq, value = pair.partition('=')
+            if not eq or not var:
+                die(f'expected VAR=value, got {pair!r}', 2)
+            if value:
+                mine[var] = value
+            else:
+                mine.pop(var, None)
+        if not mine:
+            auth['env'][agent].pop(svc)
+        if not auth['env'][agent]:
+            auth['env'].pop(agent)
+        if pairs:
+            save_auth(auth)
+        for var, value in settings(auth, agent, svc).items():
+            print(f'{var}={value}')
+    elif cmd == 'browser' and len(rest) in (1, 2):
+        name = rest[0] if rest[0].startswith('browser/') else f'browser/{rest[0]}'
+        auth = load_auth()
+        prof = auth['profiles'].setdefault(name, {})
+        if len(rest) == 2:
+            if prof.get('browser') and prof['browser'] != rest[1]:
+                print(f'note: {name} was made in {prof["browser"]}; its logins may not open in {rest[1]}',
+                      file=sys.stderr)
+            prof['browser'] = rest[1]
+        save_auth(auth)
+        folder = paths()['KITH_MACHINE'] / 'browsers' / name.split('/', 1)[1]
+        users = [a for a, g in auth['grants'].items() if g.get('browser') == name]
+        print(f'{name}: {prof.get("browser") or "browser not set (the first tool to open it picks)"}, {folder}'
+              + (f'; granted to {", ".join(users)}' if users else ''))
+    elif cmd == 'people':
+        cmd_people(rest)
+    elif cmd == 'person':
+        cmd_person(rest)
+    elif cmd == 'handle':
+        cmd_handle(rest)
+    elif cmd == 'whois':
+        cmd_whois(rest)
+    elif cmd == 'who':
+        cmd_who(rest)
+    elif cmd == 'invite':
+        cmd_invite(rest)
+    elif cmd == 'link':
+        cmd_link(rest)
+    elif cmd == 'preset':
+        cmd_preset(rest)
+    elif cmd == 'member':
+        cmd_member(rest)
+    elif cmd == 'owner':
+        cmd_owner(rest)
+    elif cmd == 'share':
+        cmd_share(rest)
+    elif cmd in ('may', 'resolve'):
+        opts, rest = take_opts(rest, {'--via', '--person'})
+        auth = load_auth()
+        if cmd == 'may' and len(rest) == 2:
+            ok, why = may(auth, rest[0], rest[1], opts.get('--via'))
+            print(why)
+            sys.exit(0 if ok else 1)
+        if cmd == 'resolve' and len(rest) == 1:
+            person = opts.get('--person') or acting(auth)
+            print(json.dumps(resolve(auth, rest[0], person, opts.get('--via') or None)))
+            return
+        die(f'{cmd}: see kith-auth --help', 2)
+    elif cmd == 'mcp-config' and len(rest) == 1:
+        cmd_mcp_config(rest[0])
+    elif cmd == 'mcp-names' and len(rest) == 1:
+        cmd_mcp_names(rest[0])
+    elif cmd == 'exec':
+        cmd_exec(rest)
+    elif cmd == 'get':
+        cmd_get(rest)
+    elif cmd == 'granted':
+        agent, rest = take_for(rest)
+        if len(rest) != 1:
+            die('granted [--for AGENT] <service>', 2)
+        g = load_auth()['grants'].get(agent, {}).get(rest[0])
+        print('\n'.join(g if isinstance(g, list) else [g] if g else []))
+    else:
+        die(f'unknown command: {" ".join(argv)} (kith-auth --help)', 2)
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])
