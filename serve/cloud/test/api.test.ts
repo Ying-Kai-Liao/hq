@@ -87,13 +87,21 @@ describe("basics", () => {
   it("bounces a connector sign-in to the app", async () => {
     const res = await SELF.fetch(`${ORIGIN}/v1/oauth/callback?code=abc&state=xyz`, { redirect: "manual" });
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("kith://oauth?code=abc&state=xyz");
+    expect(res.headers.get("Location")).toBe("codync://oauth?code=abc&state=xyz");
   });
 
   it("keeps development connector callbacks separate from production", async () => {
     const res = await SELF.fetch(`${ORIGIN}/v1/oauth/callback/dev?code=abc&state=xyz`, { redirect: "manual" });
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("kith-dev://oauth?code=abc&state=xyz");
+    expect(res.headers.get("Location")).toBe("codync-dev://oauth?code=abc&state=xyz");
+  });
+
+  it("bounces new callbacks to the kith schemes and leaves the old routes on codync", async () => {
+    for (const [path, scheme] of [["kith", "kith"], ["kith-dev", "kith-dev"]]) {
+      const res = await SELF.fetch(`${ORIGIN}/v1/oauth/callback/${path}?code=abc&state=xyz`, { redirect: "manual" });
+      expect(res.status).toBe(302);
+      expect(res.headers.get("Location")).toBe(`${scheme}://oauth?code=abc&state=xyz`);
+    }
   });
 
   it("health", async () => {

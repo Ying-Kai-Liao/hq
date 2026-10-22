@@ -22,10 +22,17 @@ export const health = async () => ({ ok: true, version: VERSION });
  * is useless without the PKCE verifier that only the host holds.
  */
 export const oauthCallback = async (c: Ctx) =>
-  new Response(null, { status: 302, headers: { Location: `kith://oauth${c.url.search}`, "Cache-Control": "no-store" } });
+  new Response(null, { status: 302, headers: { Location: `codync://oauth${c.url.search}`, "Cache-Control": "no-store" } });
 
 /** Separate callback route keeps installed production clients and older dev builds working. */
 export const oauthDevCallback = async (c: Ctx) =>
+  new Response(null, { status: 302, headers: { Location: `codync-dev://oauth${c.url.search}`, "Cache-Control": "no-store" } });
+
+/** The routes above keep bouncing to the `codync` schemes, the only ones apps installed before the rename wait for. */
+export const oauthKithCallback = async (c: Ctx) =>
+  new Response(null, { status: 302, headers: { Location: `kith://oauth${c.url.search}`, "Cache-Control": "no-store" } });
+
+export const oauthKithDevCallback = async (c: Ctx) =>
   new Response(null, { status: 302, headers: { Location: `kith-dev://oauth${c.url.search}`, "Cache-Control": "no-store" } });
 
 // ---- cron (every 15 minutes) ----

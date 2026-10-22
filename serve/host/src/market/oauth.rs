@@ -4,7 +4,7 @@
 //! The tokens live on this computer. The sign-in page redirects to one of two places:
 //! - `http://127.0.0.1:<port>/oauth/callback`, served by this host, when the user signs
 //!   in on this computer (desktop app, TUI);
-//! - `<cloud>/v1/oauth/callback`, a stateless page that bounces to `kith://oauth?…`,
+//! - `<cloud>/v1/oauth/callback`, a stateless page that bounces to `kith://oauth?…` (its `/kith` routes; the unsuffixed ones still bounce to `codync://` for older apps),
 //!   which the phone's sign-in sheet catches and hands back with `connectorSignInFinish`.
 //!
 //! The authorization code alone is useless: the PKCE verifier never leaves this host.
@@ -85,9 +85,9 @@ fn loopback_uri(port: u16) -> String {
 fn app_uri(store: &Store) -> Option<String> {
     crate::remote::cloud::url(store).map(|base| {
         let suffix = if crate::environment::Environment::current() == crate::environment::Environment::Dev {
-            "/dev"
+            "/kith-dev"
         } else {
-            ""
+            "/kith"
         };
         format!("{base}/v1/oauth/callback{suffix}")
     })
