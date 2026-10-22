@@ -1,3 +1,4 @@
+import type { SignInProvider } from './account-config'
 import type { SharedFile } from './models'
 import type { SSHBridge } from './ssh'
 import type { ScreenAgentState } from './computer-access'
@@ -130,9 +131,9 @@ export interface CodyncBridge {
   account: {
     state(): Promise<AccountState>
     onChange(cb: (s: AccountState) => void): () => void
-    signIn(provider: 'apple' | 'google'): Promise<void>
+    signIn(provider: SignInProvider): Promise<void>
     signOut(): Promise<void>
-    /** The signed-in session's JWT for the Codync cloud. */
+    /** The signed-in session's JWT for the Kith cloud. */
     token(): Promise<string>
   }
   /** On-device speech recognition (macOS: SFSpeechRecognizer in a helper; unavailable on Linux). */

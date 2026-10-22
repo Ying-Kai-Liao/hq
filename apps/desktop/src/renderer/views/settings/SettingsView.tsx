@@ -12,6 +12,7 @@ import { StoreContext, useApp } from '../../store/context'
 import { ComputerBadge } from '../ComputerBadge'
 import { UpdateButton, useUpdates } from '../UpdateButton'
 import { ComputersView } from './ComputersView'
+import { LinkChatRow } from './LinkChatRow'
 import { errorText, isMac, thisMac } from './parts'
 import { UsageLimits } from './UsageLimits'
 import { VoiceChatSettingsView } from './VoiceChatSettingsView'
@@ -140,9 +141,13 @@ function GeneralSettings() {
               <Button kind="secondary" onClick={() => void account.signIn('google')} disabled={account.isBusy}>
                 Google
               </Button>
+              <Button kind="secondary" onClick={() => void account.signIn('github')} disabled={account.isBusy}>
+                GitHub
+              </Button>
             </>
           )}
         </div>
+        <LinkChatRow />
       </CardSection>
       <CardSection title="Appearance">
         <ValueRow label="Text size">

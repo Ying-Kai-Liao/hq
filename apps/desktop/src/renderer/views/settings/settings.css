@@ -236,3 +236,12 @@
   min-height: 0;
   overflow: hidden;
 }
+
+.settings-link-code {
+  padding: 0 14px 10px 50px;
+}
+.settings-link-code-value {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  user-select: all;
+}
