@@ -1,0 +1,118 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { test } from 'node:test'
+import {
+  cronWords, formatUsd, isUnsupportedHost, lastRunText, lineOffset, packageNotes, parseKithInfo, parseKithInfoResult,
+  parseMemoryFile, parseSearchResult, shortVersion, sortMemoryFiles, splitRoleSections, topModels,
+} from './kith-info.ts'
+
+// `kith house --info-json` as printed on a real Mac (role text and memory files trimmed).
+const sample = JSON.parse(readFileSync(new URL('./test-support/kith-house-info.json', import.meta.url), 'utf8'))
+
+test('a real kith house --info-json parses', () => {
+  const info = parseKithInfo(sample)!
+  assert.equal(info.agent, 'house')
+  assert.equal(info.model, 'sonnet')
+  assert.equal(info.permissionMode, 'auto')
+  assert.equal(info.skills.length, 4)
+  assert.equal(info.skills[0].source, 'package')
+  assert.equal(info.tools.length, 3)
+  assert.deepEqual(info.mcpServers, [])
+  assert.equal(info.schedules.length, 0)
+  assert.equal(shortVersion(info.package?.version), '393def5')
+  assert.equal(info.cost?.requestsMonth, 146)
+  assert.equal(info.memory?.files.length, 3)
+  assert.equal(info.memory?.totalBytes, 3920)
+  // memory files carry ISO dates
+  assert.equal(info.memory?.files[0].modified, Date.parse('2026-10-14T00:56:37+11:00'))
+  assert.deepEqual(info.errors, {})
+})
+
+test('the boundary section stands apart from the others', () => {
+  const info = parseKithInfo(sample)!
+  const { notYours, rest } = splitRoleSections(info.role!.sections)
+  assert.equal(notYours.length, 1)
+  assert.equal(notYours[0].title, 'Not yours')
+  assert.equal(rest.length, 2)
+  assert.equal(splitRoleSections([{ title: ' NOT YOURS ', text: '' }]).notYours.length, 1)
+})
+
+test('missing and odd fields still parse', () => {
+  const info = parseKithInfo({ agent: 'x', skills: [{ name: 'a' }, { description: 'no name' }, 3], cost: null, memory: { files: [{ bytes: 1 }] }, errors: { cost: 'boom' } })!
+  assert.deepEqual(info.skills, [{ name: 'a', description: '', source: 'package' }])
+  assert.equal(info.cost, null)
+  assert.deepEqual(info.memory, { files: [], totalBytes: 0 })
+  assert.equal(info.errors.cost, 'boom')
+  assert.equal(parseKithInfo('nope'), null)
+  assert.deepEqual(parseKithInfoResult({ info: null, error: 'kith is missing' }), { info: null, error: 'kith is missing', fetchedAt: null })
+})
+
+test('schedule times accept unix seconds, milliseconds and ISO dates', () => {
+  const info = parseKithInfo({ schedules: [{ id: 'a', cron: '0 9 * * *', task: 't', paused: true, last_run: 1760000000, last_status: 'done', next_run: '2026-10-23T09:00:00Z' }] })!
+  assert.equal(info.schedules[0].lastRun, 1760000000000)
+  assert.equal(info.schedules[0].nextRun, Date.parse('2026-10-23T09:00:00Z'))
+  assert.equal(info.schedules[0].paused, true)
+})
+
+test('cost reads in dollars, with a floor for tiny amounts', () => {
+  assert.equal(formatUsd(2.7219), '$2.72')
+  assert.equal(formatUsd(0.001), '<$0.01')
+  assert.equal(formatUsd(0), '$0.00')
+  const top = topModels(parseKithInfo(sample)!.cost!)
+  assert.equal(top.length, 3)
+  assert.equal(top[0].model, 'claude-sonnet-5-5')
+  assert.ok(Math.abs(top.reduce((s, m) => s + m.share, 0) - 1) < 1e-9)
+})
+
+test('simple cron reads in words; the rest stays raw', () => {
+  assert.equal(cronWords('30 7 * * *'), 'daily at 07:30')
+  assert.equal(cronWords('0 18 * * 1-5'), 'weekdays at 18:00')
+  assert.equal(cronWords('*/15 * * * *'), 'every 15 minutes')
+  assert.equal(cronWords('0 * * * *'), 'hourly')
+  assert.equal(cronWords('0 9 1 * *'), '0 9 1 * *')
+  assert.equal(cronWords('0 9 * * 1'), '0 9 * * 1')
+  assert.equal(cronWords('@daily'), '@daily')
+})
+
+test('last run: running, relative, or none', () => {
+  const now = 1_000_000_000_000
+  const base = { id: 'a', cron: '', task: '', paused: false, nextRun: null }
+  assert.equal(lastRunText({ ...base, lastRun: now - 2 * 3600_000, lastStatus: 'done' }, now), '2 h ago')
+  assert.equal(lastRunText({ ...base, lastRun: now - 5000, lastStatus: 'running' }, now), 'running')
+  assert.equal(lastRunText({ ...base, lastRun: null, lastStatus: null }, now), null)
+})
+
+test('package chip tooltip', () => {
+  assert.deepEqual(packageNotes({ version: 'abc', remote: 'r', dirty: true, unpushed: true, pinned: 'v1' }), ['r', 'uncommitted changes', 'not pushed', 'pinned to v1'])
+  assert.deepEqual(packageNotes({ version: 'abc', remote: null, dirty: false, unpushed: false, pinned: null }), [])
+})
+
+test('memory files: MEMORY.md first, then newest', () => {
+  const files = [
+    { path: 'old.md', bytes: 1, modified: 1 },
+    { path: 'MEMORY.md', bytes: 1, modified: 0 },
+    { path: 'new.md', bytes: 1, modified: 9 },
+  ]
+  assert.deepEqual(sortMemoryFiles(files).map((f) => f.path), ['MEMORY.md', 'new.md', 'old.md'])
+})
+
+test('memory file and search answers', () => {
+  const file = parseMemoryFile({ path: 'a.md', text: 'hi', bytes: 600_000, modified: 1760000000000, truncated: true })
+  assert.equal(file.truncated, true)
+  assert.equal(file.bytes, 600_000)
+  const search = parseSearchResult({ hits: [{ path: 'a.md', line: 3, snippet: 's', openable: true }, { path: '/abs/skill.md', line: null, snippet: 'x', agent: 'house' }, 'bad'] })
+  assert.equal(search.hits.length, 2)
+  assert.equal(search.hits[0].openable, true)
+  assert.equal(search.hits[1].openable, false)
+  assert.equal(search.hits[1].agent, 'house')
+  assert.equal(parseSearchResult({ hits: [], error: 'no kith' }).error, 'no kith')
+  assert.equal(lineOffset(3, 10), 2)
+  assert.equal(lineOffset(99, 10), 9)
+  assert.equal(lineOffset(null, 10), 0)
+})
+
+test('an older host is told apart from a failure', () => {
+  assert.equal(isUnsupportedHost({ status: 404, message: 'x' }), true)
+  assert.equal(isUnsupportedHost(new Error('unknown method')), true)
+  assert.equal(isUnsupportedHost({ status: 400, message: 'bad' }), false)
+})
