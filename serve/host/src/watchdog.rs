@@ -5,7 +5,9 @@
 //! load never looks like a stall.
 //!
 //! Time is `Instant`, which doesn't advance while the machine sleeps (`CLOCK_UPTIME_RAW` on macOS,
-//! `CLOCK_MONOTONIC` on Linux), so waking from sleep is not a stall.
+//! `CLOCK_MONOTONIC` on Linux), so waking from sleep is not a stall. Rust's docs leave sleep unspecified, and this
+//! was not measured by sleeping a Mac. If a platform did count sleep, the worst case is one harmless restart
+//! right after waking.
 use serde_json::Value;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -83,6 +85,12 @@ pub fn spawn_checker(
         .expect("spawning the watchdog thread")
 }
 
+/// Debug builds only: `KITH_SERVE_WATCHDOG_FREEZE_BEAT=1` stops the beats, so a real process can be watched
+/// exiting 70 without blocking its runtime from outside. Release builds never read it.
+fn freeze_beat() -> bool {
+    cfg!(debug_assertions) && std::env::var_os("KITH_SERVE_WATCHDOG_FREEZE_BEAT").is_some()
+}
+
 /// Starts the heartbeat task and the checker for the long-running `serve`. Call it from inside the runtime.
 pub fn start() {
     let file = std::fs::read(crate::service::data_dir().join("config.json"))
@@ -99,7 +107,7 @@ pub fn start() {
         loop {
             tokio::time::sleep(BEAT_EVERY).await;
             // The blocking pool is what the host's file and store work runs on; prove it answers too.
-            if tokio::task::spawn_blocking(|| ()).await.is_ok() {
+            if tokio::task::spawn_blocking(|| ()).await.is_ok() && !freeze_beat() {
                 beating.beat();
             }
         }
