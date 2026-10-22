@@ -26,6 +26,8 @@ const INDEX_LINES: usize = 150;
 /// The shared user.md is read by every agent in every run.
 const USER_TOKENS: usize = 400;
 const BUSY: Duration = Duration::from_secs(5);
+/// A hook has 10 seconds in all: a locked history may cost it this much, not more.
+pub const HOOK_BUSY: Duration = Duration::from_secs(2);
 
 /// Where the memory is on this Mac.
 #[derive(Clone, Debug)]
@@ -37,7 +39,7 @@ pub struct Layout {
 }
 
 impl Layout {
-    /// From the environment, the way lib/kith_paths.py reads it; the commands the kernel starts pass the answer
+    /// From the environment, the way `lib/kith_paths.py` reads it; the commands the kernel starts pass the answer
     /// explicitly, so this is the fallback for a bare `kith memory log` in a terminal.
     pub fn from_env() -> Self {
         let env = |name: &str| {
@@ -71,6 +73,8 @@ impl Layout {
 
     /// The memory file a path is, if it is one. `path` may be relative to `cwd`, through a link, or not exist yet.
     pub fn locate(&self, path: &Path, cwd: &Path) -> Option<Target> {
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let path = path.strip_prefix("~").map_or_else(|_| path.to_path_buf(), |rest| home.join(rest));
         let absolute = lexical(&cwd.join(path));
         let resolved = resolve(&absolute);
         for candidate in [&absolute, &resolved] {
@@ -119,6 +123,9 @@ fn agent_file(root: &Path, candidate: &Path, logical: &Path) -> Option<Target> {
         return None;
     }
     let rel = rel_name(parts)?;
+    if !is_markdown(&rel) {
+        return None;
+    }
     Some(Target { bot: Some(name), name: rel, path: logical.to_path_buf() })
 }
 
@@ -130,10 +137,17 @@ fn shared_file(root: &Path, candidate: &Path, logical: &Path) -> Option<Target> 
         "user.md" if parts.next().is_none() => Some(Target { bot: None, name: first, path: logical.to_path_buf() }),
         "people" | "projects" => {
             let rel = rel_name(rest.components())?;
+            if !is_markdown(&rel) {
+                return None;
+            }
             Some(Target { bot: None, name: rel, path: logical.to_path_buf() })
         }
         _ => None,
     }
+}
+
+fn is_markdown(name: &str) -> bool {
+    Path::new(name).extension().is_some_and(|e| e.eq_ignore_ascii_case("md"))
 }
 
 /// `a/b.md` from the components, or `None` for none or any that isn't a plain name.
@@ -204,9 +218,13 @@ impl Who<'_> {
 
 /// Opens (and on first use creates) the history database. Two sessions at once wait for each other.
 pub fn open(layout: &Layout) -> Result<Connection> {
+    open_with(layout, BUSY)
+}
+
+pub fn open_with(layout: &Layout, busy: Duration) -> Result<Connection> {
     std::fs::create_dir_all(&layout.state).with_context(|| format!("create {}", layout.state.display()))?;
     let conn = Connection::open(layout.db()).context("open memory.db")?;
-    conn.busy_timeout(BUSY)?;
+    conn.busy_timeout(busy)?;
     // WAL lets a reader and a writer overlap; a failure here (a read-only copy) only costs that.
     let _ = conn.pragma_update(None, "journal_mode", "WAL");
     // Two first runs can both start the migration; the loser finds the tables made and tries once more.
@@ -330,7 +348,7 @@ pub fn guard(
             return Err(refusal);
         }
         if let (Some(conn), Some(target)) = (conn, target)
-            && forgotten(conn, target, &added)
+            && pieces_forgotten(conn, target, &added)
         {
             return Err(Refusal::Forgotten);
         }
@@ -365,7 +383,7 @@ fn added_lines(old: &str, new: &str) -> String {
 }
 
 /// Whether any line or sentence of `text` is one the user told Kith to forget: for the file's layer and for all.
-fn forgotten(conn: &Connection, target: &Target, text: &str) -> bool {
+pub fn pieces_forgotten(conn: &Connection, target: &Target, text: &str) -> bool {
     let scopes = [None, target.bot.as_deref()];
     pieces(text).iter().any(|piece| scopes.iter().any(|scope| store::forgotten(conn, *scope, piece).unwrap_or(false)))
 }
@@ -376,10 +394,8 @@ fn pieces(text: &str) -> Vec<String> {
     for line in text.lines() {
         let line = line.trim().trim_start_matches(['-', '*', '+', '>', '#', ' ']).trim();
         // A numbered list item: "3. text".
-        let line = line
-            .split_once(". ")
-            .filter(|(n, _)| n.chars().all(|c| c.is_ascii_digit()))
-            .map_or(line, |(_, rest)| rest);
+        let line =
+            line.split_once(". ").filter(|(n, _)| n.chars().all(|c| c.is_ascii_digit())).map_or(line, |(_, rest)| rest);
         if line.is_empty() {
             continue;
         }
@@ -419,6 +435,7 @@ pub fn write(
 
 /// Writes (or, with `None`, removes) a file through a temporary one beside it, so a reader never sees half a file.
 pub fn put(path: &Path, content: Option<&str>) -> Result<()> {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let Some(content) = content else {
         return match std::fs::remove_file(path) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e).context("remove the file"),
@@ -428,7 +445,6 @@ pub fn put(path: &Path, content: Option<&str>) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("kith-{}-{seq}.tmp", std::process::id()));
     std::fs::write(&tmp, content)?;

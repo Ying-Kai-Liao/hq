@@ -57,7 +57,7 @@ pub enum Cmd {
         #[command(flatten)]
         env: Env,
     },
-    /// Claude Code hook on Write, Edit and MultiEdit (stdin: the hook's JSON).
+    /// Claude Code hook on `Write`, `Edit` and `MultiEdit` (stdin: the hook's JSON).
     #[command(hide = true)]
     Hook {
         phase: Phase,
@@ -72,7 +72,7 @@ pub enum Cmd {
     },
 }
 
-/// Where the memory is; the kernel's commands pass what lib/kith_paths.py says, a terminal falls back to the env.
+/// Where the memory is; the kernel's commands pass what `lib/kith_paths.py` says, a terminal falls back to the env.
 #[derive(clap::Args, Debug, Default)]
 pub struct Env {
     #[arg(long, hide = true)]
@@ -107,13 +107,12 @@ pub fn run(cmd: Cmd) -> Result<i32> {
         }
         Cmd::Check { path, file, env } => {
             let layout = env.layout();
-            let text = match file {
-                Some(file) => std::fs::read_to_string(&file).with_context(|| format!("read {}", file.display()))?,
-                None => {
-                    let mut text = String::new();
-                    std::io::stdin().read_to_string(&mut text)?;
-                    text
-                }
+            let text = if let Some(file) = file {
+                std::fs::read_to_string(&file).with_context(|| format!("read {}", file.display()))?
+            } else {
+                let mut text = String::new();
+                std::io::stdin().read_to_string(&mut text)?;
+                text
             };
             let target = layout.locate(&path, &std::env::current_dir()?);
             // The history is an aid here: a check works without it, only the forgotten facts need it.
@@ -158,15 +157,15 @@ pub fn run(cmd: Cmd) -> Result<i32> {
         Cmd::Diff { file, v1, v2, json, env } => {
             let (conn, target) = history(&env, &file)?;
             let list = ordered(&conn, &target, usize::MAX)?;
-            let last = list.len();
+            let count = list.len();
             let (from, to) = match (v1, v2) {
-                (None, _) if last < 2 => bail!("{} has {last} version; there is nothing to compare", target.label()),
-                (None, _) => (last - 1, last),
-                (Some(a), None) => (a, last),
+                (None, _) if count < 2 => bail!("{} has {count} version; there is nothing to compare", target.label()),
+                (None, _) => (count - 1, count),
+                (Some(a), None) => (a, count),
                 (Some(a), Some(b)) => (a, b),
             };
             let text = |n: usize| -> Result<String> {
-                let (_, v) = list.get(n.wrapping_sub(1)).with_context(|| format!("no version {n} ({last} so far)"))?;
+                let (_, v) = list.get(n.wrapping_sub(1)).with_context(|| format!("no version {n} ({count} so far)"))?;
                 Ok(v.content.clone().unwrap_or_default())
             };
             let diff = files::diff(&text(from)?, &text(to)?);
@@ -180,13 +179,14 @@ pub fn run(cmd: Cmd) -> Result<i32> {
         Cmd::Undo { file, version, env } => {
             let (conn, target) = history(&env, &file)?;
             let list = ordered(&conn, &target, usize::MAX)?;
-            let last = list.len();
+            let count = list.len();
             let n = match version {
                 Some(n) => n,
-                None if last >= 2 => last - 1,
-                None => bail!("{} has {last} version; there is nothing to go back to", target.label()),
+                None if count >= 2 => count - 1,
+                None => bail!("{} has {count} version; there is nothing to go back to", target.label()),
             };
-            let (_, wanted) = list.get(n.wrapping_sub(1)).with_context(|| format!("no version {n} ({last} so far)"))?;
+            let (_, wanted) =
+                list.get(n.wrapping_sub(1)).with_context(|| format!("no version {n} ({count} so far)"))?;
             let who = checker();
             if let Some(content) = &wanted.content {
                 // An agent's undo brings back old text: the same checks apply as to any write it makes.
@@ -197,7 +197,12 @@ pub fn run(cmd: Cmd) -> Result<i32> {
             }
             put(&target.path, wanted.content.as_deref())?;
             let version = record_undo(&conn, &target, who)?;
-            writeln!(out, "{}: back to version {n} (now version {})", target.label(), version.map_or(n, |_| last + 1))?;
+            writeln!(
+                out,
+                "{}: back to version {n} (now version {})",
+                target.label(),
+                version.map_or(n, |_| count + 1)
+            )?;
             Ok(0)
         }
         Cmd::Forget { text, env } => {
@@ -214,7 +219,7 @@ pub fn run(cmd: Cmd) -> Result<i32> {
     }
 }
 
-/// An agent running this command (KITH_AGENT) is checked as itself; the user's terminal is not.
+/// An agent running this command (`KITH_AGENT`) is checked as itself; the user's terminal is not.
 fn checker() -> Who<'static> {
     static AGENT: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
     let agent = AGENT.get_or_init(|| {
@@ -310,7 +315,9 @@ fn lines_with(layout: &Layout, text: &str) -> Vec<(String, String)> {
 fn walk(path: &Path, depth: usize, visit: &mut dyn FnMut(&Path)) {
     if path.is_file() {
         visit(path);
-    } else if depth < 8 && let Ok(dir) = std::fs::read_dir(path) {
+    } else if depth < 8
+        && let Ok(dir) = std::fs::read_dir(path)
+    {
         for entry in dir.flatten() {
             let path = entry.path();
             // The role repos and snapshots under an agent's folder are not memory.

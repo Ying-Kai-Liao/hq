@@ -1,7 +1,8 @@
-//! The Claude Code hooks on Write, Edit and MultiEdit: `pre` checks a memory write and blocks it with the reason,
+//! The Claude Code hooks on `Write`, `Edit` and `MultiEdit`: `pre` checks a memory write and blocks it with the reason,
 //! `post` records it as a version. Anything that isn't a memory file returns at once.
 
-use super::{Layout, Who, guard, open, read, record, sync};
+use super::{HOOK_BUSY, Layout, Target, Who, guard, open_with, pieces_forgotten, read, record, sync};
+use kith_mem::check::{self, Refusal};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -36,42 +37,42 @@ pub fn run(phase: Phase, input: &str, layout: &Layout, agent: &str, dream: bool)
         return Outcome::default();
     }
     let Some(file) = event["tool_input"]["file_path"].as_str() else { return Outcome::default() };
-    let cwd = event["cwd"]
-        .as_str()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let cwd = event["cwd"].as_str().map_or_else(|| std::env::current_dir().unwrap_or_default(), PathBuf::from);
     let Some(target) = layout.locate(Path::new(file), &cwd) else { return Outcome::default() };
     let who = if dream { Who::Dream(agent) } else { Who::Agent(agent) };
-    let conn = match open(layout) {
+    // The content checks need no history, so a broken or locked memory.db never lets a bad write through.
+    let pre = (phase == Phase::Pre).then(|| {
+        let old = read(&target.path);
+        let (new, inserted) = proposed(tool, &event["tool_input"], old.as_deref());
+        (old, new, inserted)
+    });
+    if let Some((old, new, inserted)) = &pre {
+        let refused =
+            check::content(inserted).err().or_else(|| guard(None, Some(&target), who, old.as_deref(), new).err());
+        if let Some(refusal) = refused {
+            return deny(&target, refusal);
+        }
+    }
+    let conn = match open_with(layout, HOOK_BUSY) {
         Ok(conn) => conn,
         Err(e) => {
-            let stderr = format!("kith memory: history unavailable ({e:#}); the write is not checked");
+            let stderr = format!("kith memory: history unavailable ({e:#}); the write is not recorded");
             return Outcome { stderr, ..Outcome::default() };
         }
     };
-    match phase {
-        Phase::Pre => {
+    match (phase, pre) {
+        (Phase::Pre, Some((old, new, inserted))) => {
             // Whatever changed the file since its last version (a Bash command, an editor) is recorded first, so
             // undoing this write can go back to the file as it is now.
             if let Err(e) = sync(&conn, &target) {
                 eprintln!("kith memory: {e:#}");
             }
-            let old = read(&target.path);
-            let Some(new) = proposed(tool, &event["tool_input"], old.as_deref()) else { return Outcome::default() };
+            // What needs the history: facts the user told Kith to forget, and the warnings.
+            if pieces_forgotten(&conn, &target, &inserted) {
+                return deny(&target, Refusal::Forgotten);
+            }
             match guard(Some(&conn), Some(&target), who, old.as_deref(), &new) {
-                Err(refusal) => Outcome {
-                    stdout: json!({"hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "permissionDecision": "deny",
-                        "permissionDecisionReason": format!(
-                            "Memory write refused for {}: {} Change the text and write again.",
-                            target.label(),
-                            refusal.message()
-                        ),
-                    }})
-                    .to_string(),
-                    ..Outcome::default()
-                },
+                Err(refusal) => deny(&target, refusal),
                 Ok(warnings) if warnings.is_empty() => Outcome::default(),
                 Ok(warnings) => Outcome {
                     stdout: json!({"hookSpecificOutput": {
@@ -83,7 +84,7 @@ pub fn run(phase: Phase, input: &str, layout: &Layout, agent: &str, dream: bool)
                 },
             }
         }
-        Phase::Post => match record(&conn, &target, who) {
+        _ => match record(&conn, &target, who) {
             Ok(_) => Outcome::default(),
             Err(e) => {
                 let stderr = format!("kith memory: could not record {}: {e:#}", target.label());
@@ -93,27 +94,47 @@ pub fn run(phase: Phase, input: &str, layout: &Layout, agent: &str, dream: bool)
     }
 }
 
-/// What the file would hold after the tool runs, or `None` when the tool will fail by itself (the text to replace
-/// isn't there), which is not this hook's to report.
-fn proposed(tool: &str, input: &Value, old: Option<&str>) -> Option<String> {
-    if tool == "Write" {
-        return input["content"].as_str().map(str::to_owned);
+fn deny(target: &Target, refusal: Refusal) -> Outcome {
+    Outcome {
+        stdout: json!({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": format!(
+                "Memory write refused for {}: {} Change the text and write again.",
+                target.label(),
+                refusal.message()
+            ),
+        }})
+        .to_string(),
+        ..Outcome::default()
     }
-    let edits: Vec<Value> = if tool == "MultiEdit" { input["edits"].as_array()?.clone() } else { vec![input.clone()] };
+}
+
+/// What the file would hold after the tool runs, and the text the tool inserts. Claude Code matches `old_string`
+/// loosely (straight and curly quotes, line endings), so when it isn't found here the result is only a guess and
+/// the inserted text is what gets checked. An empty file counts as a missing one, as it does for Claude Code.
+fn proposed(tool: &str, input: &Value, old: Option<&str>) -> (String, String) {
+    if tool == "Write" {
+        let content = input["content"].as_str().unwrap_or_default().to_owned();
+        return (content.clone(), content);
+    }
+    let edits: Vec<Value> =
+        if tool == "MultiEdit" { input["edits"].as_array().cloned().unwrap_or_default() } else { vec![input.clone()] };
     let mut text = old.unwrap_or_default().to_owned();
+    let mut inserted = Vec::new();
     for edit in &edits {
-        let (from, to) = (edit["old_string"].as_str()?, edit["new_string"].as_str()?);
+        let (from, to) =
+            (edit["old_string"].as_str().unwrap_or_default(), edit["new_string"].as_str().unwrap_or_default());
+        inserted.push(to);
         if from.is_empty() {
-            // Claude Code's way to create a file with Edit.
-            if old.is_some() {
-                return None;
+            if text.trim().is_empty() {
+                to.clone_into(&mut text);
             }
-            text = to.to_owned();
         } else if edit["replace_all"].as_bool() == Some(true) {
             text = text.replace(from, to);
         } else {
             text = text.replacen(from, to, 1);
         }
     }
-    Some(text)
+    (text, inserted.join("\n"))
 }
