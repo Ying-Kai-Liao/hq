@@ -156,7 +156,7 @@ check "packaged start installs the job" "grep -q 'install --port 19224' '$STUB_L
 
 # the Mac app's main bundle (share/kith/env says main) keeps to the main data dir and port, never the dev ones
 echo main > "$P/share/kith/env"; rm -rf "$HOME/.kith/serve/bin"; : > "$STUB_LOG"
-out=$("$P/share/kith/kernel/bin/hq-serve" start 2>&1); rc=$?
+out=$("$P/share/kith/kernel/bin/kith-serve" start 2>&1); rc=$?
 check "main bundle start succeeds" "[ $rc = 0 ]"
 check "main bundle installs under serve-main" "cmp -s '$P/bin/kith' '$HOME/.kith/serve-main/bin/kith-serve'"
 check "main bundle uses port 19225" "grep -q 'install --port 19225' '$STUB_LOG'"
