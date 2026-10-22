@@ -4,10 +4,20 @@ version = "2.19.1"
 edition = "2024"
 # let-chains (`if let … && let …`) need 1.88.
 rust-version = "1.88"
-default-run = "kith-serve"
+default-run = "kith"
 description = "Runs your coding-agent bots and serves the Kith apps"
 license = "Apache-2.0"
 repository = "https://github.com/leepokai/Kith"
+
+# One program, two names: `kith` is the command (kith serve ..., or the kernel's commands); `kith-serve` is the
+# host alone, the name the launchd job and the apps already use. Same source, so both stay in step.
+[[bin]]
+name = "kith"
+path = "src/main.rs"
+
+[[bin]]
+name = "kith-serve"
+path = "src/main.rs"
 
 # The memory crate builds here and is mirrored to its own repository (docs/design/bot-memory.md#packaging).
 [workspace]
