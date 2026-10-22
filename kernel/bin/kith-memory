@@ -177,7 +177,7 @@ def main(argv):
                 return str(Path(p).relative_to(mem / 'memory')) if mem else p
             except ValueError:
                 return p
-        print(json.dumps({'hits': [{'path': rel(a, p), 'line': line, 'snippet': ' '.join(t.split())[:400]}
+        print(json.dumps({'hits': [{'agent': a, 'path': rel(a, p), 'line': line, 'snippet': ' '.join(t.split())[:400]}
                                    for a, p, line, t in hits]}, ensure_ascii=False))
         return
     where = 'every agent' if scope is None else scope
