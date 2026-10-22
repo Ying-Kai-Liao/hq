@@ -419,6 +419,16 @@ async fn only_one_host_can_own_a_data_directory_even_on_another_port() {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
+    // Killed when the test ends any way, a failed assert included.
+    struct Reap(std::process::Child);
+    impl Drop for Reap {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let mut other = Reap(other);
+    let other = &mut other.0;
     let status = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             if let Some(status) = other.try_wait().unwrap() {
