@@ -93,6 +93,10 @@ async fn kith_failing_is_an_error_field_not_an_error_status() {
     let got = s.host.call("kithInfo", json!({"botId": s.id})).await;
     assert_eq!(got["info"], Value::Null);
     assert!(got["error"].as_str().unwrap().contains("kith is unwell"), "{got}");
+    std::fs::remove_file(s.home.join("info_fail")).unwrap();
+    tokio::time::sleep(Duration::from_millis(3200)).await;
+    let healed = s.host.call("kithInfo", json!({"botId": s.id})).await;
+    assert_eq!(healed["info"]["agent"], "house", "a failure is not kept for long: {healed}");
     std::fs::write(s.home.join("search_fail"), "").unwrap();
     let found = s.host.call("kithMemorySearch", json!({"botId": s.id, "query": "pantry"})).await;
     assert_eq!(found["hits"], json!([]));
@@ -111,8 +115,13 @@ async fn memory_files_are_read_inside_the_memory_folder_only() {
     std::fs::write(s.home.join("secret.txt"), "secret").unwrap();
     std::os::unix::fs::symlink(s.home.join("secret.txt"), s.home.join("memory/link.md")).unwrap();
     std::fs::create_dir(s.home.join("memory/sub")).unwrap();
+    let fifo = std::ffi::CString::new(s.home.join("memory/pipe.md").to_string_lossy().into_owned()).unwrap();
+    // SAFETY: a valid NUL-terminated path owned by `fifo` for the call.
+    assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
     let outside = s.home.join("secret.txt").to_string_lossy().into_owned();
-    for path in ["../secret.txt", "sub/../../secret.txt", outside.as_str(), "link.md", "sub", "", "missing.md"] {
+    for path in
+        ["../secret.txt", "sub/../../secret.txt", outside.as_str(), "link.md", "sub", "pipe.md", "", "missing.md"]
+    {
         let (ok, body) = s.file(path).await;
         assert!(!ok, "{path:?} should be refused: {body}");
         assert!(body["error"].as_str().unwrap().contains('`'), "a clear message: {body}");
@@ -137,6 +146,7 @@ async fn memory_search_passes_hits_through_with_a_limit() {
     assert_eq!(found["hits"].as_array().unwrap().len(), 2);
     assert_eq!(found["hits"][0]["path"], "notes.md");
     assert_eq!(found["hits"][0]["openable"], true);
+    assert_eq!(found["hits"][0]["agent"], "house");
     assert!(found["hits"][0]["snippet"].as_str().unwrap().contains("agent=house"));
     let empty = s.host.call("kithMemorySearch", json!({"botId": s.id, "query": "  "})).await;
     assert_eq!(empty["hits"], json!([]));

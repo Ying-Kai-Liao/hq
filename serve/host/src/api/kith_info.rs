@@ -136,9 +136,20 @@ fn resolve_memory_file(dir: &Path, path: &str) -> Result<(std::path::PathBuf, st
 
 /// `path` (relative) inside `dir`, as text, at most [`FILE_CAP`] bytes.
 fn read_memory_file(dir: &Path, path: &str) -> Result<Value> {
-    let (file, meta) = resolve_memory_file(dir, path)?;
+    let (file, _) = resolve_memory_file(dir, path)?;
+    // The checks above can go stale before the open (a FIFO or a link swapped in): never block on a pipe, never
+    // follow a link, and trust only the open handle's own metadata.
+    let handle = {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW).open(&file)
+    }
+    .map_err(|_| anyhow!("`{path}` can't be opened"))?;
+    let meta = handle.metadata()?;
+    if !meta.is_file() {
+        bail!("`{path}` isn't a file");
+    }
     let mut bytes = Vec::new();
-    std::fs::File::open(&file)?.take(FILE_CAP).read_to_end(&mut bytes)?;
+    handle.take(FILE_CAP).read_to_end(&mut bytes)?;
     let modified = meta
         .modified()
         .ok()

@@ -18,8 +18,8 @@ a kith bot's memory. These are the agent's own files, not Kith's bot memory (`me
 - `info` is null with `error` when kith is missing, fails, times out (45 s), prints something that isn't a JSON
   object, or no longer lists the agent. The call is never an error status for these.
 - An unknown `botId` is HTTP 400.
-- Per agent, a run is reused for 30 s. Older answers are returned at once and refreshed behind the call; the first
-  call waits for kith. Two clients asking together cause one run. `refresh: true` runs kith now.
+- Per agent, a run is reused for 30 s (a failed run for 3 s). Older answers are returned at once and refreshed behind the call; the first
+  call waits for kith. Two clients asking together cause one run. `refresh: true` runs kith now, or takes the answer of a run already in flight.
 - `fetchedAt` is when kith ran, in unix milliseconds.
 
 ### info-json (version 1)

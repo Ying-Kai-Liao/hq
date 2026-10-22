@@ -51,7 +51,7 @@ elif args[:2] == ["memory", "search"]:
         print("search broke", file=sys.stderr)
         sys.exit(1)
     n = int(args[args.index("-n") + 1])
-    hit = {"path": "notes.md", "line": 1, "snippet": f"{args[2]} agent={args[args.index('--agent') + 1]}"}
+    hit = {"path": "notes.md", "line": 1, "agent": args[args.index("--agent") + 1], "snippet": f"{args[2]} agent={args[args.index('--agent') + 1]}"}
     print(json.dumps({"hits": ([hit] * 3)[:n]}))
 elif args[:2] == ["house", "--launch-json"]:
     fail = os.path.join(home, "fail")
