@@ -123,7 +123,7 @@ impl Slack {
         let (id, value) = (act["action_id"].as_str().unwrap_or(""), act["value"].as_str().unwrap_or(""));
         let tell = |text: &str| json!({"channel": channel, "user": uid, "text": text});
         let edit = |text: &str| json!({"channel": channel, "ts": ts, "text": text, "blocks": [Self::small(text)]});
-        if id == "hq-stop" {
+        if id == "kith-stop" || id == "hq-stop" {
             match self.core.stop_pressed(this, value, uid).await {
                 StopPress::NotYours => {
                     self.quietly("chat.postEphemeral", tell("Only the person who started this can stop it.")).await;
@@ -131,7 +131,7 @@ impl Slack {
                 StopPress::Stopping => self.quietly("chat.update", edit("stopping…")).await,
                 StopPress::Finished => {}
             }
-        } else if id.starts_with("hq-pick") {
+        } else if id.starts_with("kith-pick") || id.starts_with("hq-pick") {
             let Some((pid, agent)) = value.split_once(':') else { return };
             match self.core.picked(this, pid, agent, uid).await {
                 Ok(true) => self.quietly("chat.update", edit(&format!("→ {agent}"))).await,

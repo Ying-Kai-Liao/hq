@@ -238,7 +238,7 @@ impl Adapter for Slack {
                 .iter()
                 .map(|a| {
                     json!({"type": "button", "text": {"type": "plain_text", "text": a},
-                           "action_id": format!("hq-pick-{a}"), "value": format!("{pid}:{a}")})
+                           "action_id": format!("kith-pick-{a}"), "value": format!("{pid}:{a}")})
                 })
                 .collect();
             let question = json!({"type": "section", "text": {"type": "mrkdwn", "text": "Who should take this?"}});

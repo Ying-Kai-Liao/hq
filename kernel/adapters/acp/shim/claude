@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""claude shim for hq-acp (first on PATH via claude-via-hq):`claude <hq args> -p __hq_acp__` -> real claude with hq's args + the SDK's.
+"""claude shim for kith-acp (first on PATH via claude-via-kith):`claude <kith args> -p __hq_acp__` -> real claude with kith's args + the SDK's.
 Anything else (e.g. `claude plugin list`) passes straight through."""
 import os, sys, json, time
-real = os.environ["HQ_ACP_REAL_CLAUDE"]
+real = os.environ["KITH_ACP_REAL_CLAUDE"]
 argv = sys.argv[1:]
 if argv[-2:] != ["-p", "__hq_acp__"]:
     os.execv(real, [real] + argv)
-hq = argv[:-2]
-path = os.environ.pop("HQ_ACP_ARGS")
+kith = argv[:-2]
+path = os.environ.pop("KITH_ACP_ARGS")
 with open(path, "rb") as f:
     sdk = [a.decode() for a in f.read().split(b"\0") if a]
 os.unlink(path)
@@ -30,22 +30,22 @@ def take(args, flag):
             rest.append(args[i]); i += 1
     return vals, rest
 
-hq, sdk = split_eq(hq), split_eq(sdk)
-# A client system prompt would replace Claude Code's own and hq's: append it instead.
+kith, sdk = split_eq(kith), split_eq(sdk)
+# A client system prompt would replace Claude Code's own and kith's: append it instead.
 sys_p, sdk = take(sdk, "--system-prompt")
-# One appended system prompt: hq's agent prompt first, then whatever the client adds.
-hq_app, hq = take(hq, "--append-system-prompt")
+# One appended system prompt: kith's agent prompt first, then whatever the client adds.
+kith_app, kith = take(kith, "--append-system-prompt")
 sdk_app, sdk = take(sdk, "--append-system-prompt")
-# The client owns the permission mode (its approval cards); hq's, if any, gives way.
+# The client owns the permission mode (its approval cards); kith's, if any, gives way.
 if "--permission-mode" in sdk:
-    _, hq = take(hq, "--permission-mode")
-merged = hq + sdk
-app = "\n\n".join(hq_app + sys_p + sdk_app)
+    _, kith = take(kith, "--permission-mode")
+merged = kith + sdk
+app = "\n\n".join(kith_app + sys_p + sdk_app)
 if app:
     merged += ["--append-system-prompt", app]
-log = os.environ.get("HQ_ACP_LOG")
+log = os.environ.get("KITH_ACP_LOG")
 if log:
     with open(os.path.join(log, "args.jsonl"), "a") as f:
-        f.write(json.dumps({"t": time.strftime("%FT%T"), "agent": os.environ.get("HQ_AGENT"),
-                            "cwd": os.getcwd(), "sdk": sdk, "hq": hq, "sdk_append": [s[:300] for s in sys_p + sdk_app]}) + "\n")
+        f.write(json.dumps({"t": time.strftime("%FT%T"), "agent": os.environ.get("KITH_AGENT"),
+                            "cwd": os.getcwd(), "sdk": sdk, "kith": kith, "sdk_append": [s[:300] for s in sys_p + sdk_app]}) + "\n")
 os.execv(real, [real] + merged)

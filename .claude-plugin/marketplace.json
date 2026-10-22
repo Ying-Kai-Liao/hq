@@ -1,13 +1,13 @@
 {
-  "name": "hq",
+  "name": "kith",
   "owner": {
     "name": "Ying-Kai Liao"
   },
   "plugins": [
     {
-      "name": "hq",
+      "name": "kith",
       "source": "./kernel/adapters/claude-code",
-      "description": "Claude Code adapter for hq: your persistent specialist agents as subagents in every session."
+      "description": "Claude Code adapter for Kith: your persistent specialist agents as subagents in every session."
     }
   ]
 }

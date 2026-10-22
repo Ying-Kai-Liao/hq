@@ -1,5 +1,5 @@
-//! What the channels ask hq: where its tools and agents are, who a sender is (`hq-auth who`), whether a person may
-//! use an agent (`hq-auth resolve`), and each agent's card (`agent.md`).
+//! What the channels ask hq: where its tools and agents are, who a sender is (`kith-auth who`), whether a person may
+//! use an agent (`kith-auth resolve`), and each agent's card (`agent.md`).
 
 use crate::LockExt;
 use serde_json::Value;
@@ -19,7 +19,7 @@ pub struct Paths {
     pub hq_bin: PathBuf,
     pub auth_bin: PathBuf,
     pub live_bin: PathBuf,
-    /// This Mac's hq (`~/.hq`): the bridge's state and the live outboxes `hq-send --to bridge:<box>` writes.
+    /// This Mac's Kith folder (`~/.kith`, or `~/.hq` until it is migrated): the bridge's state and the live outboxes `kith-send --to bridge:<box>` writes.
     pub machine: PathBuf,
     /// Folders with one folder per agent.
     pub agent_roots: Vec<PathBuf>,
@@ -31,13 +31,18 @@ impl Paths {
     /// Blocking: looking for `hq` may ask the login shell. None when there is no hq to run.
     pub fn discover() -> Option<Self> {
         let hq_bin = crate::agent::hq::bin()?;
+        // A tool next to the entry point, else on PATH; the old hq-<x> name when the kernel has not been renamed.
+        let real = std::fs::canonicalize(&hq_bin).unwrap_or_else(|_| hq_bin.clone());
         let beside = |name: &str| {
-            let near = hq_bin.with_file_name(name);
-            if near.is_file() { near } else { crate::agent::backends::which(name).unwrap_or(near) }
+            let find = |name: &str| {
+                let near = [&hq_bin, &real].map(|b| b.with_file_name(name)).into_iter().find(|p| p.is_file());
+                near.or_else(|| crate::agent::backends::which(name))
+            };
+            let old = name.replacen("kith-", "hq-", 1);
+            find(name).or_else(|| find(&old)).unwrap_or_else(|| hq_bin.with_file_name(name))
         };
         let home = dirs::home_dir()?;
-        let hq_home =
-            std::env::var_os("HQ_HOME").filter(|h| !h.is_empty()).map_or_else(|| home.join("hq"), PathBuf::from);
+        let hq_home = crate::kernel::home_dir(&home);
         let mut agent_roots = vec![hq_home.join("agents")];
         // The kernel's own agents sit next to its bin folder.
         if let Some(kernel) =
@@ -45,11 +50,10 @@ impl Paths {
         {
             agent_roots.push(kernel.join("agents"));
         }
-        let machine =
-            std::env::var_os("HQ_MACHINE").filter(|h| !h.is_empty()).map_or_else(|| home.join(".hq"), PathBuf::from);
+        let machine = crate::kernel::var("MACHINE").map_or_else(|| crate::kernel::machine_dir(&home), PathBuf::from);
         Some(Self {
-            auth_bin: beside("hq-auth"),
-            live_bin: beside("hq-live"),
+            auth_bin: beside("kith-auth"),
+            live_bin: beside("kith-live"),
             hq_bin,
             machine,
             agent_roots,
@@ -62,7 +66,7 @@ impl Paths {
         self.machine.join("bridge").join("state.json")
     }
 
-    /// Where `hq-send --to bridge:<box>` leaves what a live agent says.
+    /// Where `kith-send --to bridge:<box>` leaves what a live agent says.
     pub fn live_outbox(&self, box_id: &str) -> PathBuf {
         self.machine.join("bridge").join("outbox").join(format!("live-{box_id}"))
     }
@@ -81,7 +85,7 @@ pub async fn output(bin: &Path, args: &[&str]) -> Option<std::process::Output> {
     tokio::time::timeout(TOOL_TIMEOUT, child.wait_with_output()).await.ok()?.ok()
 }
 
-/// A sender, as `hq-auth who <platform> <uid>` knows them.
+/// A sender, as `kith-auth who <platform> <uid>` knows them.
 #[derive(Clone, Debug, Default)]
 pub struct Who {
     pub person: Option<String>,
@@ -140,11 +144,15 @@ pub async fn resolve(paths: &Paths, person: &str, agent: &str) -> Access {
     }
 }
 
-/// `hq-auth link <platform> <uid> <code>` -> the person it linked, or the reason it refused.
+/// `kith-auth link <platform> <uid> <code>` -> the person it linked, or the reason it refused.
 pub async fn link(paths: &Paths, platform: &str, uid: &str, code: &str) -> Result<String, String> {
     match output(&paths.auth_bin, &["link", platform, uid, code]).await {
         Some(o) if o.status.success() => Ok(String::from_utf8_lossy(&o.stdout).trim().to_owned()),
-        Some(o) => Err(String::from_utf8_lossy(&o.stderr).trim().trim_start_matches("hq-auth: ").to_owned()),
+        Some(o) => Err(String::from_utf8_lossy(&o.stderr)
+            .trim()
+            .trim_start_matches("kith-auth: ")
+            .trim_start_matches("hq-auth: ")
+            .to_owned()),
         None => Err(String::new()),
     }
 }

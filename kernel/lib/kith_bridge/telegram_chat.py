@@ -1,8 +1,8 @@
-"""Telegram: a bot of hq's own (a telegram/<name> profile granted to the bridge). Private chats and groups are rooms.
+"""Telegram: a bot of kith's own (a telegram/<name> profile granted to the bridge). Private chats and groups are rooms.
 `@agent …` or `/agent …` picks the agent; a reply to a message of a task continues it; anything else goes to the
-room's default (/default; the owner's DM starts with HQ_BRIDGE_DM_DEFAULT, default personal), or the bot asks who
+room's default (/default; the owner's DM starts with KITH_BRIDGE_DM_DEFAULT, default personal), or the bot asks who
 should take it. In a group the bot sees only commands, mentions of it and replies to it (Telegram's privacy mode), so
-talk to it with /agent, @bot or a reply. Files come in as paths and go out with hq-send; answers are Markdown,
+talk to it with /agent, @bot or a reply. Files come in as paths and go out with kith-send; answers are Markdown,
 shown as Telegram formatting. /link CODE, /whoami, /agents, /default, /stop.
 """
 import asyncio
@@ -63,8 +63,8 @@ class Telegram(Adapter):
     platform = 'telegram'
     quiet = 300   # a poll returns within 70 s, a failed one is retried after at most 30 s
     footer = ('\n\n(From Telegram: your final answer is posted here automatically; Markdown shows as formatting. '
-              'Send images and files with hq-send; files the user sent are listed as paths. Helpers you call post '
-              'status with `hq-send --as <their name>`.)')
+              'Send images and files with kith-send; files the user sent are listed as paths. Helpers you call post '
+              'status with `kith-send --as <their name>`.)')
 
     def call(self, method, files=None, **params):
         data = {k: json.dumps(v) if isinstance(v, (dict, list)) else str(v) for k, v in params.items()}
@@ -107,12 +107,12 @@ class Telegram(Adapter):
         me = (await self.tg('getMe'))['result']
         self.me, self.my_id = me['username'], me['id']
         log(f'{self.conn}: as @{self.me}')
-        try:   # the / menu: one command per agent, plus hq's own
+        try:   # the / menu: one command per agent, plus kith's own
             commands = [{'command': cmd_name(a), 'description': description(a)[:250]} for a in agents()][:90]
             commands += [{'command': 'agents', 'description': 'the agents you can use'},
                          {'command': 'default', 'description': 'which agent answers messages without @agent here'},
                          {'command': 'stop', 'description': 'stop the agent working on this (reply to its message)'},
-                         {'command': 'whoami', 'description': 'who you are in hq'}]
+                         {'command': 'whoami', 'description': 'who you are in kith'}]
             await self.tg('setMyCommands', commands=commands)
         except Exception as e:  # noqa: BLE001  the menu is a convenience
             log(f'{self.conn}: commands not set: {type(e).__name__}')

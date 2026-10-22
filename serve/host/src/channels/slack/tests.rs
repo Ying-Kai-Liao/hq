@@ -1,5 +1,5 @@
 //! The Slack adapter against a fake Slack (axum: Web API, file URLs and a Socket Mode websocket), the real core and
-//! the stub hq (`tests/fixtures/channels_stub.py`). Ports the Slack checks of `kernel/tests/hq-bridge-check`.
+//! the stub hq (`tests/fixtures/channels_stub.py`). Ports the Slack checks of `kernel/tests/kith-bridge-check`.
 
 #![cfg(unix)]
 
@@ -372,7 +372,7 @@ impl Rig {
         let (bin, stub) = (dir.join("bin"), dir.join("stub"));
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::create_dir_all(&stub).unwrap();
-        for tool in ["hq", "hq-auth", "hq-live"] {
+        for tool in ["kith", "kith-auth", "kith-live"] {
             std::os::unix::fs::symlink(stub_script(), bin.join(tool)).unwrap();
         }
         for (name, card) in [
@@ -395,9 +395,9 @@ impl Rig {
             std::fs::write(stub.join(format!("{name}.json")), v.to_string()).unwrap();
         }
         let paths = Paths {
-            hq_bin: bin.join("hq"),
-            auth_bin: bin.join("hq-auth"),
-            live_bin: bin.join("hq-live"),
+            hq_bin: bin.join("kith"),
+            auth_bin: bin.join("kith-auth"),
+            live_bin: bin.join("kith-live"),
             machine: dir.join("machine"),
             agent_roots: vec![dir.join("agents")],
             data: dir.join("data"),
@@ -427,7 +427,7 @@ impl Rig {
 
     fn hq_calls(&self) -> Vec<Value> {
         let text = std::fs::read_to_string(self.dir.join("stub/calls.jsonl")).unwrap_or_default();
-        text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).filter(|c| c["tool"] == "hq").collect()
+        text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).filter(|c| c["tool"] == "kith").collect()
     }
 }
 
@@ -529,7 +529,7 @@ async fn at_agent_text_and_bang_commands_address_the_core() {
     assert_eq!(rig.hq_calls()[0]["agent"], "shop");
     // `!whoami` is the core's /whoami, answered by a note in the room (not in a thread, in a DM).
     let ts = dm(&rig, "!whoami");
-    until("the note", || rig.fake.texts().iter().any(|t| t.contains("You are kai in hq"))).await;
+    until("the note", || rig.fake.texts().iter().any(|t| t.contains("You are kai in kith"))).await;
     let note =
         rig.fake.posted().into_iter().find(|c| c["text"].as_str().is_some_and(|t| t.contains("You are kai"))).unwrap();
     assert!(note["thread_ts"].is_null(), "{note}");
@@ -583,12 +583,12 @@ async fn asking_who_takes_it_and_pressing_a_button_twice() {
     let buttons = ask["blocks"][1]["elements"].as_array().unwrap();
     assert_eq!(buttons.len(), 3, "{ask}");
     let first = &buttons[0];
-    assert_eq!(first["action_id"], "hq-pick-house");
+    assert_eq!(first["action_id"], "kith-pick-house");
     let value = first["value"].as_str().unwrap().to_owned();
     let (pid, agent) = value.split_once(':').unwrap();
     assert_eq!(agent, "house");
     // Somebody else's press is refused, privately.
-    rig.fake.press(GUEST, ROOM, "1760000001.000001", "hq-pick-house", &value);
+    rig.fake.press(GUEST, ROOM, "1760000001.000001", "kith-pick-house", &value);
     until("the refusal", || rig.fake.calls("chat.postEphemeral").len() == 1).await;
     let refusal = &rig.fake.calls("chat.postEphemeral")[0];
     assert_eq!(
@@ -597,13 +597,13 @@ async fn asking_who_takes_it_and_pressing_a_button_twice() {
     );
     assert_eq!(rig.hq_calls().len(), 0);
     // The asker's press runs the task, once, and the buttons turn into the choice.
-    rig.fake.press(KAI, ROOM, "1760000001.000001", "hq-pick-house", &value);
+    rig.fake.press(KAI, ROOM, "1760000001.000001", "kith-pick-house", &value);
     until("the answer", || rig.fake.answers("msg-ask") == 1).await;
     assert_eq!(rig.hq_calls()[0]["agent"], "house");
     let update = &rig.fake.calls("chat.update")[0];
     assert_eq!((update["text"].as_str(), update["ts"].as_str()), (Some("→ house"), Some("1760000001.000001")));
     // Pressed again: nothing runs.
-    rig.fake.press(KAI, ROOM, "1760000001.000001", "hq-pick-house", &format!("{pid}:house"));
+    rig.fake.press(KAI, ROOM, "1760000001.000001", "kith-pick-house", &format!("{pid}:house"));
     until("the second refusal", || rig.fake.calls("chat.postEphemeral").len() == 2).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(rig.hq_calls().len(), 1);
@@ -620,23 +620,23 @@ async fn the_stop_button_stops_the_work() {
     assert_eq!(line["thread_ts"], ts);
     assert_eq!(line["username"], "Home");
     let button = &line["blocks"][1]["elements"][0];
-    assert_eq!((button["text"]["text"].as_str(), button["action_id"].as_str()), (Some("Stop"), Some("hq-stop")));
+    assert_eq!((button["text"]["text"].as_str(), button["action_id"].as_str()), (Some("Stop"), Some("kith-stop")));
     let wid = button["value"].as_str().unwrap().to_owned();
     until("the run", || !rig.hq_calls().is_empty()).await;
     let line_ts = "1760000001.000009";
     // Another person's press is refused and stops nothing.
-    rig.fake.press(GUEST, DM, line_ts, "hq-stop", &wid);
+    rig.fake.press(GUEST, DM, line_ts, "kith-stop", &wid);
     until("the refusal", || rig.fake.calls("chat.postEphemeral").len() == 1).await;
     assert_eq!(rig.fake.calls("chat.postEphemeral")[0]["text"], "Only the person who started this can stop it.");
     assert_eq!(rig.fake.calls("chat.update").len(), 0);
     // Kai's press stops it: "stopping…", then "stopped" on the working line.
-    rig.fake.press(KAI, DM, line_ts, "hq-stop", &wid);
+    rig.fake.press(KAI, DM, line_ts, "kith-stop", &wid);
     until("stopped", || rig.fake.calls("chat.update").iter().any(|c| c["text"] == "stopped")).await;
     let edits: Vec<String> =
         rig.fake.calls("chat.update").iter().map(|c| c["text"].as_str().unwrap().to_owned()).collect();
     assert!(edits.contains(&"stopping…".to_owned()), "{edits:?}");
     // Pressed after it ended: nothing to stop, no complaint.
-    rig.fake.press(KAI, DM, line_ts, "hq-stop", &wid);
+    rig.fake.press(KAI, DM, line_ts, "hq-stop", &wid); // the old action id still works
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(rig.fake.calls("chat.postEphemeral").len(), 1);
     task.abort();

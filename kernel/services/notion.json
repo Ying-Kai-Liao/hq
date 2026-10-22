@@ -1,5 +1,5 @@
 {
-  "description": "Notion API (an internal integration); tools ask hq-auth for the key",
+  "description": "Notion API (an internal integration); tools ask kith-auth for the key",
   "kind": "cli",
   "secrets": ["NOTION_API_KEY"]
 }

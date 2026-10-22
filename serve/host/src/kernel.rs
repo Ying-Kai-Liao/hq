@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 
 /// The kernel's command, relative to the kernel folder. The only place that names it: change it here when
 /// the kernel's entry point is renamed.
-pub const KERNEL_ENTRY: &str = "bin/hq";
+pub const KERNEL_ENTRY: &str = "bin/kith";
+/// What a kernel from before the rename called its entry point: accepted when there is no `KERNEL_ENTRY`.
+const OLD_KERNEL_ENTRY: &str = "bin/hq";
 /// The kernel folder inside a packaged install, relative to the folder holding `bin/`.
 const SHIPPED_KERNEL: &str = "share/kith/kernel";
 /// Env var that names a kernel folder, first in the lookup.
@@ -81,12 +83,60 @@ pub fn self_args(sub: &[&str]) -> Vec<OsString> {
     v
 }
 
+/// The kernel's entry point in `dir`, if it is a kernel.
+fn entry_in(dir: &Path) -> Option<PathBuf> {
+    [KERNEL_ENTRY, OLD_KERNEL_ENTRY].iter().map(|e| dir.join(e)).find(|p| p.is_file())
+}
+
 fn is_kernel(dir: &Path) -> bool {
-    dir.join(KERNEL_ENTRY).is_file()
+    entry_in(dir).is_some()
+}
+
+/// `KITH_<name>`, else the old `HQ_<name>`: how the host reads every setting the kernel names both ways. (`HQ_BIN` is
+/// `KITH_KERNEL_BIN`: `KITH_BIN` already names the kith binary itself.)
+pub fn var(name: &str) -> Option<OsString> {
+    let new = if name == "BIN" { "KERNEL_BIN" } else { name };
+    [format!("KITH_{new}"), format!("HQ_{name}")].iter().find_map(|k| std::env::var_os(k).filter(|v| !v.is_empty()))
+}
+
+/// Both spellings of a setting for a process the host starts: agents' role repos still read the HQ_ one.
+pub fn both(name: &str, value: &str) -> [(String, String); 2] {
+    let new = if name == "BIN" { "KERNEL_BIN" } else { name };
+    [(format!("KITH_{new}"), value.to_owned()), (format!("HQ_{name}"), value.to_owned())]
+}
+
+/// This Mac's Kith folder, by the kernel's rules (`kernel/lib/kith_paths.py`, which is the source of truth):
+/// `KITH_STATE`/`HQ_STATE`, else `~/.kith` once `~/.kith/.migrated` exists, else a real `~/.hq` (not migrated yet),
+/// else `~/.kith`.
+pub fn machine_dir(home: &Path) -> PathBuf {
+    if let Some(given) = var("STATE") {
+        return PathBuf::from(given);
+    }
+    let (new, old) = (home.join(".kith"), home.join(".hq"));
+    if new.join(".migrated").exists() {
+        return new;
+    }
+    match std::fs::symlink_metadata(&old) {
+        Ok(m) if m.is_dir() => old,
+        Ok(m) if m.file_type().is_symlink() && old.is_dir() && new.is_dir() => {
+            if old.canonicalize().ok() == new.canonicalize().ok() { new } else { old }
+        }
+        Ok(m) if m.file_type().is_symlink() && old.is_dir() => old,
+        _ => new,
+    }
+}
+
+/// The Kith folder: `KITH_HOME`/`HQ_HOME`, else `~/kith`, else `~/hq`.
+pub fn home_dir(home: &Path) -> PathBuf {
+    if let Some(given) = var("HOME") {
+        return PathBuf::from(given);
+    }
+    let new = home.join("kith");
+    if new.is_dir() { new } else { home.join("hq") }
 }
 
 /// Where the kernel is, in order: `$KITH_KERNEL`, a kernel shipped next to the (real, symlinks resolved)
-/// binary (`<prefix>/share/kith/kernel`, or `<prefix>/kernel`), then `~/hq/kernel` (a git checkout).
+/// binary (`<prefix>/share/kith/kernel`, or `<prefix>/kernel`), then `~/kith/kernel` or `~/hq/kernel` (a checkout of the repo).
 pub fn find_kernel(env: Option<OsString>, exe: Option<&Path>, home: Option<&Path>) -> Option<PathBuf> {
     if let Some(dir) = env.filter(|e| !e.is_empty()).map(PathBuf::from) {
         return is_kernel(&dir).then_some(dir);
@@ -99,8 +149,8 @@ pub fn find_kernel(env: Option<OsString>, exe: Option<&Path>, home: Option<&Path
             }
         }
     }
-    let checkout = home?.join("hq/kernel");
-    is_kernel(&checkout).then_some(checkout)
+    let home = home?;
+    ["kith/kernel", "hq/kernel"].iter().map(|c| home.join(c)).find(|c| is_kernel(c))
 }
 
 /// Replaces this process with the kernel's entry point. Only returns on failure.
@@ -110,13 +160,13 @@ pub fn exec_kernel(args: &[OsString]) -> anyhow::Error {
     let exe = std::env::current_exe().ok();
     let Some(kernel) = find_kernel(std::env::var_os(KERNEL_ENV), exe.as_deref(), dirs::home_dir().as_deref()) else {
         return anyhow::anyhow!(
-            "kith: no kernel found. Set {KERNEL_ENV}, install a packaged kith (it ships share/kith/kernel), or clone hq to ~/hq"
+            "kith: no kernel found. Set {KERNEL_ENV}, install a packaged kith (it ships share/kith/kernel), or clone kith to ~/kith"
         );
     };
-    let entry = kernel.join(KERNEL_ENTRY);
+    let entry = entry_in(&kernel).unwrap_or_else(|| kernel.join(KERNEL_ENTRY));
     let mut cmd = std::process::Command::new(&entry);
     cmd.args(args);
-    // So the kernel's hq-serve installs this very binary on a packaged install, without cargo.
+    // So the kernel's kith-serve installs this very binary on a packaged install, without cargo.
     if let Some(e) = exe.and_then(|e| e.canonicalize().ok()) {
         cmd.env("KITH_BIN", e);
     }
@@ -162,6 +212,50 @@ mod tests {
     }
 
     #[test]
+    fn machine_folder_follows_the_migration_marker() {
+        let t = std::env::temp_dir().join(format!("kith-machine-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let (new, old) = (t.join(".kith"), t.join(".hq"));
+        // A Mac that has only kith serve's data in ~/.kith and its real state in ~/.hq: not migrated.
+        std::fs::create_dir_all(new.join("serve")).unwrap();
+        std::fs::create_dir_all(&old).unwrap();
+        assert_eq!(machine_dir(&t), old);
+        // `kith migrate` writes the marker (and links ~/.hq to ~/.kith).
+        std::fs::write(new.join(".migrated"), "").unwrap();
+        assert_eq!(machine_dir(&t), new);
+        std::fs::remove_file(new.join(".migrated")).unwrap();
+        std::fs::remove_dir(&old).unwrap();
+        // ~/.hq a link to ~/.kith, or no ~/.hq at all: ~/.kith.
+        std::os::unix::fs::symlink(&new, &old).unwrap();
+        assert_eq!(machine_dir(&t), new);
+        std::fs::remove_file(&old).unwrap();
+        assert_eq!(machine_dir(&t), new);
+        std::fs::remove_dir_all(&t).unwrap();
+    }
+
+    #[test]
+    fn kith_home_is_preferred_over_hq() {
+        let t = std::env::temp_dir().join(format!("kith-home-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(t.join("hq")).unwrap();
+        assert_eq!(home_dir(&t), t.join("hq"));
+        std::fs::create_dir_all(t.join("kith")).unwrap();
+        assert_eq!(home_dir(&t), t.join("kith"));
+        std::fs::remove_dir_all(&t).unwrap();
+    }
+
+    #[test]
+    fn both_spellings_of_a_setting() {
+        assert_eq!(
+            both("VIA", "serve"),
+            [("KITH_VIA".to_owned(), "serve".to_owned()), ("HQ_VIA".to_owned(), "serve".to_owned())]
+        );
+        // KITH_BIN is the kith binary itself, so the kernel's command has its own name.
+        assert_eq!(both("BIN", "/k")[0].0, "KITH_KERNEL_BIN");
+        assert_eq!(both("BIN", "/k")[1].0, "HQ_BIN");
+    }
+
+    #[test]
     fn kith_serve_is_the_host() {
         assert_eq!(route(&v(&["/h/kith-serve", "install"])), Route::Host(v(&["/h/kith-serve", "install"])));
     }
@@ -173,7 +267,7 @@ mod tests {
             std::fs::create_dir_all(p.join("bin")).unwrap();
             std::fs::write(p.join(KERNEL_ENTRY), "").unwrap();
         };
-        let (shipped, checkout, envk) = (t.join("p/share/kith/kernel"), t.join("home/hq/kernel"), t.join("e"));
+        let (shipped, checkout, envk) = (t.join("p/share/kith/kernel"), t.join("home/kith/kernel"), t.join("e"));
         mk(&checkout);
         std::fs::create_dir_all(t.join("p/bin")).unwrap();
         std::fs::write(t.join("p/bin/kith"), "").unwrap();

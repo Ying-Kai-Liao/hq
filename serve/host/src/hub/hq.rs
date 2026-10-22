@@ -55,7 +55,7 @@ impl Hub {
     /// no hq or it can't list: the bots already there stay as they are.
     pub async fn sync_hq_bots(self: &Arc<Self>) -> Result<Synced> {
         let Some(bin) = tokio::task::spawn_blocking(hq::bin).await? else {
-            anyhow::bail!("no hq found (HQ_BIN, PATH or ~/.local/bin/hq)");
+            anyhow::bail!("no kith found (KITH_KERNEL_BIN, PATH or ~/.local/bin/kith)");
         };
         self.sync_hq_bots_with(&bin).await
     }

@@ -1,15 +1,15 @@
 {
-  "name": "hq",
-  "version": "0.7.0",
-  "description": "Claude Code adapter for hq: your persistent specialist agents, with their memory and projects, as subagents in every session.",
+  "name": "kith",
+  "version": "0.8.0",
+  "description": "Claude Code adapter for kith: your persistent specialist agents, with their memory and projects, as subagents in every session.",
   "author": {
     "name": "Ying-Kai Liao"
   },
   "userConfig": {
-    "hq_path": {
+    "kith_path": {
       "type": "string",
-      "title": "hq folder",
-      "description": "Where the hq kernel lives. Empty: ~/hq/kernel (else ~/.hq/kernel, ~/Workspace/hq). Agents come from HQ_HOME (default ~/hq), state from ~/.hq.",
+      "title": "kith folder",
+      "description": "Where the kith kernel lives. Empty: ~/kith/kernel (else ~/hq/kernel, ~/.kith/kernel, ~/Workspace/kith). Agents come from KITH_HOME (default ~/kith), state from ~/.kith.",
       "default": ""
     }
   }
