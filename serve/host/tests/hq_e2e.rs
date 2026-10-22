@@ -432,3 +432,38 @@ async fn without_hq_projects_is_empty_and_says_why() {
     assert_eq!(answer["projects"], json!([]));
     assert!(answer["error"].as_str().is_some_and(|e| e.contains("hq")), "{answer}");
 }
+
+#[tokio::test]
+async fn moving_a_task_thread_to_another_project_after_its_turn_never_stalls_the_host() {
+    let s = start().await;
+    s.register_projects();
+    let id = s.house().await["id"].as_str().unwrap().to_owned();
+    s.host.call("updateBot", json!({"id": id, "tasks": true})).await;
+    let sent =
+        s.host.call("send", json!({"botId": id, "text": "a task", "clientNonce": "t1", "project": "alpha"})).await;
+    let task = sent["entry"]["id"].as_str().unwrap().to_owned();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while requests_in(&s.dir("alpha"), "session/prompt").is_empty() {
+        assert!(Instant::now() < deadline, "the task never ran in alpha");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // /health must answer through all of it.
+    let health = format!("{}/health", s.host.base());
+    let watch = tokio::spawn(async move {
+        let client = reqwest::Client::new();
+        for _ in 0..100 {
+            let answered = client.get(&health).timeout(Duration::from_secs(5)).send().await;
+            assert!(answered.is_ok_and(|r| r.status().is_success()), "/health stopped answering");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    });
+    let work = async {
+        s.host.call("setPlaceFolder", json!({"botId": id, "threadId": task, "project": "beta"})).await;
+        s.thread_reply(&id, &task, "now in beta").await;
+        s.host.call("setPlaceFolder", json!({"botId": id, "threadId": task, "project": "alpha"})).await;
+        s.host.call("setPlaceFolder", json!({"botId": id, "threadId": task, "project": "beta"})).await;
+        s.thread_reply(&id, &task, "beta again").await;
+    };
+    tokio::time::timeout(Duration::from_secs(60), work).await.expect("the host stalled");
+    watch.await.unwrap();
+}
