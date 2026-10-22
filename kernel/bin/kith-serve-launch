@@ -11,16 +11,43 @@ launchd credits file access (Full Disk Access, external volumes) to the program 
 program spawns. Run behind hq-uv, which has that access, the kith host reads ~/hq like the bridge does. The
 command is a child, never an exec: an exec would replace hq-uv's process and lose the credit. SIGTERM, SIGINT and
 SIGHUP go to the child, and the exit code is the child's.
+
+A hung host ignores SIGTERM and would keep host.lock, so the next instance could not start. If the child is
+still there KITH_SERVE_KILL_GRACE_S (default 20) seconds after a signal, it gets SIGKILL. The child shares this
+process's group (it is not spawned in a new one), so only the child is killed.
 """
+import os
 import signal
 import subprocess
 import sys
+import threading
 
 if len(sys.argv) < 2:
     sys.exit("usage: kith-serve-launch COMMAND [ARGS...]")
+try:
+    GRACE = float(os.environ.get("KITH_SERVE_KILL_GRACE_S", "20"))
+except ValueError:
+    GRACE = 20.0
 child = subprocess.Popen(sys.argv[1:])
+killer = None
+
+
+def kill_later():
+    if child.poll() is None:
+        child.kill()
+
+
+def forward(n, _f):
+    global killer
+    child.send_signal(n)
+    if killer is None:
+        killer = threading.Timer(GRACE, kill_later)
+        killer.daemon = True
+        killer.start()
+
+
 for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
-    signal.signal(sig, lambda n, _f: child.send_signal(n))
+    signal.signal(sig, forward)
 while True:
     try:
         code = child.wait()
