@@ -1,0 +1,5 @@
+{
+  "description": "Anthropic API key, for a claude-api:<profile> backup (kith backup add): Claude Code asks kith-auth for it through apiKeyHelper. Set a spend limit on the key in the Anthropic console as the hard cap",
+  "kind": "cli",
+  "secrets": ["ANTHROPIC_API_KEY"]
+}
