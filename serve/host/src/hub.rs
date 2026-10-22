@@ -20,7 +20,7 @@ use tokio::sync::{broadcast, watch};
 
 mod actors;
 mod folders;
-mod hq;
+pub(crate) mod hq;
 mod order;
 mod sync;
 

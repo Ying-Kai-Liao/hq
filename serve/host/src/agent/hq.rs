@@ -207,6 +207,124 @@ pub async fn projects(fresh: bool) -> Result<Vec<Project>> {
     Ok(list)
 }
 
+/// How long an agent's `--info-json` is reused; a stale one is still served while a run refreshes it behind the call.
+const INFO_FRESH: Duration = Duration::from_secs(30);
+/// A failed run is reused only briefly, so one hiccup doesn't fail the page (and memory reads) for half a minute.
+const INFO_FAILED_FRESH: Duration = Duration::from_secs(3);
+/// `--info-json` reads the role, skills, schedules, cost ledger and memory folder: more than a launch, less than a minute.
+const INFO_TIMEOUT: Duration = Duration::from_secs(45);
+const SEARCH_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// What one `kith <agent> --info-json` run gave (or why it did not).
+#[derive(Clone, Debug)]
+pub struct InfoRun {
+    pub info: Result<Value, String>,
+    /// Unix milliseconds the run finished.
+    pub fetched_at: u64,
+    at: Instant,
+}
+
+/// One agent's cache entry. `gate` lets one run per agent go at a time: a second caller waits and then finds the
+/// first one's answer fresh.
+#[derive(Default)]
+struct InfoSlot {
+    gate: tokio::sync::Mutex<()>,
+    last: std::sync::Mutex<Option<InfoRun>>,
+}
+
+type Slots = std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<InfoSlot>>>;
+static INFOS: std::sync::LazyLock<Slots> = std::sync::LazyLock::new(Default::default);
+
+fn slot(agent: &str) -> std::sync::Arc<InfoSlot> {
+    INFOS.locked().entry(agent.to_owned()).or_default().clone()
+}
+
+async fn run_info(agent: &str) -> Result<Value> {
+    let Some(bin) = tokio::task::spawn_blocking(bin).await? else {
+        bail!("kith isn't installed on this computer (set KITH_KERNEL_BIN, or put `kith` on PATH)");
+    };
+    let out = run(&bin, &[agent, "--info-json"], None, INFO_TIMEOUT).await?;
+    let info: Value = serde_json::from_str(out.trim())
+        .with_context(|| format!("`kith {agent} --info-json` didn't print a JSON object"))?;
+    if !info.is_object() {
+        bail!("`kith {agent} --info-json` didn't print a JSON object");
+    }
+    Ok(info)
+}
+
+impl InfoRun {
+    /// How long this answer is reused: a failure only briefly.
+    fn fresh(&self) -> bool {
+        self.at.elapsed() < if self.info.is_ok() { INFO_FRESH } else { INFO_FAILED_FRESH }
+    }
+}
+
+/// Runs kith for `agent`. A caller that finds a run in flight waits for it and takes its answer, `force` or not
+/// (a refresh asked for while one is running would only repeat it); otherwise a still-fresh answer is reused
+/// unless `force`.
+async fn refill(agent: &str, force: bool) -> InfoRun {
+    let slot = slot(agent);
+    let _turn = if let Ok(turn) = slot.gate.try_lock() {
+        turn
+    } else {
+        let turn = slot.gate.lock().await;
+        if let Some(last) = slot.last.locked().clone() {
+            return last;
+        }
+        turn
+    };
+    if !force
+        && let Some(last) = slot.last.locked().clone()
+        && last.fresh()
+    {
+        return last;
+    }
+    let info = run_info(agent).await.map_err(|e| format!("{e:#}"));
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+    let got = InfoRun { info, fetched_at: now, at: Instant::now() };
+    *slot.last.locked() = Some(got.clone());
+    got
+}
+
+/// What `kith <agent> --info-json` printed, reused for 30 s (3 s for a failure). A stale answer is returned at once
+/// and refreshed behind the call; the first one, a stale failure, or `fresh` waits for kith. Never blocks the
+/// runtime: kith is a child process.
+pub async fn info(agent: &str, fresh: bool) -> InfoRun {
+    let cached = slot(agent).last.locked().clone();
+    match cached {
+        Some(last) if !fresh && last.info.is_ok() => {
+            if !last.fresh() {
+                let agent = agent.to_owned();
+                tokio::spawn(async move { drop(refill(&agent, false).await) });
+            }
+            last
+        }
+        Some(last) if !fresh && last.fresh() => last,
+        _ => refill(agent, fresh).await,
+    }
+}
+
+/// `kith memory search <query> --agent <agent> --json -n <limit>`: the `hits` list as kith printed it.
+pub async fn memory_search(agent: &str, query: &str, limit: usize) -> Result<Vec<Value>> {
+    let Some(bin) = tokio::task::spawn_blocking(bin).await? else {
+        bail!("kith isn't installed on this computer (set KITH_KERNEL_BIN, or put `kith` on PATH)");
+    };
+    let n = limit.to_string();
+    // The query stays before `--agent <name>`: kith reads words up to the first flag as the query, so a query can't
+    // become an option (such as `--all`, which would widen the search to every agent).
+    let args = ["memory", "search", query, "--agent", agent, "--json", "-n", &n];
+    let out = run(&bin, &args, None, SEARCH_TIMEOUT).await?;
+    let found: Value =
+        serde_json::from_str(out.trim()).context("`kith memory search --json` didn't print a JSON object")?;
+    let hits = found["hits"].as_array().ok_or_else(|| anyhow!("`kith memory search --json` printed no `hits` list"))?;
+    if !hits.iter().all(Value::is_object) {
+        bail!("`kith memory search --json` printed hits that aren't objects");
+    }
+    Ok(hits.clone())
+}
+
 /// `kith project add <id> <path>`: kith's own error text on failure (a taken id, a path that isn't a folder…).
 pub async fn project_add(id: &str, path: &str) -> Result<()> {
     let Some(bin) = tokio::task::spawn_blocking(bin).await? else {
