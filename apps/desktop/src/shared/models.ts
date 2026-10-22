@@ -21,7 +21,7 @@ export interface Bot {
   backend: string
   command?: string | null
   cwd: string
-  /** The bot's default hq project (`BotConfig.project`); places with no pick of their own follow it. */
+  /** The bot's default Kith project (`BotConfig.project`); places with no pick of their own follow it. */
   project: string | null
   /** Where the bot's own chat works; null for a group, absent from a host without place folders. */
   folder: PlaceFolder | null
@@ -393,7 +393,7 @@ export interface DirItem {
   name: string
   path: string
   isGit: boolean
-  /** The hq project registered at this folder. */
+  /** The Kith project registered at this folder. */
   project?: string | null
 }
 
@@ -486,7 +486,7 @@ export interface BotDraft {
   backend: string
   command?: string | null
   cwd: string
-  /** Default hq project; null or '' clears it. */
+  /** Default Kith project; null or '' clears it. */
   project?: string | null
   permission: string
   model?: string | null

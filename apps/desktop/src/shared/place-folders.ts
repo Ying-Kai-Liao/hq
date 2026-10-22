@@ -11,7 +11,7 @@ export interface PlaceFolder {
   missing?: boolean
 }
 
-/** One entry of hq's project registry (`projects`). */
+/** One entry of Kith's project registry (`projects`). */
 export interface ProjectInfo {
   id: string
   path: string | null
@@ -45,7 +45,7 @@ export function normalizeFolder(raw: unknown): PlaceFolder | null {
   }
 }
 
-/** `My Project_v2` -> `my-project-v2`: lowercase words joined by single dashes, as `hq project add` wants. */
+/** `My Project_v2` -> `my-project-v2`: lowercase words joined by single dashes, as `kith project add` wants. */
 export function projectIdFromName(name: string) {
   return name
     .normalize('NFKD')

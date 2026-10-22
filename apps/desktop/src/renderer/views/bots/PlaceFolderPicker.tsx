@@ -11,7 +11,7 @@ import { FolderPicker } from './BotEditorView'
 import './place-folder.css'
 
 /**
- * Where a chat, thread or task works: an hq project, a recent folder, or any folder. `onPick` does the
+ * Where a chat, thread or task works: a Kith project, a recent folder, or any folder. `onPick` does the
  * work (the host may refuse it); its error shows here and the picker stays open.
  */
 export function PlaceFolderSheet({ open, onClose, current, onPick }: {
@@ -71,7 +71,7 @@ function PlaceFolderPicker({ current, onPick, onClose }: { current: PlaceFolder 
     }
   }
 
-  // A folder that is not an hq project may be registered as one first; skippable.
+  // A folder that is not a Kith project may be registered as one first; skippable.
   const folderChosen = (path: string, listed: string | null = null) => {
     const project = projectAt(path, projects ?? [], listed)
     if (project) void commit({ project })
@@ -110,7 +110,7 @@ function PlaceFolderPicker({ current, onPick, onClose }: { current: PlaceFolder 
             </button>
           </CardSection>
         ) : null}
-        <CardSection title="hq projects" footer={hqError ? <Text tone="secondary" size="footnote">{hqError}</Text> : null}>
+        <CardSection title="Kith projects" footer={hqError ? <Text tone="secondary" size="footnote">{hqError}</Text> : null}>
           {projects === null ? (
             <HStack justify="center"><Spinner size={16} /></HStack>
           ) : sections.projects.length ? (
@@ -125,7 +125,7 @@ function PlaceFolderPicker({ current, onPick, onClose }: { current: PlaceFolder 
               </button>
             ))
           ) : (
-            <Text tone="secondary" size="footnote">No hq projects.</Text>
+            <Text tone="secondary" size="footnote">No Kith projects.</Text>
           )}
         </CardSection>
         {sections.recent.length ? (
@@ -174,7 +174,7 @@ function RegisterStep({ path, onUse, onRegistered, onBack, busy, error }: {
     store
       .registerProject(id, path)
       .then(() => onRegistered(id))
-      // hq's own message, for example when the id exists.
+      // Kith's own message, for example when the id exists.
       .catch((e: unknown) => setFailure(errorText(e)))
       .finally(() => setRegistering(false))
   }
@@ -187,7 +187,7 @@ function RegisterStep({ path, onUse, onRegistered, onBack, busy, error }: {
         <div className="folder-title"><ModalHeader title={lastComponent(path)} subtitle={path} /></div>
       </HStack>
       <div className="place-picker-body">
-        <CardSection title="Register as hq project" footer="A registered project gives the agent its CLAUDE.md, codebase notes and memory.">
+        <CardSection title="Register as Kith project" footer="A registered project gives the agent its CLAUDE.md, codebase notes and memory.">
           <input
             className="field-box place-id-field"
             value={id}

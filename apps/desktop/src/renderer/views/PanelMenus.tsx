@@ -65,8 +65,8 @@ export function AccountPanelLayer({ compact, approvals, onDismiss, onUsage, onSe
     page === 'support'
       ? [
           { title: 'Support', icon: 'chevron.left', action: () => setPage('main') },
-          { title: 'Help & documentation', icon: 'book', chevron: true, action: () => open('https://github.com/Ying-Kai-Liao/hq#readme') },
-          { title: 'Report an issue', icon: 'bubble.left', chevron: true, action: () => open('https://github.com/Ying-Kai-Liao/hq/issues') },
+          { title: 'Help & documentation', icon: 'book', chevron: true, action: () => open('https://github.com/Ying-Kai-Liao/kith#readme') },
+          { title: 'Report an issue', icon: 'bubble.left', chevron: true, action: () => open('https://github.com/Ying-Kai-Liao/kith/issues') },
         ]
       : [
           { title: 'Usage', icon: 'gauge.with.dots.needle.33percent', chevron: true, action: onUsage },

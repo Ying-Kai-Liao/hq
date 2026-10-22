@@ -120,7 +120,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
   const setModelOptions = useCallback((modelOptions: Record<string, string>) => onChange((d) => ({ ...d, modelOptions })), [onChange])
   const models = useAgentModels(draft.backend)
   const saved = draft.id ? (store.bots.get(draft.id) ?? null) : null
-  // hq's project list for the default-project menu; without hq it stays empty and the menu offers None.
+  // Kith's project list for the default-project menu; without Kith it stays empty and the menu offers None.
   const [projects, setProjects] = useState<ProjectInfo[] | null>(null)
   useEffect(() => {
     let live = true
@@ -255,7 +255,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
             </DropdownMenu>
           </ValueRow>
           {saved?.kind !== 'group' ? (
-            <ValueRow label="Default project" detail="New chats, threads and tasks of this bot start in this hq project, unless one is picked there.">
+            <ValueRow label="Default project" detail="New chats, threads and tasks of this bot start in this Kith project, unless one is picked there.">
               <DropdownMenu
                 title={draft.project || 'No default project'}
                 items={() => [
