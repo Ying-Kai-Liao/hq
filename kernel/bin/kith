@@ -9,6 +9,8 @@
 #   kith <agent> [-p ID] [-m MODEL] [-e EFFORT] [-H HARNESS] [--permission-mode MODE|--bypass] [task...]  interactive without a task, one-shot with one
 #   kith <agent> --print [...]      show the assembled system prompt, don't run
 #   kith <agent> --inspect          start one run and report what it loads (tools, MCP servers, skills, plugins)
+#   kith <agent> --info-json        for a program (the bot detail page): one JSON object, the agent's role, package, skills, tools,
+#                                 MCP servers, projects, schedules, cost and memory; read-only, local, each part fails soft (kith-info)
 #   kith <agent> --launch-json [--hold PID] [...]   for a program that starts the run itself (kith serve): one JSON object on stdout
 #                                 with everything the run needs (env, cwd, system_prompt, settings, MCP servers, directories,
 #                                 claude_args to give claude as-is). Claude only; ignores KITH_CLAUDE_ARGS/KITH_OUTPUT/KITH_RESUME.
@@ -59,7 +61,7 @@ set -euo pipefail
 src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
 KITH="$(cd "$(dirname "$src")/.." && pwd)"
 
-[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,36p' "$0" | sed 's/^#   //'; exit 0; }
+[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,38p' "$0" | sed 's/^#   //'; exit 0; }
 . "$KITH/lib/kith-env.sh"   # KITH_X and the old HQ_X agree (role repos read HQ_X)
 export KITH_ROOT=$KITH
 # Where things are, from the one place that knows (lib/kith_paths.py): KITH_HOME (~/kith) holding kernel/ and agents/ (each
@@ -119,6 +121,7 @@ for name, o in json.load(sys.stdin).items():
 fi
 
 agent=$1; shift
+[[ ${1:-} == --info-json ]] && exec "$KITH/bin/kith-info" "$agent"
 src_pkg=$(agent_dir "$agent")
 [[ -n $src_pkg ]] || { echo "kith: no agent '$agent' (try: kith ls, or kith install <github-link>)" >&2; exit 1; }
 if [[ $src_pkg == */role ]]; then home=${src_pkg%/role}; else home="$KITH_STATE/agents/$agent"; fi
