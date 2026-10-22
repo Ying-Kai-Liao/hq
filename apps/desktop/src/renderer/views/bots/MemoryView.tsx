@@ -10,6 +10,8 @@ import { FormSheet } from '../marketplace/pieces'
 import { relativeTime } from '../thread/chat-items'
 import { HarnessMemorySheet } from './HarnessMemorySheet'
 import { type FileTarget, MemoryFileSheet, fileRows } from './MemoryFiles'
+import { KithMemory } from './kith/KithMemory'
+import { useKithInfo } from './kith/use-kith'
 import './memory.css'
 
 type Section = 'yours' | 'bot' | 'dreams' | 'harness'
@@ -19,6 +21,7 @@ export function MemoryCard({ botId }: { botId: string }) {
   const host = useStore()
   const memory = useModel(useMemo(() => new MemoryStore(botId, () => host.ready()), [botId, host]))
   const bot = host.bots.get(botId)
+  const kith = useKithInfo(botId)
   const [section, setSection] = useState<Section>('bot')
   const [draft, setDraft] = useState<{ id?: number; text: string } | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
@@ -42,6 +45,7 @@ export function MemoryCard({ botId }: { botId: string }) {
   }
 
   return <>
+    {kith ? <KithMemory botId={botId} kith={kith} /> : null}
     <div className="memory-panel">
       <TabChoice label="Memory" selection={section} options={sections} onChange={(next) => {
         setSection(next)

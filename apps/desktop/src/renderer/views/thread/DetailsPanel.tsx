@@ -6,7 +6,10 @@ import { Icon } from '../../components/Icon'
 import { HStack, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
 import { useStore } from '../../store/context'
+import type { KithInfoStore } from '../../store/kith-info-store'
 import { BotSettingsPanel } from '../bots/BotEditorView'
+import { KithDetails, KithHeader } from '../bots/kith/KithDetails'
+import { useKithInfo } from '../bots/kith/use-kith'
 import { MemoryCard } from '../bots/MemoryView'
 import { RoutinesView } from '../routines/RoutinesView'
 import { MacChatButton } from './MacChatButton'
@@ -34,6 +37,7 @@ export function DetailsPanel({ botId, routineId, tab, setTab, editGroup, share, 
   const store = useStore()
   const bot = store.bots.get(botId) ?? null
   const group = !!bot && isGroup(bot)
+  const kith = useKithInfo(botId, true)
   return (
     <div className="details-panel">
       <div className="details-drag" />
@@ -42,7 +46,7 @@ export function DetailsPanel({ botId, routineId, tab, setTab, editGroup, share, 
         <MacChatButton className="ringed" title="Close details" icon="xmark" onClick={close} />
       </div>
       <div className="details-scroll">
-        {bot ? <Identity bot={bot} /> : null}
+        {bot ? <Identity bot={bot} kith={kith} /> : null}
         {bot && group ? (
           <GroupMembersList group={bot} editGroup={editGroup} />
         ) : (
@@ -51,6 +55,7 @@ export function DetailsPanel({ botId, routineId, tab, setTab, editGroup, share, 
             <div key={tab} className="details-tab fade-in">
               {tab === 'details' ? (
                 <>
+                  {kith ? <KithDetails kith={kith} /> : null}
                   <BotSettingsPanel botId={botId} part="often" />
                   {bot ? <ComputerUse bot={bot} /> : null}
                   <RoutinesView botId={botId} initialId={routineId} />
@@ -69,7 +74,7 @@ export function DetailsPanel({ botId, routineId, tab, setTab, editGroup, share, 
 }
 
 /** The bot's avatar and name, and what runs it (a group: how many bots it has). */
-function Identity({ bot }: { bot: Bot }) {
+function Identity({ bot, kith }: { bot: Bot; kith: KithInfoStore | null }) {
   const store = useStore()
   const group = isGroup(bot)
   return (
@@ -87,6 +92,7 @@ function Identity({ bot }: { bot: Bot }) {
           </>
         )}
       </span>
+      {kith && bot.hqAgent ? <KithHeader agent={bot.hqAgent} kith={kith} /> : null}
     </div>
   )
 }

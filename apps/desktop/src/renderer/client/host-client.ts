@@ -1,4 +1,5 @@
 import type { CallError } from '@shared/ipc'
+import { parseKithInfoResult, parseMemoryFile, parseSearchResult, type KithInfoResult, type KithMemoryFile, type KithSearchResult } from '@shared/kith-info'
 import type { PlaceFolder, PlaceSelection, ProjectInfo, RecentFolder, StartingFolder } from '@shared/place-folders'
 import {
   normalizeBot,
@@ -165,6 +166,20 @@ export class HostClient {
   /** Kith's project registry; without Kith the host answers `projects: []` and an `error` line. */
   projects(refresh = false) {
     return this.call<{ projects: ProjectInfo[]; error?: string }>('projects', refresh ? { refresh: true } : {}, 30_000)
+  }
+
+  /** A Kith bot's details from `kith <agent> --info-json`; `refresh` runs kith now instead of taking the host's 30 s copy. A host before this call answers 404. */
+  async kithInfo(botId: string, refresh = false): Promise<KithInfoResult> {
+    return parseKithInfoResult(await this.call('kithInfo', { botId, ...(refresh ? { refresh: true } : {}) }, 60_000))
+  }
+
+  /** One file of the agent's memory folder (`path` relative to it); the host reads the first 512 KB. */
+  async kithMemoryFile(botId: string, path: string): Promise<KithMemoryFile> {
+    return parseMemoryFile(await this.call('kithMemoryFile', { botId, path }, 30_000))
+  }
+
+  async kithMemorySearch(botId: string, query: string, limit = 30): Promise<KithSearchResult> {
+    return parseSearchResult(await this.call('kithMemorySearch', { botId, query, limit }, 30_000))
   }
 
   async recentFolders() {
