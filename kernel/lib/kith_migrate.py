@@ -448,19 +448,32 @@ def u_bin(m):
 
 # -- launcher
 
+def launcher_configs():
+    """The two places kith serve keeps its launcher: the dev build's and the packaged main build's."""
+    return [('config', NEW / 'serve/config.json'), ('main_config', NEW / 'serve-main/config.json')]
+
+
 def s_launcher(m, dry):
     old, new = NEW / 'bin/hq-uv', NEW / 'bin/kith-uv'
-    cfg = NEW / 'serve/config.json'
-    say(f'rename {NEW}/bin/hq-uv to kith-uv, and the launcher kith serve reads from {cfg}')
+    say(f'rename {NEW}/bin/hq-uv to kith-uv, and the launcher kith serve reads from {launcher_configs()[0][1]} (and serve-main)')
     if dry:
         return
     st = m['steps']['launcher']
+    renamed = False
     if (old.exists() or old.is_symlink()) and not (new.exists() or new.is_symlink()):
         st['renamed'] = True
         save(m)
         os.rename(old, new)
-    if cfg.is_file() and 'config' not in st:
+        renamed = True
+    for key, cfg in launcher_configs():
+        if not cfg.is_file():
+            continue
         text = cfg.read_text()
+        rec = st.get(key)
+        if rec:   # stopped between the record and the write: finish it, as s_settings does
+            if text == rec['before']:
+                cfg.write_text(rec['after'])
+            continue
         try:
             c = json.loads(text)
         except ValueError:
@@ -469,21 +482,34 @@ def s_launcher(m, dry):
             c['launcher'] = [rewrite_str(x) if isinstance(x, str) else x for x in c['launcher']]
             out = json.dumps(c, indent=2) + '\n'
             if out != text:
-                st['config'] = {'before': text, 'after': out}
+                st[key] = {'before': text, 'after': out}
                 save(m)   # the record first: a crash after the write must still be undone
                 cfg.write_text(out)
+    if renamed:
+        # jobs a run of an earlier version already moved still name hq-uv, and their step will not run again
+        for j in sorted(m['steps'].get('jobs', {}).get('done', {})):
+            plist = LA / f'dev.kith.{j}.plist'
+            if not plist.exists():
+                continue
+            before = plist.read_bytes()
+            after = plistlib.dumps(rewrite_plist(plistlib.loads(before)))
+            if after != before:
+                plist.write_bytes(after)
+                if loaded(f'dev.kith.{j}'):
+                    bootout(f'dev.kith.{j}')
+                    bootstrap(plist)
 
 
 def u_launcher(m):
     st = m['steps'].get('launcher', {})
     old, new = NEW / 'bin/hq-uv', NEW / 'bin/kith-uv'
-    cfg = NEW / 'serve/config.json'
-    rec = st.get('config')
-    if rec and cfg.is_file():
-        if cfg.read_text() == rec['after']:
-            cfg.write_text(rec['before'])
-        else:
-            print(f'  {cfg} changed since the migration: left as it is')
+    for key, cfg in launcher_configs():
+        rec = st.get(key)
+        if rec and cfg.is_file():
+            if cfg.read_text() == rec['after']:
+                cfg.write_text(rec['before'])
+            else:
+                print(f'  {cfg} changed since the migration: left as it is')
     if st.get('renamed') and new.exists() and not old.exists():
         os.rename(new, old)
 
