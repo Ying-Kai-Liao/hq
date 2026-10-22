@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+"""kith-launchd-check — kernel/lib/kith_launchd.py against a stub `launchctl` on PATH (no launchd needed, so it runs on
+any OS). The stub keeps its state in a temp dir; nothing in HOME is touched.
+
+  kernel/tests/kith-launchd-check     a few seconds; prints each check, exits 1 when one fails
+"""
+import os
+import stat
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'lib'))
+import kith_launchd  # noqa: E402
+
+STUB = r'''#!/bin/sh
+# STATE dir: loaded (exists = job loaded), fail_bootstrap (count of EIO failures left), gone_after (prints before unloaded)
+d="$STUB_STATE"
+case "$1" in
+  bootout) [ -e "$d/loaded" ] && touch "$d/unloading"; exit 0 ;;
+  print)
+    [ -e "$d/loaded" ] || exit 113
+    if [ -e "$d/unloading" ]; then
+      n=$(cat "$d/gone_after" 2>/dev/null || echo 0)
+      if [ "$n" -le 0 ]; then rm -f "$d/loaded" "$d/unloading"; exit 113; fi
+      echo $((n - 1)) > "$d/gone_after"
+    fi
+    exit 0 ;;
+  bootstrap)
+    echo "$@" >> "$d/bootstraps"
+    n=$(cat "$d/fail_bootstrap" 2>/dev/null || echo 0)
+    if [ "$n" -gt 0 ]; then echo $((n - 1)) > "$d/fail_bootstrap"; echo "Bootstrap failed: 5: Input/output error" >&2; exit 5; fi
+    [ -e "$d/bad_plist" ] && { echo "Bootstrap failed: 133: bad plist" >&2; exit 133; }
+    touch "$d/loaded"; exit 0 ;;
+esac
+exit 64
+'''
+
+failures = []
+
+
+def check(name, ok, detail=''):
+    print(('ok  ' if ok else 'FAIL'), name, detail if not ok else '')
+    if not ok:
+        failures.append(name)
+
+
+def fresh(**state):
+    d = Path(tempfile.mkdtemp(prefix='kith-launchd-check-'))
+    os.environ['STUB_STATE'] = str(d)
+    for k, v in state.items():
+        (d / k).write_text(str(v))
+    return d
+
+
+def bootstraps(d):
+    p = d / 'bootstraps'
+    return len(p.read_text().splitlines()) if p.exists() else 0
+
+
+def main():
+    bindir = Path(tempfile.mkdtemp(prefix='kith-launchd-bin-'))
+    stub = bindir / 'launchctl'
+    stub.write_text(STUB)
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
+    os.environ['PATH'] = f'{bindir}{os.pathsep}{os.environ["PATH"]}'
+    kith_launchd.BACKOFF = (0.01,)
+    kith_launchd.GONE_TIMEOUT = 2.0
+    plist = '/tmp/dev.kith.test.plist'
+
+    d = fresh()
+    kith_launchd.reload('dev.kith.test', plist)
+    check('a job that was not loaded gets loaded', kith_launchd.is_loaded('dev.kith.test') and bootstraps(d) == 1)
+
+    d = fresh(loaded=1, gone_after=3)
+    kith_launchd.reload('dev.kith.test', plist)
+    check('reload waits for the old job to go, then loads', kith_launchd.is_loaded('dev.kith.test') and bootstraps(d) == 1)
+
+    d = fresh(fail_bootstrap=2)
+    kith_launchd.reload('dev.kith.test', plist)
+    check('EIO is retried until it loads', kith_launchd.is_loaded('dev.kith.test') and bootstraps(d) == 3)
+
+    d = fresh(fail_bootstrap=99)
+    try:
+        kith_launchd.reload('dev.kith.test', plist)
+        check('a job that never loads is an error', False, 'no error raised')
+    except kith_launchd.LaunchdError as e:
+        msg = str(e)
+        check('a job that never loads is an error', bootstraps(d) == kith_launchd.RETRIES, f'{bootstraps(d)} tries')
+        check('the error names label, plist, launchctl output and the manual command',
+              all(x in msg for x in ('dev.kith.test', plist, 'Input/output error', 'launchctl bootstrap gui/')), msg)
+
+    d = fresh(bad_plist=1)
+    try:
+        kith_launchd.reload('dev.kith.test', plist)
+        check('a bad plist is reported', False, 'no error raised')
+    except kith_launchd.LaunchdError as e:
+        check('a bad plist is reported without retrying', bootstraps(d) == 1 and 'bad plist' in str(e), str(e))
+
+    d = fresh(loaded=1, gone_after=10 ** 6)
+    try:
+        kith_launchd.unload('dev.kith.test', timeout=0.3)
+        check('unload gives up when the job stays', False, 'no error raised')
+    except kith_launchd.LaunchdError:
+        check('unload gives up when the job stays', True)
+
+    try:
+        fresh(fail_bootstrap=99)
+        kith_launchd.reload_or_exit('dev.kith.test', plist)
+        check('reload_or_exit exits non-zero', False, 'did not exit')
+    except SystemExit as e:
+        check('reload_or_exit exits non-zero', isinstance(e.code, str) and 'dev.kith.test' in e.code)
+
+    print('FAILED: ' + ', '.join(failures) if failures else 'all ok')
+    return 1 if failures else 0
+
+
+sys.exit(main())
