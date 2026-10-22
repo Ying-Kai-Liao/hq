@@ -9,7 +9,9 @@ enum KithMemoryChunks {
         var text: String
     }
 
-    static func split(_ text: String) -> [Chunk] {
+    /// Formatted mode never cuts inside a code fence. Raw mode (`raw`) may cut anywhere, and also chops a very long
+    /// line (a file with no newlines) into pieces so the lazy list has something small to lay out.
+    static func split(_ text: String, raw: Bool = false) -> [Chunk] {
         var chunks: [Chunk] = []
         var current: [Substring] = []
         var start = 1
@@ -19,16 +21,28 @@ enum KithMemoryChunks {
             current.append(line)
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { fenced.toggle() }
-            if (trimmed.isEmpty && !fenced) || current.count >= 200 {
+            if (trimmed.isEmpty && !fenced) || (current.count >= 200 && (raw || !fenced)) {
                 chunks.append(Chunk(line: start, text: current.joined(separator: "\n")))
                 current = []
             }
         }
         if !current.isEmpty { chunks.append(Chunk(line: start, text: current.joined(separator: "\n"))) }
-        return chunks
+        guard raw else { return chunks }
+        return chunks.flatMap { chunk -> [Chunk] in
+            guard chunk.text.count > pieceSize else { return [chunk] }
+            var pieces: [Chunk] = []
+            var rest = Substring(chunk.text)
+            while !rest.isEmpty {
+                pieces.append(Chunk(line: chunk.line, text: String(rest.prefix(pieceSize))))
+                rest = rest.dropFirst(pieceSize)
+            }
+            return pieces
+        }
     }
 
     /// The chunk a line falls in.
+    static let pieceSize = 4000
+
     static func index(of line: Int, in chunks: [Chunk]) -> Int? {
         chunks.lastIndex { $0.line <= line }
     }
@@ -39,7 +53,8 @@ struct KithMemoryFileView: View {
     let store: KithInfoStore
     let target: KithMemoryTarget
     @State private var file: KithMemoryFile?
-    @State private var chunks: [KithMemoryChunks.Chunk] = []
+    @State private var formattedChunks: [KithMemoryChunks.Chunk] = []
+    @State private var rawChunks: [KithMemoryChunks.Chunk] = []
     @State private var error: String?
     @State private var raw = false
 
@@ -64,6 +79,8 @@ struct KithMemoryFileView: View {
         .background(Palette.background)
         .task(id: target.id) { await load() }
     }
+
+    private var chunks: [KithMemoryChunks.Chunk] { raw ? rawChunks : formattedChunks }
 
     private func reader(_ file: KithMemoryFile) -> some View {
         ScrollViewReader { proxy in
@@ -116,7 +133,8 @@ struct KithMemoryFileView: View {
         do {
             let loaded = try await store.file(target.path)
             guard !Task.isCancelled else { return }
-            chunks = KithMemoryChunks.split(loaded.text)
+            formattedChunks = KithMemoryChunks.split(loaded.text)
+            rawChunks = KithMemoryChunks.split(loaded.text, raw: true)
             file = loaded
             error = nil
         } catch {

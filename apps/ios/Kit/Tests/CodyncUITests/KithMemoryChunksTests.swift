@@ -14,3 +14,14 @@ import Testing
     #expect(KithMemoryChunks.split(text).map(\.line) == [1, 201, 401])
     #expect(KithMemoryChunks.split("").isEmpty == false)
 }
+
+@Test func formattedModeKeepsALongCodeFenceWholeButRawModeCutsIt() {
+    let text = "```\n" + (1...450).map { "l\($0)" }.joined(separator: "\n") + "\n```"
+    #expect(KithMemoryChunks.split(text).count == 1)
+    #expect(KithMemoryChunks.split(text, raw: true).count > 1)
+}
+
+@Test func rawModeChopsAFileWithNoNewlines() {
+    let chunks = KithMemoryChunks.split(String(repeating: "a", count: 9000), raw: true)
+    #expect(chunks.count == 3 && chunks.allSatisfy { $0.line == 1 && $0.text.count <= KithMemoryChunks.pieceSize })
+}

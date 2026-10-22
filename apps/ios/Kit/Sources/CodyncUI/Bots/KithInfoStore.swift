@@ -17,7 +17,10 @@ final class KithInfoStore {
     private let client: () async throws -> HostClient
     private(set) var phase: Phase = .loading
     private(set) var refreshing = false
+    /// Why the last refresh failed while the earlier answer stays on screen.
+    private(set) var refreshError: String?
     private var inflight: Task<Void, Never>?
+    private var inflightForced = false
 
     init(botId: String, client: @escaping () async throws -> HostClient) {
         self.botId = botId
@@ -40,26 +43,43 @@ final class KithInfoStore {
         return false
     }
 
-    /// A second call while one runs (a double pull-to-refresh) waits for that one.
+    /// A second call while one runs (a double pull-to-refresh) waits for that one; a forced refresh that
+    /// arrives during a plain load runs after it.
     func load(refresh: Bool = false) async {
-        if let inflight {
-            await inflight.value
-            return
+        if let running = inflight {
+            let wasForced = inflightForced
+            await running.value
+            if !refresh || wasForced { return }
+            if let again = inflight {
+                await again.value
+                return
+            }
         }
         let botId = botId
         let task = Task { [client] in
             refreshing = true
             defer { refreshing = false }
             do {
-                phase = .loaded(try await client().kithInfo(botId: botId, refresh: refresh))
+                let response = try await client().kithInfo(botId: botId, refresh: refresh)
+                guard !Task.isCancelled else { return }
+                if response.info == nil, info != nil {
+                    // Kith failed on a refresh: keep the page and say so.
+                    refreshError = response.error ?? "kith has no answer"
+                } else {
+                    refreshError = nil
+                    phase = .loaded(response)
+                }
             } catch {
+                guard !Task.isCancelled else { return }
                 // Keep what is on screen when a refresh fails; with nothing yet, hide the sections.
                 if case .loaded = phase {} else { phase = .unavailable }
             }
         }
         inflight = task
-        await task.value
-        inflight = nil
+        inflightForced = refresh
+        // The view going away cancels the fetch too.
+        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        if inflight == task { inflight = nil }
     }
 
     func search(_ query: String) async throws -> KithSearchResult {

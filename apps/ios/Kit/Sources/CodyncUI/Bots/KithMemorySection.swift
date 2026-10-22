@@ -18,10 +18,19 @@ struct KithMemorySection: View {
     @State private var searchFailed = false
     @State private var target: KithMemoryTarget?
 
+    /// Nothing to show once the load is over: an older host, or a bot kith doesn't know.
+    private var hidden: Bool {
+        switch store.phase {
+        case .unavailable: true
+        case .loaded(let response): response.info == nil && response.error == nil
+        case .loading: false
+        }
+    }
+
     private var trimmed: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
-        if case .unavailable = store.phase {
+        if hidden {
             EmptyView()
         } else {
             VStack(alignment: .leading, spacing: 10) {
@@ -67,9 +76,12 @@ struct KithMemorySection: View {
             searchFailed = false
             return
         }
+        // The old answer is for another query.
+        result = nil
+        searchFailed = false
+        searching = true
         try? await Task.sleep(for: .milliseconds(300))
         guard !Task.isCancelled else { return }
-        searching = true
         defer { if !Task.isCancelled { searching = false } }
         do {
             let found = try await store.search(text)
@@ -88,6 +100,8 @@ struct KithMemorySection: View {
     @ViewBuilder private var hits: some View {
         if searchFailed {
             note("Search failed")
+        } else if result == nil && searching {
+            note("Searching…")
         } else if let result {
             if let error = result.error, result.hits.isEmpty {
                 note("Search unavailable: \(error)")

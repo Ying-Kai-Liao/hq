@@ -124,6 +124,15 @@ struct KithDetailsSections: View {
             .frame(maxWidth: .infinity)
         case .loaded(let response):
             if let info = response.info {
+                if let failed = store.refreshError {
+                    HStack {
+                        Text("Refresh failed: \(failed)").font(.footnote).foregroundStyle(Palette.danger).textSelection(.enabled)
+                        Spacer(minLength: 8)
+                        Button("Retry") { Task { await store.load(refresh: true) } }
+                            .buttonStyle(.plain).font(.footnote.weight(.semibold)).foregroundStyle(Palette.accent)
+                    }
+                    .padding(.bottom, 4)
+                }
                 sections(info)
             } else if let error = response.error {
                 banner(error)
@@ -170,7 +179,7 @@ struct KithDetailsSections: View {
                         Text(text).foregroundStyle(Palette.text).textSelection(.enabled)
                     }
                     if let intro = info.role?.intro, !intro.isEmpty { KithIntro(text: intro) }
-                    ForEach(sections) { KithRoleRow(section: $0) }
+                    ForEach(Array(sections.enumerated()), id: \.offset) { KithRoleRow(section: $0.element) }
                 }
             }
         }
@@ -245,7 +254,7 @@ struct KithDetailsSections: View {
             KithUnreadable(title: "Projects", thing: "the projects")
         } else if !info.projects.isEmpty {
             KithCard(title: "Projects") {
-                ForEach(info.projects) { project in
+                ForEach(Array(info.projects.enumerated()), id: \.offset) { _, project in
                     HStack(alignment: .firstTextBaseline) {
                         Text(project.id).foregroundStyle(Palette.text).lineLimit(1)
                         Spacer(minLength: 8)
@@ -283,7 +292,7 @@ struct KithDetailsSections: View {
     @ViewBuilder private func capabilities(_ info: KithInfo) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             group("Skills", "skills", info, count: info.skills.count) {
-                ForEach(info.skills) { skill in
+                ForEach(Array(info.skills.enumerated()), id: \.offset) { _, skill in
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                             Text(skill.name).font(.subheadline.weight(.medium)).foregroundStyle(Palette.text)
@@ -308,7 +317,7 @@ struct KithDetailsSections: View {
                 }
             }
             group("MCP servers", "mcp_servers", info, count: info.mcpServers.count) {
-                ForEach(info.mcpServers) { server in
+                ForEach(Array(info.mcpServers.enumerated()), id: \.offset) { _, server in
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                             Text(server.name).font(.subheadline.weight(.medium)).foregroundStyle(Palette.text)
