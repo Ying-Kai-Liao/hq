@@ -26,11 +26,13 @@ pub fn bin() -> Option<PathBuf> {
     if let Some(set) = ["KITH_KERNEL_BIN", "HQ_BIN"].iter().find_map(std::env::var_os) {
         return (!set.is_empty()).then(|| PathBuf::from(set));
     }
-    crate::agent::backends::which("kith").or_else(|| crate::agent::backends::which("hq")).or_else(|| {
-        let bin = dirs::home_dir()?.join(".local/bin");
-        ["kith", "hq"].iter().map(|n| bin.join(n)).find(|p| p.is_file())
-    })
-    .or_else(|| crate::kernel::entry_in(&crate::kernel::current_kernel()?))
+    crate::agent::backends::which("kith")
+        .or_else(|| crate::agent::backends::which("hq"))
+        .or_else(|| {
+            let bin = dirs::home_dir()?.join(".local/bin");
+            ["kith", "hq"].iter().map(|n| bin.join(n)).find(|p| p.is_file())
+        })
+        .or_else(|| crate::kernel::entry_in(&crate::kernel::current_kernel()?))
 }
 
 /// One line of `kith ls --json`.

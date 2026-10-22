@@ -293,10 +293,7 @@ mod tests {
         let res = t.join("App.app/Contents/Resources");
         fake_exe(&res.join("kith-serve"));
         fake_kernel(&res.join("kith").join(SHIPPED_KERNEL));
-        assert_eq!(
-            find_kernel(None, Some(&res.join("kith-serve")), None),
-            Some(res.join("kith").join(SHIPPED_KERNEL))
-        );
+        assert_eq!(find_kernel(None, Some(&res.join("kith-serve")), None), Some(res.join("kith").join(SHIPPED_KERNEL)));
         // A checkout under the home folder, migrated or not.
         fake_kernel(&t.join("home/hq/kernel"));
         assert_eq!(find_kernel(None, None, Some(&t.join("home"))), Some(t.join("home/hq/kernel")));

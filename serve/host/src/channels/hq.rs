@@ -45,14 +45,7 @@ impl Paths {
         let home = dirs::home_dir()?;
         let hq_home = crate::kernel::home_dir(&home);
         let mut agent_roots = vec![hq_home.join("agents")];
-        // The kernel's own agents sit next to its bin folder; a packaged host's kernel is the one it carries.
-        let beside_bin = real.parent().and_then(Path::parent).map(Path::to_path_buf);
-        for k in kernel.iter().cloned().chain(beside_bin) {
-            let agents = k.join("agents");
-            if !agent_roots.contains(&agents) {
-                agent_roots.push(agents);
-            }
-        }
+        agent_roots.extend(kernel_agents(&real));
         let machine = crate::kernel::var("MACHINE").map_or_else(|| crate::kernel::machine_dir(&home), PathBuf::from);
         Some(Self {
             auth_bin: beside("kith-auth"),
@@ -73,6 +66,12 @@ impl Paths {
     pub fn live_outbox(&self, box_id: &str) -> PathBuf {
         self.machine.join("bridge").join("outbox").join(format!("live-{box_id}"))
     }
+}
+
+/// The agents folder of the kernel the selected command belongs to (next to its bin folder). Not the running host's own
+/// kernel: with the Mac app running and a checkout selected, that would put the app's built-in agents first.
+fn kernel_agents(real_bin: &Path) -> Option<PathBuf> {
+    Some(real_bin.parent()?.parent()?.join("agents"))
 }
 
 /// `name` beside the entry point (as given, or with symlinks resolved), else in the packaged kernel's bin/.
@@ -269,6 +268,17 @@ mod tests {
         assert!(agents.find("empty").is_none());
         assert!(agents.is_live("my-agent") && !agents.is_live("house"));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn agents_follow_the_selected_command_not_the_running_host() {
+        let checkout = Path::new("/work/kith/kernel/bin/kith");
+        assert_eq!(kernel_agents(checkout), Some(PathBuf::from("/work/kith/kernel/agents")));
+        assert_eq!(kernel_agents(Path::new("kith")), None);
+        // The app's kernel is only where a missing tool is looked for.
+        let app = Path::new("/App/Resources/kith/share/kith/kernel");
+        let tool = tool_near("kith-auth", Path::new("/nowhere/bin/kith"), Path::new("/nowhere/bin/kith"), Some(app));
+        assert!(tool.is_none());
     }
 
     #[test]

@@ -74,17 +74,17 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
       - name: Checksums
         run: cd dist && cat kith-*.tar.gz.sha256 > SHA256SUMS && cat SHA256SUMS
-      - uses: actions/checkout@v4
       - name: Homebrew formula
         # The filled formula goes on the release; copying it into the tap repo is a manual step
         # (packaging/homebrew/README.md).
-        run: scripts/update-formula.sh "${GITHUB_REF_NAME#v}" dist/SHA256SUMS > dist/kith.rb && cat dist/kith.rb
+        run: sh scripts/update-formula.sh "${GITHUB_REF_NAME#v}" dist/SHA256SUMS > dist/kith.rb && cat dist/kith.rb
       - uses: softprops/action-gh-release@v2
         with:
           files: |
