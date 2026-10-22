@@ -43,6 +43,7 @@ mod manager;
 mod queue;
 mod run;
 mod settings;
+mod slack;
 mod state;
 mod telegram;
 mod text;

@@ -38,6 +38,7 @@ impl Registry {
         let mut registry = Self::default();
         super::discord::register(&mut registry);
         registry.add("telegram", super::telegram::constructor());
+        registry.add("slack", super::slack::constructor());
         registry
     }
 }
