@@ -198,6 +198,8 @@ export interface CodyncBridge {
     copy(text: string): void
     /** Files picked in the system dialog: name and bytes. */
     pickFiles(): Promise<{ name: string; data: Uint8Array }[]>
+    /** The system folder dialog (this computer only); null when cancelled. */
+    pickFolder(defaultPath?: string | null): Promise<string | null>
     readClipboardFiles(): Promise<{ name: string; data: Uint8Array }[]>
     setTraySummary(summary: TraySummary): void
     onCommand(cb: (command: WindowCommand) => void): () => void

@@ -105,6 +105,7 @@ const bridge: CodyncBridge = {
     openMemoryFile: (path) => ipcRenderer.send('app:openMemoryFile', path),
     copy: (text) => ipcRenderer.send('app:copy', text),
     pickFiles: () => ipcRenderer.invoke('app:pickFiles'),
+    pickFolder: (defaultPath) => ipcRenderer.invoke('app:pickFolder', defaultPath ?? null),
     readClipboardFiles: () => ipcRenderer.invoke('app:clipboardFiles'),
     setTraySummary: (summary: TraySummary) => ipcRenderer.send('app:traySummary', summary),
     onCommand: (cb: (c: WindowCommand) => void) => listen('app:command', cb),

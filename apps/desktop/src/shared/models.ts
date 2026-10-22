@@ -1,6 +1,10 @@
 // Wire types for kith-serve (see host/src/api/). Field names match the
 // host's camelCase JSON. Timestamps are epoch milliseconds.
 
+import { normalizeFolder, type PlaceFolder } from './place-folders.ts'
+
+export type { PlaceFolder } from './place-folders.ts'
+
 export type BotStatus = 'idle' | 'working' | 'needsInput' | 'error'
 
 export interface Bot {
@@ -17,6 +21,10 @@ export interface Bot {
   backend: string
   command?: string | null
   cwd: string
+  /** The bot's default hq project (`BotConfig.project`); places with no pick of their own follow it. */
+  project: string | null
+  /** Where the bot's own chat works; null for a group, absent from a host without place folders. */
+  folder: PlaceFolder | null
   /** Host-allocated personal workspace rather than a user-selected project. */
   managedWorkspace: boolean
   /** `ask` or `auto`. */
@@ -83,6 +91,8 @@ export function normalizeBot(raw: Partial<Bot> & { id: string }): Bot {
     backend: raw.backend ?? 'custom',
     command: raw.command ?? null,
     cwd: raw.cwd ?? '',
+    project: raw.project || null,
+    folder: raw.kind === 'group' ? null : normalizeFolder(raw.folder),
     managedWorkspace: raw.managedWorkspace ?? false,
     permission: raw.permission ?? 'auto',
     model: raw.model ?? null,
@@ -383,13 +393,18 @@ export interface DirItem {
   name: string
   path: string
   isGit: boolean
+  /** The hq project registered at this folder. */
+  project?: string | null
 }
 
 export interface DirListing {
   path: string
   parent?: string | null
   isGit: boolean
+  project?: string | null
   dirs: DirItem[]
+  /** Where browsing can start: the home folder and each mounted drive. */
+  roots?: { name: string; path: string }[]
 }
 
 /** A pending request as the computer shows it (loopback `accessRequests`). */
@@ -471,6 +486,8 @@ export interface BotDraft {
   backend: string
   command?: string | null
   cwd: string
+  /** Default hq project; null or '' clears it. */
+  project?: string | null
   permission: string
   model?: string | null
   modelOptions?: Record<string, string>
@@ -496,6 +513,7 @@ export function draftOf(bot: Bot): BotDraft {
     backend: bot.backend,
     command: bot.command ?? null,
     cwd: bot.managedWorkspace ? '' : bot.cwd,
+    project: bot.project,
     permission: bot.permission,
     model: bot.model ?? null,
     modelOptions: bot.modelOptions,

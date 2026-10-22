@@ -170,6 +170,12 @@ function registerIPC(tray: Tray) {
       : await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'] })
     return result.canceled ? [] : readFiles(result.filePaths)
   })
+  ipcMain.handle('app:pickFolder', async (e, defaultPath: string | null) => {
+    const window = BrowserWindow.fromWebContents(e.sender)
+    const options: Electron.OpenDialogOptions = { properties: ['openDirectory'], buttonLabel: 'Choose', ...(typeof defaultPath === 'string' && defaultPath ? { defaultPath } : {}) }
+    const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
+    return result.canceled ? null : (result.filePaths[0] ?? null)
+  })
   ipcMain.handle('app:clipboardFiles', () => readClipboardFiles())
   ipcMain.on('app:traySummary', (_e, summary) => tray.update(summary))
   ipcMain.handle('app:showInDock', () => showInDock())

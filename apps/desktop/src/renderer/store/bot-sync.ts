@@ -1,3 +1,4 @@
+import { mirrorStamp } from '@shared/mirror-stamp'
 import { isChat, type AccessRequest, type CloudStatus, type Entry } from '@shared/models'
 import { isOutsideLoadedWindow, snapshotFloors } from '@shared/mirror-window'
 import { HostClient, HostError, type HostEvent } from '../client/host-client'
@@ -174,7 +175,7 @@ export class BotSync extends BotMirror {
   }
 
   private noteHostVersion(next: { version: string; minApp?: string | null }) {
-    const cached = this.cacheStamp !== null && this.cacheStamp !== `${this.appVersion}/${next.version}`
+    const cached = this.cacheStamp !== null && this.cacheStamp !== mirrorStamp(this.appVersion, next.version)
     if (cached || (this.hostVersion && this.hostVersion.version !== next.version)) {
       // A different host version or app build: data may carry new fields, so fetch it all again.
       this.refetchAll()

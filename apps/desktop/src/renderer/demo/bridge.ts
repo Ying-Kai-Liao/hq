@@ -95,6 +95,7 @@ const bridge: CodyncBridge = {
     openMemoryFile: () => {},
     copy: (text) => void navigator.clipboard?.writeText(text).catch(() => {}),
     pickFiles: async () => [],
+    pickFolder: async () => null,
     readClipboardFiles: async () => [],
     setTraySummary() {},
     onCommand: none,
