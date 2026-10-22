@@ -11,8 +11,10 @@ by running migrate again or reversed with --undo):
   exclude   ~/.kith/.git/info/exclude names what was in ~/.kith before (serve/, ...), so kith backup never commits it
   home      ~/kith made a link to what ~/hq leads to; ~/hq stays
   bin       ~/.local/bin/kith and hq lead to ~/kith/kernel/bin/kith
+  launcher  ~/.kith/bin/hq-uv renamed to kith-uv (Full Disk Access is per path, so it is granted again anyway); the
+            launcher in ~/.kith/serve/config.json follows it
   jobs      each dev.hq.<x> job replaced by dev.kith.<x>: sched and backup through their own installers, the others by
-            rewriting the plist; dev.kith.serve is only touched when its plist names ~/.hq
+            rewriting the plist; dev.kith.serve is only touched when its plist names ~/.hq or hq-uv
   plugin    Claude Code: marketplace kith added, kith@kith installed, hq@hq (and the hq marketplace) removed
   settings  ~/.hq paths in ~/.claude/settings.json and ~/.kith/settings.json become ~/.kith paths
 
@@ -444,11 +446,80 @@ def u_bin(m):
             p.symlink_to(t)
 
 
+# -- launcher
+
+def launcher_configs():
+    """The two places kith serve keeps its launcher: the dev build's and the packaged main build's."""
+    return [('config', NEW / 'serve/config.json'), ('main_config', NEW / 'serve-main/config.json')]
+
+
+def s_launcher(m, dry):
+    old, new = NEW / 'bin/hq-uv', NEW / 'bin/kith-uv'
+    say(f'rename {NEW}/bin/hq-uv to kith-uv, and the launcher kith serve reads from {launcher_configs()[0][1]} (and serve-main)')
+    if dry:
+        return
+    st = m['steps']['launcher']
+    renamed = False
+    if (old.exists() or old.is_symlink()) and not (new.exists() or new.is_symlink()):
+        st['renamed'] = True
+        save(m)
+        os.rename(old, new)
+        renamed = True
+    for key, cfg in launcher_configs():
+        if not cfg.is_file():
+            continue
+        text = cfg.read_text()
+        rec = st.get(key)
+        if rec:   # stopped between the record and the write: finish it, as s_settings does
+            if text == rec['before']:
+                cfg.write_text(rec['after'])
+            continue
+        try:
+            c = json.loads(text)
+        except ValueError:
+            c = None
+        if isinstance(c, dict) and isinstance(c.get('launcher'), list):
+            c['launcher'] = [rewrite_str(x) if isinstance(x, str) else x for x in c['launcher']]
+            out = json.dumps(c, indent=2) + '\n'
+            if out != text:
+                st[key] = {'before': text, 'after': out}
+                save(m)   # the record first: a crash after the write must still be undone
+                cfg.write_text(out)
+    if renamed:
+        # jobs a run of an earlier version already moved still name hq-uv, and their step will not run again
+        for j in sorted(m['steps'].get('jobs', {}).get('done', {})):
+            plist = LA / f'dev.kith.{j}.plist'
+            if not plist.exists():
+                continue
+            before = plist.read_bytes()
+            after = plistlib.dumps(rewrite_plist(plistlib.loads(before)))
+            if after != before:
+                plist.write_bytes(after)
+                if loaded(f'dev.kith.{j}'):
+                    bootout(f'dev.kith.{j}')
+                    bootstrap(plist)
+
+
+def u_launcher(m):
+    st = m['steps'].get('launcher', {})
+    old, new = NEW / 'bin/hq-uv', NEW / 'bin/kith-uv'
+    for key, cfg in launcher_configs():
+        rec = st.get(key)
+        if rec and cfg.is_file():
+            if cfg.read_text() == rec['after']:
+                cfg.write_text(rec['before'])
+            else:
+                print(f'  {cfg} changed since the migration: left as it is')
+    if st.get('renamed') and new.exists() and not old.exists():
+        os.rename(new, old)
+
+
 # -- jobs
 
 def rewrite_str(s):
     s = s.replace(str(OLD), str(NEW))
     s = re.sub(re.escape(str(HOME)) + r'/hq(?=/|$)', str(HOME) + '/kith', s)
+    s = re.sub(r'(' + re.escape(str(NEW)) + r'/bin/)hq-uv(?![\w-])', r'\1kith-uv', s)
     return re.sub(r'(/kernel/bin/)hq-', r'\1kith-', s)
 
 
@@ -495,16 +566,21 @@ def bootstrap(plist):
 INSTALLERS = {'sched': ['kith-sched', '--install'], 'backup': ['kith-state', 'backup', '--nightly']}
 
 
+def serve_stale(p):
+    pl = plistlib.loads(p.read_bytes())
+    return rewrite_plist(pl) != pl
+
+
 def s_jobs(m, dry):
     old = jobs_of()
     for j in old:
         how = '(through ' + ' '.join(INSTALLERS[j]) + ')' if j in INSTALLERS else '(plist rewritten)'
         say(f'dev.hq.{j} -> dev.kith.{j} {how}')
     serve = LA / 'dev.kith.serve.plist'
-    if serve.exists() and str(OLD) in json.dumps(plistlib.loads(serve.read_bytes())):
-        say('dev.kith.serve: its plist names ~/.hq: rewritten and restarted')
+    if serve.exists() and serve_stale(serve):
+        say('dev.kith.serve: its plist names ~/.hq or hq-uv: rewritten and restarted')
     elif serve.exists():
-        say('dev.kith.serve: left running, its plist does not name ~/.hq')
+        say('dev.kith.serve: left running, its plist does not name ~/.hq or hq-uv')
     if not old:
         say('no dev.hq.* jobs to replace')
     if dry:
@@ -541,7 +617,7 @@ def s_jobs(m, dry):
     if serve.exists():
         before = serve.read_bytes()
         pl = plistlib.loads(before)
-        if str(OLD) in json.dumps(pl):
+        if serve_stale(serve):
             st['serve_rewritten'] = True
             save(m)
             serve.write_bytes(plistlib.dumps(rewrite_plist(pl)))
@@ -621,6 +697,7 @@ PATH_RE = re.compile(r'(?<![\w.~/-])(?:' + re.escape(str(HOME)) + r'|~|\$HOME)/\
 
 def rewritten(path, text):
     new = PATH_RE.sub(lambda mo: mo.group(0)[:-3] + '.kith', text)
+    new = re.sub(r'(\.kith/bin/)hq-uv(?![\w-])', r'\1kith-uv', new)
     if path == NEW / 'settings.json':
         new = new.replace('"hq@hq"', '"kith@kith"')
     return new
@@ -666,7 +743,7 @@ def u_settings(m):
 
 
 STEPS = [('backup', s_backup, u_backup), ('stop', s_stop, u_stop), ('move', s_move, u_move),
-         ('exclude', s_exclude, u_exclude), ('home', s_home, u_home), ('bin', s_bin, u_bin), ('jobs', s_jobs, u_jobs),
+         ('exclude', s_exclude, u_exclude), ('home', s_home, u_home), ('bin', s_bin, u_bin), ('launcher', s_launcher, u_launcher), ('jobs', s_jobs, u_jobs),
          ('plugin', s_plugin, u_plugin), ('settings', s_settings, u_settings)]
 
 
@@ -742,9 +819,9 @@ def migrate(dry=False, force=False):
         print(f'\nstopped: {e}\nfix that and run kith migrate again to continue, or kith migrate --undo to go back', file=sys.stderr)
         return 1
     print(f'\ndone. The backup is {m["backup"]} (never deleted by kith). Undo: kith migrate --undo')
-    if (NEW / 'bin/hq-uv').exists() or (NEW / 'bin/kith-uv').exists():
-        print(f'Full Disk Access is granted per path: give {NEW}/bin/{"kith-uv" if (NEW / "bin/kith-uv").exists() else "hq-uv"} '
-              f'Full Disk Access again in System Settings (Privacy & Security) if kith doctor says a job never started.')
+    if (NEW / 'bin/kith-uv').exists():
+        print(f'Full Disk Access is granted per path: give {NEW}/bin/kith-uv Full Disk Access again '
+              f'(System Settings -> Privacy & Security -> Full Disk Access).')
     return 0
 
 
