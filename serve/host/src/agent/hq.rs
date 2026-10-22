@@ -19,16 +19,20 @@ const LAUNCH_TIMEOUT: Duration = Duration::from_secs(60);
 pub const ACP_COMMAND_ENV: &str = "KITH_SERVE_HQ_ACP_COMMAND";
 
 /// The `kith` to run: `KITH_KERNEL_BIN` (the old `HQ_BIN`) when set (an empty value turns it off), else `kith` on PATH,
-/// else `hq` on PATH (installed before the rename), else `~/.local/bin/kith` or `~/.local/bin/hq`.
+/// else `hq` on PATH (installed before the rename), else `~/.local/bin/kith` or `~/.local/bin/hq`, else the entry of
+/// the kernel packaged with this binary (the Mac app, a release install).
 /// Blocking: looking on PATH may ask the login shell.
 pub fn bin() -> Option<PathBuf> {
     if let Some(set) = ["KITH_KERNEL_BIN", "HQ_BIN"].iter().find_map(std::env::var_os) {
         return (!set.is_empty()).then(|| PathBuf::from(set));
     }
-    crate::agent::backends::which("kith").or_else(|| crate::agent::backends::which("hq")).or_else(|| {
-        let bin = dirs::home_dir()?.join(".local/bin");
-        ["kith", "hq"].iter().map(|n| bin.join(n)).find(|p| p.is_file())
-    })
+    crate::agent::backends::which("kith")
+        .or_else(|| crate::agent::backends::which("hq"))
+        .or_else(|| {
+            let bin = dirs::home_dir()?.join(".local/bin");
+            ["kith", "hq"].iter().map(|n| bin.join(n)).find(|p| p.is_file())
+        })
+        .or_else(|| crate::kernel::entry_in(&crate::kernel::current_kernel()?))
 }
 
 /// One line of `kith ls --json`.

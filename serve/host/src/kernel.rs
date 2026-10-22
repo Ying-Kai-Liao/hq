@@ -84,7 +84,7 @@ pub fn self_args(sub: &[&str]) -> Vec<OsString> {
 }
 
 /// The kernel's entry point in `dir`, if it is a kernel.
-fn entry_in(dir: &Path) -> Option<PathBuf> {
+pub fn entry_in(dir: &Path) -> Option<PathBuf> {
     [KERNEL_ENTRY, OLD_KERNEL_ENTRY].iter().map(|e| dir.join(e)).find(|p| p.is_file())
 }
 
@@ -136,12 +136,19 @@ pub fn home_dir(home: &Path) -> PathBuf {
 }
 
 /// Where the kernel is, in order: `$KITH_KERNEL`, a kernel shipped next to the (real, symlinks resolved)
-/// binary (`<prefix>/share/kith/kernel`, or `<prefix>/kernel`), then `~/kith/kernel` or `~/hq/kernel` (a checkout of the repo).
+/// binary (`<prefix>/share/kith/kernel`, or `<prefix>/kernel`; for the Mac app's `Resources/kith-serve`, the
+/// release layout bundled beside it: `Resources/kith/share/kith/kernel`), then `~/kith/kernel` or `~/hq/kernel` (a checkout of the repo).
 pub fn find_kernel(env: Option<OsString>, exe: Option<&Path>, home: Option<&Path>) -> Option<PathBuf> {
     if let Some(dir) = env.filter(|e| !e.is_empty()).map(PathBuf::from) {
         return is_kernel(&dir).then_some(dir);
     }
-    let prefix = exe.and_then(|e| e.canonicalize().ok()).and_then(|e| e.parent()?.parent().map(Path::to_path_buf));
+    let real = exe.and_then(|e| e.canonicalize().ok());
+    // The Mac app keeps the host binary and the bundled release layout side by side.
+    let bundled = real.as_deref().and_then(Path::parent).map(|d| d.join("kith").join(SHIPPED_KERNEL));
+    if let Some(c) = bundled.filter(|c| is_kernel(c)) {
+        return Some(c);
+    }
+    let prefix = real.and_then(|e| e.parent()?.parent().map(Path::to_path_buf));
     if let Some(prefix) = prefix {
         for c in [prefix.join(SHIPPED_KERNEL), prefix.join("kernel")] {
             if is_kernel(&c) {
@@ -153,12 +160,18 @@ pub fn find_kernel(env: Option<OsString>, exe: Option<&Path>, home: Option<&Path
     ["kith/kernel", "hq/kernel"].iter().map(|c| home.join(c)).find(|c| is_kernel(c))
 }
 
+/// The kernel this process would run, by `find_kernel`'s rules for this binary and this machine.
+pub fn current_kernel() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok();
+    find_kernel(std::env::var_os(KERNEL_ENV), exe.as_deref(), dirs::home_dir().as_deref())
+}
+
 /// Replaces this process with the kernel's entry point. Only returns on failure.
 #[cfg(unix)]
 pub fn exec_kernel(args: &[OsString]) -> anyhow::Error {
     use std::os::unix::process::CommandExt as _;
     let exe = std::env::current_exe().ok();
-    let Some(kernel) = find_kernel(std::env::var_os(KERNEL_ENV), exe.as_deref(), dirs::home_dir().as_deref()) else {
+    let Some(kernel) = current_kernel() else {
         return anyhow::anyhow!(
             "kith: no kernel found. Set {KERNEL_ENV}, install a packaged kith (it ships share/kith/kernel), or clone kith to ~/kith"
         );
@@ -253,6 +266,44 @@ mod tests {
         // KITH_BIN is the kith binary itself, so the kernel's command has its own name.
         assert_eq!(both("BIN", "/k")[0].0, "KITH_KERNEL_BIN");
         assert_eq!(both("BIN", "/k")[1].0, "HQ_BIN");
+    }
+
+    fn fake_kernel(dir: &Path) {
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        std::fs::write(dir.join(KERNEL_ENTRY), "").unwrap();
+    }
+
+    fn fake_exe(path: &Path) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "").unwrap();
+    }
+
+    #[test]
+    fn finds_the_kernel_in_each_layout() {
+        let t = std::env::temp_dir().join(format!("kith-find-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(&t).unwrap();
+        let t = t.canonicalize().unwrap();
+        // Release install: bin/kith with share/kith/kernel beside it.
+        let rel = t.join("rel");
+        fake_exe(&rel.join("bin/kith"));
+        fake_kernel(&rel.join(SHIPPED_KERNEL));
+        assert_eq!(find_kernel(None, Some(&rel.join("bin/kith")), None), Some(rel.join(SHIPPED_KERNEL)));
+        // Mac app: Resources/kith-serve with the release layout in Resources/kith.
+        let res = t.join("App.app/Contents/Resources");
+        fake_exe(&res.join("kith-serve"));
+        fake_kernel(&res.join("kith").join(SHIPPED_KERNEL));
+        assert_eq!(find_kernel(None, Some(&res.join("kith-serve")), None), Some(res.join("kith").join(SHIPPED_KERNEL)));
+        // A checkout under the home folder, migrated or not.
+        fake_kernel(&t.join("home/hq/kernel"));
+        assert_eq!(find_kernel(None, None, Some(&t.join("home"))), Some(t.join("home/hq/kernel")));
+        fake_kernel(&t.join("home/kith/kernel"));
+        assert_eq!(find_kernel(None, None, Some(&t.join("home"))), Some(t.join("home/kith/kernel")));
+        // $KITH_KERNEL wins over everything.
+        let given = t.join("given");
+        fake_kernel(&given);
+        assert_eq!(find_kernel(Some(given.clone().into()), Some(&rel.join("bin/kith")), None), Some(given));
+        std::fs::remove_dir_all(&t).unwrap();
     }
 
     #[test]

@@ -3,8 +3,9 @@
 #   brew install Ying-Kai-Liao/kith/kith
 #
 # It installs the release tarball (.github/workflows/release.yml): bin/kith and share/kith/{kernel,...}, the layout
-# the binary's kernel lookup expects (../share/kith/kernel from its real path). Per release, update `version` and the
-# two sha256 values (the SHA256SUMS file on the release has them).
+# the binary's kernel lookup expects (../share/kith/kernel from its real path). The copy in the repo has
+# placeholder sha256 values on purpose: scripts/update-formula.sh fills version and checksums at release time and
+# the release workflow attaches the result (kith.rb) to the release. See README.md here.
 class Kith < Formula
   desc "Your coding-agent bots and the agents behind them, from one command"
   homepage "https://github.com/Ying-Kai-Liao/kith"

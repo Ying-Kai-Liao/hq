@@ -31,12 +31,13 @@ impl Paths {
     /// Blocking: looking for `hq` may ask the login shell. None when there is no hq to run.
     pub fn discover() -> Option<Self> {
         let hq_bin = crate::agent::hq::bin()?;
-        // A tool next to the entry point, else on PATH; the old hq-<x> name when the kernel has not been renamed.
+        // A tool next to the entry point, else in the kernel's bin/ (a packaged host's entry is the binary, the tools
+        // are in the kernel it carries), else on PATH; the old hq-<x> name when the kernel has not been renamed.
         let real = std::fs::canonicalize(&hq_bin).unwrap_or_else(|_| hq_bin.clone());
+        let kernel = crate::kernel::current_kernel();
         let beside = |name: &str| {
             let find = |name: &str| {
-                let near = [&hq_bin, &real].map(|b| b.with_file_name(name)).into_iter().find(|p| p.is_file());
-                near.or_else(|| crate::agent::backends::which(name))
+                tool_near(name, &hq_bin, &real, kernel.as_deref()).or_else(|| crate::agent::backends::which(name))
             };
             let old = name.replacen("kith-", "hq-", 1);
             find(name).or_else(|| find(&old)).unwrap_or_else(|| hq_bin.with_file_name(name))
@@ -44,12 +45,7 @@ impl Paths {
         let home = dirs::home_dir()?;
         let hq_home = crate::kernel::home_dir(&home);
         let mut agent_roots = vec![hq_home.join("agents")];
-        // The kernel's own agents sit next to its bin folder.
-        if let Some(kernel) =
-            std::fs::canonicalize(&hq_bin).ok().and_then(|p| Some(p.parent()?.parent()?.to_path_buf()))
-        {
-            agent_roots.push(kernel.join("agents"));
-        }
+        agent_roots.extend(kernel_agents(&real));
         let machine = crate::kernel::var("MACHINE").map_or_else(|| crate::kernel::machine_dir(&home), PathBuf::from);
         Some(Self {
             auth_bin: beside("kith-auth"),
@@ -70,6 +66,19 @@ impl Paths {
     pub fn live_outbox(&self, box_id: &str) -> PathBuf {
         self.machine.join("bridge").join("outbox").join(format!("live-{box_id}"))
     }
+}
+
+/// The agents folder of the kernel the selected command belongs to (next to its bin folder). Not the running host's own
+/// kernel: with the Mac app running and a checkout selected, that would put the app's built-in agents first.
+fn kernel_agents(real_bin: &Path) -> Option<PathBuf> {
+    Some(real_bin.parent()?.parent()?.join("agents"))
+}
+
+/// `name` beside the entry point (as given, or with symlinks resolved), else in the packaged kernel's bin/.
+fn tool_near(name: &str, hq_bin: &Path, real: &Path, kernel: Option<&Path>) -> Option<PathBuf> {
+    let near = [hq_bin.with_file_name(name), real.with_file_name(name)];
+    let packaged = kernel.map(|k| k.join("bin").join(name));
+    near.into_iter().chain(packaged).find(|p| p.is_file())
 }
 
 /// Runs a tool without a terminal: its output, or None when it can't start or takes too long.
@@ -262,9 +271,44 @@ mod tests {
     }
 
     #[test]
+    fn agents_follow_the_selected_command_not_the_running_host() {
+        let checkout = Path::new("/work/kith/kernel/bin/kith");
+        assert_eq!(kernel_agents(checkout), Some(PathBuf::from("/work/kith/kernel/agents")));
+        assert_eq!(kernel_agents(Path::new("kith")), None);
+        // The app's kernel is only where a missing tool is looked for.
+        let app = Path::new("/App/Resources/kith/share/kith/kernel");
+        let tool = tool_near("kith-auth", Path::new("/nowhere/bin/kith"), Path::new("/nowhere/bin/kith"), Some(app));
+        assert!(tool.is_none());
+    }
+
+    #[test]
     fn a_renamed_person_is_still_the_sender() {
         let who = Who::parse(&serde_json::json!({"person": "kai", "was": ["old"], "owner": true}));
         assert!(who.is("kai") && who.is("old") && !who.is("other"));
         assert!(who.owner);
+    }
+}
+
+#[cfg(test)]
+mod tool_tests {
+    use super::tool_near;
+
+    #[test]
+    fn tools_are_found_in_the_packaged_kernel() {
+        let t = std::env::temp_dir().join(format!("kith-tools-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let kernel = t.join("share/kith/kernel");
+        std::fs::create_dir_all(kernel.join("bin")).unwrap();
+        std::fs::create_dir_all(t.join("bin")).unwrap();
+        std::fs::write(t.join("bin/kith"), "").unwrap();
+        std::fs::write(kernel.join("bin/kith-auth"), "").unwrap();
+        let bin = t.join("bin/kith");
+        // Release install: the entry is the binary, the tool is in the kernel.
+        assert_eq!(tool_near("kith-auth", &bin, &bin, Some(&kernel)), Some(kernel.join("bin/kith-auth")));
+        assert_eq!(tool_near("kith-live", &bin, &bin, Some(&kernel)), None);
+        // Git checkout: the tool sits beside the entry and wins.
+        std::fs::write(t.join("bin/kith-auth"), "").unwrap();
+        assert_eq!(tool_near("kith-auth", &bin, &bin, Some(&kernel)), Some(t.join("bin/kith-auth")));
+        std::fs::remove_dir_all(&t).unwrap();
     }
 }

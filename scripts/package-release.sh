@@ -4,7 +4,7 @@
 #   scripts/package-release.sh <version> <arch> <path-to-kith-binary> [out-dir]
 #
 # kith-<version>-darwin-<arch>.tar.gz holding bin/kith and share/kith/{kernel,.claude-plugin,install.sh,LICENSE,
-# README.md}: the layout the binary's kernel lookup expects (kernel at ../share/kith/kernel). Also writes the
+# LICENSE.serve,NOTICE,README.md}: the layout the binary's kernel lookup expects (kernel at ../share/kith/kernel). Also writes the
 # tarball's .sha256 next to it.
 set -eu
 [ $# -ge 3 ] || { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
