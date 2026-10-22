@@ -26,7 +26,12 @@ The desktop app sends nothing to PostHog itself; it goes through the host, which
 The Mac app runs against `kith-serve` (built from `serve/host`): dev data in `~/.kith/serve` on
 port 19224, launchd job `dev.kith.serve`; main uses `~/.kith/serve-main`, 19225 and
 `dev.kith.serve.main`. If `kith serve start` already installed the job, the app adopts it and never
-rewrites its plist. Kith has no accounts: `shared/Config/*.plist` are empty, so Clerk and the
+rewrites its plist. Inside the app, `Contents/Resources/kith-serve` is the service binary (the plist
+and the binary-hash check point at it) and `Contents/Resources/kith/` is the release layout: `bin/kith`
+(the same crate's `kith` name, universal) with `share/kith/kernel` beside it, filled by
+`scripts/stage-kernel.sh` (the script `scripts/package-release.sh` uses too). So
+`"…/Resources/kith/bin/kith" --version`, `serve status` and `doctor` work as an installed `kith` does.
+Kith has no accounts: `shared/Config/*.plist` are empty, so Clerk and the
 account cloud stay off. The relay URL comes from the host's `config.json` (`relay_url`) and travels
 in the pairing link; the apps need no relay setting.
 

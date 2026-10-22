@@ -1,11 +1,12 @@
 // Builds the host the app bundles for the same environment as the app: node tools/native-host.mjs
 // dev|main compiles it in as KITH_SERVE_ENV. Built on every package so a host made for another
-// environment is never shipped. macOS: build/native/kith-serve (universal; Kith Dev: this Mac's
+// environment is never shipped. macOS: build/native/kith-serve and build/native/kith/ (bin/kith +
+// share/kith/kernel, the release layout; universal; Kith Dev: this Mac's
 // architecture only, since it never leaves the Mac that built it). Windows:
 // build/native/kith-serve.exe and kith-servew.exe (kith-servew-main.exe for main; runs it at sign-in), plus the computer-use
 // driver the host starts from beside itself. Linux apps use the installed host, so there's
 // nothing to do there.
-import { copyFileSync, mkdirSync } from 'node:fs'
+import { copyFileSync, mkdirSync, rmSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -39,5 +40,12 @@ if (process.platform === 'win32') {
   const targets = env === 'dev' ? [native] : ['aarch64-apple-darwin', 'x86_64-apple-darwin']
   for (const target of targets) build(target)
   run('lipo', ['-create', '-output', join(out, 'kith-serve'), ...targets.map((t) => built(t, 'kith-serve'))])
+  // The same crate's `kith` name, laid out like the release tarball (bin/kith, share/kith/kernel...) so the
+  // bundled kith finds its kernel the way an installed one does. The service keeps running kith-serve.
+  const kith = join(out, 'kith')
+  rmSync(kith, { recursive: true, force: true })
+  mkdirSync(join(kith, 'bin'), { recursive: true })
+  run('lipo', ['-create', '-output', join(kith, 'bin/kith'), ...targets.map((t) => built(t, 'kith'))])
+  run('sh', [join(root, '../../scripts/stage-kernel.sh'), join(kith, 'share/kith')])
 }
 console.log(`host: ${env}`)
