@@ -279,9 +279,11 @@ mod launchd {
     ) -> Result<()> {
         let plist = plist.to_string_lossy();
         let mut last = String::new();
+        let mut bootstrapped = false;
         for attempt in 0..RETRIES {
             let (code, err) = run(&["bootstrap", domain, &plist]);
             if code == 0 {
+                bootstrapped = true;
                 break;
             }
             last = err;
@@ -291,8 +293,8 @@ mod launchd {
             }
             pause(attempt);
         }
-        // Also catches two restarts racing each other.
-        if !loaded(run, target) {
+        // A loaded job is not enough: it may be another install's plist that is running (two restarts racing).
+        if !bootstrapped || !loaded(run, target) {
             bail!(
                 "{target} is not loaded (plist {plist}); last launchctl said: {}. Load it by hand: launchctl bootstrap {domain} \"{plist}\"",
                 if last.is_empty() { "nothing" } else { &last }
@@ -350,6 +352,15 @@ mod launchd {
             assert!(text.contains("gui/1/x") && text.contains("/p.plist") && text.contains("Input/output"), "{text}");
             assert!(text.contains("launchctl bootstrap gui/1"), "{text}");
             assert_eq!(log.borrow().iter().filter(|c| *c == "bootstrap").count(), RETRIES);
+        }
+
+        #[test]
+        fn a_job_loaded_by_someone_else_is_not_a_success() {
+            let mut run = |args: &[&str]| match args[0] {
+                "bootstrap" => (5, "Bootstrap failed: 5: Input/output error".to_owned()),
+                _ => (0, String::new()),
+            };
+            assert!(reload_with(&mut run, "gui/1", "gui/1/x", &PathBuf::from("/p.plist"), |_| {}).is_err());
         }
 
         #[test]

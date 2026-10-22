@@ -46,15 +46,18 @@ def reload(label, plist):
     plist = str(plist)
     unload(label)
     err = ''
+    bootstrapped = False
     for attempt in range(RETRIES):
         r = _launchctl('bootstrap', f'gui/{os.getuid()}', plist)
         if r.returncode == 0:
+            bootstrapped = True
             break
         err = (r.stderr or r.stdout or '').strip()
         if r.returncode not in _RETRY_CODES or attempt == RETRIES - 1:
             break
         time.sleep(BACKOFF[min(attempt, len(BACKOFF) - 1)])
-    if not is_loaded(label):   # also catches two reloads racing each other
+    # loaded is not enough: it may be another install's plist that is running (two reloads racing)
+    if not bootstrapped or not is_loaded(label):
         raise LaunchdError(
             f'{label} is not loaded (plist {plist}); last launchctl said: {err or "nothing"}. '
             f'Load it by hand: launchctl bootstrap gui/{os.getuid()} "{plist}"')

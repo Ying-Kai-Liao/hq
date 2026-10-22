@@ -90,6 +90,17 @@ def main():
         check('the error names label, plist, launchctl output and the manual command',
               all(x in msg for x in ('dev.kith.test', plist, 'Input/output error', 'launchctl bootstrap gui/')), msg)
 
+    # another install loaded the job between our bootout and bootstrap: our failed bootstrap must not look like success
+    fresh(loaded=1, fail_bootstrap=99)
+    real_unload, kith_launchd.unload = kith_launchd.unload, lambda label: None
+    try:
+        kith_launchd.reload('dev.kith.test', plist)
+        check('a job loaded by someone else is not a success', False, 'no error raised')
+    except kith_launchd.LaunchdError:
+        check('a job loaded by someone else is not a success', True)
+    finally:
+        kith_launchd.unload = real_unload
+
     d = fresh(bad_plist=1)
     try:
         kith_launchd.reload('dev.kith.test', plist)
