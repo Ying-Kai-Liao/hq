@@ -2,6 +2,7 @@
 
 use crate::LockExt;
 use crate::agent::bot::{self, Cmd};
+use crate::agent::folder;
 use crate::api::devices::Pairing;
 use crate::remote::identity::Identity;
 use crate::remote::push;
@@ -18,6 +19,7 @@ use std::sync::{Arc, Mutex, Weak};
 use tokio::sync::{broadcast, watch};
 
 mod actors;
+mod folders;
 mod hq;
 mod order;
 mod sync;
@@ -186,6 +188,7 @@ impl Hub {
             }
         }
         cfg.clean_avatar_source();
+        cfg.clean_project();
         validate(&cfg)?;
         crate::agent::workspace::prepare(&mut cfg)?;
         {
@@ -233,12 +236,18 @@ impl Hub {
             cfg.members = crate::chat::group::valid_members(&self.store, &cfg.id, &cfg.members)?;
         }
         cfg.clean_avatar_source();
+        cfg.clean_project();
         validate(&cfg)?;
         crate::agent::workspace::prepare(&mut cfg)?;
         crate::agent::own_memory::settle(&mut cfg, &row.config, patch);
+        let default_moved = !cfg.is_group() && folder::default_of(&cfg) != folder::default_of(&row.config);
         {
             let _g = self.emit_lock.locked();
             self.store.save_bot(&cfg)?;
+        }
+        // Places without a folder of their own follow the bot's: their stored sessions end before the actors learn.
+        if default_moved {
+            self.reset_inheriting_stored(&cfg);
         }
         if cfg.is_group() {
             self.close_group_places(&id, &cfg.members);
@@ -547,6 +556,11 @@ fn validate(cfg: &BotConfig) -> Result<()> {
     }
     if cfg.is_group() {
         return Ok(());
+    }
+    if let Some(project) = &cfg.project
+        && !folder::valid_project_id(project)
+    {
+        bail!("`{project}` isn't a project id (lowercase words joined by dashes)");
     }
     if !cfg.cwd.is_empty() && !std::path::Path::new(&cfg.cwd).is_dir() {
         bail!("workspace folder does not exist: {}", cfg.cwd);

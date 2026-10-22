@@ -1,7 +1,7 @@
 //! Commands from clients and the queue of turns waiting for the bot.
 
 use super::{Actor, CANCEL_GRACE, Cmd, Done, NoticeStyle, Queued, RESUME_PROMPT, RoutineCompletion, inflight_key};
-use crate::agent::own_memory;
+use crate::agent::{folder, own_memory};
 use crate::chat::memory;
 use crate::chat::router::{self, Route};
 use crate::chat::team::RequestStatus;
@@ -102,12 +102,13 @@ impl Actor {
                 let resumes = self.conn.as_ref().is_none_or(|c| c.sessions.load);
                 let restart = cfg.backend != self.cfg.backend
                     || cfg.command != self.cfg.command
-                    || cfg.cwd != self.cfg.cwd
                     || cfg.model != self.cfg.model
                     || cfg.model_options != self.cfg.model_options
                     || (memory_changed && !resumes);
                 self.tools_changed |=
                     cfg.connectors != self.cfg.connectors || cfg.computer != self.cfg.computer || memory_changed;
+                // Places with a folder of their own keep working in it; the rest follow the bot's default.
+                let default_changed = folder::default_of(&cfg) != folder::default_of(&self.cfg);
                 // Live sessions switch before their next turn (see `fast_mode`).
                 let fast_changed = cfg.fast_mode != self.cfg.fast_mode;
                 // Name, description and skill changes reach the agent as a profile update
@@ -138,8 +139,11 @@ impl Actor {
                         );
                     }
                     // A running prompt now fails; finish_turn reports it.
+                } else if default_changed {
+                    self.reset_inheriting().await;
                 }
             }
+            Cmd::ResetPlace { lane } => self.reset_place(&lane).await,
             Cmd::Shutdown => return false,
         }
         true

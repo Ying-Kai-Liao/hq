@@ -2,12 +2,13 @@
 //! runs the `hq` CLI and turns its answer into the ACP session request for claude-agent-acp. The host adds nothing
 //! of Kith's to such a bot, so the agent runs with its own prompt, memory, skills, servers and settings.
 
+use crate::LockExt as _;
 use crate::store::BotConfig;
 use anyhow::{Context, Result, anyhow, bail};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::AsyncReadExt as _;
 
 /// `hq ls --json` reads a few folders; `--launch-json` assembles prompt, settings and servers.
@@ -120,10 +121,109 @@ pub async fn list(bin: &Path) -> Result<Vec<HqAgent>> {
     serde_json::from_str(out.trim()).context("`hq ls --json` didn't print a JSON list of agents")
 }
 
-/// Asks hq how to start `agent` for a run in `cwd`.
+/// One registered hq project, from `hq project ls --json`.
+#[derive(Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct Project {
+    pub id: String,
+    #[serde(default)]
+    pub paths: Vec<String>,
+    /// The project's home folder, when it has one.
+    #[serde(default)]
+    pub home: Option<String>,
+    #[serde(default)]
+    pub parent: Option<String>,
+}
+
+impl Project {
+    /// The folder to work in: the home if it is a directory here, else the first path that is. None when this
+    /// computer has none of them.
+    pub fn folder(&self) -> Option<String> {
+        self.home.iter().chain(&self.paths).find(|p| Path::new(p).is_dir()).cloned()
+    }
+
+    /// Every path the project is registered under, for matching a folder to its project.
+    pub fn all_paths(&self) -> impl Iterator<Item = &String> {
+        self.home.iter().chain(&self.paths)
+    }
+}
+
+/// How long a project list is reused: the pickers ask repeatedly while one is open.
+const PROJECTS_FRESH: Duration = Duration::from_secs(5);
+
+type Cached = Option<(Instant, Vec<Project>)>;
+static PROJECTS: std::sync::Mutex<Cached> = std::sync::Mutex::new(None);
+
+fn remember_projects(list: &[Project]) {
+    *PROJECTS.locked() = Some((Instant::now(), list.to_vec()));
+}
+
+/// The last project list hq gave, however old; empty before the first. For code that can't wait for hq.
+pub fn cached_projects() -> Vec<Project> {
+    PROJECTS.locked().as_ref().map(|(_, l)| l.clone()).unwrap_or_default()
+}
+
+/// What `hq project ls --json` prints.
+#[derive(Deserialize)]
+struct Listing {
+    projects: Vec<Project>,
+}
+
+/// The projects without making a chat load wait on hq: the last list however old (refreshed behind the call when it
+/// is stale), or, before there is one, hq's answer for at most two seconds.
+pub async fn projects_soon() -> Vec<Project> {
+    let cached = PROJECTS.locked().clone();
+    match cached {
+        Some((at, list)) => {
+            if at.elapsed() >= PROJECTS_FRESH {
+                tokio::spawn(async { drop(projects(true).await) });
+            }
+            list
+        }
+        None => tokio::time::timeout(Duration::from_secs(2), projects(false))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default(),
+    }
+}
+
+/// `hq project ls --json`, reused for a few seconds unless `fresh`. Fails when hq is missing or the command does.
+pub async fn projects(fresh: bool) -> Result<Vec<Project>> {
+    if !fresh
+        && let Some((at, list)) = PROJECTS.locked().clone()
+        && at.elapsed() < PROJECTS_FRESH
+    {
+        return Ok(list);
+    }
+    let Some(bin) = tokio::task::spawn_blocking(bin).await? else {
+        bail!("hq isn't installed on this computer (set HQ_BIN, or put `hq` on PATH)");
+    };
+    let out = run(&bin, &["project", "ls", "--json"], None, LIST_TIMEOUT).await?;
+    let list = serde_json::from_str::<Listing>(out.trim())
+        .context("`hq project ls --json` didn't print a JSON list of projects")?
+        .projects;
+    remember_projects(&list);
+    Ok(list)
+}
+
+/// `hq project add <id> <path>`: hq's own error text on failure (a taken id, a path that isn't a folder…).
+pub async fn project_add(id: &str, path: &str) -> Result<()> {
+    let Some(bin) = tokio::task::spawn_blocking(bin).await? else {
+        bail!("hq isn't installed on this computer (set HQ_BIN, or put `hq` on PATH)");
+    };
+    run(&bin, &["project", "add", id, path], None, LIST_TIMEOUT).await?;
+    // The next list must show it.
+    *PROJECTS.locked() = None;
+    Ok(())
+}
+
+/// Asks hq how to start `agent` for a run in `cwd`; `project` goes as `-p <id>`, so hq loads that project's context.
 /// The model and effort the user picked for the bot go to hq as `-m`/`-e`, so its ledger tag and `HQ_MODEL` say what ran.
-pub async fn launch(bin: &Path, agent: &str, cwd: &str, cfg: &BotConfig) -> Result<Launch> {
+pub async fn launch(bin: &Path, agent: &str, cwd: &str, cfg: &BotConfig, project: Option<&str>) -> Result<Launch> {
     let mut args = vec![agent, "--launch-json"];
+    if let Some(project) = project {
+        args.extend(["-p", project]);
+    }
     if let Some(model) = cfg.model.as_deref().filter(|m| !m.is_empty()) {
         args.extend(["-m", model]);
     }
@@ -256,6 +356,20 @@ mod tests {
         for server in ["chat", "memory", "team", "routines", "connectors"] {
             assert!(!meta.to_string().contains(&format!("\"{server}\"")), "{server}");
         }
+    }
+
+    #[test]
+    fn a_project_works_in_its_home_else_the_first_path_that_exists() {
+        let here = std::env::temp_dir().to_string_lossy().into_owned();
+        let project: Project = serde_json::from_value(json!({
+            "id": "hq", "paths": ["/nowhere/a", here], "home": "/nowhere/home", "remotes": [], "parent": null,
+            "memory": null, "exists": true,
+        }))
+        .unwrap();
+        assert_eq!(project.folder(), Some(here.clone()));
+        let home = Project { home: Some(here.clone()), paths: vec![], ..project.clone() };
+        assert_eq!(home.folder(), Some(here));
+        assert_eq!(Project { home: None, paths: vec!["/nowhere/a".into()], ..project }.folder(), None);
     }
 
     #[test]

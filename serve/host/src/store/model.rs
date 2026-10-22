@@ -131,6 +131,9 @@ pub struct BotConfig {
     /// with the agent's own prompt, memory, skills and servers, and none of Kith's (see `agent::hq`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hq_agent: Option<String>,
+    /// The hq project the bot's places work in unless a place picked its own (see `agent::folder`). Beats `cwd`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
     #[serde(default)]
     pub created_at: i64,
 }
@@ -151,6 +154,11 @@ impl BotConfig {
         if !ok {
             self.avatar_source = default_avatar_source();
         }
+    }
+
+    /// An empty default project is none.
+    pub fn clean_project(&mut self) {
+        self.project = self.project.take().map(|p| p.trim().to_owned()).filter(|p| !p.is_empty());
     }
 
     /// Whether the bot is an hq agent.

@@ -58,13 +58,19 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             let bot = str_arg(&b, "botId")?;
             let before = b["beforeSeq"].as_i64().unwrap_or(i64::MAX);
             let limit = b["limit"].as_i64().unwrap_or(100).clamp(1, 500);
-            json!({"entries": hub.store.history(bot, before, limit)?})
+            json!({"entries": hub.store.history(bot, before, limit)?, "folder": hub.place_folder(bot, &Lane::main(bot)).await?})
         }
         // A thread's replies (its newest 500); the root is in the main chat.
-        "thread" => json!({"entries": hub.store.thread(str_arg(&b, "botId")?, str_arg(&b, "rootId")?, 500)?}),
+        "thread" => {
+            let (bot, root) = (str_arg(&b, "botId")?, str_arg(&b, "rootId")?);
+            let lane = Lane::in_thread(bot, root);
+            json!({"entries": hub.store.thread(bot, root, 500)?, "folder": hub.place_folder(bot, &lane).await?})
+        }
         // Notices between a bot and one peer (the newest 200), for the read-only bot conversation sheet.
         "botConversation" => {
-            json!({"entries": hub.store.bot_conversation(str_arg(&b, "botId")?, str_arg(&b, "peerId")?, 200)?})
+            let bot = str_arg(&b, "botId")?;
+            let entries = hub.store.bot_conversation(bot, str_arg(&b, "peerId")?, 200)?;
+            json!({"entries": entries, "folder": hub.place_folder(bot, &Lane::main(bot)).await?})
         }
         "createBot" => {
             let mut b = b;
@@ -165,6 +171,12 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
                 return Ok(ControlFlow::Break(json!({"entry": e})));
             }
             let row = hub.store.bot(bot)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
+            // `project` / `folder`: where the place this message runs in works, set before the turn starts, so a
+            // new chat, thread or task picks its folder without a reset round trip. Checked before anything is saved.
+            let start_in = hub.check_change(crate::agent::folder::Change::from_args(&b)?).await?;
+            if start_in.is_some() && row.config.is_group() {
+                bail!("A group has no folder; set it on a member");
+            }
             // `threadId`: reply in the thread on that message of the main chat (threads are flat).
             let thread = match b["threadId"].as_str().filter(|t| !t.is_empty()) {
                 Some(root) => {
@@ -210,11 +222,25 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             if starts_task {
                 crate::chat::tasks::mark(&mut data);
             }
+            // Before the message is saved, so a failure leaves nothing behind; a new task's place exists only once its
+            // first message does.
+            if let Some(checked) = start_in.as_ref().filter(|_| !starts_task) {
+                hub.apply_change(bot, &lane, checked)?;
+            }
             let e = hub
                 .add_entry(&lane, EntryKind::User, turn, &data)
                 .ok_or_else(|| anyhow!("couldn't save the message"))?;
             // A new task's turn runs in its own thread.
             let turn_lane = if starts_task { Lane::in_thread(bot, &e.id) } else { lane.clone() };
+            if let Some(checked) = start_in.as_ref().filter(|_| starts_task)
+                && let Err(error) = hub.apply_change(bot, &turn_lane, checked)
+            {
+                // The task never starts: take the message back.
+                let mut data = e.data.clone();
+                data["status"] = "cancelled".into();
+                let _ = hub.store.update_entry(&e.id, &data);
+                return Err(error);
+            }
             // Before the turn starts, so its reply lands unread.
             let scope = lane.thread.as_deref().map_or(ReadScope::Chat, ReadScope::Thread);
             if let Err(error) = hub.mark_read(bot, scope) {

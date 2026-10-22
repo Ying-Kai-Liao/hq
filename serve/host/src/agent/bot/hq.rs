@@ -6,7 +6,7 @@ use super::fast_mode::Listing;
 use super::launch::{launch_commands, start_agent};
 use super::{Actor, NoticeStyle};
 use crate::agent::acp::Incoming;
-use crate::agent::hq;
+use crate::agent::{folder, hq};
 use anyhow::{Result, anyhow, bail};
 use std::time::{Duration, Instant};
 
@@ -47,8 +47,26 @@ impl Actor {
         let Some(bin) = tokio::task::spawn_blocking(hq::bin).await? else {
             bail!("hq isn't installed on this computer (set HQ_BIN, or put `hq` on PATH)");
         };
-        let launch = hq::launch(&bin, &agent, &self.cfg.cwd, &self.cfg).await?;
+        // The place's own folder or project, else the bot's default; hq runs in it so the kernel finds the project.
+        let target = folder::resolve(&self.hub.store, &self.cfg, &self.lane_of(slot)).await;
+        if let Some(notice) = &target.notice {
+            self.notice(notice, NoticeStyle::Divider);
+        }
+        let mut launch = hq::launch(&bin, &agent, &target.cwd, &self.cfg, target.project.as_deref()).await?;
+        if target.explicit {
+            launch.cwd.clone_from(&target.cwd);
+        }
+        // The process carries hq's env (HQ_PROJECT, the cost tag) and its folder: a place that needs others gets a
+        // process of its own, started again here (the sessions it held load again on their next turn).
+        let started_as = (launch.env(), launch.cwd(&self.cfg).to_owned());
+        if self.conn.is_some()
+            && self.conn_started_as.as_ref() != Some(&started_as)
+            && let Some(c) = self.conn.take()
+        {
+            c.acp.kill().await;
+        }
         if self.conn.is_none() {
+            self.conn_started_as = Some(started_as);
             let mut env = crate::agent::auth::env(&self.hub.store, &self.cfg.backend)?;
             env.extend(launch.env());
             let candidates = match std::env::var(hq::ACP_COMMAND_ENV) {

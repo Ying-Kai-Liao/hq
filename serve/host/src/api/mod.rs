@@ -6,6 +6,7 @@ mod bots;
 pub mod devices;
 mod events;
 mod files;
+mod folders;
 mod host;
 mod http;
 mod marketplace;
@@ -89,6 +90,10 @@ async fn route(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Resul
     }
     // Each method group answers its own methods and hands the body back otherwise.
     let b = match host::call(hub, caller, method, b).await? {
+        ControlFlow::Break(v) => return Ok(v),
+        ControlFlow::Continue(b) => b,
+    };
+    let b = match folders::call(hub, method, b).await? {
         ControlFlow::Break(v) => return Ok(v),
         ControlFlow::Continue(b) => b,
     };
