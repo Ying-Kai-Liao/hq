@@ -267,6 +267,18 @@ check "and running it again finishes" "[ $rc = 0 ] && grep -qx dev.kith.cost $ST
 mig --undo; rc=$?
 check "undo after that unloads the new jobs and loads the old ones" "[ $rc = 0 ] && grep -qx dev.hq.cost $STUB_LOADED && ! grep -q '^dev.kith.cost' $STUB_LOADED"
 
+# an earlier version's half-run: hq-uv already under ~/.kith/bin with its old name, no launcher step recorded
+build; snap > "$T/h0"; cp "$HOME/.kith/serve/config.json" "$T/h0.config"
+STUB_LAUNCHCTL_FAIL=1 mig
+mv "$HOME/.kith/bin/kith-uv" "$HOME/.kith/bin/hq-uv"
+cp "$T/h0.config" "$HOME/.kith/serve/config.json"
+python3 -I -c 'import json,sys; p=sys.argv[1]; m=json.load(open(p)); m["steps"].pop("launcher",None); json.dump(m,open(p,"w"))' "$HOME/.kith/migrate-manifest.json"
+mig; rc=$?
+check "a resumed run with hq-uv already under ~/.kith/bin ends at kith-uv" \
+  "[ $rc = 0 ] && [ -e $HOME/.kith/bin/kith-uv ] && [ ! -e $HOME/.kith/bin/hq-uv ] && grep -q 'bin/kith-uv' $HOME/.kith/serve/config.json && ! grep -q 'hq-uv' $HOME/.kith/serve/config.json"
+mig --undo; rc=$?
+check "and the undo from there restores the original" "[ $rc = 0 ] && [ -e $HOME/.hq/bin/hq-uv ] && snap | cmp -s - $T/h0"
+
 build; echo "9 /bin/bash $HOME/kith/kernel/bin/kith echo hi" > "$STUB_PS"
 mig --force; rc=$?
 check "--force goes on although an agent run is active" "[ $rc = 0 ] && sees 'going on although'"
