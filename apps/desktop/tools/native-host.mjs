@@ -6,7 +6,7 @@
 // build/native/kith-serve.exe and kith-servew.exe (kith-servew-main.exe for main; runs it at sign-in), plus the computer-use
 // driver the host starts from beside itself. Linux apps use the installed host, so there's
 // nothing to do there.
-import { copyFileSync, mkdirSync, rmSync } from 'node:fs'
+import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
