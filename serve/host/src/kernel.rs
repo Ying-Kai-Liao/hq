@@ -72,7 +72,7 @@ fn host_args(lead: &[OsString], rest: &[OsString]) -> Vec<OsString> {
 /// The arguments that make this binary run a host subcommand: `install`, or `serve install` when it is
 /// the `kith` binary. For the host starting itself.
 pub fn self_args(sub: &[&str]) -> Vec<OsString> {
-    let is_kith = std::env::current_exe().ok().is_some_and(|e| base(&e.into_os_string()) == "kith");
+    let is_kith = std::env::current_exe().is_ok_and(|e| base(&e.into_os_string()) == "kith");
     let mut v: Vec<OsString> = Vec::new();
     if is_kith && !sub.first().is_some_and(|s| HOST_INTERNAL.contains(s)) {
         v.push("serve".into());

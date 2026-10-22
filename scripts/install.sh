@@ -11,6 +11,7 @@
 # Environment:
 #   KITH_VERSION          a release to install (1.2.3 or v1.2.3); default the latest
 #   KITH_PREFIX           where to install; default ~/.kith
+#   KITH_INSTALL_YES      never reconnect setup to the terminal (unattended; its offers are skipped)
 #   KITH_REPO             GitHub repo to download from; default Ying-Kai-Liao/kith
 #   KITH_INSTALL_TARBALL  a local kith-<version>-darwin-<arch>.tar.gz to install instead of downloading (tests,
 #                         offline); verified against KITH_INSTALL_SHA256 or the .sha256 file beside it, if there is one
@@ -83,4 +84,6 @@ say "installed kith to $PREFIX"
 
 # The rest (~/hq, the commands, the plugin, hq init) is the repo's install.sh, packaged: one place for it.
 rm -rf "$WORK"
+# `curl | sh` leaves stdin on the script; give setup the terminal back so it can ask its questions.
+if [ ! -t 0 ] && [ -z "${KITH_INSTALL_YES:-}" ] && { : </dev/tty; } 2>/dev/null; then exec </dev/tty; fi
 exec "$PREFIX/share/kith/install.sh" "$@"
