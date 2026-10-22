@@ -196,6 +196,7 @@ kernel/                    the code
   bin/kith-remote            agents on your other machines over ssh: kith remote add, kith ask agent@machine
   bin/kith-memory            search the agents' memory and shared notes
   bin/kith-sched             scheduled agent jobs (cron, launchd)
+  bin/kith-account           extra Claude / Codex logins and the backup chain: kith account add, kith backup list|add|remove
   PROTOCOL.md              memory rules, appended to every agent's prompt
   services/<name>.json     shared services (MCP servers, APIs, logins): how to start them, which secrets by name
 
@@ -310,6 +311,16 @@ runs have: the agent's `settings.json` (permissions, hooks), per-request costs (
 run), and on agy, hermes, qwen and dsh, the granted MCP servers (codex, pi and opencode get them). dsh takes its
 DeepSeek key from its own settings or a `deepseek` grant (`kith auth`); dsh and opencode run through `npx` when not
 installed. `kith:<name>` subagents always run inside the calling Claude Code session.
+
+**Backups.** When an agent's own harness runs out of usage, `kith serve` can move the turn to a backup, in the order you set:
+`kith backup add claude:work` (an extra Claude subscription login made with `kith account add claude work`, kept in
+`~/.kith/accounts/claude/work` through `CLAUDE_CONFIG_DIR`), `claude-api:<profile>` (an Anthropic API key held by `kith auth`,
+service `anthropic`; Claude Code fetches it through `apiKeyHelper`, so it is never in env or logs), `codex` or
+`codex:<name>` (`kith account add codex <name>`). The list is empty until you add to it; `kith backup … --agent A`
+sets it for one agent (an explicit empty list means none). Anthropic's usage policy forbids using several accounts to get past
+usage limits; `kith account add claude` says so and asks first. `kith <agent> --backups-json` lists the chain with each
+entry's readiness and `kith <agent> --launch-json --backup <id>` launches one (exit 4 when it can't run); both are for
+programs. The ledger records the harness and login of each run (`provider`, `account`).
 
 ## Cost
 `bin/kith-cost` keeps every Claude Code request's cost (list API prices) in `~/.kith/cost.db`, so it outlives
