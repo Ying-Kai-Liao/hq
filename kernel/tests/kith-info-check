@@ -47,8 +47,10 @@ PY
 plist dev.hq.echo "{'Label':'dev.hq.echo','ProgramArguments':['/x/bin/hq-uv','run','--quiet','--script','/x/echo/tools/echo.py','remind','--send'],'StartCalendarInterval':{'Hour':8,'Minute':0},'StandardOutPath':'$T/echo.log','EnvironmentVariables':{'K':'SECRETVALUE'}}"
 plist dev.hq.sched "{'Label':'dev.hq.sched','ProgramArguments':['/x/kith-sched'],'StartInterval':60}"
 plist dev.hq.echoes "{'Label':'dev.hq.echoes','ProgramArguments':['/x/other']}"
-plist dev.kith.echo.extra "{'Label':'dev.kith.echo.extra','ProgramArguments':['/bin/bash','-c','/x/sweep.sh','now'],'StartInterval':900,'Disabled':True}"
+plist dev.kith.echo.extra "{'Label':'dev.kith.echo.extra','ProgramArguments':['/bin/bash','-c','TOKEN=SECRETVALUE /x/sweep.sh now'],'StartInterval':900,'Disabled':True}"
+plist dev.kith.echo.uv "{'Label':'dev.kith.echo.uv','ProgramArguments':['/x/bin/kith-uv','run','--quiet','--script','/x/echo/tools/echo.py','run','--quiet'],'RunAtLoad':True}"
 printf 'broken' > "$LA/dev.hq.echo.bad.plist"
+printf 'broken' > "$LA/dev.hq.other.plist"
 echo log > "$T/echo.log"
 NOW=$(python3 -c 'import datetime as d; print(d.datetime.now(d.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z"))')
 OLD=$(python3 -c 'import datetime as d; print((d.datetime.now(d.timezone.utc)-d.timedelta(days=100)).strftime("%Y-%m-%dT%H:%M:%S.000Z"))')
@@ -85,8 +87,8 @@ check "mcp servers: kinds, bin name, url without query" "is \"d['mcp_servers']\"
 check "no secret anywhere in the output" "! printf %s \"\$OUT\" | grep -q SECRETVALUE"
 check "projects: id, file count" "is \"[(p['id'], p['files']) for p in d['projects']]\" \"[('alpha', 1)]\""
 check "schedules: paused has no next run, last run from state" "is \"[(j['id'], j['paused'], j['next_run'] is None, j['last_run'] is not None, j['last_status']) for j in d['schedules'] if j['source'] == 'kith']\" \"[('daily', False, False, True, 'done'), ('off', True, True, False, None)]\""
-check "launchd: own jobs only (whole segment), cron from calendar and interval, no env" "is \"[(j['id'], j['cron'], j['task'], j['paused'], j['last_run'] is not None) for j in d['schedules'] if j['source'] == 'launchd']\" \"[('dev.hq.echo', '0 8 * * *', 'echo.py remind --send', False, True), ('dev.kith.echo.extra', '*/15 * * * *', 'sweep.sh now', True, False)]\" && ! printf %s \"\$OUT\" | grep -q SECRETVALUE"
-check "launchd: broken plist named in errors.schedules, others kept" "is \"'dev.hq.echo.bad.plist' in d['errors']['schedules'] and len(d['schedules'])\" 4"
+check "launchd: own jobs only (whole segment), cron from calendar and interval, no env" "is \"[(j['id'], j['cron'], j['task'], j['paused'], j['last_run'] is not None) for j in d['schedules'] if j['source'] == 'launchd']\" \"[('dev.hq.echo', '0 8 * * *', 'echo.py remind --send', False, True), ('dev.kith.echo.extra', '*/15 * * * *', 'sweep.sh', True, False), ('dev.kith.echo.uv', None, 'echo.py run --quiet', False, False)]\" && ! printf %s \"\$OUT\" | grep -q SECRETVALUE"
+check "launchd: broken plist named in errors.schedules, others kept" "is \"'dev.hq.echo.bad.plist' in d['errors']['schedules'] and 'other' not in d['errors']['schedules'] and len(d['schedules'])\" 5"
 check "cost: this agent's rows only, windows by age" "is \"(d['cost']['today'], d['cost']['month'], d['cost']['all'], d['cost']['requests_month'], d['cost']['by_model_month'], d['cost']['since'] is not None)\" \"(0.5, 0.5, 2.5, 1, [{'model': 'claude-sonnet-5-5', 'usd': 0.5}], True)\""
 check "memory: md files relative to dir, with sizes" "is \"(d['memory']['dir'] == '$A/memory', sorted(f['path'] for f in d['memory']['files']), d['memory']['total_bytes'])\" \"(True, ['MEMORY.md', 'projects/alpha/plan.md'], 31)\""
 

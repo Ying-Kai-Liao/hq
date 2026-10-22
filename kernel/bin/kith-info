@@ -195,8 +195,9 @@ def projects(home):
     return out
 
 
-# Words that only launch the real program in a LaunchAgent's ProgramArguments.
-LAUNCHERS = {'hq-uv', 'uv', 'run', '--quiet', '--script', 'python', 'python3', 'bash', 'sh', 'zsh', 'env', '-c', '-u'}
+# Words that only launch the real program in a LaunchAgent's ProgramArguments (and their flags). Only the leading run of
+# them is dropped, so the program's own arguments (`run --quiet`) survive.
+LAUNCHERS = {'hq-uv', 'kith-uv', 'uv', 'run', '--quiet', '--script', 'python', 'python3', 'bash', 'sh', 'zsh', 'env'}
 
 
 def plist_cron(p):
@@ -232,8 +233,20 @@ def plist_cron(p):
 def plist_task(p):
     args = [a for a in (p.get('ProgramArguments') or [p.get('Program')]) if isinstance(a, str)]
     words = [os.path.basename(a) if a.startswith('/') else a for a in args]   # a path says nothing to a person
-    words = [a for a in words if a not in LAUNCHERS]
-    return ' '.join(words)
+    i = 0
+    while i < len(words) and (words[i] in LAUNCHERS or ('=' in words[i] and not words[i].startswith('-'))):
+        if words[i] in ('bash', 'sh', 'zsh') and i + 2 < len(words) + 0 and words[i + 1] == '-c':
+            # `sh -c "<string>"`: the string may hold inline env or tokens, so only its first word shows
+            first = [w for w in args[i + 2].split() if '=' not in w][:1]
+            return os.path.basename(first[0])[:200] if first else ''
+        i += 1
+    return ' '.join(words[i:])
+
+
+def own_file(name, fname):
+    """Whether a plist file name belongs to this agent: dev.hq.<name>.plist or dev.hq.<name>.<x>.plist (also dev.kith)."""
+    parts = fname[:-len('.plist')].split('.')
+    return len(parts) >= 3 and parts[0] == 'dev' and parts[1] in ('hq', 'kith') and parts[2] == name
 
 
 def launchd_jobs(name, sched, now, errors):
@@ -245,6 +258,8 @@ def launchd_jobs(name, sched, now, errors):
     for f in sorted(d.glob('dev.*.plist')):
         if not f.name.startswith(('dev.hq.', 'dev.kith.')):
             continue
+        if not own_file(name, f.name):
+            continue   # other agents' plists are neither read nor reported
         try:
             p = plistlib.loads(f.read_bytes())
             label = p.get('Label')
