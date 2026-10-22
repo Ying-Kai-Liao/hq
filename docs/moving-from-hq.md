@@ -46,10 +46,11 @@ Every step is written to `~/.kith/migrate-manifest.json` as it finishes.
 
 ## Full Disk Access
 
-The jobs run the `uv` launcher (`~/.hq/bin/hq-uv`, or `kith-uv`) so macOS lets them read an external disk. macOS grants
-that per file path, and the file now lives at `~/.kith/bin/hq-uv`, so it has to be granted once more (System Settings,
-Privacy and Security, Full Disk Access). `kith doctor` says so when a job's launcher never started its script. The old
-path keeps working as a command through the `~/.hq` link, but the grant does not follow it.
+The jobs run the `uv` launcher (`~/.hq/bin/hq-uv`) so macOS lets them read an external disk. macOS grants
+that per file path, and the migration renames it to `~/.kith/bin/kith-uv` (every job plist and the launcher in
+`~/.kith/serve/config.json` follow it; `--undo` renames it back), so `~/.kith/bin/kith-uv` has to be granted once more (System Settings,
+Privacy and Security, Full Disk Access). `kith doctor` says so when a job's launcher never started its script. The grant
+does not follow the old path.
 
 ## Testing
 

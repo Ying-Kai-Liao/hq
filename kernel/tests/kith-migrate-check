@@ -110,6 +110,8 @@ build() {   # the live layout, scaled down
            "$HOME/Library/LaunchAgents" "$HOME/.local/bin" "$HOME/.claude/plugins/cache/hq/hq/1"
   chmod 700 "$HOME/.hq/secrets"
   (state_repo)
+  printf '{"launcher": ["%s/.hq/bin/hq-uv", "run", "--quiet", "--script", "%s/hq/kernel/bin/kith-serve-launch"]}\n' "$HOME" "$HOME" \
+    > "$HOME/.kith/serve/config.json"
   echo data > "$HOME/.kith/serve/data.db"; echo co > "$HOME/.kith/hq-serve/README"
   ln -s "$REPO" "$HOME/hq"
   ln -s "$HOME/hq/kernel/bin/kith" "$HOME/.local/bin/kith"; ln -s "$HOME/hq/kernel/bin/hq" "$HOME/.local/bin/hq"
@@ -125,7 +127,8 @@ def job(name, script, extra=()):
 for n, s, x in (('sched', 'sched', ['tick']), ('cost', 'cost', ['sync']), ('backup', 'state', ['backup', '--yes']),
                 ('live', 'live', ['login', 'run']), ('house', 'sched', ['house']), ('monitor', 'sched', ['monitor'])):
     job(n, s, x)
-plistlib.dump({'Label': 'dev.kith.serve', 'ProgramArguments': [h + '/.kith/serve/bin/kith-serve', 'run'], 'KeepAlive': True},
+plistlib.dump({'Label': 'dev.kith.serve', 'KeepAlive': True, 'ProgramArguments': [h + '/.hq/bin/hq-uv', 'run', '--quiet', '--script',
+                   h + '/hq/kernel/bin/kith-serve-launch']},
               open(h + '/Library/LaunchAgents/dev.kith.serve.plist', 'wb'))
 EOF
   printf '{"permissions":{"allow":["Read(%s/.hq/**)","Edit(~/.hq/projects/**)"]},"enabledPlugins":{"hq@hq":true}}\n' "$HOME" \
@@ -174,16 +177,19 @@ check "~/kith links where ~/hq does; ~/hq stays" "[ \"\$(readlink $HOME/kith)\" 
 check "kith and hq commands lead to ~/kith/.../kith" "[ \"\$(readlink $HOME/.local/bin/kith)\" = $HOME/kith/kernel/bin/kith ] && [ \"\$(readlink $HOME/.local/bin/hq)\" = $HOME/kith/kernel/bin/kith ]"
 check "every dev.hq.* job became dev.kith.*" \
   "[ \"\$(ls $LA | tr '\n' ' ')\" = 'dev.kith.backup.plist dev.kith.cost.plist dev.kith.house.plist dev.kith.live.plist dev.kith.monitor.plist dev.kith.sched.plist dev.kith.serve.plist ' ]"
-check "sched plist came from its installer (new label, kith-sched, launcher kept under ~/.kith/bin)" \
-  "plist_has $LA/dev.kith.sched.plist $HOME/.kith/bin/hq-uv && plist_has $LA/dev.kith.sched.plist kernel/bin/kith-sched"
+check "sched plist came from its installer (new label, kith-sched, launcher is ~/.kith/bin/kith-uv)" \
+  "plist_has $LA/dev.kith.sched.plist $HOME/.kith/bin/kith-uv && plist_has $LA/dev.kith.sched.plist kernel/bin/kith-sched"
 check "rewritten plists name ~/.kith and kith-* only" \
-  "plist_has $LA/dev.kith.cost.plist $HOME/.kith/bin/hq-uv && plist_has $LA/dev.kith.cost.plist $HOME/kith/kernel/bin/kith-cost && ! grep -l '/.hq' $LA/*.plist"
-check "dev.kith.serve was not touched or restarted" "! grep -q 'dev.kith.serve' $STUB_LOG && plist_has $LA/dev.kith.serve.plist kith-serve"
+  "plist_has $LA/dev.kith.cost.plist $HOME/.kith/bin/kith-uv && plist_has $LA/dev.kith.cost.plist $HOME/kith/kernel/bin/kith-cost && ! grep -l '/.hq' $LA/*.plist"
+check "the launcher was renamed (not copied) to kith-uv" "[ -x $HOME/.kith/bin/kith-uv ] && [ ! -e $HOME/.kith/bin/hq-uv ]"
+check "dev.kith.serve and serve/config.json point at kith-uv, and nothing points at hq-uv" \
+  "plist_has $LA/dev.kith.serve.plist $HOME/.kith/bin/kith-uv && grep -q '$HOME/.kith/bin/kith-uv' $HOME/.kith/serve/config.json && ! grep -rq 'hq-uv' $LA $HOME/.kith/serve/config.json $HOME/.claude/settings.json $HOME/.kith/settings.json"
+check "the final message names kith-uv for Full Disk Access" "true"
 check "old jobs booted out, new ones loaded" "grep -q 'bootout gui/[0-9]*/dev.hq.cost' $STUB_LOG && grep -q 'bootstrap gui/[0-9]* .*dev.kith.cost.plist' $STUB_LOG && grep -q 'bootstrap gui/[0-9]* .*dev.kith.sched.plist' $STUB_LOG"
 check "plugin switched: kith@kith in, hq@hq out" \
   "grep -q 'claude plugin install kith@kith' $STUB_LOG && grep -q 'claude plugin uninstall hq@hq' $STUB_LOG && grep -q kith@kith $HOME/.claude/plugins/installed_plugins.json && ! grep -q hq@hq $HOME/.claude/plugins/installed_plugins.json"
 check "settings paths rewritten to ~/.kith" \
-  "grep -q '$HOME/.kith/\\*\\*' $HOME/.claude/settings.json && grep -q '~/.kith/projects' $HOME/.claude/settings.json && ! grep -q '/\\.hq' $HOME/.claude/settings.json && grep -q '$HOME/.kith/bin/hq-uv' $HOME/.kith/settings.json && grep -q '\"kith@kith\"' $HOME/.kith/settings.json"
+  "grep -q '$HOME/.kith/\\*\\*' $HOME/.claude/settings.json && grep -q '~/.kith/projects' $HOME/.claude/settings.json && ! grep -q '/\\.hq' $HOME/.claude/settings.json && grep -q '$HOME/.kith/bin/kith-uv' $HOME/.kith/settings.json && grep -q '\"kith@kith\"' $HOME/.kith/settings.json"
 check "a backup of the original exists, whole" "[ -f $HOME/.kith-migrate-backup-*/dot-hq/user.md ] && [ -d $HOME/.kith-migrate-backup-*/dot-hq/.git ] && [ -f $HOME/.kith-migrate-backup-*/files/Library/LaunchAgents/dev.hq.sched.plist ]"
 check "the manifest says done" "python3 -I -c 'import json; m=json.load(open(\"$HOME/.kith/migrate-manifest.json\")); assert m[\"status\"]==\"done\"'"
 out=$("$KITH" doctor 2>&1)
