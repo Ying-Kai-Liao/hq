@@ -139,7 +139,7 @@ async fn an_hq_agent_appears_and_starts_from_launch_json() {
     assert_eq!(bot["description"], "Keeps the house");
     assert_eq!(bot["backend"], "claude");
     assert_eq!(bot["permission"], "ask");
-    assert!(s.launches().is_empty(), "nothing starts before the first message");
+    assert_eq!(s.launches().len(), 0, "nothing starts before the first message");
     let id = bot["id"].as_str().unwrap();
 
     s.host.reply(id, "what do you keep track of?").await;
@@ -207,7 +207,7 @@ async fn a_failing_launch_says_why_in_the_chat() {
         assert!(Instant::now() < deadline, "no readable error: {history}");
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    assert!(s.requests("session/new").is_empty(), "no fallback to a plain claude");
+    assert_eq!(s.requests("session/new").len(), 0, "no fallback to a plain claude");
 }
 
 #[tokio::test]
@@ -262,7 +262,7 @@ async fn a_plain_folder_is_the_cwd_and_asks_hq_for_no_project() {
     assert_eq!(launches[0]["args"], json!(["house", "--launch-json"]), "no -p: hq finds a project from the cwd");
     let new = requests_in(&plain, "session/new");
     assert!(same_dir(new[0]["params"]["cwd"].as_str().unwrap(), &plain));
-    assert!(requests_in(&plain, "session/load").is_empty());
+    assert_eq!(requests_in(&plain, "session/load").len(), 0);
 }
 
 #[tokio::test]
@@ -290,20 +290,20 @@ async fn changing_a_places_folder_starts_a_fresh_session_for_that_place_only() {
     assert_eq!(moved["folder"]["project"], "beta");
     s.host.reply(&id, "now beta").await;
     assert_eq!(requests_in(&beta, "session/new").len(), 1);
-    assert!(requests_in(&beta, "session/load").is_empty() && requests_in(&alpha, "session/load").is_empty());
+    assert_eq!(requests_in(&beta, "session/load").len() + requests_in(&alpha, "session/load").len(), 0);
     assert_eq!(s.launches_in(&beta)[0]["args"], json!(["house", "--launch-json", "-p", "beta"]));
 
     // The thread was left alone: same agent process, same session.
     s.thread_reply(&id, &root, "thread again").await;
     assert_eq!(requests_in(&s.home, "session/new").len(), 2);
-    assert!(requests_in(&s.home, "session/load").is_empty());
+    assert_eq!(requests_in(&s.home, "session/load").len(), 0);
 
     // Clearing the pick goes back to the agent's folder, and starts afresh there too.
     let cleared = s.host.call("setPlaceFolder", json!({"botId": id, "clear": true})).await;
     assert_eq!(cleared["folder"]["inherited"], true);
     s.host.reply(&id, "back home").await;
     assert_eq!(requests_in(&s.home, "session/new").len(), 3, "the chat's new session");
-    assert!(requests_in(&s.home, "session/load").is_empty());
+    assert_eq!(requests_in(&s.home, "session/load").len(), 0);
 }
 
 #[tokio::test]
@@ -320,13 +320,13 @@ async fn the_bots_default_project_resets_only_the_places_that_follow_it() {
     s.host.call("updateBot", json!({"id": id, "project": "alpha"})).await;
     s.thread_reply(&id, &root, "thread in alpha").await;
     assert_eq!(requests_in(&alpha, "session/new").len(), 1, "the thread follows the new default");
-    assert!(requests_in(&alpha, "session/load").is_empty());
+    assert_eq!(requests_in(&alpha, "session/load").len(), 0);
     assert_eq!(s.launches_in(&alpha)[0]["args"], json!(["house", "--launch-json", "-p", "alpha"]));
     let folder = s.host.call("thread", json!({"botId": id, "rootId": root})).await["folder"].clone();
     assert_eq!((folder["project"].as_str(), folder["inherited"].as_bool()), (Some("alpha"), Some(true)));
     s.host.reply(&id, "still beta").await;
     assert_eq!(requests_in(&beta, "session/new").len(), 1, "the chat kept its session");
-    assert!(requests_in(&beta, "session/load").is_empty());
+    assert_eq!(requests_in(&beta, "session/load").len(), 0);
 }
 
 #[tokio::test]
