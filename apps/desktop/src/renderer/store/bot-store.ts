@@ -11,6 +11,7 @@ import {
   type ScreenState,
   type Usage,
 } from '@shared/models'
+import { normalizeFolder, type PlaceFolder, type PlaceSelection, type StartingFolder } from '@shared/place-folders'
 import { FileDownloads } from './file-downloads'
 import { BotSync, sleep } from './bot-sync'
 
@@ -39,8 +40,12 @@ export class BotStore extends BotSync {
 
   private outgoingFiles = new Map<string, OutgoingFile[]>()
 
+  /** Where each thread works, as the host last said (`thread`, `setPlaceFolder`); keyed `bot:root`. */
+  private threadFolders = new Map<string, PlaceFolder | null>()
+  threadFolder(botId: string, root: string) { return this.threadFolders.get(`${botId}:${root}`) ?? null }
+
   /** `newTask`: in a bot's chat, start a task rather than go on with the current one. */
-  send(text: string, botId: string, thread: string | null = null, files: OutgoingFile[] = [], nonce: string = crypto.randomUUID(), pasted: string[] = [], newTask = false) {
+  send(text: string, botId: string, thread: string | null = null, files: OutgoingFile[] = [], nonce: string = crypto.randomUUID(), pasted: string[] = [], newTask = false, place: StartingFolder | null = null) {
     const trimmed = text.trim()
     if ((!trimmed && !files.length) || this.retired) return
     const data: Entry['data'] = { text: trimmed, status: 'sending', clientNonce: nonce }
@@ -68,7 +73,7 @@ export class BotStore extends BotSync {
               ids.push(id)
             }
           }
-          return client.send(botId, trimmed, nonce, thread, ids, pasted, newTask)
+          return client.send(botId, trimmed, nonce, thread, ids, pasted, newTask, place)
         }, true)
         this.outgoingFiles.delete(nonce)
         this.upsert(e)
@@ -331,7 +336,9 @@ export class BotStore extends BotSync {
   async loadThread(botId: string, root: string) {
     if (!this.client) return
     try {
-      for (const e of await this.client.thread(botId, root)) this.upsert(e)
+      const res = await this.client.thread(botId, root)
+      for (const e of res.entries) this.upsert(e)
+      this.threadFolders.set(`${botId}:${root}`, normalizeFolder(res.folder))
       this.changed()
     } catch {}
   }
@@ -363,6 +370,31 @@ export class BotStore extends BotSync {
 
   async listDirs(path: string | null) {
     return (await this.ready()).call<DirListing>('listDirs', { path })
+  }
+
+  async projects(refresh = false) {
+    return (await this.ready()).projects(refresh)
+  }
+
+  async recentFolders() {
+    return (await this.ready()).recentFolders()
+  }
+
+  async registerProject(id: string, path: string) {
+    return (await this.ready()).registerProject(id, path)
+  }
+
+  /** Points a place (a bot's chat, or the thread on `threadId`) at a folder; the host starts it fresh. */
+  async setPlaceFolder(botId: string, selection: PlaceSelection, threadId: string | null = null) {
+    const res = await (await this.ready()).setPlaceFolder(botId, selection, { threadId })
+    const folder = normalizeFolder(res.folder)
+    if (threadId) this.threadFolders.set(`${botId}:${threadId}`, folder)
+    else {
+      const bot = this.bots.get(botId)
+      if (bot) this.bots.set(botId, { ...bot, folder })
+    }
+    this.changed()
+    return folder
   }
 
   async refreshUsage() {
@@ -408,7 +440,7 @@ export class BotStore extends BotSync {
 function updatePayload(bot: Bot): BotDraft {
   return {
     id: bot.id, name: bot.name, description: bot.description, avatarColor: bot.avatarColor, avatarShape: bot.avatarShape, avatarSource: bot.avatarSource,
-    backend: bot.backend, command: bot.command ?? null, cwd: bot.managedWorkspace ? '' : bot.cwd, permission: bot.permission,
+    backend: bot.backend, command: bot.command ?? null, cwd: bot.managedWorkspace ? '' : bot.cwd, project: bot.project, permission: bot.permission,
     model: bot.model ?? null, pinned: bot.pinned, hidden: bot.hidden, notify: bot.notify ?? null,
     connectors: bot.connectors, skills: bot.skills, computer: bot.computer, fastMode: bot.fastMode,
   }

@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { isWorkingIn } from '@shared/models'
+import { isGroup, isWorkingIn } from '@shared/models'
 import { Hairline } from '../../components/Controls'
 import { ModalHeader, Sheet, SheetPage } from '../../components/Overlay'
 import { HStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
 import { useStore } from '../../store/context'
 import { UpdateNeededCard } from '../UpdateNeededCard'
+import { PlaceFolderControl } from '../bots/PlaceFolderPicker'
 import { buildChat, rowIn, useArrivals } from './chat-items'
 import { ChatRow, WorkingIndicator } from './ChatRows'
 import { Composer } from './Composer'
@@ -42,6 +43,11 @@ export function RepliesView({ botId, rootId, close }: { botId: string; rootId: s
   return (
     <SheetPage>
       <ModalHeader title="Thread" subtitle={chat?.name ?? ''} onClose={close} closeTitle="Close thread" />
+      {chat && !isGroup(chat) ? (
+        <div className="place-chip-row replies-folder">
+          <PlaceFolderControl botId={botId} threadId={rootId} folder={store.threadFolder(botId, rootId)} messages={replies.length} />
+        </div>
+      ) : null}
       <div className="thread-hairline" />
       <div ref={scroller} className="thread-scroll">
         <div className="replies-content">

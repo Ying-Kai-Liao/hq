@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fastModeRefusal, fastModeShown } from '@shared/fast-mode'
+import type { ProjectInfo } from '@shared/place-folders'
 import { draftOf, type BotDraft, type DirListing } from '@shared/models'
 import { AgentIcon } from '../../components/AgentIcon'
 import { avatarImage, CREW, SPARES, type AvatarImage } from '@shared/crew'
@@ -119,6 +120,13 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
   const setModelOptions = useCallback((modelOptions: Record<string, string>) => onChange((d) => ({ ...d, modelOptions })), [onChange])
   const models = useAgentModels(draft.backend)
   const saved = draft.id ? (store.bots.get(draft.id) ?? null) : null
+  // hq's project list for the default-project menu; without hq it stays empty and the menu offers None.
+  const [projects, setProjects] = useState<ProjectInfo[] | null>(null)
+  useEffect(() => {
+    let live = true
+    store.projects().then((r) => live && setProjects(r.projects)).catch(() => {})
+    return () => { live = false }
+  }, [store])
 
   const backends = store.hello?.backends ?? []
   const backend = backends.find((b) => b.id === draft.backend)
@@ -246,6 +254,23 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
               </Pill>
             </DropdownMenu>
           </ValueRow>
+          {saved?.kind !== 'group' ? (
+            <ValueRow label="Default project" detail="New chats, threads and tasks of this bot start in this hq project, unless one is picked there.">
+              <DropdownMenu
+                title={draft.project || 'No default project'}
+                items={() => [
+                  { title: 'None', selected: !draft.project, action: () => set('project', null) },
+                  ...(projects ?? []).map((p) => ({ title: p.id, selected: draft.project === p.id, action: () => set('project', p.id) })),
+                  ...(draft.project && !(projects ?? []).some((p) => p.id === draft.project) ? [{ title: draft.project, selected: true, action: () => {} }] : []),
+                ]}
+              >
+                <Pill outlined className="workspace-pill">
+                  <Text truncate className="workspace-pill-label">{draft.project || 'None'}</Text>
+                  <Icon name="chevron.down" size={10} weight="semibold" color="var(--secondary)" />
+                </Pill>
+              </DropdownMenu>
+            </ValueRow>
+          ) : null}
           <ValueRow
             label="Permissions"
             detail={
@@ -407,7 +432,7 @@ function AvatarPicker({ source, shape, color, auto, isGroup, onSource, onShape, 
 }
 
 /** Browses folders on the host, drilling down in place. */
-function FolderPicker({ start, onPick }: { start: string | null; onPick: (path: string) => void }) {
+export function FolderPicker({ start, onPick }: { start: string | null; onPick: (path: string) => void }) {
   // The folders opened so far; the last one is shown.
   const [stack, setStack] = useState<(string | null)[]>([start])
   const [forward, setForward] = useState(true)
@@ -479,6 +504,19 @@ function FolderLevel({ path, forward, onPick, onOpen }: { path: string | null; f
                 <Text truncate>{`Use “${lastPathComponent(listing.path)}”`}</Text>
               </button>
             </CardSection>
+            {listing.roots && listing.roots.length > 1 ? (
+              <CardSection title="Locations">
+                {listing.roots.map((root) => (
+                  <button key={root.path} className="press folder-row" onClick={() => onOpen(root.path)}>
+                    <IconSlot width={20}>
+                      <Icon name="folder" size={12} color="var(--secondary)" />
+                    </IconSlot>
+                    <Text tone="text" truncate grow>{root.name}</Text>
+                    <Icon name="chevron.right" size={10} weight="semibold" color="var(--tertiary)" />
+                  </button>
+                ))}
+              </CardSection>
+            ) : null}
             {dirs.length ? (
               <CardSection>
                 {dirs.map((dir) => (

@@ -10,6 +10,7 @@ import { Text } from '../../components/Text'
 import { useModel } from '../../lib/observable'
 import { useStore } from '../../store/context'
 import { MAX_FILE_SIZE, type OutgoingFile } from '../../store/bot-store'
+import { StartingFolderChip, type StartingPick } from '../bots/PlaceFolderPicker'
 import { pluginsFor } from '../marketplace/plugins'
 import { composerEnter } from './composer-keyboard'
 import { CommandMenu, useCommandMenu } from './CommandMenu'
@@ -57,6 +58,8 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
   const tasks = !thread && !!bot && bot.tasks
   const place = thread ?? (tasks ? currentTask(store.chat(botId))?.id ?? null : null)
   const [newTask, setNewTask] = useState(false)
+  // The folder the next new task starts in; the chat's own shows until one is picked.
+  const [taskFolder, setTaskFolder] = useState<StartingPick | null>(null)
   const working = !!bot && isWorkingIn(bot, botId, place) && !newTask
   const empty = !draft.trim() && !files.length
   const canSend = !empty && (store.connection.kind === 'online' || (store.canQueue && !files.length))
@@ -149,9 +152,10 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
     const command = files.length ? null : builtInCommand(bot, draft)
     if (command) return run(command)
     if (!canSend) return
-    store.send(draft, botId, thread, files, undefined, pasted.current, newTask)
+    store.send(draft, botId, thread, files, undefined, pasted.current, newTask, newTask ? (taskFolder?.start ?? null) : null)
     pasted.current = []
     setNewTask(false)
+    setTaskFolder(null)
     setDraft('')
     setFiles([])
     field.current?.focus()
@@ -191,6 +195,11 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
       >
         <div className="composer-surface">
           <CommandMenu commands={menu.shown} index={menu.index} hover={menu.hover} pick={run} />
+          <ComposerReveal open={newTask && !!bot?.folder}>
+            <div className="place-chip-row composer-folder">
+              <StartingFolderChip inherited={bot?.folder ?? null} value={taskFolder} onChange={setTaskFolder} />
+            </div>
+          </ComposerReveal>
           <ComposerReveal open={files.length > 0}>
             <div className="file-chips">
               {files.map((f) => (

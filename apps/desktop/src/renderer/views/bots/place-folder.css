@@ -1,0 +1,62 @@
+/* Place folder picker, chip and register step (PlaceFolderPicker). */
+.place-picker-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 16px 16px;
+}
+.place-picker-error {
+  padding: 0 4px;
+  user-select: text;
+}
+.place-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+}
+.place-row.dim {
+  opacity: 0.45;
+}
+.place-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.place-id-field {
+  width: 100%;
+}
+.place-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.place-chip:hover {
+  background: color-mix(in srgb, var(--text) 11%, transparent);
+}
+.place-chip-row {
+  display: flex;
+  justify-content: center;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+
+.compose-folder {
+  margin: 0 16px -8px;
+}
+.replies-folder {
+  padding: 0 16px 8px;
+}
+.composer-folder {
+  padding: 6px 10px 0;
+  justify-content: flex-start;
+}

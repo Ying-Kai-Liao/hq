@@ -70,6 +70,23 @@
     backdrop-filter: none;
   }
 }
+.title-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: 60%;
+}
+.title-stack .title-pill {
+  max-width: 100%;
+}
+.title-stack .place-chip-row {
+  transition: opacity var(--layout), transform var(--layout);
+}
+.title-stack .place-chip-row.hidden-by-call {
+  opacity: 0;
+  transform: translateY(-8px);
+}
 .title-pill {
   position: relative;
   display: flex;

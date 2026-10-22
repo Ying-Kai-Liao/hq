@@ -20,6 +20,7 @@ import { RepliesView } from './RepliesView'
 import { TaskRow } from './TaskRow'
 import { TraceView } from './TraceView'
 import { useReading } from './reading'
+import { PlaceFolderControl } from '../bots/PlaceFolderPicker'
 import { GroupEditorView } from '../bots/GroupEditorView'
 import { BotTemplateView } from '../bots/BotTemplateView'
 import { CallView } from '../call/CallView'
@@ -154,6 +155,7 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
             ) : null}
           </div>
           {/* The call bar takes the pill's place; its frosted glass would show the name blurred. */}
+          <div className="title-stack">
           <button className={`title-pill ${calling ? 'hidden-by-call' : ''}`} inert={calling} onClick={toggleDetails} aria-label={`${bot?.name ?? 'Conversation'}, view details`} title="View conversation details">
             <HStack as="span" gap={7}>
               {bot ? isGroup(bot) ? <GroupAvatar members={store.members(bot)} size={22} /> : <BotAvatar bot={bot} size={22} /> : null}
@@ -165,6 +167,12 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
             </HStack>
             {store.shownConnection.kind !== 'online' || store.mismatch ? <ConnectionSubtitle /> : null}
           </button>
+          {bot && !isGroup(bot) ? (
+            <div className={`place-chip-row ${calling ? 'hidden-by-call' : ''}`} inert={calling}>
+              <PlaceFolderControl botId={botId} folder={bot.folder} messages={store.chat(botId).length} />
+            </div>
+          ) : null}
+          </div>
         </div>
         <Transcript botId={botId} openTrace={openTrace} openThread={openThreadOn} openRoutine={presentRoutine} openBotChat={setBotChat} />
         <div className="composer-dock" ref={dock}>
