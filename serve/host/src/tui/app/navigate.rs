@@ -12,7 +12,7 @@ impl App {
         self.flash("Installing the host…");
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            let out = tokio::process::Command::new(exe).arg("install").output().await;
+            let out = tokio::process::Command::new(exe).args(crate::kernel::self_args(&["install"])).output().await;
             let r = match out {
                 Ok(o) if o.status.success() => Ok(Value::Null),
                 Ok(o) => Err(String::from_utf8_lossy(&o.stderr).trim().to_owned()),

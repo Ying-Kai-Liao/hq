@@ -3,6 +3,16 @@
 Kith's host: runs coding-agent bots over ACP and serves the Kith apps. Built on
 [Codync](https://github.com/leepokai/Codync) (Apache-2.0); see `../NOTICE` and `LICENSE`.
 
+## One `kith` binary
+
+The crate builds the same program under two names: `kith` and `kith-serve` (the name the launchd job and the apps
+use). As `kith`, `kith serve <install|stop|status|...>` runs the host, `kith --version` prints the version, and any other
+command (`kith <agent>`, `kith doctor`, `kith serve start|restart|relay`) is exec'd to the kernel's `bin/hq` with the
+same arguments (`src/kernel.rs`: the one place that names the entry point and the lookup: `$KITH_KERNEL`, then
+`../share/kith/kernel` beside the real binary, then `~/hq/kernel`). As `kith-serve` the host never looks for a kernel.
+`kith serve start` on a packaged install copies the `kith` binary to `~/.kith/serve/bin/kith-serve`.
+Releases (`.github/workflows/release.yml`, `scripts/package-release.sh`) pack `bin/kith` with the kernel.
+
 ## Cloud relay (optional)
 
 A Dev build uses Kai's public relay unless told otherwise; a Main build has none. To reach this

@@ -9,6 +9,7 @@ mod chat;
 mod compat;
 mod environment;
 mod hub;
+mod kernel;
 mod market;
 mod mcp;
 mod remote;
@@ -66,6 +67,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Sub {
     /// Run the host in the foreground (what the background service runs).
+    #[command(alias = "run")]
     Serve {
         #[arg(long, default_value_t = service::DEFAULT_PORT)]
         port: u16,
@@ -323,7 +325,15 @@ fn write_token_file(token: &str) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let args: Vec<_> = std::env::args_os().collect();
+    let cli = match kernel::route(&args) {
+        kernel::Route::Host(a) => Cli::parse_from(a),
+        kernel::Route::Kernel(a) => return Err(kernel::exec_kernel(&a)),
+        kernel::Route::Version => {
+            println!("kith {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+    };
     match cli.cmd.unwrap_or(Sub::Serve { port: service::DEFAULT_PORT, bind: "0.0.0.0".into() }) {
         Sub::Serve { port, bind } => serve(&bind, port).await,
         Sub::Pair { port, json } => pair(port, json).await,

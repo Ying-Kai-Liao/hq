@@ -1,0 +1,88 @@
+name: release
+
+# Builds the kith binary for macOS (arm64 and x86_64) and packs it with the kernel into
+# kith-<version>-darwin-<arch>.tar.gz, the file scripts/install.sh and the Homebrew formula
+# (packaging/homebrew/kith.rb) install. On a v* tag the tarballs and a SHA256SUMS file go to that tag's GitHub Release.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for the file names (default: serve/host/Cargo.toml's)"
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            target: aarch64-apple-darwin
+          - arch: x86_64
+            target: x86_64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version
+        id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then v=${GITHUB_REF_NAME#v}
+          elif [ -n "$INPUT_VERSION" ]; then v=$INPUT_VERSION
+          else v=$(sed -n 's/^version = "\(.*\)"/\1/p' serve/host/Cargo.toml | head -1); fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Rust
+        # serve/rust-toolchain.toml pins the version; the cross target is added to it.
+        run: |
+          cd serve
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: serve/host
+          key: release-${{ matrix.target }}
+      - name: Build
+        run: cd serve/host && cargo build --release --locked --bin kith --target ${{ matrix.target }}
+      - name: Pack
+        run: scripts/package-release.sh "${{ steps.v.outputs.version }}" ${{ matrix.arch }} "serve/host/target/${{ matrix.target }}/release/kith" dist
+      - name: Smoke test (arm64 runs natively)
+        if: matrix.arch == 'arm64'
+        run: |
+          mkdir smoke && tar -C smoke -xzf dist/*.tar.gz
+          smoke/kith-*/bin/kith --version
+          smoke/kith-*/bin/kith serve install --help >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kith-darwin-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && cat kith-*.tar.gz.sha256 > SHA256SUMS && cat SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          generate_release_notes: true

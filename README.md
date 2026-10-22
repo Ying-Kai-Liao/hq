@@ -49,13 +49,23 @@ How it fits together and where it's going: [docs/architecture.md](docs/architect
 </picture>
 
 ```
-git clone https://github.com/Ying-Kai-Liao/hq ~/hq && ~/hq/install.sh   # ~/hq: any folder you like
+curl -fsSL https://raw.githubusercontent.com/Ying-Kai-Liao/kith/main/scripts/install.sh | sh   # a release: no git or Rust needed
+git clone https://github.com/Ying-Kai-Liao/hq ~/hq && ~/hq/install.sh   # or from source; ~/hq: any folder you like
 hq builder                           # meet the starter: it learns who you are, then builds your agents with you
 hq install <owner>/<repo>            # an agent someone shared: any GitHub repo with an agent.md at its root
 hq new reading "tracks what I read"  # or start one yourself
 hq doctor                            # check everything, with what to fix
 hq backup                            # everything to private GitHub repos: state, memories, your agents
 ```
+The download installs the `kith` binary and the kernel under `~/.kith`, then runs the same `install.sh`; run it again to
+upgrade. `KITH_VERSION`, `KITH_PREFIX` and `KITH_INSTALL_TARBALL` (a local file) are in the script's header. Homebrew:
+`packaging/homebrew/kith.rb` (for the tap `Ying-Kai-Liao/homebrew-kith`). Releases are built by `.github/workflows/release.yml`
+on a `v*` tag.
+
+`kith` is one binary: `kith serve <...>` is the host, `kith --version`, and every other `kith <args>` runs the kernel's
+`hq <args>`. It finds the kernel in `$KITH_KERNEL`, else `share/kith/kernel` beside the binary (the download, Homebrew),
+else `~/hq/kernel` (a git checkout).
+
 This repo is the kernel only: no agents ship with it. `install.sh` links the `hq` CLI, installs the Claude Code
 adapter plugin (`adapters/claude-code`, served by this repo's own marketplace), then runs `hq init`: it checks what
 hq needs (git and its identity, Claude Code, gh), makes `~/.hq` and the agents folder (each a git repo), a

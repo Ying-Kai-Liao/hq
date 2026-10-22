@@ -36,7 +36,13 @@ fi
 BIN=$KERNEL/bin/hq; [ -z "$CUSTOM_HOME" ] && BIN=$HOME/hq/kernel/bin/hq
 ln -sfn "$BIN" "$HOME/.local/bin/hq"
 # kith: the same command under its new name (kith serve ...); the kernel itself is renamed later.
-ln -sfn "${BIN%/hq}/kith" "$HOME/.local/bin/kith"
+# A packaged install (bin/kith beside share/kith/, from the release tarball) links the Rust binary instead.
+PACKAGED_KITH=$ROOT/../../bin/kith   # ROOT is a real path (pwd -P)
+if [ -x "$PACKAGED_KITH" ] && [ ! -d "$ROOT/serve/host" ]; then
+  ln -sfn "$(cd "$(dirname "$PACKAGED_KITH")" && pwd -P)/kith" "$HOME/.local/bin/kith"
+else
+  ln -sfn "${BIN%/hq}/kith" "$HOME/.local/bin/kith"
+fi
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "note: add ~/.local/bin to your PATH to use hq (e.g. in ~/.zshrc: export PATH=\"\$HOME/.local/bin:\$PATH\")" ;; esac
 
 if command -v claude >/dev/null; then
@@ -46,7 +52,7 @@ if command -v claude >/dev/null; then
 fi
 
 # Kith's host is optional and takes minutes to build, so it is never built here.
-if command -v cargo >/dev/null || ls "$HOME"/.rustup/toolchains/*/bin/cargo >/dev/null 2>&1; then
+if [ -d "$ROOT/serve/host" ] && { command -v cargo >/dev/null || ls "$HOME"/.rustup/toolchains/*/bin/cargo >/dev/null 2>&1; }; then
   echo "note: kith serve start builds and runs Kith's host on this Mac (a few minutes the first time)"
 fi
 
