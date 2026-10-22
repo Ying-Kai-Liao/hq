@@ -442,16 +442,25 @@ async fn moving_a_task_thread_to_another_project_after_its_turn_never_stalls_the
     let sent =
         s.host.call("send", json!({"botId": id, "text": "a task", "clientNonce": "t1", "project": "alpha"})).await;
     let task = sent["entry"]["id"].as_str().unwrap().to_owned();
+    // The task's first turn is over: the folder moves after a turn, not during one.
     let deadline = Instant::now() + Duration::from_secs(30);
-    while requests_in(&s.dir("alpha"), "session/prompt").is_empty() {
-        assert!(Instant::now() < deadline, "the task never ran in alpha");
+    loop {
+        let thread = s.host.call("thread", json!({"botId": id, "rootId": task})).await;
+        let answered =
+            thread["entries"].as_array().unwrap().iter().any(|e| e["kind"] == "agent" && e["data"]["final"] == true);
+        if answered {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the task never answered in alpha");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     // /health must answer through all of it.
     let health = format!("{}/health", s.host.base());
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
     let watch = tokio::spawn(async move {
         let client = reqwest::Client::new();
-        for _ in 0..100 {
+        let mut stopped = stopped;
+        while stopped.try_recv().is_err() {
             let answered = client.get(&health).timeout(Duration::from_secs(5)).send().await;
             assert!(answered.is_ok_and(|r| r.status().is_success()), "/health stopped answering");
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -465,5 +474,6 @@ async fn moving_a_task_thread_to_another_project_after_its_turn_never_stalls_the
         s.thread_reply(&id, &task, "beta again").await;
     };
     tokio::time::timeout(Duration::from_secs(60), work).await.expect("the host stalled");
+    let _ = stop.send(());
     watch.await.unwrap();
 }
