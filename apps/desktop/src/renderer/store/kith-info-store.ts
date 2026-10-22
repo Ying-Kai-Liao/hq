@@ -11,38 +11,62 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
  */
 export class KithInfoStore extends Observable {
   info: KithInfo | null = null
-  /** Why kith had no answer (the host's `error`), or why the call failed. */
+  /** Why kith had no answer (the host's `error`), or why the first call failed. */
   error: string | null = null
+  /** Why a refresh failed while `info` is on screen; the old details stay. */
+  refreshError: string | null = null
   fetchedAt: number | null = null
   loading = false
+  /** A call has finished (with or without details). */
+  loaded = false
   unsupported = false
   private request = 0
   private inflight: Promise<void> | null = null
+  private inflightForced = false
+  private queued: Promise<void> | null = null
 
   constructor(readonly botId: string, private readonly client: () => Promise<HostClient>) { super() }
 
-  /** A second call while one is running joins it, so a double click makes one request. */
+  /** A second call while one runs joins it, so a double click makes one request; a forced one that
+   *  arrives during a plain load runs right after it, so the refresh is never swallowed. */
   load(refresh = false): Promise<void> {
-    if (this.inflight) return this.inflight
+    if (!this.inflight) return this.run(refresh)
+    if (!refresh || this.inflightForced) return this.inflight
+    return (this.queued ??= this.inflight.then(() => {
+      this.queued = null
+      return this.run(true)
+    }))
+  }
+
+  private run(refresh: boolean): Promise<void> {
     const request = ++this.request
     this.loading = true
+    this.inflightForced = refresh
     this.changed()
     this.inflight = (async () => {
       try {
         const result = await (await this.client()).kithInfo(this.botId, refresh)
         if (request !== this.request) return
-        this.info = result.info
-        this.error = result.info ? null : result.error
-        this.fetchedAt = result.fetchedAt
         this.unsupported = false
+        if (!result.info && result.error && this.info) {
+          // The host answers 200 when kith fails: the details on screen stay, with the reason beside refresh.
+          this.refreshError = result.error
+        } else {
+          this.info = result.info
+          this.error = result.info ? null : result.error
+          this.refreshError = null
+          this.fetchedAt = result.fetchedAt
+        }
       } catch (error) {
         if (request !== this.request) return
         if (isUnsupportedHost(error)) this.unsupported = true
+        // A failed refresh must not blank the page: it says so beside the refresh button.
+        else if (this.info) this.refreshError = message(error)
         else this.error = message(error)
-        // Keep what we showed before; a failed refresh must not blank the page.
       } finally {
         if (request === this.request) {
           this.loading = false
+          this.loaded = true
           this.inflight = null
           this.changed()
         }

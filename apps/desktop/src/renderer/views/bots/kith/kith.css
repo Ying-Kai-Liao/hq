@@ -38,3 +38,5 @@
 .kith-snippet { overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
 .kith-viewer { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
 .kith-truncated { margin: 0; }
+.kith-stale { opacity: 0.55; transition: opacity 0.15s; }
+.kith-stale > .kith-file { pointer-events: none; }

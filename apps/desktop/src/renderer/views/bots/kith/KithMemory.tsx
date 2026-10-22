@@ -27,7 +27,7 @@ export function KithMemory({ botId, kith }: { botId: string; kith: KithInfoStore
       <SearchField value={search.query} onChange={(q) => search.setQuery(q)} prompt="Search this agent's memory" />
       <div className="outlined-card kith-card">
         {searching ? <Hits search={search} open={(path, line) => void viewer.open(path, line)} />
-          : !kith.info ? <p className="kith-muted" role="status">{kith.error ? `Kith details unavailable: ${kith.error}` : 'Loading memory…'}</p>
+          : !kith.info ? <p className="kith-muted" role="status">{kith.error ? `Kith details unavailable: ${kith.error}` : kith.loaded ? 'No kith details for this bot' : 'Loading memory…'}</p>
           : kith.info.errors.memory !== undefined ? <p className="kith-muted kith-failed">Couldn't read the memory</p>
           : !files.length ? <p className="kith-muted">No memory files yet</p>
           : <>
@@ -52,7 +52,8 @@ function Hits({ search, open }: { search: KithMemorySearch; open: (path: string,
   if (search.searching && !search.hits.length) return <p className="kith-muted kith-loading" role="status"><Spinner size={12} /> Searching…</p>
   if (!search.hits.length) return <p className="kith-muted">Nothing found</p>
   return (
-    <>
+    <div className={search.searching ? 'kith-stale' : undefined}>
+      {search.searching ? <p className="kith-muted kith-loading" role="status"><Spinner size={12} /> Searching…</p> : null}
       {search.hits.map((hit, i) => {
         const where = `${hit.path}${hit.line !== null ? `:${hit.line}` : ''}`
         const body = (
@@ -65,7 +66,7 @@ function Hits({ search, open }: { search: KithMemorySearch; open: (path: string,
           ? <button key={`${hit.path}:${hit.line}:${i}`} className="kith-file press" onClick={() => open(hit.path, hit.line)}>{body}</button>
           : <div key={`${hit.path}:${hit.line}:${i}`} className="kith-file disabled" aria-disabled="true" title="This file is outside the agent's memory folder">{body}</div>
       })}
-    </>
+    </div>
   )
 }
 

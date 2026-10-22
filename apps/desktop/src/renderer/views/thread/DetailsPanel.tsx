@@ -37,7 +37,7 @@ export function DetailsPanel({ botId, routineId, tab, setTab, editGroup, share, 
   const store = useStore()
   const bot = store.bots.get(botId) ?? null
   const group = !!bot && isGroup(bot)
-  const kith = useKithInfo(botId)
+  const kith = useKithInfo(botId, true)
   return (
     <div className="details-panel">
       <div className="details-drag" />

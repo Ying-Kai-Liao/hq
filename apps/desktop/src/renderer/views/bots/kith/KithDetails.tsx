@@ -27,13 +27,15 @@ export function KithDetails({ kith }: { kith: KithInfoStore }) {
   const { info } = kith
   if (!info) {
     if (kith.error) return <Banner message={kith.error} loading={kith.loading} retry={() => void kith.load(true)} />
+    if (kith.loaded) return <p className="kith-muted">No kith details for this bot</p>
     return <p className="kith-muted kith-loading" role="status"><Spinner size={12} /> Loading details…</p>
   }
   const unread = (key: string) => info.errors[key] !== undefined
   return (
     <>
       <div className="kith-refresh">
-        <span className="kith-muted">{kith.fetchedAt ? `Read ${ago(kith.fetchedAt)}` : ''}</span>
+        {kith.refreshError ? <span className="kith-muted kith-failed" role="alert">Refresh failed: {kith.refreshError}</span>
+          : <span className="kith-muted">{kith.fetchedAt ? `Read ${ago(kith.fetchedAt)}` : ''}</span>}
         {kith.loading ? <Spinner size={12} /> : <IconButton title="Refresh details" icon="arrow.clockwise" onClick={() => void kith.load(true)} />}
       </div>
       <About info={info} failed={unread('role')} />
