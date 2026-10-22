@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { avatarImage, crewName } from './crew.ts'
+import { avatarImage, CREW, crewName, SPARES } from './crew.ts'
+import { PALETTE, paletteColor, paletteValue, rigOf } from './living-bots.ts'
 
 const bot = (id: string, name: string, kind = 'agent', avatarSource?: string) => ({ id, name, kind, avatarSource })
 
@@ -34,9 +35,30 @@ test('an explicit crew or spare image wins over the name', () => {
   assert.deepEqual(avatarImage(bot('b', 'Sam', 'agent', 'spare:gradcap')), { kind: 'spare', name: 'gradcap' })
 })
 
-test('shape draws the Codync character, groups keep their own avatar', () => {
-  assert.equal(avatarImage(bot('b', 'house', 'agent', 'shape')), null)
+test('old shape data means auto, groups keep their own avatar', () => {
+  assert.deepEqual(avatarImage(bot('b', 'house', 'agent', 'shape')), { kind: 'crew', name: 'house' })
+  assert.deepEqual(avatarImage(bot('b', 'Sam', 'agent', 'shape')), { kind: 'crew', name: 'builder' })
   assert.equal(avatarImage(bot('g', 'Room', 'group')), null)
+})
+
+test('every crew member and spare has an eye rig, and so does the kith cube', () => {
+  for (const name of [...CREW, ...SPARES, 'kith']) {
+    const rig = rigOf(name)
+    assert.ok(rig, name)
+    assert.equal(rig.eyes.length, 2, name)
+    for (const e of rig.eyes) assert.ok(e.w > 0 && e.h > 0 && e.x > 0 && e.x < 1 && e.y > 0 && e.y < 1, name)
+    assert.ok(rig.look.left > 0 && rig.look.up > 0, name)
+  }
+  assert.equal(rigOf('kith')!.tint, false)
+  assert.equal(rigOf('coder')!.detail, true)
+})
+
+test('an avatar colour is a `kith:` palette pick; empty and old ids keep the original body', () => {
+  assert.equal(PALETTE.length, 15)
+  assert.deepEqual(paletteColor('kith:coral'), PALETTE.find((c) => c.id === 'coral'))
+  assert.equal(paletteValue('coral'), 'kith:coral')
+  // Old bots carry bare ids, some of which (blue, green, cyan, violet) are also palette names: they must not recolour.
+  for (const old of ['', 'black', 'brown', 'red', 'orange', 'yellow', 'magenta', 'gray', 'blue', 'green', 'cyan', 'violet', 'coral', 'kith:nope', 'kith:', undefined]) assert.equal(paletteColor(old), null)
 })
 
 test('an image this app does not know falls back to auto', () => {

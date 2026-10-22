@@ -1,290 +1,280 @@
-import { memo, useEffect, useRef, type CSSProperties } from 'react'
-import { isGroup, isWorking, needsInput, type Bot } from '@shared/models'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
+import { isGroup, needsInput, type Bot } from '@shared/models'
 import { avatarImage, type AvatarImage } from '@shared/crew'
-import { avatarColor, palette, useDark, useReduceMotion } from '../lib/theme'
+import {
+  BLINK_MS,
+  BODY_IDLE_MS,
+  BODY_NEEDS_LOOP_MS,
+  BODY_WORKING_MS,
+  closedScale,
+  doneDue,
+  GROUP_TRANSFORM,
+  loopsOf,
+  LOOK_ERROR_MS,
+  LOOK_IDLE_MS,
+  LOOK_WORKING_MS,
+  NEEDS_ENTER_GAP_MS,
+  paletteColor,
+  phaseMs,
+  rigOf,
+  sizeTier,
+  type Tier,
+} from '@shared/living-bots'
+import { useReduceMotion } from '../lib/theme'
 import { Icon } from './Icon'
+import { bodyURL, cachedRecolour, recolour } from './living-bots-art'
+import { scheduleSettle, watch, type Slot } from './living-bots-window'
+import './living-bots.keyframes.css'
+import './living-bots.css'
 import './avatar.css'
 
-export type Mood = 'idle' | 'working' | 'needsInput'
+/** What a living bot is doing: the bot's status, which MOTION.md gives a body motion and a gaze each. */
+export type Mood = 'idle' | 'working' | 'needsInput' | 'error'
 
-/** The eight Grok Bot character silhouettes, in a w×h box. */
-export function characterPath(kind: string, w: number, h: number) {
-  const p = new Path2D()
-  let stroke = 0
-  switch (kind) {
-    case 'pebble':
-      p.ellipse(w / 2, h / 2, w / 2, h * 0.4, 0, 0, Math.PI * 2)
-      break
-    case 'squircle':
-      p.roundRect(w * 0.04, h * 0.04, w * 0.92, h * 0.92, w * 0.3)
-      break
-    case 'tablet':
-      p.roundRect(w * 0.14, 0, w * 0.72, h, w * 0.22)
-      break
-    case 'wedge':
-      p.moveTo(w * 0.5, h * 0.04)
-      p.quadraticCurveTo(w * 0.9, h * 0.4, w * 0.98, h * 0.86)
-      p.quadraticCurveTo(w * 0.5, h * 1.04, w * 0.02, h * 0.86)
-      p.quadraticCurveTo(w * 0.1, h * 0.4, w * 0.5, h * 0.04)
-      break
-    case 'hex':
-      for (let i = 0; i < 6; i++) {
-        const a = (i * Math.PI) / 3 - Math.PI / 2
-        const x = w / 2 + Math.cos(a) * w * 0.49
-        const y = h / 2 + Math.sin(a) * h * 0.49
-        if (i === 0) p.moveTo(x, y)
-        else p.lineTo(x, y)
-      }
-      p.closePath()
-      stroke = w * 0.08
-      break
-    case 'cloud':
-      p.ellipse(w * 0.275, h * 0.575, w * 0.275, h * 0.275, 0, 0, Math.PI * 2)
-      p.moveTo(w, h * 0.575)
-      p.ellipse(w * 0.725, h * 0.575, w * 0.275, h * 0.275, 0, 0, Math.PI * 2)
-      p.moveTo(w * 0.82, h * 0.4)
-      p.ellipse(w * 0.5, h * 0.4, w * 0.32, h * 0.32, 0, 0, Math.PI * 2)
-      p.roundRect(w * 0.1, h * 0.5, w * 0.8, h * 0.35, w * 0.15)
-      break
-    case 'teardrop':
-      p.moveTo(w * 0.5, 0)
-      p.bezierCurveTo(w * 0.62, h * 0.2, w * 0.94, h * 0.38, w * 0.94, h * 0.62)
-      p.arc(w * 0.5, h * 0.62, w * 0.44, 0, Math.PI, false)
-      p.bezierCurveTo(w * 0.06, h * 0.38, w * 0.38, h * 0.2, w * 0.5, 0)
-      break
-    default: {
-      // blob
-      const steps = 64
-      for (let i = 0; i <= steps; i++) {
-        const a = (i / steps) * 2 * Math.PI
-        const rr = 0.46 + 0.035 * Math.sin(a * 3 + 0.6)
-        const x = w / 2 + Math.cos(a) * w * rr
-        const y = h / 2 + Math.sin(a) * h * rr
-        if (i === 0) p.moveTo(x, y)
-        else p.lineTo(x, y)
-      }
-      p.closePath()
-    }
+/** A crew member or spare, or the kith cube on the group tile. */
+export type Face = AvatarImage | 'group'
+
+/** The mount phase of every loop, as the negative animation delays MOTION.md section 3 asks for. */
+function phaseVars(id: string, now = Date.now()) {
+  const f = loopsOf(id)
+  const delay = (length: number, fraction: number) => `-${phaseMs(length, fraction, now).toFixed(0)}ms`
+  return {
+    '--p-look': delay(LOOK_IDLE_MS[f.lookTrack]!, f.fLook),
+    '--p-blink': delay(BLINK_MS[f.blinkTrack]!, f.fBlink),
+    '--p-work': delay(LOOK_WORKING_MS, f.fLook),
+    '--p-err': delay(LOOK_ERROR_MS, f.fLook),
+    '--p-idle': delay(BODY_IDLE_MS, f.fBody),
+    '--p-bwork': delay(BODY_WORKING_MS, f.fBody),
+    '--p-needs': delay(BODY_NEEDS_LOOP_MS, f.fBody),
   }
-  return { path: p, stroke }
 }
 
-interface Dot {
-  row: number
-  col: number
-  x: number
-  y: number
-}
+type Shown = { mood: Mood; flag: '' | 'done' | 'enter' }
 
-const probe = document.createElement('canvas').getContext('2d')!
-const gridCache = new Map<string, Dot[]>()
+/** When each bot last played the needs-you double hop: a bot that flaps does not hop twice within the gap. */
+const lastEnter = new Map<string, number>()
 
-/** Square-grid dot centers that fall inside the silhouette. */
-function grid(shape: string, size: number, cells: number): Dot[] {
-  const key = `${shape}|${size}|${cells}`
-  const hit = gridCache.get(key)
-  if (hit) return hit
-  const { path, stroke } = characterPath(shape, size, size)
-  const step = size / cells
-  const dots: Dot[] = []
-  probe.lineWidth = stroke
-  probe.lineJoin = 'round'
-  for (let row = 0; row < cells; row++) {
-    for (let col = 0; col < cells; col++) {
-      const x = (col + 0.5) * step
-      const y = (row + 0.5) * step
-      if (probe.isPointInPath(path, x, y, 'nonzero') || (stroke > 0 && probe.isPointInStroke(path, x, y))) dots.push({ row, col, x, y })
-    }
-  }
-  gridCache.set(key, dots)
-  return dots
-}
-
-interface CharacterProps {
-  shape: string
-  /** An avatar palette id, or a CSS color with `tint`. */
-  color: string
-  tint?: string
-  size?: number
-  mood?: Mood
-  /** Draws for a dark ground whatever the system appearance (the notch island is always black). */
-  dark?: boolean
+/**
+ * Reads the presented body and gaze, then eases both to rest (MOTION.md "Handoff") before the new state
+ * starts. CSS animations are held off by `data-settling` meanwhile; the blink loop is never touched.
+ */
+function handoff(el: HTMLElement) {
+  const body = el.querySelector<HTMLElement>('.kb-body')
+  const gaze = el.querySelector<HTMLElement>('.kb-gaze')
+  if (!body || !gaze) return
+  const from = (value: string, rest: string) => (value === 'none' || !value ? rest : value)
+  const b = getComputedStyle(body)
+  const g = getComputedStyle(gaze)
+  const bodyFrom = { translate: from(b.translate, '0px 0px'), scale: from(b.scale, '1 1') }
+  const gazeFrom = { translate: from(g.translate, '0px 0px') }
+  el.dataset.settling = ''
+  body.animate([bodyFrom, { translate: '0px 0px', scale: '1 1' }], { duration: 160, easing: 'cubic-bezier(0.37, 0, 0.63, 1)' })
+  gaze.animate([gazeFrom, { translate: '0px 0px' }], { duration: 110, easing: 'cubic-bezier(0.3, 0, 0.15, 1)' })
 }
 
 /**
- * Grok-Bot-style character drawn like the app icon: an even grid of dots shaded as if the
- * silhouette were a ball, with hollow eyes that glance while it works and blink now and then.
+ * The state the avatar shows. A change plays the handoff first, then enters the new state: with the done
+ * one-shot after >= 1 s of work (at most once per 4 s), and the needs-you double hop (at most once per 10 s).
  */
-export const CharacterAvatar = memo(function CharacterAvatar({ shape, color, tint, size = 40, mood = 'idle', dark: forceDark }: CharacterProps) {
-  const canvas = useRef<HTMLCanvasElement>(null)
-  const dark = useDark() || forceDark === true
-  const reduce = useReduceMotion()
-  const fill = tint ?? avatarColor(color)
+function useShown(ref: RefObject<HTMLDivElement | null>, mood: Mood, animate: boolean, id: string) {
+  const [shown, setShown] = useState<Shown>({ mood, flag: '' })
+  const track = useRef({ mood, workingSince: Date.now(), lastDone: -Infinity })
+  const mounted = useRef(false)
 
   useEffect(() => {
-    const el = canvas.current
-    if (!el) return
-    const ratio = window.devicePixelRatio || 1
-    el.width = Math.round(size * ratio)
-    el.height = Math.round(size * ratio)
-    const ctx = el.getContext('2d')!
-    const still = mood === 'idle' || reduce
-    // A moving character draws at 30 fps (its light turns slowly), and only while on screen.
-    let frame = 0
-    let drawn = -Infinity
-    let visible = true
-    const draw = (time: number) => {
-      frame = 0
-      if (time - drawn >= 33) {
-        drawn = time
-        ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-        ctx.clearRect(0, 0, size, size)
-        drawCharacter(ctx, { shape, fill, size, mood, dark, t: still ? 0 : (time / 1000) % 3600, still })
+    const t = track.current
+    if (mood === t.mood) return
+    const now = Date.now()
+    const before = t.mood
+    const worked = now - t.workingSince
+    t.mood = mood
+    if (mood === 'working') t.workingSince = now
+    const el = ref.current
+    if (!animate || !el) {
+      setShown({ mood, flag: '' })
+      return
+    }
+    handoff(el)
+    let clear: ReturnType<typeof setTimeout> | undefined
+    const timer = setTimeout(() => {
+      let flag: Shown['flag'] = ''
+      if (before === 'working' && mood === 'idle' && doneDue(worked, now - t.lastDone)) {
+        flag = 'done'
+        t.lastDone = Date.now()
+      } else if (mood === 'needsInput' && Date.now() - (lastEnter.get(id) ?? -Infinity) >= NEEDS_ENTER_GAP_MS) {
+        flag = 'enter'
+        lastEnter.set(id, Date.now())
       }
-      if (!still && visible) frame = requestAnimationFrame(draw)
-    }
-    draw(performance.now())
-    if (still) return
-    const onScreen = new IntersectionObserver(([e]) => {
-      visible = e!.isIntersecting
-      if (visible && !frame) frame = requestAnimationFrame(draw)
-    })
-    onScreen.observe(el)
+      setShown({ mood, flag })
+      // The one-shot is over (900 / 1500 ms): drop the flag so a later freeze and thaw does not replay it.
+      if (flag) clear = setTimeout(() => setShown((s) => (s.flag ? { mood: s.mood, flag: '' } : s)), flag === 'done' ? 1000 : 1600)
+    }, 160)
     return () => {
-      onScreen.disconnect()
-      cancelAnimationFrame(frame)
+      clearTimeout(timer)
+      clearTimeout(clear)
     }
-  }, [shape, fill, size, mood, dark, reduce])
+  }, [mood, animate, id, ref])
 
-  return <canvas ref={canvas} aria-hidden style={{ width: size, height: size, display: 'block', flex: 'none' }} />
+  // The new state is in the DOM: end the handoff, and start its loops at phase 0 (a runtime change, not a mount).
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    delete el.dataset.settling
+    if (mounted.current) el.dataset.live = ''
+    mounted.current = true
+  }, [shown, ref])
+
+  return shown
+}
+
+/**
+ * One living bot: the layered body with two code-drawn eyes (eyes.json), moved by CSS keyframes only.
+ * Size picks how much of it runs (MOTION.md section 7); the window's observer freezes it off screen.
+ */
+export const LiveBot = memo(function LiveBot({
+  face,
+  color = '',
+  mood = 'idle',
+  size,
+  id,
+  animated = true,
+}: {
+  face: Face
+  /** An avatarColor (palette id); anything else keeps the original body. */
+  color?: string
+  mood?: Mood
+  size: number
+  /** The bot's id: it picks the bot's loops and phase, the same on every screen and on iOS. */
+  id: string
+  animated?: boolean
+}) {
+  const group = face === 'group'
+  const name = group ? 'kith' : face.name
+  const rig = rigOf(name)
+  const reduce = useReduceMotion()
+  const tier: Tier = animated ? sizeTier(size) : 'static'
+  const ref = useRef<HTMLDivElement>(null)
+  const shown = useShown(ref, mood, tier !== 'static' && !reduce, id)
+  const phases = useMemo(() => phaseVars(id), [id])
+  const loops = loopsOf(id)
+
+  // Recoloured bodies are rendered once per (bot, colour); until then the original body shows.
+  const tinted = !group && rig?.tint && paletteColor(color) ? color : ''
+  const [, rendered] = useState(0)
+  useEffect(() => {
+    if (!tinted || cachedRecolour(name, tinted)) return
+    let live = true
+    void recolour(name, tinted).then(() => live && rendered((n) => n + 1))
+    return () => {
+      live = false
+    }
+  }, [name, tinted])
+
+  // Put the avatar under the window's watch (freeze off screen, cap on full ones, pause when hidden).
+  const slot = useRef<Slot | null>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const entry: Slot = {
+      el,
+      tier,
+      visible: true,
+      rephase: (all) => {
+        for (const [key, value] of Object.entries(phaseVars(id))) if (all || key !== '--p-blink') el.style.setProperty(key, value)
+        delete el.dataset.live
+      },
+    }
+    slot.current = entry
+    return watch(entry)
+    // The slot lives as long as the element; its tier is kept up to date below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
+  useEffect(() => {
+    if (!slot.current) return
+    slot.current.tier = tier
+    scheduleSettle()
+  }, [tier])
+
+  if (!rig) return <span className="kb" style={{ width: size, height: size }} />
+  const src = (tinted && cachedRecolour(name, tinted)) || bodyURL(name) || undefined
+  const style = {
+    '--kb-size': `${size}px`,
+    '--kb-mx': `${Math.min(rig.look.left, rig.look.right) * size}px`,
+    '--kb-my': `${Math.min(rig.look.up, rig.look.down) * size}px`,
+    '--kb-closed': closedScale(rig.eyes[0].h, size),
+    '--kb-ox': `${rig.anchor.x * 100}%`,
+    '--kb-oy': `${rig.anchor.y * 100}%`,
+    '--kb-look-name': `kb-look-idle-${loops.lookTrack}`,
+    '--kb-look-dur': `${LOOK_IDLE_MS[loops.lookTrack]}ms`,
+    '--kb-blink-name': `kb-blink-${loops.blinkTrack}`,
+    '--kb-blink-dur': `${BLINK_MS[loops.blinkTrack]}ms`,
+    ...phases,
+  } as CSSProperties
+  const rigStyle: CSSProperties | undefined = group
+    ? { transform: `translate(${GROUP_TRANSFORM.dx * size}px, ${GROUP_TRANSFORM.dy * size}px) scale(${GROUP_TRANSFORM.scale})` }
+    : undefined
+  return (
+    <div
+      ref={ref}
+      aria-hidden
+      className="kb"
+      data-eff={tier}
+      data-state={shown.mood}
+      data-flag={shown.flag || undefined}
+      data-reduce={reduce || undefined}
+      style={style}
+    >
+      {group ? <span className="kb-tile" /> : null}
+      <div className="kb-rig" style={rigStyle}>
+        <div className="kb-body">
+          <img className="kb-img" src={src} alt="" draggable={false} />
+          <div className="kb-gaze">
+            {rig.eyes.map((eye, i) => (
+              <div
+                key={i}
+                className="kb-eye"
+                style={{ left: (eye.x - eye.w / 2) * size, top: (eye.y - eye.h / 2) * size, width: eye.w * size, height: eye.h * size, rotate: `${eye.tilt}deg` }}
+              >
+                <div className="kb-shape" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 })
 
-/** Draws one frame of a character at the context's origin (views and menu bar icons). */
-export function drawCharacter(
-  ctx: CanvasRenderingContext2D,
-  { shape, fill, size, mood, dark, t, still }: { shape: string; fill: string; size: number; mood: Mood; dark: boolean; t: number; still: boolean },
-) {
-  const cells = size < 18 ? 7 : size < 28 ? 9 : 13
-  const eyeColumns = cells === 7 ? [2, 4] : cells === 9 ? [3, 6] : [4, 8]
-  const eyeRowsAll = cells === 13 ? [4, 5, 6] : cells === 9 ? [3, 4] : [2, 3]
-  const step = size / cells
-  const dots = grid(shape, size, cells)
-  const [tr, tg, tb] = palette(dark).text
-  const n = parseInt(fill.slice(1), 16)
-  const [cr, cg, cb] = [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-  // Glance: whole-cell steps left / center / right, like a small display.
-  const glance = mood === 'working' ? Math.round(Math.sin((t * 2 * Math.PI) / 3.2) * 1.4) : 0
-  const blinking = !still && (t / 4.7) % 1 < 0.035
-  const eyeRows = blinking ? eyeRowsAll.slice(-1) : eyeRowsAll
-  const eyeCols = eyeColumns.map((c) => c + glance)
-  const half = size / 2
-  const yaw = mood === 'working' ? t * 1.4 : -0.7
-  const lx = Math.sin(yaw) * 0.8
-  const ly = 0.55
-  const lz = Math.cos(yaw) * 0.5 + 0.6 // never fully behind
-  const ll = Math.hypot(lx, ly, lz)
-  for (const d of dots) {
-    if (eyeCols.includes(d.col) && eyeRows.includes(d.row)) continue
-    const u = (d.x - half) / half
-    const v = (half - d.y) / half
-    const z = Math.sqrt(Math.max(0.2, 1 - u * u - v * v))
-    const nl = Math.hypot(u, v, z)
-    let shade = 0.3 + 0.7 * Math.max(0, (u * lx + v * ly + z * lz) / (nl * ll))
-    if (mood === 'needsInput') {
-      const ripple = 0.5 + 0.5 * Math.sin(Math.hypot(u, v) * 9 - t * 5)
-      shade *= 0.6 + 0.4 * ripple
-    }
-    const r = step * 0.42 * (0.55 + 0.45 * shade)
-    const ink = cells < 13 ? 0.4 + 0.4 * shade : 0.2 + 0.4 * Math.min(1, shade / 0.7)
-    ctx.beginPath()
-    ctx.arc(d.x, d.y, r, 0, Math.PI * 2)
-    ctx.fillStyle = `rgba(${tr},${tg},${tb},${ink})`
-    ctx.fill()
-    if (shade > 0.6) {
-      ctx.fillStyle = `rgba(${cr},${cg},${cb},${(shade - 0.6) / 0.4})`
-      ctx.fill()
-    }
-  }
-}
-
+/** A bot's mood from its status. A bot shown `animated={false}` (a chip) is always at rest. */
 export function moodOf(bot: Bot, animated = true): Mood {
   if (!animated) return 'idle'
-  return needsInput(bot) ? 'needsInput' : isWorking(bot) ? 'working' : 'idle'
+  return bot.status === 'error' ? 'error' : needsInput(bot) ? 'needsInput' : bot.status === 'working' ? 'working' : 'idle'
 }
 
-// Crew and spare faces (the brand's crew/<agent>.png, crew/spare/<name>.png), bundled with the app, not served by the host.
-const crewFaces = import.meta.glob<string>('../assets/crew/*.png', { eager: true, query: '?url', import: 'default' })
-const spareFaces = import.meta.glob<string>('../assets/spare/*.png', { eager: true, query: '?url', import: 'default' })
-const faceURLs = (faces: Record<string, string>) => new Map(Object.entries(faces).map(([path, url]) => [path.split('/').pop()!.replace('.png', ''), url]))
-const crewURL = faceURLs(crewFaces)
-const spareURL = faceURLs(spareFaces)
-
-/** A crew or spare portrait, or null without one (also the editor's preview). */
-export function CrewPortrait({ image, size = 40 }: { image: AvatarImage; size?: number }) {
-  const face = (image.kind === 'crew' ? crewURL : spareURL).get(image.name)
-  return face ? <img className="avatar-crew" src={face} width={size} height={size} alt="" draggable={false} /> : null
+/** A crew or spare portrait at rest (the editor's preview and picker). */
+export function CrewPortrait({ image, size = 40, color = '' }: { image: AvatarImage; size?: number; color?: string }) {
+  return <LiveBot face={image} color={color} size={size} id={image.name} animated={false} />
 }
 
 export function BotAvatar({ bot, size = 40, animated = true }: { bot: Bot; size?: number; animated?: boolean }) {
-  const image = avatarImage(bot)
-  if (image) return <CrewPortrait image={image} size={size} />
-  return <CharacterAvatar shape={bot.avatarShape} color={bot.avatarColor} size={size} mood={moodOf(bot, animated)} />
+  const face = isGroup(bot) ? 'group' : (avatarImage(bot) ?? 'group')
+  return <LiveBot face={face} color={bot.avatarColor} mood={moodOf(bot, animated)} size={size} id={bot.id} animated={animated} />
 }
 
-/**
- * A group chat's face, clustered like iMessage: two bots tucked diagonally, three in a
- * triangle, four in a 2×2 grid; past four the last cell counts the rest.
- */
-export function GroupAvatar({ members, size = 40, animated = true }: { members: Bot[]; size?: number; animated?: boolean }) {
-  const place = (bot: Bot, side: number, corner: CSSProperties) => (
-    <div key={bot.id} className="avatar-slot" style={corner}>
-      <BotAvatar bot={bot} size={side} animated={animated} />
+/** A group chat's face: the kith cube on its soft tile, which holds the crew. */
+export function GroupAvatar({ size = 40, animated = true }: { members?: Bot[]; size?: number; animated?: boolean }) {
+  return (
+    <div aria-hidden className="avatar-frame" style={{ width: size, height: size }}>
+      <LiveBot face="group" size={size} id="kith" animated={animated} />
     </div>
   )
-  let content
-  switch (members.length) {
-    case 0:
-      content = (
-        <div className="avatar-empty">
-          <Icon name="person.2" size={size * 0.4} />
-        </div>
-      )
-      break
-    case 1:
-      content = <BotAvatar bot={members[0]!} size={size} animated={animated} />
-      break
-    case 2:
-      content = [place(members[1]!, size * 0.66, { top: 0, right: 0 }), place(members[0]!, size * 0.66, { bottom: 0, left: 0 })]
-      break
-    case 3:
-      content = [
-        place(members[0]!, size * 0.55, { top: 0, left: (size - size * 0.55) / 2 }),
-        place(members[1]!, size * 0.55, { bottom: 0, left: 0 }),
-        place(members[2]!, size * 0.55, { bottom: 0, right: 0 }),
-      ]
-      break
-    default:
-      content = [
-        place(members[0]!, size * 0.5, { top: 0, left: 0 }),
-        place(members[1]!, size * 0.5, { top: 0, right: 0 }),
-        place(members[2]!, size * 0.5, { bottom: 0, left: 0 }),
-        members.length === 4 ? (
-          place(members[3]!, size * 0.5, { bottom: 0, right: 0 })
-        ) : (
-          <div key="more" className="avatar-more" style={{ width: size * 0.5, height: size * 0.5, fontSize: size * 0.24 }}>
-            +{members.length - 3}
-          </div>
-        ),
-      ]
-  }
-  return <div aria-hidden className="avatar-frame" style={{ width: size, height: size }}>{content}</div>
 }
 
-/** Avatar with the roster status dot: filled = unread, amber = needs you. A group shows its members. */
-export function AvatarWithStatus({ bot, members = [], size = 44 }: { bot: Bot; members?: Bot[]; size?: number }) {
+/** Avatar with the roster status dot: filled = unread, amber = needs you. A group shows the cube. */
+export function AvatarWithStatus({ bot, size = 44 }: { bot: Bot; members?: Bot[]; size?: number }) {
   return (
     <div className="avatar-frame" style={{ width: size, height: size }}>
-      {isGroup(bot) ? <GroupAvatar members={members} size={size} /> : <BotAvatar bot={bot} size={size} />}
+      <BotAvatar bot={bot} size={size} />
       {needsInput(bot) ? (
         <div className="avatar-badge needs-you" style={{ width: size * 0.36, height: size * 0.36 }}>
           <Icon name="exclamationmark" size={size * 0.2} weight="black" scaled={false} />

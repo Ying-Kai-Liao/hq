@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import type { IslandBot } from '@shared/island'
-import { CharacterAvatar, type Mood } from '../../components/Avatar'
+import { LiveBot, type Mood } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { ThinkingOrb } from '../../components/ThinkingOrb'
 import { useArrivals, useFlip } from './island-motion'
@@ -17,7 +17,12 @@ export const GREEN = '#34D399'
 export const RED = '#F4505E'
 
 export const moodOf = (bot: Pick<IslandBot, 'status'>): Mood =>
-  bot.status === 'needsInput' ? 'needsInput' : bot.status === 'working' ? 'working' : 'idle'
+  bot.status === 'needsInput' ? 'needsInput' : bot.status === 'working' ? 'working' : bot.status === 'error' ? 'error' : 'idle'
+
+/** A bot's living avatar on the island; its loops follow the bot id (the ref's last part), as in the app. */
+export function IslandBotAvatar({ bot, size }: { bot: Pick<IslandBot, 'ref' | 'image' | 'color' | 'status'>; size: number }) {
+  return <LiveBot face={bot.image} color={bot.color} mood={moodOf(bot)} size={size} id={bot.ref.split('/').pop()!} />
+}
 
 export const badgeOf = (bot: Pick<IslandBot, 'status'>): Badge =>
   bot.status === 'needsInput' ? 'needsInput' : bot.status === 'working' ? 'working' : bot.status === 'error' ? 'failed' : null
@@ -39,7 +44,8 @@ function glowOf(badge: Badge, color: string) {
 
 /** The bot in the big slot: its character, a glow in its state's color and a badge. */
 export function BigCharacter({ bot, size, mood, badge, onOpen }: {
-  bot: Pick<IslandBot, 'shape' | 'color'>
+  /** An approval card's bot has no ref: its name seeds the loops then. */
+  bot: Pick<IslandBot, 'image' | 'color'> & { ref?: string; name: string }
   size: number
   mood: Mood
   badge: Badge
@@ -49,7 +55,7 @@ export function BigCharacter({ bot, size, mood, badge, onOpen }: {
   const inner = (
     <>
       {glow ? <span aria-hidden className="island-glow" style={{ background: `radial-gradient(circle, ${withAlpha(glow, 0.36)}, ${withAlpha(glow, 0)} 68%)` }} /> : null}
-      <CharacterAvatar shape={bot.shape} color={bot.color} size={size} mood={mood} dark />
+      <LiveBot face={bot.image} color={bot.color} mood={mood} size={size} id={bot.ref?.split('/').pop() ?? bot.name} />
       <StateBadge badge={badge} />
     </>
   )
@@ -112,7 +118,7 @@ export function MiniColumn({ bots, onOpen }: { bots: IslandBot[]; onOpen: (ref: 
     <div ref={column} className="island-minis">
       {bots.map((b) => (
         <button key={b.ref} data-flip={b.ref} className={`island-mini ${arrivals.has(b.ref) ? 'island-swap' : ''}`} title={b.name} aria-label={`Open ${b.name}`} onClick={() => onOpen(b.ref)}>
-          <CharacterAvatar shape={b.shape} color={b.color} size={18} mood={moodOf(b)} dark />
+          <IslandBotAvatar bot={b} size={18} />
           <StatusDot bot={b} />
         </button>
       ))}

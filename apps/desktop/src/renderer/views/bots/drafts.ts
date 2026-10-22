@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import type { Bot, BotDraft } from '@shared/models'
-import { AVATAR_COLORS, AVATAR_SHAPES } from '../../lib/theme'
 import type { BotStore } from '../../store/bot-store'
 
 /** An installed connector (host `connectors`). */
@@ -25,11 +24,9 @@ export interface Plugins {
   skills: InstalledSkill[]
 }
 
-const pick = <T>(list: T[]) => list[Math.floor(Math.random() * list.length)]!
-
-/** A fresh draft: a random look, Claude, a personal workspace, automatic approvals. */
+/** A fresh draft: the automatic avatar in its original colours, Claude, a personal workspace, automatic approvals. */
 export function newDraft(): BotDraft {
-  return { name: '', description: '', avatarColor: pick(AVATAR_COLORS).id, avatarShape: pick(AVATAR_SHAPES), avatarSource: 'auto', backend: 'claude', cwd: '', permission: 'auto' }
+  return { name: '', description: '', avatarColor: '', avatarShape: 'blob', avatarSource: 'auto', backend: 'claude', cwd: '', permission: 'auto' }
 }
 
 /** A new bot may go without a name: the host names it after its first conversations. */
