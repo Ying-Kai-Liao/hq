@@ -1,3 +1,4 @@
+import { clips } from './speech-clips'
 import { errorMessage, micPCM16k, SPEECH_CHUNK, spokenText, VoiceEngine, VoiceSettings, wav, type VoiceProvider } from './voice'
 
 export interface CloudSpeech {
@@ -15,37 +16,6 @@ const PREROLL_SAMPLES = (16000 * 3) / 10
 const MAX_SAMPLES = 16000 * 20
 /** Under 0.4 s of voice is a cough or noise (and speech-to-text models invent words for noise). */
 const MIN_VOICED_SAMPLES = (16000 * 4) / 10
-
-/** Sentences grouped into clips of at most `limit` characters (longer sentences are cut). */
-export function clips(text: string, limit: number): string[] {
-  const out: string[] = []
-  let current = ''
-  let sentence = ''
-  const flush = () => {
-    const t = current.trim()
-    if (t) out.push(t)
-    current = ''
-  }
-  const add = (piece: string) => {
-    if ([...current].length + [...piece].length > limit) flush()
-    let rest = [...piece]
-    while (rest.length > limit) {
-      out.push(rest.slice(0, limit).join(''))
-      rest = rest.slice(limit)
-    }
-    current += rest.join('')
-  }
-  for (const ch of text) {
-    sentence += ch
-    if ('.!?。！？\n'.includes(ch)) {
-      add(sentence)
-      sentence = ''
-    }
-  }
-  add(sentence)
-  flush()
-  return out
-}
 
 /**
  * The provider's speech models without a live conversation: each utterance is cut at a pause,
