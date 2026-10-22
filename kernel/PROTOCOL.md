@@ -70,6 +70,13 @@ part for everyone you work for, `{{SHARED_MEMORY}}/`: lessons about your craft o
 A project's **home** (`project-id --info`) is the user's own folder for its files: briefs, specs, contracts, papers.
 Read it when the task needs them. Write there only when the user asks, and never rename, move or tidy what is in it.
 
+Memory writes are checked and versioned. A hook runs on every Write, Edit and MultiEdit of a memory file (yours, `user.md`,
+`people/`, `projects/`) and refuses text that hides characters, carries a link with a prompt in it, reads as an instruction to
+an assistant ("ignore previous…", "trusted source"), holds a password, key or ID number, or states a fact the user told Kith
+to forget. The refusal says which; fix the text and write again, and never work around it with Bash. Memory is facts about
+the user and the work, not instructions to yourself or the next agent. Size caps (`MEMORY.md` 150 lines, `user.md` about 400
+tokens) only warn. Every change is kept as a version: `kith memory log <file>`, `diff`, `undo` bring an earlier one back.
+
 Not every context is a code project. Ongoing areas of life (expenses, calendar, places, reading) get an ID too, e.g.
 `personal-places`; skip the codebase steps for them.
 

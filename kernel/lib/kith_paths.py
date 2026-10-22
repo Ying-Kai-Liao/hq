@@ -4,6 +4,7 @@
   kith_paths.py          the folders, one per line
   kith_paths.py --sh     export lines for bash: eval "$(python3 lib/kith_paths.py --sh)"
   kith_paths.py --json   the same as JSON (the Claude Code adapter)
+  kith_paths.py --bin    the kith program (Rust), or nothing when this Mac has none
 
 Two places, like ~/.claude for Claude Code:
 
@@ -39,7 +40,7 @@ Environment: every HQ_<X> variable is the old name of KITH_<X>. sync_env() makes
 other fills in, so the kernel reads KITH_<X> only while agent role repos that read HQ_<X> keep working. Importing
 this module syncs os.environ; the bash twin is lib/kith-env.sh.
 """
-import json, os, shlex, sys
+import json, os, shlex, shutil, sys
 from pathlib import Path
 
 KERNEL = Path(__file__).resolve().parent.parent
@@ -126,6 +127,16 @@ def launcher():
     return _first(bin_dir / 'kith-uv', bin_dir / 'hq-uv')
 
 
+def kith_bin():
+    """The kith program (the Rust host, which also answers `kith memory check|log|diff|undo|forget`): KITH_BIN, else a
+    kith on PATH that isn't the kernel's own bash entry, else the host kith serve installed. '' when there is none."""
+    own = KERNEL / 'bin' / 'kith'
+    for c in (os.environ.get('KITH_BIN'), shutil.which('kith'), HOME / '.kith/serve/bin/kith-serve', HOME / '.kith/serve-main/bin/kith-serve'):
+        if c and os.access(c, os.X_OK) and Path(c).is_file() and not (own.exists() and os.path.samefile(c, own)):
+            return str(c)
+    return ''
+
+
 def job_installed(name):
     """Is the background job `name` (sched, backup, live, bridge, ...) installed, under dev.kith.<name> or the old dev.hq.<name>?"""
     return any((HOME / f'Library/LaunchAgents/dev.{p}.{name}.plist').exists() for p in ('kith', 'hq'))
@@ -150,6 +161,8 @@ if __name__ == '__main__':
     arg = sys.argv[1] if len(sys.argv) > 1 else ''
     if arg == '--sh':
         print('\n'.join('export %s=%s' % (k, shlex.quote(v)) for k, v in p.items()))
+    elif arg == '--bin':
+        print(kith_bin())
     elif arg == '--json':
         print(json.dumps(p))
     else:
