@@ -76,7 +76,7 @@ SRC=$(echo "$WORK"/x/kith-*)
 # A new file is moved into place by rename, so a running kith is never half-written.
 mkdir -p "$PREFIX/bin" "$PREFIX/share/kith"
 cp "$SRC/bin/kith" "$PREFIX/bin/.kith.new.$$" && chmod 755 "$PREFIX/bin/.kith.new.$$" && mv -f "$PREFIX/bin/.kith.new.$$" "$PREFIX/bin/kith"
-for part in kernel .claude-plugin install.sh LICENSE README.md; do
+for part in kernel .claude-plugin install.sh LICENSE LICENSE.serve NOTICE README.md; do
   rm -rf "$PREFIX/share/kith/$part"
   cp -R "$SRC/share/kith/$part" "$PREFIX/share/kith/$part"
 done

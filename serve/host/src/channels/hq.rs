@@ -31,12 +31,13 @@ impl Paths {
     /// Blocking: looking for `hq` may ask the login shell. None when there is no hq to run.
     pub fn discover() -> Option<Self> {
         let hq_bin = crate::agent::hq::bin()?;
-        // A tool next to the entry point, else on PATH; the old hq-<x> name when the kernel has not been renamed.
+        // A tool next to the entry point, else in the kernel's bin/ (a packaged host's entry is the binary, the tools
+        // are in the kernel it carries), else on PATH; the old hq-<x> name when the kernel has not been renamed.
         let real = std::fs::canonicalize(&hq_bin).unwrap_or_else(|_| hq_bin.clone());
+        let kernel = crate::kernel::current_kernel();
         let beside = |name: &str| {
             let find = |name: &str| {
-                let near = [&hq_bin, &real].map(|b| b.with_file_name(name)).into_iter().find(|p| p.is_file());
-                near.or_else(|| crate::agent::backends::which(name))
+                tool_near(name, &hq_bin, &real, kernel.as_deref()).or_else(|| crate::agent::backends::which(name))
             };
             let old = name.replacen("kith-", "hq-", 1);
             find(name).or_else(|| find(&old)).unwrap_or_else(|| hq_bin.with_file_name(name))
@@ -44,11 +45,13 @@ impl Paths {
         let home = dirs::home_dir()?;
         let hq_home = crate::kernel::home_dir(&home);
         let mut agent_roots = vec![hq_home.join("agents")];
-        // The kernel's own agents sit next to its bin folder.
-        if let Some(kernel) =
-            std::fs::canonicalize(&hq_bin).ok().and_then(|p| Some(p.parent()?.parent()?.to_path_buf()))
-        {
-            agent_roots.push(kernel.join("agents"));
+        // The kernel's own agents sit next to its bin folder; a packaged host's kernel is the one it carries.
+        let beside_bin = real.parent().and_then(Path::parent).map(Path::to_path_buf);
+        for k in kernel.iter().cloned().chain(beside_bin) {
+            let agents = k.join("agents");
+            if !agent_roots.contains(&agents) {
+                agent_roots.push(agents);
+            }
         }
         let machine = crate::kernel::var("MACHINE").map_or_else(|| crate::kernel::machine_dir(&home), PathBuf::from);
         Some(Self {
@@ -70,6 +73,13 @@ impl Paths {
     pub fn live_outbox(&self, box_id: &str) -> PathBuf {
         self.machine.join("bridge").join("outbox").join(format!("live-{box_id}"))
     }
+}
+
+/// `name` beside the entry point (as given, or with symlinks resolved), else in the packaged kernel's bin/.
+fn tool_near(name: &str, hq_bin: &Path, real: &Path, kernel: Option<&Path>) -> Option<PathBuf> {
+    let near = [hq_bin.with_file_name(name), real.with_file_name(name)];
+    let packaged = kernel.map(|k| k.join("bin").join(name));
+    near.into_iter().chain(packaged).find(|p| p.is_file())
 }
 
 /// Runs a tool without a terminal: its output, or None when it can't start or takes too long.
@@ -266,5 +276,29 @@ mod tests {
         let who = Who::parse(&serde_json::json!({"person": "kai", "was": ["old"], "owner": true}));
         assert!(who.is("kai") && who.is("old") && !who.is("other"));
         assert!(who.owner);
+    }
+}
+
+#[cfg(test)]
+mod tool_tests {
+    use super::tool_near;
+
+    #[test]
+    fn tools_are_found_in_the_packaged_kernel() {
+        let t = std::env::temp_dir().join(format!("kith-tools-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let kernel = t.join("share/kith/kernel");
+        std::fs::create_dir_all(kernel.join("bin")).unwrap();
+        std::fs::create_dir_all(t.join("bin")).unwrap();
+        std::fs::write(t.join("bin/kith"), "").unwrap();
+        std::fs::write(kernel.join("bin/kith-auth"), "").unwrap();
+        let bin = t.join("bin/kith");
+        // Release install: the entry is the binary, the tool is in the kernel.
+        assert_eq!(tool_near("kith-auth", &bin, &bin, Some(&kernel)), Some(kernel.join("bin/kith-auth")));
+        assert_eq!(tool_near("kith-live", &bin, &bin, Some(&kernel)), None);
+        // Git checkout: the tool sits beside the entry and wins.
+        std::fs::write(t.join("bin/kith-auth"), "").unwrap();
+        assert_eq!(tool_near("kith-auth", &bin, &bin, Some(&kernel)), Some(t.join("bin/kith-auth")));
+        std::fs::remove_dir_all(&t).unwrap();
     }
 }

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 const require = createRequire(import.meta.url)
 const dev = require('../../tools/dev-builder.cjs')
@@ -42,4 +45,33 @@ test('the Mac app bundles the service binary and the kith release layout', () =>
   assert.ok(to.includes('kith'))
   // Windows keeps its own entries.
   assert.ok(prod.win.extraResources.some((f: { to: string }) => f.to === 'kith-serve.exe'))
+})
+
+test('the staged release layout carries the licenses and the NOTICE (Apache-2.0 requires it with redistributions)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kith-stage-'))
+  try {
+    const share = join(dir, 'share/kith')
+    execFileSync('sh', [new URL('../../../../scripts/stage-kernel.sh', import.meta.url).pathname, share])
+    for (const f of ['LICENSE', 'LICENSE.serve', 'NOTICE', 'kernel/bin/kith']) assert.ok(existsSync(join(share, f)), f)
+    assert.match(readFileSync(join(share, 'NOTICE'), 'utf8'), /Copyright/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('update-formula.sh fills the version and both checksums, the same way every time', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kith-formula-'))
+  try {
+    const sums = join(dir, 'SHA256SUMS')
+    writeFileSync(sums, `${'a'.repeat(64)}  kith-3.0.0-darwin-arm64.tar.gz\n${'b'.repeat(64)}  kith-3.0.0-darwin-x86_64.tar.gz\n`)
+    const script = new URL('../../../../scripts/update-formula.sh', import.meta.url).pathname
+    const run = (v: string) => execFileSync('sh', [script, v, sums], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    const out = run('v3.0.0')
+    assert.equal(out, run('3.0.0'))
+    assert.match(out, /version "3\.0\.0"/)
+    assert.deepEqual(out.match(/sha256 "\w+"/g), [`sha256 "${'a'.repeat(64)}"`, `sha256 "${'b'.repeat(64)}"`])
+    assert.throws(() => run('9.9.9'))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
