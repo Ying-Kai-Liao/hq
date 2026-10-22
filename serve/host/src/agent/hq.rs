@@ -88,6 +88,14 @@ pub struct Launch {
     pub permission_mode: Option<String>,
 }
 
+impl Launch {
+    /// Whether this launch runs Codex (a backup entry), whose sessions take ACP's own parameters instead of Claude's
+    /// `_meta`.
+    pub fn is_codex(&self) -> bool {
+        self.harness == "codex"
+    }
+}
+
 /// Runs `bin args…` in `cwd` with `KITH_VIA=serve` (and `HQ_VIA`): its stdout, or the stderr text it failed with.
 async fn run(bin: &Path, args: &[&str], cwd: Option<&str>, budget: Duration) -> Result<String> {
     let shown = format!("kith {}", args.join(" "));
@@ -342,8 +350,20 @@ pub async fn project_add(id: &str, path: &str) -> Result<()> {
 
 /// Asks hq how to start `agent` for a run in `cwd`; `project` goes as `-p <id>`, so hq loads that project's context.
 /// The model and effort the user picked for the bot go to hq as `-m`/`-e`, so its ledger tag and `KITH_MODEL` say what ran.
-pub async fn launch(bin: &Path, agent: &str, cwd: &str, cfg: &BotConfig, project: Option<&str>) -> Result<Launch> {
+/// `backup`: a chain entry (`claude:work`, `codex`…) to launch instead of the agent's own login; hq refuses an entry it
+/// can't run (not signed in, not allowed for this person) with exit 4, which is an error here.
+pub async fn launch(
+    bin: &Path,
+    agent: &str,
+    cwd: &str,
+    cfg: &BotConfig,
+    project: Option<&str>,
+    backup: Option<&str>,
+) -> Result<Launch> {
     let mut args = vec![agent, "--launch-json"];
+    if let Some(backup) = backup {
+        args.extend(["--backup", backup]);
+    }
     if let Some(project) = project {
         args.extend(["-p", project]);
     }
@@ -356,10 +376,21 @@ pub async fn launch(bin: &Path, agent: &str, cwd: &str, cfg: &BotConfig, project
     let out = run(bin, &args, Some(cwd), LAUNCH_TIMEOUT).await?;
     let launch: Launch = serde_json::from_str(out.trim())
         .with_context(|| format!("`kith {agent} --launch-json` didn't print a launch object"))?;
-    if !launch.harness.is_empty() && launch.harness != "claude" {
-        bail!("{agent} runs on {}; the host starts claude agents only", launch.harness);
+    // A backup entry may run on another harness the host knows (Codex); the agent's own login is Claude.
+    let runs = if backup.is_some() { ["claude", "codex"].as_slice() } else { ["claude"].as_slice() };
+    if !launch.harness.is_empty() && !runs.contains(&launch.harness.as_str()) {
+        bail!("{agent} runs on {}; the host starts {} agents only", launch.harness, runs.join(" and "));
     }
     Ok(launch)
+}
+
+/// `kith <agent> --backups-json`: the accounts the agent's turns may move to when one runs out, the agent's own login
+/// first. An hq too old to know the flag, or any failure, is no chain: nothing changes.
+pub async fn backups(bin: &Path, agent: &str) -> Result<Vec<crate::agent::backups::ChainEntry>> {
+    let out = run(bin, &[agent, "--backups-json"], None, LIST_TIMEOUT).await?;
+    let doc: crate::agent::backups::ChainDoc = serde_json::from_str(out.trim())
+        .with_context(|| format!("`kith {agent} --backups-json` didn't print a chain"))?;
+    Ok(doc.chain)
 }
 
 impl Launch {

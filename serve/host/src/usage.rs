@@ -46,7 +46,7 @@ pub struct Window {
 }
 
 impl Window {
-    fn new(id: impl Into<String>, label: impl Into<String>, percent: f64, resets_at: Option<i64>) -> Self {
+    pub(crate) fn new(id: impl Into<String>, label: impl Into<String>, percent: f64, resets_at: Option<i64>) -> Self {
         Self { id: id.into(), label: label.into(), percent, resets_at, resets_text: None }
     }
 }
@@ -65,6 +65,8 @@ impl Usage {
 }
 
 fn merge(hub: &Hub, id: &'static str, name: &'static str, source: &'static str, windows: Vec<Window>) {
+    // The ambient login's numbers also tell the backup chain when to move on (see `agent::backups`).
+    hub.backups.record_window_set(id, &windows);
     let mut usage = hub.usage.locked().clone();
     usage.merge(id, name, source, windows);
     hub.set_usage(usage);
@@ -81,26 +83,48 @@ pub async fn refresh(hub: &Hub) {
     if let Some(windows) = tokio::task::spawn_blocking(codex_usage).await.ok().flatten() {
         merge(hub, "codex", "Codex", "sessions", windows);
     }
-    if let Some(windows) = claude_cli_usage().await {
+    if let Some(windows) = claude_cli_usage(None).await {
         merge(hub, "claude", "Claude", "claude", windows);
+    }
+    refresh_accounts(hub).await;
+}
+
+/// The extra accounts of the backup chains (`claude:<name>`, `codex:<name>`), each read under its own login folder so
+/// the early switch knows how full it is. The same free local reads as above; nothing here costs model quota.
+async fn refresh_accounts(hub: &Hub) {
+    let machine = crate::kernel::machine_dir(&crate::service::home());
+    for (id, harness, account) in hub.backups.accounts() {
+        let folder = machine.join("accounts").join(&harness).join(&account);
+        if !folder.is_dir() {
+            continue;
+        }
+        let windows = match harness.as_str() {
+            "claude" => claude_cli_usage(Some(folder)).await,
+            "codex" => {
+                tokio::task::spawn_blocking(move || codex_usage_in(&folder.join("sessions"))).await.ok().flatten()
+            }
+            _ => None,
+        };
+        if let Some(windows) = windows {
+            hub.backups.record_reading(&id, windows);
+        }
     }
 }
 
-/// `claude -p /usage`: Claude Code's own local usage report, no model call.
-async fn claude_cli_usage() -> Option<Vec<Window>> {
+/// `claude -p /usage`: Claude Code's own local usage report, no model call. `config` is another account's
+/// `CLAUDE_CONFIG_DIR`.
+async fn claude_cli_usage(config: Option<PathBuf>) -> Option<Vec<Window>> {
     let bin = crate::agent::backends::which("claude")?;
-    let out = tokio::time::timeout(
-        Duration::from_secs(60),
-        tokio::process::Command::new(bin)
-            .args(["-p", "/usage", "--output-format", "json", "--no-session-persistence"])
-            .current_dir(dirs::home_dir()?)
-            .stdin(std::process::Stdio::null())
-            .kill_on_drop(true)
-            .output(),
-    )
-    .await
-    .ok()?
-    .ok()?;
+    let mut command = tokio::process::Command::new(bin);
+    command
+        .args(["-p", "/usage", "--output-format", "json", "--no-session-persistence"])
+        .current_dir(dirs::home_dir()?)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    if let Some(config) = config {
+        command.env("CLAUDE_CONFIG_DIR", config);
+    }
+    let out = tokio::time::timeout(Duration::from_secs(60), command.output()).await.ok()?.ok()?;
     let v: Value = serde_json::from_slice(&out.stdout).ok()?;
     let windows = parse_claude_usage(v["result"].as_str()?);
     (!windows.is_empty()).then_some(windows)
@@ -141,10 +165,13 @@ pub fn ingest_statusline(hub: &Hub, body: &Value) {
     }
 }
 
-/// Claude ACP adapter: `usage_update._meta["_claude/rateLimit"]` (the SDK's `SDKRateLimitInfo`).
-pub fn ingest_claude_rate_limit(hub: &Hub, info: &Value) {
-    if let Some(w) = claude_window(info) {
-        merge(hub, "claude", "Claude", "agent", vec![w]);
+/// Claude ACP adapter: `usage_update._meta["_claude/rateLimit"]` (the SDK's `SDKRateLimitInfo`). `account` is the
+/// backup entry whose session said it (`claude:work`); none: the ambient login.
+pub fn ingest_claude_rate_limit(hub: &Hub, info: &Value, account: Option<&str>) {
+    let Some(w) = claude_window(info) else { return };
+    match account {
+        Some(id) => hub.backups.record_window(id, w),
+        None => merge(hub, "claude", "Claude", "agent", vec![w]),
     }
 }
 
@@ -184,7 +211,12 @@ fn newest_rollout(root: &Path) -> Option<PathBuf> {
 
 /// Blocking: reads the newest Codex rollout file.
 fn codex_usage() -> Option<Vec<Window>> {
-    let path = newest_rollout(&dirs::home_dir()?.join(".codex/sessions"))?;
+    codex_usage_in(&dirs::home_dir()?.join(".codex/sessions"))
+}
+
+/// Blocking: the newest rollout file under `sessions` (a `CODEX_HOME`'s).
+fn codex_usage_in(sessions: &Path) -> Option<Vec<Window>> {
+    let path = newest_rollout(sessions)?;
     let text = std::fs::read_to_string(&path).ok()?;
     let line = text.lines().rev().find(|l| l.contains("\"rate_limits\""))?;
     let v: Value = serde_json::from_str(line).ok()?;

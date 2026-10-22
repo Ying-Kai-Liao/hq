@@ -116,8 +116,13 @@ impl Actor {
             }
             "usage_update" => {
                 let info = &u["_meta"]["_claude/rateLimit"];
+                if info["status"] == "rejected" {
+                    // Which turn ended on it is for `failover`; the reset time is what it needs to mark the entry.
+                    let resets_at = info["resetsAt"].as_i64().filter(|t| *t > 0).map(acp::epoch_secs);
+                    self.limit_seen = Some(acp::Depleted { resets_at });
+                }
                 if info.is_object() {
-                    crate::usage::ingest_claude_rate_limit(&self.hub, info);
+                    crate::usage::ingest_claude_rate_limit(&self.hub, info, self.serving.as_deref());
                 }
                 if let Some(used) = u["used"].as_u64() {
                     self.track_usage(used, u["size"].as_u64().unwrap_or(0));
@@ -276,11 +281,15 @@ impl Actor {
 
     /// Persists streamed text at most every 300 ms (or immediately with `force`).
     pub(super) fn flush(&mut self, force: bool) {
+        let (hq, serving) = (self.is_hq(), self.serving.clone());
         if let Seg::Open { kind, entry_id, buf, flushed, dirty } = &mut self.seg
             && *dirty
             && (force || flushed.elapsed() >= Duration::from_millis(300))
         {
             let data = match kind {
+                SegKind::Text if hq => {
+                    json!({"text": buf, "final": false, "author": self.cfg.id, "answeredBy": serving})
+                }
                 SegKind::Text => json!({"text": buf, "final": false, "author": self.cfg.id}),
                 SegKind::Thought => json!({"text": buf, "author": self.cfg.id}),
             };

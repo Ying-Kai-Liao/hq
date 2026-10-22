@@ -133,7 +133,26 @@ impl Actor {
             let (hub, cfg) = (self.hub.clone(), self.cfg.clone());
             let _ = tokio::task::spawn_blocking(move || memory::files::scan(&hub, &cfg)).await;
         }
-        let slot = self.slot(&lane);
+        self.turn_prompt = Some((text.to_owned(), hidden));
+        self.turn_tried.clear();
+        self.limit_seen = None;
+        self.exhausted = None;
+        self.reuse_prompt = false;
+        self.attempt_prompt = None;
+        self.preface = None;
+        self.begin_prompt(&lane, text, hidden, done_tx).await
+    }
+
+    /// Everything of a turn from getting its session on: a failed-over turn comes back here on the next entry (see
+    /// `failover`).
+    pub(super) async fn begin_prompt(
+        &mut self,
+        lane: &Lane,
+        text: &str,
+        hidden: bool,
+        done_tx: &mpsc::UnboundedSender<Done>,
+    ) -> Result<()> {
+        let slot = self.slot(lane);
         if let Some(deadline) = self.routine_deadline {
             tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), self.ensure_session(slot.as_deref()))
                 .await
@@ -191,7 +210,8 @@ impl Actor {
             "sessionId": sid,
             "prompt": [{"type": "text", "text": prompt}],
         });
-        if let Some(id) = &self.active_routine {
+        // A turn moved to a backup account starts again but is the same run.
+        if let Some(id) = self.active_routine.as_ref().filter(|_| self.turn_tried.is_empty()) {
             self.hub.routines.mark_started(&self.hub.store, id)?;
             self.set_inflight(true);
         }
@@ -279,7 +299,10 @@ impl Actor {
         match (&done, stop_reason.as_str()) {
             (Err(e), _) if !self.stop_requested => {
                 let tail = self.exit_tail.take().filter(|t| !t.is_empty());
-                if !self.invite_sign_in(e) {
+                if let Some(text) = self.exhausted.take() {
+                    // Every account for this agent is out of usage: say who and until when, not the adapter's error.
+                    self.notice(&text, NoticeStyle::Info);
+                } else if !self.invite_sign_in(e) {
                     let detail = tail.map(|t| format!("\n\n{}", acp::truncate(&t, 1200))).unwrap_or_default();
                     self.notice(&format!("The agent failed: {e}{detail}"), NoticeStyle::Error);
                 }
