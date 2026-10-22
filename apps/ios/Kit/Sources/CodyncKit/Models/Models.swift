@@ -20,6 +20,10 @@ public struct Bot: Codable, Identifiable, Hashable, Sendable {
     public var cwd: String
     /// Host-allocated personal workspace rather than a user-selected project.
     public var managedWorkspace: Bool = false
+    /// The bot's default hq project; places with no pick of their own work there. Nil from an older host.
+    public var project: String?
+    /// Where the bot's own chat works; nil for a group or an older host.
+    public var folder: PlaceFolder?
     /// `ask` or `auto`.
     public var permission: String
     public var model: String?
@@ -328,13 +332,18 @@ public struct DirListing: Codable, Sendable {
     public var path: String
     public var parent: String?
     public var isGit: Bool
+    /// The hq project registered at this folder.
+    public var project: String?
     public var dirs: [DirItem]
+    /// Home and each drive; absent from an older host.
+    public var roots: [DirRoot]?
 }
 
 public struct DirItem: Codable, Hashable, Sendable, Identifiable {
     public var name: String
     public var path: String
     public var isGit: Bool
+    public var project: String?
     public var id: String { path }
 }
 
@@ -385,6 +394,8 @@ public struct BotDraft: Codable, Hashable, Sendable {
     public var connectors: [String]?
     public var skills: [String]?
     public var computer: Bool?
+    /// The bot's default hq project. Always sent on an update: nil clears it.
+    public var project: String?
     /// Only sent when the user changes it: unset, the host picks by the bot's folder.
     public var sharedMemory: Bool?
     /// Only sent when the user changes it.
@@ -423,6 +434,7 @@ public struct BotDraft: Codable, Hashable, Sendable {
         connectors = bot.connectors
         skills = bot.skills
         computer = bot.computer
+        project = bot.project
     }
 }
 
@@ -446,6 +458,8 @@ extension Bot {
         command = try c.decodeIfPresent(String.self, forKey: .command)
         cwd = try c.decodeIfPresent(String.self, forKey: .cwd) ?? ""
         managedWorkspace = try c.decodeIfPresent(Bool.self, forKey: .managedWorkspace) ?? false
+        project = try c.decodeIfPresent(String.self, forKey: .project)
+        folder = try? c.decodeIfPresent(PlaceFolder.self, forKey: .folder)
         permission = try c.decodeIfPresent(String.self, forKey: .permission) ?? "auto"
         model = try c.decodeIfPresent(String.self, forKey: .model)
         modelOptions = try c.decodeIfPresent([String: String].self, forKey: .modelOptions) ?? [:]

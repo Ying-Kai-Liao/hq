@@ -64,7 +64,7 @@ extension BotStore {
     }
 
     private func noteHostVersion(_ new: HostVersion) {
-        let cached = cacheStamp.map { $0 != "\(Self.appBuild)/\(new.version)" } ?? false
+        let cached = cacheStamp.map { $0 != "\(Self.appBuild)/\(new.version)\(Self.cacheSchema)" } ?? false
         if cached || (hostVersion.map { $0.version != new.version } ?? false) {
             // A different host version or app build: data may carry new fields, so fetch it all again.
             refetchAll()
@@ -93,8 +93,11 @@ extension BotStore {
             bump(rev)
         case let .bot(bot):
             let neededInput = bots[bot.id]?.needsInput == true
+            let before = bots[bot.id]
             bots[bot.id] = bot
             bump(bot.rev)
+            // A folder change from another client moves no status: re-read the threads whose folder is shown.
+            if before?.status == bot.status, before?.workingThread == bot.workingThread { refreshThreadFolders(bot.id) }
             onBotUpdated?(bot)
             onRosterChanged?()
             if bot.unread > 0 { acknowledgeVisibleConversations(bot.id) }

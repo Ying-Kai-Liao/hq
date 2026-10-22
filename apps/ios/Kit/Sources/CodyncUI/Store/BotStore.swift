@@ -59,6 +59,8 @@ public final class BotStore {
     public internal(set) var hostVersion: HostVersion?
     public internal(set) var bots: [String: Bot] = [:]
     public internal(set) var entries: [String: [Entry]] = [:]
+    /// Where each thread works, by `threadFolderKey`; filled by `loadThread` and `setPlaceFolder`.
+    public internal(set) var threadFolders: [String: PlaceFolder] = [:]
     public internal(set) var usage: Usage
     /// The computer's remote screen (`nil`: the host predates it).
     public internal(set) var screen: ScreenState?
@@ -96,6 +98,10 @@ public final class BotStore {
     var retired = false
     /// Files of messages not delivered yet (by client nonce), kept for a retry.
     @ObservationIgnored var outgoingFiles: [String: [OutgoingFile]] = [:]
+    /// The folder chosen up front for messages not delivered yet (by client nonce), kept for a retry.
+    @ObservationIgnored var outgoingStarts: [String: FolderChoice] = [:]
+    /// Messages not delivered yet that start a task: a retry must start one too, not continue the current task.
+    @ObservationIgnored var outgoingNewTasks: Set<String> = []
 
     var rev: Int64 = 0
     var hostId: String?

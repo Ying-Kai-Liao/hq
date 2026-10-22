@@ -415,6 +415,7 @@ extension ThreadView {
                     VStack(spacing: 0) {
                         header
                         connectionSubtitle
+                        PlaceFolderChip(botId: botId)
                     }
                 }
                 if model.screen != nil {

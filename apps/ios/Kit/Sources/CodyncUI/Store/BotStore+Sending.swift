@@ -40,11 +40,13 @@ extension BotStore {
 
     /// Transfer to the outbox now; an eventual acknowledgement must not erase a newer draft.
     @discardableResult
-    func sendComposerDraft(to botId: String, thread: String? = nil, files: [OutgoingFile] = [], newTask: Bool = false) -> Bool {
+    func sendComposerDraft(to botId: String, thread: String? = nil, files: [OutgoingFile] = [], newTask: Bool = false,
+                           start: FolderChoice? = nil) -> Bool {
         let text = composerDraft(for: botId, thread: thread)
         guard !retired, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty else { return false }
         let pasted = composerPasted[composerKey(botId, thread)] ?? []
-        send(text, to: botId, thread: thread, nonce: UUID().uuidString, files: files, pasted: pasted, newTask: newTask)
+        send(text, to: botId, thread: thread, nonce: UUID().uuidString, files: files, pasted: pasted, newTask: newTask,
+             start: start)
         setComposerDraft("", for: botId, thread: thread)
         return true
     }
@@ -55,7 +57,7 @@ extension BotStore {
     }
 
     private func send(_ text: String, to botId: String, thread: String?, nonce: String, files: [OutgoingFile] = [],
-                      pasted: [String] = [], newTask: Bool = false) {
+                      pasted: [String] = [], newTask: Bool = false, start: FolderChoice? = nil) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !files.isEmpty, !retired else { return }
         var data = EntryData(text: trimmed, status: "sending", clientNonce: nonce)
@@ -70,16 +72,18 @@ extension BotStore {
         upsert(local)
         storage.lastComputerId = computer.id
         if let bot = bots[botId] { onSent?(bot, .sending) }
-        // The relay mailbox holds text only: files wait for the computer.
-        if canQueue, files.isEmpty, let remote = transport as? any RemoteTransport {
+        if let start { outgoingStarts[nonce] = start }
+        if newTask { outgoingNewTasks.insert(nonce) }
+        // The relay mailbox holds text only: files and a starting folder wait for the computer.
+        if canQueue, files.isEmpty, start == nil, let remote = transport as? any RemoteTransport {
             enqueue(remote, text: trimmed, botId: botId, thread: thread, nonce: nonce)
             return
         }
-        deliver(trimmed, botId: botId, thread: thread, nonce: nonce, pasted: pasted, newTask: newTask)
+        deliver(trimmed, botId: botId, thread: thread, nonce: nonce, pasted: pasted, newTask: newTask, start: start)
     }
 
     private func deliver(_ text: String, botId: String, thread: String?, nonce: String, pasted: [String] = [],
-                         newTask: Bool = false) {
+                         newTask: Bool = false, start: FolderChoice? = nil) {
         Task {
             do {
                 // Safe to repeat: the computer skips a nonce it already has.
@@ -96,9 +100,11 @@ extension BotStore {
                         }
                     }
                     return try await client.send(botId: botId, text: text, clientNonce: nonce, threadId: thread, attachments: ids,
-                                                 pasted: pasted, newTask: newTask)
+                                                 pasted: pasted, newTask: newTask, start: start)
                 }
                 outgoingFiles[nonce] = nil
+                outgoingStarts[nonce] = nil
+                outgoingNewTasks.remove(nonce)
                 upsert(e)
                 if let bot = bots[botId] { onSent?(bot, .delivered) }
             } catch {
@@ -204,7 +210,9 @@ extension BotStore {
         entries[entry.botId]?.removeAll { $0.id == entry.id }
         // The same clientNonce: if the computer got it after all, it won't run twice (the host
         // skips a nonce it has). Every seal still takes a fresh ephemeral key (§6.4).
-        send(text, to: entry.botId, thread: entry.threadId, nonce: entry.data.clientNonce ?? UUID().uuidString, files: files)
+        send(text, to: entry.botId, thread: entry.threadId, nonce: entry.data.clientNonce ?? UUID().uuidString, files: files,
+             newTask: entry.data.clientNonce.map { outgoingNewTasks.contains($0) } ?? false,
+             start: entry.data.clientNonce.flatMap { outgoingStarts[$0] })
     }
 
     /// A sent file's bytes: on disk after the first fetch (sent files never change).

@@ -18,6 +18,20 @@ public enum TermEvent: Sendable {
     case exit(Int)
 }
 
+/// A `thread` response: the replies and, from a host that has place folders, where the thread works.
+struct ThreadPage: Decodable {
+    var entries: [Entry]
+    var folder: PlaceFolder?
+
+    private enum CodingKeys: String, CodingKey { case entries, folder }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        entries = try c.decode([Entry].self, forKey: .entries)
+        folder = try? c.decodeIfPresent(PlaceFolder.self, forKey: .folder)
+    }
+}
+
 public struct Empty: Codable, Sendable {
     public init() {}
 }
@@ -25,14 +39,14 @@ public struct Empty: Codable, Sendable {
 /// A full editor update must explicitly clear a previous model override.
 struct BotUpdate: Encodable {
     let draft: BotDraft
-    private enum CodingKeys: String, CodingKey { case model }
+    private enum CodingKeys: String, CodingKey { case model, project }
 
     func encode(to encoder: Encoder) throws {
         try draft.encode(to: encoder)
-        if draft.model == nil {
-            var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encodeNil(forKey: .model)
-        }
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        if draft.model == nil { try container.encodeNil(forKey: .model) }
+        // The host reads null as "no default project".
+        if draft.project == nil { try container.encodeNil(forKey: .project) }
     }
 }
 
@@ -136,9 +150,13 @@ public extension HostClient {
 
     /// A thread's replies (the root is in the main chat).
     func thread(botId: String, rootId: String) async throws -> [Entry] {
-        struct Res: Decodable { var entries: [Entry] }
-        let res: Res = try await call("thread", ["botId": botId, "rootId": rootId])
-        return res.entries
+        try await threadPage(botId: botId, rootId: rootId).entries
+    }
+
+    /// A thread's replies and the folder it works in (nil from an older host).
+    func threadPage(botId: String, rootId: String) async throws -> (entries: [Entry], folder: PlaceFolder?) {
+        let res: ThreadPage = try await call("thread", ["botId": botId, "rootId": rootId])
+        return (res.entries, res.folder)
     }
 
     /// The newest 200 bot-to-bot notices between a bot's chat and a peer, oldest first.
@@ -205,15 +223,17 @@ public extension HostClient {
     /// `threadId`: reply in the thread on that main-chat message.
     /// `pasted`: what the user pasted rather than typed, which memory never takes as their own words.
     /// `newTask`: start a task of its own rather than go on with the current one.
+    /// `start`: the project or folder the place this message runs in starts in.
     func send(botId: String, text: String, clientNonce: String, threadId: String? = nil, attachments: [String]? = nil,
-              pasted: [String]? = nil, newTask: Bool = false) async throws -> Entry {
+              pasted: [String]? = nil, newTask: Bool = false, start: FolderChoice? = nil) async throws -> Entry {
         struct Body: Encodable {
             var botId: String; var text: String; var clientNonce: String; var threadId: String?; var attachments: [String]?
-            var pasted: [String]?; var newTask: Bool?
+            var pasted: [String]?; var newTask: Bool?; var project: String?; var folder: String?
         }
         struct Res: Decodable { var entry: Entry }
         let body = Body(botId: botId, text: text, clientNonce: clientNonce, threadId: threadId, attachments: attachments,
-                        pasted: pasted?.isEmpty == false ? pasted : nil, newTask: newTask ? true : nil)
+                        pasted: pasted?.isEmpty == false ? pasted : nil, newTask: newTask ? true : nil,
+                        project: start?.projectId, folder: start?.folderPath)
         let res: Res = try await call("send", body)
         return res.entry
     }
@@ -293,9 +313,41 @@ public extension HostClient {
         try await call("usage", ["refresh": refresh])
     }
 
-    func listDirs(_ path: String?) async throws -> DirListing {
-        struct Body: Encodable { var path: String? }
-        return try await call("listDirs", Body(path: path))
+    func listDirs(_ path: String?, showHidden: Bool = false) async throws -> DirListing {
+        struct Body: Encodable { var path: String?; var showHidden: Bool? }
+        return try await call("listDirs", Body(path: path, showHidden: showHidden ? true : nil))
+    }
+
+    // MARK: place folders
+
+    func projects(refresh: Bool = false) async throws -> ProjectList {
+        struct Body: Encodable { var refresh: Bool? }
+        return try await call("projects", Body(refresh: refresh ? true : nil), timeout: 30)
+    }
+
+    func recentFolders() async throws -> [RecentFolder] {
+        struct Res: Decodable { var folders: [RecentFolder] }
+        let res: Res = try await call("recentFolders")
+        return res.folders
+    }
+
+    /// Points a place at a project, a folder, or (`nil`) back at what it inherits. The place starts a fresh session
+    /// when the folder it works in changes. `chat`: a group's id, with `botId` the member whose lane it is.
+    func setPlaceFolder(botId: String, threadId: String? = nil, chat: String? = nil, to choice: FolderChoice?) async throws -> PlaceFolder {
+        struct Body: Encodable {
+            var botId: String; var threadId: String?; var chat: String?
+            var project: String?; var folder: String?; var clear: Bool?
+        }
+        struct Res: Decodable { var folder: PlaceFolder }
+        let res: Res = try await call("setPlaceFolder", Body(botId: botId, threadId: threadId, chat: chat, project: choice?.projectId,
+                                                              folder: choice?.folderPath, clear: choice == nil ? true : nil))
+        return res.folder
+    }
+
+    func registerProject(id: String, path: String) async throws -> HQProject {
+        struct Res: Decodable { var project: HQProject }
+        let res: Res = try await call("registerProject", ["id": id, "path": path], timeout: 30)
+        return res.project
     }
 
     // MARK: remote screen

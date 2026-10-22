@@ -22,6 +22,7 @@ struct RepliesView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Thread").font(.body.weight(.semibold)).foregroundStyle(Palette.text)
                     Text(chat?.name ?? "").font(.caption).foregroundStyle(Palette.tertiary).lineLimit(1)
+                    PlaceFolderChip(botId: botId, thread: rootId)
                 }
                 Spacer(minLength: 8)
                 IconButton("Close thread", systemImage: "xmark", action: close)
