@@ -323,7 +323,7 @@ struct Composer: View {
         switch startFolder {
         case .project(let id): id
         case .folder(let path): (path as NSString).lastPathComponent
-        case nil: bot?.folder?.name ?? "Default folder"
+        case nil: "Default folder"
         }
     }
 

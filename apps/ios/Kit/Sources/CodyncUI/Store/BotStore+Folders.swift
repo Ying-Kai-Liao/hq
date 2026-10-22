@@ -11,6 +11,13 @@ extension BotStore {
         return threadFolders[Self.threadFolderKey(botId, thread)]
     }
 
+    /// Re-reads the folder of each thread of `botId` this device has opened.
+    func refreshThreadFolders(_ botId: String) {
+        let roots = threadFolders.keys.filter { $0.hasPrefix(botId + "/") }.map { String($0.dropFirst(botId.count + 1)) }
+        guard !roots.isEmpty else { return }
+        Task { for root in roots { await loadThread(botId, root: root) } }
+    }
+
     public func projects(refresh: Bool = false) async throws -> ProjectList {
         try await ready().projects(refresh: refresh)
     }

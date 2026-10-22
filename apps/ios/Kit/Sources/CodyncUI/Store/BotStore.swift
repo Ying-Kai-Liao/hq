@@ -100,6 +100,8 @@ public final class BotStore {
     @ObservationIgnored var outgoingFiles: [String: [OutgoingFile]] = [:]
     /// The folder chosen up front for messages not delivered yet (by client nonce), kept for a retry.
     @ObservationIgnored var outgoingStarts: [String: FolderChoice] = [:]
+    /// Messages not delivered yet that start a task: a retry must start one too, not continue the current task.
+    @ObservationIgnored var outgoingNewTasks: Set<String> = []
 
     var rev: Int64 = 0
     var hostId: String?

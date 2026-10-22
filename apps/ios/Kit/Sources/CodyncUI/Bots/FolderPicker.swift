@@ -184,6 +184,8 @@ private struct FolderLevel: View {
 
     private func load() async {
         error = nil
+        // Not the old folder's rows while the new one loads, nor after it failed.
+        listing = nil
         do { listing = try await model.listDirs(path, showHidden: showHidden) } catch { self.error = error.localizedDescription }
     }
 }

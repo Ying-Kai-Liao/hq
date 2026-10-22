@@ -93,8 +93,11 @@ extension BotStore {
             bump(rev)
         case let .bot(bot):
             let neededInput = bots[bot.id]?.needsInput == true
+            let before = bots[bot.id]
             bots[bot.id] = bot
             bump(bot.rev)
+            // A folder change from another client moves no status: re-read the threads whose folder is shown.
+            if before?.status == bot.status, before?.workingThread == bot.workingThread { refreshThreadFolders(bot.id) }
             onBotUpdated?(bot)
             onRosterChanged?()
             if bot.unread > 0 { acknowledgeVisibleConversations(bot.id) }

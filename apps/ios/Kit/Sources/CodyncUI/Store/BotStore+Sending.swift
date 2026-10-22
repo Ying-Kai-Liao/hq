@@ -73,6 +73,7 @@ extension BotStore {
         storage.lastComputerId = computer.id
         if let bot = bots[botId] { onSent?(bot, .sending) }
         if let start { outgoingStarts[nonce] = start }
+        if newTask { outgoingNewTasks.insert(nonce) }
         // The relay mailbox holds text only: files and a starting folder wait for the computer.
         if canQueue, files.isEmpty, start == nil, let remote = transport as? any RemoteTransport {
             enqueue(remote, text: trimmed, botId: botId, thread: thread, nonce: nonce)
@@ -103,6 +104,7 @@ extension BotStore {
                 }
                 outgoingFiles[nonce] = nil
                 outgoingStarts[nonce] = nil
+                outgoingNewTasks.remove(nonce)
                 upsert(e)
                 if let bot = bots[botId] { onSent?(bot, .delivered) }
             } catch {
@@ -209,6 +211,7 @@ extension BotStore {
         // The same clientNonce: if the computer got it after all, it won't run twice (the host
         // skips a nonce it has). Every seal still takes a fresh ephemeral key (§6.4).
         send(text, to: entry.botId, thread: entry.threadId, nonce: entry.data.clientNonce ?? UUID().uuidString, files: files,
+             newTask: entry.data.clientNonce.map { outgoingNewTasks.contains($0) } ?? false,
              start: entry.data.clientNonce.flatMap { outgoingStarts[$0] })
     }
 

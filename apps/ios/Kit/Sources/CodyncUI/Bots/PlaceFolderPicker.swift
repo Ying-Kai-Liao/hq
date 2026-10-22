@@ -7,7 +7,7 @@ struct PlaceFolderPicker: View {
     /// What the place works in now, to mark it.
     let current: PlaceFolder?
     /// "Use default" (clear) is offered: the place has its own pick to forget.
-    var offersDefault = true
+    var offersDefault: Bool
     /// Called with the choice; nil means the default. The sheet closes after.
     let onChoose: (FolderChoice?) -> Void
 
@@ -45,7 +45,7 @@ struct PlaceFolderPicker: View {
             ModalHeader("Working folder")
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    if offersDefault, current?.inherited == false {
+                    if offersDefault {
                         CardSection {
                             row("Use default", detail: "What the bot works in unless told otherwise", icon: "arrow.uturn.backward") { finish(nil) }
                         }
@@ -236,7 +236,8 @@ struct PlaceFolderChip: View {
     private var bot: Bot? { model.bots[botId] }
     private var folder: PlaceFolder? { model.placeFolder(botId, thread: thread) }
     private var hasMessages: Bool {
-        thread.map { !model.replies(botId, root: $0).isEmpty } ?? !model.chat(botId).isEmpty
+        // A thread has its root message, so a change there always starts over something.
+        thread != nil || !model.chat(botId).isEmpty
     }
 
     var body: some View {
@@ -249,7 +250,7 @@ struct PlaceFolderChip: View {
             }
         }
         .codyncSheet(isPresented: $picking) {
-            PlaceFolderPicker(current: folder) { choice in
+            PlaceFolderPicker(current: folder, offersDefault: folder?.inherited == false) { choice in
                 if hasMessages {
                     // After the sheet has gone, or the dialog would have nothing to appear over.
                     Task {
