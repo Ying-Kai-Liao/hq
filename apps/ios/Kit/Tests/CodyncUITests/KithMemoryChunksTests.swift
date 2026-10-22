@@ -11,7 +11,7 @@ import Testing
 
 @Test func aHugeUnbrokenFileStillSplits() {
     let text = (1...450).map { "line \($0)" }.joined(separator: "\n")
-    #expect(KithMemoryChunks.split(text).map(\.line) == [1, 201, 401])
+    #expect(KithMemoryChunks.split(text).map(\.line) == [1, 61, 121, 181, 241, 301, 361, 421])
     #expect(KithMemoryChunks.split("").isEmpty == false)
 }
 

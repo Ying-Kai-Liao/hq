@@ -25,7 +25,9 @@ struct KithIdentityLine: View {
     var body: some View {
         HStack(spacing: 6) {
             Text("kith · \(agent)")
-            if let package = store.info?.package, let chip = package.chip {
+            if store.info?.errors["package"] != nil {
+                Text("Couldn't read the package").font(.caption)
+            } else if let package = store.info?.package, let chip = package.chip {
                 Text(chip)
                     .font(.caption.monospaced())
                     .padding(.horizontal, 7)
@@ -272,7 +274,7 @@ struct KithDetailsSections: View {
 
     @ViewBuilder private func model(_ info: KithInfo) -> some View {
         let rows: [(String, String?)] = [("Model", info.model), ("Effort", info.effort), ("Permission", info.permissionMode),
-                                         ("Harness", info.harness), ("Read-only", "yes")]
+                                         ("Harness", info.harness)]
         KithCard(title: "Model & permissions") {
             ForEach(rows.filter { $0.1 != nil }, id: \.0) { label, value in
                 HStack {

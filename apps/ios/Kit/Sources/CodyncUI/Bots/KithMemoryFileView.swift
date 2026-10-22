@@ -1,7 +1,7 @@
 import CodyncKit
 import SwiftUI
 
-/// A file split where a reader can jump to a line: at blank lines outside code fences, and every 200 lines at most.
+/// A file split where a reader can jump to a line: at blank lines outside code fences, and every 60 lines at most.
 enum KithMemoryChunks {
     struct Chunk: Equatable {
         /// The 1-based line the chunk starts on.
@@ -21,7 +21,7 @@ enum KithMemoryChunks {
             current.append(line)
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { fenced.toggle() }
-            if (trimmed.isEmpty && !fenced) || (current.count >= 200 && (raw || !fenced)) {
+            if (trimmed.isEmpty && !fenced) || (current.count >= maxLines && (raw || !fenced)) {
                 chunks.append(Chunk(line: start, text: current.joined(separator: "\n")))
                 current = []
             }
@@ -42,6 +42,8 @@ enum KithMemoryChunks {
 
     /// The chunk a line falls in.
     static let pieceSize = 4000
+    /// Short enough that a search hit lands close to its line.
+    static let maxLines = 60
 
     static func index(of line: Int, in chunks: [Chunk]) -> Int? {
         chunks.lastIndex { $0.line <= line }
@@ -126,7 +128,7 @@ struct KithMemoryFileView: View {
 
     private func scroll(_ proxy: ScrollViewProxy) {
         guard let line = target.line, let index = KithMemoryChunks.index(of: line, in: chunks) else { return }
-        proxy.scrollTo(max(index - 1, 0), anchor: .top)
+        proxy.scrollTo(index, anchor: .top)
     }
 
     private func load() async {
