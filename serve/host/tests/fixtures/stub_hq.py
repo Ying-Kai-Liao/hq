@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""A stand-in for the `hq` CLI: `ls --json` lists one agent, `<agent> --launch-json` describes how to start it,
+"""A stand-in for the `kith` CLI: `ls --json` lists one agent, `<agent> --launch-json` describes how to start it,
 `project ls --json` lists the projects in `projects.json` (`{"projects": [...]}`) and `project add <id> <path>` adds one.
 
-STUB_HQ_HOME is the agent's folder. Every call is appended to calls.jsonl there (arguments, HQ_VIA, working
+STUB_HQ_HOME is the agent's folder. Every call is appended to calls.jsonl there (arguments, KITH_VIA, working
 directory). A file named `fail` in that folder makes --launch-json fail with its text on stderr.
 """
 import json
@@ -12,7 +12,7 @@ import sys
 home = os.environ["STUB_HQ_HOME"]
 args = sys.argv[1:]
 with open(os.path.join(home, "calls.jsonl"), "a", encoding="utf-8") as log:
-    log.write(json.dumps({"args": args, "via": os.environ.get("HQ_VIA"), "cwd": os.getcwd()}) + "\n")
+    log.write(json.dumps({"args": args, "via": os.environ.get("KITH_VIA") or os.environ.get("HQ_VIA"), "cwd": os.getcwd()}) + "\n")
 
 if args == ["ls", "--json"]:
     print(json.dumps([{"name": "house", "description": "Keeps the house", "home": home, "model": None,
@@ -37,7 +37,7 @@ elif args[:2] == ["house", "--launch-json"]:
     model = args[args.index("-m") + 1] if "-m" in args else "haiku"
     print(json.dumps({
         "version": 1, "agent": "house", "agent_version": "v1", "harness": "claude", "cwd": home,
-        "env": {"HQ_AGENT": "house", "HQ_VIA": os.environ.get("HQ_VIA", ""), "HQ_MODEL": model},
+        "env": {"KITH_AGENT": "house", "HQ_AGENT": "house", "KITH_VIA": os.environ.get("KITH_VIA", ""), "HQ_VIA": os.environ.get("KITH_VIA", ""), "KITH_MODEL": model, "HQ_MODEL": model},
         "system_prompt": "You are house, the household keeper.",
         "settings": {"hooks": {"SessionStart": []}},
         "mcp_servers": {"pantry": {"command": "pantry-mcp", "args": [], "env": {}}},

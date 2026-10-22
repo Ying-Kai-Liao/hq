@@ -6,7 +6,7 @@ import type { AccountService } from './account'
 
 /**
  * The Codync cloud's user-facing `/v1` API (§8.4) with this install's device key (§3.2): an
- * Ed25519 key per account, kept encrypted with the OS keychain, that signs `Codync-Sig` (§5).
+ * Ed25519 key per account, kept encrypted with the OS keychain, that signs `Kith-Sig` (§5).
  */
 
 const b64url = (b: Buffer) => b.toString('base64url')
@@ -51,11 +51,11 @@ function publicFromSeed(seed: Buffer) {
   return (pub.export({ format: 'jwk' }) as { x: string }).x
 }
 
-/** `Codync-Sig: v=1,kid,ts,nonce,sig` over method, authority, path and the body's hash. */
+/** `Kith-Sig: v=1,kid,ts,nonce,sig` over method, authority, path and the body's hash. */
 function signatureHeader(id: Identity, method: string, url: URL, body: Buffer) {
   const ts = Date.now()
   const nonce = b64url(randomBytes(16))
-  const input = ['codync-sig-v1', method.toUpperCase(), url.host.toLowerCase(), `${url.pathname || '/'}${url.search}`, String(ts), nonce, b64url(createHash('sha256').update(body).digest())].join('\n')
+  const input = ['kith-sig-v1', method.toUpperCase(), url.host.toLowerCase(), `${url.pathname || '/'}${url.search}`, String(ts), nonce, b64url(createHash('sha256').update(body).digest())].join('\n')
   const sig = sign(null, Buffer.from(input), id.key)
   return `v=1,kid=${id.publicKey},ts=${ts},nonce=${nonce},sig=${b64url(sig)}`
 }
@@ -80,7 +80,7 @@ export function registerCloud(account: AccountService) {
       return { ok: false, error: { status: 401, code: 'signedOut', message: error instanceof Error ? error.message : 'Sign in again.' } }
     }
     if (body !== undefined) headers['Content-Type'] = 'application/json'
-    if (signed) headers['Codync-Sig'] = signatureHeader(await identity(user.userId), method, url, payload)
+    if (signed) headers['Kith-Sig'] = signatureHeader(await identity(user.userId), method, url, payload)
     try {
       const res = await fetch(url, { method, headers, body: body === undefined ? undefined : payload, signal: AbortSignal.timeout(20_000) })
       const text = await res.text()

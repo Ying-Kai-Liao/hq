@@ -1,5 +1,5 @@
 # The user
-updated: never   source: hq init (the builder fills this in with you: tell it about yourself)
+updated: never   source: kith init (the builder fills this in with you: tell it about yourself)
 
 Every agent reads this file before it works for you. Keep it short and true; the agents add to it as they learn.
 

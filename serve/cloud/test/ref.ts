@@ -72,13 +72,25 @@ export function boxKey(priv: Uint8Array = random(32)): BoxKey {
   return { priv, pub: x25519.getPublicKey(priv) };
 }
 
-// ---- Codync-Sig (§5) ----
+// ---- label family ----
+
+/** Which labels the reference side speaks. New pairings use "kith"; the vectors also pin "codync" (pairings made before the rename). */
+export type Family = "kith" | "codync";
+export let family: Family = "kith";
+export const useFamily = (f: Family) => {
+  family = f;
+};
+const label = (rest: string) => `${family}/${rest}`;
+/** The signature header name for the current family. */
+export const sigHeader = () => (family === "kith" ? "Kith-Sig" : "Codync-Sig");
+
+// ---- Kith-Sig (§5) ----
 
 export function sigCanonical(method: string, authority: string, pathAndQuery: string, ts: number, nonce: string, body: Uint8Array) {
-  return ["codync-sig-v1", method.toUpperCase(), authority.toLowerCase(), pathAndQuery, String(ts), nonce, b64url(sha256(body))].join("\n");
+  return [`${family}-sig-v1`, method.toUpperCase(), authority.toLowerCase(), pathAndQuery, String(ts), nonce, b64url(sha256(body))].join("\n");
 }
 
-/** The `Codync-Sig` header value. */
+/** The `Kith-Sig` header value. */
 export function signRequest(
   key: SignKey,
   req: { method: string; authority: string; pathAndQuery: string; body?: Uint8Array; ts?: number; nonce?: string },
@@ -92,10 +104,10 @@ export function signRequest(
 // ---- handshake (§6.2) ----
 
 export const hs1Input = (cid: Uint8Array, dk: Uint8Array, ekD: Uint8Array, n: Uint8Array) =>
-  concat(enc.encode("codync/hs1/v1"), cid, dk, ekD, n);
+  concat(enc.encode(label("hs1/v1")), cid, dk, ekD, n);
 
 export const transcriptHash = (cid: Uint8Array, dk: Uint8Array, ekD: Uint8Array, n: Uint8Array, ekH: Uint8Array) =>
-  sha256(concat(enc.encode("codync/hs2/v1"), cid, dk, ekD, n, ekH));
+  sha256(concat(enc.encode(label("hs2/v1")), cid, dk, ekD, n, ekH));
 
 export interface ChannelKeys {
   d2h: Uint8Array;
@@ -108,8 +120,8 @@ export function channelKeys(ekPriv: Uint8Array, peerEk: Uint8Array, th: Uint8Arr
   return {
     ss,
     prk,
-    d2h: expand(sha256, prk, enc.encode("codync/d2h/v1"), 32),
-    h2d: expand(sha256, prk, enc.encode("codync/h2d/v1"), 32),
+    d2h: expand(sha256, prk, enc.encode(label("d2h/v1")), 32),
+    h2d: expand(sha256, prk, enc.encode(label("h2d/v1")), 32),
   };
 }
 
@@ -157,7 +169,7 @@ export function hostWelcome(host: SignKey, hello: { dk: string; ek: string; n: s
 export const CHUNK = 256 * 1024;
 
 const frameNonce = (c: number) => concat(new Uint8Array(4), u64be(c));
-const frameAad = (c: number) => concat(enc.encode("codync/frame/v1"), u64be(c));
+const frameAad = (c: number) => concat(enc.encode(label("frame/v1")), u64be(c));
 
 export function sealFrame(key: Uint8Array, c: number, final: boolean, chunk: Uint8Array): string {
   const plaintext = concat(new Uint8Array([final ? 0 : 1]), chunk);
@@ -213,8 +225,8 @@ export class FrameCodec {
 // ---- mailbox (§6.4) ----
 
 export function mailboxKey(ss: Uint8Array, cid: Uint8Array, dk: Uint8Array, epk: Uint8Array) {
-  const prk = extract(sha256, ss, concat(enc.encode("codync/mbox/v1"), cid, dk, epk));
-  return expand(sha256, prk, enc.encode("codync/mbox-key/v1"), 32);
+  const prk = extract(sha256, ss, concat(enc.encode(label("mbox/v1")), cid, dk, epk));
+  return expand(sha256, prk, enc.encode(label("mbox-key/v1")), 32);
 }
 
 /** Seals one mailbox item. A fresh ephemeral key every call (MUST): the AEAD nonce is fixed. */
@@ -222,7 +234,7 @@ export function sealMailbox(device: SignKey, hostSignPub: Uint8Array, hostBoxPub
   const cid = cidRaw(hostSignPub);
   const key = mailboxKey(dh(eph.priv, hostBoxPub), cid, device.pub, eph.pub);
   const ct = chacha20poly1305(key, new Uint8Array(12), concat(device.pub, enc.encode(clientNonce))).encrypt(enc.encode(inner));
-  const sig = sign(device, concat(enc.encode("codync/mbox/v1"), cid, eph.pub, ct));
+  const sig = sign(device, concat(enc.encode(label("mbox/v1")), cid, eph.pub, ct));
   return concat(eph.pub, sig, ct);
 }
 
@@ -231,24 +243,24 @@ export function openMailbox(hostSignPub: Uint8Array, hostBox: BoxKey, dk: Uint8A
   const epk = blob.subarray(0, 32);
   const sig = blob.subarray(32, 96);
   const ct = blob.subarray(96);
-  if (!verify(dk, sig, concat(enc.encode("codync/mbox/v1"), cid, epk, ct))) throw new Error("mailbox signature doesn't verify");
+  if (!verify(dk, sig, concat(enc.encode(label("mbox/v1")), cid, epk, ct))) throw new Error("mailbox signature doesn't verify");
   const key = mailboxKey(dh(hostBox.priv, epk), cid, dk, epk);
   return dec.decode(chacha20poly1305(key, new Uint8Array(12), concat(dk, enc.encode(clientNonce))).decrypt(ct));
 }
 
 // ---- SAS, pairing offer, claim, ACL, push ----
 
-export const sasCommit = (dk: Uint8Array, nD: Uint8Array) => sha256(concat(enc.encode("codync/sascommit/v1"), dk, nD));
+export const sasCommit = (dk: Uint8Array, nD: Uint8Array) => sha256(concat(enc.encode(label("sascommit/v1")), dk, nD));
 
 export function sasCode(hostSignPub: Uint8Array, dk: Uint8Array, nD: Uint8Array, nH: Uint8Array): string {
-  const h = sha256(concat(enc.encode("codync/sas/v2"), hostSignPub, dk, nD, nH));
+  const h = sha256(concat(enc.encode(label("sas/v2")), hostSignPub, dk, nD, nH));
   return String(new DataView(h.buffer, h.byteOffset).getUint32(0) % 1_000_000).padStart(6, "0");
 }
 
-export const offerId = (code: Uint8Array) => b64url(sha256(concat(enc.encode("codync/offer/v1"), code)).subarray(0, 16));
+export const offerId = (code: Uint8Array) => b64url(sha256(concat(enc.encode(label("offer/v1")), code)).subarray(0, 16));
 
-export const claimCanonical = (claimId: string, nonce: string, userId: string, computerId: string, boxKey: string) =>
-  ["codync/claim/v1", claimId, nonce, userId, computerId, boxKey].join("\n");
+export const claimCanonical = (claimId: string, nonce: string, userId: string, computerId: string, boxKey: string, f: Family = family) =>
+  [`${f}/claim/v1`, claimId, nonce, userId, computerId, boxKey].join("\n");
 
 export interface AclBody {
   v: 1;
@@ -265,8 +277,8 @@ export function aclMessage(host: SignKey, acl: AclBody | string) {
 }
 
 export function pushKey(ss: Uint8Array, cid: Uint8Array, pushPub: Uint8Array, epk: Uint8Array) {
-  const prk = extract(sha256, ss, concat(enc.encode("codync/push/v1"), cid, pushPub, epk));
-  return expand(sha256, prk, enc.encode("codync/push-key/v1"), 32);
+  const prk = extract(sha256, ss, concat(enc.encode(label("push/v1")), cid, pushPub, epk));
+  return expand(sha256, prk, enc.encode(label("push-key/v1")), 32);
 }
 
 export function sealPush(hostSignPub: Uint8Array, pushPub: Uint8Array, plaintext: string, eph = boxKey()): string {

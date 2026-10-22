@@ -1,3 +1,4 @@
+import { mirrorStamp } from '@shared/mirror-stamp'
 import { checkVersions, isBelow, type VersionMismatch } from '@shared/compat'
 import {
   type AccessRequest,
@@ -240,7 +241,7 @@ export class BotMirror extends Observable {
       kept.push(...list.filter((e) => !e.id.startsWith('local-')).slice(-200))
       kept.push(...list.filter((e) => e.id.startsWith('local-') && e.data.status === 'failed'))
     }
-    const cache = { stamp: `${this.appVersion}/${this.hello?.version ?? ''}`, hostId: this.hostId, rev: this.rev, bots: [...this.bots.values()], entries: kept }
+    const cache = { stamp: mirrorStamp(this.appVersion, this.hello?.version ?? ''), hostId: this.hostId, rev: this.rev, bots: [...this.bots.values()], entries: kept }
     try {
       localStorage.setItem(this.cacheKey, JSON.stringify(cache))
     } catch {}

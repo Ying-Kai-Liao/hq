@@ -1,4 +1,4 @@
-// Authentication: Clerk session JWTs (users) and Codync-Sig (host and device keys, spec §5).
+// Authentication: Clerk session JWTs (users) and Kith-Sig (host and device keys, spec §5; the pre-rename Codync-Sig is still accepted).
 
 import { verifyToken } from "@clerk/backend";
 import type { Env } from "./index";
@@ -53,7 +53,11 @@ export async function verifyEd25519(pub: Uint8Array, sig: Uint8Array, msg: Uint8
   }
 }
 
-// ---- Codync-Sig (§5) ----
+// ---- Kith-Sig (§5) ----
+
+/** Label families, newest first: peers that haven't updated yet still sign with `codync`. */
+export const LABEL_FAMILIES = ["kith", "codync"] as const;
+export type LabelFamily = (typeof LABEL_FAMILIES)[number];
 
 export const SIG_WINDOW_MS = 300_000;
 export const NONCE_TTL_MS = 600_000;
@@ -64,7 +68,7 @@ export interface SignedRequest {
   nonce: string;
 }
 
-/** The exact bytes a Codync-Sig signs. */
+/** The exact bytes a Kith-Sig (or, with `family` "codync", a Codync-Sig) signs. */
 export async function sigCanonical(
   method: string,
   authority: string,
@@ -72,8 +76,9 @@ export async function sigCanonical(
   ts: number,
   nonce: string,
   body: Uint8Array,
+  family: LabelFamily = "kith",
 ): Promise<string> {
-  return ["codync-sig-v1", method.toUpperCase(), authority.toLowerCase(), pathAndQuery, String(ts), nonce, b64url(await sha256(body))].join("\n");
+  return [`${family}-sig-v1`, method.toUpperCase(), authority.toLowerCase(), pathAndQuery, String(ts), nonce, b64url(await sha256(body))].join("\n");
 }
 
 /**
@@ -81,7 +86,7 @@ export async function sigCanonical(
  * D1 `sig_nonces` for HTTP, the DO's `nonces` table for relay sockets. `null` = reject.
  */
 export async function verifySig(req: Request, body: Uint8Array, now = Date.now()): Promise<SignedRequest | null> {
-  const header = req.headers.get("Codync-Sig");
+  const header = req.headers.get("Kith-Sig") ?? req.headers.get("Codync-Sig");
   if (!header) return null;
   const f = new Map<string, string>();
   for (const part of header.split(",")) {
@@ -97,9 +102,12 @@ export async function verifySig(req: Request, body: Uint8Array, now = Date.now()
   const ts = Number(tsText);
   if (Math.abs(now - ts) > SIG_WINDOW_MS) return null;
   const url = new URL(req.url);
-  const canonical = await sigCanonical(req.method, url.host, url.pathname + url.search, ts, nonce, body);
-  if (!(await verifyEd25519(pub, sig, utf8(canonical)))) return null;
-  return { kid: f.get("kid")!, ts, nonce };
+  // The signed prefix says which family signed; either header name may carry either.
+  for (const family of LABEL_FAMILIES) {
+    const canonical = await sigCanonical(req.method, url.host, url.pathname + url.search, ts, nonce, body, family);
+    if (await verifyEd25519(pub, sig, utf8(canonical))) return { kid: f.get("kid")!, ts, nonce };
+  }
+  return null;
 }
 
 // ---- Clerk (§8.3) ----

@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Resolve the hq project for a directory. Never registers anything on its own.
+"""Resolve the kith project for a directory. Never registers anything on its own.
 
   project-id [dir]                 print the ID whose remotes/paths match dir (default: cwd);
                                    print nothing and exit 1 when no project matches
@@ -18,17 +18,17 @@
 
 A project is a named thing; remotes and paths are aliases that point to it. Add a remote or path to keep a
 project's memory after a rename, move or re-clone. A project may sit in a parent (a client, a company, a line of
-research holding several repos), and may have a home: a folder of the user's own, anywhere, for its files. hq only
+research holding several repos), and may have a home: a folder of the user's own, anywhere, for its files. kith only
 points at a home; it never lays one out. A path alias also matches the folders inside it, the longest alias winning.
 A repo is registered by its remote and by where it is checked out, so its parent knows where to find it on this Mac.
 """
 import json, os, re, subprocess, sys
 
 HOME = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-# The registry is state: <home>/state (lib/hq_paths.py).
+# The registry is state: <home>/state (lib/kith_paths.py).
 sys.path.insert(0, os.path.join(HOME, "lib"))
-from hq_paths import paths  # noqa: E402
-STATE = str(paths()["HQ_STATE"])
+from kith_paths import paths  # noqa: E402
+STATE = str(paths()["KITH_STATE"])
 REG = os.path.join(STATE, "projects.json")
 ROOT = "~/Documents"   # where a new project's home goes unless projects.json says "homes"
 

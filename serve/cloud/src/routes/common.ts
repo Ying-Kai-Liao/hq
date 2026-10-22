@@ -52,7 +52,7 @@ export interface Ctx {
   env: Env;
   exec: ExecutionContext;
   url: URL;
-  /** Raw body bytes: Codync-Sig hashes exactly these. */
+  /** Raw body bytes: Kith-Sig hashes exactly these. */
   raw: Uint8Array;
   now: number;
 }
@@ -116,7 +116,7 @@ export async function user(c: Ctx): Promise<User> {
   return { userId: clerk.userId, email: row.email, createdAt: row.created_at };
 }
 
-/** Codync-Sig with D1 replay protection (§5). */
+/** Kith-Sig (or Codync-Sig) with D1 replay protection (§5). */
 export async function signed(c: Ctx): Promise<SignedRequest> {
   const s = await verifySig(c.req, c.raw, c.now);
   if (!s) throw new ApiError("badSignature");

@@ -44,14 +44,16 @@ public struct DeviceIdentity: Sendable {
 
     func sign(_ data: Data) throws -> Data { try signing.signature(for: data) }
 
-    /// The `Codync-Sig` header value (§5).
+    /// The `Kith-Sig` header value (§5).
     public func signatureHeader(method: String, authority: String, pathAndQuery: String, body: Data) throws -> String {
         try signatureHeader(method: method, authority: authority, pathAndQuery: pathAndQuery, body: body,
                             ts: Int64(Date.now.timeIntervalSince1970 * 1000), nonce: Data.random(16).base64URL)
     }
 
-    func signatureHeader(method: String, authority: String, pathAndQuery: String, body: Data, ts: Int64, nonce: String) throws -> String {
-        let input = RelayCrypto.requestSigInput(method: method, authority: authority, pathAndQuery: pathAndQuery, ts: ts, nonce: nonce, body: body)
+    func signatureHeader(method: String, authority: String, pathAndQuery: String, body: Data, ts: Int64, nonce: String,
+                         family: LabelFamily = .kith) throws -> String {
+        let input = RelayCrypto.requestSigInput(method: method, authority: authority, pathAndQuery: pathAndQuery, ts: ts, nonce: nonce,
+                                                body: body, family: family)
         return "v=1,kid=\(publicKey),ts=\(ts),nonce=\(nonce),sig=\(try sign(input).base64URL)"
     }
 

@@ -176,7 +176,7 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
     let Transport { mut incoming, outgoing } = t;
     let Some(hs) = handshake(&hub, &mut incoming, &outgoing, &kind).await else { return };
     let (tx, rx) = mpsc::channel(256);
-    let mut writer = tokio::spawn(write_frames(Sealer::new(hs.keys.h2d), rx, outgoing));
+    let mut writer = tokio::spawn(write_frames(Sealer::new(hs.labels, hs.keys.h2d), rx, outgoing));
     let mut ch = Channel {
         hub,
         tx,
@@ -186,7 +186,7 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
         lease: None,
         online: None,
     };
-    let opener = Opener::new(hs.keys.d2h, MAX_INBOUND);
+    let opener = Opener::new(hs.labels, hs.keys.d2h, MAX_INBOUND);
     let (code, reason) = if let Some(d) = hs.device {
         ch.set_device(&d);
         ch.serve(&mut incoming, opener, &mut writer).await
@@ -215,6 +215,8 @@ pub async fn run(hub: Arc<Hub>, t: Transport, kind: ChannelKind) {
 
 struct Handshake {
     key: String,
+    /// The label family the device's `hello` verified under; the whole channel runs on it.
+    labels: crypto::Labels,
     keys: crypto::Keys,
     /// `None` for a pairing channel.
     device: Option<Device>,
@@ -286,23 +288,27 @@ async fn handshake(
         return None;
     };
     let cid = hub.identity.cid_raw();
-    if crypto::verify(&dk_raw, &crypto::hs1_input(&cid, &dk_raw, &ek_d, &n), &sig).is_err() {
+    // Devices paired before the rename sign under `codync/*`; the signature says which family this is.
+    let Some(labels) = crypto::Labels::ALL
+        .into_iter()
+        .find(|l| crypto::verify(&dk_raw, &crypto::hs1_input(*l, &cid, &dk_raw, &ek_d, &n), &sig).is_ok())
+    else {
         send_reject(out, RejectCode::BadSignature).await;
         return None;
-    }
+    };
     let ek_h = StaticSecret::from(crypto::random::<32>());
     let ek_h_pub = crypto::x25519_pub(&ek_h);
     let Ok(shared) = crypto::x25519(&ek_h, &ek_d) else {
         protocol_error().await;
         return None;
     };
-    let th = crypto::transcript_hash(&cid, &dk_raw, &ek_d, &n, &ek_h_pub);
+    let th = crypto::transcript_hash(labels, &cid, &dk_raw, &ek_d, &n, &ek_h_pub);
     let welcome =
         json!({"t": "welcome", "v": 1, "ek": crypto::b64(&ek_h_pub), "sig": crypto::b64(&hub.identity.sign(&th))});
     if out.send(Out::Msg(welcome)).await.is_err() {
         return None;
     }
-    Some(Handshake { key: dk, keys: crypto::channel_keys(&shared, &th), device })
+    Some(Handshake { key: dk, labels, keys: crypto::channel_keys(labels, &shared, &th), device })
 }
 
 enum Job {
@@ -628,6 +634,7 @@ mod tests {
         rx: mpsc::Receiver<Out>,
         sealer: Option<Sealer>,
         opener: Option<Opener>,
+        labels: crypto::Labels,
         /// The host's side of this channel.
         run: tokio::task::JoinHandle<()>,
     }
@@ -637,7 +644,7 @@ mod tests {
             let (tx, incoming) = mpsc::channel(64);
             let (outgoing, rx) = mpsc::channel(64);
             let run = tokio::spawn(run(hub.clone(), Transport { incoming, outgoing }, kind));
-            Self { key, tx, rx, sealer: None, opener: None, run }
+            Self { key, tx, rx, sealer: None, opener: None, labels: crypto::Labels::Kith, run }
         }
 
         fn direct(hub: &Arc<Hub>, key: SigningKey) -> Self {
@@ -658,7 +665,7 @@ mod tests {
             let n = crypto::random::<32>();
             let dk = self.key.verifying_key().to_bytes();
             let cid = hub.identity.cid_raw();
-            let sig = crypto::sign(&self.key, &crypto::hs1_input(&cid, &dk, &ek_pub, &n));
+            let sig = crypto::sign(&self.key, &crypto::hs1_input(self.labels, &cid, &dk, &ek_pub, &n));
             let hello = json!({"t": "hello", "v": 1, "dk": self.dk(), "ek": crypto::b64(&ek_pub),
                 "n": crypto::b64(&n), "sig": crypto::b64(&sig), "pair": pair});
             self.tx.send(hello).await.unwrap();
@@ -667,12 +674,12 @@ mod tests {
                 && w["t"] == "welcome"
             {
                 let ek_h: [u8; 32] = crypto::unb64_n(w["ek"].as_str().unwrap()).unwrap();
-                let th = crypto::transcript_hash(&cid, &dk, &ek_pub, &n, &ek_h);
+                let th = crypto::transcript_hash(self.labels, &cid, &dk, &ek_pub, &n, &ek_h);
                 crypto::verify(&hub.identity.sign_pub(), &th, &crypto::unb64_n(w["sig"].as_str().unwrap()).unwrap())
                     .expect("welcome is signed by the host");
-                let keys = crypto::channel_keys(&crypto::x25519(&ek, &ek_h).unwrap(), &th);
-                self.sealer = Some(Sealer::new(keys.d2h));
-                self.opener = Some(Opener::new(keys.h2d, 16 << 20));
+                let keys = crypto::channel_keys(self.labels, &crypto::x25519(&ek, &ek_h).unwrap(), &th);
+                self.sealer = Some(Sealer::new(self.labels, keys.d2h));
+                self.opener = Some(Opener::new(self.labels, keys.h2d, 16 << 20));
             }
             out
         }
@@ -751,6 +758,38 @@ mod tests {
         assert_eq!(hello["ok"]["computerId"], hub.identity.computer_id());
         let refused = connected.call(2, "setScreenEnabled", json!({"enabled": true})).await;
         assert_eq!(refused["err"]["status"], 403);
+    }
+
+    #[tokio::test]
+    async fn a_device_paired_with_codync_labels_still_connects() {
+        let hub = temp_hub();
+        let key = paired_phone(&hub).await;
+        let mut legacy = Phone::direct(&hub, key);
+        legacy.labels = crypto::Labels::Codync;
+        assert!(matches!(legacy.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+        let hello = legacy.call(1, "hello", json!({})).await;
+        assert_eq!(hello["ok"]["computerId"], hub.identity.computer_id(), "frames use the legacy labels both ways");
+    }
+
+    #[tokio::test]
+    async fn registering_a_device_records_the_labels_its_pushes_are_sealed_under() {
+        let hub = temp_hub();
+        let key = paired_phone(&hub).await;
+        let slot = format!("push_labels.{}", crypto::b64(key.verifying_key().as_bytes()));
+        let mut phone = Phone::direct(&hub, key);
+        assert!(matches!(phone.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
+        let body = |labels: Option<&str>| {
+            let mut b = json!({"ticket": "t1", "relay": "https://relay.example", "name": "iPhone"});
+            if let Some(l) = labels {
+                b["labels"] = l.into();
+            }
+            b
+        };
+        assert!(phone.call(1, "registerDevice", body(Some("kith"))).await["ok"].is_object());
+        assert_eq!(hub.store.kv_get(&slot).as_deref(), Some("kith"));
+        // A device that doesn't say (an app from before the rename) is back on the old labels.
+        assert!(phone.call(2, "registerDevice", body(None)).await["ok"].is_object());
+        assert_eq!(hub.store.kv_get(&slot), None);
     }
 
     #[tokio::test]

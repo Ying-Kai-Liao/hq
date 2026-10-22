@@ -33,6 +33,9 @@ struct Composer: View {
 
     /// The next message starts a task of its own.
     @State private var newTask = false
+    /// Where the new task starts, when picked up front; nil follows the bot's default.
+    @State private var startFolder: FolderChoice?
+    @State private var pickingFolder = false
 
     private var bot: Bot? { model.bots[botId] }
     private var tasks: Bool { thread == nil && bot?.usesTasks == true }
@@ -44,7 +47,8 @@ struct Composer: View {
 
     private var canSend: Bool {
         // Offline computers still take messages when the relay can hold them for it (text only).
-        !isEmpty && (model.connection == .online || (model.canQueue && files.isEmpty))
+        // A starting folder can't wait in the relay mailbox.
+        !isEmpty && (model.connection == .online || (model.canQueue && files.isEmpty && startFolder == nil))
     }
 
     private var canAttach: Bool { bot != nil }
@@ -297,10 +301,30 @@ struct Composer: View {
         HStack(spacing: 6) {
             Image(systemName: "square.and.pencil").font(.caption).foregroundStyle(Palette.accent)
             Text("New task").font(.subheadline).foregroundStyle(Palette.text)
-            IconButton("Go on with the current task", systemImage: "xmark") { newTask = false }
+            Button { pickingFolder = true } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: startFolder == nil ? "folder" : "folder.fill").font(.caption2)
+                    Text(startFolderName).font(.caption).lineLimit(1)
+                }
+                .foregroundStyle(startFolder == nil ? Palette.tertiary : Palette.accent)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Starting folder: \(startFolderName)")
+            IconButton("Go on with the current task", systemImage: "xmark") { newTask = false; startFolder = nil }
+        }
+        .codyncSheet(isPresented: $pickingFolder) {
+            PlaceFolderPicker(current: nil, offersDefault: startFolder != nil) { startFolder = $0 }
         }
         .padding(.leading, 18)
         .padding(.top, 8)
+    }
+
+    private var startFolderName: String {
+        switch startFolder {
+        case .project(let id): id
+        case .folder(let path): (path as NSString).lastPathComponent
+        case nil: "Default folder"
+        }
     }
 
     private var addLabel: some View {
@@ -387,10 +411,12 @@ struct Composer: View {
         if files.isEmpty, let command = SlashCommands.builtIn(for: bot, draft: draft) { return run(command) }
         guard canSend else { return }
         withAnimation(Motion.reduced(Motion.conversation, reduceMotion)) {
-            guard model.sendComposerDraft(to: botId, thread: thread, files: files, newTask: newTask) else { return }
+            guard model.sendComposerDraft(to: botId, thread: thread, files: files, newTask: newTask,
+                                           start: newTask ? startFolder : nil) else { return }
             draft = ""
             files = []
             newTask = false
+            startFolder = nil
         }
     }
 }

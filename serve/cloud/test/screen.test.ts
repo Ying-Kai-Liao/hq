@@ -22,7 +22,7 @@ function request(host: TestHost, overrides: Partial<Env> = {}, body = { deviceKe
   const bytes = ref.enc.encode(JSON.stringify(body));
   const sig = ref.signRequest(host.sign, { method: "POST", authority: AUTHORITY, pathAndQuery: path, body: bytes });
   return worker.fetch(new Request(ORIGIN + path, {
-    method: "POST", headers: { "Codync-Sig": sig }, body: bytes,
+    method: "POST", headers: { "Kith-Sig": sig }, body: bytes,
   }), { ...env, TURN_KEY_ID: "test-key", TURN_KEY_API_TOKEN: "server-secret", ...overrides }, {} as ExecutionContext);
 }
 

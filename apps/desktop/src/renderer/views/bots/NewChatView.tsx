@@ -9,6 +9,7 @@ import { Text } from '../../components/Text'
 import { useStore } from '../../store/context'
 import { createDefaultBot, errorText } from './drafts'
 import { AutoTextArea, BotChip } from './parts'
+import { StartingFolderChip, type StartingPick } from './PlaceFolderPicker'
 import './bots.css'
 
 /**
@@ -24,6 +25,8 @@ export function NewChatView({ group, onClose }: { group: boolean; onClose: () =>
   const [draft, setDraft] = useState('')
   const [recipients, setRecipients] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
+  // The folder for the first message; the bot's own default shows until one is picked.
+  const [startFolder, setStartFolder] = useState<StartingPick | null>(null)
   const toField = useRef<HTMLInputElement>(null)
   const chips = useRef<HTMLDivElement>(null)
 
@@ -51,10 +54,13 @@ export function NewChatView({ group, onClose }: { group: boolean; onClose: () =>
     if (el) el.scrollTo({ left: el.scrollWidth, behavior: 'smooth' })
   }, [recipients])
 
-  const open = (id: string) => {
+  // `folder`: only for one bot's own chat; a group has none.
+  const open = (id: string, folder: StartingPick | null = null) => {
     const text = draft.trim()
     store.setSelection(id)
-    if (text) store.send(text, id)
+    if (text) store.send(text, id, null, [], undefined, [], false, folder?.start ?? null)
+    // With nothing to send, the pick goes straight to the chat's place.
+    else if (folder) store.setPlaceFolder(id, folder.start).catch((e: unknown) => store.setError(errorText(e)))
     onClose()
   }
 
@@ -66,13 +72,16 @@ export function NewChatView({ group, onClose }: { group: boolean; onClose: () =>
     toField.current?.focus()
   }
 
-  const remove = (id: string) => setRecipients((list) => list.filter((r) => r !== id))
+  const remove = (id: string) => {
+    setRecipients((list) => list.filter((r) => r !== id))
+    setStartFolder(null)
+  }
 
   // One bot: its chat. Several: their group chat.
   const start = () => {
     if (recipients.length === 0) return
     if (recipients.length === 1) {
-      if (!group) open(recipients[0]!)
+      if (!group) open(recipients[0]!, startFolder)
       return
     }
     store
@@ -186,6 +195,12 @@ export function NewChatView({ group, onClose }: { group: boolean; onClose: () =>
 
       <Spacer />
 
+      {/* One bot, not a group: the folder its first message starts in. */}
+      {!group && picked.length === 1 && !isGroup(picked[0]!) ? (
+        <div className="place-chip-row compose-folder">
+          <StartingFolderChip key={picked[0]!.id} inherited={picked[0]!.folder} value={startFolder} onChange={setStartFolder} />
+        </div>
+      ) : null}
       <div className="compose-box">
         <AutoTextArea
           value={draft}

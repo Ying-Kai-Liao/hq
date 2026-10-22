@@ -91,6 +91,8 @@ struct BotSettingsForm: View {
     @Environment(BotStore.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pickingFolder = false
+    /// hq's projects for the default-project menu; empty when the computer has no hq.
+    @State private var hqProjects: [HQProject] = []
     @State private var pickingAvatar = false
     @State private var viewingSkill: SkillRef?
 
@@ -106,6 +108,7 @@ struct BotSettingsForm: View {
         .font(.body)
         .background(Palette.background)
         .task { await model.refreshPlugins() }
+        .task { hqProjects = (try? await model.projects().projects) ?? [] }
         .codyncSheet(item: $viewingSkill) { SkillSheet(skill: $0) }
         .codyncSheet(isPresented: $pickingFolder) {
             FolderPicker(start: draft.cwd.isEmpty ? model.hello?.home : draft.cwd) {
@@ -250,6 +253,24 @@ struct BotSettingsForm: View {
                         .outlinedPill()
                     }
                     .help(draft.cwd.isEmpty ? "A persistent workspace allocated for this bot" : draft.cwd)
+                }
+                if !hqProjects.isEmpty || draft.project != nil {
+                    ValueRow("Default project", detail: "Chats, threads and tasks start in this hq project and load its context, unless one is picked for them.") {
+                        DropdownMenu {
+                            var items = [MenuItem("None", selected: draft.project == nil) { draft.project = nil }]
+                            items += hqProjects.map { project in
+                                MenuItem(project.id, selected: draft.project == project.id) { draft.project = project.id }
+                            }
+                            return items
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text(draft.project ?? "None").lineLimit(1)
+                                Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(Palette.secondary)
+                            }
+                            .foregroundStyle(Palette.text)
+                            .outlinedPill()
+                        }
+                    }
                 }
                 ValueRow("Permissions", detail: draft.permission == "auto"
                          ? "Tool requests are approved automatically. Your agent's own settings (like Claude Code's permission rules) still apply."

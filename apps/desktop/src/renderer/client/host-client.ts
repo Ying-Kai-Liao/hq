@@ -1,4 +1,5 @@
 import type { CallError } from '@shared/ipc'
+import type { PlaceFolder, PlaceSelection, ProjectInfo, RecentFolder, StartingFolder } from '@shared/place-folders'
 import {
   normalizeBot,
   normalizeScreen,
@@ -147,8 +148,9 @@ export class HostClient {
     return (await this.call<{ entries: Entry[] }>('history', { botId, beforeSeq, limit })).entries
   }
 
+  /** `folder`: where the thread works; absent from a host without place folders. */
   async thread(botId: string, rootId: string) {
-    return (await this.call<{ entries: Entry[] }>('thread', { botId, rootId })).entries
+    return this.call<{ entries: Entry[]; folder?: unknown }>('thread', { botId, rootId })
   }
 
   async botConversation(botId: string, peerId: string) {
@@ -156,8 +158,26 @@ export class HostClient {
   }
 
   /** `pasted`: what the user pasted rather than typed, which memory never takes as their own words. */
-  async send(botId: string, text: string, clientNonce: string, threadId: string | null, attachments: string[] | null, pasted: string[] = [], newTask = false) {
-    return (await this.call<{ entry: Entry }>('send', { botId, text, clientNonce, threadId, attachments, ...(pasted.length ? { pasted } : {}), ...(newTask ? { newTask } : {}) })).entry
+  async send(botId: string, text: string, clientNonce: string, threadId: string | null, attachments: string[] | null, pasted: string[] = [], newTask = false, place: StartingFolder | null = null) {
+    return (await this.call<{ entry: Entry }>('send', { botId, text, clientNonce, threadId, attachments, ...(pasted.length ? { pasted } : {}), ...(newTask ? { newTask } : {}), ...(place ?? {}) })).entry
+  }
+
+  /** Kith's project registry; without Kith the host answers `projects: []` and an `error` line. */
+  projects(refresh = false) {
+    return this.call<{ projects: ProjectInfo[]; error?: string }>('projects', refresh ? { refresh: true } : {}, 30_000)
+  }
+
+  async recentFolders() {
+    return (await this.call<{ folders: RecentFolder[] }>('recentFolders')).folders
+  }
+
+  async registerProject(id: string, path: string) {
+    return (await this.call<{ project: ProjectInfo }>('registerProject', { id, path }, 30_000)).project
+  }
+
+  /** `threadId` is the thread's root message; `chat` a group's id (a member's lane). */
+  setPlaceFolder(botId: string, selection: PlaceSelection, place: { threadId?: string | null; chat?: string } = {}) {
+    return this.call<{ folder: PlaceFolder }>('setPlaceFolder', { botId, ...(place.threadId ? { threadId: place.threadId } : {}), ...(place.chat ? { chat: place.chat } : {}), ...selection }, 30_000)
   }
 
   /** Bytes per `upload` call: base64 of it stays well under the channel's 1 MiB message. */

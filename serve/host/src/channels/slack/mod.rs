@@ -39,7 +39,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
 const DEFAULT_API: &str = "https://slack.com/api";
-const FOOTER: &str = "\n\n(From Slack: this thread is your task. Your final answer is posted here automatically; Markdown works. Send images and files with hq-send; files the user sent are listed as paths. Helpers you call post status with `hq-send --as <their name>`.)";
+const FOOTER: &str = "\n\n(From Slack: this thread is your task. Your final answer is posted here automatically; Markdown works. send images and files with kith-send; files the user sent are listed as paths. Helpers you call post status with `kith-send --as <their name>`.)";
 const STOP_REACTION: &str = "octagonal_sign";
 const REDO_REACTION: &str = "repeat";
 /// How much of an answer goes into one markdown block (Slack holds 12,000).
@@ -164,7 +164,7 @@ impl Slack {
 
     fn stop_button(wid: &str) -> Value {
         json!({"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "Stop"},
-                                                 "action_id": "hq-stop", "value": wid}]})
+                                                 "action_id": "kith-stop", "value": wid}]})
     }
 
     // ---- the connection ----

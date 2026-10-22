@@ -74,9 +74,9 @@ impl Drop for Rig {
 fn paths(dir: &Path) -> Paths {
     let bin = dir.join("bin");
     Paths {
-        hq_bin: bin.join("hq"),
-        auth_bin: bin.join("hq-auth"),
-        live_bin: bin.join("hq-live"),
+        hq_bin: bin.join("kith"),
+        auth_bin: bin.join("kith-auth"),
+        live_bin: bin.join("kith-live"),
         machine: dir.join("machine"),
         agent_roots: vec![dir.join("agents")],
         data: dir.join("data"),
@@ -106,7 +106,7 @@ impl Rig {
         let (bin, stub) = (dir.join("bin"), dir.join("stub"));
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::create_dir_all(&stub).unwrap();
-        for tool in ["hq", "hq-auth", "hq-live"] {
+        for tool in ["kith", "kith-auth", "kith-live"] {
             std::os::unix::fs::symlink(stub_script(), bin.join(tool)).unwrap();
         }
         for (name, card) in [
@@ -183,7 +183,7 @@ impl Rig {
 
     fn hq_calls(&self) -> Vec<Value> {
         let text = std::fs::read_to_string(self.dir.join("stub/calls.jsonl")).unwrap_or_default();
-        text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).filter(|c| c["tool"] == "hq").collect()
+        text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).filter(|c| c["tool"] == "kith").collect()
     }
 
     /// The agents' answers (what the stub echoes), not the working lines.
@@ -215,7 +215,7 @@ impl Rig {
 }
 
 fn footer() -> &'static str {
-    "\n\n(From Discord: this thread is your task. Your final answer is posted here automatically; use hq-send for images and files. Helpers you call post status with `hq-send --as <their name>`.)"
+    "\n\n(From Discord: this thread is your task. Your final answer is posted here automatically; use kith-send for images and files. Helpers you call post status with `kith-send --as <their name>`.)"
 }
 
 fn custom_ids(components: &Value) -> Vec<String> {
@@ -232,7 +232,7 @@ fn custom_ids(components: &Value) -> Vec<String> {
 async fn the_server_gets_a_category_a_channel_a_webhook_and_a_role_per_agent() {
     let r = Rig::new().await.started().await;
     let st = r.fd.st.locked();
-    let category = st.channels.iter().find(|c| c["type"] == 4 && c["name"] == "hq").expect("the hq category");
+    let category = st.channels.iter().find(|c| c["type"] == 4 && c["name"] == "kith").expect("the kith category");
     for (agent, topic) in [("house", "Keeps the house"), ("personal", "Personal"), ("shop", "Shopping")] {
         let c = st.channels.iter().find(|c| c["name"] == agent).unwrap_or_else(|| panic!("no #{agent}"));
         assert_eq!((c["type"].as_u64(), &c["parent_id"], c["topic"].as_str()), (Some(0), &category["id"], Some(topic)));
@@ -268,21 +268,26 @@ async fn a_normal_message_gets_one_answer_in_a_thread_under_the_agents_name() {
     // The working line has a Stop button while the agent works, and goes away when it is done.
     let working: Vec<Post> = r.fd.st.locked().posts.iter().filter(|p| p.content == "-# working…").cloned().collect();
     assert_eq!(working.len(), 1);
-    assert!(custom_ids(&working[0].components)[0].starts_with("hq-stop:"));
+    assert!(custom_ids(&working[0].components)[0].starts_with("kith-stop:"));
     until("the working line to go", || r.fd.st.locked().posts.iter().all(|p| p.content != "-# working…" || p.deleted))
         .await;
     assert_eq!(r.answers().len(), 1);
     r.idle().await;
-    // hq-send posts into the thread through the same webhook.
+    // kith-send posts into the thread through the same webhook.
     let call = &r.hq_calls()[0];
-    assert_eq!(call["withheld"], json!(["HQ_DISCORD_THREAD_ID", "HQ_DISCORD_WEBHOOK_URL"]));
+    assert_eq!(
+        call["withheld"],
+        json!(["HQ_DISCORD_THREAD_ID", "HQ_DISCORD_WEBHOOK_URL", "KITH_DISCORD_THREAD_ID", "KITH_DISCORD_WEBHOOK_URL"])
+    );
     let conv = json!({"thread": threads[0]["id"], "channel": house, "key": "k"});
     let env = r.ad.env(&conv, "house");
     let hook = r.fd.st.locked().hooks_of(&house)[0].clone();
     assert_eq!(
         env,
         vec![
+            ("KITH_DISCORD_WEBHOOK_URL".to_owned(), hook.clone()),
             ("HQ_DISCORD_WEBHOOK_URL".to_owned(), hook),
+            ("KITH_DISCORD_THREAD_ID".to_owned(), threads[0]["id"].as_str().unwrap().to_owned()),
             ("HQ_DISCORD_THREAD_ID".to_owned(), threads[0]["id"].as_str().unwrap().to_owned())
         ]
     );

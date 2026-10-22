@@ -112,7 +112,7 @@ private struct InstallPage: View {
                         // Copied here, pasted on the computer (Universal Clipboard or a message to yourself).
                         // The same hq host on both systems; `os` only changes what the note says.
                         Hint("Install hq")
-                        CommandBlock("https://github.com/Ying-Kai-Liao/hq")
+                        CommandBlock("https://github.com/Ying-Kai-Liao/kith")
                         Hint("then start the host")
                         CommandBlock("kith serve start")
                         Hint("then show its pairing code")
@@ -354,7 +354,7 @@ struct QRScanner: UIViewControllerRepresentable {
 
         func dataScanner(_ scanner: DataScannerViewController, didAdd items: [RecognizedItem], allItems: [RecognizedItem]) {
             for case let .barcode(code) in items {
-                if let value = code.payloadStringValue, value.hasPrefix(AppEnvironment.current.urlScheme + "://"), !done {
+                if let value = code.payloadStringValue, [AppEnvironment.current.urlScheme, AppEnvironment.current.legacyURLScheme].contains(where: { value.hasPrefix($0 + "://") }), !done {
                     done = true
                     scanner.stopScanning()
                     onCode(value)

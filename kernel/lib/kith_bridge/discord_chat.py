@@ -1,13 +1,13 @@
-"""Discord: one bot in one server. Every agent has its own channel in the `hq` category (a room whose default is that
+"""Discord: one bot in one server. Every agent has its own channel in the `kith` category (a room whose default is that
 agent); any other channel is a room too, answered when an agent or the bot is mentioned, or once it has a default
 (/default <agent>). A task is a thread; agents post in it through the channel's webhook under their display name,
-and hq-send (HQ_DISCORD_WEBHOOK_URL, HQ_DISCORD_THREAD_ID) posts there too. Each agent has a mentionable role of the
+and kith-send (KITH_DISCORD_WEBHOOK_URL, KITH_DISCORD_THREAD_ID) posts there too. Each agent has a mentionable role of the
 same name, so @ autocompletes; when the bot can't manage roles, a plain-text @agent works the same. DMs with the bot
-work like a room with a default (the owner's: HQ_BRIDGE_DM_DEFAULT).
+work like a room with a default (the owner's: KITH_BRIDGE_DM_DEFAULT).
 
-Server: HQ_DISCORD_GUILD (name or ID) when the bot is in more than one.
+Server: KITH_DISCORD_GUILD (name or ID) when the bot is in more than one.
 
-Every gateway frame (a heartbeat ack comes every ~41 s) is a sign of life; without any for `quiet` seconds hq-bridge
+Every gateway frame (a heartbeat ack comes every ~41 s) is a sign of life; without any for `quiet` seconds kith-bridge
 restarts the connection. After each (re)connect the bridge reads what was sent since the last message it saw (at most
 24 h back) and handles each message once.
 """
@@ -27,7 +27,7 @@ WORKING, STOPPED = '-# working…', '-# stopped'   # Discord subtext: small and 
 class Discord(Adapter):
     platform = 'discord'
     footer = ('\n\n(From Discord: this thread is your task. Your final answer is posted here automatically; use '
-              'hq-send for images and files. Helpers you call post status with `hq-send --as <their name>`.)')
+              'kith-send for images and files. Helpers you call post status with `kith-send --as <their name>`.)')
     quiet = 180
 
     async def start(self):
@@ -45,10 +45,10 @@ class Discord(Adapter):
         @client.event
         async def on_ready():
             squash = lambda x: re.sub(r'\s+', '', x).lower()
-            want = squash(os.environ.get('HQ_DISCORD_GUILD', '')) if self.conn == 'discord/hq' else ''
+            want = squash(os.environ.get('KITH_DISCORD_GUILD', '')) if self.conn == 'discord/hq' else ''
             guilds = [g for g in client.guilds if not want or want in (squash(g.name), str(g.id))]
             if len(guilds) != 1:
-                log(f'{self.conn}: expected one server, found {[g.name for g in client.guilds]}; set HQ_DISCORD_GUILD')
+                log(f'{self.conn}: expected one server, found {[g.name for g in client.guilds]}; set KITH_DISCORD_GUILD')
                 await client.close()
                 return
             self.guild = guilds[0]
@@ -70,14 +70,14 @@ class Discord(Adapter):
         @client.event
         async def on_interaction(it):
             cid = (it.data or {}).get('custom_id', '')
-            if cid.startswith('hq-stop:'):
+            if cid.startswith(('kith-stop:', 'hq-stop:')):
                 said = await self.core.stop_pressed(self, cid.split(':', 1)[1], str(it.user.id))
                 if said == 'not yours':
                     return await it.response.send_message('Only the person who started this can stop it.',
                                                           ephemeral=True)
                 await it.response.edit_message(content='-# finished' if said == 'finished' else '-# stopping…',
                                                view=None)
-            elif cid.startswith('hq-pick:'):
+            elif cid.startswith(('kith-pick:', 'hq-pick:')):
                 _, pid, agent = cid.split(':', 2)
                 ok = await self.core.picked(self, pid, agent, str(it.user.id))
                 if ok:
@@ -143,7 +143,8 @@ class Discord(Adapter):
 
     async def setup(self):
         g = self.guild
-        category = discord.utils.get(g.categories, name='hq') or await g.create_category('hq')
+        category = discord.utils.get(g.categories, name='kith') or discord.utils.get(g.categories, name='hq') \
+            or await g.create_category('kith')
         for agent in agents():
             ch = discord.utils.get(g.text_channels, name=agent)
             if ch is None:
@@ -153,7 +154,7 @@ class Discord(Adapter):
             for agent in agents():
                 role = discord.utils.get(g.roles, name=agent)
                 if role is None:
-                    role = await g.create_role(name=agent, mentionable=True, reason='hq: @agent autocompletes')
+                    role = await g.create_role(name=agent, mentionable=True, reason='kith: @agent autocompletes')
                 self.roles[role.id] = agent
         elif 'roles' not in self.cs:
             self.cs['roles'] = 'none'
@@ -162,7 +163,7 @@ class Discord(Adapter):
         log(f'{self.conn}: ready in {g.name}: {", ".join(agents())}')
 
     async def rescan(self):
-        # New agents (from the builder or hq-new) get their channel within a minute, no restart needed.
+        # New agents (from the builder or kith-new) get their channel within a minute, no restart needed.
         while True:
             await asyncio.sleep(60)
             try:
@@ -179,8 +180,8 @@ class Discord(Adapter):
             return self.hooks[channel.id]
         url = self.cs['hooks'].get(str(channel.id))
         if not url:
-            wh = next((w for w in await channel.webhooks() if w.name == 'hq'), None) \
-                or await channel.create_webhook(name='hq')
+            wh = next((w for w in await channel.webhooks() if w.name in ('kith', 'hq')), None) \
+                or await channel.create_webhook(name='kith')
             url = self.cs['hooks'][str(channel.id)] = wh.url
             self.core.save()
         self.hooks[channel.id] = discord.Webhook.from_url(url, client=self.client)
@@ -212,7 +213,7 @@ class Discord(Adapter):
             room_agent = ch.parent.name if ch.parent.name in agents() else None
             origin = {'thread': ch.id, 'channel': ch.parent.id, 'message': msg.id}
             if thread not in self.core.st['threads'] and not addressed:
-                return None   # someone else's thread, not talking to hq
+                return None   # someone else's thread, not talking to kith
         elif isinstance(ch, discord.TextChannel):
             room, thread, private = f'{self.conn}:{ch.id}', None, False
             room_agent = ch.name if ch.name in agents() else None
@@ -222,7 +223,7 @@ class Discord(Adapter):
         files = []
         ours = addressed or private or room_agent or thread in self.core.st['threads'] \
             or self.core.st['rooms'].get(room, {}).get('default')
-        if msg.attachments and ours:   # only for messages hq may act on
+        if msg.attachments and ours:   # only for messages kith may act on
             folder = STATE_DIR / 'attachments' / self.conn.replace('/', '-') / str(msg.id)
             folder.mkdir(parents=True, exist_ok=True)
             for a in msg.attachments:
@@ -246,7 +247,7 @@ class Discord(Adapter):
 
     async def open_thread(self, m, agent, title):
         o = m.origin
-        if o.get('thread'):          # a thread hq didn't start: the task lives in it as it is
+        if o.get('thread'):          # a thread kith didn't start: the task lives in it as it is
             return f'{self.conn}:{o["thread"]}', {'thread': o['thread'], 'channel': o['channel']}
         if o.get('dm'):              # no threads in a DM: a reply to the agent's message continues the task
             return f'{self.conn}:dm:{o["dm"]}:{o["message"]}', {'dm': o['dm']}
@@ -279,7 +280,7 @@ class Discord(Adapter):
     def stop_button(self, wid):
         view = discord.ui.View(timeout=None)
         view.add_item(discord.ui.Button(label='Stop', style=discord.ButtonStyle.secondary,
-                                        custom_id=f'hq-stop:{wid}'))   # handled in on_interaction: survives restarts
+                                        custom_id=f'kith-stop:{wid}'))   # handled in on_interaction: survives restarts
         return view
 
     async def status(self, conv, agent, wid):
@@ -316,7 +317,7 @@ class Discord(Adapter):
         view = discord.ui.View(timeout=None)
         for a in options[:25]:
             view.add_item(discord.ui.Button(label=a, style=discord.ButtonStyle.secondary,
-                                            custom_id=f'hq-pick:{pid}:{a}'))
+                                            custom_id=f'kith-pick:{pid}:{a}'))
         if m.ref is not None:
             await m.ref.reply('Who should take this?', view=view)
         else:
@@ -329,6 +330,6 @@ class Discord(Adapter):
 
     def env(self, conv, agent):
         if conv.get('dm'):
-            return {}   # no webhooks in a DM: hq-send goes through the outbox
+            return {}   # no webhooks in a DM: kith-send goes through the outbox
         url = self.cs['hooks'].get(str(conv['channel']))
-        return {'HQ_DISCORD_WEBHOOK_URL': url, 'HQ_DISCORD_THREAD_ID': str(conv['thread'])} if url else {}
+        return {'KITH_DISCORD_WEBHOOK_URL': url, 'KITH_DISCORD_THREAD_ID': str(conv['thread'])} if url else {}

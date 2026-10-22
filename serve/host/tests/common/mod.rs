@@ -24,7 +24,8 @@ pub async fn serve_env(home: &Path, env: &[(&str, &str)]) -> (Child, String) {
             .args(["serve", "--bind", "127.0.0.1", "--port", &port.to_string()])
             .env("KITH_SERVE_HOME", home)
             .env("KITH_SERVE_CLOUD", "off")
-            // Never the hq on this computer: a test that wants one passes its own `HQ_BIN`.
+            // Never the hq on this computer: a test that wants one passes its own `KITH_KERNEL_BIN`.
+            .env("KITH_KERNEL_BIN", "")
             .env("HQ_BIN", "")
             // The test machine's memory and a two-agent limit must not hold a test back (see `gate_e2e`).
             .env("KITH_SERVE_MAX_RUNNING_AGENTS", "64")

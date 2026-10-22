@@ -28,6 +28,13 @@ export const oauthCallback = async (c: Ctx) =>
 export const oauthDevCallback = async (c: Ctx) =>
   new Response(null, { status: 302, headers: { Location: `codync-dev://oauth${c.url.search}`, "Cache-Control": "no-store" } });
 
+/** The routes above keep bouncing to the `codync` schemes, the only ones apps installed before the rename wait for. */
+export const oauthKithCallback = async (c: Ctx) =>
+  new Response(null, { status: 302, headers: { Location: `kith://oauth${c.url.search}`, "Cache-Control": "no-store" } });
+
+export const oauthKithDevCallback = async (c: Ctx) =>
+  new Response(null, { status: 302, headers: { Location: `kith-dev://oauth${c.url.search}`, "Cache-Control": "no-store" } });
+
 // ---- cron (every 15 minutes) ----
 
 export async function sweep(env: Env, now: number): Promise<void> {

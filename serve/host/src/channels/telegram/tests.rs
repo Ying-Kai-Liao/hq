@@ -1,5 +1,5 @@
 //! The Telegram adapter against a fake Bot API (axum), the real core and the stub hq
-//! (`tests/fixtures/channels_stub.py`). Ports the Telegram checks of `kernel/tests/hq-bridge-check`.
+//! (`tests/fixtures/channels_stub.py`). Ports the Telegram checks of `kernel/tests/kith-bridge-check`.
 
 #![cfg(unix)]
 
@@ -291,7 +291,7 @@ impl Rig {
         let (bin, stub) = (dir.join("bin"), dir.join("stub"));
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::create_dir_all(&stub).unwrap();
-        for tool in ["hq", "hq-auth", "hq-live"] {
+        for tool in ["kith", "kith-auth", "kith-live"] {
             std::os::unix::fs::symlink(stub_script(), bin.join(tool)).unwrap();
         }
         for (name, card) in [
@@ -315,9 +315,9 @@ impl Rig {
             std::fs::write(stub.join(format!("{name}.json")), v.to_string()).unwrap();
         }
         let paths = Paths {
-            hq_bin: bin.join("hq"),
-            auth_bin: bin.join("hq-auth"),
-            live_bin: bin.join("hq-live"),
+            hq_bin: bin.join("kith"),
+            auth_bin: bin.join("kith-auth"),
+            live_bin: bin.join("kith-live"),
             machine: dir.join("machine"),
             agent_roots: vec![dir.join("agents")],
             data: dir.join("data"),
@@ -349,7 +349,7 @@ impl Rig {
 
     fn hq_calls(&self) -> Vec<Value> {
         let text = std::fs::read_to_string(self.dir.join("stub/calls.jsonl")).unwrap_or_default();
-        text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).filter(|c| c["tool"] == "hq").collect()
+        text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).filter(|c| c["tool"] == "kith").collect()
     }
 
     fn state(&self) -> Value {

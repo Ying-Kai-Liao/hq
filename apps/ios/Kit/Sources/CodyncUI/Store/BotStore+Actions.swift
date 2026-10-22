@@ -279,8 +279,9 @@ extension BotStore {
 
     /// Pages in a thread's replies (the stream only carries recent entries).
     public func loadThread(_ botId: String, root: String) async {
-        guard let client, let replies = try? await client.thread(botId: botId, rootId: root) else { return }
-        for e in replies { upsert(e) }
+        guard let client, let page = try? await client.threadPage(botId: botId, rootId: root) else { return }
+        for e in page.entries { upsert(e) }
+        if let folder = page.folder { threadFolders[Self.threadFolderKey(botId, root)] = folder }
     }
 
     /// The bot-to-bot notices between a chat and a peer. Never `upsert`ed: old notices in the
@@ -296,8 +297,8 @@ extension BotStore {
         return bot
     }
 
-    public func listDirs(_ path: String?) async throws -> DirListing {
-        try await ready().listDirs(path)
+    public func listDirs(_ path: String?, showHidden: Bool = false) async throws -> DirListing {
+        try await ready().listDirs(path, showHidden: showHidden)
     }
 
     public func refreshUsage() async {

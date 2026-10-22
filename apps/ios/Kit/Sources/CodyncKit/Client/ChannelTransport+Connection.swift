@@ -94,14 +94,14 @@ extension ChannelTransport {
     private func relayRequest(_ cloud: URL) throws -> URLRequest {
         var comps = URLComponents(url: cloud.appending(path: "v1/relay/device/\(computer.id)"), resolvingAgainstBaseURL: false)
         var query = "v=1"
-        if let pairingCode, let code = Data(base64URL: pairingCode) { query += "&pair=\(RelayCrypto.offerId(code: code))" }
+        if let pairingCode, let code = Data(base64URL: pairingCode) { query += "&pair=\(RelayCrypto.offerId(computer.labelFamily, code: code))" }
         comps?.percentEncodedQuery = query
         guard let url = comps?.url else { throw HostError.unreachable }
         let header = try identity.signatureHeader(method: "GET", authority: RelayCrypto.authority(of: url),
                                                   pathAndQuery: RelayCrypto.pathAndQuery(of: url), body: Data())
         comps?.scheme = url.scheme == "http" ? "ws" : "wss"
         var req = URLRequest(url: comps?.url ?? url, timeoutInterval: 15)
-        req.setValue(header, forHTTPHeaderField: "Codync-Sig")
+        req.setValue(header, forHTTPHeaderField: RelayCrypto.signatureHeaderName)
         return req
     }
 

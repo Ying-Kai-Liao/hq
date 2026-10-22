@@ -1,6 +1,6 @@
 """The bridge core, the same on every platform: people, access, rooms, threads, sessions and the queue.
 
-People: who sent a message (`hq-auth who`) and whether they may use an agent (`hq-auth resolve`). Rooms: where
+People: who sent a message (`kith-auth who`) and whether they may use an agent (`kith-auth resolve`). Rooms: where
 people talk (a DM, #home, a group), keyed `<connection>:<chat>`, each with an optional default agent. Threads: one
 task each, keyed by the adapter, belonging to the person who started it (its sessions hold what the agents saw for
 them), with a session per agent that has answered there ({agent: session}).
@@ -17,10 +17,10 @@ is merged; without Jev, or when Jev fails, it is merged.
 
 An adapter (discord_chat, telegram_chat, slack_chat) receives messages, turns each into an Incoming and calls
 Core.handle; the core calls the adapter back (the Adapter methods below) to post, show the working line, ask and
-react. Agents' own posts (hq-send) reach the thread through the run's outbox folder, HQ_BRIDGE_OUTBOX, or on
+react. Agents' own posts (kith-send) reach the thread through the run's outbox folder, KITH_BRIDGE_OUTBOX, or on
 Discord through the channel's webhook.
 Live agents (`session: live` in agent.md, e.g. coder) run as one session of their own: the owner's messages to one
-are typed into that session (hq-live send, reply=bridge:<box>) instead of starting a run, and its `hq-send --to
+are typed into that session (kith-live send, reply=bridge:<box>) instead of starting a run, and its `kith-send --to
 bridge:<box>` posts land in the thread through outbox/live-<box>/. When no session runs, the message runs once as
 usual. Anyone else's messages to a live agent are refused.
 """
@@ -41,24 +41,24 @@ from pathlib import Path
 
 KERNEL = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(KERNEL / 'lib'))
-from hq_paths import paths  # noqa: E402  the one place that knows where hq's folders are
+from kith_paths import paths  # noqa: E402  the one place that knows where kith's folders are
 
 P = paths()
-STATE_DIR = P['HQ_MACHINE'] / 'bridge'
+STATE_DIR = P['KITH_MACHINE'] / 'bridge'
 STATE = STATE_DIR / 'state.json'
-AUTH_BIN, HQ_BIN = str(KERNEL / 'bin' / 'hq-auth'), str(KERNEL / 'bin' / 'hq')
-LIVE_BIN = str(KERNEL / 'bin' / 'hq-live')
+AUTH_BIN, KITH_BIN = str(KERNEL / 'bin' / 'kith-auth'), str(KERNEL / 'bin' / 'kith')
+LIVE_BIN = str(KERNEL / 'bin' / 'kith-live')
 KEEP = 5000   # threads and reply links kept in the state: the newest few thousand are enough to come back to
 LATE = 120    # seconds: a message older than this when it arrives was sent while the bridge was away
 
 
 def log(*a):
-    print(time.strftime('%Y-%m-%d %H:%M:%S'), 'hq-bridge:', *a, flush=True)
+    print(time.strftime('%Y-%m-%d %H:%M:%S'), 'kith-bridge:', *a, flush=True)
 
 
 def late_note(sent):
     """What the agent is told about a message that waited for the bridge."""
-    return (f'(Sent at {time.strftime("%Y-%m-%d %H:%M", time.localtime(sent))} while hq\'s chat bridge was away; it '
+    return (f'(Sent at {time.strftime("%Y-%m-%d %H:%M", time.localtime(sent))} while kith\'s chat bridge was away; it '
             f'reached you at {time.strftime("%H:%M")}. Say briefly that you picked it up late.)\n\n')
 
 
@@ -69,7 +69,7 @@ def agent_dirs():
     """{agent: package folder}, looked up again at most every 30 s (new agents show up without a restart)."""
     if time.time() - _dirs['at'] > 30:
         out = {}
-        for root in (P['HQ_AGENTS'], KERNEL / 'agents'):
+        for root in (P['KITH_AGENTS'], KERNEL / 'agents'):
             for d in sorted(root.iterdir()) if root.is_dir() else []:
                 pkg = d / 'role' if (d / 'role' / 'agent.md').is_file() else d   # role/ next to the agent's life
                 if not d.name.startswith('.') and (pkg / 'agent.md').is_file():
@@ -89,7 +89,7 @@ def card(agent, key):
 
 
 def description(agent):
-    return (card(agent, 'description') or f'hq {agent}')[:1024]
+    return (card(agent, 'description') or f'kith {agent}')[:1024]
 
 
 def display_name(agent):
@@ -182,7 +182,7 @@ def write_state(st):
 # ---- the router (Jev) ----
 
 def jev_config():
-    """JEV_* from the environment, the key from hq-auth (hq-auth grant bridge jev-browser <profile>); kept out of
+    """JEV_* from the environment, the key from kith-auth (kith-auth grant bridge jev-browser <profile>); kept out of
     os.environ so agent runs never see the key."""
     cfg = {k: v for k, v in os.environ.items() if k.startswith('JEV_')}
     if 'JEV_API_KEY' not in cfg:
@@ -206,7 +206,7 @@ ROUTE_QUESTIONS = {
 def route(cfg, task, recent, latest):
     """-> (stop | interrupt | separate | merge | merge-partial, path) for a message that arrived while `task` runs.
     Any failure merges."""
-    if not cfg.get('JEV_API_KEY') or os.environ.get('HQ_BRIDGE_ROUTER', 'jev').lower() == 'off':
+    if not cfg.get('JEV_API_KEY') or os.environ.get('KITH_BRIDGE_ROUTER', 'jev').lower() == 'off':
         return 'merge', 'no router'
     base = cfg.get('JEV_BASE_URL', 'https://api.typesafe.ai').rstrip('/')
     url = base if base.endswith('/systemone') else base + ('/systemone' if base.endswith('/v1') else '/v1/systemone')
@@ -215,7 +215,7 @@ def route(cfg, task, recent, latest):
                        'questions': {k: {'type': 'noul', 'instructions': q} for k, q in ROUTE_QUESTIONS.items()}},
                       ensure_ascii=False).encode()
     req = urllib.request.Request(url, data=body, method='POST', headers={
-        'Authorization': 'Bearer ' + cfg['JEV_API_KEY'], 'Content-Type': 'application/json', 'User-Agent': 'hq-bridge'})
+        'Authorization': 'Bearer ' + cfg['JEV_API_KEY'], 'Content-Type': 'application/json', 'User-Agent': 'kith-bridge'})
     try:
         with urllib.request.urlopen(req, timeout=5) as r:
             ans = json.loads(r.read().decode())['answers']
@@ -225,7 +225,7 @@ def route(cfg, task, recent, latest):
     path = ' '.join(f'{k}:{v:.2f}' for k, v in p.items())
     if p['stop'] >= 0.9 and p['stop'] > p['change']:   # "wait, do August instead" scores stop 0.80, change 0.96
         return 'stop', path
-    if p['change'] >= 0.9 and os.environ.get('HQ_BRIDGE_INTERRUPT', 'on').lower() != 'off':
+    if p['change'] >= 0.9 and os.environ.get('KITH_BRIDGE_INTERRUPT', 'on').lower() != 'off':
         return 'interrupt', path   # "actually make it sushi", "do August instead": the running work is off course
     if p['other'] >= 0.9 and p['add'] < 0.7 and p['change'] < 0.5:   # "make it sushi": other 0.93 but change 0.95
         return 'separate', path
@@ -259,7 +259,7 @@ def context_pct(res):
 
 def kill(proc):
     try:
-        os.killpg(proc.pid, signal.SIGTERM)  # hq → claude → its tools: the whole group
+        os.killpg(proc.pid, signal.SIGTERM)  # kith → claude → its tools: the whole group
     except (ProcessLookupError, PermissionError):
         pass
 
@@ -277,8 +277,8 @@ class Incoming:
     private: bool = False       # a direct message with the bot
     addressed: bool = False     # the bot or an agent was mentioned, or the bot's message replied to
     room_agent: str | None = None   # the agent whose own room this is (Discord's agent channels)
-    admin: bool = False         # the server's owner (Discord), taken as hq's owner until hq knows their account
-    quoted: str = ''            # the text of a message replied to that isn't hq's
+    admin: bool = False         # the server's owner (Discord), taken as kith's owner until kith knows their account
+    quoted: str = ''            # the text of a message replied to that isn't kith's
     files: list = field(default_factory=list)   # local paths of the files sent with it
     ref: object = None          # the adapter's own handle on the message (reactions)
     sent: float | None = None   # when it was sent (unix time), so one that waited for the bridge is marked late
@@ -288,7 +288,7 @@ class Adapter:
     """One connection (a bot on a platform). Subclasses fill these in; the core never touches the platform."""
     platform = ''
     footer = ''   # added to the task: where the answer goes and how to send files
-    quiet = None  # seconds without a sign of life (self.alive) after which hq-bridge restarts the connection
+    quiet = None  # seconds without a sign of life (self.alive) after which kith-bridge restarts the connection
 
     def __init__(self, conn, secrets, core):
         self.conn, self.secrets, self.core = conn, secrets, core
@@ -298,7 +298,7 @@ class Adapter:
     async def start(self):                          # connect and receive; returns or raises when the connection drops
         raise NotImplementedError
 
-    async def reply(self, m, text):                 # a short note from hq itself, answering m
+    async def reply(self, m, text):                 # a short note from kith itself, answering m
         raise NotImplementedError
 
     async def open_thread(self, m, agent, title):   # -> (thread key, conv): where a new task's messages go
@@ -350,13 +350,13 @@ class Core:
         self.pumps: set[str] = set()          # connections whose live-agent outboxes are being posted
         self.hinted = set()
         try:   # show a reply's context use from this %; off (or anything not a number) never shows it
-            self.ctx_show = float(os.environ.get('HQ_BRIDGE_CONTEXT_SHOW', '30').strip().rstrip('%'))
+            self.ctx_show = float(os.environ.get('KITH_BRIDGE_CONTEXT_SHOW', '30').strip().rstrip('%'))
         except ValueError:
             self.ctx_show = None
-        for old in ('HQ_DISCORD_REPLY_TO', 'HQ_DISCORD_ALLOWED_IDS', 'HQ_DISCORD_OWNER_ID'):
+        for old in ('KITH_DISCORD_REPLY_TO', 'KITH_DISCORD_ALLOWED_IDS', 'KITH_DISCORD_OWNER_ID'):
             if os.environ.get(old):
-                log(f'{old} is ignored now: people are in hq-auth (hq auth handle <id> discord <user-id>, '
-                    f'hq auth invite <id>)')
+                log(f'{old} is ignored now: people are in kith-auth (kith auth handle <id> discord <user-id>, '
+                    f'kith auth invite <id>)')
 
     def save(self):
         for table in ('threads', 'replies'):
@@ -394,13 +394,13 @@ class Core:
         return (p == w.get('person') or p in w.get('was', [])) if p else bool(w.get('owner'))
 
     async def person(self, ad, m):
-        """-> (person id, who) of the sender, or (None, who) when hq doesn't know them."""
+        """-> (person id, who) of the sender, or (None, who) when kith doesn't know them."""
         w = await asyncio.to_thread(self.who, ad.platform, m.uid)
         if not w.get('person') and m.admin and w.get('owner_id') and not w.get('owner_linked'):
-            if ad.conn not in self.hinted:   # the server's owner, until hq knows their account on this platform
+            if ad.conn not in self.hinted:   # the server's owner, until kith knows their account on this platform
                 self.hinted.add(ad.conn)
                 log(f'{ad.conn}: taking the server owner {m.uid} as {w["owner_id"]} '
-                    f'(hq auth handle {w["owner_id"]} {ad.platform} {m.uid} to say so)')
+                    f'(kith auth handle {w["owner_id"]} {ad.platform} {m.uid} to say so)')
             w = {**w, 'person': w['owner_id'], 'owner': True}
         return w.get('person'), w
 
@@ -410,31 +410,31 @@ class Core:
         text = m.text or ''
         cmd = re.fullmatch(r'\s*[/!](\w+)\s*(.*?)\s*', text, re.S)
         name, arg = (cmd.group(1).lower(), cmd.group(2)) if cmd else ('', '')
-        if name == 'link' and re.fullmatch(r'[A-Za-z0-9]{4,12}', arg):   # a one-time code from hq-auth invite
+        if name == 'link' and re.fullmatch(r'[A-Za-z0-9]{4,12}', arg):   # a one-time code from kith-auth invite
             r = await asyncio.to_thread(subprocess.run, [AUTH_BIN, 'link', ad.platform, m.uid, arg],
                                         capture_output=True, text=True)
             log(f'{ad.conn} link {m.uid}: {"ok " + r.stdout.strip() if r.returncode == 0 else "refused"}')
-            await ad.reply(m, f'Linked: you are {r.stdout.strip()} in hq.' if r.returncode == 0 else
-                           (r.stderr.strip().removeprefix('hq-auth: ') or 'That code did not work.'))
+            await ad.reply(m, f'Linked: you are {r.stdout.strip()} in kith.' if r.returncode == 0 else
+                           (r.stderr.strip().removeprefix('kith-auth: ') or 'That code did not work.'))
             return
         person, w = await self.person(ad, m)
         key = m.thread if m.thread in self.st['threads'] else None
         th = self.st['threads'].get(key) if key else None
         if not person:
             if m.private or m.addressed or th:
-                await ad.reply(m, 'This account is not linked to hq yet. Ask the owner for a code, then send '
+                await ad.reply(m, 'This account is not linked to kith yet. Ask the owner for a code, then send '
                                   '/link CODE here.')
             return
         if th and not self.owns(th, w):   # its sessions hold what the agents saw for them
             await ad.reply(m, f'This thread is {th.get("person") or "the owner"}\'s. Start your own outside it.')
             return
         room = self.st['rooms'].setdefault(m.room, {})
-        if m.private and 'default' not in room:   # a new DM: the owner's starts with HQ_BRIDGE_DM_DEFAULT
-            room['default'] = os.environ.get('HQ_BRIDGE_DM_DEFAULT', 'personal') if w.get('owner') else ''
+        if m.private and 'default' not in room:   # a new DM: the owner's starts with KITH_BRIDGE_DM_DEFAULT
+            room['default'] = os.environ.get('KITH_BRIDGE_DM_DEFAULT', 'personal') if w.get('owner') else ''
             self.save()
         default = room['default'] if 'default' in room else (m.room_agent or '')
         if name in ('start', 'whoami', 'help'):
-            await ad.reply(m, f'You are {person} in hq.' + (f' Messages without @agent here go to {default}.'
+            await ad.reply(m, f'You are {person} in kith.' + (f' Messages without @agent here go to {default}.'
                                                              if default else '')
                            + ' Write @agent to pick one; /agents lists yours, /default sets this room\'s.')
             return
@@ -482,7 +482,7 @@ class Core:
         agent = agent or (th or {}).get('last') or default or None
         if not agent:
             if not (m.addressed or m.private):
-                return   # talk in a room with no default that isn't for hq
+                return   # talk in a room with no default that isn't for kith
             mine = await asyncio.to_thread(self.usable, person)
             if not mine:
                 await ad.reply(m, 'You have no agents yet. Ask the owner to add you.')
@@ -513,7 +513,7 @@ class Core:
     async def begin(self, ad, m, person, agent, task, key):
         r = await asyncio.to_thread(self.resolve, person, agent)
         if not r.get('allowed'):
-            await ad.reply(m, f'{r.get("why")}. Ask the owner to add you (hq auth member {agent} {person}).')
+            await ad.reply(m, f'{r.get("why")}. Ask the owner to add you (kith auth member {agent} {person}).')
             return
         if key is None or key not in self.st['threads']:
             title = re.sub(r'\s+', ' ', re.sub(r'^\s*[@/][\w-]+[,:]?', '', m.text)).strip()[:90] or 'task'
@@ -551,12 +551,12 @@ class Core:
             return False
         log(f'live {agent} {key}: delivered {mid}')
         th = self.st['threads'][key]
-        await ad.post(th['conv'], 'hq', f'Sent to {agent}\'s live session. Its answers come here.')
+        await ad.post(th['conv'], 'kith', f'Sent to {agent}\'s live session. Its answers come here.')
         asyncio.create_task(self.live_pump(ad))
         return True
 
     async def live_pump(self, ad):
-        """Posts what live sessions left for this connection's threads (hq-send --to bridge:<box>), every second."""
+        """Posts what live sessions left for this connection's threads (kith-send --to bridge:<box>), every second."""
         if ad.conn in self.pumps:
             return
         self.pumps.add(ad.conn)
@@ -655,7 +655,7 @@ class Core:
         typing = asyncio.create_task(ad.typing(conv))
         try:
             while self.inbox.get(wk):
-                await asyncio.sleep(float(os.environ.get('HQ_BRIDGE_DEBOUNCE', '2')))
+                await asyncio.sleep(float(os.environ.get('KITH_BRIDGE_DEBOUNCE', '2')))
                 while self.busy[wk].pop('hold', False):   # the last message looked unfinished: give the rest time
                     await asyncio.sleep(8)
                 if not self.inbox.get(wk):                 # a "stop" came in during the wait
@@ -694,21 +694,22 @@ class Core:
         conv, person = th['conv'], th.get('person', '')
         session = th.setdefault('sessions', {}).get(agent)
         r = await asyncio.to_thread(self.resolve, person, agent) if person else {'owner': True}
-        env = dict(os.environ, HQ_VIA=ad.platform, HQ_OUTPUT='json')
-        if os.environ.get('HQ_BRIDGE_PERMISSION_MODE'):   # unset: the agent's mode, else hq's default (bin/hq)
-            env['HQ_PERMISSION_MODE'] = os.environ['HQ_BRIDGE_PERMISSION_MODE']
-        for k in [k for k in env if k.startswith(('JEV_', 'TELEGRAM_', 'SLACK_', 'DISCORD_', 'HQ_DISCORD_'))
-                  or k in ('HQ_AGENT', 'HQ_PERSON', 'HQ_RESUME', 'HQ_BRIDGE_OUTBOX')]:
+        env = dict(os.environ, KITH_VIA=ad.platform, KITH_OUTPUT='json')
+        if os.environ.get('KITH_BRIDGE_PERMISSION_MODE'):   # unset: the agent's mode, else kith's default (bin/kith)
+            env['KITH_PERMISSION_MODE'] = os.environ['KITH_BRIDGE_PERMISSION_MODE']
+        for k in [k for k in env if k.startswith(('JEV_', 'TELEGRAM_', 'SLACK_', 'DISCORD_', 'KITH_DISCORD_', 'HQ_DISCORD_'))
+                  or k in ('KITH_AGENT', 'KITH_PERSON', 'KITH_RESUME', 'KITH_BRIDGE_OUTBOX',
+                     'HQ_AGENT', 'HQ_PERSON', 'HQ_RESUME', 'HQ_BRIDGE_OUTBOX')]:
             env.pop(k)   # no bot tokens or keys, and this is no agent's helper
-        if not r.get('owner'):   # bin/hq checks the membership again and sets their mode
-            env['HQ_PERSON'] = person
-        if session:   # any harness: bin/hq starts a new session when this one is another harness's
-            env['HQ_RESUME'] = session
+        if not r.get('owner'):   # bin/kith checks the membership again and sets their mode
+            env['KITH_PERSON'] = person
+        if session:   # any harness: bin/kith starts a new session when this one is another harness's
+            env['KITH_RESUME'] = session
         outbox = STATE_DIR / 'outbox' / short(wk + str(time.time()))
         outbox.mkdir(parents=True, exist_ok=True)
-        env.update(HQ_BRIDGE_OUTBOX=str(outbox), **ad.env(conv, agent))
+        env.update(KITH_BRIDGE_OUTBOX=str(outbox), **ad.env(conv, agent))
         proc = await asyncio.create_subprocess_exec(
-            HQ_BIN, agent, task + ad.footer, cwd=str(Path.home()), env=env, start_new_session=True,
+            KITH_BIN, agent, task + ad.footer, cwd=str(Path.home()), env=env, start_new_session=True,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         busy = self.busy[wk]
         busy['proc'] = proc
@@ -750,21 +751,21 @@ class Core:
             await self.flush(ad, conv, outbox)
 
     async def flush(self, ad, conv, outbox):
-        """Posts what the run's hq-send calls left in its outbox, oldest first."""
+        """Posts what the run's kith-send calls left in its outbox, oldest first."""
         for f in sorted(outbox.glob('*.json')):
             try:
                 item = json.loads(f.read_text())
                 f.unlink()
             except (OSError, ValueError):
                 continue
-            who = item.get('as') or 'hq'
+            who = item.get('as') or 'kith'
             try:
                 if item.get('files'):
                     await ad.send_files(conv, who, item['files'], item.get('caption', ''))
                 else:
                     await ad.post(conv, who, item.get('text', ''))
             except Exception as e:  # noqa: BLE001  one failed post must not end the run's other posts
-                log(f'{ad.conn}: hq-send post failed: {type(e).__name__}: {e}')
+                log(f'{ad.conn}: kith-send post failed: {type(e).__name__}: {e}')
 
     async def stop(self, ad, wk, m=None):
         """Empty the inbox and end the running turn, or the one about to start."""

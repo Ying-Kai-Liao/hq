@@ -25,7 +25,7 @@ const updates: UpdateState = {
 const bridge: CodyncBridge = {
   platform: 'darwin',
   appName: 'Kith',
-  appScheme: 'codync',
+  appScheme: 'kith',
   hostPort: 19224,
   appVersion: version,
   computerName: HOST_NAME,
@@ -95,6 +95,7 @@ const bridge: CodyncBridge = {
     openMemoryFile: () => {},
     copy: (text) => void navigator.clipboard?.writeText(text).catch(() => {}),
     pickFiles: async () => [],
+    pickFolder: async () => null,
     readClipboardFiles: async () => [],
     setTraySummary() {},
     onCommand: none,

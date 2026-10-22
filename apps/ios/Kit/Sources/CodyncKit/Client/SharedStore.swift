@@ -76,7 +76,7 @@ public enum SharedStore {
         }
 
         /// Deep links carry the context they were made in, so an old widget or activity
-        /// can't open another account's bot: `codync://bot/<botId>?scope=<id>&computer=<computerId>`.
+        /// can't open another account's bot: `kith://bot/<botId>?scope=<id>&computer=<computerId>`.
         public func botURL(_ ref: BotReference) -> URL {
             var url = URLComponents()
             url.scheme = AppEnvironment.current.urlScheme
@@ -91,7 +91,7 @@ public enum SharedStore {
 
         /// The bot a deep link points at, or nil when it belongs to another context or is malformed.
         public func reference(from url: URL) -> BotReference? {
-            guard url.scheme == AppEnvironment.current.urlScheme, url.host() == "bot",
+            guard let scheme = url.scheme, AppEnvironment.current.accepts(scheme: scheme), url.host() == "bot",
                   let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
                   items.first(where: { $0.name == "scope" })?.value == id,
                   let computer = items.first(where: { $0.name == "computer" })?.value,

@@ -2,9 +2,12 @@ import { app, ipcMain, shell } from 'electron'
 import { identity } from './environment'
 
 // Browser sign-ins that come back to this app on a custom scheme (ASWebAuthenticationSession's
-// job on the iPhone): connector OAuth (`codync://oauth`) and the account (`com.pokai.Codync://callback`).
+// job on the iPhone): connector OAuth (`kith://oauth`, or `codync://oauth` from a cloud that predates the rename) and the account (`com.pokai.Codync://callback`).
 
-export const SCHEMES = [identity.scheme, identity.appId]
+export const SCHEMES = [identity.scheme, identity.legacyScheme, identity.appId]
+
+/** The same sign-in return, whichever of the current and legacy spellings of our scheme brought it. */
+const family = (scheme: string) => scheme.toLowerCase().replace(/^codync/, 'kith')
 
 interface Pending {
   scheme: string
@@ -30,7 +33,7 @@ export function registerSchemes() {
 /** A URL on one of our schemes reached the app (open-url, or a second instance's argv). */
 export function handleURL(url: string) {
   const scheme = url.split(':')[0]?.toLowerCase()
-  if (pending && scheme === pending.scheme.toLowerCase()) {
+  if (pending && family(scheme) === family(pending.scheme)) {
     clearTimeout(pending.timer)
     pending.resolve(url)
     pending = null

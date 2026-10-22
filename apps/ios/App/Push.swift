@@ -140,7 +140,8 @@ final class PushRegistrar {
                 try Task.checkCancellation()
                 guard let client = store?.client else { return }
                 try await client.registerDevice(ticket: ticket, relay: SharedStore.relayURL, name: UIDevice.current.name,
-                                                pushKey: identity.pushKey, ctx: storage.id)
+                                                pushKey: identity.pushKey, ctx: storage.id,
+                                                labels: store?.computer.labelFamily ?? .codync)
                 log.info("device registered with a computer")
             } catch is CancellationError {
                 return

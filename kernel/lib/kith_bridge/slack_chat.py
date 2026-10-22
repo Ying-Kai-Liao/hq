@@ -1,7 +1,7 @@
 """Slack: one app in Socket Mode (no public URL), a slack/<workspace> profile granted to the bridge with
 SLACK_BOT_TOKEN (xoxb-) and SLACK_APP_TOKEN (xapp-, connections:write). Channels the app is in and DMs with it are
 rooms; a task is a Slack thread. `@agent` as plain text picks the agent (Slack has one bot user per app, so no
-autocomplete); mentioning the app or a DM addresses hq; commands start with ! (Slack keeps / for its own): !link CODE,
+autocomplete); mentioning the app or a DM addresses kith; commands start with ! (Slack keeps / for its own): !link CODE,
 !agents, !default, !stop, !whoami. Agents post under their display name (chat:write.customize).
 
 The app needs: bot scopes app_mentions:read, channels:history, groups:history, im:history, chat:write,
@@ -24,8 +24,8 @@ REACT = {'stop': 'octagonal_sign', 'redo': 'repeat'}
 class Slack(Adapter):
     platform = 'slack'
     footer = ('\n\n(From Slack: this thread is your task. Your final answer is posted here automatically; Markdown '
-              'works. Send images and files with hq-send; files the user sent are listed as paths. Helpers you call '
-              'post status with `hq-send --as <their name>`.)')
+              'works. Send images and files with kith-send; files the user sent are listed as paths. Helpers you call '
+              'post status with `kith-send --as <their name>`.)')
 
     async def start(self):
         self.web = AsyncWebClient(token=self.secrets['SLACK_BOT_TOKEN'])
@@ -61,7 +61,7 @@ class Slack(Adapter):
 
     async def incoming(self, e):
         if e.get('bot_id') or e.get('subtype') not in (None, 'file_share', 'thread_broadcast') or not e.get('user'):
-            return None   # bots (hq's own posts too), edits, joins
+            return None   # bots (kith's own posts too), edits, joins
         ch, ts = e['channel'], e['ts']
         private = e.get('channel_type') == 'im'
         text = e.get('text') or ''
@@ -102,13 +102,13 @@ class Slack(Adapter):
         act = (p.get('actions') or [{}])[0]
         uid, ch = p['user']['id'], p['channel']['id']
         ts = p['container'].get('message_ts')
-        if act.get('action_id') == 'hq-stop':
+        if act.get('action_id') == 'kith-stop':
             said = await self.core.stop_pressed(self, act['value'], uid)
             if said == 'not yours':
                 await self.web.chat_postEphemeral(channel=ch, user=uid, text='Only the person who started this can stop it.')
             else:
                 await self.web.chat_update(channel=ch, ts=ts, text='stopping…', blocks=[self.small('stopping…')])
-        elif act.get('action_id', '').startswith('hq-pick'):
+        elif act.get('action_id', '').startswith('kith-pick'):
             pid, agent = act['value'].split(':', 1)
             if await self.core.picked(self, pid, agent, uid):
                 await self.web.chat_update(channel=ch, ts=ts, text=f'→ {agent}', blocks=[self.small(f'→ {agent}')])
@@ -151,7 +151,7 @@ class Slack(Adapter):
         r = await self.web.chat_postMessage(
             channel=conv['channel'], thread_ts=conv['thread_ts'], text='working…', username=display_name(agent),
             blocks=[self.small('working…'), {'type': 'actions', 'elements': [{
-                'type': 'button', 'text': {'type': 'plain_text', 'text': 'Stop'}, 'action_id': 'hq-stop',
+                'type': 'button', 'text': {'type': 'plain_text', 'text': 'Stop'}, 'action_id': 'kith-stop',
                 'value': wid}]}])
         return {'channel': r['channel'], 'ts': r['ts'], 'wid': wid}
 
@@ -161,7 +161,7 @@ class Slack(Adapter):
         blocks = [self.small(text)]
         if 'restarting' not in text:
             blocks.append({'type': 'actions', 'elements': [{'type': 'button', 'text': {
-                'type': 'plain_text', 'text': 'Stop'}, 'action_id': 'hq-stop', 'value': handle['wid']}]})
+                'type': 'plain_text', 'text': 'Stop'}, 'action_id': 'kith-stop', 'value': handle['wid']}]})
         try:
             await self.web.chat_update(channel=handle['channel'], ts=handle['ts'], text=text, blocks=blocks)
         except Exception:  # noqa: BLE001  cosmetic
@@ -187,7 +187,7 @@ class Slack(Adapter):
 
     async def ask(self, m, pid, options):
         o = m.origin
-        buttons = [{'type': 'button', 'text': {'type': 'plain_text', 'text': a}, 'action_id': f'hq-pick-{a}',
+        buttons = [{'type': 'button', 'text': {'type': 'plain_text', 'text': a}, 'action_id': f'kith-pick-{a}',
                     'value': f'{pid}:{a}'} for a in options]
         await self.web.chat_postMessage(channel=o['channel'], thread_ts=o.get('thread_ts') or o['ts'],
                                         text='Who should take this?',

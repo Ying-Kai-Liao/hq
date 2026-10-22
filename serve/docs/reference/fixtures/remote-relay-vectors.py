@@ -1,5 +1,6 @@
-# Generates docs/reference/fixtures/remote-relay-vectors.json (Codync relay crypto, protocol v1 (spec rev 2)).
-import base64, hashlib, json, struct
+# Generates docs/reference/fixtures/remote-relay-vectors.json (Codync labels) and, with the argument `kith`,
+# remote-relay-vectors.kith.json (the same vectors under the kith/* labels, kith-sig-v1 and Kith-Sig).
+import base64, hashlib, json, struct, sys
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
@@ -7,6 +8,9 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF, HKDFExpand
 from cryptography.hazmat.primitives import hashes, hmac
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
+NAME = sys.argv[1] if len(sys.argv) > 1 else "codync"
+assert NAME in ("codync", "kith")
+NB = NAME.encode()
 b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode()
 raw = lambda k: k.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
 sha = lambda b: hashlib.sha256(b).digest()
@@ -29,19 +33,19 @@ sig_nonce = b"\x09"*16
 hk, bk, dk, ekd, ekh = raw(host_sign), raw(host_box), raw(dev_sign), raw(dev_eph), raw(host_eph)
 cid = sha(hk)[:16]
 
-hs1_input = b"codync/hs1/v1" + cid + dk + ekd + n
+hs1_input = NB + b"/hs1/v1" + cid + dk + ekd + n
 hs1_sig = dev_sign.sign(hs1_input)
-th = sha(b"codync/hs2/v1" + cid + dk + ekd + n + ekh)
+th = sha(NB + b"/hs2/v1" + cid + dk + ekd + n + ekh)
 hs2_sig = host_sign.sign(th)
 shared = dev_eph.exchange(X25519PublicKey.from_public_bytes(ekh))
 assert shared == host_eph.exchange(X25519PublicKey.from_public_bytes(ekd))
 prk = extract(th, shared)
-k_d2h = expand(prk, b"codync/d2h/v1")
-k_h2d = expand(prk, b"codync/h2d/v1")
+k_d2h = expand(prk, NB + b"/d2h/v1")
+k_h2d = expand(prk, NB + b"/h2d/v1")
 
 def frame(key, counter, flag, msg):
     nonce = b"\x00"*4 + struct.pack(">Q", counter)
-    aad = b"codync/frame/v1" + struct.pack(">Q", counter)
+    aad = NB + b"/frame/v1" + struct.pack(">Q", counter)
     pt = bytes([flag]) + msg.encode()
     return b64(ChaCha20Poly1305(key).encrypt(nonce, pt, aad)), b64(pt)
 
@@ -54,26 +58,26 @@ f_d2h1_more = frame(k_d2h, 1, 1, '{"id":2,"m":"se')
 # SAS: commit-then-reveal (device commits to nd before it sees nh)
 nd = b"\x0a"*32
 nh = b"\x0b"*32
-sas_commit = sha(b"codync/sascommit/v1" + dk + nd)
-sas_n = struct.unpack(">I", sha(b"codync/sas/v2" + hk + dk + nd + nh)[:4])[0] % 1_000_000
-offer = sha(b"codync/offer/v1" + code)[:16]
+sas_commit = sha(NB + b"/sascommit/v1" + dk + nd)
+sas_n = struct.unpack(">I", sha(NB + b"/sas/v2" + hk + dk + nd + nh)[:4])[0] % 1_000_000
+offer = sha(NB + b"/offer/v1" + code)[:16]
 
 # mailbox
 epk = raw(mbox_eph)
 mshared = mbox_eph.exchange(X25519PublicKey.from_public_bytes(bk))
 client_nonce = "3F2504E0-4F89-11D3-9A0C-0305E82C3301"
-mprk = extract(b"codync/mbox/v1" + cid + dk + epk, mshared)
-mkey = expand(mprk, b"codync/mbox-key/v1")
+mprk = extract(NB + b"/mbox/v1" + cid + dk + epk, mshared)
+mkey = expand(mprk, NB + b"/mbox-key/v1")
 mpt = '{"m":"send","b":{"botId":"b1","text":"hi","clientNonce":"%s"},"ts":1790000000000}' % client_nonce
 mct = ChaCha20Poly1305(mkey).encrypt(b"\x00"*12, mpt.encode(), dk + client_nonce.encode())
-msig = dev_sign.sign(b"codync/mbox/v1" + cid + epk + mct)
+msig = dev_sign.sign(NB + b"/mbox/v1" + cid + epk + mct)
 blob = epk + msig + mct
 
-# Codync-Sig request signing
+# Kith-Sig / Codync-Sig request signing
 path = "/v1/relay/device/%s?v=1" % b64(cid)
 ts = 1790000000000
 authority = "codync-cloud-staging.example.workers.dev"
-canon = "codync-sig-v1\nGET\n%s\n%s\n%d\n%s\n%s" % (authority, path, ts, b64(sig_nonce), b64(sha(b"")))
+canon = NAME + "-sig-v1\nGET\n%s\n%s\n%d\n%s\n%s" % (authority, path, ts, b64(sig_nonce), b64(sha(b"")))
 req_sig = dev_sign.sign(canon.encode())
 header = "v=1,kid=%s,ts=%d,nonce=%s,sig=%s" % (b64(dk), ts, b64(sig_nonce), b64(req_sig))
 
@@ -82,7 +86,7 @@ acl = json.dumps({"v":1,"computerId":b64(cid),"ver":1,"devices":[{"dk":b64(dk),"
 acl_sig = host_sign.sign(acl.encode())
 
 # claim signature (UTF-8, "\n"-separated, no trailing newline)
-claim_canon = "codync/claim/v1\n%s\n%s\n%s\n%s\n%s" % ("clm_AAAAAAAAAAAAAAAAAAAAAA", "DAwMDAwMDAwMDAwMDAwMDA", "user_2abc", b64(cid), b64(bk))
+claim_canon = NAME + "/claim/v1\n%s\n%s\n%s\n%s\n%s" % ("clm_AAAAAAAAAAAAAAAAAAAAAA", "DAwMDAwMDAwMDAwMDAwMDA", "user_2abc", b64(cid), b64(bk))
 claim_sig = host_sign.sign(claim_canon.encode())
 
 # sealed push payload (host -> phone via APNs, opened in the Notification Service Extension)
@@ -91,13 +95,13 @@ push_pub = raw(push_priv)
 push_eph = X25519PrivateKey.from_private_bytes(b"\x0d"*32)
 pepk = raw(push_eph)
 pshared = push_eph.exchange(X25519PublicKey.from_public_bytes(push_pub))
-pprk = extract(b"codync/push/v1" + cid + push_pub + pepk, pshared)
-pkey = expand(pprk, b"codync/push-key/v1")
+pprk = extract(NB + b"/push/v1" + cid + push_pub + pepk, pshared)
+pkey = expand(pprk, NB + b"/push-key/v1")
 ppt = '{"title":"Reviewer","body":"Run cargo test --all?"}'
 pct = ChaCha20Poly1305(pkey).encrypt(b"\x00"*12, ppt.encode(), cid)
 
 out = {
-  "about": "Codync relay protocol v1 (spec rev 2) test vectors. All binary values are base64url without padding. Private keys are 32-byte seeds/scalars.",
+  "about": NAME.capitalize() + " relay protocol v1 (spec rev 2) test vectors. All binary values are base64url without padding. Private keys are 32-byte seeds/scalars.",
   "keys": {
     "hostSignSeed": b64(b"\x01"*32), "hostSignPub": b64(hk),
     "hostBoxPriv": b64(b"\x02"*32), "hostBoxPub": b64(bk),
@@ -131,7 +135,7 @@ out = {
   },
   "requestSig": {
     "method":"GET","authority":authority,"pathAndQuery":path,"ts":ts,"nonce":b64(sig_nonce),"bodySha256":b64(sha(b"")),
-    "canonical": canon, "sig": b64(req_sig), "header": "Codync-Sig: " + header,
+    "canonical": canon, "sig": b64(req_sig), "header": NAME.capitalize() + "-Sig: " + header,
   },
   "acl": {"json": acl, "d": b64(acl.encode()), "sig": b64(acl_sig)},
 }

@@ -24,10 +24,18 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             }
             let name = b["name"].as_str().unwrap_or("iPhone");
             hub.store.add_push_ticket(ticket, caller.device_key(), push_key, b["ctx"].as_str(), name)?;
+            // The label family the device seals pushes under; a device that doesn't say is a pre-Kith pairing.
+            let labels_key = format!("push_labels.{}", caller.device_key());
+            if b["labels"].as_str() == Some("kith") {
+                hub.store.kv_set(&labels_key, "kith")?;
+            } else {
+                hub.store.kv_delete(&labels_key)?;
+            }
             json!({})
         }
         "unregisterDevice" => {
             hub.store.remove_push_tickets(caller.device_key())?;
+            hub.store.kv_delete(&format!("push_labels.{}", caller.device_key()))?;
             json!({})
         }
         "registerActivity" => {
@@ -147,7 +155,7 @@ async fn claim_sign(hub: &Arc<Hub>, b: &Value) -> Result<Value> {
     let (claim_id, nonce, user_id) = (field("claimId")?, field("nonce")?, field("userId")?);
     let computer_id = hub.identity.computer_id();
     let box_key = hub.identity.box_pub_b64();
-    let input = crypto::claim_input(claim_id, nonce, user_id, &computer_id, &box_key);
+    let input = crypto::claim_input(crypto::Labels::Kith, claim_id, nonce, user_id, &computer_id, &box_key);
     Ok(json!({
         "computerId": computer_id,
         "signKey": hub.identity.sign_pub_b64(),

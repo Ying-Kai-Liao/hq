@@ -1,4 +1,4 @@
-//! hq agents as bots. hq says how to start an agent (`hq <agent> --launch-json`), the host starts it: this file
+//! hq agents as bots. hq says how to start an agent (`kith <agent> --launch-json`), the host starts it: this file
 //! runs the `hq` CLI and turns its answer into the ACP session request for claude-agent-acp. The host adds nothing
 //! of Kith's to such a bot, so the agent runs with its own prompt, memory, skills, servers and settings.
 
@@ -11,26 +11,27 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tokio::io::AsyncReadExt as _;
 
-/// `hq ls --json` reads a few folders; `--launch-json` assembles prompt, settings and servers.
+/// `kith ls --json` reads a few folders; `--launch-json` assembles prompt, settings and servers.
 const LIST_TIMEOUT: Duration = Duration::from_secs(30);
 const LAUNCH_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Test hosts name the ACP command that stands in for claude-agent-acp.
 pub const ACP_COMMAND_ENV: &str = "KITH_SERVE_HQ_ACP_COMMAND";
 
-/// The `hq` to run: `HQ_BIN` when set (an empty value turns hq off), else `hq` on PATH, else `~/.local/bin/hq`.
+/// The `kith` to run: `KITH_KERNEL_BIN` (the old `HQ_BIN`) when set (an empty value turns it off), else `kith` on PATH,
+/// else `hq` on PATH (installed before the rename), else `~/.local/bin/kith` or `~/.local/bin/hq`.
 /// Blocking: looking on PATH may ask the login shell.
 pub fn bin() -> Option<PathBuf> {
-    if let Some(set) = std::env::var_os("HQ_BIN") {
+    if let Some(set) = ["KITH_KERNEL_BIN", "HQ_BIN"].iter().find_map(std::env::var_os) {
         return (!set.is_empty()).then(|| PathBuf::from(set));
     }
-    crate::agent::backends::which("hq").or_else(|| {
-        let local = dirs::home_dir()?.join(".local/bin/hq");
-        local.is_file().then_some(local)
+    crate::agent::backends::which("kith").or_else(|| crate::agent::backends::which("hq")).or_else(|| {
+        let bin = dirs::home_dir()?.join(".local/bin");
+        ["kith", "hq"].iter().map(|n| bin.join(n)).find(|p| p.is_file())
     })
 }
 
-/// One line of `hq ls --json`.
+/// One line of `kith ls --json`.
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct HqAgent {
     pub name: String,
@@ -48,13 +49,13 @@ fn claude() -> String {
 }
 
 impl HqAgent {
-    /// Whether the host can run it: `hq <agent> --launch-json` covers Claude agents only.
+    /// Whether the host can run it: `kith <agent> --launch-json` covers Claude agents only.
     pub fn runnable(&self) -> bool {
         self.harness == "claude"
     }
 }
 
-/// What `hq <agent> --launch-json` printed, the parts the host uses.
+/// What `kith <agent> --launch-json` printed, the parts the host uses.
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct Launch {
     #[serde(default)]
@@ -83,13 +84,13 @@ pub struct Launch {
     pub permission_mode: Option<String>,
 }
 
-/// Runs `bin args…` in `cwd` with `HQ_VIA=serve`: its stdout, or the stderr text it failed with.
+/// Runs `bin args…` in `cwd` with `KITH_VIA=serve` (and `HQ_VIA`): its stdout, or the stderr text it failed with.
 async fn run(bin: &Path, args: &[&str], cwd: Option<&str>, budget: Duration) -> Result<String> {
-    let shown = format!("hq {}", args.join(" "));
+    let shown = format!("kith {}", args.join(" "));
     let mut command = tokio::process::Command::new(bin);
     command
         .args(args)
-        .env("HQ_VIA", "serve")
+        .envs(crate::kernel::both("VIA", "serve"))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -118,10 +119,10 @@ async fn run(bin: &Path, args: &[&str], cwd: Option<&str>, budget: Duration) -> 
 
 pub async fn list(bin: &Path) -> Result<Vec<HqAgent>> {
     let out = run(bin, &["ls", "--json"], None, LIST_TIMEOUT).await?;
-    serde_json::from_str(out.trim()).context("`hq ls --json` didn't print a JSON list of agents")
+    serde_json::from_str(out.trim()).context("`kith ls --json` didn't print a JSON list of agents")
 }
 
-/// One registered hq project, from `hq project ls --json`.
+/// One registered hq project, from `kith project ls --json`.
 #[derive(Deserialize, Debug, Clone, PartialEq, Default)]
 pub struct Project {
     pub id: String,
@@ -162,7 +163,7 @@ pub fn cached_projects() -> Vec<Project> {
     PROJECTS.locked().as_ref().map(|(_, l)| l.clone()).unwrap_or_default()
 }
 
-/// What `hq project ls --json` prints.
+/// What `kith project ls --json` prints.
 #[derive(Deserialize)]
 struct Listing {
     projects: Vec<Project>,
@@ -187,7 +188,7 @@ pub async fn projects_soon() -> Vec<Project> {
     }
 }
 
-/// `hq project ls --json`, reused for a few seconds unless `fresh`. Fails when hq is missing or the command does.
+/// `kith project ls --json`, reused for a few seconds unless `fresh`. Fails when hq is missing or the command does.
 pub async fn projects(fresh: bool) -> Result<Vec<Project>> {
     if !fresh
         && let Some((at, list)) = PROJECTS.locked().clone()
@@ -196,20 +197,20 @@ pub async fn projects(fresh: bool) -> Result<Vec<Project>> {
         return Ok(list);
     }
     let Some(bin) = tokio::task::spawn_blocking(bin).await? else {
-        bail!("hq isn't installed on this computer (set HQ_BIN, or put `hq` on PATH)");
+        bail!("kith isn't installed on this computer (set KITH_KERNEL_BIN, or put `kith` on PATH)");
     };
     let out = run(&bin, &["project", "ls", "--json"], None, LIST_TIMEOUT).await?;
     let list = serde_json::from_str::<Listing>(out.trim())
-        .context("`hq project ls --json` didn't print a JSON list of projects")?
+        .context("`kith project ls --json` didn't print a JSON list of projects")?
         .projects;
     remember_projects(&list);
     Ok(list)
 }
 
-/// `hq project add <id> <path>`: hq's own error text on failure (a taken id, a path that isn't a folder…).
+/// `kith project add <id> <path>`: kith's own error text on failure (a taken id, a path that isn't a folder…).
 pub async fn project_add(id: &str, path: &str) -> Result<()> {
     let Some(bin) = tokio::task::spawn_blocking(bin).await? else {
-        bail!("hq isn't installed on this computer (set HQ_BIN, or put `hq` on PATH)");
+        bail!("kith isn't installed on this computer (set KITH_KERNEL_BIN, or put `kith` on PATH)");
     };
     run(&bin, &["project", "add", id, path], None, LIST_TIMEOUT).await?;
     // The next list must show it.
@@ -218,7 +219,7 @@ pub async fn project_add(id: &str, path: &str) -> Result<()> {
 }
 
 /// Asks hq how to start `agent` for a run in `cwd`; `project` goes as `-p <id>`, so hq loads that project's context.
-/// The model and effort the user picked for the bot go to hq as `-m`/`-e`, so its ledger tag and `HQ_MODEL` say what ran.
+/// The model and effort the user picked for the bot go to hq as `-m`/`-e`, so its ledger tag and `KITH_MODEL` say what ran.
 pub async fn launch(bin: &Path, agent: &str, cwd: &str, cfg: &BotConfig, project: Option<&str>) -> Result<Launch> {
     let mut args = vec![agent, "--launch-json"];
     if let Some(project) = project {
@@ -232,7 +233,7 @@ pub async fn launch(bin: &Path, agent: &str, cwd: &str, cfg: &BotConfig, project
     }
     let out = run(bin, &args, Some(cwd), LAUNCH_TIMEOUT).await?;
     let launch: Launch = serde_json::from_str(out.trim())
-        .with_context(|| format!("`hq {agent} --launch-json` didn't print a launch object"))?;
+        .with_context(|| format!("`kith {agent} --launch-json` didn't print a launch object"))?;
     if !launch.harness.is_empty() && launch.harness != "claude" {
         bail!("{agent} runs on {}; the host starts claude agents only", launch.harness);
     }
@@ -248,8 +249,8 @@ impl Launch {
     /// The agent process's environment, on top of the host's own.
     pub fn env(&self) -> Vec<(String, String)> {
         let mut env: Vec<(String, String)> = self.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        if !self.env.contains_key("HQ_VIA") {
-            env.push(("HQ_VIA".into(), "serve".into()));
+        if !self.env.contains_key("KITH_VIA") {
+            env.extend(crate::kernel::both("VIA", "serve"));
         }
         env
     }
@@ -324,7 +325,7 @@ mod tests {
     fn launch() -> Launch {
         serde_json::from_value(json!({
             "version": 1, "agent": "house", "harness": "claude", "cwd": "/agents/house",
-            "env": {"HQ_AGENT": "house", "HQ_VIA": "serve"},
+            "env": {"KITH_AGENT": "house", "KITH_VIA": "serve"},
             "system_prompt": "You are house.",
             "settings": {"hooks": {"SessionStart": []}},
             "mcp_servers": {"files": {"command": "x", "args": ["1"], "env": {}}},
@@ -385,6 +386,9 @@ mod tests {
         let o = &params["_meta"]["claudeCode"]["options"];
         assert_eq!(o["mcpServers"], json!({}));
         assert!(o.get("extraArgs").is_none() && o.get("allowedTools").is_none());
-        assert_eq!(sparse.env(), vec![("HQ_VIA".to_owned(), "serve".to_owned())]);
+        assert_eq!(
+            sparse.env(),
+            vec![("KITH_VIA".to_owned(), "serve".to_owned()), ("HQ_VIA".to_owned(), "serve".to_owned())]
+        );
     }
 }

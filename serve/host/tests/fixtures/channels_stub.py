@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""One stand-in for hq, hq-auth and hq-live in the channels' tests: it acts as whichever name it is called by.
+"""One stand-in for kith, kith-auth and kith-live in the channels' tests: it acts as whichever name it is called by.
 
-The test makes symlinks <rig>/bin/hq, hq-auth and hq-live to this file; the rig's files are in <rig>/stub/:
-  people.json   {"<platform>:<uid>": {person, owner, was}}      what `hq-auth who` says
-  access.json   {"<person>": {"owner": bool, "agents": [..]}}   what `hq-auth resolve` says
-  codes.json    {"<CODE>": "<person>"}                          what `hq-auth link` accepts
-  granted.json  {"<platform>": ["<profile>", ..]}               what `hq-auth granted` lists
-  secrets.json  {"<profile>": {"<VAR>": "<value>"}}             what `hq-auth get` prints
-  live.json     {"running": bool}                               whether `hq-live send` finds a session
+The test makes symlinks <rig>/bin/kith, kith-auth and kith-live to this file; the rig's files are in <rig>/stub/:
+  people.json   {"<platform>:<uid>": {person, owner, was}}      what `kith-auth who` says
+  access.json   {"<person>": {"owner": bool, "agents": [..]}}   what `kith-auth resolve` says
+  codes.json    {"<CODE>": "<person>"}                          what `kith-auth link` accepts
+  granted.json  {"<platform>": ["<profile>", ..]}               what `kith-auth granted` lists
+  secrets.json  {"<profile>": {"<VAR>": "<value>"}}             what `kith-auth get` prints
+  live.json     {"running": bool}                               whether `kith-live send` finds a session
   calls.jsonl   every call, one JSON object per line
 
-`hq <agent> <task>` answers {"result": "echo:<task>", "session_id": "sess-<agent>-<n>"}. A task that starts with
-SLOW sleeps until killed, SLEEP for 1.5 s; one containing SEND leaves two posts in HQ_BRIDGE_OUTBOX; FAIL exits 1;
+`kith <agent> <task>` answers {"result": "echo:<task>", "session_id": "sess-<agent>-<n>"}. A task that starts with
+SLOW sleeps until killed, SLEEP for 1.5 s; one containing SEND leaves two posts in KITH_BRIDGE_OUTBOX; FAIL exits 1;
 BIGCTX reports a context 60% full, BGHOLD leaves a process holding its output open.
 """
 import json
@@ -48,7 +48,7 @@ def fail(text):
     sys.exit(1)
 
 
-if me == "hq-auth":
+if me == "kith-auth":
     cmd = args[0] if args else ""
     if cmd == "who":
         print(json.dumps(load("people", {}).get(f"{args[1]}:{args[2]}", {"person": None, "owner": False, "was": []})))
@@ -56,7 +56,7 @@ if me == "hq-auth":
         agent, person = args[1], args[args.index("--person") + 1]
         entry = load("access", {}).get(person)
         if entry is None:
-            print(json.dumps({"allowed": False, "why": f"{person} is not in hq", "owner": False}))
+            print(json.dumps({"allowed": False, "why": f"{person} is not in kith", "owner": False}))
         else:
             owner = bool(entry.get("owner"))
             allowed = owner or agent in entry.get("agents", [])
@@ -65,7 +65,7 @@ if me == "hq-auth":
         platform, uid, code = args[1:4]
         person = load("codes", {}).get(code)
         if person is None:
-            fail("hq-auth: that code did not work")
+            fail("kith-auth: that code did not work")
         people = load("people", {})
         people[f"{platform}:{uid}"] = {"person": person, "owner": False, "was": []}
         save("people", people)
@@ -73,30 +73,30 @@ if me == "hq-auth":
     elif cmd == "granted":
         granted = load("granted", {})
         if granted.get("_fail"):
-            fail("hq-auth: the auth file is locked")
+            fail("kith-auth: the auth file is locked")
         print("\n".join(granted.get(args[-1], [])))
     elif cmd == "get":
         profile, var = args[args.index("--profile") + 1], args[-1]
         value = load("secrets", {}).get(profile, {}).get(var)
         if value is None:
-            fail(f"hq-auth: {var} is not set")
+            fail(f"kith-auth: {var} is not set")
         print(value)
     else:
-        fail("hq-auth: unknown command")
-elif me == "hq-live":
-    log({"tool": "hq-live", "args": args})
+        fail("kith-auth: unknown command")
+elif me == "kith-live":
+    log({"tool": "kith-live", "args": args})
     if not load("live", {"running": True}).get("running"):
         fail("no live session for that agent")
-elif me == "hq":
+elif me == "kith":
     agent, task = args[0], args[1]
     env = os.environ
     log({
-        "tool": "hq", "agent": agent, "task": task,
-        "resume": env.get("HQ_RESUME"), "person": env.get("HQ_PERSON"), "via": env.get("HQ_VIA"),
-        "output": env.get("HQ_OUTPUT"), "extra": env.get("FAKE_EXTRA"), "mode": env.get("HQ_PERMISSION_MODE"),
-        "outbox": bool(env.get("HQ_BRIDGE_OUTBOX")),
-        "withheld": sorted(k for k in env if k.startswith(("JEV_", "TELEGRAM_", "SLACK_", "DISCORD_", "HQ_DISCORD_"))
-                           or k in ("HQ_AGENT",)),
+        "tool": "kith", "agent": agent, "task": task,
+        "resume": env.get("KITH_RESUME"), "person": env.get("KITH_PERSON"), "via": env.get("KITH_VIA"),
+        "output": env.get("KITH_OUTPUT"), "extra": env.get("FAKE_EXTRA"), "mode": env.get("KITH_PERMISSION_MODE"),
+        "outbox": bool(env.get("KITH_BRIDGE_OUTBOX")),
+        "withheld": sorted(k for k in env if k.startswith(("JEV_", "TELEGRAM_", "SLACK_", "DISCORD_", "HQ_DISCORD_", "KITH_DISCORD_"))
+                           or k in ("HQ_AGENT", "KITH_AGENT")),
         "cwd": os.getcwd(),
     })
     counts = load("sessions", {})
@@ -109,7 +109,7 @@ elif me == "hq":
         with open(os.path.join(stub, "bg.pid"), "w", encoding="utf-8") as f:
             f.write(str(bg.pid))
     if "SEND" in task:
-        outbox = env["HQ_BRIDGE_OUTBOX"]
+        outbox = env["KITH_BRIDGE_OUTBOX"]
         for item in ({"as": "image", "text": "tool says hi"},
                      {"as": "image", "files": ["/tmp/pic.png"], "caption": "a picture"}):
             name = os.path.join(outbox, f"{time.time_ns()}.json")

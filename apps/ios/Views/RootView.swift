@@ -112,7 +112,7 @@ struct RootView: View {
         var id: String { "\(computerId)/\(request.id)" }
     }
 
-    /// Any computer's "open the screen" request (thread toolbar, computers list, `codync://screen`).
+    /// Any computer's "open the screen" request (thread toolbar, computers list, `kith://screen`).
     private var screenTarget: Binding<ScreenTarget?> {
         Binding(get: {
             accounts.computers.lazy.compactMap { c in

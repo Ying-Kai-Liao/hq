@@ -26,7 +26,7 @@ test('development packaging registers only development callbacks and background 
   assert.equal(dev.productName, 'Kith Dev')
   assert.equal(dev.publish, null)
   assert.ok(new RegExp(dev.mac.signIgnore[0]).test('CodyncDevScreen.app/Contents/Helpers/cua-driver'))
-  assert.deepEqual(dev.protocols.flatMap((p: { schemes: string[] }) => p.schemes), ['codync-dev', 'com.yingkailiao.kith.dev'])
+  assert.deepEqual(dev.protocols.flatMap((p: { schemes: string[] }) => p.schemes), ['kith-dev', 'codync-dev', 'com.yingkailiao.kith.dev'])
   assert.deepEqual(dev.mac.extraFiles.map((f: { to: string }) => f.to), [
     'Library/LoginItems/CodyncDevScreen.app',
     'Library/LaunchAgents/com.yingkailiao.kith.dev.screen.plist',
@@ -34,4 +34,12 @@ test('development packaging registers only development callbacks and background 
   assert.ok(dev.win.extraResources.some((f: { to: string }) => f.to === 'kith-servew.exe'))
   assert.ok(!dev.win.extraResources.some((f: { to: string }) => f.to === 'kith-servew-main.exe'))
   assert.equal(dev.linux.executableName, 'codync-dev')
+})
+
+test('the Mac app bundles the service binary and the kith release layout', () => {
+  const to = (prod.mac.extraResources as { from: string; to: string }[]).map((f) => f.to)
+  assert.ok(to.includes('kith-serve'))
+  assert.ok(to.includes('kith'))
+  // Windows keeps its own entries.
+  assert.ok(prod.win.extraResources.some((f: { to: string }) => f.to === 'kith-serve.exe'))
 })

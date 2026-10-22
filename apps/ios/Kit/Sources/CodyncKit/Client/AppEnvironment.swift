@@ -10,7 +10,12 @@ public enum AppEnvironment: String, Sendable {
     ) ?? .main
 
     public var appGroup: String { self == .dev ? "group.com.yingkailiao.kith.dev" : "group.com.yingkailiao.kith" }
-    public var urlScheme: String { self == .dev ? "codync-dev" : "codync" }
+    public var urlScheme: String { self == .dev ? "kith-dev" : "kith" }
+    /// The scheme links used before the Kith rename: still opened, never produced.
+    public var legacyURLScheme: String { self == .dev ? "codync-dev" : "codync" }
+
+    /// Whether `scheme` is this build's link scheme, current or legacy.
+    public func accepts(scheme: String) -> Bool { scheme == urlScheme || scheme == legacyURLScheme }
 
     public func link(_ destination: String) -> URL {
         // All callers supply a fixed app route.

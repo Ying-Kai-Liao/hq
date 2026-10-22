@@ -160,7 +160,7 @@ public final class AccountStore {
         guard let cloud, let target = cloudComputers.first(where: { $0.computerId == id }) else {
             throw CloudError(status: 404, code: "notFound", message: "That computer isn't in your account.")
         }
-        let ticket = try await cloud.requestAccess(id, signKey: target.signKey)
+        let ticket = try await cloud.requestAccess(id, signKey: target.signKey, hostVersion: target.version)
         guard !retired else { throw CancellationError() }
         setPending(id, ticket)
         accessPolls[id]?.cancel()
@@ -259,7 +259,7 @@ public final class AccountStore {
                 setPending(ticket.computerId, nil)
                 // Pin the key the SAS was computed with; the first hello brings its mailbox key and addresses.
                 let computer = Computer(id: ticket.computerId, name: target.name, signKey: ticket.signKey,
-                                        cloud: cloud.baseURL, device: target.device)
+                                        cloud: cloud.baseURL, device: target.device, labels: ticket.labels ?? .codync)
                 save(computer)
                 open(computer)
                 Analytics.shared.capture(.computerPaired, ["via": "account", "computer": Analytics.computerTag(computer.id)])

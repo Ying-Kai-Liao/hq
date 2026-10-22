@@ -114,7 +114,7 @@ impl Rig {
         let (bin, stub) = (dir.join("bin"), dir.join("stub"));
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::create_dir_all(&stub).unwrap();
-        for tool in ["hq", "hq-auth", "hq-live"] {
+        for tool in ["kith", "kith-auth", "kith-live"] {
             std::os::unix::fs::symlink(stub_script(), bin.join(tool)).unwrap();
         }
         for (name, card) in [
@@ -127,9 +127,9 @@ impl Rig {
             std::fs::write(dir.join("agents").join(name).join("agent.md"), card).unwrap();
         }
         let paths = super::hq::Paths {
-            hq_bin: bin.join("hq"),
-            auth_bin: bin.join("hq-auth"),
-            live_bin: bin.join("hq-live"),
+            hq_bin: bin.join("kith"),
+            auth_bin: bin.join("kith-auth"),
+            live_bin: bin.join("kith-live"),
             machine: dir.join("machine"),
             agent_roots: vec![dir.join("agents")],
             data: dir.join("data"),
@@ -222,7 +222,7 @@ async fn an_unknown_sender_is_told_to_link() {
     chatter.addressed = false;
     r.send(&chatter).await;
     assert_eq!(r.fake.replies().len(), 1);
-    assert!(r.calls("hq").is_empty(), "nothing ran");
+    assert!(r.calls("kith").is_empty(), "nothing ran");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -231,7 +231,7 @@ async fn link_with_a_code_links_the_account() {
     r.send(&Rig::msg("55", "/link BADCODE1")).await;
     assert_eq!(r.fake.replies()[0], "that code did not work");
     r.send(&Rig::msg("55", "/link GOODCODE1")).await;
-    assert_eq!(r.fake.replies()[1], "Linked: you are newbie in hq.");
+    assert_eq!(r.fake.replies()[1], "Linked: you are newbie in kith.");
     let people: Value =
         serde_json::from_str(&std::fs::read_to_string(r.dir.join("stub/people.json")).unwrap()).unwrap();
     assert_eq!(people["fake:55"]["person"], "newbie");
@@ -244,7 +244,7 @@ async fn at_agent_picks_the_agent_and_the_thread_resumes_its_session() {
     until("the answer", || !r.fake.posts().is_empty()).await;
     assert_eq!(r.fake.posts()[0], ("house".into(), echo("hello")));
     assert!(r.fake.events().contains(&Event::OpenThread { agent: "house".into(), title: "hello".into() }));
-    let first = &r.calls("hq")[0];
+    let first = &r.calls("kith")[0];
     assert!(first["resume"].is_null() && first["person"].is_null());
     assert_eq!(
         (first["via"].as_str(), first["output"].as_str(), first["extra"].as_str()),
@@ -257,14 +257,14 @@ async fn at_agent_picks_the_agent_and_the_thread_resumes_its_session() {
     let key = "fake/x:room:1";
     r.send(&Rig::in_thread(Rig::msg("1", "and more"), key)).await;
     until("the second answer", || r.fake.posts().len() == 2).await;
-    let calls = r.calls("hq");
+    let calls = r.calls("kith");
     assert_eq!((calls[1]["agent"].as_str(), calls[1]["resume"].as_str()), (Some("house"), Some("sess-house-1")));
     assert_eq!(r.fake.posts()[1].1, echo("and more"));
 
     // A mention anywhere picks another agent, which answers in its own session of the same thread.
     r.send(&Rig::in_thread(Rig::msg("1", "ask @shop about milk"), key)).await;
     until("the shop's answer", || r.fake.posts().len() == 3).await;
-    let calls = r.calls("hq");
+    let calls = r.calls("kith");
     assert_eq!((calls[2]["agent"].as_str(), calls[2]["resume"].is_null()), (Some("shop"), true));
     r.idle().await;
 }
@@ -288,7 +288,7 @@ async fn the_room_default_and_the_default_command() {
 
     r.send(&chat).await;
     until("the default agent to answer", || !r.fake.posts().is_empty()).await;
-    assert_eq!(r.calls("hq")[0]["agent"], "house");
+    assert_eq!(r.calls("kith")[0]["agent"], "house");
     r.idle().await;
 
     r.send(&Rig::msg("1", "/default none")).await;
@@ -296,7 +296,7 @@ async fn the_room_default_and_the_default_command() {
     r.send(&Rig::msg("1", "/whoami")).await;
     assert_eq!(
         r.fake.replies()[5],
-        "You are kai in hq. Write @agent to pick one; /agents lists yours, /default sets this room's."
+        "You are kai in kith. Write @agent to pick one; /agents lists yours, /default sets this room's."
     );
     r.send(&Rig::msg("2", "/agents")).await;
     assert_eq!(r.fake.replies()[6], "Yours: shop\nWrite @agent, or answer in a thread to go on with it.");
@@ -311,7 +311,7 @@ async fn the_owners_new_dm_goes_to_the_dm_default() {
     dm.addressed = false;
     r.send(&dm).await;
     until("the DM answer", || !r.fake.posts().is_empty()).await;
-    assert_eq!(r.calls("hq")[0]["agent"], "personal");
+    assert_eq!(r.calls("kith")[0]["agent"], "personal");
     r.idle().await;
 
     // Someone else's new DM has no default: the bot asks.
@@ -340,7 +340,7 @@ async fn who_should_take_this_then_a_button_picks() {
         })
         .expect("asked");
     assert_eq!(agents, ["coder", "house", "personal", "shop"]);
-    assert!(r.calls("hq").is_empty(), "never guesses");
+    assert!(r.calls("kith").is_empty(), "never guesses");
 
     // Another person's press, and an unknown question, are refused.
     assert!(!r.core.picked(&r.ad, &pid, "house", "2").await.unwrap());
@@ -357,27 +357,30 @@ async fn a_non_owner_runs_as_themselves_and_stays_out_of_others_threads() {
     let r = Rig::new();
     r.send(&Rig::msg("2", "@shop milk please")).await;
     until("the guest's answer", || !r.fake.posts().is_empty()).await;
-    assert_eq!(r.calls("hq")[0]["person"], "guest");
+    assert_eq!(r.calls("kith")[0]["person"], "guest");
     r.idle().await;
 
     r.send(&Rig::msg("2", "@house hi")).await;
-    assert_eq!(r.fake.replies()[0], "guest may not use house. Ask the owner to add you (hq auth member house guest).");
+    assert_eq!(
+        r.fake.replies()[0],
+        "guest may not use house. Ask the owner to add you (kith auth member house guest)."
+    );
 
     r.send(&Rig::msg("1", "@house owner task")).await;
     until("the owner's answer", || r.fake.posts().len() == 2).await;
     r.idle().await;
-    let calls = r.calls("hq");
+    let calls = r.calls("kith");
     assert!(calls[1]["person"].is_null());
     r.send(&Rig::in_thread(Rig::msg("2", "@shop can I join"), "fake/x:room:2")).await;
     assert_eq!(r.fake.replies()[1], "This thread is kai's. Start your own outside it.");
-    assert_eq!(r.calls("hq").len(), 2);
+    assert_eq!(r.calls("kith").len(), 2);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_live_agent_gets_the_message_typed_in_and_its_answers_are_posted() {
     let r = Rig::new();
     r.send(&Rig::msg("1", "@coder build it")).await;
-    let sent = r.calls("hq-live");
+    let sent = r.calls("kith-live");
     assert_eq!(sent.len(), 1);
     let args: Vec<&str> = sent[0]["args"].as_array().unwrap().iter().map(|a| a.as_str().unwrap()).collect();
     let key = "fake/x:room:1";
@@ -385,10 +388,10 @@ async fn a_live_agent_gets_the_message_typed_in_and_its_answers_are_posted() {
     assert_eq!(args[..3], ["send", "coder", "--reply"]);
     assert_eq!(args[3], format!("bridge:{boxed}"));
     assert_eq!(args[args.len() - 2..], ["--", "build it"]);
-    assert!(r.calls("hq").is_empty(), "no run: the live session takes it");
-    assert_eq!(r.fake.posts()[0], ("hq".into(), "Sent to coder's live session. Its answers come here.".into()));
+    assert!(r.calls("kith").is_empty(), "no run: the live session takes it");
+    assert_eq!(r.fake.posts()[0], ("kith".into(), "Sent to coder's live session. Its answers come here.".into()));
 
-    // `hq-send --to bridge:<box>` leaves whole files in the box's outbox.
+    // `kith-send --to bridge:<box>` leaves whole files in the box's outbox.
     let outbox = r.dir.join("machine/bridge/outbox").join(format!("live-{boxed}"));
     assert!(outbox.is_dir());
     std::fs::write(outbox.join("1.json"), json!({"as": "coder", "text": "built"}).to_string()).unwrap();
@@ -413,14 +416,14 @@ async fn a_live_agent_without_a_session_runs_once_and_refuses_others() {
     r.put("live", &json!({"running": false}));
     r.send(&Rig::msg("1", "@coder quick one")).await;
     until("the one-off run", || !r.fake.posts().is_empty()).await;
-    assert_eq!(r.calls("hq-live").len(), 1);
-    assert_eq!(r.calls("hq")[0]["agent"], "coder");
+    assert_eq!(r.calls("kith-live").len(), 1);
+    assert_eq!(r.calls("kith")[0]["agent"], "coder");
     r.idle().await;
 
     r.put("access", &json!({"kai": {"owner": true}, "guest": {"owner": false, "agents": ["coder"]}}));
     r.send(&Rig::msg("2", "@coder let me in")).await;
     assert_eq!(r.fake.replies()[0], "coder takes work from the owner only.");
-    assert_eq!(r.calls("hq-live").len(), 1);
+    assert_eq!(r.calls("kith-live").len(), 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -432,7 +435,7 @@ async fn messages_that_wait_for_a_turn_become_one_prompt() {
     r.send(&Rig::msg("1", "@house one")).await;
     r.send(&Rig::in_thread(Rig::msg("1", "two"), "fake/x:room:1")).await;
     until("the merged answer", || !r.fake.posts().is_empty()).await;
-    let calls = r.calls("hq");
+    let calls = r.calls("kith");
     assert_eq!(calls.len(), 1);
     let task = calls[0]["task"].as_str().unwrap();
     assert!(task.contains("answer them together") && task.contains("[1] one") && task.contains("[2] two"), "{task}");
@@ -443,13 +446,13 @@ async fn messages_that_wait_for_a_turn_become_one_prompt() {
 async fn messages_sent_while_it_works_run_together_next() {
     let r = Rig::new();
     r.send(&Rig::msg("1", "@house SLEEP a")).await;
-    until("the first run", || !r.calls("hq").is_empty()).await;
+    until("the first run", || !r.calls("kith").is_empty()).await;
     let key = "fake/x:room:1";
     r.send(&Rig::in_thread(Rig::msg("1", "b"), key)).await;
     r.send(&Rig::in_thread(Rig::msg("1", "c"), key)).await;
     assert!(r.fake.events().contains(&Event::StatusText("working… · 2 queued".into())), "{:?}", r.fake.events());
     until("both answers", || r.fake.posts().len() == 2).await;
-    let calls = r.calls("hq");
+    let calls = r.calls("kith");
     assert_eq!(calls.len(), 2);
     let second = calls[1]["task"].as_str().unwrap();
     assert!(second.contains("[1] b") && second.contains("[2] c"), "{second}");
@@ -461,7 +464,7 @@ async fn jev_stop_ends_the_run() {
     let (jev, seen) = fake_jev().await;
     let r = Rig::with(Opts { jev: Some(jev), ..Opts::new() });
     r.send(&Rig::msg("1", "@house SLOW work")).await;
-    until("the run to start", || !r.calls("hq").is_empty()).await;
+    until("the run to start", || !r.calls("kith").is_empty()).await;
     r.send(&Rig::in_thread(Rig::msg("1", "STOPNOW please"), "fake/x:room:1")).await;
     r.idle().await;
     let events = r.fake.events();
@@ -477,7 +480,7 @@ async fn jev_interrupt_restarts_the_work_with_the_correction() {
     let (jev, _) = fake_jev().await;
     let r = Rig::with(Opts { jev: Some(jev), ..Opts::new() });
     r.send(&Rig::msg("1", "@house SLOW first")).await;
-    until("the run to start", || !r.calls("hq").is_empty()).await;
+    until("the run to start", || !r.calls("kith").is_empty()).await;
     r.send(&Rig::in_thread(Rig::msg("1", "CORRECT it"), "fake/x:room:1")).await;
     until("the redo answer", || !r.fake.posts().is_empty()).await;
     r.idle().await;
@@ -485,7 +488,7 @@ async fn jev_interrupt_restarts_the_work_with_the_correction() {
     assert!(events.contains(&Event::React(Reaction::Redo)));
     assert!(events.contains(&Event::StatusText("restarting with your correction…".into())));
     assert!(events.contains(&Event::StatusEnd(Ended::Interrupted)));
-    let calls = r.calls("hq");
+    let calls = r.calls("kith");
     assert_eq!(calls.len(), 2);
     let redo = calls[1]["task"].as_str().unwrap();
     assert!(redo.starts_with(INTERRUPTED), "{redo}");
@@ -498,10 +501,10 @@ async fn jev_separate_gives_a_different_subject_its_own_turn() {
     let (jev, _) = fake_jev().await;
     let r = Rig::with(Opts { jev: Some(jev), ..Opts::new() });
     r.send(&Rig::msg("1", "@house SLEEP first")).await;
-    until("the run to start", || !r.calls("hq").is_empty()).await;
+    until("the run to start", || !r.calls("kith").is_empty()).await;
     r.send(&Rig::in_thread(Rig::msg("1", "OTHER subject"), "fake/x:room:1")).await;
     until("both answers", || r.fake.posts().len() == 2).await;
-    let calls = r.calls("hq");
+    let calls = r.calls("kith");
     assert_eq!(calls[1]["task"], "OTHER subject\n\nFOOTER");
     assert!(calls[0]["task"].as_str().unwrap().starts_with("SLEEP first"));
     r.idle().await;
@@ -518,10 +521,10 @@ async fn a_message_that_ends_mid_thought_waits_for_the_rest() {
     r.send(&Rig::in_thread(Rig::msg("1", "PARTIAL half a thought"), "fake/x:room:1")).await;
     // Past the debounce, inside the hold: still part of the same turn.
     tokio::time::sleep(Duration::from_millis(2200)).await;
-    assert!(r.calls("hq").is_empty(), "held for the rest");
+    assert!(r.calls("kith").is_empty(), "held for the rest");
     r.send(&Rig::in_thread(Rig::msg("1", "the rest"), "fake/x:room:1")).await;
     until("the answer", || !r.fake.posts().is_empty()).await;
-    let calls = r.calls("hq");
+    let calls = r.calls("kith");
     assert_eq!(calls.len(), 1);
     let task = calls[0]["task"].as_str().unwrap();
     assert!(
@@ -537,7 +540,7 @@ async fn stop_and_the_stop_button() {
     let r = Rig::new();
     r.send(&Rig::msg("1", "@house SLOW work")).await;
     let key = "fake/x:room:1";
-    until("the run to start", || !r.calls("hq").is_empty()).await;
+    until("the run to start", || !r.calls("kith").is_empty()).await;
     let wid = r
         .fake
         .events()
@@ -560,7 +563,7 @@ async fn stop_and_the_stop_button() {
     r.send(&Rig::in_thread(Rig::msg("1", "/stop"), key)).await;
     assert_eq!(r.fake.replies()[0], "Nothing is running here.");
     r.send(&Rig::in_thread(Rig::msg("1", "SLOW again"), key)).await;
-    until("the second run", || r.calls("hq").len() == 2).await;
+    until("the second run", || r.calls("kith").len() == 2).await;
     r.send(&Rig::in_thread(Rig::msg("1", "/stop"), key)).await;
     r.idle().await;
     assert!(r.fake.events().contains(&Event::React(Reaction::Stop)));
@@ -575,7 +578,7 @@ async fn a_run_waits_for_the_gate_and_can_be_stopped_while_it_waits() {
     let permit = held.granted().await;
     r.send(&Rig::msg("1", "@house waits")).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
-    assert!(r.calls("hq").is_empty(), "no slot, no run");
+    assert!(r.calls("kith").is_empty(), "no slot, no run");
     drop(permit);
     until("the run once there is room", || !r.fake.posts().is_empty()).await;
     r.idle().await;
@@ -586,7 +589,7 @@ async fn a_run_waits_for_the_gate_and_can_be_stopped_while_it_waits() {
     r.send(&Rig::in_thread(Rig::msg("1", "/stop"), "fake/x:room:1")).await;
     r.idle().await;
     drop(permit);
-    assert_eq!(r.calls("hq").len(), 1, "stopped before it started");
+    assert_eq!(r.calls("kith").len(), 1, "stopped before it started");
     assert!(r.fake.events().contains(&Event::StatusEnd(Ended::Stopped)));
 }
 
@@ -618,7 +621,7 @@ async fn late_messages_say_so_and_big_contexts_are_shown() {
     late.files = vec!["/tmp/a.png".into()];
     r.send(&late).await;
     until("the answer", || !r.fake.posts().is_empty()).await;
-    let task = r.calls("hq")[0]["task"].as_str().unwrap().to_owned();
+    let task = r.calls("kith")[0]["task"].as_str().unwrap().to_owned();
     assert!(task.starts_with("(Sent at "), "{task}");
     assert!(task.contains("picked it up late") && task.contains("(Replying to: \"an earlier note\")"));
     assert!(task.contains("BIGCTX hello") && task.contains("Attached files: /tmp/a.png"), "{task}");
@@ -633,7 +636,7 @@ async fn late_messages_say_so_and_big_contexts_are_shown() {
     fresh.sent = Some(core::now() - 5.0);
     r.send(&fresh).await;
     until("the second answer", || r.fake.posts().len() == 2).await;
-    assert!(!r.calls("hq")[1]["task"].as_str().unwrap().contains("picked it up late"));
+    assert!(!r.calls("kith")[1]["task"].as_str().unwrap().contains("picked it up late"));
     r.idle().await;
 }
 
@@ -658,7 +661,7 @@ async fn two_messages_at_once_in_one_thread_are_both_delivered() {
     done_first.unwrap();
     done_second.unwrap();
     r.idle().await;
-    let tasks: String = r.calls("hq").iter().skip(1).map(|c| c["task"].as_str().unwrap().to_owned()).collect();
+    let tasks: String = r.calls("kith").iter().skip(1).map(|c| c["task"].as_str().unwrap().to_owned()).collect();
     assert!(tasks.contains("alpha") && tasks.contains("beta"), "{tasks}");
 }
 
@@ -694,7 +697,7 @@ async fn a_connections_state_comes_over_from_the_bridge_and_only_that_one() {
     m.room = "fake/a:room".into();
     r.send(&m).await;
     until("the answer", || !r.fake.posts().is_empty()).await;
-    assert_eq!(r.calls("hq")[0]["resume"], "old-session");
+    assert_eq!(r.calls("kith")[0]["resume"], "old-session");
     r.idle().await;
 }
 
@@ -763,7 +766,7 @@ async fn connections_follow_the_grants_and_secrets_stay_out_of_logs() {
 
     // A message, with the router in play, for the logs to see.
     r.send(&Rig::msg("1", "@house SLEEP x")).await;
-    until("the run to start", || !r.calls("hq").is_empty()).await;
+    until("the run to start", || !r.calls("kith").is_empty()).await;
     r.send(&Rig::in_thread(Rig::msg("1", "more"), "fake/x:room:1")).await;
     r.idle().await;
 
@@ -810,10 +813,10 @@ async fn messages_that_arrive_while_a_turn_waits_for_the_gate_join_it() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     r.send(&Rig::in_thread(Rig::msg("1", "second"), "fake/x:room:1")).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(r.calls("hq").is_empty(), "waiting for room");
+    assert!(r.calls("kith").is_empty(), "waiting for room");
     drop(permit);
     until("the answer", || !r.fake.posts().is_empty()).await;
-    let calls = r.calls("hq");
+    let calls = r.calls("kith");
     assert_eq!(calls.len(), 1, "one turn for both");
     let task = calls[0]["task"].as_str().unwrap();
     assert!(task.contains("[1] first") && task.contains("[2] second"), "{task}");
@@ -904,5 +907,5 @@ async fn pressing_a_button_twice_at_once_runs_the_task_once() {
     assert_eq!(wins.iter().filter(|w| **w).count(), 1, "{wins:?}");
     until("the answer", || !r.fake.posts().is_empty()).await;
     r.idle().await;
-    assert_eq!(r.calls("hq").len(), 1);
+    assert_eq!(r.calls("kith").len(), 1);
 }

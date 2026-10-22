@@ -3,10 +3,10 @@
 # requires-python = ">=3.10"
 # dependencies = ["discord.py>=2.4,<3", "aiohttp>=3.9"]
 # ///
-"""hq-bridge-check — the bridge's self-healing, checked without chat platforms or agents: fake Discord and Telegram
-connections, a stub `hq` that answers at once, a throwaway HOME (the real ~/.hq is never read or written).
+"""kith-bridge-check — the bridge's self-healing, checked without chat platforms or agents: fake Discord and Telegram
+connections, a stub `kith` that answers at once, a throwaway HOME (the real ~/.kith is never read or written).
 
-  kernel/tests/hq-bridge-check     about a minute; prints each check, exits 1 when one fails
+  kernel/tests/kith-bridge-check     about a minute; prints each check, exits 1 when one fails
 
 What it shows:
   1. a normal message on Discord and on Telegram gets one answer, not marked late; the first run reads no history
@@ -31,17 +31,17 @@ from pathlib import Path
 from types import SimpleNamespace
 
 KERNEL = Path(__file__).resolve().parent.parent
-TMP = Path(tempfile.mkdtemp(prefix='hq-bridge-check-'))
-(TMP / '.hq').mkdir()
-os.environ.update(HOME=str(TMP), HQ_HOME=str(TMP / 'hq'), HQ_BRIDGE_DEBOUNCE='0', HQ_BRIDGE_ROUTER='off',
-                  HQ_BRIDGE_DM_DEFAULT='echo')
-os.environ.pop('HQ_DISCORD_GUILD', None)
-pkg = TMP / 'hq' / 'agents' / 'echo' / 'role'
+TMP = Path(tempfile.mkdtemp(prefix='kith-bridge-check-'))
+(TMP / '.kith').mkdir()
+os.environ.update(HOME=str(TMP), KITH_HOME=str(TMP / 'kith'), KITH_BRIDGE_DEBOUNCE='0', KITH_BRIDGE_ROUTER='off',
+                  KITH_BRIDGE_DM_DEFAULT='echo')
+os.environ.pop('KITH_DISCORD_GUILD', None)
+pkg = TMP / 'kith' / 'agents' / 'echo' / 'role'
 pkg.mkdir(parents=True)
 (pkg / 'agent.md').write_text('---\nname: echo\ndescription: answers at once\n---\n')
 
-TASKS = TMP / 'tasks.jsonl'   # every task the stub hq was given
-STUB = TMP / 'hq-stub'
+TASKS = TMP / 'tasks.jsonl'   # every task the stub kith was given
+STUB = TMP / 'kith-stub'
 STUB.write_text(f'''#!/usr/bin/env python3
 import json, re, sys
 open({str(TASKS)!r}, 'a').write(json.dumps(sys.argv[2]) + '\\n')
@@ -51,14 +51,14 @@ STUB.chmod(0o755)
 
 sys.path.insert(0, str(KERNEL / 'lib'))
 import discord  # noqa: E402
-from hq_bridge import core, discord_chat, telegram_chat  # noqa: E402
+from kith_bridge import core, discord_chat, telegram_chat  # noqa: E402
 
-core.HQ_BIN = str(STUB)
+core.KITH_BIN = str(STUB)
 core.jev_config = lambda: {}
 core.Core.who = staticmethod(lambda platform, uid: {'person': 'kai', 'owner': True, 'was': []})
 core.Core.resolve = staticmethod(lambda person, agent: {'allowed': True, 'owner': True})
-spec = importlib.util.spec_from_loader('hq_bridge_main', importlib.machinery.SourceFileLoader(
-    'hq_bridge_main', str(KERNEL / 'bin' / 'hq-bridge')))
+spec = importlib.util.spec_from_loader('kith_bridge_main', importlib.machinery.SourceFileLoader(
+    'kith_bridge_main', str(KERNEL / 'bin' / 'kith-bridge')))
 bridge = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bridge)
 
@@ -178,7 +178,7 @@ class CheckDiscord(discord_chat.Discord):
         DC_POSTS.append(text)
 
     async def reply(self, m, text):
-        DC_POSTS.append('hq: ' + text)
+        DC_POSTS.append('kith: ' + text)
 
     async def status(self, conv, agent, wid):
         return None
@@ -217,7 +217,7 @@ async def until(cond, secs=15):
 
 
 async def up():
-    """The bridge as hq-bridge runs it: one Core from the state on disk, each connection supervised."""
+    """The bridge as kith-bridge runs it: one Core from the state on disk, each connection supervised."""
     c = core.Core()
     dc, tg = CheckDiscord('discord/hq', {'DISCORD_BOT_TOKEN': 'x'}, c), \
         telegram_chat.Telegram('telegram/hq', {'TELEGRAM_BOT_TOKEN': 'x'}, c)
@@ -301,20 +301,20 @@ async def scenario():
 
 
 def stuck(name, body, want):
-    """hq-bridge's real watchdog in a process of its own, with a loop that gets stuck as `body` says."""
+    """kith-bridge's real watchdog in a process of its own, with a loop that gets stuck as `body` says."""
     code = (f'import asyncio, importlib.machinery, importlib.util, time\n'
-            f'l = importlib.machinery.SourceFileLoader("b", {str(KERNEL / "bin" / "hq-bridge")!r})\n'
+            f'l = importlib.machinery.SourceFileLoader("b", {str(KERNEL / "bin" / "kith-bridge")!r})\n'
             f'b = importlib.util.module_from_spec(importlib.util.spec_from_loader("b", l)); l.exec_module(b)\n'
             f'async def main():\n    beat = b.guard()\n    await asyncio.sleep(1)\n    {body}\n'
             f'asyncio.run(main())\n')
     began = time.time()
     r = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=60,
-                       env=dict(os.environ, HQ_BRIDGE_STALL='3'))
+                       env=dict(os.environ, KITH_BRIDGE_STALL='3'))
     said = (r.stdout + r.stderr).strip().splitlines()
     check(f'{name}: exit {r.returncode} after {time.time() - began:.0f}s', r.returncode == want,
           said[-1] if said else '')
     if want == 70:
-        check(f'{name}: says why, with a timestamp', any(re.match(r'\d{4}-\d\d-\d\d \d\d:\d\d:\d\d hq-bridge: stuck', s)
+        check(f'{name}: says why, with a timestamp', any(re.match(r'\d{4}-\d\d-\d\d \d\d:\d\d:\d\d kith-bridge: stuck', s)
                                                         for s in said), said[-1:] or '')
 
 

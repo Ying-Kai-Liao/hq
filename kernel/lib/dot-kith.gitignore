@@ -1,4 +1,4 @@
-# ~/.hq: what hq has lived is committed (the hq-state repo); this Mac's own things never are. Everything is ignored
+# ~/.kith: what kith has lived is committed (the hq-state repo); this Mac's own things never are. Everything is ignored
 # except what is listed here, so a new file (a secret, a database, a log) stays out of git unless someone adds it.
 *
 !.gitignore

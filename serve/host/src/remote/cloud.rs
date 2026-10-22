@@ -1,5 +1,5 @@
 //! The Kith cloud (Cloudflare relay + accounts, spec §4.2, §4.3, §8.4, §9.6): which one
-//! this host uses, its `/v1/host/*` API (signed with `Codync-Sig`), the state pull that may
+//! this host uses, its `/v1/host/*` API (signed with `Kith-Sig`), the state pull that may
 //! only renew or remove account devices, never add one, and account access requests with
 //! the commit-then-reveal SAS. The relay socket itself lives in `relay`.
 
@@ -256,7 +256,7 @@ impl std::fmt::Display for Conflict {
 
 impl std::error::Error for Conflict {}
 
-/// The lowercase `Host` header value for `base` (with a non-default port), as `Codync-Sig` signs it.
+/// The lowercase `Host` header value for `base` (with a non-default port), as `Kith-Sig` signs it.
 pub fn authority(base: &str) -> Result<String> {
     let u = reqwest::Url::parse(base).context("invalid cloud URL")?;
     let host = u.host_str().ok_or_else(|| anyhow!("cloud URL has no host"))?;
@@ -275,7 +275,10 @@ fn base(hub: &Hub) -> Result<String> {
 async fn call(hub: &Hub, base: &str, method: Method, path: &str, body: Option<&Value>) -> Result<Value> {
     let bytes = body.map(serde_json::to_vec).transpose()?.unwrap_or_default();
     let sig = hub.identity.sign_request(method.as_str(), &authority(base)?, path, &bytes);
-    let mut req = crate::http().request(method, format!("{base}{path}")).header("Codync-Sig", sig).timeout(TIMEOUT);
+    let mut req = crate::http()
+        .request(method, format!("{base}{path}"))
+        .header(crypto::Labels::Kith.sig_header(), sig)
+        .timeout(TIMEOUT);
     if body.is_some() {
         req = req.header("content-type", "application/json").body(bytes);
     }
@@ -481,18 +484,18 @@ async fn sync_requests(hub: &Hub, base: &str, list: Vec<StateRequest>) {
                 continue;
             }
             let Some(nd) = s.device_nonce.as_deref() else { continue };
-            match crypto::unb64_n::<32>(nd) {
-                Ok(nd) if crypto::sas_commit(&dk, &nd) == r.commit => {
-                    r.code = Some(crypto::sas_code(&hub.identity.sign_pub(), &dk, &nd, &r.host_nonce));
-                    changed = true;
-                }
-                _ => {
-                    tracing::warn!(request_id = r.id, "device nonce doesn't match its commit; denying the request");
-                    next.push(Next::Deny(r.id.clone()));
-                    mine.remove(i);
-                    changed = true;
-                }
+            // The commit is bound to the device's label family; whichever matches picks the SAS labels.
+            let family = crypto::unb64_n::<32>(nd).ok().and_then(|nd| {
+                crypto::Labels::ALL.into_iter().find(|l| crypto::sas_commit(*l, &dk, &nd) == r.commit).map(|l| (l, nd))
+            });
+            if let Some((l, nd)) = family {
+                r.code = Some(crypto::sas_code(l, &hub.identity.sign_pub(), &dk, &nd, &r.host_nonce));
+            } else {
+                tracing::warn!(request_id = r.id, "device nonce doesn't match its commit; denying the request");
+                next.push(Next::Deny(r.id.clone()));
+                mine.remove(i);
             }
+            changed = true;
         }
         // Saved before any nonce leaves, so a restart can't reset the budget.
         set_nonce_budget(&hub.store, &budget);
@@ -806,7 +809,7 @@ mod tests {
         let request = |id: &str, host_nonce: Option<String>, device_nonce: Option<[u8; 32]>| {
             let dk = if id == "req_bad" { other_dk } else { dk };
             json!({"requestId": id, "deviceKey": b64(&dk), "deviceName": "Kevin's iPhone", "platform": "ios",
-                "email": "k@example.com", "commit": b64(&crypto::sas_commit(&dk, &nd)),
+                "email": "k@example.com", "commit": b64(&crypto::sas_commit(crypto::Labels::Kith, &dk, &nd)),
                 "hostNonce": host_nonce, "deviceNonce": device_nonce.map(|n| b64(&n)),
                 "createdAt": 1, "expiresAt": 2})
         };
@@ -833,7 +836,7 @@ mod tests {
         let list = hub.cloud.requests_json();
         assert_eq!(list.len(), 1);
         let nh_ok: [u8; 32] = crypto::unb64_n(&nh("req_ok")).unwrap();
-        assert_eq!(list[0]["code"], crypto::sas_code(&hub.identity.sign_pub(), &dk, &nd, &nh_ok));
+        assert_eq!(list[0]["code"], crypto::sas_code(crypto::Labels::Kith, &hub.identity.sign_pub(), &dk, &nd, &nh_ok));
 
         decide(&hub, "req_ok", true).await.unwrap();
         let d = hub.store.device(&b64(&dk)).unwrap();
@@ -851,7 +854,7 @@ mod tests {
         let (dk, nd): ([u8; 32], [u8; 32]) = (crypto::random(), crypto::random());
         let request = |host_nonce: Option<String>, device_nonce: Option<[u8; 32]>| {
             json!({"owner": null, "grants": [], "requests": [{"requestId": "req_1", "deviceKey": b64(&dk),
-                "commit": b64(&crypto::sas_commit(&dk, &nd)), "hostNonce": host_nonce,
+                "commit": b64(&crypto::sas_commit(crypto::Labels::Kith, &dk, &nd)), "hostNonce": host_nonce,
                 "deviceNonce": device_nonce.map(|n| b64(&n))}]})
         };
         *fake.state.lock().unwrap() = request(None, None);

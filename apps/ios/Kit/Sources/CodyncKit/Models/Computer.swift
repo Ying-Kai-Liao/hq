@@ -21,9 +21,12 @@ public struct Computer: Codable, Hashable, Sendable, Identifiable {
     public var color: String?
     /// How this device reaches the computer, picked per computer; nil = `.automatic`.
     public var route: ConnectionRoute?
+    /// The crypto labels this pairing runs under. nil = a pairing stored before the Kith rename, which keeps
+    /// `codync/*` until the computer is paired again.
+    public var labels: LabelFamily?
 
     public init(id: ComputerID, name: String, signKey: String, boxKey: String? = nil, urls: [String] = [],
-                cloud: URL? = nil, device: String? = nil, color: String? = nil) {
+                cloud: URL? = nil, device: String? = nil, color: String? = nil, labels: LabelFamily? = nil) {
         self.id = id
         self.name = name
         self.signKey = signKey
@@ -32,7 +35,10 @@ public struct Computer: Codable, Hashable, Sendable, Identifiable {
         self.cloud = cloud
         self.device = device
         self.color = color
+        self.labels = labels
     }
+
+    public var labelFamily: LabelFamily { labels ?? .codync }
 
     /// `true` when `id` really is the computer ID of `signKey`.
     public var isConsistent: Bool {

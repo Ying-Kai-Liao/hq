@@ -243,7 +243,7 @@ impl Core {
             // The server's owner, until hq knows their account on this platform.
             if self.hinted.locked().insert(ad.conn().to_owned()) {
                 tracing::info!(
-                    "{}: taking the server owner {} as {owner} (hq auth handle {owner} {} {} to say so)",
+                    "{}: taking the server owner {} as {owner} (kith auth handle {owner} {} {} to say so)",
                     ad.conn(),
                     m.uid,
                     ad.platform(),
@@ -287,7 +287,7 @@ impl Core {
             let linked = hq::link(&self.paths, ad.platform(), &m.uid, &arg).await;
             tracing::info!("{} link {}: {}", ad.conn(), m.uid, if linked.is_ok() { "ok" } else { "refused" });
             let said = match linked {
-                Ok(person) => format!("Linked: you are {person} in hq."),
+                Ok(person) => format!("Linked: you are {person} in kith."),
                 Err(why) if why.is_empty() => "That code did not work.".into(),
                 Err(why) => why,
             };
@@ -300,7 +300,7 @@ impl Core {
             if m.private || m.addressed || th.is_some() {
                 ad.reply(
                     m,
-                    "This account is not linked to hq yet. Ask the owner for a code, then send /link CODE here.",
+                    "This account is not linked to kith yet. Ask the owner for a code, then send /link CODE here.",
                 )
                 .await?;
             }
@@ -327,7 +327,7 @@ impl Core {
         });
         match name.as_str() {
             "start" | "whoami" | "help" => {
-                let mut said = format!("You are {person} in hq.");
+                let mut said = format!("You are {person} in kith.");
                 if !default.is_empty() {
                     let _ = write!(said, " Messages without @agent here go to {default}.");
                 }
@@ -484,7 +484,7 @@ impl Core {
         let access: Access = hq::resolve(&self.paths, person, agent).await;
         if !access.allowed {
             return ad
-                .reply(m, &format!("{}. Ask the owner to add you (hq auth member {agent} {person}).", access.why))
+                .reply(m, &format!("{}. Ask the owner to add you (kith auth member {agent} {person}).", access.why))
                 .await;
         }
         let known = key.filter(|k| self.with(|i| i.st.threads.contains_key(k)));
@@ -551,7 +551,7 @@ impl Core {
         tracing::info!("live {agent} {key}: delivered {mid}");
         let conv = self.conv_of(key);
         if let Err(e) =
-            ad.post(&conv, "hq", &format!("Sent to {agent}'s live session. Its answers come here."), None).await
+            ad.post(&conv, "kith", &format!("Sent to {agent}'s live session. Its answers come here."), None).await
         {
             tracing::warn!("live {agent} {key}: can't post the note: {e:#}");
         }

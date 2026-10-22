@@ -32,7 +32,7 @@ async fn start() -> Setup {
     }
     let area = area.canonicalize().unwrap();
     let host = Host::start_env(&[
-        ("HQ_BIN", &stub.to_string_lossy()),
+        ("KITH_KERNEL_BIN", &stub.to_string_lossy()),
         ("STUB_HQ_HOME", &home_text),
         ("KITH_SERVE_HQ_ACP_COMMAND", &acp),
         ("KITH_SERVE_FOLDER_ROOTS", &area.to_string_lossy()),
@@ -430,7 +430,7 @@ async fn without_hq_projects_is_empty_and_says_why() {
     let host = Host::start().await;
     let answer = host.call("projects", json!({})).await;
     assert_eq!(answer["projects"], json!([]));
-    assert!(answer["error"].as_str().is_some_and(|e| e.contains("hq")), "{answer}");
+    assert!(answer["error"].as_str().is_some_and(|e| e.contains("kith")), "{answer}");
 }
 
 #[tokio::test]
