@@ -22,6 +22,7 @@ mod tui;
 mod update;
 mod usage;
 mod voice;
+mod watchdog;
 
 use agent::backends;
 use remote::identity;
@@ -543,6 +544,7 @@ async fn serve(bind: &str, port: u16) -> Result<()> {
     let hub = hub::Hub::new(store, host_id, identity, token, port);
     hub.start()?;
     background::start(&hub);
+    watchdog::start();
     tracing::info!(version = env!("CARGO_PKG_VERSION"), bind, port, "kith-serve listening");
     // Peer addresses: some settings may only be changed from this computer.
     let app = api::router(hub.clone()).into_make_service_with_connect_info::<std::net::SocketAddr>();

@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""kith-serve-launch-check — the launcher's exit code and SIGKILL escalation, with plain python children.
+
+  kernel/tests/kith-serve-launch-check     a few seconds; exits 1 when a check fails
+"""
+import os
+import signal
+import subprocess
+import sys
+import time
+
+LAUNCH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bin", "kith-serve-launch")
+env = {**os.environ, "KITH_SERVE_KILL_GRACE_S": "1"}
+failed = []
+
+
+def check(name, ok, detail=""):
+    print(("ok   " if ok else "FAIL ") + name + (f" ({detail})" if detail and not ok else ""))
+    if not ok:
+        failed.append(name)
+
+
+# A child that exits on its own: its code passes through, no kill.
+p = subprocess.run([sys.executable, LAUNCH, sys.executable, "-c", "import sys; sys.exit(7)"], env=env, timeout=30)
+check("a child's exit code passes through", p.returncode == 7, p.returncode)
+
+# A child that ignores SIGTERM is killed after the grace.
+hang = "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print('ready', flush=True); time.sleep(300)"
+p = subprocess.Popen([sys.executable, LAUNCH, sys.executable, "-c", hang], env=env, stdout=subprocess.PIPE, text=True)
+p.stdout.readline()
+start = time.monotonic()
+p.send_signal(signal.SIGTERM)
+try:
+    code = p.wait(timeout=15)
+except subprocess.TimeoutExpired:
+    p.kill()
+    code = None
+took = time.monotonic() - start
+check("a child that ignores SIGTERM is SIGKILLed", code == 128 + signal.SIGKILL, code)
+check("not before the grace", took >= 0.9, f"{took:.2f}s")
+
+# A child that obeys SIGTERM exits at once, before the grace.
+p = subprocess.Popen(
+    [sys.executable, LAUNCH, sys.executable, "-c", "import time; print('ready', flush=True); time.sleep(300)"],
+    env={**env, "KITH_SERVE_KILL_GRACE_S": "30"},
+    stdout=subprocess.PIPE,
+    text=True,
+)
+p.stdout.readline()
+start = time.monotonic()
+p.send_signal(signal.SIGTERM)
+code = p.wait(timeout=15)
+check("a child that obeys SIGTERM ends at once with its signal code", code == 128 + signal.SIGTERM and time.monotonic() - start < 5, code)
+
+# A grace that is not a sane number falls back to the default instead of killing at once or never.
+for bad in ("inf", "nan", "-5"):
+    p = subprocess.Popen(
+        [sys.executable, LAUNCH, sys.executable, "-c", hang],
+        env={**env, "KITH_SERVE_KILL_GRACE_S": bad},
+        start_new_session=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    p.stdout.readline()
+    p.send_signal(signal.SIGTERM)
+    time.sleep(2)
+    check(f"KITH_SERVE_KILL_GRACE_S={bad} keeps the default grace", p.poll() is None, p.poll())
+    os.killpg(p.pid, signal.SIGKILL)  # the launcher and its SIGTERM-ignoring child
+    p.wait()
+
+sys.exit(1 if failed else 0)
