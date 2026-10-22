@@ -28,6 +28,10 @@ impl Drop for Host {
 }
 
 impl Host {
+    pub fn base(&self) -> &str {
+        &self.base
+    }
+
     pub async fn start() -> Self {
         Self::start_env(&[]).await
     }

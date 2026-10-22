@@ -44,6 +44,34 @@ built_bin() {
   if [ $PACKAGED = 1 ]; then echo "${KITH_BIN:-$(cd "$REPO" && pwd -P)/../../bin/kith}"; else echo "${CARGO_TARGET_DIR:-$HOST/target}/dev-app/kith-serve"; fi
 }
 
+# macOS: a rebuilt binary is ad-hoc signed by the linker, so the Keychain sees a new program and asks for access
+# again (an unseen prompt freezes the host's credential store). Signing every install with the same identity and
+# identifier keeps one designated requirement, so "Always Allow" survives. The identity is KITH_SIGN_IDENTITY, else
+# the first valid "Apple Development" one; with neither it stays ad-hoc and says so.
+sign_identity() {
+  [ "$(uname)" = Darwin ] || return 0
+  local identity=${KITH_SIGN_IDENTITY:-}
+  if [ -z "$identity" ]; then
+    identity=$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/^ *[0-9]*) \([0-9A-F]\{40\}\) "Apple Development.*/\1/p' | head -1)
+  fi
+  if [ -z "$identity" ]; then
+    echo "kith serve: no codesigning identity (set KITH_SIGN_IDENTITY): signing ad hoc, so the Keychain may ask for access again after each rebuild" >&2
+    identity=-
+  fi
+  echo "$identity"
+}
+
+sign_host() {
+  codesign --force --sign "$2" --identifier "${KITH_SIGN_ID:-dev.kith.serve}" "$1" >/dev/null 2>&1 \
+    || { echo "kith serve: codesign failed; the binary keeps its build signature" >&2; return 1; }
+}
+
+sha256_of() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
+  elif command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  else cksum "$1" | cut -d' ' -f1,2 | tr ' ' -; fi
+}
+
 cmd_start() {
   local build=1 a
   for a in "$@"; do case $a in --no-build) build=0 ;; *) echo "kith serve start: unknown option $a" >&2; exit 2 ;; esac; done
@@ -66,9 +94,17 @@ cmd_start() {
     rm -f "$log"
   fi
   if [ -x "$built" ]; then
-    if [ ! -x "$BIN" ] || ! cmp -s "$built" "$BIN"; then
+    # A signature changes the file, so what was installed is told by the hash of what was built and how it was signed.
+    local want identity; identity=$(sign_identity)
+    want="$(sha256_of "$built"):$identity"
+    if [ ! -x "$BIN" ] || [ "$(cat "$BIN.built" 2>/dev/null)" != "$want" ]; then
       mkdir -p "$DATA/bin"
-      cp "$built" "$BIN.tmp.$$" && chmod +x "$BIN.tmp.$$" && mv -f "$BIN.tmp.$$" "$BIN"
+      if ! { cp "$built" "$BIN.tmp.$$" && chmod +x "$BIN.tmp.$$"; }; then
+        rm -f "$BIN.tmp.$$"; echo "kith serve: couldn't copy the host to $BIN" >&2; exit 1
+      fi
+      if [ -n "$identity" ] && ! sign_host "$BIN.tmp.$$" "$identity"; then want="$want:unsigned"; fi
+      mv -f "$BIN.tmp.$$" "$BIN" || { echo "kith serve: couldn't install $BIN" >&2; exit 1; }
+      echo "$want" >"$BIN.built"
       echo "installed $BIN"
     fi
   fi
