@@ -41,6 +41,24 @@ built_bin() {
   if [ $PACKAGED = 1 ]; then echo "${KITH_BIN:-$(cd "$REPO" && pwd -P)/../../bin/kith}"; else echo "${CARGO_TARGET_DIR:-$HOST/target}/dev-app/kith-serve"; fi
 }
 
+# macOS: a rebuilt binary is ad-hoc signed by the linker, so the Keychain sees a new program and asks for access
+# again (an unseen prompt freezes the host's credential store). Signing every install with the same identity and
+# identifier keeps one designated requirement, so "Always Allow" survives. The identity is KITH_SIGN_IDENTITY, else
+# the first valid "Apple Development" one; with neither it stays ad-hoc and says so.
+sign_host() {
+  [ "$(uname)" = Darwin ] || return 0
+  local identity=${KITH_SIGN_IDENTITY:-}
+  if [ -z "$identity" ]; then
+    identity=$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/^ *[0-9]*) \([0-9A-F]\{40\}\) "Apple Development.*/\1/p' | head -1)
+  fi
+  if [ -z "$identity" ]; then
+    echo "hq serve: no codesigning identity (set KITH_SIGN_IDENTITY): signed ad hoc, so the Keychain may ask for access again after each rebuild" >&2
+    identity=-
+  fi
+  codesign --force --sign "$identity" --identifier "${KITH_SIGN_ID:-dev.kith.serve}" "$1" >/dev/null 2>&1 \
+    || { echo "hq serve: codesign failed; the binary keeps its build signature" >&2; return 0; }
+}
+
 cmd_start() {
   local build=1 a
   for a in "$@"; do case $a in --no-build) build=0 ;; *) echo "hq serve start: unknown option $a" >&2; exit 2 ;; esac; done
@@ -63,9 +81,12 @@ cmd_start() {
     rm -f "$log"
   fi
   if [ -x "$built" ]; then
-    if [ ! -x "$BIN" ] || ! cmp -s "$built" "$BIN"; then
+    # A signature changes the file, so what was installed is told by the hash of what was built.
+    local sum; sum=$(shasum -a 256 "$built" | cut -d' ' -f1)
+    if [ ! -x "$BIN" ] || [ "$(cat "$BIN.built" 2>/dev/null)" != "$sum" ]; then
       mkdir -p "$DATA/bin"
-      cp "$built" "$BIN.tmp.$$" && chmod +x "$BIN.tmp.$$" && mv -f "$BIN.tmp.$$" "$BIN"
+      cp "$built" "$BIN.tmp.$$" && chmod +x "$BIN.tmp.$$" && sign_host "$BIN.tmp.$$" && mv -f "$BIN.tmp.$$" "$BIN"
+      echo "$sum" >"$BIN.built"
       echo "installed $BIN"
     fi
   fi
