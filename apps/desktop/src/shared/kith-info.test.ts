@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import {
   cronWords, formatUsd, isUnsupportedHost, lastRunText, lineOffset, packageNotes, parseKithInfo, parseKithInfoResult,
-  parseMemoryFile, parseSearchResult, shortVersion, sortMemoryFiles, splitRoleSections, topModels,
+  parseMemoryFile, parseSearchResult, rolePrompt, shortVersion, sortMemoryFiles, splitRoleSections, topModels,
 } from './kith-info.ts'
 
 // `kith house --info-json` as printed on a real Mac (role text and memory files trimmed).
@@ -115,4 +115,13 @@ test('an older host is told apart from a failure', () => {
   assert.equal(isUnsupportedHost({ status: 404, message: 'x' }), true)
   assert.equal(isUnsupportedHost(new Error('unknown method')), true)
   assert.equal(isUnsupportedHost({ status: 400, message: 'bad' }), false)
+})
+
+test('rolePrompt joins the intro and every section, Not yours included', () => {
+  const info = parseKithInfo(sample)!
+  const text = rolePrompt(info.role)!
+  assert.ok(text.startsWith(info.role!.intro.trim()))
+  for (const s of info.role!.sections) assert.ok(text.includes(`## ${s.title}`))
+  assert.equal(rolePrompt(null), null)
+  assert.equal(rolePrompt({ intro: ' ', sections: [] }), null)
 })

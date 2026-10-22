@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var notificationsAllowed: Bool?
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
     @AppStorage(Analytics.enabledKey) private var analyticsEnabled = true
+    @AppStorage(TextSizePreference.key) private var textSize = TextSizePreference.system.rawValue
     @State private var addingComputer = false
     @State private var confirmForget: Computer?
     @State private var confirmRevoke: CloudComputer?
@@ -76,6 +77,10 @@ struct SettingsView: View {
                     .toggleStyle(.codync)
                     .onChange(of: notificationsEnabled) { PushRegistrar.shared.resync() }
                 notificationsRow
+            }
+
+            CardSection("Text size", footer: "Default follows the text size in iOS Settings. Small, Large and Extra large replace it inside Kith.") {
+                SegmentedChoice(selection: $textSize, options: TextSizePreference.allCases.map { ($0.rawValue, $0.label) })
             }
 
             CardSection(footer: "Which features you use, never your messages, code or files. Helps us spot bugs sooner and make Codync better for you.") {
@@ -459,4 +464,49 @@ private extension ConnectionRoute {
         case .directOnly: "wifi"
         }
     }
+}
+
+/// The in-app text size: Default leaves iOS Dynamic Type alone; the others replace it for the whole app.
+enum TextSizePreference: String, CaseIterable {
+    case system, small, large, extraLarge
+
+    static let key = "textSize"
+
+    var label: String {
+        switch self {
+        case .system: "Default"
+        case .small: "Small"
+        case .large: "Large"
+        case .extraLarge: "Extra large"
+        }
+    }
+
+    /// nil means no override (iOS's own setting applies, as before this setting existed).
+    var size: DynamicTypeSize? {
+        switch self {
+        case .system: nil
+        case .small: .small
+        case .large: .xLarge
+        case .extraLarge: .xxxLarge
+        }
+    }
+
+    init(stored: String) { self = TextSizePreference(rawValue: stored) ?? .system }
+}
+
+private struct TextSizeOverride: ViewModifier {
+    @AppStorage(TextSizePreference.key) private var stored = TextSizePreference.system.rawValue
+
+    @Environment(\.dynamicTypeSize) private var system
+
+    /// One branch only: a conditional would give the root two view identities and reset navigation
+    /// and open sheets whenever the setting changes.
+    func body(content: Content) -> some View {
+        content.dynamicTypeSize(TextSizePreference(stored: stored).size ?? system)
+    }
+}
+
+extension View {
+    /// Applies the Text size setting; put it once at the app root.
+    func appTextSize() -> some View { modifier(TextSizeOverride()) }
 }

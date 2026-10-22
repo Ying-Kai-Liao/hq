@@ -5,6 +5,8 @@ import SwiftUI
 /// when the user kept them on.
 struct MemoryCard: View {
     let botId: String
+    /// False on an hq bot whose kith "Agent memory" lists the agent's files already.
+    var showsHarnessTab = true
     @Environment(BotStore.self) private var host
     @State private var memory: MemoryStore?
     @State private var section: Section = .bot
@@ -38,6 +40,9 @@ struct MemoryCard: View {
         .onChange(of: memory?.view.map { $0.projectMemory == nil } ?? false) { _, gone in
             if gone && section == .harness { section = .bot }
         }
+        .onChange(of: showsHarnessTab) { _, shown in
+            if !shown && section == .harness { section = .bot }
+        }
         .codyncSheet(isPresented: $aboutHarness) {
             if let bot { HarnessMemorySheet(harness: host.backendName(bot.backend), readable: bot.backend == "claude") }
         }
@@ -67,7 +72,7 @@ struct MemoryCard: View {
 
     private func sections(_ view: MemoryView?) -> [(id: Section, label: String)] {
         [(Section.yours, "About you"), (.bot, "This bot"), (.dreams, "Dreams")]
-            + (view?.projectMemory != nil ? [(.harness, host.backendName(bot?.backend ?? "claude"))] : [])
+            + (view?.projectMemory != nil && showsHarnessTab ? [(.harness, host.backendName(bot?.backend ?? "claude"))] : [])
     }
 
     @ViewBuilder private func layer(_ memory: MemoryStore, view: MemoryView) -> some View {

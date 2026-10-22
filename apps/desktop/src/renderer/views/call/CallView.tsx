@@ -7,6 +7,7 @@ import { Text } from '../../components/Text'
 import { useModel } from '../../lib/observable'
 import { avatarColor, useDark, useReduceMotion, withAlpha } from '../../lib/theme'
 import { useStore } from '../../store/context'
+import { chosenKithVoice, voiceLocalPrepare, voiceLocalSpeak, voiceLocalStatus } from '../settings/voice-settings'
 import { VoiceChatSettingsView } from '../settings/VoiceChatSettingsView'
 import { CallOperator } from './call-operator'
 
@@ -17,6 +18,7 @@ import { CallOperator } from './call-operator'
 export const OpenVoiceSettings = createContext<(() => void) | null>(null)
 import { CloudSpeechEngine } from './CloudSpeechEngine'
 import { GeminiLiveEngine } from './GeminiLiveEngine'
+import { KithVoiceEngine } from './KithVoiceEngine'
 import { OnDeviceEngine } from './OnDeviceEngine'
 import { OpenAIRealtimeEngine } from './OpenAIRealtimeEngine'
 import { countVoiceUsage, fromBase64, onDeviceAvailable, onDeviceUnavailableReason, providerName, toBase64, VoiceEngine, VoiceSettings, type VoiceProvider, type VoiceStatus } from './voice'
@@ -92,6 +94,13 @@ export function CallView({ botId, onSpeaking, interrupt, onEnd }: {
           ? new OpenAIRealtimeEngine(credential(provider, model, voice), op)
           : new GeminiLiveEngine(model, voice, credential(provider, model, voice), op)
       cloudStartedAt.current = Date.now()
+    } else if (VoiceSettings.isKith()) {
+      next = new KithVoiceEngine(send, {
+        status: async () => voiceLocalStatus(await store.ready()),
+        prepare: async () => voiceLocalPrepare(await store.ready()),
+        speak: async (text, voice) => fromBase64((await voiceLocalSpeak(await store.ready(), text, voice)).audio),
+        voice: chosenKithVoice,
+      })
     } else {
       next = new OnDeviceEngine(send)
     }
@@ -175,6 +184,7 @@ export function CallView({ botId, onSpeaking, interrupt, onEnd }: {
               ? 'Working, listening'
               : 'Listening'
   const failure = blocked ?? (phase === 'failed' ? session?.failure : null)
+  const warning = session?.warning ?? null
 
   return (
     <div className="call">
@@ -213,6 +223,10 @@ export function CallView({ botId, onSpeaking, interrupt, onEnd }: {
       {failure ? (
         <Text as="div" key="failure" tone="danger" className="call-line">
           {failure}
+        </Text>
+      ) : warning ? (
+        <Text as="div" key={warning} tone="secondary" className="call-line">
+          {warning}
         </Text>
       ) : notice ? (
         <Text as="div" key={notice} tone="secondary" className="call-line">

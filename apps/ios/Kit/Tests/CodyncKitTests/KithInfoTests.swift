@@ -80,3 +80,33 @@ private func houseInfo() throws -> KithInfo {
     #expect(try decode(Bot.self, #"{"id":"a","hqAgent":"house"}"#).hqAgent == "house")
     #expect(try decode(Bot.self, #"{"id":"a"}"#).hqAgent == nil)
 }
+
+@Test func hqBotWithKithDetailsHidesTheCardsKithRepeats() throws {
+    let sections = BotSections(hqAgent: "house", info: try houseInfo())
+    #expect(!sections.instructions && !sections.backendPicker && !sections.harnessMemoryTab)
+}
+
+@Test func plainBotAndUnloadedKithKeepEveryCard() throws {
+    #expect(BotSections(hqAgent: nil, info: try houseInfo()) == .all)
+    #expect(BotSections(hqAgent: "", info: try houseInfo()) == .all)
+    var unloaded = BotSections.all
+    unloaded.harnessMemoryTab = false
+    #expect(BotSections(hqAgent: "house", info: nil) == unloaded)
+}
+
+@Test func aCardStaysWhenKithCouldNotReadWhatItRepeats() throws {
+    var info = try houseInfo()
+    info.harness = nil
+    info.errors = ["role": "unreadable"]
+    let sections = BotSections(hqAgent: "house", info: info)
+    #expect(sections.instructions && sections.backendPicker && !sections.harnessMemoryTab)
+}
+
+@Test func rolePromptJoinsIntroAndEverySection() throws {
+    let role = try #require(try houseInfo().role)
+    let prompt = try #require(role.prompt)
+    #expect(prompt.hasPrefix(role.intro.trimmingCharacters(in: .whitespacesAndNewlines)))
+    #expect(role.sections.allSatisfy { prompt.contains("## \($0.title)") })
+    let empty = try decode(KithRole.self, #"{"intro":" ","sections":[]}"#)
+    #expect(empty.prompt == nil)
+}

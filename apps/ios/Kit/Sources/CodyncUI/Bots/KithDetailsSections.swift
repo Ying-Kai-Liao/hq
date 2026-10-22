@@ -159,7 +159,6 @@ struct KithDetailsSections: View {
     @ViewBuilder private func sections(_ info: KithInfo) -> some View {
         VStack(alignment: .leading, spacing: 28) {
             about(info)
-            notYours(info)
             cost(info)
             schedules(info)
             projects(info)
@@ -170,27 +169,19 @@ struct KithDetailsSections: View {
 
     // MARK: about
 
+    /// The description stays in view; the long role prompt is one row, closed until opened.
     @ViewBuilder private func about(_ info: KithInfo) -> some View {
         if info.errors["role"] != nil {
             KithUnreadable(title: "About", thing: "the role")
         } else {
-            let sections = (info.role?.sections ?? []).filter { !$0.isNotYours }
-            if (info.description ?? "").isEmpty == false || !(info.role?.intro ?? "").isEmpty || !sections.isEmpty {
+            let prompt = info.role?.prompt
+            if (info.description ?? "").isEmpty == false || prompt != nil {
                 KithCard(title: "About") {
                     if let text = info.description, !text.isEmpty {
                         Text(text).foregroundStyle(Palette.text).textSelection(.enabled)
                     }
-                    if let intro = info.role?.intro, !intro.isEmpty { KithIntro(text: intro) }
-                    ForEach(Array(sections.enumerated()), id: \.offset) { KithRoleRow(section: $0.element) }
+                    if let prompt { KithInstructionsRow(text: prompt) }
                 }
-            }
-        }
-    }
-
-    @ViewBuilder private func notYours(_ info: KithInfo) -> some View {
-        if let section = info.role?.sections.first(where: \.isNotYours), info.errors["role"] == nil {
-            KithCard(title: "Not this bot's job") {
-                MarkdownText(section.text)
             }
         }
     }
@@ -349,41 +340,18 @@ struct KithDetailsSections: View {
     }
 }
 
-/// The role's intro: four lines and "More".
-private struct KithIntro: View {
+/// The role prompt: one row, closed by default.
+private struct KithInstructionsRow: View {
     let text: String
     @State private var open = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if open {
-                MarkdownText(text)
-            } else {
-                Text(MarkdownText.inline(text)).lineLimit(4).foregroundStyle(Palette.text).textSelection(.enabled)
-            }
-            if text.count > 180 || text.contains("\n") {
-                Button(open ? "Less" : "More") { withAnimation(Motion.layout) { open.toggle() } }
-                    .buttonStyle(.plain)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Palette.accent)
-            }
-        }
-    }
-}
-
-/// A role section: title, and its markdown when opened.
-private struct KithRoleRow: View {
-    let section: KithRoleSection
-    @State private var open = false
-
-    var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Divider()
             Button {
                 withAnimation(Motion.layout) { open.toggle() }
             } label: {
                 HStack {
-                    Text(section.title).font(.subheadline.weight(.medium))
+                    Text("Instructions").font(.subheadline.weight(.medium))
                     Spacer(minLength: 8)
                     Image(systemName: "chevron.right")
                         .font(.footnote.weight(.semibold))
@@ -395,7 +363,7 @@ private struct KithRoleRow: View {
             }
             .buttonStyle(.plain)
             .accessibilityValue(open ? "Expanded" : "Collapsed")
-            if open { MarkdownText(section.text) }
+            if open { MarkdownText(text) }
         }
     }
 }

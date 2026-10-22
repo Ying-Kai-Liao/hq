@@ -47,7 +47,7 @@ export class OnDeviceEngine extends VoiceEngine {
   private lastRestart = 0
   private silence: ReturnType<typeof setTimeout> | null = null
   private offEvents: (() => void) | null = null
-  private speakGeneration = 0
+  protected speakGeneration = 0
 
   constructor(private send: (text: string) => void) {
     super()
@@ -114,7 +114,7 @@ export class OnDeviceEngine extends VoiceEngine {
 
   // MARK: listening
 
-  private listen() {
+  protected listen() {
     this.heard = ''
     if (this.phase !== 'listening' && this.everStarted) this.setPhase('listening')
     if (this.muted || this.ended) return
@@ -123,7 +123,7 @@ export class OnDeviceEngine extends VoiceEngine {
     window.codync.speech.start(VoiceSettings.language() || null)
   }
 
-  private stopListening() {
+  protected stopListening() {
     if (this.silence) clearTimeout(this.silence)
     this.silence = null
     if (this.recognizing) window.codync.speech.stop()
@@ -184,7 +184,7 @@ export class OnDeviceEngine extends VoiceEngine {
     this.listen()
   }
 
-  private finishedSpeaking() {
+  protected finishedSpeaking() {
     if (this.phase !== 'speaking') return
     this.listen()
   }

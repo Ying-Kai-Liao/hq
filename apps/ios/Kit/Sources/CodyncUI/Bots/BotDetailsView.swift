@@ -28,6 +28,8 @@ struct BotDetailsView: View {
     @State private var template: EditorRequest?
     /// A kith bot's details (serve/docs/bot-info.md); nil for any other bot. Kept while `bot` events arrive.
     @State private var kith: KithInfoStore?
+    /// Cards that kith's sections repeat go once kith has the fact on screen.
+    private var shown: BotSections { BotSections(hqAgent: bot?.hqAgent, info: kith?.info) }
 
     init(botId: String, request: DetailsRequest) {
         self.botId = botId
@@ -119,7 +121,7 @@ struct BotDetailsView: View {
             VStack(alignment: .leading, spacing: 28) {
                 if let kith { KithDetailsSections(store: kith) }
                 if let draft = Binding($draft) {
-                    BotSettingsForm(draft: draft, error: saveError, scrolls: false, part: .often)
+                    BotSettingsForm(draft: draft, error: saveError, scrolls: false, part: .often, shown: shown)
                 }
                 if let screen = model.screen, let bot {
                     VStack(alignment: .leading, spacing: 10) {
@@ -139,11 +141,11 @@ struct BotDetailsView: View {
         case .memory:
             VStack(alignment: .leading, spacing: 20) {
                 if let kith { KithMemorySection(store: kith) }
-                MemoryCard(botId: botId)
+                MemoryCard(botId: botId, showsHarnessTab: shown.harnessMemoryTab)
             }
         case .settings:
             if let draft = Binding($draft) {
-                BotSettingsForm(draft: draft, error: saveError, scrolls: false, part: .rarely)
+                BotSettingsForm(draft: draft, error: saveError, scrolls: false, part: .rarely, shown: shown)
             }
         }
     }

@@ -53,7 +53,7 @@ export const voiceInfo: Record<VoiceProvider, {
 export const isVoiceProvider = (s: string): s is VoiceProvider => s === 'openai' || s === 'gemini'
 export const configured = (s: VoiceStatus, p: VoiceProvider) => s.providers.some((x) => x.provider === p && x.configured)
 
-/** `device` (on-device speech) or a provider. */
+/** `device` (on-device speech), `kith` (on-device listening, Phonon speech from the computer's kith serve) or a provider. */
 export const engine = pref('callEngine', 'device')
 /** On-device reading speed (AVSpeechUtterance's scale: 0.5 is normal). */
 export const DEFAULT_RATE = 0.5
@@ -152,3 +152,38 @@ export const voiceModels = (c: HostClient, p: VoiceProvider) => c.call<VoiceMode
 /** Text to speech for a stretch of a reply: base64 audio and its format (`aac` or `wav`). */
 export const voiceSpeak = (c: HostClient, p: VoiceProvider, model: string, voice: string, text: string) =>
   c.call<{ audio: string; format: string }>('voiceSpeak', { provider: p, model, voice, text }, 90_000)
+
+// Kith voice: Phonon text to speech run by the computer, free and local.
+
+export interface LocalVoiceStatus {
+  available: boolean
+  model: string
+  state: 'missing' | 'downloading' | 'ready' | 'error'
+  /** 0…1 while downloading. */
+  progress?: number
+  error?: string
+  voices: string[]
+  defaultVoice: string
+  helperRssBytes?: number
+}
+
+export const KITH_ENGINE = 'kith'
+const kithVoicePref = keyed<string | null>('callVoice.kith', null)
+
+export const voiceLocalStatus = (c: HostClient) => c.call<LocalVoiceStatus>('voiceLocalStatus', {}, 15_000)
+
+/** Starts the model download; answers at once. */
+export const voiceLocalPrepare = (c: HostClient) => c.call<LocalVoiceStatus>('voiceLocalPrepare', {}, 15_000)
+
+/** One clip: base64 WAV. The first call may wait for the download. */
+export const voiceLocalSpeak = (c: HostClient, text: string, voice?: string) =>
+  c.call<{ audio: string; format: string; sampleRate: number }>('voiceLocalSpeak', voice ? { text, voice } : { text }, 90_000)
+
+/** The voice the user picked, if the computer still has it; else the computer's default (undefined if unknown). */
+export function chosenKithVoice(s: Pick<LocalVoiceStatus, 'voices' | 'defaultVoice'> | null): string | undefined {
+  const v = kithVoicePref.get()
+  if (v && (!s || s.voices.includes(v))) return v
+  return s?.defaultVoice
+}
+
+export const saveKithVoice = (v: string) => kithVoicePref.set(v)

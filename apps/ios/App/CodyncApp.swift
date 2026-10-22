@@ -26,6 +26,7 @@ struct CodyncApp: App {
                 .environment(app.accounts)
                 .environment(app.account)
                 .tint(Palette.accent)
+                .appTextSize()
                 // No scroll indicators anywhere in the app.
                 .scrollIndicators(.never)
                 .codyncSheet(isPresented: Binding(
