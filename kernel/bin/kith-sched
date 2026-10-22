@@ -29,6 +29,7 @@ from pathlib import Path
 
 KITH = Path(__file__).resolve().parent.parent
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+import kith_launchd  # noqa: E402
 from kith_paths import paths, launcher, job_installed, retire_old_job  # noqa: E402  the one place that knows where kith's folders are
 STATE = paths()['KITH_STATE']
 MACHINE = paths()['KITH_MACHINE'] / 'sched'  # last tick, last run per job
@@ -221,10 +222,8 @@ def install():
         'EnvironmentVariables': {'HOME': str(Path.home()), 'KITH_HOME': str(paths()['KITH_HOME']),
                                  'PATH': os.environ.get('PATH', '/usr/bin:/bin')},
         'StandardOutPath': str(LOGS / 'tick.log'), 'StandardErrorPath': str(LOGS / 'tick.log')}))
-    uid = os.getuid()
     retire_old_job('sched')
-    subprocess.run(['launchctl', 'bootout', 'gui/%d/%s' % (uid, LABEL)], capture_output=True)
-    subprocess.run(['launchctl', 'bootstrap', 'gui/%d' % uid, str(PLIST)], check=True)
+    kith_launchd.reload_or_exit(LABEL, PLIST)
     print('installed %s: ticks every minute; log %s' % (PLIST, LOGS / 'tick.log'))
 
 
