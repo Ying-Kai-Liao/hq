@@ -200,12 +200,23 @@ public final class BotStore {
 
     /// Roster order: pinned first, then where the user dragged them, then most recent activity.
     public var roster: [Bot] {
-        bots.values.filter { !$0.hidden }.sorted {
+        shownBots.filter { !$0.hidden }.sorted {
             if $0.pinned != $1.pinned { return $0.pinned }
             if $0.position != $1.position { return $0.position < $1.position }
             return $0.lastAt > $1.lastAt
         }
     }
+
+    /// What this computer lets the person see: on one joined by invite, only the agents granted to them, whatever else
+    /// the host sent (a taken-away agent leaves the list at once). An owner's hello has no list: all of it.
+    var shownBots: [Bot] {
+        guard let granted = hello?.grantedAgents else { return Array(bots.values) }
+        let agents = Set(granted.map(\.agent))
+        return bots.values.filter { $0.hqAgent.map(agents.contains) ?? false }
+    }
+
+    /// Guest prompts the owner is asked to answer on this computer (see `GuestPrompt`).
+    public var guestPrompts: [GuestPrompt] { GuestPrompt.pending(in: entries, known: Set(bots.keys)) }
 
     /// Display name for a harness id, as the host reports it (falls back to the built-in list).
     public func backendName(_ id: String) -> String {

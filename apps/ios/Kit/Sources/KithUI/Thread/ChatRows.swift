@@ -47,7 +47,8 @@ struct ChatRow: View {
         case "permission":
             VStack(alignment: .leading, spacing: 4) {
                 if chat?.isGroup == true { AuthorLabel(botId: entry.data.author) }
-                PermissionCard(entry: entry, hostName: model.hostName, answering: model.answering[entry.id]) { option in
+                PermissionCard(entry: entry, hostName: model.hostName, answering: model.answering[entry.id],
+                               waiting: GuestPrompt.waitingText(for: entry, activity: chat?.activity)) { option in
                     model.respond(entry, option: option)
                 }
             }

@@ -55,11 +55,20 @@ struct RootView: View {
             // Holds the pushes inside the sheet (Widgets, Live Activity); no bar shows.
             NavigationStack { SettingsView() }
         }
+        .kithSheet(item: Binding(get: { app.guestPrompt.map(GuestPromptTarget.init) }, set: { app.guestPrompt = $0?.ref })) { target in
+            let ref = target.ref
+            if let store = accounts.store(for: ref.computerId) {
+                GuestPromptSheet(store: store, chatId: ref.botId, close: { app.guestPrompt = nil }, openChat: {
+                    app.guestPrompt = nil
+                    accounts.selection = ref
+                })
+            }
+        }
         .kithSheet(item: Binding(get: { app.marketplace.map(MarketplaceTarget.init) }, set: { app.marketplace = $0?.computerId })) { target in
             // Switching computers inside keeps the sheet up and loads that computer's own marketplace.
             let computerId = app.marketplace ?? target.computerId
             if let store = accounts.store(for: computerId) {
-                MarketplaceView(computers: accounts.computers.compactMap { accounts.store(for: $0.id) }
+                MarketplaceView(computers: accounts.ownedComputers.compactMap { accounts.store(for: $0.id) }
                                     .filter { $0.connection == .online }
                                     .map { ($0.computer.id, $0.hostName) },
                                 computer: Binding(get: { computerId }, set: { app.marketplace = $0 }))
@@ -125,6 +134,11 @@ struct RootView: View {
             for computer in accounts.computers { accounts.store(for: computer.id)?.screenRequest = nil }
         })
     }
+}
+
+private struct GuestPromptTarget: Identifiable {
+    let ref: BotReference
+    var id: BotReference { ref }
 }
 
 /// A conversation, talking to the computer the bot lives on.
@@ -214,9 +228,9 @@ private struct UsageSheet: View {
             } title: {
                 Text("Usage").font(.body.weight(.semibold)).foregroundStyle(Palette.text)
             } trailing: {
-                if let store, accounts.computers.count > 1 {
+                if let store, accounts.ownedComputers.count > 1 {
                     DropdownMenu {
-                        accounts.computers.map { computer in
+                        accounts.ownedComputers.map { computer in
                             MenuItem(computer.name, selected: computer.id == store.computer.id) {
                                 picked = computer.id
                                 accounts.storage.lastComputerId = computer.id

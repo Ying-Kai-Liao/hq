@@ -199,7 +199,7 @@ extension BotStore {
         return "\(name): \(text)"
     }
 
-    private func resetMirror() {
+    func resetMirror() {
         composerDrafts = [:]
         persistComposerDrafts()
         bots = [:]

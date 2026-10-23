@@ -165,6 +165,12 @@ extension BotStore {
         dropTimer = nil
         heldDrop = nil
         if new != connection { Motion.animate { connection = new } }
+        // The host turned an invited person away (their access was removed): what it once showed them goes with it,
+        // from memory and from the cache on disk.
+        if case .unauthorized = new, inviteTokens?.stored(for: computer.id) != nil, !bots.isEmpty || !entries.isEmpty {
+            hello = nil
+            resetMirror()
+        }
         if recovering {
             for scope in Set(readingViews.values) { markRead(scope.botId, thread: scope.thread) }
         }
