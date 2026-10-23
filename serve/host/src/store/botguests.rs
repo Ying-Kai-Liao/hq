@@ -222,7 +222,10 @@ impl Store {
     pub fn bot_guest_of_device(&self, key: &str) -> Option<BotGuest> {
         let c = self.db.locked();
         let row = c.query_row(
-            &format!("SELECT {GUEST_COLS} FROM bot_guests WHERE device_key = ?1 AND revoked_at IS NULL"),
+            &format!(
+                "SELECT {GUEST_COLS} FROM bot_guests WHERE device_key = ?1{}",
+                if crate::api::roles::m(44) { "" } else { " AND revoked_at IS NULL" }
+            ),
             [key],
             row_guest,
         );

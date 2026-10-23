@@ -476,6 +476,19 @@ impl State {
             got.sort();
             want.sort();
             check!(got == want, "myBots of {} listed {got:?}, their bots are {want:?}", WHO[actor]);
+            // A bot is given only what its owner holds.
+            for ai in 0..2 {
+                if actor > 0 && !self.holds(actor, ai) && self.live(actor) < 10 {
+                    let body = json!({"name": "too much", "agents": [AGENTS[ai]]});
+                    let res = self.call(&self.callers[actor], "createBotInvite", body).await;
+                    check!(
+                        res.as_ref().err().is_some_and(refused),
+                        "{} was given a bot of {} they do not hold: {res:?}",
+                        WHO[actor],
+                        AGENTS[ai]
+                    );
+                }
+            }
             for b in self.bots.iter().filter(|b| b.owner != actor && actor > 0) {
                 let (id, invite) = (&b.id, &b.invite);
                 let calls = [
