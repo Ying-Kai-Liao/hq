@@ -231,6 +231,7 @@ mod tests {
             computer: false,
             shared_memory: None,
             harness_memory: false,
+            row_shows_summary: false,
             auto_name: false,
             tasks: None,
             hq_agent: None,

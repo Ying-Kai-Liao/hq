@@ -131,3 +131,24 @@ files are all back. HTTP 400 when it can restore nothing. Calls that change a fi
 Deprecated names, kept for app builds that predate the "Tidy" rename: `kithMemoryDreams` (same as `kithMemoryTidyUps`, and its
 response also carries the list as `dreams`), `kithMemoryUndoDream` (= `kithMemoryUndoTidy`), `undoDream` (= `undoTidy`) and
 the `dreams` field of the `memory` response (= `tidyUps`). Old version rows say author/cause `dream`; they are read as `tidy`.
+
+## Thread summaries on rows, the "summary as the row" setting and citations
+
+The thread's prose summary (`docs/memory-context.md`, "Summary") reaches the apps on the thread's row, with no extra call.
+
+- **Row.** The root entry's `data.thread` gains `summary: { text, writtenAt }` once a summary exists (absent before, and for a
+  forgotten thread). It rides in the entries the apps already get (`history`, `thread`, live `entry` events), so a list is
+  one batch. `data.thread.summaryAudience` (`owner`, `person:<id>`, `room:<chat>` or `shared`) is sent to the owner only.
+  An invited person gets `summary` only when the audience is `person:<self>` or `shared`; terminal threads (`owner`) and
+  group threads (`room:`) are the owner's for now, since a room's members can't be resolved yet.
+- **Setting.** `rowShowsSummary` (bool, default `false`; `false` for bots stored without it) is on every bot the host sends.
+  Set it with `updateBot` `{ id, rowShowsSummary: true|false }` (owner only, like every bot setting). The host only stores it:
+  an app shows `summary.text` as the row when the setting is on and a summary exists, else the first message.
+- **Citation.** `resolveCitation` `{ citation: "kith://thread/<id>#entry=<seq>" }` (`<id>` is a thread's root entry id, or
+  `main:<bot id>` for a bot's own chat) returns `{ thread: { id, botId, rootId }, seq, at, entries }` (`at` is the id of the
+  entry with that `seq` when it is among `entries`; a thread's newest 500, or 40 around `seq` in a main chat). For anyone
+  outside the thread's audience, and for a thread that doesn't exist, was forgotten, or a malformed link, the answer is the
+  same `{ error: "not_shared" }`. An invited person may call it (it is on the member allow-list) and gets their own
+  threads only, while their agent is still granted. The owner can resolve a member's thread too, as with `history`.
+  `forgetThread` `{ thread }` (owner only, what `kith forget --thread` calls) forgets a thread and removes `summary` and
+  `summaryAudience` from its row (an `entry` event follows); a forgotten thread's row is served without them either way.

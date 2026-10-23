@@ -26,8 +26,10 @@ const LATER_IMPORT: usize = 4000;
 /// How long a take-over waits for the terminal's process to end.
 const EXIT_WAIT: Duration = Duration::from_secs(5);
 
-/// The summary keys the terminal owns; entries don't produce them.
-const SUMMARY_KEYS: [&str; 6] = ["origin", "originLabel", "originBot", "liveWriter", "liveBusy", "terminal"];
+/// The summary keys the terminal owns, and the thread's prose summary (written by `chat::memory::summary`); entries
+/// don't produce them.
+const SUMMARY_KEYS: [&str; 8] =
+    ["origin", "originLabel", "originBot", "liveWriter", "liveBusy", "terminal", "summary", "summaryAudience"];
 
 /// Keeps the terminal's keys of `old` (a root's `data.thread`) in a fresh `summary` counted from entries.
 pub fn carry_over(old: &Value, summary: &mut Value) {

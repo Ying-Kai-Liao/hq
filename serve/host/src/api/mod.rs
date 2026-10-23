@@ -181,9 +181,13 @@ async fn member_call(
     person: &str,
     proven: bool,
     method: &str,
-    b: Value,
+    mut b: Value,
     permitted: Result<(), Forbidden>,
 ) -> Result<Value> {
+    // Who is asking, set here so a client can't claim to be someone else (see `threads::resolve_citation`).
+    if method == "resolveCitation" {
+        b["asPerson"] = person.into();
+    }
     let verdict = match permitted {
         Ok(()) => roles::guard(hub, person, proven, method, &b).await,
         Err(e) => Err(e.into()),
