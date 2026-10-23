@@ -18,10 +18,16 @@ public struct BackupsStatusSection: View {
     }
 }
 
-private struct BackupsComputerSection: View {
+/// One computer's backups: Settings → Computers → the computer's page.
+public struct BackupsComputerSection: View {
     let store: BotStore
     let labeled: Bool
     @State private var phase: Phase = .loading
+
+    public init(store: BotStore, labeled: Bool) {
+        self.store = store
+        self.labeled = labeled
+    }
 
     private enum Phase {
         case loading
@@ -31,7 +37,7 @@ private struct BackupsComputerSection: View {
         case unsupported
     }
 
-    var body: some View {
+    public var body: some View {
         Group {
             switch phase {
             case .unsupported:
