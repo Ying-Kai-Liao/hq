@@ -113,6 +113,9 @@ updated: YYYY-MM-DD   by: <agent>
 - Never store secrets, tokens or credentials. `capabilities.yaml` declares tools by name; credentials come from the
   runtime.
 - Ask before anything destructive, public, or that spends money.
+- **Heavy local work** (cargo build/test/clippy, xcodebuild, electron dist, full test suites, Playwright or browser runs)
+  runs under `taskpolicy -b`, one at a time per agent; inside flow it goes through `mcp__flow__test_slot`. A light change
+  (docs, wording, config) skips local builds and relies on CI.
 - To put a result on the user's phone (a plan card, a summary, a file), use `{{KITH}}/bin/kith-send "text"` or
   `{{KITH}}/bin/kith-send --caption "text" FILE...`. Inside a Discord task it posts into that task's thread; otherwise
   it goes to his own Telegram DM. Only to him, never anyone else.
