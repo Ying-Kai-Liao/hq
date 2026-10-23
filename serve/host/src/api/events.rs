@@ -64,7 +64,7 @@ pub fn events_stream(
     let who: Option<String> = match principal(&hub.store, caller) {
         Principal::Owner => None,
         Principal::Member(p) => Some(p),
-        Principal::Nobody => anyhow::bail!("this device isn't allowed on this computer"),
+        Principal::Nobody | Principal::Unproven(_) => anyhow::bail!("this device isn't allowed on this computer"),
     };
     let mut catch_up: Vec<Value> = vec![];
     for bot in hub.bots_json(since)? {

@@ -72,7 +72,10 @@ const SCREEN: &[&str] = &["screenPrepare", "screenOffer", "screenClose", "screen
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Principal {
     Owner,
+    /// An invited person's device that has shown the invite token.
     Member(String),
+    /// The same, before it has: it may only call `proveInvite`.
+    Unproven(String),
     Nobody,
 }
 
@@ -81,9 +84,11 @@ pub fn principal(store: &crate::store::Store, caller: &Caller) -> Principal {
     match caller {
         Caller::Local => Principal::Owner,
         Caller::Pairing { .. } => Principal::Nobody,
-        Caller::Device { key, .. } => {
-            store.device(key).map_or(Principal::Nobody, |d| d.person_id.map_or(Principal::Owner, Principal::Member))
-        }
+        Caller::Device { key, .. } => store.device(key).map_or(Principal::Nobody, |d| match d.person_id {
+            None => Principal::Owner,
+            Some(p) if store.device_proven(key) => Principal::Member(p),
+            Some(p) => Principal::Unproven(p),
+        }),
     }
 }
 

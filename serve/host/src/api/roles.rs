@@ -41,6 +41,17 @@ pub const MEMBER_METHODS: &[&str] = &[
     "linkCode",
 ];
 
+/// Whether invited people may start or continue runs of an agent. Off until the runs package carries the person into the
+/// run (`KITH_PERSON`), sends guests' prompts to the owner first and keeps members to their preset: until then a run
+/// would act as the owner.
+pub const MEMBER_RUNS_ENABLED: bool = false;
+
+/// Methods that start or continue a run, or answer what a run asked.
+const RUN_METHODS: &[&str] = &["send", "newSession", "respondPermission", "editHandoff", "keepConversation"];
+
+/// All an unproven device of an invited person may call: showing the invite token (see `people::prove_invite`).
+pub const UNPROVEN_METHODS: &[&str] = &["proveInvite"];
+
 pub fn member_may(method: &str) -> bool {
     MEMBER_METHODS.contains(&method)
 }
@@ -51,7 +62,9 @@ fn denied(why: &str) -> anyhow::Error {
 
 /// The chat or agent a call names, for the audit log.
 pub fn target_of(b: &Value) -> Option<String> {
-    ["botId", "entryId", "agent"].iter().find_map(|k| b[*k].as_str().filter(|s| !s.is_empty()).map(str::to_owned))
+    ["botId", "entryId", "agent", "inviteId"]
+        .iter()
+        .find_map(|k| b[*k].as_str().filter(|s| !s.is_empty()).map(str::to_owned))
 }
 
 /// Whether `person` may use `agent` right now, asked of kith-auth (the truth) on every call so that taking an agent
@@ -80,9 +93,19 @@ pub async fn own_bot(hub: &Hub, person: &str, bot: &str) -> Result<()> {
 }
 
 /// Checks a call from `person` before it runs. May tighten the body (`b`).
-pub async fn guard(hub: &Arc<Hub>, person: &str, method: &str, b: &Value) -> Result<()> {
+pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: &Value) -> Result<()> {
+    if !proven {
+        return if UNPROVEN_METHODS.contains(&method) {
+            Ok(())
+        } else {
+            Err(denied("This device hasn't shown its invite yet."))
+        };
+    }
     if !member_may(method) {
         return Err(denied("This isn't available to guests and members on this computer."));
+    }
+    if !MEMBER_RUNS_ENABLED && RUN_METHODS.contains(&method) {
+        return Err(denied("Chatting with agents isn't open to guests and members yet."));
     }
     match method {
         // Checked by their own handlers, or about no chat at all.
@@ -124,11 +147,30 @@ pub fn shape(hub: &Hub, person: &str, method: &str, mut v: Value) -> Value {
             let shared = hub.store.person(person).map(|p| p.projects).unwrap_or_default();
             if let Some(list) = v["projects"].as_array_mut() {
                 list.retain(|p| p["id"].as_str().is_some_and(|id| shared.iter().any(|s| s == id)));
+                // An id and a name; the folders behind a project are this computer's.
+                for p in list.iter_mut() {
+                    *p = json!({"id": p["id"], "name": p["id"]});
+                }
             }
             // The error text can name this computer's folders.
             if let Some(o) = v.as_object_mut() {
                 o.remove("error");
             }
+        }
+        // Where a chat works on this computer is not theirs to see.
+        "history" | "thread" => {
+            if let Some(o) = v.as_object_mut() {
+                o.remove("folder");
+            }
+        }
+        "kithInfo" => {
+            let info = if v["info"].is_object() {
+                let pick = ["name", "description", "avatar"].map(|k| (k, v["info"][k].clone()));
+                Value::Object(pick.into_iter().filter(|(_, x)| !x.is_null()).map(|(k, x)| (k.to_owned(), x)).collect())
+            } else {
+                Value::Null
+            };
+            v = json!({"info": info, "fetchedAt": v["fetchedAt"]});
         }
         _ => {}
     }
@@ -173,6 +215,7 @@ pub fn shape_bot(mut v: Value) -> Value {
     if let Some(b) = v["bot"].as_object_mut() {
         b.remove("cwd");
         b.remove("command");
+        b.remove("folder");
     }
     v
 }

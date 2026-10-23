@@ -43,6 +43,9 @@ pub struct PersonRow {
     pub agents: BTreeMap<String, String>,
     /// hq project ids shared with the person.
     pub projects: Vec<String>,
+    /// The agents whose kith-auth membership this host created for the person; only these are taken away again.
+    #[serde(skip)]
+    pub made: Vec<String>,
     pub created_at: i64,
 }
 
@@ -94,13 +97,14 @@ fn row_invite(r: &rusqlite::Row) -> rusqlite::Result<Invite> {
 const INVITE_COLS: &str = "invite_id, person_id, token_hash, agents, created_at, expires_at, used_at, revoked_at";
 
 fn row_person(r: &rusqlite::Row) -> rusqlite::Result<PersonRow> {
-    let (agents, projects): (String, String) = (r.get(2)?, r.get(3)?);
+    let (agents, projects, made): (String, String, String) = (r.get(2)?, r.get(3)?, r.get(4)?);
     Ok(PersonRow {
         person_id: r.get(0)?,
         name: r.get(1)?,
         agents: serde_json::from_str(&agents).unwrap_or_default(),
         projects: serde_json::from_str(&projects).unwrap_or_default(),
-        created_at: r.get(4)?,
+        made: serde_json::from_str(&made).unwrap_or_default(),
+        created_at: r.get(5)?,
     })
 }
 
@@ -172,7 +176,7 @@ impl Store {
     pub fn person(&self, id: &str) -> Option<PersonRow> {
         let c = self.db.locked();
         let row = c.query_row(
-            "SELECT person_id, name, agents, projects, created_at FROM people WHERE person_id = ?1",
+            "SELECT person_id, name, agents, projects, made, created_at FROM people WHERE person_id = ?1",
             [id],
             row_person,
         );
@@ -182,7 +186,7 @@ impl Store {
     pub fn people(&self) -> Result<Vec<PersonRow>> {
         let c = self.db.locked();
         let mut st =
-            c.prepare("SELECT person_id, name, agents, projects, created_at FROM people ORDER BY created_at")?;
+            c.prepare("SELECT person_id, name, agents, projects, made, created_at FROM people ORDER BY created_at")?;
         Ok(st.query_map([], row_person)?.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -205,6 +209,13 @@ impl Store {
             "UPDATE people SET agents = ?2 WHERE person_id = ?1",
             params![id, serde_json::to_string(agents)?],
         )?;
+        Ok(())
+    }
+
+    pub fn set_person_made(&self, id: &str, made: &[String]) -> Result<()> {
+        self.db
+            .locked()
+            .execute("UPDATE people SET made = ?2 WHERE person_id = ?1", params![id, serde_json::to_string(made)?])?;
         Ok(())
     }
 

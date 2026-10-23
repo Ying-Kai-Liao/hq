@@ -136,6 +136,11 @@ pub fn notify(hub: &Hub, bot: &BotConfig, from: Option<&str>, title: &str, body:
     let computer_id = hub.identity.computer_id();
     let mut notifications = Vec::new();
     for t in hub.store.push_tickets() {
+        // A chat's alerts go only to the devices of the chat's own person; an invitee's never reach the owner's.
+        let device_person = hub.store.device(&t.device_key).and_then(|d| d.person_id);
+        if device_person != bot.person {
+            continue;
+        }
         let mut data = json!({"botId": bot.id, "computerId": computer_id, "ctx": t.ctx});
         if let Some(key) = t.push_key.as_deref().and_then(|k| crypto::unb64_n::<32>(k).ok()) {
             let eph = StaticSecret::from(crypto::random::<32>());
@@ -163,6 +168,10 @@ pub fn notify(hub: &Hub, bot: &BotConfig, from: Option<&str>, title: &str, body:
 /// Live Activities carry only status and dates. Task text stays in the encrypted channel.
 pub fn live_activity_update(hub: &Hub, bot_id: &str, rt: &Runtime) {
     purge_dead_tickets(hub);
+    // Live Activities are registered by the owner's devices only; an invitee's chat never feeds one.
+    if hub.store.bot(bot_id).ok().flatten().is_some_and(|r| r.config.person.is_some()) {
+        return;
+    }
     let Some(relay) = relay_url(hub) else { return };
     let terminal = matches!(rt.status, BotStatus::Idle | BotStatus::Error);
     let tickets = if terminal { hub.store.take_activity_tickets(bot_id) } else { hub.store.activity_tickets(bot_id) };

@@ -76,8 +76,16 @@ impl Rig {
         serde_json::from_str(&self.auth(&["who", "kith", uid])).unwrap()
     }
 
-    /// An authorized account device of `person` (None: the owner's).
+    /// An authorized account device of `person` (None: the owner's); a person's has shown its invite token.
     pub fn device(&self, key: &str, person: Option<&str>) -> Caller {
+        let caller = self.unproven_device(key, person);
+        if person.is_some() {
+            self.hub.store.set_device_proven(key).unwrap();
+        }
+        caller
+    }
+
+    pub fn unproven_device(&self, key: &str, person: Option<&str>) -> Caller {
         self.hub
             .store
             .put_device(&Device {

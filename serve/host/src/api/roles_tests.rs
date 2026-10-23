@@ -33,7 +33,7 @@ async fn joined(r: &Rig, roles: Value) -> (Caller, String) {
     let made = call(r, &Caller::Local, "createInvite", json!({"name": "Sam", "agents": roles})).await.unwrap();
     let invite = made["inviteId"].as_str().unwrap().to_owned();
     let listed = [Listed { membership_id: "mem_sam".into(), user_id: "user_sam".into(), invite_id: invite }];
-    members::apply(&r.hub, Some(&r.bin), &listed).await.unwrap();
+    members::apply(&r.hub, Some(&r.bin), &listed, Some("user_owner")).await.unwrap();
     (r.device("sam-phone", Some("sam")), "mem_sam".into())
 }
 
@@ -206,7 +206,7 @@ async fn an_invitee_sees_and_touches_only_their_own_chats() {
     r.hub.store.set_person_projects("sam", &["site".to_owned()]).unwrap();
     let all = json!({"projects": [{"id": "site"}, {"id": "other"}], "error": "no hq at /Users/x"});
     let shaped = roles::shape(&r.hub, "sam", "projects", all);
-    assert_eq!(shaped, json!({"projects": [{"id": "site"}]}));
+    assert_eq!(shaped, json!({"projects": [{"id": "site", "name": "site"}]}));
 
     // Taking the agent away cuts the next request.
     r.auth(&["member", "house", "sam", "--rm"]);
@@ -241,10 +241,15 @@ async fn create_invite_makes_the_person_the_grants_and_the_cloud_record() {
     // The cloud only gets the hash.
     let posted = r.posts().into_iter().find(|(p, _)| p == "/v1/host/invites").unwrap().1;
     assert_eq!(posted["inviteId"], made["inviteId"]);
-    assert_eq!(posted["tokenHash"], hex(&crypto::sha256(&[part("t").as_bytes()])).as_str());
+    let proof = hex(&crypto::sha256(&[part("t").as_bytes()]));
+    assert_eq!(
+        posted["tokenHash"],
+        hex(&crypto::sha256(&[proof.as_bytes()])).as_str(),
+        "the cloud gets the hash of the proof"
+    );
     assert_eq!(posted["expiresAt"], made["expiresAt"]);
     let stored = r.hub.store.invite(made["inviteId"].as_str().unwrap()).unwrap();
-    assert!(stored.open(now_ms()) && stored.token_hash == posted["tokenHash"].as_str().unwrap());
+    assert!(stored.open(now_ms()) && stored.token_hash == proof, "the host keeps the proof the cloud never saw");
     assert!(
         !serde_json::to_string(&call(&r, &Caller::Local, "invites", json!({})).await.unwrap())
             .unwrap()
@@ -325,32 +330,35 @@ async fn memberships_bind_only_to_our_open_invites_and_leave_with_the_cloud() {
         revoked_at: None,
     };
     r.hub.store.put_invite(&old).unwrap();
-    members::apply(&r.hub, bin, &[listed("mem_a", "user_a", "inv_unknown"), listed("mem_b", "user_b", "inv_old")])
-        .await
-        .unwrap();
+    let strangers = [listed("mem_a", "user_a", "inv_unknown"), listed("mem_b", "user_b", "inv_old")];
+    members::apply(&r.hub, bin, &strangers, Some("user_owner")).await.unwrap();
+    // Nor does an account that isn't an account id, or the owner's own.
+    let odd = [listed("mem_c", "not a user id", &invite), listed("mem_d", "user_owner", &invite)];
+    members::apply(&r.hub, bin, &odd, Some("user_owner")).await.unwrap();
+    assert_eq!(r.hub.store.memberships().unwrap(), []);
     assert!(r.who("user_a")["person"].is_null() && r.who("user_b")["person"].is_null());
     assert_eq!(r.hub.store.memberships().unwrap(), []);
 
     // Ours binds, once, and is the same on every pull.
     let sam = listed("mem_sam", "user_sam", &invite);
-    members::apply(&r.hub, bin, std::slice::from_ref(&sam)).await.unwrap();
-    members::apply(&r.hub, bin, std::slice::from_ref(&sam)).await.unwrap();
+    members::apply(&r.hub, bin, std::slice::from_ref(&sam), Some("user_owner")).await.unwrap();
+    members::apply(&r.hub, bin, std::slice::from_ref(&sam), Some("user_owner")).await.unwrap();
     assert_eq!(r.who("user_sam")["person"], "sam");
     assert_eq!(r.hub.store.memberships().unwrap().len(), 1);
     assert!(r.hub.store.invite(&invite).unwrap().used_at.is_some());
     // A second account can't ride the same invite.
-    members::apply(&r.hub, bin, &[sam.clone(), listed("mem_x", "user_x", &invite)]).await.unwrap();
+    members::apply(&r.hub, bin, &[sam.clone(), listed("mem_x", "user_x", &invite)], Some("user_owner")).await.unwrap();
     assert!(r.who("user_x")["person"].is_null());
 
     // The membership disappears from the cloud: devices go, the person and their memory stay.
     let phone = r.device("sam-phone", Some("sam"));
     r.device("owner-phone", None);
-    members::apply(&r.hub, bin, &[]).await.unwrap();
+    members::apply(&r.hub, bin, &[], Some("user_owner")).await.unwrap();
     assert!(r.hub.store.device("sam-phone").is_none() && r.hub.store.device("owner-phone").is_some());
     assert!(r.who("user_sam")["person"].is_null() && r.auth_ok(&["people", "sam"]));
     assert_eq!(r.hub.store.memberships().unwrap(), []);
     assert!(call(&r, &phone, "hello", json!({})).await.is_err(), "its channel is refused at once");
-    members::apply(&r.hub, bin, &[]).await.unwrap();
+    members::apply(&r.hub, bin, &[], Some("user_owner")).await.unwrap();
 }
 
 #[tokio::test]
@@ -393,7 +401,14 @@ async fn a_pull_binds_the_member_and_approves_their_device_without_the_owner() {
     let device = r.hub.store.device(&b64(&dk)).expect("approved");
     assert_eq!((device.person_id.as_deref(), device.grant_id.as_deref()), (Some("sam"), Some("grt_new")));
     let caller = Caller::Device { key: device.key.clone(), scopes: device.scopes.clone() };
+    assert_eq!(principal(&r.hub.store, &caller), Principal::Unproven("sam".into()), "approved, but not yet proven");
+    assert!(call(&r, &caller, "hello", json!({})).await.is_err());
+    let t = made["link"].as_str().unwrap().rsplit("t=").next().unwrap().to_owned();
+    let wrong = call(&r, &caller, "proveInvite", json!({"inviteId": invite, "token": "nope"})).await.unwrap_err();
+    assert!(wrong.is::<NotAllowed>());
+    call(&r, &caller, "proveInvite", json!({"inviteId": invite, "token": t})).await.unwrap();
     assert_eq!(principal(&r.hub.store, &caller), Principal::Member("sam".into()));
+    call(&r, &caller, "hello", json!({})).await.unwrap();
 
     // Grants: renewed for the bound account, removed for any other.
     let grant = |user: Option<&str>| cloud::Grant {

@@ -13,6 +13,8 @@ mod http;
 mod kith_info;
 mod marketplace;
 mod people;
+#[cfg(test)]
+mod proof_tests;
 mod remote;
 #[cfg(test)]
 pub(crate) mod rig;
@@ -73,7 +75,8 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
     match devices::principal(&hub.store, caller) {
         Principal::Owner => permitted?,
         Principal::Nobody => return Err(Forbidden.into()),
-        Principal::Member(person) => return member_call(hub, caller, &person, method, b, permitted).await,
+        Principal::Member(person) => return member_call(hub, caller, &person, true, method, b, permitted).await,
+        Principal::Unproven(person) => return member_call(hub, caller, &person, false, method, b, permitted).await,
     }
     let observed = crate::analytics::observe_call(hub, caller, method, &b);
     let result = route(hub, caller, method, b).await;
@@ -143,16 +146,23 @@ async fn member_call(
     hub: &Arc<Hub>,
     caller: &Caller,
     person: &str,
+    proven: bool,
     method: &str,
     b: Value,
     permitted: Result<(), Forbidden>,
 ) -> Result<Value> {
     let verdict = match permitted {
-        Ok(()) => roles::guard(hub, person, method, &b).await,
+        Ok(()) => roles::guard(hub, person, proven, method, &b).await,
         Err(e) => Err(e.into()),
     };
-    hub.store.audit_add(person, caller.device_key(), method, roles::target_of(&b).as_deref(), verdict.is_ok());
-    verdict?;
-    let v = route(hub, caller, method, b).await?;
-    Ok(roles::shape(hub, person, method, v))
+    let target = roles::target_of(&b);
+    let outcome = match verdict {
+        Ok(()) => route(hub, caller, method, b).await,
+        Err(e) => Err(e),
+    };
+    // A refused call is logged as denied. The proof call is allowed to every unproven device but only counts when it checks out.
+    let allowed = outcome.is_ok()
+        || (method != "proveInvite" && !matches!(&outcome, Err(e) if e.is::<NotAllowed>() || e.is::<Forbidden>()));
+    hub.store.audit_add(person, caller.device_key(), method, target.as_deref(), allowed);
+    Ok(roles::shape(hub, person, method, outcome?))
 }

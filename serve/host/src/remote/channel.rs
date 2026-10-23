@@ -514,6 +514,11 @@ impl Channel {
                 }
             },
             "term" => {
+                // Setup terminals are the computer's own: an invited person never watches one.
+                if devices::principal(&self.hub.store, &self.caller) != devices::Principal::Owner {
+                    self.send(err(id, 403, "This can only be done at the computer itself.")).await;
+                    return;
+                }
                 let Some(s) = api::term_events(&self.hub, b["term"].as_str().unwrap_or_default()) else {
                     self.send(err(id, 404, "that terminal is gone")).await;
                     return;

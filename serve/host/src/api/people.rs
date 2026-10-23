@@ -37,8 +37,15 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
         "revokePerson" => revoke_person(hub, str_arg(&b, "personId")?).await?,
         "audit" => json!({"audit": hub.store.audit_list(b["since"].as_i64().unwrap_or(0), b["personId"].as_str())?}),
         "startChat" => start_chat(hub, caller, &b).await?,
+        "proveInvite" => prove_invite(hub, caller, &b)?,
         _ => return Ok(ControlFlow::Continue(b)),
     }))
+}
+
+/// kith-auth's person id rule.
+fn valid_person_id(id: &str) -> bool {
+    id.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+        && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -143,6 +150,12 @@ async fn make_invite(
     agents: &BTreeMap<String, String>,
     undo: &mut Undo,
 ) -> Result<Value> {
+    // An owner-supplied id obeys kith-auth's rule: no leading dash, nothing that could pass for a flag.
+    if let Some(id) = b["personId"].as_str().filter(|s| !s.is_empty())
+        && !valid_person_id(id)
+    {
+        bail!("`{id}` isn't a person id (lowercase letters, digits and dashes, starting with a letter).");
+    }
     let person = match (b["personId"].as_str().filter(|s| !s.is_empty()), b["name"].as_str().map(str::trim)) {
         (Some(id), _) => {
             if !person_exists(bin, id).await {
@@ -180,13 +193,16 @@ async fn make_invite(
             undo.agents.push((person.clone(), agent.clone()));
         }
     }
+    // The link carries `token`; the app shows the cloud only `proof` = sha256(token), and the host posts sha256(proof), so
+    // the cloud can neither accept nor prove an invite by itself. The host keeps `proof` to check `proveInvite`.
     let token = crypto::b64(&crypto::random::<32>());
+    let proof = hex(&crypto::sha256(&[token.as_bytes()]));
     let invite_id = format!("inv_{}", hex(&crypto::random::<12>()));
     let now = now_ms();
     let invite = Invite {
         invite_id: invite_id.clone(),
         person_id: person.clone(),
-        token_hash: hex(&crypto::sha256(&[token.as_bytes()])),
+        token_hash: proof.clone(),
         agents: agents.clone(),
         created_at: now,
         expires_at: now + INVITE_MS,
@@ -194,7 +210,7 @@ async fn make_invite(
         revoked_at: None,
     };
     hub.store.put_invite(&invite)?;
-    let body = json!({"inviteId": invite_id, "tokenHash": invite.token_hash, "expiresAt": invite.expires_at});
+    let body = json!({"inviteId": invite_id, "tokenHash": hex(&crypto::sha256(&[proof.as_bytes()])), "expiresAt": invite.expires_at});
     if let Err(e) = cloud::post(hub, "/v1/host/invites", &body).await {
         hub.store.delete_invite(&invite_id).ok();
         return Err(e.context("The Kith cloud didn't take the invite, so none was made"));
@@ -203,6 +219,13 @@ async fn make_invite(
     let mut mirror = hub.store.person(&person).map(|p| p.agents).unwrap_or_default();
     mirror.extend(agents.clone());
     hub.store.set_person_agents(&person, &mirror)?;
+    let mut made = hub.store.person(&person).map(|p| p.made).unwrap_or_default();
+    for (_, agent) in &undo.agents {
+        if !made.contains(agent) {
+            made.push(agent.clone());
+        }
+    }
+    hub.store.set_person_made(&person, &made)?;
     let link = format!("kith://invite?c={}&i={}&t={}", hub.identity.computer_id(), invite_id, token);
     Ok(json!({"inviteId": invite_id, "link": link, "expiresAt": invite.expires_at, "personId": person}))
 }
@@ -265,14 +288,23 @@ async fn set_person_access(hub: &Arc<Hub>, b: &Value) -> Result<Value> {
     let _w = AUTH_WRITES.lock().await;
     if !b["agents"].is_null() {
         let want = roles_of(&b["agents"])?;
+        let mut made = person.made.clone();
         for (agent, role) in &want {
-            let had = person.agents.contains_key(agent) && roles::may_use(id, agent).await;
+            let had = roles::may_use(id, agent).await;
             grant(&bin, id, agent, role, !had).await.with_context(|| format!("giving {id} {agent}"))?;
+            if !had && !made.contains(agent) {
+                made.push(agent.clone());
+            }
         }
+        // Only a membership this host made is taken away again; one the owner gave by hand is left, and just no longer listed.
         for agent in person.agents.keys().filter(|a| !want.contains_key(*a)) {
-            account::run(&bin, &["member", agent, id, "--rm"]).await?;
+            if made.contains(agent) {
+                account::run(&bin, &["member", agent, id, "--rm"]).await?;
+                made.retain(|m| m != agent);
+            }
         }
         hub.store.set_person_agents(id, &want)?;
+        hub.store.set_person_made(id, &made)?;
     }
     if !b["projects"].is_null() {
         let projects: Vec<String> =
@@ -288,23 +320,60 @@ async fn revoke_person(hub: &Arc<Hub>, id: &str) -> Result<Value> {
     {
         let _w = AUTH_WRITES.lock().await;
         if let Some(bin) = &bin {
-            for agent in person.agents.keys() {
+            for agent in &person.made {
                 account::run(bin, &["member", agent, id, "--rm"]).await?;
             }
-        } else if !person.agents.is_empty() {
+        } else if !person.made.is_empty() {
             bail!("kith-auth wasn't found, so {id}'s agents can't be taken away.");
         }
     }
     hub.store.set_person_agents(id, &BTreeMap::new())?;
+    hub.store.set_person_made(id, &[])?;
     for invite in hub.store.invites()?.into_iter().filter(|i| i.person_id == id && i.open(now_ms())) {
         revoke_invite(hub, &invite.invite_id).await?;
     }
-    crate::remote::members::end_access(hub, bin.as_deref(), id).await?;
     for m in hub.store.memberships()?.into_iter().filter(|m| m.person_id == id) {
         hub.store.remove_membership(&m.membership_id)?;
         crate::remote::members::revoke_in_cloud(hub, &m.membership_id).await;
     }
+    crate::remote::members::end_access(hub, bin.as_deref(), id).await?;
     Ok(json!({"revoked": true}))
+}
+
+/// Wrong tries a device may make at `proveInvite` per window.
+const PROOF_TRIES: usize = 5;
+const PROOF_WINDOW: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+static PROOF_ATTEMPTS: std::sync::Mutex<BTreeMap<String, Vec<std::time::Instant>>> =
+    std::sync::Mutex::new(BTreeMap::new());
+
+/// `proveInvite {inviteId, token}`: a new device of an invited account shows the invite token from its link, which the
+/// cloud never saw (it only knows sha256 of sha256 of it). Until it does, the device can call nothing else, so a cloud
+/// that made up a membership can bind and approve devices but still can't reach any chat.
+fn prove_invite(hub: &Hub, caller: &Caller, b: &Value) -> Result<Value> {
+    let Principal::Unproven(person) = principal(&hub.store, caller) else {
+        bail!("This device has already shown its invite.");
+    };
+    let key = caller.device_key().to_owned();
+    {
+        let mut tries = PROOF_ATTEMPTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mine = tries.entry(key.clone()).or_default();
+        mine.retain(|t| t.elapsed() < PROOF_WINDOW);
+        if mine.len() >= PROOF_TRIES {
+            return Err(NotAllowed("Too many tries. Wait a few minutes.".into()).into());
+        }
+        mine.push(std::time::Instant::now());
+    }
+    let (id, token) = (str_arg(b, "inviteId")?, str_arg(b, "token")?);
+    let joined = hub.store.memberships()?.into_iter().any(|m| m.person_id == person && m.invite_id == id);
+    let stored = hub.store.invite(id).filter(|i| i.person_id == person);
+    let given = crypto::sha256(&[hex(&crypto::sha256(&[token.as_bytes()])).as_bytes()]);
+    let ok = joined && stored.is_some_and(|i| crypto::ct_eq(&crypto::sha256(&[i.token_hash.as_bytes()]), &given));
+    if !ok {
+        return Err(NotAllowed("That isn't this invite's token.".into()).into());
+    }
+    hub.store.set_device_proven(&key)?;
+    PROOF_ATTEMPTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&key);
+    Ok(json!({"proven": true}))
 }
 
 /// `startChat`: an invited person's own chat with an agent granted to them (one per agent), made from the owner's bot
@@ -325,8 +394,7 @@ async fn start_chat(hub: &Arc<Hub>, caller: &Caller, b: &Value) -> Result<Value>
     }
     let template = rows
         .iter()
-        .filter(|r| r.config.hq_agent.as_deref() == Some(agent) && r.config.person.is_none())
-        .max_by_key(|r| !r.deleted)
+        .find(|r| r.config.hq_agent.as_deref() == Some(agent) && r.config.person.is_none() && !r.deleted)
         .ok_or_else(|| anyhow!("{agent} isn't set up on this computer."))?;
     let c = &template.config;
     let cfg = serde_json::from_value(json!({

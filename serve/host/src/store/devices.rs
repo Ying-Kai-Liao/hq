@@ -88,12 +88,20 @@ impl Store {
 
     /// Adds (or, for a key paired again, refreshes) an authorized device.
     pub fn put_device(&self, d: &Device) -> Result<()> {
-        let c = self.db.locked();
-        c.execute(
+        let mut c = self.db.locked();
+        let tx = c.transaction()?;
+        let before: Option<Option<String>> =
+            tx.query_row("SELECT person_id FROM devices WHERE key = ?1", [&d.key], |r| r.get(0)).optional()?;
+        if before.is_some_and(|p| p != d.person_id) {
+            // A device that changes hands keeps none of the old person's notifications.
+            tx.execute("DELETE FROM push_tickets WHERE device_key = ?1", [&d.key])?;
+            tx.execute("DELETE FROM activity_tickets WHERE device_key = ?1", [&d.key])?;
+        }
+        tx.execute(
             "INSERT INTO devices(key, name, platform, source, grant_id, scopes, lease_until, created_at, person_id)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(key) DO UPDATE SET name = ?2, platform = ?3, source = ?4, grant_id = ?5,
-               scopes = ?6, lease_until = ?7, person_id = ?9",
+               scopes = ?6, lease_until = ?7, person_id = ?9, proven = 0",
             params![
                 d.key,
                 d.name,
@@ -106,6 +114,20 @@ impl Store {
                 d.person_id
             ],
         )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Whether an invited person's device has shown the invite token (see `proveInvite`). A device is unproven when
+    /// added or paired again.
+    pub fn device_proven(&self, key: &str) -> bool {
+        let c = self.db.locked();
+        let row = c.query_row("SELECT proven FROM devices WHERE key = ?1", [key], |r| r.get::<_, i64>(0));
+        logged("device proven", row.optional()).flatten().is_some_and(|p| p != 0)
+    }
+
+    pub fn set_device_proven(&self, key: &str) -> Result<()> {
+        self.db.locked().execute("UPDATE devices SET proven = 1 WHERE key = ?1", [key])?;
         Ok(())
     }
 
@@ -263,6 +285,32 @@ mod tests {
         assert_eq!(s.activity_tickets("b1"), ["a2"]);
         assert_eq!(s.take_activity_tickets("b1"), ["a2"]);
         assert_eq!(s.activity_tickets("b1").len(), 0);
+    }
+
+    #[test]
+    fn a_device_that_changes_hands_loses_its_tickets_and_its_proof() {
+        let s = temp_store();
+        let d = Device {
+            key: "dk".into(),
+            name: "Phone".into(),
+            platform: "ios".into(),
+            source: DeviceSource::Account,
+            grant_id: Some("grt".into()),
+            scopes: vec![Scope::Control],
+            lease_until: None,
+            created_at: 1,
+            last_seen_at: None,
+            person_id: Some("sam".into()),
+        };
+        s.put_device(&d).unwrap();
+        assert!(!s.device_proven("dk"), "unproven when added");
+        s.set_device_proven("dk").unwrap();
+        assert!(s.device_proven("dk"));
+        s.add_push_ticket("t", "dk", None, None, "Phone").unwrap();
+        s.add_activity_ticket("a", "b1", "dk").unwrap();
+        s.put_device(&Device { person_id: None, ..d }).unwrap();
+        assert!(s.push_tickets().is_empty() && s.activity_tickets("b1").is_empty());
+        assert!(!s.device_proven("dk"));
     }
 
     #[test]

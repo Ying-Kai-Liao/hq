@@ -26,10 +26,10 @@ pub struct Listed {
 
 /// Applies the cloud's membership list. `None` (an older cloud that doesn't list them) changes nothing. Never fails
 /// the pull: a problem is logged and the next pull tries again.
-pub async fn sync(hub: &Hub, listed: Option<&[Listed]>) {
+pub async fn sync(hub: &Hub, listed: Option<&[Listed]>, owner_uid: Option<&str>) {
     let Some(listed) = listed else { return };
     let bin = account::bin().await;
-    if let Err(e) = apply(hub, bin.as_deref(), listed).await {
+    if let Err(e) = apply(hub, bin.as_deref(), listed, owner_uid).await {
         tracing::warn!(error = format!("{e:#}"), "couldn't apply the cloud's memberships");
     }
     if let Err(e) = hub.store.audit_prune(now_ms()) {
@@ -37,9 +37,21 @@ pub async fn sync(hub: &Hub, listed: Option<&[Listed]>) {
     }
 }
 
-pub async fn apply(hub: &Hub, bin: Option<&Path>, listed: &[Listed]) -> Result<()> {
+/// A Kith account id as kith-auth takes it. Anything else the cloud sends is not an account.
+fn valid_user_id(id: &str) -> bool {
+    id.strip_prefix("user_").is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric()))
+}
+
+pub async fn apply(hub: &Hub, bin: Option<&Path>, listed: &[Listed], owner_uid: Option<&str>) -> Result<()> {
     let known = hub.store.memberships()?;
     for m in listed.iter().filter(|m| !known.iter().any(|k| k.membership_id == m.membership_id)) {
+        if !valid_user_id(&m.user_id) || owner_uid == Some(m.user_id.as_str()) {
+            tracing::warn!(
+                membership = m.membership_id,
+                "ignoring a membership with an invalid or the owner's account"
+            );
+            continue;
+        }
         let Some(invite) = hub.store.invite(&m.invite_id).filter(|i| i.open(now_ms())) else {
             // Not ours (or used up, revoked, expired): nothing here grants it, so it stays a name in the cloud.
             tracing::debug!(membership = m.membership_id, "ignoring a membership this computer didn't invite");
@@ -73,21 +85,32 @@ pub async fn apply(hub: &Hub, bin: Option<&Path>, listed: &[Listed]) -> Result<(
     }
     for gone in known.iter().filter(|k| !listed.iter().any(|m| m.membership_id == k.membership_id)) {
         tracing::info!(person = gone.person_id, "membership gone from the cloud; removing the person's devices");
-        end_access(hub, bin, &gone.person_id).await?;
         hub.store.remove_membership(&gone.membership_id)?;
+        end_access(hub, bin, &gone.person_id).await?;
     }
     Ok(())
 }
 
-/// Revokes every device of `person` and unbinds their account. Their agents' memberships and memory stay.
+/// Ends a person's access once a membership of theirs is gone (and already removed from the store). With no membership
+/// left, every device goes and the account is unbound; with another still active, its handle is kept (pointed at it) and
+/// the gone account's devices fall with their grants. Their agents' memberships and memory stay.
 pub async fn end_access(hub: &Hub, bin: Option<&Path>, person: &str) -> Result<()> {
-    for d in hub.store.devices_of(person)? {
-        hub.revoke_device(&d.key)?;
-    }
+    let remaining: Vec<Membership> = hub.store.memberships()?.into_iter().filter(|m| m.person_id == person).collect();
+    let Some(still) = remaining.first() else {
+        for d in hub.store.devices_of(person)? {
+            hub.revoke_device(&d.key)?;
+        }
+        if let Some(bin) = bin
+            && let Err(e) = account::run(bin, &["handle", person, "kith", "--rm"]).await
+        {
+            tracing::warn!(error = format!("{e:#}"), person, "couldn't remove an invited account's handle");
+        }
+        return Ok(());
+    };
     if let Some(bin) = bin
-        && let Err(e) = account::run(bin, &["handle", person, "kith", "--rm"]).await
+        && let Err(e) = account::run(bin, &["handle", person, "kith", &still.user_id]).await
     {
-        tracing::warn!(error = format!("{e:#}"), person, "couldn't remove an invited account's handle");
+        tracing::warn!(error = format!("{e:#}"), person, "couldn't keep an invited account's handle");
     }
     Ok(())
 }

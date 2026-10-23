@@ -386,7 +386,7 @@ pub async fn pull(hub: &Hub, base: &str) -> Result<()> {
         .context("reading the cloud state")?;
     let owner_uid = state.owner.as_ref().map(|o| o.user_id.clone());
     // Before the grants: a member's device is kept only while its account is bound to its person.
-    super::members::sync(hub, state.memberships.as_deref()).await;
+    super::members::sync(hub, state.memberships.as_deref(), owner_uid.as_deref()).await;
     apply_grants(hub, &state.grants, owner_uid.as_deref())?;
     update_status(hub, |s| s.owner = state.owner);
     super::account::sync(hub, owner_uid.as_deref()).await;

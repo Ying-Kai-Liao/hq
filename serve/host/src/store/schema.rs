@@ -34,13 +34,14 @@ fn migrate_5(c: &Connection) -> Result<()> {
     c.execute_batch(
         "BEGIN;
          ALTER TABLE devices ADD COLUMN person_id TEXT;
+         ALTER TABLE devices ADD COLUMN proven INTEGER NOT NULL DEFAULT 0;
          CREATE TABLE IF NOT EXISTS invites(
             invite_id TEXT PRIMARY KEY, person_id TEXT NOT NULL, token_hash TEXT NOT NULL,
             agents TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
             used_at INTEGER, revoked_at INTEGER);
          CREATE TABLE IF NOT EXISTS people(
             person_id TEXT PRIMARY KEY, name TEXT NOT NULL, agents TEXT NOT NULL DEFAULT '{}',
-            projects TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL);
+            projects TEXT NOT NULL DEFAULT '[]', made TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL);
          CREATE TABLE IF NOT EXISTS memberships(
             membership_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, person_id TEXT NOT NULL,
             invite_id TEXT NOT NULL, created_at INTEGER NOT NULL);
@@ -132,7 +133,7 @@ mod tests {
             // Back to a version-4 database: no person column, no people tables.
             c.execute_batch(
                 "DROP TABLE invites; DROP TABLE people; DROP TABLE memberships; DROP TABLE audit;
-                 ALTER TABLE devices DROP COLUMN person_id;
+                 ALTER TABLE devices DROP COLUMN proven; ALTER TABLE devices DROP COLUMN person_id;
                  INSERT INTO devices VALUES('old', 'Phone', 'ios', 'local', NULL, '[\"control\"]', NULL, 1, NULL);
                  UPDATE kv SET v = '4' WHERE k = 'schema';",
             )
