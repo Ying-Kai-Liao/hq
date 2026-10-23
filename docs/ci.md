@@ -23,7 +23,7 @@ No paid, larger or self-hosted runners. Rust caches come from Swatinem/rust-cach
 
 - Cheap tier, every pull request: fmt, clippy, host unit tests, kernel, cloud and relay (typecheck, vitest), licenses, thread-writers, desktop typecheck and tests. All path-filtered.
 - Heavy tier: the macOS builds (`ios`, `desktop`), every e2e (`host-e2e`, `desktop-relay-e2e`, cloud's bot guests e2e step) and `guest-linux`. They run on Mergify queue batches, push to main and workflow_dispatch, never skipped there.
-- A pull request gets the heavy tier too when it carries the `ci:full` label (add it with `gh pr edit <n> --add-label ci:full`). A draft pull request gets the cheap tier only, even with the label; mark it ready to run the heavy tier. The exception is a Mergify batch: a draft PR from a `mergify/merge-queue/*` branch, which `ci.yml` treats as heavy.
+- A pull request gets the heavy tier too when it carries the `ci:full` label (add it with `gh pr edit <n> --add-label ci:full`). A draft pull request gets the cheap tier only, even with the label: `ci-label.yml` doesn't dispatch the heavy run for a draft. Mark it ready to run the heavy tier. The exception is a Mergify batch: a draft PR from a `mergify/merge-queue/*` branch, which `ci.yml` treats as heavy.
 
 Jobs skipped by the tier count as passed in `ci`, so a green PR means "cheap tier green"; the Mergify queue runs the rest on the batch before anything lands on main.
 
