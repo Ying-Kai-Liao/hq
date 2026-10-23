@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# kith-cost-bots-check — a bot's runs sit on its owner's line in `kith-cost people`, with a sub-line per bot, and
+# `kith-cost spent` sums a person with the `was` ids kith-auth resolves for a bot. Throwaway auth.json and ledger.
+#
+#   kernel/tests/kith-cost-bots-check     a second or two; prints each check, exits 1 when one fails
+set -uo pipefail
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-cost-bots-check.XXXXXX")
+trap 'rm -rf "$T"' EXIT
+export KITH_AUTH=$T/auth.json HOME=$T/home KITH_HOME=$T/kith
+unset KITH_STATE HQ_STATE KITH_PERSON KITH_AGENT HQ_HOME KITH_PERSON_WAS
+mkdir -p "$HOME" "$KITH_HOME/agents/house/role"
+printf -- '---\nname: house\ndescription: test\n---\nbody\n' > "$KITH_HOME/agents/house/role/agent.md"
+A() { python3 "$KERNEL/bin/kith-auth" "$@"; }
+C() { python3 "$KERNEL/bin/kith-cost" "$@"; }
+fail=0
+check() { if eval "$2" >/dev/null 2>&1; then echo "ok   $1"; else echo "FAIL $1"; fail=1; fi; }
+
+A person kai owner >/dev/null; A person sam >/dev/null
+A bot bot-k --of kai name=Rex provider=grok >/dev/null
+A bot bot-s --of sam name=Scout >/dev/null
+A bot bot-s2 --of sam name=Wren provider=grok >/dev/null
+
+C sync >/dev/null 2>&1    # makes the ledger
+KERNEL=$KERNEL python3 - <<'PY'
+import datetime as dt, os, sqlite3, sys
+sys.path.insert(0, os.path.join(os.environ['KERNEL'], 'lib'))
+from kith_paths import paths
+c = sqlite3.connect(paths()['KITH_MACHINE'] / 'cost.db')
+now = dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+# a null person is the owner's own run
+for i, (person, cost) in enumerate([(None, 1.0), (None, 2.0), ('bot-k', 3.0), ('sam', 10.0), ('bot-s', 0.5),
+                                     ('bot-s2', 1.5)]):
+    c.execute("insert into runs (session, agent, person) values (?, 'house', ?)", (f's{i}', person))
+    c.execute("insert into req values (?, ?, ?, 'p', 'm', 'main', '1', 0, 0, 0, 0, ?)", (f'r{i}', f's{i}', now, cost))
+c.commit()
+PY
+
+OUT=$(C people month)
+check "owner line holds the owner's runs and the owner's bots" "echo \"\$OUT\" | grep -E '^  owner +\\\$6\.00\$'"
+check "owner's bot is a sub-line" "echo \"\$OUT\" | grep -E '└ Rex \(grok\) +\\\$3\.00\$'"
+check "invitee line holds their own runs and their bots" "echo \"\$OUT\" | grep -E '^  sam +\\\$12\.00\$'"
+check "invitee's bots are sub-lines" "echo \"\$OUT\" | grep -E '└ Scout \(other\) +\\\$0\.50\$' && echo \"\$OUT\" | grep -E '└ Wren \(grok\) +\\\$1\.50\$'"
+check "a bot has no line of its own" "! echo \"\$OUT\" | grep -E '^  bot-'"
+check "spent keeps its meaning: a person alone" "[ \"\$(C spent sam)\" = 10.0000 ]"
+check "spent sums the person's was ids" "[ \"\$(KITH_PERSON_WAS=bot-s,bot-s2 C spent sam)\" = 12.0000 ]"
+A member house bot-s2 >/dev/null; A member house sam budget=20 >/dev/null
+WAS=$(A resolve house --person bot-s2 | python3 -c 'import json,sys; print(",".join(json.load(sys.stdin)["was"]))')
+check "a bot's resolved was makes spent count its owner and its sibling bots (kith checks it that way)" \
+  "[ \"\$(KITH_PERSON_WAS=\$WAS C spent bot-s2 house)\" = 12.0000 ]"
+exit $fail

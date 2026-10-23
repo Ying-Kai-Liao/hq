@@ -4,7 +4,8 @@
   kith-cost [today|week|month|all]   totals, by day, by project and the top sessions (syncs first)
   kith-cost agents [period]          kith agents side by side: cost, runs, cost per run, models (default: month)
   kith-cost agent <name> [period]    one kith agent: by day, by version, by model and effort, its costliest runs
-  kith-cost people [period]          what each person's runs cost (KITH_PERSON; the owner's own runs as owner), by agent
+  kith-cost people [period]          what each person's runs cost (KITH_PERSON; the owner's own runs as owner), by agent;
+                                   a bot's runs count on its owner's line, with a sub-line per bot
   kith-cost spent <person> [agent]   this calendar month's cost of a person's runs, a bare number (bin/kith checks a
                                    membership's budget= with it)
   kith-cost session <id-prefix>      one session turn by turn, plus its subagents
@@ -21,7 +22,7 @@ kith attribution: bin/kith runs `kith-cost tag` as a SessionStart hook, so each 
 agent when its session is such a run, or when it was made by an `kith:<name>` subagent in any session; a helper agent
 called from inside a run counts for the helper.
 """
-import csv, datetime as dt, glob, json, os, sqlite3, sys
+import csv, datetime as dt, glob, json, os, sqlite3, subprocess, sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
@@ -250,19 +251,45 @@ def agent(c, name, period):
     print()
 
 
+def bot_tree():
+    """{bot id: (root person, label)} from `kith-auth people --json`, one call per report; {} when kith-auth has no bots
+    or can't answer (the report then lists each id as before)."""
+    try:
+        out = subprocess.run([os.path.join(os.path.dirname(os.path.realpath(__file__)), 'kith-auth'), 'people', '--json'],
+                             capture_output=True, text=True, timeout=20, check=True).stdout
+        people = json.loads(out)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return {}
+    owner = next((x['id'] for x in people if x.get('owner')), None)
+    return {x['id']: ('owner' if x['root'] == owner else x['root'],
+                      f"{x.get('name') or x['id']} ({x.get('provider') or 'other'})")
+            for x in people if x.get('bot_of')}
+
+
 def people(c, period):
     since = since_of(period)
     rows = c.execute('''select coalesce(person, 'owner'), hq_agent, sum(cost) s, count(distinct session)
                         from hq_req where hq_agent is not null and ts >= ? group by 1, 2 order by 1, s desc''',
                      (since,)).fetchall()
-    print(f'\nwhat each person\'s runs cost, {period}  (owner: your own runs)\n')
-    who = None
+    bots = bot_tree()
+    # a person's line holds their own runs and their bots'; each bot is a sub-line under it
+    groups = {}
     for p, a, cost, runs in rows:
-        if p != who:
-            total = sum(r[2] or 0 for r in rows if r[0] == p)
-            print(f'  {p:<12}{money(total):>10}')
-            who = p
-        print(f'    {a:<14}{money(cost):>10}{runs:>5} runs')
+        g = groups.setdefault(bots[p][0] if p in bots else p, {'own': [], 'bots': {}})
+        if p in bots:
+            b = g['bots'].setdefault(p, [bots[p][1], 0])
+            b[1] += cost or 0
+        else:
+            g['own'].append((a, cost, runs))
+    print(f'\nwhat each person\'s runs cost, {period}  (owner: your own runs)\n')
+    for p in sorted(groups):
+        g = groups[p]
+        total = sum(x[1] or 0 for x in g['own']) + sum(b[1] for b in g['bots'].values())
+        print(f'  {p:<12}{money(total):>10}')
+        for a, cost, runs in g['own']:
+            print(f'    {a:<14}{money(cost):>10}{runs:>5} runs')
+        for label, cost in sorted(g['bots'].values(), key=lambda b: -b[1]):
+            print(f'    └ {label:<30}{money(cost):>10}')
     if not rows:
         print('  nothing recorded yet')
     print()
