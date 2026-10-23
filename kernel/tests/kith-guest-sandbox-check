@@ -54,7 +54,7 @@ for who in guest bot-3f9a1c2e; do
   S=$(KITH_PERSON=$who settings)
   expect "$who: sandbox on, fail closed, no escape hatch" "$(q "$S" '(sb.get("enabled"), sb.get("failIfUnavailable"), sb.get("allowUnsandboxedCommands"))')" "(True, True, False)"
   expect "$who: no excluded commands" "$(q "$S" '"excludedCommands" in sb')" False
-  expect "$who: no network but the socket (none given)" "$(q "$S" 'sb["network"]')" "{'allowUnixSockets': []}"
+  expect "$who: no network but the fixed host socket (both spellings), even with no KITH_RUN_SOCKET" "$(q "$S" "sb['network']['allowUnixSockets'] == ['$T/linked state/run/host.sock', '$T/real state/run/host.sock']")" True
   expect "$who: allowLocalBinding never set" "$(q "$S" '"allowLocalBinding" in sb["network"] or "allowedDomains" in sb["network"]')" False
   for root in "$T/linked state" "$T/real state"; do
     for f in index serve secrets browsers bridge; do
@@ -76,7 +76,9 @@ done
 # the host socket: allowed when the run has one, and the names pass through the launch JSON env
 SOCK=$T/real\ state/run/host.sock
 S=$(KITH_PERSON=guest KITH_RUN_SOCKET=$SOCK KITH_RUN_TOKEN=tok settings)
-expect "guest with a socket: allowUnixSockets is exactly that path" "$(q "$S" "sb['network']['allowUnixSockets'] == ['$SOCK']")" True
+expect "guest with the contract socket: no extra entry" "$(q "$S" "len(sb['network']['allowUnixSockets']) == 2 and '$SOCK' in sb['network']['allowUnixSockets']")" True
+S2=$(KITH_PERSON=guest KITH_RUN_SOCKET=$T/elsewhere.sock settings)
+expect "a KITH_RUN_SOCKET that differs is allowed too" "$(q "$S2" "'$T/elsewhere.sock' in sb['network']['allowUnixSockets'] and len(sb['network']['allowUnixSockets']) == 3")" True
 expect "guest with a socket: the socket's folder is not denied" "$(q "$S" "not any('$SOCK'.startswith(d + '/') or '$SOCK' == d for d in dr)")" True
 # globs in the membership Read rules deny the parent folder
 S=$(KITH_PERSON=guest settings)

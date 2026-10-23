@@ -511,11 +511,15 @@ if os.environ["P_OWNER"] == "0":
                 deny_read += both(path)
     uv_cache = os.environ.get("UV_CACHE_DIR") or os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "uv")
     allow_write = [d.strip() for d in os.environ["WRITABLE"].split("\n") if d.strip()] + [uv_cache]
-    sock = os.environ.get("KITH_RUN_SOCKET", "")
+    # The host socket has a fixed place, so it is allowed whether or not the caller put KITH_RUN_SOCKET in this process
+    # (the host adds it to the run environment after the launch JSON is built); one that differs is allowed as well.
+    socks = [x for m in machine for x in both(m + "/run/host.sock")]
+    if os.environ.get("KITH_RUN_SOCKET"):
+        socks += both(os.environ["KITH_RUN_SOCKET"])
     s["sandbox"] = {
         "enabled": True, "failIfUnavailable": True, "allowUnsandboxedCommands": False, "autoAllowBashIfSandboxed": True,
         "filesystem": {"denyRead": list(dict.fromkeys(deny_read)), "allowWrite": list(dict.fromkeys(allow_write))},
-        "network": {"allowUnixSockets": [sock] if sock else []}}
+        "network": {"allowUnixSockets": list(dict.fromkeys(socks))}}
 allow = s["permissions"].setdefault("allow", [])
 allow.extend(r for r in dict.fromkeys("Edit(/%s/**)" % d for d in os.environ["WRITABLE"].split("\n") if d.strip()) if r not in allow)
 sys.path.insert(0, os.environ["KITH_ROOT"] + "/lib")
