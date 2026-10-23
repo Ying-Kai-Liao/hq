@@ -66,7 +66,8 @@ extension SheetRow where Trailing == Text {
 struct SheetCountRow<Content: View>: View {
     let icon: String
     let title: String
-    let count: Int
+    /// Nil shows no count (a part with no list to count).
+    var count: Int?
     @ViewBuilder var content: Content
     @State private var open = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -76,7 +77,7 @@ struct SheetCountRow<Content: View>: View {
             Button {
                 withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { open.toggle() }
             } label: {
-                SheetRow(icon: icon, title: title, open: open) { Text("\(count)").monospacedDigit() }
+                SheetRow(icon: icon, title: title, open: open) { if let count { Text("\(count)").monospacedDigit() } }
             }
             .buttonStyle(.plain)
             .accessibilityValue(open ? "Expanded" : "Collapsed")

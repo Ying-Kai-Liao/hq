@@ -23,10 +23,10 @@ struct BotTemplateView: View {
         VStack(spacing: 0) {
         ModalHeader("Create template")
         VStack(alignment: .leading, spacing: 20) {
-            Text(template.name).font(.subheadline).foregroundStyle(Palette.secondary)
+            Text(template.name).font(.system(size: 13.5, weight: .medium)).foregroundStyle(Palette.muted)
             Text("Copy this bot’s settings to reuse as a template. Conversation history and conversation ID are excluded.")
-                .font(.callout)
-                .foregroundStyle(Palette.secondary)
+                .font(.system(size: 13))
+                .foregroundStyle(Palette.muted)
             ScrollView {
                 Text(encoded ?? "Unable to create this template.")
                     .font(.system(size: 12, design: .monospaced))
@@ -34,20 +34,20 @@ struct BotTemplateView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
             }
-            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             HStack {
                 Text("Includes workspace preferences and agent configuration.")
-                    .font(.caption).foregroundStyle(Palette.secondary)
+                    .font(.system(size: 11.5)).foregroundStyle(Palette.muted)
                 Spacer()
                 Button {
                     Pasteboard.copy(encoded)
                     withAnimation(Motion.reduced(Motion.morph, reduceMotion)) { copied = true }
                 } label: {
                     Label(copied ? "Copied" : "Copy template", systemImage: copied ? "checkmark" : "square.on.square")
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, 14).padding(.vertical, 9)
+                        .font(.system(size: 14, weight: .semibold))
+                        .padding(.horizontal, 18).padding(.vertical, 9)
                         .foregroundStyle(Palette.onAccent)
-                        .background(Palette.accentFill, in: RoundedRectangle(cornerRadius: 9))
+                        .background(Palette.ink, in: Capsule())
                 }
                 .buttonStyle(.plain)
                 .disabled(encoded == nil)
