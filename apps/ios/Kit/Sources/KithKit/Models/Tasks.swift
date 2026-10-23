@@ -37,7 +37,9 @@ public enum Tasks {
     /// Where the task stands: at work (or waiting on an approval), stopped, or done.
     public static func status(of root: Entry, bot: Bot, replies: [Entry]) -> TaskStatus {
         if bot.isWorking(in: bot.id, thread: root.id) {
-            return replies.contains { $0.kind == "permission" && $0.data.status == "pending" } ? .needsYou : .working
+            // A prompt in a thread another writer holds is read-only here, so it isn't ours to answer.
+            let held = root.data.thread?.isHeldElsewhere == true
+            return !held && replies.contains { $0.kind == "permission" && $0.data.status == "pending" } ? .needsYou : .working
         }
         let last = replies.last { $0.kind == "notice" || ($0.kind == "agent" && $0.data.final == true) }
         return last?.kind == "notice" && last?.data.text == "Stopped." ? .stopped : .done
