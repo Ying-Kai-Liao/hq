@@ -17,7 +17,8 @@ struct HqSettingsRows: View {
                                 guard mode != row.value else { return }
                                 Task { await store.setPermission(mode) }
                             }),
-                        options: options(including: row.value))
+                        options: options(including: row.value),
+                        detail: { HqSetting.permissionDetail($0) })
                 } else {
                     Text(row.value).foregroundStyle(Palette.secondary).lineLimit(1)
                 }
