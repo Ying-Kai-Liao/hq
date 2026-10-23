@@ -9,6 +9,13 @@ use crate::store::{EntryKind, Permission};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
+/// What an invited person may pick on a card: allow or reject this once. Everything else the adapter offers changes
+/// more than the one call: "don't ask again" writes a rule into the agent's shared folder, and the exit-plan options
+/// switch the session to bypass, auto or accept-edits.
+fn once_only(options: Vec<Value>) -> Vec<Value> {
+    options.into_iter().filter(|o| matches!(o["kind"].as_str(), Some("allow_once" | "reject_once"))).collect()
+}
+
 impl Actor {
     pub(super) async fn on_incoming(&mut self, inc: Option<Incoming>) {
         match inc {
@@ -149,7 +156,10 @@ impl Actor {
     }
 
     pub(super) async fn on_permission(&mut self, rpc_id: Value, params: Value) {
-        let options = params["options"].as_array().cloned().unwrap_or_default();
+        let mut options = params["options"].as_array().cloned().unwrap_or_default();
+        if self.cfg.person.is_some() {
+            options = once_only(options);
+        }
         let tool = &params["toolCall"];
         // An hq bot asks only when hq's permission mode says so: the bot's own Auto doesn't answer for it.
         if self.cfg.permission == Permission::Auto && !self.is_hq() {
@@ -174,6 +184,16 @@ impl Actor {
                 self.hub.store.entry(eid)?.data["title"].as_str().map(str::to_owned)
             })
             .unwrap_or_else(|| "Use a tool".into());
+        // An invitee's run asks its approver: the member for a member's own run, the owner for a guest's. The card says
+        // whose run it is, since the owner sees it outside the invitee's chat.
+        let whose = match (self.cfg.person.clone(), self.cfg.hq_agent.clone()) {
+            (Some(person), Some(agent)) => Some((person, agent)),
+            _ => None,
+        };
+        let mut approver = None;
+        if let Some((person, agent)) = &whose {
+            approver = Some(if crate::api::roles::approves_own(person, agent).await { "member" } else { "owner" });
+        }
         let mut detail = json!({"output": "", "diffs": []});
         merge_tool_content(&mut detail, &tool["content"]);
         let raw = &tool["rawInput"];
@@ -191,29 +211,63 @@ impl Actor {
             "status": "pending",
             "selected": Value::Null,
         });
+        let mut data = data;
+        let mut owner_label = None;
+        if let (Some((person, agent)), Some(approver)) = (&whose, approver) {
+            let name = self.hub.store.person(person).map(|p| p.name).filter(|n| !n.is_empty());
+            data["cwd"] = Value::Null;
+            data["approver"] = approver.into();
+            data["person"] = person.as_str().into();
+            data["personName"] = name.unwrap_or_else(|| person.clone()).into();
+            data["agent"] = agent.as_str().into();
+            if approver == "owner" {
+                owner_label = Some(crate::api::roles::owner_name(agent).await.unwrap_or_else(|| "the owner".into()));
+            }
+        }
         let turn = self.turn.unwrap_or(0);
         self.close_seg();
-        if let Some(e) = self.add(EntryKind::Permission, turn, data) {
+        if let Some(e) = self.add(EntryKind::Permission, turn, data.clone()) {
+            // The owner may be a while: the slot goes back to the gate so other people's turns aren't stuck behind it.
+            if owner_label.is_some() {
+                self.parked_prompts.insert(e.id.clone(), self.hub.gate.park(&self.rt));
+            }
             self.perms.insert(e.id, rpc_id);
         }
         self.hub.set_runtime(&self.rt, |r| {
             r.status = BotStatus::NeedsInput;
-            r.activity = format!("Needs approval: {title}");
+            r.activity = match &owner_label {
+                Some(owner) => format!("Waiting for {owner}"),
+                None => format!("Needs approval: {title}"),
+            };
         });
         // Tapping it opens where the card is: the group, for a room turn.
-        let target = self.hub.store.bot(&self.lane.chat).ok().flatten().map_or_else(|| self.cfg.clone(), |r| r.config);
-        push::notify(
-            &self.hub,
-            &target,
-            Some(&self.cfg.id),
-            &format!("{} needs you", self.cfg.name),
-            &title,
-            AlertKind::NeedsInput,
-        );
+        let mut target =
+            self.hub.store.bot(&self.lane.chat).ok().flatten().map_or_else(|| self.cfg.clone(), |r| r.config);
+        let mut heading = format!("{} needs you", self.cfg.name);
+        if owner_label.is_some() {
+            // A guest waits; the owner's devices are the ones to tell.
+            target.person = None;
+            heading = format!("{} needs your OK", data["personName"].as_str().unwrap_or_default());
+        }
+        push::notify(&self.hub, &target, Some(&self.cfg.id), &heading, &title, AlertKind::NeedsInput);
     }
 
     pub(super) async fn answer_permission(&mut self, entry_id: &str, option_id: Option<String>) {
+        // In an invited person's chat only an option the card offered counts (see `once_only`): nothing a client
+        // makes up can switch the session's mode or write a rule that outlives the run.
+        if let (Some(_), Some(o)) = (&self.cfg.person, &option_id)
+            && !self.hub.store.entry(entry_id).is_some_and(|e| crate::api::roles::offered(&e.data, o))
+        {
+            tracing::warn!(bot = %self.cfg.id, option = %o, "refused an answer the card didn't offer");
+            return;
+        }
         let Some(rpc_id) = self.perms.remove(entry_id) else { return };
+        // A prompt that waited for the owner gave its slot up; an answer takes it back before the agent goes on.
+        if let Some(parked) = self.parked_prompts.remove(entry_id)
+            && option_id.is_some()
+        {
+            parked.resume().await;
+        }
         let outcome = match &option_id {
             Some(o) => json!({"outcome": {"outcome": "selected", "optionId": o}}),
             None => json!({"outcome": {"outcome": "cancelled"}}),
@@ -374,6 +428,24 @@ pub fn diff_summary(path: &str, old: &str, new: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_invitee_card_keeps_only_the_once_choices() {
+        // What the Claude adapter offers on an exit-plan card and on an ordinary tool card.
+        let offered = vec![
+            json!({"optionId": "exit-plan-bypass", "name": "Yes, and bypass permissions", "kind": "allow_always"}),
+            json!({"optionId": "exit-plan-auto", "name": "Yes, and use auto mode", "kind": "allow_always"}),
+            json!({"optionId": "exit-plan-accept-edits", "name": "Yes, auto-accept edits", "kind": "allow_always"}),
+            json!({"optionId": "exit-plan-default", "name": "Yes, manually approve edits", "kind": "allow_once"}),
+            json!({"optionId": "allow-always", "name": "Yes, and don't ask again", "kind": "allow_always"}),
+            json!({"optionId": "reject", "name": "No", "kind": "reject_once"}),
+            json!({"optionId": "reject-always", "name": "Never", "kind": "reject_always"}),
+        ];
+        let kept: Vec<String> = once_only(offered).iter().map(|o| o["optionId"].as_str().unwrap().to_owned()).collect();
+        assert_eq!(kept, ["exit-plan-default", "reject"]);
+        let card = json!({"options": [{"optionId": "reject"}]});
+        assert!(crate::api::roles::offered(&card, "reject") && !crate::api::roles::offered(&card, "exit-plan-bypass"));
+    }
 
     #[test]
     fn diff_counts_changed_middle() {

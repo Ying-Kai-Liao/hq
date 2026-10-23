@@ -119,8 +119,14 @@ fn clock_time(at: i64, now: i64) -> String {
 
 impl Core {
     /// Waits for the gate's permit, with the working line saying why it waits. None: stopped while waiting.
-    pub(super) async fn admit(&self, ad: &Arc<dyn Adapter>, wk: &str, cancel: &tokio::sync::Notify) -> Option<Permit> {
-        let mut admission = self.gate.enter(&format!("channels:{wk}"));
+    pub(super) async fn admit(
+        &self,
+        ad: &Arc<dyn Adapter>,
+        wk: &str,
+        cancel: &tokio::sync::Notify,
+        invitee: bool,
+    ) -> Option<Permit> {
+        let mut admission = self.gate.enter_as(&format!("channels:{wk}"), invitee);
         let waiting = async {
             loop {
                 tokio::select! {

@@ -164,5 +164,9 @@ async fn member_call(
     let allowed = outcome.is_ok()
         || (method != "proveInvite" && !matches!(&outcome, Err(e) if e.is::<NotAllowed>() || e.is::<Forbidden>()));
     hub.store.audit_add(person, caller.device_key(), method, target.as_deref(), allowed);
-    Ok(roles::shape(hub, person, method, outcome?))
+    let mut shaped = roles::shape(hub, person, method, outcome?);
+    if method == "hello" && shaped.is_object() {
+        shaped["grantedAgents"] = roles::granted_agents(hub, person).await.into();
+    }
+    Ok(shaped)
 }

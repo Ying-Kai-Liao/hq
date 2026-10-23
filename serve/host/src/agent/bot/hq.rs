@@ -176,6 +176,8 @@ impl Actor {
         let chain = self.hq_chain(&agent).await;
         let mut skip: HashSet<String> = self.turn_tried.clone();
         let mut prepared = None;
+        let person = self.cfg.person.clone();
+        let mut warm;
         let (mut launch, backup) = loop {
             let backup = match self.hub.backups.pick(&agent, &chain, &skip) {
                 Pick::Primary => None,
@@ -184,10 +186,11 @@ impl Actor {
             };
             self.serving.clone_from(&backup);
             let current = self.hq_session(slot);
-            if let (Some(sid), Some(conn)) = (&current, &self.conn)
-                && conn.loaded.contains_key(sid)
-                && self.conn_serving == self.serving
-            {
+            // An invited person's turn asks the kernel again even when a session is warm: their membership may have
+            // been taken away, their budget used up or their mode changed since the last turn.
+            warm = matches!((&current, &self.conn), (Some(sid), Some(conn)) if conn.loaded.contains_key(sid))
+                && self.conn_serving == self.serving;
+            if warm && person.is_none() {
                 self.turn_session = current;
                 return Ok(());
             }
@@ -207,7 +210,9 @@ impl Actor {
                 prepared = Some((bin, target));
             }
             let Some((bin, target)) = &prepared else { unreachable!("prepared above") };
-            match hq::launch(bin, &agent, &target.cwd, target.project.as_deref(), backup.as_deref()).await {
+            match hq::launch(bin, &agent, &target.cwd, target.project.as_deref(), backup.as_deref(), person.as_deref())
+                .await
+            {
                 Ok(mut launch) => {
                     if target.explicit {
                         launch.cwd.clone_from(&target.cwd);
@@ -215,10 +220,15 @@ impl Actor {
                     break (launch, backup);
                 }
                 // hq won't run this entry (not signed in, not allowed for this person): the next one answers.
+                // The kernel said no to this person (not a member, over budget): no other account changes that.
+                Err(error) if error.is::<hq::Refused>() => return Err(error),
                 Err(error) if backup.is_some() => {
                     let id = backup.unwrap_or_default();
                     tracing::info!(entry = %id, error = format!("{error:#}"), "backup account skipped");
-                    self.hub.backups.note_unavailable(&agent, &id);
+                    // What one person may not run says nothing about the entry for the owner and everyone else.
+                    if person.is_none() {
+                        self.hub.backups.note_unavailable(&agent, &id);
+                    }
                     skip.insert(id);
                 }
                 Err(error) => return Err(error),
@@ -228,12 +238,20 @@ impl Actor {
         let current = self.hq_session(slot).filter(|_| backup.is_none());
         // The process carries kith's env (KITH_PROJECT, the cost tag) and its folder: a place that needs others gets a
         // process of its own, started again here (the sessions it held load again on their next turn).
-        let started_as = (launch.env(), launch.cwd(&self.cfg).to_owned());
+        let mut started_as = (launch.env(), launch.cwd(&self.cfg).to_owned());
+        if person.is_some() {
+            // The membership's mode is set when a session starts: a changed one starts the process again.
+            started_as.0.push(("permission_mode".into(), launch.permission_mode.clone().unwrap_or_default()));
+        }
         if self.conn.is_some()
             && (self.conn_started_as.as_ref() != Some(&started_as) || self.conn_serving != self.serving)
             && let Some(c) = self.conn.take()
         {
             c.acp.kill().await;
+        }
+        if warm && self.conn.is_some() {
+            self.turn_session = self.hq_session(slot);
+            return Ok(());
         }
         if self.conn.is_none() {
             self.conn_started_as = Some(started_as);

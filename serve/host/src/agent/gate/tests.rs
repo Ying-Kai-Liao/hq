@@ -196,3 +196,59 @@ fn parallel_asks_keep_the_slot_given_up_until_the_last_is_back() {
     assert!(resume_c.as_mut().poll(&mut cx).is_ready());
     assert_eq!(running(&gate), 1, "a counts again, once");
 }
+
+#[test]
+fn an_owner_turn_goes_ahead_of_an_invitee_who_waited_longer() {
+    let (gate, _) = gate(1);
+    let mut busy = gate.enter("owner-a");
+    let held = busy.try_take().unwrap();
+    let mut sam = gate.enter_as("sam-chat", true);
+    let mut owner = gate.enter("owner-b");
+    assert!(sam.try_take().is_none() && owner.try_take().is_none());
+
+    drop(held);
+    gate.pump();
+    assert!(sam.try_take().is_none(), "the invitee waits while an owner turn takes the slot");
+    let owner_permit = owner.try_take().expect("the owner's turn is next, though it joined later");
+    drop(owner_permit);
+    gate.pump();
+    assert!(sam.try_take().is_some(), "the invitee runs once no owner turn is waiting");
+}
+
+#[test]
+fn two_invitees_never_run_at_once() {
+    let (gate, _) = gate(3);
+    let mut sam = gate.enter_as("sam-chat", true);
+    let mut kim = gate.enter_as("kim-chat", true);
+    let sam_permit = sam.try_take().expect("one invitee runs");
+    assert!(kim.try_take().is_none(), "the second waits though two slots are free");
+    assert_eq!(gate.status()["blocked"], "slots");
+    // The owner's turns still use the free slots.
+    let mut owner = gate.enter("owner");
+    let _owner_permit = owner.try_take().expect("owner turn is not held back by the invitees' cap");
+
+    drop(sam_permit);
+    gate.pump();
+    let _kim_permit = kim.try_take().expect("the slot an invitee gave back goes to the next invitee");
+    assert_eq!(gate.invitees.load(Ordering::Acquire), 1);
+}
+
+#[tokio::test]
+async fn an_invitee_turn_coming_back_from_a_wait_keeps_the_cap() {
+    let (gate, _) = gate(3);
+    let mut sam = gate.enter_as("sam-chat", true);
+    let _sam_permit = sam.try_take().unwrap();
+    let parked = gate.park("sam-chat");
+    assert_eq!(gate.invitees.load(Ordering::Acquire), 0, "a parked turn gives its invitee slot up too");
+    let mut kim = gate.enter_as("kim-chat", true);
+    let kim_permit = kim.try_take().expect("another invitee takes the freed slot");
+    // Sam's turn comes back only when the cap has room again.
+    let back = tokio::spawn(parked.resume());
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!back.is_finished(), "two invitees must not run at once");
+    assert_eq!(gate.invitees.load(Ordering::Acquire), 1);
+    drop(kim_permit);
+    gate.pump();
+    tokio::time::timeout(Duration::from_secs(2), back).await.expect("resumes once kim is done").unwrap();
+    assert_eq!(gate.invitees.load(Ordering::Acquire), 1);
+}
