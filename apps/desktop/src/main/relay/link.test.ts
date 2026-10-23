@@ -120,6 +120,7 @@ function link(relay: FakeRelay, over: { hostSignKey?: string; computerId?: strin
     hostSignKey: over.hostSignKey ?? b64url(hostKey.publicKey),
     signer: deviceKey,
     dial: relay.dial,
+    probe: async () => null,
     delay: () => 5,
   })
 }
