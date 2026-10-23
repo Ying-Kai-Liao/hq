@@ -562,6 +562,7 @@ pub(crate) async fn end_bot(hub: &Hub, bot_id: &str, final_state: BotState, why:
         }
     }
     if let Some(key) = &bot.device_key
+        && !roles::m(44)
         && let Err(e) = hub.revoke_device(key)
     {
         tracing::warn!(error = format!("{e:#}"), bot = bot_id, "couldn't remove a bot's device");

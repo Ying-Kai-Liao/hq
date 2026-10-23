@@ -459,6 +459,59 @@ impl State {
                 }
             }
         }
+        self.sweep_owners().await
+    }
+
+    /// What people can do to bots that are not theirs, and the limits a bot's owner may set, for every bot.
+    async fn sweep_owners(&self) -> Result<(), String> {
+        for actor in 0..3 {
+            if self.removed[actor] {
+                continue;
+            }
+            // myBots lists the caller's own bots and no others.
+            let v = self.call(&self.callers[actor], "myBots", json!({})).await.map_err(|e| format!("myBots: {e:#}"))?;
+            let mut got: Vec<String> =
+                v["bots"].as_array().unwrap().iter().map(|b| b["botId"].as_str().unwrap().to_owned()).collect();
+            let mut want: Vec<String> = self.bots.iter().filter(|b| b.owner == actor).map(|b| b.id.clone()).collect();
+            got.sort();
+            want.sort();
+            check!(got == want, "myBots of {} listed {got:?}, their bots are {want:?}", WHO[actor]);
+            for b in self.bots.iter().filter(|b| b.owner != actor && actor > 0) {
+                let (id, invite) = (&b.id, &b.invite);
+                let calls = [
+                    ("revokeBot", json!({"botId": id})),
+                    ("revokeBotInvite", json!({"inviteId": invite})),
+                    ("setBotLimits", json!({"botId": id, "ratePerHour": 1})),
+                    ("createBotInvite", json!({"name": "mine now", "botId": id})),
+                ];
+                for (m, body) in calls {
+                    let res = self.call(&self.callers[actor], m, body).await;
+                    check!(
+                        res.as_ref().err().is_some_and(refused),
+                        "{} called {m} on a bot of {}: {res:?}",
+                        WHO[actor],
+                        WHO[b.owner]
+                    );
+                }
+            }
+        }
+        // A person lowers a bot's limits to the defaults at most; only the computer's owner raises them.
+        for b in self.bots.iter().filter(|b| b.owner > 0 && b.state != St::Ended && !self.removed[b.owner]) {
+            for body in
+                [json!({"ratePerHour": 61}), json!({"concurrent": 3}), json!({"ratePerHour": 600, "concurrent": 8})]
+            {
+                let mut body = body;
+                body["botId"] = json!(b.id);
+                let before = self.r.hub.store.bot_guest(&b.id).map(|g| (g.rate_per_hour, g.concurrent)).unwrap();
+                let res = self.call(&self.callers[b.owner], "setBotLimits", body.clone()).await;
+                let after = self.r.hub.store.bot_guest(&b.id).map(|g| (g.rate_per_hour, g.concurrent)).unwrap();
+                check!(
+                    res.is_err() && after == before,
+                    "{} raised their bot's limits with {body}: {res:?}",
+                    WHO[b.owner]
+                );
+            }
+        }
         Ok(())
     }
 
@@ -605,45 +658,51 @@ fn a_bot_never_has_more_than_its_owner_holds_now() {
     assert!(SERVED.load(Ordering::Relaxed) > 0, "no ask was ever served: the property checked nothing");
 }
 
-/// (f) Ten live bots per owner, counted per owner: the eleventh is refused with `tooMany`, another owner's are not
-/// counted, and one removed makes room.
+/// (f) Ten live bots per owner, counted per owner: the eleventh is refused with `tooMany` whatever another owner
+/// holds, another owner's are not counted, and one removed makes room.
 #[test]
 fn a_bot_owner_has_at_most_ten_live_bots() {
     let (rt, pool) = sim();
-    let ops = proptest::collection::vec((any::<bool>(), proptest::bool::weighted(0.15), 0..16usize), 11..18);
-    runner(5)
-        .run(&(0..3usize, 0..3usize, ops), |(hammer, other, ops)| {
+    let tail = proptest::collection::vec((proptest::bool::weighted(0.3), 0..16usize), 0..6);
+    runner(4)
+        .run(&(0..3usize, 1..4usize, tail), |(hammer, others, tail)| {
+            let other = (hammer + 1) % 3;
             let mut state = rt.block_on(State::new(pool.clone()));
             let outcome = rt.block_on(async {
                 let mut ids: [Vec<String>; 3] = [vec![], vec![], vec![]];
-                for (use_hammer, revoke, nth) in &ops {
-                    let actor = if *use_hammer { hammer } else { other };
-                    if *revoke {
+                // Eleven attempts by one owner with nothing removed in between, after another owner made a few;
+                // then whatever the tail does (removing one makes room, a repeat removal is harmless).
+                let mut steps: Vec<(usize, bool, usize)> = (0..others).map(|_| (other, false, 0)).collect();
+                steps.extend((0..11).map(|_| (hammer, false, 0)));
+                steps.extend(tail.iter().map(|(revoke, nth)| (hammer, *revoke, *nth)));
+                for (actor, revoke, nth) in steps {
+                    if revoke {
                         if ids[actor].is_empty() {
                             continue;
                         }
                         let id = ids[actor].remove(nth % ids[actor].len());
                         let res = state.call(&state.callers[actor], "revokeBot", json!({"botId": id})).await;
                         res.map_err(|e| format!("could not remove a bot: {e:#}"))?;
-                        continue;
-                    }
-                    let live = state.r.hub.store.live_bot_count((actor > 0).then(|| WHO[actor]));
-                    check!(
-                        live == ids[actor].len(),
-                        "{} has {live} live bots, the model {}",
-                        WHO[actor],
-                        ids[actor].len()
-                    );
-                    let name = format!("B{}", state.next_nonce());
-                    let res =
-                        state.call(&state.callers[actor], "createBotInvite", json!({"name": name, "agents": []})).await;
-                    if ids[actor].len() < 10 {
-                        let made =
-                            res.map_err(|e| format!("bot number {} was refused: {e:#}", ids[actor].len() + 1))?;
-                        ids[actor].push(made["botId"].as_str().unwrap().to_owned());
                     } else {
-                        let e = res.err().ok_or(format!("{} got an eleventh live bot", WHO[actor]))?;
-                        check!(error_code(&e) == Some("tooMany"), "the eleventh bot was refused with: {e:#}");
+                        let live = state.r.hub.store.live_bot_count((actor > 0).then(|| WHO[actor]));
+                        check!(
+                            live == ids[actor].len(),
+                            "{} has {live} live bots, the model {}",
+                            WHO[actor],
+                            ids[actor].len()
+                        );
+                        let name = format!("B{}", state.next_nonce());
+                        let res = state
+                            .call(&state.callers[actor], "createBotInvite", json!({"name": name, "agents": []}))
+                            .await;
+                        if ids[actor].len() < 10 {
+                            let made =
+                                res.map_err(|e| format!("bot number {} was refused: {e:#}", ids[actor].len() + 1))?;
+                            ids[actor].push(made["botId"].as_str().unwrap().to_owned());
+                        } else {
+                            let e = res.err().ok_or(format!("{} got an eleventh live bot", WHO[actor]))?;
+                            check!(error_code(&e) == Some("tooMany"), "the eleventh bot was refused with: {e:#}");
+                        }
                     }
                     for o in 0..3 {
                         let n = state.r.hub.store.live_bot_count((o > 0).then(|| WHO[o]));
@@ -658,7 +717,7 @@ fn a_bot_owner_has_at_most_ten_live_bots() {
                 Ok::<(), String>(())
             });
             drop(state);
-            outcome.map_err(|e| fail(format!("{e}; ops {ops:?}")))
+            outcome.map_err(|e| fail(format!("{e}; hammer {hammer}, others {others}, tail {tail:?}")))
         })
         .unwrap();
 }
@@ -767,12 +826,14 @@ fn a_bot_is_sent_only_its_own_conversations() {
     let feed = Feed::new();
     let ev = (0..3usize, 0..KINDS.len(), 0..feed.chats.len(), 0..feed.threads.len(), 0..ENTRY_KINDS.len())
         .prop_map(|(to, kind, chat, thread, entry_kind)| Ev { to, kind, chat, thread, entry_kind })
-        // Half the draws name the receiver's own chat and thread, or no word would ever reach a bot.
-        .prop_flat_map(|e| (Just(e), proptest::bool::ANY))
-        .prop_map(|(mut e, own)| {
-            if own {
-                e.chat = e.to;
-                e.thread = e.to;
+        // Two thirds name a bot's chat and thread, or no word would ever reach a bot.
+        .prop_flat_map(|e| (Just(e), 0..3u8))
+        .prop_map(|(mut e, mode)| {
+            // 1: the receiver's own chat and thread; 2: another bot's, which holds a conversation too.
+            if mode > 0 {
+                let chat = if mode == 1 { e.to } else { (e.to + 1) % 3 };
+                e.chat = chat;
+                e.thread = chat;
                 e.kind = 0;
             }
             e
