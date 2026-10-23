@@ -679,9 +679,46 @@ async fn a_claim_of_a_dead_or_reused_pid_is_taken_over() {
         .unwrap();
     assert!(claim::holder(&r.state(), "s1").is_none());
     assert!(claim::take(&r.state(), "s1", Kind::Terminal, me, false).unwrap().is_ok());
-    // No temp files are left behind.
-    let left = std::fs::read_dir(registry::dir(&r.state())).unwrap().filter_map(Result::ok).count();
-    assert_eq!(left, 1);
+    // No temp files are left behind (the lock file stays, empty).
+    let left: Vec<String> = std::fs::read_dir(registry::dir(&r.state()))
+        .unwrap()
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .filter(|n| !n.ends_with(".lock"))
+        .collect();
+    assert_eq!(left, ["s1.claim"]);
+}
+
+#[tokio::test]
+async fn racing_takers_of_a_stale_claim_leave_exactly_one_owner() {
+    let r = Rig::new();
+    let path = claim::path(&r.state(), "s1", false);
+    std::fs::write(&path, json!({"pid": DEAD, "procStart": "x", "at": "t"}).to_string()).unwrap();
+    let pids: Vec<u32> = (0..6).map(|_| r.sleeper()).collect();
+    let state = r.state();
+    let wins: Vec<bool> = std::thread::scope(|s| {
+        let handles: Vec<_> = pids
+            .iter()
+            .map(|&pid| {
+                let state = state.clone();
+                s.spawn(move || claim::take(&state, "s1", Kind::Terminal, pid, false).unwrap().is_ok())
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    assert_eq!(wins.iter().filter(|w| **w).count(), 1, "{wins:?}");
+    let owner = claim::read(&path).unwrap().pid;
+    assert_eq!(pids.iter().zip(&wins).find(|(_, w)| **w).map(|(p, _)| *p), Some(owner));
+}
+
+#[test]
+fn a_host_turns_own_claim_does_not_stop_the_hosts_sends() {
+    let r = Rig::new();
+    let me = r.sleeper();
+    assert!(claim::take(&r.state(), "s1", Kind::App, me, false).unwrap().is_ok());
+    assert!(claim::holder(&r.state(), "s1").is_none(), "only keeps a terminal out");
+    claim::release(&r.state(), "s1", me, false);
+    assert!(claim::take(&r.state(), "s1", Kind::App, me, true).unwrap().is_ok());
+    assert!(claim::holder(&r.state(), "s1").is_some(), "a take-over's claim does");
 }
 
 #[tokio::test]
@@ -699,6 +736,15 @@ async fn resolve_counts_a_queued_send_as_busy() {
     sent["status"] = "cancelled".into();
     r.hub.set_entry(&queued.id, &sent);
     assert_eq!(sync::resolve(&r.hub, &root).await["hostBusy"], false);
+    assert_eq!(sync::resolve(&r.hub, &root).await["claims"], 1, "the kernel tells a host with claims by this");
+}
+
+#[tokio::test]
+async fn a_take_over_under_way_makes_the_host_busy_for_a_resume() {
+    let r = Rig::new();
+    let root = r.app_thread("s9");
+    r.hub.terminal.take_for_test(&format!("{}/{root}", r.bot));
+    assert_eq!(sync::resolve(&r.hub, &root).await["hostBusy"], true);
 }
 
 #[tokio::test]
@@ -725,22 +771,27 @@ async fn a_send_is_refused_for_a_live_registry_or_claim_the_host_has_not_scanned
 
 #[tokio::test]
 async fn a_queued_turn_does_not_start_while_a_claim_holds_the_thread() {
+    use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
     let r = Rig::new();
     let root = r.app_thread("s9");
     let lane = Lane::in_thread(&r.bot, &root);
     let me = r.sleeper();
     assert!(claim::take(&r.state(), "s9", Kind::Terminal, me, false).unwrap().is_ok());
-    let mut began = false;
-    let refused = sync::start_gate(&r.hub, &lane, || began = true).unwrap_err();
+    let began = Arc::new(AtomicBool::new(false));
+    let mark = |flag: &Arc<AtomicBool>| {
+        let flag = flag.clone();
+        move |_: &Hub| flag.store(true, SeqCst)
+    };
+    let refused = sync::start_gate(&r.hub, &lane, mark(&began)).await.unwrap_err();
     assert_eq!(refused.code, "liveInTerminal");
-    assert!(!began, "the turn is not marked running");
+    assert!(!began.load(SeqCst), "the turn is not marked running");
     claim::release(&r.state(), "s9", me, false);
-    sync::start_gate(&r.hub, &lane, || began = true).unwrap();
-    assert!(began);
+    sync::start_gate(&r.hub, &lane, mark(&began)).await.unwrap();
+    assert!(began.load(SeqCst));
     // A turn outside any thread is not looked at.
-    let mut main = false;
-    sync::start_gate(&r.hub, &Lane::main(&r.bot), || main = true).unwrap();
-    assert!(main);
+    let main = Arc::new(AtomicBool::new(false));
+    sync::start_gate(&r.hub, &Lane::main(&r.bot), mark(&main)).await.unwrap();
+    assert!(main.load(SeqCst));
 }
 
 #[tokio::test]

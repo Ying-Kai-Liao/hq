@@ -171,16 +171,19 @@ entries with `data.writerChange` (`startedInTerminal`, `openedInTerminal`, `took
 A thread is one Claude session and two writers corrupt it, so a check alone is not enough: the writer takes a claim first
 (`src/terminal/claim.rs`; the kernel's `bin/kith-sessions` writes the same file). `<state>/live/terminal/<session>.claim` is
 made whole in a temp file and linked into place (exclusive, 0600): `{"pid", "procStart", "at", "kind": terminal|app|bot,
-"takeover"}`. A claim whose pid is dead, or started at another time, is stale and is taken over by rename. It works with
-the host down.
+"takeover"}`. A claim whose pid is dead, or started at another time (`ps -o lstart=` in the C locale), is stale and is replaced under
+a `flock` on `<session>.claim.lock`. It works with the host down.
 
 - `kith <agent> --resume` claims the session for the launcher's shell, THEN asks `resolveThread`; `hostBusy` counts a
   running turn and a queued send, read under the thread's lock. A busy answer releases the claim and refuses. The run
-  gives the claim back when claude exits. A fresh run claims nothing: its session id is new until the hook writes the
+  gives the claim back when claude exits. A host that does not answer `"claims": 1` is treated as an old one: only a
+  session found in the registry (started in a terminal) can be resumed. A fresh run claims nothing: its session id is new until the hook writes the
   registry file.
 - The host refuses a send (`liveInTerminal`) for a claim, a live registry file of the lane's session read from disk (not
   the 3 s copy), or a live process. A queued turn checks the same under the same lock when it starts, and is marked running
   in that step; blocked, it fails with a notice.
+- A host turn in a thread holds a `kind: app` claim for its agent process' pid (taken at turn start, released at turn end),
+  so an agent process left behind by a crashed host still keeps a terminal out. It does not stop the host's own sends.
 - A take-over holds `<session>.takeover.claim` (host pid) until the terminal is ended and imported. It re-reads the
   session's status and start time right before SIGTERM; the microseconds between that read and `kill(2)` remain.
 - A bot guest (`kith ask --thread`, kith-bot-guests) is a third writer: before running a turn it calls

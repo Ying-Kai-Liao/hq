@@ -295,7 +295,9 @@ r_sid="" r_cwd="" r_from=""
 if [[ -n $resume_thread ]]; then
   [[ $launch -eq 0 && $print -eq 0 ]] || { echo "kith: --resume is for a run in this terminal, not --launch-json or --print" >&2; exit 1; }
   [[ $p_owner == 1 ]] || { echo "kith: --resume is for the owner's own sessions" >&2; exit 1; }
-  eval "$(python3 "$KITH/bin/kith-sessions" resolve "$agent" "$resume_thread" "$$")" || exit 1
+  # Not `eval "$(…)" || exit 1`: a refusal prints nothing, eval of nothing succeeds, and claude would start anyway.
+  resolved=$(python3 "$KITH/bin/kith-sessions" resolve "$agent" "$resume_thread" "$$") || exit 1
+  eval "$resolved"
   [[ -z $r_cwd ]] || cd "$r_cwd" || exit 1
 fi
 # A program reads stdout as the JSON alone: whatever a helper prints on the way goes to stderr; fd 3 is the real stdout.

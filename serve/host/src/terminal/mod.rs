@@ -64,6 +64,12 @@ impl Terminal {
         self.env.locked().clone().unwrap_or_default()
     }
 
+    #[cfg(test)]
+    pub fn take_for_test(&self, key: &str) {
+        use crate::LockExt;
+        self.taking.locked().insert(key.to_owned());
+    }
+
     pub(crate) fn thread_lock(&self, key: &str) -> std::sync::Arc<Mutex<()>> {
         use crate::LockExt;
         self.locks.locked().entry(key.to_owned()).or_default().clone()

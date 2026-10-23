@@ -682,7 +682,12 @@ fn held(hub: &Hub, t: &Thread) -> bool {
 fn sync_one(hub: &Hub, t: &Thread) {
     let env = hub.terminal.env();
     for reg in registry::read_all(&env.state) {
+        // `mapped` adopts a fork (the lane's session becomes the fork); only the lane's current session is imported.
         if mapped(hub, &reg).as_ref() != Some(t) {
+            continue;
+        }
+        let lane_sid = hub.store.kv_get(&lane_key("session", &t.bot, &t.lane()));
+        if lane_sid.as_deref() != Some(reg.session_id.as_str()) {
             continue;
         }
         if let Ok(stored) = serde_json::to_string(&reg)
@@ -697,20 +702,30 @@ fn sync_one(hub: &Hub, t: &Thread) {
 }
 
 /// A turn of the host is about to start in `lane`: refused while a terminal holds the thread. `begin` marks the turn
-/// running, inside the thread's lock, so `resolve` (which reads the lanes at work under the same lock) sees it.
-pub fn start_gate(hub: &Hub, lane: &Lane, begin: impl FnOnce()) -> Result<(), HeldByWriter> {
-    let Some(root) = &lane.thread else {
-        begin();
-        return Ok(());
-    };
-    let t = Thread { bot: lane.chat.clone(), root: root.clone() };
-    let lock = hub.terminal.thread_lock(&t.key());
-    let _one = lock.locked();
-    if held(hub, &t) {
-        return Err(HeldByWriter { code: "liveInTerminal" });
-    }
-    begin();
-    Ok(())
+/// running, inside the thread's lock, so `resolve` (which reads the lanes at work under the same lock) sees it. File and
+/// process reads: off the runtime.
+pub async fn start_gate(
+    hub: &Arc<Hub>,
+    lane: &Lane,
+    begin: impl FnOnce(&Hub) + Send + 'static,
+) -> Result<(), HeldByWriter> {
+    let (hub, lane) = (hub.clone(), lane.clone());
+    tokio::task::spawn_blocking(move || {
+        let Some(root) = &lane.thread else {
+            begin(&hub);
+            return Ok(());
+        };
+        let t = Thread { bot: lane.chat.clone(), root: root.clone() };
+        let lock = hub.terminal.thread_lock(&t.key());
+        let _one = lock.locked();
+        if held(&hub, &t) {
+            return Err(HeldByWriter { code: "liveInTerminal" });
+        }
+        begin(&hub);
+        Ok(())
+    })
+    .await
+    .unwrap_or(Err(HeldByWriter { code: "liveInTerminal" }))
 }
 
 /// A send accepted but not started yet: its user entry still says `queued`.
@@ -745,11 +760,14 @@ pub async fn resolve(hub: &Hub, which: &str) -> Value {
     let busy = {
         let lock = hub.terminal.thread_lock(&t.key());
         let _one = lock.locked();
-        hub.working_lanes(&row.config).contains(&t.lane()) || send_queued(hub, &t)
+        hub.working_lanes(&row.config).contains(&t.lane())
+            || send_queued(hub, &t)
+            || hub.terminal.taking.locked().contains(&t.key())
     };
+    // `claims`: this host takes writer claims for its turns; the kernel treats an answer without it as an older host's.
     json!({
         "botId": t.bot, "threadId": t.root, "agent": agent, "sessionId": session, "cwd": cwd,
-        "hostBusy": busy,
+        "hostBusy": busy, "claims": 1,
     })
 }
 

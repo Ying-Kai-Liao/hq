@@ -391,17 +391,22 @@ impl Actor {
         } else if let Some(refused) = e.downcast_ref::<crate::agent::hq::Refused>() {
             // The kernel said no for this person (not a member any more, or over their budget): it says why.
             self.notice(&format!("Couldn't run this agent for you: {refused}"), NoticeStyle::Error);
+        } else if e.is::<crate::terminal::HeldByWriter>() {
+            // `start_turn` already put the notice in the thread.
         } else if !self.invite_sign_in(e) {
             // `{:#}` keeps the reason ("starting `npx …`: EACCES"), not just "agent process exited".
             self.notice(&format!("Couldn't start the agent: {e:#}"), NoticeStyle::Error);
         }
+        self.release_turn_claim();
         self.turn = None;
         if self.routine_completion.is_none() {
             self.set_inflight(false);
         }
+        // A terminal holding the thread is not an error of this bot: it goes on with its other places.
+        let held = e.is::<crate::terminal::HeldByWriter>();
         self.hub.set_runtime(&self.rt, |r| {
-            r.status = BotStatus::Error;
-            r.activity = "Couldn't start".into();
+            r.status = if held { BotStatus::Idle } else { BotStatus::Error };
+            r.activity = if held { String::new() } else { "Couldn't start".into() };
             r.started_at = None;
             r.lane = None;
             r.message = None;

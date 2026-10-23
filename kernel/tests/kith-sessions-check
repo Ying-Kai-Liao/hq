@@ -136,10 +136,12 @@ HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
 PY
 mkdir -p "$T/work/b"
 cat > "$T/answers.json" <<JSON
-{"th-1": {"botId":"b","threadId":"th-1","agent":"designer","sessionId":"app-sid","cwd":"$T/work/b","hostBusy":false},
- "app-sid": {"botId":"b","threadId":"th-1","agent":"designer","sessionId":"app-sid","cwd":"$T/work/b","hostBusy":false},
- "th-busy": {"botId":"b","threadId":"th-busy","agent":"designer","sessionId":"busy-sid","cwd":"$T/work/b","hostBusy":true},
- "th-other": {"botId":"b","threadId":"th-other","agent":"coder","sessionId":"o-sid","cwd":"$T/work/b","hostBusy":false}}
+{"th-1": {"botId":"b","threadId":"th-1","agent":"designer","sessionId":"app-sid","cwd":"$T/work/b","hostBusy":false,"claims":1},
+ "app-sid": {"botId":"b","threadId":"th-1","agent":"designer","sessionId":"app-sid","cwd":"$T/work/b","hostBusy":false,"claims":1},
+ "th-busy": {"botId":"b","threadId":"th-busy","agent":"designer","sessionId":"busy-sid","cwd":"$T/work/b","hostBusy":true,"claims":1},
+ "busy-sid": {"botId":"b","threadId":"th-busy","agent":"designer","sessionId":"busy-sid","cwd":"$T/work/b","hostBusy":true,"claims":1},
+ "th-noclaims": {"botId":"b","threadId":"th-noclaims","agent":"designer","sessionId":"nc-sid","cwd":"$T/work/b","hostBusy":false},
+ "th-other": {"botId":"b","threadId":"th-other","agent":"coder","sessionId":"o-sid","cwd":"$T/work/b","hostBusy":false,"claims":1}}
 JSON
 PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
 echo tok > "$T/serve/token"
@@ -154,6 +156,13 @@ is "--resume: runs in the thread's cwd" "$(sed -n 1p $T/stub.out)" "$T/work/b"
 is "--resume: resumedFrom in the registry" "$(field $REG/app-sid.json resumedFrom)" app-sid
 err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume th-busy 2>&1 >/dev/null); rc=$?
 [[ $rc != 0 && $err == *"answering in that thread"* ]] && ok "--resume: refuses while the app is replying" || bad "hostBusy" "$rc $err"
+# a refusal must stop the launcher: under a tty, claude never ran (eval of the empty output used to succeed)
+rm -f "$T/stub.out"; (cd "$T/work/a" && tty "$KERNEL/bin/kith" designer --resume th-busy)
+[[ ! -e $T/stub.out ]] && ok "--resume refused (host busy): claude never started" || bad "refusal started claude"
+rm -f "$T/stub.out"; (cd "$T/work/a" && tty "$KERNEL/bin/kith" designer --resume th-noclaims)
+[[ ! -e $T/stub.out ]] && ok "host without claims: refused, claude never started" || bad "no-claims host started claude"
+err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume th-noclaims 2>&1 >/dev/null); rc=$?
+[[ $rc != 0 && $err == *"update kith serve"* ]] && ok "host without claims: treated like an old host" || bad "no-claims message" "$rc $err"
 err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume th-other 2>&1 >/dev/null); rc=$?
 [[ $rc != 0 && $err == *"belongs to coder"* ]] && ok "--resume: refuses another agent's thread" || bad "agent mismatch" "$rc $err"
 err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume 2>&1 >/dev/null); rc=$?
@@ -182,6 +191,10 @@ is "claim holds the claimer's pid" "$(field $REG/cs-1.claim pid)" "$C1"
 [[ -n $(field $REG/cs-1.claim procStart) ]] && ok "claim has procStart" || bad "claim procStart"
 [[ -n $(field $REG/cs-1.claim at) ]] && ok "claim has at" || bad "claim at"
 is "no claim temp files left" "$(ls -A $REG | grep -c 'tmp$\|stale')" 0
+# the start time is the same text in any locale: a claim taken under zh_TW is live for a reader in C
+is "claim taken in another locale" "$(LC_ALL=zh_TW.UTF-8 claimcli take cs-loc $C1)" taken
+is "claim read in the C locale is live (not stale)" "$(LC_ALL=C claimcli take cs-loc $C2)" "held $C1"
+is "claim read in another locale is live" "$(LC_ALL=zh_TW.UTF-8 claimcli take cs-loc $C2)" "held $C1"
 kill $C1 2>/dev/null; wait $C1 2>/dev/null
 is "claim of a dead claimer is stale: taken over" "$(claimcli take cs-1 $C2)" taken
 is "the new claimer owns it" "$(field $REG/cs-1.claim pid)" "$C2"
@@ -193,13 +206,23 @@ is "claim of a reused pid (other procStart) is stale" "$(claimcli take cs-1 $C2)
 # a second terminal --resume on a claimed session is refused, before anything starts
 python3 - "$REG/cs-2.claim" "$C2" <<'PY'
 import json, subprocess, sys
-ps = ' '.join(subprocess.run(['ps', '-o', 'lstart=', '-p', sys.argv[2]], capture_output=True, text=True).stdout.split())
+ps = ' '.join(subprocess.run(['ps', '-o', 'lstart=', '-p', sys.argv[2]], capture_output=True, text=True, env={'LC_ALL': 'C'}).stdout.split())
 json.dump({"pid": int(sys.argv[2]), "procStart": ps, "at": "x", "kind": "terminal"}, open(sys.argv[1], "w"))
 PY
 printf '{"cwd":"%s","type":"user"}\n' "$T/work/b" > "$CLAUDE_CONFIG_DIR/projects/p/cs-2.jsonl"
 err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume cs-2 2>&1 >/dev/null); rc=$?
 [[ $rc != 0 && $err == *"open in another writer (pid $C2"* ]] && ok "--resume: a claimed session is refused (second terminal)" || bad "claimed" "$rc $err"
 [[ ! -e $REG/cs-2.json ]] && ok "refused: claude never started" || bad "claude started"
+# the host ending a terminal holds <sid>.takeover.claim: a resume waits
+python3 - "$REG/cs-2.takeover.claim" "$C2" <<'PY'
+import json, subprocess, sys
+ps = ' '.join(subprocess.run(['ps', '-o', 'lstart=', '-p', sys.argv[2]], capture_output=True, text=True, env={'LC_ALL': 'C'}).stdout.split())
+json.dump({"pid": int(sys.argv[2]), "procStart": ps, "at": "x", "kind": "app", "takeover": True}, open(sys.argv[1], "w"))
+PY
+rm -f $REG/cs-2.claim
+err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume cs-2 2>&1 >/dev/null); rc=$?
+[[ $rc != 0 && $err == *"taken over in the app"* ]] && ok "--resume: refused while the host takes the session over" || bad "takeover claim" "$rc $err"
+[[ ! -e $REG/cs-2.claim ]] && ok "refused by the take-over: own claim given back" || bad "claim kept"
 kill $C2 2>/dev/null; wait $C2 2>/dev/null
 rm -f $REG/cs-*.claim
 # a session an old host cannot vouch for: a host from before continue-anywhere answers 404 to resolveThread
@@ -236,7 +259,7 @@ is "host down: in the transcript's cwd" "$(sed -n 1p $T/stub.out)" "$T/work/b"
 sleep 300 & HC=$!
 python3 - "$REG/raw-sid.claim" "$HC" <<'PY'
 import json, subprocess, sys
-ps = ' '.join(subprocess.run(['ps', '-o', 'lstart=', '-p', sys.argv[2]], capture_output=True, text=True).stdout.split())
+ps = ' '.join(subprocess.run(['ps', '-o', 'lstart=', '-p', sys.argv[2]], capture_output=True, text=True, env={'LC_ALL': 'C'}).stdout.split())
 json.dump({"pid": int(sys.argv[2]), "procStart": ps, "at": "x"}, open(sys.argv[1], "w"))
 PY
 err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume raw-sid 2>&1 >/dev/null); rc=$?

@@ -20,7 +20,7 @@ Live = the pid runs and ~/.claude/sessions/<pid>.json names the same sessionId (
 Listable = interactive, the owner's, started in a terminal by `kith <agent>`: the launcher sets KITH_TERMINAL_SESSION=1 for
 exactly that run, so -p one-shots and helpers inherit nothing.
 """
-import datetime as dt, json, os, signal, subprocess, sys, urllib.error, urllib.request
+import datetime as dt, fcntl, json, os, signal, subprocess, sys, urllib.error, urllib.request
 from pathlib import Path
 
 
@@ -129,9 +129,11 @@ def host_call(method, body):
 
 
 def proc_start(pid):
-    """The start time of pid as `ps` prints it, whitespace squeezed; None when it can't be read."""
+    """The start time of pid as `ps` prints it in the C locale (the host writes and reads the same text; the caller's locale
+    would print another one), whitespace squeezed; None when it can't be read."""
     try:
-        out = subprocess.run(['ps', '-o', 'lstart=', '-p', str(pid)], capture_output=True, text=True, timeout=3).stdout
+        out = subprocess.run(['ps', '-o', 'lstart=', '-p', str(pid)], capture_output=True, text=True, timeout=3,
+                             env={**os.environ, 'LC_ALL': 'C'}).stdout
     except Exception:  # noqa: BLE001
         return None
     return ' '.join(out.split()) or None
@@ -167,21 +169,11 @@ def claim_live(c):
     return not (claimed and actual) or ' '.join(claimed.split()) == actual
 
 
-def claim_holder(sid):
-    """The live claim on sid (the terminal's or the host's take-over), or None."""
-    for takeover in (False, True):
-        p = claim_path(sid, takeover)
-        c = p and read_claim(p)
-        if claim_live(c):
-            return c
-    return None
-
-
 def take_claim(sid, pid, kind='terminal'):
-    """Take the writer claim on sid for pid. Returns None when taken, else the live claim that holds it."""
+    """Take the writer claim on sid for pid. Returns None when taken, else the live claim that holds it. The claim is made
+    whole in a temp file and linked into place (exclusive); a stale one is removed and replaced under a lock file next
+    to it, so two takers never both judge it stale and one deletes the other's fresh claim."""
     dest = claim_path(sid)
-    if dest is None:
-        return None
     dest.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     mine = {'pid': pid, 'procStart': proc_start(pid), 'at': now(), 'kind': kind}
     tmp = dest.with_name(f'.{sid}.claim.{os.getpid()}.tmp')
@@ -189,8 +181,10 @@ def take_claim(sid, pid, kind='terminal'):
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, 'w') as f:
         json.dump(mine, f)
+    lock = os.open(dest.with_name(f'{sid}.claim.lock'), os.O_WRONLY | os.O_CREAT, 0o600)
     try:
-        for _ in range(4):
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        for _ in range(3):
             try:
                 os.link(tmp, dest)   # exclusive: fails when a claim is there
                 return None
@@ -199,35 +193,10 @@ def take_claim(sid, pid, kind='terminal'):
             seen = read_claim(dest)
             if claim_live(seen):
                 return seen
-            # stale (or garbage): rename it away; of two takers one wins the rename. If what we moved is not what we read
-            # (a live claim replaced it in between), put it back.
-            aside = dest.with_name(f'.{sid}.claim.stale.{os.getpid()}')
-            try:
-                os.rename(dest, aside)
-            except OSError:
-                continue
-            moved = read_claim(aside)
-            aside.unlink(missing_ok=True)
-            if moved != seen and claim_live(moved):
-                try:
-                    write_atomic_new(dest, moved)
-                except OSError:
-                    pass
-                return moved
+            dest.unlink(missing_ok=True)   # stale or garbage; nobody else judges it while we hold the lock
         return read_claim(dest) or mine
     finally:
-        tmp.unlink(missing_ok=True)
-
-
-def write_atomic_new(dest, data):
-    tmp = dest.with_name(f'.{dest.name}.back.{os.getpid()}.tmp')
-    tmp.unlink(missing_ok=True)
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, 'w') as f:
-        json.dump(data, f)
-    try:
-        os.link(tmp, dest)
-    finally:
+        os.close(lock)
         tmp.unlink(missing_ok=True)
 
 
@@ -281,11 +250,16 @@ def resolve(agent, thread, claimer=None):
         sys.exit(f'kith: {m}')
 
     def claim(sid):
+        if not d:
+            die('KITH_STATE is not set, so the session cannot be claimed')
         held = take_claim(sid, claimer)
         if held:
-            what = 'being taken over in the app' if held.get('takeover') else f'open in another writer (pid {held.get("pid")}, {held.get("kind", "terminal")})'
-            die(f'that session is {what}; close it first')
+            die(f'that session is open in another writer (pid {held.get("pid")}, {held.get("kind", "terminal")}); close it first')
         claimed.append(sid)
+        # The host ending a terminal holds its own claim until the session is imported.
+        taking = read_claim(claim_path(sid, True))
+        if claim_live(taking):
+            die('that session is being taken over in the app right now; try again in a moment')
 
     def registry_entry(sid):
         try:
@@ -294,6 +268,8 @@ def resolve(agent, thread, claimer=None):
             return {}
 
     r = host_call('resolveThread', {'thread': thread})
+    if r and not r.get('error') and r.get('sessionId') and r.get('claims') != 1:
+        r = {'error': 'no claims', 'unknownMethod': True}   # a host from before the claims cannot vouch for its threads either
     if r and not r.get('error') and r.get('sessionId'):
         if r.get('agent') != agent:
             die(f'that thread belongs to {r.get("agent")}, not {agent}: kith {r.get("agent")} --resume {thread}')
@@ -301,8 +277,9 @@ def resolve(agent, thread, claimer=None):
         claim(sid)
         # Asked again with the claim held: this answer is the one that counts (the first only named the session).
         again = host_call('resolveThread', {'thread': sid})
-        if again and not again.get('error') and again.get('sessionId'):
-            r = again
+        if not (again and not again.get('error') and again.get('sessionId') == sid):
+            die('the Kith host stopped answering; try again')
+        r = again
         if r.get('hostBusy'):
             die('the app is answering in that thread right now; try again when it has finished')
     elif r and r.get('unknownMethod'):
