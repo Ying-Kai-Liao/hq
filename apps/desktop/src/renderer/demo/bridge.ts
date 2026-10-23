@@ -90,6 +90,20 @@ const bridge: KithBridge = {
     request: async () => ({ ok: false, error: { status: 503, code: 'demo', message: DEMO_UNAVAILABLE } }),
     acceptInvite: async () => ({ ok: false, error: { status: 503, code: 'demo', message: DEMO_UNAVAILABLE } }),
   },
+  relay: {
+    computers: async () => ({ ok: false, error: { status: 503, code: 'demo', message: DEMO_UNAVAILABLE } }),
+    call: async () => {
+      throw { status: 0, message: DEMO_UNAVAILABLE, code: 'demo' }
+    },
+    stream: () => () => {},
+    state: async () => ({ kind: 'failed', message: DEMO_UNAVAILABLE, code: 'demo', final: true }),
+    onState: none,
+    restart: async () => {},
+    forget: async () => {},
+    requestAccess: async () => ({ ok: false, error: { status: 503, code: 'demo', message: DEMO_UNAVAILABLE } }),
+    accessStatus: async () => ({ ok: false, error: { status: 503, code: 'demo', message: DEMO_UNAVAILABLE } }),
+    cancelAccess: async () => {},
+  },
   invites: { takePending: async () => null, keep: async () => {}, kept: async () => null, forget: async () => {} },
   updates: { state: async () => updates, onChange: none, check() {}, install() {}, setAutoCheck() {}, setAutoDownload() {} },
   files: { begin: unavailable, write: async () => {}, finish: async () => {}, cancel: async () => {} },

@@ -1,4 +1,5 @@
 import type { CallError } from '@shared/ipc'
+import type { RelayCallError } from '@shared/relay'
 import { parseBackups, type Backups } from '@shared/backups'
 import {
   parseDiff, parseHistory, parseMemoryList, parseRead, parseSave, parseTidyUps, parseUndo,
@@ -19,7 +20,7 @@ import {
   type Usage,
 } from '@shared/models'
 
-/** How a client reaches a host API. Only loopback today: the computer's own host or an SSH tunnel. */
+/** How a client reaches a host API: loopback (this computer's own host or an SSH tunnel), or the Kith cloud relay. */
 export type HostRoute = 'loopback' | 'direct' | 'relay'
 
 export class HostError extends Error {
@@ -63,6 +64,38 @@ export class LoopbackTransport implements HostTransport {
 
   stream(path: string, onData: (line: string) => void, onEnd: (error: HostError | null) => void) {
     return window.kith.host.stream(`${this.baseURL}${path}`, this.token, onData, (error) =>
+      onEnd(error ? new HostError(error.status, error.message) : null),
+    )
+  }
+}
+
+/**
+ * Another Mac over the Kith cloud relay. The encrypted channel lives in the main process (shared by every window);
+ * this only carries calls and the event stream across the bridge, with the same errors as the loopback transport so a
+ * dropped link looks the same to the stores (status 0, retry) and a host's own refusal passes through unchanged.
+ */
+export class RelayTransport implements HostTransport {
+  constructor(
+    readonly computerId: string,
+    /** The Mac's own Ed25519 key (b64url); it must hash to `computerId`. */
+    private signKey: string,
+  ) {}
+
+  async call(method: string, body: unknown, timeoutMs: number) {
+    try {
+      return await window.kith.relay.call(this.computerId, this.signKey, method, body, timeoutMs)
+    } catch (e) {
+      const error = e as Partial<RelayCallError>
+      throw new HostError(error.status ?? 0, error.message ?? HostError.unreachable().message)
+    }
+  }
+
+  /** `path` is `/events?since=&client=`, like the loopback SSE; the relay carries it as the `events` subscription. */
+  stream(path: string, onData: (line: string) => void, onEnd: (error: HostError | null) => void) {
+    const url = new URL(path, 'http://relay.invalid')
+    const sub = url.pathname.replace(/^\//, '')
+    const body = sub === 'events' ? { since: Number(url.searchParams.get('since') ?? 0), client: url.searchParams.get('client') ?? '' } : null
+    return window.kith.relay.stream(this.computerId, this.signKey, sub, body, onData, (error) =>
       onEnd(error ? new HostError(error.status, error.message) : null),
     )
   }

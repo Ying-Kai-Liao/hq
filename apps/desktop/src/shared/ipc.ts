@@ -5,6 +5,7 @@ import type { ScreenAgentState } from './computer-access'
 import type { IslandRect, IslandScreen, IslandSummary } from './island'
 import type { ErrorReport } from './error-report'
 import type { InviteLink } from './invite'
+import type { AccessProgress, AccessTicket, CloudResult, RelayCallError, RelayComputer, RelayState } from './relay'
 
 // The bridge between the main process (host lifecycle, loopback HTTP, tray, windows)
 // and the renderer (stores and UI). Exposed as `window.kith` by the preload script.
@@ -180,6 +181,28 @@ export interface KithBridge {
     request(method: string, path: string, body: unknown, signed: boolean): Promise<{ ok: true; value: unknown } | { ok: false; error: { status: number; code: string; message: string | null } }>
     /** Accepts an invite with h1 = hex sha256 of its token (never the token itself). */
     acceptInvite(inviteId: string, h1: string): Promise<{ ok: true; value: unknown } | { ok: false; error: { status: number; code: string; message: string | null } }>
+  }
+  /**
+   * Other Macs over the Kith cloud relay (main/relay/): the end-to-end encrypted channel lives in the main process and is
+   * shared by every window; `signKey` is the Mac's own key, and must hash to `computerId` or nothing connects.
+   */
+  relay: {
+    /** The Macs this account owns or is a member of. Registers this device with the account the first time. */
+    computers(): Promise<CloudResult<RelayComputer[]>>
+    /** One call to the Mac's host API. Rejects with a `RelayCallError` (a host's own error comes back unchanged). */
+    call(computerId: string, signKey: string, method: string, body: unknown, timeoutMs: number): Promise<unknown>
+    /** `sub` "events": each element is one event's JSON; `onEnd` with an error when the channel dropped. */
+    stream(computerId: string, signKey: string, sub: string, body: unknown, onData: (line: string) => void, onEnd: (error: RelayCallError | null) => void): () => void
+    state(computerId: string, signKey: string): Promise<RelayState>
+    onState(cb: (computerId: string, state: RelayState) => void): () => void
+    /** After access was granted: a channel that stopped on "access removed" tries again. */
+    restart(computerId: string): Promise<void>
+    /** Closes the channel (the Mac was removed from the list). */
+    forget(computerId: string): Promise<void>
+    /** Asks for this device to join a Mac; resolves once the six digits can be shown to its owner. */
+    requestAccess(computerId: string, signKey: string): Promise<CloudResult<AccessTicket>>
+    accessStatus(requestId: string): Promise<CloudResult<AccessProgress>>
+    cancelAccess(computerId: string, requestId: string | null): Promise<void>
   }
   /** Invite links: the one that arrived, and the token kept (encrypted, per computer) so a reconnect can prove again. */
   invites: {
