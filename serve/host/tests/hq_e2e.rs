@@ -183,6 +183,7 @@ async fn the_host_restart_loads_the_session_with_a_fresh_launch() {
     s.host.reply(&id, "hello").await;
     s.host.restart(|_| {}).await;
     s.house().await;
+    s.host.wait_tasks_on(&id).await;
     // The startup sync turns tasks on once for a bot that has them off (see `hub::hq`); this test reads the main chat.
     s.host.call("updateBot", json!({"id": id, "tasks": false})).await;
     s.host.reply(&id, "again").await;
