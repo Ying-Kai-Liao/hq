@@ -5,6 +5,10 @@
 //! gap between them, and [`wav`] turns the result into 16-bit with rounding and TPDF dither instead of
 //! truncating toward zero (which adds a small distortion that is audible on quiet tails).
 
+// Sample counts, rates and levels move between integer and float all through DSP code; every value here is far
+// inside the exact range of the float involved.
+#![allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+
 use std::f64::consts::PI;
 
 /// Integrated loudness the clips are brought to (speech through a phone speaker or earbuds).
@@ -279,6 +283,6 @@ mod tests {
     #[test]
     fn finish_leaves_silence_alone() {
         assert_eq!(finish(&[0.0; 100], RATE), vec![0.0; 100]);
-        assert!(finish(&[], RATE).is_empty());
+        assert_eq!(finish(&[], RATE), Vec::<f32>::new());
     }
 }

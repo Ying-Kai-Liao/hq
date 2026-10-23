@@ -13,6 +13,8 @@
 //! rate): peak, clipping, loudness and edge silence. Run under `taskpolicy -b`. `scripts/voice-samples.sh` drives
 //! the whole set.
 
+#![allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+
 use kith_tts::{finish, loudness, wav, wav_as_shipped};
 use ptts::checkpoint::{Checkpoint, ResolveOptions};
 use ptts::preprocess::Lang;
@@ -143,7 +145,7 @@ fn read_pcm16(path: &str) -> Res<(Vec<i16>, u32, usize)> {
         }
         at += 8 + size + (size & 1);
     }
-    Ok((data.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect(), rate, channels))
+    Ok((data.as_chunks::<2>().0.iter().map(|b| i16::from_le_bytes(*b)).collect(), rate, channels))
 }
 
 fn analyze(path: &str) -> Res<serde_json::Value> {
