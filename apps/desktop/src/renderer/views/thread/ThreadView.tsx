@@ -16,7 +16,7 @@ import { ChatRow, TimeSeparator, WorkingIndicator } from './ChatRows'
 import { Composer } from './Composer'
 import { ChatSidePanel } from './ChatSidePanel'
 import { DetailsPanel, type DetailsTab } from './DetailsPanel'
-import { RepliesView } from './RepliesView'
+import { InlineThread } from './InlineThread'
 import { TaskRow } from './TaskRow'
 import { TraceView } from './TraceView'
 import { useReading } from './reading'
@@ -36,7 +36,7 @@ const WIDE = 680
 /**
  * One endless conversation with a bot or a group chat. Only deliberate messages show here; tool
  * calls and thinking live in the "Full conversation" sheet. Any message can start a thread,
- * which opens beside the chat.
+ * which hangs under that message.
  */
 export const ThreadView = memo(function ThreadView({ botId }: { botId: string }) {
   const store = useStore()
@@ -83,7 +83,6 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
   const [, setSqueezed] = useState(0)
   const squeezeBelow = useRef(0)
   const [detailsWidth, setDetailsWidth] = usePref(prefs.detailsPanelWidth)
-  const [repliesWidth, setRepliesWidth] = usePref(prefs.repliesPanelWidth)
   useReading(store, botId, null)
 
   useLayoutEffect(() => {
@@ -105,8 +104,8 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
     }
   }, [])
 
-  const panelOpen = wide && (!!openThread || showSettings)
-  const preferredPanel = openThread ? repliesWidth : detailsWidth
+  const panelOpen = wide && showSettings
+  const preferredPanel = detailsWidth
   squeezeBelow.current = panelOpen ? preferredPanel : 0
   // The side panel's edge drags its width, leaving the conversation at least 380 wide.
   const panelWidth = (w: number) => Math.min(Math.max(260, w), Math.min(420, width.current - 380))
@@ -115,15 +114,9 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
     if (wide) setCompactDetails(false)
   }, [wide])
   const toggleDetails = useCallback(() => {
-    if (!wide) {
-      setOpenThread(null)
-      setCompactDetails((c) => !c)
-    } else if (openThread) {
-      // The thread occupies the inspector slot: << shows details instead of toggling behind it.
-      setOpenThread(null)
-      setShowSettings(true)
-    } else setShowSettings((s) => !s)
-  }, [wide, openThread])
+    if (!wide) setCompactDetails((c) => !c)
+    else setShowSettings((s) => !s)
+  }, [wide])
 
   useEffect(
     () =>
@@ -134,14 +127,21 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
   )
 
   const openTrace = useCallback(() => setShowTrace(true), [])
-  const openThreadOn = useCallback((root: { id: string }) => setOpenThread(root.id), [])
+  // A chip (or "Reply in thread") opens the thread under its message; the same one again folds it. A double click
+  // lands twice within a blink: the second is the same gesture, not a fold.
+  const lastOpened = useRef({ id: '', at: 0 })
+  const openThreadOn = useCallback((root: { id: string }) => {
+    const now = Date.now()
+    if (lastOpened.current.id === root.id && now - lastOpened.current.at < 350) return
+    lastOpened.current = { id: root.id, at: now }
+    setOpenThread((open) => (open === root.id ? null : root.id))
+  }, [])
   const closeThread = useCallback(() => setOpenThread(null), [])
 
   const presentRoutine = useCallback((id: string | null) => {
     setRoutineId(id)
     setRoutineRequest((r) => r + 1)
     setDetailsTab('details')
-    setOpenThread(null)
     setShowSettings(true)
     if (!wide) setCompactDetails(true)
   }, [wide])
@@ -185,7 +185,7 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
                   <Icon name="phone.fill" size={15} weight="medium" />
                 </button>
               ) : null}
-              {(!showSettings || openThread || !wide) && !compactDetails ? (
+              {(!showSettings || !wide) && !compactDetails ? (
                 <button className="top-pair-button" title="Conversation details" aria-label="Conversation details" onClick={toggleDetails}>
                   <Icon name="ellipsis" size={15} weight="medium" />
                 </button>
@@ -212,7 +212,7 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
           ) : null}
           </div>
         </div>
-        <Transcript botId={botId} openId={openThread} openTrace={openTrace} openThread={openThreadOn} openRoutine={presentRoutine} openBotChat={setBotChat} />
+        <Transcript botId={botId} openId={openThread} closeThread={closeThread} openTrace={openTrace} openThread={openThreadOn} openRoutine={presentRoutine} openBotChat={setBotChat} />
         <div className="composer-dock" ref={dock}>
           <div className="composer-fade" />
           {store.mismatch ? (
@@ -222,6 +222,7 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
           ) : (
             <Composer
               botId={botId}
+              thread={openThread}
               onCall={!calling && bot && !callBlocked ? startCall : null}
               onInterrupt={callSpeaking ? () => interruptCall.current?.() : null}
             />
@@ -236,16 +237,13 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
         width={panelWidth(preferredPanel)}
         min={260}
         max={Math.min(420, width.current - 380)}
-        onResize={(w) => (openThread ? setRepliesWidth : setDetailsWidth)(panelWidth(w))}
+        onResize={(w) => setDetailsWidth(panelWidth(w))}
       >
-        {openThread ? <RepliesView key={openThread} botId={botId} rootId={openThread} close={closeThread} /> : details}
+        {details}
       </ChatSidePanel>
 
       <Sheet open={compactDetails} onClose={() => setCompactDetails(false)} width={380} height={600}>
         {details}
-      </Sheet>
-      <Sheet open={openThread !== null && !wide} onClose={closeThread} width={440} height={600}>
-        {openThread ? <RepliesView botId={botId} rootId={openThread} close={closeThread} /> : null}
       </Sheet>
       <Sheet open={botChat !== null} onClose={() => setBotChat(null)} width={620} height={560}>
         {botChat ? <BotConversationView botId={botId} peerId={botChat} /> : null}
@@ -298,7 +296,7 @@ function ConnectionSubtitle() {
 /** The messages: every loaded message, brought to the newest as it changes while the reader is at the bottom. */
 const PAGE = 40
 
-const Transcript = memo(function Transcript({ botId, openId, openTrace, openThread, openRoutine, openBotChat }: { botId: string; openId: string | null; openTrace: () => void; openThread: (e: { id: string }) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void }) {
+const Transcript = memo(function Transcript({ botId, openId, closeThread, openTrace, openThread, openRoutine, openBotChat }: { botId: string; openId: string | null; closeThread: () => void; openTrace: () => void; openThread: (e: { id: string }) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void }) {
   const store = useStore()
   const bot = store.bots.get(botId) ?? null
   const live = !!bot && isWorkingIn(bot, botId, null) && !store.isOffline
@@ -350,6 +348,14 @@ const Transcript = memo(function Transcript({ botId, openId, openTrace, openThre
     if (at > 0) setFirstShown(list[Math.max(0, at - PAGE)]!.id)
     setLoadingEarlier(false)
   }
+
+  // Opening a thread grows the feed below the message the reader clicked: stay put, don't chase the bottom.
+  useLayoutEffect(() => {
+    if (openId) {
+      followingRef.current = false
+      setFollowing(false)
+    }
+  }, [openId])
 
   // Earlier messages going in above keep the reader's place; a follower stays at the bottom.
   useLayoutEffect(() => {
@@ -411,12 +417,15 @@ const Transcript = memo(function Transcript({ botId, openId, openTrace, openThre
                   newest={item.entry.id === tasks.newest}
                   now={tasks.now}
                   choice={tasks.choices.get(item.entry.id)}
-                  setChoice={(open) => tasks.choose(item.entry.id, open)}
+                  setChoice={(open) => {
+                    tasks.choose(item.entry.id, open)
+                    if (!open && openId === item.entry.id) closeThread()
+                  }}
                   openTrace={openTrace}
                   openThread={openThread}
                 />
               ) : (
-                <Row item={item} chat={bot} openId={openId} openTrace={openTrace} openThread={openThread} openRoutine={openRoutine} openBotChat={openBotChat} />
+                <Row item={item} chat={bot} openId={openId} closeThread={closeThread} openTrace={openTrace} openThread={openThread} openRoutine={openRoutine} openBotChat={openBotChat} />
               )}
             </div>
           ))}
@@ -460,7 +469,7 @@ function useTasks(chat: Entry[]) {
   return { newest: currentTask(chat)?.id ?? null, now, choices, choose }
 }
 
-function Row({ item, chat, openId, openTrace, openThread, openRoutine, openBotChat }: { item: ChatItem; chat: Bot | null; openId: string | null; openTrace: () => void; openThread: (e: { id: string }) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void }) {
+function Row({ item, chat, openId, closeThread, openTrace, openThread, openRoutine, openBotChat }: { item: ChatItem; chat: Bot | null; openId: string | null; closeThread: () => void; openTrace: () => void; openThread: (e: { id: string }) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void }) {
   if (item.kind === 'separator') {
     return <TimeSeparator date={item.date} />
   }
@@ -476,7 +485,12 @@ function Row({ item, chat, openId, openTrace, openThread, openRoutine, openBotCh
       </button>
     )
   }
-  return <ChatRow entry={e} groupStart={item.groupStart} chat={chat} openTrace={openTrace} openThread={openThread} openId={openId} />
+  return (
+    <>
+      <ChatRow entry={e} groupStart={item.groupStart} chat={chat} openTrace={openTrace} openThread={openThread} openId={openId} />
+      {openId === e.id && chat ? <InlineThread key={e.id} botId={chat.id} rootId={e.id} close={closeThread} /> : null}
+    </>
+  )
 }
 
 /** The start of an empty group chat: who's in it and how the room works. */

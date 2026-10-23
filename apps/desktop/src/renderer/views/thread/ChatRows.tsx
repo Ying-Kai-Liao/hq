@@ -19,7 +19,8 @@ import { ConnectionRequestCard } from '../marketplace/ConnectionRequestCard'
 import { HandoffNotice } from './HandoffNotice'
 import { AnsweredBy } from './AnsweredBy'
 import { contextLabel } from './context-hint'
-import { ThreadChip as KithThreadChip, pairOf, type Place } from '../../components/kith'
+import { ThreadChip as KithThreadChip, pairOf, type Origin, type Place } from '../../components/kith'
+import { threadOrigin } from '@shared/thread-writer'
 import { avatarImage } from '@shared/crew'
 
 export function reactionPick(store: BotStore, entry: Entry): ReactionPick {
@@ -34,7 +35,7 @@ export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrac
   openTrace: () => void
   /** Main chat only: start (or open) the thread on this message. */
   openThread?: (e: Entry) => void
-  /** The thread open beside the chat: its chip tints in the agent's colours. */
+  /** The thread open under its message: its chip tints in the agent's colours. */
   openId?: string | null
 }) {
   const reply = openThread ? () => openThread(entry) : undefined
@@ -101,7 +102,7 @@ export function AuthorLabel({ botId }: { botId?: string | null }) {
 
 /**
  * Under a message with a thread: where it works (grey), then the pill with the agent's face, the reply count and
- * when. While the thread is open beside the chat the pill tints in the agent's colours.
+ * when. While the thread is open under its message the pill tints in the agent's colours.
  */
 export function ThreadChip({ summary, open, isOpen = false, chat }: { summary: ThreadSummary; open: () => void; isOpen?: boolean; chat: Bot | null }) {
   const store = useStore()
@@ -109,6 +110,9 @@ export function ThreadChip({ summary, open, isOpen = false, chat }: { summary: T
   const folder = chat?.folder
   const place: Place | undefined = folder && folder.kind !== 'workspace' && folder.name ? { kind: folder.kind === 'project' ? 'project' : 'folder', name: folder.name } : undefined
   const image = author ? avatarImage(author) : null
+  // A thread started outside the app (a terminal, a channel) says so; an origin this app doesn't know shows nothing.
+  const origin = threadOrigin(summary)
+  const tag: Origin | undefined = origin === 'terminal' || origin === 'discord' || origin === 'telegram' || origin === 'slack' ? origin : undefined
   return (
     <div className={`thread-meta ${chat && isGroup(chat) ? 'start' : ''}`}>
       <KithThreadChip
@@ -121,6 +125,7 @@ export function ThreadChip({ summary, open, isOpen = false, chat }: { summary: T
           agent: { face: image ?? 'group', color: author?.avatarColor, id: author?.id ?? 'unknown' },
           pair: pairOf(author?.avatarColor),
           place,
+          origin: tag,
           onToggle: open,
           onOpen: open,
         }}
