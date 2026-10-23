@@ -94,6 +94,26 @@ const MIGRATIONS: &[&str] = &[
     INSERT INTO sqlite_sequence (name, seq) SELECT 'memory_entries', max(
         coalesce((SELECT max(id) FROM memory_entries), 0),
         coalesce((SELECT max(entry) FROM memory_dream_changes), 0));",
+    // 4: one summary per thread (replaced on every write) and the threads the owner asked to forget. The kernel's
+    // recall index reads both without the host running; `kith forget --thread` writes the second (IF NOT EXISTS
+    // there too: the kernel creates it the same way when the host has never run this migration).
+    "CREATE TABLE IF NOT EXISTS thread_summaries (
+        thread_id TEXT PRIMARY KEY,
+        room TEXT,
+        agent TEXT NOT NULL,
+        audience TEXT NOT NULL,
+        projects TEXT NOT NULL DEFAULT '[]',
+        text TEXT NOT NULL,
+        links TEXT NOT NULL DEFAULT '[]',
+        covered_seq INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        written_at INTEGER NOT NULL,
+        cost_via TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS thread_forgotten (
+        thread_id TEXT PRIMARY KEY,
+        at INTEGER NOT NULL
+    );",
 ];
 
 /// Brings the crate's tables up to date. Safe to call on every start.

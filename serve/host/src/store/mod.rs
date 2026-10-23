@@ -13,6 +13,7 @@ mod memory;
 mod model;
 mod people;
 mod schema;
+mod threads;
 
 pub use botguests::{BotConversation, BotGuest, BotInvite, BotState};
 pub use devices::{Device, DeviceSource, Scope};

@@ -139,6 +139,8 @@ jobs:
         run: kernel/tests/kith-cost-bots-check
       - name: Call check
         run: kernel/tests/kith-call-check
+      - name: Trajectory check
+        run: kernel/tests/kith-trajectory-check
       - name: Load check
         run: kernel/tests/kith-load-check
 
