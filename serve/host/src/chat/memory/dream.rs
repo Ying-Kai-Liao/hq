@@ -86,7 +86,7 @@ pub fn spawn_dreamer(hub: Arc<Hub>, bot_id: String) -> mpsc::UnboundedSender<Dre
             retry_at.map_or(after, |at| at.max(after))
         };
         loop {
-            let due = waiting > 0 || review_due(&hub.store, &bot_id);
+            let due = waiting > 0 || review_due_blocking(&hub, &bot_id).await;
             let run = tokio::select! {
                 event = rx.recv() => match event {
                     None => break,
@@ -138,6 +138,12 @@ fn waiting(store: &Store, bot: &str) -> usize {
         .map_or(0, |entries| entries.iter().filter(|e| e.kind == EntryKind::User.as_str()).count())
 }
 
+/// [`review_due`] off the async workers: an hq agent's answer reads files.
+async fn review_due_blocking(hub: &Arc<Hub>, bot: &str) -> bool {
+    let (hub, bot) = (hub.clone(), bot.to_owned());
+    tokio::task::spawn_blocking(move || review_due(&hub.store, &bot)).await.unwrap_or(false)
+}
+
 /// Once a day, when the bot's memory holds a dated entry it may rewrite (the time review).
 fn review_due(store: &Store, bot: &str) -> bool {
     if store.kv_get(&reviewed_key(bot)).as_deref() == Some(today().as_str()) {
@@ -184,7 +190,7 @@ async fn run(hub: &Arc<Hub>, bot_id: &str) -> Result<Ran> {
     let last_seq = read.last().map_or(after, |e| e.seq);
     let messages: Vec<Message> = read.iter().filter_map(message).collect();
     let today = today();
-    let review = review_due(&hub.store, bot_id);
+    let review = review_due_blocking(hub, bot_id).await;
     let worth = messages.iter().any(|m| m.from_user && m.text.iter().any(|run| kith_mem::evidence::substantive(run)));
     if !worth && !review {
         set_bookmark(&hub.store, bot_id, last_seq)?;

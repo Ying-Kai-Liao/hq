@@ -244,14 +244,28 @@ fn now_ms() -> i64 {
 
 /// What is on disk: content, modification time (Unix ms) and size. `None` when there is no file.
 fn read_disk(path: &Path) -> Option<(String, i64, u64)> {
-    let bytes = std::fs::read(path).ok()?;
-    let mtime = std::fs::metadata(path)
-        .and_then(|m| m.modified())
-        .ok()
+    // Never block on a pipe or follow a link out of the folder; trust only the open handle.
+    let handle = open_regular(path, true)?;
+    let meta = handle.metadata().ok()?;
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut std::io::Read::take(handle, READ_MAX), &mut bytes).ok()?;
+    let mtime = Some(meta)
+        .and_then(|m| m.modified().ok())
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(0));
     let size = bytes.len() as u64;
     Some((String::from_utf8_lossy(&bytes).into_owned(), mtime, size))
+}
+
+/// The most of a file a read takes.
+const READ_MAX: u64 = 8 * 1024 * 1024;
+
+/// Opens a regular file without blocking; with `no_follow`, not through a link either.
+pub(crate) fn open_regular(path: &Path, no_follow: bool) -> Option<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let flags = libc::O_NONBLOCK | if no_follow { libc::O_NOFOLLOW } else { 0 };
+    let file = std::fs::OpenOptions::new().read(true).custom_flags(flags).open(path).ok()?;
+    file.metadata().ok()?.is_file().then_some(file)
 }
 
 pub fn read(path: &Path) -> Option<String> {

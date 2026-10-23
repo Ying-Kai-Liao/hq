@@ -23,7 +23,16 @@ pub(super) fn here() -> Layout {
 
 /// Whether the agent's memory holds a dated line of the dream's own that the time review may rewrite.
 pub(super) fn review_due(agent: &str) -> bool {
-    files::load(&here(), agent, "", None).ok().flatten().is_some_and(|m| m.dream_lines().any(super::dream::dated))
+    let layout = here();
+    if files::agent_dir(&layout, agent).is_none() {
+        return false;
+    }
+    // Only lines a run logged are the dream's to rewrite, as in `dream`.
+    let Ok(written) = hqmem::open(&layout).and_then(|conn| files::written(&conn, agent)) else { return false };
+    files::load(&layout, agent, "", Some(&written))
+        .ok()
+        .flatten()
+        .is_some_and(|m| m.dream_lines().any(super::dream::dated))
 }
 
 /// One run over the agent's files for these conversations. True when it should be tried again later: the agent has

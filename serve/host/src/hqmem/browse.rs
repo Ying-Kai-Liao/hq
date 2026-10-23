@@ -71,13 +71,12 @@ pub fn list_files(layout: &Layout, agent: &str) -> Result<Value> {
 /// One file as text, at most [`READ_CAP`] bytes. A file that doesn't exist yet reads as empty text.
 pub fn read_file(layout: &Layout, agent: &str, shared: bool, name: &str) -> Result<Value> {
     let t = target(layout, agent, shared, name)?;
-    let Ok(file) = std::fs::File::open(&t.path) else {
+    if !t.path.exists() && !t.path.is_symlink() {
         return Ok(json!({"name": name, "shared": shared, "text": "", "bytes": 0, "modified": 0, "exists": false}));
-    };
-    let meta = file.metadata()?;
-    if !meta.is_file() {
-        bail!("`{name}` isn't a file");
     }
+    // Like kithMemoryFile: no link followed, no pipe waited on, only the open handle's own metadata trusted.
+    let file = super::open_regular(&t.path, true).ok_or_else(|| anyhow!("`{name}` isn't a regular file"))?;
+    let meta = file.metadata()?;
     let mut bytes = Vec::new();
     file.take(READ_CAP).read_to_end(&mut bytes)?;
     Ok(json!({

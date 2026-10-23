@@ -77,6 +77,8 @@ struct Loaded {
 
 /// A numbered line the model sees.
 struct Line {
+    /// Its whole text (the model sees it clipped).
+    full: String,
     file: usize,
     /// Its index among the file's lines.
     index: usize,
@@ -222,7 +224,7 @@ pub fn load(layout: &Layout, agent: &str, today: &str, written: Option<&HashSet<
             updated_at: 0,
             rev: 0,
         });
-        lines.push(Line { file, index: b.index, dream: b.dream });
+        lines.push(Line { full: b.text, file, index: b.index, dream: b.dream });
     }
     let full = loaded[0].content.as_deref().is_some_and(|c| c.lines().count() >= FULL_LINES)
         || loaded[1].content.as_deref().is_some_and(|c| tokens::estimate(c) >= FULL_USER_TOKENS);
@@ -357,23 +359,29 @@ pub fn apply(conn: &Connection, m: &Material, plan: &Plan) -> Result<Applied> {
     }
     for mv in &plan.move_out {
         match (line(mv.id), entry(mv.id)) {
-            (Some(l), Some(e)) if l.file == 0 => notes.push(Note {
+            (Some(l), Some(_)) if l.file == 0 => notes.push(Note {
                 file: mv.file.clone(),
-                text: e.text.clone(),
+                text: l.full.clone(),
                 description: mv.description.clone(),
                 from: Some(usize::try_from(mv.id - 1)?),
             }),
             _ => out.dropped.push(format!("move [{}]: only the agent's own lines move to notes", mv.id)),
         }
     }
-    let now = now_ms();
-    conn.execute("INSERT INTO memory_dreams (bot, at) VALUES (?1, ?2)", params![m.agent, now])?;
-    let dream = conn.last_insert_rowid();
-    out.dream = Some(dream);
+    // The run is logged once a file is written, so a run that wrote nothing leaves no undoable row.
+    let run = std::cell::Cell::new(None::<i64>);
+    let ensure_run = || -> Result<i64> {
+        if let Some(id) = run.get() {
+            return Ok(id);
+        }
+        conn.execute("INSERT INTO memory_dreams (bot, at) VALUES (?1, ?2)", params![m.agent, now_ms()])?;
+        run.set(Some(conn.last_insert_rowid()));
+        Ok(conn.last_insert_rowid())
+    };
     let log = |kind: &str, target: &Target, text: &str, was: Option<&str>| -> Result<()> {
         conn.execute(
             "INSERT INTO hq_dream_changes (dream, kind, file, shared, text, was) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![dream, kind, target.name, target.bot.is_none(), text, was],
+            params![ensure_run()?, kind, target.name, target.bot.is_none(), text, was],
         )?;
         Ok(())
     };
@@ -386,7 +394,7 @@ pub fn apply(conn: &Connection, m: &Material, plan: &Plan) -> Result<Applied> {
                 if let Some(v) = written.version {
                     conn.execute(
                         "INSERT INTO memory_dream_files (dream, version) VALUES (?1, ?2)",
-                        params![dream, v.id],
+                        params![ensure_run()?, v.id],
                     )?;
                     out.versions.push(v);
                 }
@@ -513,17 +521,8 @@ pub fn apply(conn: &Connection, m: &Material, plan: &Plan) -> Result<Applied> {
             }
         }
     }
-    if out.versions.is_empty() {
-        discard(conn, dream)?;
-        out.dream = None;
-    }
+    out.dream = run.get();
     Ok(out)
-}
-
-fn discard(conn: &Connection, dream: i64) -> Result<()> {
-    conn.execute("DELETE FROM memory_dreams WHERE id = ?1", [dream])?;
-    conn.execute("DELETE FROM hq_dream_changes WHERE dream = ?1", [dream])?;
-    Ok(())
 }
 
 /// The agent's latest runs, newest first, as the apps show them.

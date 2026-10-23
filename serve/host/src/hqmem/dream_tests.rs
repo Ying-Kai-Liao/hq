@@ -128,7 +128,7 @@ fn the_model_sees_the_lines_and_only_its_own_can_change() {
         {"id": e[0].id, "quote": "I prefer tea over coffee now", "message": "m1"},
     ]});
     let (kept, rejected) = kd::audit(&m.snapshot, &messages, kd::parse(&tries.to_string()).unwrap());
-    assert!(kept.archive.is_empty());
+    assert_eq!(kept.archive, vec![]);
     assert!(rejected[0].contains("the user wrote it"), "{rejected:?}");
 }
 
@@ -207,7 +207,8 @@ fn undo_puts_every_file_back_and_the_new_note_goes() {
     let run = dream::apply(&conn, &m, &kept).unwrap().dream.unwrap();
 
     let undone = dream::undo(&conn, &home.layout, "builder", run).unwrap();
-    assert!(undone.undone && undone.refused.is_empty(), "{undone:?}");
+    assert!(undone.undone, "{undone:?}");
+    assert_eq!(undone.refused, vec![]);
     assert_eq!(Home::text(&home.memory("MEMORY.md")), memory);
     assert_eq!(Home::text(&home.user()), user);
     assert!(!home.memory("family.md").exists(), "the note the run made goes with it");
@@ -304,7 +305,8 @@ fn a_refused_file_is_dropped_and_logged_not_retried() {
     );
     let none = dream::apply(&conn, &home.load(), &only).unwrap();
     assert!(!none.stale);
-    assert!(none.dream.is_none() && none.versions.is_empty());
+    assert!(none.dream.is_none());
+    assert_eq!(none.versions, vec![]);
     assert_eq!(dream::runs(&conn, "builder", 10).unwrap().len(), 2, "the seeded run and the first one");
 }
 
@@ -369,6 +371,20 @@ fn only_an_agents_own_folder_is_dreamed() {
     assert!(dream::load(&home.layout, "../builder", "2026-10-23", None).unwrap().is_none());
     assert!(dream::target_of(&home.layout, "builder", false, "../role/agent.md").is_none());
     assert!(dream::target_of(&home.layout, "builder", true, "settings.json").is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_link_or_pipe_in_memory_is_not_read() {
+    let home = Home::seeded();
+    let secret = home.root.join("secret.txt");
+    Home::set(&secret, "private");
+    std::os::unix::fs::symlink(&secret, home.memory("link.md")).unwrap();
+    assert!(read_file(&home.layout, "builder", false, "link.md").is_err());
+    let fifo = home.memory("pipe.md");
+    assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+    assert!(read_file(&home.layout, "builder", false, "pipe.md").is_err());
+    assert_eq!(read(&home.memory("link.md")), None, "history never reads through the link either");
 }
 
 #[test]
