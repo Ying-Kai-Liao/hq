@@ -196,7 +196,11 @@ mod tests {
             (bot.hq_agent.as_deref(), bot.backend.as_str(), bot.cwd.as_str()),
             (Some("house"), "claude", house.home.as_str())
         );
-        assert_eq!(bot.permission, crate::store::model::Permission::Ask, "approval cards until the user says otherwise");
+        assert_eq!(
+            bot.permission,
+            crate::store::model::Permission::Ask,
+            "approval cards until the user says otherwise"
+        );
         assert!(bot.model.is_none() && bot.connectors.is_empty() && bot.skills.is_empty());
 
         hub.update_bot(&json!({"id": bot.id, "name": "Home", "pinned": true, "notify": false, "permission": "auto",
