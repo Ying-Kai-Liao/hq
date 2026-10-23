@@ -52,7 +52,12 @@ pub async fn serve_env(home: &Path, env: &[(&str, &str)]) -> (Child, String) {
                 .expect("start the host"),
         ));
         while child.0.as_mut().unwrap().try_wait().expect("host state").is_none() {
-            if reqwest::get(format!("{base}/health")).await.is_ok() {
+            // `/health` answering is not proof it is this child: another test's host may have taken the
+            // port between the pick and our bind, so ours exits while theirs answers. Ours writes its token
+            // file before it listens, so a token in `home` means the answer is ours; without one, keep
+            // looping until the child shows its exit and the outer loop picks another port.
+            let token_ready = std::fs::read_to_string(home.join("token")).is_ok_and(|t| !t.trim().is_empty());
+            if token_ready && reqwest::get(format!("{base}/health")).await.is_ok() {
                 // A temporary home never runs the real bots' channels (unless a test opts in).
                 if !env.iter().any(|(k, _)| *k == "KITH_SERVE_CHANNELS") {
                     assert_channels_off(&base).await;
