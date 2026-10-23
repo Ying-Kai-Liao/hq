@@ -301,7 +301,7 @@ impl Drop for World {
     }
 }
 
-fn bot_guest(bot_id: &str, person_id: &str, owner_person: Option<String>) -> BotGuest {
+pub(super) fn bot_guest(bot_id: &str, person_id: &str, owner_person: Option<String>) -> BotGuest {
     BotGuest {
         bot_id: bot_id.to_owned(),
         person_id: person_id.to_owned(),
@@ -331,7 +331,7 @@ fn agent_index(name: &str) -> Option<usize> {
 // ---- calls ----
 
 /// Every method the router answers, read from the api sources the same way `roles_tests` does.
-fn router_methods() -> Vec<String> {
+pub(super) fn router_methods() -> Vec<String> {
     let sources = [
         include_str!("bots.rs"),
         include_str!("host.rs"),
@@ -627,10 +627,13 @@ fn guard_lets_a_granted_member_use_their_own_chat() {
             BotSpec { owner: 1, deleted: false, agent: 2 },
             BotSpec { owner: 2, deleted: false, agent: 1 },
             BotSpec { owner: 0, deleted: false, agent: 1 },
+            BotSpec { owner: 1, deleted: true, agent: 1 },
         ],
         entries: vec![
             EntrySpec { bot: 0, permission: true, author: 1 },
             EntrySpec { bot: 1, permission: true, author: 0 },
+            EntrySpec { bot: 0, permission: false, author: 1 },
+            EntrySpec { bot: 0, permission: true, author: 2 },
         ],
     };
     let ids = w.load(&sc);
@@ -644,6 +647,19 @@ fn guard_lets_a_granted_member_use_their_own_chat() {
     assert!(go("send", json!({"botId": ids.bots[0], "project": "pr2"})).is_err());
     assert!(go("send", json!({"botId": ids.bots[0], "folder": "/x"})).is_err());
     assert!(go("send", json!({"botId": ids.bots[0], "clear": true})).is_err());
+    // Not a prompt of their run: a card of another kind, and a card another bot raised.
+    assert!(go("respondPermission", json!({"entryId": ids.entries[2]})).is_err(), "a notice is not a prompt");
+    assert!(go("respondPermission", json!({"entryId": ids.entries[3]})).is_err(), "another bot's prompt");
+    assert!(go("send", json!({"botId": ids.bots[4]})).is_err(), "a deleted chat");
+    // Every method off the member list is refused, one by one (a random draw hits a single method too rarely).
+    for m in router_methods().iter().filter(|m| !MEMBER_METHODS.contains(&m.as_str())) {
+        let body = json!({"botId": ids.bots[0], "entryId": ids.entries[0]});
+        assert!(go(m, body).is_err(), "{m} is not on MEMBER_METHODS but guard let a member through");
+    }
+    // The grant taken away: the same calls are refused the next time.
+    w.write_grants(&[[Ans::Denied(false), Ans::Denied(false)], [Ans::Denied(false), Ans::Denied(false)]]);
+    assert!(go("send", json!({"botId": ids.bots[0]})).is_err(), "a revoked grant still sends");
+    assert!(go("history", json!({"botId": ids.bots[1]})).is_err(), "a revoked grant still reads");
 }
 
 /// (7) kith-auth's answer, every kind: only a grant counts, anything unreadable is a no, a member alone approves.
@@ -911,13 +927,20 @@ fn a_real_bot_json_loses_where_it_works() {
         bot_owner: 0,
         grants: [[Ans::Member, Ans::Fail], [Ans::Fail, Ans::Fail]],
         people: [Some(PersonSpec { agents: [1, 0], projects: [false, false] }), None],
-        bots: vec![BotSpec { owner: 1, deleted: false, agent: 1 }],
+        bots: vec![BotSpec { owner: 1, deleted: false, agent: 1 }, BotSpec { owner: 1, deleted: false, agent: 2 }],
         entries: vec![],
     };
     let ids = w.load(&sc);
+    // Their chat of an agent their person row no longer lists does not reach them.
+    let gone = json!({"type": "bot", "bot": {"id": ids.bots[1]}});
+    assert!(roles::event_for(&w.hub.store, Some("p1"), gone).is_none(), "a chat of an agent they lost");
     let row = w.hub.store.bot(&ids.bots[0]).unwrap().unwrap();
     let ev = json!({"type": "bot", "bot": w.hub.bot_json(&row)});
     assert!(ev.to_string().contains("/Users/secret-"), "the fixture must carry a path or this checks nothing");
+    // The owner of the computer hears an invitee's chat only as a permission prompt.
+    assert!(roles::event_for(&w.hub.store, None, ev.clone()).is_none(), "an invitee's chat reached the owner");
+    let say = json!({"type": "entry", "entry": {"botId": ids.bots[0], "kind": "agent"}});
+    assert!(roles::event_for(&w.hub.store, None, say).is_none(), "an invitee's words reached the owner");
     let seen = roles::event_for(&w.hub.store, Some("p1"), ev).expect("their own chat reaches them");
     assert!(!seen.to_string().contains("/Users/secret-"), "{seen}");
 }
