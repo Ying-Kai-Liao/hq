@@ -58,7 +58,9 @@ public struct SkyBackground: View {
             if variant == .header {
                 LinearGradient(stops: [.init(color: .black, location: 0.55), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
             } else {
-                Rectangle()
+                // Full strength at the top, clear by about half the height, as in the home mock.
+                LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.18), .init(color: .clear, location: 0.5)],
+                               startPoint: .top, endPoint: .bottom)
             }
         }
         .ignoresSafeArea(edges: !edgeToEdge ? [] : variant == .header ? .top : .all)

@@ -172,8 +172,7 @@ public struct BoardModel: Equatable, Sendable {
                 for entry in entries {
                     if entry.isTask {
                         tasks.append(entry)
-                    } else if entry.kind == "permission", entry.data.status == "pending", entry.data.approver != "owner" {
-                        // A guest's card in a chat of this account's own is the owner's to answer, not this one's.
+                    } else if Self.isWaiting(entry) {
                         pending.append(entry)
                     } else if entry.kind == "user", entry.data.status == "queued" {
                         queued += 1
@@ -260,6 +259,17 @@ public struct BoardModel: Equatable, Sendable {
     }
 
     // MARK: pieces
+
+    /// A permission card waiting on this account. A guest's card in a chat of this account's own is the owner's to
+    /// answer, not this one's.
+    static func isWaiting(_ entry: Entry) -> Bool {
+        entry.kind == "permission" && entry.data.status == "pending" && entry.data.approver != "owner"
+    }
+
+    /// Questions waiting on you in one bot's chat: what its Crew row badges, the same count the Board adds up.
+    public static func waitingCount(in entries: [Entry]) -> Int {
+        entries.filter(isWaiting).count
+    }
 
     private static func activity(_ bot: Bot) -> String {
         bot.activity.isEmpty ? "Working…" : bot.activity

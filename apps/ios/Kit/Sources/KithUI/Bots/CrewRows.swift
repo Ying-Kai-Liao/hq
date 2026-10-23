@@ -18,12 +18,12 @@ public enum CrewRows {
         } else {
             shape = .agent(face)
         }
-        let state: BotAvatarState = bot.needsInput ? .needsYou(1) : bot.isWorking ? .working : .idle
+        let waiting = BoardModel.waitingCount(in: store.entries[bot.id] ?? [])
+        let state: BotAvatarState = bot.needsInput ? .needsYou(max(waiting, 1)) : bot.isWorking ? .working : .idle
         let trailing: String? = bot.isWorking && !bot.needsInput ? "working"
             : bot.lastAt > 0 ? RelativeTime.day(Date(milliseconds: bot.lastAt)) : nil
         return CrewRowModel(id: rowId(item), shape: shape, name: bot.name, withPerson: person, trailing: trailing,
-                            status: status(bot, store: store), count: bot.unread > 0 ? bot.unread : bot.needsInput ? 1 : 0,
-                            state: state)
+                            status: status(bot, store: store), count: waiting, unread: bot.unread > 0, state: state)
     }
 
     public static func rowId(_ item: RosterItem) -> String { "\(item.ref.computerId)/\(item.bot.id)" }

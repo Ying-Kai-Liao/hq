@@ -62,6 +62,13 @@ private func board(_ computers: BoardComputer...) -> BoardModel { BoardModel(com
     #expect(model.needsYou.first { $0.entry.id == "g1" }?.target.botId == "guest-chat")
 }
 
+@Test func aRowCountsOnlyPendingCardsWaitingOnThisAccount() {
+    let entries = [permission("a", chat: "x"), permission("b", chat: "x", approver: "member"), permission("c", chat: "x", approver: "owner"),
+                   permission("d", chat: "x", status: "answered"), task("t", chat: "x", text: "go")]
+    #expect(BoardModel.waitingCount(in: entries) == 2)
+    #expect(BoardModel.waitingCount(in: []) == 0)
+}
+
 @Test func anOwnersCardInAMembersChatIsNotTheMembersToAnswer() throws {
     let member = computer(bots: [try bot("x")], entries: ["x": [permission("o", chat: "x", approver: "owner"), permission("m", chat: "x", approver: "member")]])
     #expect(board(member).needsYou.map(\.entry.id) == ["m"])

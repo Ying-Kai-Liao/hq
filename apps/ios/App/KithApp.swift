@@ -120,7 +120,7 @@ private struct DebugHooks: ViewModifier {
                     if let computer = app.accounts.computers.first {
                         app.accounts.selection = BotReference(accountId: nil, computerId: computer.id, botId: DemoScreens.chatBotId)
                     }
-                default: break // "crew" and "crew-typing" are the root
+                default: break // "crew", "crew-typing" and "board" (BotListView opens its Board tab) are the root
                 }
             }
             await LiveActivities.shared.previewIfRequested()
