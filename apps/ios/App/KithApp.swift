@@ -94,7 +94,11 @@ private struct DebugHooks: ViewModifier {
         content
         .fullScreenCover(isPresented: Binding(get: { agentScreen != nil }, set: { if !$0 { agentScreen = nil } })) {
             if let screen = agentScreen, let computer = app.accounts.computers.first, let store = app.accounts.store(for: computer.id) {
-                DemoAgentSheet(store: store, screen: screen)
+                if screen == "call" || screen == "incoming-call" {
+                    DemoCallScreen(store: store, incoming: screen == "incoming-call")
+                } else {
+                    DemoAgentSheet(store: store, screen: screen)
+                }
             }
         }
         .overlay {
@@ -128,7 +132,7 @@ private struct DebugHooks: ViewModifier {
                     if let computer = app.accounts.computers.first {
                         app.accounts.selection = BotReference(accountId: nil, computerId: computer.id, botId: DemoScreens.chatBotId)
                     }
-                case "agent", "agent-memory", "agent-settings": agentScreen = screen
+                case "agent", "agent-memory", "agent-settings", "call", "incoming-call": agentScreen = screen
                 default: break // "crew", "crew-typing" and "board" (BotListView opens its Board tab) are the root
                 }
             }
