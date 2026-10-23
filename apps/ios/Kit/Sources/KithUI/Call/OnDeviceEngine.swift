@@ -47,7 +47,14 @@ class OnDeviceEngine: VoiceEngine {
     /// The language picked in the call settings, else the phone's.
     private let recognizer = UserDefaults.standard.string(forKey: OnDeviceEngine.languageKey)
         .flatMap { $0.isEmpty ? nil : SFSpeechRecognizer(locale: Locale(identifier: $0)) } ?? SFSpeechRecognizer()
-    private let engine = AVAudioEngine()
+    /// One engine for the microphone and, in Kith voice, the voice's player node: output through the
+    /// same voice-processing unit is what the echo canceller subtracts from the microphone.
+    let engine = AVAudioEngine()
+    /// Every microphone buffer: loudness in dBFS and its length in seconds. Runs on the audio thread.
+    var micFrame: (@Sendable (Double, Double) -> Void)?
+    @ObservationIgnored private var configObserver: (any NSObjectProtocol)?
+    /// The engine keeps running when listening stops (something is playing through it).
+    var holdsEngine: Bool { false }
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     /// Bumped per utterance so late callbacks from a cancelled recognition are dropped.
@@ -99,6 +106,9 @@ class OnDeviceEngine: VoiceEngine {
             try audio.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
             try audio.setActive(true)
             applyRoute()
+            configObserver = NotificationCenter.default.addObserver(
+                forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+            ) { [weak self] _ in Task { @MainActor in self?.engineConfigurationChanged() } }
             routeObserver = NotificationCenter.default.addObserver(
                 forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
             ) { [weak self] _ in Task { @MainActor in self?.applyRoute() } }
@@ -126,10 +136,28 @@ class OnDeviceEngine: VoiceEngine {
         ended = true
         if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
         routeObserver = nil
+        if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+        configObserver = nil
         onActivityChanged?(false)
         stopListening()
+        if engine.isRunning { engine.stop() }
         synthesizer.stopSpeaking(at: .immediate)
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    /// The route or hardware format changed and the engine stopped itself: bring the microphone back on the new graph.
+    func engineConfigurationChanged() {
+        guard !ended else { return }
+        log.info("audio engine configuration changed")
+        if micOn { restartListening() }
+    }
+
+    /// Runs the engine (voice processing first when talk-over needs it) if it isn't running.
+    func ensureEngineRunning() throws {
+        guard !engine.isRunning else { return }
+        if talkOverEnabled, !engine.inputNode.isVoiceProcessingEnabled { try engine.inputNode.setVoiceProcessingEnabled(true) }
+        engine.prepare()
+        try engine.start()
     }
 
     /// Reads a reply aloud (the bot's final message), pausing the microphone meanwhile.
@@ -183,11 +211,11 @@ class OnDeviceEngine: VoiceEngine {
             // Talking over the voice needs the speakers' sound taken out of the microphone's.
             if talkOverEnabled, !input.isVoiceProcessingEnabled { try input.setVoiceProcessingEnabled(true) }
             let format = try MicTap.format(of: input)
-            input.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.tap(request) { [weak self] level in
+            input.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.tap(request, frame: micFrame) { [weak self] level in
                 Task { @MainActor in self?.level = level }
             })
-            engine.prepare()
-            try engine.start()
+            // A running engine (the voice is playing through it) is left alone: voice processing can't change under it.
+            try ensureEngineRunning()
         } catch {
             log.error("audio engine: \(error.localizedDescription, privacy: .public)")
             return fail("Couldn't use the microphone: \(error.localizedDescription)")
@@ -203,7 +231,7 @@ class OnDeviceEngine: VoiceEngine {
         task = nil
         request?.endAudio()
         request = nil
-        if engine.isRunning { engine.stop() }
+        if engine.isRunning, !holdsEngine { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
         level = 0
     }
@@ -271,6 +299,7 @@ class OnDeviceEngine: VoiceEngine {
     // MARK: audio-thread closures (built outside the main actor)
 
     private nonisolated static func tap(_ request: SFSpeechAudioBufferRecognitionRequest,
+                                        frame: (@Sendable (Double, Double) -> Void)?,
                                         meter: @escaping @Sendable (Float) -> Void) -> AVAudioNodeTapBlock {
         { buffer, _ in
             request.append(buffer)
@@ -280,6 +309,7 @@ class OnDeviceEngine: VoiceEngine {
             for i in 0..<n { sum += samples[i] * samples[i] }
             // -50 dB (quiet room) … 0 dB mapped to 0…1.
             let db = 10 * log10(max(sum / Float(n), 1e-10))
+            frame?(Double(db), Double(n) / buffer.format.sampleRate)
             meter(min(1, max(0, (db + 50) / 50)))
         }
     }
