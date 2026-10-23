@@ -71,8 +71,8 @@ struct PeopleView: View {
                     }
                 }
                 Button { inviting = true } label: {
-                    Label("Invite someone", systemImage: "person.badge.plus")
-                        .foregroundStyle(Palette.text)
+                    Label("Invite a person", systemImage: "plus")
+                        .foregroundStyle(Palette.accent)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                 }

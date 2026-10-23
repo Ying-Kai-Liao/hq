@@ -464,9 +464,10 @@ public struct CardSection<Content: View, Accessory: View>: View {
         VStack(alignment: .leading, spacing: 10) {
             if let title {
                 HStack(spacing: 8) {
-                    Text(title)
-                        .kithText(.topBar)
-                        .foregroundStyle(Palette.ink)
+                    Text(title.uppercased())
+                        .font(.system(size: 10.5, weight: .bold))
+                        .tracking(10.5 * 0.08)
+                        .foregroundStyle(Palette.muted)
                         .accessibilityAddTraits(.isHeader)
                     Spacer(minLength: 0)
                     accessory
@@ -477,10 +478,10 @@ public struct CardSection<Content: View, Accessory: View>: View {
                 _VariadicView.Tree(HairlineRows()) { content }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(cardStyle == .filled ? Palette.panel : .clear, in: RoundedRectangle(cornerRadius: KithRadius.card, style: .continuous))
+            .background(cardStyle == .filled ? Palette.panel : .clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
                 if cardStyle == .outlined {
-                    RoundedRectangle(cornerRadius: KithRadius.card, style: .continuous).strokeBorder(Palette.line)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.line)
                 }
             }
             if let footer {
@@ -650,7 +651,7 @@ extension View {
         padding(.horizontal, 14)
             .padding(.vertical, vertical)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(RoundedRectangle(cornerRadius: KithRadius.card, style: .continuous).strokeBorder(Palette.line))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.line))
     }
 }
 

@@ -103,18 +103,29 @@ struct SettingsView: View {
             if showsComputers { BackupsStatusSection() }
 
             if showsSettings {
-            CardSection("Notifications", footer: "Get a result summary, a request for input, or a failure notice. Notification previews follow your iOS settings.") {
+            CardSection("Crew", footer: crewOrder == CrewOrderMode.manual.rawValue
+                        ? "Your drag order for every room, synced to your computers. Pinned rooms stay on top."
+                        : "Pinned rooms first, then rooms that need you, then working, then recent. Pinned rooms can still be dragged.") {
+                MenuRow("Crew order", systemImage: "person.2", selection: $crewOrder,
+                        options: CrewOrderMode.allCases.map { ($0.rawValue, $0.label) })
+                if accounts.computers.isEmpty || !accounts.ownedComputers.isEmpty {
+                    Button { widgets = true } label: {
+                        LinkRow { Label("Widgets & Live Activities", systemImage: "rectangle.stack") }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            CardSection("Notifications, display", footer: "Get a result summary, a request for input, or a failure notice. Default text size follows iOS Settings; Small, Large and Extra large replace it inside Kith.") {
                 Toggle("Push notifications", isOn: $notificationsEnabled)
                     .toggleStyle(.kith)
                     .onChange(of: notificationsEnabled) { PushRegistrar.shared.resync() }
                 notificationsRow
+                MenuRow("Text size", systemImage: "textformat.size", selection: $textSize,
+                        options: TextSizePreference.allCases.map { ($0.rawValue, $0.label) })
             }
 
-            CardSection("Text size", footer: "Default follows the text size in iOS Settings. Small, Large and Extra large replace it inside Kith.") {
-                SegmentedChoice(selection: $textSize, options: TextSizePreference.allCases.map { ($0.rawValue, $0.label) })
-            }
-
-            CardSection(footer: "Which features you use, never your messages, code or files. Helps us spot bugs sooner and make Kith better for you.") {
+            CardSection("Privacy", footer: "Which features you use, never your messages, code or files. Helps us spot bugs sooner and make Kith better for you.") {
                 HStack(spacing: 4) {
                     Text("Share usage analytics").lineLimit(1).layoutPriority(1)
                     IconButton("About usage analytics", systemImage: "info.circle") { aboutAnalytics = true }
@@ -122,22 +133,6 @@ struct SettingsView: View {
                         .toggleStyle(.kith)
                         .accessibilityLabel("Share usage analytics")
                 }
-            }
-
-            CardSection("Crew order", footer: crewOrder == CrewOrderMode.manual.rawValue
-                        ? "Your drag order for every room, synced to your computers. Pinned rooms stay on top."
-                        : "Pinned rooms first, then rooms that need you, then working, then recent. Pinned rooms can still be dragged.") {
-                SegmentedChoice(selection: $crewOrder, options: CrewOrderMode.allCases.map { ($0.rawValue, $0.label) })
-            }
-
-            if accounts.computers.isEmpty || !accounts.ownedComputers.isEmpty {
-                CardSection(footer: "Design how your bots show up on the Home Screen, Lock Screen and Dynamic Island.") {
-                    Button { widgets = true } label: {
-                        LinkRow { Label("Widgets & Live Activities", systemImage: "rectangle.stack") }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
             }
 
             if showsSettings, !hiddenBots.isEmpty {
@@ -160,7 +155,7 @@ struct SettingsView: View {
             }
 
             if showsSettings {
-            CardSection {
+            CardSection("About") {
                 ValueRow("App version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
                 Button("Source code") { openURL(URL(string: "https://github.com/Ying-Kai-Liao/kith")!) }
                     .buttonStyle(.plain)
@@ -172,9 +167,9 @@ struct SettingsView: View {
 
             CardSection {
                 Button { confirmStartOver = true } label: {
-                    Label("Start over", systemImage: "arrow.counterclockwise")
+                    Text("Start over…")
                         .foregroundStyle(Palette.danger)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .center)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -516,6 +511,37 @@ private struct OlderCopyRow: View {
     private var detail: String {
         let seen = computer.lastSeenAt.map { " · last seen \(RelativeTime.day(Date(milliseconds: $0)))" } ?? ""
         return "Older copy of this computer\(seen)"
+    }
+}
+
+/// A row whose value is picked from a stock menu (Crew order, Text size).
+struct MenuRow<ID: Hashable>: View {
+    let title: String
+    let systemImage: String
+    @Binding var selection: ID
+    let options: [(ID, String)]
+
+    init(_ title: String, systemImage: String, selection: Binding<ID>, options: [(ID, String)]) {
+        self.title = title
+        self.systemImage = systemImage
+        _selection = selection
+        self.options = options
+    }
+
+    var body: some View {
+        DropdownMenu {
+            options.map { option in
+                MenuItem(option.1, selected: option.0 == selection) { selection = option.0 }
+            }
+        } label: {
+            HStack {
+                Label(title, systemImage: systemImage).foregroundStyle(Palette.text)
+                Spacer(minLength: 8)
+                Text(options.first { $0.0 == selection }?.1 ?? "").foregroundStyle(Palette.secondary)
+                Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(Palette.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
     }
 }
 
