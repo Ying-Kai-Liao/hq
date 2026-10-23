@@ -224,16 +224,17 @@ public extension HostClient {
     /// `pasted`: what the user pasted rather than typed, which memory never takes as their own words.
     /// `newTask`: start a task of its own rather than go on with the current one.
     /// `start`: the project or folder the place this message runs in starts in.
+    /// `via`: "call" for a message spoken in a voice call (an older computer ignores it).
     func send(botId: String, text: String, clientNonce: String, threadId: String? = nil, attachments: [String]? = nil,
-              pasted: [String]? = nil, newTask: Bool = false, start: FolderChoice? = nil) async throws -> Entry {
+              pasted: [String]? = nil, newTask: Bool = false, start: FolderChoice? = nil, via: String? = nil) async throws -> Entry {
         struct Body: Encodable {
             var botId: String; var text: String; var clientNonce: String; var threadId: String?; var attachments: [String]?
-            var pasted: [String]?; var newTask: Bool?; var project: String?; var folder: String?
+            var pasted: [String]?; var newTask: Bool?; var project: String?; var folder: String?; var via: String?
         }
         struct Res: Decodable { var entry: Entry }
         let body = Body(botId: botId, text: text, clientNonce: clientNonce, threadId: threadId, attachments: attachments,
                         pasted: pasted?.isEmpty == false ? pasted : nil, newTask: newTask ? true : nil,
-                        project: start?.projectId, folder: start?.folderPath)
+                        project: start?.projectId, folder: start?.folderPath, via: via)
         do {
             let res: Res = try await call("send", body)
             return res.entry
@@ -341,6 +342,12 @@ public extension HostClient {
     func kithSetPermission(botId: String, mode: String) async throws -> KithInfoResponse {
         struct Body: Encodable { var botId: String; var mode: String }
         return try await call("kithSetPermission", Body(botId: botId, mode: mode), timeout: 60)
+    }
+
+    /// Writes an hq bot's call model through to hq (`kith <agent> set call-model`): a model, `own` or `default`.
+    func kithSetCallModel(botId: String, model: String) async throws -> KithInfoResponse {
+        struct Body: Encodable { var botId: String; var model: String }
+        return try await call("kithSetCallModel", Body(botId: botId, model: model), timeout: 60)
     }
 
     /// The backup chain (serve/host/src/api/backups.rs); this app only reads it. A host before it answers 404.
