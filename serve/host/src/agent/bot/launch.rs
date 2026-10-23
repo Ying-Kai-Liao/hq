@@ -53,7 +53,8 @@ pub(crate) async fn launch_commands(cfg: &BotConfig, progress: impl Fn(&str)) ->
 pub(crate) async fn select_model(acp: &Acp, res: &Value, sid: &str, cfg: &BotConfig) -> Result<Value> {
     let Some(model) = cfg.model.as_deref().filter(|m| !m.is_empty()) else { return Ok(res.clone()) };
     let Some(config_id) = crate::agent::auth::model_config(res).and_then(|c| c["id"].as_str()) else {
-        let r = timed_request(acp, "session/set_model", json!({"sessionId": sid, "modelId": model}), REQUEST_TIMEOUT).await;
+        let r =
+            timed_request(acp, "session/set_model", json!({"sessionId": sid, "modelId": model}), REQUEST_TIMEOUT).await;
         return r.map(|_| res.clone()).map_err(|e| model_error(model, e));
     };
     let (model, mut options) = split_variant(res, model);
