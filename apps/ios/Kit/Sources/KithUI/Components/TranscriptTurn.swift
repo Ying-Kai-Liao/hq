@@ -32,8 +32,15 @@ public struct ThreadChipModel: Equatable, Sendable {
     /// "your turn": a plain dot and the words, in place of the bot and counts.
     public var yourTurn: Bool
     public var tint: AgentTint
+    /// Where the thread started, when not in the app: a small tag on the meta line.
+    public var origin: OriginTag.Origin?
+    /// A terminal holds the thread: the writer chip on the meta line.
+    public var writer: StatusChip.Kind?
 
-    public init(face: CrewFace, replies: Int, newReplies: Int = 0, time: String, place: Place? = nil, yourTurn: Bool = false, tint: AgentTint = .neutral) {
+    public init(face: CrewFace, replies: Int, newReplies: Int = 0, time: String, place: Place? = nil, yourTurn: Bool = false, tint: AgentTint = .neutral,
+                origin: OriginTag.Origin? = nil, writer: StatusChip.Kind? = nil) {
+        self.origin = origin
+        self.writer = writer
         self.face = face
         self.replies = replies
         self.newReplies = newReplies
@@ -123,6 +130,8 @@ public struct ThreadChipView: View {
 
     public var body: some View {
         HStack(spacing: 8) {
+            if let origin = t.origin { OriginTag(origin) }
+            if let writer = t.writer { StatusChip(writer, tint: t.tint) }
             if let place = t.place {
                 Label { Text(place.text).lineLimit(1) } icon: { Image(systemName: place.symbol) }
                     .labelStyle(PlaceLabelStyle())

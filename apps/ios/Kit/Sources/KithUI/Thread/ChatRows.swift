@@ -50,7 +50,8 @@ struct ChatRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 if chat?.isGroup == true { AuthorLabel(botId: entry.data.author) }
                 PermissionCard(entry: entry, hostName: model.hostName, tint: tint, answering: model.answering[entry.id],
-                               waiting: GuestPrompt.waitingText(for: entry, activity: chat?.activity)) { option in
+                               waiting: heldElsewhere ? "Open in the terminal: answer it there."
+                                   : GuestPrompt.waitingText(for: entry, activity: chat?.activity)) { option in
                     model.respond(entry, option: option)
                 }
             }
@@ -66,9 +67,15 @@ struct ChatRow: View {
         }
     }
 
+    /// The prompt is in a thread a terminal holds: read-only here.
+    private var heldElsewhere: Bool {
+        guard let root = entry.threadId else { return false }
+        return model.allEntries(entry.botId).first { $0.id == root }?.data.thread?.isHeldElsewhere == true
+    }
+
     @ViewBuilder private var threadChip: some View {
         if let summary = entry.data.thread, summary.count > 0, let openThread {
-            ThreadChip(summary: summary, yourTurn: ThreadFeed.hasQuestion(model.replies(entry.botId, root: entry.id))) { openThread(entry) }
+            ThreadChip(summary: summary, yourTurn: ThreadFeed.hasQuestion(model.replies(entry.botId, root: entry.id), held: summary.isHeldElsewhere)) { openThread(entry) }
         }
     }
 }
@@ -114,7 +121,8 @@ struct ThreadChip: View {
         let author = summary.authors.lazy.compactMap { model.bots[$0] }.first
         let chip = ThreadFeed.chip(face: author.map(CrewFace.init(bot:)) ?? CrewFace(portrait: nil),
                                     tint: AgentTint.resolve(author?.avatarColor), count: summary.count, unread: summary.unread,
-                                    lastAt: summary.lastAt, place: nil, yourTurn: yourTurn)
+                                    lastAt: summary.lastAt, place: nil, yourTurn: yourTurn,
+                                   summary: summary, mac: model.hostName)
         ThreadChipView(chip, openLabel: "View thread, \(summary.count) \(summary.count == 1 ? "reply" : "replies")"
                            + ((summary.unread ?? 0) > 0 ? ", \(summary.unread ?? 0) new" : ""),
                        onToggle: open, onOpenThread: open)
@@ -233,10 +241,13 @@ struct AgentBubble: View {
 
 struct NoticeRow: View {
     let entry: Entry
+    @Environment(BotStore.self) private var model
 
     var body: some View {
         let text = entry.data.text ?? ""
-        if let seconds = entry.data.callSeconds {
+        if let kind = ThreadFeed.writerDivider(entry, mac: model.hostName) {
+            WriterDivider(kind, time: entry.date.formatted(date: .omitted, time: .shortened))
+        } else if let seconds = entry.data.callSeconds {
             Label("\(text) · \(String(format: "%02d:%02d", seconds / 60, seconds % 60))", systemImage: "waveform")
                 .font(.footnote.monospacedDigit())
                 .foregroundStyle(Palette.secondary)

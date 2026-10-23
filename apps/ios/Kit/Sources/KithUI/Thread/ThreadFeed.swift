@@ -18,10 +18,50 @@ enum ThreadFeed {
 
     /// What hangs under a task's first message. `yourTurn`: a question waits for the reader.
     static func chip(face: CrewFace, tint: AgentTint, count: Int, unread: Int?, lastAt: Int64, place: PlaceFolder?,
-                     yourTurn: Bool, now: Date = .now) -> ThreadChipModel {
+                     yourTurn: Bool, summary: ThreadSummary? = nil, mac: String? = nil, now: Date = .now) -> ThreadChipModel {
         ThreadChipModel(face: face, replies: count, newReplies: max(0, unread ?? 0),
                         time: RelativeTime.day(Date(milliseconds: lastAt), now: now), place: self.place(place),
-                        yourTurn: yourTurn, tint: tint)
+                        yourTurn: yourTurn, tint: tint, origin: origin(summary), writer: writerChip(summary, mac: mac))
+    }
+
+    // MARK: terminal threads (continue anywhere)
+
+    /// The origin tag for a thread started outside the app; nil for the app, a bot, or a word we don't know.
+    static func origin(_ summary: ThreadSummary?) -> OriginTag.Origin? {
+        switch summary?.threadOrigin {
+        case .terminal: .terminal
+        case .discord: .discord
+        case .telegram: .telegram
+        case .slack: .slack
+        default: nil
+        }
+    }
+
+    /// The chip while somebody else holds the thread: "In terminal · Mac mini", or working.
+    static func writerChip(_ summary: ThreadSummary?, mac: String?) -> StatusChip.Kind? {
+        guard let summary, summary.isHeldElsewhere else { return nil }
+        return .writer(working: summary.liveBusy == true, mac: mac)
+    }
+
+    /// What the dock's place shows for a held thread; nil when the app may write.
+    /// `unreachable`: the computer is offline, so what the terminal is doing is unknown.
+    static func writerPhase(_ summary: ThreadSummary?, taking: Bool, failed: Bool, unreachable: Bool) -> WriterPhase? {
+        guard let summary, summary.isHeldElsewhere else { return nil }
+        if taking { return .taking }
+        if unreachable { return .unreachable }
+        if failed { return .failed }
+        return summary.liveBusy == true ? .working : .idle
+    }
+
+    /// The divider words of a writer-change notice; nil for any other notice (including a change we don't know).
+    static func writerDivider(_ entry: Entry, mac: String) -> WriterDivider.Kind? {
+        switch entry.data.writerChangeKind {
+        case .startedInTerminal: .startedInTerminal(mac: mac)
+        case .openedInTerminal: .openedInTerminal(mac: mac)
+        case .tookOver: .tookOver
+        case .terminalClosed: .terminalClosed
+        case .other, nil: nil
+        }
     }
 
     // MARK: tool rows
@@ -119,9 +159,10 @@ enum ThreadFeed {
         return out
     }
 
-    /// A question waits on the reader: a permission card still pending.
-    static func hasQuestion(_ replies: [Entry]) -> Bool {
-        replies.contains { $0.kind == "permission" && $0.data.status == "pending" }
+    /// A question waits on the reader: a permission card still pending. In a thread another writer holds it is
+    /// theirs to answer, not the reader's.
+    static func hasQuestion(_ replies: [Entry], held: Bool = false) -> Bool {
+        !held && replies.contains { $0.kind == "permission" && $0.data.status == "pending" }
     }
 }
 

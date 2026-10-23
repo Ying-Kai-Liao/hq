@@ -45,6 +45,9 @@ public struct ThreadView: View {
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)
                         .transition(.opacity)
+                } else if let held = ThreadFeed.heldTask(in: model.chat(botId)) {
+                    // A terminal holds the thread the box would go on with.
+                    ThreadWriterDock(botId: botId, rootId: held.id)
                 } else {
                     // The phone is in the top bar, so the dock has no call button.
                     Composer(botId: botId)
@@ -460,6 +463,8 @@ extension ThreadView {
         } else if let kind = connectionChip {
             StatusChip(kind)
                 .help("\(model.hostName) · \(connectionDescription)")
+        } else if let kind = ThreadFeed.writerChip(ThreadFeed.heldTask(in: model.chat(botId))?.data.thread, mac: model.hostName) {
+            StatusChip(kind, tint: AgentTint.resolve(bot?.avatarColor))
         }
     }
 
@@ -470,6 +475,9 @@ extension ThreadView {
             Button("Show the computer", systemImage: "display") {
                 model.screenRequest = usingComputer ? ScreenRequest(watching: botId) : ScreenRequest()
             }
+        }
+        if bot?.isGroup != true, let root = Tasks.current(in: model.chat(botId)), let bot {
+            Button("Copy resume command", systemImage: "terminal") { Pasteboard.copy(root.resumeCommand(agent: bot.name)) }
         }
         Divider()
         Button("Details", systemImage: "info.circle", action: openDetails)

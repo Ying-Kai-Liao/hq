@@ -25,6 +25,15 @@ struct RepliesView: View {
                     PlaceFolderChip(botId: botId, thread: rootId)
                 }
                 Spacer(minLength: 8)
+                if let root, let chat {
+                    Menu {
+                        Button("Copy resume command", systemImage: "terminal") { Pasteboard.copy(root.resumeCommand(agent: chat.name)) }
+                    } label: {
+                        Image(systemName: "ellipsis").font(.system(size: 17, weight: .medium)).foregroundStyle(Palette.ink)
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Thread actions")
+                }
                 IconButton("Close thread", systemImage: "xmark", action: close)
                     .keyboardShortcut(.cancelAction)
             }
@@ -40,6 +49,8 @@ struct RepliesView: View {
                         UpdateNeededCard(store: model, mismatch: mismatch)
                             .padding(.horizontal, 16)
                             .padding(.bottom, 8)
+                    } else if root?.data.thread?.isHeldElsewhere == true {
+                        ThreadWriterDock(botId: botId, rootId: rootId)
                     } else {
                         Composer(botId: botId, thread: rootId)
                     }

@@ -21,7 +21,7 @@ struct TaskRow: View {
             let status = Tasks.status(of: root, bot: bot, replies: replies)
             let now = Int64(context.date.timeIntervalSince1970 * 1000)
             // A question that waits opens its thread even if it was folded by hand.
-            let open = ThreadFeed.hasQuestion(replies) || Tasks.isOpen(status, newest: newest, lastAt: Tasks.lastAt(root), now: now, choice: choice)
+            let open = ThreadFeed.hasQuestion(replies, held: root.data.thread?.isHeldElsewhere == true) || Tasks.isOpen(status, newest: newest, lastAt: Tasks.lastAt(root), now: now, choice: choice)
             // An older reply can be missing when only live ones arrived: load the whole thread.
             let missing = open && replies.count < (root.data.thread?.count ?? 0)
             thread(replies, status, open: open, now: context.date)
@@ -37,7 +37,8 @@ struct TaskRow: View {
         let summary = root.data.thread
         let chip = ThreadFeed.chip(face: CrewFace(bot: bot), tint: tint, count: summary?.count ?? 0, unread: summary?.unread,
                                    lastAt: Tasks.lastAt(root), place: model.placeFolder(bot.id, thread: root.id),
-                                   yourTurn: ThreadFeed.hasQuestion(replies), now: now)
+                                   yourTurn: ThreadFeed.hasQuestion(replies, held: summary?.isHeldElsewhere == true),
+                                   summary: summary, mac: model.hostName, now: now)
         return VStack(alignment: .trailing, spacing: 4) {
             ChatRow(entry: root, groupStart: true, chat: bot, openTrace: openTrace)
             HStack(spacing: 4) {
