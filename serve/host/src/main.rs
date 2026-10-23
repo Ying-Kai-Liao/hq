@@ -398,13 +398,17 @@ async fn main() -> Result<()> {
             // Windows: the shell Claude Code runs status lines in varies (Git Bash, PowerShell), so
             // the line stays the user's; usage still comes from `claude -p /usage` and ACP.
             if cfg!(unix)
-                && environment::Environment::current() == environment::Environment::Main
                 && let Some(home) = dirs::home_dir()
             {
-                match service::ensure_statusline(&home.join(".claude/settings.json")) {
-                    Ok(true) => println!(
-                        "Claude Code's status line now also reports usage limits to Kith (your own status line still shows)."
-                    ),
+                // Wrap only from the stable installed binary of the Main build; dev builds and
+                // cargo target paths would leave a dangling wrapper, so they only repair one.
+                let host = service::current_exe().ok().filter(|exe| {
+                    environment::Environment::current() == environment::Environment::Main && update::is_standalone(exe)
+                });
+                match service::ensure_statusline(&home.join(".claude/settings.json"), host.as_deref()) {
+                    Ok(true) => {
+                        println!("Claude Code's status line settings updated (your own status line still shows).");
+                    }
                     Ok(false) => {}
                     Err(e) => eprintln!("Couldn't set Claude Code's status line: {e}"),
                 }
@@ -729,15 +733,18 @@ async fn statusline(port: u16, wrapped: String) {
     let mut input = String::new();
     let _ = std::io::stdin().read_to_string(&mut input);
     let v: serde_json::Value = serde_json::from_str(&input).unwrap_or_default();
-    if let Ok(token) = std::fs::read_to_string(service::data_dir().join("token")) {
-        let _ = http()
-            .post(format!("http://127.0.0.1:{port}/ingest/statusline"))
-            .bearer_auth(token.trim())
-            .json(&v)
-            .timeout(Duration::from_secs(1))
-            .send()
-            .await;
-    }
+    // The user's line prints first and unchanged; the usage POST comes after and is capped short.
+    let ingest = || async {
+        if let Ok(token) = std::fs::read_to_string(service::data_dir().join("token")) {
+            let _ = http()
+                .post(format!("http://127.0.0.1:{port}/ingest/statusline"))
+                .bearer_auth(token.trim())
+                .json(&v)
+                .timeout(Duration::from_millis(300))
+                .send()
+                .await;
+        }
+    };
     if !wrapped.trim().is_empty() {
         // The user's own status line gets the same JSON on stdin.
         use std::io::Write;
@@ -747,6 +754,7 @@ async fn statusline(port: u16, wrapped: String) {
             }
             let _ = child.wait();
         }
+        ingest().await;
         return;
     }
     let model = v["model"]["display_name"].as_str().unwrap_or("Claude");
@@ -757,4 +765,5 @@ async fn statusline(port: u16, wrapped: String) {
         }
     }
     println!("{line}");
+    ingest().await;
 }

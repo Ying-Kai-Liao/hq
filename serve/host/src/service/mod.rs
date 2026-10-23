@@ -71,8 +71,6 @@ fn wait_for_host_exit() -> Result<()> {
 }
 
 pub const DEFAULT_PORT: u16 = crate::environment::Environment::current().port();
-/// Marker between our command and a wrapped user status line.
-const STATUSLINE_MARK: &str = " statusline --";
 
 /// The user's home. Kith can't do anything useful without one, so its absence is fatal.
 pub(crate) fn home() -> PathBuf {
@@ -309,30 +307,47 @@ fn write_settings(settings: &Path, v: &Value) -> Result<()> {
 /// Routes Claude Code's status line through `kith-serve statusline` so usage
 /// limits reach the host locally. An existing status line keeps working: it is
 /// wrapped (`kith-serve statusline -- <original>`) and restored on uninstall.
-pub fn ensure_statusline(settings: &Path) -> Result<bool> {
+///
+/// `host` is the stable installed binary to wrap with; `None` (dev builds, app
+/// bundle, Homebrew Cellar, cargo target) never wraps, it only repairs a
+/// wrapper whose binary no longer exists, so the user's own line is never lost.
+pub fn ensure_statusline(settings: &Path, host: Option<&Path>) -> Result<bool> {
     let mut v = read_settings(settings)?.unwrap_or_else(|| json!({}));
-    let mut current = v["statusLine"]["command"].as_str().map(str::to_owned);
+    let current = v["statusLine"]["command"].as_str().map(str::to_owned);
     if v.get("statusLine").is_some() && current.is_none() {
         return Ok(false); // not a command status line; leave it alone
     }
-    let exe = current_exe()?;
-    let ours = format!("'{}' statusline", exe.to_string_lossy());
-    if let Some(cmd) = current.as_deref() {
-        if cmd.starts_with(&ours) {
-            return Ok(false);
+    let wrapper = current.as_deref().and_then(wrapper_parts);
+    let new_command = match (host, wrapper) {
+        // A wrapper whose binary is gone (ours or a legacy one): back to the user's own line.
+        // With a stable host the repaired line is wrapped again in the same step.
+        (None, Some((bin, original))) if !Path::new(bin).exists() => original.to_owned(),
+        (Some(host), Some((bin, original))) if !Path::new(bin).exists() => wrap(host, original),
+        // Someone else's live wrapper is not ours to touch.
+        (_, Some((bin, _))) if legacy(bin) => return Ok(false),
+        (None, _) => return Ok(false),
+        (Some(host), Some((bin, original))) => {
+            if Path::new(bin) == host {
+                return Ok(false);
+            }
+            wrap(host, original)
         }
-        // Wrapped by a host binary that moved or was deleted: re-point it.
-        if let Some(original) = unwrap_statusline(cmd) {
-            current = Some(original.to_owned()).filter(|o| !o.is_empty());
-        }
-    }
-    let command = match current {
-        Some(original) => format!("{ours} -- {original}"),
-        None => ours,
+        (Some(host), None) => wrap(host, current.as_deref().unwrap_or("")),
     };
-    v["statusLine"] = json!({"type": "command", "command": command});
+    if new_command.is_empty() {
+        if let Some(root) = v.as_object_mut() {
+            root.remove("statusLine");
+        }
+    } else {
+        v["statusLine"] = json!({"type": "command", "command": new_command});
+    }
     write_settings(settings, &v)?;
     Ok(true)
+}
+
+fn wrap(host: &Path, original: &str) -> String {
+    let ours = format!("'{}' statusline", host.to_string_lossy());
+    if original.is_empty() { ours } else { format!("{ours} -- {original}") }
 }
 
 /// Undoes [`ensure_statusline`].
@@ -351,14 +366,27 @@ pub fn restore_statusline(settings: &Path) -> Result<()> {
     write_settings(settings, &v)
 }
 
-/// The command our wrapper wraps (empty when it wraps nothing), or `None`
-/// when `cmd` isn't ours.
-fn unwrap_statusline(cmd: &str) -> Option<&str> {
+/// The host binary path and the command a wrapper wraps (empty when it wraps
+/// nothing), or `None` when `cmd` isn't a `'<host>' statusline [-- <cmd>]` wrapper.
+fn wrapper_parts(cmd: &str) -> Option<(&str, &str)> {
     // Ours always starts with the quoted host path followed by ` statusline`.
-    if !cmd.starts_with('\'') || !cmd.contains("' statusline") {
-        return None;
-    }
-    Some(cmd.split_once(STATUSLINE_MARK).map_or("", |(_, original)| original.trim()))
+    let rest = cmd.strip_prefix('\'')?;
+    let (bin, after) = rest.split_once("' statusline")?;
+    let original = if after.is_empty() { "" } else { after.strip_prefix(" --")?.trim() };
+    Some((bin, original))
+}
+
+/// The command our wrapper wraps (empty when it wraps nothing), or `None`
+/// when `cmd` isn't ours. A live legacy wrapper isn't ours either.
+fn unwrap_statusline(cmd: &str) -> Option<&str> {
+    wrapper_parts(cmd).filter(|(bin, _)| !legacy(bin) || !Path::new(bin).exists()).map(|(_, original)| original)
+}
+
+/// Legacy compat: the app this project was forked from wrapped status lines the
+/// same way (`'…/<its host>' statusline -- <original>`). Recognised only so that
+/// a leftover wrapper whose app was deleted gets unwrapped; a live one stays.
+fn legacy(bin: &str) -> bool {
+    Path::new(bin).file_name().is_some_and(|n| n.to_string_lossy().starts_with("codync"))
 }
 
 #[cfg(test)]
@@ -420,18 +448,109 @@ mod tests {
         assert!(pairing_url(&q).ends_with("&cloud=https%3A%2F%2Fcloud.example"));
     }
 
+    /// A real file standing in for an installed host binary.
+    fn fake_bin(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("kith-bin-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join(name);
+        std::fs::write(&f, "").unwrap();
+        f
+    }
+
+    fn command(f: &Path) -> String {
+        read(f)["statusLine"]["command"].as_str().unwrap().to_owned()
+    }
+
     #[test]
     fn statusline_wraps_and_restores() {
+        let host = fake_bin("kith");
         let f = temp_settings(r#"{"statusLine":{"type":"command","command":"sh ~/mine.sh"}}"#);
-        assert!(ensure_statusline(&f).unwrap());
-        assert!(!ensure_statusline(&f).unwrap(), "idempotent");
-        assert!(read(&f)["statusLine"]["command"].as_str().unwrap().ends_with("statusline -- sh ~/mine.sh"));
-        let stale = r#"{"statusLine":{"type":"command","command":"'/gone/kith-serve' statusline -- sh ~/mine.sh"}}"#;
-        std::fs::write(&f, stale).unwrap();
-        assert!(ensure_statusline(&f).unwrap(), "re-points a moved host");
-        let cmd = read(&f)["statusLine"]["command"].as_str().unwrap().to_owned();
-        assert!(!cmd.contains("/gone/") && cmd.ends_with("statusline -- sh ~/mine.sh"));
+        assert!(ensure_statusline(&f, Some(&host)).unwrap());
+        assert!(!ensure_statusline(&f, Some(&host)).unwrap(), "idempotent: no double wrap");
+        assert_eq!(command(&f), format!("'{}' statusline -- sh ~/mine.sh", host.display()));
         restore_statusline(&f).unwrap();
-        assert_eq!(read(&f)["statusLine"]["command"], "sh ~/mine.sh");
+        assert_eq!(command(&f), "sh ~/mine.sh");
+    }
+
+    #[test]
+    fn statusline_without_original_is_removed_on_restore() {
+        let host = fake_bin("kith");
+        let f = temp_settings("{}");
+        assert!(ensure_statusline(&f, Some(&host)).unwrap());
+        assert_eq!(command(&f), format!("'{}' statusline", host.display()));
+        restore_statusline(&f).unwrap();
+        assert!(read(&f).get("statusLine").is_none());
+        // No settings file at all: wrapping creates it, restoring a missing one is a no-op.
+        let missing = temp_settings("{}").with_file_name("none.json");
+        assert!(ensure_statusline(&missing, Some(&host)).unwrap());
+        restore_statusline(&temp_settings("{}").with_file_name("absent.json")).unwrap();
+    }
+
+    #[test]
+    fn statusline_leaves_non_command_lines_alone() {
+        let host = fake_bin("kith");
+        let text = r#"{"statusLine":{"type":"static","text":"hi"}}"#;
+        let f = temp_settings(text);
+        assert!(!ensure_statusline(&f, Some(&host)).unwrap());
+        restore_statusline(&f).unwrap();
+        assert_eq!(read(&f), serde_json::from_str::<Value>(text).unwrap());
+    }
+
+    #[test]
+    fn statusline_repoints_a_moved_host() {
+        let host = fake_bin("kith");
+        let old = fake_bin("kith-serve"); // an older Kith build, still on disk
+        let f = temp_settings(&format!(
+            r#"{{"statusLine":{{"type":"command","command":"'{}' statusline -- sh ~/mine.sh"}}}}"#,
+            old.display()
+        ));
+        assert!(ensure_statusline(&f, Some(&host)).unwrap());
+        assert_eq!(command(&f), format!("'{}' statusline -- sh ~/mine.sh", host.display()));
+    }
+
+    #[test]
+    fn statusline_unwraps_dangling_wrappers() {
+        let host = fake_bin("kith");
+        for cmd in [
+            "'/gone/kith-serve' statusline -- sh ~/mine.sh",
+            "'/Applications/Gone.app/Contents/Resources/codync-host' statusline -- sh ~/mine.sh",
+        ] {
+            let f = temp_settings(&format!(r#"{{"statusLine":{{"type":"command","command":"{cmd}"}}}}"#));
+            assert!(ensure_statusline(&f, None).unwrap(), "{cmd}");
+            assert_eq!(command(&f), "sh ~/mine.sh", "repair only, no wrap");
+            let f = temp_settings(&format!(r#"{{"statusLine":{{"type":"command","command":"{cmd}"}}}}"#));
+            assert!(ensure_statusline(&f, Some(&host)).unwrap(), "{cmd}");
+            assert_eq!(command(&f), format!("'{}' statusline -- sh ~/mine.sh", host.display()));
+        }
+        // Dangling with nothing wrapped: the line is dropped, not left pointing nowhere.
+        let f = temp_settings(r#"{"statusLine":{"type":"command","command":"'/gone/kith-serve' statusline"}}"#);
+        assert!(ensure_statusline(&f, None).unwrap());
+        assert!(read(&f).get("statusLine").is_none());
+    }
+
+    #[test]
+    fn statusline_leaves_live_legacy_wrappers_alone() {
+        let host = fake_bin("kith");
+        let theirs = fake_bin("codync-host");
+        let text = format!(
+            r#"{{"statusLine":{{"type":"command","command":"'{}' statusline -- sh ~/mine.sh"}}}}"#,
+            theirs.display()
+        );
+        let f = temp_settings(&text);
+        assert!(!ensure_statusline(&f, Some(&host)).unwrap());
+        restore_statusline(&f).unwrap();
+        assert_eq!(read(&f), serde_json::from_str::<Value>(&text).unwrap());
+    }
+
+    #[test]
+    fn statusline_without_a_stable_host_never_wraps() {
+        let f = temp_settings(r#"{"statusLine":{"type":"command","command":"sh ~/mine.sh"}}"#);
+        assert!(!ensure_statusline(&f, None).unwrap());
+        assert_eq!(command(&f), "sh ~/mine.sh");
+        let live = fake_bin("kith-serve");
+        let wrapped = format!("'{}' statusline -- sh ~/mine.sh", live.display());
+        let f = temp_settings(&format!(r#"{{"statusLine":{{"type":"command","command":"{wrapped}"}}}}"#));
+        assert!(!ensure_statusline(&f, None).unwrap(), "a live wrapper is left as is");
+        assert_eq!(command(&f), wrapped);
     }
 }
