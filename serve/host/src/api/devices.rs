@@ -29,7 +29,7 @@ impl Caller {
 }
 
 /// Methods only this computer may call.
-const LOCAL_ONLY: &[&str] = &[
+pub(super) const LOCAL_ONLY: &[&str] = &[
     "hostUpdateStatus",
     "checkHostUpdate",
     "installHostUpdate",
@@ -66,6 +66,43 @@ const LOCAL_ONLY: &[&str] = &[
     "setApproval",
 ];
 const SCREEN: &[&str] = &["screenPrepare", "screenOffer", "screenClose", "screenTakeover"];
+
+/// Whose call it is: the owner (Local, and devices with no person), an invited person's device, or nobody (a device
+/// that left the table, a pairing channel).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Principal {
+    Owner,
+    /// An invited person's device that has shown the invite token.
+    Member(String),
+    /// The same, before it has: it may only call `proveInvite`.
+    Unproven(String),
+    Nobody,
+}
+
+/// Resolved from the device row on every call, so a revoked or re-assigned device takes effect at once.
+pub fn principal(store: &crate::store::Store, caller: &Caller) -> Principal {
+    match caller {
+        Caller::Local => Principal::Owner,
+        Caller::Pairing { .. } => Principal::Nobody,
+        Caller::Device { key, .. } => store.device(key).map_or(Principal::Nobody, |d| match d.person_id {
+            None => Principal::Owner,
+            Some(p) if store.device_proven(key) => Principal::Member(p),
+            Some(p) => Principal::Unproven(p),
+        }),
+    }
+}
+
+/// A method an invited person isn't allowed to call, or a chat or agent that isn't theirs (403).
+#[derive(Debug)]
+pub struct NotAllowed(pub String);
+
+impl std::fmt::Display for NotAllowed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for NotAllowed {}
 
 /// A method the caller isn't allowed to call (403).
 #[derive(Debug)]

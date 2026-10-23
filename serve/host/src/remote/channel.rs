@@ -514,6 +514,11 @@ impl Channel {
                 }
             },
             "term" => {
+                // Setup terminals are the computer's own: an invited person never watches one.
+                if devices::principal(&self.hub.store, &self.caller) != devices::Principal::Owner {
+                    self.send(err(id, 403, "This can only be done at the computer itself.")).await;
+                    return;
+                }
                 let Some(s) = api::term_events(&self.hub, b["term"].as_str().unwrap_or_default()) else {
                     self.send(err(id, 404, "that terminal is gone")).await;
                     return;
@@ -598,6 +603,7 @@ impl Channel {
             lease_until: None,
             created_at: now_ms(),
             last_seen_at: None,
+            person_id: None,
         };
         if let Err(e) = self.hub.store.put_device(&device) {
             tracing::error!(error = format!("{e:#}"), "couldn't save a paired device");
@@ -919,6 +925,7 @@ mod tests {
             lease_until: Some(now_ms() + 300),
             created_at: now_ms(),
             last_seen_at: None,
+            person_id: None,
         };
         hub.store.put_device(&device).unwrap();
         let mut p = Phone::direct(&hub, key.clone());

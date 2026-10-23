@@ -1,0 +1,488 @@
+//! Invited people against a real kith-auth in a temp folder, a temp store and a fake cloud: who a caller is, what is
+//! denied by default, per-person filtering, inviting, binding memberships, revoking and the audit log.
+
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use super::devices::{Caller, NotAllowed, Principal, principal};
+use super::rig::Rig;
+use super::{dispatch, events_stream, roles};
+use crate::remote::cloud;
+use crate::remote::crypto::{self, b64};
+use crate::remote::members::{self, Listed};
+use crate::store::{Invite, Scope, now_ms};
+use futures::StreamExt;
+use serde_json::{Value, json};
+use std::collections::BTreeSet;
+use std::sync::Arc;
+use std::time::Duration;
+
+async fn call(r: &Rig, caller: &Caller, method: &str, b: Value) -> anyhow::Result<Value> {
+    dispatch(&r.hub, caller, method, b).await
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().fold(String::new(), |s, b| s + &format!("{b:02x}"))
+}
+
+fn denied(e: &anyhow::Error) -> bool {
+    e.is::<NotAllowed>() || e.is::<super::devices::Forbidden>()
+}
+
+/// `sam` made by an invite, bound to `user_sam`, with `house` and one phone.
+async fn joined(r: &Rig, roles: Value) -> (Caller, String) {
+    let made = call(r, &Caller::Local, "createInvite", json!({"name": "Sam", "agents": roles})).await.unwrap();
+    let invite = made["inviteId"].as_str().unwrap().to_owned();
+    let listed = [Listed { membership_id: "mem_sam".into(), user_id: "user_sam".into(), invite_id: invite }];
+    members::apply(&r.hub, Some(&r.bin), &listed, Some("user_owner")).await.unwrap();
+    (r.device("sam-phone", Some("sam")), "mem_sam".into())
+}
+
+async fn events(r: &Rig, caller: &Caller) -> Vec<Value> {
+    let s = events_stream(&r.hub, 0, None, caller).unwrap();
+    Box::pin(s).take_until(tokio::time::sleep(Duration::from_millis(300))).collect().await
+}
+
+#[tokio::test]
+async fn a_caller_is_the_owner_or_a_person() {
+    let r = Rig::new().await;
+    r.auth(&["person", "sam"]);
+    let owner = r.device("owner-phone", None);
+    let sam = r.device("sam-phone", Some("sam"));
+    let ghost = Caller::Device { key: "ghost".into(), scopes: vec![Scope::Control] };
+    let store = &r.hub.store;
+    assert_eq!(principal(store, &Caller::Local), Principal::Owner);
+    assert_eq!(principal(store, &owner), Principal::Owner, "old rows and the owner's devices have no person");
+    assert_eq!(principal(store, &sam), Principal::Member("sam".into()));
+    assert_eq!(principal(store, &ghost), Principal::Nobody);
+    assert_eq!(principal(store, &Caller::Pairing { key: "p".into() }), Principal::Nobody);
+
+    // linkCode is for the caller's own person.
+    let code_of = |v: &Value| v["code"].as_str().unwrap().to_owned();
+    let sam_code = code_of(&call(&r, &sam, "linkCode", json!({})).await.unwrap());
+    let code = code_of(&call(&r, &owner, "linkCode", json!({})).await.unwrap());
+    let file: Value = serde_json::from_str(&std::fs::read_to_string(r.dir.join("auth.json")).unwrap()).unwrap();
+    assert_eq!(file["invites"][sam_code]["person"], "sam", "an invitee's code is for their own person");
+    assert_eq!(file["invites"][code]["person"], "kai", "the owner's code is the owner's");
+    assert!(call(&r, &ghost, "hello", json!({})).await.is_err());
+}
+
+/// Every method name the router has an arm for, read from the api sources.
+fn router_methods() -> BTreeSet<String> {
+    let sources = [
+        include_str!("bots.rs"),
+        include_str!("host.rs"),
+        include_str!("folders.rs"),
+        include_str!("backups.rs"),
+        include_str!("kith_info.rs"),
+        include_str!("marketplace.rs"),
+        include_str!("remote.rs"),
+        include_str!("people.rs"),
+    ];
+    let mut out = BTreeSet::new();
+    for src in sources {
+        let mut open = false;
+        for line in src.lines().map(str::trim) {
+            let starts = line.starts_with('"') || (open && line.starts_with("| \""));
+            if !starts {
+                open = false;
+                continue;
+            }
+            let head = line.split("=>").next().unwrap_or(line);
+            let arm = line.contains("=>");
+            if !arm && !head.trim_end().ends_with('|') {
+                open = false;
+                continue;
+            }
+            out.extend(
+                head.split('"')
+                    .skip(1)
+                    .step_by(2)
+                    .filter(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_alphanumeric()))
+                    .map(str::to_owned),
+            );
+            open = !arm;
+        }
+    }
+    out.extend(crate::chat::memory::HQ_METHODS.iter().map(|m| (*m).to_owned()));
+    out.insert("readFile".into());
+    out
+}
+
+#[tokio::test]
+async fn every_router_method_is_denied_to_members_unless_listed() {
+    let r = Rig::new().await;
+    r.auth(&["person", "sam"]);
+    let sam = r.device("sam-phone", Some("sam"));
+    let known = router_methods();
+    assert!(known.len() > 100, "the walk found {} methods: did the router's layout change?", known.len());
+    for m in ["createBot", "updateBot", "deleteBot", "listDirs", "registerProject", "memoryCall", "routines", "skills"]
+    {
+        assert!(known.contains(m), "{m} is a router method");
+    }
+    for listed in roles::MEMBER_METHODS {
+        assert!(known.contains(*listed), "{listed} is on the allow-list but the router has no such method");
+    }
+    let mut refused = 0;
+    for m in &known {
+        if roles::member_may(m) {
+            continue;
+        }
+        let e = call(&r, &sam, m, json!({})).await.expect_err(m);
+        assert!(denied(&e), "{m}: {e:#}");
+        refused += 1;
+    }
+    for m in super::devices::LOCAL_ONLY {
+        assert!(!roles::member_may(m), "{m} is local-only and must not be on the member list");
+        assert!(call(&r, &sam, m, json!({})).await.is_err());
+    }
+    for m in ["createInvite", "invites", "revokeInvite", "people", "setPersonAccess", "revokePerson", "audit"] {
+        assert!(!roles::member_may(m), "{m} is the owner's");
+        assert!(call(&r, &sam, m, json!({})).await.unwrap_err().is::<NotAllowed>());
+    }
+    let rows = r.hub.store.audit_list(0, Some("sam")).unwrap();
+    assert!(rows.len() >= refused && rows.iter().all(|row| !row.allowed || roles::member_may(&row.method)));
+}
+
+#[tokio::test]
+async fn an_invitee_sees_and_touches_only_their_own_chats() {
+    let r = Rig::new().await;
+    let owner_house = r.owner_bot("house");
+    let owner_money = r.owner_bot("money");
+    let (sam, _) = joined(&r, json!({"house": "member"})).await;
+
+    let started = call(&r, &sam, "startChat", json!({"agent": "house"})).await.unwrap();
+    let chat = started["bot"]["id"].as_str().unwrap().to_owned();
+    assert_eq!(started["bot"]["person"], "sam");
+    assert!(started["bot"]["cwd"].is_null(), "the agent's folder on this computer isn't shown");
+    let again = call(&r, &sam, "startChat", json!({"agent": "house"})).await.unwrap();
+    assert_eq!(again["bot"]["id"], chat.as_str(), "one chat per agent");
+    let e = call(&r, &sam, "startChat", json!({"agent": "money"})).await.unwrap_err();
+    assert!(e.is::<NotAllowed>(), "not granted: {e:#}");
+    assert!(call(&r, &Caller::Local, "startChat", json!({"agent": "house"})).await.is_err());
+
+    // Their chat works; the owner's chats and entries are not theirs.
+    call(&r, &sam, "history", json!({"botId": chat})).await.unwrap();
+    for bot in [&owner_house, &owner_money] {
+        let e = call(&r, &sam, "history", json!({"botId": bot})).await.unwrap_err();
+        assert!(e.is::<NotAllowed>(), "{e:#}");
+        assert!(call(&r, &sam, "send", json!({"botId": bot, "text": "hi"})).await.is_err());
+    }
+    let entry = r
+        .hub
+        .add_entry(
+            &crate::store::Lane::main(&owner_house),
+            crate::store::EntryKind::Agent,
+            1,
+            &json!({"text": "secret"}),
+        )
+        .unwrap();
+    assert!(call(&r, &sam, "react", json!({"entryId": entry.id, "emoji": "x"})).await.is_err());
+    assert!(call(&r, &sam, "respondPermission", json!({"entryId": entry.id})).await.is_err());
+    // Folders on this Mac, and projects nobody shared.
+    let e = call(&r, &sam, "send", json!({"botId": chat, "text": "hi", "folder": "/etc"})).await.unwrap_err();
+    assert!(e.is::<NotAllowed>());
+    let e = call(&r, &sam, "send", json!({"botId": chat, "text": "hi", "project": "secret-site"})).await.unwrap_err();
+    assert!(e.is::<NotAllowed>());
+
+    // Lists: the owner never sees their chat, they never see the owner's.
+    let seen = |evs: &[Value]| -> BTreeSet<String> {
+        evs.iter().filter(|e| e["type"] == "bot").map(|e| e["bot"]["id"].as_str().unwrap().to_owned()).collect()
+    };
+    let owner_view = events(&r, &Caller::Local).await;
+    assert_eq!(seen(&owner_view), BTreeSet::from([owner_house.clone(), owner_money.clone()]));
+    let sam_view = events(&r, &sam).await;
+    assert_eq!(seen(&sam_view), BTreeSet::from([chat.clone()]));
+    assert!(sam_view.iter().all(|e| e["type"] != "entry" || e["entry"]["botId"] == chat.as_str()));
+    assert!(sam_view[0]["usage"].is_null() && sam_view[0]["screen"].is_null(), "hello is trimmed");
+    assert!(sam_view.iter().all(|e| e["type"] != "usage"));
+
+    // Hello hides this computer's paths and addresses.
+    let hello = call(&r, &sam, "hello", json!({})).await.unwrap();
+    assert!(hello["home"].is_null() && hello["urls"].is_null() && hello["hostId"].is_string());
+    let owner_hello = call(&r, &Caller::Local, "hello", json!({})).await.unwrap();
+    assert!(owner_hello["home"].is_string() || owner_hello["urls"].is_array());
+
+    // Projects: only those shared with them.
+    r.hub.store.set_person_projects("sam", &["site".to_owned()]).unwrap();
+    let all = json!({"projects": [{"id": "site"}, {"id": "other"}], "error": "no hq at /Users/x"});
+    let shaped = roles::shape(&r.hub, "sam", "projects", all);
+    assert_eq!(shaped, json!({"projects": [{"id": "site", "name": "site"}]}));
+
+    // Taking the agent away cuts the next request.
+    r.auth(&["member", "house", "sam", "--rm"]);
+    let e = call(&r, &sam, "history", json!({"botId": chat})).await.unwrap_err();
+    assert!(e.is::<NotAllowed>(), "{e:#}");
+
+    let audit = call(&r, &Caller::Local, "audit", json!({"personId": "sam"})).await.unwrap();
+    let rows = audit["audit"].as_array().unwrap();
+    assert!(rows.iter().any(|a| a["method"] == "history" && a["allowed"] == true && a["target"] == chat.as_str()));
+    assert!(rows.iter().any(|a| a["method"] == "history" && a["allowed"] == false));
+    assert!(rows.iter().all(|a| a["deviceKey"] == "sam-phone"));
+}
+
+#[tokio::test]
+async fn create_invite_makes_the_person_the_grants_and_the_cloud_record() {
+    let r = Rig::new().await;
+    let made = call(&r, &Caller::Local, "createInvite", json!({"name": "Sam Lee", "agents": {"house": "member"}}))
+        .await
+        .unwrap();
+    assert_eq!(made["personId"], "sam-lee");
+    let link = made["link"].as_str().unwrap();
+    let query = link.strip_prefix("kith://invite?").unwrap();
+    let part = |k: &str| query.split('&').find_map(|p| p.strip_prefix(&format!("{k}="))).unwrap().to_owned();
+    assert_eq!(part("c"), r.hub.identity.computer_id());
+    assert_eq!(part("i"), made["inviteId"].as_str().unwrap());
+    let resolved: Value = serde_json::from_str(&r.auth(&["resolve", "house", "--person", "sam-lee"])).unwrap();
+    assert_eq!(
+        (resolved["allowed"] == true, resolved["preset"].as_str(), resolved["budget"].as_str()),
+        (true, Some("member"), Some("20"))
+    );
+    assert!(!r.allowed("sam-lee", "money"));
+    // The cloud only gets the hash.
+    let posted = r.posts().into_iter().find(|(p, _)| p == "/v1/host/invites").unwrap().1;
+    assert_eq!(posted["inviteId"], made["inviteId"]);
+    let proof = hex(&crypto::sha256(&[part("t").as_bytes()]));
+    assert_eq!(
+        posted["tokenHash"],
+        hex(&crypto::sha256(&[proof.as_bytes()])).as_str(),
+        "the cloud gets the hash of the proof"
+    );
+    assert_eq!(posted["expiresAt"], made["expiresAt"]);
+    let stored = r.hub.store.invite(made["inviteId"].as_str().unwrap()).unwrap();
+    assert!(stored.open(now_ms()) && stored.token_hash == proof, "the host keeps the proof the cloud never saw");
+    assert!(
+        !serde_json::to_string(&call(&r, &Caller::Local, "invites", json!({})).await.unwrap())
+            .unwrap()
+            .contains(&part("t"))
+    );
+
+    // The same name again: another invite for the same person. Someone else's id isn't taken over.
+    let again = call(&r, &Caller::Local, "createInvite", json!({"name": "Sam Lee", "agents": {"money": "guest"}}))
+        .await
+        .unwrap();
+    assert_eq!(again["personId"], "sam-lee");
+    assert_ne!(again["inviteId"], made["inviteId"]);
+    r.auth(&["person", "bob"]);
+    let bob =
+        call(&r, &Caller::Local, "createInvite", json!({"name": "Bob", "agents": {"house": "guest"}})).await.unwrap();
+    assert_eq!(bob["personId"], "bob-2");
+    let people = call(&r, &Caller::Local, "people", json!({})).await.unwrap();
+    let ids: Vec<&str> = people["people"].as_array().unwrap().iter().map(|p| p["personId"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["sam-lee", "bob-2"]);
+    assert_eq!(people["people"][0]["agents"], json!({"house": "member", "money": "guest"}));
+}
+
+#[tokio::test]
+async fn create_invite_refuses_and_leaves_nothing_half_made() {
+    let r = Rig::new().await;
+    let invite = |name: &str, agents: Value| json!({"name": name, "agents": agents});
+    // Unclaimed.
+    cloud::update_status(&r.hub, |s| s.owner = None);
+    let e = call(&r, &Caller::Local, "createInvite", invite("Kim", json!({"house": "guest"}))).await.unwrap_err();
+    assert!(format!("{e:#}").contains("Sign in"), "{e:#}");
+    cloud::update_status(&r.hub, |s| s.owner = Some(cloud::Owner { user_id: "user_owner".into(), email: None }));
+    // Bad roles and unknown agents.
+    assert!(call(&r, &Caller::Local, "createInvite", invite("Kim", json!({"house": "owner"}))).await.is_err());
+    assert!(call(&r, &Caller::Local, "createInvite", invite("Kim", json!({"nope": "guest"}))).await.is_err());
+    assert!(!r.auth_ok(&["people", "kim"]), "a failed grant takes the new person back");
+    // The cloud says no.
+    r.fake.refuse_invites.store(true, std::sync::atomic::Ordering::Relaxed);
+    let e = call(&r, &Caller::Local, "createInvite", invite("Kim", json!({"house": "guest"}))).await.unwrap_err();
+    assert!(format!("{e:#}").contains("cloud"), "{e:#}");
+    assert!(!r.auth_ok(&["people", "kim"]));
+    assert!(r.hub.store.invites().unwrap().is_empty() && r.hub.store.person("kim").is_none());
+    // An existing person keeps what they had when a new grant is rolled back.
+    r.fake.refuse_invites.store(false, std::sync::atomic::Ordering::Relaxed);
+    call(&r, &Caller::Local, "createInvite", invite("Kim", json!({"house": "guest"}))).await.unwrap();
+    r.fake.refuse_invites.store(true, std::sync::atomic::Ordering::Relaxed);
+    assert!(call(&r, &Caller::Local, "createInvite", invite("Kim", json!({"money": "member"}))).await.is_err());
+    assert!(r.allowed("kim", "house") && !r.allowed("kim", "money"));
+    assert_eq!(r.hub.store.person("kim").unwrap().agents.keys().collect::<Vec<_>>(), ["house"]);
+    assert_eq!(r.hub.store.invites().unwrap().len(), 1);
+    // No owner person in kith-auth.
+    r.auth(&["person", "kai", "--rm"]);
+    let e = call(&r, &Caller::Local, "createInvite", invite("Lee", json!({"house": "guest"}))).await.unwrap_err();
+    assert!(format!("{e:#}").contains("owner"), "{e:#}");
+}
+
+#[tokio::test]
+async fn memberships_bind_only_to_our_open_invites_and_leave_with_the_cloud() {
+    let r = Rig::new().await;
+    let made =
+        call(&r, &Caller::Local, "createInvite", json!({"name": "Sam", "agents": {"house": "guest"}})).await.unwrap();
+    let invite = made["inviteId"].as_str().unwrap().to_owned();
+    let listed = |id: &str, user: &str, inv: &str| Listed {
+        membership_id: id.into(),
+        user_id: user.into(),
+        invite_id: inv.into(),
+    };
+    let bin = Some(r.bin.as_path());
+
+    // An invite we never made, and one that has expired, bind nothing.
+    let old = Invite {
+        invite_id: "inv_old".into(),
+        person_id: "sam".into(),
+        token_hash: "h".into(),
+        agents: std::collections::BTreeMap::default(),
+        created_at: 1,
+        expires_at: now_ms() - 1,
+        used_at: None,
+        revoked_at: None,
+    };
+    r.hub.store.put_invite(&old).unwrap();
+    let strangers = [listed("mem_a", "user_a", "inv_unknown"), listed("mem_b", "user_b", "inv_old")];
+    members::apply(&r.hub, bin, &strangers, Some("user_owner")).await.unwrap();
+    // Nor does an account that isn't an account id, or the owner's own.
+    let odd = [listed("mem_c", "not a user id", &invite), listed("mem_d", "user_owner", &invite)];
+    members::apply(&r.hub, bin, &odd, Some("user_owner")).await.unwrap();
+    assert_eq!(r.hub.store.memberships().unwrap(), []);
+    assert!(r.who("user_a")["person"].is_null() && r.who("user_b")["person"].is_null());
+    assert_eq!(r.hub.store.memberships().unwrap(), []);
+
+    // Ours binds, once, and is the same on every pull.
+    let sam = listed("mem_sam", "user_sam", &invite);
+    members::apply(&r.hub, bin, std::slice::from_ref(&sam), Some("user_owner")).await.unwrap();
+    members::apply(&r.hub, bin, std::slice::from_ref(&sam), Some("user_owner")).await.unwrap();
+    assert_eq!(r.who("user_sam")["person"], "sam");
+    assert_eq!(r.hub.store.memberships().unwrap().len(), 1);
+    assert!(r.hub.store.invite(&invite).unwrap().used_at.is_some());
+    // A second account can't ride the same invite.
+    members::apply(&r.hub, bin, &[sam.clone(), listed("mem_x", "user_x", &invite)], Some("user_owner")).await.unwrap();
+    assert!(r.who("user_x")["person"].is_null());
+
+    // The membership disappears from the cloud: devices go, the person and their memory stay.
+    let phone = r.device("sam-phone", Some("sam"));
+    r.device("owner-phone", None);
+    members::apply(&r.hub, bin, &[], Some("user_owner")).await.unwrap();
+    assert!(r.hub.store.device("sam-phone").is_none() && r.hub.store.device("owner-phone").is_some());
+    assert!(r.who("user_sam")["person"].is_null() && r.auth_ok(&["people", "sam"]));
+    assert_eq!(r.hub.store.memberships().unwrap(), []);
+    assert!(call(&r, &phone, "hello", json!({})).await.is_err(), "its channel is refused at once");
+    members::apply(&r.hub, bin, &[], Some("user_owner")).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_pull_binds_the_member_and_approves_their_device_without_the_owner() {
+    let r = Rig::new().await;
+    let made =
+        call(&r, &Caller::Local, "createInvite", json!({"name": "Sam", "agents": {"house": "member"}})).await.unwrap();
+    let invite = made["inviteId"].as_str().unwrap().to_owned();
+    let base = cloud::url(&r.hub.store).unwrap();
+    let (dk, nd): ([u8; 32], [u8; 32]) = (crypto::random(), crypto::random());
+    let stranger_dk: [u8; 32] = crypto::random();
+    let request = |id: &str, user: &str, host_nonce: Option<String>, device_nonce: Option<[u8; 32]>| {
+        json!({"requestId": id, "deviceKey": b64(if user == "user_sam" { &dk } else { &stranger_dk }), "userId": user, "deviceName": "Sam's phone", "platform": "ios",
+            "commit": b64(&crypto::sas_commit(crypto::Labels::Kith, if user == "user_sam" { &dk } else { &stranger_dk }, &nd)),
+            "hostNonce": host_nonce, "deviceNonce": device_nonce.map(|n| b64(&n)), "createdAt": 1, "expiresAt": 2})
+    };
+    let memberships =
+        json!([{"membershipId": "mem_sam", "userId": "user_sam", "inviteId": invite, "email": "s@example.com"}]);
+    r.set_cloud_state(json!({"owner": {"userId": "user_owner"}, "memberships": memberships, "grants": [],
+        "requests": [request("req_sam", "user_sam", None, None), request("req_x", "user_stranger", None, None)]}));
+    cloud::pull(&r.hub, &base).await.unwrap();
+    assert_eq!(r.who("user_sam")["person"], "sam");
+    let posts = r.posts();
+    assert!(
+        posts.iter().any(|(p, b)| p.ends_with("req_x/decision") && b["decision"] == "deny"),
+        "a stranger is denied"
+    );
+    let nonce =
+        posts.iter().find(|(p, _)| p.ends_with("req_sam/nonce")).expect("the member's request is answered").1["nonce"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+    assert_eq!(r.hub.cloud.requests_json()[0]["personId"], "sam");
+
+    // Approval mode stays "code", and the member's device still gets in on the matching reveal.
+    assert_eq!(cloud::approval(&r.hub.store), cloud::Approval::Code);
+    r.set_cloud_state(json!({"owner": {"userId": "user_owner"}, "memberships": memberships, "grants": [],
+        "requests": [request("req_sam", "user_sam", Some(nonce), Some(nd))]}));
+    cloud::pull(&r.hub, &base).await.unwrap();
+    let device = r.hub.store.device(&b64(&dk)).expect("approved");
+    assert_eq!((device.person_id.as_deref(), device.grant_id.as_deref()), (Some("sam"), Some("grt_new")));
+    let caller = Caller::Device { key: device.key.clone(), scopes: device.scopes.clone() };
+    assert_eq!(principal(&r.hub.store, &caller), Principal::Unproven("sam".into()), "approved, but not yet proven");
+    assert!(call(&r, &caller, "hello", json!({})).await.is_err());
+    let t = made["link"].as_str().unwrap().rsplit("t=").next().unwrap().to_owned();
+    let wrong = call(&r, &caller, "proveInvite", json!({"inviteId": invite, "token": "nope"})).await.unwrap_err();
+    assert!(wrong.is::<NotAllowed>());
+    call(&r, &caller, "proveInvite", json!({"inviteId": invite, "token": t})).await.unwrap();
+    assert_eq!(principal(&r.hub.store, &caller), Principal::Member("sam".into()));
+    call(&r, &caller, "hello", json!({})).await.unwrap();
+
+    // Grants: renewed for the bound account, removed for any other.
+    let grant = |user: Option<&str>| cloud::Grant {
+        grant_id: "grt_new".into(),
+        device_key: device.key.clone(),
+        user_id: user.map(str::to_owned),
+    };
+    cloud::apply_grants(&r.hub, &[grant(Some("user_sam"))], Some("user_owner")).unwrap();
+    assert!(r.hub.store.device(&device.key).is_some());
+    cloud::apply_grants(&r.hub, &[grant(Some("user_owner"))], Some("user_owner")).unwrap();
+    assert!(r.hub.store.device(&device.key).is_none(), "a grant naming another account isn't honoured");
+    // An owner's device needs the owner's account (or a cloud that doesn't say).
+    let owner_phone = r.device("owner-phone", None);
+    let og = |user: Option<&str>| cloud::Grant {
+        grant_id: "grt_owner-phone".into(),
+        device_key: "owner-phone".into(),
+        user_id: user.map(str::to_owned),
+    };
+    cloud::apply_grants(&r.hub, &[og(None)], Some("user_owner")).unwrap();
+    cloud::apply_grants(&r.hub, &[og(Some("user_owner"))], Some("user_owner")).unwrap();
+    assert!(r.hub.store.device("owner-phone").is_some());
+    cloud::apply_grants(&r.hub, &[og(Some("user_sam"))], Some("user_owner")).unwrap();
+    assert!(r.hub.store.device("owner-phone").is_none());
+    let _ = owner_phone;
+}
+
+#[tokio::test]
+async fn changing_and_revoking_a_persons_access() {
+    let r = Rig::new().await;
+    let (sam, membership) = joined(&r, json!({"house": "guest"})).await;
+    // More agents, a role change, a project.
+    call(
+        &r,
+        &Caller::Local,
+        "setPersonAccess",
+        json!({"personId": "sam", "agents": {"house": "member", "money": "guest"}, "projects": ["site"]}),
+    )
+    .await
+    .unwrap();
+    let house: Value = serde_json::from_str(&r.auth(&["resolve", "house", "--person", "sam"])).unwrap();
+    assert_eq!((house["preset"].as_str(), house["budget"].as_str()), (Some("member"), Some("20")));
+    assert!(r.allowed("sam", "money"));
+    assert_eq!(r.hub.store.person("sam").unwrap().projects, ["site"]);
+    call(&r, &Caller::Local, "setPersonAccess", json!({"personId": "sam", "agents": {"money": "guest"}}))
+        .await
+        .unwrap();
+    assert!(!r.allowed("sam", "house") && r.allowed("sam", "money"));
+    assert_eq!(r.hub.store.person("sam").unwrap().projects, ["site"], "left alone when not named");
+    assert!(
+        call(&r, &Caller::Local, "setPersonAccess", json!({"personId": "kai", "agents": {}})).await.is_err(),
+        "not someone invited"
+    );
+
+    // An unused invite revokes locally and in the cloud; twice is fine.
+    let made = call(&r, &Caller::Local, "createInvite", json!({"personId": "sam", "agents": {"money": "guest"}}))
+        .await
+        .unwrap();
+    let id = made["inviteId"].as_str().unwrap();
+    assert_eq!(call(&r, &Caller::Local, "revokeInvite", json!({"inviteId": id})).await.unwrap()["revoked"], true);
+    assert_eq!(call(&r, &Caller::Local, "revokeInvite", json!({"inviteId": id})).await.unwrap()["revoked"], false);
+    assert!(r.posts().iter().any(|(p, _)| p == &format!("/v1/host/invites/{id}/revoke")));
+
+    // Revoking the person: agents, devices, binding and the cloud membership; the person and their memory stay.
+    let other = r.device("sam-tablet", Some("sam"));
+    call(&r, &Caller::Local, "revokePerson", json!({"personId": "sam"})).await.unwrap();
+    call(&r, &Caller::Local, "revokePerson", json!({"personId": "sam"})).await.unwrap();
+    assert!(!r.allowed("sam", "money") && r.auth_ok(&["people", "sam"]));
+    assert!(r.hub.store.devices_of("sam").unwrap().is_empty());
+    assert!(r.who("user_sam")["person"].is_null());
+    assert_eq!(r.hub.store.memberships().unwrap(), []);
+    assert!(r.posts().iter().any(|(p, _)| p == &format!("/v1/host/memberships/{membership}/revoke")));
+    assert!(call(&r, &sam, "hello", json!({})).await.is_err() && call(&r, &other, "hello", json!({})).await.is_err());
+    assert!(call(&r, &Caller::Local, "revokePerson", json!({"personId": "nobody"})).await.is_err());
+    // The invite that was open is closed with them.
+    assert!(r.hub.store.invites().unwrap().iter().all(|i| !i.open(now_ms())));
+    let _ = Arc::strong_count(&r.hub);
+}

@@ -12,12 +12,20 @@ mod host;
 mod http;
 mod kith_info;
 mod marketplace;
+mod people;
+#[cfg(test)]
+mod proof_tests;
 mod remote;
+#[cfg(test)]
+pub(crate) mod rig;
+pub mod roles;
+#[cfg(test)]
+mod roles_tests;
 
 pub use events::{events_stream, term_events};
 pub use http::router;
 
-use crate::api::devices::{Caller, Forbidden};
+use crate::api::devices::{Caller, Forbidden, NotAllowed, Principal};
 use crate::hub::Hub;
 use crate::market;
 use anyhow::{Result, anyhow};
@@ -42,7 +50,7 @@ impl std::error::Error for UnknownMethod {}
 pub fn error_status(e: &anyhow::Error) -> (StatusCode, String) {
     if e.is::<UnknownMethod>() {
         (StatusCode::NOT_FOUND, e.to_string())
-    } else if e.is::<Forbidden>() {
+    } else if e.is::<Forbidden>() || e.is::<NotAllowed>() {
         (StatusCode::FORBIDDEN, e.to_string())
     } else if e.is::<crate::remote::cloud::Conflict>() {
         (StatusCode::CONFLICT, e.to_string())
@@ -63,7 +71,13 @@ fn actor_arg<'a>(b: &'a Value, bot: &'a str) -> &'a str {
 
 /// Runs one API method for `caller` (permissions per spec §6.6).
 pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<Value> {
-    devices::permit(caller, method)?;
+    let permitted = devices::permit(caller, method);
+    match devices::principal(&hub.store, caller) {
+        Principal::Owner => permitted?,
+        Principal::Nobody => return Err(Forbidden.into()),
+        Principal::Member(person) => return member_call(hub, caller, &person, true, method, b, permitted).await,
+        Principal::Unproven(person) => return member_call(hub, caller, &person, false, method, b, permitted).await,
+    }
     let observed = crate::analytics::observe_call(hub, caller, method, &b);
     let result = route(hub, caller, method, b).await;
     if result.is_ok()
@@ -116,8 +130,39 @@ async fn route(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Resul
         ControlFlow::Break(v) => return Ok(v),
         ControlFlow::Continue(b) => b,
     };
+    let b = match people::call(hub, caller, method, b).await? {
+        ControlFlow::Break(v) => return Ok(v),
+        ControlFlow::Continue(b) => b,
+    };
     match remote::call(hub, caller, method, b).await? {
         ControlFlow::Break(v) => Ok(v),
         ControlFlow::Continue(_) => Err(UnknownMethod.into()),
     }
+}
+
+/// A call from an invited person: the device check, then the allow-list and the chat checks, every one audited, then
+/// the method itself with its answer shaped for them.
+async fn member_call(
+    hub: &Arc<Hub>,
+    caller: &Caller,
+    person: &str,
+    proven: bool,
+    method: &str,
+    b: Value,
+    permitted: Result<(), Forbidden>,
+) -> Result<Value> {
+    let verdict = match permitted {
+        Ok(()) => roles::guard(hub, person, proven, method, &b).await,
+        Err(e) => Err(e.into()),
+    };
+    let target = roles::target_of(&b);
+    let outcome = match verdict {
+        Ok(()) => route(hub, caller, method, b).await,
+        Err(e) => Err(e),
+    };
+    // A refused call is logged as denied. The proof call is allowed to every unproven device but only counts when it checks out.
+    let allowed = outcome.is_ok()
+        || (method != "proveInvite" && !matches!(&outcome, Err(e) if e.is::<NotAllowed>() || e.is::<Forbidden>()));
+    hub.store.audit_add(person, caller.device_key(), method, target.as_deref(), allowed);
+    Ok(roles::shape(hub, person, method, outcome?))
 }

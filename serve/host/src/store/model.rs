@@ -134,6 +134,11 @@ pub struct BotConfig {
     /// The hq project the bot's places work in unless a place picked its own (see `agent::folder`). Beats `cwd`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
+    /// The invited person whose chat this is (a kith-auth person id); None is the owner's. Kept in the config JSON
+    /// rather than a column: it is set once when the chat starts, no query needs it, and old rows already mean the
+    /// owner. Only the host sets it (see `api::people::start_chat`); a client can't edit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person: Option<String>,
     #[serde(default)]
     pub created_at: i64,
 }
