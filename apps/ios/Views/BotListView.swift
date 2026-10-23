@@ -11,6 +11,15 @@ struct BotListView: View {
     @State private var editing: EditTarget?
     @State private var editingGroup: GroupTarget?
     @State private var confirmDelete: RosterItem?
+    @State private var newChat: ChatTarget?
+    private struct ChatTarget: Identifiable {
+        let store: BotStore
+        let id: ComputerID
+        @MainActor init(store: BotStore) {
+            self.store = store
+            id = store.computer.id
+        }
+    }
     /// The bot whose row is lifted, to drag or for its menu.
     @State private var lifted: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -50,8 +59,15 @@ struct BotListView: View {
         allStores.filter { $0.connection == .online && $0.mismatch == nil }
     }
 
+    /// Computers this account owns: new bots and groups are made there. A computer joined by invite
+    /// takes `New chat` instead, since an invited person's chat is made by the computer.
     private var allStores: [BotStore] {
-        accounts.computers.compactMap { accounts.store(for: $0.id) }
+        accounts.ownedComputers.compactMap { accounts.store(for: $0.id) }
+    }
+
+    private var memberStores: [BotStore] {
+        accounts.computers.filter { accounts.role(for: $0.id) == .member }
+            .compactMap { accounts.store(for: $0.id) }.filter { $0.connection == .online }
     }
 
     /// The rows the user can drag: each shown computer's heading (with several computers), in the
@@ -111,9 +127,12 @@ struct BotListView: View {
                     Button("New bot", systemImage: "plus", action: newBot)
                     Button("New group chat", systemImage: "person.2", action: newGroup)
                         .disabled(onlineStores.isEmpty)
+                    ForEach(memberStores, id: \.computer.id) { store in
+                        Button("New chat on \(store.hostName)", systemImage: "square.and.pencil") { newChat = ChatTarget(store: store) }
+                    }
                 }
                 // A computer that needs an update can't take a new bot.
-                .disabled(!allStores.contains { $0.mismatch == nil })
+                .disabled(!allStores.contains { $0.mismatch == nil } && memberStores.isEmpty)
             }
         }
         .refreshable {
@@ -139,6 +158,9 @@ struct BotListView: View {
                         accounts.selection = BotReference(accountId: accounts.accountId, computerId: computerId, botId: botId)
                     }
             }
+        }
+        .kithSheet(item: $newChat) { target in
+            NewChatSheet(store: target.store).environment(accounts)
         }
         .kithSheet(item: $editingGroup) { target in
             if let store = accounts.store(for: target.computerId) {

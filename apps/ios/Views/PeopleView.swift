@@ -1,0 +1,421 @@
+import CoreImage.CIFilterBuiltins
+import KithKit
+import KithUI
+import SwiftUI
+
+/// The agents the owner has on a computer, which an invite can offer. Their own bots only: a chat an invited person has
+/// is theirs and doesn't make a new agent.
+@MainActor
+private func agentsOffered(on store: BotStore, plus extra: some Sequence<String> = [String]()) -> [String] {
+    Array(Set(store.bots.values.compactMap(\.hqAgent).filter { !$0.isEmpty }).union(extra)).sorted()
+}
+
+/// Settings → People: who the owner invited to this computer. Hidden on a host that doesn't know invites.
+struct PeopleSection: View {
+    let store: BotStore
+    @State private var people: PeopleStore
+    @State private var showing = false
+
+    init(store: BotStore) {
+        self.store = store
+        _people = State(initialValue: PeopleStore(store: store))
+    }
+
+    var body: some View {
+        Group {
+            if !people.unsupported {
+                CardSection("People", footer: "Invite a friend or teammate to use some of your agents on \(store.hostName).") {
+                    Button { showing = true } label: {
+                        LinkRow {
+                            Label(summary, systemImage: "person.2")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .task { await people.load() }
+        .kithSheet(isPresented: $showing) { PeopleView(people: people, store: store) }
+    }
+
+    private var summary: String {
+        guard people.loaded else { return "People" }
+        let count = people.people.count
+        return count == 0 ? "Invite someone" : count == 1 ? "1 person" : "\(count) people"
+    }
+}
+
+/// The people, their agents and roles, what is waiting to be accepted, and the way to invite someone.
+struct PeopleView: View {
+    let people: PeopleStore
+    let store: BotStore
+    @State private var inviting = false
+    @State private var editing: HostPerson?
+    @State private var showActivity = false
+
+    var body: some View {
+        CardForm {
+            if let error = people.error {
+                Text(error).font(.footnote).foregroundStyle(Palette.danger)
+            }
+            CardSection("People", footer: people.people.isEmpty
+                        ? "Nobody yet. They sign in to Kith with their own account, so you can see who did what."
+                        : "Members and guests can only use the agents you pick. Tap a person to change that.") {
+                ForEach(people.people) { person in
+                    Button { editing = person } label: { PersonRow(person: person) }
+                        .buttonStyle(.plain)
+                }
+                Button { inviting = true } label: {
+                    Label("Invite someone", systemImage: "person.badge.plus")
+                        .foregroundStyle(Palette.text)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            let pending = people.pending
+            if !pending.isEmpty {
+                CardSection("Waiting to join", footer: "Single use. Revoke a link to cancel it.") {
+                    ForEach(pending) { invite in
+                        PendingInviteRow(invite: invite, name: people.person(invite.personId)?.name ?? invite.personId) {
+                            Task { await people.revokeInvite(invite.inviteId) }
+                        }
+                    }
+                }
+            }
+
+            CardSection {
+                Button { showActivity = true } label: {
+                    LinkRow { Label("Activity", systemImage: "list.bullet.rectangle") }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background(Palette.background)
+        .safeAreaInset(edge: .top, spacing: 0) { ModalHeader("People") }
+        .refreshable { await people.load() }
+        .task { await people.load() }
+        .kithSheet(isPresented: $inviting) { InviteSheet(people: people, store: store) }
+        .kithSheet(item: $editing) { person in EditPersonSheet(person: person, people: people, store: store) }
+        .kithSheet(isPresented: $showActivity) { ActivitySheet(people: people) }
+    }
+}
+
+private struct PersonRow: View {
+    let person: HostPerson
+
+    var body: some View {
+        LinkRow {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(person.name).font(.body.weight(.semibold))
+                Text(agentsLine).font(.subheadline).foregroundStyle(Palette.secondary).lineLimit(2)
+                Text(deviceLine).font(.caption).foregroundStyle(Palette.tertiary).lineLimit(1)
+            }
+        }
+    }
+
+    private var agentsLine: String {
+        person.agents.isEmpty ? "No agents"
+            : person.agents.sorted { $0.key < $1.key }.map { "\($0.key), \($0.value.rawValue)" }.joined(separator: " · ")
+    }
+
+    private var deviceLine: String {
+        guard person.joined else { return person.openInvites > 0 ? "Hasn't joined yet" : "Not joined" }
+        let count = person.devices.count
+        let devices = count == 1 ? "1 device" : "\(count) devices"
+        if person.devices.contains(where: { $0.connected == true }) { return "\(devices) · online now" }
+        return person.lastSeen.map { "\(devices) · last seen \(RelativeTime.day($0))" } ?? devices
+    }
+}
+
+private struct PendingInviteRow: View {
+    let invite: HostInvite
+    let name: String
+    let revoke: () -> Void
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name).font(.body.weight(.semibold)).foregroundStyle(Palette.text)
+                Text("Expires \(invite.expiry.formatted(.relative(presentation: .named)))")
+                    .font(.subheadline).foregroundStyle(Palette.secondary)
+            }
+            Spacer()
+            Button("Revoke", action: revoke)
+                .buttonStyle(.plain)
+                .foregroundStyle(Palette.danger)
+        }
+    }
+}
+
+// MARK: - invite
+
+/// Pick a person (or type a new name), tick the agents and a role for each, then Create.
+private struct InviteSheet: View {
+    let people: PeopleStore
+    let store: BotStore
+    @State private var name = ""
+    /// Nil is a new person.
+    @State private var personId: String?
+    @State private var roles: [String: InviteRole] = [:]
+    @State private var created: CreatedInvite?
+
+    private var agents: [String] { agentsOffered(on: store) }
+    private var whoOptions: [(id: String, label: String)] {
+        var options: [(id: String, label: String)] = [(id: "", label: "New person")]
+        options += people.people.map { (id: $0.personId, label: $0.name) }
+        return options
+    }
+    private var canCreate: Bool {
+        !roles.isEmpty && !people.busy && (personId != nil || !name.trimmingCharacters(in: .whitespaces).isEmpty)
+    }
+
+    var body: some View {
+        Group {
+            if let created {
+                InviteLinkView(invite: created, name: people.person(created.personId ?? "")?.name ?? name)
+            } else {
+                form
+            }
+        }
+        .background(Palette.background)
+        .safeAreaInset(edge: .top, spacing: 0) { ModalHeader("Invite someone") }
+    }
+
+    private var form: some View {
+        CardForm {
+            CardSection("Who", footer: "They sign in to Kith with their own Google, Apple or GitHub account.") {
+                if !people.people.isEmpty {
+                    ChoicePicker(selection: Binding(get: { personId ?? "" }, set: { personId = $0.isEmpty ? nil : $0 }),
+                                 options: whoOptions)
+                }
+                if personId == nil {
+                    TextField("Name", text: $name)
+                        .textInputAutocapitalization(.words)
+                        .submitLabel(.done)
+                }
+            }
+            CardSection("Agents", footer: agents.isEmpty
+                        ? "No agents on this computer yet."
+                        : "A member can do more with an agent than a guest. Guest is the safer start.") {
+                ForEach(agents, id: \.self) { agent in
+                    AgentRoleRow(agent: agent, role: Binding(get: { roles[agent] }, set: { roles[agent] = $0 }))
+                }
+            }
+            if let error = people.error {
+                Text(error).font(.footnote).foregroundStyle(Palette.danger)
+            }
+            Button {
+                Task { await create() }
+            } label: {
+                ZStack {
+                    Text("Create invite").opacity(people.busy ? 0 : 1)
+                    if people.busy { Spinner(size: 18) }
+                }
+                .frame(maxWidth: .infinity, minHeight: 28)
+            }
+            .buttonStyle(.primary)
+            .disabled(!canCreate)
+        }
+    }
+
+    private func create() async {
+        let typed = name.trimmingCharacters(in: .whitespaces)
+        if let made = await people.createInvite(name: personId == nil ? typed : nil, personId: personId, agents: roles) {
+            created = made
+        }
+    }
+}
+
+/// An agent with a switch and, when it is on, the role.
+private struct AgentRoleRow: View {
+    let agent: String
+    @Binding var role: InviteRole?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(agent, isOn: Binding(get: { role != nil }, set: { role = $0 ? (role ?? .guest) : nil }))
+                .toggleStyle(.kith)
+            if let current = role {
+                SegmentedChoice(selection: Binding(get: { current }, set: { role = $0 }),
+                                options: InviteRole.allCases.map { ($0, $0.title) })
+            }
+        }
+    }
+}
+
+/// The link, to copy or share, and a QR code; the words the owner passes on with it.
+private struct InviteLinkView: View {
+    let invite: CreatedInvite
+    let name: String
+    @State private var copied = false
+
+    var body: some View {
+        CardForm {
+            CardSection("Invite for \(name)", footer: "Single use, expires in 24 hours. Send it to them; they sign in with Google, Apple or GitHub.") {
+                Text(invite.link)
+                    .font(.system(.footnote, design: .monospaced))
+                    .foregroundStyle(Palette.text)
+                    .textSelection(.enabled)
+                    .lineLimit(4)
+                    .truncationMode(.middle)
+                Button(copied ? "Copied" : "Copy link") {
+                    UIPasteboard.general.string = invite.link
+                    copied = true
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Palette.text)
+                ShareLink(item: invite.link) {
+                    Label("Share link", systemImage: "square.and.arrow.up")
+                        .foregroundStyle(Palette.text)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            if let code = QRCode.image(for: invite.link) {
+                VStack(spacing: 8) {
+                    Image(uiImage: code)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 220, height: 220)
+                        .padding(12)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .accessibilityLabel("QR code of the invite link")
+                    Text("Or let them scan this with their camera.")
+                        .font(.caption)
+                        .foregroundStyle(Palette.secondary)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+}
+
+private enum QRCode {
+    static func image(for text: String) -> UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(text.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage else { return nil }
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 8, y: 8))
+        guard let cg = CIContext().createCGImage(scaled, from: scaled.extent) else { return nil }
+        return UIImage(cgImage: cg)
+    }
+}
+
+// MARK: - edit
+
+/// Change a person's agents, roles and shared projects, or remove them.
+private struct EditPersonSheet: View {
+    let person: HostPerson
+    let people: PeopleStore
+    let store: BotStore
+    @Environment(\.dismissModal) private var dismiss
+    @State private var roles: [String: InviteRole]
+    @State private var projects: Set<String>
+    @State private var confirmRemove = false
+
+    init(person: HostPerson, people: PeopleStore, store: BotStore) {
+        self.person = person
+        self.people = people
+        self.store = store
+        _roles = State(initialValue: person.agents)
+        _projects = State(initialValue: Set(person.projects))
+    }
+
+    private var agents: [String] { agentsOffered(on: store, plus: person.agents.keys) }
+    private var changed: Bool { roles != person.agents || projects != Set(person.projects) }
+
+    var body: some View {
+        CardForm {
+            CardSection("Agents") {
+                ForEach(agents, id: \.self) { agent in
+                    AgentRoleRow(agent: agent, role: Binding(get: { roles[agent] }, set: { roles[agent] = $0 }))
+                }
+            }
+            if !people.projects.isEmpty || !projects.isEmpty {
+                CardSection("Projects", footer: "Only the projects you tick are shared with \(person.name).") {
+                    ForEach(projectChoices, id: \.id) { project in
+                        Toggle(project.id, isOn: Binding(get: { projects.contains(project.id) },
+                                                           set: { if $0 { projects.insert(project.id) } else { projects.remove(project.id) } }))
+                            .toggleStyle(.kith)
+                    }
+                }
+            }
+            if let error = people.error {
+                Text(error).font(.footnote).foregroundStyle(Palette.danger)
+            }
+            Button {
+                Task {
+                    if await people.setAccess(person.personId, agents: roles, projects: projects.sorted()) { dismiss() }
+                }
+            } label: {
+                Text("Save").frame(maxWidth: .infinity, minHeight: 28)
+            }
+            .buttonStyle(.primary)
+            .disabled(!changed || people.busy)
+
+            CardSection {
+                Button { confirmRemove = true } label: {
+                    Label("Remove \(person.name)", systemImage: "person.badge.minus")
+                        .foregroundStyle(Palette.danger)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(people.busy)
+            }
+        }
+        .background(Palette.background)
+        .safeAreaInset(edge: .top, spacing: 0) { ModalHeader(person.name) }
+        .task { await people.loadProjects() }
+        .kithDialog("Remove \(person.name)?", isPresented: $confirmRemove,
+                    message: "They lose access to this computer. Their memory stays on the Mac.") {
+            [DialogAction("Remove", destructive: true) {
+                Task { if await people.remove(person.personId) { dismiss() } }
+            }]
+        }
+    }
+
+    /// Projects the host listed, plus any already shared that it no longer lists.
+    private var projectChoices: [HQProject] {
+        let known = Set(people.projects.map(\.id))
+        return people.projects + projects.subtracting(known).sorted().map { HQProject(id: $0) }
+    }
+}
+
+// MARK: - activity
+
+private struct ActivitySheet: View {
+    let people: PeopleStore
+
+    var body: some View {
+        CardForm {
+            CardSection("Activity", footer: people.audit.isEmpty ? "Nothing yet. What people ask this computer to do shows here for 90 days." : nil) {
+                ForEach(people.audit) { row in
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(name(row.personId)) · \(row.method)").foregroundStyle(Palette.text)
+                            Text(row.time.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption).foregroundStyle(Palette.tertiary)
+                        }
+                        Spacer()
+                        Text(row.allowed ? "Allowed" : "Denied")
+                            .font(.subheadline)
+                            .foregroundStyle(row.allowed ? Palette.secondary : Palette.danger)
+                    }
+                }
+            }
+            if let error = people.error {
+                Text(error).font(.footnote).foregroundStyle(Palette.danger)
+            }
+        }
+        .background(Palette.background)
+        .safeAreaInset(edge: .top, spacing: 0) { ModalHeader("Activity") }
+        .refreshable { await people.loadAudit() }
+        .task { await people.loadAudit() }
+    }
+
+    private func name(_ id: String) -> String { people.person(id)?.name ?? id }
+}

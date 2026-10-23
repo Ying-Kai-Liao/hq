@@ -24,6 +24,7 @@ struct SettingsView: View {
     @State private var voice: VoiceTarget?
     @State private var aboutAnalytics = false
     @State private var showLicenses = false
+    @State private var newChat: VoiceTarget?
 
     var body: some View {
         CardForm {
@@ -31,7 +32,9 @@ struct SettingsView: View {
                         ? "Computers in your account need your OK on the computer before this iPhone can use them."
                         : "Each bot runs on its own computer. Sign in to see the computers in your account.") {
                 ForEach(accounts.computers) { computer in
-                    if let store = accounts.store(for: computer.id) {
+                    if let store = accounts.store(for: computer.id), accounts.role(for: computer.id) == .member {
+                        MemberComputerRow(store: store, newChat: { newChat = VoiceTarget(store: store) }, remove: { confirmForget = computer })
+                    } else if let store = accounts.store(for: computer.id) {
                         ComputerRow(store: store, inAccount: cloudComputer(computer.id),
                                     openScreen: { openScreen(store) },
                                     openMarketplace: { closeSheets { app.marketplace = store.computer.id } },
@@ -59,7 +62,8 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
             }
 
-            let online = accounts.computers.compactMap { accounts.store(for: $0.id) }.filter { $0.connection == .online }
+            // What only the owner of a computer can use: a person invited to one sees none of it.
+            let online = accounts.ownedComputers.compactMap { accounts.store(for: $0.id) }.filter { $0.connection == .online }
             if !online.isEmpty {
                 CardSection("Voice chat", footer: "Apple speech on this iPhone, or OpenAI and Gemini on your own API key, kept on the computer.") {
                     ForEach(online, id: \.computer.id) { store in
@@ -73,8 +77,13 @@ struct SettingsView: View {
                 }
             }
 
-            if let linkStore = online.first {
+            // Linking their own Telegram or Discord account is for an invited person too.
+            if let linkStore = online.first ?? accounts.computers.compactMap({ accounts.store(for: $0.id) }).first(where: { $0.connection == .online }) {
                 LinkChatSection(store: linkStore)
+            }
+
+            if let owner = online.first {
+                PeopleSection(store: owner)
             }
 
             BackupsStatusSection()
@@ -155,6 +164,7 @@ struct SettingsView: View {
         .kithSheet(isPresented: $addingComputer) {
             PairingView(inModal: true)
         }
+        .kithSheet(item: $newChat) { target in NewChatSheet(store: target.store).environment(accounts) }
         .kithSheet(item: $voice) { target in VoiceChatSettingsView().environment(target.store) }
         .kithSheet(isPresented: $aboutAnalytics) { AnalyticsSheet() }
         .kithSheet(isPresented: $showLicenses) { LicensesSheet() }
@@ -241,6 +251,27 @@ struct SettingsView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// A computer this account joined by invite: its name and role, a way to start a chat, and nothing of the owner's.
+private struct MemberComputerRow: View {
+    let store: BotStore
+    let newChat: () -> Void
+    let remove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ComputerBadge(store.computer, size: 40)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(store.hostName), member").font(.body.weight(.semibold)).foregroundStyle(Palette.text).lineLimit(1)
+                Text(store.connection == .online ? "Online" : "Not connected")
+                    .font(.subheadline).foregroundStyle(Palette.secondary)
+            }
+            Spacer()
+            if store.connection == .online { IconButton("New chat", systemImage: "square.and.pencil", action: newChat) }
+            IconButton("Remove", systemImage: "trash", action: remove)
+        }
     }
 }
 
@@ -417,7 +448,7 @@ private struct OlderCopyRow: View {
 }
 
 /// A navigation row label with a trailing chevron.
-private struct LinkRow<Content: View>: View {
+struct LinkRow<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {

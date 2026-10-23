@@ -104,6 +104,9 @@ public enum SharedStore {
 
         /// Signing out or removing the account: device keys, computers, widget snapshot and caches go.
         public func erase() {
+            // Invite tokens go with the computers they were kept for.
+            let tokens = KeychainInviteStore(context: self)
+            for computer in computers { tokens.forget(computer.id) }
             for name in Self.names { defaults.removeObject(forKey: key(name)) }
             DeviceIdentity.delete(context: self)
             let caches = URL.cachesDirectory

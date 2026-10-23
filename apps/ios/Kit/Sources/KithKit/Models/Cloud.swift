@@ -18,8 +18,11 @@ public struct CloudComputer: Codable, Hashable, Sendable, Identifiable {
     public var claimedAt: Int64?
     /// `none` · `pending` · `granted` (only when the request carried this device's signature).
     public var access: String?
+    /// What this account is on the computer; missing from a cloud before invites, which means owner.
+    public var role: ComputerRole?
 
     public var id: ComputerID { computerId }
+    public var isMember: Bool { role == .member }
     public var isOnline: Bool { online ?? false }
 }
 

@@ -86,6 +86,8 @@ struct RootView: View {
                 StateTab()
                     .safeAreaInset(edge: .bottom, spacing: 0) { AccessBanners() }
             }
+            // Usage and widgets are the owner's: an account that only joined computers by invite has none.
+            .hidden(!accounts.computers.isEmpty && accounts.ownedComputers.isEmpty)
         }
         .tint(Palette.text)
         // Opening a bot (notification, widget, link) always lands on the Bots tab.
@@ -320,7 +322,8 @@ private struct AccessBanners: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            ForEach(Array(accounts.pendingAccess.values).sorted { $0.requestId < $1.requestId }) { ticket in
+            // A computer joined by invite takes a member itself: there is no code to compare.
+            ForEach(Array(accounts.pendingAccess.values).filter { accounts.role(for: $0.computerId) != .member }.sorted { $0.requestId < $1.requestId }) { ticket in
                 let name = accounts.cloudComputers.first { $0.computerId == ticket.computerId }?.name ?? "Your computer"
                 HStack(spacing: 12) {
                     Spinner(size: 16)

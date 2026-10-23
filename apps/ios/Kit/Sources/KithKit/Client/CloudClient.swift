@@ -132,6 +132,17 @@ public struct CloudClient: Sendable {
         try await send("DELETE", "v1/access-requests/\(requestId)")
     }
 
+    // MARK: invites
+
+    /// Joins the computer an invite is for. `proof` is h1 (`InviteLink.proof`), never the token itself.
+    /// The same account asking again gets the same membership.
+    public func acceptInvite(_ inviteId: String, proof: String) async throws -> InviteAccepted {
+        guard InviteLink.isID(inviteId), InviteLink.isProof(proof) else {
+            throw CloudError(status: 0, code: "badInvite", message: "This invite link isn't valid.")
+        }
+        return try await request("POST", "v1/invites/\(inviteId)/accept", body: ["token": proof])
+    }
+
     // MARK: claims (§4.2 A)
 
     // MARK: plumbing

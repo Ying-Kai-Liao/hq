@@ -10,7 +10,8 @@ public struct BackupsStatusSection: View {
     public init() {}
 
     public var body: some View {
-        let online = accounts.computers.compactMap { accounts.store(for: $0.id) }.filter { $0.connection == .online }
+        // Backups are the owner's: an invited person's computer has none to show.
+        let online = accounts.ownedComputers.compactMap { accounts.store(for: $0.id) }.filter { $0.connection == .online }
         ForEach(online, id: \.computer.id) { store in
             BackupsComputerSection(store: store, labeled: online.count > 1)
         }

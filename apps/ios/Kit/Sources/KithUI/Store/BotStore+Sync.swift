@@ -10,6 +10,7 @@ extension BotStore {
         var backoff: Double = 1
         while !Task.isCancelled {
             do {
+                try await proveInviteIfNeeded(client)
                 try await refreshHello(client)
                 guard !Task.isCancelled, !retired else { return }
                 if mismatch != nil {
@@ -40,6 +41,34 @@ extension BotStore {
             try? await Task.sleep(for: .seconds(backoff))
             backoff = min(backoff * 2, 20)
         }
+    }
+
+    /// An invited person's device shows the invite token first; until it does the computer refuses everything else,
+    /// the event stream included. The token stays in the Keychain, so a reconnect or a new pairing can do it again.
+    func proveInviteIfNeeded(_ client: HostClient) async throws {
+        guard let invite = inviteTokens?.stored(for: computer.id) else { return }
+        do {
+            try await client.proveInvite(inviteId: invite.inviteId, token: invite.token)
+        } catch {
+            // A device that already showed it is the normal case on every later connection.
+            if InviteProof.isAlreadyProven(error) { return }
+            // A computer that has no such call can't want the token.
+            if InviteProof.isUnknownMethod(error) { return }
+            // Refused for good, unless it is only the try limit: that passes with time.
+            if case let HostError.http(_, message) = error, !message.localizedCaseInsensitiveContains("too many") {
+                throw HostError.unauthorized(message)
+            }
+            throw error
+        }
+    }
+
+    /// An invited person's own chat with a granted agent: the host makes it the first time and returns it after.
+    /// Its answer ("Chatting with agents isn't open to guests and members yet.") comes back as the thrown error.
+    public func startChat(agent: String) async throws -> Bot {
+        guard let client else { throw HostError.unreachable }
+        let bot = try await client.startChat(agent: agent)
+        if !retired { apply(.bot(bot)) }
+        return bot
     }
 
     /// Asked on every (re)connect: the host may have been updated while this app was away.
