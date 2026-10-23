@@ -407,18 +407,58 @@
   color: var(--secondary);
 }
 
-/* Thread */
-.replies-content {
-  padding: 8px 16px 0;
+/* Thread, hanging under its message: a 2 px line in the agent's colours on the left. */
+.inline-thread {
+  margin: 6px 0 6px 4px;
+  padding-left: 14px;
+  border-left: 2px solid transparent;
+  border-image: linear-gradient(180deg, var(--pair-a), var(--pair-b)) 1;
+  animation: fade-in 0.18s var(--ease-out) both;
+  /* Opening or growing a thread never moves what the reader is looking at above it. */
+  overflow-anchor: none;
+  /* The composer floats over the bottom of the transcript: scrolling this into view stops above it. */
+  scroll-margin-block: 8px calc(var(--composer-height, 70px) + 16px);
 }
-.replies-count {
-  padding: 12px 0;
+.inline-thread-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
 }
-.replies-count-label {
+.inline-thread-label {
   white-space: nowrap;
 }
-.replies-composer {
-  flex: none;
+.inline-thread-spacer {
+  flex: 1;
+}
+.inline-thread-more {
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 12px;
+  color: var(--tertiary);
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+.inline-thread-more:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+.inline-thread-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.inline-thread .kc-tool {
+  min-height: 34px;
+}
+.inline-thread-earlier {
+  align-self: flex-start;
+  min-height: 28px;
+  color: var(--tertiary);
+  font-size: var(--text-footnote);
+}
+.inline-thread-earlier:hover {
+  color: var(--secondary);
 }
 
 /* The conversation's room for the panel changes in one step; the panel itself slides over it, out

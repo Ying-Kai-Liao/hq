@@ -5,16 +5,17 @@ import WidgetKit
 
 /// The State tab's Widget page. The installed widgets and these previews share their rendering components.
 struct WidgetGalleryView: View {
-    @Environment(AccountStore.self) private var accounts
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var page: Page?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
-    @State private var kind = "usage"
+    @State private var kind = "bots"
     @State private var providerID = "claude"
     @State private var size = "medium"
-    @State private var hasWidget: Bool?
+    /// The names of the Kith widgets on the Home or Lock Screen; nil until checked.
+    @State private var installed: [String]?
     @State private var widgetCheckFailed = false
+    @State private var showDemo = false
     /// nil until asked, false once turned off in the Settings app. Not asked during onboarding: offered here.
     @State private var notificationsAllowed: Bool?
     @AppStorage(SharedStore.usageIconStyleKey, store: UserDefaults(suiteName: SharedStore.appGroup))
@@ -34,128 +35,133 @@ struct WidgetGalleryView: View {
         return names.map { (id: $0.key, label: $0.value) }.sorted { $0.label < $1.label }
     }
 
+    private static let looks: [(id: String, title: String, detail: String, symbol: String)] = [
+        ("bots", "Bots", "who needs you, what's running", "bubble.left.and.bubble.right"),
+        ("team", "Team", "four bots you pick", "person.2"),
+        ("limits", "Usage limits", "highest limit, every provider", "chart.bar"),
+        ("provider", "Provider usage", "Claude Code, Codex, or any provider", "gauge.with.dots.needle.33percent"),
+    ]
+
+    /// Team is one size; the limits widget has two.
+    private var sizes: [(id: String, label: String)] {
+        let all = [("small", "Small"), ("medium", "Medium"), ("large", "Large")]
+        return kind == "limits" ? Array(all.prefix(2)) : all
+    }
+    private var shownSize: String { kind == "team" ? "small" : kind == "limits" && size == "large" ? "medium" : size }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                HStack(spacing: 14) {
-                    CharacterAvatar(portrait: "crew-builder", size: 42)
-                        .frame(width: 58, height: 58)
-                        .background(Palette.bubbleUser, in: RoundedRectangle(cornerRadius: 16))
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Kith, at a glance.")
-                            .font(.title3.weight(.semibold)).tracking(-0.4)
-                        Text("Your bots and usage, on every surface.")
-                            .font(.footnote).foregroundStyle(Palette.secondary)
-                    }
-                }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22))
+        CardForm {
+            Text("Your bots and usage, on every surface.")
+                .kithText(.body).foregroundStyle(Palette.muted)
 
-                VStack(alignment: .leading, spacing: 9) {
-                    sectionLabel("Get set up")
-                    VStack(spacing: 0) {
-                        setupRow("Connect a computer", complete: !accounts.computers.isEmpty)
-                        Rectangle().fill(Palette.border).frame(height: 0.5).padding(.leading, 42)
-                        setupRow("Add a Kith widget", complete: hasWidget == true,
-                                 status: hasWidget == nil ? (widgetCheckFailed ? "Unable to check" : "Checking") : nil)
-                        Rectangle().fill(Palette.border).frame(height: 0.5).padding(.leading, 42)
-                        Button(action: turnOnNotifications) {
-                            setupRow(notificationsAllowed == false ? "Turn on notifications in Settings" : "Turn on notifications",
-                                     complete: notificationsAllowed == true)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(notificationsAllowed == true)
-                        .accessibilityHint("Know when a bot is done or needs you.")
-                    }
-                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18))
-                    if widgetCheckFailed {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Couldn't check your widgets. You can still add one using the steps below.")
-                                .foregroundStyle(Palette.secondary)
-                            Button("Check again") { checkWidgets() }
-                                .buttonStyle(.secondary)
-                        }
-                        .font(.caption)
+            VStack(alignment: .leading, spacing: 14) {
+                preview
+                if kind != "team" {
+                    SegmentedChoice(selection: $size, options: sizes)
+                }
+                if kind == "provider" {
+                    if typeSize.isAccessibilitySize || providers.count > 3 {
+                        ChoicePicker(selection: $providerID, options: providers)
                     } else {
-                        Text(hasWidget == nil ? "Checking your widgets…" : "Steps check themselves as you finish them.")
-                            .font(.caption2).foregroundStyle(Palette.tertiary)
+                        SegmentedChoice(selection: $providerID, options: providers)
                     }
                 }
-
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack {
-                        sectionLabel("Choose your widget")
-                        Spacer()
-                        Text("Sample data").font(.caption2).foregroundStyle(Palette.secondary)
-                    }
-                    if typeSize.isAccessibilitySize {
-                        ChoicePicker(selection: $kind, options: Self.kinds)
-                    } else {
-                        SegmentedChoice(selection: $kind, options: Self.kinds)
-                    }
-                    if kind == "usage" {
-                        if typeSize.isAccessibilitySize || providers.count > 3 {
-                            ChoicePicker(selection: $providerID, options: providers)
-                        } else {
-                            SegmentedChoice(selection: $providerID, options: providers)
-                        }
-                    }
-                    if kind != "team" {
-                        ChoicePicker(selection: $size, options: [("small", "Small"), ("medium", "Medium"), ("large", "Large")])
-                    }
-                    VStack(spacing: 18) {
-                        preview(wide: size != "small")
-                            .frame(width: size == "small" || kind == "team" ? 158 : nil, height: size == "large" && kind != "team" ? 338 : 158)
-                        previewDescription
-                    }
-                    .padding(14)
-                    .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 26))
-                }
-
-                VStack(alignment: .leading, spacing: 12) {
-                    sectionLabel("Choose the look")
-                    SegmentedChoice(selection: Binding(
-                        get: { usageIconStyle },
-                        set: { usageIconStyle = $0; WidgetCenter.shared.reloadTimelines(ofKind: "KithProviderUsage") }
-                    ), options: [(UsageIconStyle.character.rawValue, "Character"), (UsageIconStyle.original.rawValue, "Original icon")])
-                    Text("Applies to Usage in the app and in widgets.")
-                        .font(.caption).foregroundStyle(Palette.secondary)
-                }
-
-                VStack(alignment: .leading, spacing: 12) {
-                    sectionLabel("Keep tasks in view")
-                    Button { page = .lockScreen } label: {
-                        Label("Lock Screen widgets", systemImage: "lock.rectangle").foregroundStyle(Palette.accent)
-                    }
-                    .buttonStyle(PressScale())
-                }
-                .font(.subheadline)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                VStack(alignment: .leading, spacing: 12) {
-                    sectionLabel("Add a widget")
-                    WidgetSetupDemo()
-                }
-                Text("Widgets show the latest report. Open Kith for live updates and approvals.")
-                    .font(.caption2).foregroundStyle(Palette.tertiary)
+                previewDescription
             }
-            .padding(18)
-            .frame(maxWidth: 560)
-            .frame(maxWidth: .infinity)
+
+            CardSection("Choose the look") {
+                ForEach(Self.looks, id: \.id) { look in
+                    Button { withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { kind = look.id } } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: look.symbol).frame(width: 24).foregroundStyle(Palette.muted)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(look.title).foregroundStyle(Palette.ink)
+                                Text(look.detail).font(.caption).foregroundStyle(Palette.muted)
+                            }
+                            Spacer(minLength: 8)
+                            if kind == look.id {
+                                Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.ink)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(kind == look.id ? .isSelected : [])
+                }
+            }
+
+            CardSection("Usage icon", footer: "Applies to Usage in the app. Widgets name the provider in text.") {
+                ForEach([(UsageIconStyle.character, "Character"), (UsageIconStyle.original, "Original icon")], id: \.0) { style, title in
+                    Button {
+                        usageIconStyle = style.rawValue
+                        WidgetCenter.shared.reloadTimelines(ofKind: "KithProviderUsage")
+                    } label: {
+                        HStack {
+                            Text(title).foregroundStyle(Palette.ink)
+                            Spacer(minLength: 8)
+                            if usageIconStyle == style.rawValue {
+                                Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.ink)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(usageIconStyle == style.rawValue ? .isSelected : [])
+                }
+            }
+
+            CardSection("Add it", footer: "Widgets show the latest report. Open Kith for live updates and approvals.") {
+                Button { withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { showDemo.toggle() } } label: {
+                    stepRow("On the Home Screen", "touch and hold → Edit → Add widget → Kith", symbol: "sparkles")
+                }
+                .buttonStyle(.plain)
+                Button { page = .lockScreen } label: {
+                    HStack {
+                        stepRow("On the Lock Screen", "Customize → Lock Screen → widget area", symbol: "lock.rectangle")
+                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Palette.muted)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Toggle(isOn: Binding(get: { notificationsAllowed == true }, set: { _ in turnOnNotifications() })) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "bell").frame(width: 24).foregroundStyle(Palette.muted)
+                        Text("Notifications").foregroundStyle(Palette.ink)
+                    }
+                }
+                .toggleStyle(.kithGreen)
+                .accessibilityHint("Know when a bot is done or needs you.")
+            }
+
+            if showDemo { WidgetSetupDemo() }
+
+            CardSection("Check") {
+                HStack(spacing: 12) {
+                    Image(systemName: installed?.isEmpty == false ? "checkmark" : "circle")
+                        .frame(width: 24).foregroundStyle(installed?.isEmpty == false ? Palette.positive : Palette.muted)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Widgets").foregroundStyle(Palette.ink)
+                        Text(checkDetail).font(.caption).foregroundStyle(Palette.muted)
+                    }
+                    Spacer(minLength: 8)
+                    if widgetCheckFailed {
+                        Button("Check again") { checkWidgets() }.buttonStyle(.secondary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
         }
-        .background(Palette.background)
-        .hidesSystemNavigationBar()
         .navigationDestination(item: $page) { page in
             switch page {
             case .lockScreen: LockWidgetGalleryView()
             }
         }
+        .hidesSystemNavigationBar()
         .task {
             checkWidgets()
             await checkNotifications()
         }
+        .onChange(of: kind) { _, _ in if !sizes.contains(where: { $0.id == size }) { size = "small" } }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             checkWidgets()
@@ -165,52 +171,74 @@ struct WidgetGalleryView: View {
 
     private enum Page: Hashable { case lockScreen }
 
-    private static let kinds: [(id: String, label: String)] = [("usage", "Provider usage"), ("bots", "Bots"), ("team", "Team")]
-
-    private var previewDescription: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(kind == "team" ? "Small widget" : "\(size.capitalized) widget").font(.subheadline.weight(.medium))
-            Text(kind == "usage" ? "Small shows the tightest limit. Medium shows two windows. Large adds a summary and up to four limits."
-                 : kind == "team" ? "Four bots as characters with a dot for each one at work. Touch and hold the widget, then Edit Widget to choose who sits in each spot; empty spots show the bots that need you first."
-                 : "See who needs you and who's still working. Large shows up to six bots.")
-                .font(.caption).foregroundStyle(Palette.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    private var checkDetail: String {
+        if widgetCheckFailed { return "Couldn't check your widgets. You can still add one with the steps above." }
+        guard let installed else { return "Checking your widgets…" }
+        return installed.isEmpty ? "None added yet" : "\(installed.count) added · \(installed.joined(separator: ", "))"
     }
 
-    @ViewBuilder private func preview(wide: Bool) -> some View {
+    private var previewDescription: some View {
+        Text(kind == "provider" ? "Small shows up to three windows. Medium and large add reset times and more windows."
+             : kind == "limits" ? "Small shows the highest limit with its bar. Medium adds every provider's windows."
+             : kind == "team" ? "Four bots with a name and state. Touch and hold the widget, then Edit Widget to choose who sits in each spot; empty spots show the bots that need you first."
+             : "See who needs you and who's still working. Large shows up to six bots.")
+            .kithText(.secondary).foregroundStyle(Palette.muted)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The widget on a soft wallpaper, as it would sit on the Home Screen.
+    private var preview: some View {
+        ZStack(alignment: .topTrailing) {
+            LinearGradient(colors: [Color(light: 0xCFE0FB, dark: 0x252E4A), Color(light: 0xE4D8F7, dark: 0x2E2748), Color(light: 0xFBDCCB, dark: 0x3A2B3B)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            widget
+                .padding(18)
+                .frame(maxWidth: .infinity)
+            Text("Sample data")
+                .font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Palette.muted)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(WidgetStyle.ground.opacity(0.85), in: Capsule())
+                .padding(10)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    @ViewBuilder private var widget: some View {
+        let small = shownSize == "small"
         Group {
-            if kind == "usage", let provider {
-                ProviderWidgetCard(provider: provider, layout: size == "large" ? .large : wide ? .medium : .small)
-            } else if kind == "team" {
+            switch kind {
+            case "provider":
+                if let provider {
+                    ProviderWidgetCard(provider: provider, layout: shownSize == "large" ? .large : small ? .small : .medium,
+                                       computer: "Mac mini")
+                }
+            case "limits":
+                UsageLimitsCard(usage: .widgetPreview, medium: !small, computer: "Mac mini")
+            case "team":
                 BotsTeamCard(bots: Bot.widgetPreview)
-            } else {
-                BotsWidgetCard(bots: Bot.widgetPreview, wide: wide, large: size == "large")
+            default:
+                BotsWidgetCard(bots: Bot.widgetPreview, wide: !small, large: shownSize == "large")
             }
         }
         .padding(14)
-        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22))
+        .frame(width: small ? 158 : nil, height: shownSize == "large" ? 338 : 158)
+        .frame(maxWidth: small ? 158 : .infinity)
+        .background(WidgetStyle.ground, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(size.capitalized) widget preview")
+        .accessibilityLabel("\(shownSize.capitalized) widget preview")
     }
 
-    private func sectionLabel(_ title: String) -> some View {
-        Text(title).font(.caption.weight(.medium)).foregroundStyle(Palette.secondary)
-            .accessibilityAddTraits(.isHeader)
-    }
-
-    private func setupRow(_ title: String, complete: Bool, status: String? = nil) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: complete ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(complete ? Palette.added : Palette.tertiary)
-                .font(.system(size: 15))
-            Text(title).font(.footnote).foregroundStyle(complete ? Palette.secondary : Palette.text)
-            Spacer()
+    private func stepRow(_ title: String, _ detail: String, symbol: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol).frame(width: 24).foregroundStyle(Palette.muted)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).foregroundStyle(Palette.ink)
+                Text(detail).font(.caption).foregroundStyle(Palette.muted).lineLimit(2)
+            }
+            Spacer(minLength: 8)
         }
-        .padding(14)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
-        .accessibilityValue(status ?? (complete ? "Complete" : "Not complete"))
+        .contentShape(Rectangle())
     }
 
     private func checkNotifications() async {
@@ -220,7 +248,7 @@ struct WidgetGalleryView: View {
 
     /// Asks once; after a no, only the Settings app can turn them on.
     private func turnOnNotifications() {
-        if notificationsAllowed == false {
+        if notificationsAllowed != nil {
             UIApplication.shared.open(URL(string: UIApplication.openNotificationSettingsURLString)!)
         } else {
             Task {
@@ -234,13 +262,22 @@ struct WidgetGalleryView: View {
         let animation = Motion.reduced(Motion.layout, reduceMotion)
         withAnimation(animation) { widgetCheckFailed = false }
         WidgetCenter.shared.getCurrentConfigurations { result in
-            let installed = (try? result.get())?.contains { $0.kind.hasPrefix("Kith") }
+            let kinds = (try? result.get())?.map(\.kind).filter { $0.hasPrefix("Kith") }
             Task { @MainActor in
                 withAnimation(animation) {
-                    hasWidget = installed
-                    widgetCheckFailed = installed == nil
+                    installed = kinds.map { Self.names(of: $0) }
+                    widgetCheckFailed = kinds == nil
                 }
             }
         }
+    }
+
+    /// Distinct widget names, in the order the gallery lists them.
+    private static func names(of kinds: [String]) -> [String] {
+        let names = ["KithBots": "Bots", "KithTeam": "Team", "KithUsage": "Usage limits",
+                     "KithProviderUsage": "Provider usage", "KithClaudeUsage": "Provider usage", "KithCodexUsage": "Provider usage"]
+        var seen: [String] = []
+        for kind in kinds.sorted() { if let name = names[kind], !seen.contains(name) { seen.append(name) } }
+        return seen
     }
 }

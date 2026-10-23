@@ -101,13 +101,15 @@ function useModalFocus(open: boolean, mounted: boolean, layer: RefObject<HTMLEle
 }
 
 /** The Mac modal (`.kithSheet`): a centered card over a dim; the content sizes it. */
-export function Sheet({ open, onClose, width, height, dismissOnDim = false, children }: {
+export function Sheet({ open, onClose, width, height, dismissOnDim = false, className, children }: {
   open: boolean
   onClose: () => void
   /** A click outside the card closes it (transient pickers, not forms). */
   dismissOnDim?: boolean
   width?: number | string
   height?: number | string
+  /** Extra class on the modal layer (the Settings window's sheets take its card styling this way). */
+  className?: string
   children: ReactNode
 }) {
   const { mounted, shown } = usePresence(open)
@@ -121,7 +123,7 @@ export function Sheet({ open, onClose, width, height, dismissOnDim = false, chil
   return createPortal(
     <DismissContext.Provider value={onClose}>
       <ModalTitleContext.Provider value={titleId}>
-        <div ref={layer} className={`modal-card ${shown ? 'shown' : ''}`} role="dialog" aria-modal aria-labelledby={titleId}>
+        <div ref={layer} className={`modal-card ${shown ? 'shown' : ''}${className ? ` ${className}` : ''}`} role="dialog" aria-modal aria-labelledby={titleId}>
           <div className="modal-dim" onClick={dismissOnDim ? onClose : undefined} />
           <div className="modal-content" data-modal-card tabIndex={-1} style={{ width, height }}>
             {open ? children : last.current}

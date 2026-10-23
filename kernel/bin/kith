@@ -428,6 +428,8 @@ if [[ $p_owner == 0 ]]; then
     done
   done
 fi
+# A mode kith no longer offers, from whichever source, starts as the one that replaced it (kith_settings.RETIRED).
+case $perm_mode in manual) perm_mode=default ;; dontAsk) perm_mode=auto ;; esac
 # The agent's settings plus a SessionStart hook that tags each session (new, resumed, /clear) in the cost ledger, and
 # kith's secrets kept out of its file tools (they sit inside ~/.kith, which every run can read; tools get them from kith-auth),
 # and the writes PROTOCOL asks for allowed without a prompt (a one-shot run has no one to approve them): its memory,
@@ -543,9 +545,11 @@ for rules in (allow, s["permissions"]["deny"]):
             rules.insert(rules.index(r) + 1, q)
 allow.extend(r for r in dict.fromkeys("Edit(/%s/**)" % d for d in os.environ["WRITABLE"].split("\n") if d.strip()) if r not in allow)
 sys.path.insert(0, os.environ["KITH_ROOT"] + "/lib")
-from kith_settings import get
+from kith_settings import current, get
 if not os.environ["PERM_MODE"]:
     s["permissions"].setdefault("defaultMode", get("permission_mode"))
+if "defaultMode" in s["permissions"]:   # the agent author may still suggest a retired one
+    s["permissions"]["defaultMode"] = current(s["permissions"]["defaultMode"])
 try:
     installed = [p["id"] for p in json.loads(os.environ["PLUGINS"])]
 except (ValueError, KeyError, TypeError):

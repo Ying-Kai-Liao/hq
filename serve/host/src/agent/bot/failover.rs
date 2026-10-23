@@ -84,6 +84,7 @@ impl Actor {
         self.files.cancel();
         self.flush(true);
         self.seg = Seg::None;
+        self.parked_prompts.clear();
         for (id, _) in self.perms.drain().collect::<Vec<_>>() {
             if let Some(mut e) = self.hub.store.entry(&id) {
                 e.data["status"] = "expired".into();

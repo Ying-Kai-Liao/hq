@@ -147,8 +147,14 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             let data =
                 base64::engine::general_purpose::STANDARD.decode(str_arg(&b, "data")?).context("invalid data")?;
             let (offset, done) = (b["offset"].as_u64().unwrap_or(0), b["done"] == true);
+            // Set by `member_call` only, so an invited person's bytes count against their quota.
+            let guest = b["asMember"].as_str().map(str::to_owned);
             let attachment = tokio::task::spawn_blocking(move || {
-                crate::chat::uploads::append(&root, &id, &name, offset, &data, done)
+                let who = match &guest {
+                    Some(p) => crate::chat::uploads::Uploader::Guest(p),
+                    None => crate::chat::uploads::Uploader::Owner,
+                };
+                crate::chat::uploads::append(&root, &id, &name, offset, &data, done, who)
             })
             .await??;
             json!({"attachment": attachment})

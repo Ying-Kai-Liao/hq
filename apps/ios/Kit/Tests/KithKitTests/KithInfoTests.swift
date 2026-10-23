@@ -141,7 +141,7 @@ private func houseInfo() throws -> KithInfo {
 }
 
 @Test func permissionPickerHoldsClaudeCodesSixModesAndOldValuesReadAsDefault() throws {
-    #expect(HqSetting.permissionModes.map(\.id) == ["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"])
+    #expect(HqSetting.permissionModes.map(\.id) == ["default", "acceptEdits", "plan", "auto", "bypassPermissions"])
     #expect(HqSetting.permissionMode("ask") == "default" && HqSetting.permissionMode("manual") == "default")
     #expect(HqSetting.permissionMode("auto") == "auto")
     var info = try houseInfo()

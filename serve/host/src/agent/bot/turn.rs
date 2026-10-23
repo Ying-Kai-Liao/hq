@@ -1,6 +1,6 @@
 //! Starting a turn and wrapping it up: final reply, notices, replies to waiters, alerts and memory.
 
-use super::{Actor, Conn, Done, Instructions, NoticeStyle, Queued, Seg};
+use super::{Actor, Cmd, Conn, Done, Instructions, NoticeStyle, Queued, Seg};
 use crate::agent::acp::{self, Incoming};
 use crate::analytics::{self, TurnOutcome, TurnSource};
 use crate::channels::text::used_pct;
@@ -81,8 +81,67 @@ impl Actor {
         Ok(prompt)
     }
 
-    /// Starts a turn in `lane` for the given user entries (none for a hidden turn).
+    /// Starts a turn in `lane` for the given user entries (none for a hidden turn). Stop and Shutdown still work
+    /// while it starts (an install or a slow session load takes minutes): they end the start, and the agent process
+    /// with it. Other commands wait until it is over, in order.
     pub(super) async fn start_turn(
+        &mut self,
+        lane: Lane,
+        entry_ids: &[String],
+        text: &str,
+        hidden: bool,
+        done_tx: &mpsc::UnboundedSender<Done>,
+    ) -> Result<()> {
+        let stopping = |c: &Cmd| matches!(c, Cmd::Stop | Cmd::Shutdown);
+        let cancelled = self.deferred.iter().any(stopping);
+        if !cancelled && let Some(mut rx) = self.cmd_rx.take() {
+            let mut open = true;
+            let mut arrived = Vec::new();
+            let mut finished = None;
+            {
+                let start = self.start_turn_inner(lane, entry_ids, text, hidden, done_tx);
+                tokio::pin!(start);
+                loop {
+                    tokio::select! {
+                        result = &mut start => {
+                            finished = Some(result);
+                            break;
+                        }
+                        cmd = rx.recv(), if open => match cmd {
+                            Some(cmd) => {
+                                let stop = stopping(&cmd);
+                                arrived.push(cmd);
+                                if stop {
+                                    break;
+                                }
+                            }
+                            None => open = false,
+                        },
+                    }
+                }
+            }
+            self.cmd_rx = Some(rx);
+            self.deferred.extend(arrived);
+            if let Some(result) = finished {
+                return result;
+            }
+        } else if !cancelled {
+            return self.start_turn_inner(lane, entry_ids, text, hidden, done_tx).await;
+        }
+        // The half-started session may be anywhere (loading, installing): the process goes, the next turn starts a
+        // fresh one.
+        if let Some(c) = self.conn.take() {
+            c.acp.kill().await;
+        }
+        for id in entry_ids {
+            if self.hub.store.entry(id).is_some_and(|e| e.kind == EntryKind::User.as_str()) {
+                self.set_user_status(id, crate::chat::team::RequestStatus::Cancelled);
+            }
+        }
+        Err(StartCancelled.into())
+    }
+
+    async fn start_turn_inner(
         &mut self,
         lane: Lane,
         entry_ids: &[String],
@@ -350,6 +409,8 @@ impl Actor {
         self.seg = Seg::None;
         // Unanswered permission cards can't be answered after the turn.
         let ids: Vec<String> = self.perms.drain().map(|(k, _)| k).collect();
+        // Cards nobody answered: an owner's gave up the turn's slot, which comes back with the dropped guard.
+        self.parked_prompts.clear();
         for id in ids {
             if let Some(mut e) = self.hub.store.entry(&id) {
                 e.data["status"] = "expired".into();
@@ -605,3 +666,15 @@ mod tests {
         assert_eq!(turn_alert(true, "error", true), Some(AlertKind::Failed));
     }
 }
+
+/// A Stop (or shutdown) ended the turn while it was starting: nothing failed.
+#[derive(Debug)]
+pub(super) struct StartCancelled;
+
+impl std::fmt::Display for StartCancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("stopped before the agent started")
+    }
+}
+
+impl std::error::Error for StartCancelled {}

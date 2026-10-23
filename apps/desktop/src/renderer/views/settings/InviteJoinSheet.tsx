@@ -36,7 +36,7 @@ export function InviteJoinSheet() {
   const state = join.state
   const busy = state !== null && ['joining', 'asking', 'connecting', 'proving'].includes(state.step)
   return (
-    <Sheet open={join.link !== null} onClose={() => inviteJoin.dismiss()} width={420}>
+    <Sheet className="settings-sheet" open={join.link !== null} onClose={() => inviteJoin.dismiss()} width={420}>
       <SheetPage>
         <ModalHeader title="Join a Mac" />
         <VStack align="center" gap={14} className="settings-invite-body">

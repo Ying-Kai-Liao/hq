@@ -1,4 +1,5 @@
 import { mirrorStamp } from '@shared/mirror-stamp'
+import { sendOrRollback } from '@shared/optimistic'
 import { isChat, type AccessRequest, type CloudStatus, type Entry } from '@shared/models'
 import { callPresence } from './call-presence'
 import { reduceCalls } from '@shared/incoming-call'
@@ -362,11 +363,9 @@ export class BotSync extends BotMirror {
     }
   }
 
-  protected perform(op: (c: HostClient) => Promise<unknown>, replay = false) {
-    void this.withLink(op, replay).catch((error: unknown) => {
-      this.lastError = error instanceof Error ? error.message : String(error)
-      this.changed()
-    })
+  /** `rollback` undoes an optimistic local change when the host refuses or can't be reached. */
+  protected perform(op: (c: HostClient) => Promise<unknown>, replay = false, rollback?: () => void) {
+    void sendOrRollback(() => this.withLink(op, replay), rollback, (message) => { this.lastError = message }).then(() => this.changed())
   }
 
   /** Views register while visible. Multiple windows may read the same conversation. */

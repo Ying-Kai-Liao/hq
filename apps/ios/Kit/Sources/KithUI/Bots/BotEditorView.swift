@@ -194,11 +194,10 @@ struct BotSettingsForm: View {
         "acceptEdits": "Edits files, asks before commands",
         "plan": "Reads and plans, changes nothing",
         "auto": "Decides itself, risky steps are checked",
-        "dontAsk": "Only pre-approved tools, denies the rest",
         "bypassPermissions": "Never asks. Only in a sandbox",
     ]
 
-    /// The six Claude Code modes as a stock menu; the old `ask`/`manual` read as Default.
+    /// Claude Code's modes as a stock menu; the old `ask`/`manual` read as Default.
     private var permissionModeRow: some View {
         let current = HqSetting.permissionMode(draft.permission)
         return DropdownMenu {

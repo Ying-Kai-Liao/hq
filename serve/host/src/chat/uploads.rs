@@ -37,21 +37,104 @@ fn clean_name(name: &str) -> Result<String> {
     Ok(name.to_owned())
 }
 
+/// Most bytes one invited person may keep in uploads (all chats, all files), so a guest can't fill the disk.
+/// The owner has no limit. A guest already over it keeps their files but can't add more. Checked per chunk against what
+/// is on disk, so two chunks racing can overshoot by about a chunk (1 MiB each); that is accepted.
+pub const GUEST_QUOTA: u64 = 1024 * 1024 * 1024;
+
+/// Who is uploading: the owner (no limit) or an invited person, whose bytes count against [`GUEST_QUOTA`].
+#[derive(Clone, Copy)]
+pub enum Uploader<'a> {
+    Owner,
+    Guest(&'a str),
+}
+
+/// Marks who an upload folder belongs to (a hidden file, so `resolve` and file names never meet it).
+const OWNER_MARK: &str = ".by";
+
+/// Bytes the guest keeps under `root`: the files of every upload folder marked as theirs.
+fn used_by(root: &Path, person: &str) -> u64 {
+    let Ok(dirs) = std::fs::read_dir(root) else { return 0 };
+    dirs.filter_map(Result::ok)
+        .filter(|d| d.file_type().is_ok_and(|t| t.is_dir()))
+        .filter(|d| std::fs::read_to_string(d.path().join(OWNER_MARK)).is_ok_and(|by| by == person))
+        .filter_map(|d| std::fs::read_dir(d.path()).ok())
+        .flat_map(|files| files.filter_map(Result::ok))
+        .filter(|f| !f.file_name().to_string_lossy().starts_with('.'))
+        .filter_map(|f| f.metadata().ok().filter(std::fs::Metadata::is_file).map(|m| m.len()))
+        .sum()
+}
+
+/// `uploads/<id>/`, made without following a symlink: the root and the folder must be real folders and the folder must
+/// resolve to a direct child of the root, so a link planted there can't send a write elsewhere.
+fn safe_dir(root: &Path, dir: &Path) -> Result<()> {
+    std::fs::create_dir_all(root).context("creating the upload folder")?;
+    if std::fs::symlink_metadata(root).context("checking the upload folder")?.file_type().is_symlink() {
+        bail!("the upload folder is a symlink");
+    }
+    match std::fs::create_dir(dir) {
+        Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => return Err(e).context("creating the upload folder"),
+        _ => {}
+    }
+    if std::fs::symlink_metadata(dir).context("checking the upload folder")?.file_type().is_symlink() {
+        bail!("the upload folder is a symlink");
+    }
+    let (real_root, real_dir) = (root.canonicalize()?, dir.canonicalize()?);
+    if real_dir.parent() != Some(real_root.as_path()) {
+        bail!("the upload folder is outside the uploads folder");
+    }
+    Ok(())
+}
+
 /// Appends one chunk at `offset`. A repeated chunk (a retry) is accepted as is.
 /// Returns the attachment once `done`.
-pub fn append(root: &Path, upload: &str, name: &str, offset: u64, data: &[u8], done: bool) -> Result<Option<Value>> {
+pub fn append(
+    root: &Path,
+    upload: &str,
+    name: &str,
+    offset: u64,
+    data: &[u8],
+    done: bool,
+    who: Uploader,
+) -> Result<Option<Value>> {
+    use std::os::unix::fs::OpenOptionsExt as _;
     let dir = dir(root, upload)?;
     let path = dir.join(clean_name(name)?);
-    std::fs::create_dir_all(&dir).context("creating the upload folder")?;
-    let len = std::fs::metadata(&path).map_or(0, |m| m.len());
+    safe_dir(root, &dir)?;
+    // A link in the file's place is refused, whatever it points at.
+    let (len, exists) = match std::fs::symlink_metadata(&path) {
+        Ok(m) if !m.is_file() => bail!("the upload is not a regular file"),
+        Ok(m) => (m.len(), true),
+        Err(_) => (0, false),
+    };
     let end = offset + data.len() as u64;
     if end > MAX_FILE {
         bail!("file is larger than {} MB", MAX_FILE / 1024 / 1024);
     }
     if offset == len {
-        let mut file =
-            std::fs::OpenOptions::new().create(true).append(true).open(&path).context("opening the upload")?;
-        file.write_all(data).context("writing the upload")?;
+        if let Uploader::Guest(person) = who
+            && used_by(root, person) + data.len() as u64 > GUEST_QUOTA
+        {
+            bail!("Upload limit reached: you can keep up to {} MB of files here", GUEST_QUOTA / 1024 / 1024);
+        }
+        let mut opts = std::fs::OpenOptions::new();
+        opts.custom_flags(libc::O_NOFOLLOW);
+        let created = !exists;
+        let mut file = if created { opts.write(true).create_new(true) } else { opts.append(true) }
+            .open(&path)
+            .context("opening the upload")?;
+        if let (true, Uploader::Guest(person)) = (created, who) {
+            let _ = std::fs::write(dir.join(OWNER_MARK), person);
+        }
+        if let Err(e) = file.write_all(data) {
+            // Roll back the partial chunk so it isn't counted or half-kept.
+            if created {
+                let _ = std::fs::remove_file(&path);
+            } else {
+                let _ = file.set_len(len);
+            }
+            return Err(e).context("writing the upload");
+        }
     } else if end != len {
         bail!("upload out of order: at {len}, got {offset}");
     }
@@ -64,7 +147,7 @@ pub fn resolve(root: &Path, upload: &str) -> Result<(PathBuf, Value)> {
     let file = std::fs::read_dir(&dir)
         .context("unknown upload")?
         .filter_map(Result::ok)
-        .find(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .find(|e| e.file_type().is_ok_and(|t| t.is_file()) && !e.file_name().to_string_lossy().starts_with('.'))
         .context("empty upload")?;
     let size = file.metadata().map_or(0, |m| m.len());
     let name = file.file_name().to_string_lossy().into_owned();
@@ -114,10 +197,10 @@ mod tests {
         let root = root.as_path();
         let id = uuid::Uuid::new_v4().to_string();
         assert!(dir(root, "../x").is_err());
-        assert!(append(root, &id, "a.txt", 0, b"hello ", false).expect("first").is_none());
-        assert!(append(root, &id, "a.txt", 0, b"hello ", false).is_ok(), "retry of the first chunk");
-        assert!(append(root, &id, "a.txt", 3, b"xx", false).is_err(), "out of order");
-        let done = append(root, &id, "a.txt", 6, b"world", true).expect("last").expect("done");
+        assert!(append(root, &id, "a.txt", 0, b"hello ", false, Uploader::Owner).expect("first").is_none());
+        assert!(append(root, &id, "a.txt", 0, b"hello ", false, Uploader::Owner).is_ok(), "retry of the first chunk");
+        assert!(append(root, &id, "a.txt", 3, b"xx", false, Uploader::Owner).is_err(), "out of order");
+        let done = append(root, &id, "a.txt", 6, b"world", true, Uploader::Owner).expect("last").expect("done");
         assert_eq!(done["size"], 11);
         let (path, meta) = resolve(root, &id).expect("resolve");
         assert_eq!(std::fs::read_to_string(&path).expect("read"), "hello world");
@@ -126,5 +209,47 @@ mod tests {
         assert!(path.starts_with(root));
         assert_eq!(path_of(root, &done), Some(path));
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    fn tmp() -> PathBuf {
+        std::env::temp_dir().join(format!("kith-uploads-{}", uuid::Uuid::new_v4()))
+    }
+
+    #[test]
+    fn a_guest_over_quota_is_refused_and_the_owner_is_not() {
+        let root = tmp();
+        let id = uuid::Uuid::new_v4().to_string();
+        // Fill the guest's quota with a sparse file, as if a past upload had kept that much.
+        append(&root, &id, "big.bin", 0, b"x", false, Uploader::Guest("p1")).expect("first");
+        let f = std::fs::OpenOptions::new().write(true).open(root.join(&id).join("big.bin")).expect("open");
+        f.set_len(GUEST_QUOTA).expect("size");
+        let other = uuid::Uuid::new_v4().to_string();
+        let err = append(&root, &other, "a.txt", 0, b"hi", true, Uploader::Guest("p1")).expect_err("over");
+        assert!(err.to_string().starts_with("Upload limit reached"), "{err}");
+        assert!(append(&root, &other, "a.txt", 0, b"hi", true, Uploader::Guest("p2")).is_ok(), "another person");
+        let third = uuid::Uuid::new_v4().to_string();
+        assert!(append(&root, &third, "a.txt", 0, b"hi", true, Uploader::Owner).is_ok(), "owner has no quota");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_symlinked_file_or_folder_is_refused() {
+        let root = tmp();
+        let outside = tmp();
+        std::fs::create_dir_all(&outside).expect("outside");
+        std::fs::create_dir_all(&root).expect("root");
+        // A link where the upload folder goes.
+        let id = uuid::Uuid::new_v4().to_string();
+        std::os::unix::fs::symlink(&outside, root.join(&id)).expect("link");
+        assert!(append(&root, &id, "a.txt", 0, b"x", true, Uploader::Owner).is_err());
+        // A link where the file goes, dangling or not.
+        let id = uuid::Uuid::new_v4().to_string();
+        std::fs::create_dir_all(root.join(&id)).expect("dir");
+        let target = outside.join("victim");
+        std::os::unix::fs::symlink(&target, root.join(&id).join("a.txt")).expect("link");
+        assert!(append(&root, &id, "a.txt", 0, b"x", true, Uploader::Owner).is_err());
+        assert!(!target.exists(), "nothing was written through the link");
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&outside);
     }
 }

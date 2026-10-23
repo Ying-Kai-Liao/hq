@@ -19,7 +19,8 @@ import { ConnectionRequestCard } from '../marketplace/ConnectionRequestCard'
 import { HandoffNotice } from './HandoffNotice'
 import { AnsweredBy } from './AnsweredBy'
 import { contextLabel } from './context-hint'
-import { ThreadChip as KithThreadChip, pairOf, type Place } from '../../components/kith'
+import { ThreadChip as KithThreadChip, pairOf, type Origin, type Place } from '../../components/kith'
+import { threadOrigin } from '@shared/thread-writer'
 import { avatarImage } from '@shared/crew'
 
 export function reactionPick(store: BotStore, entry: Entry): ReactionPick {
@@ -27,17 +28,19 @@ export function reactionPick(store: BotStore, entry: Entry): ReactionPick {
 }
 
 /** One chat-visible entry in a chat or a thread, with what can be done to it. */
-export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrace, openThread, openId = null }: {
+export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrace, openThread, replyInThread, openId = null }: {
   entry: Entry
   groupStart: boolean
   chat: Bot | null
   openTrace: () => void
   /** Main chat only: start (or open) the thread on this message. */
   openThread?: (e: Entry) => void
-  /** The thread open beside the chat: its chip tints in the agent's colours. */
+  /** "Reply in thread": opens the thread, never folds one that is open. */
+  replyInThread?: (e: Entry) => void
+  /** The thread open under its message: its chip tints in the agent's colours. */
   openId?: string | null
 }) {
-  const reply = openThread ? () => openThread(entry) : undefined
+  const reply = openThread ? () => (replyInThread ?? openThread)(entry) : undefined
   const chip = entry.data.thread && entry.data.thread.count > 0 && openThread ? <ThreadChip summary={entry.data.thread} open={() => openThread(entry)} isOpen={openId === entry.id} chat={chat} /> : null
   switch (entry.kind) {
     case 'user':
@@ -101,7 +104,7 @@ export function AuthorLabel({ botId }: { botId?: string | null }) {
 
 /**
  * Under a message with a thread: where it works (grey), then the pill with the agent's face, the reply count and
- * when. While the thread is open beside the chat the pill tints in the agent's colours.
+ * when. While the thread is open under its message the pill tints in the agent's colours.
  */
 export function ThreadChip({ summary, open, isOpen = false, chat }: { summary: ThreadSummary; open: () => void; isOpen?: boolean; chat: Bot | null }) {
   const store = useStore()
@@ -109,6 +112,9 @@ export function ThreadChip({ summary, open, isOpen = false, chat }: { summary: T
   const folder = chat?.folder
   const place: Place | undefined = folder && folder.kind !== 'workspace' && folder.name ? { kind: folder.kind === 'project' ? 'project' : 'folder', name: folder.name } : undefined
   const image = author ? avatarImage(author) : null
+  // A thread started outside the app (a terminal, a channel) says so; an origin this app doesn't know shows nothing.
+  const origin = threadOrigin(summary)
+  const tag: Origin | undefined = origin === 'terminal' || origin === 'discord' || origin === 'telegram' || origin === 'slack' ? origin : undefined
   return (
     <div className={`thread-meta ${chat && isGroup(chat) ? 'start' : ''}`}>
       <KithThreadChip
@@ -121,6 +127,7 @@ export function ThreadChip({ summary, open, isOpen = false, chat }: { summary: T
           agent: { face: image ?? 'group', color: author?.avatarColor, id: author?.id ?? 'unknown' },
           pair: pairOf(author?.avatarColor),
           place,
+          origin: tag,
           onToggle: open,
           onOpen: open,
         }}

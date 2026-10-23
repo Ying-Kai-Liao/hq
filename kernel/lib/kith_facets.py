@@ -54,6 +54,8 @@ def folder_defaults(rel, agent):
         f.update(audience='room:' + parts[1], room=parts[1])
     elif head == 'projects' and len(parts) > 2 and ID.match(parts[1]):
         f['projects'] = [parts[1]]
+    elif head == 'projects' and len(parts) == 2 and parts[1].endswith('.md') and ID.match(parts[1][:-3]):
+        f['projects'] = [parts[1][:-3]]   # the flat layout: projects/<ID>.md
     elif head == 'sessions' and len(parts) == 2:
         f.update(kind='project-detail', thread=Path(parts[1]).stem)
     return f
@@ -235,6 +237,16 @@ def _notes(mem, folder, agent):
     return out
 
 
+def _project_notes(mem, p, agent):
+    """Notes of project p in either layout (projects/<p>/ folder, projects/<p>.md file), each file once."""
+    notes = _notes(mem, 'projects/' + p, agent)
+    t = _read(mem / 'projects' / (p + '.md'))
+    if t and t.strip():
+        rel = 'projects/%s.md' % p
+        notes.append((rel, t, (mem / rel).stat().st_mtime, facets_for(rel, agent, t)))
+    return sorted(notes, key=lambda n: (n[0].rsplit('/', 1)[-1] not in INDEX_NAMES, -n[2]))
+
+
 def _tag(path, text, scope):
     text = text.replace('</long-term-memory>', '<\u200b/long-term-memory>')
     return '<long-term-memory path="%s"%s>\n%s\n</long-term-memory>' % (
@@ -272,7 +284,7 @@ def load_memory(agent, home, person_file, reader, room, projects, cap=LOAD_CAP, 
             cands.append(('room', str(mem / rel), t, mt, f, 'room:' + room, False))
     for p in projects:
         if ID.match(p):
-            notes = sorted(_notes(mem, 'projects/' + p, agent), key=lambda n: (n[0].rsplit('/', 1)[-1] not in INDEX_NAMES, -n[2]))
+            notes = _project_notes(mem, p, agent)
             cands += [('project', str(mem / rel), t, mt, f, 'project:' + p, False) for rel, t, mt, f in notes]
     shown, withheld = [], False
     for c in cands:
@@ -303,7 +315,7 @@ def project_notes(agent, home, reader, room, projects, cap=LOAD_CAP, members=Non
     shown = []
     for p in projects:
         if ID.match(p):
-            notes = sorted(_notes(mem, 'projects/' + p, agent), key=lambda n: (n[0].rsplit('/', 1)[-1] not in INDEX_NAMES, -n[2]))
+            notes = _project_notes(mem, p, agent)
             shown += [(str(mem / rel), t, mt, 'project:' + p) for rel, t, mt, f in notes if loads(f, aud, room, projects)]
     more = 0
     for c in sorted(shown, key=lambda c: c[2]):
@@ -340,7 +352,10 @@ def main(argv):
     if not room and a.kind != 'guest':
         # A channel group chat sets no room: like `kith recall`, a group VIA without one is a group (shared only)
         room = '?' if os.environ.get('KITH_VIA') in ('telegram', 'slack', 'discord', 'group') else own_room(a.agent, reader)
-    out = load_memory(a.agent, a.home, a.person_file, reader, room, [a.project] if a.project else [], cap)
+    # KITH_ROOM_MEMBERS: person ids in this group room; each is in the room, so it counts in the intersection
+    ids = [m.strip().lower() for m in os.environ.get('KITH_ROOM_MEMBERS', '').split(',')]
+    members = [{'kind': 'person', 'id': m, 'rooms': [room]} for m in ids if ID.match(m)] or None
+    out = load_memory(a.agent, a.home, a.person_file, reader, room, [a.project] if a.project else [], cap, members)
     attrs = ' loaded="%d"%s%s' % (out['loaded'], ' more="%d"' % out['more'] if out['more'] else '',
                                   ' room="group"' if out['group'] else '')
     print('mems=%s\nload_attrs=%s' % (shlex.quote(out['block']), shlex.quote(attrs)))

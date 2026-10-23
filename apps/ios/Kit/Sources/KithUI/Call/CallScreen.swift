@@ -12,6 +12,8 @@ struct CallScreen: View {
     let close: () -> Void
     /// An agent's call the person accepted: once the call is live the agent speaks first.
     var greet: String?
+    /// Demo shots only: a fixed engine in place of a real one (used when `DemoScreens.active`).
+    var engine: (any VoiceEngine)?
     @Environment(BotStore.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var session: (any VoiceEngine)?
@@ -23,6 +25,8 @@ struct CallScreen: View {
     @State private var notice: String?
     @State private var settings = false
     @State private var speakerOn = true
+    @State private var routeTick = 0
+    @Environment(\.colorScheme) private var scheme
 
     private var bot: Bot? { model.bots[botId] }
     private var color: Color { bot.map { AvatarPalette.color($0.avatarColor) } ?? Palette.accent }
@@ -31,44 +35,58 @@ struct CallScreen: View {
         CallStatus.text(phase: session?.phase, muted: session?.muted == true,
                         working: bot?.isWorking == true, warning: session?.warning)
     }
+    /// Mono top line: where the voice runs, and the computer the bot lives on.
+    private var topLine: String { "\(session?.provider.map { "Voice by \($0.name)" } ?? "On device") · \(model.hostName)" }
+    /// The glow rings the bot only while someone can be heard.
+    private var ringShown: Bool { session?.phase.isActive == true && session?.muted != true }
+    private var glowPair: (Color, Color)? {
+        guard let id = AvatarPalette.pick(bot?.avatarColor), let swatch = AvatarPalette.colors.first(where: { $0.id == id }) else { return nil }
+        return (Color(hex: swatch.a), Color(hex: swatch.b))
+    }
+
+    /// The one notice under the timer: why the call isn't clean, and Try again when the computer is gone.
+    private var noticeInfo: (text: String, retry: Bool)? {
+        if case .failed(let message) = session?.phase { return (message, false) }
+        if let notice { return (notice, false) }
+        if model.isOffline { return ("\(model.hostName) is unreachable.", true) }
+        if let warning = session?.warning, session?.phase != .starting { return (warning, false) }
+        return nil
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer(minLength: 24)
+            Text(topLine)
+                .font(Self.mono(12))
+                .foregroundStyle(Palette.muted)
+                .padding(.top, 8)
+            Spacer(minLength: 16)
             avatar
             VStack(spacing: 4) {
                 Text(bot?.name ?? "")
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(Palette.text)
+                    .kithText(.agentName)
+                    .foregroundStyle(Palette.ink)
                 Text(statusText)
-                    .font(.subheadline)
-                    .foregroundStyle(session?.phase.isFailed == true ? Palette.danger : Palette.secondary)
-                // Audio leaves the phone: say where.
-                if let provider = session?.provider {
-                    Text("Voice by \(provider.name)").font(.caption).foregroundStyle(Palette.tertiary)
-                }
+                    .font(.custom(KithFonts.interRegular, size: 14))
+                    .foregroundStyle(Palette.muted)
                 TimelineView(.periodic(from: startedAt, by: 1)) { context in
                     Text(CallStatus.clock(Int(context.date.timeIntervalSince(startedAt))))
-                        .font(.footnote.monospacedDigit())
-                        .foregroundStyle(Palette.tertiary)
+                        .font(Self.mono(12).monospacedDigit())
+                        .foregroundStyle(Palette.ink)
                 }
             }
-            .padding(.top, 18)
-            if case .failed(let message) = session?.phase {
-                line(message, color: Palette.danger)
-            } else if let notice {
-                line(notice, color: Palette.secondary)
-            }
+            .padding(.top, 8)
+            noticeBlock
+                .padding(.top, 12)
             captions
                 .padding(.top, 12)
             controls
-                .padding(.bottom, 24)
+                .padding(.bottom, 34)
         }
         .padding(.horizontal, 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Palette.background.ignoresSafeArea())
+        .background { CallSky().ignoresSafeArea() }
         .animation(Motion.reduced(Motion.fade, reduceMotion), value: session?.phase)
-        .animation(Motion.reduced(Motion.fade, reduceMotion), value: notice)
+        .animation(Motion.reduced(Motion.fade, reduceMotion), value: noticeInfo?.text)
         .onAppear {
             startedAt = .now
             CallPresence.active += 1
@@ -103,6 +121,7 @@ struct CallScreen: View {
         if provider != nil, let client = model.client {
             Task { if let status = try? await client.voiceStatus() { VoiceSettings.remember(status) } }
         }
+        if let engine, DemoScreens.active { session = engine; return }
         let op = CallOperator(model: model, botId: botId)
         let engine: any VoiceEngine
         if let provider, VoiceSettings.isSpeechMode(provider) {
@@ -179,33 +198,57 @@ struct CallScreen: View {
         cloudStartedAt = nil
     }
 
-    private func line(_ text: String, color: Color) -> some View {
-        Text(text)
-            .font(.footnote)
-            .foregroundStyle(color)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .glass(in: Capsule())
-            .padding(.top, 10)
-            .transition(.opacity)
+    private var noticeBlock: some View {
+        Group {
+            if let info = noticeInfo {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Palette.muted)
+                        .padding(.top, 1)
+                    Text(info.text)
+                        .font(.custom(KithFonts.interRegular, size: 13))
+                        .foregroundStyle(Palette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    if info.retry {
+                        Button("Try again") { retry() }
+                            .font(.custom(KithFonts.interSemiBold, size: 13))
+                            .foregroundStyle(Palette.accent)
+                    }
+                }
+                .padding(12)
+                .background(Palette.panel, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .transition(.opacity)
+            }
+        }
     }
 
-    /// The bot, big; it swells with your voice while you speak and while it talks.
-    /// Tapping it while it talks cuts the reply short.
+    /// Starts the engine again (the computer was unreachable): the old one is let go first.
+    private func retry() {
+        session?.end()
+        model.endVoiceCall(callID)
+        notice = nil
+        begin(cloud: VoiceSettings.provider)
+    }
+
+    /// The bot at 150 pt in a glow ring that swells with the voice level; tapping it while it talks
+    /// cuts the reply short.
     private var avatar: some View {
         let level = CGFloat(session?.level ?? 0)
         return Button { session?.interrupt() } label: {
             ZStack {
-                Circle()
-                    .fill(color.opacity(0.14))
-                    .frame(width: 220, height: 220)
-                    .scaleEffect(reduceMotion ? 1 : 1 + level * 0.18 + (speaking ? 0.06 : 0))
-                    .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: level)
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: speaking)
-                if let bot { CharacterAvatar(bot: bot, size: 168) }
+                if ringShown {
+                    CallGlow(pair: glowPair)
+                        .frame(width: 200, height: 200)
+                        .scaleEffect(reduceMotion ? 1 : 1 + level * 0.2 + (speaking ? 0.04 : 0))
+                        .opacity(0.55 + Double(level) * 0.45)
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: level)
+                        .transition(.opacity)
+                }
+                if let bot { CharacterAvatar(bot: bot, size: 160).kithBotShadow() }
             }
-            .frame(width: 240, height: 240)
+            .frame(width: 220, height: 220)
         }
         .buttonStyle(.plain)
         .disabled(!speaking)
@@ -219,22 +262,14 @@ struct CallScreen: View {
         let heard = session?.heard ?? ""
         return ScrollViewReader { proxy in
             ScrollView {
-                VStack(spacing: 10) {
-                    ForEach(lines) { caption in
-                        Text(caption.text)
-                            .font(.body)
-                            .foregroundStyle(caption.speaker == .you ? Palette.secondary : Palette.text)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Array(lines.enumerated()), id: \.element.id) { index, caption in
+                        captionLine(caption.speaker == .you ? "You" : (bot?.name ?? ""), caption.text,
+                                    newest: heard.isEmpty && index == lines.count - 1)
                             .id(caption.id)
                     }
                     if !heard.isEmpty {
-                        Text(heard)
-                            .font(.body)
-                            .foregroundStyle(Palette.tertiary)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity)
-                            .id("heard")
+                        captionLine("You", heard, newest: true).id("heard")
                     }
                 }
                 .padding(.vertical, 8)
@@ -247,6 +282,14 @@ struct CallScreen: View {
         .accessibilityLabel("Captions")
     }
 
+    /// A caption: the speaker in bold, then the words; the newest in ink, older ones muted.
+    private func captionLine(_ speaker: String, _ text: String, newest: Bool) -> some View {
+        (Text(speaker).fontWeight(.bold) + Text("  " + text))
+            .font(.custom(KithFonts.interRegular, size: 15))
+            .foregroundStyle(newest ? Palette.ink : Palette.muted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private func scroll(_ proxy: ScrollViewProxy, lines: [CallCaption], heard: String) {
         let target: AnyHashable? = heard.isEmpty ? lines.last?.id : "heard"
         guard let target else { return }
@@ -254,58 +297,143 @@ struct CallScreen: View {
     }
 
     private var controls: some View {
-        HStack(spacing: 16) {
-            let muted = session?.muted == true
-            round(muted ? "Unmute" : "Mute", muted ? "mic.slash.fill" : "mic.fill", on: muted) { session?.muted.toggle() }
-            if session?.supportsSpeaker == true {
-                round(speakerOn ? "Switch to earpiece" : "Switch to speaker", speakerOn ? "speaker.wave.3.fill" : "ear", on: speakerOn) {
-                    speakerOn.toggle()
-                    session?.setSpeaker(speakerOn)
-                }
-            }
-            // Bluetooth and AirPlay outputs, from the system.
-            RoutePicker()
-                .frame(width: Self.buttonSize, height: Self.buttonSize)
-                .background(Palette.surface, in: Circle())
-                .accessibilityLabel("Audio output")
-            round("Call settings", "gearshape.fill") { settings = true }
-            Button(action: close) {
-                Image(systemName: "phone.down.fill")
-                    .font(.system(size: Self.iconSize, weight: .semibold))
-                    .foregroundStyle(.white)
+        let muted = session?.muted == true
+        let dark = scheme == .dark
+        return HStack(alignment: .top, spacing: 12) {
+            control(speakerOn ? "Speaker" : "Earpiece") {
+                Image(systemName: speakerOn ? "speaker.wave.3.fill" : "ear")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(Palette.ink)
+                    .contentTransition(.symbolEffect(.replace))
                     .frame(width: Self.buttonSize, height: Self.buttonSize)
-                    .background(Palette.danger, in: Circle())
+                    .kithCallGlass(dark: dark)
+                    .contentShape(Circle())
+                    .onTapGesture {
+                        guard session?.supportsSpeaker == true else { return }
+                        speakerOn.toggle()
+                        session?.setSpeaker(speakerOn)
+                    }
+                    // Bluetooth and AirPlay outputs, from the system.
+                    .onLongPressGesture(minimumDuration: 0.4) { routeTick += 1 }
+                    .overlay { RoutePicker(trigger: routeTick).frame(width: 1, height: 1).allowsHitTesting(false) }
+                    .accessibilityElement()
+                    .accessibilityLabel(speakerOn ? "Switch to earpiece" : "Switch to speaker")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction(named: "Audio output") { routeTick += 1 }
             }
-            .buttonStyle(PressScale())
-            .accessibilityLabel("End call")
+            control(muted ? "Unmute" : "Mute") {
+                Button { session?.muted.toggle() } label: {
+                    Image(systemName: muted ? "mic.slash.fill" : "mic.fill")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(muted ? (dark ? Palette.night : Color.white) : Palette.ink)
+                        .contentTransition(.symbolEffect(.replace))
+                        .frame(width: Self.buttonSize, height: Self.buttonSize)
+                        .background { if muted { Circle().fill(dark ? Color.white : Palette.ink) } }
+                        .kithCallGlass(dark: dark && !muted)
+                }
+                .buttonStyle(PressScale())
+                .accessibilityLabel(muted ? "Unmute" : "Mute")
+            }
+            control("Settings") {
+                Button { settings = true } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(Palette.ink)
+                        .frame(width: Self.buttonSize, height: Self.buttonSize)
+                        .kithCallGlass(dark: dark)
+                }
+                .buttonStyle(PressScale())
+                .accessibilityLabel("Call settings")
+            }
+            control("End") {
+                Button(action: close) {
+                    Image(systemName: "phone.down.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: Self.buttonSize, height: Self.buttonSize)
+                        .background(Color(hex: 0xFF3B30), in: Circle())
+                }
+                .buttonStyle(PressScale())
+                .accessibilityLabel("End call")
+            }
         }
     }
 
-    private func round(_ label: String, _ symbol: String, on: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: Self.iconSize, weight: .medium))
-                .foregroundStyle(on ? Palette.onAccent : Palette.text)
-                .contentTransition(.symbolEffect(.replace))
-                .frame(width: Self.buttonSize, height: Self.buttonSize)
-                .background(on ? Palette.accentFill : Palette.surface, in: Circle())
+    /// A button with its label under it.
+    private func control<Content: View>(_ label: String, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(spacing: 8) {
+            content()
+            Text(label)
+                .font(.custom(KithFonts.interRegular, size: 12))
+                .foregroundStyle(Palette.muted)
         }
-        .buttonStyle(PressScale())
-        .accessibilityLabel(label)
+        .frame(maxWidth: .infinity)
     }
 
-    private static let buttonSize: CGFloat = 56
-    private static let iconSize: CGFloat = 20
+    static func mono(_ size: CGFloat) -> Font {
+        .custom(KithFonts.jetBrainsMono, size: size)
+    }
+
+    private static let buttonSize: CGFloat = 62
 }
 
-/// The system's output picker (AirPods, Bluetooth speakers, AirPlay).
+extension View {
+    /// A round glass call button; in dark a local coal tint at 62% keeps it legible over the sky.
+    func kithCallGlass(dark: Bool) -> some View {
+        background { if dark { Circle().fill(Palette.night.opacity(0.62)) } }
+            .kithGlass(in: Circle(), interactive: true)
+    }
+}
+
+/// The sky behind a call: morning by day, night-1 in dark, fading into the ground from 35% to 78% down.
+struct CallSky: View {
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Palette.background
+            GeometryReader { proxy in
+                Image(scheme == .dark ? "sky-home-night" : "sky-home-day", bundle: .module)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+                    .clipped()
+                    .mask(LinearGradient(stops: [.init(color: .black, location: 0.35), .init(color: .clear, location: 0.78)],
+                                         startPoint: .top, endPoint: .bottom))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// The radial glow behind a bot in a call, in the agent's colour pair (a neutral sky glow without one).
+struct CallGlow: View {
+    let pair: (Color, Color)?
+
+    var body: some View {
+        let (a, b) = pair ?? (Color(hex: 0x8FB0FF), Color(hex: 0xBFE3FF))
+        Circle()
+            .fill(RadialGradient(colors: [b.opacity(0.9), a.opacity(0.55), a.opacity(0)], center: .center, startRadius: 40, endRadius: 100))
+    }
+}
+
+/// The system's output picker (AirPods, Bluetooth speakers, AirPlay). It is invisible; a long press on
+/// Speaker bumps `trigger`, which presses the picker's own button.
 private struct RoutePicker: UIViewRepresentable {
+    let trigger: Int
+
+    final class Coordinator { var last = 0 }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeUIView(context: Context) -> AVRoutePickerView {
         let picker = AVRoutePickerView()
-        picker.tintColor = UIColor(Palette.text)
-        picker.activeTintColor = UIColor(Palette.accent)
+        picker.alpha = 0.011
         return picker
     }
 
-    func updateUIView(_ view: AVRoutePickerView, context: Context) {}
+    func updateUIView(_ view: AVRoutePickerView, context: Context) {
+        guard trigger != context.coordinator.last else { return }
+        context.coordinator.last = trigger
+        (view.subviews.first { $0 is UIButton } as? UIButton)?.sendActions(for: .touchUpInside)
+    }
 }

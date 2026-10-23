@@ -1,4 +1,5 @@
 import { computerSections, moveInOrder, orderedComputers } from '../lib/computer-roster'
+import { crewRows } from '@shared/crew-order'
 import { prefs, usePref } from '../lib/prefs'
 import { useModel } from '../lib/observable'
 import type { BotStore } from './bot-store'
@@ -8,9 +9,11 @@ import type { AppModel, BotRef } from './app-model'
 export function useComputerRoster(app: AppModel, shown: Set<string>) {
   const order = useModel(app.computerOrder).ids
   const [collapsed, setCollapsed] = usePref(prefs.collapsedComputers)
+  const [crewOrder] = usePref(prefs.crewOrder)
   const computers = orderedComputers(app.computers, order)
   const sections = computerSections(computers.filter((c) => shown.has(c.id)), app.roster)
-    .map((section) => ({ ...section, store: app.store(section.computer.id) }))
+    // Automatic sorts each computer's rows; Manual leaves the stored (drag) order.
+    .map((section) => ({ ...section, items: crewRows(section.items, crewOrder), store: app.store(section.computer.id) }))
     .filter((section): section is typeof section & { store: BotStore } => section.store !== null)
   const grouped = sections.length > 1
   return {
@@ -27,6 +30,7 @@ export function useComputerRoster(app: AppModel, shown: Set<string>) {
     },
     /** One place up (-1) or down (+1) among its computer's bots with the same pin state. */
     moveBot(ref: BotRef, offset: number) {
+      if (crewOrder !== 'manual') return
       const section = sections.find((s) => s.computer.id === ref.computerId)
       const items = section?.items ?? []
       const index = items.findIndex((item) => item.bot.id === ref.botId)
