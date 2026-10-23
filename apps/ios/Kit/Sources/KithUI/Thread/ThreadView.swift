@@ -403,7 +403,15 @@ extension ThreadView {
                 .padding(.bottom, 4)
                 .background(alignment: .top) {
                     // Rows scroll under the bar: the sky is opaque for its first ~95 pt, then fades into the ground.
-                    SkyBackground(.header)
+                    ZStack(alignment: .top) {
+                        // A ground layer under the sky hides what scrolls under the bar; it fades out just below it.
+                        Palette.background.ignoresSafeArea(edges: .top)
+                        SkyBackground(.header)
+                    }
+                    .overlay(alignment: .bottom) {
+                        LinearGradient(colors: [Palette.background, Palette.background.opacity(0)], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 16).offset(y: 16).allowsHitTesting(false)
+                    }
                 }
             }
     }

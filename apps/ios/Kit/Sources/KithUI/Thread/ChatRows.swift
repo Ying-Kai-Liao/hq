@@ -219,6 +219,8 @@ struct AgentBubble: View {
                     ForEach(files) { file in SharedFileView(entry: entry, file: file) }
                 } else {
                     MarkdownText(entry.data.text ?? "").equatable()
+                        // A reply is never cut: take the height the text needs, whatever the row proposes.
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
                         .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: KithRadius.card + 4, style: .continuous))

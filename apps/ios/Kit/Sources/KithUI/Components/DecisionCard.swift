@@ -80,9 +80,13 @@ public struct DecisionCard: View {
                 Text(detail).kithText(.code).foregroundStyle(Palette.muted).lineLimit(4)
             }
             if model.fitsInRow {
-                HStack(spacing: 8) { buttons }
+                // One row when every label fits on one line; otherwise stacked, never wrapped mid-label.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { buttons(singleLine: true) }
+                    VStack(spacing: 8) { buttons(singleLine: false) }
+                }
             } else {
-                VStack(spacing: 8) { buttons }
+                VStack(spacing: 8) { buttons(singleLine: false) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -91,14 +95,15 @@ public struct DecisionCard: View {
         .accessibilityElement(children: .contain)
     }
 
-    private var buttons: some View {
+    private func buttons(singleLine: Bool) -> some View {
         ForEach(model.options) { option in
             Button { onChoose(option.id) } label: {
                 HStack(spacing: 6) {
                     Text(option.title)
                         .kithText(.body).fontWeight(.semibold)
                         .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(singleLine ? 1 : nil)
+                        .fixedSize(horizontal: singleLine, vertical: true)
                     if answering == option.id { ProgressView().controlSize(.mini) }
                 }
                 .foregroundStyle(foreground(option.role))

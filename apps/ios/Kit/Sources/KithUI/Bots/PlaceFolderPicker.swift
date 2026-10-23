@@ -275,9 +275,9 @@ struct PlaceFolderChip: View {
             Text(folder.name).lineLimit(1).truncationMode(.middle)
             Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
         }
-        .font(.system(size: 11, weight: .medium))
-        // An inherited folder is the default, so it reads quieter than one picked for this place.
-        .foregroundStyle(folder.missing ? Palette.warning : folder.inherited ? Palette.tertiary : Palette.accent)
+        .kithText(.secondary)
+        // Place text is small grey, never an accent colour (DESIGN.md v2).
+        .foregroundStyle(folder.missing ? Palette.warning : Palette.muted)
         .contentShape(Rectangle())
     }
 
