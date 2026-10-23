@@ -39,7 +39,9 @@ function emphasis(text: string, key: string): ReactNode[] {
     const k = `${key}${n++}`
     if (m[1] !== undefined) {
       const url = m[2]!
-      out.push(
+      // Only web and mail links are links; anything else (javascript:, file:, ...) stays plain text.
+      if (!/^(https?|mailto):/i.test(url)) out.push(<span key={k}>{emphasis(m[1], `${k}-`)}</span>)
+      else out.push(
         <a key={k} href={url} title={url} className="md-link" onClick={(e) => { e.preventDefault(); window.kith.app.openExternal(url) }}>
           {emphasis(m[1], `${k}-`)}
         </a>,
