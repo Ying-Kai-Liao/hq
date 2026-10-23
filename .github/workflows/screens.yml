@@ -18,9 +18,11 @@ on:
         default: ''
   pull_request:
     paths:
-      - apps/ios/**
+      - apps/ios/App/**
+      - apps/ios/Views/**
+      - apps/ios/Kit/Sources/KithUI/**
       - apps/desktop/src/renderer/**
-      - docs/design/**
+      - docs/design/mocks/**
       - .github/workflows/screens.yml
 
 concurrency:
