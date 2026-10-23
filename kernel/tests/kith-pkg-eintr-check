@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# kith-pkg-eintr-check — kith-pkg retries a directory listing that fails with EINTR (macOS blocking an external disk),
+# and when it keeps failing exits 1 with one stderr line instead of a traceback.
+#
+#   kernel/tests/kith-pkg-eintr-check     a second; prints each check, exits 1 when one fails
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-pkg-eintr-check.XXXXXX")
+T=$(cd "$T" && pwd -P)
+trap 'rm -rf "$T"' EXIT
+export HOME=$T/home KITH_HOME=$T/kith KERNEL
+unset KITH_STATE HQ_STATE KITH_AGENT
+mkdir -p "$HOME" "$KITH_HOME/state" "$KITH_HOME/agents/designer/role"
+printf -- '---\nname: designer\ndescription: t\n---\nbody\n' > "$KITH_HOME/agents/designer/role/agent.md"
+
+# the first <n> scandir calls fail with EINTR, then it works; prints the installed agents
+harness() {
+  python3 - "$1" <<'P'
+import errno, importlib.machinery, importlib.util, os, sys
+left = [int(sys.argv[1])]; real = os.scandir
+def flaky(*a, **k):
+    if left[0] > 0:
+        left[0] -= 1
+        raise InterruptedError(errno.EINTR, 'Interrupted system call', str(a[0]) if a else '')
+    return real(*a, **k)
+os.scandir = flaky
+sys.argv = ['kith-pkg']
+l = importlib.machinery.SourceFileLoader('kith_pkg', os.environ['KERNEL'] + '/bin/kith-pkg')
+m = importlib.util.module_from_spec(importlib.util.spec_from_loader('kith_pkg', l)); l.exec_module(m)
+m.EINTR_SLEEP = 0
+print(sorted(m.installed()))
+P
+}
+
+fail=0
+out=$(harness 2 2>&1); rc=$?
+if [[ $rc == 0 && $out == "['designer']" ]]; then echo "ok   retries after EINTR"; else echo "FAIL retry (rc=$rc): $out"; fail=1; fi
+out=$(harness 99 2>&1); rc=$?
+if [[ $rc == 1 && $out == "kith-pkg: cannot read "* && $out != *Traceback* && $(wc -l <<<"$out") -eq 1 ]]; then
+  echo "ok   persistent EINTR: one clear line, exit 1"; else echo "FAIL persistent (rc=$rc): $out"; fail=1; fi
+exit $fail
