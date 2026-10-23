@@ -31,7 +31,8 @@ pub const MEMBER_METHODS: &[&str] = &[
     "upload",
     "readUpload",
     "react",
-    // The agent's permission cards in their own chat. The owner-first gate for guests is the runs package's.
+    // The agent's permission cards in their own chat; answered only by a member of that agent (see `guard`): a guest's
+    // go to the owner.
     "respondPermission",
     "editHandoff",
     "keepConversation",
@@ -40,14 +41,6 @@ pub const MEMBER_METHODS: &[&str] = &[
     // The code that links their own Telegram, Discord or Slack account to their person.
     "linkCode",
 ];
-
-/// Whether invited people may start or continue runs of an agent. Off until the runs package carries the person into the
-/// run (`KITH_PERSON`), sends guests' prompts to the owner first and keeps members to their preset: until then a run
-/// would act as the owner.
-pub const MEMBER_RUNS_ENABLED: bool = false;
-
-/// Methods that start or continue a run, or answer what a run asked.
-const RUN_METHODS: &[&str] = &["send", "newSession", "respondPermission", "editHandoff", "keepConversation"];
 
 /// All an unproven device of an invited person may call: showing the invite token (see `people::prove_invite`).
 pub const UNPROVEN_METHODS: &[&str] = &["proveInvite"];
@@ -70,12 +63,24 @@ pub fn target_of(b: &Value) -> Option<String> {
 /// Whether `person` may use `agent` right now, asked of kith-auth (the truth) on every call so that taking an agent
 /// away cuts access at the next request. Fails closed.
 pub async fn may_use(person: &str, agent: &str) -> bool {
-    let Some(bin) = account::bin().await else { return false };
-    let Some(out) = crate::channels::hq::output(&bin, &["resolve", agent, "--person", person]).await else {
-        return false;
-    };
-    serde_json::from_slice::<Value>(&out.stdout)
-        .is_ok_and(|v| v["allowed"].as_bool() == Some(true) && v["owner"].as_bool() != Some(true))
+    resolve(person, agent).await.is_some_and(|v| v["allowed"].as_bool() == Some(true))
+}
+
+/// What kith-auth says `person` gets of `agent` (see `kith-auth resolve`); None when it can't be asked or the person
+/// is the owner, who never comes through here.
+async fn resolve(person: &str, agent: &str) -> Option<Value> {
+    let bin = account::bin().await?;
+    let out = crate::channels::hq::output(&bin, &["resolve", agent, "--person", person]).await?;
+    serde_json::from_slice::<Value>(&out.stdout).ok().filter(|v| v["owner"].as_bool() != Some(true))
+}
+
+/// Who answers the agent's permission prompts in `person`'s chat with `agent`: a member answers their own, everyone
+/// else's (a guest's, or any preset that isn't `member`) go to the owner. Asked of kith-auth each time and failing
+/// toward the owner.
+pub async fn approves_own(person: &str, agent: &str) -> bool {
+    resolve(person, agent)
+        .await
+        .is_some_and(|v| v["allowed"].as_bool() == Some(true) && v["preset"].as_str() == Some("member"))
 }
 
 /// The person's chat `bot`, when it is theirs and its agent is still granted to them.
@@ -104,9 +109,6 @@ pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: 
     if !member_may(method) {
         return Err(denied("This isn't available to guests and members on this computer."));
     }
-    if !MEMBER_RUNS_ENABLED && RUN_METHODS.contains(&method) {
-        return Err(denied("Chatting with agents isn't open to guests and members yet."));
-    }
     match method {
         // Checked by their own handlers, or about no chat at all.
         "hello" | "projects" | "linkCode" | "startChat" => {}
@@ -115,6 +117,15 @@ pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: 
             let id = b["entryId"].as_str().unwrap_or_default();
             let entry = hub.store.entry(id).ok_or_else(|| denied("That chat isn't yours."))?;
             own_bot(hub, person, &entry.bot_id).await?;
+            // Only a member answers what their own run asked. A guest's prompts are the owner's to answer, and a
+            // card of any other kind (or one a group's bot raised) is not a prompt of their run at all.
+            if method == "respondPermission" {
+                let agent = hub.store.bot(&entry.bot_id).ok().flatten().and_then(|r| r.config.hq_agent);
+                let own = entry.kind == "permission" && entry.data["author"].is_null();
+                if !own || !approves_own(person, agent.as_deref().unwrap_or_default()).await {
+                    return Err(denied("Only the owner can answer this agent's permission requests for you."));
+                }
+            }
         }
         _ => own_bot(hub, person, b["botId"].as_str().unwrap_or_default()).await?,
     }
@@ -195,7 +206,9 @@ pub fn event_for(store: &Store, who: Option<&str>, v: Value) -> Option<Value> {
     };
     let owner = bot.as_deref().and_then(|b| bot_person(store, b));
     match (who, owner) {
-        (None, Some(Some(_))) => None,
+        // The owner answers the permission prompts of an invitee's runs (a guest's always, a member's when they like);
+        // nothing else of the chat reaches them.
+        (None, Some(Some(_))) => (kind == "entry" && v["entry"]["kind"] == "permission").then_some(v),
         (None, _) => Some(v),
         (Some(me), Some(Some(p))) if p == me => {
             let agents = store.person(me).map(|p| p.agents).unwrap_or_default();

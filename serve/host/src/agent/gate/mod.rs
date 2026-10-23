@@ -9,6 +9,9 @@
 //! A turn blocked on another bot's reply parks its slot ([`Gate::park`]) so the bot it waits on can take it:
 //! with one slot, a bot asking another would otherwise hold the only slot while the answer waits for one.
 //!
+//! The owner's turns go ahead of invited people's, and invited people together hold at most [`INVITEE_SLOTS`] of the
+//! running slots: someone else's chat never keeps the owner's own agents waiting.
+//!
 //! When memory is what blocks the head of the line, the host first stops agents that are at rest (nothing
 //! running or queued, sessions it can load again), longest idle first, and only then lets turns wait.
 
@@ -34,12 +37,17 @@ const RECHECK: Duration = Duration::from_secs(5);
 /// After an agent was stopped to make room, memory needs a moment to come back.
 const SETTLE: Duration = Duration::from_millis(1500);
 
+/// How many slots invited people's turns may hold together.
+pub const INVITEE_SLOTS: usize = 1;
+
 const ACTIVE: u8 = 0;
 const PARKED: u8 = 1;
 const DEAD: u8 = 2;
 
 /// One turn's hold on a slot. The slot is counted from admission until this is dropped.
 struct Slot {
+    /// An invited person's turn: counted against [`INVITEE_SLOTS`] while it is active.
+    invitee: bool,
     state: AtomicU8,
     /// Asks of other bots this turn is waiting on right now; the slot is parked while there are any.
     asks: AtomicUsize,
@@ -50,6 +58,9 @@ impl Slot {
     fn activate(&self, gate: &Gate) {
         if self.state.compare_exchange(PARKED, ACTIVE, Ordering::AcqRel, Ordering::Acquire).is_ok() {
             gate.running.fetch_add(1, Ordering::AcqRel);
+            if self.invitee {
+                gate.invitees.fetch_add(1, Ordering::AcqRel);
+            }
         }
     }
 }
@@ -64,6 +75,9 @@ impl Drop for Permit {
     fn drop(&mut self) {
         if self.slot.state.swap(DEAD, Ordering::AcqRel) == ACTIVE {
             self.gate.running.fetch_sub(1, Ordering::AcqRel);
+            if self.slot.invitee {
+                self.gate.invitees.fetch_sub(1, Ordering::AcqRel);
+            }
         }
         self.gate.wake.notify_one();
     }
@@ -80,6 +94,10 @@ struct Waiter {
     /// The actor waiting (see `agent::bot::actor_key`).
     rt: String,
     grant: Grant,
+    /// A new turn of an invited person: behind every other waiter.
+    low: bool,
+    /// Takes one of the invited people's slots when granted (a new turn of theirs, or one of theirs coming back).
+    needs_invitee_slot: bool,
 }
 
 impl Waiter {
@@ -112,6 +130,8 @@ pub struct Gate {
     pub settings: Settings,
     probe: Box<dyn Probe>,
     running: AtomicUsize,
+    /// How many of the active slots are invited people's.
+    invitees: AtomicUsize,
     state: Mutex<State>,
     wake: Notify,
     probe_warned: AtomicBool,
@@ -123,6 +143,7 @@ impl Gate {
             settings,
             probe,
             running: AtomicUsize::new(0),
+            invitees: AtomicUsize::new(0),
             state: Mutex::default(),
             wake: Notify::new(),
             probe_warned: AtomicBool::new(false),
@@ -132,16 +153,24 @@ impl Gate {
     /// Joins the line for a slot. A bot calls this when it has a turn to start and holds the result until it
     /// is granted or no longer wants the turn; dropping it leaves the line.
     pub fn enter(self: &Arc<Self>, rt: &str) -> Admission {
+        self.enter_as(rt, false)
+    }
+
+    /// [`Gate::enter`] for a turn of an invited person (`invitee`): it waits behind the owner's turns and holds one of
+    /// the few slots invited people share.
+    pub fn enter_as(self: &Arc<Self>, rt: &str, invitee: bool) -> Admission {
         let (tx, rx) = oneshot::channel();
-        let id = self.enqueue(rt, Grant::Turn(tx), false);
+        let id = self.enqueue(rt, Grant::Turn(tx), false, invitee);
         self.pump();
         Admission { id, gate: self.clone(), rx }
     }
 
-    fn enqueue(&self, rt: &str, grant: Grant, front: bool) -> u64 {
+    /// `invitee`: the turn (or the parked turn coming back) is an invited person's.
+    fn enqueue(&self, rt: &str, grant: Grant, front: bool, invitee: bool) -> u64 {
         let mut st = self.state.locked();
         st.next_id += 1;
-        let waiter = Waiter { id: st.next_id, rt: rt.to_owned(), grant };
+        let low = invitee && matches!(grant, Grant::Turn(_));
+        let waiter = Waiter { id: st.next_id, rt: rt.to_owned(), grant, low, needs_invitee_slot: invitee };
         let id = waiter.id;
         if front {
             st.waiters.push_front(waiter);
@@ -170,6 +199,19 @@ impl Gate {
                 st.blocked = Some(Blocked::Slots);
                 return;
             }
+            // Who is next: the first waiter that isn't an invited person's new turn, else the first of those. Anyone
+            // who needs an invited person's slot waits while those are taken.
+            let invitee_open = self.invitees.load(Ordering::Acquire) < INVITEE_SLOTS;
+            let may = |w: &Waiter| invitee_open || !w.needs_invitee_slot;
+            let next = st
+                .waiters
+                .iter()
+                .position(|w| !w.low && may(w))
+                .or_else(|| st.waiters.iter().position(|w| w.low && may(w)));
+            let Some(next) = next else {
+                st.blocked = Some(Blocked::Slots);
+                return;
+            };
             if let Some(why) = self.shortage(&mut st) {
                 let was_memory = matches!(st.blocked, Some(Blocked::Memory(_)));
                 st.blocked = Some(Blocked::Memory(why));
@@ -181,11 +223,18 @@ impl Gate {
                 }
                 return;
             }
-            let Some(waiter) = st.waiters.pop_front() else { return };
+            let Some(waiter) = st.waiters.remove(next) else { return };
             match waiter.grant {
                 Grant::Turn(tx) => {
                     self.running.fetch_add(1, Ordering::AcqRel);
-                    let slot = Arc::new(Slot { state: AtomicU8::new(ACTIVE), asks: AtomicUsize::new(0) });
+                    if waiter.needs_invitee_slot {
+                        self.invitees.fetch_add(1, Ordering::AcqRel);
+                    }
+                    let slot = Arc::new(Slot {
+                        invitee: waiter.needs_invitee_slot,
+                        state: AtomicU8::new(ACTIVE),
+                        asks: AtomicUsize::new(0),
+                    });
                     st.slots.retain(|_, s| s.strong_count() > 0);
                     st.slots.insert(waiter.rt, Arc::downgrade(&slot));
                     // A receiver that is gone drops the permit, which gives the slot straight back.
@@ -275,6 +324,9 @@ impl Gate {
             && slot.state.compare_exchange(ACTIVE, PARKED, Ordering::AcqRel, Ordering::Acquire).is_ok()
         {
             self.running.fetch_sub(1, Ordering::AcqRel);
+            if slot.invitee {
+                self.invitees.fetch_sub(1, Ordering::AcqRel);
+            }
             self.wake.notify_one();
         }
         Parked { gate: self.clone(), rt: rt.to_owned(), counted: slot.is_some(), last: false, slot, waiting: None }
@@ -332,7 +384,8 @@ impl Parked {
         // A turn that ended while parked has nothing to come back to.
         let Some(slot) = self.slot.clone().filter(|s| s.state.load(Ordering::Acquire) == PARKED) else { return };
         let (tx, rx) = oneshot::channel();
-        self.waiting = Some(self.gate.enqueue(&self.rt, Grant::Resume(slot, tx), true));
+        let invitee = slot.invitee;
+        self.waiting = Some(self.gate.enqueue(&self.rt, Grant::Resume(slot, tx), true, invitee));
         self.gate.pump();
         let _ = rx.await;
     }

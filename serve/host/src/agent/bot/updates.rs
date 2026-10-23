@@ -9,6 +9,17 @@ use crate::store::{EntryKind, Permission};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
+/// What an invitee's chat calls the owner while a prompt waits for them: the owner's sign-in name, else "the owner".
+fn owner_label_of(hub: &crate::hub::Hub) -> String {
+    hub.cloud
+        .status()
+        .owner
+        .and_then(|o| o.email)
+        .and_then(|e| e.split('@').next().map(str::to_owned))
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "the owner".into())
+}
+
 impl Actor {
     pub(super) async fn on_incoming(&mut self, inc: Option<Incoming>) {
         match inc {
@@ -174,6 +185,16 @@ impl Actor {
                 self.hub.store.entry(eid)?.data["title"].as_str().map(str::to_owned)
             })
             .unwrap_or_else(|| "Use a tool".into());
+        // An invitee's run asks its approver: the member for a member's own run, the owner for a guest's. The card says
+        // whose run it is, since the owner sees it outside the invitee's chat.
+        let whose = match (self.cfg.person.clone(), self.cfg.hq_agent.clone()) {
+            (Some(person), Some(agent)) => Some((person, agent)),
+            _ => None,
+        };
+        let mut approver = None;
+        if let Some((person, agent)) = &whose {
+            approver = Some(if crate::api::roles::approves_own(person, agent).await { "member" } else { "owner" });
+        }
         let mut detail = json!({"output": "", "diffs": []});
         merge_tool_content(&mut detail, &tool["content"]);
         let raw = &tool["rawInput"];
@@ -191,25 +212,41 @@ impl Actor {
             "status": "pending",
             "selected": Value::Null,
         });
+        let mut data = data;
+        let mut owner_label = None;
+        if let (Some((person, agent)), Some(approver)) = (&whose, approver) {
+            let name = self.hub.store.person(person).map(|p| p.name).filter(|n| !n.is_empty());
+            data["cwd"] = Value::Null;
+            data["approver"] = approver.into();
+            data["person"] = person.as_str().into();
+            data["personName"] = name.unwrap_or_else(|| person.clone()).into();
+            data["agent"] = agent.as_str().into();
+            if approver == "owner" {
+                owner_label = Some(owner_label_of(&self.hub));
+            }
+        }
         let turn = self.turn.unwrap_or(0);
         self.close_seg();
-        if let Some(e) = self.add(EntryKind::Permission, turn, data) {
+        if let Some(e) = self.add(EntryKind::Permission, turn, data.clone()) {
             self.perms.insert(e.id, rpc_id);
         }
         self.hub.set_runtime(&self.rt, |r| {
             r.status = BotStatus::NeedsInput;
-            r.activity = format!("Needs approval: {title}");
+            r.activity = match &owner_label {
+                Some(owner) => format!("Waiting for {owner}"),
+                None => format!("Needs approval: {title}"),
+            };
         });
         // Tapping it opens where the card is: the group, for a room turn.
-        let target = self.hub.store.bot(&self.lane.chat).ok().flatten().map_or_else(|| self.cfg.clone(), |r| r.config);
-        push::notify(
-            &self.hub,
-            &target,
-            Some(&self.cfg.id),
-            &format!("{} needs you", self.cfg.name),
-            &title,
-            AlertKind::NeedsInput,
-        );
+        let mut target =
+            self.hub.store.bot(&self.lane.chat).ok().flatten().map_or_else(|| self.cfg.clone(), |r| r.config);
+        let mut heading = format!("{} needs you", self.cfg.name);
+        if owner_label.is_some() {
+            // A guest waits; the owner's devices are the ones to tell.
+            target.person = None;
+            heading = format!("{} needs your OK", data["personName"].as_str().unwrap_or_default());
+        }
+        push::notify(&self.hub, &target, Some(&self.cfg.id), &heading, &title, AlertKind::NeedsInput);
     }
 
     pub(super) async fn answer_permission(&mut self, entry_id: &str, option_id: Option<String>) {

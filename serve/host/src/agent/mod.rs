@@ -10,6 +10,8 @@ pub mod config;
 pub mod folder;
 pub mod gate;
 pub mod hq;
+#[cfg(test)]
+mod hq_person_tests;
 pub mod node;
 pub mod own_memory;
 pub mod registry;

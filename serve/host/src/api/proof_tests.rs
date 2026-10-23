@@ -58,26 +58,48 @@ async fn an_unproven_device_can_only_prove_and_only_a_few_times() {
 }
 
 #[tokio::test]
-async fn members_cannot_run_agents_yet() {
+async fn permission_prompts_go_to_the_owner_for_a_guest_and_to_a_member_for_their_own_run() {
     let r = Rig::new().await;
     r.owner_bot("house");
     let sam = joined(&r, json!({"house": "member"})).await;
     let chat =
         call(&r, &sam, "startChat", json!({"agent": "house"})).await.unwrap()["bot"]["id"].as_str().unwrap().to_owned();
-    let entry = r
-        .hub
-        .add_entry(&crate::store::Lane::main(&chat), crate::store::EntryKind::Agent, 1, &json!({"text": "ok?"}))
-        .unwrap();
-    for (m, b) in [
-        ("send", json!({"botId": chat, "text": "hi"})),
-        ("newSession", json!({"botId": chat})),
-        ("respondPermission", json!({"entryId": entry.id})),
-        ("editHandoff", json!({"entryId": entry.id, "text": "x"})),
-        ("keepConversation", json!({"entryId": entry.id})),
-    ] {
-        let e = call(&r, &sam, m, b).await.expect_err(m);
-        assert!(e.is::<NotAllowed>(), "{m}: {e:#}");
+    let lane = crate::store::Lane::main(&chat);
+    let card = |kind| r.hub.add_entry(&lane, kind, 1, &json!({"title": "Run ls", "status": "pending"})).unwrap();
+    let ask = card(crate::store::EntryKind::Permission);
+    let said = card(crate::store::EntryKind::Agent);
+    let guard = |m: &'static str, b: Value| {
+        let hub = r.hub.clone();
+        async move { roles::guard(&hub, "sam", true, m, &b).await }
+    };
+
+    // Running is open to both roles; a member answers their own run's prompt, and only a prompt.
+    for m in ["send", "newSession"] {
+        guard(m, json!({"botId": chat, "text": "hi"})).await.expect(m);
     }
+    guard("respondPermission", json!({"entryId": ask.id})).await.expect("a member answers their own prompt");
+    let e = guard("respondPermission", json!({"entryId": said.id})).await.unwrap_err();
+    assert!(e.is::<NotAllowed>(), "{e:#}");
+    // Someone else's chat is never theirs to answer.
+    let other = r.owner_bot("house");
+    let theirs =
+        r.hub.add_entry(&crate::store::Lane::main(&other), crate::store::EntryKind::Permission, 1, &json!({})).unwrap();
+    assert!(guard("respondPermission", json!({"entryId": theirs.id})).await.unwrap_err().is::<NotAllowed>());
+
+    // The owner sees the prompt (and nothing else of the chat), live and on catch-up.
+    let for_owner = |e: &crate::store::Entry| {
+        roles::event_for(&r.hub.store, None, json!({"type": "entry", "rev": e.rev, "entry": e}))
+    };
+    assert!(for_owner(&ask).is_some(), "the owner's devices get the prompt");
+    assert!(for_owner(&said).is_none(), "but not the rest of the invitee's chat");
+
+    // The same person as a guest: sending still works, the answer is the owner's.
+    r.auth(&["member", "house", "sam", "preset=guest"]);
+    guard("send", json!({"botId": chat, "text": "hi"})).await.expect("a guest chats");
+    let e = guard("respondPermission", json!({"entryId": ask.id})).await.unwrap_err();
+    assert!(e.is::<NotAllowed>(), "{e:#}");
+    // The owner can always answer: the guard is for invitees only, the owner's calls never reach it.
+    assert!(roles::approves_own("sam", "house").await.eq(&false));
     call(&r, &sam, "history", json!({"botId": chat})).await.unwrap();
     call(&r, &sam, "stop", json!({"botId": chat})).await.unwrap();
 }

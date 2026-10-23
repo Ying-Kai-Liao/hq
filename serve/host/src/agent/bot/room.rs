@@ -24,7 +24,7 @@ impl Actor {
             return true;
         }
         if self.admission.is_none() {
-            let mut admission = self.hub.gate.enter(&self.rt);
+            let mut admission = self.hub.gate.enter_as(&self.rt, self.cfg.person.is_some());
             if let Some(permit) = admission.try_take() {
                 self.permit = Some(permit);
                 return true;
@@ -37,7 +37,7 @@ impl Actor {
 
     /// Waits for a slot before the turn a host restart cut off is resumed.
     pub(super) async fn await_room(&mut self) {
-        let mut admission = self.hub.gate.enter(&self.rt);
+        let mut admission = self.hub.gate.enter_as(&self.rt, self.cfg.person.is_some());
         let permit = if let Some(permit) = admission.try_take() {
             permit
         } else {
