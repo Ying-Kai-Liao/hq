@@ -371,9 +371,7 @@ struct CallScreen: View {
     }
 
     static func mono(_ size: CGFloat) -> Font {
-        KithFonts.isAvailable(KithFonts.jetBrainsMono)
-            ? .custom(KithFonts.jetBrainsMono, size: size)
-            : .system(size: size, design: .monospaced)
+        .custom(KithFonts.jetBrainsMono, size: size)
     }
 
     private static let buttonSize: CGFloat = 62
