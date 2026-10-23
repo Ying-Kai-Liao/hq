@@ -30,6 +30,12 @@ public struct EntryData: Codable, Hashable, Sendable {
     public var command: String?
     public var detail: String?
     public var cwd: String?
+    /// permission, in an invited person's chat: who answers it, `owner` (a guest's) or `member`. Nil on the owner's own cards.
+    public var approver: String?
+    /// permission, in an invited person's chat: whose run asked, and which agent.
+    public var person: String?
+    public var personName: String?
+    public var agent: String?
     public var entries: [PlanItem]?
     /// notice: info | error | divider
     public var style: String?

@@ -16,10 +16,7 @@ public struct RosterItem: Identifiable, Sendable {
 /// Account → computers → bots: one `BotStore` per computer this context can reach
 /// (QR-paired or approved through the account),
 /// plus the account's computers from the cloud that this device can still ask access to.
-///
-/// Multiple computers are a future direction, not a current priority: the product targets one
-/// computer today. This structure stays because the relay, accounts and SSH are built on it and it
-/// works unchanged with a single computer; don't extend or polish multi-computer features for now.
+/// An account sees every computer it owns or was invited to; each keeps its own role, roster, cache and prompts.
 @MainActor
 @Observable
 public final class AccountStore {
@@ -94,6 +91,25 @@ public final class AccountStore {
     public func role(for id: ComputerID) -> ComputerRole {
         if let role = cloudComputers.first(where: { $0.computerId == id })?.role { return role }
         return memberComputers.contains(id) ? .member : .owner
+    }
+
+    /// What this account is on a computer, for labels: Owner, or Member / Guest by the agents granted there.
+    public func access(for id: ComputerID) -> AccessLevel {
+        AccessLevel.of(role: role(for: id), granted: stores[id]?.hello?.grantedAgents)
+    }
+
+    /// Guests' prompts waiting for this account's answer on a computer. Only the owner's: a member answers their own
+    /// in their chat, and nothing here crosses to another computer.
+    public func guestPrompts(for id: ComputerID) -> [GuestPrompt] {
+        role(for: id) == .owner ? stores[id]?.guestPrompts ?? [] : []
+    }
+
+    /// Whether a link to this chat opens a guest's request instead: the account owns the computer and has no bot by that
+    /// id. If it only hasn't synced yet, the request view waits and hands over to the chat when the bot appears; if the
+    /// request was answered meanwhile, it says so.
+    public func opensGuestPrompt(_ ref: BotReference) -> Bool {
+        guard role(for: ref.computerId) == .owner, let store = stores[ref.computerId] else { return false }
+        return store.bots[ref.botId] == nil
     }
 
     /// The computers this account owns (or pairs by QR), for the screens only an owner has.

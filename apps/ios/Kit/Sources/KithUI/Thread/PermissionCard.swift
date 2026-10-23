@@ -8,6 +8,8 @@ struct PermissionCard: View {
     let hostName: String
     /// The option whose answer is on its way to the computer, if any.
     var answering: String?
+    /// Set when the owner has to answer (a guest's chat): "Waiting for <name>" in place of the buttons.
+    var waiting: String?
     let respond: (String?) -> Void
     @State private var expanded = false
 
@@ -57,7 +59,11 @@ struct PermissionCard: View {
                 }
             }
 
-            if pending {
+            if let waiting {
+                Text(waiting)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Palette.secondary)
+            } else if pending {
                 buttons
             } else {
                 Text(outcome)

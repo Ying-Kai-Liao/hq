@@ -94,6 +94,7 @@ struct BotListView: View {
                     EmptyRoster(canCreate: allStores.contains { $0.mismatch == nil }, hasComputer: !accounts.computers.isEmpty,
                                 create: newBot, showComputers: { app.showComputers = true })
                 }
+                needsYourOK
                 ForEach(lines) { line in
                     switch line {
                     case let .computer(_, store): computerHeading(store, roster: roster)
@@ -218,11 +219,38 @@ struct BotListView: View {
         let id = store.computer.id
         return VStack(spacing: 0) {
             // Not synced while it needs an update: "No bots yet" wouldn't be true.
-            ComputerSection(store: store, empty: store.mismatch == nil && !roster.contains { $0.ref.computerId == id },
+            ComputerSection(store: store, access: accounts.access(for: id), empty: store.mismatch == nil && !roster.contains { $0.ref.computerId == id },
                             collapsed: collapsedIDs.contains(id), toggle: { toggleCollapsed(id) }, move: move)
                 .contentShape(Rectangle())
                 .onTapGesture { toggleCollapsed(id) }
             updateCard(store)
+        }
+    }
+
+    /// Guests' requests waiting for this account's answer, on the shown computers it owns, ahead of the bots.
+    @ViewBuilder private var needsYourOK: some View {
+        let waiting = shownStores.flatMap { store in
+            accounts.guestPrompts(for: store.computer.id).map { (store, $0) }
+        }
+        if !waiting.isEmpty {
+            Text("Needs your OK")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Palette.secondary)
+                .padding(.top, 14)
+                .padding(.bottom, 4)
+                .accessibilityAddTraits(.isHeader)
+            ForEach(waiting, id: \.1.id) { store, prompt in
+                VStack(alignment: .leading, spacing: 4) {
+                    if grouped {
+                        Text(store.hostName).font(.caption).foregroundStyle(Palette.tertiary)
+                    }
+                    GuestPromptCard(prompt: prompt, answering: store.answering[prompt.entry.id]) {
+                        store.respond(prompt.entry, option: $0)
+                    }
+                }
+                .padding(.vertical, 4)
+                .transition(.opacity)
+            }
         }
     }
 
@@ -321,6 +349,7 @@ private enum RosterLine: Identifiable {
 /// touch and hold, then drag, moves the computer (on this device).
 private struct ComputerSection: View {
     let store: BotStore
+    let access: AccessLevel
     let empty: Bool
     let collapsed: Bool
     let toggle: () -> Void
@@ -343,7 +372,7 @@ private struct ComputerSection: View {
         .padding(.horizontal, -8)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits([.isHeader, .isButton])
-        .accessibilityLabel("\(store.hostName), \(store.statusText)")
+        .accessibilityLabel("\(store.hostName), \(access.title), \(store.statusText)")
         .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
         .accessibilityHint("Double-tap to fold or expand. Touch and hold, then drag to reorder on this device.")
         .accessibilityAction(named: collapsed ? "Expand" : "Collapse", toggle)
@@ -361,6 +390,9 @@ private struct ComputerSection: View {
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(Palette.secondary)
                 .lineLimit(1)
+            Text(access.title)
+                .font(.footnote)
+                .foregroundStyle(Palette.tertiary)
             Text(store.statusText)
                 .font(.footnote)
                 .foregroundStyle(store.isOffline ? Palette.warning : Palette.tertiary)

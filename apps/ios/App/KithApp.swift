@@ -119,6 +119,8 @@ final class AppStore {
     var showUsage = false
     /// The computer whose marketplace is open.
     var marketplace: ComputerID?
+    /// A guest's permission request opened from its push, shown as a sheet on the computer it belongs to.
+    var guestPrompt: BotReference?
     /// An invite link being joined, shown as a sheet.
     private(set) var inviteJoin: InviteJoinModel?
 
@@ -137,7 +139,11 @@ final class AppStore {
 
     /// The computer the Usage tab, widgets and "open screen" links act on: the last active one.
     var currentStore: BotStore? {
-        accounts.storage.lastComputerId.flatMap(accounts.store(for:)) ?? accounts.computers.first.flatMap { accounts.store(for: $0.id) }
+        // Usage, plugins and the screen are the owner's: a computer joined by invite is never the one they act on.
+        let owned = Set(accounts.ownedComputers.map(\.id))
+        let last = accounts.storage.lastComputerId.flatMap { owned.contains($0) ? $0 : nil }
+        return last.flatMap(accounts.store(for:))
+            ?? accounts.ownedComputers.first.flatMap { accounts.store(for: $0.id) }
     }
 
     func switchAccount(to userID: String?) {
@@ -152,6 +158,7 @@ final class AppStore {
         tab = .bots
         showComputers = false
         marketplace = nil
+        guestPrompt = nil
         (accounts, cloud) = Self.makeAccounts(storage, session: account)
         BotsWidgetFeed.reset()
         WidgetCenter.shared.reloadAllTimelines()
@@ -222,8 +229,7 @@ final class AppStore {
             }
         case "bot":
             guard let ref = storage.reference(from: url), accounts.store(for: ref.computerId) != nil else { return }
-            tab = .bots
-            accounts.selection = ref
+            openBot(ref)
         case "plugins":
             accounts.selection = nil
             tab = .bots
@@ -240,6 +246,18 @@ final class AppStore {
             currentStore?.screenRequest = ScreenRequest()
         default:
             break
+        }
+    }
+
+    /// Opens a bot's chat. A chat the account has no bot for, on a computer it owns, is a guest's: its push is for the
+    /// request waiting there, which shows as a card instead of a chat that isn't the owner's.
+    func openBot(_ ref: BotReference) {
+        tab = .bots
+        if accounts.opensGuestPrompt(ref) {
+            accounts.selection = nil
+            guestPrompt = ref
+        } else {
+            accounts.selection = ref
         }
     }
 
@@ -355,8 +373,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             // Only open it in the account it was sent to, on a computer that account still has.
             let accounts = AppStore.shared.accounts
             guard ctx == accounts.storage.id, accounts.store(for: computerId) != nil else { return }
-            AppStore.shared.tab = .bots
-            accounts.selection = BotReference(accountId: accounts.accountId, computerId: computerId, botId: botId)
+            AppStore.shared.openBot(BotReference(accountId: accounts.accountId, computerId: computerId, botId: botId))
         }
     }
 

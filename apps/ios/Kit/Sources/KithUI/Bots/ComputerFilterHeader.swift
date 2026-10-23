@@ -68,7 +68,10 @@ public struct ComputerFilterHeader: View {
 
     private func computerTitle(_ computer: Computer) -> String {
         guard let store = accounts.store(for: computer.id) else { return computer.name }
-        return "\(store.hostName) · \(store.connectionLabel)"
+        // Which role this is shows once there is more than one computer, or when it isn't the owner's.
+        let access = accounts.access(for: computer.id)
+        let role = accounts.computers.count > 1 || access != .owner ? " · \(access.title)" : ""
+        return "\(store.hostName) · \(store.connectionLabel)\(role)"
     }
 
     private func update(_ value: String) {

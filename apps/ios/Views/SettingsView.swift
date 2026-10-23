@@ -259,12 +259,14 @@ private struct MemberComputerRow: View {
     let store: BotStore
     let newChat: () -> Void
     let remove: () -> Void
+    @Environment(AccountStore.self) private var accounts
 
     var body: some View {
         HStack(spacing: 12) {
             ComputerBadge(store.computer, size: 40)
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(store.hostName), member").font(.body.weight(.semibold)).foregroundStyle(Palette.text).lineLimit(1)
+                Text("\(store.hostName) · \(accounts.access(for: store.computer.id).title)")
+                    .font(.body.weight(.semibold)).foregroundStyle(Palette.text).lineLimit(1)
                 Text(store.connection == .online ? "Online" : "Not connected")
                     .font(.subheadline).foregroundStyle(Palette.secondary)
             }
@@ -293,7 +295,8 @@ private struct ComputerRow: View {
         HStack(spacing: 12) {
             ComputerBadge(store.computer, size: 40)
             VStack(alignment: .leading, spacing: 2) {
-                Text(store.hostName).font(.body.weight(.semibold)).foregroundStyle(Palette.text)
+                Text("\(store.hostName) · \(accounts.access(for: store.computer.id).title)")
+                    .font(.body.weight(.semibold)).foregroundStyle(Palette.text).lineLimit(1)
                 HStack(spacing: 4) {
                     Text(detail).lineLimit(stale ? 2 : 1)
                     if store.connection == .online { RouteIcon(route: store.hostRoute) }
