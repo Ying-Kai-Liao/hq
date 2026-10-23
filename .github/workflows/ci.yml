@@ -237,7 +237,8 @@ jobs:
           compression-level: 0
 
   # Unit tests, then the slow integration tests (tests/*.rs, each spawns a real kith-serve and python fixtures)
-  # in three shards. The archive was built at the same path, so env!(CARGO_MANIFEST_DIR) still resolves.
+  # in three shards. The test binaries bake in absolute paths (CARGO_MANIFEST_DIR, CARGO_BIN_EXE_kith-serve), so the
+  # archive is unpacked into serve/host/target, where it was built.
   host-test:
     name: host-test (${{ matrix.name }})
     needs: [changes, host-build]
@@ -268,6 +269,7 @@ jobs:
         run: >-
           cargo nextest run --profile ci
           --archive-file "$RUNNER_TEMP/host-tests.tar.zst"
+          --extract-to . --extract-overwrite
           --workspace-remap .
           ${{ matrix.args }}
 
