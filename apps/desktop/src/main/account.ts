@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
+import { fromRenderer } from './ipc-guard'
 import { app, ipcMain, safeStorage, type BrowserWindow } from 'electron'
 import { providerName, providerStrategy, resolveAccountConfig, type AccountConfig, type SignInProvider } from '../shared/account-config'
 import type { AccountState } from '../shared/ipc'
@@ -93,7 +94,7 @@ export class AccountService extends EventEmitter {
     ipcMain.handle('account:state', () => this.state)
     ipcMain.handle('account:signIn', (_e, provider: SignInProvider) => this.signIn(provider))
     ipcMain.handle('account:signOut', () => this.signOut())
-    ipcMain.handle('account:token', () => this.sessionToken())
+    ipcMain.handle('account:token', fromRenderer(() => this.sessionToken()))
     this.on('change', () => {
       for (const w of windows()) w.webContents.send('account:change', this.state)
     })
