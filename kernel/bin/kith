@@ -422,6 +422,19 @@ sec = os.environ["KITH_SECRETS"]   # a folder of its own, or (the older layout) 
 files = ["%s/**" % sec] if sec != os.environ["KITH_MACHINE"] else ["%s/env" % sec, "%s/auth.json" % sec]
 s.setdefault("permissions", {}).setdefault("deny", []).extend(
     "%s(/%s)" % (tool, f) for f in files for tool in ("Read", "Edit"))   # Edit covers every file-writing tool
+# ~/.kith stays readable (projects/, state, logs), but not the credentials in it, for every run, owner or not: the
+# secrets folder, the kith serve token, device identity and databases, browser profiles (their logins) and the old
+# bridge folder. Both spellings of each root (it may be a link). These rules stop the Read/Edit tools of Claude Code
+# only: a Bash `cat` of the same file is not stopped by them (in auto mode the classifier, in default mode the prompt,
+# is the only guard there). The kernel CLIs run in Bash and are unaffected.
+roots = list(dict.fromkeys(r for k in ("KITH_STATE", "KITH_MACHINE") for r in (os.environ[k], os.path.realpath(os.environ[k]))))
+sensitive = ["secrets/**", "serve/token", "serve/identity.json", "serve/*.db", "serve/*.db-*", "browsers/**", "bridge/**"]
+for r in roots:
+    for f in sensitive:
+        for tool in ("Read", "Edit"):
+            rule = "%s(/%s/%s)" % (tool, r, f)
+            if rule not in s["permissions"]["deny"]:
+                s["permissions"]["deny"].append(rule)
 s["permissions"]["deny"].extend(d for d in os.environ["DENY"].split("\n") if d)   # from the membership of the person the run is for
 allow = s["permissions"].setdefault("allow", [])
 allow.extend(r for r in dict.fromkeys("Edit(/%s/**)" % d for d in os.environ["WRITABLE"].split("\n") if d.strip()) if r not in allow)
