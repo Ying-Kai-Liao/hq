@@ -59,7 +59,8 @@ CREATE TABLE hq_promotions (id INTEGER PRIMARY KEY, agent TEXT, file TEXT, audie
 INSERT INTO memory_dreams VALUES (1, 'echo', 0, 0), (2, 'echo', 0, 1);
 INSERT INTO hq_promotions VALUES (1, 'echo', 'MEMORY.md', 'shared', 'approved', 1),
   (2, 'echo', 'MEMORY.md', 'shared', 'pending', NULL), (3, 'echo', 'MEMORY.md', 'shared', 'approved', 2),
-  (4, 'other', 'MEMORY.md', 'shared', 'approved', 1), (5, 'echo', 'people/sam/n.md', 'room:grp1', 'applied', 1);
+  (4, 'other', 'MEMORY.md', 'shared', 'approved', 1), (5, 'echo', 'people/sam/n.md', 'room:grp1', 'applied', 1),
+  (6, 'echo', 'sup.md', 'shared', 'approved', 1), (7, 'echo', 'sup.md', 'owner', 'applied', 1);
 """)
 db.commit()
 PY
@@ -71,6 +72,7 @@ check "an undone change does not" "[ \"\$(wide 3 shared)\" = owner ]"
 check "another agent's change does not" "[ \"\$(wide 4 shared)\" = owner ]"
 check "a change approved for another audience does not" "[ \"\$(wide 1 room:grp1)\" = owner ]"
 check "a change for another note does not" "[ \"\$(wide 1 shared people/sam/other.md)\" = person:sam ]"
+check "an approval a newer change superseded does not come back" "[ \"\$(wide 6 shared sup.md)\" = owner ]"
 check "an applied narrowing is read" "[ \"\$(wide 5 room:grp1 people/sam/n.md)\" = room:grp1 ]"
 check "the hand-edited wider frontmatter is still ignored" "[ \"\$(F \"print(k.facets_for('MEMORY.md','echo','---\\naudience: shared\\n---\\nx')['audience'])\")\" = owner ]"
 # the audience order (twin of crates/memory/src/tidy/promote.rs): from to allowed
@@ -147,6 +149,7 @@ check "a missing index is built on first recall, private" "env KITH_AGENT=echo \
 # the deny rule for every run
 "$KERNEL/bin/kith" echo --launch-json >"$T/launch.json" 2>"$T/err"
 check "settings deny Read and Edit of the index" "python3 -c 'import json,sys; d=json.load(open(\"$T/launch.json\"))[\"settings\"][\"permissions\"][\"deny\"]; sys.exit(0 if any(r.startswith(\"Read(\") and r.endswith(\"/index/**)\") for r in d) and any(r.startswith(\"Edit(\") and r.endswith(\"/index/**)\") for r in d) else 1)'"
+check "settings deny Read and Edit of memory.db (the approval proof)" "python3 -c 'import json,sys; d=json.load(open(\"$T/launch.json\"))[\"settings\"][\"permissions\"][\"deny\"]; sys.exit(0 if any(r.startswith(\"Read(\") and r.endswith(\"/memory.db*)\") for r in d) and any(r.startswith(\"Edit(\") and r.endswith(\"/memory.db*)\") for r in d) else 1)'"
 
 echo
 if [ $fails = 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi

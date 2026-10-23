@@ -106,6 +106,8 @@ def within(new, old, rooms=None):
     (the owner always reads). Unknown readers fail closed, except when the move goes to the owner or from shared."""
     if new == old or new == 'owner':
         return True
+    if not valid_audience(new) or not valid_audience(old):
+        return False
     n, o = readers(new, rooms), readers(old, rooms)
     if o is None:
         return True
@@ -127,7 +129,10 @@ def grant_from_db(agent, rel):
                 return db.execute(
                     "SELECT 1 FROM hq_promotions p JOIN memory_dreams d ON d.id = p.dream "
                     "WHERE p.id = ? AND p.agent = ? AND p.file = ? AND p.audience = ? "
-                    "AND p.status IN ('applied', 'approved') AND d.undone = 0",
+                    "AND p.status IN ('applied', 'approved') AND d.undone = 0 "
+                    "AND NOT EXISTS (SELECT 1 FROM hq_promotions q JOIN memory_dreams e ON e.id = q.dream "
+                    "WHERE q.agent = p.agent AND q.file = p.file AND q.id > p.id "
+                    "AND q.status IN ('applied', 'approved') AND e.undone = 0)",
                     (change, agent, rel, audience)).fetchone() is not None
             finally:
                 db.close()

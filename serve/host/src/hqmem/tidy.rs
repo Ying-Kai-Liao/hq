@@ -266,11 +266,14 @@ fn roster() -> Roster {
 }
 
 /// Whether change `id` is a retag of `file` to `audience` that was applied or approved and not undone.
-fn granted(conn: &Connection, agent: &str, file: &str, id: i64, audience: &str) -> bool {
+pub(super) fn granted(conn: &Connection, agent: &str, file: &str, id: i64, audience: &str) -> bool {
     conn.query_row(
         "SELECT 1 FROM hq_promotions p JOIN memory_dreams d ON d.id = p.dream
          WHERE p.id = ?1 AND p.agent = ?2 AND p.file = ?3 AND p.audience = ?4
-           AND p.status IN ('applied', 'approved') AND d.undone = 0",
+           AND p.status IN ('applied', 'approved') AND d.undone = 0
+           AND NOT EXISTS (SELECT 1 FROM hq_promotions q JOIN memory_dreams e ON e.id = q.dream
+                           WHERE q.agent = p.agent AND q.file = p.file AND q.id > p.id
+                             AND q.status IN ('applied', 'approved') AND e.undone = 0)",
         params![id, agent, file, audience],
         |_| Ok(()),
     )
@@ -726,7 +729,8 @@ fn ask(conn: &Connection, agent: &str, p: &Promote, current: &NoteFacets, retag:
             |_| Ok(()),
         )
         .is_ok();
-    if again {
+    // Nobody can say who would read a room with no roster, so there is nothing to put to the person yet.
+    if again || roster().fingerprint(&retag.audience) == "?" {
         return Ok(None);
     }
     let person = current.audience.asks().unwrap_or_default();
@@ -797,11 +801,12 @@ pub fn answer(conn: &Connection, layout: &Layout, agent: &str, id: i64, approve:
         .map_err(|_| anyhow!("no such question waiting"))?;
     let decide = |status: &str| -> Result<()> {
         let who = if by.is_empty() { "owner" } else { by };
-        conn.execute(
-            "UPDATE hq_promotions SET status = ?1, decided_by = ?2, decided_at = ?3 WHERE id = ?4",
+        // Only a question still waiting can be answered, and only once.
+        let n = conn.execute(
+            "UPDATE hq_promotions SET status = ?1, decided_by = ?2, decided_at = ?3 WHERE id = ?4 AND status = 'pending'",
             params![status, who, now_ms(), id],
         )?;
-        Ok(())
+        if n == 1 { Ok(()) } else { bail!("no such question waiting") }
     };
     if !approve {
         decide("declined")?;
@@ -842,10 +847,12 @@ pub fn answer(conn: &Connection, layout: &Layout, agent: &str, id: i64, approve:
     let who = if by.is_empty() { "owner" } else { by };
     // The row is `approved` before the file says so: the kernel trusts the row, and a write that fails leaves it
     // pending again.
-    conn.execute(
-        "UPDATE hq_promotions SET status = 'approved', decided_by = ?1, decided_at = ?2 WHERE id = ?3",
-        params![who, now_ms(), id],
-    )?;
+    decide("approved")?;
+    // The note must still be what the approval was judged on.
+    if read(&target.path).as_deref() != Some(text.as_str()) {
+        conn.execute("UPDATE hq_promotions SET status = 'stale' WHERE id = ?1", [id])?;
+        return Ok(Answered { status: "stale", run: None });
+    }
     let written = match write(conn, &target, Who::Tidy(agent), &retagged(&text, &retag, id, who))? {
         Ok(w) => w,
         Err(refusal) => {
@@ -971,6 +978,17 @@ pub fn undo(conn: &Connection, layout: &Layout, agent: &str, id: i64) -> Result<
     out.undone = out.refused.is_empty();
     if out.undone {
         conn.execute("UPDATE memory_dreams SET undone = 1 WHERE id = ?1", [id])?;
+        // A retag's approval stops counting with the run, even if the note's text is as it was: touch the notes so
+        // the recall index reads them again.
+        let mut stmt = conn.prepare("SELECT file FROM hq_dream_changes WHERE dream = ?1 AND kind = 'retagged'")?;
+        let names: Vec<String> = stmt.query_map([id], |row| row.get(0))?.collect::<std::result::Result<_, _>>()?;
+        for name in names {
+            if let Some(target) = target_of(layout, agent, false, &name)
+                && let Ok(f) = std::fs::OpenOptions::new().write(true).open(&target.path)
+            {
+                let _ = f.set_modified(std::time::SystemTime::now());
+            }
+        }
     }
     if out.restored.is_empty() && !out.refused.is_empty() {
         let why: Vec<String> = out.refused.iter().map(|(f, r)| format!("{f}: {r}")).collect();

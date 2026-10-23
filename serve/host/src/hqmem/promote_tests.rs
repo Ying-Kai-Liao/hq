@@ -5,7 +5,6 @@
 
 use super::tidy::{self, Answered};
 use super::*;
-use kith_mem::rusqlite::params;
 use kith_mem::tidy::{self as kd, Audience, NoteFacets, Plan};
 
 struct Home {
@@ -52,15 +51,7 @@ impl Home {
     fn facets(&self, name: &str) -> NoteFacets {
         let conn = self.conn();
         let text = self.text(name);
-        NoteFacets::read("builder", name, &text, &|id, a| {
-            conn.query_row(
-                "SELECT 1 FROM hq_promotions p JOIN memory_dreams d ON d.id = p.dream
-                 WHERE p.id = ?1 AND p.file = ?2 AND p.audience = ?3 AND p.status IN ('applied', 'approved') AND d.undone = 0",
-                params![id, name, a],
-                |_| Ok(()),
-            )
-            .is_ok()
-        })
+        NoteFacets::read("builder", name, &text, &|id, a| tidy::granted(&conn, "builder", name, id, a))
     }
 }
 
@@ -224,8 +215,30 @@ fn a_note_with_no_facets_or_an_unknown_room_is_owner_only() {
             .filter(|f| f.file == "plans.md" || f.file == "MEMORY.md")
             .all(|f| f.audience == Audience::Owner)
     );
-    // Moving it into a room whose members nobody can tell is a question, not a retag.
+    // Moving it into a room whose members nobody can tell is neither applied nor put to the person.
     let kept = plan(&m, &serde_json::json!([{"file": "plans.md", "audience": "room:grp1"}]));
-    let applied = tidy::apply(&home.conn(), &m, &kept).unwrap();
-    assert_eq!(applied.asked.len(), 1);
+    let conn = home.conn();
+    let applied = tidy::apply(&conn, &m, &kept).unwrap();
+    assert_eq!(applied.asked, Vec::<i64>::new());
+    assert_eq!(tidy::promotions(&conn, "builder", "pending", 10).unwrap().len(), 0);
+    assert!(!home.text("plans.md").contains("audience"));
+}
+
+#[test]
+fn an_older_approval_does_not_come_back_after_a_newer_retag() {
+    let home = Home::new();
+    let conn = home.conn();
+    let m = home.load();
+    tidy::apply(&conn, &m, &plan(&m, &serde_json::json!([{"file": "plans.md", "audience": "shared"}]))).unwrap();
+    let id = tidy::promotions(&conn, "builder", "pending", 10).unwrap()[0]["id"].as_i64().unwrap();
+    tidy::answer(&conn, &home.layout, "builder", id, true, "").unwrap();
+    let wide = home.text("plans.md");
+    assert_eq!(home.facets("plans.md").audience, Audience::Shared);
+    // Narrowed to the owner: a newer change exists.
+    let m = home.load();
+    tidy::apply(&conn, &m, &plan(&m, &serde_json::json!([{"file": "plans.md", "audience": "owner"}]))).unwrap();
+    assert_eq!(home.facets("plans.md").audience, Audience::Owner);
+    // Putting the old text back (the old approved_change) does not widen it again.
+    home.set("plans.md", &wide);
+    assert_eq!(home.facets("plans.md").audience, Audience::Owner);
 }

@@ -85,6 +85,7 @@ pub fn call(hub: &Hub, method: &str, b: &Value) -> Result<Value> {
         "kithMemoryUndoTidy" | "kithMemoryUndoDream" => {
             let run = id("id").ok_or_else(|| anyhow!("id required"))?;
             let undone = tidy::undo(&hqmem::open(&layout)?, &layout, &agent, run)?;
+            tidy::reindex();
             hub.emit_bot(str_arg(b, "botId")?);
             let refused: Vec<Value> = undone.refused.iter().map(|(f, why)| json!({"file": f, "reason": why})).collect();
             json!({"restored": undone.restored, "refused": refused, "undone": undone.undone})

@@ -258,6 +258,11 @@ Rules:
    ask path.
 4. The audience check runs in Tidy before the proposal is written, and again when applying it (the membership may
    have changed in between).
+5. Approval proof: a wider audience in a note's frontmatter counts only when `approved_change` names a row in
+   `<state>/memory.db` (`hq_promotions`) for that agent, note and audience that is applied or approved, not undone and
+   not superseded by a newer change. Runs have Read/Edit denied on `memory.db*`. Limit: this covers the path, not the
+   note's later content, and a run's shell can still write the database; signing approvals (an HMAC key under
+   `$KITH_SECRETS`) is the follow-up that closes that.
 
 ## Forget
 
