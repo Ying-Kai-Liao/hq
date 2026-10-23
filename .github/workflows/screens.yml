@@ -40,7 +40,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref }}
-      - uses: actions/cache@v4
+      # Only main saves caches (see ci.yml); this workflow only restores.
+      - uses: actions/cache/restore@v4
         with:
           path: build/dd/SourcePackages
           key: ${{ runner.os }}-ios-packages-${{ hashFiles('apps/ios/Kit/Package.swift', 'apps/Kith.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
