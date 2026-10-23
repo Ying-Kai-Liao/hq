@@ -6458,17 +6458,17 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 
 - inter (vendored)
   https://github.com/rsms/inter
-  Typeface of the Kith app (iOS), bundled as font files.
+  Typeface of the Kith app (iOS and desktop), bundled as font files (desktop: woff2 in apps/desktop/src/renderer/assets/fonts).
   Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
   copyright statement(s).
 - jetbrains-mono (vendored)
   https://github.com/JetBrains/JetBrainsMono
-  Code typeface of the Kith app (iOS), bundled as a font file.
+  Code typeface of the Kith app (iOS and desktop), bundled as a font file (desktop: woff2 in apps/desktop/src/renderer/assets/fonts).
   Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
   copyright statement(s).
 - nunito (vendored)
   https://github.com/googlefonts/nunito
-  Agent-name typeface of the Kith app (iOS), bundled as a font file.
+  Agent-name typeface of the Kith app (iOS and desktop), bundled as a font file (desktop: woff2 in apps/desktop/src/renderer/assets/fonts).
   Copyright 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito)
   copyright statement(s).
 

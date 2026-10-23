@@ -19,7 +19,8 @@ struct HqSettingsRows: View {
                                     if row.key == .callModel { await store.setCallModel(pick) } else { await store.setPermission(pick) }
                                 }
                             }),
-                        options: row.key == .callModel ? callModels(including: row.value) : options(including: row.value))
+                        options: row.key == .callModel ? callModels(including: row.value) : options(including: row.value),
+                        detail: { row.key == .callModel ? nil : HqSetting.permissionDetail($0) })
                 } else {
                     Text(row.value).foregroundStyle(Palette.secondary).lineLimit(1)
                 }

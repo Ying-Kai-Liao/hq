@@ -12,6 +12,9 @@ import sys
 
 mode = sys.argv[1] if len(sys.argv) > 1 else "reporting"
 sessions = 0
+# What claude-agent-acp reports: every session starts in "default", whatever the agent is configured for.
+CLAUDE_MODES = {"currentModeId": "default", "availableModes": [
+    {"id": m, "name": m} for m in ("default", "acceptEdits", "plan", "dontAsk", "auto", "bypassPermissions")]}
 compactions = 0
 models = {}   # `claude` mode: each session's model, as the real adapter's `model` config option holds it
 
@@ -62,9 +65,11 @@ for line in sys.stdin:
         if mode == "claude":
             models[result["sessionId"]] = params.get("_meta", {}).get("claudeCode", {}).get("options", {}).get("model", "default")
             result["configOptions"] = [model_option(result["sessionId"])]
+            result["modes"] = CLAUDE_MODES
     elif method == "session/load":
         result = {}
         if mode == "claude":
+            result["modes"] = CLAUDE_MODES
             models.setdefault(params["sessionId"], "default")
             result["configOptions"] = [model_option(params["sessionId"])]
     elif method == "session/set_model" and mode == "claude":

@@ -129,6 +129,8 @@ public struct Spinner: View {
 public struct MenuItem: Identifiable {
     public let id = UUID()
     public var title: String
+    /// A second, quieter line under the title.
+    public var detail: String?
     public var icon: String?
     /// A picture in the icon's place (an agent's logo).
     public var image: Image?
@@ -137,9 +139,10 @@ public struct MenuItem: Identifiable {
     public var divider: Bool
     public var action: () -> Void
 
-    public init(_ title: String, icon: String? = nil, image: Image? = nil, selected: Bool? = nil, destructive: Bool = false,
+    public init(_ title: String, detail: String? = nil, icon: String? = nil, image: Image? = nil, selected: Bool? = nil, destructive: Bool = false,
                 divider: Bool = false, action: @escaping () -> Void) {
         self.title = title
+        self.detail = detail
         self.icon = icon
         self.image = image
         self.selected = selected
@@ -206,7 +209,11 @@ private struct ContextActions: ViewModifier {
 }
 
 @ViewBuilder private func menuLabel(_ item: MenuItem) -> some View {
-    if let image = item.image {
+    if let detail = item.detail {
+        // A second Text in a system menu row renders as its subtitle.
+        Text(item.title)
+        Text(detail)
+    } else if let image = item.image {
         SwiftUI.Label { Text(item.title) } icon: { image }
     } else if let icon = item.icon {
         SwiftUI.Label(item.title, systemImage: icon)
@@ -246,20 +253,23 @@ public struct ChoicePicker<ID: Hashable>: View {
     var fitsAvailableWidth: Bool
     /// A picture before each label, in the menu and on the pill (an agent's logo).
     var image: ((ID) -> Image?)?
+    /// A line under each label, in the menu only.
+    var detail: ((ID) -> String?)?
 
     public init(selection: Binding<ID>, options: [(id: ID, label: String)], fill: Color = .clear, fitsAvailableWidth: Bool = false,
-                image: ((ID) -> Image?)? = nil) {
+                image: ((ID) -> Image?)? = nil, detail: ((ID) -> String?)? = nil) {
         _selection = selection
         self.options = options
         self.fill = fill
         self.fitsAvailableWidth = fitsAvailableWidth
         self.image = image
+        self.detail = detail
     }
 
     public var body: some View {
         DropdownMenu {
             options.map { option in
-                MenuItem(option.label, image: image?(option.id), selected: option.id == selection) { selection = option.id }
+                MenuItem(option.label, detail: detail?(option.id), image: image?(option.id), selected: option.id == selection) { selection = option.id }
             }
         } label: {
             HStack(spacing: 6) {

@@ -137,6 +137,9 @@ export class OnDeviceEngine extends VoiceEngine {
     return this.recognizing
   }
 
+  /** Every microphone level report (0…1 over -50…0 dB, echo-cancelled when talk-over is on), for energy-based talk-over. */
+  protected micLevel(_level: number) {}
+
   /** The transcript as the user's words (a subclass drops the bot's own voice from it). */
   protected heardText(text: string) {
     return text
@@ -168,6 +171,7 @@ export class OnDeviceEngine extends VoiceEngine {
         break
       case 'level':
         if (this.phase === 'listening' || this.phase === 'speaking') this.level = e.value
+        this.micLevel(e.value)
         break
       case 'partial':
       case 'final':

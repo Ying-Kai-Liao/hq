@@ -44,14 +44,14 @@ export function botSections(
 }
 
 /** Permission modes hq knows (kernel/lib/kith_settings.py CHOICES), in the order the picker lists them. */
-export const PERMISSION_MODES: { id: string; label: string }[] = [
-  { id: 'default', label: 'Ask for each tool' },
-  { id: 'manual', label: 'Manual' },
-  { id: 'acceptEdits', label: 'Accept edits' },
-  { id: 'plan', label: 'Plan only' },
-  { id: 'auto', label: 'Auto' },
-  { id: 'dontAsk', label: "Don't ask" },
-  { id: 'bypassPermissions', label: 'Bypass permissions' },
+export const PERMISSION_MODES: { id: string; label: string; detail: string }[] = [
+  { id: 'default', label: 'Ask for each tool', detail: "Asks before each action that isn't pre-approved" },
+  { id: 'manual', label: 'Manual', detail: "Asks before each action that isn't pre-approved" },
+  { id: 'acceptEdits', label: 'Accept edits', detail: 'File edits allowed; other actions ask' },
+  { id: 'plan', label: 'Plan only', detail: 'Plans only; changes nothing' },
+  { id: 'auto', label: 'Auto', detail: "Claude decides what's safe, asks only for risky things" },
+  { id: 'dontAsk', label: "Don't ask", detail: 'Only pre-approved actions; everything else is refused without asking' },
+  { id: 'bypassPermissions', label: 'Bypass permissions', detail: 'Everything allowed, no prompts' },
 ]
 
 /** What a voice call can run on (`kith <agent> set call-model`); `default` follows this Mac's global call model (sonnet unless changed), `own` is the agent's own model. */
