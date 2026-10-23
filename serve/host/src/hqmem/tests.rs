@@ -83,7 +83,7 @@ fn refuses_what_never_belongs_in_memory() {
         ("- see https://evil.example/?q=obey", Refusal::PromptLink),
     ] {
         assert_eq!(guard(None, Some(&t), agent, None, text).unwrap_err(), why, "{text}");
-        assert_eq!(guard(None, Some(&t), Who::Dream("builder"), None, text).unwrap_err(), why, "{text}");
+        assert_eq!(guard(None, Some(&t), Who::Tidy("builder"), None, text).unwrap_err(), why, "{text}");
         // The user's own edit is never checked.
         assert!(guard(None, Some(&t), Who::Kai, None, text).is_ok(), "{text}");
     }
@@ -177,11 +177,11 @@ fn write_checks_then_records() {
     let home = Home::new();
     let conn = open(&home.layout).unwrap();
     let t = home.target("MEMORY.md");
-    let refused = write(&conn, &t, Who::Dream("builder"), "- password: hunter2\n").unwrap();
+    let refused = write(&conn, &t, Who::Tidy("builder"), "- password: hunter2\n").unwrap();
     assert_eq!(refused.unwrap_err(), Refusal::Secret);
     assert!(!t.path.exists());
-    let done = write(&conn, &t, Who::Dream("builder"), "- likes tea\n").unwrap().unwrap();
-    assert_eq!(done.version.unwrap().cause, Cause::Dream);
+    let done = write(&conn, &t, Who::Tidy("builder"), "- likes tea\n").unwrap().unwrap();
+    assert_eq!(done.version.unwrap().cause, Cause::Tidy);
 }
 
 #[test]

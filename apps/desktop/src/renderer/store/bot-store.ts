@@ -181,6 +181,11 @@ export class BotStore extends BotSync {
     this.changed()
   }
 
+  /** A one-time code the person sends to their Kith bot as `/link CODE`; asking again gives a fresh one. */
+  linkCode() {
+    return this.withLink((c) => c.call<LinkCode>('linkCode', {}))
+  }
+
   /** Fire-and-forget; the host holds it until this computer answers and drops it on a no. */
   track(event: AnalyticsEvent) {
     void this.withLink((c) => c.call('track', { event })).catch((error: unknown) => console.warn(`track ${event} failed`, error))
@@ -461,3 +466,9 @@ function cacheAttachment(id: string, data: Uint8Array) {
 }
 
 export { isWorking, needsInput }
+
+/** `linkCode`: the code and when it stops working (epoch milliseconds). */
+export interface LinkCode {
+  code: string
+  expiresAt: number
+}

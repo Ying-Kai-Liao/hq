@@ -1,4 +1,4 @@
-//! The apps' memory methods: the two layers, the user's own edits, the dream log, and the chat cards.
+//! The apps' memory methods: the two layers, the user's own edits, the tidy-up log, and the chat cards.
 
 use super::{file_notices, notices};
 use crate::hub::Hub;
@@ -8,8 +8,8 @@ use kith_mem::store::{self as mem, Entry, Error, New, State, Writer};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-/// Dream runs the memory screen lists.
-const DREAMS_SHOWN: usize = 20;
+/// Tidy-ups the memory screen lists.
+const TIDY_UPS_SHOWN: usize = 20;
 /// The most of a project's `MEMORY.md` the screen shows.
 const PROJECT_MEMORY_BYTES: u64 = 64 * 1024;
 
@@ -77,14 +77,15 @@ fn dispatch(hub: &Hub, method: &str, b: &Value) -> Result<Value> {
             super::changed(hub, layer);
             Ok(json!({}))
         }
-        "undoDream" => {
+        // `undoDream` is the old name released apps still call.
+        "undoTidy" | "undoDream" => {
             let id = id()?;
-            let dream = hub.store.memory_read(|c| kith_mem::dream::get(c, id))?;
-            if dream.is_none_or(|d| d.bot != cfg.id) {
-                bail!("unknown dream");
+            let tidy = hub.store.memory_read(|c| kith_mem::tidy::get(c, id))?;
+            if tidy.is_none_or(|d| d.bot != cfg.id) {
+                bail!("unknown tidy");
             }
-            let dream = hub.store.memory_write(|c, now, rev| kith_mem::dream::undo(c, id, now, rev))?;
-            super::files::undo_notes(hub, &dream);
+            let tidy = hub.store.memory_write(|c, now, rev| kith_mem::tidy::undo(c, id, now, rev))?;
+            super::files::undo_notes(hub, &tidy);
             // A run may have written to either layer.
             super::changed(hub, None);
             Ok(json!({}))
@@ -114,8 +115,8 @@ fn edit(
 
 fn view(hub: &Hub, cfg: &BotConfig) -> Result<Value> {
     let bot = cfg.id.as_str();
-    let (yours, own, dreams) = hub.store.memory_read(|c| {
-        Ok((mem::layer(c, None)?, mem::layer(c, Some(bot))?, kith_mem::dream::recent(c, bot, DREAMS_SHOWN)?))
+    let (yours, own, tidy_ups) = hub.store.memory_read(|c| {
+        Ok((mem::layer(c, None)?, mem::layer(c, Some(bot))?, kith_mem::tidy::recent(c, bot, TIDY_UPS_SHOWN)?))
     })?;
     let layer = |entries: Vec<Entry>, layer: Option<&str>| {
         let used: usize =
@@ -127,7 +128,9 @@ fn view(hub: &Hub, cfg: &BotConfig) -> Result<Value> {
         "yours": layer(yours, None),
         "bot": layer(own, Some(bot)),
         "files": super::file_api::listing(hub, cfg)?,
-        "dreams": dreams,
+        "tidyUps": tidy_ups,
+        // Deprecated: the old name of `tidyUps`, for app builds that predate the rename.
+        "dreams": tidy_ups,
         "projectMemory": project_memory(cfg),
         "memoryRev": hub.store.memory_rev(),
     }))

@@ -1,4 +1,4 @@
-//! A bot's memory: about you, this bot's own, its dreams and Claude Code's own memory where it is kept on.
+//! A bot's memory: about you, this bot's own, its tidy-ups and Claude Code's own memory where it is kept on.
 
 use super::{
     App, Buffer, Rect, centered, footer, frame_box, input_line, name_of, page_tabs, put, row, s, theme, u, window,
@@ -41,8 +41,8 @@ pub fn draw(buf: &mut Buffer, area: Rect, app: &App, memory: &MemorySheet) {
                 entries(buf, body, app, memory);
                 "←→ section · ↑↓ move · n add · ↵ edit · p pin · a archive · x forget · s shared · D clear"
             }
-            Section::Dreams => {
-                dreams(buf, body, memory);
+            Section::TidyUps => {
+                tidy_ups(buf, body, memory);
                 "←→ section · ↑↓ move · u undo · r refresh · Esc close"
             }
             Section::Harness => {
@@ -124,12 +124,12 @@ fn author(app: &App, e: &Value) -> String {
     match s(e, "author") {
         "user" => "You wrote it".into(),
         "bot" => format!("{} remembered it", name_of(app, s(e, "authorBot"))),
-        "dream" => "Dreaming".into(),
+        "tidy" => "Tidying".into(),
         _ => "Moved from the old memory".into(),
     }
 }
 
-fn dreams(buf: &mut Buffer, body: Rect, memory: &MemorySheet) {
+fn tidy_ups(buf: &mut Buffer, body: Rect, memory: &MemorySheet) {
     let palette = theme();
     put(
         buf,
@@ -141,7 +141,7 @@ fn dreams(buf: &mut Buffer, body: Rect, memory: &MemorySheet) {
     );
     let rows = memory.rows();
     if rows.is_empty() {
-        put(buf, body.x, body.y + 2, body.width, "No dreams yet.", palette.secondary);
+        put(buf, body.x, body.y + 2, body.width, "No tidy-ups yet.", palette.secondary);
         return;
     }
     let height = usize::from(body.height.saturating_sub(2)) / 2;
@@ -230,7 +230,7 @@ fn note(buf: &mut Buffer, body: Rect, app: &App, memory: &MemorySheet, detail: O
         let by = match s(v, "author") {
             "user" => "You".to_owned(),
             "bot" => name_of(app, s(v, "authorBot")),
-            "dream" => "Dreaming".to_owned(),
+            "tidy" => "Tidying".to_owned(),
             _ => "This computer".to_owned(),
         };
         let what = match s(v, "cause") {

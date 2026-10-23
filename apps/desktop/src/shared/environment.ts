@@ -23,5 +23,5 @@ export function environmentProfile(environment: 'main' | 'dev') {
 /** Refuse to manage a different environment's daemon, including pre-isolation dev hosts. */
 export function hostEnvironmentError(expected: 'main' | 'dev', actual?: string): string | null {
   if (actual === expected || (expected === 'main' && actual === undefined)) return null
-  return `This ${expected === 'dev' ? 'Kith Dev' : 'Codync'} app found a host from ${actual ?? 'an unidentified environment'}. Start the matching host on its own port.`
+  return `This ${expected === 'dev' ? 'Kith Dev' : 'Kith'} app found a host from ${actual ?? 'an unidentified environment'}. Start the matching host on its own port.`
 }

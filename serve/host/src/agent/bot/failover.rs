@@ -4,13 +4,10 @@
 
 use super::{Actor, Done, Seg};
 use crate::agent::acp::{self, Depleted};
-use crate::agent::backups::{Pick, RATE_LIMIT};
+use crate::agent::backups::{MAX_MOVES, Pick, RATE_LIMIT};
 use crate::store::{Entry, EntryKind};
 use tokio::sync::mpsc;
 
-/// A turn moves on at most this many times; every move marks the entry it leaves, so it is also the chain's length
-/// that ends it.
-const MAX_MOVES: usize = 3;
 /// How many of the latest messages a backup's new session is told.
 const PREFACE_MESSAGES: usize = 6;
 const PREFACE_QUOTE: usize = 800;

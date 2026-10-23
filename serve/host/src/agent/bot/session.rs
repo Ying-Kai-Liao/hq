@@ -435,7 +435,7 @@ impl Actor {
         self.handoff = None;
         self.thread_intro = None;
         if self.is_main() {
-            let _ = self.dreamer.send(memory::DreamEvent::Flush);
+            let _ = self.tidier.send(memory::TidyEvent::Flush);
         }
         if had_session {
             self.notice("The working folder changed — the agent starts with a fresh context.", NoticeStyle::Divider);

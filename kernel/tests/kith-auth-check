@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# kith-auth-check — the `kith` account handle (a Clerk user id) in a throwaway auth.json (KITH_AUTH), never ~/.kith.
+#
+#   kernel/tests/kith-auth-check     a second or two; prints each check, exits 1 when one fails
+set -uo pipefail
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-auth-check.XXXXXX")
+trap 'rm -rf "$T"' EXIT
+export KITH_AUTH=$T/auth.json HOME=$T/home
+mkdir -p "$HOME"
+A() { python3 "$KERNEL/bin/kith-auth" "$@"; }
+fail=0
+check() { if eval "$2" >/dev/null 2>&1; then echo "ok   $1"; else echo "FAIL $1"; fail=1; fi; }
+A person kai owner >/dev/null 2>&1
+A person bob >/dev/null 2>&1
+check "kith handle takes a Clerk user id" "A handle kai kith user_2AbC123"
+check "who finds the owner by it" "A who kith user_2AbC123 | grep -q '\"owner\": true'"
+check "a Clerk id is refused on telegram" "! A handle kai telegram user_2AbC123"
+check "a username is refused on kith" "! A handle kai kith kai"
+check "another person can't take a bound kith id" "! A handle bob kith user_2AbC123"
+check "handle --rm clears it" "A handle kai kith --rm && ! A whois kith user_2AbC123"
+exit $fail

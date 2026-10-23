@@ -13,6 +13,8 @@ public struct EntryData: Codable, Hashable, Sendable {
     public var runId: String?
     public var text: String?
     public var final: Bool?
+    /// agent: the backup chain entry that answered (`codex`, `claude:work`); nil when the agent's own account did.
+    public var answeredBy: String?
     /// user: queued | sent | cancelled | failed · tool: pending | in_progress | completed | failed · permission: pending | answered | cancelled | expired
     public var status: String?
     public var clientNonce: String?

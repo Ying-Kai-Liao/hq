@@ -1,5 +1,6 @@
 import { OnDeviceEngine } from './OnDeviceEngine'
 import { ClipQueue, clips } from './speech-clips'
+import { isEcho, SentenceStream, shouldCue, stripEcho, wordCount } from './speech-stream'
 import { errorMessage, spokenText } from './voice'
 import type { LocalVoiceStatus } from '../settings/voice-settings'
 
@@ -18,18 +19,40 @@ const CLIP_CHARS = 160
 /**
  * "Kith voice": listening is the on-device engine's (Apple speech); speaking is Phonon text to
  * speech run by the computer's kith serve, fetched clip by clip. Free, and nothing leaves the Macs.
+ *
+ * A reply is spoken while it is still being written: each finished sentence goes into the clip
+ * queue once. The microphone stays on while it speaks (echo-cancelled), and talking over the voice
+ * stops it at once; the turn goes on and what was said is sent as the next message.
  */
 export class KithVoiceEngine extends OnDeviceEngine {
+  override readonly streamsReplies = true
   private voiceName: string | undefined
   private player: HTMLAudioElement | null = null
   private stopPlayer: (() => void) | null = null
   private queue: ClipQueue<Uint8Array>
+  private stream = new SentenceStream()
+  /** A clip is playing or about to (the pump is running). */
+  private pumping = false
+  /** What was said since the user last spoke: the microphone hears it back, and it isn't the user. */
+  private echoRef = ''
+  private working = false
+  private sentAt: number | null = null
+  private lastSpokenAt = 0
+  private cued = false
+  private cueTimer: ReturnType<typeof setInterval> | null = null
+  private firstEnqueuedAt: number | null = null
 
   constructor(
     send: (text: string) => void,
     private host: KithVoiceHost,
   ) {
-    super(send)
+    super((text) => {
+      this.sentAt = Date.now()
+      this.cued = false
+      this.firstEnqueuedAt = null
+      send(text)
+    })
+    this.talkOverEnabled = true
     this.queue = new ClipQueue((text) => this.fetchClip(text))
   }
 
@@ -51,29 +74,88 @@ export class KithVoiceEngine extends OnDeviceEngine {
     }
     if (this.ended) return
     await super.start()
+    if (this.ended) return
+    this.cueTimer = setInterval(() => this.cue(), 1000)
   }
 
   end() {
     super.end()
-    this.stopSpeech()
+    if (this.cueTimer) clearInterval(this.cueTimer)
+    this.cueTimer = null
+    this.cutVoice()
   }
 
+  setWorking(working: boolean) {
+    this.working = working
+  }
+
+  /** A notice, or a whole reply from a watcher that doesn't stream: said after what's queued. */
   speak(markdown: string) {
-    const text = spokenText(markdown)
-    if (this.ended || !text || this.phase === 'starting' || this.phase === 'failed') return
-    this.stopListening()
-    this.setPhase('speaking')
-    this.stopSpeech()
-    const generation = ++this.speakGeneration
-    this.queue.add(clips(text, CLIP_CHARS))
-    void this.pump(generation)
+    this.enqueue(spokenText(markdown))
   }
 
+  announce(notice: string) {
+    this.enqueue(notice)
+  }
+
+  streamReply(id: string, text: string, final: boolean) {
+    const ready = this.stream.feed(id, text, final)
+    if (ready) this.enqueue(ready)
+    else if (final) this.finishedSpeaking()
+  }
+
+  /** Tap or Stop: the voice stops, the mic is already listening. */
   interrupt() {
     if (this.phase !== 'speaking') return
-    this.speakGeneration++
-    this.stopSpeech()
-    this.listen()
+    this.cutVoice()
+    this.finishedSpeaking()
+  }
+
+  protected heardText(text: string) {
+    return stripEcho(text, this.echoRef)
+  }
+
+  protected talkOver(words: string) {
+    // Two words or more that aren't the bot's own voice coming back through the speakers.
+    if (wordCount(words) < 2 || isEcho(words, this.echoRef)) return false
+    this.cutVoice()
+    this.setPhase('listening')
+    console.info('kith voice: talked over, voice stopped')
+    return true
+  }
+
+  protected listen() {
+    // A new utterance: whatever the bot said before is no longer in the transcript.
+    this.echoRef = ''
+    super.listen()
+  }
+
+  /** Nothing left to say for now; the microphone goes on listening (it never stopped). */
+  protected finishedSpeaking() {
+    if (this.phase !== 'speaking' || this.pumping || this.queue.pending) return
+    if (this.micOn) this.setPhase('listening')
+    else this.listen()
+  }
+
+  private enqueue(text: string) {
+    const said = text.trim()
+    if (this.ended || !said || this.phase === 'starting' || this.phase === 'failed') return
+    this.queue.add(clips(said, CLIP_CHARS))
+    this.echoRef += ` ${said}`
+    this.lastSpokenAt = Date.now()
+    this.firstEnqueuedAt ??= performance.now()
+    if (this.phase !== 'speaking') this.setPhase('speaking')
+    if (!this.pumping) {
+      this.pumping = true
+      void this.pump(this.speakGeneration)
+    }
+  }
+
+  private cue() {
+    const now = Date.now()
+    if (!shouldCue({ now, sentAt: this.sentAt, lastSpokenAt: this.lastSpokenAt, working: this.working, cued: this.cued })) return
+    this.cued = true
+    this.enqueue('Working on it.')
   }
 
   private async pump(generation: number) {
@@ -84,6 +166,9 @@ export class KithVoiceEngine extends OnDeviceEngine {
       await this.play(clip, generation)
       if (generation !== this.speakGeneration || this.ended) return
     }
+    // A clip that couldn't be made drops the rest of this stretch of speech.
+    this.queue.stop()
+    this.pumping = false
     this.finishedSpeaking()
   }
 
@@ -126,11 +211,23 @@ export class KithVoiceEngine extends OnDeviceEngine {
         player.pause()
         done()
       }
-      void player.play().catch(() => player.onerror?.(new Event('error')))
+      void player
+        .play()
+        .then(() => {
+          if (this.firstEnqueuedAt !== null) {
+            console.info(`kith voice: first clip playing ${Math.round(performance.now() - this.firstEnqueuedAt)} ms after its text was ready`)
+            this.firstEnqueuedAt = null
+          }
+        })
+        .catch(() => player.onerror?.(new Event('error')))
     })
   }
 
-  private stopSpeech() {
+  /** Stops the voice, drops queued clips, and gives up what's still being written of the replies on air. */
+  private cutVoice() {
+    this.speakGeneration++
+    this.stream.muteOpen()
+    this.pumping = false
     this.queue.stop()
     this.stopPlayer?.()
   }

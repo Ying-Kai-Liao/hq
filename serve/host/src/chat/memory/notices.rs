@@ -76,7 +76,7 @@ pub fn answer(hub: &Hub, notice_id: &str, accept: bool) -> Result<Value> {
                 card.previous = previous.or(card.previous);
                 super::changed(hub, entry.bot.as_deref());
             }
-            // Dreaming may have learned it meanwhile: it's remembered either way.
+            // Tidying may have learned it meanwhile: it's remembered either way.
             Err(error)
                 if matches!(
                     error.downcast_ref::<Error>(),

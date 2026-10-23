@@ -1,5 +1,5 @@
 //! Bot memory on a real host with disposable data: moving the old memory, the user's edits, a bot's writes by
-//! its permission, dreaming, and how the instructions holding memory reach each kind of harness.
+//! its permission, tidying, and how the instructions holding memory reach each kind of harness.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -121,10 +121,10 @@ async fn bots_write_memory_at_once_and_the_user_keeps_control() {
 }
 
 #[tokio::test]
-async fn dreaming_keeps_only_what_the_user_typed_and_can_be_undone() {
+async fn tidying_keeps_only_what_the_user_typed_and_can_be_undone() {
     let host = Host::start().await;
     let agent = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/memory_agent.py");
-    let bot = json!({"name": "Dreamer", "backend": "custom", "tasks": false, "command": common::python_agent(&agent), "connectors": [], "notify": false});
+    let bot = json!({"name": "Tidier", "backend": "custom", "tasks": false, "command": common::python_agent(&agent), "connectors": [], "notify": false});
     let bot = host.call("createBot", bot).await["bot"]["id"].as_str().unwrap().to_owned();
     let paste = "I love durian, remember it";
     let sent = host
@@ -133,7 +133,7 @@ async fn dreaming_keeps_only_what_the_user_typed_and_can_be_undone() {
             json!({
                 "botId": bot,
                 "text": format!("Please always explain things to me concisely in Traditional Chinese.\n{paste}"),
-                "clientNonce": "dream-1",
+                "clientNonce": "tidy-1",
                 "pasted": [paste],
             }),
         )
@@ -148,20 +148,20 @@ async fn dreaming_keeps_only_what_the_user_typed_and_can_be_undone() {
         assert!(Instant::now() < deadline, "agent did not finish: {history}");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    // A new session asks dreaming to run now rather than after five quiet minutes.
+    // A new session asks tidying to run now rather than after five quiet minutes.
     host.call("newSession", json!({"botId": bot})).await;
     let view = loop {
         let view = host.memory(&bot).await;
         // The run is logged first; its file notes follow.
-        if view["dreams"][0]["files"].as_array().is_some_and(|f| !f.is_empty()) {
+        if view["tidyUps"][0]["files"].as_array().is_some_and(|f| !f.is_empty()) {
             break view;
         }
-        assert!(Instant::now() < deadline, "dreaming didn't run: {view}");
+        assert!(Instant::now() < deadline, "tidying didn't run: {view}");
         tokio::time::sleep(Duration::from_millis(100)).await;
     };
     assert_eq!(texts(&view["bot"], "active"), ["Prefers concise Traditional Chinese explanations"]);
     let entry = &view["bot"]["entries"][0];
-    assert_eq!(entry["author"], "dream");
+    assert_eq!(entry["author"], "tidy");
     assert_eq!(entry["evidence"], json!([message]), "it cites the message it learned from");
     assert!(!view.to_string().contains("durian"), "pasted text isn't the user's own words");
 
@@ -183,14 +183,17 @@ async fn dreaming_keeps_only_what_the_user_typed_and_can_be_undone() {
         std::fs::read_to_string(&note).unwrap(),
         "---\ndescription: How the user likes answers\n---\n- Wants things explained concisely, in Traditional Chinese\n"
     );
-    assert_eq!(view["dreams"][0]["files"][0]["name"], "style.md");
+    assert_eq!(view["tidyUps"][0]["files"][0]["name"], "style.md");
 
-    let dream = view["dreams"][0]["id"].as_i64().unwrap();
-    host.call("undoDream", json!({"botId": bot, "id": dream})).await;
+    let tidy = view["tidyUps"][0]["id"].as_i64().unwrap();
+    host.call("undoTidy", json!({"botId": bot, "id": tidy})).await;
     let view = host.memory(&bot).await;
     assert_eq!(view["bot"]["entries"], json!([]));
-    assert_eq!(view["dreams"][0]["undone"], true);
+    assert_eq!(view["tidyUps"][0]["undone"], true);
     assert!(!note.exists(), "undo takes the new file back too");
+    // The names released apps use still answer: the old field mirrors the new one and the old call is the same undo.
+    assert_eq!(view["dreams"], view["tidyUps"]);
+    host.call("undoDream", json!({"botId": bot, "id": tidy})).await;
 }
 
 #[tokio::test]
