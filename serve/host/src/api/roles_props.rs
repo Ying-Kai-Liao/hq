@@ -473,6 +473,9 @@ fn nothing_to_check(m: &str) -> bool {
             | "revokeBotInvite"
             | "revokeBot"
             | "myBots"
+            | "callAccept"
+            | "callDecline"
+            | "callGreet"
             | "setBotLimits"
     )
 }
@@ -1006,7 +1009,8 @@ fn a_bot_guest_is_shown_words_only() {
             prop_assert!(!out.to_string().contains(SECRET), "{out}");
             prop_assert!(
                 out.as_object().unwrap().keys().all(|k| {
-                    ["id", "seq", "turn", "at", "conversation", "kind", "text", "sender", "final"].contains(&k.as_str())
+                    ["id", "seq", "turn", "at", "conversation", "kind", "text", "sender", "final", "error"]
+                        .contains(&k.as_str())
                 }),
                 "{out}"
             );
