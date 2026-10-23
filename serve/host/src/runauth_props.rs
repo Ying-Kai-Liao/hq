@@ -194,7 +194,10 @@ fn bad_item() -> impl Strategy<Value = Item> {
     prop_oneof![
         select(BAD_FLAGS).prop_map(|s| Item::Bad(s.to_owned())),
         prop::collection::vec(select(DASH_CH), 0..8)
-            .prop_map(|c| Item::Bad(format!("-{}", c.into_iter().collect::<String>()))),
+            .prop_map(|c| format!("-{}", c.into_iter().collect::<String>()))
+            // `-n` is a real flag (a value flag, taking the next argument): not a bad one.
+            .prop_filter("an allowed flag", |f| f != "--json" && !VALUE_FLAGS_UNDER_TEST.contains(&f.as_str()))
+            .prop_map(Item::Bad),
     ]
 }
 
