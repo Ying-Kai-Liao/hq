@@ -47,7 +47,7 @@ export class BotStore extends BotSync {
   threadFolder(botId: string, root: string) { return this.threadFolders.get(`${botId}:${root}`) ?? null }
 
   /** `newTask`: in a bot's chat, start a task rather than go on with the current one. */
-  send(text: string, botId: string, thread: string | null = null, files: OutgoingFile[] = [], nonce: string = crypto.randomUUID(), pasted: string[] = [], newTask = false, place: StartingFolder | null = null) {
+  send(text: string, botId: string, thread: string | null = null, files: OutgoingFile[] = [], nonce: string = crypto.randomUUID(), pasted: string[] = [], newTask = false, place: StartingFolder | null = null, via: 'call' | null = null) {
     const trimmed = text.trim()
     if ((!trimmed && !files.length) || this.retired) return
     const data: Entry['data'] = { text: trimmed, status: 'sending', clientNonce: nonce }
@@ -76,7 +76,7 @@ export class BotStore extends BotSync {
               ids.push(id)
             }
           }
-          return client.send(botId, trimmed, nonce, thread, ids, pasted, newTask, place)
+          return client.send(botId, trimmed, nonce, thread, ids, pasted, newTask, place, via)
         }, true)
         this.outgoingFiles.delete(nonce)
         this.outgoingPlaces.delete(nonce)

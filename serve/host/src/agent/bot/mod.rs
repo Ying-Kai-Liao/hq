@@ -18,6 +18,7 @@
 //! its own per group lane, written to the group's transcript; see `group`). The bot's
 //! own-chat actor also runs its routines and the requests other bots send it.
 
+mod call_model;
 mod compaction;
 mod failover;
 mod fast_mode;
@@ -212,6 +213,8 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig, home: Lane, tidier: mpsc::UnboundedS
         attempt_prompt: None,
         reuse_prompt: false,
         turn_prompt: None,
+        turn_call: false,
+        call_models: None,
         turn_tried: HashSet::new(),
         limit_seen: None,
         attempt_effects: false,
@@ -291,6 +294,9 @@ pub(crate) struct Conn {
     reports_compaction: bool,
     /// Each session's context use and window size at its last `usage_update`.
     usage: HashMap<String, (u64, u64)>,
+    /// Sessions switched to the call model by `sync_call_model`, and which one. A session loaded or created again
+    /// is back on the launch model, so those drop out of here.
+    call_sessions: HashMap<String, String>,
 }
 
 impl Conn {
@@ -406,6 +412,10 @@ struct Actor {
     reuse_prompt: bool,
     /// What started this turn (its text, whether it was hidden), kept for sending it to the next entry.
     turn_prompt: Option<(String, bool)>,
+    /// This turn was spoken in a voice call (every message it answers has `via: "call"`).
+    turn_call: bool,
+    /// The models of the primary account's launch; none when the turn can't switch (a backup, a person, Codex).
+    call_models: Option<call_model::CallModels>,
     /// Entries this turn already ran on and found out of usage.
     turn_tried: HashSet<String>,
     /// A `rejected` rate-limit update in this turn, with the reset time it carried.

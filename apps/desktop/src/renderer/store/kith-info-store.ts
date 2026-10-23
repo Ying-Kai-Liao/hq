@@ -62,6 +62,30 @@ export class KithInfoStore extends Observable {
     this.changed()
   }
 
+  /** Why the last call-model change failed; the old value stays shown. */
+  callModelError: string | null = null
+  callModelSaving = false
+
+  /** Writes the call model through to hq; what shows afterwards is hq's answer, read back. */
+  async setCallModel(model: string): Promise<void> {
+    this.callModelSaving = true
+    this.callModelError = null
+    this.changed()
+    try {
+      const result = await (await this.client()).kithSetCallModel(this.botId, model)
+      if (result.info) {
+        this.info = result.info
+        this.error = null
+        this.refreshError = null
+        this.fetchedAt = result.fetchedAt
+      } else this.callModelError = result.error ?? 'Kith gave no answer'
+    } catch (error) {
+      this.callModelError = message(error)
+    }
+    this.callModelSaving = false
+    this.changed()
+  }
+
   private run(refresh: boolean): Promise<void> {
     const request = ++this.request
     this.loading = true

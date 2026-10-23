@@ -40,6 +40,8 @@ export interface KithInfo {
   model: string | null
   effort: string | null
   permissionMode: string | null
+  /** The model a voice call runs on, as this Mac chose it: a model name, `own`, or `default` (kith's default, sonnet). */
+  callModel: string | null
   readOnly: boolean
   role: { intro: string; sections: KithRoleSection[] } | null
   package: KithPackage | null
@@ -97,6 +99,7 @@ export function parseKithInfo(raw: unknown): KithInfo | null {
     model: str(raw.model),
     effort: str(raw.effort),
     permissionMode: str(raw.permission_mode),
+    callModel: str(raw.call_model),
     readOnly: raw.read_only === true || raw.readonly === true,
     role: role ? {
       intro: str(role.intro) ?? '',

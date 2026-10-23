@@ -86,6 +86,9 @@ pub struct Launch {
     pub effort: Option<String>,
     #[serde(default)]
     pub permission_mode: Option<String>,
+    /// The model a turn spoken in a voice call runs on (see `bot::call_model`); none keeps the agent's own.
+    #[serde(default)]
+    pub call_model: Option<String>,
     /// An invited person's run (see [`Launch::confine_to`]): bypass mode is switched off for the whole session.
     #[serde(skip)]
     pub confined: bool,
@@ -376,6 +379,16 @@ pub async fn set_permission(agent: &str, mode: &str) -> Result<InfoRun> {
         bail!("kith isn't installed on this computer (set KITH_KERNEL_BIN, or put `kith` on PATH)");
     };
     run(&bin, &[agent, "set", "permission", mode], None, LIST_TIMEOUT).await?;
+    Ok(refill(agent, true).await)
+}
+
+/// `kith <agent> set call-model <model>`: the model its voice-call turns run on (`default` forgets the choice, `own`
+/// keeps the agent's own model). Returns the info read back from hq.
+pub async fn set_call_model(agent: &str, model: &str) -> Result<InfoRun> {
+    let Some(bin) = tokio::task::spawn_blocking(bin).await? else {
+        bail!("kith isn't installed on this computer (set KITH_KERNEL_BIN, or put `kith` on PATH)");
+    };
+    run(&bin, &[agent, "set", "call-model", model], None, LIST_TIMEOUT).await?;
     Ok(refill(agent, true).await)
 }
 

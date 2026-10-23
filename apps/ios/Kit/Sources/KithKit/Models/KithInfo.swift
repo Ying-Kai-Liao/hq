@@ -75,6 +75,8 @@ public struct KithInfo: Decodable, Sendable {
     public var model: String?
     public var effort: String?
     public var permissionMode: String?
+    /// The model a voice call runs on, as this Mac chose it: a model name, `own`, or `default` (sonnet).
+    public var callModel: String?
     public var home: String?
     public var role: KithRole?
     public var package: KithPackage?
@@ -92,6 +94,7 @@ public struct KithInfo: Decodable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case version, agent, description, harness, model, effort, home, role, package, skills, tools, plugins, projects, schedules, cost, memory, errors
         case permissionMode = "permission_mode"
+        case callModel = "call_model"
         case mcpServers = "mcp_servers"
     }
 
@@ -104,6 +107,7 @@ public struct KithInfo: Decodable, Sendable {
         model = c.value(.model)
         effort = c.value(.effort)
         permissionMode = c.value(.permissionMode)
+        callModel = c.value(.callModel)
         home = c.value(.home)
         role = c.value(.role)
         package = c.value(.package)

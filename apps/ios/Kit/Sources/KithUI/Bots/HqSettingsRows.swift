@@ -13,19 +13,29 @@ struct HqSettingsRows: View {
                     ChoicePicker(
                         selection: Binding(
                             get: { row.value },
-                            set: { mode in
-                                guard mode != row.value else { return }
-                                Task { await store.setPermission(mode) }
+                            set: { pick in
+                                guard pick != row.value else { return }
+                                Task {
+                                    if row.key == .callModel { await store.setCallModel(pick) } else { await store.setPermission(pick) }
+                                }
                             }),
-                        options: options(including: row.value))
+                        options: row.key == .callModel ? callModels(including: row.value) : options(including: row.value))
                 } else {
                     Text(row.value).foregroundStyle(Palette.secondary).lineLimit(1)
                 }
             }
         }
+        if let error = store.callModelError {
+            Text("Call model not changed: \(error)").font(.footnote).foregroundStyle(Palette.danger)
+        }
         if let error = store.permissionError {
             Text("Permission not changed: \(error)").font(.footnote).foregroundStyle(Palette.danger)
         }
+    }
+
+    private func callModels(including current: String) -> [(id: String, label: String)] {
+        let known = HqSetting.callModels
+        return known.contains { $0.id == current } ? known : known + [(id: current, label: HqSetting.callModelLabel(current))]
     }
 
     /// hq's modes, plus the current one when this app doesn't know it.

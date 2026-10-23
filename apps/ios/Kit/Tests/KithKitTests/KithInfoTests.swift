@@ -125,9 +125,9 @@ private func houseInfo() throws -> KithInfo {
     info.model = "opus"
     info.effort = nil
     let rows = HqSetting.rows(info)
-    #expect(rows.map(\.key) == [.permission, .model, .effort, .fastMode])
-    #expect(rows.map(\.value) == ["plan", "opus", "Agent's default", "Off"])
-    #expect(rows.map(\.editable) == [true, false, false, false])
+    #expect(rows.map(\.key) == [.permission, .callModel, .model, .effort, .fastMode])
+    #expect(rows.map(\.value) == ["plan", "default", "opus", "Agent's default", "Off"])
+    #expect(rows.map(\.editable) == [true, true, false, false, false])
     #expect(rows.filter { !$0.editable }.allSatisfy { $0.hint.hasPrefix(HqSetting.setInKith) })
 }
 
@@ -138,4 +138,14 @@ private func houseInfo() throws -> KithInfo {
     #expect(HqSetting.rows(info)[0].value == "auto")
     #expect(HqSetting.permissionLabel("bypassPermissions") == "Bypass permissions")
     #expect(HqSetting.permissionLabel("somethingNew") == "somethingNew")
+}
+
+@Test func theCallModelShowsHqsChoiceAndAnUnknownOneAsItIs() throws {
+    var info = try houseInfo()
+    info.callModel = "haiku"
+    #expect(HqSetting.rows(info)[1].value == "haiku")
+    #expect(HqSetting.callModelLabel("default") == "Default (sonnet)")
+    #expect(HqSetting.callModelLabel("own") == "Agent's own model")
+    #expect(HqSetting.callModelLabel("gpt-x") == "gpt-x")
+    #expect(HqSetting.rows(nil)[1].editable == false)
 }

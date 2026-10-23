@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { ALL_SECTIONS, botSections, hqSettings, permissionLabel } from './bot-sections.ts'
+import { ALL_SECTIONS, botSections, callModelLabel, hqSettings, permissionLabel } from './bot-sections.ts'
 import { parseKithInfo } from './kith-info.ts'
 
 const house = parseKithInfo(JSON.parse(readFileSync(new URL('./test-support/kith-house-info.json', import.meta.url), 'utf8')))!
@@ -35,16 +35,24 @@ test('an hq bot on a host without kithInfo keeps Kith\'s own settings controls',
 })
 
 test('hq settings: permission is written through to hq, the rest is read-only "Set in Kith"', () => {
-  const rows = hqSettings({ permissionMode: 'plan', model: 'opus', effort: null })
+  const rows = hqSettings({ permissionMode: 'plan', callModel: null, model: 'opus', effort: null })
   assert.deepEqual(rows.map((r) => [r.key, r.value, r.editable]), [
-    ['permission', 'plan', true], ['model', 'opus', false], ['effort', "Agent's default", false], ['fastMode', 'Off', false],
+    ['permission', 'plan', true], ['callModel', 'default', true], ['model', 'opus', false], ['effort', "Agent's default", false], ['fastMode', 'Off', false],
   ])
   for (const r of rows.filter((r) => !r.editable)) assert.match(r.hint, /^Set in Kith/)
 })
 
 test('hq settings: nothing is editable until hq has answered, and no permission set in hq shows the default', () => {
   assert.equal(hqSettings(null)[0].editable, false)
-  assert.equal(hqSettings({ permissionMode: null, model: null, effort: null })[0].value, 'auto')
+  assert.equal(hqSettings({ permissionMode: null, callModel: 'haiku', model: null, effort: null })[0].value, 'auto')
+})
+
+test('hq settings: the call model is written through to hq, and shows hq\'s choice', () => {
+  const row = hqSettings({ permissionMode: null, callModel: 'haiku', model: null, effort: null })[1]
+  assert.deepEqual([row.key, row.value, row.editable], ['callModel', 'haiku', true])
+  assert.equal(callModelLabel('default'), 'Default (sonnet)')
+  assert.equal(callModelLabel('own'), "Agent's own model")
+  assert.equal(callModelLabel('gpt-x'), 'gpt-x')
 })
 
 test('a permission mode shows by its label, an unknown one as it is', () => {

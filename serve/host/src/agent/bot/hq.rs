@@ -234,6 +234,9 @@ impl Actor {
                 Err(error) => return Err(error),
             }
         };
+        // Only the agent's own Claude run on the owner's behalf switches models for a call.
+        self.call_models = (backup.is_none() && person.is_none() && !launch.is_codex())
+            .then(|| super::call_model::CallModels { own: launch.model.clone(), launch_call: launch.call_model.clone() });
         // A backup has no session of the agent's to load: it starts one and is told the conversation.
         let current = self.hq_session(slot).filter(|_| backup.is_none());
         // The process carries kith's env (KITH_PROJECT, the cost tag) and its folder: a place that needs others gets a
@@ -309,6 +312,7 @@ impl Actor {
                 match res {
                     Ok(res) => {
                         conn.loaded.insert(sid.clone(), Instant::now());
+                        conn.call_sessions.remove(&sid);
                         self.note_options(&sid, &res, Listing::Session);
                         self.turn_session = Some(sid);
                         // The agent's own account came back to a session that missed what a backup answered.
@@ -336,6 +340,7 @@ impl Actor {
         let Some(conn) = self.conn.as_mut() else { bail!("agent not running") };
         let sid = res["sessionId"].as_str().ok_or_else(|| anyhow!("agent returned no sessionId"))?.to_owned();
         conn.loaded.insert(sid.clone(), Instant::now());
+        conn.call_sessions.remove(&sid);
         // The model, effort and permission mode are hq's (launch-json): the host sets none of them again.
         self.note_options(&sid, &res, Listing::Session);
         self.hq_set_session(slot, &sid);

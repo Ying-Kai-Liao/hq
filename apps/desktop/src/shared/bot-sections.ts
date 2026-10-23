@@ -54,8 +54,17 @@ export const PERMISSION_MODES: { id: string; label: string }[] = [
   { id: 'bypassPermissions', label: 'Bypass permissions' },
 ]
 
+/** What a voice call can run on (`kith <agent> set call-model`): kith's default is sonnet, `own` is the agent's own model. */
+export const CALL_MODELS: { id: string; label: string }[] = [
+  { id: 'default', label: 'Default (sonnet)' },
+  { id: 'sonnet', label: 'Sonnet' },
+  { id: 'haiku', label: 'Haiku' },
+  { id: 'opus', label: 'Opus' },
+  { id: 'own', label: "Agent's own model" },
+]
+
 export interface HqSetting {
-  key: 'permission' | 'model' | 'effort' | 'fastMode'
+  key: 'permission' | 'callModel' | 'model' | 'effort' | 'fastMode'
   label: string
   /** What hq reports, or plain words when it has nothing. */
   value: string
@@ -71,17 +80,27 @@ export const SET_IN_KITH = 'Set in Kith'
  * Only the permission mode has an hq setting to write to (`kith <agent> set permission`); the model and effort are the
  * agent package's own, and hq has no Fast mode.
  */
-export function hqSettings(info: Pick<KithInfo, 'permissionMode' | 'model' | 'effort'> | null): HqSetting[] {
+export function hqSettings(info: Pick<KithInfo, 'permissionMode' | 'callModel' | 'model' | 'effort'> | null): HqSetting[] {
   return [
     {
       key: 'permission', label: 'Permissions', editable: info !== null,
       value: info ? (info.permissionMode ?? 'auto') : '…',
       hint: 'Kept by Kith on this computer. Every chat of this agent uses it from its next turn.',
     },
+    {
+      key: 'callModel', label: 'Call model', editable: info !== null,
+      value: info ? (info.callModel ?? 'default') : '…',
+      hint: 'The model that answers when you talk to this agent in a voice call. Typed messages use the agent\'s own model.',
+    },
     { key: 'model', label: 'Model', editable: false, value: info?.model ?? "Agent's default", hint: `${SET_IN_KITH}: the agent's package picks it.` },
     { key: 'effort', label: 'Effort', editable: false, value: info?.effort ?? "Agent's default", hint: `${SET_IN_KITH}: the agent's package picks it.` },
     { key: 'fastMode', label: 'Fast mode', editable: false, value: 'Off', hint: `${SET_IN_KITH}: hq has no Fast mode.` },
   ]
+}
+
+/** The picker's label for a call model id; one this app doesn't know shows as it is. */
+export function callModelLabel(id: string): string {
+  return CALL_MODELS.find((m) => m.id === id)?.label ?? id
 }
 
 /** The picker's label for a mode id; an id this app doesn't know shows as it is. */

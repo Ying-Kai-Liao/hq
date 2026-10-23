@@ -34,7 +34,7 @@ public struct BotSections: Equatable, Sendable {
 
 /// One of an hq bot's settings as the apps show it, read from hq. Mirrors the desktop's `hqSettings`.
 public struct HqSetting: Equatable, Sendable {
-    public enum Key: String, Sendable { case permission, model, effort, fastMode }
+    public enum Key: String, Sendable { case permission, callModel, model, effort, fastMode }
     public var key: Key
     public var label: String
     /// What hq reports, or plain words when it has nothing.
@@ -55,6 +55,15 @@ public struct HqSetting: Equatable, Sendable {
         permissionModes.first { $0.id == mode }?.label ?? mode
     }
 
+    /// What a voice call can run on (`kith <agent> set call-model`): kith's default is sonnet, `own` the agent's own model.
+    public static let callModels: [(id: String, label: String)] = [
+        ("default", "Default (sonnet)"), ("sonnet", "Sonnet"), ("haiku", "Haiku"), ("opus", "Opus"), ("own", "Agent's own model"),
+    ]
+
+    public static func callModelLabel(_ id: String) -> String {
+        callModels.first { $0.id == id }?.label ?? id
+    }
+
     /// `info` is nil while kith's answer loads or failed: nothing is editable then.
     public static func rows(_ info: KithInfo?) -> [HqSetting] {
         let agentsDefault = "Agent's default"
@@ -62,6 +71,9 @@ public struct HqSetting: Equatable, Sendable {
             HqSetting(key: .permission, label: "Permissions", value: info.map { $0.permissionMode ?? "auto" } ?? "…",
                       editable: info != nil,
                       hint: "Kept by Kith on this computer. Every chat of this agent uses it from its next turn."),
+            HqSetting(key: .callModel, label: "Call model", value: info.map { $0.callModel ?? "default" } ?? "…",
+                      editable: info != nil,
+                      hint: "The model that answers when you talk to this agent in a voice call. Typed messages use the agent's own model."),
             HqSetting(key: .model, label: "Model", value: info?.model ?? agentsDefault, editable: false,
                       hint: "\(setInKith): the agent's package picks it."),
             HqSetting(key: .effort, label: "Effort", value: info?.effort ?? agentsDefault, editable: false,

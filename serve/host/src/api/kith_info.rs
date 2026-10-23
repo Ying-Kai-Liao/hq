@@ -46,6 +46,20 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
                 Err(e) => json!({"info": null, "error": e, "fetchedAt": got.fetched_at}),
             }
         }
+        // The model a voice call runs on (`kith <agent> set call-model`): sonnet, haiku, opus, `own` (the agent's own
+        // model) or `default` (back to kith's default); hq's info read back, as with the permission mode.
+        "kithSetCallModel" => {
+            let name = kith_only(bot_agent(hub, str_arg(&b, "botId")?)?)?;
+            let model = b["model"].as_str().map(str::trim).ok_or_else(|| anyhow!("model is required"))?;
+            if model.is_empty() || model.starts_with('-') || model.contains(char::is_whitespace) {
+                bail!("model must be a model name, own or default");
+            }
+            let got = hq::set_call_model(&name, model).await?;
+            match got.info {
+                Ok(info) => json!({"info": info, "fetchedAt": got.fetched_at}),
+                Err(e) => json!({"info": null, "error": e, "fetchedAt": got.fetched_at}),
+            }
+        }
         "kithMemoryFile" => {
             let name = kith_only(bot_agent(hub, str_arg(&b, "botId")?)?)?;
             let path = str_arg(&b, "path")?.to_owned();

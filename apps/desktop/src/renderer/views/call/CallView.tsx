@@ -64,7 +64,7 @@ export function CallView({ botId, onSpeaking, interrupt, onEnd }: {
     if (closed.current) return
     if (!provider && !onDeviceAvailable()) return void fallbackFromDevice()
     const op = new CallOperator(store, botId)
-    const send = (text: string) => store.send(text, botId)
+    const send = (text: string) => store.send(text, botId, null, [], crypto.randomUUID(), [], false, null, 'call')
     let next: VoiceEngine
     if (provider && VoiceSettings.isSpeechMode(provider)) {
       const transcribe = VoiceSettings.transcribeModel(provider)

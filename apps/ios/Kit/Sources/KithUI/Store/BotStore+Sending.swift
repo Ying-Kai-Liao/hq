@@ -56,8 +56,13 @@ extension BotStore {
         send(text, to: botId, thread: thread, nonce: UUID().uuidString, files: files)
     }
 
+    /// A message spoken in a voice call: the agent answers it for the ear, on its call model (`via: "call"`).
+    public func sendSpoken(_ text: String, to botId: String) {
+        send(text, to: botId, thread: nil, nonce: UUID().uuidString, via: "call")
+    }
+
     private func send(_ text: String, to botId: String, thread: String?, nonce: String, files: [OutgoingFile] = [],
-                      pasted: [String] = [], newTask: Bool = false, start: FolderChoice? = nil) {
+                      pasted: [String] = [], newTask: Bool = false, start: FolderChoice? = nil, via: String? = nil) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !files.isEmpty, !retired else { return }
         var data = EntryData(text: trimmed, status: "sending", clientNonce: nonce)
@@ -79,11 +84,11 @@ extension BotStore {
             enqueue(remote, text: trimmed, botId: botId, thread: thread, nonce: nonce)
             return
         }
-        deliver(trimmed, botId: botId, thread: thread, nonce: nonce, pasted: pasted, newTask: newTask, start: start)
+        deliver(trimmed, botId: botId, thread: thread, nonce: nonce, pasted: pasted, newTask: newTask, start: start, via: via)
     }
 
     private func deliver(_ text: String, botId: String, thread: String?, nonce: String, pasted: [String] = [],
-                         newTask: Bool = false, start: FolderChoice? = nil) {
+                         newTask: Bool = false, start: FolderChoice? = nil, via: String? = nil) {
         Task {
             do {
                 // Safe to repeat: the computer skips a nonce it already has.
@@ -100,7 +105,7 @@ extension BotStore {
                         }
                     }
                     return try await client.send(botId: botId, text: text, clientNonce: nonce, threadId: thread, attachments: ids,
-                                                 pasted: pasted, newTask: newTask, start: start)
+                                                 pasted: pasted, newTask: newTask, start: start, via: via)
                 }
                 outgoingFiles[nonce] = nil
                 outgoingStarts[nonce] = nil
