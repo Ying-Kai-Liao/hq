@@ -108,6 +108,18 @@ OUT=$("$KITH" echo --backups-json); check "backups-json follows the agent's over
 check "an explicit [] means no backups for the agent" "[ \"\$(st \"d['agents']['echo']['backups']\")\" = '[]' ]"
 OUT=$("$KITH" echo --backups-json); check "backups-json: explicit [] beats the global list" "is \"[c['id'] for c in d['chain']]\" \"['claude']\""
 OUT=$("$KITH" backup list --agent echo --json); check "backup list --agent: source agent, empty" "is \"(d['source'], d['backups'])\" \"('agent', [])\""
+# set replaces the whole list in one write (de-duplicated); reset drops the agent's own list; list says how to fix a not-ready entry
+"$KITH" account backup set codex claude:work codex --agent echo >/dev/null 2>&1
+check "backup set writes the agent's list whole, without repeats" "[ \"\$(st \"d['agents']['echo']['backups']\")\" = \"['codex', 'claude:work']\" ]"
+"$KITH" account backup set 'Bad id' >/dev/null 2>&1; rc=$?
+check "backup set refuses a bad id and changes nothing" "[ $rc != 0 ] && [ \"\$(st \"d['agents']['echo']['backups']\")\" = \"['codex', 'claude:work']\" ]"
+"$KITH" account backup set --agent echo >/dev/null 2>&1
+check "backup set with no ids is an explicit empty list" "[ \"\$(st \"d['agents']['echo']['backups']\")\" = '[]' ]"
+"$KITH" account backup reset --agent echo >/dev/null 2>&1
+check "backup reset drops the override and keeps the rest" "[ \"\$(st \"'backups' in d['agents']['echo']\")\" = False ] && [ \"\$(st \"d['agents']['echo']['permission_mode']\")\" = auto ]"
+"$KITH" account backup reset >/dev/null 2>&1; rc=$?; check "backup reset needs --agent" "[ $rc != 0 ]"
+"$KITH" account backup set codex:later >/dev/null 2>&1; OUT=$("$KITH" backup list --json)
+check "backup list --json: a not-ready entry carries the command that fixes it" "is \"[(b['id'], b.get('fix')) for b in d['backups']]\" \"[('codex:later', 'kith account add codex later')]\""
 printf '{"backups":["claude:work"],"agents":{"echo":{"backups":["codex"]},"other":{}}}\n' > "$SET"
 OUT=$("$KITH" echo --backups-json)
 check "an agent's own list replaces the global one" "is \"[c['id'] for c in d['chain']]\" \"['claude', 'codex']\""

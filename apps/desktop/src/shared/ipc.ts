@@ -141,7 +141,8 @@ export interface CodyncBridge {
     /** The languages it can transcribe, as locale identifiers. */
     locales(): string[]
     /** `locale` null: the computer's language. */
-    start(locale: string | null): void
+    /** `echoCancel`: cancel what the computer plays from the microphone (for talking over a voice). */
+    start(locale: string | null, options?: { echoCancel?: boolean }): void
     stop(): void
     onEvent(cb: (e: SpeechEvent) => void): () => void
   }

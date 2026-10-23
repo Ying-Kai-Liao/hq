@@ -1,6 +1,6 @@
 // Builds the host the app bundles for the same environment as the app: node tools/native-host.mjs
 // dev|main compiles it in as KITH_SERVE_ENV. Built on every package so a host made for another
-// environment is never shipped. macOS: build/native/kith-serve and build/native/kith/ (bin/kith +
+// environment is never shipped. macOS: build/native/kith-serve, build/native/kith-tts (arm64) and build/native/kith/ (bin/kith +
 // share/kith/kernel, the release layout; universal; Kith Dev: this Mac's
 // architecture only, since it never leaves the Mac that built it). Windows:
 // build/native/kith-serve.exe and kith-servew.exe (kith-servew-main.exe for main; runs it at sign-in), plus the computer-use
@@ -24,7 +24,7 @@ const [cargo, rustc] = [tool('cargo'), tool('rustc')]
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: 'inherit', env: { ...process.env, KITH_SERVE_ENV: env, RUSTC: rustc } })
 // Kith Dev builds in the host's `dev-app` profile: seconds to rebuild instead of minutes.
 const profile = env === 'dev' ? 'dev-app' : 'release'
-const build = (target) => run(cargo, ['build', '--profile', profile, '--manifest-path', join(host, 'Cargo.toml'), '--target', target])
+const build = (target, ...more) => run(cargo, ['build', '--profile', profile, '--manifest-path', join(host, 'Cargo.toml'), '--target', target, ...more])
 // Cargo names a profile's folder after it, except dev/release.
 const built = (target, name) => join(process.env.CARGO_TARGET_DIR ?? join(host, 'target'), target, profile, name)
 mkdirSync(out, { recursive: true })
@@ -39,6 +39,14 @@ if (process.platform === 'win32') {
   const native = process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'
   const targets = env === 'dev' ? [native] : ['aarch64-apple-darwin', 'x86_64-apple-darwin']
   for (const target of targets) build(target)
+  // The local voice helper (kith-tts, its own crate) ships beside kith-serve; Apple silicon only, so an Intel
+  // build has none and the host reports local voice unavailable.
+  const arm = 'aarch64-apple-darwin'
+  rmSync(join(out, 'kith-tts'), { force: true })
+  if (targets.includes(arm)) {
+    build(arm, '-p', 'kith-tts')
+    copyFileSync(built(arm, 'kith-tts'), join(out, 'kith-tts'))
+  }
   run('lipo', ['-create', '-output', join(out, 'kith-serve'), ...targets.map((t) => built(t, 'kith-serve'))])
   // The same crate's `kith` name, laid out like the release tarball (bin/kith, share/kith/kernel...) so the
   // bundled kith finds its kernel the way an installed one does. The service keeps running kith-serve.
