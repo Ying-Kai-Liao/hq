@@ -24,13 +24,11 @@ pub fn of_message(store: &Store, cfg: &BotConfig, text: &str, attachments: &[Val
 
 /// The instruction for a voice turn: the reply is spoken aloud, so it is made for the ear.
 fn call_note() -> &'static str {
-    concat!(
-        "[Kith: You are on a live voice call with the person. Your reply is spoken aloud. Answer in short spoken \
+    "[Kith: You are on a live voice call with the person. Your reply is spoken aloud. Answer in short spoken \
          sentences, with no markdown, lists, tables, code blocks, URLs or emoji. Say what you are about to do before \
          doing it; for anything that takes more than a minute, ask first and offer to message the result. Read \
          numbers, dates and units naturally. If the person needs a file, image, link or code, send it to the chat \
          with send_file / send_message and just say you've sent it.]"
-    )
 }
 
 #[cfg(test)]

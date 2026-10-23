@@ -553,10 +553,17 @@ async fn a_call_turn_gets_the_voice_note_and_the_call_model() {
     };
     say("first", None).await;
     let prompts = |s: &Setup| -> Vec<String> {
-        s.requests("session/prompt").iter().map(|r| r["params"]["prompt"][0]["text"].as_str().unwrap().to_owned()).collect()
+        s.requests("session/prompt")
+            .iter()
+            .map(|r| r["params"]["prompt"][0]["text"].as_str().unwrap().to_owned())
+            .collect()
     };
     let models = |s: &Setup| -> Vec<String> {
-        s.requests("session/set_config_option").iter().filter(|r| r["params"]["configId"] == "model").map(|r| r["params"]["value"].as_str().unwrap().to_owned()).collect()
+        s.requests("session/set_config_option")
+            .iter()
+            .filter(|r| r["params"]["configId"] == "model")
+            .map(|r| r["params"]["value"].as_str().unwrap().to_owned())
+            .collect()
     };
     assert!(models(&s).is_empty(), "a typed turn runs on the launch model: {:?}", models(&s));
 

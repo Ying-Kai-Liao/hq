@@ -254,8 +254,9 @@ impl Actor {
             }
         };
         // Only the agent's own Claude run on the owner's behalf switches models for a call.
-        self.call_models = (backup.is_none() && person.is_none() && !launch.is_codex())
-            .then(|| super::call_model::CallModels { own: launch.model.clone(), launch_call: launch.call_model.clone() });
+        self.call_models = (backup.is_none() && person.is_none() && !launch.is_codex()).then(|| {
+            super::call_model::CallModels { own: launch.model.clone(), launch_call: launch.call_model.clone() }
+        });
         // A backup has no session of the agent's to load: it starts one and is told the conversation.
         let current = self.hq_session(slot).filter(|_| backup.is_none());
         // The process carries kith's env (KITH_PROJECT, the cost tag) and its folder: a place that needs others gets a
