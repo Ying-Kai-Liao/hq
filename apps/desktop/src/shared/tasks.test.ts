@@ -25,6 +25,17 @@ test('a task is working, waiting on the user, stopped or done', () => {
   assert.equal(taskStatus(idle, root, []), 'done')
 })
 
+test('a finished task takes the host\'s status, and an older host falls back to the thread', () => {
+  const idle = normalizeBot({ id: 'b', workingLanes: [] })
+  const thread = (status?: string) => entry('t', 'user', { text: 'deploy', task: true, thread: { count: 1, lastAt: 1, authors: [], status } })
+  const failedNotice = [entry('f', 'notice', { text: 'The agent failed: boom' }, 't')]
+  assert.equal(taskStatus(idle, thread('failed'), []), 'failed')
+  assert.equal(taskStatus(idle, thread('stopped'), []), 'stopped')
+  assert.equal(taskStatus(idle, thread('done'), failedNotice), 'done')
+  assert.equal(taskStatus(idle, thread(), failedNotice), 'done', 'no status: today\'s derivation')
+  assert.equal(taskStatus(idle, thread('working'), []), 'done', 'a stale working is not taken')
+})
+
 test('a task shows inline while busy and while the newest is fresh; the user can open or fold any', () => {
   const now = 100 * TASK_IDLE_MS
   assert.ok(taskOpen('done', true, now - 60_000, now))

@@ -20,6 +20,23 @@ private func bot(_ json: String) throws -> Bot {
     #expect(Tasks.current(in: [entry("r", "user", thread: "a") { $0.task = true }]) == nil)
 }
 
+@Test func aFinishedTaskTakesTheHostsStatusAndAnOlderHostFallsBack() throws {
+    let idle = try bot(#"{"id":"b","workingLanes":[]}"#)
+    func root(_ status: String?) throws -> Entry {
+        var e = entry("t", "user") { $0.task = true }
+        let field = status.map { #","status":"\#($0)""# } ?? ""
+        e.data.thread = try JSONDecoder().decode(ThreadSummary.self, from: Data(#"{"count":1,"lastAt":1,"authors":[]\#(field)}"#.utf8))
+        return e
+    }
+    let failedNotice = entry("f", "notice", thread: "t") { $0.text = "The agent failed: boom" }
+    #expect(Tasks.status(of: try root("failed"), bot: idle, replies: []) == .failed)
+    #expect(Tasks.status(of: try root("stopped"), bot: idle, replies: []) == .stopped)
+    #expect(Tasks.status(of: try root("done"), bot: idle, replies: [failedNotice]) == .done)
+    #expect(Tasks.status(of: try root(nil), bot: idle, replies: [failedNotice]) == .done)
+    #expect(Tasks.status(of: try root("working"), bot: idle, replies: []) == .done)
+    #expect(TaskStatus.failed.label == "Failed")
+}
+
 @Test func aTaskIsWorkingWaitingStoppedOrDone() throws {
     let root = entry("t", "user") { $0.task = true }
     let working = try bot(#"{"id":"b","workingLanes":[{"chat":"b","thread":"t"}]}"#)
