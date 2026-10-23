@@ -8,8 +8,10 @@
 
 mod log;
 mod notes;
+mod promote;
 pub use log::{Change, FileChange, TidyUp, discard_if_empty, get, recent, record_file, undo};
 pub use notes::{Append, MoveOut, NOTE_CAP, Note, notes};
+pub use promote::{Audience, Judgement, NoteFacets, Promote, Retag, Roster, judge, set_frontmatter, split_frontmatter, valid_id};
 
 use rusqlite::{Connection, params};
 use serde::Deserialize;
@@ -48,6 +50,10 @@ pub struct Snapshot {
     pub full: bool,
     /// `YYYY-MM-DD`.
     pub today: String,
+    /// The notes whose tags tidying may change (promotion), and who reads the rooms they could move into. Empty
+    /// for memory that has no facets: no promotion is proposed or kept.
+    pub facets: Vec<NoteFacets>,
+    pub roster: Roster,
     stamp: Vec<(i64, i64)>,
 }
 
@@ -63,7 +69,25 @@ impl Snapshot {
         full: bool,
         today: &str,
     ) -> Self {
-        Self { bot: bot.to_owned(), shared, entries, files, full, today: today.to_owned(), stamp: Vec::new() }
+        Self {
+            bot: bot.to_owned(),
+            shared,
+            entries,
+            files,
+            full,
+            today: today.to_owned(),
+            facets: Vec::new(),
+            roster: Roster::default(),
+            stamp: Vec::new(),
+        }
+    }
+
+    /// The same, with the notes' facets so that tidying may propose promotions.
+    #[must_use]
+    pub fn with_facets(mut self, facets: Vec<NoteFacets>, roster: Roster) -> Self {
+        self.facets = facets;
+        self.roster = roster;
+        self
     }
 }
 
@@ -84,6 +108,8 @@ pub fn snapshot(conn: &Connection, bot: &str, shared: bool, today: &str) -> stor
         files: index.yours.unwrap_or_default().into_iter().chain(index.bot).collect(),
         full,
         today: today.to_owned(),
+        facets: Vec::new(),
+        roster: Roster::default(),
         stamp: stamp(conn, bot)?,
     })
 }
@@ -124,20 +150,30 @@ rewritten in the past tense.
 - {shared}
 - Detail that matters only when its topic comes up (a person's story, a health history, a trip's plan) goes in \
 \"append\": one line for a long-form file, cited like an add. Name files by topic, lowercase-with-dashes.md; a \
-new file needs a \"description\" saying when to read it.{move_out}
+new file needs a \"description\" saying when to read it.{move_out}{promote_rule}
 - At most {MAX_CHANGES} changes. If nothing should change, output empty lists.
 
 Output only one JSON object:
 {{\"add\": [{{\"text\": \"...\", \"shared\": false, \"quote\": \"...\", \"message\": \"m3\"}}], \
 \"archive\": [{{\"id\": 12, \"quote\": \"...\", \"message\": \"m4\", \"replacedBy\": 0}}], \
 \"review\": [{{\"id\": 7, \"text\": \"...\"}}], \
-\"append\": [{{\"file\": \"people.md\", \"shared\": false, \"text\": \"...\", \"quote\": \"...\", \"message\": \"m5\", \"description\": \"...\"}}]{move_shape}}}",
+\"append\": [{{\"file\": \"people.md\", \"shared\": false, \"text\": \"...\", \"quote\": \"...\", \"message\": \"m5\", \"description\": \"...\"}}]{move_shape}{promote_shape}}}",
         today = snapshot.today,
         move_out = if snapshot.full {
             "\n- Memory is nearly full: \"moveOut\" moves an entry the user didn't write into a long-form file, as a line \
 there, when it is detail rather than something every reply needs."
         } else {
             ""
+        },
+        promote_rule = if snapshot.facets.is_empty() {
+            ""
+        } else {
+            "\n- \"promote\" retags a note listed under \"Notes and who reads them\": a smaller audience (\"owner\", or \"person:<id>\" for one person), a room tag, or its projects. Propose it only when the conversation shows the user wants the note kept more private or filed under a project. A wider audience is never applied by tidying: it is put to the person, so propose one only when the user asked for it. Give a short \"reason\"."
+        },
+        promote_shape = if snapshot.facets.is_empty() {
+            ""
+        } else {
+            ", \"promote\": [{\"file\": \"people/sam/trip.md\", \"audience\": \"owner\", \"projects\": [\"kith\"], \"reason\": \"...\"}]"
         },
         move_shape = if snapshot.full { ", \"moveOut\": [{\"id\": 9, \"file\": \"health.md\", \"description\": \"...\"}]" } else { "" },
     );
@@ -168,6 +204,22 @@ there, when it is detail rather than something every reply needs."
             .collect::<Vec<_>>()
             .join("\n")
     };
+    let notes = if snapshot.facets.is_empty() {
+        String::new()
+    } else {
+        let rows = snapshot
+            .facets
+            .iter()
+            .map(|f| {
+                let room = if f.room.is_empty() { String::new() } else { format!(", room {}", f.room) };
+                let projects =
+                    if f.projects.is_empty() { String::new() } else { format!(", projects {}", f.projects.join("/")) };
+                format!("- {} (read by {}{room}{projects})", f.file, f.audience)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("Notes and who reads them:\n{rows}\n\n")
+    };
     let conversations = messages
         .iter()
         .enumerate()
@@ -180,7 +232,7 @@ there, when it is detail rather than something every reply needs."
     (
         system,
         format!(
-            "Memory now:\n{memory}\n\nLong-form files now:\n{files}\n\nConversations since the last review, oldest first:\n\n{conversations}"
+            "Memory now:\n{memory}\n\nLong-form files now:\n{files}\n\n{notes}Conversations since the last review, oldest first:\n\n{conversations}"
         ),
     )
 }
@@ -198,6 +250,9 @@ pub struct Plan {
     pub append: Vec<Append>,
     #[serde(default, rename = "moveOut")]
     pub move_out: Vec<MoveOut>,
+    /// Retags of notes (promotion). Allowed ones are applied by the caller, widening ones become a question.
+    #[serde(default)]
+    pub promote: Vec<Promote>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -236,6 +291,7 @@ impl Plan {
             && self.review.is_empty()
             && self.append.is_empty()
             && self.move_out.is_empty()
+            && self.promote.is_empty()
     }
 }
 
@@ -309,6 +365,8 @@ pub fn audit(snapshot: &Snapshot, messages: &[Message], plan: Plan) -> (Plan, Ve
     notes::audit(snapshot, messages, plan.append, plan.move_out, &mut kept, &mut rejected);
     kept.append.truncate(take(kept.append.len()));
     kept.move_out.truncate(take(kept.move_out.len()));
+    promote::audit(snapshot, plan.promote, &mut kept, &mut rejected);
+    kept.promote.truncate(take(kept.promote.len()));
     let added = kept.add.len();
     for archive in &mut kept.archive {
         archive.replaced_by = archive.replaced_by.filter(|&i| i < added);
@@ -460,5 +518,7 @@ fn message_id(messages: &[Message], label: &str) -> Option<String> {
     messages.get(index).map(|m| m.id.clone())
 }
 
+#[cfg(test)]
+mod promotion_tests;
 #[cfg(test)]
 mod tests;

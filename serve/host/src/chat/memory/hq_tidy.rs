@@ -47,10 +47,11 @@ pub(super) async fn tidy(hub: &Arc<Hub>, cfg: &BotConfig, messages: &[Message], 
     let Some(material) = tokio::task::spawn_blocking(move || {
         // No folder, no history database made for it either.
         if files::agent_dir(&layout, &name).is_none() {
-            return Ok(None);
+            return anyhow::Ok(None);
         }
-        let written = files::written(&hqmem::open(&layout)?, &name)?;
-        files::load(&layout, &name, &day, Some(&written))
+        let conn = hqmem::open(&layout)?;
+        let written = files::written(&conn, &name)?;
+        Ok(files::load(&layout, &name, &day, Some(&written))?.map(|m| m.with_promotions(&conn)))
     })
     .await??
     else {
@@ -81,6 +82,14 @@ pub(super) async fn tidy(hub: &Arc<Hub>, cfg: &BotConfig, messages: &[Message], 
     }
     if !applied.dropped.is_empty() {
         tracing::info!(bot = %cfg.id, dropped = applied.dropped.len(), reasons = ?applied.dropped, "tidying dropped file changes");
+    }
+    if !applied.asked.is_empty() {
+        tracing::info!(bot = %cfg.id, asked = applied.asked.len(), "tidying asks before widening a note");
+        hub.emit_bot(&cfg.id);
+    }
+    if !applied.versions.is_empty() {
+        // A retagged note's row in the recall index follows its new tags.
+        tokio::task::spawn_blocking(files::reindex);
     }
     if let Some(run) = applied.tidy {
         tracing::info!(bot = %cfg.id, agent = name, run, files = applied.versions.len(), "memory files tidied");

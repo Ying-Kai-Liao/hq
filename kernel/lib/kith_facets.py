@@ -4,7 +4,7 @@ Facets come from the file's YAML frontmatter, else from the folder the file live
 A file with no facets, or facets this reads wrongly, is owner-only and project-less: the most private reading, so old
 data never widens. Python twin of the mapping table in the design doc; the host reads memory_entries.room itself later.
 """
-import re
+import os, re, sqlite3, sys
 from pathlib import Path
 
 ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
@@ -59,13 +59,14 @@ def folder_defaults(rel, agent):
     return f
 
 
-def apply_frontmatter(defaults, fm):
+def apply_frontmatter(defaults, fm, grant=None):
     """Frontmatter over the folder default. The audience may only stay or narrow to owner: a note's audience never
-    widens by what its own text says, because agents write these files (the design's Promotion rule). Bad values are
-    ignored."""
+    widens by what its own text says, because agents write these files (the design's Promotion rule). The one other
+    way is a promotion Tidy recorded: `grant(change_id, audience)` says whether that change exists, is approved (or
+    was a narrowing Tidy applied) and is not undone. Bad values are ignored."""
     f = dict(defaults)
     a = fm.get('audience', '')
-    if a and valid_audience(a) and (a == defaults['audience'] or a == 'owner'):
+    if a and valid_audience(a) and (a == defaults['audience'] or a == 'owner' or _granted(grant, fm, a)):
         f['audience'] = a
     if fm.get('room') and ID.match(fm['room'].replace(':', '-')):
         f['room'] = fm['room']
@@ -78,9 +79,68 @@ def apply_frontmatter(defaults, fm):
     return f
 
 
+def _granted(grant, fm, audience):
+    change = fm.get('approved_change', '')
+    return bool(grant and change.isdigit() and grant(int(change), audience))
+
+
+# ---- promotion: the audience order (Rust twin: crates/memory/src/tidy/promote.rs, same semantics) ----
+
+def readers(audience, rooms=None):
+    """Who reads a note besides the owner: None = everyone, a set of person ids, or False = cannot tell (a room whose
+    members are not known: `rooms` maps room id -> members)."""
+    kind, _, rest = audience.partition(':')
+    if audience == 'owner':
+        return set()
+    if audience == 'shared':
+        return None
+    if kind == 'person' and ID.match(rest):
+        return {rest}
+    if kind == 'room' and ID.match(rest) and rooms and rest in rooms:
+        return {m for m in rooms[rest] if m != 'owner'}
+    return False
+
+
+def within(new, old, rooms=None):
+    """May a note go from audience `old` to `new`? Only if the readers of `new` are among the readers of `old`
+    (the owner always reads). Unknown readers fail closed, except when the move goes to the owner or from shared."""
+    if new == old or new == 'owner':
+        return True
+    n, o = readers(new, rooms), readers(old, rooms)
+    if o is None:
+        return True
+    if n is None or n is False or o is False:
+        return False
+    return n <= o
+
+
+def grant_from_db(agent, rel):
+    """A `grant(change_id, audience)` for the note `rel` of `agent`: true only for a row Tidy's host wrote in
+    <state>/memory.db (hq_promotions) for this very note and audience, applied or approved, whose tidy-up has not been
+    undone. Any error (no database, old schema) is no grant: fail closed."""
+    def grant(change, audience):
+        try:
+            sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+            from kith_paths import paths
+            db = sqlite3.connect('file:%s?mode=ro' % (paths()['KITH_STATE'] / 'memory.db'), uri=True, timeout=2)
+            try:
+                return db.execute(
+                    "SELECT 1 FROM hq_promotions p JOIN memory_dreams d ON d.id = p.dream "
+                    "WHERE p.id = ? AND p.agent = ? AND p.file = ? AND p.audience = ? "
+                    "AND p.status IN ('applied', 'approved') AND d.undone = 0",
+                    (change, agent, rel, audience)).fetchone() is not None
+            finally:
+                db.close()
+        except Exception:
+            return False
+    return grant
+
+
 def facets_for(rel, agent, text=''):
     """Facets of the note at `rel` (under the agent's memory/) of `agent`, whose file text is `text`."""
-    return apply_frontmatter(folder_defaults(rel, agent), split_frontmatter(text)[0])
+    fm = split_frontmatter(text)[0]
+    grant = grant_from_db(agent, rel) if 'approved_change' in fm else None
+    return apply_frontmatter(folder_defaults(rel, agent), fm, grant)
 
 
 def state_file_facets(kind, ident, text=''):

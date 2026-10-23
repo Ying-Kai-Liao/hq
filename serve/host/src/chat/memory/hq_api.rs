@@ -24,6 +24,8 @@ pub const METHODS: &[&str] = &[
     "kithMemoryRestore",
     "kithMemoryTidyUps",
     "kithMemoryUndoTidy",
+    "kithMemoryPromotions",
+    "kithMemoryAnswerPromotion",
     // Deprecated names of the two above, still called by app builds that predate the rename.
     "kithMemoryDreams",
     "kithMemoryUndoDream",
@@ -86,6 +88,30 @@ pub fn call(hub: &Hub, method: &str, b: &Value) -> Result<Value> {
             hub.emit_bot(str_arg(b, "botId")?);
             let refused: Vec<Value> = undone.refused.iter().map(|(f, why)| json!({"file": f, "reason": why})).collect();
             json!({"restored": undone.restored, "refused": refused, "undone": undone.undone})
+        }
+        // Retags that tidying wants to make but that would add readers wait here for the person to answer (`asks`:
+        // empty is the owner). "keep" leaves the note private; "approve" writes the wider tags as a tidy-up that
+        // can be undone.
+        "kithMemoryPromotions" => {
+            let status = b["status"].as_str().unwrap_or("pending");
+            let limit = count(b, "limit", RUNS_DEFAULT, RUNS_MAX);
+            json!({"promotions": tidy::promotions(&hqmem::open(&layout)?, &agent, status, limit)?})
+        }
+        "kithMemoryAnswerPromotion" => {
+            let id = id("id").ok_or_else(|| anyhow!("id required"))?;
+            let approve = match str_arg(b, "answer")? {
+                "approve" => true,
+                "keep" => false,
+                other => bail!("answer is approve or keep, not {other}"),
+            };
+            // This call comes from the owner's apps: it answers for the owner. A question for another person is
+            // approved by that person, never through here.
+            let done = tidy::answer(&hqmem::open(&layout)?, &layout, &agent, id, approve, "")?;
+            if done.run.is_some() {
+                tidy::reindex();
+            }
+            hub.emit_bot(str_arg(b, "botId")?);
+            json!({"status": done.status, "run": done.run})
         }
         _ => bail!("unknown method: {method}"),
     })

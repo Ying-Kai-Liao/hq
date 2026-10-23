@@ -17,7 +17,9 @@ use anyhow::{Result, anyhow, bail};
 use kith_mem::files::{self, File, Version};
 use kith_mem::rusqlite::{Connection, params};
 use kith_mem::store::{self, Author, Entry, State};
-use kith_mem::tidy::{self, Plan, Snapshot};
+use kith_mem::tidy::{
+    self, Audience, Judgement, NoteFacets, Plan, Promote, Retag, Roster, Snapshot, judge, set_frontmatter,
+};
 use kith_mem::tokens;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -49,7 +51,29 @@ pub(super) fn migrate(conn: &Connection) -> Result<()> {
             text TEXT NOT NULL,
             was TEXT
         );
-        CREATE INDEX IF NOT EXISTS hq_dream_changes_dream ON hq_dream_changes (dream);",
+        CREATE INDEX IF NOT EXISTS hq_dream_changes_dream ON hq_dream_changes (dream);
+        -- Retags of notes (promotion). `applied`: a narrowing tidying applied; `pending`: a widening waiting for the
+        -- person in `person` ('' is the owner); `approved`: that person said yes and it was written; `declined`:
+        -- kept private; `stale`: the note or the readers changed before the answer. `kith_facets.py` reads the
+        -- applied and approved rows to honour a wider audience in a note's frontmatter, so a row is the proof.
+        CREATE TABLE IF NOT EXISTS hq_promotions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent TEXT NOT NULL,
+            file TEXT NOT NULL,
+            from_audience TEXT NOT NULL,
+            audience TEXT NOT NULL,
+            room TEXT NOT NULL DEFAULT '',
+            projects TEXT NOT NULL DEFAULT '[]',
+            readers TEXT NOT NULL DEFAULT '',
+            reason TEXT NOT NULL DEFAULT '',
+            person TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL,
+            decided_by TEXT,
+            created_at INTEGER NOT NULL,
+            decided_at INTEGER,
+            dream INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS hq_promotions_agent ON hq_promotions (agent, status);",
     )?;
     Ok(())
 }
@@ -232,7 +256,72 @@ pub fn load(layout: &Layout, agent: &str, today: &str, written: Option<&HashSet<
     Ok(Some(Material { snapshot, agent: agent.to_owned(), layout: layout.clone(), loaded, lines }))
 }
 
+/// The most notes whose tags a run shows the model.
+const MAX_PROMOTABLE: usize = 60;
+
+/// Who reads which room. Nothing resolves a group room's members yet, so every room is unknown and a move into one
+/// is a question (docs/memory-context.md, Promotion).
+fn roster() -> Roster {
+    Roster::default()
+}
+
+/// Whether change `id` is a retag of `file` to `audience` that was applied or approved and not undone.
+fn granted(conn: &Connection, agent: &str, file: &str, id: i64, audience: &str) -> bool {
+    conn.query_row(
+        "SELECT 1 FROM hq_promotions p JOIN memory_dreams d ON d.id = p.dream
+         WHERE p.id = ?1 AND p.agent = ?2 AND p.file = ?3 AND p.audience = ?4
+           AND p.status IN ('applied', 'approved') AND d.undone = 0",
+        params![id, agent, file, audience],
+        |_| Ok(()),
+    )
+    .is_ok()
+}
+
+/// The markdown files under the agent's `memory/`, relative, sorted, without hidden ones or links.
+fn memory_files(dir: &Path) -> Vec<String> {
+    fn walk(base: &Path, rel: &Path, depth: usize, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(base.join(rel)) else { return };
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let Ok(ty) = e.file_type() else { continue };
+            if name.starts_with('.') || ty.is_symlink() {
+                continue;
+            }
+            let path = rel.join(&name);
+            if ty.is_dir() {
+                if depth < 4 {
+                    walk(base, &path, depth + 1, out);
+                }
+            } else if super::is_markdown(&name) {
+                out.push(path.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/"));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(dir, Path::new(""), 0, &mut out);
+    out.sort();
+    out
+}
+
 impl Material {
+    /// This run may also propose retags: the model is shown which notes who reads. Rows in `hq_promotions` decide
+    /// which wider frontmatter audiences count, as they do for the kernel.
+    #[must_use]
+    pub fn with_promotions(mut self, conn: &Connection) -> Self {
+        let Some(dir) = agent_dir(&self.layout, &self.agent) else { return self };
+        let facets: Vec<NoteFacets> = memory_files(&dir.join("memory"))
+            .into_iter()
+            .filter_map(|rel| {
+                let target = target_of(&self.layout, &self.agent, false, &rel)?;
+                let text = read(&target.path).unwrap_or_default();
+                Some(NoteFacets::read(&self.agent, &rel, &text, &|id, a| granted(conn, &self.agent, &rel, id, a)))
+            })
+            .take(MAX_PROMOTABLE)
+            .collect();
+        self.snapshot = self.snapshot.clone().with_facets(facets, roster());
+        self
+    }
+
     /// The texts of the lines the tidy wrote itself (what the time review may rewrite).
     pub fn tidy_lines(&self) -> impl Iterator<Item = &str> {
         self.snapshot.entries.iter().zip(&self.lines).filter(|(_, l)| l.tidy).map(|(e, _)| e.text.as_str())
@@ -337,6 +426,8 @@ pub struct Applied {
     pub versions: Vec<Version>,
     /// Changes dropped, with why: a refused file, a shared note.
     pub dropped: Vec<String>,
+    /// The widening retags that now wait for a person (ids in `hq_promotions`).
+    pub asked: Vec<i64>,
 }
 
 /// Writes an audited plan as one logged run of the agent. `Applied::stale` when a file the run read has changed.
@@ -521,8 +612,267 @@ pub fn apply(conn: &Connection, m: &Material, plan: &Plan) -> Result<Applied> {
             }
         }
     }
+    // Retags. Each is judged again against the note as it is now, because the notes or the rooms' members may have
+    // changed since the audit: one that keeps the readers is applied, one that adds readers waits for the person.
+    for p in &plan.promote {
+        let Some(target) = target_of(&m.layout, &m.agent, false, &p.file) else {
+            out.dropped.push(format!("promote {}: not a memory file of {}", p.file, m.agent));
+            continue;
+        };
+        let Some(text) = read(&target.path) else {
+            out.dropped.push(format!("promote {}: no such file", p.file));
+            continue;
+        };
+        let current = facets_now(conn, &m.agent, &p.file, &text);
+        match judge(&current, p, &roster()) {
+            Err(why) => out.dropped.push(format!("promote {}: {why}", p.file)),
+            Ok(Judgement::Nothing) => out.dropped.push(format!("promote {}: nothing would change", p.file)),
+            Ok(Judgement::Widens(retag)) => {
+                if let Some(id) = ask(conn, &m.agent, p, &current, &retag)? {
+                    out.asked.push(id);
+                }
+            }
+            Ok(Judgement::Allowed(retag)) => {
+                let change = insert_row(conn, &m.agent, p, &current, &retag, "applied", "")?;
+                let after = retagged(&text, &retag, change, "tidy");
+                if put_file(&mut out, &target, Some(&text), &after)? {
+                    conn.execute("UPDATE hq_promotions SET dream = ?1 WHERE id = ?2", params![ensure_run()?, change])?;
+                    log("retagged", &target, &describe(&current, &retag, &p.file), Some(&current.audience.to_string()))?;
+                } else {
+                    conn.execute("DELETE FROM hq_promotions WHERE id = ?1", [change])?;
+                }
+            }
+        }
+    }
     out.tidy = run.get();
     Ok(out)
+}
+
+fn facets_now(conn: &Connection, agent: &str, file: &str, text: &str) -> NoteFacets {
+    NoteFacets::read(agent, file, text, &|id, a| granted(conn, agent, file, id, a))
+}
+
+fn describe(current: &NoteFacets, retag: &Retag, file: &str) -> String {
+    let mut parts = Vec::new();
+    if current.audience != retag.audience {
+        parts.push(format!("{} → {}", current.audience, retag.audience));
+    }
+    if current.room != retag.room {
+        parts.push(format!("room {}", retag.room));
+    }
+    if current.projects != retag.projects {
+        parts.push(format!("projects {}", retag.projects.join(", ")));
+    }
+    format!("{file}: {}", parts.join("; "))
+}
+
+/// The note's text with the tags of `retag` in its frontmatter, and the change that vouches for them.
+fn retagged(text: &str, retag: &Retag, change: i64, by: &str) -> String {
+    set_frontmatter(
+        text,
+        &[
+            ("audience", Some(retag.audience.to_string())),
+            ("room", Some(retag.room.clone()).filter(|r| !r.is_empty())),
+            ("projects", Some(format!("[{}]", retag.projects.join(", ")))),
+            ("approved_by", Some(by.to_owned())),
+            ("approved_change", Some(change.to_string())),
+        ],
+    )
+}
+
+fn insert_row(
+    conn: &Connection,
+    agent: &str,
+    p: &Promote,
+    current: &NoteFacets,
+    retag: &Retag,
+    status: &str,
+    person: &str,
+) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO hq_promotions
+             (agent, file, from_audience, audience, room, projects, readers, reason, person, status, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![
+            agent,
+            p.file,
+            current.audience.to_string(),
+            retag.audience.to_string(),
+            retag.room,
+            serde_json::to_string(&retag.projects)?,
+            roster().fingerprint(&retag.audience),
+            p.reason.chars().take(200).collect::<String>(),
+            person,
+            status,
+            now_ms()
+        ],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Puts a widening retag to the note's person. `None` when the same question was asked already (pending, or
+/// answered "keep private"): tidying doesn't ask twice.
+fn ask(conn: &Connection, agent: &str, p: &Promote, current: &NoteFacets, retag: &Retag) -> Result<Option<i64>> {
+    let again = conn
+        .query_row(
+            "SELECT 1 FROM hq_promotions WHERE agent = ?1 AND file = ?2 AND audience = ?3 AND room = ?4
+               AND projects = ?5 AND status IN ('pending', 'declined')",
+            params![
+                agent,
+                p.file,
+                retag.audience.to_string(),
+                retag.room,
+                serde_json::to_string(&retag.projects)?
+            ],
+            |_| Ok(()),
+        )
+        .is_ok();
+    if again {
+        return Ok(None);
+    }
+    let person = current.audience.asks().unwrap_or_default();
+    insert_row(conn, agent, p, current, retag, "pending", person).map(Some)
+}
+
+/// The waiting questions (`status` "pending") or the answered ones, newest first, as the apps show them. `asks` is
+/// the person who has to answer: empty is the owner.
+pub fn promotions(conn: &Connection, agent: &str, status: &str, limit: usize) -> Result<Vec<Value>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, file, from_audience, audience, room, projects, reason, person, status, created_at, decided_at
+         FROM hq_promotions WHERE agent = ?1 AND status = ?2 ORDER BY id DESC LIMIT ?3",
+    )?;
+    let rows = stmt.query_map(params![agent, status, i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
+        let projects: String = row.get(5)?;
+        Ok(json!({
+            "id": row.get::<_, i64>(0)?, "file": row.get::<_, String>(1)?, "from": row.get::<_, String>(2)?,
+            "audience": row.get::<_, String>(3)?, "room": row.get::<_, String>(4)?,
+            "projects": serde_json::from_str::<Value>(&projects).unwrap_or_else(|_| json!([])),
+            "reason": row.get::<_, String>(6)?, "asks": row.get::<_, String>(7)?, "status": row.get::<_, String>(8)?,
+            "at": row.get::<_, i64>(9)?, "decidedAt": row.get::<_, Option<i64>>(10)?,
+        }))
+    })?;
+    Ok(rows.collect::<std::result::Result<_, _>>()?)
+}
+
+/// How a question ended.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Answered {
+    /// `approved` (written), `declined` (kept private) or `stale` (the note or its readers changed: nothing written,
+    /// tidying will ask again if it still wants to).
+    pub status: &'static str,
+    /// The logged run that wrote it, which the tidy-up undo covers.
+    pub run: Option<i64>,
+}
+
+/// The person's answer to a waiting question. `by` is who answers: empty for the owner, else a person's id; only
+/// the person asked can approve (anyone who can reach the owner's apps can keep a note private).
+pub fn answer(conn: &Connection, layout: &Layout, agent: &str, id: i64, approve: bool, by: &str) -> Result<Answered> {
+    struct Row {
+        file: String,
+        from: String,
+        audience: String,
+        room: String,
+        projects: String,
+        readers: String,
+        reason: String,
+        person: String,
+    }
+    let row = conn
+        .query_row(
+            "SELECT file, from_audience, audience, room, projects, readers, reason, person FROM hq_promotions
+             WHERE id = ?1 AND agent = ?2 AND status = 'pending'",
+            params![id, agent],
+            |r| {
+                Ok(Row {
+                    file: r.get(0)?,
+                    from: r.get(1)?,
+                    audience: r.get(2)?,
+                    room: r.get(3)?,
+                    projects: r.get(4)?,
+                    readers: r.get(5)?,
+                    reason: r.get(6)?,
+                    person: r.get(7)?,
+                })
+            },
+        )
+        .map_err(|_| anyhow!("no such question waiting"))?;
+    let decide = |status: &str| -> Result<()> {
+        let who = if by.is_empty() { "owner" } else { by };
+        conn.execute(
+            "UPDATE hq_promotions SET status = ?1, decided_by = ?2, decided_at = ?3 WHERE id = ?4",
+            params![status, who, now_ms(), id],
+        )?;
+        Ok(())
+    };
+    if !approve {
+        decide("declined")?;
+        return Ok(Answered { status: "declined", run: None });
+    }
+    if by != row.person {
+        let who = if row.person.is_empty() { "the owner" } else { &row.person };
+        bail!("{who} has to approve this, not {}", if by.is_empty() { "the owner" } else { by });
+    }
+    let target = target_of(layout, agent, false, &row.file).ok_or_else(|| anyhow!("the note is gone"))?;
+    sync(conn, &target)?;
+    let text = read(&target.path).ok_or_else(|| anyhow!("the note is gone"))?;
+    let current = facets_now(conn, agent, &row.file, &text);
+    let retag = Retag {
+        audience: Audience::parse(&row.audience).ok_or_else(|| anyhow!("bad audience"))?,
+        room: row.room.clone(),
+        projects: serde_json::from_str(&row.projects).unwrap_or_default(),
+    };
+    // The approval was for these readers of this note. If either moved, it counts for nothing.
+    let same = current.audience.to_string() == row.from
+        && roster().fingerprint(&retag.audience) == row.readers
+        && row.readers != "?";
+    if !same {
+        decide("stale")?;
+        return Ok(Answered { status: "stale", run: None });
+    }
+    let p = Promote {
+        file: row.file.clone(),
+        audience: Some(row.audience.clone()),
+        room: Some(row.room.clone()),
+        projects: Some(retag.projects.clone()),
+        reason: row.reason.clone(),
+    };
+    if judge(&current, &p, &roster()).is_ok_and(|j| j == Judgement::Nothing) {
+        decide("stale")?;
+        return Ok(Answered { status: "stale", run: None });
+    }
+    let who = if by.is_empty() { "owner" } else { by };
+    // The row is `approved` before the file says so: the kernel trusts the row, and a write that fails leaves it
+    // pending again.
+    conn.execute("UPDATE hq_promotions SET status = 'approved', decided_by = ?1, decided_at = ?2 WHERE id = ?3", params![who, now_ms(), id])?;
+    let written = match write(conn, &target, Who::Tidy(agent), &retagged(&text, &retag, id, who))? {
+        Ok(w) => w,
+        Err(refusal) => {
+            conn.execute("UPDATE hq_promotions SET status = 'pending', decided_by = NULL, decided_at = NULL WHERE id = ?1", [id])?;
+            bail!("{}: {}", target.label(), refusal.message());
+        }
+    };
+    conn.execute("INSERT INTO memory_dreams (bot, at) VALUES (?1, ?2)", params![agent, now_ms()])?;
+    let run = conn.last_insert_rowid();
+    if let Some(v) = written.version {
+        conn.execute("INSERT INTO memory_dream_files (dream, version) VALUES (?1, ?2)", params![run, v.id])?;
+    }
+    conn.execute(
+        "INSERT INTO hq_dream_changes (dream, kind, file, shared, text, was) VALUES (?1, 'retagged', ?2, 0, ?3, ?4)",
+        params![run, target.name, describe(&current, &retag, &row.file), row.from],
+    )?;
+    conn.execute("UPDATE hq_promotions SET dream = ?1 WHERE id = ?2", params![run, id])?;
+    Ok(Answered { status: "approved", run: Some(run) })
+}
+
+/// Brings the local recall index up to date after notes were retagged (best effort: recall also updates it on use).
+pub fn reindex() {
+    let Some(kernel) = crate::kernel::current_kernel() else { return };
+    let _ = std::process::Command::new(kernel.join("bin/kith-recall"))
+        .args(["index", "update"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
 }
 
 /// The agent's latest runs, newest first, as the apps show them.
