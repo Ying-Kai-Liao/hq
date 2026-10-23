@@ -257,9 +257,13 @@ pub fn shape(hub: &Hub, person: &str, method: &str, mut v: Value) -> Value {
     match method {
         "hello" => {
             // Names and keys the apps need to talk to this computer; none of its paths, addresses or screens.
-            let keep = ["hostId", "computerId", "signKey", "boxKey", "name", "version", "minApp", "os", "rev"];
+            let keep = ["hostId", "computerId", "signKey", "boxKey", "name", "version", "minApp", "os", "rev", "store"];
             if let Some(o) = v.as_object_mut() {
                 o.retain(|k, _| keep.contains(&k.as_str()));
+                // The error text can name this computer's folders.
+                if let Some(store) = o.get_mut("store").and_then(Value::as_object_mut) {
+                    store.remove("error");
+                }
             }
         }
         "projects" => {

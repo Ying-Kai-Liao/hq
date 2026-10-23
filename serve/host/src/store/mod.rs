@@ -84,6 +84,12 @@ impl Store {
         logged("kv prefix", rows).unwrap_or_default()
     }
 
+    /// Runs raw SQL: tests break and mend writes with a trigger, standing in for a full disk.
+    #[cfg(test)]
+    pub fn exec_for_test(&self, sql: &str) {
+        self.db.locked().execute_batch(sql).unwrap();
+    }
+
     pub fn current_rev(&self) -> i64 {
         self.kv_get("rev").and_then(|v| v.parse().ok()).unwrap_or(0)
     }

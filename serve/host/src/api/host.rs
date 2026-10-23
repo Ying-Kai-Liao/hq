@@ -78,6 +78,8 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
                 "home": dirs::home_dir().map(|p| p.to_string_lossy().into_owned()),
                 "backends": backends::list(),
                 "rev": hub.store.current_rev(),
+                // `writable: false` while the disk is full or read-only; entries wait in memory meanwhile.
+                "store": hub.store_health(true),
                 "screen": hub.screen.state(),
                 "analytics": hub.analytics.state(),
                 // Shells out to `tailscale`: keep it off the async workers.

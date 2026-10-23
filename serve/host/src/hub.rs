@@ -98,6 +98,31 @@ pub struct Hub {
     pub terminal: crate::terminal::Terminal,
     /// How many agent turns run at once, and whether memory has room for another.
     pub gate: Arc<crate::agent::gate::Gate>,
+    /// Transcript entries the store refused (disk full, read-only), waiting to be written again.
+    unsaved: Mutex<Unsaved>,
+}
+
+/// How many unsaved entries the host holds; the oldest is dropped (and counted) past it.
+const MAX_UNSAVED: usize = 500;
+/// How often unsaved entries are tried again when nothing new arrives.
+const RETRY_UNSAVED: std::time::Duration = std::time::Duration::from_secs(15);
+
+struct PendingEntry {
+    id: String,
+    lane: Lane,
+    kind: EntryKind,
+    turn: i64,
+    data: Value,
+    at: i64,
+}
+
+#[derive(Default)]
+struct Unsaved {
+    queue: std::collections::VecDeque<PendingEntry>,
+    /// Entries dropped for lack of room since the host started.
+    dropped: u64,
+    /// The store's last write error while it is failing; `None` once a write lands.
+    error: Option<String>,
 }
 
 impl Hub {
@@ -150,6 +175,7 @@ impl Hub {
             hq_sync: tokio::sync::Mutex::new(()),
             terminal: crate::terminal::Terminal::default(),
             gate,
+            unsaved: Mutex::default(),
         })
     }
 
@@ -166,6 +192,7 @@ impl Hub {
                 self.spawn_bot(&row.config);
             }
         }
+        self.spawn_unsaved_retry();
         tokio::spawn(crate::agent::gate::run(self.gate.clone(), Arc::downgrade(self)));
         crate::routines::start(self);
         crate::analytics::start(self);
@@ -417,31 +444,150 @@ impl Hub {
 
     // MARK: entries
 
-    /// Persists and broadcasts a new transcript entry. A failed write is logged here
-    /// (once) and yields `None`: the conversation goes on without that line.
+    /// Persists and broadcasts a new transcript entry. A write the store refuses (disk full, read-only) is logged,
+    /// kept in memory (bounded) and retried in order (see [`Self::retry_unsaved`]); it yields `None` and the
+    /// conversation goes on. Held entries are lost if the host restarts first: there is no disk to keep them on.
     pub fn add_entry(&self, lane: &Lane, kind: EntryKind, turn: i64, data: &Value) -> Option<Entry> {
-        let added = {
+        let (added, mut landed) = {
             let _g = self.emit_lock.locked();
-            match self.store.insert_entry(lane, kind, turn, data) {
-                Ok(e) => {
-                    let _ = self.events.send(json!({"type": "entry", "rev": e.rev, "entry": e}));
-                    Some(e)
+            // Older held entries go first, so a thread's lines stay in order.
+            let landed = self.flush_unsaved();
+            let pending = PendingEntry {
+                id: uuid::Uuid::new_v4().to_string(),
+                lane: lane.clone(),
+                kind,
+                turn,
+                data: data.clone(),
+                at: crate::store::now_ms(),
+            };
+            let added = if self.unsaved.locked().queue.is_empty() {
+                match self.write_pending(&pending) {
+                    Ok(e) => Some(e),
+                    Err(error) => {
+                        self.hold(pending, &error);
+                        None
+                    }
                 }
-                Err(error) => {
-                    tracing::error!(
-                        error = format!("{error:#}"),
-                        chat = lane.chat,
-                        kind = kind.as_str(),
-                        "couldn't save transcript entry"
-                    );
-                    None
-                }
-            }
+            } else {
+                // Still failing: queue behind the others rather than jump ahead of them.
+                tracing::warn!(chat = pending.lane.chat, "store still can't write; holding transcript entry");
+                self.hold_queued(pending);
+                None
+            };
+            (added, landed)
         };
-        if let Some(e) = &added {
+        landed.extend(added.clone());
+        for e in &landed {
             self.update_thread_summary(e);
         }
         added
+    }
+
+    /// Writes and broadcasts one entry, under `emit_lock`. Clears the store flag when the write lands.
+    fn write_pending(&self, p: &PendingEntry) -> Result<Entry> {
+        // An entry stored by an attempt that reported an error comes back as it is: no duplicate row.
+        let (e, _) = self.store.insert_entry_as(&p.id, &p.lane, p.kind, p.turn, &p.data, p.at)?;
+        self.set_store_error(None);
+        let _ = self.events.send(json!({"type": "entry", "rev": e.rev, "entry": e}));
+        Ok(e)
+    }
+
+    /// Whether the store refused a write (as opposed to a rule such as "the chat was deleted").
+    fn is_store_error(error: &anyhow::Error) -> bool {
+        error.downcast_ref::<rusqlite::Error>().is_some()
+    }
+
+    /// Keeps an entry the store refused for a retry, unless it was refused for good.
+    fn hold(&self, p: PendingEntry, error: &anyhow::Error) {
+        tracing::error!(
+            error = format!("{error:#}"),
+            chat = p.lane.chat,
+            kind = p.kind.as_str(),
+            "couldn't save transcript entry"
+        );
+        if Self::is_store_error(error) {
+            self.set_store_error(Some(format!("{error:#}")));
+            self.hold_queued(p);
+        }
+    }
+
+    fn hold_queued(&self, p: PendingEntry) {
+        let mut u = self.unsaved.locked();
+        if u.queue.len() >= MAX_UNSAVED {
+            u.queue.pop_front();
+            u.dropped += 1;
+            tracing::warn!(dropped = u.dropped, "unsaved transcript entries over the limit; dropped the oldest");
+        }
+        u.queue.push_back(p);
+    }
+
+    /// Tries the held entries oldest first, under `emit_lock`; stops at the first the store still refuses.
+    /// Entries that landed are returned for their threads' summaries.
+    fn flush_unsaved(&self) -> Vec<Entry> {
+        let mut landed = Vec::new();
+        loop {
+            let Some(next) = self.unsaved.locked().queue.pop_front() else { break };
+            match self.write_pending(&next) {
+                Ok(e) => landed.push(e),
+                Err(error) if Self::is_store_error(&error) => {
+                    self.set_store_error(Some(format!("{error:#}")));
+                    self.unsaved.locked().queue.push_front(next);
+                    break;
+                }
+                // Its chat was deleted meanwhile: nothing to write it to.
+                Err(error) => tracing::warn!(error = format!("{error:#}"), "dropping an unsaved transcript entry"),
+            }
+        }
+        landed
+    }
+
+    /// Writes held entries again; the host calls it periodically, and every new entry does the same.
+    pub fn retry_unsaved(&self) {
+        if self.unsaved.locked().queue.is_empty() {
+            return;
+        }
+        let landed = {
+            let _g = self.emit_lock.locked();
+            self.flush_unsaved()
+        };
+        for e in &landed {
+            self.update_thread_summary(e);
+        }
+    }
+
+    fn spawn_unsaved_retry(self: &Arc<Self>) {
+        let me = Arc::downgrade(self);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(RETRY_UNSAVED).await;
+                let Some(hub) = me.upgrade() else { break };
+                let _ = tokio::task::spawn_blocking(move || hub.retry_unsaved()).await;
+            }
+        });
+    }
+
+    /// Sets or clears the store-can't-write flag and tells connected apps when it changes.
+    fn set_store_error(&self, error: Option<String>) {
+        let changed = {
+            let mut u = self.unsaved.locked();
+            let changed = u.error.is_some() != error.is_some();
+            u.error = error;
+            changed
+        };
+        if changed {
+            let _ = self.events.send(json!({"type": "storeHealth", "store": self.store_health(false)}));
+        }
+    }
+
+    /// The store's health, for `hello` and the `storeHealth` event: whether it takes writes, how many entries wait
+    /// to be saved and how many were dropped. `detail` adds the error text (which can name this computer's paths).
+    pub fn store_health(&self, detail: bool) -> Value {
+        let u = self.unsaved.locked();
+        let mut v = json!({"writable": u.error.is_none(), "unsaved": u.queue.len(), "dropped": u.dropped});
+        if detail {
+            v["error"] = json!(u.error);
+        }
+        v
     }
 
     /// [`Self::add_entry`] stamped `at` (ms), without refreshing the thread's summary: the caller imports many
@@ -631,4 +777,112 @@ fn validate(cfg: &BotConfig) -> Result<()> {
         bail!("unknown backend {}", cfg.backend);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod unsaved_tests {
+    use super::*;
+
+    const BREAK: &str =
+        "CREATE TRIGGER full BEFORE INSERT ON entries BEGIN SELECT RAISE(FAIL, 'database or disk is full'); END;";
+    const MEND: &str = "DROP TRIGGER full;";
+
+    fn hub() -> Arc<Hub> {
+        let dir = std::env::temp_dir().join(format!("kith-unsaved-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let cfg: BotConfig =
+            serde_json::from_value(json!({"id": "a", "name": "A", "backend": "claude", "cwd": dir.to_string_lossy()}))
+                .unwrap();
+        store.save_bot(&cfg).unwrap();
+        Hub::new(store, "t".into(), Identity::load_or_create(&dir).unwrap(), "t".into(), 0)
+    }
+
+    fn texts(hub: &Hub) -> Vec<String> {
+        let mut all = hub.store.history("a", i64::MAX, 1000).unwrap();
+        all.sort_by_key(|e| e.seq);
+        all.iter().map(|e| e.data["text"].as_str().unwrap().to_owned()).collect()
+    }
+
+    #[test]
+    fn a_full_disk_holds_entries_in_order_and_they_land_once() {
+        let hub = hub();
+        let lane = Lane::main("a");
+        assert!(hub.add_entry(&lane, EntryKind::User, 1, &json!({"text": "one"})).is_some());
+        assert_eq!(hub.store_health(true)["writable"], true);
+
+        hub.store.exec_for_test(BREAK);
+        assert!(hub.add_entry(&lane, EntryKind::User, 1, &json!({"text": "two"})).is_none());
+        let health = hub.store_health(true);
+        assert_eq!((health["writable"].clone(), health["unsaved"].clone()), (json!(false), json!(1)));
+        assert!(health["error"].as_str().unwrap().contains("disk is full"));
+        // A later entry queues behind the held one.
+        assert!(hub.add_entry(&lane, EntryKind::Agent, 1, &json!({"text": "three"})).is_none());
+        assert_eq!(hub.store_health(false)["unsaved"], 2);
+        hub.retry_unsaved();
+        assert_eq!(texts(&hub), ["one"], "nothing lands while the disk is full");
+
+        hub.store.exec_for_test(MEND);
+        hub.retry_unsaved();
+        assert_eq!(texts(&hub), ["one", "two", "three"]);
+        let health = hub.store_health(true);
+        assert_eq!((health["writable"].clone(), health["unsaved"].clone()), (json!(true), json!(0)));
+        hub.retry_unsaved();
+        assert_eq!(texts(&hub).len(), 3, "a second retry adds nothing");
+    }
+
+    #[test]
+    fn a_new_entry_after_recovery_flushes_the_held_ones_first() {
+        let hub = hub();
+        let lane = Lane::main("a");
+        hub.store.exec_for_test(BREAK);
+        hub.add_entry(&lane, EntryKind::User, 1, &json!({"text": "held"}));
+        hub.store.exec_for_test(MEND);
+        assert!(hub.add_entry(&lane, EntryKind::User, 1, &json!({"text": "new"})).is_some());
+        assert_eq!(texts(&hub), ["held", "new"]);
+        assert_eq!(hub.store_health(false)["writable"], true);
+    }
+
+    #[test]
+    fn an_entry_that_already_landed_is_not_written_twice() {
+        let hub = hub();
+        let lane = Lane::main("a");
+        let p = PendingEntry {
+            id: "same".into(),
+            lane: lane.clone(),
+            kind: EntryKind::User,
+            turn: 1,
+            data: json!({"text": "x"}),
+            at: 1,
+        };
+        hub.hold_queued(p);
+        hub.store.insert_entry_as("same", &lane, EntryKind::User, 1, &json!({"text": "x"}), 1).unwrap();
+        hub.retry_unsaved();
+        assert_eq!(texts(&hub), ["x"]);
+    }
+
+    #[test]
+    fn the_held_entries_are_bounded_and_the_dropped_are_counted() {
+        let hub = hub();
+        let lane = Lane::main("a");
+        hub.store.exec_for_test(BREAK);
+        for i in 0..MAX_UNSAVED + 3 {
+            hub.add_entry(&lane, EntryKind::User, 1, &json!({"text": i.to_string()}));
+        }
+        let health = hub.store_health(false);
+        assert_eq!((health["unsaved"].clone(), health["dropped"].clone()), (json!(MAX_UNSAVED), json!(3)));
+        hub.store.exec_for_test(MEND);
+        hub.retry_unsaved();
+        let t = texts(&hub);
+        assert_eq!((t.len(), t[0].as_str()), (MAX_UNSAVED, "3"), "the oldest were dropped");
+    }
+
+    #[test]
+    fn a_deleted_chat_is_not_held() {
+        let hub = hub();
+        hub.store.delete_bot("a").unwrap();
+        assert!(hub.add_entry(&Lane::main("a"), EntryKind::User, 1, &json!({"text": "x"})).is_none());
+        assert_eq!(hub.store_health(false)["unsaved"], 0);
+        assert_eq!(hub.store_health(false)["writable"], true);
+    }
 }
