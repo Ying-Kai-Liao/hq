@@ -41,6 +41,15 @@
   padding: 62px 20px 18px;
   text-align: center;
 }
+.details-call {
+  display: flex;
+  justify-content: center;
+  padding: 0 20px 14px;
+}
+.mac-chat-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .details-name {
   margin-top: 14px;
   font-size: calc(16px * var(--scale));

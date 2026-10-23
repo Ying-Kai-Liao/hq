@@ -151,6 +151,50 @@ public extension HostClient {
     }
 }
 
+/// Kith voice: Phonon text to speech run by the computer's kith serve (serve/docs/local-voice.md).
+public struct LocalVoiceStatus: Decodable, Sendable, Equatable {
+    public enum State: String, Decodable, Sendable {
+        case missing, downloading, ready, error
+    }
+
+    public var available: Bool
+    public var model: String
+    public var state: State
+    /// 0…1 while downloading.
+    public var progress: Double?
+    public var error: String?
+    public var voices: [String]
+    public var defaultVoice: String
+
+    public init(available: Bool, model: String = "phonon-31m-en", state: State, progress: Double? = nil,
+                error: String? = nil, voices: [String] = [], defaultVoice: String = "") {
+        self.available = available
+        self.model = model
+        self.state = state
+        self.progress = progress
+        self.error = error
+        self.voices = voices
+        self.defaultVoice = defaultVoice
+    }
+}
+
+public extension HostClient {
+    func voiceLocalStatus() async throws -> LocalVoiceStatus { try await call("voiceLocalStatus", timeout: 15) }
+
+    /// Starts the model download; answers at once.
+    func voiceLocalPrepare() async throws -> LocalVoiceStatus { try await call("voiceLocalPrepare", timeout: 15) }
+
+    /// One clip of WAV audio. The first call may wait for the model download.
+    func voiceLocalSpeak(_ text: String, voice: String?) async throws -> Data {
+        struct Clip: Decodable { var audio: String }
+        var body = ["text": text]
+        if let voice, !voice.isEmpty { body["voice"] = voice }
+        let c: Clip = try await call("voiceLocalSpeak", body, timeout: 90)
+        guard let data = Data(base64Encoded: c.audio) else { throw HostError.http(0, "Unreadable audio.") }
+        return data
+    }
+}
+
 /// Minutes of realtime voice used this month, counted on this device: an estimate, not a bill.
 public enum VoiceUsage {
     private static func key(_ provider: VoiceProvider, _ date: Date) -> String {

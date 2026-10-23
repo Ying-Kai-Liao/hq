@@ -14,6 +14,12 @@ struct DetailsRequest: Identifiable {
     var routineId: String?
 }
 
+/// The details page's Call button: `blocked` is why it can't be used now.
+struct CallAction {
+    var blocked: String?
+    let start: () -> Void
+}
+
 /// A bot's details (Grok Bot's): who it is, then its details, memory and settings. Settings save
 /// as you edit.
 struct BotDetailsView: View {
@@ -28,11 +34,13 @@ struct BotDetailsView: View {
     @State private var template: EditorRequest?
     /// A kith bot's details (serve/docs/bot-info.md); nil for any other bot. Kept while `bot` events arrive.
     @State private var kith: KithInfoStore?
+    private let call: CallAction?
     /// Cards that kith's sections repeat go once kith has the fact on screen.
     private var shown: BotSections { BotSections(hqAgent: bot?.hqAgent, info: kith?.info) }
 
-    init(botId: String, request: DetailsRequest) {
+    init(botId: String, request: DetailsRequest, call: CallAction? = nil) {
         self.botId = botId
+        self.call = call
         routineId = request.routineId
         _tab = State(initialValue: request.tab)
     }
@@ -94,6 +102,24 @@ struct BotDetailsView: View {
         .help(title)
     }
 
+    private func callButton(_ call: CallAction) -> some View {
+        VStack(spacing: 6) {
+            Button(action: call.start) {
+                Label("Call", systemImage: "phone.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Palette.onAccent)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 10)
+                    .background(call.blocked == nil ? Palette.accentFill : Palette.accentDim, in: Capsule())
+            }
+            .buttonStyle(PressScale())
+            .disabled(call.blocked != nil)
+            if let reason = call.blocked {
+                Text(reason).font(.footnote).foregroundStyle(Palette.secondary)
+            }
+        }
+    }
+
     /// The bot's avatar and name, and what runs it.
     private func identity(_ bot: Bot) -> some View {
         VStack(spacing: 4) {
@@ -110,6 +136,7 @@ struct BotDetailsView: View {
             .font(.footnote)
             .foregroundStyle(Palette.secondary)
             if let agent = bot.hqAgent, let kith { KithIdentityLine(agent: agent, store: kith) }
+            if let call { callButton(call).padding(.top, 12) }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 64)
@@ -140,8 +167,14 @@ struct BotDetailsView: View {
             }
         case .memory:
             VStack(alignment: .leading, spacing: 20) {
-                if let kith { KithMemorySection(store: kith) }
-                MemoryCard(botId: botId, showsHarnessTab: shown.harnessMemoryTab)
+                // An hq agent's memory is its files; nothing is drawn until the bot is loaded, so the tab doesn't flip.
+                if let bot {
+                    if let agent = bot.hqAgent, !agent.isEmpty, !bot.isGroup {
+                        HqMemoryCard(botId: botId, kith: kith)
+                    } else {
+                        MemoryCard(botId: botId, showsHarnessTab: shown.harnessMemoryTab)
+                    }
+                }
             }
         case .settings:
             if let draft = Binding($draft) {

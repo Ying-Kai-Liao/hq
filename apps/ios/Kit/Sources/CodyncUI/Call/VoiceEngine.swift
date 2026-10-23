@@ -32,6 +32,33 @@ protocol VoiceEngine: AnyObject, Observable {
     func speak(reply: String)
     /// A notice from the computer (an approval is waiting) to say.
     func announce(_ notice: String)
+    /// A note under the call bar that doesn't end the call.
+    var warning: String? { get }
+    /// True when the engine speaks replies while they are written (`streamReply`), not once final.
+    var streamsReplies: Bool { get }
+    /// The full, growing text of a reply still being written (`final` once it's done).
+    func streamReply(id: String, text: String, final: Bool)
+    /// The bot started or stopped working.
+    func setWorking(_ working: Bool)
+    /// What you are saying right now, before it is sent.
+    var heard: String { get }
+    /// Captions of the call: what you said and the sentences the bot spoke.
+    var captions: [CallCaption] { get }
+    /// True when the engine's audio can be moved between the speaker and the earpiece.
+    var supportsSpeaker: Bool { get }
+    /// Speaker (true) or earpiece; headphones and Bluetooth win over both while connected.
+    func setSpeaker(_ on: Bool)
+}
+
+extension VoiceEngine {
+    var warning: String? { nil }
+    var streamsReplies: Bool { false }
+    func streamReply(id: String, text: String, final: Bool) {}
+    func setWorking(_ working: Bool) {}
+    var heard: String { "" }
+    var captions: [CallCaption] { [] }
+    var supportsSpeaker: Bool { false }
+    func setSpeaker(_ on: Bool) {}
 }
 
 struct VoiceError: LocalizedError {
@@ -43,6 +70,18 @@ struct VoiceError: LocalizedError {
 /// The engine picked in the call settings, kept on this device.
 enum VoiceSettings {
     static let engineKey = "callEngine"
+    /// The `callEngine` value for Kith voice: on-device listening, Phonon speech from the computer.
+    static let kithEngine = "kith"
+    static let kithVoiceKey = "callKithVoice"
+
+    static var isKith: Bool { UserDefaults.standard.string(forKey: engineKey) == kithEngine }
+
+    /// The voice the user picked, if the computer still has it; else the computer's default.
+    static func kithVoice(in status: LocalVoiceStatus?) -> String? {
+        let picked = UserDefaults.standard.string(forKey: kithVoiceKey)
+        if let picked, !picked.isEmpty, status?.voices.contains(picked) ?? true { return picked }
+        return status?.defaultVoice
+    }
 
     static var provider: VoiceProvider? {
         UserDefaults.standard.string(forKey: engineKey).flatMap(VoiceProvider.init(rawValue:))

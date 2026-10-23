@@ -85,6 +85,7 @@ export class OnDeviceEngine extends VoiceEngine {
     const text = spokenText(markdown)
     if (this.ended || !text || this.phase === 'starting' || this.phase === 'failed') return
     this.stopListening()
+    this.captions.said(text)
     this.setPhase('speaking')
     const generation = ++this.speakGeneration
     speechSynthesis.cancel()
@@ -111,6 +112,7 @@ export class OnDeviceEngine extends VoiceEngine {
     if (this.phase !== 'speaking') return
     this.speakGeneration++
     speechSynthesis.cancel()
+    this.captions.settleBot()
     this.listen()
   }
 
@@ -206,6 +208,8 @@ export class OnDeviceEngine extends VoiceEngine {
       return
     }
     this.heard = words
+    this.captions.hearing(words)
+    this.changed()
     if (this.silence) clearTimeout(this.silence)
     if (final) return this.submit()
     this.silence = setTimeout(() => this.submit(), VoiceSettings.pause() * 1000)
@@ -214,6 +218,7 @@ export class OnDeviceEngine extends VoiceEngine {
   private submit() {
     const text = this.heard.trim()
     this.stopListening()
+    this.captions.settleYou()
     if (text) this.send(text)
     // Keep listening while the bot works: more messages fold into its next turn.
     if (this.phase === 'speaking') this.restartListening()
@@ -222,6 +227,7 @@ export class OnDeviceEngine extends VoiceEngine {
 
   protected finishedSpeaking() {
     if (this.phase !== 'speaking') return
+    this.captions.settleBot()
     this.listen()
   }
 

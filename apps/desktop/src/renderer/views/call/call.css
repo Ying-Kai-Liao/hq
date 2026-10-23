@@ -1,47 +1,157 @@
-.call {
-  /* This floating control overlaps the title bar's native window-drag region. */
-  -webkit-app-region: no-drag;
+/* The call, full size over the conversation. It sits under the title chrome's drag band and over the composer. */
+.call-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 0 12px;
-  max-width: 100%;
+  padding: 56px 24px 28px;
+  background: var(--background);
+  -webkit-app-region: no-drag;
+  animation: fade-in var(--fade) both;
 }
-
-/* Floats over the chat like the title pill: frosted, raised, sized to its content. */
-.call-bar {
+.call-screen-drag {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 44px;
+  -webkit-app-region: drag;
+}
+.call-screen-main {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 10px 10px 10px 18px;
-  border-radius: var(--radius-pill);
-  background: var(--frosted);
-  backdrop-filter: blur(24px) saturate(1.8);
-  -webkit-backdrop-filter: blur(24px) saturate(1.8);
-  box-shadow: var(--shadow-l);
+  gap: 4px;
+  flex: none;
+}
+.call-screen-name {
+  margin-top: 14px;
+}
+.call-screen-state {
+  min-height: 1.3em;
+  text-align: center;
+  max-width: 420px;
 }
 
-.call-avatar {
-  display: flex;
-  transition: transform var(--layout);
+.call-screen-avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
 }
-.call-avatar-empty {
-  width: 34px;
-  height: 34px;
+.call-screen-avatar:disabled {
+  cursor: default;
 }
-.call-avatar.speaking {
-  animation: call-pulse 0.6s ease-in-out infinite alternate;
+/* The halo: its size follows the microphone (--level, 0…1), and it pulses while the bot talks. */
+.call-screen-ring {
+  --level: 0;
+  position: absolute;
+  inset: -14px;
+  border-radius: 50%;
+  border: 2px solid var(--ring, var(--accent-fill));
+  opacity: calc(0.18 + var(--level) * 0.7);
+  transform: scale(calc(0.94 + var(--level) * 0.14));
+  transition: opacity 90ms linear, transform 90ms linear;
+  pointer-events: none;
+}
+.call-screen-avatar.speaking .call-screen-ring {
+  opacity: 0.6;
+  animation: call-pulse 0.7s ease-in-out infinite alternate;
+}
+.call-screen-avatar.working:not(.speaking) .call-screen-ring {
+  animation: call-pulse 1.6s ease-in-out infinite alternate;
+  opacity: 0.25;
 }
 @keyframes call-pulse {
+  from {
+    transform: scale(0.97);
+  }
   to {
     transform: scale(1.1);
   }
 }
 
-/* Sized in CallView, where the drawing uses the same numbers. */
-.call-dots {
+/* What was said: you on the left, the bot on the right, the newest at the bottom. */
+.call-captions {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 520px;
+  margin: 18px 0 12px;
+  padding: 4px 2px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  mask-image: linear-gradient(transparent, #000 24px);
+  -webkit-mask-image: linear-gradient(transparent, #000 24px);
+}
+.call-captions > :first-child {
+  margin-top: auto;
+}
+.call-captions-empty {
+  margin: auto;
+  text-align: center;
+}
+.call-caption {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: var(--radius-bubble, 14px);
+  user-select: text;
+  transition: opacity var(--hover);
+}
+.call-caption.you {
+  align-self: flex-start;
+  background: var(--bubble-user);
+}
+.call-caption.bot {
+  align-self: flex-end;
+  background: var(--bubble-agent);
+}
+.call-caption.live {
+  opacity: 0.7;
+}
+
+.call-screen-controls {
+  display: flex;
+  gap: 18px;
   flex: none;
+}
+.call-speaker {
+  position: relative;
+}
+.call-speaker-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 200px;
+  max-width: 280px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--frosted);
+  backdrop-filter: blur(24px) saturate(1.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  box-shadow: var(--shadow-l);
+  animation: fade-in var(--fade) both;
+}
+.call-speaker-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  text-align: left;
+}
+.call-speaker-item:hover {
+  background: var(--bubble-user);
+}
+.call-speaker-error {
+  padding: 6px 10px;
 }
 
 .call-round {
@@ -55,6 +165,14 @@
   color: var(--secondary);
   transition: background-color var(--hover), color var(--hover), transform var(--press);
 }
+.call-round.big {
+  width: 52px;
+  height: 52px;
+}
+.call-round:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .call-round.on {
   background: var(--accent-fill);
   color: var(--on-accent);
@@ -63,13 +181,13 @@
   background: var(--danger-fill);
   color: var(--on-danger);
 }
-.call-round:active {
+.call-round:not(:disabled):active {
   transform: scale(0.98);
 }
 
-/* One line under the bar: why the call fell back, or why it can't listen. */
+/* One line under the state: why the call fell back, or a voice downloading. */
 .call-line {
-  font-size: var(--text-caption);
+  margin-top: 6px;
   text-align: center;
   padding: 8px 12px;
   border-radius: var(--radius-pill);
@@ -78,7 +196,8 @@
   animation: fade-in var(--fade) both;
 }
 @media (prefers-reduced-motion: reduce) {
-  .call-avatar.speaking {
+  .call-screen-avatar.speaking .call-screen-ring,
+  .call-screen-avatar.working:not(.speaking) .call-screen-ring {
     animation: none;
   }
 }

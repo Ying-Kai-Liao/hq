@@ -14,6 +14,8 @@ export default defineConfig({
   renderer: {
     resolve: { alias: { '@shared': resolve('src/shared') } },
     plugins: [react()],
+    // The licenses screen imports THIRD_PARTY_NOTICES.md from the repository root.
+    server: { fs: { allow: [resolve('../..')] } },
     // Readable function names in error reports; the files are local, so size doesn't matter.
     build: { minify: false },
   },

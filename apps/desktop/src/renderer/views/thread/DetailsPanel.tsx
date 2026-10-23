@@ -1,7 +1,7 @@
 import { isGroup, isWorking, type Bot } from '@shared/models'
 import { AgentIcon } from '../../components/AgentIcon'
 import { BotAvatar, GroupAvatar } from '../../components/Avatar'
-import { IconButton, RowLabel, Switch, TabChoice } from '../../components/Controls'
+import { Button, IconButton, RowLabel, Switch, TabChoice } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { HStack, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
@@ -25,9 +25,13 @@ const TABS: { id: DetailsTab; label: string }[] = [
 ]
 
 /** The inspector beside a conversation (Grok Bot's): who the bot is, then its details, memory and settings. */
-export function DetailsPanel({ botId, routineId, tab, setTab, editGroup, share, close }: {
+export function DetailsPanel({ botId, routineId, callBlocked, onCall, tab, setTab, editGroup, share, close }: {
   botId: string
   routineId: string | null
+  /** Why a call can't start now (offline, no voice); null when it can. */
+  callBlocked: string | null
+  /** Starts a call in this chat; null while one is running. */
+  onCall: (() => void) | null
   tab: DetailsTab
   setTab: (tab: DetailsTab) => void
   editGroup: () => void
@@ -47,6 +51,13 @@ export function DetailsPanel({ botId, routineId, tab, setTab, editGroup, share, 
       </div>
       <div className="details-scroll">
         {bot ? <Identity bot={bot} kith={kith} /> : null}
+        {bot ? (
+          <div className="details-call">
+            <Button kind="secondary" disabled={!onCall || !!callBlocked} title={callBlocked ?? (onCall ? 'Start a voice call' : 'A call is running')} onClick={() => onCall?.()}>
+              <Icon name="phone.fill" size={13} weight="medium" /> {onCall ? 'Call' : 'In call'}
+            </Button>
+          </div>
+        ) : null}
         {bot && group ? (
           <GroupMembersList group={bot} editGroup={editGroup} />
         ) : (

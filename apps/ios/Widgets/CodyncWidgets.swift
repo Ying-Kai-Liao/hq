@@ -634,13 +634,13 @@ struct BotLiveActivity: Widget {
         .init(status: context.state.status, activity: context.state.activity, isStale: context.isStale)
     }
 
-    /// While the bot works, the orb keeps orbiting (in step with the face); otherwise it holds
-    /// its state's mark.
+    /// While the bot works, the mark is Kith's hop (one pose a second); otherwise it holds its
+    /// state's mark. With Reduce Motion the hop rests.
     @ViewBuilder
     private func indicator(_ context: ActivityViewContext<BotActivityAttributes>, state: BotActivityPresentation, size: CGFloat) -> some View {
         ZStack {
             if state.phase == .working {
-                WorkingOrb(since: context.state.startedAt ?? .now, color: state.tint, size: size)
+                WorkingHop(since: context.state.startedAt ?? .now, color: state.tint, size: size)
                     .transition(.opacity)
             } else {
                 BotActivityIndicator(state: state, size: size).transition(.opacity)
@@ -657,6 +657,18 @@ struct BotLiveActivity: Widget {
     }
 }
 
+/// Kith's hop: the timer drawn in the KithHop fonts, resting under Reduce Motion.
+struct WorkingHop: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let since: Date
+    let color: Color
+    let size: CGFloat
+
+    var body: some View {
+        HopFrames(reduceMotion ? Text("0") : Text(since, style: .timer), color: color, size: size)
+    }
+}
+
 /// The Lock Screen card's ground, painted by the card itself in its own color scheme. The
 /// system's tint alone can draw light under dark text (the Mac's menu bar shows it that way),
 /// leaving the name white on white.
@@ -669,39 +681,5 @@ private struct SurfaceTint: ViewModifier {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(surface)
             .activityBackgroundTint(surface)
-    }
-}
-
-/// The thinking orb, orbiting in the Dynamic Island: its faint orbit trails and its moving
-/// dots, one frame a second.
-struct WorkingOrb: View {
-    let since: Date
-    let color: Color
-    let size: CGFloat
-
-    var body: some View {
-        ZStack {
-            TimerFrames(font: "CodyncOrb-Ghost", since: since, size: size).foregroundStyle(color.opacity(0.25))
-            TimerFrames(font: "CodyncOrb-Dot", since: since, size: size).foregroundStyle(color)
-        }
-    }
-}
-
-/// A timer drawn in one of the loop fonts: the font draws only the timer's last digit (every
-/// other character shapes to nothing), so the text is one face wide however the system lays out
-/// timer text.
-private struct TimerFrames: View {
-    let font: String
-    let since: Date
-    let size: CGFloat
-
-    var body: some View {
-        Text(since, style: .timer)
-            .font(.custom(font, fixedSize: size))
-            // Western digits whatever the region: the font only has those.
-            .environment(\.locale, Locale(identifier: "en_US_POSIX"))
-            .lineLimit(1)
-            .frame(width: size, height: size)
-            .clipped()
     }
 }

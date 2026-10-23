@@ -33,6 +33,7 @@ jobs:
       kernel: ${{ steps.f.outputs.kernel }}
       host: ${{ steps.f.outputs.host }}
       cloud: ${{ steps.f.outputs.cloud }}
+      licenses: ${{ steps.f.outputs.licenses }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -51,6 +52,19 @@ jobs:
             cloud:
               - 'serve/cloud/**'
               - 'serve/docs/reference/fixtures/**'
+              - '.github/workflows/ci.yml'
+            licenses:
+              - '**/Cargo.lock'
+              - '**/package-lock.json'
+              - '**/package.json'
+              - '**/Cargo.toml'
+              - '**/Package.resolved'
+              - 'NOTICE'
+              - 'THIRD_PARTY_NOTICES.md'
+              - 'scripts/notices/**'
+              - 'apps/packaging/cua-driver/LICENSE'
+              - 'serve/host/crates/memory/LICENSE'
+              - 'apps/ios/Kit/Sources/CodyncKit/Resources/ThirdPartyNotices/**'
               - '.github/workflows/ci.yml'
 
   kernel:
@@ -134,11 +148,34 @@ jobs:
       - name: Vitest
         run: npm test
 
+  # THIRD_PARTY_NOTICES.md is generated; fail when it is stale or a shipped license is unsafe to sell with Kith
+  # (scripts/notices/policy.json, docs/open-source.md).
+  licenses:
+    needs: changes
+    if: needs.changes.outputs.licenses == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The npm licenses are read from node_modules; scripts stay off, nothing is built.
+      - name: Install npm dependencies
+        run: |
+          for d in apps/desktop serve/cloud serve/relay; do
+            npm ci --prefix "$d" --ignore-scripts --no-audit --no-fund
+          done
+      - name: Notices generator tests
+        run: node --test scripts/notices/generate.test.mjs
+      - name: Notices are current and licenses pass the policy
+        run: node scripts/notices/generate.mjs --check
+
   # The single check to require: passes when every needed job passed or was
   # skipped by the filter, fails on any failure or cancellation.
   ci:
     if: always()
-    needs: [changes, kernel, host-fmt, host, cloud]
+    needs: [changes, kernel, host-fmt, host, cloud, licenses]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
