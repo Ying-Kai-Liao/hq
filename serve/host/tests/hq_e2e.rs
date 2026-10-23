@@ -360,7 +360,9 @@ async fn pickers_list_projects_recent_folders_and_browsable_directories() {
     s.register_projects();
     let (id, _) = s.house_chat().await;
 
-    let projects = s.host.call("projects", json!({})).await;
+    // The startup sync lists the projects in the background and the host reuses that list for a few seconds, so
+    // whether it ran before `register_projects` is a race; a refresh is what the picker asks for on opening.
+    let projects = s.host.call("projects", json!({"refresh": true})).await;
     let ids: Vec<&str> = projects["projects"].as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap()).collect();
     assert_eq!(ids, ["alpha", "beta"]);
     assert_eq!(projects["projects"][0]["exists"], true);
