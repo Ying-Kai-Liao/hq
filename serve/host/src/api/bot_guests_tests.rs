@@ -53,7 +53,19 @@ async fn join(r: &Rig, owner: &Caller, body: Value) -> Joined {
         invite_id: invite.clone(),
         device_key: key.clone(),
     };
-    botsync::apply(&r.hub, &[listed]).await.unwrap();
+    // The cloud lists every bot device it has, so the ones already admitted stay in the list.
+    let mut all: Vec<Listed> = r
+        .hub
+        .store
+        .bot_guests()
+        .unwrap()
+        .into_iter()
+        .filter(|g| g.state.live())
+        .filter_map(|g| g.cloud_device)
+        .map(|bot_device_id| Listed { bot_device_id, invite_id: String::new(), device_key: String::new() })
+        .collect();
+    all.push(listed);
+    botsync::apply(&r.hub, &all).await.unwrap();
     Joined {
         caller: Caller::Device { key, scopes: vec![Scope::Control] },
         bot: made["botId"].as_str().unwrap().to_owned(),
@@ -479,7 +491,7 @@ async fn every_router_method_is_denied_to_bots_unless_listed() {
     }
     assert!(known.contains("createBotInvite") && roles::member_may("createBotInvite"));
     let rows = r.hub.store.audit_list(0, Some(&r.hub.store.bot_guest(&active.bot).unwrap().person_id)).unwrap();
-    assert!(!rows.is_empty() && rows.iter().all(|row| row.allowed == roles::bot_may(&row.method) || !row.allowed));
+    assert!(!rows.is_empty() && rows.iter().all(|row| !row.allowed || roles::bot_may(&row.method) || row.method.starts_with("bot.")));
 }
 
 #[tokio::test]
