@@ -95,3 +95,9 @@ export function ownerNameFrom(activity: string | null | undefined): string | nul
   const m = /^Waiting for (.+)$/.exec(activity ?? '')
   return m ? m[1]!.trim() : null
 }
+
+/** A relayed call or stream ended with this: only the link's own "access removed" counts, not a lease that may come back (also 401). */
+export const isAccessRemoved = (status: number, code: string | undefined) => status === 401 && code === 'accessRemoved'
+
+/** Keys for what is kept on this device about a Mac: per account as well as per computer, so another account sees none of it. */
+export const scopedKey = (userId: string, computerId: string) => `${userId}/${computerId}`

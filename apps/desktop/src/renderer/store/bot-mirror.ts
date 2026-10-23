@@ -56,6 +56,10 @@ export class BotMirror extends Observable {
   roleHint: { cloudRole: 'owner' | 'member' | null; hasToken: boolean } = { cloudRole: null, hasToken: false }
   /** Runs on every (re)connect before the first host call: an invited device shows its invite here. */
   beforeConnect: ((client: HostClient) => Promise<void>) | null = null
+  /** Words for an error the Mac answers with on purpose; `final` stops the retrying until the person acts. */
+  explain: ((error: unknown) => { message: string; final: boolean } | null) | null = null
+  /** Access to this Mac was removed and what was mirrored from it is gone. */
+  dropped = false
 
   onRosterChanged: (() => void) | null = null
   onComputerChanged: ((c: Computer) => void) | null = null
@@ -263,6 +267,7 @@ export class BotMirror extends Observable {
     this.hello = null
     this.rev = 0
     this.retired = true
+    this.dropped = true
     try {
       localStorage.removeItem(this.cacheKey)
     } catch {}

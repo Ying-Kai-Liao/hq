@@ -1,10 +1,10 @@
-import { macRole, type MacRole } from '@shared/mac-role'
+import { macRole, scopedKey, type MacRole } from '@shared/mac-role'
 import { askForAccess, accessText } from '@shared/relay-access'
 import type { Computer } from '@shared/models'
 import type { RelayComputer } from '@shared/relay'
 import { HostError, RelayTransport, type HostClient } from '../client/host-client'
 import { Observable, useModel } from '../lib/observable'
-import { pref } from '../lib/prefs'
+import { pref, type Pref } from '../lib/prefs'
 import { account } from './account'
 import type { AppModel } from './app-model'
 import { BotStore } from './bot-store'
@@ -21,8 +21,13 @@ const UNPROVEN = /hasn't shown its invite/i
 const ALREADY_PROVEN = /already shown its invite/i
 export const OPEN_INVITE_LINK = 'Open the invite link on this computer.'
 
-/** The Macs chosen on this device: the ones to keep connected. */
-const chosen = pref<string[]>('relayMacs', [])
+/** The Macs chosen on this device by this account: the ones to keep connected. Another account has its own list. */
+const chosenLists = new Map<string, Pref<string[]>>()
+const chosenOf = (user: string | null) => {
+  const key = `relayMacs.${user ?? ''}`
+  if (!chosenLists.has(key)) chosenLists.set(key, pref<string[]>(key, []))
+  return chosenLists.get(key)!
+}
 
 /**
  * Other Macs over the Kith cloud: the account's list (owned and member), and the ones connected on this device, each a
@@ -38,6 +43,10 @@ export class RelayMacs extends Observable {
   private asking = new Map<string, { cancelled: boolean }>()
   private user: string | null = null
 
+  private get chosen() {
+    return chosenOf(this.user)
+  }
+
   constructor(private app: AppModel) {
     super()
     account.subscribe(() => this.noteAccount())
@@ -50,6 +59,10 @@ export class RelayMacs extends Observable {
     this.user = user
     // Another account (or none) starts clean: nothing of the earlier one stays attached.
     for (const id of [...this.attached.keys()]) this.unattach(id)
+    for (const ask of this.asking.values()) ask.cancelled = true
+    this.asking.clear()
+    this.access.clear()
+    this.tokens.clear()
     this.computers = []
     this.loaded = false
     this.changed()
@@ -57,7 +70,7 @@ export class RelayMacs extends Observable {
   }
 
   isChosen(id: string) {
-    return chosen.get().includes(id)
+    return this.chosen.get().includes(id)
   }
 
   /** The row for a Mac, from the account's list. */
@@ -82,7 +95,8 @@ export class RelayMacs extends Observable {
     if (res.ok) {
       this.computers = res.value
       this.error = null
-      for (const c of res.value) if (!this.tokens.has(c.computerId)) this.tokens.set(c.computerId, !!(await window.kith.invites.kept(c.computerId)))
+      // Only whether a token is kept; the token itself stays in the main process.
+      for (const c of res.value) if (!this.tokens.has(c.computerId)) this.tokens.set(c.computerId, await window.kith.invites.has(this.keyOf(c.computerId)))
     } else {
       this.error = res.error.message ?? "Can't reach the Kith cloud."
     }
@@ -94,7 +108,7 @@ export class RelayMacs extends Observable {
   /** Attaches the chosen Macs this device may connect to, and detaches the rest. */
   private sync() {
     const wanted = new Map<string, RelayComputer>()
-    for (const id of chosen.get()) {
+    for (const id of this.chosen.get()) {
       const c = this.row(id)
       // Not on the list any more (removed from the account): nothing to connect to, nothing cached to keep.
       if (c && c.access === 'approved') wanted.set(id, c)
@@ -105,15 +119,18 @@ export class RelayMacs extends Observable {
 
   private attach(c: RelayComputer) {
     const computer: Computer = { id: c.computerId, name: c.name, signKey: c.signKey, urls: [] }
-    const store = new BotStore(computer, false, () => new RelayTransport(c.computerId, c.signKey))
+    // The cache is this account's: contextId keeps another account on this device from seeing it.
+    const store = new BotStore(computer, false, () => new RelayTransport(c.computerId, c.signKey), undefined, `account:${this.user ?? ''}`)
     store.fixedRoute = 'relay'
     store.roleHint = { cloudRole: c.role, hasToken: this.tokens.get(c.computerId) ?? false }
     store.beforeConnect = (client) => this.showInvite(c.computerId, client)
+    store.explain = (error) => this.explainRefusal(error)
     this.attached.set(c.computerId, c.signKey)
     this.app.attach(computer, store)
     // Access taken away on the Mac or the cloud (4003): say so, and drop what was cached from it.
     store.subscribe(() => {
-      if (store.connection.kind === 'unauthorized' && store.hello) store.dropData()
+      // Whether or not the Mac ever answered on this launch: a cache from an earlier one is dropped too.
+      if (store.connection.kind === 'unauthorized' && !store.dropped) store.dropData()
     })
   }
 
@@ -125,29 +142,36 @@ export class RelayMacs extends Observable {
 
   /** A device of an invited person shows its invite before anything else, on every connection. */
   private async showInvite(computerId: string, client: HostClient) {
-    const kept = await window.kith.invites.kept(computerId)
-    if (kept) {
-      this.tokens.set(computerId, true)
-      try {
-        await client.proveInvite(kept.inviteId, kept.token)
-      } catch (e) {
-        if (!ALREADY_PROVEN.test(e instanceof Error ? e.message : '')) throw e
-      }
-      return
-    }
+    const kept = await window.kith.invites.kept(this.keyOf(computerId))
+    if (!kept) return
+    this.tokens.set(computerId, true)
     try {
-      await client.hello()
+      await client.proveInvite(kept.inviteId, kept.token)
     } catch (e) {
-      if (e instanceof Error && UNPROVEN.test(e.message)) throw new HostError(403, OPEN_INVITE_LINK)
-      // Any other answer is the normal path's to report.
+      if (ALREADY_PROVEN.test(e instanceof Error ? e.message : '')) return
+      // The Mac said no (not a lost link): retrying would send the token again for the same answer.
+      if (e instanceof HostError && e.status !== 0) throw new HostError(e.status, e.message, 'refused')
+      throw e
     }
+  }
+
+  /** What the Mac answers on purpose is shown in its words and not retried; a lost link or a lease is retried as usual. */
+  private explainRefusal(error: unknown) {
+    if (!(error instanceof Error)) return null
+    if (UNPROVEN.test(error.message)) return { message: OPEN_INVITE_LINK, final: true }
+    if (error instanceof HostError && error.code === 'refused') return { message: error.message, final: true }
+    return null
+  }
+
+  private keyOf(computerId: string) {
+    return scopedKey(this.user ?? '', computerId)
   }
 
   /** Connects a Mac: asks for access first when this device has none yet. Repeats while one is going are one request. */
   async connect(id: string) {
     const c = this.row(id)
     if (!c || this.asking.has(id)) return
-    if (!chosen.get().includes(id)) chosen.set([...chosen.get(), id])
+    if (!this.chosen.get().includes(id)) this.chosen.set([...this.chosen.get(), id])
     if (c.access === 'approved') {
       // A store that gave up on "access removed" is replaced by a fresh one.
       if (this.store(id)?.connection.kind === 'unauthorized') this.unattach(id)
@@ -190,14 +214,14 @@ export class RelayMacs extends Observable {
   /** Stops using a Mac on this device: its channel closes, its cached chats go, and an invite kept for it is forgotten. */
   async disconnect(id: string) {
     this.cancel(id)
-    chosen.set(chosen.get().filter((x) => x !== id))
+    this.chosen.set(this.chosen.get().filter((x) => x !== id))
     this.store(id)?.dropData()
     this.unattach(id)
     this.access.delete(id)
     if (this.tokens.get(id)) {
       this.tokens.set(id, false)
       try {
-        await window.kith.invites.forget(id)
+        await window.kith.invites.forget(this.keyOf(id))
       } catch {}
     }
     this.changed()
@@ -205,7 +229,7 @@ export class RelayMacs extends Observable {
 
   /** The invitee's join finished: this Mac is one to keep connected. */
   async adopt(id: string) {
-    if (!chosen.get().includes(id)) chosen.set([...chosen.get(), id])
+    if (!this.chosen.get().includes(id)) this.chosen.set([...this.chosen.get(), id])
     this.tokens.set(id, true)
     await this.refresh()
     this.store(id)?.restartStream()

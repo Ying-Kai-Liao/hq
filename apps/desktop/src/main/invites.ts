@@ -61,6 +61,8 @@ export function registerInviteIPC() {
     await writeVault(vault)
   })
   ipcMain.handle('invite:kept', async (_e, computerId: string) => (await readVault())[computerId] ?? null)
+  // Whether a token is kept, without the token itself reaching a window.
+  ipcMain.handle('invite:has', async (_e, computerId: string) => computerId in (await readVault()))
   ipcMain.handle('invite:forget', async (_e, computerId: string) => {
     const vault = await readVault()
     delete vault[computerId]

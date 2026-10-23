@@ -268,8 +268,7 @@ function ChatSplitView() {
     { title: 'Hide from sidebar', icon: 'eye.slash', divider: true, action: () => store.setHidden(bot, true) },
     { title: 'Delete', icon: 'trash', destructive: true, action: () => setConfirmDelete({ bot, store }) },
   ] : [
-    // Someone else's Mac: the chat is theirs to read and pin, not to edit or delete.
-    { title: bot.pinned ? 'Unpin' : 'Pin', icon: 'pin', action: () => store.setPinned(bot, !bot.pinned) },
+    // Someone else's Mac: the host lets an invited person read and mark read, nothing that edits the bot.
     { title: 'Mark as Read', icon: 'bell.badge', action: () => store.markAllRead(bot.id) },
   ]
 

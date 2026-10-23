@@ -129,6 +129,7 @@ const bridge: KithBridge = {
   invites: {
     takePending: () => ipcRenderer.invoke('invite:takePending'),
     keep: (computerId, inviteId, token) => ipcRenderer.invoke('invite:keep', computerId, inviteId, token),
+    has: (computerId) => ipcRenderer.invoke('invite:has', computerId),
     kept: (computerId) => ipcRenderer.invoke('invite:kept', computerId),
     forget: (computerId) => ipcRenderer.invoke('invite:forget', computerId),
   },

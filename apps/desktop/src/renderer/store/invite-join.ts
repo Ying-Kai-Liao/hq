@@ -1,5 +1,6 @@
 import type { InviteLink } from '@shared/invite'
 import { runJoin, type JoinDeps, type JoinState } from '@shared/invite-join'
+import { scopedKey } from '@shared/mac-role'
 import { relayJoinDeps } from '@shared/relay-access'
 import { Observable } from '../lib/observable'
 import { account } from './account'
@@ -16,7 +17,7 @@ export function appJoinDeps(waitForSignIn: () => Promise<void>, cancelled: () =>
         if (!res.ok) throw res.error
         return res.value as { computerId: string; membershipId?: string }
       },
-      keepToken: (computerId, inviteId, token) => window.kith.invites.keep(computerId, inviteId, token),
+      keepToken: (computerId, inviteId, token) => window.kith.invites.keep(scopedKey(account.user?.userId ?? '', computerId), inviteId, token),
     },
     // An invited person's request is approved by the Mac with no digits to compare.
     { cancelled },

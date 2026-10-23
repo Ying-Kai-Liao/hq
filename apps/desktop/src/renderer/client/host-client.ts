@@ -6,7 +6,7 @@ import {
   type HqMemoryDiff, type HqMemoryList, type HqMemoryRead, type HqMemoryVersion, type HqSaveResult, type HqTidyUp, type HqUndoResult,
 } from '@shared/hq-memory'
 import { isUnsupportedHost, parseKithInfoResult, parseSearchResult, type KithInfoResult, type KithSearchResult } from '@shared/kith-info'
-import { parseGranted } from '@shared/mac-role'
+import { isAccessRemoved, parseGranted } from '@shared/mac-role'
 import { parseAudit, parseCreatedInvite, parseInvites, parsePeople, type AuditRow, type CreatedInvite, type PendingInvite, type Person, type Role } from '@shared/people'
 import type { PlaceFolder, PlaceSelection, ProjectInfo, RecentFolder, StartingFolder } from '@shared/place-folders'
 import {
@@ -28,8 +28,15 @@ export class HostError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** The relay link's word for why (`accessRemoved`, `leaseExpired`, ...), or `refused` for a definite no from the Mac. */
+    readonly code?: string,
   ) {
     super(message)
+  }
+
+  /** Access to a relayed Mac is gone for good (not a lease that may be renewed). */
+  get isAccessRemoved() {
+    return isAccessRemoved(this.status, this.code)
   }
 
   static unreachable() {
@@ -87,7 +94,7 @@ export class RelayTransport implements HostTransport {
       return await window.kith.relay.call(this.computerId, this.signKey, method, body, timeoutMs)
     } catch (e) {
       const error = e as Partial<RelayCallError>
-      throw new HostError(error.status ?? 0, error.message ?? HostError.unreachable().message)
+      throw new HostError(error.status ?? 0, error.message ?? HostError.unreachable().message, error.code)
     }
   }
 
@@ -97,7 +104,7 @@ export class RelayTransport implements HostTransport {
     const sub = url.pathname.replace(/^\//, '')
     const body = sub === 'events' ? { since: Number(url.searchParams.get('since') ?? 0), client: url.searchParams.get('client') ?? '' } : null
     return window.kith.relay.stream(this.computerId, this.signKey, sub, body, onData, (error) =>
-      onEnd(error ? new HostError(error.status, error.message) : null),
+      onEnd(error ? new HostError(error.status, error.message, error.code) : null),
     )
   }
 }

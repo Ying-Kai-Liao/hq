@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { inviteProof } from './invite.ts'
 import { runJoin, type JoinState } from './invite-join.ts'
-import { agentsWithoutChat, guestPrompts, macRole, ownerNameFrom, parseGranted, visibleBots, waitingFor } from './mac-role.ts'
+import { agentsWithoutChat, guestPrompts, isAccessRemoved, macRole, scopedKey, ownerNameFrom, parseGranted, visibleBots, waitingFor } from './mac-role.ts'
 import type { Entry } from './models.ts'
 import { relayJoinDeps, type RelayApi } from './relay-access.ts'
 import type { RelayComputer } from './relay.ts'
@@ -97,4 +97,17 @@ test('an offline Mac waits instead of failing', async () => {
   const deps = relayJoinDeps(api, { signedIn: () => true, waitForSignIn: async () => {}, accept: async () => ({ computerId: 'cmp_1' }), keepToken: async () => {} })
   const end = await runJoin({ computerId: 'cmp_1', inviteId: 'i', token: 'y'.repeat(24) }, deps, () => {})
   assert.equal(end.step, 'waiting')
+})
+
+test('only the link\'s access-removed 401 counts as removed; a lease that may come back keeps retrying', () => {
+  assert.equal(isAccessRemoved(401, 'accessRemoved'), true)
+  assert.equal(isAccessRemoved(401, 'leaseExpired'), false)
+  assert.equal(isAccessRemoved(401, undefined), false)
+  assert.equal(isAccessRemoved(0, 'accessRemoved'), false)
+})
+
+test('what is kept about a Mac is keyed by account as well as computer', () => {
+  assert.notEqual(scopedKey('user_a', 'cmp_1'), scopedKey('user_b', 'cmp_1'))
+  assert.notEqual(scopedKey('user_a', 'cmp_1'), scopedKey('user_a', 'cmp_2'))
+  assert.equal(scopedKey('user_a', 'cmp_1'), scopedKey('user_a', 'cmp_1'))
 })
