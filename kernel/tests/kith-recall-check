@@ -114,5 +114,59 @@ check "a missing index is built on first recall, private" "env KITH_AGENT=echo \
 "$KERNEL/bin/kith" echo --launch-json >"$T/launch.json" 2>"$T/err"
 check "settings deny Read and Edit of the index" "python3 -c 'import json,sys; d=json.load(open(\"$T/launch.json\"))[\"settings\"][\"permissions\"][\"deny\"]; sys.exit(0 if any(r.startswith(\"Read(\") and r.endswith(\"/index/**)\") for r in d) and any(r.startswith(\"Edit(\") and r.endswith(\"/index/**)\") for r in d) else 1)'"
 
+# a guest run asks the host (KITH_RUN_TOKEN + KITH_RUN_SOCKET): the transport never reads the index
+cat > "$T/fake-host.py" <<'PY'
+import json, os, socket, sys
+path, log, mode = sys.argv[1:4]
+srv = socket.socket(socket.AF_UNIX); srv.bind(path); srv.listen(4)
+open(log + '.ready', 'w').close()
+for _ in range(int(sys.argv[4])):
+    c, _a = srv.accept()
+    data = b''
+    while not data.endswith(b'\n'):
+        chunk = c.recv(65536)
+        if not chunk: break
+        data += chunk
+    open(log, 'ab').write(data)
+    if mode == 'ok':
+        c.sendall(json.dumps({'ok': True, 'stdout': 'host says hi\n', 'stderr': '', 'code': 0}).encode() + b'\n')
+    elif mode == 'code':
+        c.sendall(json.dumps({'ok': True, 'stdout': '', 'stderr': 'usage\n', 'code': 2}).encode() + b'\n')
+    else:
+        c.sendall(json.dumps({'ok': False, 'error': 'not authorized'}).encode() + b'\n')
+    c.close()
+PY
+rm -rf "$KITH_STATE/index"
+fakehost() { # mode count -> starts the fake host, waits until it listens
+  rm -f "$T/s.sock" "$T/req.log" "$T/req.log.ready"
+  python3 "$T/fake-host.py" "$T/s.sock" "$T/req.log" "$1" "$2" & FH=$!
+  for _ in $(seq 50); do [ -e "$T/req.log.ready" ] && break; sleep 0.1; done
+}
+fakehost ok 1
+OUT=$(env KITH_RUN_TOKEN=tok123 KITH_RUN_SOCKET="$T/s.sock" KITH_PERSON=kai KITH_AGENT=echo "$R" zebra --json -n 3); wait $FH
+check "run token: the answer is the host's" "[ \"\$OUT\" = 'host says hi' ]"
+check "run token: the request carries the token, the method and the arguments, and no identity" "python3 -c 'import json; d=json.loads(open(\"$T/req.log\").read()); import sys; sys.exit(0 if d == {\"token\":\"tok123\",\"method\":\"recall\",\"args\":[\"zebra\",\"--json\",\"-n\",\"3\"]} else 1)'"
+check "run token: the index is never opened or built" "[ ! -e $KITH_STATE/index ]"
+fakehost code 1
+env KITH_RUN_TOKEN=tok123 KITH_RUN_SOCKET="$T/s.sock" "$R" zebra >"$T/o" 2>"$T/e"; RC=$?; wait $FH
+check "run token: the host's exit code and stderr are passed on" "[ $RC = 2 ] && grep -q usage $T/e"
+fakehost refuse 2
+O1=$(env KITH_RUN_TOKEN=bad KITH_RUN_SOCKET="$T/s.sock" "$R" zebra); R1=$?
+O2=$(env KITH_RUN_TOKEN=bad KITH_RUN_SOCKET="$T/s.sock" "$R" zebra --json); wait $FH
+check "run token: a refusal is an empty answer, not an error" "[ \"\$O1\" = 'nothing recalled' ] && [ \"\$O2\" = '[]' ] && [ $R1 = 0 ]"
+O3=$(env KITH_RUN_TOKEN=tok KITH_RUN_SOCKET="$T/gone.sock" "$R" zebra --json 2>"$T/e"); R3=$?
+check "run token: no host listening is an empty answer without a traceback" "[ \"\$O3\" = '[]' ] && [ $R3 = 0 ] && ! grep -q Traceback $T/e"
+check "run token: the index subcommands are not reachable" "! env KITH_RUN_TOKEN=tok KITH_RUN_SOCKET=\"$T/s.sock\" \"$R\" index rebuild 2>/dev/null && [ ! -e $KITH_STATE/index ]"
+check "run token: a token without a socket is the owner path" "env KITH_RUN_TOKEN=tok KITH_AGENT=echo \"$R\" 'shared craft' | grep -q 'shared craft'"
+
+# a sandboxed guest without a token cannot read the index (simulated by an unreadable copy): nothing, whoever it claims to be
+"$R" index rebuild >/dev/null
+mv "$KITH_STATE/index" "$T/index.keep"; cp -R "$T/index.keep" "$KITH_STATE/index"; chmod 000 "$KITH_STATE/index"/* "$KITH_STATE/index"
+for who in "KITH_AGENT=echo KITH_PERSON=kai" "KITH_AGENT=echo" "KITH_AGENT=echo KITH_PERSON=sam"; do
+  check "unreadable index, as '$who': nothing, quietly" "[ \"\$(env $who \"$R\" zebra --json 2>$T/e)\" = '[]' ] && ! grep -q Traceback $T/e"
+done
+chmod 700 "$KITH_STATE/index"; chmod 600 "$KITH_STATE/index"/* 2>/dev/null; rm -rf "$KITH_STATE/index"; mv "$T/index.keep" "$KITH_STATE/index"
+check "owner path unchanged once the index is readable again" "[ \"\$(aud KITH_AGENT=echo)\" = 'owner person:eve person:sam room:grp1 shared' ]"
+
 echo
 if [ $fails = 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi

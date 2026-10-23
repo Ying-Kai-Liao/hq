@@ -11,7 +11,7 @@ wraps each hit as <recalled ...>text</recalled>: that is what was written earlie
 prints [{kind, tier, agent, audience, room, projects, link, snippet}]. The index is $KITH_MACHINE/index/memory.db: this
 Mac only, never in git or the cloud; agents reach it only through this command.
 """
-import json, os, sys
+import json, os, socket, sqlite3, sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
 import kith_recall as kr  # noqa: E402
@@ -19,9 +19,43 @@ import kith_recall as kr  # noqa: E402
 USAGE = 'usage: kith recall <query> [--project p] [--room r] [--thread t] [--tier 2|3|all] [-n N] [--json]'
 
 
+def ask_host(argv, token, sock_path):
+    """A guest run (the host gave it KITH_RUN_TOKEN and KITH_RUN_SOCKET) never reads the index and never trusts
+    KITH_PERSON: the host decides who is asking from the token and runs recall for it. One JSON line each way. A host
+    that is gone, restarted or says no is an empty answer, not a traceback."""
+    empty = '[]' if '--json' in argv else 'nothing recalled'
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(40)
+            s.connect(sock_path)
+            s.sendall(json.dumps({'token': token, 'method': 'recall', 'args': argv}).encode() + b'\n')
+            s.shutdown(socket.SHUT_WR)
+            data = b''
+            while True:
+                chunk = s.recv(65536)
+                if not chunk:
+                    break
+                data += chunk
+                if len(data) > 1 << 20:
+                    raise ValueError('reply too large')
+        reply = json.loads(data.decode())
+        if not reply.get('ok'):
+            print(empty); return 0
+        sys.stdout.write(reply.get('stdout', ''))
+        sys.stderr.write(reply.get('stderr', ''))
+        return int(reply.get('code', 0))
+    except (OSError, ValueError):
+        print(empty); return 0
+
+
 def main(argv):
     if not argv or argv[0] in ('-h', '--help'):
         print(__doc__.strip()); return 0
+    token, sock_path = os.environ.get('KITH_RUN_TOKEN'), os.environ.get('KITH_RUN_SOCKET')
+    if token and sock_path:
+        if argv[0] == 'index':
+            print('kith recall: the index is not available in this run', file=sys.stderr); return 2
+        return ask_host(argv, token, sock_path)
     if argv[0] == 'index':
         sub = argv[1] if len(argv) > 1 else ''
         if sub == 'rebuild':
@@ -45,9 +79,12 @@ def main(argv):
     if not ' '.join(words).strip() or opts['--tier'] not in ('2', '3', 'all') or not opts['-n'].isdigit():
         print(USAGE, file=sys.stderr); return 2
     who = kr.caller()
-    db = kr.open_index()
-    hits = kr.recall(db, who, ' '.join(words), opts['--project'], opts['--room'], opts['--thread'], opts['--tier'],
-                     max(1, min(int(opts['-n']), 50)))
+    try:
+        db = kr.open_index()
+        hits = kr.recall(db, who, ' '.join(words), opts['--project'], opts['--room'], opts['--thread'], opts['--tier'],
+                         max(1, min(int(opts['-n']), 50)))
+    except (OSError, sqlite3.Error):   # a sandboxed run that cannot open the index (and has no token): nothing to recall
+        hits = []
     if as_json:
         print(json.dumps(hits, ensure_ascii=False))
     elif hits:
