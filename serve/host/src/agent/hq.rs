@@ -568,7 +568,7 @@ impl Launch {
         json!({"systemPrompt": {"append": self.system_prompt}, "claudeCode": {"options": options}})
     }
 
-    /// Adds the host's `kith-files` server (send_file) to the agent's own: an hq agent's launch carries none of the
+    /// Adds the host's `kith-files` server (`send_file`) to the agent's own: an hq agent's launch carries none of the
     /// host's tools, so without this it had no way to give the user an image or a file in an app chat. Named so it
     /// can't replace a server of the agent's; `rt` is the actor key, so a file lands in the place the call came from.
     pub fn with_files_server(&mut self, exe: &str, port: u16, rt: &str) {
