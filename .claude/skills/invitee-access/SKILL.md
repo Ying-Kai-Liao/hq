@@ -47,7 +47,7 @@ Sync commit: `950ad5c5` (origin/main when written). If `git diff 950ad5c5 -- <fi
 ## Run
 
 - Host, only these tests: `cd serve/host && cargo test --bin kith roles_props` (about 10 s of run time; `PROPTEST_CASES=1000` for more). They run in the normal host `cargo test` in CI. The Mac is often loaded: prefer CI for the first compile.
-- kith-auth: `kernel/tests/kith-auth-props` (seconds; `PROPS_EXAMPLES=3000` for more). Needs `uv`.
+- kith-auth: `kernel/tests/kith-auth-props` (seconds; `PROPS_EXAMPLES=3000` for more). Needs `uv`. CI runs it as the "Auth property check" step of the kernel job, right after "Auth check".
 
 ## Bounds and assumptions
 
