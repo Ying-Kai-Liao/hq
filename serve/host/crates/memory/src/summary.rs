@@ -171,6 +171,11 @@ pub fn forget(conn: &Connection, thread_id: &str, now: i64) -> rusqlite::Result<
     Ok(())
 }
 
+/// [`forget`] for each of `thread_ids`: a deleted bot's threads.
+pub fn forget_threads(conn: &Connection, thread_ids: &[String], now: i64) -> rusqlite::Result<()> {
+    thread_ids.iter().try_for_each(|id| forget(conn, id, now))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,6 +243,18 @@ mod tests {
         forget(&c, "t1", 5).unwrap();
         assert!(get(&c, "t1").unwrap().is_none());
         assert!(matches!(put(&c, &summary("Fine again.", Reason::End, 2)), Err(Refused::Forgotten)));
+    }
+
+    #[test]
+    fn forgetting_several_threads_clears_them_all() {
+        let c = db();
+        put(&c, &summary("Fine.", Reason::End, 1)).unwrap();
+        let mut other = summary("Also fine.", Reason::End, 1);
+        other.thread_id = "t2".into();
+        put(&c, &other).unwrap();
+        forget_threads(&c, &["t1".into(), "t2".into()], 5).unwrap();
+        assert!(get(&c, "t1").unwrap().is_none() && get(&c, "t2").unwrap().is_none());
+        assert!(forgotten(&c, "t2").unwrap());
     }
 
     #[test]
