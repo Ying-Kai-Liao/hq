@@ -12,6 +12,9 @@ import { register } from '../adapters/claude-code/hooks/register.tsx'
 
 type Handler = (...args: any[]) => any
 
+import { statSync } from 'node:fs'
+const await_stat = (p: string) => statSync(p).mtimeMs
+
 function setup(env: Record<string, string> = {}) {
   const root = mkdtempSync(join(tmpdir(), 'kith-hooks-'))
   const kernel = join(root, 'kernel')
@@ -37,6 +40,8 @@ function setup(env: Record<string, string> = {}) {
       exists: async (p: string) => existsSync(p),
       read: async (p: string) => readFileSync(p, 'utf8'),
       write: async (p: string, t: string) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, t) },
+      list: async (p: string) =>
+        (await import('node:fs')).readdirSync(p).map((name) => ({ name, mtimeMs: (await_stat(join(p, name))) })),
       stat: async (p: string) => ({ mtimeMs: (await import('node:fs')).statSync(p).mtimeMs }),
     },
     process: {
@@ -95,6 +100,18 @@ test('SubagentStop leaves a session file the helper wrote', async () => {
   const out = await t.fire('classic.SubagentStop', { agent_id: 'a2', last_assistant_message: 'done' })
   expect(out.block).toBeUndefined()
   expect(readFileSync(file, 'utf8')).toBe('mine')
+})
+
+test('a session file of another project written during the run counts: no stub', async () => {
+  const t = setup()
+  await t.fire('session.start', { cwd: t.root })
+  const spawn = t.handlers['agent.spawn'][0]
+  await spawn(t.$, { subagentType: 'kith:builder', prompt: 'x', cwd: t.root }, async () => ({ agentId: 'a3' }))
+  const other = join(t.agents, 'builder/memory/sessions/renamed.md')
+  mkdirSync(join(other, '..'), { recursive: true })
+  writeFileSync(other, 'mine')
+  await t.fire('classic.SubagentStop', { agent_id: 'a3', last_assistant_message: 'done' })
+  expect(existsSync(join(t.agents, 'builder/memory/sessions/kith.md'))).toBe(false)
 })
 
 test('mcp__kith__invoke waits for the helper and returns its report', async () => {

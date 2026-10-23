@@ -302,9 +302,10 @@ export const register: Register = (on, options) => {
           'Your final message is what the caller receives: make it the report.)'
         : '')
 
+    const startedMs = Date.now()   // before the spawn: a spawn that waits for the run must not date its files before it
     const started = await next({ ...e, prompt })
     if (started.agentId) {
-      spawned.set(started.agentId, { agent, project, isNamed: !!named, cwd, task, startedMs: Date.now() })
+      spawned.set(started.agentId, { agent, project, isNamed: !!named, cwd, task, startedMs })
       const effort = agentEffort.get(agent)
       if (effort) runningEffort.set(started.agentId, effort)
     }
@@ -338,12 +339,18 @@ export const register: Register = (on, options) => {
       const found = await $.process.run([`${kith}/bin/project-id`, run.cwd], { timeoutMs: 10_000 })
       if (found.exitCode === 0 && found.stdout.trim()) project = found.stdout.trim()
     }
+    // Done with this run; a helper resumed with SendMessage comes through agent.spawn again under the same id.
+    spawned.delete(e.agent_id)
+    runningEffort.delete(e.agent_id)
     const startedMs = run.startedMs
-    run.startedMs = Date.now()
     if (!project) return next(e)
     const file = `${lifeOf(run.agent, kith)}/memory/sessions/${project}.md`
     const exists = await $.fs.exists(file)
-    if (exists && (await $.fs.stat(file)).mtimeMs >= startedMs) return next(e)
+    // Written when any of the agent's session files changed during the run (it may have used another project's name).
+    const dir = `${lifeOf(run.agent, kith)}/memory/sessions`
+    for (const f of (await $.fs.exists(dir)) ? await $.fs.list(dir) : []) {
+      if (f.name.endsWith('.md') && f.mtimeMs >= startedMs) return next(e)
+    }
     const date = new Date().toISOString().slice(0, 10)
     const last = (e.last_assistant_message ?? '').trim().slice(0, 3000)
     const note =
