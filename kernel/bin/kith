@@ -41,6 +41,7 @@
 #   kith remote add|ls|rm ...  ·  kith ask <agent>@<machine>   agents on your other machines, over ssh (kith-remote)
 #   kith memory search <words> [--agent NAME|--all]      search what the agents wrote down (kith-memory)
 #   kith recall <query> [--project p] [--room r] [--thread t] [--tier 2|3|all] [--json]   search notes within what you may see (kith-recall)
+#   kith summarise --thread <id>                         (owner) write a thread's summary now; kith forget --thread <id> drops its summary and recall rows (kith-recall)
 #   kith memory index rebuild|update                     the local memory index behind recall (kith-recall)
 #   kith memory check|log|diff|undo|forget|tidy ...           the write checks and versions of memory files (kith-memory)
 #   kith project [ls [--json]|open ID|root|add ID [dir] [--in P] [--home [DIR]]]  projects: what each holds, its folder, its memory
@@ -99,6 +100,7 @@ case $1 in
   new)                shift; exec "$KITH/bin/kith-new" "$@" ;;
   remote)             shift; exec "$KITH/bin/kith-remote" "${@:---help}" ;;
   recall)             shift; exec "$KITH/bin/kith-recall" "${@:---help}" ;;
+  summarise|forget)   exec "$KITH/bin/kith-recall" "$@" ;;
   memory)             shift; exec "$KITH/bin/kith-memory" "${@:---help}" ;;
   who)                shift; exec "$KITH/bin/kith-who" "${@:---help}" ;;
   project)            shift; exec "$KITH/bin/kith-project" "$@" ;;
@@ -294,6 +296,8 @@ while [[ $# -gt 0 ]]; do
 done
 # --resume THREAD: pick up in this terminal a session started in the app (or another terminal); the host names it
 # (bin/kith-sessions), and the run starts in the folder it ran in. Only the owner's own claude sessions are listed.
+# resolve takes the session's writer claim for this shell ($$): it execs into `kith-sessions run` below, so the pid is the
+# same until claude has exited, and run gives the claim back.
 # -r alone picks the session from the agent's recent ones, -c takes the latest begun in this folder; then the same.
 r_sid="" r_cwd="" r_from=""
 if [[ -n $resume_thread || -n $resume_pick ]]; then
@@ -301,7 +305,11 @@ if [[ -n $resume_thread || -n $resume_pick ]]; then
   [[ $p_owner == 1 ]] || { echo "kith: --resume is for the owner's own sessions" >&2; exit 1; }
   if [[ -z $resume_thread && $resume_pick == pick ]]; then resume_thread=$(python3 "$KITH/bin/kith-sessions" pick "$agent") || exit 1
   elif [[ -z $resume_thread ]]; then resume_thread=$(python3 "$KITH/bin/kith-sessions" latest "$agent" "$PWD") || exit 1; fi
-  eval "$(python3 "$KITH/bin/kith-sessions" resolve "$agent" "$resume_thread")" || exit 1
+  [[ -n $resume_thread ]] || exit 1   # a pick that named nothing must not fall through to a fresh claude
+  # Whatever named the session (--resume, -r ID, the picker, -c), it is claimed and checked here and nowhere else.
+  # Not `eval "$(…)" || exit 1`: a refusal prints nothing, eval of nothing succeeds, and claude would start anyway.
+  resolved=$(python3 "$KITH/bin/kith-sessions" resolve "$agent" "$resume_thread" "$$") || exit 1
+  eval "$resolved"
   [[ -z $r_cwd ]] || cd "$r_cwd" || exit 1
 fi
 # A program reads stdout as the JSON alone: whatever a helper prints on the way goes to stderr; fd 3 is the real stdout.

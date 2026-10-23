@@ -3,6 +3,9 @@
 //! direct end-to-end encrypted channel phones use (see `channel`).
 
 mod backups;
+#[cfg(test)]
+mod bot_guests_tests;
+pub mod botguests;
 mod bots;
 pub mod devices;
 mod events;
@@ -58,10 +61,18 @@ pub fn error_status(e: &anyhow::Error) -> (StatusCode, String) {
         || e.is::<crate::terminal::TerminalBusy>()
     {
         (StatusCode::CONFLICT, e.to_string())
+    } else if let Some(bot) = e.downcast_ref::<botguests::BotError>() {
+        (StatusCode::from_u16(bot.status).unwrap_or(StatusCode::BAD_REQUEST), bot.message.clone())
     } else {
         // `{:#}` keeps the context chain ("starting `npx …`: No such file or directory").
         (StatusCode::BAD_REQUEST, format!("{e:#}"))
     }
+}
+
+/// A stable machine word for a failed call from a bot guest (`err.code`, docs/kith-bot-guests.md 5.6); None for
+/// everyone else's errors, and apps ignore it.
+pub fn error_code(e: &anyhow::Error) -> Option<&'static str> {
+    e.downcast_ref::<botguests::BotError>().map(|bot| bot.code)
 }
 
 fn str_arg<'a>(b: &'a Value, k: &str) -> Result<&'a str> {
@@ -81,6 +92,9 @@ pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -
         Principal::Nobody => return Err(Forbidden.into()),
         Principal::Member(person) => return member_call(hub, caller, &person, true, method, b, permitted).await,
         Principal::Unproven(person) => return member_call(hub, caller, &person, false, method, b, permitted).await,
+        bot @ (Principal::Bot { .. } | Principal::BotPending(_)) => {
+            return botguests::bot_call(hub, caller, bot, method, b, permitted).await;
+        }
     }
     let observed = crate::analytics::observe_call(hub, caller, method, &b);
     let result = route(hub, caller, method, b).await;
@@ -139,6 +153,10 @@ async fn route(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Resul
         ControlFlow::Continue(b) => b,
     };
     let b = match people::call(hub, caller, method, b).await? {
+        ControlFlow::Break(v) => return Ok(v),
+        ControlFlow::Continue(b) => b,
+    };
+    let b = match botguests::call(hub, caller, method, b).await? {
         ControlFlow::Break(v) => return Ok(v),
         ControlFlow::Continue(b) => b,
     };

@@ -1,5 +1,7 @@
 //! The crate's own tables and their migrations, versioned apart from the caller's schema.
 
+use std::time::Duration;
+
 use rusqlite::{Connection, OptionalExtension};
 
 const MIGRATIONS: &[&str] = &[
@@ -94,24 +96,55 @@ const MIGRATIONS: &[&str] = &[
     INSERT INTO sqlite_sequence (name, seq) SELECT 'memory_entries', max(
         coalesce((SELECT max(id) FROM memory_entries), 0),
         coalesce((SELECT max(entry) FROM memory_dream_changes), 0));",
+    // 4: one summary per thread (replaced on every write) and the threads the owner asked to forget. The kernel's
+    // recall index reads both without the host running; `kith forget --thread` writes the second (IF NOT EXISTS
+    // there too: the kernel creates it the same way when the host has never run this migration).
+    "CREATE TABLE IF NOT EXISTS thread_summaries (
+        thread_id TEXT PRIMARY KEY,
+        room TEXT,
+        agent TEXT NOT NULL,
+        audience TEXT NOT NULL,
+        projects TEXT NOT NULL DEFAULT '[]',
+        text TEXT NOT NULL,
+        links TEXT NOT NULL DEFAULT '[]',
+        covered_seq INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        written_at INTEGER NOT NULL,
+        cost_via TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS thread_forgotten (
+        thread_id TEXT PRIMARY KEY,
+        at INTEGER NOT NULL
+    );",
 ];
 
-/// Brings the crate's tables up to date. Safe to call on every start.
+/// Brings the crate's tables up to date. Safe to call on every start, and from several connections at once: the
+/// write lock is taken before the version is read, so the second caller waits and then finds nothing left to do.
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
+    conn.busy_timeout(Duration::from_secs(10))?;
+    conn.execute_batch("BEGIN IMMEDIATE")?;
+    match migrate_locked(conn) {
+        Ok(()) => conn.execute_batch("COMMIT"),
+        Err(err) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(err)
+        }
+    }
+}
+
+fn migrate_locked(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute("CREATE TABLE IF NOT EXISTS memory_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)", [])?;
     let done: i64 = conn
         .query_row("SELECT value FROM memory_meta WHERE key = 'schema'", [], |row| row.get(0))
         .optional()?
         .unwrap_or(0);
     for (version, sql) in (1_i64..).zip(MIGRATIONS).filter(|(version, _)| *version > done) {
-        let tx = conn.unchecked_transaction()?;
-        tx.execute_batch(sql)?;
-        tx.execute(
+        conn.execute_batch(sql)?;
+        conn.execute(
             "INSERT INTO memory_meta (key, value) VALUES ('schema', ?1)
              ON CONFLICT (key) DO UPDATE SET value = excluded.value",
             [version],
         )?;
-        tx.commit()?;
     }
     Ok(())
 }
@@ -128,6 +161,36 @@ mod tests {
         let version: i64 =
             conn.query_row("SELECT value FROM memory_meta WHERE key = 'schema'", [], |row| row.get(0)).unwrap();
         assert_eq!(version, i64::try_from(MIGRATIONS.len()).unwrap());
+    }
+
+    #[test]
+    fn concurrent_connections_migrate_once() {
+        let path = std::env::temp_dir().join(format!(
+            "kith-mem-migrate-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let threads = 6;
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(threads));
+        let handles: Vec<_> = (0..threads)
+            .map(|_| {
+                let (path, barrier) = (path.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    let conn = Connection::open(&path).unwrap();
+                    barrier.wait();
+                    migrate(&conn)
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().unwrap().unwrap();
+        }
+        let conn = Connection::open(&path).unwrap();
+        let version: i64 =
+            conn.query_row("SELECT value FROM memory_meta WHERE key = 'schema'", [], |row| row.get(0)).unwrap();
+        assert_eq!(version, i64::try_from(MIGRATIONS.len()).unwrap());
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
     }
 
     fn insert(conn: &Connection) -> i64 {

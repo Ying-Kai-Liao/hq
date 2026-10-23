@@ -3,7 +3,8 @@
 The index is this Mac's own derived state, $KITH_MACHINE/index/memory.db (folder 0700, file 0600): never in git or the
 cloud, rebuildable any time from the notes. Each row carries the audience of its note; a query puts the caller's visible
 audiences in the WHERE next to the FTS match, so a row the caller may not see cannot come back. Rows have a `kind`
-(note | summary | trajectory); this version fills `note` only, summaries and trajectory slot in later.
+(note | summary | trajectory): notes from the memory files, summaries and trajectory from the host store and the harness
+logs (kith_trajectory).
 """
 import contextlib, fcntl, hashlib, json, os, re, sqlite3, subprocess, sys, time
 from pathlib import Path
@@ -11,8 +12,9 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from kith_paths import paths  # noqa: E402
 import kith_facets  # noqa: E402
+import kith_trajectory  # noqa: E402
 
-VERSION = 2
+VERSION = 3   # 3: summary and trajectory rows (kith_trajectory), the cursors and harness-log tables
 MAX_FILE = 1_000_000
 MAX_PASSAGE = 1500
 SNIPPET = 200
@@ -24,6 +26,8 @@ CREATE INDEX rows_audience ON index_rows(audience, agent);
 CREATE INDEX rows_source ON index_rows(source_path);
 CREATE VIRTUAL TABLE fts USING fts5(text, audience UNINDEXED, agent UNINDEXED, tokenize='unicode61');
 CREATE TABLE sources(path TEXT PRIMARY KEY, mtime_ns INTEGER, size INTEGER);
+CREATE TABLE cursors(name TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE traj_files(path TEXT PRIMARY KEY, mtime_ns INTEGER, size INTEGER);
 """
 
 
@@ -141,10 +145,23 @@ def _connect(path):
 
 
 @contextlib.contextmanager
-def _lock():
+def _lock(wait=None):
+    """The index lock; with `wait` seconds, raises TimeoutError instead of blocking past them."""
     fd = os.open(str(_private_dir() / '.lock'), os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        os.fchmod(fd, 0o600)   # whatever the umask
+        if wait is None:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        else:
+            end = time.time() + wait
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError:
+                    if time.time() > end:
+                        raise TimeoutError('index busy')
+                    time.sleep(0.1)
         yield
     finally:
         os.close(fd)
@@ -164,6 +181,7 @@ def rebuild():
             db.execute('PRAGMA user_version=%d' % VERSION)
             for src in sources():
                 put(db, *src)
+            kith_trajectory.sync(db)
             db.commit()
             n = db.execute('SELECT count(*) FROM index_rows').fetchone()[0]
             db.close()
@@ -189,6 +207,7 @@ def update(db):
             put(db, *src)
     for path in set(known) - seen:
         drop(db, path)
+    kith_trajectory.sync(db)
     db.commit()
 
 
@@ -203,8 +222,11 @@ def open_index():
                 db.close()
                 rebuild()
                 db = _connect(db_path())
-            with _lock():
-                update(db)
+            try:
+                with _lock(wait=8):   # another process is indexing: answer from the index as it is
+                    update(db)
+            except TimeoutError:
+                pass
             return db
         except sqlite3.DatabaseError:
             if attempt:

@@ -25,7 +25,7 @@ const INVITE_MS: i64 = 24 * 60 * 60 * 1000;
 const BUDGET: &str = "20";
 
 /// kith-auth rewrites auth.json whole on every change: one writer at a time.
-static AUTH_WRITES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub(super) static AUTH_WRITES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<ControlFlow<Value, Value>> {
     Ok(ControlFlow::Break(match method {
@@ -48,7 +48,7 @@ fn valid_person_id(id: &str) -> bool {
         && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(super) fn hex(bytes: &[u8]) -> String {
     bytes.iter().fold(String::new(), |mut s, b| {
         let _ = write!(s, "{b:02x}");
         s
@@ -85,7 +85,7 @@ fn roles_of(b: &Value) -> Result<BTreeMap<String, String>> {
 }
 
 /// kith-auth, or why not.
-async fn auth_bin() -> Result<std::path::PathBuf> {
+pub(super) async fn auth_bin() -> Result<std::path::PathBuf> {
     account::bin().await.ok_or_else(|| anyhow!("kith-auth wasn't found on this computer, so people can't be invited."))
 }
 
@@ -270,7 +270,7 @@ fn people(hub: &Arc<Hub>) -> Result<Value> {
                 "personId": p.person_id, "name": p.name, "agents": p.agents, "projects": p.projects,
                 "joined": joined.is_some(), "userId": joined.map(|m| m.user_id.clone()),
                 "membershipId": joined.map(|m| m.membership_id.clone()),
-                "openInvites": waiting, "devices": devices, "createdAt": p.created_at,
+                "openInvites": waiting, "devices": devices, "createdAt": p.created_at, "autoBots": p.auto_bots,
             })
         })
         .collect();
@@ -285,31 +285,38 @@ async fn set_person_access(hub: &Arc<Hub>, b: &Value) -> Result<Value> {
     let id = str_arg(b, "personId")?;
     let person = invited_person(hub, id)?;
     let bin = auth_bin().await?;
-    let _w = AUTH_WRITES.lock().await;
-    if !b["agents"].is_null() {
-        let want = roles_of(&b["agents"])?;
-        let mut made = person.made.clone();
-        for (agent, role) in &want {
-            let had = roles::may_use(id, agent).await;
-            grant(&bin, id, agent, role, !had).await.with_context(|| format!("giving {id} {agent}"))?;
-            if !had && !made.contains(agent) {
-                made.push(agent.clone());
+    let changed_agents = !b["agents"].is_null();
+    {
+        let _w = AUTH_WRITES.lock().await;
+        if changed_agents {
+            let want = roles_of(&b["agents"])?;
+            let mut made = person.made.clone();
+            for (agent, role) in &want {
+                let had = roles::may_use(id, agent).await;
+                grant(&bin, id, agent, role, !had).await.with_context(|| format!("giving {id} {agent}"))?;
+                if !had && !made.contains(agent) {
+                    made.push(agent.clone());
+                }
             }
-        }
-        // Only a membership this host made is taken away again; one the owner gave by hand is left, and just no longer listed.
-        for agent in person.agents.keys().filter(|a| !want.contains_key(*a)) {
-            if made.contains(agent) {
-                account::run(&bin, &["member", agent, id, "--rm"]).await?;
-                made.retain(|m| m != agent);
+            // Only a membership this host made is taken away again; one the owner gave by hand is left, and just no longer listed.
+            for agent in person.agents.keys().filter(|a| !want.contains_key(*a)) {
+                if made.contains(agent) {
+                    account::run(&bin, &["member", agent, id, "--rm"]).await?;
+                    made.retain(|m| m != agent);
+                }
             }
+            hub.store.set_person_agents(id, &want)?;
+            hub.store.set_person_made(id, &made)?;
         }
-        hub.store.set_person_agents(id, &want)?;
-        hub.store.set_person_made(id, &made)?;
+        if !b["projects"].is_null() {
+            let projects: Vec<String> =
+                serde_json::from_value(b["projects"].clone()).context("`projects` is a list of project ids")?;
+            hub.store.set_person_projects(id, &projects)?;
+        }
     }
-    if !b["projects"].is_null() {
-        let projects: Vec<String> =
-            serde_json::from_value(b["projects"].clone()).context("`projects` is a list of project ids")?;
-        hub.store.set_person_projects(id, &projects)?;
+    if changed_agents {
+        // A bot never has more than its owner: a turn on an agent the owner just lost stops now.
+        super::botguests::enforce(hub, id).await;
     }
     Ok(json!({"person": hub.store.person(id)}))
 }
@@ -337,6 +344,8 @@ async fn revoke_person(hub: &Arc<Hub>, id: &str) -> Result<Value> {
         crate::remote::members::revoke_in_cloud(hub, &m.membership_id).await;
     }
     crate::remote::members::end_access(hub, bin.as_deref(), id).await?;
+    // Their bots go with them, even when no membership was left to end (docs/kith-bot-guests.md 7.5).
+    super::botguests::revoke_owned_by(hub, id, "person").await;
     Ok(json!({"revoked": true}))
 }
 
@@ -387,10 +396,16 @@ async fn start_chat(hub: &Arc<Hub>, caller: &Caller, b: &Value) -> Result<Value>
     if !granted || !roles::may_use(&person, agent).await {
         return Err(NotAllowed(format!("You don't have access to {agent}.")).into());
     }
+    Ok(roles::shape_bot(json!({"bot": chat_with(hub, &person, agent).await?})))
+}
+
+/// `person`'s chat with `agent` (one per agent): the one they have, else a new one made from the owner's bot of that
+/// agent. The caller has checked the person may use the agent. Shared with bot guests, whose runs are a person's too.
+pub(super) async fn chat_with(hub: &Arc<Hub>, person: &str, agent: &str) -> Result<Value> {
     let rows = hub.store.bots()?;
     let mine = |r: &&crate::store::BotRow| r.config.hq_agent.as_deref() == Some(agent) && !r.deleted;
-    if let Some(row) = rows.iter().filter(mine).find(|r| r.config.person.as_deref() == Some(person.as_str())) {
-        return Ok(roles::shape_bot(json!({"bot": hub.bot_json(row)})));
+    if let Some(row) = rows.iter().filter(mine).find(|r| r.config.person.as_deref() == Some(person)) {
+        return Ok(hub.bot_json(row));
     }
     let template = rows
         .iter()
@@ -403,6 +418,5 @@ async fn start_chat(hub: &Arc<Hub>, caller: &Caller, b: &Value) -> Result<Value>
     }))
     .expect("a valid bot");
     let hub = hub.clone();
-    let bot = tokio::task::spawn_blocking(move || hub.create_bot(cfg)).await??;
-    Ok(roles::shape_bot(json!({"bot": bot})))
+    tokio::task::spawn_blocking(move || hub.create_bot(cfg)).await?
 }
