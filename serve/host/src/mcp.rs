@@ -13,6 +13,7 @@ pub const PROTOCOL_VERSION: &str = "2025-06-18";
 #[derive(Clone, Copy)]
 pub enum Server {
     Chat,
+    Files,
     Connectors,
     Routines,
     Computer,
@@ -58,6 +59,13 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
                 list.extend(crate::chat::profile::tools());
             }
             ("kith-chat", crate::chat::outbox::INSTRUCTIONS, tools)
+        }
+        // An hq agent's chat: its words already reach the user as its reply, so it gets only the way to share files.
+        Server::Files => {
+            let tools = crate::chat::outbox::tools();
+            let send_file: Vec<Value> =
+                tools.as_array().into_iter().flatten().filter(|t| t["name"] == "send_file").cloned().collect();
+            ("kith-files", crate::chat::outbox::FILES_INSTRUCTIONS, Value::Array(send_file))
         }
         Server::Team => ("kith-team", crate::chat::team::INSTRUCTIONS, crate::chat::team::tools()),
         Server::Memory => ("kith-memory", crate::chat::memory::INSTRUCTIONS, crate::chat::memory::tools()),
@@ -127,7 +135,7 @@ async fn call(port: u16, token: &str, actor: &str, params: &Value, server: Serve
         Server::Connectors => ("connectorCall", Duration::from_secs(90)),
         Server::Routines => ("routineCall", Duration::from_secs(30)),
         Server::Computer => ("computerCall", Duration::from_secs(60)),
-        Server::Chat => ("chatCall", Duration::from_secs(if params["name"] == "send_file" { 70 } else { 30 })),
+        Server::Chat | Server::Files => ("chatCall", Duration::from_secs(if params["name"] == "send_file" { 70 } else { 30 })),
         Server::Team => ("teamCall", crate::chat::team::ASK_TIMEOUT + Duration::from_secs(30)),
         Server::Memory => ("memoryCall", Duration::from_secs(120)),
         Server::Composio => ("composioCall", Duration::from_secs(120)),
@@ -147,7 +155,7 @@ async fn call(port: u16, token: &str, actor: &str, params: &Value, server: Serve
                     return match server {
                         Server::Computer if v["isError"] == true => json!({"content": v["content"], "isError": true}),
                         Server::Computer => json!({"content": v["content"]}),
-                        Server::Chat | Server::Team | Server::Memory | Server::Routines | Server::Connectors => {
+                        Server::Chat | Server::Files | Server::Team | Server::Memory | Server::Routines | Server::Connectors => {
                             json!({"content": [{"type": "text", "text": v.to_string()}]})
                         }
                         Server::Composio => json!({"content": [{"type": "text", "text": v["result"].to_string()}]}),

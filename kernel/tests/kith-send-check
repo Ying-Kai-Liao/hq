@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# kith-send-check — in a Kith app chat (KITH_VIA=serve) kith-send must not fall through to Telegram: it refuses and
+# names send_file. A thread's outbox (channels) still works. Needs no network and no secrets.
+#
+#   kernel/tests/kith-send-check
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+send="$here/../bin/kith-send"
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+unset KITH_DISCORD_WEBHOOK_URL KITH_DISCORD_THREAD_ID KITH_BRIDGE_OUTBOX KITH_TELEGRAM_BOT_TOKEN KITH_TELEGRAM_CHAT_ID
+export KITH_VIA=serve
+
+fail() { echo "FAIL: $*" >&2; exit 1; }
+
+out=$("$send" "hello" 2>&1) && fail "text in an app chat was sent"
+[[ $out == *send_file* ]] || fail "no pointer to send_file: $out"
+echo x > "$tmp/pic.png"
+out=$("$send" --caption cap "$tmp/pic.png" 2>&1) && fail "a file in an app chat was sent"
+[[ $out == *mcp__kith-files__send_file* ]] || fail "no tool name: $out"
+
+mkdir "$tmp/box"
+KITH_BRIDGE_OUTBOX="$tmp/box" "$send" "to a channel" >/dev/null || fail "a channel's outbox stopped working"
+ls "$tmp/box"/*.json >/dev/null || fail "nothing in the outbox"
+echo "ok: kith-send refuses in an app chat, still posts to a channel outbox"

@@ -64,6 +64,13 @@ public final class FileDownloads {
         }
     }
 
+    /// A shared picture's bytes, from the cache or read from the computer; nil when they can't be read now.
+    public func bytes(client: HostClient?, entry: Entry, file: SharedFile) async -> Data? {
+        guard !retired, let client, let reader = writer as? FileDownload, let id = UUID(uuidString: file.id) else { return nil }
+        let cache = URL.cachesDirectory.appending(path: "kith-shared").appending(path: id.uuidString)
+        return try? await reader.bytes(client: client, entryId: entry.id, file: file, cache: cache)
+    }
+
     private func update(_ id: String, received: Int64) {
         guard !retired, tasks[id]?.isCancelled == false else { return }
         states[id] = .downloading(received)

@@ -14,6 +14,10 @@
 # run's outbox (KITH_BRIDGE_OUTBOX) and kith serve posts it into the thread. Otherwise it goes to Telegram:
 # KITH_TELEGRAM_BOT_TOKEN / KITH_TELEGRAM_CHAT_ID from ~/.kith/secrets/env (or the file KITH_TELEGRAM_ENV_FILE names
 # there). Never prints a token.
+#
+# In a Kith app chat (the apps; KITH_VIA=serve, none of the above) it does NOT send: the chat's one way to give the user
+# a file or image is the send_file tool (mcp__kith-files__send_file), and text is the agent's reply. Falling through to
+# Telegram there would put the file on the wrong screen. `--to dm` still means Telegram, on purpose.
 set -euo pipefail
 . "$(dirname "$0")/../lib/kith-env.sh"   # old HQ_X callers and secrets/env: KITH_X and HQ_X agree
 
@@ -91,6 +95,11 @@ os.rename(name + '.tmp', name)   # whole or not at all: the bridge reads *.json 
 PY
   [[ $kind == files ]] && echo "sent $# file(s) to the thread as $as" || echo "sent message to the thread as $as"
   exit 0
+fi
+
+if [[ ${KITH_VIA:-} == serve && $to != dm && -z ${KITH_TELEGRAM_CHAT_ID:-} ]]; then
+  echo "kith-send: this is a Kith app chat. Share a file or image with your send_file tool (mcp__kith-files__send_file: path, name?); it shows inline in the chat and on a call. Text is your reply. Use --to dm to message Telegram instead." >&2
+  exit 3
 fi
 
 [[ -f $KITH_SECRETS/env ]] && { set -a; . "$KITH_SECRETS/env"; set +a; kith_env_sync; }   # the file may still say HQ_TELEGRAM_*

@@ -45,6 +45,11 @@ export function watchVoiceCall(store: BotStore, botId: string, handlers: {
         cards.add(e.id)
         if (e.data.status === 'pending' && e.rev > startRev) handlers.announce(`${nameOf(e.data.author) ?? 'A bot'} needs your approval in the chat.`)
       }
+      // A shared file's entry carries only its name and size for the chat's card: never read aloud.
+      if (e.data.files?.length) {
+        if (e.data.final) finals.add(e.id)
+        continue
+      }
       if (handlers.stream && e.kind === 'agent' && !finals.has(e.id) && heard.has(e.id) && e.rev > startRev && e.data.text) {
         // In a group, a reply is said with its speaker's name.
         const speaker = inGroup ? nameOf(e.data.author) : undefined

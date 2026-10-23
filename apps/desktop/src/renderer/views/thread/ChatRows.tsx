@@ -1,4 +1,4 @@
-import { FileDownloadCard } from './FileDownloadCard'
+import { SharedFileView } from './SharedImage'
 import { memo, useEffect, useRef, useState } from 'react'
 import { isGroup, isWorking, needsInput, type Bot, type Entry, type ThreadSummary } from '@shared/models'
 import { BotAvatar } from '../../components/Avatar'
@@ -219,7 +219,7 @@ export function AgentBubble({ entry, openTrace, reply }: { entry: Entry; openTra
             { title: 'Show what it did', icon: 'list.bullet', action: openTrace },
           ]}
         >
-          {entry.data.files?.length ? <div className="file-message-cards">{entry.data.files.map((file) => <FileDownloadCard key={file.id} entry={entry} file={file} />)}</div> : <MarkdownText text={entry.data.text ?? ''} />}
+          {entry.data.files?.length ? <div className="file-message-cards">{entry.data.files.map((file) => <SharedFileView key={file.id} entry={entry} file={file} />)}</div> : <MarkdownText text={entry.data.text ?? ''} />}
         </Bubble>
         <MessageActions className="trailing" visible={hovering} reactions={reactionPick(store, entry)} reply={reply} trace={openTrace} copy={copy} />
       </div>
