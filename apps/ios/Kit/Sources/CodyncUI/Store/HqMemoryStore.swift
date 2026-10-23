@@ -10,8 +10,12 @@ final class HqMemoryStore {
     private let client: () async throws -> HostClient
     var list: HqMemoryList?
     var tidyUps: [HqTidyUp]?
-    /// Why the lists couldn't be read (the agent folder is gone, an older host, no connection).
-    var error: String?
+    /// Why the file list couldn't be read (the agent folder is gone, an older host, no connection).
+    var listError: String?
+    /// Why the tidy-ups couldn't be read; the files stay usable.
+    var tidyError: String?
+    /// Why the last save, restore or undo failed.
+    var writeError: String?
     var busy = false
     /// What the last undo left alone, by tidy-up id.
     var refusals: [Int64: [HqTidyUndo.Refusal]] = [:]
@@ -25,17 +29,29 @@ final class HqMemoryStore {
     func load() async {
         request += 1
         let asked = request
+        let host: HostClient
+        do { host = try await client() } catch {
+            guard asked == request else { return }
+            listError = error.localizedDescription
+            return
+        }
         do {
-            let host = try await client()
             let files = try await host.hqMemoryList(botId: botId)
-            let runs = try await host.hqTidyUps(botId: botId)
             guard asked == request else { return }
             list = files
-            tidyUps = runs
-            error = nil
+            listError = nil
         } catch {
             guard asked == request else { return }
-            self.error = error.localizedDescription
+            listError = error.localizedDescription
+        }
+        do {
+            let runs = try await host.hqTidyUps(botId: botId)
+            guard asked == request else { return }
+            tidyUps = runs
+            tidyError = nil
+        } catch {
+            guard asked == request else { return }
+            tidyError = error.localizedDescription
         }
     }
 
@@ -55,14 +71,14 @@ final class HqMemoryStore {
     private func write<T>(_ work: (HostClient) async throws -> T) async -> T? {
         guard !busy else { return nil }
         busy = true
-        error = nil
+        writeError = nil
         defer { busy = false }
         do {
             let value = try await work(try await client())
             await load()
             return value
         } catch {
-            self.error = error.localizedDescription
+            self.writeError = error.localizedDescription
             return nil
         }
     }

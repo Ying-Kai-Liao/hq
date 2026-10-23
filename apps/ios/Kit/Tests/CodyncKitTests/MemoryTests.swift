@@ -82,6 +82,12 @@ import Testing
     """.utf8))
     #expect(list.agent.map(\.name) == ["MEMORY.md", "notes.md"])
     #expect(list.shared.first?.shared == true)
+    // A fresh agent has neither file yet; both are offered.
+    let fresh = try decoder.decode(HqMemoryList.self, from: Data(#"{"agent": [], "shared": []}"#.utf8))
+    #expect(fresh.agent.map(\.name) == ["MEMORY.md"] && fresh.shared.map(\.name) == ["user.md"])
+    #expect(fresh.agent.first?.modified == 0)
+    #expect(isUnknownMethod(NSError(domain: "x", code: 1, userInfo: [NSLocalizedDescriptionKey: "unknown method: undoTidy"])))
+    #expect(!isUnknownMethod(NSError(domain: "x", code: 1, userInfo: [NSLocalizedDescriptionKey: "no such bot"])))
 
     let read = try decoder.decode(HqMemoryText.self, from: Data("""
     {"name": "a.md", "shared": false, "text": "", "bytes": 0, "modified": 0, "exists": false}

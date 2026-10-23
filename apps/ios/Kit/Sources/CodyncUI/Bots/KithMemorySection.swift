@@ -124,7 +124,7 @@ struct KithMemorySection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)
         .contentShape(Rectangle())
-        if hit.openable {
+        if hit.openable && hit.path.lowercased().hasSuffix(".md") {
             Button { openHit(hit.path, hit.line) } label: { content }
                 .buttonStyle(.plain)
                 .foregroundStyle(Palette.text)

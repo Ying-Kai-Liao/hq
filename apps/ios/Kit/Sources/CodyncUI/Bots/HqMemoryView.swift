@@ -49,7 +49,7 @@ struct HqMemoryCard: View {
     }
 
     @ViewBuilder private func contents(_ store: HqMemoryStore) -> some View {
-        if let error = store.error {
+        if let error = store.writeError {
             Text(error).foregroundStyle(Palette.danger).textSelection(.enabled)
         }
         switch section {
@@ -67,6 +67,9 @@ struct HqMemoryCard: View {
              : "What this agent keeps in its own memory folder, starting with MEMORY.md.")
             .font(.footnote).foregroundStyle(Palette.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
+        if let error = store.listError {
+            Text(error).foregroundStyle(Palette.danger).textSelection(.enabled)
+        }
         if let list = store.list {
             let entries = shared ? list.shared : list.agent
             if entries.isEmpty {
@@ -84,7 +87,7 @@ struct HqMemoryCard: View {
                 .buttonStyle(.plain)
                 .padding(.vertical, 6)
             }
-        } else if store.error == nil {
+        } else if store.listError == nil {
             Text("Loading memory…").foregroundStyle(Palette.secondary)
         }
     }
@@ -101,7 +104,7 @@ struct HqMemoryCard: View {
     }
 
     private func caption(_ file: HqMemoryFileEntry) -> String {
-        // `user.md` is listed before it exists.
+        // `user.md` and `MEMORY.md` are listed before they exist.
         if file.modified == 0 { return "Not created yet" }
         return "\(kithBytes(file.size)) · \(Date(milliseconds: file.modified).formatted(.relative(presentation: .named)))"
     }
@@ -112,6 +115,9 @@ struct HqMemoryCard: View {
         Text("Once you've chatted and the agent has been idle for a few minutes, it tidies its notes. Each tidy can be undone.")
             .font(.footnote).foregroundStyle(Palette.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
+        if let error = store.tidyError {
+            Text(error).foregroundStyle(Palette.danger).textSelection(.enabled)
+        }
         if let runs = store.tidyUps {
             if runs.isEmpty {
                 empty("sparkles", "Tidy-ups appear after you chat with this agent and it has been idle for a few minutes.")
@@ -135,7 +141,7 @@ struct HqMemoryCard: View {
                 }
                 .padding(.vertical, 6)
             }
-        } else if store.error == nil {
+        } else if store.tidyError == nil {
             Text("Loading memory…").foregroundStyle(Palette.secondary)
         }
     }
@@ -176,6 +182,7 @@ struct HqMemoryFileView: View {
     let target: HqMemoryTarget
     @Environment(\.dismissModal) private var dismiss
     @State private var file: HqMemoryText?
+    @State private var chunks: [KithMemoryChunks.Chunk] = []
     @State private var versions: [HqMemoryVersion] = []
     /// The newest version when the file was opened: a save over a newer one asks first.
     @State private var openedVersion: Int64?
@@ -186,7 +193,7 @@ struct HqMemoryFileView: View {
     @State private var diffs: [Int64: String] = [:]
     @State private var diffing: Int64?
     /// A version to go back to; `undo`: the one before the change it undoes.
-    @State private var restoring: (version: HqMemoryVersion, undo: HqMemoryVersion?)?
+    @State private var restoring: (version: HqMemoryVersion, undo: HqMemoryVersion?, later: Int)?
     @State private var confirmDiscard = false
     @State private var moved = false
 
@@ -196,8 +203,9 @@ struct HqMemoryFileView: View {
     var body: some View {
         VStack(spacing: 0) {
             ModalHeader(target.name) { actions }
+            ScrollViewReader { proxy in
             CardForm {
-                if let error = loadError ?? store.error {
+                if let error = loadError ?? store.writeError {
                     CardSection { Text(error).foregroundStyle(Palette.danger).textSelection(.enabled) }
                 }
                 if !warnings.isEmpty {
@@ -212,14 +220,28 @@ struct HqMemoryFileView: View {
                     CardSection { Text("Loading…").foregroundStyle(Palette.secondary) }
                 }
             }
+            // Lazy rows need a moment before they can be scrolled to.
+            .task(id: file?.text) {
+                guard let line = target.line, !editing, let index = KithMemoryChunks.index(of: line, in: chunks) else { return }
+                try? await Task.sleep(for: .milliseconds(150))
+                proxy.scrollTo(index, anchor: .top)
+            }
+            }
         }
         .background(Palette.background)
-        // Closing with unsaved changes asks first, by the X and by swiping the sheet down.
+        // The X asks before discarding unsaved changes; swiping the sheet down is blocked while there are any.
         .environment(\.dismissModal, DismissModalAction { if dirty { confirmDiscard = true } else { dismiss() } })
         .interactiveDismissDisabled(dirty)
         .task { await load() }
         .codyncDialog("Discard your changes?", isPresented: $confirmDiscard) {
-            [DialogAction("Discard", destructive: true) { dismiss() }]
+            [DialogAction("Discard", destructive: true) {
+                // Not dirty any more, and closed once the dialog has finished going away.
+                editing = false
+                Task {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    dismiss()
+                }
+            }]
         }
         .codyncDialog("This file changed since you opened it", isPresented: $moved,
                       message: "The agent or a tidy-up wrote a newer version. Reload to see it (your edit is dropped), or save over it; the newer version stays in History.") {
@@ -230,6 +252,9 @@ struct HqMemoryFileView: View {
                       isPresented: Binding(get: { restoring != nil }, set: { if !$0 { restoring = nil } }),
                       message: restoring?.undo != nil
                           ? "The file goes back to how it was before this change, as a new entry in History."
+                              + ((restoring?.later ?? 0) > 0
+                                 ? " This also removes the \(restoring?.later ?? 0) later change\(restoring?.later == 1 ? "" : "s")."
+                                 : "")
                           : "The file becomes how it was after this change, as a new entry in History.") {
             [DialogAction(restoring?.undo != nil ? "Undo this change" : "Restore this version") {
                 if let pick = restoring { Task { await restore(pick.undo ?? pick.version) } }
@@ -255,10 +280,10 @@ struct HqMemoryFileView: View {
     @ViewBuilder private func content(_ file: HqMemoryText) -> some View {
         if editing {
             CardSection(footer: file.exists ? nil : "This file doesn't exist yet. Saving creates it.") {
-                TextField("", text: $draft, axis: .vertical)
-                    .lineLimit(12...40)
+                TextEditor(text: $draft)
                     .font(.footnote.monospaced())
-                    .textFieldStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 320)
                     .disabled(store.busy)
             }
         } else {
@@ -267,8 +292,11 @@ struct HqMemoryFileView: View {
                     Text(file.exists ? "This file is empty." : "This file doesn't exist yet.").foregroundStyle(Palette.secondary)
                 } else {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(KithMemoryChunks.split(file.text, raw: true).enumerated()), id: \.offset) { _, chunk in
-                            Text(chunk.text).font(.footnote.monospaced()).frame(maxWidth: .infinity, alignment: .leading)
+                        ForEach(Array(chunks.enumerated()), id: \.offset) { index, chunk in
+                            Text(chunk.text).font(.footnote.monospaced())
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(target.line.flatMap { KithMemoryChunks.index(of: $0, in: chunks) } == index ? Palette.accentDim : .clear)
+                                .id(index)
                         }
                     }
                     .textSelection(.enabled)
@@ -298,13 +326,13 @@ struct HqMemoryFileView: View {
                         }
                         if index > 0 && !editing {
                             IconButton("Restore this version (the file as it was after this change)", systemImage: "clock.arrow.circlepath") {
-                                restoring = (version, nil)
+                                restoring = (version, nil, 0)
                             }
                             .disabled(store.busy)
                         }
                         if index + 1 < versions.count && !editing && !version.deleted {
                             IconButton("Undo this change", systemImage: "arrow.uturn.backward") {
-                                restoring = (version, versions[index + 1])
+                                restoring = (version, versions[index + 1], index)
                             }
                             .disabled(store.busy)
                         }
@@ -356,6 +384,7 @@ struct HqMemoryFileView: View {
             let past = try await store.history(shared: target.shared, name: target.name)
             let text = try await store.read(shared: target.shared, name: target.name)
             file = text
+            chunks = KithMemoryChunks.split(text.text, raw: true)
             versions = past
             openedVersion = past.first?.id
             loadError = nil
@@ -369,6 +398,7 @@ struct HqMemoryFileView: View {
     /// Drops the edit and shows what is on disk now.
     private func reload() async {
         editing = false
+        draft = ""
         diffs = [:]
         await load()
     }

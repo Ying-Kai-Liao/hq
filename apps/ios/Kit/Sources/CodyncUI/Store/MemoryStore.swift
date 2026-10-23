@@ -74,7 +74,14 @@ final class MemoryStore {
         error = nil
         defer { busy = false }
         do {
-            try await client().memoryCall(method, Body(botId: botId, id: id, pinned: pinned, archived: archived, shared: shared, text: text))
+            let host = try await client()
+            let body = Body(botId: botId, id: id, pinned: pinned, archived: archived, shared: shared, text: text)
+            do {
+                try await host.memoryCall(method, body)
+            } catch where method == "undoTidy" && isUnknownMethod(error) {
+                // A host from before the "tidy" rename knows the old name.
+                try await host.memoryCall("undoDream", body)
+            }
             await load()
             return true
         } catch {

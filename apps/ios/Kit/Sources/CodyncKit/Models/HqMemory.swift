@@ -40,8 +40,11 @@ public struct HqMemoryList: Decodable, Hashable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let own: [HqMemoryFileEntry] = c.lenient(.agent) ?? []
-        agent = own.sorted { ($0.name == "MEMORY.md" ? 0 : 1, $0.name) < ($1.name == "MEMORY.md" ? 0 : 1, $1.name) }
-        shared = c.lenient(.shared) ?? []
+        // The host lists only files that exist; these two open ready to write, and Save creates them.
+        let present = own.contains { $0.name == "MEMORY.md" } ? own : own + [HqMemoryFileEntry(name: "MEMORY.md", shared: false)]
+        agent = present.sorted { ($0.name == "MEMORY.md" ? 0 : 1, $0.name) < ($1.name == "MEMORY.md" ? 0 : 1, $1.name) }
+        let others: [HqMemoryFileEntry] = c.lenient(.shared) ?? []
+        shared = others.contains { $0.name == "user.md" } ? others : [HqMemoryFileEntry(name: "user.md", shared: true)] + others
     }
 
     public init(agent: [HqMemoryFileEntry] = [], shared: [HqMemoryFileEntry] = []) {
@@ -200,7 +203,7 @@ public struct HqMemoryUnsupported: LocalizedError {
 }
 
 /// A host that doesn't know a method answers with an error naming it.
-func isUnknownMethod(_ error: Error) -> Bool {
+public func isUnknownMethod(_ error: Error) -> Bool {
     error.localizedDescription.lowercased().contains("unknown method")
 }
 
