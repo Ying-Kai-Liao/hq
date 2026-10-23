@@ -93,7 +93,7 @@ test('the Update badge downloads the release if needed, then restarts into it', 
 
 test('the app relaunched by a chosen restart opens its own bundle once to come forward', () => {
   const relaunched = updaterFixture({ prefs: { updateRelaunchInFront: true } })
-  assert.deepEqual(relaunched.opened, ['/Applications/Codync.app'])
+  assert.deepEqual(relaunched.opened, ['/Applications/Kith.app'])
   assert.equal(relaunched.preferences.get('updateRelaunchInFront'), false)
   assert.deepEqual(updaterFixture().opened, [])
 })
@@ -259,7 +259,7 @@ test('a build without an update feed never checks, and discards an update the ol
   assert.equal(f.calls.check, 0)
   assert.equal(f.shipIt.removed, 1, 'the installer job that would apply it on quit is removed')
   assert.deepEqual(f.removed, [
-    '/Users/me/Library/Caches/com.pokai.Codync.ShipIt',
+    '/Users/me/Library/Caches/com.yingkailiao.kith.ShipIt',
     '/Users/me/Library/Caches/codync-desktop-updater/pending',
   ])
   f.app.emit('before-quit', { preventDefault() {} })

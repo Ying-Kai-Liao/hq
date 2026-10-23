@@ -2,7 +2,7 @@ import Foundation
 
 /// The computer-use driver bots act through (`cua-driver`, shipped in Contents/Helpers; see
 /// `host/src/screen/cua.rs`). We spawn it ourselves, never through `open` or LaunchServices, so
-/// macOS treats it as part of Codync Screen: it uses our Accessibility and Screen Recording
+/// macOS treats it as part of Kith Screen: it uses our Accessibility and Screen Recording
 /// grants and never asks for its own. It exits with us (its stdin closes).
 @MainActor
 final class Driver {
@@ -52,8 +52,8 @@ final class Driver {
 
     /// In the per-user temporary directory (private, and short enough for a socket path).
     private static var socketPath: String {
-        let development = Bundle.main.object(forInfoDictionaryKey: "CodyncEnvironment") as? String == "dev"
-        return NSTemporaryDirectory() + (development ? "codync-dev-cua/cua.sock" : "codync-cua/cua.sock")
+        let development = Bundle.main.object(forInfoDictionaryKey: "KithEnvironment") as? String == "dev"
+        return NSTemporaryDirectory() + (development ? "kith-dev-cua/cua.sock" : "kith-cua/cua.sock")
     }
 
     private static func listening(_ path: String) -> Bool {

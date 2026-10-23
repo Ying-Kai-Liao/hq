@@ -3,19 +3,17 @@ export function environmentProfile(environment: 'main' | 'dev') {
   const dev = environment === 'dev'
   return {
     environment,
-    name: dev ? 'Kith Dev' : 'Codync',
-    appId: dev ? 'com.yingkailiao.kith.dev' : 'com.pokai.Codync',
+    name: dev ? 'Kith Dev' : 'Kith',
+    appId: dev ? 'com.yingkailiao.kith.dev' : 'com.yingkailiao.kith',
     scheme: dev ? 'kith-dev' : 'kith',
-    /** The scheme links used before the rename: still opened, never produced. */
-    legacyScheme: dev ? 'codync-dev' : 'codync',
     dataFolder: dev ? '.kith/serve' : '.kith/serve-main',
     port: dev ? 19224 : 19225,
     hostLabel: dev ? 'dev.kith.serve' : 'dev.kith.serve.main',
     systemdUnit: dev ? 'kith-serve.service' : 'kith-serve-main.service',
     windowsService: dev ? 'KithServe' : 'KithServeMain',
     supervisor: dev ? 'kith-servew.exe' : 'kith-servew-main.exe',
-    screenLabel: dev ? 'com.yingkailiao.kith.dev.screen' : 'com.pokai.Codync.screen',
-    screenName: dev ? 'CodyncDevScreen' : 'CodyncScreen',
+    screenLabel: dev ? 'com.yingkailiao.kith.dev.screen' : 'com.yingkailiao.kith.screen',
+    screenName: dev ? 'KithDevScreen' : 'KithScreen',
     releaseUpdates: !dev,
   }
 }

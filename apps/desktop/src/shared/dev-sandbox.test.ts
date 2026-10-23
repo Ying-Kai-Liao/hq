@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { sandboxLabel, sandboxName, sandboxPorts } from './dev-sandbox.ts'
 
-test('sandbox ports skip the ones other sandboxes hold and never reach Codync or Kith Dev', () => {
+test('sandbox ports skip the ones other sandboxes hold and never reach Kith or Kith Dev', () => {
   const ports = sandboxPorts([19300, 19302])
   assert.deepEqual(ports.slice(0, 2), [19301, 19303])
   assert.equal(ports.length, 98)

@@ -17,27 +17,27 @@ const metadata = JSON.parse(readFileSync(new URL('../../package.json', import.me
 test('Linux packages and Windows installation resources have separate development names', () => {
   const mainInfo = new AppInfo({ config: prod, metadata })
   const devInfo = new AppInfo({ config: dev, metadata: { ...metadata, ...dev.extraMetadata } })
-  assert.equal(mainInfo.linuxPackageName, 'codync-desktop')
-  assert.equal(devInfo.linuxPackageName, 'codync-desktop-dev')
+  assert.equal(mainInfo.linuxPackageName, 'kith-desktop')
+  assert.equal(devInfo.linuxPackageName, 'kith-desktop-dev')
   assert.notEqual(devInfo.updaterCacheDirName, mainInfo.updaterCacheDirName)
   assert.notEqual(getWindowsInstallationDirName(devInfo, true), getWindowsInstallationDirName(mainInfo, true))
   assert.notEqual(getWindowsInstallationAppPackageName(devInfo.name), getWindowsInstallationAppPackageName(mainInfo.name))
-  assert.equal(dev.extraMetadata.desktopName, 'codync-dev.desktop')
+  assert.equal(dev.extraMetadata.desktopName, 'kith-dev.desktop')
 })
 
 test('development packaging registers only development callbacks and background helpers', () => {
   assert.equal(dev.appId, 'com.yingkailiao.kith.dev')
   assert.equal(dev.productName, 'Kith Dev')
   assert.equal(dev.publish, null)
-  assert.ok(new RegExp(dev.mac.signIgnore[0]).test('CodyncDevScreen.app/Contents/Helpers/cua-driver'))
-  assert.deepEqual(dev.protocols.flatMap((p: { schemes: string[] }) => p.schemes), ['kith-dev', 'codync-dev', 'com.yingkailiao.kith.dev'])
+  assert.ok(new RegExp(dev.mac.signIgnore[0]).test('KithDevScreen.app/Contents/Helpers/cua-driver'))
+  assert.deepEqual(dev.protocols.flatMap((p: { schemes: string[] }) => p.schemes), ['kith-dev', 'com.yingkailiao.kith.dev'])
   assert.deepEqual(dev.mac.extraFiles.map((f: { to: string }) => f.to), [
-    'Library/LoginItems/CodyncDevScreen.app',
+    'Library/LoginItems/KithDevScreen.app',
     'Library/LaunchAgents/com.yingkailiao.kith.dev.screen.plist',
   ])
   assert.ok(dev.win.extraResources.some((f: { to: string }) => f.to === 'kith-servew.exe'))
   assert.ok(!dev.win.extraResources.some((f: { to: string }) => f.to === 'kith-servew-main.exe'))
-  assert.equal(dev.linux.executableName, 'codync-dev')
+  assert.equal(dev.linux.executableName, 'kith-dev')
 })
 
 test('the Mac app bundles the service binary and the kith release layout', () => {

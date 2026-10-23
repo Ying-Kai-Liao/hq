@@ -15,7 +15,7 @@ const locations = [
   '/usr/local/bin',
   '/home/linuxbrew/.linuxbrew/bin',
   '/user home/.local/bin',
-  '/Applications/Codync.app/Contents/Resources',
+  '/Applications/Kith.app/Contents/Resources',
 ]
 
 function probe(installed: string[]) {
@@ -166,7 +166,7 @@ for (const kind of ['info', 'tunnel', 'resolve'] as const) {
 }
 
 for (const [preferred, fallback] of [
-  ['/opt/homebrew/bin', '/Applications/Codync.app/Contents/Resources'],
+  ['/opt/homebrew/bin', '/Applications/Kith.app/Contents/Resources'],
 ]) {
   test(`SSH prefers ${preferred} over ${fallback}`, { skip: process.platform === 'win32' }, () => {
     const result = probe([preferred, fallback])

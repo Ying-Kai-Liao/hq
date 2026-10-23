@@ -746,7 +746,7 @@
 				CODYNC_IOS_BUNDLE_ID = com.yingkailiao.kith.ios.dev;
 				CODYNC_KEYCHAIN_GROUP = com.yingkailiao.kith.dev;
 				CODYNC_SCREEN_BUNDLE_ID = com.yingkailiao.kith.dev.screen;
-				CODYNC_SCREEN_NAME = CodyncDevScreen;
+				CODYNC_SCREEN_NAME = KithDevScreen;
 				CODYNC_LEGACY_URL_SCHEME = "codync-dev";
 				CODYNC_URL_SCHEME = "kith-dev";
 				COPY_PHASE_STRIP = NO;
@@ -853,8 +853,8 @@
 				CODYNC_ENV = main;
 				CODYNC_IOS_BUNDLE_ID = com.yingkailiao.kith.ios;
 				CODYNC_KEYCHAIN_GROUP = com.yingkailiao.kith;
-				CODYNC_SCREEN_BUNDLE_ID = com.pokai.Codync.screen;
-				CODYNC_SCREEN_NAME = CodyncScreen;
+				CODYNC_SCREEN_BUNDLE_ID = com.yingkailiao.kith.screen;
+				CODYNC_SCREEN_NAME = KithScreen;
 				CODYNC_LEGACY_URL_SCHEME = codync;
 				CODYNC_URL_SCHEME = kith;
 				COPY_PHASE_STRIP = NO;
@@ -1110,8 +1110,8 @@
 				CODYNC_ENV = main;
 				CODYNC_IOS_BUNDLE_ID = com.yingkailiao.kith.ios;
 				CODYNC_KEYCHAIN_GROUP = com.yingkailiao.kith;
-				CODYNC_SCREEN_BUNDLE_ID = com.pokai.Codync.screen;
-				CODYNC_SCREEN_NAME = CodyncScreen;
+				CODYNC_SCREEN_BUNDLE_ID = com.yingkailiao.kith.screen;
+				CODYNC_SCREEN_NAME = KithScreen;
 				CODYNC_LEGACY_URL_SCHEME = codync;
 				CODYNC_URL_SCHEME = kith;
 				COPY_PHASE_STRIP = NO;
@@ -1271,7 +1271,7 @@
 				CODYNC_IOS_BUNDLE_ID = com.yingkailiao.kith.ios.dev;
 				CODYNC_KEYCHAIN_GROUP = com.yingkailiao.kith.dev;
 				CODYNC_SCREEN_BUNDLE_ID = com.yingkailiao.kith.dev.screen;
-				CODYNC_SCREEN_NAME = CodyncDevScreen;
+				CODYNC_SCREEN_NAME = KithDevScreen;
 				CODYNC_LEGACY_URL_SCHEME = "codync-dev";
 				CODYNC_URL_SCHEME = "kith-dev";
 				COPY_PHASE_STRIP = NO;
