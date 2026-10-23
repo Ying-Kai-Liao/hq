@@ -110,6 +110,7 @@ test('a session file of another project written during the run counts: no stub',
   const other = join(t.agents, 'builder/memory/sessions/renamed.md')
   mkdirSync(join(other, '..'), { recursive: true })
   writeFileSync(other, 'mine')
+  utimesSync(other, new Date(Date.now() + 5000), new Date(Date.now() + 5000))   // coarse mtimes on CI
   await t.fire('classic.SubagentStop', { agent_id: 'a3', last_assistant_message: 'done' })
   expect(existsSync(join(t.agents, 'builder/memory/sessions/kith.md'))).toBe(false)
 })
