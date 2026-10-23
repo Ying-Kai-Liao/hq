@@ -13,6 +13,7 @@
 //! The model loads before the first line is read. Usage: `kith-tts <model directory>`.
 
 use base64::{Engine, engine::general_purpose::STANDARD};
+use kith_tts::{finish, wav};
 use ptts::checkpoint::{Checkpoint, ResolveOptions};
 use ptts::preprocess::Lang;
 use ptts::synth::{DeviceKind, Quant, SpeechOptions, Synth};
@@ -77,35 +78,12 @@ fn run(tts: &mut Synth, req: &Value) -> Result<Value, String> {
             }
             let pcm = tts.say_with(text, &options).map_err(|e| e.to_string())?;
             let rate = tts.sample_rate();
+            let pcm = finish(&pcm, rate);
             Ok(json!({"audio": STANDARD.encode(wav(&pcm, rate)), "sampleRate": rate}))
         }
         Some("status") => Ok(json!({"rssBytes": rss_bytes(), "voices": tts.voices()})),
         other => Err(format!("unknown method {other:?}")),
     }
-}
-
-/// 16-bit mono PCM in a WAV container.
-fn wav(samples: &[f32], rate: u32) -> Vec<u8> {
-    let len = u32::try_from(samples.len() * 2).unwrap_or(u32::MAX);
-    let mut out = Vec::with_capacity(samples.len() * 2 + 44);
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&(36 + len).to_le_bytes());
-    out.extend_from_slice(b"WAVEfmt ");
-    out.extend_from_slice(&16u32.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
-    out.extend_from_slice(&1u16.to_le_bytes()); // mono
-    out.extend_from_slice(&rate.to_le_bytes());
-    out.extend_from_slice(&(rate * 2).to_le_bytes());
-    out.extend_from_slice(&2u16.to_le_bytes());
-    out.extend_from_slice(&16u16.to_le_bytes());
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&len.to_le_bytes());
-    for s in samples {
-        #[allow(clippy::cast_possible_truncation)]
-        let v = (s.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16;
-        out.extend_from_slice(&v.to_le_bytes());
-    }
-    out
 }
 
 /// Resident memory of this process, from `ps` (no unsafe code needed); 0 when `ps` can't say.
@@ -117,21 +95,4 @@ fn rss_bytes() -> u64 {
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .and_then(|s| s.trim().parse::<u64>().ok())
         .map_or(0, |kb| kb * 1024)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn wav_has_a_valid_header_and_clamps() {
-        let w = wav(&[0.0, 1.0, -2.0], 24_000);
-        assert_eq!(&w[..4], b"RIFF");
-        assert_eq!(&w[8..12], b"WAVE");
-        assert_eq!(u32::from_le_bytes(w[24..28].try_into().unwrap()), 24_000);
-        assert_eq!(u32::from_le_bytes(w[40..44].try_into().unwrap()), 6);
-        assert_eq!(i16::from_le_bytes(w[46..48].try_into().unwrap()), i16::MAX);
-        assert_eq!(i16::from_le_bytes(w[48..50].try_into().unwrap()), -i16::MAX);
-        assert_eq!(w.len(), 44 + 6);
-    }
 }

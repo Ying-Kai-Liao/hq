@@ -19,6 +19,7 @@ mod screen;
 mod service;
 mod shell;
 mod store;
+mod terminal;
 mod tui;
 mod update;
 mod usage;

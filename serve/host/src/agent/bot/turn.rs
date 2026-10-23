@@ -242,6 +242,8 @@ impl Actor {
             return;
         }
         let compaction = self.compacting.is_some();
+        // A terminal thread's transcript now holds this turn: it isn't imported again.
+        crate::terminal::host_turn_ended(&self.hub, &self.lane);
         self.after_turn(done);
         // The bot's own edits to its memory files, checked and shown in the chat it made them from.
         if !self.is_hq() {

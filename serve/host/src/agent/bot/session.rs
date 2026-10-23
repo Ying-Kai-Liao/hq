@@ -462,6 +462,22 @@ impl Actor {
         }
     }
 
+    /// A terminal wrote to the session of `lane`'s thread: what this actor cached of it is stale, so the next turn
+    /// loads the stored session again. A turn running there is left alone.
+    pub(super) fn forget_loaded(&mut self, lane: &Lane) {
+        let Some(root) = lane.thread.as_deref().filter(|_| lane.chat == self.cfg.id) else { return };
+        if self.turn.is_some() && self.lane == *lane {
+            return;
+        }
+        let stored = self.hub.store.kv_get(&lane_key("session", &self.cfg.id, lane)).filter(|s| !s.is_empty());
+        let cached = self.thread_sessions.remove(root);
+        if let Some(conn) = self.conn.as_mut() {
+            for sid in cached.into_iter().chain(stored) {
+                conn.loaded.remove(&sid);
+            }
+        }
+    }
+
     /// Drops the session of the actor's own place so its next turn starts a fresh one.
     pub(super) fn forget_session(&mut self) {
         let slot = self.slot(&self.home);

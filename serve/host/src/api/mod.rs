@@ -21,6 +21,7 @@ pub(crate) mod rig;
 pub mod roles;
 #[cfg(test)]
 mod roles_tests;
+mod threads;
 
 pub use events::{events_stream, term_events};
 pub use http::router;
@@ -52,7 +53,10 @@ pub fn error_status(e: &anyhow::Error) -> (StatusCode, String) {
         (StatusCode::NOT_FOUND, e.to_string())
     } else if e.is::<Forbidden>() || e.is::<NotAllowed>() {
         (StatusCode::FORBIDDEN, e.to_string())
-    } else if e.is::<crate::remote::cloud::Conflict>() {
+    } else if e.is::<crate::remote::cloud::Conflict>()
+        || e.is::<crate::terminal::HeldByWriter>()
+        || e.is::<crate::terminal::TerminalBusy>()
+    {
         (StatusCode::CONFLICT, e.to_string())
     } else {
         // `{:#}` keeps the context chain ("starting `npx …`: No such file or directory").
@@ -127,6 +131,10 @@ async fn route(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Resul
         ControlFlow::Continue(b) => b,
     };
     let b = match bots::call(hub, method, b).await? {
+        ControlFlow::Break(v) => return Ok(v),
+        ControlFlow::Continue(b) => b,
+    };
+    let b = match threads::call(hub, method, b).await? {
         ControlFlow::Break(v) => return Ok(v),
         ControlFlow::Continue(b) => b,
     };

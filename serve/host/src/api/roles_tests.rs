@@ -77,6 +77,7 @@ fn router_methods() -> BTreeSet<String> {
         include_str!("marketplace.rs"),
         include_str!("remote.rs"),
         include_str!("people.rs"),
+        include_str!("threads.rs"),
     ];
     let mut out = BTreeSet::new();
     for src in sources {
@@ -494,4 +495,61 @@ async fn changing_and_revoking_a_persons_access() {
     // The invite that was open is closed with them.
     assert!(r.hub.store.invites().unwrap().iter().all(|i| !i.open(now_ms())));
     let _ = Arc::strong_count(&r.hub);
+}
+
+#[tokio::test]
+async fn an_invitee_never_reaches_a_terminal_thread() {
+    let r = Rig::new().await;
+    let owner_house = r.owner_bot("house");
+    let (sam, _) = joined(&r, json!({"house": "member"})).await;
+    let started = call(&r, &sam, "startChat", json!({"agent": "house"})).await.unwrap();
+    let theirs = started["bot"]["id"].as_str().unwrap().to_owned();
+
+    // A terminal session of the owner's `house` agent becomes a thread in the owner's bot.
+    let state = r.dir.join("term-state");
+    let reg_dir = state.join("live").join("terminal");
+    std::fs::create_dir_all(&reg_dir).unwrap();
+    let transcript = r.dir.join("tsess-1.jsonl");
+    let user = json!({"type": "user", "timestamp": "2026-10-23T01:00:00Z", "message": {"content": "terminal secret"}});
+    std::fs::write(&transcript, format!("{user}\n")).unwrap();
+    let reg = json!({
+        "v": 1, "sessionId": "tsess-1", "agent": "house", "cwd": r.dir.to_string_lossy(),
+        "transcriptPath": transcript.to_string_lossy(), "pid": 2_000_000_000u32, "project": null,
+        "source": "startup", "resumedFrom": null, "startedAt": "2026-10-23T01:00:00Z",
+    });
+    std::fs::write(reg_dir.join("tsess-1.json"), reg.to_string()).unwrap();
+    r.hub.terminal.set_env(crate::terminal::Env { state, sessions: Some(r.dir.join("sessions")) });
+    crate::terminal::scan(&r.hub);
+    let root = r.hub.store.history(&owner_house, i64::MAX, 10).unwrap().pop().expect("the terminal thread");
+    assert_eq!(root.data["text"], "terminal secret");
+    assert!(r.hub.store.history(&theirs, i64::MAX, 10).unwrap().is_empty(), "nothing lands in their chat");
+
+    // The owner reaches it; the invitee reaches none of it.
+    let seen = call(&r, &Caller::Local, "resolveThread", json!({"thread": root.id})).await.unwrap();
+    assert_eq!(seen["sessionId"], "tsess-1");
+    for (method, body) in [
+        ("history", json!({"botId": owner_house})),
+        ("thread", json!({"botId": owner_house, "rootId": root.id})),
+        ("send", json!({"botId": owner_house, "threadId": root.id, "text": "hi"})),
+        ("resolveThread", json!({"thread": root.id})),
+        ("resolveThread", json!({"thread": "tsess-1"})),
+        ("takeOverThread", json!({"botId": owner_house, "threadId": root.id})),
+    ] {
+        let e = call(&r, &sam, method, body.clone()).await.expect_err(method);
+        assert!(denied(&e), "{method} {body}: {e:#}");
+    }
+    // Naming the owner's thread from their own chat reaches nothing either.
+    let e = call(&r, &sam, "send", json!({"botId": theirs, "threadId": root.id, "text": "hi"})).await.unwrap_err();
+    assert!(e.to_string().contains("threads start from a message"), "{e:#}");
+    assert!(!roles::member_may("resolveThread") && !roles::member_may("takeOverThread"));
+
+    // No event of it reaches them; the owner's stream has it.
+    let sam_view = events(&r, &sam).await;
+    assert!(sam_view.iter().all(|e| e["type"] != "entry" || e["entry"]["botId"] == theirs.as_str()));
+    assert!(!serde_json::to_string(&sam_view).unwrap().contains("terminal secret"));
+    let entry_event = json!({"type": "entry", "rev": 1, "entry": root});
+    assert!(roles::event_for(&r.hub.store, Some("sam"), entry_event.clone()).is_none());
+    assert!(roles::event_for(&r.hub.store, None, entry_event).is_some());
+    let owner_view = events(&r, &Caller::Local).await;
+    assert!(serde_json::to_string(&owner_view).unwrap().contains("terminal secret"));
 }
