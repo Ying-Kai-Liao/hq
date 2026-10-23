@@ -85,7 +85,10 @@ impl Hub {
                 tracing::info!(agent = %agent.name, home = %agent.home, "hq agent folder missing; no bot");
                 continue;
             }
-            let mine = |b: &&crate::store::BotRow| b.config.hq_agent.as_deref() == Some(agent.name.as_str());
+            // An invitee's chat with the agent is not the agent's own bot.
+            let mine = |b: &&crate::store::BotRow| {
+                b.config.hq_agent.as_deref() == Some(agent.name.as_str()) && b.config.person.is_none()
+            };
             let Some(row) = rows.iter().find(mine) else {
                 self.create_bot(new_bot(agent))?;
                 done.created.push(agent.name.clone());

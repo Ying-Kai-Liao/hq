@@ -1,6 +1,7 @@
 //! Event streams shared by SSE and channels: catch-up then live events, and setup terminals.
 
-use super::devices::Caller;
+use super::devices::{Caller, Principal, principal};
+use super::roles;
 use crate::LockExt;
 use crate::hub::Hub;
 use anyhow::Result;
@@ -59,6 +60,12 @@ pub fn events_stream(
     caller: &Caller,
 ) -> Result<impl Stream<Item = Value> + Send + use<>> {
     let live = BroadcastStream::new(hub.events.subscribe());
+    // None is the owner, who never sees an invitee's chats; an invited person sees only their own.
+    let who: Option<String> = match principal(&hub.store, caller) {
+        Principal::Owner => None,
+        Principal::Member(p) => Some(p),
+        Principal::Nobody => anyhow::bail!("this device isn't allowed on this computer"),
+    };
     let mut catch_up: Vec<Value> = vec![];
     for bot in hub.bots_json(since)? {
         catch_up.push(json!({"type": "bot", "rev": bot["rev"], "bot": bot}));
@@ -66,6 +73,8 @@ pub fn events_stream(
     for e in hub.store.entries_since(since, CATCH_UP_PER_BOT)? {
         catch_up.push(json!({"type": "entry", "rev": e.rev, "entry": e}));
     }
+    let mut catch_up: Vec<Value> =
+        catch_up.into_iter().filter_map(|v| roles::event_for(&hub.store, who.as_deref(), v)).collect();
     catch_up.sort_by_key(|v| v["rev"].as_i64().unwrap_or(0));
     let hello = json!({
         "type": "hello",
@@ -75,16 +84,18 @@ pub fn events_stream(
         "usage": hub.usage.locked().clone(),
         "screen": hub.screen.state(),
     });
-    catch_up.insert(0, hello);
+    catch_up.insert(0, if who.is_some() { roles::hello_for(&hello) } else { hello });
 
     let local = matches!(caller, Caller::Local);
     let guard = Arc::new(matches!(client, Some("ios" | "android")).then(|| PhoneClientGuard::new(hub.clone())));
+    let hub = hub.clone();
     let tail = live.filter_map(move |msg| {
         let _keep = guard.clone();
+        let (hub, who) = (hub.clone(), who.clone());
         async move {
             match msg {
                 Ok(v) if !local && v["type"].as_str().is_some_and(|t| LOCAL_EVENTS.contains(&t)) => None,
-                Ok(v) => Some(v),
+                Ok(v) => roles::event_for(&hub.store, who.as_deref(), v),
                 // Lagged: tell the client to resync from its last rev.
                 Err(_) => Some(json!({"type": "resync"})),
             }

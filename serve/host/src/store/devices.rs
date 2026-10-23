@@ -39,6 +39,8 @@ pub struct Device {
     pub lease_until: Option<i64>,
     pub created_at: i64,
     pub last_seen_at: Option<i64>,
+    /// The invited person this device belongs to (a kith-auth person id); None is the owner.
+    pub person_id: Option<String>,
 }
 
 /// A push ticket with the device's push key (§6.7) and account context.
@@ -49,7 +51,8 @@ pub struct PushTicket {
     pub device_key: String,
 }
 
-const DEVICE_COLS: &str = "key, name, platform, source, grant_id, scopes, lease_until, created_at, last_seen_at";
+const DEVICE_COLS: &str =
+    "key, name, platform, source, grant_id, scopes, lease_until, created_at, last_seen_at, person_id";
 
 fn row_device(r: &rusqlite::Row) -> rusqlite::Result<Device> {
     let source: String = r.get(3)?;
@@ -66,6 +69,7 @@ fn row_device(r: &rusqlite::Row) -> rusqlite::Result<Device> {
         lease_until: r.get(6)?,
         created_at: r.get(7)?,
         last_seen_at: r.get(8)?,
+        person_id: r.get(9)?,
     })
 }
 
@@ -86,10 +90,10 @@ impl Store {
     pub fn put_device(&self, d: &Device) -> Result<()> {
         let c = self.db.locked();
         c.execute(
-            "INSERT INTO devices(key, name, platform, source, grant_id, scopes, lease_until, created_at)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "INSERT INTO devices(key, name, platform, source, grant_id, scopes, lease_until, created_at, person_id)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(key) DO UPDATE SET name = ?2, platform = ?3, source = ?4, grant_id = ?5,
-               scopes = ?6, lease_until = ?7",
+               scopes = ?6, lease_until = ?7, person_id = ?9",
             params![
                 d.key,
                 d.name,
@@ -98,7 +102,8 @@ impl Store {
                 d.grant_id,
                 serde_json::to_string(&d.scopes)?,
                 d.lease_until,
-                d.created_at
+                d.created_at,
+                d.person_id
             ],
         )?;
         Ok(())
@@ -113,6 +118,11 @@ impl Store {
         tx.execute("DELETE FROM activity_tickets WHERE device_key = ?1", [key])?;
         tx.commit()?;
         Ok(n > 0)
+    }
+
+    /// The devices that belong to an invited person.
+    pub fn devices_of(&self, person: &str) -> Result<Vec<Device>> {
+        Ok(self.devices()?.into_iter().filter(|d| d.person_id.as_deref() == Some(person)).collect())
     }
 
     /// Extends an account device's lease (the cloud still lists its grant).
@@ -235,6 +245,7 @@ mod tests {
             lease_until: None,
             created_at: 1,
             last_seen_at: None,
+            person_id: None,
         };
         s.put_device(&d).unwrap();
         s.put_device(&Device { key: "dk2".into(), ..d.clone() }).unwrap();

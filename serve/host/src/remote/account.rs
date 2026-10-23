@@ -2,7 +2,7 @@
 //! `kith-auth who kith <clerk user id>` finds the same person who talks on Telegram. Only the kith-auth CLI writes
 //! auth.json; this module never touches the file.
 
-use crate::api::devices::Caller;
+use crate::api::devices::{self, Caller, Principal};
 use crate::channels::hq::{self, Who};
 use crate::hub::Hub;
 use crate::store::{Store, now_ms};
@@ -23,12 +23,31 @@ const LINK_MINUTES: u32 = 15;
 
 /// kith-auth for this host, or None when the host must not touch it. A throwaway `KITH_SERVE_HOME` shares the real
 /// ~/.kith with the Mac's own kith, so it only gets in when the test points `KITH_AUTH` somewhere else.
-fn auth_bin() -> Option<PathBuf> {
+pub(crate) fn auth_bin() -> Option<PathBuf> {
     let temporary = cfg!(test) || crate::service::data_dir() != crate::service::default_data_dir();
     if temporary && std::env::var_os("KITH_AUTH").is_none() {
         return None;
     }
     hq::Paths::discover().map(|p| p.auth_bin)
+}
+
+/// Tests point the host at their own copy of kith-auth without going through discovery.
+#[cfg(test)]
+pub(crate) static TEST_BIN: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+/// Found once: discovery may ask the login shell, and every request from an invited person needs the answer.
+static FOUND_BIN: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// kith-auth for this host (see `auth_bin`), looked for once off the async workers.
+pub(crate) async fn bin() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(b) = TEST_BIN.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone() {
+        return Some(b);
+    }
+    if let Some(b) = FOUND_BIN.get() {
+        return Some(b.clone());
+    }
+    let found = tokio::task::spawn_blocking(auth_bin).await.ok().flatten()?;
+    Some(FOUND_BIN.get_or_init(|| found).clone())
 }
 
 /// After a successful pull: makes the owner person's `kith` handle match the claiming account. Never fails the pull.
@@ -86,12 +105,12 @@ async fn apply(store: &Store, bin: &Path, owner: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-async fn who(bin: &Path, uid: &str) -> Who {
+pub(crate) async fn who(bin: &Path, uid: &str) -> Who {
     let out = hq::output(bin, &["who", PLATFORM, uid]).await;
     out.and_then(|o| serde_json::from_slice::<Value>(&o.stdout).ok()).map_or_else(Who::default, |v| Who::parse(&v))
 }
 
-async fn run(bin: &Path, args: &[&str]) -> Result<String> {
+pub(crate) async fn run(bin: &Path, args: &[&str]) -> Result<String> {
     let out = hq::output(bin, args).await.ok_or_else(|| anyhow!("kith-auth didn't run"))?;
     if !out.status.success() {
         bail!("{}", String::from_utf8_lossy(&out.stderr).trim());
@@ -99,9 +118,21 @@ async fn run(bin: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// Which person a call is for. Phase A: every paired or claimed device is the owner, so it is the owner person;
-/// phase B maps `Caller::Device` keys to invited people here.
-async fn caller_person(bin: &Path, _caller: &Caller) -> Result<String> {
+/// Which kith-auth person a call is for: the owner person for Local and owner devices, the invited person for a
+/// member's device. The one place that maps a caller to a person.
+pub async fn caller_person(hub: &Hub, bin: &Path, caller: &Caller) -> Result<String> {
+    person_of(bin, &devices::principal(&hub.store, caller)).await
+}
+
+pub async fn person_of(bin: &Path, who: &Principal) -> Result<String> {
+    match who {
+        Principal::Member(person) => Ok(person.clone()),
+        Principal::Owner => who_owner(bin).await,
+        Principal::Nobody => bail!("this device isn't allowed on this computer"),
+    }
+}
+
+async fn who_owner(bin: &Path) -> Result<String> {
     who(bin, "-")
         .await
         .owner_id
@@ -109,11 +140,9 @@ async fn caller_person(bin: &Path, _caller: &Caller) -> Result<String> {
 }
 
 /// `linkCode`: a one-time code the caller's person sends as `/link <code>` to the Kith bot on Telegram, Discord or Slack.
-pub async fn link_code(caller: &Caller) -> Result<Value> {
-    let bin = tokio::task::spawn_blocking(auth_bin)
-        .await?
-        .ok_or_else(|| anyhow!("Linking isn't available on this computer (kith-auth not found)."))?;
-    let person = caller_person(&bin, caller).await?;
+pub async fn link_code(hub: &Hub, caller: &Caller) -> Result<Value> {
+    let bin = bin().await.ok_or_else(|| anyhow!("Linking isn't available on this computer (kith-auth not found)."))?;
+    let person = caller_person(hub, &bin, caller).await?;
     let out = run(&bin, &["invite", &person, &LINK_MINUTES.to_string()]).await?;
     let code = out.lines().next().unwrap_or("").trim().to_owned();
     if code.is_empty() {
@@ -121,6 +150,10 @@ pub async fn link_code(caller: &Caller) -> Result<Value> {
     }
     Ok(json!({"code": code, "expiresAt": now_ms() + i64::from(LINK_MINUTES) * 60_000}))
 }
+
+/// Tests that point `KITH_AUTH` somewhere hold this: the environment is process-wide.
+#[cfg(test)]
+pub(crate) static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[cfg(test)]
 mod tests {
@@ -167,8 +200,6 @@ mod tests {
             serde_json::from_str(&self.auth(&["who", "kith", uid])).unwrap()
         }
     }
-
-    static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     #[tokio::test]
     async fn claimed_binds_the_owner_and_unclaimed_removes_it() {
@@ -220,7 +251,9 @@ mod tests {
         let r = Rig::new();
         r.auth(&["person", "kai", "owner"]);
         r.point_env();
-        assert_eq!(caller_person(&r.bin, &Caller::Local).await.unwrap(), "kai");
+        assert_eq!(person_of(&r.bin, &Principal::Owner).await.unwrap(), "kai");
+        assert_eq!(person_of(&r.bin, &Principal::Member("sam".into())).await.unwrap(), "sam");
+        assert!(person_of(&r.bin, &Principal::Nobody).await.is_err());
         let out = run(&r.bin, &["invite", "kai", "15"]).await.unwrap();
         assert_eq!(out.lines().next().unwrap().len(), 6);
     }

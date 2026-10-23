@@ -158,6 +158,8 @@ struct Request {
     host_nonce: [u8; 32],
     /// The SAS, once the device revealed a nonce that matches its commit.
     code: Option<String>,
+    /// The invited person that account is on this computer; None is the owner.
+    person: Option<String>,
     created_at: i64,
     expires_at: i64,
 }
@@ -170,6 +172,7 @@ impl Request {
             "deviceName": self.device_name,
             "platform": self.platform,
             "email": self.email,
+            "personId": self.person,
             "code": self.code,
             "createdAt": self.created_at,
             "expiresAt": self.expires_at,
@@ -333,17 +336,24 @@ pub async fn screen_ice(hub: &Hub, device_key: &str) -> Result<crate::screen::Ic
 #[serde(rename_all = "camelCase")]
 struct State {
     owner: Option<Owner>,
+    /// None from a cloud that predates invites: the memberships this host knows are left alone.
+    #[serde(default)]
+    memberships: Option<Vec<super::members::Listed>>,
     #[serde(default)]
     grants: Vec<Grant>,
     #[serde(default)]
     requests: Vec<StateRequest>,
 }
 
+#[allow(clippy::struct_field_names, reason = "wire names")]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Grant {
     pub grant_id: String,
     pub device_key: String,
+    /// The account that owns the device.
+    #[serde(default)]
+    pub user_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -356,6 +366,7 @@ struct StateRequest {
     #[serde(default)]
     platform: String,
     #[serde(default)]
+    user_id: Option<String>,
     email: Option<String>,
     commit: String,
     #[serde(default)]
@@ -373,28 +384,60 @@ pub async fn pull(hub: &Hub, base: &str) -> Result<()> {
     let _one = hub.cloud.pulling.lock().await;
     let state: State = serde_json::from_value(call(hub, base, Method::GET, "/v1/host/state", None).await?)
         .context("reading the cloud state")?;
-    apply_grants(hub, &state.grants)?;
     let owner_uid = state.owner.as_ref().map(|o| o.user_id.clone());
+    // Before the grants: a member's device is kept only while its account is bound to its person.
+    super::members::sync(hub, state.memberships.as_deref()).await;
+    apply_grants(hub, &state.grants, owner_uid.as_deref())?;
     update_status(hub, |s| s.owner = state.owner);
     super::account::sync(hub, owner_uid.as_deref()).await;
-    sync_requests(hub, base, state.requests).await;
-    if approval(&hub.store) == Approval::Auto {
-        // The SAS exchange still runs (the device's commit must match); only the user's comparison is skipped.
-        let ready: Vec<String> =
-            hub.cloud.requests.locked().iter().filter(|r| r.code.is_some()).map(|r| r.id.clone()).collect();
-        for id in ready {
-            if let Err(e) = decide(hub, &id, true).await {
-                tracing::warn!(error = format!("{e:#}"), request_id = id, "couldn't auto-approve an access request");
-            }
+    sync_requests(hub, base, state.requests, owner_uid.as_deref()).await;
+    let auto = approval(&hub.store) == Approval::Auto;
+    // A member of this computer was invited by its owner, so their devices don't wait for a comparison.
+    let ready: Vec<String> = hub
+        .cloud
+        .requests
+        .locked()
+        .iter()
+        .filter(|r| r.code.is_some() && (auto || r.person.is_some()))
+        .map(|r| r.id.clone())
+        .collect();
+    // The SAS exchange still runs (the device's commit must match); only the user's comparison is skipped.
+    for id in ready {
+        if let Err(e) = decide(hub, &id, true).await {
+            tracing::warn!(error = format!("{e:#}"), request_id = id, "couldn't auto-approve an access request");
         }
     }
     retry_revokes(hub, base).await;
+    super::members::retry_revokes(hub).await;
     Ok(())
 }
 
+/// Whether a grant's account is the one this device was approved for: a member's device needs the account bound to
+/// its person, the owner's needs the owner's account. A cloud that doesn't name the account (older) is taken as
+/// the owner's.
+fn grant_matches(hub: &Hub, d: &Device, user_id: Option<&str>, owner_uid: Option<&str>) -> bool {
+    match (&d.person_id, user_id) {
+        (Some(person), Some(u)) => hub.store.membership_of_user(u).is_some_and(|m| &m.person_id == person),
+        (Some(_), None) => false,
+        (None, Some(u)) => owner_uid == Some(u),
+        (None, None) => true,
+    }
+}
+
+/// Whose access request this is: Ok(None) the owner's, Ok(Some(person)) an invited person's, Err when the account is
+/// neither (the cloud lists only owner and member requests, so this is a stale or forged one).
+fn requester(hub: &Hub, owner_uid: Option<&str>, user_id: Option<&str>) -> Result<Option<String>, &'static str> {
+    match user_id {
+        None => Ok(None),
+        Some(u) if owner_uid == Some(u) => Ok(None),
+        Some(u) => hub.store.membership_of_user(u).map(|m| Some(m.person_id)).ok_or("not a member of this computer"),
+    }
+}
+
 /// The cloud can only shorten access: a local account device listed with the same grant and
-/// key is renewed, one missing is removed; grants this host never approved are ignored.
-pub fn apply_grants(hub: &Hub, grants: &[Grant]) -> Result<()> {
+/// key is renewed, one missing is removed; grants this host never approved are ignored, and so are grants
+/// whose account is not the device's owner or its bound person.
+pub fn apply_grants(hub: &Hub, grants: &[Grant], owner_uid: Option<&str>) -> Result<()> {
     let until = now_ms() + LEASE_MS;
     let mut known = vec![false; grants.len()];
     for d in hub.store.devices()? {
@@ -404,7 +447,12 @@ pub fn apply_grants(hub: &Hub, grants: &[Grant]) -> Result<()> {
         let listed = grants.iter().position(|g| Some(&g.grant_id) == d.grant_id.as_ref() && g.device_key == d.key);
         if let Some(i) = listed {
             known[i] = true;
-            hub.store.set_lease(&d.key, until)?;
+            if grant_matches(hub, &d, grants[i].user_id.as_deref(), owner_uid) {
+                hub.store.set_lease(&d.key, until)?;
+            } else {
+                tracing::warn!(device = d.key, "grant's account doesn't match the device; removing it");
+                hub.revoke_device(&d.key)?;
+            }
         } else {
             tracing::info!(device = d.key, "account device's grant is gone from the cloud");
             hub.revoke_device(&d.key)?;
@@ -424,7 +472,7 @@ enum Next {
 }
 
 /// Keeps the pending access requests in step with the cloud (§4.2 B steps 4 and 6).
-async fn sync_requests(hub: &Hub, base: &str, list: Vec<StateRequest>) {
+async fn sync_requests(hub: &Hub, base: &str, list: Vec<StateRequest>, owner_uid: Option<&str>) {
     let mut next = vec![];
     let mut changed = false;
     let mut throttled = false;
@@ -454,6 +502,9 @@ async fn sync_requests(hub: &Hub, base: &str, list: Vec<StateRequest>) {
                     || next.iter().any(|n| matches!(n, Next::Offer(r) if r.device_key == dk))
                 {
                     // One unrevealed request per device at a time; this one waits its turn.
+                } else if let Err(why) = requester(hub, owner_uid, s.user_id.as_deref()) {
+                    tracing::warn!(request_id = s.request_id, why, "denying an access request from an unknown account");
+                    next.push(Next::Deny(s.request_id.clone()));
                 } else if budget.len() >= SAS_NONCES_PER_HOUR {
                     throttled = true;
                 } else {
@@ -464,6 +515,7 @@ async fn sync_requests(hub: &Hub, base: &str, list: Vec<StateRequest>) {
                         device_name: s.device_name.clone(),
                         platform: s.platform.clone(),
                         email: s.email.clone(),
+                        person: requester(hub, owner_uid, s.user_id.as_deref()).unwrap_or_default(),
                         commit,
                         host_nonce: crypto::random(),
                         code: None,
@@ -571,6 +623,16 @@ pub async fn decide(hub: &Hub, id: &str, approve: bool) -> Result<()> {
     if approve && r.code.is_none() {
         return Err(Conflict("The device hasn't shown its code yet.").into());
     }
+    if approve
+        && let Some(person) = &r.person
+        && !hub.store.memberships()?.iter().any(|m| &m.person_id == person)
+    {
+        // Their membership ended while the request waited.
+        drop(decision(hub, &base, id, false).await);
+        hub.cloud.requests.locked().retain(|x| x.id != id);
+        emit_requests(hub);
+        bail!("That account is no longer a member of this computer.");
+    }
     let answer = decision(hub, &base, id, approve).await;
     hub.cloud.requests.locked().retain(|x| x.id != id);
     emit_requests(hub);
@@ -592,6 +654,7 @@ pub async fn decide(hub: &Hub, id: &str, approve: bool) -> Result<()> {
         lease_until: Some(now_ms() + LEASE_MS),
         created_at: now_ms(),
         last_seen_at: None,
+        person_id: r.person,
     })?;
     tracing::info!(grant_id = grant, "account device approved");
     hub.auth_changed();
@@ -641,6 +704,18 @@ async fn retry_revokes(hub: &Hub, base: &str) {
         }
     }
     set_pending_revokes(&hub.store, &left);
+}
+
+// MARK: invites and memberships
+
+/// A signed `POST /v1/host/*` for the invite calls (`path` from `/v1/host/`).
+pub async fn post(hub: &Hub, path: &str, body: &Value) -> Result<Value> {
+    call(hub, &base(hub)?, Method::POST, path, Some(body)).await
+}
+
+/// Whether `e` is the cloud answering with `status`.
+pub fn refused_with(e: &anyhow::Error, status: u16) -> bool {
+    cloud_status_of(e) == Some(status)
 }
 
 // MARK: loopback methods
@@ -697,6 +772,7 @@ mod tests {
             lease_until: Some(now_ms() + 1000),
             created_at: now_ms(),
             last_seen_at: None,
+            person_id: None,
         }
     }
 
@@ -709,9 +785,13 @@ mod tests {
         let mut local = account_device("qr", "x");
         (local.source, local.grant_id, local.lease_until) = (DeviceSource::Local, None, None);
         hub.store.put_device(&local).unwrap();
-        let grant = |g: &str, k: &str| Grant { grant_id: g.into(), device_key: k.into() };
-        apply_grants(&hub, &[grant("grt_a", "kept"), grant("grt_c", "another key"), grant("grt_injected", "attacker")])
-            .unwrap();
+        let grant = |g: &str, k: &str| Grant { grant_id: g.into(), device_key: k.into(), user_id: None };
+        apply_grants(
+            &hub,
+            &[grant("grt_a", "kept"), grant("grt_c", "another key"), grant("grt_injected", "attacker")],
+            None,
+        )
+        .unwrap();
         let keys: Vec<String> = hub.store.devices().unwrap().into_iter().map(|d| d.key).collect();
         assert_eq!(keys, ["kept", "qr"], "unknown grants add nothing; a grant naming another key doesn't count");
         assert!(hub.store.device("kept").unwrap().lease_until.unwrap() > now_ms() + LEASE_MS - 5000, "renewed");

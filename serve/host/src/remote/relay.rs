@@ -518,7 +518,7 @@ async fn deliver(hub: &Arc<Hub>, item: &Value) -> Result<(), MailboxFailure> {
     api::dispatch(hub, &caller, "send", b.clone())
         .await
         .map(drop)
-        .map_err(|e| if e.is::<devices::Forbidden>() { Unauthorized } else { Invalid })
+        .map_err(|e| if e.is::<devices::Forbidden>() || e.is::<devices::NotAllowed>() { Unauthorized } else { Invalid })
 }
 
 #[cfg(test)]
@@ -692,6 +692,7 @@ mod tests {
                 lease_until: None,
                 created_at: now_ms(),
                 last_seen_at: None,
+                person_id: None,
             })
             .unwrap();
         let injected = b64(grant_key.verifying_key().as_bytes());
@@ -830,6 +831,7 @@ mod tests {
                 lease_until: Some(now_ms() + 60_000),
                 created_at: now_ms(),
                 last_seen_at: None,
+                person_id: None,
             })
             .unwrap();
         *fake.state.lock().unwrap() =

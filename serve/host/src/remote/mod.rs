@@ -6,5 +6,6 @@ pub mod channel;
 pub mod cloud;
 pub mod crypto;
 pub mod identity;
+pub mod members;
 pub mod push;
 pub mod relay;

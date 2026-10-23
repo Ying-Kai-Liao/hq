@@ -598,6 +598,7 @@ impl Channel {
             lease_until: None,
             created_at: now_ms(),
             last_seen_at: None,
+            person_id: None,
         };
         if let Err(e) = self.hub.store.put_device(&device) {
             tracing::error!(error = format!("{e:#}"), "couldn't save a paired device");
@@ -919,6 +920,7 @@ mod tests {
             lease_until: Some(now_ms() + 300),
             created_at: now_ms(),
             last_seen_at: None,
+            person_id: None,
         };
         hub.store.put_device(&device).unwrap();
         let mut p = Phone::direct(&hub, key.clone());

@@ -217,6 +217,8 @@ impl Hub {
         let mut cfg: BotConfig = serde_json::from_value(merged)?;
         // Which hq agent a bot is can't be edited, and it runs on Claude.
         cfg.hq_agent.clone_from(&row.config.hq_agent);
+        // Whose chat it is can't be edited either.
+        cfg.person.clone_from(&row.config.person);
         if cfg.is_hq() {
             cfg.backend.clone_from(&row.config.backend);
             cfg.command = None;

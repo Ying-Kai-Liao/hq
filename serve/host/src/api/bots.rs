@@ -77,6 +77,8 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             b["id"] = "".into();
             // Only the hq sync makes a bot of an hq agent.
             b["hqAgent"] = Value::Null;
+            // Nor can a client make a chat that belongs to an invited person.
+            b["person"] = Value::Null;
             // Connectors are on for a new bot unless the client picked them.
             // Without a credential store (headless Linux) no connector can run, so the bot starts with none.
             if b["connectors"].is_null() && b["kind"] != "group" {
