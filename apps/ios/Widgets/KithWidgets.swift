@@ -67,7 +67,7 @@ struct BotsWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "KithBots", provider: BotsTimeline()) { entry in
             BotsWidgetView(entry: entry)
-                .containerBackground(Palette.surface, for: .widget)
+                .containerBackground(WidgetStyle.ground, for: .widget)
         }
         .configurationDisplayName("Bots")
         .description("Bots that need you, running tasks, and their current activity.")
@@ -126,7 +126,7 @@ struct BotsTeamWidget: Widget {
                     EmptyWidget(text: "Open Kith to pair with your computer.")
                 }
             }
-            .containerBackground(Palette.surface, for: .widget)
+            .containerBackground(WidgetStyle.ground, for: .widget)
         }
         .configurationDisplayName("Team")
         .description("Four bots at a glance. Edit the widget to choose the computer and who sits in each spot.")
@@ -237,6 +237,8 @@ struct LeadBotControl: ControlWidget {
             ControlWidgetButton(action: OpenURLIntent(lead.url)) {
                 Label(lead.text, systemImage: lead.symbol)
             }
+            // Filled white when someone needs you, plain otherwise.
+            .tint(lead.needsYou ? .white : nil)
         }
         .displayName("Bots")
         .description("The bot that needs you most. Tap to open it.")
@@ -247,24 +249,25 @@ struct LeadBot: Sendable {
     let text: String
     let symbol: String
     let url: URL
+    var needsYou = false
 
     static let home = AppEnvironment.current.link("computers")
 
-    init(text: String, symbol: String, url: URL = LeadBot.home) {
-        self.text = text; self.symbol = symbol; self.url = url
+    init(text: String, symbol: String, url: URL = LeadBot.home, needsYou: Bool = false) {
+        self.text = text; self.symbol = symbol; self.url = url; self.needsYou = needsYou
     }
 
     init(_ entry: BotsEntry) {
         guard entry.paired else { self.init(text: "Connect a computer", symbol: "desktopcomputer"); return }
         guard let bot = entry.lead, bot.isWorking else { self.init(text: "All quiet", symbol: "moon.zzz.fill"); return }
-        self.init(text: "\(bot.name): \(bot.widgetState.label)",
+        self.init(text: "\(bot.name) · \(bot.widgetState.label)",
                   symbol: bot.needsInput ? "hand.raised.fill" : "ellipsis.bubble.fill",
-                  url: entry.links[bot.id] ?? LeadBot.home)
+                  url: entry.links[bot.id] ?? LeadBot.home, needsYou: bot.needsInput)
     }
 }
 
 struct LeadBotProvider: ControlValueProvider {
-    var previewValue: LeadBot { LeadBot(text: "Reviewer: Needs you", symbol: "hand.raised.fill") }
+    var previewValue: LeadBot { LeadBot(text: "Reviewer · Needs you", symbol: "hand.raised.fill", needsYou: true) }
 
     func currentValue() async throws -> LeadBot { LeadBot(.current) }
 }
@@ -274,9 +277,9 @@ private struct EmptyWidget: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            CharacterAvatar(portrait: "crew-builder", size: 26, still: true)
+            CharacterAvatar(portrait: "crew-builder", size: 40, still: true).kithBotShadow()
             Spacer(minLength: 0)
-            Text(text).font(.caption).foregroundStyle(Palette.secondary)
+            Text(text).font(WidgetStyle.label(12)).foregroundStyle(Palette.muted)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -347,7 +350,7 @@ struct UsageWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: "KithUsage", intent: UsageIntent.self, provider: UsageTimeline()) { entry in
             UsageWidgetView(entry: entry)
-                .containerBackground(Palette.surface, for: .widget)
+                .containerBackground(WidgetStyle.ground, for: .widget)
         }
         .configurationDisplayName("Usage limits")
         .description("Subscription limits your computer reports, for every provider.")
@@ -381,21 +384,15 @@ struct UsageWidgetView: View {
                 AccessoryWidgetCard(kind: .usage, family: .rectangular, usage: entry.usage).widgetAccentable()
             case .systemMedium:
                 HStack(alignment: .top, spacing: 18) {
-                    hero(top).frame(width: 118, alignment: .leading)
+                    hero(top, medium: true).frame(width: 118, alignment: .leading)
                     VStack(alignment: .leading, spacing: 9) {
-                        ForEach(Array(rest.prefix(4).enumerated()), id: \.offset) { _, item in bar(item) }
+                        ForEach(Array(windows.prefix(4).enumerated()), id: \.offset) { _, item in bar(item) }
                         Spacer(minLength: 0)
                     }
                 }
             default:
-                VStack(alignment: .leading, spacing: 0) {
-                    hero(top)
-                    Spacer(minLength: 6)
-                    VStack(alignment: .leading, spacing: 7) {
-                        ForEach(Array(rest.prefix(2).enumerated()), id: \.offset) { _, item in bar(item) }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                hero(top, medium: false)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         } else if family == .accessoryInline || family == .accessoryCircular || family == .accessoryRectangular {
             Text("No usage yet")
@@ -404,36 +401,57 @@ struct UsageWidgetView: View {
         }
     }
 
-    private func hero(_ item: (provider: String, window: UsageWindow)) -> some View {
+    /// The computer the usage comes from: the last one the app used.
+    private var computerName: String? {
+        let storage = SharedStore.activeContext
+        return storage.lastComputerId.flatMap { id in storage.computers.first { $0.id == id }?.name }
+    }
+
+    /// The highest limit: a mono percent, its name and, on the small widget, its bar and reset.
+    private func hero(_ item: (provider: String, window: UsageWindow), medium: Bool) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("\(item.provider) · \(item.window.label)").font(.caption).foregroundStyle(Palette.secondary).lineLimit(1)
-            Text(percent(item.window))
-                .font(.system(size: 34, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(item.window.percent >= 90 ? Palette.danger : Palette.text)
-                .minimumScaleFactor(0.7)
-            resetLine(item.window).font(.caption2).foregroundStyle(Palette.tertiary).lineLimit(1)
+            HStack(alignment: .firstTextBaseline) {
+                Text("Usage limits").font(WidgetStyle.label(13, .semibold)).foregroundStyle(Palette.ink).lineLimit(1)
+                Spacer(minLength: 4)
+                if !medium, let computerName {
+                    Text(computerName).font(WidgetStyle.label(10)).foregroundStyle(Palette.muted).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+            HStack(alignment: .firstTextBaseline, spacing: 1) {
+                Text("\(Int(item.window.percent.rounded()))").font(WidgetStyle.mono(34))
+                Text("%").font(WidgetStyle.mono(16)).foregroundStyle(Palette.muted)
+            }
+            .foregroundStyle(Palette.ink)
+            .minimumScaleFactor(0.7)
+            Text(medium ? "\(item.window.label) · highest" : "\(item.provider) · \(item.window.label)")
+                .font(WidgetStyle.label(11)).foregroundStyle(Palette.muted).lineLimit(1)
+            if !medium {
+                UsageBar(percent: item.window.percent).padding(.top, 6)
+            }
+            resetLine(item.window).font(WidgetStyle.label(10)).foregroundStyle(Palette.muted).lineLimit(1)
+                .padding(.top, medium ? 4 : 2)
         }
+        .widgetAccentable()
     }
 
     private func bar(_ item: (provider: String, window: UsageWindow)) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text("\(item.provider) \(item.window.label)").lineLimit(1)
+                Text("\(item.provider) \(item.window.label)").font(WidgetStyle.label(11)).foregroundStyle(Palette.muted).lineLimit(1)
                 Spacer(minLength: 4)
-                Text(percent(item.window)).monospacedDigit()
+                Text(percent(item.window)).font(WidgetStyle.mono(11)).foregroundStyle(Palette.ink)
             }
-            .font(.caption2)
-            .foregroundStyle(Palette.secondary)
-            UsageTicks(percent: item.window.percent, tint: Palette.usageTint(item.window.percent), height: 10)
+            UsageBar(percent: item.window.percent)
         }
     }
 
     private func percent(_ w: UsageWindow) -> String { "\(Int(w.percent.rounded()))%" }
 
+    /// "resets Mon 9:00"
     @ViewBuilder private func resetLine(_ w: UsageWindow) -> some View {
         if let date = w.resetDate, date > entry.date {
-            Text("resets \(Text(date, style: .relative))")
+            Text("resets \(date.formatted(.dateTime.weekday(.abbreviated).hour().minute()))")
         } else if let text = w.resetDescription {
             Text(text)
         } else {
@@ -567,12 +585,13 @@ struct ProviderUsageView: View {
     var body: some View {
         Group {
             if let provider, !provider.windows.isEmpty {
-                ProviderWidgetCard(provider: provider, layout: family == .systemSmall ? .small : family == .systemLarge ? .large : .medium, date: entry.date)
+                ProviderWidgetCard(provider: provider, layout: family == .systemSmall ? .small : family == .systemLarge ? .large : .medium, date: entry.date,
+                                   computer: SharedStore.activeContext.lastComputerId.flatMap { id in SharedStore.activeContext.computers.first { $0.id == id }?.name })
             } else {
                 EmptyWidget(text: "Open Kith to connect a computer and check \(entry.provider.capitalized) usage.")
             }
         }
-        .containerBackground(Palette.surface, for: .widget)
+        .containerBackground(WidgetStyle.ground, for: .widget)
         .widgetURL(AppEnvironment.current.link("usage"))
     }
 }
@@ -585,47 +604,51 @@ struct BotLiveActivity: Widget {
             let state = presentation(context)
             BotActivityCard(name: context.attributes.name, state: state,
                             startedAt: context.state.startedAt, link: context.attributes.link) {
-                avatar(context, state: state, size: 32)
+                avatar(context, state: state, size: 42)
             } mark: {
-                indicator(context, state: state, size: 28)
+                indicator(context, state: state, size: 16)
             }
             .modifier(SurfaceTint())
                 .widgetURL(context.attributes.link ?? AppEnvironment.current.link("computers"))
         } dynamicIsland: { context in
             let state = presentation(context)
+            let muted = Color(hex: 0xB4BAC4)
+            // The island is always black: the bot is the only colour.
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    avatar(context, state: state, size: 26).frame(maxHeight: .infinity)
+                    avatar(context, state: state, size: 44).frame(maxHeight: .infinity)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    indicator(context, state: state, size: 28).frame(maxHeight: .infinity)
+                    ActivityTrailing(state: state, startedAt: context.state.startedAt, link: context.attributes.link, onBlack: true)
+                        .frame(maxHeight: .infinity)
                 }
-                // Centered under the camera, between the avatar and the orb, so nothing reaches
-                // the island's 44 pt corners (HIG: concentric margins, wrap around the camera).
                 DynamicIslandExpandedRegion(.center) {
-                    VStack(spacing: 3) {
-                        Text(context.attributes.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(Palette.text)
-                        Text(state.caption).font(.system(size: 13)).foregroundStyle(state.captionTint)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(context.attributes.name).font(WidgetStyle.name(16)).foregroundStyle(.white)
+                        Text(state.widgetCaption)
+                            .font(WidgetStyle.label(12, state.phase == .needsInput ? .semibold : .regular))
+                            .foregroundStyle(state.phase == .needsInput ? Color.white : muted)
                             .contentTransition(.interpolate)
                     }
                     .lineLimit(1)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .animation(Motion.activityPhase, value: state)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    ActivityIslandFooter(state: state, startedAt: context.state.startedAt, link: context.attributes.link)
-                        .padding(.horizontal, 4)
+                    ActivityIslandFooter(state: state, startedAt: context.state.startedAt) {
+                        indicator(context, state: state, size: 16)
+                    }
+                    .padding(.horizontal, 4)
                 }
             } compactLeading: {
-                avatar(context, state: state, size: 20)
+                avatar(context, state: state, size: 24)
             } compactTrailing: {
-                indicator(context, state: state, size: 20)
+                ActivityCompactLabel(state: state, startedAt: context.state.startedAt)
             } minimal: {
-                indicator(context, state: state, size: 20)
+                avatar(context, state: state, size: 24)
                     .accessibilityLabel("\(context.attributes.name), \(state.title)")
             }
-            .keylineTint(state.tint)
+            .keylineTint(.clear)
             .widgetURL(context.attributes.link ?? AppEnvironment.current.link("computers"))
         }
     }
@@ -676,7 +699,7 @@ private struct SurfaceTint: ViewModifier {
     @Environment(\.self) private var environment
 
     func body(content: Content) -> some View {
-        let surface = Color(Palette.surface.resolve(in: environment))
+        let surface = Color(WidgetStyle.ground.resolve(in: environment))
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(surface)
