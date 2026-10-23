@@ -220,6 +220,8 @@ impl Actor {
                     break (launch, backup);
                 }
                 // hq won't run this entry (not signed in, not allowed for this person): the next one answers.
+                // The kernel said no to this person (not a member, over budget): no other account changes that.
+                Err(error) if error.is::<hq::Refused>() => return Err(error),
                 Err(error) if backup.is_some() => {
                     let id = backup.unwrap_or_default();
                     tracing::info!(entry = %id, error = format!("{error:#}"), "backup account skipped");

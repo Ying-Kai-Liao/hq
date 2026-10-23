@@ -86,6 +86,9 @@ pub struct Launch {
     pub effort: Option<String>,
     #[serde(default)]
     pub permission_mode: Option<String>,
+    /// An invited person's run (see [`Launch::confine_to`]): bypass mode is switched off for the whole session.
+    #[serde(skip)]
+    pub confined: bool,
 }
 
 /// The modes an invited person's run is never started in: a free shell on this Mac, as the owner.
@@ -112,6 +115,15 @@ impl Launch {
         if self.settings["permissions"]["defaultMode"].as_str().is_some_and(|m| !safe(m)) {
             self.settings["permissions"]["defaultMode"] = "default".into();
         }
+        // Not even a card can switch the session into bypass later (see `meta`).
+        if !self.settings.is_object() {
+            self.settings = json!({});
+        }
+        if !self.settings["permissions"].is_object() {
+            self.settings["permissions"] = json!({});
+        }
+        self.settings["permissions"]["disableBypassPermissionsMode"] = "disable".into();
+        self.confined = true;
         Ok(())
     }
 
@@ -120,6 +132,12 @@ impl Launch {
     pub fn is_codex(&self) -> bool {
         self.harness == "codex"
     }
+}
+
+/// `^[a-z][a-z0-9-]*$`, as kith-auth requires of a person.
+fn is_person_id(id: &str) -> bool {
+    id.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+        && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 /// The kernel refused a run for the person it was asked about (exit 3: not a member of the agent, or over their
@@ -151,6 +169,12 @@ pub(crate) async fn run_as(
     person: Option<&str>,
 ) -> Result<String> {
     let shown = format!("kith {}", args.join(" "));
+    // The kernel's own rule for a person id; anything else never reaches its environment.
+    if let Some(person) = person
+        && !is_person_id(person)
+    {
+        bail!("'{person}' isn't a person id");
+    }
     let mut command = tokio::process::Command::new(bin);
     command
         .args(args)
@@ -516,6 +540,9 @@ impl Launch {
         let mut options = Map::new();
         options.insert("settings".into(), settings);
         options.insert("strictMcpConfig".into(), true.into());
+        if self.confined {
+            options.insert("allowDangerouslySkipPermissions".into(), false.into());
+        }
         options.insert(
             "mcpServers".into(),
             if self.mcp_servers.is_object() { self.mcp_servers.clone() } else { json!({}) },
@@ -652,5 +679,22 @@ mod tests {
         assert!(other.confine_to("sam").is_err());
         let mut codex: Launch = serde_json::from_value(json!({"harness": "codex"})).unwrap();
         assert!(codex.confine_to("sam").is_err());
+        // The session itself can't be moved into bypass later (an exit-plan card, a settings rule).
+        assert_eq!(l.settings["permissions"]["disableBypassPermissionsMode"], "disable");
+        let meta = l.meta();
+        assert_eq!(meta["claudeCode"]["options"]["allowDangerouslySkipPermissions"], false);
+        assert_eq!(meta["claudeCode"]["options"]["settings"]["permissions"]["disableBypassPermissionsMode"], "disable");
+        let owner: Launch = serde_json::from_value(json!({"harness": "claude"})).unwrap();
+        assert!(owner.meta()["claudeCode"]["options"].get("allowDangerouslySkipPermissions").is_none());
+    }
+
+    #[test]
+    fn person_ids_have_the_kernels_shape() {
+        for ok in ["sam", "sam-2", "a1"] {
+            assert!(is_person_id(ok), "{ok}");
+        }
+        for bad in ["", "Sam", "-x", "1x", "a b", "a;b", "sam\n"] {
+            assert!(!is_person_id(bad), "{bad:?}");
+        }
     }
 }

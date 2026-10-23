@@ -200,6 +200,7 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig, home: Lane, tidier: mpsc::UnboundedS
         sent: Vec::new(),
         files: files::FileShares::default(),
         perms: HashMap::new(),
+        parked_prompts: HashMap::new(),
         stop_requested: false,
         cancel_deadline: None,
         exit_tail: None,
@@ -382,6 +383,8 @@ struct Actor {
     files: files::FileShares,
     /// permission entry id -> JSON-RPC request id
     perms: HashMap<String, Value>,
+    /// permission entry id -> the gate slot given up while the owner decides (an invited person's guest prompt)
+    parked_prompts: HashMap<String, crate::agent::gate::Parked>,
     stop_requested: bool,
     /// A cancelled turn still running past this stops its agent process.
     cancel_deadline: Option<Instant>,

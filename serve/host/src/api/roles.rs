@@ -74,6 +74,41 @@ async fn resolve(person: &str, agent: &str) -> Option<Value> {
     serde_json::from_slice::<Value>(&out.stdout).ok().filter(|v| v["owner"].as_bool() != Some(true))
 }
 
+/// The agents `person` holds, for the apps' "New chat": every agent set up on this computer that kith-auth lets them
+/// use, with the role they have in it (`member` only for the member preset, else `guest`). Never one they don't hold.
+pub async fn granted_agents(hub: &Hub, person: &str) -> Vec<Value> {
+    let mut seen = std::collections::BTreeMap::new();
+    for row in hub.store.bots().unwrap_or_default() {
+        let c = row.config;
+        if let (false, None, Some(agent)) = (row.deleted, &c.person, c.hq_agent) {
+            seen.entry(agent).or_insert(c.name);
+        }
+    }
+    let mut out = Vec::new();
+    for (agent, name) in seen {
+        let Some(v) = resolve(person, &agent).await.filter(|v| v["allowed"].as_bool() == Some(true)) else {
+            continue;
+        };
+        let role = if v["preset"].as_str() == Some("member") { "member" } else { "guest" };
+        out.push(json!({"agent": agent, "name": name, "role": role}));
+    }
+    out
+}
+
+/// The owner's name in kith-auth, for "Waiting for <owner>"; None when it has none (or can't be asked).
+pub async fn owner_name(agent: &str) -> Option<String> {
+    let bin = account::bin().await?;
+    // No person: kith-auth answers for the owner.
+    let out = crate::channels::hq::output(&bin, &["resolve", agent]).await?;
+    let v: Value = serde_json::from_slice(&out.stdout).ok()?;
+    v["name"].as_str().filter(|n| !n.is_empty()).map(str::to_owned)
+}
+
+/// Whether the permission card `data` offered `option` to its chat.
+pub fn offered(data: &Value, option: &str) -> bool {
+    data["options"].as_array().is_some_and(|all| all.iter().any(|o| o["optionId"].as_str() == Some(option)))
+}
+
 /// Who answers the agent's permission prompts in `person`'s chat with `agent`: a member answers their own, everyone
 /// else's (a guest's, or any preset that isn't `member`) go to the owner. Asked of kith-auth each time and failing
 /// toward the owner.
@@ -121,7 +156,8 @@ pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: 
             // card of any other kind (or one a group's bot raised) is not a prompt of their run at all.
             if method == "respondPermission" {
                 let agent = hub.store.bot(&entry.bot_id).ok().flatten().and_then(|r| r.config.hq_agent);
-                let own = entry.kind == "permission" && entry.data["author"].is_null();
+                // The bot that raised the card is stamped as its author; in a group it is a member bot, not this chat.
+                let own = entry.kind == "permission" && entry.data["author"].as_str().is_none_or(|a| a == entry.bot_id);
                 if !own || !approves_own(person, agent.as_deref().unwrap_or_default()).await {
                     return Err(denied("Only the owner can answer this agent's permission requests for you."));
                 }

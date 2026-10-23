@@ -65,7 +65,9 @@ async fn permission_prompts_go_to_the_owner_for_a_guest_and_to_a_member_for_thei
     let chat =
         call(&r, &sam, "startChat", json!({"agent": "house"})).await.unwrap()["bot"]["id"].as_str().unwrap().to_owned();
     let lane = crate::store::Lane::main(&chat);
-    let card = |kind| r.hub.add_entry(&lane, kind, 1, &json!({"title": "Run ls", "status": "pending"})).unwrap();
+    let card = |kind| {
+        r.hub.add_entry(&lane, kind, 1, &json!({"title": "Run ls", "status": "pending", "author": chat})).unwrap()
+    };
     let ask = card(crate::store::EntryKind::Permission);
     let said = card(crate::store::EntryKind::Agent);
     let guard = |m: &'static str, b: Value| {

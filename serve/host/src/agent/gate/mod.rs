@@ -152,6 +152,7 @@ impl Gate {
 
     /// Joins the line for a slot. A bot calls this when it has a turn to start and holds the result until it
     /// is granted or no longer wants the turn; dropping it leaves the line.
+    #[cfg(test)]
     pub fn enter(self: &Arc<Self>, rt: &str) -> Admission {
         self.enter_as(rt, false)
     }

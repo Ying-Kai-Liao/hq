@@ -199,6 +199,15 @@ async fn an_invitee_sees_and_touches_only_their_own_chats() {
     // Hello hides this computer's paths and addresses.
     let hello = call(&r, &sam, "hello", json!({})).await.unwrap();
     assert!(hello["home"].is_null() && hello["urls"].is_null() && hello["hostId"].is_string());
+    // Only the agents they hold, with their role; `money` is set up here but not theirs.
+    assert_eq!(hello["grantedAgents"], json!([{"agent": "house", "name": "house", "role": "member"}]));
+    r.auth(&["member", "money", "sam", "preset=guest"]);
+    let again = call(&r, &sam, "hello", json!({})).await.unwrap();
+    assert_eq!(
+        again["grantedAgents"],
+        json!([{"agent": "house", "name": "house", "role": "member"}, {"agent": "money", "name": "money", "role": "guest"}])
+    );
+    r.auth(&["member", "money", "sam", "--rm"]);
     let owner_hello = call(&r, &Caller::Local, "hello", json!({})).await.unwrap();
     assert!(owner_hello["home"].is_string() || owner_hello["urls"].is_array());
 

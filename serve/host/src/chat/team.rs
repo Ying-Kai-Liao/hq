@@ -218,7 +218,8 @@ impl Drop for Pending {
 fn visible_bot(hub: &Hub, id: &str) -> Result<BotConfig> {
     hub.store
         .bot(id)?
-        .filter(|r| !r.deleted && !r.config.hidden && !r.config.is_group())
+        // An invited person's chat is theirs alone: no bot of the owner's reaches it, and it reaches no bot.
+        .filter(|r| !r.deleted && !r.config.hidden && !r.config.is_group() && r.config.person.is_none())
         .map(|r| r.config)
         .ok_or_else(|| anyhow!("unknown or hidden bot"))
 }
@@ -232,7 +233,13 @@ pub async fn call(hub: &Arc<Hub>, actor: &str, name: &str, args: &Value) -> Resu
                 .store
                 .bots()?
                 .into_iter()
-                .filter(|b| !b.deleted && !b.config.hidden && !b.config.is_group() && b.config.id != source.id)
+                .filter(|b| {
+                    !b.deleted
+                        && !b.config.hidden
+                        && !b.config.is_group()
+                        && b.config.person.is_none()
+                        && b.config.id != source.id
+                })
                 .map(|b| {
                     json!({
                         "id": b.config.id, "name": b.config.name, "description": b.config.description,
