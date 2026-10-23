@@ -2,14 +2,14 @@ import KithKit
 import KithUI
 import SwiftUI
 
-/// Usage limits (opened from the State tab): one card per provider, the tightest limit as a big bar, every limit listed below.
+/// Usage limits (opened from the State tab): one grouped card per provider, a row per limit with its own bar.
 struct UsageView: View {
     @Environment(BotStore.self) private var model
     @State private var collapsed: Set<String> = []
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
+            VStack(spacing: 22) {
                 ForEach(model.usage.providers) { provider in
                     ProviderCard(provider: provider, collapsed: Binding(
                         get: { collapsed.contains(provider.id) },
@@ -19,7 +19,7 @@ struct UsageView: View {
                 if model.usage.providers.isEmpty {
                     VStack(spacing: 8) {
                         Image(systemName: "chart.bar").font(.system(size: 40)).foregroundStyle(Palette.tertiary)
-                        Text("No usage yet").font(.title3.weight(.semibold)).foregroundStyle(Palette.text)
+                        Text("No usage information yet.").font(.title3.weight(.semibold)).foregroundStyle(Palette.text)
                         Text("Your computer reads the limits from Claude Code and Codex.")
                             .font(.subheadline).foregroundStyle(Palette.secondary)
                     }
@@ -43,50 +43,33 @@ private struct ProviderCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                ProviderMascot(provider, size: 22, style: UsageIconStyle(rawValue: usageIconStyle) ?? .character)
-                    .frame(width: 34, height: 34)
-                    .background(provider.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                Text(provider.name).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.text)
-                Spacer()
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                ProviderMascot(provider, size: 18, style: UsageIconStyle(rawValue: usageIconStyle) ?? .character)
+                Text(provider.name.uppercased())
+                    .font(.system(size: 10.5, weight: .bold))
+                    .tracking(10.5 * 0.08)
+                    .foregroundStyle(Palette.muted)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 0)
                 IconButton(collapsed ? "Expand" : "Collapse", systemImage: "chevron.up") {
                     withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { collapsed.toggle() }
                 }
                 .rotationEffect(.degrees(collapsed ? 180 : 0))
             }
+            .padding(.leading, 2)
 
-            if let top = provider.tightest {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(top.label)
-                        Spacer()
-                        Text("\(Int(top.percent.rounded()))%").monospacedDigit()
-                    }
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.text)
-                    UsageTicks(percent: top.percent, tint: provider.widgetTint, height: 15)
-                    if let reset = top.resetsShort() {
-                        Text(reset).font(.caption.monospacedDigit()).foregroundStyle(Palette.tertiary)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
+            VStack(spacing: 0) {
+                if collapsed {
+                    if let top = provider.tightest { limitRow(top.label, top.percent, top.resetsShort()) }
+                } else {
+                    ForEach(provider.windows) { w in limitRow(w.label, w.percent, w.resetsShort()) }
+                    infoRow("Source", source)
+                    infoRow("Updated", Date(milliseconds: provider.updatedAt).formatted(date: .abbreviated, time: .shortened))
                 }
             }
-
-            if !collapsed {
-                VStack(spacing: 8) {
-                    ForEach(provider.windows) { w in
-                        row(w.label, "\(Int(w.percent.rounded()))%")
-                        if let reset = w.resetsShort() { row("\(w.label) reset", reset.replacingOccurrences(of: "resets ", with: "")) }
-                    }
-                    row("Source", source)
-                    row("Updated", Date(milliseconds: provider.updatedAt).formatted(date: .abbreviated, time: .shortened))
-                }
-                .transition(.opacity)
-            }
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
-        .padding(14)
-        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private var source: String {
@@ -99,12 +82,34 @@ private struct ProviderCard: View {
         }
     }
 
-    private func row(_ label: String, _ value: String) -> some View {
+    /// The name, "NN% · resets …", and a 6 pt bar.
+    private func limitRow(_ label: String, _ percent: Double, _ reset: String?) -> some View {
+        let pct = Int(percent.rounded())
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(label).font(.subheadline.weight(.medium)).foregroundStyle(Palette.text)
+                Spacer(minLength: 8)
+                Text(reset.map { "\(pct)% · \($0)" } ?? "\(pct)%")
+                    .font(.footnote.monospacedDigit()).foregroundStyle(Palette.secondary)
+            }
+            Capsule().fill(Palette.accentDim).frame(height: 6)
+                .overlay(alignment: .leading) {
+                    GeometryReader { geo in
+                        Capsule().fill(Palette.text).frame(width: geo.size.width * min(max(percent, 0), 100) / 100)
+                    }
+                }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func infoRow(_ label: String, _ value: String) -> some View {
         HStack {
             Text(label).foregroundStyle(Palette.secondary)
             Spacer()
             Text(value).foregroundStyle(Palette.text).monospacedDigit()
         }
         .font(.footnote)
+        .padding(.horizontal, 14).padding(.vertical, 10)
     }
 }
