@@ -31,7 +31,7 @@
   --panel: #ffffff;
   /* The Mac chat's bubbles (a step stronger than the iPhone's). */
   --chat-agent: #f6f6fa;
-  --chat-user: #e7e8ee;
+  --chat-user: #eef0f4;
   /* Floating transcript controls (chevrons, Jump to latest, inspector actions). */
   --chat-button: #f6f6fa;
   --composer-fill: #f6f6fa;

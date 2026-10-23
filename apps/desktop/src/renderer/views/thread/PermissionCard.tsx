@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { Entry, FileDiff, PermissionOption } from '@shared/models'
-import { Disclosure, Spinner } from '../../components/Controls'
+import { Disclosure } from '../../components/Controls'
+import { DecisionCard, type Pair } from '../../components/kith'
+import { FALLBACK_PAIR } from '../../components/kith/pair.ts'
 import { Icon } from '../../components/Icon'
 import { HStack, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
@@ -45,60 +47,58 @@ export function optionLabel(o: PermissionOption) {
   }
 }
 
-/** Approval card in Grok Bot's choice-card style: what the agent wants, where it runs, the answers. */
-/** `waiting`: the owner's name when this card is for them to answer (a guest's run); the buttons are theirs, not this person's. */
-export function PermissionCard({ entry, hostName, answering, respond, waiting = null }: { entry: Entry; hostName: string; answering: string | null; respond: (option: string | null) => void; waiting?: string | null }) {
+/**
+ * Approval card (the kith DecisionCard): what the agent wants, where it runs, the answers, tinted in the agent's pair.
+ * `waiting`: the owner's name when this card is for them to answer (a guest's run); the buttons are theirs, not this person's.
+ */
+export function PermissionCard({ entry, hostName, answering, respond, waiting = null, pair = FALLBACK_PAIR }: { entry: Entry; hostName: string; answering: string | null; respond: (option: string | null) => void; waiting?: string | null; pair?: Pair }) {
   const [expanded, setExpanded] = useState(false)
   const d = entry.data
   const pending = d.status === 'pending'
   const hasDetail = !!d.command || !!d.detail || !!d.diffs?.length
   const options = sortedOptions(d.options ?? [])
   const cwd = d.cwd ? ` · ${d.cwd.split('/').filter(Boolean).pop() ?? d.cwd}` : ''
+  const byKind = (kind: string) => options.find((o) => o.kind === kind)
+  // Allow / Deny / Always when the host offers exactly those; any other set shows every option as its own button.
+  const plain = options.length > 0 && options.every((o) => ['allow_once', 'allow_always', 'reject_once'].includes(o.kind)) && !!byKind('allow_once') && !!byKind('reject_once')
+  const common = {
+    pair,
+    title: permissionHeadline(d.toolKind),
+    subject: d.title ?? '',
+    place: `Runs on ${hostName}${cwd}`,
+    waiting,
+    outcome: pending ? undefined : outcome(entry),
+    pending: answering,
+    details: hasDetail ? (
+      <Disclosure expanded={expanded} onToggle={() => setExpanded((e) => !e)} label={<Text size="caption" weight="medium" tone="secondary">Details</Text>}>
+        <VStack gap={8} className="permission-card-details">
+          {d.command ? <CodeBox text={d.command} /> : null}
+          {d.detail ? <CodeBox text={d.detail.slice(0, 2000)} /> : null}
+          {(d.diffs ?? []).map((diff, i) => <DiffView key={i} diff={diff} />)}
+        </VStack>
+      </Disclosure>
+    ) : undefined,
+  }
+  // answering !== null disables every button, so a double click answers once.
   return (
     <div className="agent-inset">
-      <VStack gap={10} className="permission-card">
-        <HStack gap={8}>
-          <Text size="headline" tone="text">{permissionHeadline(d.toolKind)}</Text>
-          {pending ? <span className="permission-card-dot" /> : null}
-        </HStack>
-        <Text as="div" size="subheadline" mono tone="secondary" lines={expanded ? undefined : 3} className="selectable permission-card-title">
-          {d.title ?? ''}
-        </Text>
-        <HStack gap={6}>
-          <Icon name="desktopcomputer" size={10} color="var(--tertiary)" />
-          <Text size="caption" tone="tertiary">{`Runs on ${hostName}${cwd}`}</Text>
-        </HStack>
-        {hasDetail ? (
-          <Disclosure expanded={expanded} onToggle={() => setExpanded((e) => !e)} label={<Text size="caption" weight="medium" tone="secondary">Details</Text>}>
-            <VStack gap={8} className="permission-card-details">
-              {d.command ? <CodeBox text={d.command} /> : null}
-              {d.detail ? <CodeBox text={d.detail.slice(0, 2000)} /> : null}
-              {(d.diffs ?? []).map((diff, i) => <DiffView key={i} diff={diff} />)}
-            </VStack>
-          </Disclosure>
-        ) : null}
-        {waiting ? (
-          <Text as="div" size="caption" weight="medium" tone="secondary">{`Waiting for ${waiting}`}</Text>
-        ) : pending ? (
-          <div className="permission-card-options">
-            {options.map((o, i) => (
-              <div key={o.optionId}>
-                {i > 0 ? <div className="thread-hairline" /> : null}
-                <button
-                  className={answering === null || answering === o.optionId ? 'permission-option' : 'permission-option dimmed'}
-                  disabled={answering !== null}
-                  onClick={() => respond(o.optionId)}
-                >
-                  <Text size="body" weight={o.kind === 'allow_once' ? 'semibold' : 'regular'} tone={o.kind.startsWith('allow') ? 'text' : 'danger'} className="permission-option-label">{optionLabel(o)}</Text>
-                  {answering === o.optionId ? <Spinner size={14} /> : null}
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <Text as="div" size="caption" weight="medium" tone="secondary">{outcome(entry)}</Text>
-        )}
-      </VStack>
+      {plain ? (
+        <DecisionCard
+          kind="permission"
+          {...common}
+          pending={answering !== null ? true : null}
+          onAllow={() => respond(byKind('allow_once')!.optionId)}
+          onDeny={() => respond(byKind('reject_once')!.optionId)}
+          onAlways={byKind('allow_always') ? () => respond(byKind('allow_always')!.optionId) : undefined}
+        />
+      ) : (
+        <DecisionCard
+          kind="question"
+          {...common}
+          options={options.map((o) => ({ id: o.optionId, label: optionLabel(o) }))}
+          onChoose={(id) => respond(id)}
+        />
+      )}
     </div>
   )
 }
