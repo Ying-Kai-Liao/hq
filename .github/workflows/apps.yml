@@ -144,11 +144,41 @@ jobs:
       - name: Show the result
         run: ls -la dist
 
+  # The desktop's relay client against a real kith-serve and wrangler dev (owner, then an invitee). Linux: cheaper than
+  # the Mac runner, and nothing in it is macOS-only.
+  desktop-relay-e2e:
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install system libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
+      - name: Install pinned toolchain
+        working-directory: serve
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: serve/host
+          shared-key: desktop-relay-e2e
+      - run: cargo build --manifest-path serve/host/Cargo.toml --bin kith-serve
+      - run: npm --prefix serve/cloud ci --no-audit --no-fund
+      - run: npm --prefix apps/desktop ci --ignore-scripts --no-audit --no-fund
+      - name: Relay e2e (real host)
+        working-directory: apps/desktop
+        env:
+          KITH_SERVE_HOST_BIN: ${{ github.workspace }}/serve/host/target/debug/kith-serve
+        run: npm run e2e:relay:host
+
   # The single check to require: passes when every needed job passed or was skipped by the
   # filter, fails on any failure or cancellation.
   apps:
     if: always()
-    needs: [changes, relay, ios, desktop]
+    needs: [changes, relay, ios, desktop, desktop-relay-e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

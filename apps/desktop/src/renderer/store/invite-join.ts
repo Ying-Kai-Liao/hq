@@ -1,33 +1,27 @@
 import type { InviteLink } from '@shared/invite'
 import { runJoin, type JoinDeps, type JoinState } from '@shared/invite-join'
+import { scopedKey } from '@shared/mac-role'
+import { relayJoinDeps } from '@shared/relay-access'
 import { Observable } from '../lib/observable'
 import { account } from './account'
 
-/**
- * Why a joined Mac can't be opened from this app yet. The end-to-end client for other people's Macs lives in the
- * iPhone app only; the join itself (the account's membership and the kept token) is done here, and the same link
- * finishes it on the iPhone.
- */
-export const NO_REMOTE_CLIENT = "You've joined this Mac, but the Kith desktop app can't open a shared Mac yet. Open the invite in the Kith iPhone app."
-
 /** The real dependencies of a join; `runJoin` takes them so the order can be tested with fakes. */
-export function appJoinDeps(waitForSignIn: () => Promise<void>): JoinDeps {
-  return {
-    signedIn: () => account.isSignedIn,
-    waitForSignIn,
-    async accept(inviteId, h1) {
-      const res = await window.kith.cloud.acceptInvite(inviteId, h1)
-      if (!res.ok) throw res.error
-      return res.value as { computerId: string; membershipId?: string }
+export function appJoinDeps(waitForSignIn: () => Promise<void>, cancelled: () => boolean = () => false): JoinDeps {
+  return relayJoinDeps(
+    window.kith.relay,
+    {
+      signedIn: () => account.isSignedIn,
+      waitForSignIn,
+      async accept(inviteId, h1) {
+        const res = await window.kith.cloud.acceptInvite(inviteId, h1)
+        if (!res.ok) throw res.error
+        return res.value as { computerId: string; membershipId?: string }
+      },
+      keepToken: (computerId, inviteId, token) => window.kith.invites.keep(scopedKey(account.user?.userId ?? '', computerId), inviteId, token),
     },
-    async requestAccess() {
-      throw new Error(NO_REMOTE_CLIENT)
-    },
-    async connect() {
-      throw new Error(NO_REMOTE_CLIENT)
-    },
-    keepToken: (computerId, inviteId, token) => window.kith.invites.keep(computerId, inviteId, token),
-  }
+    // An invited person's request is approved by the Mac with no digits to compare.
+    { cancelled },
+  )
 }
 
 /** The invite link being joined, and how far it got. */
@@ -36,6 +30,9 @@ export class InviteJoin extends Observable {
   state: JoinState | null = null
   private cancelSignIn: ((e: Error) => void) | null = null
   private running = false
+  private closed = false
+  /** Set by the window: makes the joined Mac one this device keeps connected. */
+  adopt: ((computerId: string) => Promise<void>) | null = null
 
   /** A link arrived (or one was waiting at launch): runs the join. */
   async start() {
@@ -50,8 +47,9 @@ export class InviteJoin extends Observable {
     const link = this.link
     if (!link || this.running) return
     this.running = true
+    this.closed = false
     try {
-      await runJoin(
+      const end = await runJoin(
         link,
         appJoinDeps(
           () =>
@@ -65,12 +63,15 @@ export class InviteJoin extends Observable {
                 }
               })
             }),
+          () => this.closed,
         ),
         (s) => {
           this.state = s
           this.changed()
         },
       )
+      // Done, or the Mac is only offline for now: either way the token is kept and the Mac belongs on this device.
+      if ((end.step === 'done' || end.step === 'waiting') && end.computerId) await this.adopt?.(end.computerId)
     } finally {
       this.running = false
     }
@@ -78,6 +79,7 @@ export class InviteJoin extends Observable {
 
   /** The person closed the sheet. The link is dropped; the token stays kept only if the cloud already took the invite. */
   dismiss() {
+    this.closed = true
     this.cancelSignIn?.(new Error('Sign-in was cancelled.'))
     this.cancelSignIn = null
     this.link = null

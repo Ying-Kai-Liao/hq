@@ -15,6 +15,7 @@ import { ComputerBadge } from '../ComputerBadge'
 import { deviceIcon, errorText, liveClient, relativeDay, Reveal, SectionHeader, statusText, thisMac } from './parts'
 import { useSSH } from './ssh-model'
 import { SSHRow } from './SSHRow'
+import { MacList } from '../computers/MacList'
 import { VoiceChatSettingsView } from './VoiceChatSettingsView'
 import '../pairing-window.css'
 
@@ -26,12 +27,8 @@ export function ComputersView() {
   const app = useApp()
   const account = useAccount()
   const sshState = useSSH()
-  const cloud = useModel(app.cloud)
   const [editing, setEditing] = useState<{ profile: SSHProfile; isNew: boolean } | null>(null)
   const managed = app.managedStores
-  const managedIds = new Set(managed.map((s) => s.computer.id))
-  const reached = app.computers.filter((c) => !managedIds.has(c.id))
-  const others = cloud.computers.filter((c) => !managedIds.has(c.computerId) && !reached.some((r) => r.id === c.computerId))
 
   return (
     <div className="settings-computers">
@@ -56,47 +53,9 @@ export function ComputersView() {
 
         <div>
           <SectionHeader title="In your account">
-            {account.isSignedIn ? <IconButton title="Refresh" icon="arrow.clockwise" onClick={() => void cloud.refresh()} /> : null}
+            {account.isSignedIn ? <IconButton title="Refresh" icon="arrow.clockwise" onClick={() => void app.relayMacs.refresh()} /> : null}
           </SectionHeader>
-          {!account.isSignedIn ? (
-            <Text as="div" size="callout" tone="secondary">Sign in to reach the other computers in your account from {thisMac}.</Text>
-          ) : reached.length === 0 && others.length === 0 ? (
-            <Text as="div" size="callout" tone="secondary">No other computers in your account yet.</Text>
-          ) : null}
-          {reached.map((computer) => {
-            const store = app.store(computer.id)
-            if (!store) return null
-            const cloudEntry = cloud.computers.find((c) => c.computerId === computer.id)
-            const stale = !!cloudEntry && cloud.isOlderCopy(cloudEntry) && store.connection.kind !== 'unauthorized'
-            return (
-              <div key={computer.id} className="settings-card settings-appear">
-                <div className="settings-row">
-                  <ComputerBadge computer={store.computer} size={22} />
-                  <div className="settings-stack">
-                    <Text size="callout" weight="medium">{store.hostName}</Text>
-                    <Text size="caption" tone={stale ? 'attention' : 'secondary'}>
-                      {stale ? `Older copy of this computer · ${statusText(store)}` : statusText(store)}
-                    </Text>
-                  </div>
-                  <RouteIcon store={store} />
-                  <Spacer />
-                  <IconButton title={`Remove from ${thisMac}`} icon="minus.circle" onClick={() => app.detach(computer.id)} />
-                </div>
-              </div>
-            )
-          })}
-          {others.map((computer) => (
-            // An account computer this app isn't authorized on. Asking for access lives in the cloud model.
-            <div key={computer.computerId} className="settings-card settings-appear">
-              <div className="settings-row">
-                <ComputerBadge computer={{ id: computer.computerId, name: computer.name, signKey: computer.signKey, urls: [], device: computer.device ?? null }} size={22} />
-                <div className="settings-stack">
-                  <Text size="callout" weight="medium">{computer.name}</Text>
-                  <Text size="caption" tone="secondary">{computer.online ? 'Online' : 'Offline'}</Text>
-                </div>
-              </div>
-            </div>
-          ))}
+          <MacList />
         </div>
       </VStack>
 
@@ -104,17 +63,6 @@ export function ComputersView() {
         {editing ? <SSHProfileEditor key={editing.profile.id} profile={editing.profile} isNew={editing.isNew} /> : null}
       </Sheet>
     </div>
-  )
-}
-
-/** How this app reaches a computer: direct LAN or the encrypted relay. */
-function RouteIcon({ store }: { store: BotStore }) {
-  if (store.connection.kind !== 'online' || !store.hostRoute || store.hostRoute === 'loopback') return null
-  const relay = store.hostRoute === 'relay'
-  return (
-    <HStack as="span" align="stretch" title={relay ? 'Through Cloudflare (encrypted)' : 'Direct: Wi-Fi or Tailscale'} aria-label={relay ? 'Through Cloudflare' : 'Wi-Fi or Tailscale'} className="settings-route">
-      <Icon name={relay ? 'cloud' : 'wifi'} size={12} />
-    </HStack>
   )
 }
 

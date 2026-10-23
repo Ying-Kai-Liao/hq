@@ -2135,6 +2135,7 @@ dependencies = [
  "if-addrs",
  "keyring",
  "kith-mem",
+ "kith-wire",
  "libc",
  "portable-pty",
  "qrcode",
@@ -2165,6 +2166,21 @@ dependencies = [
  "base64 0.23.1",
  "ptts",
  "serde_json",
+]
+
+[[package]]
+name = "kith-wire"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.23.1",
+ "chacha20poly1305",
+ "ed25519-dalek",
+ "getrandom 0.4.3",
+ "hkdf 0.13.0",
+ "serde_json",
+ "sha2 0.11.0",
+ "x25519-dalek",
 ]
 
 [[package]]
