@@ -339,6 +339,9 @@ struct State {
     /// None from a cloud that predates invites: the memberships this host knows are left alone.
     #[serde(default)]
     memberships: Option<Vec<super::members::Listed>>,
+    /// None from a cloud that predates bot guests: no bot is admitted, and the ones this host knows are left alone.
+    #[serde(default)]
+    bot_devices: Option<Vec<super::botsync::Listed>>,
     #[serde(default)]
     grants: Vec<Grant>,
     #[serde(default)]
@@ -387,6 +390,7 @@ pub async fn pull(hub: &Hub, base: &str) -> Result<()> {
     let owner_uid = state.owner.as_ref().map(|o| o.user_id.clone());
     // Before the grants: a member's device is kept only while its account is bound to its person.
     super::members::sync(hub, state.memberships.as_deref(), owner_uid.as_deref()).await;
+    super::botsync::sync(hub, state.bot_devices.as_deref()).await;
     apply_grants(hub, &state.grants, owner_uid.as_deref())?;
     update_status(hub, |s| s.owner = state.owner);
     super::account::sync(hub, owner_uid.as_deref()).await;
@@ -409,6 +413,7 @@ pub async fn pull(hub: &Hub, base: &str) -> Result<()> {
     }
     retry_revokes(hub, base).await;
     super::members::retry_revokes(hub).await;
+    super::botsync::retry_revokes(hub).await;
     Ok(())
 }
 

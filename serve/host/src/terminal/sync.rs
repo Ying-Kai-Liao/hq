@@ -605,6 +605,8 @@ fn set_writer(hub: &Hub, t: &Thread, reg: Option<&Registry>, live: Live, host: b
 /// A host turn on `lane` ended: what it wrote to the transcript is already in the thread, so the cursor moves to the
 /// end of the file.
 pub fn host_turn_ended(hub: &Hub, lane: &Lane) {
+    // A bot guest's conversation is free again (it is not a terminal thread; this does nothing else for it).
+    crate::api::botguests::turn_ended(hub, lane);
     let Some(root) = &lane.thread else { return };
     let t = Thread { bot: lane.chat.clone(), root: root.clone() };
     let Some(reg) = info(hub, &t) else { return };

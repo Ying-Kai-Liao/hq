@@ -2,6 +2,7 @@
 //! E2E channel, the Kith cloud and its relay socket, and push.
 
 pub mod account;
+pub mod botsync;
 pub mod channel;
 pub mod cloud;
 pub mod crypto;

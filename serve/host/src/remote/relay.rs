@@ -247,7 +247,8 @@ async fn session(hub: &Arc<Hub>, base: &str) -> Result<Option<u16>> {
                 }
             }
             _ = poll.tick() => {
-                if hub.cloud.status().owner.is_some() {
+                // A bot guest needs no account, so an unclaimed computer with live bots polls too.
+                if hub.cloud.status().owner.is_some() || hub.store.has_live_bot_guests() {
                     s.pull();
                 }
             }
@@ -433,8 +434,20 @@ fn bump_acl_ver(hub: &Hub, at_least: i64) -> Result<()> {
 fn signed_acl(hub: &Hub) -> Result<Value> {
     let ver = hub.store.kv_get("acl_ver").and_then(|v| v.parse().ok()).unwrap_or(0_i64) + 1;
     hub.store.kv_set("acl_ver", &ver.to_string())?;
-    let devices: Vec<Value> =
-        hub.store.devices()?.into_iter().map(|d| json!({"dk": d.key, "grant": d.grant_id})).collect();
+    // A bot guest's key is listed with its kind so the relay can give bots their own, tighter limits. Only a bot
+    // this host admitted has a device row at all (`remote::botsync`), so only those are listed.
+    let devices: Vec<Value> = hub
+        .store
+        .devices()?
+        .into_iter()
+        .map(|d| {
+            let mut entry = json!({"dk": d.key, "grant": d.grant_id});
+            if d.source == DeviceSource::Bot {
+                entry["kind"] = "bot".into();
+            }
+            entry
+        })
+        .collect();
     let offers: Vec<Value> =
         hub.pairing.locked().offers().into_iter().map(|(id, exp)| json!({"id": id, "exp": exp})).collect();
     let acl = json!({

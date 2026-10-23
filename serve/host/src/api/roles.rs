@@ -40,7 +40,42 @@ pub const MEMBER_METHODS: &[&str] = &[
     "projects",
     // The code that links their own Telegram, Discord or Slack account to their person.
     "linkCode",
+    // Their own bot guests (docs/kith-bot-guests.md): inviting one from what they hold, seeing and removing their own.
+    // Each handler checks the bot is theirs; deciding on a bot and the per-person toggle stay the owner's.
+    "createBotInvite",
+    "revokeBotInvite",
+    "revokeBot",
+    "myBots",
+    "setBotLimits",
 ];
+
+/// The whole of what a bot guest can call (docs/kith-bot-guests.md 5.7), deny by default like [`MEMBER_METHODS`].
+/// `every_router_method_is_denied_to_bots_unless_listed` walks the router to keep it that way. Not here, on purpose:
+/// `respondPermission` (a bot never answers the prompts of its own run: they go to its owner and the Mac owner),
+/// `startChat`, `send`, `thread`, `history` (too wide for a client that can't be upgraded in lockstep; `botAsk` and
+/// `botThread` are the narrow contract), files, projects, and everything the owner or a member has.
+pub const BOT_METHODS: &[&str] = &[
+    // Shaped like a member's (names and keys only), plus the agents it holds.
+    "hello",
+    // Its own state, owner and agents; also while it waits to be allowed.
+    "botStatus",
+    // Showing the invite token; only while joining.
+    "proveBotInvite",
+    // Asking an agent, in a conversation of its own (made on first use).
+    "botAsk",
+    "botThread",
+    "botConversations",
+    "botStop",
+    // The bot retires itself.
+    "botLeave",
+];
+
+/// What a bot that has not been allowed in yet may call.
+pub const BOT_PENDING_METHODS: &[&str] = &["hello", "botStatus", "proveBotInvite"];
+
+pub fn bot_may(method: &str) -> bool {
+    BOT_METHODS.contains(&method)
+}
 
 /// All an unproven device of an invited person may call: showing the invite token (see `people::prove_invite`).
 pub const UNPROVEN_METHODS: &[&str] = &["proveInvite"];
@@ -55,7 +90,7 @@ fn denied(why: &str) -> anyhow::Error {
 
 /// The chat or agent a call names, for the audit log.
 pub fn target_of(b: &Value) -> Option<String> {
-    ["botId", "entryId", "agent", "inviteId"]
+    ["botId", "entryId", "agent", "inviteId", "conversation"]
         .iter()
         .find_map(|k| b[*k].as_str().filter(|s| !s.is_empty()).map(str::to_owned))
 }
@@ -132,6 +167,14 @@ pub async fn own_bot(hub: &Hub, person: &str, bot: &str) -> Result<()> {
     Ok(())
 }
 
+/// The agent of `chat` when it is the chat of a bot guest that `person` owns.
+fn owned_bot_chat_agent(hub: &Hub, person: &str, chat: &str) -> Option<String> {
+    let row = hub.store.bot(chat).ok().flatten().filter(|r| !r.deleted)?;
+    let bot = hub.store.bot_guest_of_person(row.config.person.as_deref()?)?;
+    (bot.owner_person.as_deref() == Some(person)).then_some(())?;
+    row.config.hq_agent
+}
+
 /// Checks a call from `person` before it runs. May tighten the body (`b`).
 pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: &Value) -> Result<()> {
     if !proven {
@@ -146,11 +189,22 @@ pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: 
     }
     match method {
         // Checked by their own handlers, or about no chat at all.
-        "hello" | "projects" | "linkCode" | "startChat" => {}
+        "hello" | "projects" | "linkCode" | "startChat" | "createBotInvite" | "revokeBotInvite" | "revokeBot"
+        | "myBots" | "setBotLimits" => {}
         // A card or message names its chat only through the entry.
         "respondPermission" | "react" | "editHandoff" | "keepConversation" => {
             let id = b["entryId"].as_str().unwrap_or_default();
             let entry = hub.store.entry(id).ok_or_else(|| denied("That chat isn't yours."))?;
+            // The prompts of a bot of theirs come to them when they are a member of the agent (the owner answers too).
+            if method == "respondPermission"
+                && let Some(agent) = owned_bot_chat_agent(hub, person, &entry.bot_id)
+            {
+                return if entry.kind == "permission" && approves_own(person, &agent).await {
+                    Ok(())
+                } else {
+                    Err(denied("Only the owner can answer this agent's permission requests for you."))
+                };
+            }
             own_bot(hub, person, &entry.bot_id).await?;
             // Only a member answers what their own run asked. A guest's prompts are the owner's to answer, and a
             // card of any other kind (or one a group's bot raised) is not a prompt of their run at all.
@@ -235,6 +289,13 @@ fn bot_person(store: &Store, id: &str) -> Option<Option<String>> {
 pub fn event_for(store: &Store, who: Option<&str>, v: Value) -> Option<Value> {
     let kind = v["type"].as_str().unwrap_or_default().to_owned();
     let bot = match kind.as_str() {
+        // A bot guest changed state: the owner of the computer and the bot's own owner hear of it.
+        "botUpdated" => {
+            return match who {
+                None => Some(v),
+                Some(me) => (v["bot"]["ownerPerson"].as_str() == Some(me)).then_some(v),
+            };
+        }
         "bot" => v["bot"]["id"].as_str().map(str::to_owned),
         "entry" => v["entry"]["botId"].as_str().or_else(|| v["entry"]["bot_id"].as_str()).map(str::to_owned),
         "resync" => return Some(v),
@@ -255,8 +316,74 @@ pub fn event_for(store: &Store, who: Option<&str>, v: Value) -> Option<Value> {
             }
             Some(shape_bot(v))
         }
+        // A prompt of a bot guest of theirs, which they answer when they are a member of its agent.
+        (Some(me), Some(Some(_))) if kind == "entry" && v["entry"]["kind"] == "permission" => {
+            let chat = bot.as_deref()?;
+            let agent = store.bot(chat).ok().flatten()?.config.hq_agent?;
+            let bot_owner = store.bot_guest_of_person(&bot_person(store, chat)??)?.owner_person;
+            let member = store.person(me).is_some_and(|p| p.agents.get(&agent).is_some_and(|r| r == "member"));
+            (bot_owner.as_deref() == Some(me) && member).then_some(v)
+        }
         (Some(_), _) => None,
     }
+}
+
+/// One live or catch-up event for the bot guest `bot_id`: only the entries of its own conversations, shaped to what a
+/// bot may know (see [`bot_entry`]). Nothing else reaches it, not even other bots' status.
+pub fn event_for_bot(store: &Store, bot_id: &str, v: Value) -> Option<Value> {
+    match v["type"].as_str()? {
+        "resync" => Some(v),
+        "entry" => {
+            let e = &v["entry"];
+            let (chat, root) = (e["botId"].as_str()?, e["threadId"].as_str()?);
+            let conv = store.bot_conversation_of_thread(chat, root).filter(|c| c.bot_id == bot_id)?;
+            let bot = store.bot_guest(bot_id).filter(|b| b.state == crate::store::BotState::Active)?;
+            let shaped = bot_entry(e, &conv.conversation_id, &bot_waits_on(store, &bot))?;
+            Some(json!({"type": "entry", "rev": v["rev"], "conversation": conv.conversation_id, "entry": shaped}))
+        }
+        _ => None,
+    }
+}
+
+/// Who a bot's turn waits on when it asks for a tool: its owner (the owner of the computer for their own bots).
+fn bot_waits_on(store: &Store, bot: &crate::store::BotGuest) -> String {
+    bot.owner_person.as_deref().and_then(|p| store.person(p)).map_or_else(|| "the owner".to_owned(), |p| p.name)
+}
+
+/// A transcript entry as a bot guest sees it (docs/kith-bot-guests.md 5.8): the user's and the agent's words, an error
+/// notice, and a bare "waiting" for a permission card (never its tool or arguments). Thoughts, tool calls, plans,
+/// attachments and every other notice are dropped. `e` is an [`crate::store::Entry`] as JSON.
+pub fn bot_entry(e: &Value, conversation: &str, waits_on: &str) -> Option<Value> {
+    let data = &e["data"];
+    let text = |k: &str| data[k].as_str().unwrap_or_default().to_owned();
+    let mut out = json!({
+        "id": e["id"], "seq": e["seq"], "turn": e["turn"], "at": e["createdAt"], "conversation": conversation,
+    });
+    match e["kind"].as_str()? {
+        "user" => {
+            out["kind"] = "user".into();
+            out["text"] = text("text").into();
+            if data["sender"].is_object() {
+                let s = &data["sender"];
+                out["sender"] = json!({"botId": s["botId"], "name": s["name"], "speaker": s["speaker"]});
+            }
+        }
+        "agent" => {
+            out["kind"] = "agent".into();
+            out["text"] = text("text").into();
+            out["final"] = (data["final"] == true).into();
+        }
+        "notice" if data["style"] == "error" => {
+            out["kind"] = "notice".into();
+            out["text"] = text("text").into();
+        }
+        "permission" if data["status"] == "pending" => {
+            out["kind"] = "waiting".into();
+            out["text"] = format!("Waiting for {waits_on} to approve a step").into();
+        }
+        _ => return None,
+    }
+    Some(out)
 }
 
 /// A bot as an invitee sees it: the agent's folder on this computer is not theirs to see.
