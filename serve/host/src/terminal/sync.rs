@@ -125,12 +125,12 @@ pub fn start(hub: &Arc<Hub>) {
     let hub = hub.clone();
     tokio::spawn(async move {
         let h = hub.clone();
-        if let Err(error) = tokio::task::spawn_blocking(move || backfill_finals(&h)).await {
+        if let Err(error) = crate::watchdog::blocking("terminal-backfill", move || backfill_finals(&h)).await {
             tracing::warn!(%error, "final-reply repair failed");
         }
         loop {
             let h = hub.clone();
-            if let Err(error) = tokio::task::spawn_blocking(move || scan(&h)).await {
+            if let Err(error) = crate::watchdog::blocking("terminal-scan", move || scan(&h)).await {
                 tracing::warn!(%error, "terminal scan failed");
             }
             tokio::time::sleep(EVERY).await;
