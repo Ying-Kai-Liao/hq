@@ -193,6 +193,7 @@ public struct ThreadView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Palette.text)
                 .lineLimit(1)
+                .truncationMode(.tail)
         }
     }
 
@@ -410,13 +411,23 @@ extension ThreadView {
         content
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
+            // The folder chip gets its own row under the bar: stacked into the title it left the name
+            // and the status a sliver of height and the path no width.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if bot?.isGroup != true, model.placeFolder(botId, thread: nil) != nil {
+                    PlaceFolderChip(botId: botId)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 4)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    VStack(spacing: 0) {
+                    VStack(spacing: 1) {
                         header
                         connectionSubtitle
-                        PlaceFolderChip(botId: botId)
                     }
+                    .layoutPriority(1)
                 }
                 if model.screen != nil {
                     ToolbarItem(placement: .topBarTrailing) { computerButton }
