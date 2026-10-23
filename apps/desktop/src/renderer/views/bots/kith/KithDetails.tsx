@@ -4,6 +4,7 @@ import {
   type KithInfo, type KithMcp, type KithSchedule, type KithSkill,
 } from '@shared/kith-info'
 import { Button, Disclosure, IconButton, Pill, Spinner } from '../../../components/Controls'
+import { AgentBackups } from './AgentBackups'
 import { MarkdownText } from '../../thread/Markdown'
 import type { KithInfoStore } from '../../../store/kith-info-store'
 import './kith.css'
@@ -43,6 +44,7 @@ export function KithDetails({ kith }: { kith: KithInfoStore }) {
       {info.errors.schedules !== undefined || info.schedules.length ? <Schedules schedules={info.schedules} failed={unread('schedules')} /> : null}
       {info.errors.projects !== undefined || info.projects.length ? <Projects info={info} failed={unread('projects')} /> : null}
       <ModelAndPermissions info={info} />
+      <AgentBackups agent={info.agent} />
       <Lists info={info} />
     </>
   )

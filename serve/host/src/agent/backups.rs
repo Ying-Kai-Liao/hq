@@ -245,6 +245,11 @@ impl Backups {
         self.chain_state(agent).map(|(_, c)| c)
     }
 
+    /// The chains hq gave are out of date (the user changed the order): the next turn asks again.
+    pub fn forget_chains(&self) {
+        self.inner.locked().chains.clear();
+    }
+
     /// Whether the chain is old enough to ask hq again: an agent without backups is asked rarely.
     pub fn chain_stale(age: Duration, chain: &[ChainEntry]) -> bool {
         age >= if chain.len() > 1 { CHAIN_FRESH } else { CHAIN_FRESH_EMPTY }

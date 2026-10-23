@@ -326,6 +326,11 @@ public extension HostClient {
         return try await call("kithInfo", Body(botId: botId, refresh: refresh ? true : nil), timeout: 60)
     }
 
+    /// The backup chain (serve/host/src/api/backups.rs); this app only reads it. A host before it answers 404.
+    func backups() async throws -> Backups {
+        try await call("backups", timeout: 90)
+    }
+
     func kithMemoryFile(botId: String, path: String) async throws -> KithMemoryFile {
         struct Body: Encodable { var botId: String; var path: String }
         return try await call("kithMemoryFile", Body(botId: botId, path: path), timeout: 30)
