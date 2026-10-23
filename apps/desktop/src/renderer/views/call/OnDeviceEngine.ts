@@ -1,5 +1,6 @@
 import type { SpeechEvent } from '@shared/ipc'
 import { stopDictation } from '../thread/dictation'
+import { rememberSpoken, stripEcho } from './speech-stream'
 import { onDeviceUnavailableReason, spokenText, VoiceEngine, VoiceSettings } from './voice'
 
 /**
@@ -39,6 +40,8 @@ export class OnDeviceEngine extends VoiceEngine {
   readonly provider = null
   /** What you're saying right now. */
   private heard = ''
+  /** The bot's recent words: the recognizer restarts after the voice ends and can hear its tail. */
+  private recentSpoken = ''
   /** A recognition is running (between our start and stop). */
   private recognizing = false
   /** The helper said it's listening (permissions granted). */
@@ -85,6 +88,7 @@ export class OnDeviceEngine extends VoiceEngine {
     const text = spokenText(markdown)
     if (this.ended || !text || this.phase === 'starting' || this.phase === 'failed') return
     this.stopListening()
+    this.recentSpoken = rememberSpoken(this.recentSpoken, text)
     this.captions.said(text)
     this.setPhase('speaking')
     const generation = ++this.speakGeneration
@@ -142,7 +146,7 @@ export class OnDeviceEngine extends VoiceEngine {
 
   /** The transcript as the user's words (a subclass drops the bot's own voice from it). */
   protected heardText(text: string) {
-    return text
+    return stripEcho(text, this.recentSpoken)
   }
 
   /** Words heard while the voice speaks: true if the user is talking over it (the subclass has then cut the voice). */
@@ -223,7 +227,11 @@ export class OnDeviceEngine extends VoiceEngine {
     const text = this.heard.trim()
     this.stopListening()
     this.captions.settleYou()
-    if (text) this.send(text)
+    if (text) {
+      // The user's words are new; the bot's earlier words must not eat a deliberate repeat later.
+      if (this.phase !== 'speaking') this.recentSpoken = ''
+      this.send(text)
+    }
     // Keep listening while the bot works: more messages fold into its next turn.
     if (this.phase === 'speaking') this.restartListening()
     else this.listen()
