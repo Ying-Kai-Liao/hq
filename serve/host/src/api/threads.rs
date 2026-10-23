@@ -19,7 +19,7 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             let written = matches!(
                 crate::chat::memory::summary::summarise_now(
                     hub,
-                    &str_arg(&b, "thread")?,
+                    str_arg(&b, "thread")?,
                     b["force"].as_bool().unwrap_or(false)
                 )
                 .await?,

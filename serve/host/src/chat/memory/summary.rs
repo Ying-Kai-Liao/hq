@@ -156,12 +156,11 @@ pub fn request(hub: &Arc<Hub>, bot: &str, thread: Option<&str>, reason: Reason) 
 /// covers it. `thread` is a root entry id, or `main:<bot>` for a bot's own chat.
 /// `force` writes even when a summary covers the thread; an agent's request doesn't.
 pub async fn summarise_now(hub: &Arc<Hub>, thread: &str, force: bool) -> Result<Wrote> {
-    let (bot, root) = match thread.strip_prefix("main:") {
-        Some(bot) => (bot.to_owned(), None),
-        None => {
-            let root = hub.store.entry(thread).ok_or_else(|| anyhow!("no such thread"))?;
-            (root.bot_id, Some(root.id))
-        }
+    let (bot, root) = if let Some(bot) = thread.strip_prefix("main:") {
+        (bot.to_owned(), None)
+    } else {
+        let root = hub.store.entry(thread).ok_or_else(|| anyhow!("no such thread"))?;
+        (root.bot_id, Some(root.id))
     };
     write(hub, &bot, root.as_deref(), Reason::End, force).await
 }

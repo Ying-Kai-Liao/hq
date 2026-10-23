@@ -149,6 +149,7 @@ def _lock(wait=None):
     """The index lock; with `wait` seconds, raises TimeoutError instead of blocking past them."""
     fd = os.open(str(_private_dir() / '.lock'), os.O_CREAT | os.O_RDWR, 0o600)
     try:
+        os.fchmod(fd, 0o600)   # whatever the umask
         if wait is None:
             fcntl.flock(fd, fcntl.LOCK_EX)
         else:

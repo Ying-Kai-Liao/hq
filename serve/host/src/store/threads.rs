@@ -105,6 +105,6 @@ mod tests {
             lanes.iter().map(|l| (l.thread.clone(), l.messages)).collect::<Vec<_>>(),
             [(None, 1), (Some(root.id), 2)]
         );
-        assert!(s.lanes_active_since("b1", plain.seq + 100).unwrap().is_empty());
+        assert_eq!(s.lanes_active_since("b1", plain.seq + 100).unwrap().len(), 0);
     }
 }

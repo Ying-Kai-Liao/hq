@@ -52,7 +52,7 @@ check "junk facets read as owner-only" "[ \"\$(F \"print(k.facets_for('x.md','ec
 # index files and modes
 "$R" index rebuild >/dev/null
 DB=$KITH_STATE/index/memory.db
-mode() { stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1"; }
+mode() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 check "index folder is 0700 and file 0600" "[ \"\$(mode $KITH_STATE/index)\" = 700 ] && [ \"\$(mode $DB)\" = 600 ]"
 check "rebuild leaves no .new file" "[ ! -e $DB.new ]"
 INO=$(ls -i "$DB" | awk '{print $1}'); "$R" index rebuild >/dev/null
