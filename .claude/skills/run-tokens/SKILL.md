@@ -41,7 +41,7 @@ Owner runs get no token: `grant_for_env` issues one only when the env list names
 
 ## Sync commit
 
-Last confirmed that the properties describe `runauth.rs` and `kernel/bin/kith-recall`'s guest branch: `SYNC_COMMIT_PLACEHOLDER` (main at the time). When `git diff <sync> -- serve/host/src/runauth.rs kernel/bin/kith-recall` is not empty, re-read the diff against the coverage table before trusting a pass. Move the sync commit forward only after you have confirmed the properties still describe the code at the new commit (`/maintain-formal-verification-skill`).
+Last confirmed that the properties describe `runauth.rs` and `kernel/bin/kith-recall`'s guest branch: `7b6622a0` (main, 2026-10-24). When `git diff <sync> -- serve/host/src/runauth.rs kernel/bin/kith-recall` is not empty, re-read the diff against the coverage table before trusting a pass. Move the sync commit forward only after you have confirmed the properties still describe the code at the new commit (`/maintain-formal-verification-skill`).
 
 ## Run it
 
@@ -68,7 +68,22 @@ A failure prints the shrunk counterexample. It is a real bug when the minimal ca
 
 Each property was shown failing on a broken variant of `runauth.rs` (temporary per-thread break switch, never merged; recorded from CI).
 
-BREAK_TABLE_PLACEHOLDER
+| # | Break (in runauth.rs) | Caught by |
+|---|---|---|
+| 0 | none (clean code) | nothing, all pass |
+| 1 | `resolve` ignores the peer | P2, P7 |
+| 2 | `revoke` is a no-op | P3, P7 |
+| 3 | an unbound token matches any peer | P2 |
+| 4 | `recall_args` treats dash words as query words | P4 |
+| 5 | `recall_args` lets `--person` through as a flag | P4 |
+| 6 | `authorize` accepts any method | P5 |
+| 7 | identity taken from the request's `person` field | P1, P3 |
+| 8 | a malformed line panics | P6 |
+| 9 | the 64 KiB size limit removed | P6 |
+| 11 | the argument-count cap removed | P4b |
+| 12 | `authorize` skips `recall_args` | P1 |
+
+Read from the CI `host-test` job of PR #195 (a temporary commit added a thread-local `BREAK` switch read by `brk(n)` in runauth.rs and a meta-test running every property under every break; reverted afterwards). The switch is per thread, never a process-global env var, because tests run in parallel. To re-prove a property after changing it, redo that on a scratch branch: add `brk(n)` guards at the code named in the table, run each `prop_*` with the switch set, and expect exactly the callers listed. P4 once also failed on a clean run: the generator could make `-n`, a real flag, as a "bad" one. That was a harness error (fixed by filtering real flags out of the bad generator), not a bug.
 
 ## Keeping it up to date
 
