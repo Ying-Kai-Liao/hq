@@ -50,6 +50,13 @@ OWNER=$(settings)
 expect "owner: no sandbox key" "$(q "$OWNER" '"sandbox" in s')" False
 expect "owner: settings not empty" "$(q "$OWNER" 'bool(s.get("permissions"))')" True
 
+# The Artifact tools are off under the SDK and -p unless CLAUDE_CODE_ARTIFACT=1: the owner's launch carries it, a guest's does not.
+launch_env() { (cd "$KITH_HOME/agents/echo" && "$KITH" echo --launch-json 2>/dev/null) | python3 -c '
+import json,sys
+print(json.load(sys.stdin).get("env",{}).get("CLAUDE_CODE_ARTIFACT","unset"))'; }
+expect "owner: launch env enables the Artifact tools" "$(launch_env)" 1
+expect "guest: launch env leaves the Artifact tools off" "$(KITH_PERSON=guest launch_env)" unset
+
 for who in guest bot-3f9a1c2e; do
   S=$(KITH_PERSON=$who settings)
   expect "$who: sandbox on, fail closed, no escape hatch" "$(q "$S" '(sb.get("enabled"), sb.get("failIfUnavailable"), sb.get("allowUnsandboxedCommands"))')" "(True, True, False)"
