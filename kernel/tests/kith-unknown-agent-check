@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# kith-unknown-agent-check — `kith <name>` for a name that is no agent says so on stderr and exits 2 (it used to exit 1
+# silently under set -e), with a "Did you mean" line when an installed agent is close, else a pointer to `kith ls`.
+#
+#   kernel/tests/kith-unknown-agent-check     a second; prints each check, exits 1 when one fails
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-unknown-agent-check.XXXXXX")
+T=$(cd "$T" && pwd -P)
+trap 'rm -rf "$T"' EXIT
+export HOME=$T/home KITH_HOME=$T/kith
+unset KITH_STATE HQ_STATE KITH_PROJECT KITH_PERSON KITH_AGENT KITH_PERMISSION_MODE HQ_HOME
+mkdir -p "$HOME" "$KITH_HOME/state" "$KITH_HOME/agents/designer/role"
+printf -- '---\nname: designer\ndescription: test agent\n---\nbody\n' > "$KITH_HOME/agents/designer/role/agent.md"
+
+fail=0
+check() {   # check <label> <typed name> <expected stderr, exact>
+  local err rc
+  err=$("$KERNEL/bin/kith" "$2" 2>&1 >/dev/null); rc=$?
+  if [[ $rc == 2 && $err == "$3" ]]; then echo "ok   $1"; else echo "FAIL $1 (rc=$rc): $err"; fail=1; fi
+}
+check "close name suggests" design $'kith: no agent named "design".\nDid you mean: designer?'
+check "unrelated name points at ls" zzzzzzzz $'kith: no agent named "zzzzzzzz".\nRun kith ls to see your agents.'
+exit $fail
