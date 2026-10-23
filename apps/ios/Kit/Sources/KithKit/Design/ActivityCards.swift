@@ -12,11 +12,11 @@ public extension BotActivityPresentation {
 
     var tint: Color {
         switch phase {
-        case .needsInput: Palette.attention
-        case .failed: Palette.danger
-        case .completed: Palette.added
-        case .sending, .queued, .stale, .waiting: Palette.secondary
-        case .working: Palette.text
+        case .needsInput: Palette.ink
+        case .failed: Palette.negative
+        case .completed: Palette.positive
+        case .sending, .queued, .stale, .waiting: Palette.muted
+        case .working: Palette.ink
         }
     }
 
@@ -62,7 +62,8 @@ public struct ActivityAvatar: View {
     }
 }
 
-/// The step (or state) in its color, then the running time.
+/// The caption under the name: the step while the bot works, "Needs you · <question>" in ink when it
+/// waits, else the state's word in its colour. The running time sits on the card's right.
 public struct ActivityCaption: View {
     let state: BotActivityPresentation
     let startedAt: Date?
@@ -72,30 +73,31 @@ public struct ActivityCaption: View {
     }
 
     public var body: some View {
-        HStack(spacing: 4) {
-            Text(state.caption)
-                .foregroundStyle(state.captionTint)
-                .contentTransition(.interpolate)
-                .layoutPriority(1)
-            // No fixedSize on a timer Text: a Live Activity can't lay one out at its ideal width
-            // and draws the whole card black. Unconstrained, it takes the width left over.
-            if let since = state.elapsedStart(startedAt) {
-                Text("·").foregroundStyle(Palette.tertiary)
-                Text(since, style: .timer).monospacedDigit().foregroundStyle(Palette.secondary)
-            }
-        }
-        .font(.system(size: 12))
-        .lineLimit(1)
+        Text(state.widgetCaption)
+            .font(WidgetStyle.label(12, state.phase == .needsInput ? .semibold : .regular))
+            .foregroundStyle(state.captionTint)
+            .contentTransition(.interpolate)
+            .lineLimit(1)
     }
 }
 
-/// Opens the conversation on the request; approval itself stays on the permission card.
+public extension BotActivityPresentation {
+    /// "Running tests", or "Needs you · <question>" while the bot waits on you.
+    var widgetCaption: String {
+        guard phase == .needsInput, !activity.isEmpty, activity != title else { return caption }
+        return "\(title) · \(activity)"
+    }
+}
+
+/// Opens the conversation on the request; approval itself stays on the permission card. An ink
+/// pill (white on the black island).
 public struct ActivityReviewButton: View {
     let state: BotActivityPresentation
     let link: URL?
+    let onBlack: Bool
 
-    public init(state: BotActivityPresentation, link: URL?) {
-        self.state = state; self.link = link
+    public init(state: BotActivityPresentation, link: URL?, onBlack: Bool = false) {
+        self.state = state; self.link = link; self.onBlack = onBlack
     }
 
     public var body: some View {
@@ -103,16 +105,50 @@ public struct ActivityReviewButton: View {
     }
 
     private var label: some View {
-        Label("Review", systemImage: "hand.raised.fill")
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(Palette.onAccent)
-            .frame(maxWidth: .infinity, minHeight: 34)
-            .background(state.tint, in: Capsule())
+        Text("Review")
+            .font(WidgetStyle.label(12, .semibold))
+            .foregroundStyle(onBlack ? Color.black : Palette.onAccent)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 14)
+            .frame(height: 30)
+            .background(onBlack ? Color.white : Palette.ink, in: Capsule())
+    }
+}
+
+/// The card's right side: Review while the bot needs you, else the running time in mono.
+public struct ActivityTrailing: View {
+    let state: BotActivityPresentation
+    let startedAt: Date?
+    let link: URL?
+    let onBlack: Bool
+
+    public init(state: BotActivityPresentation, startedAt: Date?, link: URL?, onBlack: Bool = false) {
+        self.state = state; self.startedAt = startedAt; self.link = link; self.onBlack = onBlack
+    }
+
+    public var body: some View {
+        Group {
+            if state.phase == .needsInput {
+                ActivityReviewButton(state: state, link: link, onBlack: onBlack)
+            } else if let since = state.elapsedStart(startedAt) {
+                // No fixedSize on a timer Text: a Live Activity can't lay one out at its ideal width
+                // and draws the whole card black. Unconstrained, it takes the width left over.
+                Text(since, style: .timer)
+                    .font(WidgetStyle.mono(15))
+                    .monospacedDigit()
+                    .foregroundStyle(onBlack ? Color.white : Palette.ink)
+                    .multilineTextAlignment(.trailing)
+            }
+        }
+        .transition(.activityRow)
     }
 }
 
 /// Shared by the Lock Screen Live Activity and the in-app gallery. The Live Activity passes its
 /// own face and mark (the working loops drawn in timer fonts); the gallery uses the still ones.
+/// The thread title and project a thread has are not in the activity's state, so the footer
+/// carries the mark (hop dots) or, when the bot waits, the time.
 public struct BotActivityCard<Face: View, Mark: View>: View {
     let name: String
     let state: BotActivityPresentation
@@ -132,21 +168,28 @@ public struct BotActivityCard<Face: View, Mark: View>: View {
     }
 
     public var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             HStack(spacing: 12) {
-                face
+                face.kithBotShadow()
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(name).font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.text).lineLimit(1)
+                    Text(name).font(WidgetStyle.name(16)).foregroundStyle(Palette.ink).lineLimit(1)
                     ActivityCaption(state: state, startedAt: startedAt)
                 }
+                .layoutPriority(1)
                 Spacer(minLength: 8)
-                mark
+                ActivityTrailing(state: state, startedAt: startedAt, link: link)
             }
-            if state.phase == .needsInput {
-                ActivityReviewButton(state: state, link: link).transition(.activityRow)
+            HStack {
+                Spacer(minLength: 0)
+                if state.phase == .needsInput, let since = state.elapsedStart(startedAt) {
+                    Text(since, style: .timer).font(WidgetStyle.mono(11)).monospacedDigit()
+                        .foregroundStyle(Palette.muted).multilineTextAlignment(.trailing)
+                } else {
+                    mark
+                }
             }
         }
-        .padding(16)
+        .padding(14)
         .animation(Motion.activityPhase, value: state)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(name), \(state.title). \(state.caption)")
@@ -156,12 +199,13 @@ public struct BotActivityCard<Face: View, Mark: View>: View {
 public extension BotActivityCard where Face == ActivityAvatar, Mark == BotActivityIndicator {
     init(bot: Bot, state: BotActivityPresentation, startedAt: Date? = nil) {
         self.init(name: bot.name, state: state, startedAt: startedAt) {
-            ActivityAvatar(color: bot.avatarColor, portrait: CrewAvatar.asset(for: bot), state: state, size: 32)
+            ActivityAvatar(color: bot.avatarColor, portrait: CrewAvatar.asset(for: bot), state: state, size: 42)
         } mark: {
-            BotActivityIndicator(state: state, size: 28)
+            BotActivityIndicator(state: state, size: 16)
         }
     }
 }
+
 
 /// The state mark: a thinking orb while the task is live, a symbol once it has ended
 /// (errors and delayed updates never look complete).
@@ -178,8 +222,9 @@ public struct BotActivityIndicator: View {
         // The orb and the end symbols cross-fade; the bot beside it carries the motion.
         ZStack {
             Group {
-                if let orb = state.orbState {
-                    ThinkingOrb(state: orb, size: size, color: state.tint, animated: false)
+                if state.orbState != nil {
+                    // A frame cannot animate the orb: three still hop dots stand for "working".
+                    WidgetHopDots()
                 } else {
                     Image(systemName: state.symbol).font(.system(size: size * 0.6, weight: .semibold))
                 }
@@ -231,33 +276,56 @@ public struct HopFrames: View {
     }
 }
 
-/// The expanded island's bottom row: Review while the bot needs you, else the running time.
-public struct ActivityIslandFooter: View {
+/// The expanded island's bottom row: the hop dots (the `mark`) while the bot works, the time while it
+/// waits on you. Always on black.
+public struct ActivityIslandFooter<Mark: View>: View {
     let state: BotActivityPresentation
     let startedAt: Date?
-    let link: URL?
+    let mark: Mark
 
-    public init(state: BotActivityPresentation, startedAt: Date?, link: URL?) {
-        self.state = state; self.startedAt = startedAt; self.link = link
+    public init(state: BotActivityPresentation, startedAt: Date?, @ViewBuilder mark: () -> Mark) {
+        self.state = state; self.startedAt = startedAt; self.mark = mark()
+    }
+
+    public var body: some View {
+        HStack {
+            Spacer(minLength: 0)
+            if state.phase == .needsInput, let since = state.elapsedStart(startedAt) {
+                Text(since, style: .timer).font(WidgetStyle.mono(11)).monospacedDigit()
+                    .foregroundStyle(Color(hex: 0xB4BAC4)).multilineTextAlignment(.trailing)
+            } else {
+                mark
+            }
+        }
+        .transition(.activityRow)
+        .animation(Motion.activityPhase, value: state)
+    }
+}
+
+/// The island's compact trailing side: a mono timer while the bot works, "Needs you" when it waits,
+/// else the state's word.
+public struct ActivityCompactLabel: View {
+    let state: BotActivityPresentation
+    let startedAt: Date?
+
+    public init(state: BotActivityPresentation, startedAt: Date?) {
+        self.state = state; self.startedAt = startedAt
     }
 
     public var body: some View {
         Group {
             if state.phase == .needsInput {
-                ActivityReviewButton(state: state, link: link)
+                Text("Needs you").font(WidgetStyle.label(12, .semibold)).foregroundStyle(.white)
             } else if let since = state.elapsedStart(startedAt) {
-                // The timer alone, centered on its own: a timer Text reserves its widest width,
-                // so beside an icon (or interpolated with one) it sat off center.
-                Text(since, style: .timer)
-                    .font(.system(size: 13, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundStyle(Palette.tertiary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
+                Text(since, style: .timer).font(WidgetStyle.mono(12)).monospacedDigit()
+                    .foregroundStyle(.white).multilineTextAlignment(.trailing)
+            } else {
+                Text(state.title)
+                    .font(WidgetStyle.label(12, .semibold))
+                    .foregroundStyle(state.phase == .failed ? Palette.negative : state.phase == .completed ? Palette.positive : Color(hex: 0xB4BAC4))
             }
         }
-        .transition(.activityRow)
-        .animation(Motion.activityPhase, value: state)
+        .lineLimit(1)
     }
 }
 
@@ -280,7 +348,7 @@ public struct BotActivityPreview: View {
         Group {
             if form == .lockScreen {
                 BotActivityCard(bot: bot, state: state, startedAt: startedAt)
-                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22))
+                    .background(WidgetStyle.ground, in: RoundedRectangle(cornerRadius: 22))
             } else {
                 island.environment(\.colorScheme, .dark)
             }
@@ -293,28 +361,31 @@ public struct BotActivityPreview: View {
         switch form {
         case .compact:
             HStack {
-                islandFace(20)
+                islandFace(24)
                 Spacer(minLength: 70)
-                BotActivityIndicator(state: state)
+                ActivityCompactLabel(state: state, startedAt: startedAt)
             }
             .padding(.horizontal, 12).frame(width: 210, height: 38)
             .background(.black, in: Capsule())
         case .minimal:
-            BotActivityIndicator(state: state)
+            islandFace(24)
                 .frame(width: 38, height: 38).background(.black, in: Circle())
         case .expanded:
-            VStack(spacing: 12) {
-                HStack(spacing: 10) {
-                    islandFace(26)
-                    VStack(spacing: 2) {
-                        Text(bot.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
-                        Text(state.caption).font(.system(size: 12)).foregroundStyle(state.captionTint)
+            VStack(spacing: 10) {
+                HStack(spacing: 12) {
+                    islandFace(44)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(bot.name).font(WidgetStyle.name(16)).foregroundStyle(.white)
+                        Text(state.widgetCaption).font(WidgetStyle.label(12, state.phase == .needsInput ? .semibold : .regular))
+                            .foregroundStyle(state.phase == .needsInput ? Color.white : Color(hex: 0xB4BAC4))
                     }
                     .lineLimit(1)
-                    .frame(maxWidth: .infinity)
-                    BotActivityIndicator(state: state, size: 28)
+                    Spacer(minLength: 8)
+                    ActivityTrailing(state: state, startedAt: startedAt, link: nil, onBlack: true)
                 }
-                ActivityIslandFooter(state: state, startedAt: startedAt, link: nil)
+                ActivityIslandFooter(state: state, startedAt: startedAt) {
+                    BotActivityIndicator(state: state, size: 16)
+                }
             }
             .padding(18).background(.black, in: RoundedRectangle(cornerRadius: 28))
         case .lockScreen: EmptyView()
