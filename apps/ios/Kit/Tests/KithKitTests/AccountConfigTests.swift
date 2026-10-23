@@ -27,9 +27,24 @@ private let testKey = "pk_test_" + Data("file.example.com$".utf8).base64EncodedS
 
 @Test func aKeyClerkCouldNotDecodeMeansAccountsAreOff() {
     // The prefix is right but the host inside isn't: Clerk asserts on these when it configures.
-    for key in ["pk_live_kith", "pk_test_file", "pk_test_", "pk_test_" + Data("no-terminator".utf8).base64EncodedString()] {
+    for key in ["pk_live_kith!", "pk_test_", "pk_test_!!!!"] {
         #expect(AccountConfig.resolve(env: [:], cloudURL: nil, clerkPublishableKey: key).clerkPublishableKey == nil, "\(key)")
     }
+}
+
+@Test func keysShapedLikeRealOnesAreKept() {
+    // Real keys are url-safe base64 without padding; Clerk takes them as they are.
+    func key(_ prefix: String, _ host: String) -> String {
+        prefix + Data(host.utf8).base64EncodedString().replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+    }
+    for k in [key("pk_live_", "clerk.kith.app$"), key("pk_test_", "quick-fox-12.clerk.accounts.dev$"),
+              key("pk_test_", "a\u{e9}-b.example?>$"), key("pk_test_", "no-terminator.example")] {
+        #expect(AccountConfig.resolve(env: [:], cloudURL: nil, clerkPublishableKey: k).clerkPublishableKey == k, "\(k)")
+    }
+    // Both alphabets and padded forms decode the same way Clerk's does.
+    let padded = "pk_test_" + Data("clerk.kith.app$".utf8).base64EncodedString()
+    #expect(AccountConfig.resolve(env: [:], cloudURL: nil, clerkPublishableKey: padded).clerkPublishableKey == padded)
 }
 
 @MainActor @Test func aSetupRunsOnceAndLaterCallersGetTheFirstResult() {

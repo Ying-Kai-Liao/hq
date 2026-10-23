@@ -19,14 +19,17 @@ public enum AccountConfig {
             cloudURL: URL(string: cloud).flatMap { Pairing.isCloudURL($0) ? $0 : nil })
     }
 
-    /// Clerk's own check, plus the one it makes later and answers with a crash: the part after the prefix is the
-    /// base64 of the frontend API host, ending in `$`. A key that fails it must stay off, not reach `Clerk.configure`.
+    /// Clerk's own check, plus the decode it makes later and answers with a crash. Mirrors ClerkKit's
+    /// `String.base64String()`: the part after the prefix is url-safe base64 (padding optional) of UTF-8 text, the
+    /// frontend API host. Deliberately no stricter than Clerk (it drops the trailing `$` without checking it), so a key
+    /// Clerk accepts is never turned off here.
     static func isClerkKey(_ key: String) -> Bool {
         guard let prefix = ["pk_test_", "pk_live_"].first(where: key.hasPrefix) else { return false }
         var body = String(key.dropFirst(prefix.count))
-        body += String(repeating: "=", count: (4 - body.count % 4) % 4)
+            .replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        if body.count % 4 != 0 { body += String(repeating: "=", count: 4 - body.count % 4) }
         guard let data = Data(base64Encoded: body), let host = String(data: data, encoding: .utf8) else { return false }
-        return host.count > 1 && host.hasSuffix("$")
+        return !host.isEmpty
     }
 
     /// The OAuth return scheme when the bundle has no identifier (it always does in a real app).
