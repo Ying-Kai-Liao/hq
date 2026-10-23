@@ -3,7 +3,7 @@
 //! (a shell script answering from a table written per case), so the subprocess path is the product's own.
 //! Method: `.claude/skills/invitee-access/SKILL.md`. Run only these: `cargo test roles_props`.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::many_single_char_names)]
 
 use super::devices::NotAllowed;
 use super::roles::{self, MEMBER_METHODS, UNPROVEN_METHODS};
@@ -667,13 +667,7 @@ fn events_reach_only_the_person_they_are_about() {
             let ty = EVENT_TYPES[e.kind];
             let chat = ids.bots.get(e.bot).unwrap_or(&ids.ghost);
             // The chat an entry event is about is `botId`, else `bot_id` (what the code reads; a non-string `botId` falls through).
-            let about = if ty == "bot" {
-                Some(chat.as_str())
-            } else if ty == "entry" {
-                Some(chat.as_str())
-            } else {
-                None
-            };
+            let about = matches!(ty, "bot" | "entry").then_some(chat.as_str());
             let row = about.and_then(|c| w.hub.store.bot(c).unwrap());
             match (who, out) {
                 (Some(p), Some(v)) => {
@@ -775,7 +769,7 @@ fn what_a_person_is_shown_has_no_paths_folders_or_error_text() {
             prop_assert!(v.get("error").is_none());
             for p in listed(&v["projects"]) {
                 prop_assert_eq!(p["id"].as_str(), Some("pr1"));
-                prop_assert_eq!(p.as_object().map(|o| o.len()), Some(2));
+                prop_assert_eq!(p.as_object().map(serde_json::Map::len), Some(2));
                 prop_assert!(!p.to_string().contains(SECRET));
             }
             // kithInfo: a name, description and avatar and when it was fetched.
