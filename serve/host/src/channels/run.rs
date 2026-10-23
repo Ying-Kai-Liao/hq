@@ -27,6 +27,16 @@ const WAITING_EVERY: Duration = Duration::from_secs(3);
 
 /// What a run inherits of the host's environment: the plain login basics and hq's own settings. Nothing else
 /// (API keys, tokens, `KITH_*`): the bridge's runs had launchd's PATH and HOME and HQ_*, no more (KITH_* is the same settings under their new names).
+/// The room a channel run is for, as `KITH_ROOM`: a DM is the 1:1 of the agent and the person (the owner when `None`);
+/// any other chat is a group room named by its `<connection>:<chat>`. Unknown: none, and the kernel reads a group VIA
+/// without a room as shared only.
+fn run_room(agent: &str, person: Option<&str>, private: bool, chat: &str) -> Option<String> {
+    if private {
+        return Some(crate::agent::hq::room_of(agent, person, None));
+    }
+    (!chat.is_empty()).then(|| crate::agent::hq::room_of(agent, person, Some(chat)))
+}
+
 fn inherited(name: &str) -> bool {
     let basic = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "TMPDIR", "TZ", "TERM"].contains(&name)
         || name.starts_with("LC_");
@@ -192,6 +202,16 @@ impl Core {
             }
         };
         set(&mut env, "VIA", ad.platform());
+        let (private, chat) = self.with(|i| {
+            let th = i.st.threads.get(key);
+            (
+                th.and_then(|t| t.get("private")).and_then(Value::as_bool).unwrap_or(false),
+                th.and_then(|t| t.get("room")).and_then(Value::as_str).unwrap_or("").to_owned(),
+            )
+        });
+        if let Some(room) = run_room(agent, (!owner).then_some(person.as_str()), private, &chat) {
+            set(&mut env, "ROOM", &room);
+        }
         set(&mut env, "OUTPUT", "json");
         if let Some(mode) = &self.settings.permission_mode {
             set(&mut env, "PERMISSION_MODE", mode); // unset: the agent's mode, else hq's default
@@ -548,8 +568,17 @@ pub(super) async fn flush(ad: &Arc<dyn Adapter>, conv: &Value, outbox: &Path) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{depleted, inherited};
+    use super::{depleted, inherited, run_room};
     use serde_json::json;
+
+    #[test]
+    fn a_dm_is_a_1_1_and_a_group_chat_is_its_own_room() {
+        assert_eq!(run_room("echo", None, true, "telegram:42").as_deref(), Some("1:1:echo:owner"));
+        assert_eq!(run_room("echo", Some("sam"), true, "telegram:42").as_deref(), Some("1:1:echo:sam"));
+        assert_eq!(run_room("echo", None, false, "telegram:-100").as_deref(), Some("telegram:-100"));
+        assert_eq!(run_room("echo", Some("sam"), false, "slack:C1").as_deref(), Some("slack:C1"));
+        assert_eq!(run_room("echo", None, false, ""), None, "unknown chat: the kernel treats the VIA as a group");
+    }
 
     #[test]
     fn a_usage_limit_is_read_from_the_structure_of_the_result() {

@@ -147,8 +147,8 @@ describe("accepting an invite", () => {
 
   it("answers 410 to an expired invite", async () => {
     const { host } = await setup();
-    const short = await invite(host, { ttl: 50 });
-    await new Promise((r) => setTimeout(r, 80));
+    const short = await invite(host, { ttl: 1000 });
+    await new Promise((r) => setTimeout(r, 1100));
     const r = await accept(await newUser("late"), short.inviteId, short.token);
     expect(r.status).toBe(410);
     expect(r.body.error.code).toBe("inviteExpired");

@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# kith-load-check — the memory a run starts with (the load filter of docs/memory-context.md), through `kith <agent> --print`
+# in a throwaway HOME and KITH_HOME with fixture memory (the real ~/.kith is never read or written).
+#
+#   kernel/tests/kith-load-check     a few seconds; prints each check, exits 1 when one fails
+set -uo pipefail
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-load-check.XXXXXX")
+T=$(cd "$T" && pwd -P)
+trap 'rm -rf "$T"' EXIT
+export HOME=$T/home KITH_HOME=$T/kith KITH_STATE=$T/dot KITH_AUTH=$T/dot/auth.json
+unset KITH_AGENT KITH_PERSON KITH_ROOM HQ_STATE HQ_HOME KITH_PROJECT
+mkdir -p "$HOME" "$KITH_STATE"
+M=$KITH_HOME/agents/echo/memory
+mkdir -p "$M/shared" "$M/people/sam" "$M/projects/alpha" "$M/projects/beta" "$M/sessions" "$M/rooms/grp1" \
+  "$KITH_STATE/people" "$KITH_HOME/agents/echo/role"
+printf -- '---\nname: echo\ndescription: test agent\n---\nYou test.\n' > "$KITH_HOME/agents/echo/role/agent.md"
+echo 'owner memory zebra' > "$M/MEMORY.md"
+echo 'shared craft tip' > "$M/shared/MEMORY.md"
+echo 'sam likes tea' > "$M/people/sam/MEMORY.md"
+echo 'alpha index note' > "$M/projects/alpha/README.md"
+echo 'alpha extra note' > "$M/projects/alpha/extra.md"
+echo 'beta only note' > "$M/projects/beta/README.md"
+printf -- '---\nkind: project-detail\n---\nalpha detail log\n' > "$M/projects/alpha/detail.md"
+echo 'session log' > "$M/sessions/s1.md"
+echo 'grp1 room note' > "$M/rooms/grp1/MEMORY.md"
+echo 'about the owner' > "$KITH_STATE/user.md"
+echo 'about sam' > "$KITH_STATE/people/sam.md"
+KA=$KERNEL/bin/kith-auth K=$KERNEL/bin/kith
+python3 "$KA" person kai owner >/dev/null; python3 "$KA" person sam >/dev/null
+python3 "$KA" member echo sam >/dev/null
+fails=0
+check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; fails=$((fails + 1)); fi; }
+# the prompt of a run, as the env given (VAR=value ...)
+P() { env "$@" "$K" echo --print 2>&1; }
+
+OWN=$(P)
+check "owner 1:1: about you, memory, shared, in that order" \
+  "[ \"\$(grep -n -o 'about the owner\|owner memory zebra\|shared craft tip' <<<\"\$OWN\" | cut -d: -f2 | paste -sd, -)\" = 'about the owner,owner memory zebra,shared craft tip' ]"
+check "owner 1:1: no room, project or session notes without a project" "! grep -qE 'grp1 room|alpha|session log' <<<\"\$OWN\""
+check "owner 1:1: no withheld line" "! grep -q 'ask me in our 1:1' <<<\"\$OWN\""
+check "owner 1:1: the session line counts what loaded" "grep -q '<session project=\"none\" loaded=\"3\"' <<<\"\$OWN\""
+
+mkdir -p "$T/alpha"; "$KERNEL/bin/project-id" --register alpha "$T/alpha" >/dev/null 2>&1
+PR=$(env "$K" echo -p alpha --print 2>&1)
+check "project: its index first, other notes after; project-detail never" \
+  "[ \"\$(grep -n -o 'alpha index note\|alpha extra note' <<<\"\$PR\" | cut -d: -f2 | paste -sd, -)\" = 'alpha index note,alpha extra note' ] && ! grep -q 'alpha detail log\|beta only' <<<\"\$PR\""
+
+SAM=$(P KITH_PERSON=sam)
+check "invitee 1:1: shared then their own memory, and about them" \
+  "[ \"\$(grep -n -o 'about sam\|shared craft tip\|sam likes tea' <<<\"\$SAM\" | cut -d: -f2 | paste -sd, -)\" = 'about sam,shared craft tip,sam likes tea' ]"
+check "invitee 1:1: never the owner's" "! grep -qE 'owner memory|about the owner|alpha' <<<\"\$SAM\""
+check "invitee 1:1: their memory tag keeps its scope" "grep -q 'scope=\"sam\"' <<<\"\$SAM\""
+
+GO=$(P KITH_ROOM=grp1)
+check "group room, owner asking: shared only, the rest withheld" \
+  "grep -q 'shared craft tip' <<<\"\$GO\" && ! grep -qE 'owner memory|about the owner|grp1 room' <<<\"\$GO\" && grep -q 'ask me in our 1:1' <<<\"\$GO\""
+check "the withheld line says nothing of what was kept out" "! grep 'ask me in our 1:1' <<<\"\$GO\" | grep -qE 'zebra|owner memory'"
+GS=$(P KITH_PERSON=sam KITH_ROOM=grp1)
+check "group room, invitee asking: shared only, withheld line" \
+  "grep -q 'shared craft tip' <<<\"\$GS\" && ! grep -qE 'sam likes tea|about sam|owner memory' <<<\"\$GS\" && grep -q 'ask me in our 1:1' <<<\"\$GS\""
+check "another person's 1:1 room id is a group room (fail closed)" \
+  "! P KITH_PERSON=sam KITH_ROOM=1:1:echo:kai | grep -q 'sam likes tea'"
+check "own 1:1 room named explicitly changes nothing" "[ \"\$(P KITH_PERSON=sam KITH_ROOM=1:1:echo:sam)\" = \"\$SAM\" ]"
+check "a room id that is not a valid id loads shared only" "! P KITH_ROOM='a b' | grep -q 'owner memory'"
+
+# a helper agent inherits the caller's room (1:1:<parent>:<person>): still one reader, so the 1:1 load
+check "helper agent, owner: the parent's 1:1 room is still a 1:1" "grep -q 'owner memory zebra' <<<\"\$(P KITH_ROOM=1:1:parent:owner)\""
+check "helper agent, invitee: their memory loads" "grep -q 'sam likes tea' <<<\"\$(P KITH_PERSON=sam KITH_ROOM=1:1:parent:sam)\""
+check "a 1:1 naming another person stays closed" "! grep -q 'owner memory zebra' <<<\"\$(P KITH_ROOM=1:1:parent:sam)\""
+check "group runs say so on the session line" "grep -qE 'loaded=\"[0-9]+\" room=\"group\"' <<<\"\$GO\" && ! grep -qE 'loaded=\"[0-9]+\" room=\"group\"' <<<\"\$OWN\""
+check "a channel group chat with no KITH_ROOM is a group (like recall)" \
+  "! grep -q 'owner memory zebra' <<<\"\$(P KITH_VIA=telegram)\" && grep -qE 'loaded=\"[0-9]+\" room=\"group\"' <<<\"\$(P KITH_VIA=telegram)\""
+
+# the filter itself: members known, caps, ordering, guests
+export OWNER='{"kind":"owner"}' SAMR='{"kind":"person","id":"sam","rooms":["grp1"]}' GUEST='{"kind":"guest","id":"bot-ab12","rooms":["grp1"]}' STRAY='{"kind":"guest","id":"bot-ab12"}' EVE='{"kind":"person","id":"eve"}'
+F() { python3 -c "import sys, os, json; sys.path.insert(0,'$KERNEL/lib'); import kith_facets as k; R={n: json.loads(os.environ[n]) for n in ('OWNER','SAMR','GUEST','STRAY','EVE')}; $1"; }
+check "group with known members: the intersection (shared, and the room's notes)" \
+  "[ \"\$(F \"print(sorted(k.load_audiences(R['OWNER'],'grp1','echo',[R['SAMR']])))\")\" = \"['room:grp1', 'shared']\" ]"
+check "group with a member outside the room: shared only" \
+  "[ \"\$(F \"print(sorted(k.load_audiences(R['OWNER'],'grp1','echo',[R['EVE']])))\")\" = \"['shared']\" ]"
+check "the room's own notes load when everyone present is in the room" \
+  "F \"r=k.load_memory('echo','$KITH_HOME/agents/echo','$KITH_STATE/user.md',R['OWNER'],'grp1',[],8000,[R['SAMR']]); print(r['block'])\" | grep -q 'grp1 room note'"
+check "a bot guest: shared and its own room's notes, never the owner's or a person's" \
+  "[ \"\$(F \"print(sorted(k.load_audiences(R['GUEST'],'grp1','echo')))\")\" = \"['room:grp1', 'shared']\" ] && [ \"\$(F \"print(sorted(k.load_audiences(R['STRAY'],'','echo')))\")\" = \"['shared']\" ]"
+check "a guest's KITH_ROOM is not trusted: a room kith-auth does not list gives shared only" \
+  "[ \"\$(F \"print(sorted(k.load_audiences(R['STRAY'],'grp1','echo')))\")\" = \"['shared']\" ]"
+check "a guest loads its room's notes and no one else's" \
+  "F \"r=k.load_memory('echo','$KITH_HOME/agents/echo','$KITH_STATE/user.md',R['GUEST'],'grp1',[]); print(r['block'])\" | grep -q 'grp1 room note' && ! F \"r=k.load_memory('echo','$KITH_HOME/agents/echo','$KITH_STATE/user.md',R['GUEST'],'grp1',[]); print(r['block'])\" | grep -qE 'owner memory|sam likes|about'"
+check "over the cap the project notes go first (oldest first); about you and memory never" \
+  "[ \"\$(F \"r=k.load_memory('echo','$KITH_HOME/agents/echo','$KITH_STATE/user.md',R['OWNER'],'1:1:echo:owner',['alpha'],60); print(r['more'], 'about the owner' in r['block'], 'owner memory' in r['block'])\")\" = '2 True True' ]"
+check "the cap is the agent's setting" \
+  "printf -- '---\nname: echo\ndescription: t\nmemory_cap: 60\n---\nYou test.\n' > \"$KITH_HOME/agents/echo/role/agent.md\" && \"$K\" echo -p alpha --print 2>&1 | grep -q 'more=\"2\"'"
+
+echo
+if [ $fails = 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi

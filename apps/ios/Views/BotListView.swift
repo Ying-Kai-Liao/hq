@@ -31,8 +31,11 @@ struct BotListView: View {
     @AppStorage("hiddenComputers") private var hiddenComputers = ""
     @AppStorage(CrewOrderMode.storageKey) private var orderStored = CrewOrderMode.automatic.rawValue
 
+    // Crew and Board are two pages of one screen: the same sky, top bar and dock.
+    @State private var tab = CrewBoardTab.crew
+    @State private var pageWidth: CGFloat = 390
     // The dock.
-    @State private var query = ""
+    @State private var query = DemoScreens.query
     @State private var files: [OutgoingFile] = []
     @State private var pickingPhotos = false
     @State private var photoItems: [PhotosPickerItem] = []
@@ -128,52 +131,37 @@ struct BotListView: View {
         let shown = displayed(all)
         let pinned = searching ? [] : shown.filter { $0.item.bot.pinned }
         let rest = searching ? shown : shown.filter { !$0.item.bot.pinned }
+        let board = boardModel
+        let shownBoard = board.filtered(by: query)
         ZStack(alignment: .top) {
             SkyBackground(.home)
-            List {
-                Group {
-                    if !searching {
-                        ForEach(shownStores, id: \.computer.id) { updateCard($0) }
-                        machineChips
-                        // A computer waiting for an update has its card instead; its bots aren't known yet.
-                        if all.isEmpty && shownStores.allSatisfy({ $0.mismatch == nil }) {
-                            EmptyRoster(canCreate: allStores.contains { $0.mismatch == nil }, hasComputer: !accounts.computers.isEmpty,
-                                        create: newBot, showComputers: { app.showComputers = true })
-                        }
-                        needsYourOK
-                    }
-                    if searching && shown.isEmpty {
-                        Text("No match. Send starts a new session with an agent you pick.")
-                            .kithText(.body).foregroundStyle(Palette.muted)
-                            .padding(.horizontal, KithSpacing.gutter).padding(.vertical, 18)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    ForEach(pinned) { row($0, in: pinned) }
-                        .onMove(perform: movePinned(pinned))
-                    ForEach(rest) { row($0, in: rest) }
-                        .onMove(perform: searching || mode == .automatic ? nil : moveRest(pinned: pinned, rest: rest))
-                }
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
+            ZStack(alignment: .top) {
+                crewList(all: all, shown: shown, pinned: pinned, rest: rest)
+                    .offset(x: tab == .crew ? 0 : -pageWidth)
+                    .opacity(tab == .crew ? 1 : 0)
+                    .allowsHitTesting(tab == .crew)
+                    .accessibilityHidden(tab != .crew)
+                BoardView(model: shownBoard, searching: searching, showsHosts: accounts.computers.count > 1,
+                          store: { accounts.store(for: $0) }, open: openBoard, showComputers: { app.showComputers = true })
+                    .offset(x: tab == .board ? 0 : pageWidth)
+                    .opacity(tab == .board ? 1 : 0)
+                    .allowsHitTesting(tab == .board)
+                    .accessibilityHidden(tab != .board)
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .environment(\.defaultMinListRowHeight, 0)
-            .scrollDismissesKeyboard(.immediately)
-            .onDisappear { dictation.stop() }
-            .onScrollPhaseChange { _, phase in scrolling = phase != .idle }
-            .simultaneousGesture(DragGesture(minimumDistance: 0).updating($touching) { _, state, _ in state = true })
-            .refreshable {
-                for computer in accounts.computers { accounts.store(for: computer.id)?.restartStream() }
-                await accounts.refreshCloud()
-            }
+            .background(GeometryReader { Color.clear.preference(key: PageWidthKey.self, value: $0.size.width) })
+            .onPreferenceChange(PageWidthKey.self) { pageWidth = $0 }
+            .animation(Motion.reduced(.snappy(duration: 0.25), reduceMotion), value: tab)
+            .simultaneousGesture(swipe)
         }
-        .safeAreaInset(edge: .top, spacing: 0) { topBar }
+        .safeAreaInset(edge: .top, spacing: 0) { topBar(waiting: board.waiting) }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 8) {
                 AccessBanners()
-                dock(matches: shown)
+                if tab == .crew {
+                    dock(leading: leads(!shown.isEmpty)) { submit(shown) }
+                } else {
+                    dock(leading: leads(shownBoard.top != nil)) { submitBoard(shownBoard) }
+                }
             }
             .padding(.bottom, 4)
         }
@@ -187,18 +175,73 @@ struct BotListView: View {
             pickChoices: pickChoices(for:), addPhotos: addPhotos, addFiles: addFiles, addCamera: { append(HomeAttachments.photos([$0])) }))
     }
 
+    /// Everything the Board derives from, across the shown computers.
+    private var boardModel: BoardModel {
+        BoardModel(computers: shownStores.map { BoardComputer(store: $0, guestPrompts: accounts.guestPrompts(for: $0.computer.id)) })
+    }
+
+    /// A sideways swipe moves between the pages; the top bar's switch does the same.
+    private var swipe: some Gesture {
+        DragGesture(minimumDistance: 30).onEnded { drag in
+            let across = drag.translation.width, down = drag.translation.height
+            guard abs(across) > 60, abs(across) > abs(down) * 1.5 else { return }
+            if across < 0, tab == .crew { tab = .board } else if across > 0, tab == .board { tab = .crew }
+        }
+    }
+
+    private func crewList(all: [Room], shown: [Room], pinned: [Room], rest: [Room]) -> some View {
+        List {
+            Group {
+                if !searching {
+                    ForEach(shownStores, id: \.computer.id) { updateCard($0) }
+                    machineChips
+                    // A computer waiting for an update has its card instead; its bots aren't known yet.
+                    if all.isEmpty && shownStores.allSatisfy({ $0.mismatch == nil }) {
+                        EmptyRoster(canCreate: allStores.contains { $0.mismatch == nil }, hasComputer: !accounts.computers.isEmpty,
+                                    create: newBot, showComputers: { app.showComputers = true })
+                    }
+                    needsYourOK
+                }
+                if searching && shown.isEmpty {
+                    Text("No match. Send starts a new session with an agent you pick.")
+                        .kithText(.body).foregroundStyle(Palette.muted)
+                        .padding(.horizontal, KithSpacing.gutter).padding(.vertical, 18)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                ForEach(pinned) { row($0, in: pinned) }
+                    .onMove(perform: movePinned(pinned))
+                ForEach(rest) { row($0, in: rest) }
+                    .onMove(perform: searching || mode == .automatic ? nil : moveRest(pinned: pinned, rest: rest))
+            }
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .environment(\.defaultMinListRowHeight, 0)
+        .scrollDismissesKeyboard(.immediately)
+        .onDisappear { dictation.stop() }
+        .onScrollPhaseChange { _, phase in scrolling = phase != .idle }
+        .simultaneousGesture(DragGesture(minimumDistance: 0).updating($touching) { _, state, _ in state = true })
+        .refreshable {
+            for computer in accounts.computers { accounts.store(for: computer.id)?.restartStream() }
+            await accounts.refreshCloud()
+        }
+    }
+
     private func syncOrder() {
         withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { hold.update(computed: computedOrder, frozen: frozen) }
     }
 
     // MARK: top bar
 
-    private var topBar: some View {
+    /// `waiting` is every question waiting on you, not just the ones the dock's box leaves showing.
+    private func topBar(waiting: Int) -> some View {
         HStack {
             ProfileMenu()
             Spacer(minLength: 8)
-            // Board is the next screen; until it exists Crew shows alone rather than a segment that does nothing.
-            CrewOnlyPill()
+            CrewBoardSwitch(selection: $tab, boardCount: waiting)
             Spacer(minLength: 8)
             TopGlassMenu("New chat") {
                 Button("New bot", systemImage: "plus.square", action: newBot)
@@ -401,18 +444,19 @@ struct BotListView: View {
     // MARK: dock
 
     /// Typing leads somewhere when it matches a room and nothing is attached.
-    private func leads(_ matches: [Room]) -> Bool { searching && files.isEmpty && !matches.isEmpty }
+    private func leads(_ hasMatch: Bool) -> Bool { searching && files.isEmpty && hasMatch }
 
-    private func dock(matches: [Room]) -> some View {
-        ChatDock(text: dockText(matches), placeholder: "Find or ask…",
+    /// The same dock on both pages; `submit` is what Return and the send arrow do on this one.
+    private func dock(leading: Bool, submit: @escaping () -> Void) -> some View {
+        ChatDock(text: dockText(submit), placeholder: "Find or ask…",
                  hasAttachment: !files.isEmpty,
-                 onSend: { submit(matches) },
+                 onSend: submit,
                  onMic: { dictation.toggle(current: query) { query = $0 } },
                  onCall: { call() },
                  onPhotos: { pickingPhotos = true },
                  onCamera: { if CameraPicker.isAvailable { pickingCamera = true } else { accounts.lastError = "This device has no camera." } },
                  onFiles: { pickingFiles = true },
-                 sendStyle: leads(matches) ? .muted : .word) {
+                 sendStyle: leading ? .muted : .word) {
             if !files.isEmpty {
                 HomeAttachmentChips(files: files) { file in
                     withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { files.removeAll { $0.id == file.id } }
@@ -422,20 +466,34 @@ struct BotListView: View {
     }
 
     /// Return at the end of the text submits it; the box is otherwise a plain field.
-    private func dockText(_ matches: [Room]) -> Binding<String> {
+    private func dockText(_ submit: @escaping () -> Void) -> Binding<String> {
         Binding(get: { query }, set: { new in
-            if new.hasSuffix("\n"), String(new.dropLast()) == query { submit(matches) } else { query = new }
+            if new.hasSuffix("\n"), String(new.dropLast()) == query { submit() } else { query = new }
         })
     }
 
     /// Return and the send arrow: open the top match, or, with nothing to open, pick an agent for a new session.
     private func submit(_ matches: [Room]) {
         dictation.stop()
-        if leads(matches), let top = matches.first {
+        if leads(!matches.isEmpty), let top = matches.first {
             open(top.item.ref)
         } else if searching || !files.isEmpty {
             picking = .send
         }
+    }
+
+    /// The same on the Board: the top matching item's chat, or the pick-an-agent sheet.
+    private func submitBoard(_ board: BoardModel) {
+        dictation.stop()
+        if leads(board.top != nil), let top = board.top {
+            openBoard(top)
+        } else if searching || !files.isEmpty {
+            picking = .send
+        }
+    }
+
+    private func openBoard(_ target: BoardTarget) {
+        open(BotReference(accountId: accounts.accountId, computerId: target.computerId, botId: target.botId))
     }
 
     /// One agent is called straight away; with several, the person picks.
@@ -682,4 +740,10 @@ private struct EmptyRoster: View {
         .padding(.horizontal, 32)
         .padding(.vertical, 40)
     }
+}
+
+/// The width of home's pages, to slide one out while the other slides in.
+private struct PageWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 390
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
