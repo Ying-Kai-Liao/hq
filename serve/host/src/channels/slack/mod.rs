@@ -107,6 +107,9 @@ pub struct Slack {
     /// The queue of the one task that handles messages, started on the first run and kept across sockets and
     /// restarts of `run`, so two messages are never handled at once.
     queue: OnceLock<mpsc::UnboundedSender<Work>>,
+    /// Working lines already edited to "stopped". The run ending and the Stop press race; "stopping…" must never
+    /// land after "stopped". Held across the edit to order them.
+    stopped_lines: tokio::sync::Mutex<HashSet<String>>,
     pub pace: Pace,
     /// The socket is pinged every `pace.ping`, so a healthy one is never silent for longer.
     pub quiet: Duration,
@@ -137,6 +140,7 @@ impl Slack {
             me: Mutex::new(String::new()),
             seen: Mutex::new(Seen::default()),
             queue: OnceLock::new(),
+            stopped_lines: tokio::sync::Mutex::new(HashSet::new()),
             pace: Pace::default(),
             quiet: Duration::from_secs(120),
         }

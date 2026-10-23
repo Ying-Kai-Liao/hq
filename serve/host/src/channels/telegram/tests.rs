@@ -150,7 +150,11 @@ async fn bot_call(
                 return failure(400, "Bad Request: can't parse entities", &json!({}));
             }
             st.next_id += 1;
-            ok(json!({"message_id": st.next_id, "chat": {"id": body["chat_id"]}}))
+            let id = st.next_id;
+            if let Some((_, call)) = st.calls.last_mut() {
+                call["sent_id"] = json!(id); // so a test can press the button of the line it was sent as
+            }
+            ok(json!({"message_id": id, "chat": {"id": body["chat_id"]}}))
         }
         "getFile" => {
             let id = body["file_id"].as_str().unwrap_or("").to_owned();
@@ -573,7 +577,7 @@ async fn the_stop_button_stops_the_work() {
     assert_eq!(button["text"], "Stop");
     let data = button["callback_data"].as_str().unwrap().to_owned();
     until("the run", || !rig.hq_calls().is_empty()).await;
-    let line_id = 5000;
+    let line_id = line["sent_id"].as_i64().unwrap();
     // Another person's press is refused and stops nothing.
     rig.bot.press(GUEST, DM, line_id, &data);
     until("the refusal", || rig.bot.calls("answerCallbackQuery").len() == 1).await;
@@ -581,6 +585,7 @@ async fn the_stop_button_stops_the_work() {
     // Kai's press stops it: "stopping…", then "stopped" on the same line.
     rig.bot.press(KAI, DM, line_id, &data);
     until("stopped", || rig.bot.calls("editMessageText").iter().any(|c| c["text"] == "<i>stopped</i>")).await;
+    until("the press answer", || rig.bot.calls("answerCallbackQuery").len() == 2).await;
     let edits: Vec<String> =
         rig.bot.calls("editMessageText").iter().map(|c| c["text"].as_str().unwrap().to_owned()).collect();
     // The run ending races the press: "stopping…" may be skipped, but never lands after "stopped".

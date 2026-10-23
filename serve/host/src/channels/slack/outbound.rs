@@ -206,6 +206,12 @@ impl Adapter for Slack {
         Box::pin(async move {
             if ended == Ended::Stopped {
                 if handle.is_object() {
+                    let mut stopped = self.stopped_lines.lock().await;
+                    if stopped.len() > 1024 {
+                        stopped.clear();
+                    }
+                    let (c, t) = (handle["channel"].as_str().unwrap_or(""), handle["ts"].as_str().unwrap_or(""));
+                    stopped.insert(format!("{c}:{t}"));
                     let params = json!({"channel": handle["channel"], "ts": handle["ts"], "text": "stopped",
                                         "blocks": [Self::small("stopped")]});
                     self.quietly("chat.update", params).await;

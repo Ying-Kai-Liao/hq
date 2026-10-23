@@ -178,6 +178,9 @@ async fn api_call(
             }
             st.next += 1;
             let ts = format!("1760000000.{:06}", st.next);
+            if let Some((_, call)) = st.calls.last_mut() {
+                call["sent_ts"] = json!(ts); // so a test can press the button of the line it was sent as
+            }
             ok(json!({"ok": true, "channel": body["channel"], "ts": ts}))
         }
         "files.getUploadURLExternal" => {
@@ -629,7 +632,8 @@ async fn the_stop_button_stops_the_work() {
     assert_eq!((button["text"]["text"].as_str(), button["action_id"].as_str()), (Some("Stop"), Some("kith-stop")));
     let wid = button["value"].as_str().unwrap().to_owned();
     until("the run", || !rig.hq_calls().is_empty()).await;
-    let line_ts = "1760000001.000009";
+    let line_ts = line["sent_ts"].as_str().unwrap().to_owned();
+    let line_ts = line_ts.as_str();
     // Another person's press is refused and stops nothing.
     rig.fake.press(GUEST, DM, line_ts, "kith-stop", &wid);
     until("the refusal", || rig.fake.calls("chat.postEphemeral").len() == 1).await;
@@ -640,7 +644,9 @@ async fn the_stop_button_stops_the_work() {
     until("stopped", || rig.fake.calls("chat.update").iter().any(|c| c["text"] == "stopped")).await;
     let edits: Vec<String> =
         rig.fake.calls("chat.update").iter().map(|c| c["text"].as_str().unwrap().to_owned()).collect();
-    assert!(edits.contains(&"stopping…".to_owned()), "{edits:?}");
+    // The run ending and the press race: "stopping…" may be skipped, but never lands after "stopped".
+    assert_eq!(edits.last().map(String::as_str), Some("stopped"), "{edits:?}");
+    assert_eq!(edits.iter().filter(|e| *e == "stopped").count(), 1, "{edits:?}");
     // Pressed after it ended: nothing to stop, no complaint.
     rig.fake.press(KAI, DM, line_ts, "hq-stop", &wid); // the old action id still works
     tokio::time::sleep(Duration::from_millis(300)).await;

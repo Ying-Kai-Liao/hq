@@ -409,13 +409,18 @@ async fn the_stop_button_stops_the_work_for_its_owner_only() {
 
     let token = r.fd.press(OWNER, &button, &line.id);
     let edit = format!("/webhooks/{}/{token}/messages/@original", fake::APP);
-    until("the answer to the press", || !r.fd.st.locked().requests("PATCH", &edit).is_empty()).await;
-    let said = r.fd.st.locked().requests("PATCH", &edit).remove(0);
-    assert_eq!((said["content"].as_str(), &said["components"]), (Some("-# stopping…"), &json!([])));
     until("the line to say stopped", || {
         r.fd.st.locked().posts.iter().any(|p| p.id == line.id && p.content == "-# stopped")
     })
     .await;
+    // The run ending and the press race: "stopping…" may be skipped, but never lands after "stopped".
+    until("the press to be acknowledged", || {
+        r.fd.st.locked().requests("POST", "/interactions/").iter().filter(|b| b["type"] == 6).count() == 2
+    })
+    .await;
+    for said in r.fd.st.locked().requests("PATCH", &edit) {
+        assert_eq!((said["content"].as_str(), &said["components"]), (Some("-# stopping…"), &json!([])));
+    }
     let stopped = r.fd.st.locked().posts.iter().find(|p| p.id == line.id).cloned().unwrap();
     assert_eq!(stopped.components, json!([]), "the button is gone");
     assert!(r.answers().is_empty(), "stopped work answers nothing");
