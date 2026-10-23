@@ -47,6 +47,8 @@ pub struct PersonRow {
     #[serde(skip)]
     pub made: Vec<String>,
     pub created_at: i64,
+    /// The owner allows this person's bots without asking each time.
+    pub auto_bots: bool,
 }
 
 /// "Account `user_id` is a member of this computer", as the cloud recorded it and this host accepted it.
@@ -105,6 +107,7 @@ fn row_person(r: &rusqlite::Row) -> rusqlite::Result<PersonRow> {
         projects: serde_json::from_str(&projects).unwrap_or_default(),
         made: serde_json::from_str(&made).unwrap_or_default(),
         created_at: r.get(5)?,
+        auto_bots: r.get::<_, i64>(6)? != 0,
     })
 }
 
@@ -176,7 +179,7 @@ impl Store {
     pub fn person(&self, id: &str) -> Option<PersonRow> {
         let c = self.db.locked();
         let row = c.query_row(
-            "SELECT person_id, name, agents, projects, made, created_at FROM people WHERE person_id = ?1",
+            "SELECT person_id, name, agents, projects, made, created_at, auto_bots FROM people WHERE person_id = ?1",
             [id],
             row_person,
         );
@@ -185,8 +188,9 @@ impl Store {
 
     pub fn people(&self) -> Result<Vec<PersonRow>> {
         let c = self.db.locked();
-        let mut st =
-            c.prepare("SELECT person_id, name, agents, projects, made, created_at FROM people ORDER BY created_at")?;
+        let mut st = c.prepare(
+            "SELECT person_id, name, agents, projects, made, created_at, auto_bots FROM people ORDER BY created_at",
+        )?;
         Ok(st.query_map([], row_person)?.collect::<rusqlite::Result<_>>()?)
     }
 

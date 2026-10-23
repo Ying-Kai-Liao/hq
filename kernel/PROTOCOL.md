@@ -45,9 +45,8 @@ part for everyone you work for, `{{SHARED_MEMORY}}/`: lessons about your craft o
    - `{{MEMORY_DIR}}/projects/ID.md`: your own notes on this project
    - `{{MEMORY_DIR}}/sessions/ID.md`: where your last call on this project left off
    - `{{AGENT_DIR}}/capabilities.yaml`: what you may use
-     In dontAsk mode a tool no allow rule names is refused, so the `tools:` tags also pick the owner's allow rules
-     (`kernel/lib/kith_caps.py`): `artifacts` = Artifact + ArtifactComments; `browser` (also `infographic`, `anatomy`) =
-     headless Chrome; `render` = python3/node/`uv run`/bash/sh scripts inside your own folder. Other tags are ignored.
+     The `tools:` tags are descriptive: they tell you what the role has, they approve nothing. A role that wants a tool
+     pre-approved puts the rule in its own `settings.json` under `permissions.allow`, as in stock Claude Code.
      Your own folder: read anywhere; edit only `memory/`, `data/`, `files/` and `role/skills/learned`. Editing the rest of `role/`
      (instructions, settings, capabilities) is prompted: ask first.
    Your long-term index (`MEMORY.md`, and the shared one when there is one) is already in your context. For anything older or not in the index,

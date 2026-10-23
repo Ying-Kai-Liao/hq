@@ -197,7 +197,10 @@ pub(crate) async fn run_env(
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true);
+        .kill_on_drop(true)
+        // The kernel's own commands never carry a run token: that is for the run, not for `kith --launch-json`.
+        .env_remove(crate::runauth::TOKEN_ENV)
+        .env_remove(crate::runauth::SOCKET_ENV);
     // Tests give the kernel its temp folders here: the process environment is shared with every other test.
     #[cfg(test)]
     command.envs(
@@ -524,6 +527,9 @@ pub async fn launch(
     let out = run_env(bin, &args, Some(cwd), LAUNCH_TIMEOUT, person, &room_env(room)).await?;
     let mut launch: Launch = serde_json::from_str(out.trim())
         .with_context(|| format!("`kith {agent} --launch-json` didn't print a launch object"))?;
+    // Only the host hands a run its token (see `runauth`), whatever the kernel's answer says.
+    launch.env.remove(crate::runauth::TOKEN_ENV);
+    launch.env.remove(crate::runauth::SOCKET_ENV);
     if let Some(person) = person {
         launch.confine_to(person)?;
     }

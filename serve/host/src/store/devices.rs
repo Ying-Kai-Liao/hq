@@ -7,7 +7,7 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Where an authorized device came from (wire values `local` / `account`).
+/// Where an authorized device came from (wire values `local` / `account` / `bot`).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum DeviceSource {
@@ -15,6 +15,9 @@ pub enum DeviceSource {
     Local,
     /// Approved here for a signed-in account; kept alive by a lease the cloud renews.
     Account,
+    /// A bot guest's own key (docs/kith-bot-guests.md): admitted from the cloud's bot list, no lease; every call
+    /// re-checks the bot's row instead.
+    Bot,
 }
 
 /// What a device may do (wire values `control` / `screen`).

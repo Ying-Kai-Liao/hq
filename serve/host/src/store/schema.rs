@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 /// Current schema version (kv `schema`).
-const SCHEMA: i64 = 5;
+const SCHEMA: i64 = 6;
 
 /// 3: authorized devices (keys, not push tickets) with their push and Live Activity
 /// tickets. The old ticket-only `devices` table is dropped; phones re-register on connect.
@@ -15,6 +15,7 @@ const SCHEMA: i64 = 5;
 /// per-bot ones go.
 /// 5: invitee people: `devices.person_id` (NULL is the owner), invites, the memberships this host
 /// accepted, the people it made and the audit log of what non-owners asked.
+/// 6: bot guests (docs/kith-bot-guests.md 4.3): the bots, their invites and conversations, and `people.auto_bots`.
 fn migrate(c: &Connection) -> Result<()> {
     let version: i64 =
         c.query_row("SELECT CAST(v AS INTEGER) FROM kv WHERE k = 'schema'", [], |r| r.get(0)).optional()?.unwrap_or(0);
@@ -27,7 +28,42 @@ fn migrate(c: &Connection) -> Result<()> {
     if version < 4 {
         migrate_4(c)?;
     }
-    migrate_5(c)
+    if version < 5 {
+        migrate_5(c)?;
+    }
+    migrate_6(c)
+}
+
+fn migrate_6(c: &Connection) -> Result<()> {
+    c.execute_batch(
+        "BEGIN;
+         CREATE TABLE IF NOT EXISTS bot_guests(
+            bot_id TEXT PRIMARY KEY, person_id TEXT NOT NULL UNIQUE, owner_person TEXT, name TEXT NOT NULL,
+            provider TEXT NOT NULL DEFAULT 'other', agents TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (state IN ('invited','joining','pending','active','denied','revoked')),
+            device_key TEXT, cloud_device TEXT, rate_per_hour INTEGER NOT NULL DEFAULT 60,
+            concurrent INTEGER NOT NULL DEFAULT 2, created_at INTEGER NOT NULL, joined_at INTEGER, decided_at INTEGER,
+            decided_by TEXT, last_seen_at INTEGER, revoked_at INTEGER, revoked_why TEXT);
+         CREATE INDEX IF NOT EXISTS bot_guests_owner ON bot_guests(owner_person);
+         CREATE UNIQUE INDEX IF NOT EXISTS bot_guests_device ON bot_guests(device_key)
+            WHERE device_key IS NOT NULL AND revoked_at IS NULL;
+         CREATE TABLE IF NOT EXISTS bot_invites(
+            invite_id TEXT PRIMARY KEY, bot_id TEXT NOT NULL REFERENCES bot_guests(bot_id), token_hash TEXT NOT NULL,
+            created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, used_at INTEGER, revoked_at INTEGER);
+         CREATE TABLE IF NOT EXISTS bot_conversations(
+            conversation_id TEXT PRIMARY KEY, bot_id TEXT NOT NULL REFERENCES bot_guests(bot_id),
+            agent TEXT NOT NULL, chat_bot_id TEXT NOT NULL, thread_root TEXT NOT NULL, external_ref TEXT,
+            room_id TEXT, speaker TEXT, origin_label TEXT NOT NULL, created_at INTEGER NOT NULL,
+            last_at INTEGER NOT NULL);
+         CREATE UNIQUE INDEX IF NOT EXISTS bot_conv_ref ON bot_conversations(bot_id, external_ref)
+            WHERE external_ref IS NOT NULL;
+         CREATE INDEX IF NOT EXISTS bot_conv_bot ON bot_conversations(bot_id, last_at);
+         CREATE INDEX IF NOT EXISTS bot_conv_thread ON bot_conversations(chat_bot_id, thread_root);
+         ALTER TABLE people ADD COLUMN auto_bots INTEGER NOT NULL DEFAULT 0;
+         INSERT INTO kv(k, v) VALUES('schema', '6') ON CONFLICT(k) DO UPDATE SET v = '6';
+         COMMIT;",
+    )?;
+    Ok(())
 }
 
 fn migrate_5(c: &Connection) -> Result<()> {
@@ -140,7 +176,7 @@ mod tests {
             .unwrap();
         }
         let s = Store::open(&db).unwrap();
-        assert_eq!(s.kv_get("schema").as_deref(), Some("5"));
+        assert_eq!(s.kv_get("schema").as_deref(), Some("6"));
         assert_eq!(s.device("old").unwrap().person_id, None, "an old device is the owner's");
         assert!(s.invites().unwrap().is_empty() && s.people().unwrap().is_empty());
     }
@@ -161,7 +197,7 @@ mod tests {
         }
         let s = Store::open(&db).unwrap();
         assert!(s.devices().unwrap().is_empty());
-        assert_eq!(s.kv_get("schema").as_deref(), Some("5"));
+        assert_eq!(s.kv_get("schema").as_deref(), Some("6"));
         assert!(s.thread("b", "root", 10).unwrap().is_empty(), "entries have a thread column");
         drop(s);
         let s = Store::open(&db).unwrap();

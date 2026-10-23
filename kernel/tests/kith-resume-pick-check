@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# kith-resume-pick-check — `kith <agent> -r` lists the agent's past sessions (cost ledger runs + transcripts) and resumes the
+# one picked as `--resume <id>` does; `-r <id>` is `--resume <id>`; `-c` continues the latest one started in this folder;
+# an unknown flag is refused, never taken as the task.
+#
+#   kernel/tests/kith-resume-pick-check     a few seconds; prints each check, exits 1 when one fails
+#
+# claude is a stub on PATH that records its folder and arguments; no host runs. Nothing touches the real ~/.kith or ~/.claude.
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-resume-pick-check.XXXXXX")
+T=$(cd "$T" && pwd -P)
+trap 'rm -rf "$T"' EXIT
+export HOME=$T/home KITH_HOME=$T/kith KITH_STATE=$T/state CLAUDE_CONFIG_DIR=$T/claude
+export KITH_SERVE_DIR=$T/serve KITH_SERVE_PORT=1   # no host: ids resolve from the transcripts on disk
+unset KITH_PROJECT KITH_PERSON KITH_AGENT KITH_PERMISSION_MODE HQ_HOME HQ_STATE KITH_VIA KITH_RESUME KITH_CLAUDE_ARGS
+# where the cost ledger is for this HOME (lib/kith_paths.py decides; bin/kith exports it)
+export KITH_MACHINE=$(python3 "$KERNEL/lib/kith_paths.py" --json | python3 -c 'import json, sys; print(json.load(sys.stdin)["KITH_MACHINE"])')
+mkdir -p "$HOME" "$KITH_STATE" "$KITH_MACHINE" "$T/serve" "$T/bin" "$T/work/a" "$T/work/b" "$T/work/c"
+for a in designer coder many; do
+  mkdir -p "$KITH_HOME/agents/$a/role"
+  printf -- '---\nname: %s\ndescription: test agent\n---\nbody\n' "$a" > "$KITH_HOME/agents/$a/role/agent.md"
+done
+SK=$KERNEL/bin/kith-sessions
+fail=0
+ok() { echo "ok   $1"; }
+bad() { echo "FAIL $1${2:+: $2}"; fail=1; }
+is() { [[ $2 == "$3" ]] && ok "$1" || bad "$1" "got '$2', wanted '$3'"; }
+has() { [[ $2 == *"$3"* ]] && ok "$1" || bad "$1" "'$3' not in: ${2: -300}"; }
+hasnt() { [[ $2 != *"$3"* ]] && ok "$1" || bad "$1" "'$3' in: $2"; }
+
+# --- fixtures: the ledger and the transcripts ---------------------------------------------------------------------------
+sqlite3 "$KITH_MACHINE/cost.db" "create table runs (session text primary key, agent text, version text, model text, effort text,
+  via text, project text, started text, person text, provider text, account text);"
+run() { sqlite3 "$KITH_MACHINE/cost.db" "insert into runs (session, agent, via, project, started, person) values ('$1', '$2', '$3', '$4', '$5', ${6:-null})"; }
+transcript() {   # transcript <sid> <cwd> <dir name> <first human text>: a meta line, the text, a tool result
+  mkdir -p "$CLAUDE_CONFIG_DIR/projects/$3"
+  python3 - "$CLAUDE_CONFIG_DIR/projects/$3/$1.jsonl" "$2" "$4" <<'PY'
+import json, sys
+p, cwd, text = sys.argv[1:]
+lines = [{"type": "permission-mode", "permissionMode": "dontAsk"},
+         {"type": "user", "isMeta": True, "cwd": cwd, "message": {"role": "user", "content": "<local-command-caveat>x</local-command-caveat>"}},
+         {"type": "user", "cwd": cwd, "message": {"role": "user", "content": "<command-name>/clear</command-name>"}},
+         {"type": "user", "cwd": cwd, "message": {"role": "user", "content": [{"type": "text", "text": text}]}},
+         {"type": "user", "cwd": cwd, "message": {"role": "user", "content": [{"type": "tool_result", "content": "later"}]}}]
+open(p, "w").write("".join(json.dumps(l) + "\n" for l in lines))
+PY
+}
+LONG="please look at   the whole
+design of the onboarding flow and tell me what you would change first, and why"
+run s-new designer terminal kith 2026-10-23T12:00:00;   transcript s-new "$T/work/b" pb "$LONG"
+run s-mid designer ask proj 2026-10-23T11:00:00;        transcript s-mid "$T/work/a" pa "hello there"
+run s-gone designer terminal kith 2026-10-23T10:30:00   # no transcript
+run codex:xyz designer terminal kith 2026-10-23T10:00:00
+run s-anna designer terminal kith 2026-10-23T09:30:00 "'anna'"; transcript s-anna "$T/work/a" pa "anna's question"
+run s-old designer serve kith 2026-10-22T09:00:00;      transcript s-old "$T/work/a" pa "older one"
+run c-1 coder terminal kith 2026-10-23T13:00:00;        transcript c-1 "$T/work/a" pa "coder's own"
+for i in $(seq -w 1 20); do run m-$i many terminal kith 2026-10-01T00:00:$i; transcript m-$i "$T/work/c" pc "task $i"; done
+
+# --- the list builder: kith-sessions pick / latest ----------------------------------------------------------------------
+out=$(printf '1\n' | python3 "$SK" pick designer 2>"$T/err"); rc=$?; list=$(cat "$T/err")
+is "pick 1: the newest session" "$out" s-new
+is "pick: exit 0" "$rc" 0
+is "pick: three sessions listed" "$(grep -cE '^ *[0-9]+  ' <<< "$list")" 3
+[[ $(grep -nE 'onboarding' <<< "$list" | cut -d: -f1) -lt $(grep -n 'hello there' <<< "$list" | cut -d: -f1) &&
+   $(grep -n 'hello there' <<< "$list" | cut -d: -f1) -lt $(grep -n 'older one' <<< "$list" | cut -d: -f1) ]] \
+  && ok "pick: newest first" || bad "pick: order" "$list"
+has "pick: via shown" "$(grep 'hello there' <<< "$list")" ask
+has "pick: project shown" "$(grep 'hello there' <<< "$list")" proj
+has "pick: first human text, one line" "$list" "please look at the whole design of the onboarding"
+is "pick: text cut to 70" "$(grep -o 'please look.*' <<< "$list" | python3 -c 'import sys; print(len(sys.stdin.read().rstrip("\n")))')" 70
+hasnt "pick: no command echo or meta text" "$list" "/clear"
+hasnt "pick: missing transcript skipped" "$list" "s-gone"
+hasnt "pick: codex session skipped" "$list" "xyz"
+hasnt "pick: someone else's session skipped" "$list" "anna"
+hasnt "pick: another agent's session skipped" "$list" "coder's own"
+is "pick 2" "$(printf '2\n' | python3 "$SK" pick designer 2>/dev/null)" s-mid
+out=$(printf '\n' | python3 "$SK" pick designer 2>/dev/null); rc=$?
+[[ $rc != 0 && -z $out ]] && ok "pick: Enter cancels" || bad "pick: cancel" "$rc $out"
+err=$(printf '9\n' | python3 "$SK" pick designer 2>&1 >/dev/null); rc=$?
+[[ $rc != 0 && $err == *"no session 9"* ]] && ok "pick: a number not in the list" || bad "pick: out of range" "$rc $err"
+printf '1\n' | python3 "$SK" pick many 2>"$T/err" >/dev/null
+is "pick: about 15 listed" "$(grep -cE '^ *[0-9]+  ' "$T/err")" 15
+has "pick: the newest of many first" "$(grep -E '^ +1  ' "$T/err")" "task 20"
+err=$(printf '1\n' | KITH_MACHINE=$T/nowhere python3 "$SK" pick designer 2>&1 >/dev/null); rc=$?
+[[ $rc != 0 && $err == *"no designer sessions"* ]] && ok "pick: no ledger, says so" || bad "pick: no ledger" "$rc $err"
+is "latest in work/a" "$(python3 "$SK" latest designer "$T/work/a")" s-mid
+is "latest in work/b" "$(python3 "$SK" latest designer "$T/work/b")" s-new
+ln -s "$T/work/a" "$T/link-a"
+is "latest: a link to the folder is the folder" "$(python3 "$SK" latest designer "$T/link-a")" s-mid
+err=$(python3 "$SK" latest designer "$T/work/c" 2>&1 >/dev/null); rc=$?
+[[ $rc != 0 && $err == *"no designer session started in"* ]] && ok "latest: none here, says so" || bad "latest: none" "$rc $err"
+
+# --- the flags, through bin/kith ----------------------------------------------------------------------------------------
+cat > "$T/bin/claude" <<'STUB'
+#!/usr/bin/env bash
+[[ $1 == plugin ]] && { echo '[]'; exit 0; }
+a=$*; printf '%s\n' "$PWD" "${a//$'\n'/ }" > "$STUB_OUT"
+STUB
+chmod +x "$T/bin/claude"
+export PATH=$T/bin:$PATH STUB_OUT=$T/stub.out
+tty() { script -q /dev/null "$@" >"$T/tty.out" 2>&1 < <(printf '%s' "${TTY_IN:-}"; sleep 3); }   # a terminal; TTY_IN is typed into it
+resumed() { sed -n 2p "$STUB_OUT" | grep -oE -- '--resume [^ ]+'; }
+
+rm -f "$STUB_OUT"; (cd "$T/work/c" && tty "$KERNEL/bin/kith" designer -r s-mid)
+is "-r <id>: resumes it" "$(resumed)" "--resume s-mid"
+is "-r <id>: in the folder it ran in" "$(sed -n 1p "$STUB_OUT" 2>/dev/null)" "$T/work/a"
+rm -f "$STUB_OUT"; (cd "$T/work/c" && tty "$KERNEL/bin/kith" designer --resume s-mid)
+is "--resume <id>: the same" "$(resumed) $(sed -n 1p "$STUB_OUT")" "--resume s-mid $T/work/a"
+rm -f "$STUB_OUT"; (cd "$T/work/c" && TTY_IN=$'1\n' tty "$KERNEL/bin/kith" designer -r)
+is "-r: picks from the list and resumes" "$(resumed)" "--resume s-new"
+is "-r: in the picked session's folder" "$(sed -n 1p "$STUB_OUT" 2>/dev/null)" "$T/work/b"
+grep -q 'hello there' "$T/tty.out" && ok "-r: the list is shown" || bad "-r: list" "$(cat "$T/tty.out")"
+rm -f "$STUB_OUT"; (cd "$T/work/c" && TTY_IN=$'2\n' tty "$KERNEL/bin/kith" designer -r -m haiku)
+is "-r then another flag: still the picker" "$(resumed)" "--resume s-mid"
+has "-r then another flag: that flag applies" "$(sed -n 2p "$STUB_OUT" 2>/dev/null)" "--model haiku"
+rm -f "$STUB_OUT"; (cd "$T/work/c" && TTY_IN=$'\n' tty "$KERNEL/bin/kith" designer -r)
+[[ ! -e $STUB_OUT ]] && ok "-r, Enter: no run" || bad "-r cancel ran claude"
+rm -f "$STUB_OUT"; (cd "$T/work/a" && tty "$KERNEL/bin/kith" designer -c)
+is "-c: the latest session started here" "$(resumed)" "--resume s-mid"
+rm -f "$STUB_OUT"; (cd "$T/work/b" && tty "$KERNEL/bin/kith" designer --continue)
+is "--continue: the same" "$(resumed)" "--resume s-new"
+rm -f "$STUB_OUT"; err=$(cd "$T/work/c" && "$KERNEL/bin/kith" designer -c "go on" 2>&1 >/dev/null); rc=$?
+[[ $rc != 0 && $err == *"no designer session started in"* && ! -e $STUB_OUT ]] && ok "-c: none here, no run" || bad "-c none" "$rc $err"
+rm -f "$STUB_OUT"; (cd "$T/work/a" && "$KERNEL/bin/kith" designer -c "go on" >/dev/null 2>&1)
+is "-c with a task: a one-shot on that session" "$(resumed)" "--resume s-mid"
+has "-c with a task: the task" "$(sed -n 2p "$STUB_OUT" 2>/dev/null)" "-p go on"
+for f in -x --nope -rx; do
+  rm -f "$STUB_OUT"; err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer $f 2>&1 >/dev/null); rc=$?
+  [[ $rc == 1 && $err == *"unknown flag '$f'"* && ! -e $STUB_OUT ]] && ok "$f: unknown flag, exit 1, no run" || bad "$f" "$rc $err"
+done
+rm -f "$STUB_OUT"; err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer -x "a task" 2>&1 >/dev/null); rc=$?
+[[ $rc == 1 && ! -e $STUB_OUT ]] && ok "unknown flag before a task: no run" || bad "-x task" "$rc $err"
+rm -f "$STUB_OUT"; (cd "$T/work/a" && "$KERNEL/bin/kith" designer "- a list item, as the task" >/dev/null 2>&1)
+has "a task starting with a dash still runs" "$(sed -n 2p "$STUB_OUT" 2>/dev/null)" "-p - a list item, as the task"
+rm -f "$STUB_OUT"; (cd "$T/work/a" && "$KERNEL/bin/kith" designer -- -x >/dev/null 2>&1)
+has "-- then a dash word: the task" "$(sed -n 2p "$STUB_OUT" 2>/dev/null)" "-p -x"
+
+exit $fail

@@ -13,13 +13,10 @@ struct HandoffCardRow: View {
         if card.isDraft {
             VStack(alignment: .leading, spacing: 10) {
                 Label(entry.data.text ?? "", systemImage: "arrow.triangle.branch")
-                    .font(.footnote)
-                    .foregroundStyle(Palette.secondary)
-                Disclosure(isExpanded: $expanded) {
-                    carried
-                } label: {
-                    Text("What it carries").font(.footnote.weight(.medium)).foregroundStyle(Palette.text)
-                }
+                    .kithText(.secondary)
+                    .foregroundStyle(Palette.muted)
+                // What the next conversation carries, as the "Where we left off" card.
+                HandoffCardView(.init(note: card.text))
                 HStack(spacing: 8) {
                     if model.answering[entry.id] != nil {
                         Spinner()
@@ -32,8 +29,6 @@ struct HandoffCardRow: View {
                     }
                 }
             }
-            .padding(12)
-            .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 14))
             .padding(.trailing, 40)
             .kithSheet(isPresented: $editing) { HandoffEditorView(entry: entry, text: card.text ?? "") }
         } else {
@@ -41,8 +36,8 @@ struct HandoffCardRow: View {
                 carried
             } label: {
                 Label(entry.data.text ?? "", systemImage: "arrow.triangle.branch")
-                    .font(.footnote)
-                    .foregroundStyle(Palette.secondary)
+                    .kithText(.secondary)
+                    .foregroundStyle(Palette.muted)
             }
         }
     }
