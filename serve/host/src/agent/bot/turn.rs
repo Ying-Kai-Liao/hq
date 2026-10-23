@@ -18,10 +18,15 @@ use tokio::sync::mpsc;
 const PROFILE_AGAIN: &str = "Your context was summarized. This is your full, current profile and memory; it replaces any earlier bot profile in this conversation.";
 
 impl Actor {
+    /// The group room the current turn is in: memory loads for that room (a bot's own chat and threads are none).
+    pub(super) fn memory_room(&self) -> Option<String> {
+        self.active_group.as_ref().map(|g| g.lane.chat.clone())
+    }
+
     /// This session's frozen instructions (reads memory files when re-rendering).
     pub(super) async fn snapshot(&self, session: &str) -> Result<Snapshot> {
-        let (hub, cfg, session) = (self.hub.clone(), self.cfg.clone(), session.to_owned());
-        tokio::task::spawn_blocking(move || context::resolve(&hub.store, &cfg, &session)).await?
+        let (hub, cfg, session, room) = (self.hub.clone(), self.cfg.clone(), session.to_owned(), self.memory_room());
+        tokio::task::spawn_blocking(move || context::resolve(&hub.store, &cfg, &session, room.as_deref())).await?
     }
 
     /// The prompt for `text` in session `sid`: what the agent should hear first (its profile, a handoff, a thread's
@@ -43,7 +48,7 @@ impl Actor {
             // The instructions reaching the agent now hold memory as it was when they were rendered.
             memory::opened(&self.hub.store, &self.cfg.id, sid, &snapshot.memory)?;
         }
-        if let Some((notice, revision)) = memory::change_notice(&self.hub.store, &self.cfg, sid) {
+        if let Some((notice, revision)) = memory::change_notice(&self.hub.store, &self.cfg, sid, self.memory_room().as_deref()) {
             prompt = format!("{notice}\n\n{prompt}");
             self.turn_memory_revision = revision;
         }
