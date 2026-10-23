@@ -81,7 +81,9 @@ Secret sources in a profile: "keychain:SERVICE#ACCOUNT", "env-file:PATH#VAR", "e
 a Chrome profile) has no secrets here: the tool keeps its own login, and the grant only says who may use it.
 
 The agent comes from KITH_AGENT (set by bin/kith) or --for (an agent's own tool naming its owner). This is least
-privilege between cooperating agents, not a sandbox: an agent with a shell can still read files it can see.
+privilege between cooperating agents. For the owner it is not a sandbox: an agent with a shell can still read files it can see.
+Non-owner Claude runs (a person or a bot) are different: bin/kith starts them with the OS sandbox of Claude Code around Bash
+(macOS seatbelt), so the credential folders and other people's files are closed to a shell too.
 """
 import getpass
 import json

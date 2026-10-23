@@ -130,6 +130,10 @@ jobs:
         run: kernel/tests/kith-auth-check
       - name: Cost bots check
         run: kernel/tests/kith-cost-bots-check
+      - name: Recall check
+        run: kernel/tests/kith-recall-check
+      - name: Guest sandbox check
+        run: kernel/tests/kith-guest-sandbox-check
 
   # Exits 0 when every row of verification/threads/checks.tsv matches its expected pass/fail, so green means no
   # change from the recorded baseline (some rows are known findings on purpose).

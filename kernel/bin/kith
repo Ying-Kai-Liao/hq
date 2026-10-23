@@ -441,7 +441,7 @@ if [[ $p_owner == 1 ]]; then
   done
   own_dirs=$(printf '%s' "$own_dirs" | awk '!seen[$0]++')
 fi
-fill < "$pkg/settings.json" | OWN_DIRS=$own_dirs ROLE_DIR=$pkg API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post HOOK="\"$KITH/bin/kith-cost\" tag" SESSIONS_HOOK="\"$KITH/bin/kith-sessions\" record" WRITABLE="$writable
+fill < "$pkg/settings.json" | P_OWNER=$p_owner OWN_DIRS=$own_dirs ROLE_DIR=$pkg API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post HOOK="\"$KITH/bin/kith-cost\" tag" SESSIONS_HOOK="\"$KITH/bin/kith-sessions\" record" WRITABLE="$writable
 $src_pkg/skills/learned
 $state_projects" python3 -c '
 import json, os, sys
@@ -462,8 +462,9 @@ s.setdefault("permissions", {}).setdefault("deny", []).extend(
 # ~/.kith stays readable (projects/, state, logs), but not the credentials in it, for every run, owner or not: the
 # secrets folder, the kith serve token, device identity and databases, browser profiles (their logins) and the old
 # bridge folder. Both spellings of each root (it may be a link). These rules stop the Read/Edit tools of Claude Code
-# only: a Bash `cat` of the same file is not stopped by them (in auto mode the classifier, in default mode the prompt,
-# is the only guard there). The kernel CLIs run in Bash and are unaffected.
+# only: a Bash `cat` of the same file is not stopped by them. For anyone but the owner Bash is OS-sandboxed (below), so
+# the same files are unreadable there too; for the owner, in auto mode the classifier, in default mode the prompt,
+# is the only guard. The kernel CLIs run in Bash and are unaffected.
 roots = list(dict.fromkeys(r for k in ("KITH_STATE", "KITH_MACHINE") for r in (os.environ[k], os.path.realpath(os.environ[k]))))
 sensitive = ["secrets/**", "serve/token", "serve/identity.json", "serve/*.db", "serve/*.db-*", "browsers/**", "bridge/**",
              "index/**"]   # the memory index holds every audience, not only yours: reached only through `kith recall`
@@ -474,6 +475,37 @@ for r in roots:
             if rule not in s["permissions"]["deny"]:
                 s["permissions"]["deny"].append(rule)
 s["permissions"]["deny"].extend(d for d in os.environ["DENY"].split("\n") if d)   # from the membership of the person the run is for
+# Anyone but the owner (an invited person, a bot): the OS sandbox of Claude Code (macOS seatbelt) around Bash and every
+# process it starts, so the files above are closed to a shell too and KITH_PERSON cannot be dodged by reading the
+# index or the serve token directly. Fails closed (failIfUnavailable), no escape hatch for the model, no excluded
+# commands, no network but the host socket the run asks for its recalls. The sandbox is inherited by children: a
+# nested `kith` started from that shell stays inside it. Read/Edit/Write keep following the permission rules.
+if os.environ["P_OWNER"] == "0":
+    def both(p):
+        return list(dict.fromkeys((p, os.path.realpath(p))))
+    machine = both(os.environ["KITH_MACHINE"])
+    deny_read = []
+    for r in dict.fromkeys(both(os.environ["KITH_STATE"]) + machine):
+        deny_read += ["%s/%s" % (r, f) for f in ("secrets", "serve", "browsers", "bridge", "index")]
+    for p in both(os.environ["KITH_SECRETS"]):   # the older layout keeps two files among the machine things
+        deny_read += [p + "/env", p + "/auth.json"] if p in machine else [p]
+    if os.environ.get("KITH_SERVE_HOME"):
+        deny_read += both(os.path.expanduser(os.environ["KITH_SERVE_HOME"]))
+    # The Read rules of the membership (other agents, the owner user.md, the memory of other people): Read(//abs/**) or Read(//abs).
+    for d in os.environ["DENY"].split("\n"):
+        if d.startswith("Read(/") and d.endswith(")"):
+            path = d[5:-1]
+            path = path[1:] if path.startswith("//") else path
+            path = path[:-3] if path.endswith("/**") else path
+            if path.startswith("/") and "*" not in path:
+                deny_read += both(path)
+    uv_cache = os.environ.get("UV_CACHE_DIR") or os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "uv")
+    allow_write = [d.strip() for d in os.environ["WRITABLE"].split("\n") if d.strip()] + [uv_cache]
+    sock = os.environ.get("KITH_RUN_SOCKET", "")
+    s["sandbox"] = {
+        "enabled": True, "failIfUnavailable": True, "allowUnsandboxedCommands": False, "autoAllowBashIfSandboxed": True,
+        "filesystem": {"denyRead": list(dict.fromkeys(deny_read)), "allowWrite": list(dict.fromkeys(allow_write))},
+        "network": {"allowUnixSockets": [sock] if sock else []}}
 allow = s["permissions"].setdefault("allow", [])
 allow.extend(r for r in dict.fromkeys("Edit(/%s/**)" % d for d in os.environ["WRITABLE"].split("\n") if d.strip()) if r not in allow)
 sys.path.insert(0, os.environ["KITH_ROOT"] + "/lib")
@@ -570,7 +602,7 @@ emit_launch() {
   [[ $harness == claude ]] && settings=$(cat "$runs/$$.settings.json")
   grep -q '^global_skills: *true' "$pkg/capabilities.yaml" 2>/dev/null && no_slash=false || no_slash=true
   [[ $harness == claude ]] || allowed_tools=""
-  ENV_NAMES="$(python3 "$KITH/lib/kith_paths.py" --sh | sed -n 's/^export \([A-Z_]*\)=.*/\1/p' | paste -sd' ' -) KITH_ROOT KITH_AGENT KITH_AGENT_DIR KITH_AGENT_HOME KITH_AGENT_VERSION KITH_MODEL KITH_EFFORT KITH_PROJECT KITH_PERSON KITH_ROOM KITH_VIA KITH_PROVIDER KITH_ACCOUNT $backup_cfg_var $p_env_names HQ_ROOT HQ_AGENT HQ_AGENT_DIR HQ_AGENT_HOME HQ_AGENT_VERSION HQ_MODEL HQ_EFFORT HQ_PROJECT HQ_PERSON HQ_VIA" \
+  ENV_NAMES="$(python3 "$KITH/lib/kith_paths.py" --sh | sed -n 's/^export \([A-Z_]*\)=.*/\1/p' | paste -sd' ' -) KITH_ROOT KITH_AGENT KITH_AGENT_DIR KITH_AGENT_HOME KITH_AGENT_VERSION KITH_MODEL KITH_EFFORT KITH_PROJECT KITH_PERSON KITH_RUN_TOKEN KITH_RUN_SOCKET KITH_ROOM KITH_VIA KITH_PROVIDER KITH_ACCOUNT $backup_cfg_var $p_env_names HQ_ROOT HQ_AGENT HQ_AGENT_DIR HQ_AGENT_HOME HQ_AGENT_VERSION HQ_MODEL HQ_EFFORT HQ_PROJECT HQ_PERSON HQ_VIA" \
     ADD_DIRS=$add_dirs ALLOWED=$allowed_tools SETTINGS=$settings MCP=$(merged_mcp) PROMPT=$prompt PERM_MODE=$perm_mode NO_SLASH=$no_slash CALL_MODEL=$call_model \
     BACKUP=$backup HARNESS=$harness KITH_LIB=$KITH/lib \
     python3 -c '
