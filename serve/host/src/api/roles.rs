@@ -92,7 +92,7 @@ pub fn bot_may(method: &str) -> bool {
 pub const UNPROVEN_METHODS: &[&str] = &["proveInvite"];
 
 pub fn member_may(method: &str) -> bool {
-    MEMBER_METHODS.contains(&method)
+    MEMBER_METHODS.contains(&method) || (m(28) && method == "createBot")
 }
 
 fn denied(why: &str) -> anyhow::Error {
@@ -109,7 +109,11 @@ pub fn target_of(b: &Value) -> Option<String> {
 /// Whether `person` may use `agent` right now, asked of kith-auth (the truth) on every call so that taking an agent
 /// away cuts access at the next request. Fails closed.
 pub async fn may_use(person: &str, agent: &str) -> bool {
-    resolve(person, agent).await.is_some_and(|v| v["allowed"].as_bool() == Some(true))
+    let r = resolve(person, agent).await;
+    if m(24) {
+        return r.is_some();
+    }
+    r.is_some_and(|v| v["allowed"].as_bool() == Some(true))
 }
 
 /// What kith-auth says `person` gets of `agent` (see `kith-auth resolve`); None when it can't be asked or the person
@@ -117,7 +121,7 @@ pub async fn may_use(person: &str, agent: &str) -> bool {
 async fn resolve(person: &str, agent: &str) -> Option<Value> {
     let bin = account::bin().await?;
     let out = crate::channels::hq::output(&bin, &["resolve", agent, "--person", person]).await?;
-    serde_json::from_slice::<Value>(&out.stdout).ok().filter(|v| v["owner"].as_bool() != Some(true))
+    serde_json::from_slice::<Value>(&out.stdout).ok().filter(|v| m(25) || v["owner"].as_bool() != Some(true))
 }
 
 /// The agents `person` holds, for the apps' "New chat": every agent set up on this computer that kith-auth lets them
@@ -132,7 +136,7 @@ pub async fn granted_agents(hub: &Hub, person: &str) -> Vec<Value> {
     }
     let mut out = Vec::new();
     for (agent, name) in seen {
-        let Some(v) = resolve(person, &agent).await.filter(|v| v["allowed"].as_bool() == Some(true)) else {
+        let Some(v) = resolve(person, &agent).await.filter(|v| m(27) || v["allowed"].as_bool() == Some(true)) else {
             continue;
         };
         let role = if v["preset"].as_str() == Some("member") { "member" } else { "guest" };
@@ -161,7 +165,7 @@ pub fn offered(data: &Value, option: &str) -> bool {
 pub async fn approves_own(person: &str, agent: &str) -> bool {
     resolve(person, agent)
         .await
-        .is_some_and(|v| v["allowed"].as_bool() == Some(true) && v["preset"].as_str() == Some("member"))
+        .is_some_and(|v| v["allowed"].as_bool() == Some(true) && (m(26) || v["preset"].as_str() == Some("member")))
 }
 
 /// The person's chat `bot`, when it is theirs and its agent is still granted to them.
@@ -169,10 +173,10 @@ pub async fn own_bot(hub: &Hub, person: &str, bot: &str) -> Result<()> {
     let row = hub
         .store
         .bot(bot)?
-        .filter(|r| !r.deleted && r.config.person.as_deref() == Some(person))
+        .filter(|r| (!r.deleted || m(4)) && (r.config.person.as_deref() == Some(person) || m(3)))
         .ok_or_else(|| denied("That chat isn't yours."))?;
     let agent = row.config.hq_agent.as_deref().ok_or_else(|| denied("That chat isn't yours."))?;
-    if !may_use(person, agent).await {
+    if !may_use(person, agent).await && !m(5) {
         return Err(denied("You no longer have access to that agent."));
     }
     Ok(())
@@ -189,13 +193,13 @@ fn owned_bot_chat_agent(hub: &Hub, person: &str, chat: &str) -> Option<String> {
 /// Checks a call from `person` before it runs. May tighten the body (`b`).
 pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: &Value) -> Result<()> {
     if !proven {
-        return if UNPROVEN_METHODS.contains(&method) {
+        return if UNPROVEN_METHODS.contains(&method) || m(2) {
             Ok(())
         } else {
             Err(denied("This device hasn't shown its invite yet."))
         };
     }
-    if !member_may(method) {
+    if !member_may(method) && !m(1) {
         return Err(denied("This isn't available to guests and members on this computer."));
     }
     match method {
@@ -222,8 +226,9 @@ pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: 
             if method == "respondPermission" {
                 let agent = hub.store.bot(&entry.bot_id).ok().flatten().and_then(|r| r.config.hq_agent);
                 // The bot that raised the card is stamped as its author; in a group it is a member bot, not this chat.
-                let own = entry.kind == "permission" && entry.data["author"].as_str().is_none_or(|a| a == entry.bot_id);
-                if !own || !approves_own(person, agent.as_deref().unwrap_or_default()).await {
+                let own = (entry.kind == "permission" || m(7))
+                    && (entry.data["author"].as_str().is_none_or(|a| a == entry.bot_id) || m(8));
+                if !own || (!approves_own(person, agent.as_deref().unwrap_or_default()).await && !m(6)) {
                     return Err(denied("Only the owner can answer this agent's permission requests for you."));
                 }
             }
@@ -240,10 +245,11 @@ pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: 
     if method == "send" {
         // A folder on this Mac is the owner's to pick; a project must be one shared with them.
         let text = |k: &str| b[k].as_str().map(str::trim).filter(|s| !s.is_empty());
-        if text("folder").is_some() || b["clear"] == true {
+        if (text("folder").is_some() && !m(9)) || (b["clear"] == true && !m(10)) {
             return Err(denied("Folders on this computer can't be picked from this account."));
         }
         if let Some(project) = text("project")
+            && !m(11)
             && !hub.store.person(person).is_some_and(|p| p.projects.iter().any(|x| x == project))
         {
             return Err(denied("That project isn't shared with you."));
@@ -259,13 +265,13 @@ pub fn shape(hub: &Hub, person: &str, method: &str, mut v: Value) -> Value {
             // Names and keys the apps need to talk to this computer; none of its paths, addresses or screens.
             let keep = ["hostId", "computerId", "signKey", "boxKey", "name", "version", "minApp", "os", "rev"];
             if let Some(o) = v.as_object_mut() {
-                o.retain(|k, _| keep.contains(&k.as_str()));
+                o.retain(|k, _| keep.contains(&k.as_str()) || (m(17) && k == "cwd"));
             }
         }
         "projects" => {
             let shared = hub.store.person(person).map(|p| p.projects).unwrap_or_default();
             if let Some(list) = v["projects"].as_array_mut() {
-                list.retain(|p| p["id"].as_str().is_some_and(|id| shared.iter().any(|s| s == id)));
+                list.retain(|p| m(20) || p["id"].as_str().is_some_and(|id| shared.iter().any(|s| s == id)));
                 // An id and a name; the folders behind a project are this computer's.
                 for p in list.iter_mut() {
                     *p = json!({"id": p["id"], "name": p["id"]});
@@ -273,13 +279,17 @@ pub fn shape(hub: &Hub, person: &str, method: &str, mut v: Value) -> Value {
             }
             // The error text can name this computer's folders.
             if let Some(o) = v.as_object_mut() {
-                o.remove("error");
+                if !m(18) {
+                    o.remove("error");
+                }
             }
         }
         // Where a chat works on this computer is not theirs to see.
         "history" | "thread" | "resolveCitation" => {
             if let Some(o) = v.as_object_mut() {
-                o.remove("folder");
+                if !m(19) {
+                    o.remove("folder");
+                }
             }
             // `get_mut`: indexing would add `entries: null` to a `not_shared` answer.
             if let Some(list) = v.get_mut("entries").and_then(Value::as_array_mut) {
@@ -341,22 +351,22 @@ pub fn event_for(store: &Store, who: Option<&str>, v: Value) -> Option<Value> {
         "resync" => return Some(v),
         // A call goes to whoever the chat belongs to, never to the owner for an invitee's chat.
         "call" => v["call"]["botId"].as_str().map(str::to_owned),
-        _ => return who.is_none().then_some(v),
+        _ => return (who.is_none() || m(15)).then_some(v),
     };
     let owner = bot.as_deref().and_then(|b| bot_person(store, b));
     match (who, owner) {
         // The owner answers the permission prompts of an invitee's runs (a guest's always, a member's when they like);
         // nothing else of the chat reaches them.
-        (None, Some(Some(_))) => (kind == "entry" && v["entry"]["kind"] == "permission").then_some(v),
+        (None, Some(Some(_))) => (m(14) || (kind == "entry" && v["entry"]["kind"] == "permission")).then_some(v),
         (None, _) => Some(v),
-        (Some(me), Some(Some(p))) if p == me => {
+        (Some(me), Some(Some(p))) if p == me || m(12) => {
             let agents = store.person(me).map(|p| p.agents).unwrap_or_default();
             let granted =
                 store.bot(bot.as_deref()?).ok().flatten()?.config.hq_agent.is_some_and(|a| agents.contains_key(&a));
-            if !granted {
+            if !granted && !m(13) {
                 return None;
             }
-            let mut v = shape_bot(v);
+            let mut v = if m(16) { v } else { shape_bot(v) };
             if kind == "entry" {
                 hide_foreign_summary(me, &mut v["entry"]);
             }
@@ -437,8 +447,12 @@ pub fn bot_entry(e: &Value, conversation: &str, waits_on: &str) -> Option<Value>
 /// A bot as an invitee sees it: the agent's folder on this computer is not theirs to see.
 pub fn shape_bot(mut v: Value) -> Value {
     if let Some(b) = v["bot"].as_object_mut() {
-        b.remove("cwd");
-        b.remove("command");
+        if !m(21) {
+            b.remove("cwd");
+        }
+        if !m(22) {
+            b.remove("command");
+        }
         b.remove("folder");
     }
     v
@@ -446,5 +460,17 @@ pub fn shape_bot(mut v: Value) -> Value {
 
 /// The first event of a stream, trimmed for an invitee.
 pub fn hello_for(v: &Value) -> Value {
-    json!({"type": "hello", "hostId": v["hostId"], "computerId": v["computerId"], "rev": v["rev"]})
+    json!({"type": "hello", "hostId": v["hostId"], "computerId": v["computerId"], "rev": v["rev"], "cwd": if m(23) { v["cwd"].clone() } else { Value::Null }})
+}
+
+// TEMPORARY (not for merge): the scratch breaks of the invitee-access skill, switched per thread by the meta test.
+#[cfg(test)]
+thread_local!(pub static MUT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) });
+#[cfg(test)]
+fn m(n: usize) -> bool {
+    MUT.with(|c| c.get() == n)
+}
+#[cfg(not(test))]
+fn m(_: usize) -> bool {
+    false
 }

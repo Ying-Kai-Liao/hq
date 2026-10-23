@@ -1032,3 +1032,50 @@ fn a_bot_guest_is_shown_words_only() {
         })
         .unwrap();
 }
+
+// TEMPORARY (not for merge): runs every property against every scratch break and reports who caught it.
+#[cfg(test)]
+mod meta {
+    use super::*;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    #[test]
+    fn every_break_is_caught() {
+        let props: [(&str, fn()); 6] = [
+            ("guard_never_lets_a_person_past_their_grant", guard_never_lets_a_person_past_their_grant),
+            ("guard_lets_a_granted_member_use_their_own_chat", guard_lets_a_granted_member_use_their_own_chat),
+            ("kith_auth_answers_fail_closed", kith_auth_answers_fail_closed),
+            ("events_reach_only_the_person_they_are_about", events_reach_only_the_person_they_are_about),
+            (
+                "what_a_person_is_shown_has_no_paths_folders_or_error_text",
+                what_a_person_is_shown_has_no_paths_folders_or_error_text,
+            ),
+            ("a_real_bot_json_loses_where_it_works", a_real_bot_json_loses_where_it_works),
+        ];
+        std::panic::set_hook(Box::new(|_| {}));
+        let mut table = String::new();
+        let mut missed = Vec::new();
+        for n in 0..=28usize {
+            super::super::roles::MUT.with(|c| c.set(n));
+            let mut caught = None;
+            for (name, f) in props {
+                if let Err(e) = catch_unwind(AssertUnwindSafe(f)) {
+                    let msg = e
+                        .downcast_ref::<String>()
+                        .cloned()
+                        .or_else(|| e.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+                        .unwrap_or_default();
+                    caught = Some(format!("{name}: {}", msg.chars().take(160).collect::<String>().replace('\n', " ")));
+                    break;
+                }
+            }
+            table += &format!("BREAK {n:>2} {}\n", caught.clone().unwrap_or_else(|| "NOT CAUGHT".into()));
+            if caught.is_none() && n > 0 {
+                missed.push(n);
+            }
+        }
+        super::super::roles::MUT.with(|c| c.set(0));
+        let _ = std::panic::take_hook();
+        panic!("META RESULT (break 0 is the clean code)\n{table}\nmissed: {missed:?}");
+    }
+}
