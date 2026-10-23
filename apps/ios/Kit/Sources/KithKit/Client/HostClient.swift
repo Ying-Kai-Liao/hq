@@ -333,6 +333,11 @@ public extension HostClient {
         let _: Empty = try await call("registerActivity", ["botId": botId, "ticket": ticket])
     }
 
+    /// Forget a bot's Live Activity registration once the activity has ended or the phone unpairs.
+    func unregisterActivity(botId: String) async throws {
+        let _: Empty = try await call("unregisterActivity", ["botId": botId])
+    }
+
     func usage(refresh: Bool = false) async throws -> Usage {
         try await call("usage", ["refresh": refresh])
     }
