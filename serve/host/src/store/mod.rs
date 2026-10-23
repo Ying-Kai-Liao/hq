@@ -14,6 +14,8 @@ mod people;
 mod schema;
 
 pub use devices::{Device, DeviceSource, Scope};
+#[cfg(test)]
+pub use model::Permission;
 pub use model::{BotConfig, BotKind, BotRow, Entry, EntryKind, Lane, ReadScope, lane_key};
 pub use people::{Invite, Membership, PersonRow};
 
