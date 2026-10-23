@@ -351,12 +351,12 @@ def memory(name):
 def permission_mode(name, role, harness):
     chosen = os.environ.get('KITH_PERMISSION_MODE') or kith_settings.get('permission_mode', name)
     if chosen or harness != 'claude':
-        return chosen or None
+        return kith_settings.current(chosen) or None
     try:   # the agent author's suggestion, then kith's default: what bin/kith's settings step ends up with
         mode = read_json(role / 'settings.json').get('permissions', {}).get('defaultMode')
     except (OSError, ValueError):
         mode = None
-    return mode or kith_settings.get('permission_mode')
+    return kith_settings.current(mode) or kith_settings.get('permission_mode')
 
 
 def main(argv):

@@ -12,9 +12,9 @@ import sys
 
 mode = sys.argv[1] if len(sys.argv) > 1 else "reporting"
 sessions = 0
-# What claude-agent-acp reports: every session starts in "default", whatever the agent is configured for.
+# The modes claude-agent-acp reports that kith offers; every session starts in "default", whatever the agent is configured for.
 CLAUDE_MODES = {"currentModeId": "default", "availableModes": [
-    {"id": m, "name": m} for m in ("default", "acceptEdits", "plan", "dontAsk", "auto", "bypassPermissions")]}
+    {"id": m, "name": m} for m in ("default", "acceptEdits", "plan", "auto", "bypassPermissions")]}
 compactions = 0
 models = {}   # `claude` mode: each session's model, as the real adapter's `model` config option holds it
 

@@ -7,7 +7,7 @@ use super::super::manage::Reply;
 use super::tilde;
 
 /// Claude Code's permission modes, as the host stores them.
-pub const PERMISSION_MODES: [&str; 6] = ["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"];
+pub const PERMISSION_MODES: [&str; 5] = ["default", "acceptEdits", "plan", "auto", "bypassPermissions"];
 
 pub enum Msg {
     Online(bool),

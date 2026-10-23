@@ -16,10 +16,9 @@ pub enum Permission {
     Plan,
     /// New bots start here.
     #[default]
-    #[serde(rename = "auto")]
+    /// A stored `dontAsk` (no longer offered) reads as auto.
+    #[serde(rename = "auto", alias = "dontAsk")]
     Auto,
-    #[serde(rename = "dontAsk")]
-    DontAsk,
     #[serde(rename = "bypassPermissions")]
     BypassPermissions,
 }
@@ -32,7 +31,6 @@ impl Permission {
             Self::AcceptEdits => "acceptEdits",
             Self::Plan => "plan",
             Self::Auto => "auto",
-            Self::DontAsk => "dontAsk",
             Self::BypassPermissions => "bypassPermissions",
         }
     }
@@ -302,7 +300,12 @@ mod tests {
         assert_eq!(p, Permission::Auto);
         assert_eq!(serde_json::to_string(&Permission::Ask).unwrap(), "\"default\"");
         assert_eq!(serde_json::from_str::<Permission>("\"ask\"").unwrap(), Permission::Ask, "old bots read as default");
-        for mode in ["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"] {
+        assert_eq!(
+            serde_json::from_str::<Permission>("\"dontAsk\"").unwrap(),
+            Permission::Auto,
+            "a stored dontAsk reads as auto"
+        );
+        for mode in ["default", "acceptEdits", "plan", "auto", "bypassPermissions"] {
             let p: Permission = serde_json::from_str(&format!("\"{mode}\"")).unwrap();
             assert_eq!(p.mode_id(), mode);
             assert_eq!(serde_json::to_string(&p).unwrap(), format!("\"{mode}\""));

@@ -48,12 +48,12 @@ public struct HqSetting: Equatable, Sendable {
     /// Claude Code's own permission modes, in the order the picker lists them. Kith passes the pick to the agent unchanged.
     public static let permissionModes: [(id: String, label: String)] = [
         ("default", "Default"), ("acceptEdits", "Accept edits"), ("plan", "Plan only"),
-        ("auto", "Auto"), ("dontAsk", "Don't ask"), ("bypassPermissions", "Bypass permissions"),
+        ("auto", "Auto"), ("bypassPermissions", "Bypass permissions"),
     ]
 
-    /// A stored mode as the picker knows it: the old `ask` and `manual` are `default`.
+    /// A stored mode as the picker knows it: the old `ask` and `manual` are `default`, a stored `dontAsk` is `auto`.
     public static func permissionMode(_ mode: String) -> String {
-        mode == "ask" || mode == "manual" ? "default" : mode
+        mode == "ask" || mode == "manual" ? "default" : mode == "dontAsk" ? "auto" : mode
     }
 
     /// One line under each mode in the picker's menu; the row itself keeps showing just the label.
@@ -63,7 +63,6 @@ public struct HqSetting: Equatable, Sendable {
         case "acceptEdits": "File edits are accepted without asking; other actions ask"
         case "plan": "Read-only planning; changes nothing"
         case "auto": "A classifier approves safe actions; risky ones ask or are blocked"
-        case "dontAsk": "Refuses anything not pre-approved by permission rules"
         case "bypassPermissions": "No permission checks"
         default: nil
         }
