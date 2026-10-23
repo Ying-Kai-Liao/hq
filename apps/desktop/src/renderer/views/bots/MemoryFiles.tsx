@@ -66,7 +66,7 @@ export function MemoryFileSheet({ memory, target, onClose }: { memory: MemorySto
     ? <IconButton title="Save" icon="checkmark" disabled={!draft.trim() || (!target.name && !validName)} onClick={() => void change({ content: draft })} />
     : detail?.content != null ? <div className="memory-header-actions">
       <IconButton title="Edit" icon="pencil" onClick={() => setDraft(detail.content)} />
-      {local ? <IconButton title="Open in your editor" icon="arrow.up.right.square" onClick={() => window.codync.app.openMemoryFile(detail.path)} /> : null}
+      {local ? <IconButton title="Open in your editor" icon="arrow.up.right.square" onClick={() => window.kith.app.openMemoryFile(detail.path)} /> : null}
       <IconButton title="Delete" icon="trash" onClick={() => setConfirmDelete(true)} />
     </div> : null
 

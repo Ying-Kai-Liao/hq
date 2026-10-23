@@ -209,7 +209,7 @@ export function ComposioConnectSheet({ app, requestId, done }: { app: ComposioAp
         if (cancelled) return
         setPlan(plan)
         if (plan.status !== 'redirect' || !plan.connection) return
-        if (plan.url && URL.canParse(plan.url)) window.codync.app.openExternal(plan.url)
+        if (plan.url && URL.canParse(plan.url)) window.kith.app.openExternal(plan.url)
         // Polls until the sign-in finishes (or the sheet goes away).
         for (let i = 0; i < 300; i++) {
           await sleep(2000)
@@ -313,7 +313,7 @@ export function ComposioConnectSheet({ app, requestId, done }: { app: ComposioAp
           <CardSection footer="Sign in on the page that opened. This updates by itself when you're done.">
             {plan.url && URL.canParse(plan.url) ? (
               <div>
-                <Button kind="secondary" onClick={() => window.codync.app.openExternal(plan.url!)}>
+                <Button kind="secondary" onClick={() => window.kith.app.openExternal(plan.url!)}>
                   <Icon name="safari" size={11} />
                   Open the sign-in page
                 </Button>

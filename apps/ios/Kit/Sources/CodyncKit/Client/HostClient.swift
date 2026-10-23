@@ -332,6 +332,12 @@ public extension HostClient {
         return try await call("kithInfo", Body(botId: botId, refresh: refresh ? true : nil), timeout: 60)
     }
 
+    /// Writes an hq bot's permission mode through to hq (`kith <agent> set permission`); the answer is hq's info read back.
+    func kithSetPermission(botId: String, mode: String) async throws -> KithInfoResponse {
+        struct Body: Encodable { var botId: String; var mode: String }
+        return try await call("kithSetPermission", Body(botId: botId, mode: mode), timeout: 60)
+    }
+
     /// The backup chain (serve/host/src/api/backups.rs); this app only reads it. A host before it answers 404.
     func backups() async throws -> Backups {
         try await call("backups", timeout: 90)

@@ -14,7 +14,7 @@ registerHooks({ resolve(specifier, context, nextResolve) {
 } })
 
 test('permission setup uses the local host identity even when a remote computer is selected', async () => {
-  Object.assign(globalThis, { window: { codync: { computerName: 'OS computer name' } } })
+  Object.assign(globalThis, { window: { kith: { computerName: 'OS computer name' } } })
   const local = { hostName: 'Local host' }
   const state = { local: local as typeof local | null, selectedStore: { hostName: 'Remote host' } }
   const { ComputerAccess } = await import('../store/computer-access.ts')
@@ -24,7 +24,7 @@ test('permission setup uses the local host identity even when a remote computer 
   assert.equal(access.computerName, 'Renamed local host')
   state.local = null
   assert.equal(access.computerName, 'OS computer name')
-  window.codync.computerName = ''
+  window.kith.computerName = ''
   assert.equal(access.computerName, 'Your computer')
 })
 
@@ -33,21 +33,21 @@ test('repeated checks never request permissions; explicit actions and failures s
   let fail = false
   let capture = false
   let settings = ''
-  Object.assign(globalThis, { window: { codync: { platform: 'darwin', app: {
+  Object.assign(globalThis, { window: { kith: { platform: 'darwin', app: {
     screenAgentState: async () => ({ available: true, needsApproval: false, registered: true }),
     openSettings: (url: string) => { settings = url },
   } } } })
   const app = { local: { connection: { kind: 'online' }, client: { call: async (method: string) => {
     calls.push(method)
     if (method === 'requestScreenPermission' && fail) throw new Error('Permission denied')
-    return { enabled: true, connected: true, capture, input: false, permissionApp: 'CodyncDevScreen' }
+    return { enabled: true, connected: true, capture, input: false, permissionApp: 'KithDevScreen' }
   } } }, setRemoteScreen: async () => { calls.push('enable') }, screenError: null } as unknown as AppModel
   const { ComputerAccess } = await import('../store/computer-access.ts')
   const access = new ComputerAccess(app)
   await access.refresh()
   await access.refresh()
   assert.deepEqual(calls, ['screenStatus', 'screenStatus'])
-  assert.equal(access.helperName, 'CodyncDevScreen')
+  assert.equal(access.helperName, 'KithDevScreen')
   assert.equal(access.step, 'capture')
   access.openSettings('input')
   assert.match(settings, /Privacy_Accessibility/)

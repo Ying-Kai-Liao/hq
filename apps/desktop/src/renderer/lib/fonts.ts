@@ -15,7 +15,7 @@ const TextStyle = {
   footnote: 'caption',
   caption: 'caption',
   caption2: 'caption',
-  /** Codync's compact desktop body and secondary text. */
+  /** Kith's compact desktop body and secondary text. */
   compactBody: 'callout',
   compactSecondary: 'caption',
 } as const

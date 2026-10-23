@@ -1,9 +1,9 @@
 /// <reference types="vite/client" />
-import type { CodyncBridge } from '@shared/ipc'
+import type { KithBridge } from '@shared/ipc'
 
 declare global {
   interface Window {
-    codync: CodyncBridge
+    kith: KithBridge
   }
 }
 

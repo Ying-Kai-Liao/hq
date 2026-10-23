@@ -48,6 +48,10 @@ impl Actor {
     /// Switches a live session's Fast mode to the bot's setting before a turn. Once the agent
     /// refused it, asks again only after the user changes the setting.
     pub(super) async fn sync_fast_mode(&mut self, sid: &str) {
+        // An hq agent's Fast mode is whatever hq's launch gives it; the bot's own switch isn't consulted.
+        if self.is_hq() {
+            return;
+        }
         let on = self.cfg.fast_mode;
         if on && matches!(self.fast_support, FastModeSupport::Refused(_)) {
             return;

@@ -8,7 +8,7 @@ import { Text } from '../components/Text'
 import { refKey, type BotRef, type RosterItem } from '../store/app-model'
 import './search-palette.css'
 
-const isMac = window.codync.platform === 'darwin'
+const isMac = window.kith.platform === 'darwin'
 const modifier = isMac ? '⌘' : 'Ctrl+'
 
 /** Bots matching the query by name, description or last message; all bots for an empty query. */

@@ -109,7 +109,7 @@ export function MarketplaceView({ computers, computer, onComputer, appsFirst = f
 
   useEffect(() => {
     void plugins.refresh()
-    // Picks up CLIs installed or signed in outside Codync.
+    // Picks up CLIs installed or signed in outside Kith.
     void store.refreshBackends()
     void loadConnectors('')
     void (async () => {

@@ -38,7 +38,7 @@ export class IslandModel extends Observable {
   private keyboard = false
 
   start() {
-    const island = window.codync.island
+    const island = window.kith.island
     island.onSummary((s) => this.apply(s))
     island.onScreen((s) => this.update(() => (this.screen = s)))
     island.onHover((inside) => this.hover(inside))
@@ -47,7 +47,7 @@ export class IslandModel extends Observable {
       if (this.tab === 'message') this.close()
     })
     // Linux shapes the window to the island (main/island.ts): the pointer entering the window is the hover.
-    if (window.codync.platform === 'linux') {
+    if (window.kith.platform === 'linux') {
       document.documentElement.addEventListener('mouseenter', () => this.hover(true))
       document.documentElement.addEventListener('mouseleave', () => this.hover(false))
     }
@@ -119,7 +119,7 @@ export class IslandModel extends Observable {
     // next tab: giving it back blinks the window on macOS.
     if (tab === 'message') {
       this.keyboard = true
-      window.codync.island.setFocusable(true)
+      window.kith.island.setFocusable(true)
     }
     this.foldWhenAway()
   }
@@ -135,28 +135,28 @@ export class IslandModel extends Observable {
   send(text: string) {
     const bot = this.messageBot
     if (!bot || !text.trim()) return
-    window.codync.island.send(bot.ref, text)
+    window.kith.island.send(bot.ref, text)
     this.close()
   }
 
   respond(card: IslandPermission, optionId: string) {
-    window.codync.island.respond(card.ref, card.entryId, optionId)
+    window.kith.island.respond(card.ref, card.entryId, optionId)
     if (this.open) this.close()
   }
 
   openBot(ref: string) {
-    window.codync.island.openBot(ref)
+    window.kith.island.openBot(ref)
     this.dismissNotice()
     this.close()
   }
 
   newBot() {
-    window.codync.island.newBot()
+    window.kith.island.newBot()
     this.close()
   }
 
   openApp() {
-    window.codync.island.openApp()
+    window.kith.island.openApp()
     this.close()
   }
 
@@ -174,7 +174,7 @@ export class IslandModel extends Observable {
       this.closing = false
       this.tab = 'auto'
     })
-    if (this.keyboard) window.codync.island.setFocusable(false)
+    if (this.keyboard) window.kith.island.setFocusable(false)
     this.keyboard = false
   }
 
@@ -253,12 +253,12 @@ export class IslandModel extends Observable {
     if (frame.width !== this.shape.width || frame.height !== this.shape.height) {
       this.growing = frame.width * frame.height >= this.shape.width * this.shape.height
       this.shape = { width: frame.width, height: frame.height }
-      window.codync.island.setShape(islandRect(frame, window.innerWidth))
+      window.kith.island.setShape(islandRect(frame, window.innerWidth))
     }
     const keys = this.mode === 'approval'
     if (keys !== this.keys) {
       this.keys = keys
-      window.codync.island.setKeys(keys)
+      window.kith.island.setKeys(keys)
     }
     this.changed()
   }

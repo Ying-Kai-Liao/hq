@@ -45,7 +45,7 @@ export interface RoutineListing {
   runs: RoutineRun[]
 }
 
-/** `url` is public through the Codync cloud (null while the cloud is off), `localUrl` works on the host itself. */
+/** `url` is public through the Kith cloud (null while the cloud is off), `localUrl` works on the host itself. */
 export interface RoutineWebhook {
   url?: string | null
   localUrl: string

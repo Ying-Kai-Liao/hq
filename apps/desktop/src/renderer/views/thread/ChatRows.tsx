@@ -142,7 +142,7 @@ export function UserBubble({ entry, botWorking, reply }: { entry: Entry; botWork
   const store = useStore()
   const [hovering, setHovering] = useState(false)
   const status = entry.data.status
-  const copy = () => entry.data.text && window.codync.app.copy(entry.data.text)
+  const copy = () => entry.data.text && window.kith.app.copy(entry.data.text)
   return (
     <div className="message user" title={fullDate.format(entry.createdAt)} onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}>
       <div className="message-body">
@@ -198,7 +198,7 @@ function UserStatus({ entry, botWorking, hovering }: { entry: Entry; botWorking:
 export function AgentBubble({ entry, openTrace, reply }: { entry: Entry; openTrace: () => void; reply?: () => void }) {
   const store = useStore()
   const [hovering, setHovering] = useState(false)
-  const copy = () => entry.data.text && window.codync.app.copy(entry.data.text)
+  const copy = () => entry.data.text && window.kith.app.copy(entry.data.text)
   return (
     <div className="message agent" title={fullDate.format(entry.createdAt)} onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}>
       <div className="message-body">

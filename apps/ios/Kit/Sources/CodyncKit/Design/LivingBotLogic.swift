@@ -55,6 +55,19 @@ enum AvatarTier: Equatable {
     }
 }
 
+/// The idle glance of the blink tier: a list face only blinks otherwise, so most rows would look
+/// static. One quick look to a side every `period`, to the side the bot's seed picks, started at
+/// the bot's own phase so a column of faces never looks in step.
+enum BotGlance {
+    static let period: Double = 9
+    /// Gaze units; the full tier's look-around reaches further.
+    static let reach = 0.55
+    /// (fraction of the period, share of `reach`): rest, saccade out, hold, saccade back, rest.
+    static let keys: [(t: Double, x: Double)] = [(0, 0), (0.78, 0), (0.795, 1), (0.88, 1), (0.895, 0), (1, 0)]
+
+    static func side(_ seed: LivingSeed) -> Double { seed.seed & 1 == 0 ? -1 : 1 }
+}
+
 enum BotPose {
     /// Where the eyes rest in each mood when nothing moves them (gaze units): blink and still tiers.
     static func gaze(_ mood: CharacterAvatar.Mood) -> (x: Double, y: Double) {

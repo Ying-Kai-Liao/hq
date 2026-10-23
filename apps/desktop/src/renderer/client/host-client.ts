@@ -53,7 +53,7 @@ export class LoopbackTransport implements HostTransport {
 
   async call(method: string, body: unknown, timeoutMs: number) {
     try {
-      return await window.codync.host.call(this.baseURL, this.token, method, body, timeoutMs)
+      return await window.kith.host.call(this.baseURL, this.token, method, body, timeoutMs)
     } catch (e) {
       const error = e as CallError
       throw new HostError(error.status ?? 0, error.status === 401 ? "This device isn't allowed on that computer anymore." : error.message)
@@ -61,7 +61,7 @@ export class LoopbackTransport implements HostTransport {
   }
 
   stream(path: string, onData: (line: string) => void, onEnd: (error: HostError | null) => void) {
-    return window.codync.host.stream(`${this.baseURL}${path}`, this.token, onData, (error) =>
+    return window.kith.host.stream(`${this.baseURL}${path}`, this.token, onData, (error) =>
       onEnd(error ? new HostError(error.status, error.message) : null),
     )
   }
@@ -186,6 +186,11 @@ export class HostClient {
   /** A Kith bot's details from `kith <agent> --info-json`; `refresh` runs kith now instead of taking the host's 30 s copy. A host before this call answers 404. */
   async kithInfo(botId: string, refresh = false): Promise<KithInfoResult> {
     return parseKithInfoResult(await this.call('kithInfo', { botId, ...(refresh ? { refresh: true } : {}) }, 60_000))
+  }
+
+  /** Writes an hq bot's permission mode through to hq (`kith <agent> set permission`) and returns hq's info read back. */
+  async kithSetPermission(botId: string, mode: string): Promise<KithInfoResult> {
+    return parseKithInfoResult(await this.call('kithSetPermission', { botId, mode }, 60_000))
   }
 
   /** The backup chain: global order, per-agent orders and each entry's state. A host before this call answers 404. */

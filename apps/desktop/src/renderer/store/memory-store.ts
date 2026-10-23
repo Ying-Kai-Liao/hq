@@ -1,7 +1,7 @@
 import type { HostClient } from '../client/host-client'
 import { Observable } from '../lib/observable'
 
-/** One memory entry (the host's `codync_mem::store::Entry`). */
+/** One memory entry (the host's `kith_mem::store::Entry`). */
 export interface MemoryEntry {
   id: number
   /** The bot whose own layer holds it; null for what all bots share. */
@@ -30,7 +30,7 @@ export interface TidyRun {
   files?: { name: string; shared: boolean; version: number }[]
 }
 
-/** A long-form memory file as the host last recorded it (`codync_mem::files::File`). */
+/** A long-form memory file as the host last recorded it (`kith_mem::files::File`). */
 export interface MemoryFile {
   bot: string | null
   name: string

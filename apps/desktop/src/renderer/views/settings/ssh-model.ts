@@ -14,8 +14,8 @@ class SSHModel extends Observable {
   start() {
     if (this.started) return
     this.started = true
-    window.codync.ssh.onChange((s) => this.apply(s))
-    void window.codync.ssh.state().then((s) => this.apply(s))
+    window.kith.ssh.onChange((s) => this.apply(s))
+    void window.kith.ssh.state().then((s) => this.apply(s))
   }
 
   private apply(s: SSHState) {

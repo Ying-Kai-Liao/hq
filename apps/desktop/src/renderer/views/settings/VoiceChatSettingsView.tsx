@@ -21,7 +21,7 @@ export function VoiceChatSettingsView({ showsHeader = true }: { showsHeader?: bo
   const [engine, setEngine] = usePref(voice.engine)
   const [rate, setRate] = usePref(voice.rate)
   const [language, setLanguage] = usePref(voice.language)
-  const languages = useMemo(() => voice.languageOptions(window.codync.speech.locales()), [])
+  const languages = useMemo(() => voice.languageOptions(window.kith.speech.locales()), [])
   const provider = voice.isVoiceProvider(engine) ? engine : null
   const [mode, setMode] = usePref(voice.mode(provider ?? 'openai'))
   const kith = engine === voice.KITH_ENGINE
@@ -29,7 +29,7 @@ export function VoiceChatSettingsView({ showsHeader = true }: { showsHeader?: bo
     ? 'Listens on this computer; the bot speaks with a free voice run by your Kith computer. Applies from the next call.'
     : provider
     ? `Your own ${voice.voiceInfo[provider].name} key, billed by ${voice.voiceInfo[provider].name}. Applies from the next call.`
-    : window.codync.speech.available
+    : window.kith.speech.available
       ? 'On-device speech, on this computer. Applies from the next call.'
       : onDeviceUnavailableReason()
   return (
@@ -43,8 +43,8 @@ export function VoiceChatSettingsView({ showsHeader = true }: { showsHeader?: bo
                 <ChoicePicker
                   selection={engine}
                   options={[
-                    ...(window.codync.speech.available || engine === 'device' ? [{ id: 'device', label: 'On device' }] : []),
-                    ...(window.codync.speech.available || kith ? [{ id: voice.KITH_ENGINE, label: 'Kith voice (on this Mac, free)' }] : []),
+                    ...(window.kith.speech.available || engine === 'device' ? [{ id: 'device', label: 'On device' }] : []),
+                    ...(window.kith.speech.available || kith ? [{ id: voice.KITH_ENGINE, label: 'Kith voice (on this Mac, free)' }] : []),
                     ...voice.VOICE_PROVIDERS.map((p) => ({ id: p, label: voice.voiceInfo[p].name })),
                   ]}
                   onChange={setEngine}
@@ -315,7 +315,7 @@ function ProviderVoiceSettings({ provider }: { provider: VoiceProvider }) {
             )}
           </HStack>
           <Text as="div" size="footnote" className="settings-row">
-            <button className="settings-link" onClick={() => window.codync.app.openExternal(info.keyPage)}>
+            <button className="settings-link" onClick={() => window.kith.app.openExternal(info.keyPage)}>
               Get a key from {info.name}
             </button>
             <Spacer />

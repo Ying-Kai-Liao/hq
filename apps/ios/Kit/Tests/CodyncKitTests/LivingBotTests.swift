@@ -37,6 +37,26 @@ import Testing
     #expect(AvatarTier.tier(size: 10, reduceMotion: true) == .reduced)
 }
 
+@Test func aListFaceGlancesAtTheBlinkTierOnly() {
+    // 46 pt (the chat list) is the blink tier: that is where the glance runs.
+    #expect(AvatarTier.tier(size: 46, reduceMotion: false, capped: true) == .blink)
+    #expect(AvatarTier.tier(size: 30, reduceMotion: false) == .blink)
+    #expect(AvatarTier.tier(size: 15, reduceMotion: false) == .still)
+    #expect(AvatarTier.tier(size: 46, still: true, reduceMotion: false) == .still)
+    #expect(AvatarTier.tier(size: 30, reduceMotion: true) == .reduced)
+}
+
+@Test func theGlanceRestsAtBothEndsAndStaggersBySeed() {
+    let k = BotGlance.keys
+    #expect(k.first?.t == 0 && k.last?.t == 1)
+    #expect(k.first?.x == 0 && k.last?.x == 0)
+    #expect(zip(k, k.dropFirst()).allSatisfy { $0.t < $1.t })
+    let seeds = (0..<40).map { LivingSeed(id: "bot-\($0)") }
+    #expect(seeds.contains { BotGlance.side($0) < 0 } && seeds.contains { BotGlance.side($0) > 0 })
+    #expect(Set(seeds.map(\.fLook)).count > 30)
+    #expect(BotGlance.side(seeds[3]) == BotGlance.side(LivingSeed(id: "bot-3")))
+}
+
 @Test func aClosedEyeKeepsAboutThreeQuartersOfAPixel() {
     #expect(BotPose.closed(eyeHeight: 0.15, size: 92) == 0.10)
     #expect(abs(BotPose.closed(eyeHeight: 0.15, size: 24) - 0.2083) < 0.001)

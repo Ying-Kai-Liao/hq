@@ -50,7 +50,7 @@ export function RoutineWebhookPanel({ botId, routineId }: { botId: string; routi
         icon={copied === copy ? 'checkmark' : 'doc.on.doc'}
         onClick={() => {
           if (!webhook) return
-          window.codync.app.copy(copy === 'key' ? webhook.key : (webhook.url ?? webhook.localUrl))
+          window.kith.app.copy(copy === 'key' ? webhook.key : (webhook.url ?? webhook.localUrl))
           setCopied(copy)
         }}
       />

@@ -16,8 +16,7 @@ const { autoUpdater } = electronUpdater
 /**
  * The app's own updates (electron-updater, GitHub releases; packaged `main` builds only, so a
  * local `dev` build never replaces itself with a release). Off until Kith publishes its own
- * feed (`UPDATE_FEED`): the builds carry no feed, and a download the earlier Codync-fed
- * updater staged is discarded at launch. Codync
+ * feed (`UPDATE_FEED`): the builds carry no feed, and a staged download is discarded at launch. Kith
  * coordinates its background services before the installer replaces the app: the host is
  * stopped first, and a restart marker makes the next launch reinstall it from the new bundle.
  */
@@ -32,7 +31,7 @@ export class Updates extends EventEmitter {
     staged: false,
     installing: false,
     autoCheck: prefs.get('updatesAutoCheck') !== false,
-    // On unless turned off: installs still wait until Codync is idle.
+    // On unless turned off: installs still wait until Kith is idle.
     autoDownload: prefs.get('updatesAutoDownload') !== false,
     lastCheck: (prefs.get('updatesLastCheck') as number | undefined) ?? null,
     error: null,
@@ -250,7 +249,7 @@ function removeStuckShipIt() {
 }
 
 /**
- * Throws away a release the earlier updater staged (it came from Codync's feed): macOS's
+ * Throws away a release the earlier updater staged (an app with no feed has none to apply): macOS's
  * installer job (ShipIt) would otherwise apply it when the app quits, and electron-updater
  * keeps the download in its cache.
  */
@@ -259,8 +258,6 @@ function discardStagedUpdate() {
   const label = `${identity.appId}.ShipIt`
   const caches = join(homedir(), 'Library/Caches')
   execFile('/bin/launchctl', ['remove', label], () => {})
-  for (const dir of [join(caches, label), join(caches, 'codync-desktop-updater', 'pending')]) {
-    // A leftover that can't be deleted must not stop the app from starting.
-    try { rmSync(dir, { recursive: true, force: true }) } catch {}
-  }
+  // A leftover that can't be deleted must not stop the app from starting.
+  try { rmSync(join(caches, label), { recursive: true, force: true }) } catch {}
 }

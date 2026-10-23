@@ -56,11 +56,11 @@ export class OnDeviceEngine extends VoiceEngine {
   }
 
   async start() {
-    if (!window.codync.speech.available) return this.fail(onDeviceUnavailableReason())
+    if (!window.kith.speech.available) return this.fail(onDeviceUnavailableReason())
     // The call takes the recognizer from any dictation in progress.
     stopDictation()
     speechSynthesis.getVoices()
-    this.offEvents = window.codync.speech.onEvent((e) => this.event(e))
+    this.offEvents = window.kith.speech.onEvent((e) => this.event(e))
     this.listen()
   }
 
@@ -129,7 +129,7 @@ export class OnDeviceEngine extends VoiceEngine {
     if (this.muted || this.ended) return
     this.recognizing = true
     this.started = false
-    window.codync.speech.start(VoiceSettings.language() || null, this.talkOverEnabled ? { echoCancel: true } : undefined)
+    window.kith.speech.start(VoiceSettings.language() || null, this.talkOverEnabled ? { echoCancel: true } : undefined)
   }
 
   /** The microphone is listening (a recognition is running). */
@@ -150,7 +150,7 @@ export class OnDeviceEngine extends VoiceEngine {
   protected stopListening() {
     if (this.silence) clearTimeout(this.silence)
     this.silence = null
-    if (this.recognizing) window.codync.speech.stop()
+    if (this.recognizing) window.kith.speech.stop()
     this.recognizing = false
     this.started = false
     this.level = 0

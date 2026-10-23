@@ -83,7 +83,7 @@ private func houseInfo() throws -> KithInfo {
 
 @Test func hqBotWithKithDetailsHidesTheCardsKithRepeats() throws {
     let sections = BotSections(hqAgent: "house", info: try houseInfo())
-    #expect(!sections.instructions && !sections.backendPicker && !sections.harnessMemoryTab)
+    #expect(!sections.instructions && !sections.backendPicker && !sections.harnessMemoryTab && !sections.codyncSettings)
 }
 
 @Test func plainBotAndUnloadedKithKeepEveryCard() throws {
@@ -91,6 +91,7 @@ private func houseInfo() throws -> KithInfo {
     #expect(BotSections(hqAgent: "", info: try houseInfo()) == .all)
     var unloaded = BotSections.all
     unloaded.harnessMemoryTab = false
+    unloaded.codyncSettings = false
     #expect(BotSections(hqAgent: "house", info: nil) == unloaded)
 }
 
@@ -109,4 +110,32 @@ private func houseInfo() throws -> KithInfo {
     #expect(role.sections.allSatisfy { prompt.contains("## \($0.title)") })
     let empty = try decode(KithRole.self, #"{"intro":" ","sections":[]}"#)
     #expect(empty.prompt == nil)
+}
+
+@Test func anHqBotOnAHostWithoutKithInfoKeepsCodyncsOwnSettingsControls() throws {
+    #expect(BotSections(hqAgent: "house", info: nil, unsupportedHost: true).codyncSettings)
+    #expect(BotSections(hqAgent: "house", info: try houseInfo(), unsupportedHost: true).codyncSettings)
+    #expect(!BotSections(hqAgent: "house", info: try houseInfo()).codyncSettings)
+    #expect(BotSections(hqAgent: nil, info: nil).codyncSettings)
+}
+
+@Test func hqSettingsWriteThePermissionThroughAndTheRestIsReadOnlySetInKith() throws {
+    var info = try houseInfo()
+    info.permissionMode = "plan"
+    info.model = "opus"
+    info.effort = nil
+    let rows = HqSetting.rows(info)
+    #expect(rows.map(\.key) == [.permission, .model, .effort, .fastMode])
+    #expect(rows.map(\.value) == ["plan", "opus", "Agent's default", "Off"])
+    #expect(rows.map(\.editable) == [true, false, false, false])
+    #expect(rows.filter { !$0.editable }.allSatisfy { $0.hint.hasPrefix(HqSetting.setInKith) })
+}
+
+@Test func nothingIsEditableUntilHqAnsweredAndNoPermissionInHqShowsTheDefault() throws {
+    #expect(HqSetting.rows(nil)[0].editable == false)
+    var info = try houseInfo()
+    info.permissionMode = nil
+    #expect(HqSetting.rows(info)[0].value == "auto")
+    #expect(HqSetting.permissionLabel("bypassPermissions") == "Bypass permissions")
+    #expect(HqSetting.permissionLabel("somethingNew") == "somethingNew")
 }

@@ -10,6 +10,7 @@
 
 .kb {
   --d-look: var(--p-look);
+  --d-glance: var(--p-glance);
   --d-work: var(--p-work);
   --d-err: var(--p-err);
   --d-idle: var(--p-idle);
@@ -24,6 +25,7 @@
 }
 .kb[data-live] {
   --d-look: 0ms;
+  --d-glance: 0ms;
   --d-work: 0ms;
   --d-err: 0ms;
   --d-idle: 0ms;
@@ -162,6 +164,24 @@
 }
 .kb:is([data-eff='blink'], [data-eff='static'])[data-state='error']:not([data-settling]) .kb-gaze {
   translate: 0 calc(var(--kb-my) * 0.7);
+}
+/* An idle face at list size would only blink: add one quick look to its own side every 9 s, at its own phase. */
+@keyframes kb-glance {
+  0%,
+  78% {
+    translate: 0 0;
+  }
+  79.5%,
+  88% {
+    translate: calc(var(--kb-mx) * 0.55 * var(--kb-glance-side)) 0;
+  }
+  89.5%,
+  100% {
+    translate: 0 0;
+  }
+}
+.kb[data-eff='blink'][data-state='idle']:not([data-settling], [data-flag]) .kb-gaze {
+  animation: kb-glance 9000ms cubic-bezier(0.3, 0, 0.15, 1) infinite var(--d-glance);
 }
 .kb[data-eff='static'] .kb-shape {
   transition: none;

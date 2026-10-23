@@ -101,6 +101,11 @@ export function loopsOf(id: string): Loops {
   }
 }
 
+/** The blink tier's idle glance (a list face would only blink otherwise): one look to a side per
+ * period, the side picked by the seed's low bit, as on iOS (BotGlance). */
+export const GLANCE_MS = 9000
+export const glanceSide = (id: string): -1 | 1 => (seedOf(id) & 1 ? 1 : -1)
+
 /** Where in a loop of `length` ms a bot is `now`: the same on every screen showing it. */
 export const phaseMs = (length: number, f: number, now: number) => (now + f * length) % length
 

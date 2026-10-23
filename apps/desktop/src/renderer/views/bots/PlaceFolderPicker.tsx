@@ -81,7 +81,7 @@ function PlaceFolderPicker({ current, onPick, onClose }: { current: PlaceFolder 
 
   const choose = async () => {
     if (store.isLoopback) {
-      const path = await window.codync.app.pickFolder(store.hello?.home ?? null)
+      const path = await window.kith.app.pickFolder(store.hello?.home ?? null)
       if (path) folderChosen(path)
     } else {
       // The system dialog shows this Mac's folders, not the other computer's.
