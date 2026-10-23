@@ -186,10 +186,14 @@ a `flock` on `<session>.claim.lock`. It works with the host down.
   so an agent process left behind by a crashed host still keeps a terminal out. It does not stop the host's own sends.
 - A take-over holds `<session>.takeover.claim` (host pid) until the terminal is ended and imported. It re-reads the
   session's status and start time right before SIGTERM; the microseconds between that read and `kill(2)` remain.
-- A bot guest (`kith ask --thread`, kith-bot-guests) is a third writer: before running a turn it calls
-  `claim::take(state, sid, Kind::Bot, std::process::id(), false)` for the thread's lane session (an `Err(Held)` is a
-  `heldByOtherWriter` refusal), checks `hostBusy`/the registry AFTER it holds the claim, and `claim::release`s it when
-  the turn ends. Never decide from `liveWriter` or `before_send` alone: both lag a scan behind.
+- A bot guest's conversation (`botAsk`) is a third writer. The host's turn for it takes `Kind::Bot` (not `App`) with the
+  agent process's pid when the turn starts (`claim_for_turn`), and releases it when the turn ends, fails or is stopped
+  (also on a revoke, which stops). `botAsk` is gated before it queues, under the thread lock, by `terminal::bot_gate`:
+  a terminal or take-over holding the thread refuses it with `heldByOtherWriter` (it does not queue); the bot's own
+  running turn does not refuse, its ask waits in the thread's lane, five at most. An app send into a thread a bot
+  holds is refused with `heldByOtherWriter` too (a terminal holder keeps `liveInTerminal`). App and bot turns share one
+  lane queue and one agent process, so inside the host the queue orders them; the claim keeps other processes out. A
+  retry with the same `clientNonce` answers before the gate and takes nothing. `liveWriter` is display only.
 
 ## Updates
 

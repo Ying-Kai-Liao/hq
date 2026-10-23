@@ -279,12 +279,17 @@ impl Actor {
             return Ok(());
         };
         let state = self.hub.terminal.env().state;
-        match crate::terminal::claim::take(&state, sid, crate::terminal::claim::Kind::App, pid, false) {
+        // A bot guest's conversation is held as a bot, so an app send and a terminal see who writes.
+        let bot =
+            lane.thread.as_deref().is_some_and(|r| self.hub.store.bot_conversation_of_thread(&lane.chat, r).is_some());
+        let kind = if bot { crate::terminal::claim::Kind::Bot } else { crate::terminal::claim::Kind::App };
+        match crate::terminal::claim::take(&state, sid, kind, pid, false) {
             Ok(Ok(())) => self.turn_claim = Some((sid.to_owned(), pid)),
             // A terminal got in between the start check and here: it keeps the session.
             Ok(Err(held)) if held.0.pid == pid => self.turn_claim = Some((sid.to_owned(), pid)),
             Ok(Err(_)) => {
-                let held = crate::terminal::HeldByWriter { code: "liveInTerminal" };
+                let held =
+                    crate::terminal::HeldByWriter { code: if bot { "heldByOtherWriter" } else { "liveInTerminal" } };
                 self.notice(&held.to_string(), NoticeStyle::Error);
                 return Err(held.into());
             }

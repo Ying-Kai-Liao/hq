@@ -6,8 +6,8 @@ description: Model-checks (TLA+/TLC) that one thread has one writer at a time. U
 # Thread writers: one writer per thread
 
 A thread is one Claude session. Four things can write to it: a terminal `kith <agent>` (including `--resume`),
-an app `send` (the host runs a turn), the host's queue starting a turn later, and (designed, not built) a bot
-guest's `kith ask --thread`. Two writers on one Claude session fork or corrupt the conversation. That is a
+an app `send` (the host runs a turn), the host's queue starting a turn later, and a bot
+guest's `botAsk`. Two writers on one Claude session fork or corrupt the conversation. That is a
 question of the order of steps, so it is checked with TLA+ (TLC), not with tests.
 
 The model is `verification/threads/Threads.tla`. This skill is the only documentation; there is no README.
@@ -74,7 +74,7 @@ turn, a bot turn, a busy terminal and a take-over (a pass elsewhere is not vacuo
 | `registry.rs` `liveness()`, `started_as()` (procStart), `pid_runs()` | `VisOf`, `Runs`, `ProcStartCheck` |
 | `terminal/sync.rs` `scan()` -> `sync_session` -> `mapped` / `adopt` (fork: lane session := terminal's) and `update_state` (`stale` + `forget_loaded` when seen live; skipped while `taking`; `set_writer`) | `Scan` |
 | `agent/bot/session.rs` `forget_loaded()` ("a turn running there is left alone"), `hub/actors.rs` `Cmd::ForgetLoaded` | `Forgets` |
-| DESIGN `docs/kith-bot-guests.md` 5.8 step 5 and 6.2 (`heldByOtherWriter`, `liveWriter = "bot"`) | `BotGate_` (not in code: `BotEnabled`) |
+| `api/botguests.rs` `ask` -> `terminal::bot_gate` (under `thread_lock`, reads `writer()`: taking, claim, registry on disk; a `Kind::Bot` claim is the bot's own turn and queues; other writers refuse `heldByOtherWriter`); the claim is taken at turn start in `agent/bot/turn.rs` `claim_for_turn` (`Kind::Bot`), released by `release_turn_claim`; `liveWriter` is display only | `BotGate_` with variant `code-claims-bot` (`BotEnabled`, `BotGate = "live"`, `ClaimOnResolve`) |
 
 One step in the code is one action here. A check followed later by the act it guards is two actions
 (`AppGate` then `Enqueue` then `HostStart`; `TakeRecheck` then `TakeSignal`; `TermResolve` then `TermUp`), because
@@ -95,9 +95,11 @@ another writer can act between them.
 - Liveness (every send eventually runs or is refused) is not checked: it needs fairness assumptions that the code
   does not state.
 - A pass covers this model at these bounds. It says nothing about the host's import, memory, or other agents.
-- Bot guests: `kith ask --thread` is NOT wired to threads in code. `BotEnabled`/`BotGate` model the design
-  (`docs/kith-bot-guests.md`); a gap there is "not built yet", not a bug. When it is wired, re-sync: map the real
-  gate onto `BotGate_` and make the `BotRefusedWhileHeld` rows describe the code.
+- Bot guests: `botAsk` is wired to threads (`bot_gate`, claim `Kind::Bot`). Variant `code-claims-bot` maps the real gate
+  onto `BotGate_` (it reads the claim and the registry, not `liveWriter`): `BotRefusedWhileHeld` passes. The
+  `design-bot-*` rows stay as the broken forms (a gate that reads `liveWriter`, or one without the claim). The same-lane
+  queue (app and bot turns share one lane and one agent process) orders them inside the host; the claim keeps other
+  processes out. The terminal-side rows of `code` were not re-synced to the claim work here (`SYNC` is not moved).
 
 ## Findings at the sync commit (the code breaks these; the rows in checks.tsv say `fail` on purpose)
 
