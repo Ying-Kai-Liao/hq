@@ -284,7 +284,7 @@ async fn an_invitees_bot_waits_for_the_owner_who_may_always_allow() {
     call(&r, &Caller::Local, "setPersonAccess", json!({"personId": "sam", "agents": {}})).await.unwrap();
     let e = call(&r, &j.caller, "botAsk", ask("again", "c")).await.unwrap_err();
     assert_eq!(code(&e), Some("notGranted"));
-    assert!(call(&r, &j.caller, "botStatus", json!({})).await.unwrap()["agents"].as_array().unwrap().is_empty());
+    assert_eq!(call(&r, &j.caller, "botStatus", json!({})).await.unwrap()["agents"].as_array().unwrap().as_slice(), []);
 
     // Revoking Sam ends every bot of his, and Sam can no longer manage them.
     call(&r, &Caller::Local, "revokePerson", json!({"personId": "sam"})).await.unwrap();

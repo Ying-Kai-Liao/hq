@@ -17,6 +17,7 @@ use crate::store::{BotConversation, BotGuest, BotInvite, BotState, Entry, EntryK
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::ops::ControlFlow;
 use std::path::Path;
 use std::sync::Arc;
@@ -51,7 +52,7 @@ pub struct BotError {
 }
 
 impl BotError {
-    fn new(status: u16, code: &'static str, message: impl Into<String>) -> anyhow::Error {
+    fn err(status: u16, code: &'static str, message: impl Into<String>) -> anyhow::Error {
         Self { status, code, message: message.into() }.into()
     }
 }
@@ -123,7 +124,7 @@ fn opt_string(b: &Value, k: &str, max: usize) -> Result<Option<String>> {
     match b[k].as_str().map(str::trim).filter(|s| !s.is_empty()) {
         None => Ok(None),
         Some(s) if s.chars().count() <= max && !s.chars().any(char::is_control) => Ok(Some(s.to_owned())),
-        Some(_) => Err(BotError::new(
+        Some(_) => Err(BotError::err(
             400,
             "badRequest",
             format!("`{k}` is at most {max} characters, without control characters"),
@@ -161,7 +162,7 @@ fn enc(s: &str) -> String {
         if c.is_ascii_alphanumeric() || b"-._~".contains(&c) {
             out.push(char::from(c));
         } else {
-            out.push_str(&format!("%{c:02X}"));
+            let _ = write!(out, "%{c:02X}");
         }
         out
     })
@@ -282,7 +283,7 @@ async fn new_bot(hub: &Arc<Hub>, actor: &Actor, bin: &Path, owner_id: &str, b: &
         bail!("`{bad}` isn't an agent id.");
     }
     if hub.store.live_bot_count(actor.owner_person()) >= MAX_LIVE_BOTS {
-        return Err(BotError::new(
+        return Err(BotError::err(
             409,
             "tooMany",
             format!("At most {MAX_LIVE_BOTS} bots at a time. Remove one first."),
@@ -645,7 +646,7 @@ pub(super) async fn bot_call(
             Err(NotAllowed("This isn't available to bots on this computer.".into()).into())
         }
         Ok(()) if !active && !roles::BOT_PENDING_METHODS.contains(&method) => {
-            Err(BotError::new(403, "pending", "This bot is waiting for its owner's allow."))
+            Err(BotError::err(403, "pending", "This bot is waiting for its owner's allow."))
         }
         Ok(()) => Ok(()),
     };
@@ -785,7 +786,7 @@ fn replay(hub: &Hub, bot: &BotGuest, e: &Entry) -> Result<Value> {
         .as_deref()
         .and_then(|root| hub.store.bot_conversation_of_thread(&e.bot_id, root))
         .filter(|c| c.bot_id == bot.bot_id)
-        .ok_or_else(|| BotError::new(404, "notFound", "No such conversation."))?;
+        .ok_or_else(|| BotError::err(404, "notFound", "No such conversation."))?;
     let (state, queued) = conv_state(hub, &conv);
     Ok(json!({
         "conversation": conv.conversation_id, "entryId": e.id, "turn": e.turn, "seq": e.rev,
@@ -834,17 +835,17 @@ static ASK_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// into a conversation between this bot and one agent, made on first use. The question runs as the bot's own person
 /// (guest, at most its owner's access, checked now), in a thread of the bot's chat with that agent.
 async fn ask(hub: &Arc<Hub>, caller: &Caller, bot: &BotGuest, b: &Value) -> Result<Value> {
-    let bad = |m: &str| BotError::new(400, "badRequest", m);
+    let bad = |m: &str| BotError::err(400, "badRequest", m);
     let text = b["text"].as_str().map(str::trim).filter(|t| !t.is_empty()).ok_or_else(|| bad("`text` is required"))?;
     if text.chars().count() > MAX_TEXT {
-        return Err(BotError::new(400, "tooLong", format!("A question is at most {MAX_TEXT} characters.")));
+        return Err(BotError::err(400, "tooLong", format!("A question is at most {MAX_TEXT} characters.")));
     }
     let nonce = b["clientNonce"].as_str().filter(|n| (1..=128).contains(&n.chars().count()));
     let nonce = nonce.ok_or_else(|| bad("`clientNonce` (1 to 128 characters) is required"))?;
     let external = opt_string(b, "ref", 128)?;
     let speaker = opt_string(b, "speaker", 128)?;
     if !b["room"].is_null() {
-        return Err(BotError::new(400, "notSupported", "Rooms aren't available on this computer yet."));
+        return Err(BotError::err(400, "notSupported", "Rooms aren't available on this computer yet."));
     }
     let no_queue = b["noQueue"] == true;
     let _one = ASK_LOCK.lock().await;
@@ -855,7 +856,7 @@ async fn ask(hub: &Arc<Hub>, caller: &Caller, bot: &BotGuest, b: &Value) -> Resu
             hub.store
                 .bot_conversation_by_id(id)
                 .filter(|c| c.bot_id == bot.bot_id)
-                .ok_or_else(|| BotError::new(404, "notFound", "No such conversation."))?,
+                .ok_or_else(|| BotError::err(404, "notFound", "No such conversation."))?,
         ),
         None => external.as_deref().and_then(|r| hub.store.bot_conversation_by_ref(&bot.bot_id, r)),
     };
@@ -868,7 +869,7 @@ async fn ask(hub: &Arc<Hub>, caller: &Caller, bot: &BotGuest, b: &Value) -> Resu
     };
     // At most its owner's, now: an owner who lost the agent has taken it from the bot too.
     if !roles::may_use(&bot.person_id, &agent).await {
-        return Err(BotError::new(403, "notGranted", format!("This bot may not use {agent}.")));
+        return Err(BotError::err(403, "notGranted", format!("This bot may not use {agent}.")));
     }
     // A retry of an ask already sent answers the same and sends nothing.
     let chat = known.as_ref().map(|c| c.chat_bot_id.clone()).or_else(|| chat_row_of(hub, &bot.person_id, &agent));
@@ -877,7 +878,7 @@ async fn ask(hub: &Arc<Hub>, caller: &Caller, bot: &BotGuest, b: &Value) -> Resu
     }
     let now = now_ms();
     if hub.store.audit_count_since(&bot.person_id, "botAsk", now - HOUR_MS) >= bot.rate_per_hour {
-        return Err(BotError::new(
+        return Err(BotError::err(
             429,
             "rateLimited",
             format!("This bot has asked {} times in the last hour. Try again in a few minutes.", bot.rate_per_hour),
@@ -888,10 +889,10 @@ async fn ask(hub: &Arc<Hub>, caller: &Caller, bot: &BotGuest, b: &Value) -> Resu
     if busy {
         let pending = queued + usize::from(state != "queued");
         if no_queue {
-            return Err(BotError::new(409, "busy", "A turn of this conversation is still running."));
+            return Err(BotError::err(409, "busy", "A turn of this conversation is still running."));
         }
         if pending >= MAX_PENDING {
-            return Err(BotError::new(429, "busy", "This conversation already has five asks waiting."));
+            return Err(BotError::err(429, "busy", "This conversation already has five asks waiting."));
         }
     } else {
         let mut running = 0;
@@ -899,7 +900,7 @@ async fn ask(hub: &Arc<Hub>, caller: &Caller, bot: &BotGuest, b: &Value) -> Resu
             running += i64::from(!matches!(conv_state(hub, &c).0, "idle" | "stopped" | "queued"));
         }
         if running >= bot.concurrent {
-            return Err(BotError::new(429, "busy", format!("This bot already has {} turns running.", bot.concurrent)));
+            return Err(BotError::err(429, "busy", format!("This bot already has {} turns running.", bot.concurrent)));
         }
     }
     // TODO(writer claim): refuse here with `heldByOtherWriter` when an app user holds this thread. The gate goes on the
@@ -1015,7 +1016,7 @@ fn own_conversation(hub: &Hub, bot: &BotGuest, b: &Value) -> Result<BotConversat
     let id = b["conversation"].as_str().filter(|c| !c.is_empty());
     id.and_then(|id| hub.store.bot_conversation_by_id(id))
         .filter(|c| c.bot_id == bot.bot_id)
-        .ok_or_else(|| BotError::new(404, "notFound", "No such conversation."))
+        .ok_or_else(|| BotError::err(404, "notFound", "No such conversation."))
 }
 
 /// `botThread {conversation, afterSeq?, limit?}`: what a bot may read of its own conversation (docs 5.8).
