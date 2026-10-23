@@ -60,6 +60,25 @@ expect "role's deny kept" "$(n 'Read(~/.codex/auth.json)')" 1
 expect "secrets deny kept" "$(grep -c 'secrets/\*\*' <<< "$OUT")" 2
 OUT=$(rules allow blocky)
 expect "block list tools: no Chrome" "$(grep -c 'Chrome' <<< "$OUT")" 0
+OUT=$(rules allow unk)
+expect "unknown tag adds nothing" "$(grep -c 'Bash\|Artifact' <<< "$OUT")" 1   # only the role's Bash(echo:*)
+
+# Role rules for kernel tools name {{KITH}}/{{HQ}} bare; a kernel path with a space is called quoted, so the quoted
+# spelling is allowed too (once, also when the role already has it). The kernel is reached through a path with a space.
+mkagent kt ""
+printf '%s' '{"permissions":{"allow":["Bash({{KITH}}/bin/project-id --where:*)","Bash({{HQ}}/bin/hq-send --as kt:*)",
+  "Bash({{KITH}}/bin/kith-who:*)","Bash(\"{{KITH}}/bin/kith-who\":*)"],"deny":["Bash({{KITH}}/bin/kith-auth)"]}}' > "$KITH_HOME/agents/kt/role/settings.json"
+ln -s "$KERNEL" "$T/a kernel"
+KITH="$T/a kernel/bin/kith"
+K="$T/a kernel/bin"
+OUT=$(rules allow kt)
+expect "kernel rule kept bare" "$(n "Bash($K/project-id --where:*)")" 1
+expect "kernel rule quoted" "$(n "Bash(\"$K/project-id\" --where:*)")" 1
+expect "{{HQ}} rule quoted" "$(n "Bash(\"$K/hq-send\" --as kt:*)")" 1
+expect "already quoted: once" "$(n "Bash(\"$K/kith-who\":*)")" 1
+expect "no duplicate rules" "$(sort <<< "$OUT" | uniq -d | wc -l | tr -d ' ')" 0
+OUT=$(rules deny kt)
+expect "kernel deny quoted" "$(n "Bash(\"$K/kith-auth\")")" 1
 # The mode: a stored 'manual' reads as default; the six built-in modes pass through; manual is refused on set.
 mkdir -p "$KITH_HOME/machine"
 SETTINGS=$(python3 "$KERNEL/lib/kith_paths.py" --sh | sed -n 's/^export KITH_MACHINE=//p' | tr -d "'\"")
