@@ -28,6 +28,11 @@ const fn on() -> bool {
     true
 }
 
+/// A binary installed on its own (not inside an app bundle or owned by a package manager).
+pub fn is_standalone(executable: &Path) -> bool {
+    install::method(executable) == install::Method::Standalone
+}
+
 /// A release build of a standalone binary that the installed service runs: the hosts that
 /// update themselves (app bundles and Homebrew own their binaries).
 fn self_updating(executable: &Path) -> bool {

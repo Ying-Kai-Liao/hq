@@ -320,7 +320,9 @@ pub fn ensure_statusline(settings: &Path, host: Option<&Path>) -> Result<bool> {
     let wrapper = current.as_deref().and_then(wrapper_parts);
     let new_command = match (host, wrapper) {
         // A wrapper whose binary is gone (ours or a legacy one): back to the user's own line.
-        (_, Some((bin, original))) if !Path::new(bin).exists() => original.to_owned(),
+        // With a stable host the repaired line is wrapped again in the same step.
+        (None, Some((bin, original))) if !Path::new(bin).exists() => original.to_owned(),
+        (Some(host), Some((bin, original))) if !Path::new(bin).exists() => wrap(host, original),
         // Someone else's live wrapper is not ours to touch.
         (_, Some((bin, _))) if legacy(bin) => return Ok(false),
         (None, _) => return Ok(false),
