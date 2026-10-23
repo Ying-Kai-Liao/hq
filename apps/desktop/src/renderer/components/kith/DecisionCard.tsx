@@ -1,0 +1,74 @@
+import type { ReactNode } from 'react'
+import { Spinner } from '../Controls'
+import { Icon } from '../Icon'
+import { pairStyle, type Pair } from './pair.ts'
+import './kith.css'
+
+export interface DecisionOption {
+  id: string
+  label: string
+}
+
+interface Common {
+  /** The agent's colour pair: the question buttons tint with it at low strength. */
+  pair: Pair
+  /** The card's headline: the question, or what the agent wants ("Wants to run a command"). */
+  title: string
+  /** A mono line under the title (the command or path), clamped to three lines. */
+  subject?: string
+  /** Small grey line, e.g. "Runs on Mac mini · kith". */
+  place?: string
+  /** Room for a details disclosure or a diff; the host owns it. */
+  details?: ReactNode
+  /** The card was answered or expired: the outcome replaces the buttons. */
+  outcome?: string
+  /** A guest's prompt that is the owner's to answer: the buttons give way to "Waiting for <name>". */
+  waiting?: string | null
+  /** The option id being sent (or true for permission buttons): all buttons disable, that one shows a spinner. */
+  pending?: string | boolean | null
+}
+
+export type DecisionCardProps =
+  | (Common & { kind: 'question'; options: DecisionOption[]; onChoose: (id: string) => void })
+  | (Common & { kind: 'permission'; onAllow: () => void; onDeny: () => void; onAlways?: () => void })
+
+/** A question waiting on you, or a permission prompt. Buttons are tinted with the agent's pair; no amber. */
+export function DecisionCard(props: DecisionCardProps) {
+  const { pair, title, subject, place, details, outcome, waiting, pending = null } = props
+  const busy = pending !== null && pending !== false
+  const buttons =
+    props.kind === 'question'
+      ? props.options.slice(0, 4).map((o) => ({ id: o.id, label: o.label, tone: 'pair' as const, run: () => props.onChoose(o.id) }))
+      : [
+          { id: 'allow', label: 'Allow', tone: 'ink' as const, run: props.onAllow },
+          { id: 'deny', label: 'Deny', tone: 'plain' as const, run: props.onDeny },
+          ...(props.onAlways ? [{ id: 'always', label: 'Always', tone: 'plain' as const, run: props.onAlways }] : []),
+        ]
+  return (
+    <section className={`kc-decision ${props.kind}`} style={pairStyle(pair)} aria-label={title}>
+      <div className="kc-decision-title kith-text-body">{title}</div>
+      {subject ? <div className="kc-decision-subject kith-text-code">{subject}</div> : null}
+      {place ? (
+        <div className="kc-decision-place kith-text-secondary">
+          <Icon name="desktopcomputer" size={10} />
+          <span>{place}</span>
+        </div>
+      ) : null}
+      {details}
+      {outcome ? (
+        <div className="kc-decision-outcome kith-text-secondary">{outcome}</div>
+      ) : waiting ? (
+        <div className="kc-decision-outcome kith-text-secondary">{`Waiting for ${waiting}`}</div>
+      ) : (
+        <div className="kc-decision-buttons" role="group">
+          {buttons.map((b) => (
+            <button key={b.id} className={`kc-decision-button ${b.tone}`} disabled={busy} onClick={b.run}>
+              <span className="kc-decision-label">{b.label}</span>
+              {pending === b.id ? <Spinner size={12} /> : null}
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}

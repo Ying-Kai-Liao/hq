@@ -1,0 +1,936 @@
+/* The Kith components (docs/design/DESIGN.md). Only --kith-* tokens and the .kith-* helpers from styles/tokens.css;
+   nothing here touches an existing selector. Agent colour pairs arrive as --pair-a / --pair-b (pair.ts). */
+
+.kc-count,
+.kc-chip,
+.kc-origin,
+.kc-crew-row,
+.kc-tool,
+.kc-decision,
+.kc-handoff,
+.kc-turn,
+.kc-dock-wrap,
+.kc-banner,
+.kc-switch,
+.kc-confirm,
+.kc-divider {
+  font-family: var(--font-ui);
+  color: var(--kith-ink);
+  box-sizing: border-box;
+}
+:where(
+  .kc-crew-row,
+  .kc-tool.openable,
+  .kc-decision-button,
+  .kc-thread-open,
+  .kc-thread-arrow,
+  .kc-dock button,
+  .kc-dock-call,
+  .kc-switch-item,
+  .kc-glass-button,
+  .kc-banner-button,
+  .kc-link,
+  .kc-confirm button
+) {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+/* Visible focus on everything reachable by keyboard. */
+.kc-crew-row:focus-visible,
+.kc-tool:focus-visible,
+.kc-decision-button:focus-visible,
+.kc-thread-open:focus-visible,
+.kc-thread-arrow:focus-visible,
+.kc-dock button:focus-visible,
+.kc-dock-field:focus-visible,
+.kc-dock-call:focus-visible,
+.kc-switch-item:focus-visible,
+.kc-glass-button:focus-visible,
+.kc-banner-button:focus-visible,
+.kc-link:focus-visible,
+.kc-confirm button:focus-visible {
+  outline: 2px solid var(--kith-ink);
+  outline-offset: 2px;
+}
+
+/* ---- CountBadge ---- */
+.kc-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border-radius: var(--kith-radius-chip);
+  background: var(--kith-ink);
+  /* White Inter 11 bold on ink; in dark the ink is white, so the digit takes the night ground. */
+  color: #fff;
+  font: 700 11px / 1 var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+@media (prefers-color-scheme: dark) {
+  .kc-count {
+    color: var(--kith-night);
+  }
+}
+
+/* ---- StatusChip, WriterChip, OriginTag ---- */
+.kc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+  padding: 3px 8px 3px 6px;
+  border-radius: var(--kith-radius-chip);
+  background: var(--kith-panel);
+  box-shadow: inset 0 0 0 1px var(--kith-line);
+  font: 500 11px / 1.2 var(--font-ui);
+  white-space: nowrap;
+}
+.kc-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+.kc-tone-positive {
+  color: var(--kith-positive);
+}
+.kc-tone-muted {
+  color: var(--kith-muted);
+}
+.kc-tone-ink {
+  color: var(--kith-ink);
+}
+.kc-tone-negative {
+  color: var(--kith-negative);
+}
+.kc-writer {
+  color: var(--kith-muted);
+}
+.kc-writer.working {
+  color: var(--kith-ink);
+}
+.kc-live-dot {
+  display: inline-block;
+  flex: none;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--pair-a), var(--pair-b));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pair-b) 30%, transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .kc-live-dot {
+    animation: kc-pulse 1.4s ease-in-out infinite alternate;
+  }
+}
+@keyframes kc-pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.4;
+  }
+}
+.kc-origin {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--kith-muted);
+  font: 500 11px / 1.2 var(--font-ui);
+  white-space: nowrap;
+  flex: none;
+}
+
+/* ---- BotAvatar, SkyPatch ---- */
+.kc-bot {
+  position: relative;
+  display: inline-block;
+  flex: none;
+}
+.kc-bot-shadow {
+  display: inline-block;
+  line-height: 0;
+  filter: drop-shadow(0 2px 4px rgba(20, 22, 27, 0.12));
+}
+.kc-bot.asleep {
+  opacity: 0.5;
+}
+.kc-hop {
+  position: absolute;
+  right: -2px;
+  bottom: -1px;
+  display: flex;
+  gap: calc(var(--hop) * 0.45);
+  align-items: flex-end;
+}
+.kc-hop i {
+  width: var(--hop);
+  height: var(--hop);
+  border-radius: 50%;
+  background: var(--kith-ink);
+  box-shadow: 0 0 0 1px var(--kith-ground);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .kc-hop i {
+    animation: kc-hop 0.9s ease-in-out infinite;
+  }
+  .kc-hop i:nth-child(2) {
+    animation-delay: 0.12s;
+  }
+  .kc-hop i:nth-child(3) {
+    animation-delay: 0.24s;
+  }
+}
+@keyframes kc-hop {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-35%);
+  }
+}
+.kc-bot-count {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+}
+
+.kc-sky {
+  display: inline-block;
+  position: relative;
+  flex: none;
+  border-radius: 50%;
+  overflow: hidden;
+  background-image: url('../../assets/sky/sky-header-day.webp');
+  background-size: 420% auto;
+  background-position: var(--sky-x) var(--sky-y);
+  box-shadow: inset 0 0 0 0.5px rgba(20, 22, 27, 0.12);
+}
+/* The tone is a wash over the crop: dawn warm at the bottom, dusk violet-grey and low, clear untouched. */
+.kc-sky::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+.kc-sky-dawn::after {
+  background: linear-gradient(180deg, rgba(255, 190, 150, 0) 0%, rgba(255, 170, 130, 0.55) 70%, rgba(240, 130, 110, 0.7) 100%);
+}
+.kc-sky-clear::after {
+  background: linear-gradient(180deg, rgba(120, 190, 255, 0.1), rgba(255, 255, 255, 0.12));
+}
+.kc-sky-dusk::after {
+  background: linear-gradient(180deg, rgba(90, 100, 190, 0.5) 0%, rgba(200, 120, 160, 0.45) 65%, rgba(255, 170, 110, 0.5) 100%);
+}
+
+/* ---- CrewRow ---- */
+.kc-crew-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: var(--kith-row-v) var(--kith-gutter);
+  border-radius: var(--kith-radius-row-tool);
+  min-width: 0;
+}
+.kc-crew-row:hover {
+  background: color-mix(in srgb, var(--kith-panel) 70%, transparent);
+}
+.kc-crew-row.selected {
+  background: var(--kith-panel);
+  box-shadow: inset 0 0 0 1px var(--kith-line);
+}
+.kc-face {
+  position: relative;
+  width: var(--kith-bot-avatar);
+  height: var(--kith-bot-avatar);
+  flex: none;
+}
+.kc-mate {
+  position: absolute;
+  left: -4px;
+  bottom: -2px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--kith-ground);
+  line-height: 0;
+}
+.kc-face-group .kc-g1,
+.kc-face-group .kc-g2,
+.kc-face-group .kc-g3 {
+  position: absolute;
+  line-height: 0;
+}
+.kc-g1 {
+  left: 0;
+  top: 0;
+}
+.kc-g2 {
+  right: 0;
+  bottom: 4px;
+}
+.kc-g3 {
+  left: 2px;
+  bottom: -2px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--kith-ground);
+}
+.kc-crew-main {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.kc-crew-top,
+.kc-crew-bottom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.kc-crew-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 0 1 auto;
+}
+.kc-crew-with {
+  color: var(--kith-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 100 auto;
+}
+.kc-crew-right {
+  margin-left: auto;
+  color: var(--kith-muted);
+  white-space: nowrap;
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 6px;
+}
+.kc-crew-status {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--kith-muted);
+}
+.kc-crew-bottom .kc-count {
+  margin-left: 4px;
+}
+
+/* ---- HandoffCard ---- */
+.kc-handoff {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px var(--kith-gutter);
+  border-radius: var(--kith-radius-card);
+  background: var(--kith-panel);
+  box-shadow: inset 0 0 0 1px var(--kith-line);
+}
+.kc-handoff-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--kith-muted);
+}
+.kc-handoff-when {
+  color: var(--kith-muted);
+}
+.kc-handoff-row {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+.kc-handoff-key {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  color: var(--kith-muted);
+}
+.kc-handoff-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.kc-link {
+  align-self: flex-start;
+  color: var(--kith-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---- DecisionCard ---- */
+.kc-decision {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px var(--kith-gutter);
+  border-radius: var(--kith-radius-card);
+  background: var(--kith-panel);
+  box-shadow: inset 0 0 0 1px var(--kith-line);
+}
+.kc-decision-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.kc-decision-subject {
+  color: var(--kith-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.kc-decision-place {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  color: var(--kith-muted);
+}
+.kc-decision-outcome {
+  color: var(--kith-muted);
+  font-weight: 500;
+}
+.kc-decision-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+.kc-decision-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 8px 15px;
+  max-width: 100%;
+  border-radius: var(--kith-radius-chip);
+  font: 600 14px / 1.25 var(--font-ui);
+}
+.kc-decision-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+/* Low strength: the pair at 18-26% over the card, ink text, so it reads in both appearances. */
+.kc-decision-button.pair {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--pair-a) 26%, transparent), color-mix(in srgb, var(--pair-b) 26%, transparent));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pair-b) 34%, transparent);
+}
+.kc-decision-button.pair:hover:not(:disabled) {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--pair-a) 38%, transparent), color-mix(in srgb, var(--pair-b) 38%, transparent));
+}
+.kc-decision-button.ink {
+  background: var(--kith-ink);
+  color: #fff;
+}
+@media (prefers-color-scheme: dark) {
+  .kc-decision-button.ink {
+    color: var(--kith-night);
+  }
+}
+.kc-decision-button.plain {
+  background: var(--kith-ground);
+  box-shadow: inset 0 0 0 1px var(--kith-line);
+}
+.kc-decision-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.kc-decision.permission .kc-decision-button.plain:nth-child(2) {
+  color: var(--kith-negative);
+}
+
+/* ---- TranscriptTurn ---- */
+.kc-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.kc-turn.user {
+  align-items: flex-end;
+}
+.kc-turn.agent {
+  align-items: flex-start;
+}
+.kc-bubble {
+  max-width: min(78%, 560px);
+  padding: 10px 14px;
+  border-radius: 20px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.kc-bubble.user {
+  background: var(--kith-line);
+}
+.kc-bubble.agent {
+  background: var(--kith-panel);
+}
+.kc-thread-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+}
+.kc-thread-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+.kc-place {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--kith-muted);
+  min-width: 0;
+}
+.kc-place-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kc-thread-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  border-radius: var(--kith-radius-chip);
+  background: var(--kith-panel);
+  transition: background-color 0.15s ease;
+}
+.kc-thread-chip.open {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--pair-a) 22%, transparent), color-mix(in srgb, var(--pair-b) 22%, transparent));
+}
+.kc-thread-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 4px 5px 8px;
+  border-radius: var(--kith-radius-chip);
+}
+.kc-thread-replies {
+  font-weight: 600;
+  color: var(--kith-ink);
+  white-space: nowrap;
+}
+.kc-thread-time {
+  color: var(--kith-muted);
+  white-space: nowrap;
+}
+.kc-new {
+  padding: 2px 8px;
+  border-radius: var(--kith-radius-chip);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--pair-a) 38%, transparent), color-mix(in srgb, var(--pair-b) 38%, transparent));
+  font: 600 11px / 1.2 var(--font-ui);
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+.kc-your-turn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: 600 11px / 1.2 var(--font-ui);
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+.kc-your-turn i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--pair-a), var(--pair-b));
+}
+.kc-thread-arrow {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--kith-ink) 6%, transparent);
+}
+.kc-thread-replies-open {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding-left: 14px;
+  border-left: 2px solid transparent;
+  border-image: linear-gradient(180deg, var(--pair-a), var(--pair-b)) 1;
+}
+.kc-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--kith-muted);
+  font: 600 11px / 1.2 var(--font-ui);
+  letter-spacing: 0;
+}
+.kc-divider-line {
+  flex: 1;
+  height: 1px;
+  background: var(--kith-line);
+}
+.kc-divider-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+/* ---- ToolRow ---- */
+.kc-tool {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: var(--kith-tool-row);
+  padding: 0 12px;
+  border-radius: var(--kith-radius-row-tool);
+  background: var(--kith-panel);
+}
+.kc-tool.openable:hover {
+  background: color-mix(in srgb, var(--kith-panel) 80%, var(--kith-line));
+}
+.kc-tool-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kc-tool-verb {
+  font-weight: 600;
+}
+.kc-tool-result {
+  flex: none;
+  color: var(--kith-muted);
+}
+.kc-tool-result.done {
+  color: var(--kith-positive);
+}
+.kc-tool-result.error {
+  color: var(--kith-negative);
+  font-weight: 600;
+}
+.kc-tool-chevron {
+  color: var(--kith-muted);
+}
+.kc-tool-sheet {
+  padding: 4px var(--kith-gutter) var(--kith-gutter);
+  min-width: 0;
+}
+.kc-tool-sheet-label {
+  color: var(--kith-muted);
+  margin: 12px 0 6px;
+}
+.kc-code {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--kith-radius-row-tool);
+  background: var(--kith-panel);
+  color: var(--kith-ink);
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.kc-code.error {
+  color: var(--kith-negative);
+}
+
+/* ---- ChatDock ---- */
+.kc-dock-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.kc-dock-row {
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+}
+.kc-dock {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--kith-chat-box);
+  padding: 8px 8px 8px 8px;
+  border-radius: var(--kith-radius-glass-pill);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-sizing: border-box;
+  box-shadow: inset 0 0 0 0.5px var(--kith-glass-edge), 0 6px 20px rgba(20, 22, 27, 0.08);
+}
+.kc-dock-attachments {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 2px 6px 8px;
+}
+.kc-dock-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.kc-dock-plus,
+.kc-dock-mic,
+.kc-dock-send {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  flex: none;
+  color: var(--kith-ink);
+}
+.kc-dock-plus {
+  background: color-mix(in srgb, var(--kith-ink) 7%, transparent);
+}
+.kc-dock-mic {
+  color: var(--kith-muted);
+}
+.kc-dock-mic.active {
+  color: var(--kith-ink);
+  background: color-mix(in srgb, var(--kith-ink) 10%, transparent);
+}
+.kc-dock-send {
+  background: var(--kith-ink);
+  color: #fff;
+}
+@media (prefers-color-scheme: dark) {
+  .kc-dock-send {
+    color: var(--kith-night);
+  }
+}
+.kc-dock button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.kc-dock-field {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--kith-ink);
+  padding: 8px 4px;
+  field-sizing: content;
+  max-height: 140px;
+}
+.kc-dock-field:focus-visible {
+  outline: none;
+}
+.kc-dock-field::placeholder {
+  color: var(--kith-muted);
+}
+.kc-dock-call-slot {
+  width: 0;
+  opacity: 0;
+  overflow: hidden;
+  flex: none;
+  transition: width 0.22s cubic-bezier(0.3, 0, 0.15, 1), opacity 0.16s ease, margin 0.22s cubic-bezier(0.3, 0, 0.15, 1);
+}
+.kc-dock-call-slot.shown {
+  width: var(--kith-chat-box);
+  margin-left: 8px;
+  opacity: 1;
+}
+.kc-dock-call {
+  display: grid;
+  place-items: center;
+  width: var(--kith-chat-box);
+  height: var(--kith-chat-box);
+  border-radius: 50%;
+  color: var(--kith-ink);
+  box-shadow: inset 0 0 0 0.5px var(--kith-glass-edge), 0 6px 20px rgba(20, 22, 27, 0.08);
+}
+@media (prefers-reduced-motion: reduce) {
+  .kc-dock-call-slot {
+    transition: opacity 0.12s ease;
+  }
+}
+
+/* ---- Top bar ---- */
+.kc-switch {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: var(--kith-radius-chip);
+}
+.kc-switch-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: var(--kith-radius-chip);
+  color: var(--kith-muted);
+}
+.kc-switch-item.selected {
+  color: var(--kith-ink);
+  background: color-mix(in srgb, var(--kith-ink) 9%, transparent);
+}
+.kc-glass-button {
+  display: grid;
+  place-items: center;
+  width: var(--kith-top-button);
+  height: var(--kith-top-button);
+  border-radius: 50%;
+  color: var(--kith-ink);
+  flex: none;
+  overflow: hidden;
+}
+.kc-profile .kc-sky {
+  box-shadow: none;
+}
+.kc-top-title {
+  color: var(--kith-ink);
+}
+
+/* ---- WriterBanner and the take-over dialog ---- */
+.kc-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--kith-chat-box);
+  padding: 8px 8px 8px 16px;
+  border-radius: var(--kith-radius-glass-pill);
+  box-sizing: border-box;
+}
+.kc-banner-icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  flex: none;
+  color: var(--kith-muted);
+}
+.kc-banner-icon.warning {
+  color: var(--kith-negative);
+}
+.kc-banner-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.kc-banner-title {
+  font: 600 15px / 1.25 var(--font-ui);
+}
+.kc-banner-sentence {
+  color: var(--kith-muted);
+}
+.kc-banner-button {
+  height: 38px;
+  padding: 0 15px;
+  border-radius: var(--kith-radius-chip);
+  background: var(--kith-ink);
+  color: #fff;
+  font: 600 14px / 1 var(--font-ui);
+  white-space: nowrap;
+  flex: none;
+}
+@media (prefers-color-scheme: dark) {
+  .kc-banner-button {
+    color: var(--kith-night);
+  }
+}
+.kc-banner-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.kc-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 20px 16px;
+  background: var(--kith-ground);
+  border-radius: var(--kith-radius-card);
+}
+.kc-confirm-title {
+  margin: 0;
+  text-align: center;
+}
+.kc-confirm-text {
+  margin: 0;
+  text-align: center;
+  color: var(--kith-muted);
+}
+.kc-confirm-command {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--kith-radius-row-tool);
+  background: var(--kith-panel);
+}
+.kc-confirm-command code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.kc-confirm-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--kith-muted);
+  flex: none;
+}
+.kc-confirm-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.kc-confirm-cancel,
+.kc-confirm-go {
+  flex: 1;
+  height: 40px;
+  border-radius: var(--kith-radius-chip);
+}
+.kc-confirm-cancel {
+  background: var(--kith-panel);
+}
+.kc-confirm-go {
+  background: var(--kith-ink);
+  color: #fff;
+}
+@media (prefers-color-scheme: dark) {
+  .kc-confirm-go {
+    color: var(--kith-night);
+  }
+}
+.kc-confirm-go:disabled {
+  opacity: 0.5;
+}
+
+/* At sidebar width the teammate's name gives way: the sky patch on the face already says it is a shared room. */
+@container (max-width: 200px) {
+  .kc-crew-with {
+    display: none;
+  }
+}

@@ -1,0 +1,12 @@
+// The Kith components (docs/design/DESIGN.md). Props are plain values and callbacks; none read the store.
+export { BotAvatar, SkyPatch, type BotSize, type BotState } from './BotAvatar'
+export { CountBadge, LiveDot, OriginTag, StatusChip, WriterChip, type Origin } from './Badges'
+export { CrewRow, type CrewFace, type CrewRowProps } from './CrewRow'
+export { HandoffCard, type HandoffFields } from './HandoffCard'
+export { DecisionCard, type DecisionCardProps, type DecisionOption } from './DecisionCard'
+export { ThreadChip, TranscriptDivider, TranscriptTurn, type Place, type ThreadInfo } from './TranscriptTurn'
+export { ToolRow, type ToolDetail } from './ToolRow'
+export { ChatDock } from './ChatDock'
+export { CrewBoardSwitch, GlassButton, NewChatButton, ProfileButton, TopBarTitle, type CrewBoard } from './TopBar'
+export { TakeOverDialog, WriterBanner } from './WriterBanner'
+export { pairOf, type Pair } from './pair.ts'
