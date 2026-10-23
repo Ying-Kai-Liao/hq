@@ -231,6 +231,8 @@ export interface EntryData {
   final?: boolean
   /** agent: the backup chain entry that answered (`codex`, `claude:work`); null or absent when the agent's own account did. */
   answeredBy?: string | null
+  /** agent: how full the session is, in percent; the host sets it on a turn's last entry only when it should show. */
+  contextPercent?: number
   /** user: queued | sent | cancelled | failed · tool: pending | in_progress | completed | failed · permission: pending | answered | cancelled | expired */
   status?: string
   clientNonce?: string
