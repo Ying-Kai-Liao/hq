@@ -583,14 +583,17 @@ async fn the_stop_button_stops_the_work() {
     until("stopped", || rig.bot.calls("editMessageText").iter().any(|c| c["text"] == "<i>stopped</i>")).await;
     let edits: Vec<String> =
         rig.bot.calls("editMessageText").iter().map(|c| c["text"].as_str().unwrap().to_owned()).collect();
-    assert!(edits.contains(&"<i>stopping…</i>".to_owned()), "{edits:?}");
+    // The run ending races the press: "stopping…" may be skipped, but never lands after "stopped".
+    assert_eq!(edits.last().map(String::as_str), Some("<i>stopped</i>"), "{edits:?}");
     assert_eq!(rig.bot.calls("answerCallbackQuery")[1].get("text"), None);
     // Telegram is answered before the slower edit.
     let order = rig.bot.order();
-    let at = |f: &dyn Fn(&(String, Value)) -> bool| order.iter().position(f).unwrap();
     let answered =
         order.iter().enumerate().filter(|(_, (m, _))| m == "answerCallbackQuery").map(|(i, _)| i).nth(1).unwrap();
-    assert!(answered < at(&|(m, b)| m == "editMessageText" && b["text"] == "<i>stopping…</i>"), "{order:?}");
+    let stopping = order.iter().position(|(m, b)| m == "editMessageText" && b["text"] == "<i>stopping…</i>");
+    if let Some(stopping) = stopping {
+        assert!(answered < stopping, "{order:?}");
+    }
     // Pressed after it ended: nothing to stop, still no error.
     rig.bot.press(KAI, DM, line_id, &data);
     until("the last answer", || rig.bot.calls("answerCallbackQuery").len() == 3).await;

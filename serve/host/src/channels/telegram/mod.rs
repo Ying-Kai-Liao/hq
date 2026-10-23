@@ -76,6 +76,9 @@ pub struct Telegram {
     me: Mutex<Me>,
     /// The / menu as last set.
     menu: Mutex<Value>,
+    /// Working lines already edited to "stopped". The run ending and the Stop press race; "stopping…" must never
+    /// land after "stopped" and leave the line saying "stopping…" for good. Held across the edit to order them.
+    stopped_lines: tokio::sync::Mutex<std::collections::HashSet<String>>,
     pub pace: Pace,
     /// A poll returns within 70 s, a failed one is retried after at most 30 s.
     pub quiet: Duration,
@@ -104,6 +107,7 @@ impl Telegram {
             alive: Alive::default(),
             me: Mutex::new(Me::default()),
             menu: Mutex::new(Value::Null),
+            stopped_lines: tokio::sync::Mutex::new(std::collections::HashSet::new()),
             pace: Pace::default(),
             quiet: Duration::from_secs(300),
         }
@@ -409,7 +413,10 @@ impl Telegram {
             let pressed = self.core.stop_pressed(this, wid, &uid).await;
             self.answer_press(q, pressed == StopPress::NotYours).await; // Telegram's window for this is short
             if pressed == StopPress::Stopping {
-                self.edit(chat, mid, "<i>stopping…</i>", None).await;
+                let stopped = self.stopped_lines.lock().await;
+                if !stopped.contains(&format!("{}:{}", id_text(chat), id_text(mid))) {
+                    self.edit(chat, mid, "<i>stopping…</i>", None).await;
+                }
             }
             return;
         } else if let Some(pick) = data.strip_prefix("pick:").filter(|p| p.matches(':').count() == 1) {
@@ -613,6 +620,11 @@ impl Adapter for Telegram {
             let has = handle.is_object();
             if ended == Ended::Stopped {
                 if has {
+                    let mut stopped = self.stopped_lines.lock().await;
+                    if stopped.len() > 1024 {
+                        stopped.clear();
+                    }
+                    stopped.insert(format!("{}:{}", id_text(&handle["chat"]), id_text(&handle["message_id"])));
                     self.edit(&handle["chat"], &handle["message_id"], "<i>stopped</i>", None).await;
                 } else {
                     let extra = json!({"disable_notification": true});
