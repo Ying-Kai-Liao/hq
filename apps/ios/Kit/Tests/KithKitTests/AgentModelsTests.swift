@@ -34,6 +34,14 @@ import Testing
     #expect(body["modelOptions"] as? [String: String] == ["fast": "false"])
 }
 
+@Test func aSingleSettingUpdateSendsOnlyTheIdAndThatKey() throws {
+    let on = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(BotSetting(id: "b", key: "pinned", value: true))) as? [String: Any])
+    #expect(Set(on.keys) == ["id", "pinned"])
+    #expect(on["pinned"] as? Bool == true)
+    let off = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(BotSetting(id: "b", key: "harnessMemory", value: Bool?.some(false)))) as? [String: Any])
+    #expect(Set(off.keys) == ["id", "harnessMemory"])
+}
+
 @Test func modelCatalogReportsFastModeAndOlderHostsOmitIt() throws {
     let offered = try JSONDecoder().decode(AgentModels.self, from: Data(#"{"models":[],"fastMode":true}"#.utf8))
     #expect(offered.fastMode == true)
