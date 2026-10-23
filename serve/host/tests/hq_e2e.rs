@@ -183,6 +183,7 @@ async fn the_host_restart_loads_the_session_with_a_fresh_launch() {
     s.host.reply(&id, "hello").await;
     s.host.restart(|_| {}).await;
     s.house().await;
+    s.host.wait_tasks_on(&id).await;
     // The startup sync turns tasks on once for a bot that has them off (see `hub::hq`); this test reads the main chat.
     s.host.call("updateBot", json!({"id": id, "tasks": false})).await;
     s.host.reply(&id, "again").await;
@@ -491,6 +492,8 @@ async fn moving_a_task_thread_to_another_project_after_its_turn_never_stalls_the
 async fn permission_is_written_through_to_hq_and_read_back() {
     let s = start().await;
     let id = s.house().await["id"].as_str().unwrap().to_owned();
+    // hq bots start with tasks on; this test reads the main chat.
+    s.host.call("updateBot", json!({"id": id, "tasks": false})).await;
     let before = s.host.call("kithInfo", json!({"botId": id})).await;
     assert_eq!(before["info"]["permission_mode"], "auto");
 
@@ -534,6 +537,8 @@ async fn a_plain_bot_has_no_hq_permission_to_set() {
 async fn the_hosts_own_copy_never_overrides_hq() {
     let s = start().await;
     let id = s.house().await["id"].as_str().unwrap().to_owned();
+    // hq bots start with tasks on; this test reads the main chat.
+    s.host.call("updateBot", json!({"id": id, "tasks": false})).await;
     let edited = s
         .host
         .call(

@@ -298,6 +298,7 @@ async fn the_state_survives_a_restart_of_the_host() {
     }
 
     // The startup sync turns tasks on once for a bot that has them off (see `hub::hq`); this test reads the main chat.
+    s.host.wait_tasks_on(&s.bot).await;
     s.host.call("updateBot", json!({"id": s.bot, "tasks": false})).await;
     s.ask("after the restart").await;
 

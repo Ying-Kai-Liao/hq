@@ -16,7 +16,7 @@ import { errorText, market, type AuthMethod, type SetupStep } from './market-mod
 import { ScreenHeader } from './pieces'
 
 const openLink = (uri: string) => {
-  if (/^https?:/i.test(uri)) window.codync.app.openExternal(uri)
+  if (/^https?:/i.test(uri)) window.kith.app.openExternal(uri)
 }
 
 /**
@@ -27,7 +27,7 @@ export function SetupTerminalView({ backend, step, method, back }: {
   /** Null only for the `node` step, which belongs to the computer. */
   backend: Backend | null
   step: SetupStep
-  /** A terminal sign-in method the agent offered; null runs Codync's own command. */
+  /** A terminal sign-in method the agent offered; null runs Kith's own command. */
   method?: AuthMethod | null
   /** Back to the agent's sheet (the terminal is a step inside it). */
   back: () => void

@@ -11,7 +11,7 @@ import { avatarColor, palette, withAlpha } from '../../lib/theme'
 
 export type Badge = 'working' | 'needsInput' | 'finished' | 'failed' | null
 
-/** State colors: amber needs you, green done, red failed (Codync's palette has no others). */
+/** State colors: amber needs you, green done, red failed (Kith's palette has no others). */
 export const AMBER = palette(true).warning
 export const GREEN = '#34D399'
 export const RED = '#F4505E'

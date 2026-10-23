@@ -9,16 +9,18 @@ import { AppContext } from './store/context'
 import { applyTextSize, prefs } from './lib/prefs'
 import { account } from './store/account'
 import { errorReport } from '@shared/error-report'
+import { migrateLegacyStorage } from '@shared/legacy-compat'
 
 // Error tracking: this window's uncaught errors go to the host (shared/error-report.ts).
-const report = (error: unknown, mechanism: string) => window.codync.app.reportError(errorReport(error, 'desktop-renderer', mechanism))
+const report = (error: unknown, mechanism: string) => window.kith.app.reportError(errorReport(error, 'desktop-renderer', mechanism))
 // An error event without an error (the ResizeObserver loop notice) has nothing to report.
 window.addEventListener('error', (e) => { if (e.error != null) report(e.error, 'onerror') })
 window.addEventListener('unhandledrejection', (e) => report(e.reason, 'unhandledrejection'))
 
+migrateLegacyStorage(localStorage)
 const page = new URLSearchParams(location.search).get('window') ?? 'chat'
-document.title = window.codync.appName
-document.documentElement.dataset.platform = window.codync.platform
+document.title = window.kith.appName
+document.documentElement.dataset.platform = window.kith.platform
 document.documentElement.dataset.window = page
 applyTextSize(prefs.textSize.get())
 const root = createRoot(document.getElementById('root')!)

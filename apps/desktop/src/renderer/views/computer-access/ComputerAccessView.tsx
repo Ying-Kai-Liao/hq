@@ -9,8 +9,8 @@ import './computer-access.css'
 export function ComputerAccessView({ onContinue }: { onContinue?: (ready: boolean) => void }) {
   const access = useComputerAccess()
   const { screen, step, busy } = access
-  const mac = window.codync.platform === 'darwin'
-  const windows = window.codync.platform === 'win32'
+  const mac = window.kith.platform === 'darwin'
+  const windows = window.kith.platform === 'win32'
   const ready = step === 'ready'
   const canRequest = ['capture', 'input', 'portal', 'ready'].includes(step)
   const helperReady = screen?.enabled === true && screen.connected && step !== 'background'

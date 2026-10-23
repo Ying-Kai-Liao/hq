@@ -53,7 +53,7 @@ export class LoopbackTransport implements HostTransport {
 
   async call(method: string, body: unknown, timeoutMs: number) {
     try {
-      return await window.codync.host.call(this.baseURL, this.token, method, body, timeoutMs)
+      return await window.kith.host.call(this.baseURL, this.token, method, body, timeoutMs)
     } catch (e) {
       const error = e as CallError
       throw new HostError(error.status ?? 0, error.status === 401 ? "This device isn't allowed on that computer anymore." : error.message)
@@ -61,7 +61,7 @@ export class LoopbackTransport implements HostTransport {
   }
 
   stream(path: string, onData: (line: string) => void, onEnd: (error: HostError | null) => void) {
-    return window.codync.host.stream(`${this.baseURL}${path}`, this.token, onData, (error) =>
+    return window.kith.host.stream(`${this.baseURL}${path}`, this.token, onData, (error) =>
       onEnd(error ? new HostError(error.status, error.message) : null),
     )
   }

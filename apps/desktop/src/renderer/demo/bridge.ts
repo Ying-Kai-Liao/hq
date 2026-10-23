@@ -1,9 +1,9 @@
-import type { AccountState, CallError, CodyncBridge, HostSnapshot, UpdateState } from '@shared/ipc'
+import type { AccountState, CallError, KithBridge, HostSnapshot, UpdateState } from '@shared/ipc'
 import { DEMO_UNAVAILABLE, FakeHost } from './fake-host'
 import { COMPUTER_ID, HOST_NAME } from './story'
 import { version } from '../../../package.json'
 
-// `window.codync` for the browser: a running local host served by `FakeHost`, everything else
+// `window.kith` for the browser: a running local host served by `FakeHost`, everything else
 // signed out, unavailable or a no-op. Imported before the renderer so module-level reads see it.
 
 const host = new FakeHost(version)
@@ -22,7 +22,7 @@ const updates: UpdateState = {
   autoCheck: false, autoDownload: false, lastCheck: null, error: null, waitingForApp: null,
 }
 
-const bridge: CodyncBridge = {
+const bridge: KithBridge = {
   platform: 'darwin',
   appName: 'Kith',
   appScheme: 'kith',
@@ -115,7 +115,7 @@ const bridge: CodyncBridge = {
 // Every visit starts from the story: no mirror cache or drafts from a previous visit, onboarding done,
 // no GitHub star ask over the demo.
 try {
-  for (const key of Object.keys(localStorage)) if (key.startsWith('codync-')) localStorage.removeItem(key)
+  for (const key of Object.keys(localStorage)) if (key.startsWith('kith-')) localStorage.removeItem(key)
   localStorage.setItem('macAccountOnboardingCompleted', 'true')
   localStorage.setItem('computerAccessSetup', JSON.stringify('later'))
   localStorage.setItem('githubStarAsk', JSON.stringify({ kind: 'done' }))
@@ -125,4 +125,4 @@ try {
 const matchMedia = window.matchMedia.bind(window)
 window.matchMedia = (query) => matchMedia(query.includes('prefers-color-scheme: dark') ? 'all' : query)
 
-window.codync = bridge
+window.kith = bridge

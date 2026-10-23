@@ -10,7 +10,7 @@ import type { AppModel } from '../store/app-model'
 import { providerTint, resetDate, untilText, windowTitle } from './usage/usage-model'
 import { mascotDataURL } from './usage/ProviderMascot'
 
-const isMac = window.codync.platform === 'darwin'
+const isMac = window.kith.platform === 'darwin'
 
 /** Rendered icons by what they show and the appearance: nothing is redrawn while nothing changed. */
 const cache = new Map<string, string>()
@@ -132,7 +132,7 @@ export function useTraySummary(app: AppModel) {
         textSize,
         usageIconStyle: iconStyle,
       }
-      window.codync.app.setTraySummary(summary)
+      window.kith.app.setTraySummary(summary)
     }, 150)
     return () => clearTimeout(timer)
   })

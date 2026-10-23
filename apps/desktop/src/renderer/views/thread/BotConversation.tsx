@@ -109,7 +109,7 @@ function ConversationRow({ row }: { row: BotConversationRow }) {
           {row.showsAuthor ? <AuthorLabel botId={row.author} /> : null}
           <div className="message agent">
             <div className="message-body">
-              <Bubble className="bubble agent selectable" items={() => [{ title: 'Copy', icon: 'square.on.square', action: () => window.codync.app.copy(row.text) }]}>
+              <Bubble className="bubble agent selectable" items={() => [{ title: 'Copy', icon: 'square.on.square', action: () => window.kith.app.copy(row.text) }]}>
                 <MarkdownText text={row.text} />
               </Bubble>
             </div>
