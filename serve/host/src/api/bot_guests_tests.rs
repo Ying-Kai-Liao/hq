@@ -378,10 +378,12 @@ async fn limits_and_ownership_hold() {
     // The rig has no agent process, so nothing keeps the first turn running; a message waiting in the thread is what
     // makes the conversation busy, whatever the timing.
     let cv = r.hub.store.bot_conversation_by_id(&conv).unwrap();
-    let waiting = json!({"text": "waiting", "clientNonce": "w0", "status": "queued", "attachments": []});
-    r.hub
-        .add_entry(&Lane::in_thread(&cv.chat_bot_id, &cv.thread_root), EntryKind::User, 99, &waiting)
-        .expect("a waiting message");
+    let lane = Lane::in_thread(&cv.chat_bot_id, &cv.thread_root);
+    let wait = |n: usize| {
+        let waiting = json!({"text": "waiting", "clientNonce": format!("w{n}"), "status": "queued", "attachments": []});
+        r.hub.add_entry(&lane, EntryKind::User, 99, &waiting).expect("a waiting message");
+    };
+    wait(0);
     let e = call(
         &r,
         &other.caller,
@@ -391,27 +393,17 @@ async fn limits_and_ownership_hold() {
     .await
     .unwrap_err();
     assert_eq!(code(&e), Some("busy"));
-    let mut queued = 0;
-    for i in 3..12 {
-        match call(
-            &r,
-            &other.caller,
-            "botAsk",
-            json!({"conversation": conv, "text": "more", "clientNonce": format!("q{i}")}),
-        )
-        .await
-        {
-            Ok(v) => {
-                assert_eq!(v["state"], "queued");
-                queued += 1;
-            }
-            Err(e) => {
-                assert_eq!(code(&e), Some("busy"));
-                break;
-            }
-        }
+    // Under five waiting, a message queues behind them.
+    for n in 1..4 {
+        wait(n);
     }
-    assert!((1..=5).contains(&queued), "at most five wait: {queued}");
+    let more = |nonce: &str| json!({"conversation": conv, "text": "more", "clientNonce": nonce});
+    let v = call(&r, &other.caller, "botAsk", more("q3")).await.unwrap();
+    assert_eq!(v["state"], "queued");
+    // At five waiting it is busy. (The rig has no agent, so the count is set up here and not by timing.)
+    wait(4);
+    let e = call(&r, &other.caller, "botAsk", more("q4")).await.unwrap_err();
+    assert_eq!(code(&e), Some("busy"));
 
     // Ten live bots per owner.
     for i in 0..8 {
