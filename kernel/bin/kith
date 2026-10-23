@@ -442,16 +442,7 @@ else
 fi
 [[ $p_owner == 1 ]] && writable="$home/memory"$'\n'"$home_real/memory" \
   || writable=$(printf '%s\n' "$mem" "$(real "$mem")" "$shared" "$(real "$shared")" "$files" "$(real "$files")")
-# dontAsk refuses whatever no allow rule names, so the owner's run gets its own folder to read and memory/data/files to edit, never role/ (every spelling, as the add-dir
-# block below) and the tools its role declares (lib/kith_caps.py). Not for anyone else: their reach is the add-dirs.
-own_dirs=""
-if [[ $p_owner == 1 ]]; then
-  for d in "$home" "$home_real" "$HOME/kith/agents/$agent" "$HOME/hq/agents/$agent"; do
-    [[ -d $d && $(cd "$d" && pwd -P) == "$home_real" ]] && own_dirs+="$d"$'\n'
-  done
-  own_dirs=$(printf '%s' "$own_dirs" | awk '!seen[$0]++')
-fi
-fill < "$pkg/settings.json" | OWN_DIRS=$own_dirs ROLE_DIR=$pkg API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post HOOK="\"$KITH/bin/kith-cost\" tag" SESSIONS_HOOK="\"$KITH/bin/kith-sessions\" record" WRITABLE="$writable
+fill < "$pkg/settings.json" | API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post HOOK="\"$KITH/bin/kith-cost\" tag" SESSIONS_HOOK="\"$KITH/bin/kith-sessions\" record" WRITABLE="$writable
 $src_pkg/skills/learned
 $(cd "$src_pkg" && pwd -P)/skills/learned
 $state_projects" python3 -c '
@@ -497,9 +488,6 @@ for rules in (allow, s["permissions"]["deny"]):
             rules.insert(rules.index(r) + 1, q)
 allow.extend(r for r in dict.fromkeys("Edit(/%s/**)" % d for d in os.environ["WRITABLE"].split("\n") if d.strip()) if r not in allow)
 sys.path.insert(0, os.environ["KITH_ROOT"] + "/lib")
-import kith_caps
-own = [d for d in os.environ["OWN_DIRS"].split("\n") if d]
-allow.extend(r for r in dict.fromkeys(kith_caps.own(own) + kith_caps.allow(os.environ["ROLE_DIR"], own)) if r not in allow)
 from kith_settings import get
 if not os.environ["PERM_MODE"]:
     s["permissions"].setdefault("defaultMode", get("permission_mode"))
