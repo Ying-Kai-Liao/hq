@@ -930,10 +930,10 @@ async fn the_repair_marks_each_turns_last_reply_final_once() {
         data["final"] = false.into();
         r.hub.set_entry(&e.id, &data);
     }
-    super::sync::backfill_finals(&r.hub);
+    sync::backfill_finals(&r.hub);
     let fin = |r: &Rig| agent_finals(r, &root).into_iter().map(|(_, f)| f).collect::<Vec<_>>();
     assert_eq!(fin(&r), [true, false, true]);
     let rev = r.hub.store.current_rev();
-    super::sync::backfill_finals(&r.hub);
+    sync::backfill_finals(&r.hub);
     assert_eq!(r.hub.store.current_rev(), rev, "a second run changes nothing");
 }
