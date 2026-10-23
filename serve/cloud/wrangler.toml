@@ -41,6 +41,12 @@ name = "HOOK_LIMITER"
 namespace_id = "1021"
 simple = { limit = 60, period = 60 }
 
+# Bot invite accepts per client IP (POST /v1/bot-invites/:id/accept).
+[[ratelimits]]
+name = "BOT_JOIN_LIMITER"
+namespace_id = "1031"
+simple = { limit = 10, period = 60 }
+
 [triggers]
 crons = ["*/15 * * * *"]
 
@@ -51,7 +57,7 @@ routes = []
 vars = { CLERK_ISSUER = "https://clerk.test.local" }
 d1_databases = [{ binding = "DB", database_name = "kith-local", database_id = "local", migrations_dir = "migrations" }]
 durable_objects.bindings = [{ name = "RELAY", class_name = "ComputerRelay" }]
-ratelimits = [{ name = "REGISTER_LIMITER", namespace_id = "1003", simple = { limit = 10, period = 60 } }, { name = "TURN_LIMITER", namespace_id = "1013", simple = { limit = 12, period = 60 } }, { name = "HOOK_LIMITER", namespace_id = "1023", simple = { limit = 60, period = 60 } }]
+ratelimits = [{ name = "REGISTER_LIMITER", namespace_id = "1003", simple = { limit = 10, period = 60 } }, { name = "TURN_LIMITER", namespace_id = "1013", simple = { limit = 12, period = 60 } }, { name = "HOOK_LIMITER", namespace_id = "1023", simple = { limit = 60, period = 60 } }, { name = "BOT_JOIN_LIMITER", namespace_id = "1033", simple = { limit = 10, period = 60 } }]
 
 # kith: Kith's production cloud with accounts (own Clerk application, own D1). Setup steps: README.md, "Kith accounts".
 # Kai fills the two TODO values below; CLERK_SECRET_KEY and CLERK_WEBHOOK_SECRET are secrets (`wrangler secret put ... --env kith`),
@@ -65,7 +71,7 @@ vars = { CLERK_ISSUER = "https://clerk.invalid" }
 # TODO(Kai): replace database_id with the id `wrangler d1 create kith` prints.
 d1_databases = [{ binding = "DB", database_name = "kith", database_id = "00000000-0000-0000-0000-000000000000", migrations_dir = "migrations" }]
 durable_objects.bindings = [{ name = "RELAY", class_name = "ComputerRelay" }]
-ratelimits = [{ name = "REGISTER_LIMITER", namespace_id = "2001", simple = { limit = 10, period = 60 } }, { name = "TURN_LIMITER", namespace_id = "2011", simple = { limit = 12, period = 60 } }, { name = "HOOK_LIMITER", namespace_id = "2021", simple = { limit = 60, period = 60 } }]
+ratelimits = [{ name = "REGISTER_LIMITER", namespace_id = "2001", simple = { limit = 10, period = 60 } }, { name = "TURN_LIMITER", namespace_id = "2011", simple = { limit = 12, period = 60 } }, { name = "HOOK_LIMITER", namespace_id = "2021", simple = { limit = 60, period = 60 } }, { name = "BOT_JOIN_LIMITER", namespace_id = "2031", simple = { limit = 10, period = 60 } }]
 triggers = { crons = ["*/15 * * * *"] }
 
 # kith-dev: Kith's own relay for every local build, on our Cloudflare account at workers.dev (no custom domain).
@@ -77,5 +83,5 @@ workers_dev = true
 vars = { CLERK_ISSUER = "https://clerk.invalid" }
 d1_databases = [{ binding = "DB", database_name = "kith-dev", database_id = "f8912768-50ee-45b0-a2b0-320ab8468afe", migrations_dir = "migrations" }]
 durable_objects.bindings = [{ name = "RELAY", class_name = "ComputerRelay" }]
-ratelimits = [{ name = "REGISTER_LIMITER", namespace_id = "2002", simple = { limit = 10, period = 60 } }, { name = "TURN_LIMITER", namespace_id = "2012", simple = { limit = 12, period = 60 } }, { name = "HOOK_LIMITER", namespace_id = "2022", simple = { limit = 60, period = 60 } }]
+ratelimits = [{ name = "REGISTER_LIMITER", namespace_id = "2002", simple = { limit = 10, period = 60 } }, { name = "TURN_LIMITER", namespace_id = "2012", simple = { limit = 12, period = 60 } }, { name = "HOOK_LIMITER", namespace_id = "2022", simple = { limit = 60, period = 60 } }, { name = "BOT_JOIN_LIMITER", namespace_id = "2032", simple = { limit = 10, period = 60 } }]
 triggers = { crons = ["*/15 * * * *"] }

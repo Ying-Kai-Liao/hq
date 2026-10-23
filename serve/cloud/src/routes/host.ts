@@ -1,6 +1,7 @@
 // Sig(host) routes: a computer registers, reads its account state and decides access requests.
 
 import { b64url, computerIdFor, fromB64url, randomId, sha256 } from "../auth";
+import { activeBotDevices } from "./botguests";
 import {
   ApiError,
   audit,
@@ -166,6 +167,8 @@ export async function hostState(c: Ctx) {
       expiresAt: r.expires_at,
     })),
     memberships: members.results.map((m) => ({ membershipId: m.membership_id, userId: m.user_id, inviteId: m.invite_id, email: m.email })),
+    // Older hosts ignore it. The host honours only bots whose invite it made and still has open.
+    botDevices: await activeBotDevices(c, comp.id),
   };
 }
 

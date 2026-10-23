@@ -20,6 +20,8 @@ export interface Env {
   TURN_LIMITER?: RateLimit;
   /** Public routine webhook deliveries per sender IP and hook. */
   HOOK_LIMITER?: RateLimit;
+  /** Bot invite accepts per client IP (POST /v1/bot-invites/:id/accept). */
+  BOT_JOIN_LIMITER?: RateLimit;
   CLERK_ISSUER: string;
   CLERK_SECRET_KEY?: string;
   /** dev / e2e only: networkless verification with this public key. */
@@ -66,6 +68,10 @@ const routes: [string, RegExp, Handler][] = [
   ["POST", new RegExp(`^/v1/host/invites/${ID}/revoke$`), api.hostRevokeInvite],
   ["POST", new RegExp(`^/v1/host/memberships/${ID}/revoke$`), api.hostRevokeMembership],
   ["POST", new RegExp(`^/v1/invites/${ID}/accept$`), api.acceptInvite],
+  ["POST", /^\/v1\/host\/bot-invites$/, api.hostCreateBotInvite],
+  ["POST", new RegExp(`^/v1/host/bot-invites/${ID}/revoke$`), api.hostRevokeBotInvite],
+  ["POST", new RegExp(`^/v1/host/bot-devices/${ID}/revoke$`), api.hostRevokeBotDevice],
+  ["POST", new RegExp(`^/v1/bot-invites/${ID}/accept$`), api.acceptBotInvite],
   ["GET", /^\/v1\/relay\/host$/, api.relayHost],
   // Any segment reaches the handler so a malformed computerId gets its 400 (§7.1).
   ["GET", /^\/v1\/relay\/device\/([^/]+)$/, api.relayDevice],

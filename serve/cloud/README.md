@@ -133,6 +133,40 @@ Account (Clerk):
 Unclaiming a computer and the Clerk `user.deleted` webhook revoke the affected memberships and unused invites.
 `npm run e2e:invite` runs the flow against `wrangler dev` with a fake host.
 
+## Bot guests
+
+A cloud agent (Grok Bot and the like) joins a Mac with a link and has no Clerk account: the bot is a device with its own
+Ed25519 key, tied to one person on the Mac. Design and threat model: `docs/kith-bot-guests.md`. Same direction of trust as
+invites: the cloud only records accepts and can only remove access; the Mac decides who the bot is and what it may do. The
+invite token `t` never reaches the cloud. The bot sends `sha256hex(t)` to accept and the cloud stores
+`sha256hex(sha256hex(t))` (the host keeps `sha256hex(t)` and checks `t` itself). D1: `bot_invites` and `bot_devices`
+(`migrations/0006_bot_guests.sql`). Limits: 50 active bot devices and 100 open invites per computer; accepts are limited to 10
+per IP per minute with `BOT_JOIN_LIMITER` (own `namespace_id` per environment). `audit_events` gets `botinvite.create`,
+`botinvite.revoke`, `botinvite.accept` and `botdevice.revoke`. The cron sweep deletes unaccepted bot invites 7 days after they expire.
+
+Host-signed:
+
+- `POST /v1/host/bot-invites` `{inviteId, tokenHash, expiresAt}` (ms, at most 48 h ahead): same rules as `/v1/host/invites`
+  (re-post is a no-op, same id with another hash is 409), but no claim is needed; 409 `tooMany` over 100 open invites.
+- `POST /v1/host/bot-invites/:inviteId/revoke`: marks an unaccepted invite revoked (409 once accepted; revoke the device).
+- `POST /v1/host/bot-devices/:botDeviceId/revoke`: sets `revoked_at`, blocks the key in the relay DO with grant id
+  `bot:<botDeviceId>` (closing its sockets with 4003) and audits. Repeating it re-sends the block.
+- `GET /v1/host/state` adds `botDevices: [{botDeviceId, inviteId, deviceKey, name, provider, createdAt}]` (active only).
+
+Bot-signed (`Kith-Sig` by the bot's own key, replay checked by `sig_nonces`):
+
+- `POST /v1/bot-invites/:inviteId/accept` `{token: "<sha256hex(t)>", name, provider?}` returns `{computerId, botDeviceId}`.
+  The same key repeating it gets the same device. 403 wrong proof, 404 unknown invite, 409 `inviteUsed` (another key got
+  there first), 409 `conflict` (this key already has a bot here) or `tooMany`, 410 `inviteExpired` or `inviteRevoked`
+  (also for a device that was revoked), 429 `rateLimited`. Races have one winner. A successful accept makes the DO send
+  `cloud.changed` to the host, which pulls `botDevices`.
+
+Relay: the host lists a bot in the signed ACL as `{dk, grant: "bot:<id>", kind: "bot"}` (`kind` is optional and must be
+`"bot"` when present). A bot socket counts against `MAX_BOT_SOCKETS = 8` per computer and 2 per key, apart from the 16 human
+sockets, is limited to 60 messages and 1 MiB per 10 s (humans: 200 and 8 MiB), gets `mbox.err {code: "notAllowed"}` for any
+mailbox message (an offline Mac fails fast), and can never use a pairing offer. A socket whose ACL kind changes is closed 4003.
+`npm run e2e:bot` runs the flow against `wrangler dev` with a fake host.
+
 ## Remote screen relay
 
 `POST /v1/host/screen-ice` issues one-hour Cloudflare Realtime TURN credentials to a

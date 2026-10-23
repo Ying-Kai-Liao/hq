@@ -17,6 +17,11 @@ const PAIRING_MAX_MESSAGES = 16;
 const RATE_WINDOW_MS = 10_000;
 const RATE_MAX_MESSAGES = 200;
 const RATE_MAX_BYTES = 8 * 1024 * 1024;
+// Bot guests (docs/kith-bot-guests.md 5.4): their own socket pool so they never push a phone out, and a tighter link limit.
+const MAX_BOT_SOCKETS = 8;
+const MAX_BOT_SOCKETS_PER_DK = 2;
+const BOT_RATE_MAX_MESSAGES = 60;
+const BOT_RATE_MAX_BYTES = 1024 * 1024;
 const MBOX_MAX_BLOB = 64 * 1024;
 const MBOX_PER_DEVICE = 50;
 const MBOX_PER_COMPUTER = 500;
@@ -52,6 +57,8 @@ interface DeviceAttachment {
   link: string;
   pair: boolean;
   offer?: string;
+  /** The ACL listed this device with `kind: "bot"` when it connected. Absent on sockets from before bots existed. */
+  bot?: boolean;
   at: number;
   msgs: number;
   retired?: Retired;
@@ -68,7 +75,7 @@ export interface Acl {
   v: 1;
   computerId: string;
   ver: number;
-  devices: { dk: string; grant: string | null }[];
+  devices: { dk: string; grant: string | null; kind?: "bot" }[];
   offers: { id: string; exp: number }[];
 }
 
@@ -93,7 +100,11 @@ export function parseAcl(bytes: Uint8Array): Acl | null {
     (a.ver ?? 0) >= 1 &&
     Array.isArray(a.devices) &&
     a.devices.every(
-      (d) => d && fromB64url(d.dk, 32) !== null && (d.grant === null || (typeof d.grant === "string" && d.grant.length <= 64)),
+      (d) =>
+        d &&
+        fromB64url(d.dk, 32) !== null &&
+        (d.grant === null || (typeof d.grant === "string" && d.grant.length <= 64)) &&
+        (d.kind === undefined || d.kind === "bot"),
     ) &&
     Array.isArray(a.offers) &&
     a.offers.every((o) => o && fromB64url(o.id, 16) !== null && Number.isSafeInteger(o.exp));
@@ -195,7 +206,17 @@ export class ComputerRelay extends DurableObject<Env> {
     // A pairing needs the host's one-time code, so the host decides; a block only stops ACL access.
     if (!offer && this.sql.exec("SELECT 1 FROM blocked WHERE dk = ?", dk).toArray().length) return errorResponse(403, "forbidden");
     const sockets = this.devices();
-    if (sockets.length >= MAX_DEVICE_SOCKETS) return errorResponse(429, "rateLimited");
+    const bot = !offer && acl.devices.some((d) => d.dk === dk && d.kind === "bot");
+    // A bot may never use a pairing offer, even one that is open for somebody else.
+    if (offer && acl.devices.some((d) => d.dk === dk && d.kind === "bot")) return errorResponse(403, "forbidden");
+    if (bot) {
+      const bots = sockets.filter(([, a]) => a.bot);
+      if (bots.length >= MAX_BOT_SOCKETS || bots.filter(([, a]) => a.dk === dk).length >= MAX_BOT_SOCKETS_PER_DK) {
+        return errorResponse(429, "rateLimited");
+      }
+    } else if (sockets.filter(([, a]) => !a.bot).length >= MAX_DEVICE_SOCKETS) {
+      return errorResponse(429, "rateLimited");
+    }
     let deadline = now + ALARM_MS;
     if (offer) {
       const o = acl.offers.find((o) => o.id === offer && o.exp > now);
@@ -209,6 +230,7 @@ export class ComputerRelay extends DurableObject<Env> {
     this.ctx.acceptWebSocket(server, ["device"]);
     const a: DeviceAttachment = { role: "device", dk, link: randomId("", 12), pair: !!offer, at: now, msgs: 0 };
     if (offer) a.offer = offer;
+    if (bot) a.bot = true;
     server.serializeAttachment(a);
     send(server, JSON.stringify(this.presence()));
     send(this.readyHost(), JSON.stringify({ t: "open", link: a.link, dk, pair: a.pair }));
@@ -430,7 +452,8 @@ export class ComputerRelay extends DurableObject<Env> {
     for (const [dws, dev] of this.devices()) {
       if (dev.pair) {
         if (!acl.offers.some((o) => o.id === dev.offer && o.exp > now)) this.safeClose(dws, 4410, "pairingExpired");
-      } else if (!acl.devices.some((x) => x.dk === dev.dk)) {
+      } else if (!acl.devices.some((x) => x.dk === dev.dk && (x.kind === "bot") === !!dev.bot)) {
+        // Unlisted, or listed as the other kind: the socket was admitted under limits that no longer fit it.
         this.safeClose(dws, 4003, "revoked");
       }
     }
@@ -454,7 +477,7 @@ export class ComputerRelay extends DurableObject<Env> {
 
   private async onDevice(ws: WebSocket, a: DeviceAttachment, msg: Msg, raw: string): Promise<void> {
     const now = Date.now();
-    if (!this.charge(a.link, utf8(raw).length, now)) return this.safeClose(ws, 4008, "rateLimited");
+    if (!this.charge(a.link, utf8(raw).length, now, !!a.bot)) return this.safeClose(ws, 4008, "rateLimited");
     if (a.pair) {
       a.msgs += 1;
       if (a.msgs > PAIRING_MAX_MESSAGES) return this.safeClose(ws, 4008, "rateLimited");
@@ -473,6 +496,8 @@ export class ComputerRelay extends DurableObject<Env> {
       case "mbox.put":
       case "mbox.cancel":
       case "mbox.list":
+        // An answer to a bot's question can't be streamed back after the fact, so an offline Mac is an error to it.
+        if (a.bot) return send(ws, JSON.stringify({ t: "mbox.err", nonce: msg.nonce ?? null, code: "notAllowed" }));
         if (a.pair) return send(ws, JSON.stringify({ t: "mbox.err", nonce: msg.nonce ?? null, code: "pairing" }));
         if (msg.t === "mbox.put") return this.mboxPut(ws, a, msg, now);
         if (msg.t === "mbox.cancel") return this.mboxCancel(ws, a, msg);
@@ -482,8 +507,8 @@ export class ComputerRelay extends DurableObject<Env> {
     }
   }
 
-  /** Fixed 10 s window per device link: ≤ 200 messages and ≤ 8 MiB (§7.6). */
-  private charge(link: string, bytes: number, now: number): boolean {
+  /** Fixed 10 s window per device link: ≤ 200 messages and ≤ 8 MiB (§7.6); a bot gets 60 and 1 MiB. */
+  private charge(link: string, bytes: number, now: number, bot = false): boolean {
     let r = this.rates.get(link);
     if (!r || now - r.start >= RATE_WINDOW_MS) {
       r = { start: now, msgs: 0, bytes: 0 };
@@ -491,7 +516,7 @@ export class ComputerRelay extends DurableObject<Env> {
     }
     r.msgs += 1;
     r.bytes += bytes;
-    return r.msgs <= RATE_MAX_MESSAGES && r.bytes <= RATE_MAX_BYTES;
+    return r.msgs <= (bot ? BOT_RATE_MAX_MESSAGES : RATE_MAX_MESSAGES) && r.bytes <= (bot ? BOT_RATE_MAX_BYTES : RATE_MAX_BYTES);
   }
 
   // ---- mailbox (§7.7) ----

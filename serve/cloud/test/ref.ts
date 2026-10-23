@@ -266,7 +266,7 @@ export interface AclBody {
   v: 1;
   computerId: string;
   ver: number;
-  devices: { dk: string; grant: string | null }[];
+  devices: { dk: string; grant: string | null; kind?: "bot" }[];
   offers: { id: string; exp: number }[];
 }
 

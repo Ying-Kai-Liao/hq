@@ -13,7 +13,8 @@
     "test": "vitest run",
     "e2e": "node --experimental-strip-types --no-warnings test/e2e/relay.e2e.ts",
     "e2e:account": "node --experimental-strip-types --no-warnings test/e2e/account.e2e.ts",
-    "e2e:invite": "node --experimental-strip-types --no-warnings test/e2e/invite.e2e.ts"
+    "e2e:invite": "node --experimental-strip-types --no-warnings test/e2e/invite.e2e.ts",
+    "e2e:bot": "node --experimental-strip-types --no-warnings test/e2e/bot.e2e.ts"
   },
   "dependencies": {
     "@clerk/backend": "^3.20.1",
