@@ -69,6 +69,30 @@ public actor FileDownload {
         return destination
     }
 
+    /// A shared file's bytes for showing inline: read in the same chunks as a download (so a remote iPhone stays
+    /// within the relay's limits), checked against the digest, and kept in `cache` so the next look costs nothing.
+    public func bytes(client: HostClient, entryId: String, file: SharedFile, cache: URL) async throws -> Data {
+        try file.validate()
+        if let kept = try? Data(contentsOf: cache), Int64(kept.count) == file.size { return kept }
+        var data = Data()
+        var hash = SHA256()
+        var offset: Int64 = 0
+        while offset < file.size {
+            try Task.checkCancellation()
+            let chunk = try await client.readFile(entryId: entryId, fileId: file.id, offset: offset)
+            guard chunk.size == file.size, chunk.data.utf8.count <= Self.chunkSize / 3 * 4,
+                  let bytes = Data(base64Encoded: chunk.data),
+                  bytes.count == min(Self.chunkSize, Int(file.size - offset)) else { throw FileDownloadError.invalidChunk }
+            data.append(bytes)
+            hash.update(data: bytes)
+            offset += Int64(bytes.count)
+        }
+        guard hash.finalize().map({ String(format: "%02x", $0) }).joined() == file.sha256 else { throw FileDownloadError.integrity }
+        try? FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: cache)
+        return data
+    }
+
     public func remove(_ url: URL) throws {
         try FileManager.default.removeItem(at: url.deletingLastPathComponent().deletingLastPathComponent())
     }

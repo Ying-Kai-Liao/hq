@@ -20,11 +20,17 @@ struct Setup {
 }
 
 async fn start() -> Setup {
+    start_with("instructions_agent.py claude").await
+}
+
+/// [`start`] with another scripted agent (`fixture [args]`).
+async fn start_with(agent: &str) -> Setup {
+    let (script, args) = agent.split_once(' ').unwrap_or((agent, ""));
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let home = std::env::temp_dir().join(format!("kith-hq-e2e-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&home).unwrap();
     let stub = fixtures.join("stub_hq.py");
-    let acp = format!("{} claude", common::python_agent(&fixtures.join("instructions_agent.py")));
+    let acp = format!("{} {args}", common::python_agent(&fixtures.join(script)));
     let home_text = home.to_string_lossy().into_owned();
     let area = std::env::temp_dir().join(format!("kith-hq-e2e-area-{}", uuid::Uuid::new_v4()));
     for dir in ["alpha", "beta", "plain", ".dot"] {
@@ -160,7 +166,8 @@ async fn an_hq_agent_appears_and_starts_from_launch_json() {
     let options = &params["_meta"]["claudeCode"]["options"];
     assert_eq!(options["strictMcpConfig"], true);
     assert_eq!(options["mcpServers"]["pantry"]["command"], "pantry-mcp");
-    assert_eq!(options["allowedTools"], json!(["Read"]));
+    assert_eq!(options["allowedTools"], json!(["Read", "mcp__kith-files"]), "plus the host's file sharing");
+    assert_eq!(options["mcpServers"]["kith-files"]["args"][1], "files");
     assert_eq!(options["extraArgs"], json!({"disable-slash-commands": null}));
     assert_eq!(options["model"], "haiku");
     assert!(options["settings"]["hooks"].is_object());
@@ -556,4 +563,22 @@ async fn the_hosts_own_copy_never_overrides_hq() {
     assert_eq!(args, ["house", "--launch-json"], "no -m, -e or --permission-mode of the host's: {args:?}");
     let options = &s.requests("session/new")[0]["params"]["_meta"]["claudeCode"]["options"];
     assert_eq!(options["model"], "haiku", "hq's model");
+}
+
+#[tokio::test]
+async fn an_hq_agent_shares_an_image_with_the_tool_it_is_given() {
+    let s = start_with("hq_file_agent.py").await;
+    let id = s.house().await["id"].as_str().unwrap().to_owned();
+    s.host.call("updateBot", json!({"id": id, "tasks": false})).await;
+    std::fs::write(s.home.join("pic.png"), b"\x89PNG\r\n\x1a\nnot really").unwrap();
+    s.host.reply(&id, "send me the picture").await;
+
+    let results: Value =
+        serde_json::from_str(&std::fs::read_to_string(s.home.join("file-results.json")).unwrap()).unwrap();
+    assert_eq!(results["tools"], json!(["send_file"]), "only file sharing: its words already are its reply");
+    assert!(results["sent"]["isError"].is_null(), "{results}");
+    let history = s.host.call("history", json!({"botId": id})).await;
+    let shared =
+        history["entries"].as_array().unwrap().iter().find(|e| e["data"]["files"].is_array()).expect("a file entry");
+    assert_eq!(shared["data"]["files"][0]["name"], "pic.png");
 }

@@ -503,6 +503,9 @@ pub async fn backups(bin: &Path, agent: &str) -> Result<Vec<crate::agent::backup
     Ok(doc.entries())
 }
 
+/// The name of the host's file-sharing server in an hq agent's launch.
+pub const FILES_SERVER: &str = "kith-files";
+
 impl Launch {
     /// Where the agent works: hq's choice, else the bot's folder.
     pub fn cwd<'a>(&'a self, cfg: &'a BotConfig) -> &'a str {
@@ -563,6 +566,21 @@ impl Launch {
             options.insert("effort".into(), effort.into());
         }
         json!({"systemPrompt": {"append": self.system_prompt}, "claudeCode": {"options": options}})
+    }
+
+    /// Adds the host's `kith-files` server (`send_file`) to the agent's own: an hq agent's launch carries none of the
+    /// host's tools, so without this it had no way to give the user an image or a file in an app chat. Named so it
+    /// can't replace a server of the agent's; `rt` is the actor key, so a file lands in the place the call came from.
+    pub fn with_files_server(&mut self, exe: &str, port: u16, rt: &str) {
+        if !self.mcp_servers.is_object() {
+            self.mcp_servers = json!({});
+        }
+        self.mcp_servers[FILES_SERVER] =
+            json!({"command": exe, "args": ["mcp", "files", "--bot", rt, "--port", port.to_string()], "env": {}});
+        let allow = format!("mcp__{FILES_SERVER}");
+        if !self.allowed_tools.contains(&allow) {
+            self.allowed_tools.push(allow);
+        }
     }
 
     /// `session/new` (or, with `session`, `session/load`) for this launch. No ACP `mcpServers` of the host's own:

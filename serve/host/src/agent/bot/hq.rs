@@ -236,6 +236,13 @@ impl Actor {
                     if target.explicit {
                         launch.cwd.clone_from(&target.cwd);
                     }
+                    // Not for an invited person: send_file copies any path the Mac user can read, and the kernel
+                    // confines that person's run to folders this tool doesn't check.
+                    if person.is_none()
+                        && let Ok(exe) = std::env::current_exe()
+                    {
+                        launch.with_files_server(&exe.to_string_lossy(), self.hub.port, &self.rt);
+                    }
                     break (launch, backup);
                 }
                 // hq won't run this entry (not signed in, not allowed for this person): the next one answers.
