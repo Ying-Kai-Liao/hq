@@ -261,7 +261,7 @@ pub fn shape(hub: &Hub, person: &str, method: &str, mut v: Value) -> Value {
             }
         }
         // Where a chat works on this computer is not theirs to see.
-        "history" | "thread" => {
+        "history" | "thread" | "resolveCitation" => {
             if let Some(o) = v.as_object_mut() {
                 o.remove("folder");
             }

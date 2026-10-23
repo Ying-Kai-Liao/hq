@@ -27,6 +27,12 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             );
             serde_json::json!({"written": written})
         }
+        // The owner forgets a thread (`kith forget --thread`): its summary and its row's copy go.
+        "forgetThread" => {
+            let thread = str_arg(&b, "thread")?;
+            crate::chat::memory::summary::forget_now(hub, thread)?;
+            serde_json::json!({"forgotten": thread})
+        }
         // A citation link opened by the owner or, as `asPerson` (set by the host, never the client), an invitee:
         // `{thread, seq, at, entries}`, or `{error: "not_shared"}`.
         "resolveCitation" => resolve_citation(hub, b["asPerson"].as_str(), str_arg(&b, "citation")?).await,
@@ -80,7 +86,8 @@ pub(super) async fn resolve_citation(hub: &Arc<Hub>, person: Option<&str>, link:
         Some(root) => hub.store.thread(&bot, root, 500),
         None => hub.store.history(&bot, seq.map_or(i64::MAX, |s| s.saturating_add(20)), 40),
     };
-    let Ok(entries) = entries else { return not_shared() };
+    let Ok(mut entries) = entries else { return not_shared() };
+    crate::chat::memory::summary::hide_forgotten(&hub.store, &mut entries);
     let at = seq.and_then(|s| entries.iter().find(|e| e.seq == s)).map(|e| e.id.clone());
     serde_json::json!({"thread": {"id": key, "botId": bot, "rootId": root}, "seq": seq, "at": at, "entries": entries})
 }

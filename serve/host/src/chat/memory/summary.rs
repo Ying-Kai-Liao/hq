@@ -348,6 +348,35 @@ fn show_on_row(hub: &Arc<Hub>, root: &str, s: &Summary) {
     hub.set_entry(root, &entry.data);
 }
 
+/// The owner forgets a thread (`kith forget --thread`): its summary goes, nothing is written for it again, and its row
+/// stops carrying the summary (an `entry` event tells the apps). Doing it twice changes nothing more.
+pub fn forget_now(hub: &Arc<Hub>, thread: &str) -> Result<()> {
+    hub.store.with_db(|c| rules::forget(c, thread, now_ms()))?;
+    if let Some(mut root) = hub.store.entry(thread).filter(|e| e.thread_id.is_none())
+        && clear_row_summary(&mut root.data)
+    {
+        hub.set_entry(thread, &root.data);
+    }
+    Ok(())
+}
+
+/// Takes the summary off a root's `data.thread`; whether there was one.
+fn clear_row_summary(data: &mut serde_json::Value) -> bool {
+    let Some(thread) = data["thread"].as_object_mut() else { return false };
+    let had = thread.remove("summary").is_some();
+    thread.remove("summaryAudience").is_some() || had
+}
+
+/// Strips the summary from the roots among `entries` whose thread was forgotten (rows from before forgetting also
+/// cleaned the row, and a forget made while the host was down).
+pub fn hide_forgotten(store: &Store, entries: &mut [Entry]) {
+    for e in entries.iter_mut().filter(|e| e.thread_id.is_none() && !e.data["thread"]["summary"].is_null()) {
+        if store.with_db(|c| rules::forgotten(c, &e.id).unwrap_or(false)) {
+            clear_row_summary(&mut e.data);
+        }
+    }
+}
+
 pub fn set_row_summary(data: &mut serde_json::Value, s: &Summary) {
     data["thread"]["summary"] = serde_json::json!({"text": s.text, "writtenAt": s.written_at});
     data["thread"]["summaryAudience"] = s.audience.clone().into();

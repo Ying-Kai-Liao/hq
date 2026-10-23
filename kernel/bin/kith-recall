@@ -59,7 +59,11 @@ def thread_command(cmd, argv):
     if len(argv) != 2 or argv[0] != '--thread' or not kr.kith_trajectory.THREAD_ID.fullmatch(argv[1]):
         print('usage: kith %s --thread <id>' % cmd, file=sys.stderr); return 2
     if cmd == 'forget':
-        if not kr.kith_trajectory.forget(argv[1]):
+        # Through the host when it is up, so the thread's row drops its summary and the apps hear of it; else the store alone
+        # (the host strips the row's copy of a forgotten thread when it next serves it).
+        r = host_call('forgetThread', {'thread': argv[1]}, timeout=20)
+        via_host = isinstance(r, dict) and 'forgotten' in r
+        if not via_host and not kr.kith_trajectory.forget(argv[1]):
             print('kith forget: no Kith host store on this Mac', file=sys.stderr); return 1
         kr.open_index().close()   # drops its rows now
         print('forgotten: %s (its entries are kept; nothing about it is indexed again)' % argv[1]); return 0

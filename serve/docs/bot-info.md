@@ -149,4 +149,6 @@ The thread's prose summary (`docs/memory-context.md`, "Summary") reaches the app
   entry with that `seq` when it is among `entries`; a thread's newest 500, or 40 around `seq` in a main chat). For anyone
   outside the thread's audience, and for a thread that doesn't exist, was forgotten, or a malformed link, the answer is the
   same `{ error: "not_shared" }`. An invited person may call it (it is on the member allow-list) and gets their own
-  threads only, while their agent is still granted.
+  threads only, while their agent is still granted. The owner can resolve a member's thread too, as with `history`.
+  `forgetThread` `{ thread }` (owner only, what `kith forget --thread` calls) forgets a thread and removes `summary` and
+  `summaryAudience` from its row (an `entry` event follows); a forgotten thread's row is served without them either way.

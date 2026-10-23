@@ -671,3 +671,53 @@ async fn a_citation_opens_for_its_audience_and_is_not_shared_for_anyone_else() {
     r.hub.store.with_db(|c| kith_mem::summary::forget(c, &mine.id, 1)).unwrap();
     assert_eq!(call(&r, &sam, "resolveCitation", link(&mine.id)).await.unwrap(), stranger);
 }
+
+#[tokio::test]
+async fn resolving_a_main_chat_citation_hides_other_threads_summaries_from_a_member() {
+    let r = Rig::new().await;
+    let (sam, _) = joined(&r, json!({"house": "member"})).await;
+    let theirs = chat_of(&r, &sam).await;
+    root_with_summary(&r, &theirs, "person:sam");
+    root_with_summary(&r, &theirs, "person:eve");
+    root_with_summary(&r, &theirs, "owner");
+    let link = json!({"citation": format!("kith://thread/main:{theirs}")});
+
+    let seen = call(&r, &sam, "resolveCitation", link.clone()).await.unwrap();
+    let rows: Vec<&Value> =
+        seen["entries"].as_array().unwrap().iter().filter(|e| e["data"]["thread"]["count"] == 1).collect();
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows.iter().filter(|e| !e["data"]["thread"]["summary"].is_null()).count(), 1, "only sam's own");
+    assert!(rows.iter().all(|e| e["data"]["thread"].get("summaryAudience").is_none()));
+    // The owner still sees all of them.
+    let owner = call(&r, &Caller::Local, "resolveCitation", link).await.unwrap();
+    let all = owner["entries"].as_array().unwrap().iter().filter(|e| !e["data"]["thread"]["summary"].is_null()).count();
+    assert_eq!(all, 3);
+}
+
+#[tokio::test]
+async fn forgetting_a_thread_takes_the_summary_off_its_row() {
+    let r = Rig::new().await;
+    let (sam, _) = joined(&r, json!({"house": "member"})).await;
+    let theirs = chat_of(&r, &sam).await;
+    let mine = root_with_summary(&r, &theirs, "person:sam");
+    let older = root_with_summary(&r, &theirs, "person:sam");
+    let mut events = r.hub.events.subscribe();
+
+    // A member can't forget; the owner can, twice.
+    assert!(call(&r, &sam, "forgetThread", json!({"thread": mine.id})).await.is_err());
+    for _ in 0..2 {
+        call(&r, &Caller::Local, "forgetThread", json!({"thread": mine.id})).await.unwrap();
+    }
+    let row = r.hub.store.entry(&mine.id).unwrap();
+    assert!(row.data["thread"].get("summary").is_none() && row.data["thread"].get("summaryAudience").is_none());
+    assert_eq!(row.data["thread"]["count"], 1);
+    assert!(events.try_recv().is_ok_and(|e| e["type"] == "entry" && e["entry"]["id"] == mine.id.as_str()));
+
+    // A thread forgotten without its row cleaned (an older forget) is served without the summary.
+    r.hub.store.with_db(|c| kith_mem::summary::forget(c, &older.id, 1)).unwrap();
+    for who in [&sam, &Caller::Local] {
+        let seen = call(&r, who, "history", json!({"botId": theirs})).await.unwrap();
+        let row = seen["entries"].as_array().unwrap().iter().find(|e| e["id"] == older.id.as_str()).unwrap();
+        assert!(row["data"]["thread"].get("summary").is_none());
+    }
+}
