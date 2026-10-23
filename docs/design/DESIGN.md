@@ -219,7 +219,13 @@ An agent's question as buttons, tinted with that agent's colours; permission pro
 Deny / Always). Free text still works in the chat box. Answerable without opening the thread.
 ### Tool row
 One line per tool call, 44 pt: verb + object, result on the right in mono. Tap: stock sheet with command and output.
-No terminal view anywhere.
+No terminal view anywhere: a session started in a terminal shows as a normal thread (bubbles, tool rows,
+decision cards); the terminal appears only as an origin tag and the writer banner. (Repo addition, 2026-10-24,
+from the designer's continue-anywhere spec; not in the designer's DESIGN.md.)
+### Terminal threads
+(Repo addition, 2026-10-24.) A session started with `kith <agent>` in a terminal is a normal thread: origin tag
+("Terminal · kith") on the chip and Board rows, a writer chip while a terminal holds the thread, and a locked
+writer banner on the chat box. Full spec: ~/Workspace/design/kith/app-style/continue-anywhere/spec.md.
 ### Handoff card
 "Where we left off" for a sleeping session: what was done, next step, files/PRs. Only real fields; nothing invented.
 ### Status chips

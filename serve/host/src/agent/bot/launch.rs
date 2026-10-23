@@ -146,6 +146,7 @@ pub(crate) async fn start_agent(command: &str, cwd: &str, env: &[(String, String
         call_sessions: HashMap::new(),
         model_options: HashMap::new(),
         call_refused: HashSet::new(),
+        run_grant: None,
     })
 }
 

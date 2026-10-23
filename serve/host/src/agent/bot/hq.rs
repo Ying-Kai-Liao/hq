@@ -391,7 +391,15 @@ impl Actor {
             self.conn_serving.clone_from(&self.serving);
             self.conn_room = self.run_room();
             let provider = if launch.is_codex() { "codex" } else { self.cfg.backend.as_str() };
-            let env = process_env(crate::agent::auth::env(&self.hub.store, provider)?, &launch, backup.is_some());
+            let mut env = process_env(crate::agent::auth::env(&self.hub.store, provider)?, &launch, backup.is_some());
+            // Anyone but the owner asks the host who they are (`kith recall` over the run socket), with a token that
+            // is theirs alone; the owner's process gets none.
+            let mut grant = person
+                .as_deref()
+                .and_then(|p| crate::runauth::grant_for(p, &agent, launch.env.get("KITH_ROOM").map(String::as_str)));
+            if let Some((_, vars)) = &grant {
+                env.extend(vars.iter().cloned());
+            }
             let candidates = match std::env::var(hq::ACP_COMMAND_ENV) {
                 Ok(command) if !command.is_empty() => vec![command],
                 _ => {
@@ -414,7 +422,13 @@ impl Actor {
                 // A local CLI too old for ACP just hangs; don't make the user wait long before the fallback.
                 let budget = Duration::from_secs(if i + 1 < candidates.len() { 20 } else { 180 });
                 match start_agent(command, launch.cwd(&self.cfg), &env, budget).await {
-                    Ok(conn) => {
+                    Ok(mut conn) => {
+                        if let Some((grant, _)) = grant.take() {
+                            if let Some(pid) = conn.acp.pid() {
+                                grant.bind_pid(pid);
+                            }
+                            conn.run_grant = Some(grant);
+                        }
                         self.conn = Some(conn);
                         break;
                     }
