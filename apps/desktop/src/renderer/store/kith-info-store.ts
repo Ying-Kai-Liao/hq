@@ -38,6 +38,30 @@ export class KithInfoStore extends Observable {
     }))
   }
 
+  /** Why the last permission change failed (hq refused it, or the host was unreachable); the old value stays shown. */
+  permissionError: string | null = null
+  permissionSaving = false
+
+  /** Writes the mode through to hq. What shows afterwards is hq's own answer, read back, never the pick itself. */
+  async setPermission(mode: string): Promise<void> {
+    this.permissionSaving = true
+    this.permissionError = null
+    this.changed()
+    try {
+      const result = await (await this.client()).kithSetPermission(this.botId, mode)
+      if (result.info) {
+        this.info = result.info
+        this.error = null
+        this.refreshError = null
+        this.fetchedAt = result.fetchedAt
+      } else this.permissionError = result.error ?? 'Kith gave no answer'
+    } catch (error) {
+      this.permissionError = message(error)
+    }
+    this.permissionSaving = false
+    this.changed()
+  }
+
   private run(refresh: boolean): Promise<void> {
     const request = ++this.request
     this.loading = true

@@ -1,9 +1,9 @@
-import CodyncKit
-import CodyncUI
+import KithKit
+import KithUI
 import SwiftUI
 import VisionKit
 
-/// Pair with a computer running codync-host, one thing per page: install it, then scan its code.
+/// Pair with a computer running Kith, one thing per page: install it, then scan its code.
 struct PairingView<Leading: View>: View {
     /// Adding another computer from the computers sheet: has a close button; closes once paired.
     var inModal = false
@@ -216,7 +216,7 @@ private struct ScanPage: View {
                          : "On your computer, run this in a terminal:")
                         .font(.body)
                         .foregroundStyle(Palette.secondary)
-                    if os == .linux { CommandBlock("codync-host pair") }
+                    if os == .linux { CommandBlock("~/.kith/serve/bin/kith-serve pair") }
                 }
 
                 viewfinder
@@ -354,7 +354,7 @@ struct QRScanner: UIViewControllerRepresentable {
 
         func dataScanner(_ scanner: DataScannerViewController, didAdd items: [RecognizedItem], allItems: [RecognizedItem]) {
             for case let .barcode(code) in items {
-                if let value = code.payloadStringValue, [AppEnvironment.current.urlScheme, AppEnvironment.current.legacyURLScheme].contains(where: { value.hasPrefix($0 + "://") }), !done {
+                if let value = code.payloadStringValue, value.hasPrefix(AppEnvironment.current.urlScheme + "://") || LegacyCompat.isLegacyLink(value), !done {
                     done = true
                     scanner.stopScanning()
                     onCode(value)

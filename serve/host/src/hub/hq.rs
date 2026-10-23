@@ -90,7 +90,10 @@ impl Hub {
                 tracing::info!(agent = %agent.name, home = %agent.home, "hq agent folder missing; no bot");
                 continue;
             }
-            let mine = |b: &&crate::store::BotRow| b.config.hq_agent.as_deref() == Some(agent.name.as_str());
+            // An invitee's chat with the agent is not the agent's own bot.
+            let mine = |b: &&crate::store::BotRow| {
+                b.config.hq_agent.as_deref() == Some(agent.name.as_str()) && b.config.person.is_none()
+            };
             let Some(row) = rows.iter().find(mine) else {
                 self.create_bot(new_bot(agent))?;
                 done.created.push(agent.name.clone());
@@ -206,9 +209,10 @@ mod tests {
         let kept = &all[0];
         assert_eq!(
             (kept.name.as_str(), kept.pinned, kept.notify, kept.model.as_deref()),
-            ("Home", true, Some(false), Some("opus"))
+            ("Home", true, Some(false), None)
         );
-        assert_eq!(kept.permission, crate::store::Permission::Auto);
+        // Model, effort, Fast mode and permission are hq's: an app's edit of them on an hq bot is not stored.
+        assert_eq!(kept.permission, crate::store::Permission::Ask);
         assert_eq!((kept.hq_agent.as_deref(), kept.backend.as_str()), (Some("house"), "claude"), "not editable");
         assert_eq!(kept.description, "keeps the house tidy", "hq's description");
     }

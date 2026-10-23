@@ -7,8 +7,8 @@ import { Reveal } from './parts'
 import { sshStatusDetail } from '@shared/ssh-startup'
 
 export function SSHRow({ profile, status, edit, attached = true }: { profile: SSHProfile; status: SSHStatus; attached?: boolean; edit: () => void }) {
-  const bridge = window.codync.ssh
-  const dev = window.codync.appScheme === 'kith-dev'
+  const bridge = window.kith.ssh
+  const dev = window.kith.appScheme === 'kith-dev'
   const target = `${profile.user ? `${profile.user}@` : ''}${profile.host}${profile.port !== null ? `:${profile.port}` : ''}`
   const line = (() => {
     switch (status.kind) {
@@ -68,7 +68,7 @@ export function SSHRow({ profile, status, edit, attached = true }: { profile: SS
       <Reveal show={status.kind === 'notInstalled' && !dev}>
         <HStack gap={6} className="settings-row">
           <span className="settings-code selectable">{SSH_INSTALL_COMMAND}</span>
-          <IconButton title="Copy install command" icon="doc.on.doc" onClick={() => window.codync.app.copy(SSH_INSTALL_COMMAND)} />
+          <IconButton title="Copy install command" icon="doc.on.doc" onClick={() => window.kith.app.copy(SSH_INSTALL_COMMAND)} />
         </HStack>
       </Reveal>
     </div>

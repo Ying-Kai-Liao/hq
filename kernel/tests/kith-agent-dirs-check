@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# kith-agent-dirs-check — `kith <agent> --launch-json` lists the agent's folder under every spelling it is reachable by
+# (resolved path, and through ~/kith and ~/hq links), once each, never the cwd itself. Throwaway HOME and KITH_HOME
+# (the real root has a space in its path); fake `claude` on PATH.
+#
+#   kernel/tests/kith-agent-dirs-check     a few seconds; prints each check, exits 1 when one fails
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-agent-dirs-check.XXXXXX")
+T=$(cd "$T" && pwd -P)
+trap 'rm -rf "$T"' EXIT
+export HOME=$T/home KITH_HOME="$T/real root" KITH_AUTH=$T/auth.json
+unset KITH_STATE HQ_STATE KITH_PROJECT KITH_PERSON KITH_AGENT KITH_CLAUDE_ARGS KITH_HARNESS KITH_PERMISSION_MODE CLAUDE_CONFIG_DIR CODEX_HOME HQ_HOME
+mkdir -p "$HOME" "$KITH_HOME/state" "$KITH_HOME/agents/echo/role" "$T/bin"
+export KITH_STATE=$KITH_HOME/state
+printf -- '---\nname: echo\ndescription: test agent\n---\nYou echo.\n' > "$KITH_HOME/agents/echo/role/agent.md"
+printf '#!/bin/sh\n[ "$1 $2" = "plugin list" ] && echo "[]"\nexit 0\n' > "$T/bin/claude"; chmod +x "$T/bin/claude"
+export PATH=$T/bin:$PATH
+
+KITH=$KERNEL/bin/kith
+fails=0
+# dirs <cwd>: the add_dirs of a launch-json run started in <cwd>, one per line.
+dirs() { (cd "$1" && "$KITH" echo --launch-json 2>/dev/null) | python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)["add_dirs"]))'; }
+# n <path>: how often <path> appears in $OUT.
+n() { grep -cxF -- "$1" <<< "$OUT"; }
+expect() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1 (got $2, want $3)"; fails=$((fails + 1)); fi; }
+
+REAL="$KITH_HOME/agents/echo"
+
+# No link anywhere: the real folder is the cwd, so nothing extra.
+OUT=$(dirs "$REAL")
+expect "no links: cwd spelling not added" "$(n "$REAL")" 0
+
+# ~/kith and ~/hq are links to the root.
+ln -s "$KITH_HOME" "$HOME/kith"; ln -s "$KITH_HOME" "$HOME/hq"
+OUT=$(dirs "$REAL")
+expect "~/kith spelling present once" "$(n "$HOME/kith/agents/echo")" 1
+expect "~/hq spelling present once" "$(n "$HOME/hq/agents/echo")" 1
+expect "resolved spelling is the cwd, not added" "$(n "$REAL")" 0
+OUT2=$(dirs "$REAL")
+expect "a second launch gives the same list" "$([ "$OUT" = "$OUT2" ] && echo same)" same
+expect "no duplicates" "$(printf '%s\n' "$OUT" | sort | uniq -d | wc -l | tr -d ' ')" 0
+
+# Started from a linked spelling: the resolved path is the extra one.
+OUT=$(dirs "$HOME/kith/agents/echo")
+expect "cwd through the link: resolved folder added" "$(n "$REAL")" 1
+
+# A dangling link is skipped; a link to another folder is not this agent.
+rm "$HOME/hq" "$HOME/kith"
+ln -s "$T/nowhere" "$HOME/hq"
+mkdir -p "$T/other/agents/echo"; ln -s "$T/other" "$HOME/kith"
+OUT=$(dirs "$REAL")
+expect "dangling and foreign links skipped" "$(printf '%s\n' "$OUT" | grep -c "^$HOME/")" 0
+exit $((fails > 0))

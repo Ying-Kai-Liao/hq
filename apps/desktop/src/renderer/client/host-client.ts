@@ -1,10 +1,12 @@
 import type { CallError } from '@shared/ipc'
+import type { RelayCallError } from '@shared/relay'
 import { parseBackups, type Backups } from '@shared/backups'
 import {
   parseDiff, parseHistory, parseMemoryList, parseRead, parseSave, parseTidyUps, parseUndo,
   type HqMemoryDiff, type HqMemoryList, type HqMemoryRead, type HqMemoryVersion, type HqSaveResult, type HqTidyUp, type HqUndoResult,
 } from '@shared/hq-memory'
 import { isUnsupportedHost, parseKithInfoResult, parseSearchResult, type KithInfoResult, type KithSearchResult } from '@shared/kith-info'
+import { parseAudit, parseCreatedInvite, parseInvites, parsePeople, type AuditRow, type CreatedInvite, type PendingInvite, type Person, type Role } from '@shared/people'
 import type { PlaceFolder, PlaceSelection, ProjectInfo, RecentFolder, StartingFolder } from '@shared/place-folders'
 import {
   normalizeBot,
@@ -18,7 +20,7 @@ import {
   type Usage,
 } from '@shared/models'
 
-/** How a client reaches a host API. Only loopback today: the computer's own host or an SSH tunnel. */
+/** How a client reaches a host API: loopback (this computer's own host or an SSH tunnel), or the Kith cloud relay. */
 export type HostRoute = 'loopback' | 'direct' | 'relay'
 
 export class HostError extends Error {
@@ -53,7 +55,7 @@ export class LoopbackTransport implements HostTransport {
 
   async call(method: string, body: unknown, timeoutMs: number) {
     try {
-      return await window.codync.host.call(this.baseURL, this.token, method, body, timeoutMs)
+      return await window.kith.host.call(this.baseURL, this.token, method, body, timeoutMs)
     } catch (e) {
       const error = e as CallError
       throw new HostError(error.status ?? 0, error.status === 401 ? "This device isn't allowed on that computer anymore." : error.message)
@@ -61,7 +63,39 @@ export class LoopbackTransport implements HostTransport {
   }
 
   stream(path: string, onData: (line: string) => void, onEnd: (error: HostError | null) => void) {
-    return window.codync.host.stream(`${this.baseURL}${path}`, this.token, onData, (error) =>
+    return window.kith.host.stream(`${this.baseURL}${path}`, this.token, onData, (error) =>
+      onEnd(error ? new HostError(error.status, error.message) : null),
+    )
+  }
+}
+
+/**
+ * Another Mac over the Kith cloud relay. The encrypted channel lives in the main process (shared by every window);
+ * this only carries calls and the event stream across the bridge, with the same errors as the loopback transport so a
+ * dropped link looks the same to the stores (status 0, retry) and a host's own refusal passes through unchanged.
+ */
+export class RelayTransport implements HostTransport {
+  constructor(
+    readonly computerId: string,
+    /** The Mac's own Ed25519 key (b64url); it must hash to `computerId`. */
+    private signKey: string,
+  ) {}
+
+  async call(method: string, body: unknown, timeoutMs: number) {
+    try {
+      return await window.kith.relay.call(this.computerId, this.signKey, method, body, timeoutMs)
+    } catch (e) {
+      const error = e as Partial<RelayCallError>
+      throw new HostError(error.status ?? 0, error.message ?? HostError.unreachable().message)
+    }
+  }
+
+  /** `path` is `/events?since=&client=`, like the loopback SSE; the relay carries it as the `events` subscription. */
+  stream(path: string, onData: (line: string) => void, onEnd: (error: HostError | null) => void) {
+    const url = new URL(path, 'http://relay.invalid')
+    const sub = url.pathname.replace(/^\//, '')
+    const body = sub === 'events' ? { since: Number(url.searchParams.get('since') ?? 0), client: url.searchParams.get('client') ?? '' } : null
+    return window.kith.relay.stream(this.computerId, this.signKey, sub, body, onData, (error) =>
       onEnd(error ? new HostError(error.status, error.message) : null),
     )
   }
@@ -188,6 +222,11 @@ export class HostClient {
     return parseKithInfoResult(await this.call('kithInfo', { botId, ...(refresh ? { refresh: true } : {}) }, 60_000))
   }
 
+  /** Writes an hq bot's permission mode through to hq (`kith <agent> set permission`) and returns hq's info read back. */
+  async kithSetPermission(botId: string, mode: string): Promise<KithInfoResult> {
+    return parseKithInfoResult(await this.call('kithSetPermission', { botId, mode }, 60_000))
+  }
+
   /** The backup chain: global order, per-agent orders and each entry's state. A host before this call answers 404. */
   async backups(): Promise<Backups> {
     return parseBackups(await this.call('backups', {}, 90_000))
@@ -233,6 +272,46 @@ export class HostClient {
 
   async hqUndoTidy(botId: string, id: number): Promise<HqUndoResult> {
     return parseUndo(await this.callRenamed('kithMemoryUndoTidy', 'kithMemoryUndoDream', { botId, id }, 30_000))
+  }
+
+  // People an owner invited (serve/host/src/api/people.rs). A host before invites answers "unknown method".
+  async people(): Promise<Person[]> {
+    return parsePeople(await this.call('people'))
+  }
+
+  async invites(): Promise<PendingInvite[]> {
+    return parseInvites(await this.call('invites'))
+  }
+
+  /** `who` is an existing person's id or a new person's name. */
+  async createInvite(who: { personId: string } | { name: string }, agents: Record<string, Role>): Promise<CreatedInvite> {
+    return parseCreatedInvite(await this.call('createInvite', { ...who, agents }, 60_000))
+  }
+
+  revokeInvite(inviteId: string) {
+    return this.call('revokeInvite', { inviteId })
+  }
+
+  setPersonAccess(personId: string, agents: Record<string, Role>, projects: string[]) {
+    return this.call('setPersonAccess', { personId, agents, projects }, 60_000)
+  }
+
+  revokePerson(personId: string) {
+    return this.call('revokePerson', { personId }, 60_000)
+  }
+
+  async audit(since = 0, personId: string | null = null): Promise<AuditRow[]> {
+    return parseAudit(await this.call('audit', { since, ...(personId ? { personId } : {}) }))
+  }
+
+  /** The first call of an invited device: shows the invite token from the link. Until it works the Mac refuses everything else. */
+  proveInvite(inviteId: string, token: string) {
+    return this.call('proveInvite', { inviteId, token })
+  }
+
+  /** An invited person's own chat with a granted agent. */
+  startChat(agent: string) {
+    return this.call<{ bot: Bot }>('startChat', { agent }, 60_000)
   }
 
   async recentFolders() {

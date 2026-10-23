@@ -62,7 +62,7 @@ async function cloud(method: string, path: string, o: { token?: string; key?: re
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 
 async function main() {
-  const migrate = spawnSync(WRANGLER, ["d1", "migrations", "apply", "codync-local", "--local", "--env", "local", "--persist-to", persist], {
+  const migrate = spawnSync(WRANGLER, ["d1", "migrations", "apply", "kith-local", "--local", "--env", "local", "--persist-to", persist], {
     cwd: CLOUD_DIR,
     encoding: "utf8",
     env: { ...process.env, CI: "1" },

@@ -19,7 +19,7 @@ const locations = [
 ]
 
 function probe(installed: string[]) {
-  const root = mkdtempSync(join(tmpdir(), 'codync-ssh-'))
+  const root = mkdtempSync(join(tmpdir(), 'kith-ssh-'))
   try {
     for (const location of installed) {
       const directory = join(root, location)
@@ -61,7 +61,7 @@ test('SSH reports command not found when no installation is reachable', { skip: 
 
 for (const installed of ['mac', 'linux', 'production-only'] as const) {
   test(`development SSH uses only its own host with ${installed} installed`, { skip: process.platform === 'win32' }, () => {
-    const root = mkdtempSync(join(tmpdir(), 'codync-dev-ssh-'))
+    const root = mkdtempSync(join(tmpdir(), 'kith-dev-ssh-'))
     try {
       const home = join(root, 'user home')
       const mac = join(root, 'Applications/Kith Dev.app/Contents/Resources/kith-serve')
@@ -94,7 +94,7 @@ const profile: SSHProfile = {
 }
 
 function withConfig(master: string, run: (config: string, home: string) => void) {
-  const root = mkdtempSync(join(tmpdir(), 'codync-ssh-config-'))
+  const root = mkdtempSync(join(tmpdir(), 'kith-ssh-config-'))
   try {
     const config = join(root, 'config')
     writeFileSync(config, `Host test-mini

@@ -1,4 +1,4 @@
-import CodyncKit
+import KithKit
 import Intents
 import SwiftUI
 import UserNotifications
@@ -13,7 +13,7 @@ final class NotificationService: UNNotificationServiceExtension {
               let computerId = info["computerId"] as? String,
               let ctx = info["ctx"] as? String,
               let alert = DeviceIdentity.openPush(sealed: sealed, computerId: computerId, contextID: ctx) else {
-            Logger(subsystem: "com.pokai.Codync.ios", category: "NotificationService")
+            Logger(subsystem: "com.yingkailiao.kith.ios", category: "NotificationService")
                 .error("Showing notification fallback: sealed content or shared key unavailable")
             contentHandler(request.content)
             return

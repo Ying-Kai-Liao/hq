@@ -1,5 +1,5 @@
-import CodyncKit
-import CodyncUI
+import KithKit
+import KithUI
 import SwiftUI
 
 /// Cold launch: the Kith cube bot fades and scales in over the system launch screen while the

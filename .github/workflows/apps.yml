@@ -42,7 +42,7 @@ jobs:
             ios:
               - 'apps/ios/**'
               - 'apps/shared/**'
-              - 'apps/Codync.xcodeproj/**'
+              - 'apps/Kith.xcodeproj/**'
               - 'apps/project.yml'
               - '.github/workflows/apps.yml'
             desktop:
@@ -50,7 +50,7 @@ jobs:
               - 'apps/packaging/**'
               - 'apps/shared/**'
               - 'apps/screen-macos/**'
-              - 'apps/Codync.xcodeproj/**'
+              - 'apps/Kith.xcodeproj/**'
               - 'apps/project.yml'
               - 'serve/host/**'
               - 'serve/rust-toolchain.toml'
@@ -91,12 +91,12 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: build/dd/SourcePackages
-          key: ${{ runner.os }}-ios-packages-${{ hashFiles('apps/ios/Kit/Package.swift', 'apps/Codync.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: ${{ runner.os }}-ios-packages-${{ hashFiles('apps/ios/Kit/Package.swift', 'apps/Kith.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
       # The project is committed (xcodegen output), so there is nothing to generate.
       - name: Build iOS Dev for the simulator
         run: >-
           xcodebuild build
-          -project apps/Codync.xcodeproj
+          -project apps/Kith.xcodeproj
           -scheme "iOS Dev"
           -configuration DevDebug
           -derivedDataPath build/dd

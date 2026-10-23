@@ -13,6 +13,7 @@
 #   kith <agent> --inspect          start one run and report what it loads (tools, MCP servers, skills, plugins)
 #   kith <agent> --info-json        for a program (the bot detail page): one JSON object, the agent's role, package, skills, tools,
 #                                 MCP servers, projects, schedules, cost and memory; read-only, local, each part fails soft (kith-info)
+#   kith <agent> set permission MODE   this Mac's permission mode for the agent (MODE '' forgets it); its next run uses it
 #   kith <agent> --launch-json [--hold PID] [...]   for a program that starts the run itself (kith serve): one JSON object on stdout
 #                                 with everything the run needs (env, cwd, system_prompt, settings, MCP servers, directories,
 #                                 claude_args to give claude as-is). Claude and Codex (Codex: settings and claude_args null); ignores
@@ -70,7 +71,7 @@ set -euo pipefail
 src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
 KITH="$(cd "$(dirname "$src")/.." && pwd)"
 
-[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,43p' "$0" | sed 's/^#   //'; exit 0; }
+[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,44p' "$0" | sed 's/^#   //'; exit 0; }
 # migrate runs before the paths below are exported: it moves what they point at, and its children must see the new ones
 [[ $1 == migrate ]] && exec "$KITH/bin/kith-migrate" "${@:2}"
 . "$KITH/lib/kith-env.sh"   # KITH_X and the old HQ_X agree (role repos read HQ_X)
@@ -160,6 +161,13 @@ fi
 
 agent=$1; shift
 [[ ${1:-} == --info-json ]] && exec "$KITH/bin/kith-info" "$agent"
+# kith AGENT set permission MODE: this Mac's permission mode for the agent (what kith install asks, what apps change).
+# MODE '' forgets it. Applies to the agent's next run from any entry point.
+if [[ ${1:-} == set ]]; then
+  [[ -n $(agent_dir "$agent") ]] || { echo "kith: no agent '$agent' (try: kith ls)" >&2; exit 1; }
+  [[ ${2:-} == permission && $# -eq 3 ]] || { echo "usage: kith $agent set permission MODE   (MODE '' forgets this Mac's choice)" >&2; exit 2; }
+  exec python3 "$KITH/lib/kith_settings.py" set permission_mode "$agent" "$3"
+fi
 src_pkg=$(agent_dir "$agent")
 if [[ -z $src_pkg ]]; then
   echo "kith: no agent named \"$agent\"." >&2
@@ -414,6 +422,19 @@ sec = os.environ["KITH_SECRETS"]   # a folder of its own, or (the older layout) 
 files = ["%s/**" % sec] if sec != os.environ["KITH_MACHINE"] else ["%s/env" % sec, "%s/auth.json" % sec]
 s.setdefault("permissions", {}).setdefault("deny", []).extend(
     "%s(/%s)" % (tool, f) for f in files for tool in ("Read", "Edit"))   # Edit covers every file-writing tool
+# ~/.kith stays readable (projects/, state, logs), but not the credentials in it, for every run, owner or not: the
+# secrets folder, the kith serve token, device identity and databases, browser profiles (their logins) and the old
+# bridge folder. Both spellings of each root (it may be a link). These rules stop the Read/Edit tools of Claude Code
+# only: a Bash `cat` of the same file is not stopped by them (in auto mode the classifier, in default mode the prompt,
+# is the only guard there). The kernel CLIs run in Bash and are unaffected.
+roots = list(dict.fromkeys(r for k in ("KITH_STATE", "KITH_MACHINE") for r in (os.environ[k], os.path.realpath(os.environ[k]))))
+sensitive = ["secrets/**", "serve/token", "serve/identity.json", "serve/*.db", "serve/*.db-*", "browsers/**", "bridge/**"]
+for r in roots:
+    for f in sensitive:
+        for tool in ("Read", "Edit"):
+            rule = "%s(/%s/%s)" % (tool, r, f)
+            if rule not in s["permissions"]["deny"]:
+                s["permissions"]["deny"].append(rule)
 s["permissions"]["deny"].extend(d for d in os.environ["DENY"].split("\n") if d)   # from the membership of the person the run is for
 allow = s["permissions"].setdefault("allow", [])
 allow.extend(r for r in dict.fromkeys("Edit(/%s/**)" % d for d in os.environ["WRITABLE"].split("\n") if d.strip()) if r not in allow)
@@ -455,6 +476,17 @@ if [[ $p_owner == 0 ]]; then
   [[ -d $home/data ]] && dirs+=(--add-dir "$home/data")
   [[ $kith_real != "$KITH" ]] && dirs+=(--add-dir "$kith_real")
   [[ -n $project && -d $KITH_STATE/projects/$project ]] && dirs+=(--add-dir "$KITH_STATE/projects/$project")
+fi
+# The agent's own folder under every path it is reachable by. Claude Code compares the path as typed with the working
+# directory, so ~/kith/agents/<name> (a symlink) counts as outside a run whose cwd is the resolved folder and asks
+# every time. Spellings: the logical one, the resolved one, and the same folder through the usual home links.
+# A missing or dangling link is skipped; one that points elsewhere is not the same folder.
+if [[ $p_owner == 1 ]]; then
+  for d in "$home" "$home_real" "$HOME/kith/agents/$agent" "$HOME/hq/agents/$agent"; do
+    [[ -d $d && $d != "$PWD" && $(cd "$d" && pwd -P) == "$home_real" ]] || continue
+    seen=0; for ((i = 1; i < ${#dirs[@]}; i += 2)); do [[ ${dirs[i]} == "$d" ]] && seen=1; done
+    [[ $seen == 1 ]] || dirs+=(--add-dir "$d")
+  done
 fi
 # The read-only kernel commands PROTOCOL tells agents to run, allowed without a prompt. Under every path the kernel
 # has (logical, resolved, ~/kith/kernel) and, since a path with a space gets quoted, with the program in quotes too.

@@ -39,7 +39,7 @@ export function StarPrompt() {
     if (closed) return
     setClosed(true)
     setState(afterStarAsk(state, starred, Date.now()))
-    if (starred) window.codync.app.openExternal(REPO)
+    if (starred) window.kith.app.openExternal(REPO)
   }
 
   const text = copy[due ?? 'first']

@@ -1,5 +1,5 @@
-import CodyncKit
-import CodyncUI
+import KithKit
+import KithUI
 import SwiftUI
 
 extension BotStore {

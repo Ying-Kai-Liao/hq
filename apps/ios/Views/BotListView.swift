@@ -1,5 +1,5 @@
-import CodyncKit
-import CodyncUI
+import KithKit
+import KithUI
 import SwiftUI
 
 /// The roster: every bot on every computer is a person you can message (Grok Bot sidebar, phone-sized).
@@ -11,6 +11,15 @@ struct BotListView: View {
     @State private var editing: EditTarget?
     @State private var editingGroup: GroupTarget?
     @State private var confirmDelete: RosterItem?
+    @State private var newChat: ChatTarget?
+    private struct ChatTarget: Identifiable {
+        let store: BotStore
+        let id: ComputerID
+        @MainActor init(store: BotStore) {
+            self.store = store
+            id = store.computer.id
+        }
+    }
     /// The bot whose row is lifted, to drag or for its menu.
     @State private var lifted: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -50,8 +59,15 @@ struct BotListView: View {
         allStores.filter { $0.connection == .online && $0.mismatch == nil }
     }
 
+    /// Computers this account owns: new bots and groups are made there. A computer joined by invite
+    /// takes `New chat` instead, since an invited person's chat is made by the computer.
     private var allStores: [BotStore] {
-        accounts.computers.compactMap { accounts.store(for: $0.id) }
+        accounts.ownedComputers.compactMap { accounts.store(for: $0.id) }
+    }
+
+    private var memberStores: [BotStore] {
+        accounts.computers.filter { accounts.role(for: $0.id) == .member }
+            .compactMap { accounts.store(for: $0.id) }.filter { $0.connection == .online }
     }
 
     /// The rows the user can drag: each shown computer's heading (with several computers), in the
@@ -78,6 +94,7 @@ struct BotListView: View {
                     EmptyRoster(canCreate: allStores.contains { $0.mismatch == nil }, hasComputer: !accounts.computers.isEmpty,
                                 create: newBot, showComputers: { app.showComputers = true })
                 }
+                needsYourOK
                 ForEach(lines) { line in
                     switch line {
                     case let .computer(_, store): computerHeading(store, roster: roster)
@@ -106,21 +123,24 @@ struct BotListView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 // A native menu: the bar hosts toolbar buttons outside SwiftUI's layout,
-                // so an anchored Codync menu can't find where the button is.
+                // so an anchored Kith menu can't find where the button is.
                 Menu("New", systemImage: "plus") {
                     Button("New bot", systemImage: "plus", action: newBot)
                     Button("New group chat", systemImage: "person.2", action: newGroup)
                         .disabled(onlineStores.isEmpty)
+                    ForEach(memberStores, id: \.computer.id) { store in
+                        Button("New chat on \(store.hostName)", systemImage: "square.and.pencil") { newChat = ChatTarget(store: store) }
+                    }
                 }
                 // A computer that needs an update can't take a new bot.
-                .disabled(!allStores.contains { $0.mismatch == nil })
+                .disabled(!allStores.contains { $0.mismatch == nil } && memberStores.isEmpty)
             }
         }
         .refreshable {
             for computer in accounts.computers { accounts.store(for: computer.id)?.restartStream() }
             await accounts.refreshCloud()
         }
-        .codyncSheet(item: $editing) { target in
+        .kithSheet(item: $editing) { target in
             // A new bot can move to another computer until it's created.
             let computerId = editing?.computerId ?? target.computerId
             if let store = accounts.store(for: computerId) {
@@ -140,7 +160,10 @@ struct BotListView: View {
                     }
             }
         }
-        .codyncSheet(item: $editingGroup) { target in
+        .kithSheet(item: $newChat) { target in
+            NewChatSheet(store: target.store).environment(accounts)
+        }
+        .kithSheet(item: $editingGroup) { target in
             if let store = accounts.store(for: target.computerId) {
                 GroupEditorView(group: target.group)
                     .environment(store)
@@ -151,7 +174,7 @@ struct BotListView: View {
                     }
             }
         }
-        .codyncDialog("Delete \(confirmDelete?.bot.name ?? "bot")?",
+        .kithDialog("Delete \(confirmDelete?.bot.name ?? "bot")?",
                       isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
                       message: confirmDelete?.bot.isGroup == true ? "Its bots and their own chats stay." : "Files it changed on your computer stay as they are.") {
             let item = confirmDelete
@@ -196,11 +219,38 @@ struct BotListView: View {
         let id = store.computer.id
         return VStack(spacing: 0) {
             // Not synced while it needs an update: "No bots yet" wouldn't be true.
-            ComputerSection(store: store, empty: store.mismatch == nil && !roster.contains { $0.ref.computerId == id },
+            ComputerSection(store: store, access: accounts.access(for: id), empty: store.mismatch == nil && !roster.contains { $0.ref.computerId == id },
                             collapsed: collapsedIDs.contains(id), toggle: { toggleCollapsed(id) }, move: move)
                 .contentShape(Rectangle())
                 .onTapGesture { toggleCollapsed(id) }
             updateCard(store)
+        }
+    }
+
+    /// Guests' requests waiting for this account's answer, on the shown computers it owns, ahead of the bots.
+    @ViewBuilder private var needsYourOK: some View {
+        let waiting = shownStores.flatMap { store in
+            accounts.guestPrompts(for: store.computer.id).map { (store, $0) }
+        }
+        if !waiting.isEmpty {
+            Text("Needs your OK")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Palette.secondary)
+                .padding(.top, 14)
+                .padding(.bottom, 4)
+                .accessibilityAddTraits(.isHeader)
+            ForEach(waiting, id: \.1.id) { store, prompt in
+                VStack(alignment: .leading, spacing: 4) {
+                    if grouped {
+                        Text(store.hostName).font(.caption).foregroundStyle(Palette.tertiary)
+                    }
+                    GuestPromptCard(prompt: prompt, answering: store.answering[prompt.entry.id]) {
+                        store.respond(prompt.entry, option: $0)
+                    }
+                }
+                .padding(.vertical, 4)
+                .transition(.opacity)
+            }
         }
     }
 
@@ -299,6 +349,7 @@ private enum RosterLine: Identifiable {
 /// touch and hold, then drag, moves the computer (on this device).
 private struct ComputerSection: View {
     let store: BotStore
+    let access: AccessLevel
     let empty: Bool
     let collapsed: Bool
     let toggle: () -> Void
@@ -321,7 +372,7 @@ private struct ComputerSection: View {
         .padding(.horizontal, -8)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits([.isHeader, .isButton])
-        .accessibilityLabel("\(store.hostName), \(store.statusText)")
+        .accessibilityLabel("\(store.hostName), \(access.title), \(store.statusText)")
         .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
         .accessibilityHint("Double-tap to fold or expand. Touch and hold, then drag to reorder on this device.")
         .accessibilityAction(named: collapsed ? "Expand" : "Collapse", toggle)
@@ -339,6 +390,9 @@ private struct ComputerSection: View {
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(Palette.secondary)
                 .lineLimit(1)
+            Text(access.title)
+                .font(.footnote)
+                .foregroundStyle(Palette.tertiary)
             Text(store.statusText)
                 .font(.footnote)
                 .foregroundStyle(store.isOffline ? Palette.warning : Palette.tertiary)

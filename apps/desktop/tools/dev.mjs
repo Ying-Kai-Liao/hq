@@ -146,7 +146,7 @@ async function sandbox() {
   console.log(`  terminal UI                ${command} tui --port ${port}`)
   if (cdp) console.log(`  DevTools protocol          127.0.0.1:${cdp}`)
   console.log('')
-  const appEnv = { ...process.env, KITH_SERVE_HOME: home, KITH_SERVE_PORT: String(port), ...(cdp ? { CODYNC_REMOTE_DEBUG: String(cdp) } : {}) }
+  const appEnv = { ...process.env, KITH_SERVE_HOME: home, KITH_SERVE_PORT: String(port), ...(cdp ? { KITH_REMOTE_DEBUG: String(cdp) } : {}) }
   app = startApp(appEnv)
   app.child.on('exit', (code) => stop(code ?? 0))
   app.child.on('error', (e) => {

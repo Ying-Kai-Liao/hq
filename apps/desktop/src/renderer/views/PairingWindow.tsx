@@ -40,7 +40,7 @@ export function PairingWindow() {
   // A new code each time "Pair iPhone…" is chosen (the window stays open between uses)…
   useEffect(() => {
     void load()
-    return window.codync.app.onCommand((c) => c.kind === 'reviewApprovals' && void load())
+    return window.kith.app.onCommand((c) => c.kind === 'reviewApprovals' && void load())
   }, [load])
 
   // …and a fresh one when this code expires while it's on screen.
@@ -74,7 +74,7 @@ export function PairingWindow() {
               </Text>
             ) : null}
             <IconButton title="New code" icon="arrow.clockwise" onClick={() => void load()} />
-            <IconButton title="Copy pairing link" icon="doc.on.doc" onClick={() => window.codync.app.copy(info.pairingUrl)} />
+            <IconButton title="Copy pairing link" icon="doc.on.doc" onClick={() => window.kith.app.copy(info.pairingUrl)} />
           </HStack>
         </>
       ) : error ? (

@@ -15,7 +15,7 @@ pub struct Settings {
     pub router: bool,
     /// `interrupt`: false makes corrections wait for the next turn instead of restarting the run.
     pub interrupt: bool,
-    /// `context_show`: a reply ends with a "context N%" line once the session is at least this full; `"off"` never.
+    /// `context_show`: a reply ends with a "context N%" line (in the apps: `contextPercent` on the turn's last agent entry) once the session is at least this full; `"off"` never.
     pub context_show: Option<f64>,
     /// `permission_mode`: the owner's runs; unset leaves it to the agent's settings, then hq's default.
     pub permission_mode: Option<String>,

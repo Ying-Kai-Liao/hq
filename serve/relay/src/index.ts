@@ -1,8 +1,8 @@
-// Codync push relay.
+// Kith push relay.
 //
 // The APNs key lives only here. The phone registers its device (or Live
 // Activity) token and gets back an opaque, encrypted *ticket*; it hands the
-// ticket to its own codync-host, which can then ask the relay to push to that
+// ticket to its own kith host, which can then ask the relay to push to that
 // one device — without ever learning the raw token or holding a shared secret.
 //
 //   POST /register { token, env: "sandbox" | "production", kind: "alert" | "liveactivity" } -> { ticket }

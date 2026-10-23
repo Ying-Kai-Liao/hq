@@ -387,6 +387,9 @@ impl Actor {
         self.complete_group(Err(anyhow!("couldn't start: {e:#}")));
         if let Some(none) = e.downcast_ref::<crate::agent::backups::NoAccount>() {
             self.notice(&none.0, NoticeStyle::Info);
+        } else if let Some(refused) = e.downcast_ref::<crate::agent::hq::Refused>() {
+            // The kernel said no for this person (not a member any more, or over their budget): it says why.
+            self.notice(&format!("Couldn't run this agent for you: {refused}"), NoticeStyle::Error);
         } else if !self.invite_sign_in(e) {
             // `{:#}` keeps the reason ("starting `npx …`: EACCES"), not just "agent process exited".
             self.notice(&format!("Couldn't start the agent: {e:#}"), NoticeStyle::Error);

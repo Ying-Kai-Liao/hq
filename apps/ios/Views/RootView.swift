@@ -1,5 +1,5 @@
-import CodyncKit
-import CodyncUI
+import KithKit
+import KithUI
 import SwiftUI
 import WidgetKit
 
@@ -43,23 +43,32 @@ struct RootView: View {
             // setup. Keep this device-level milestone across account changes and unpairing.
             if !empty { onboardingCompleted = true }
         }
-        .codyncDialog("Something went wrong", isPresented: errorShown, message: errorMessage, cancel: "OK", inPlace: true) { [] }
-        .codyncOverlay(isPresented: Binding(get: { screenTarget.wrappedValue != nil }, set: { if !$0 { screenTarget.wrappedValue = nil } })) { close in
+        .kithDialog("Something went wrong", isPresented: errorShown, message: errorMessage, cancel: "OK", inPlace: true) { [] }
+        .kithOverlay(isPresented: Binding(get: { screenTarget.wrappedValue != nil }, set: { if !$0 { screenTarget.wrappedValue = nil } })) { close in
             if let target = screenTarget.wrappedValue, let store = accounts.store(for: target.computerId) {
                 ScreenView(watching: target.request.watching, close: close)
                     .environment(store)
                     .id(target.id)
             }
         }
-        .codyncSheet(isPresented: Bindable(app).showComputers) {
+        .kithSheet(isPresented: Bindable(app).showComputers) {
             // Holds the pushes inside the sheet (Widgets, Live Activity); no bar shows.
             NavigationStack { SettingsView() }
         }
-        .codyncSheet(item: Binding(get: { app.marketplace.map(MarketplaceTarget.init) }, set: { app.marketplace = $0?.computerId })) { target in
+        .kithSheet(item: Binding(get: { app.guestPrompt.map(GuestPromptTarget.init) }, set: { app.guestPrompt = $0?.ref })) { target in
+            let ref = target.ref
+            if let store = accounts.store(for: ref.computerId) {
+                GuestPromptSheet(store: store, chatId: ref.botId, close: { app.guestPrompt = nil }, openChat: {
+                    app.guestPrompt = nil
+                    accounts.selection = ref
+                })
+            }
+        }
+        .kithSheet(item: Binding(get: { app.marketplace.map(MarketplaceTarget.init) }, set: { app.marketplace = $0?.computerId })) { target in
             // Switching computers inside keeps the sheet up and loads that computer's own marketplace.
             let computerId = app.marketplace ?? target.computerId
             if let store = accounts.store(for: computerId) {
-                MarketplaceView(computers: accounts.computers.compactMap { accounts.store(for: $0.id) }
+                MarketplaceView(computers: accounts.ownedComputers.compactMap { accounts.store(for: $0.id) }
                                     .filter { $0.connection == .online }
                                     .map { ($0.computer.id, $0.hostName) },
                                 computer: Binding(get: { computerId }, set: { app.marketplace = $0 }))
@@ -86,6 +95,8 @@ struct RootView: View {
                 StateTab()
                     .safeAreaInset(edge: .bottom, spacing: 0) { AccessBanners() }
             }
+            // Usage and widgets are the owner's: an account that only joined computers by invite has none.
+            .hidden(!accounts.computers.isEmpty && accounts.ownedComputers.isEmpty)
         }
         .tint(Palette.text)
         // Opening a bot (notification, widget, link) always lands on the Bots tab.
@@ -125,6 +136,11 @@ struct RootView: View {
     }
 }
 
+private struct GuestPromptTarget: Identifiable {
+    let ref: BotReference
+    var id: BotReference { ref }
+}
+
 /// A conversation, talking to the computer the bot lives on.
 private struct ChatScreen: View {
     let ref: BotReference
@@ -152,10 +168,10 @@ private struct StateTab: View {
 
     @Environment(AppStore.self) private var app
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    // Screenshots: CODYNC_STATE_SURFACE=widget|liveActivity|island opens the tab on that gallery.
+    // Screenshots: KITH_STATE_SURFACE=widget|liveActivity|island opens the tab on that gallery.
     @State private var surface: Surface = {
         #if DEBUG
-            switch ProcessInfo.processInfo.environment["CODYNC_STATE_SURFACE"] {
+            switch ProcessInfo.processInfo.environment["KITH_STATE_SURFACE"] {
             case "liveActivity": return .liveActivity
             case "island": return .island
             default: return .widget
@@ -192,7 +208,7 @@ private struct StateTab: View {
             .animation(Motion.reduced(Motion.fade, reduceMotion), value: surface)
         }
         .background(Palette.background)
-        .codyncSheet(isPresented: Bindable(app).showUsage) { UsageSheet() }
+        .kithSheet(isPresented: Bindable(app).showUsage) { UsageSheet() }
     }
 }
 
@@ -212,13 +228,13 @@ private struct UsageSheet: View {
             } title: {
                 Text("Usage").font(.body.weight(.semibold)).foregroundStyle(Palette.text)
             } trailing: {
-                if let store, accounts.computers.count > 1 {
+                if let store, accounts.ownedComputers.count > 1 {
                     DropdownMenu {
-                        accounts.computers.map { computer in
+                        accounts.ownedComputers.map { computer in
                             MenuItem(computer.name, selected: computer.id == store.computer.id) {
                                 picked = computer.id
                                 accounts.storage.lastComputerId = computer.id
-                                WidgetCenter.shared.reloadTimelines(ofKind: "CodyncUsage")
+                                WidgetCenter.shared.reloadTimelines(ofKind: "KithUsage")
                             }
                         }
                     } label: {
@@ -320,7 +336,8 @@ private struct AccessBanners: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            ForEach(Array(accounts.pendingAccess.values).sorted { $0.requestId < $1.requestId }) { ticket in
+            // A computer joined by invite takes a member itself: there is no code to compare.
+            ForEach(Array(accounts.pendingAccess.values).filter { accounts.role(for: $0.computerId) != .member }.sorted { $0.requestId < $1.requestId }) { ticket in
                 let name = accounts.cloudComputers.first { $0.computerId == ticket.computerId }?.name ?? "Your computer"
                 HStack(spacing: 12) {
                     Spinner(size: 16)

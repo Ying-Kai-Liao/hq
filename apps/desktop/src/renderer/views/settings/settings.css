@@ -245,3 +245,41 @@
   letter-spacing: 0.08em;
   user-select: all;
 }
+
+/* People: invite and edit sheets. */
+.settings-invite-body {
+  padding: 4px 20px 20px;
+}
+.settings-invite-qr {
+  border-radius: var(--radius-s);
+  background: #fff;
+  padding: 8px;
+}
+.settings-invite-link {
+  width: 100%;
+  align-items: center;
+}
+.settings-invite-link .settings-code {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.settings-input,
+.settings-select {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--separator, rgba(128, 128, 128, 0.3));
+  background: var(--background);
+  color: inherit;
+  font: inherit;
+}
+.settings-person-device {
+  padding-left: 36px;
+}
+.settings-activity {
+  max-height: 360px;
+  overflow-y: auto;
+}
+.settings-activity-time {
+  min-width: 96px;
+}

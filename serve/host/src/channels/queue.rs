@@ -248,8 +248,13 @@ impl Core {
                 b.cancel = Arc::default();
                 Some(b.cancel.clone())
             });
+            // Someone who isn't the owner waits behind the owner's turns and shares the invitees' slot (`agent::gate`).
+            let person = self.with(|i| {
+                i.st.threads.get(key).and_then(|t| t.get("person")).and_then(Value::as_str).unwrap_or("").to_owned()
+            });
+            let invitee = !person.is_empty() && !hq::resolve(&self.paths, &person, agent).await.owner;
             let permit = match cancel {
-                Some(cancel) => self.admit(ad, wk, &cancel).await,
+                Some(cancel) => self.admit(ad, wk, &cancel, invitee).await,
                 None => None,
             };
             let taken = self.with(|i| {

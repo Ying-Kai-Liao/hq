@@ -1,5 +1,5 @@
-# Generates docs/reference/fixtures/remote-relay-vectors.json (Codync labels) and, with the argument `kith`,
-# remote-relay-vectors.kith.json (the same vectors under the kith/* labels, kith-sig-v1 and Kith-Sig).
+# Generates docs/reference/fixtures/remote-relay-vectors.json (kith/* labels, kith-sig-v1, Kith-Sig). The argument
+# is the label family; the pre-rename family's vectors (legacy-compat-vectors.json) are made by passing its name.
 import base64, hashlib, json, struct, sys
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
@@ -8,8 +8,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF, HKDFExpand
 from cryptography.hazmat.primitives import hashes, hmac
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-NAME = sys.argv[1] if len(sys.argv) > 1 else "codync"
-assert NAME in ("codync", "kith")
+NAME = sys.argv[1] if len(sys.argv) > 1 else "kith"
 NB = NAME.encode()
 b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode()
 raw = lambda k: k.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
@@ -73,10 +72,10 @@ mct = ChaCha20Poly1305(mkey).encrypt(b"\x00"*12, mpt.encode(), dk + client_nonce
 msig = dev_sign.sign(NB + b"/mbox/v1" + cid + epk + mct)
 blob = epk + msig + mct
 
-# Kith-Sig / Codync-Sig request signing
+# <Family>-Sig request signing
 path = "/v1/relay/device/%s?v=1" % b64(cid)
 ts = 1790000000000
-authority = "codync-cloud-staging.example.workers.dev"
+authority = "kith-cloud-staging.example.workers.dev"
 canon = NAME + "-sig-v1\nGET\n%s\n%s\n%d\n%s\n%s" % (authority, path, ts, b64(sig_nonce), b64(sha(b"")))
 req_sig = dev_sign.sign(canon.encode())
 header = "v=1,kid=%s,ts=%d,nonce=%s,sig=%s" % (b64(dk), ts, b64(sig_nonce), b64(req_sig))

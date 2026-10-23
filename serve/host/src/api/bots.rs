@@ -77,6 +77,8 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             b["id"] = "".into();
             // Only the hq sync makes a bot of an hq agent.
             b["hqAgent"] = Value::Null;
+            // Nor can a client make a chat that belongs to an invited person.
+            b["person"] = Value::Null;
             // Connectors are on for a new bot unless the client picked them.
             // Without a credential store (headless Linux) no connector can run, so the bot starts with none.
             if b["connectors"].is_null() && b["kind"] != "group" {
@@ -311,6 +313,11 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             let option_id = b["optionId"].as_str().map(str::to_owned);
             // A card in a group belongs to the bot that asked.
             let bot = e.data["author"].as_str().unwrap_or(&e.bot_id);
+            // In an invited person's chat only what the card offered can be picked, by anyone (the owner included).
+            let invitee_chat = hub.store.bot(bot).ok().flatten().is_some_and(|r| r.config.person.is_some());
+            if invitee_chat && option_id.as_deref().is_some_and(|o| !super::roles::offered(&e.data, o)) {
+                bail!("That isn't one of the choices on this request.");
+            }
             hub.send_cmd(bot, Cmd::Permission { entry_id: entry_id.to_owned(), option_id })?;
             json!({})
         }

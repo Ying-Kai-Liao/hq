@@ -518,7 +518,7 @@ async fn deliver(hub: &Arc<Hub>, item: &Value) -> Result<(), MailboxFailure> {
     api::dispatch(hub, &caller, "send", b.clone())
         .await
         .map(drop)
-        .map_err(|e| if e.is::<devices::Forbidden>() { Unauthorized } else { Invalid })
+        .map_err(|e| if e.is::<devices::Forbidden>() || e.is::<devices::NotAllowed>() { Unauthorized } else { Invalid })
 }
 
 #[cfg(test)]
@@ -692,6 +692,7 @@ mod tests {
                 lease_until: None,
                 created_at: now_ms(),
                 last_seen_at: None,
+                person_id: None,
             })
             .unwrap();
         let injected = b64(grant_key.verifying_key().as_bytes());
@@ -830,6 +831,7 @@ mod tests {
                 lease_until: Some(now_ms() + 60_000),
                 created_at: now_ms(),
                 last_seen_at: None,
+                person_id: None,
             })
             .unwrap();
         *fake.state.lock().unwrap() =
@@ -843,7 +845,7 @@ mod tests {
         let bot_id = hub.create_bot(cfg).unwrap()["id"].as_str().unwrap().to_owned();
         let nonce = "9A1B2C3D-4F89-11D3-9A0C-0305E82C3301";
         let inner = json!({"m": "send", "b": {"botId": bot_id, "text": "hi", "clientNonce": nonce}, "ts": now_ms()});
-        let blob = seal_mailbox(crypto::Labels::Codync, &hub, &phone, nonce, inner.to_string().as_bytes());
+        let blob = seal_mailbox(crypto::Labels::Legacy, &hub, &phone, nonce, inner.to_string().as_bytes());
         *fake.script.lock().unwrap() =
             vec![json!({"t": "mbox.item", "seq": 1, "from": dk, "nonce": nonce, "d": blob, "exp": now_ms() + 1000})];
 

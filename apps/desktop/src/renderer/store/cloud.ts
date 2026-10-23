@@ -5,7 +5,7 @@ import { account } from './account'
 import type { AppModel } from './app-model'
 import type { BotStore } from './bot-store'
 
-// Wire types of the Codync cloud (`/v1`, cloud/src/api.ts); times are epoch milliseconds.
+// Wire types of the Kith cloud (`/v1`, cloud/src/api.ts); times are epoch milliseconds.
 
 /** A computer in the account (`GET /v1/computers`). */
 export interface CloudComputer {
@@ -21,6 +21,8 @@ export interface CloudComputer {
   claimedAt?: number | null
   /** `none` · `pending` · `granted`. */
   access?: string | null
+  /** This account's part in the computer: its owner, or invited to it. Absent from an older cloud (then owner). */
+  role?: 'owner' | 'member'
 }
 
 export interface CloudDevice {
@@ -63,7 +65,7 @@ export class CloudError extends Error {
 }
 
 async function request<T>(method: string, path: string, body?: unknown, signed = false): Promise<T> {
-  const res = await window.codync.cloud.request(method, path, body, signed)
+  const res = await window.kith.cloud.request(method, path, body, signed)
   if (!res.ok) throw new CloudError(res.error.status, res.error.code, res.error.message)
   return res.value as T
 }
@@ -115,7 +117,7 @@ export class CloudModel extends Observable {
       // Signed in: make this computer known to the account, then list its computers.
       void (async () => {
         try {
-          await request('POST', 'v1/devices', { name: await deviceName(), platform: { darwin: 'macos', linux: 'linux', win32: 'windows' }[window.codync.platform] }, true)
+          await request('POST', 'v1/devices', { name: await deviceName(), platform: { darwin: 'macos', linux: 'linux', win32: 'windows' }[window.kith.platform] }, true)
         } catch (error) {
           this.fail(error)
         }
@@ -287,5 +289,5 @@ export class CloudModel extends Observable {
 
 /** This computer's name for the account's device list. */
 async function deviceName() {
-  return window.codync.computerName || { darwin: 'Mac', linux: 'Linux', win32: 'Windows' }[window.codync.platform]
+  return window.kith.computerName || { darwin: 'Mac', linux: 'Linux', win32: 'Windows' }[window.kith.platform]
 }

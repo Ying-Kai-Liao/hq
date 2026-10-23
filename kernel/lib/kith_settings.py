@@ -3,6 +3,8 @@
 
   kith_settings.py KEY            print one setting: this Mac's ~/.kith/settings.json, else kith's default
   kith_settings.py KEY AGENT      print this Mac's choice for one agent (agents.AGENT.KEY), empty when there is none
+  kith_settings.py set permission_mode AGENT MODE   record this Mac's choice for one agent; an empty MODE forgets it
+                                  (the agent's own suggestion, then kith's default, apply again). kith AGENT set permission MODE
 
 Settings that are kith's, not one agent's (its settings.json), one account's (kith-auth) or one entry point's (an env
 var such as KITH_BRIDGE_PERMISSION_MODE). The file is this Mac's and is never committed, like secrets/env: what an
@@ -72,9 +74,13 @@ def choose(agent, key, value):
     s, why = read()
     if why:
         raise ValueError(why)
-    if key in CHOICES and value not in CHOICES[key]:
+    if key in CHOICES and value not in CHOICES[key] + ('',):
         raise ValueError(f'{key} {value!r} is not one of {", ".join(CHOICES[key])}')
-    s.setdefault('agents', {}).setdefault(agent, {})[key] = value
+    agents = s.setdefault('agents', {})
+    if value == '':   # forgetting the choice: the agent's own suggestion and kith's default apply again
+        agents.get(agent, {}).pop(key, None)
+    else:
+        agents.setdefault(agent, {})[key] = value
     write(s)
 
 
@@ -119,6 +125,14 @@ def clear_backups(agent):
 
 
 if __name__ == '__main__':
+    if len(sys.argv) == 5 and sys.argv[1] == 'set':   # set KEY AGENT VALUE
+        if sys.argv[2] != 'permission_mode':
+            sys.exit(f'kith: {sys.argv[2]} is not a setting kith can set per agent')
+        try:
+            choose(sys.argv[3], sys.argv[2], sys.argv[4])
+        except ValueError as e:
+            sys.exit(f'kith: {e}')
+        sys.exit(0)
     if len(sys.argv) not in (2, 3) or sys.argv[1] not in DEFAULTS:
         sys.exit(__doc__.strip())
     if sys.argv[1] == 'backups':

@@ -1,14 +1,14 @@
 {
-  "name": "codync-cloud",
+  "name": "kith-cloud",
   "version": "2.2.0",
-  "description": "Codync cloud: accounts, computers and the end-to-end encrypted relay (Cloudflare Worker + Durable Object)",
+  "description": "Kith cloud: accounts, computers and the end-to-end encrypted relay (Cloudflare Worker + Durable Object)",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --env local",
-    "deploy:dev": "wrangler deploy --env dev",
-    "deploy:main": "wrangler deploy",
+    "deploy:dev": "wrangler deploy --env kith-dev",
+    "deploy:main": "wrangler deploy --env kith",
     "typecheck": "tsc && tsc -p test/e2e",
     "test": "vitest run",
     "e2e": "node --experimental-strip-types --no-warnings test/e2e/relay.e2e.ts",

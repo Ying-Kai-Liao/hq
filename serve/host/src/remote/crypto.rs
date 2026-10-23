@@ -17,28 +17,28 @@ use sha2::{Digest, Sha256};
 use x25519_dalek::{PublicKey, StaticSecret};
 
 /// Which family of domain-separation labels a pairing uses. Pairings made before the Kith
-/// rename keep `codync/*` until re-paired, so every construction takes the labels it runs
-/// under: the host learns them from whichever the device's signature verifies under.
+/// rename keep their old labels until re-paired (`legacy_compat`), so every construction takes
+/// the labels it runs under: the host learns them from whichever the device's signature verifies under.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Labels {
-    Codync,
+    Legacy,
     Kith,
 }
 
 impl Labels {
     /// Newest first: the order a verifier tries them in.
-    pub const ALL: [Labels; 2] = [Labels::Kith, Labels::Codync];
+    pub const ALL: [Labels; 2] = [Labels::Kith, Labels::Legacy];
 
     pub fn name(self) -> &'static str {
         match self {
-            Labels::Codync => "codync",
+            Labels::Legacy => super::legacy_compat::LABEL,
             Labels::Kith => "kith",
         }
     }
 
     /// A stored or announced label name; anything unknown reads as the legacy labels.
     pub fn from_name(name: Option<&str>) -> Labels {
-        if name == Some("kith") { Labels::Kith } else { Labels::Codync }
+        if name == Some("kith") { Labels::Kith } else { Labels::Legacy }
     }
 
     /// `<family>/<rest>`, e.g. `kith/hs1/v1`.
@@ -46,10 +46,10 @@ impl Labels {
         format!("{}/{rest}", self.name()).into_bytes()
     }
 
-    /// The `-Sig` header name: `Kith-Sig` or `Codync-Sig`.
+    /// The `-Sig` header name: `Kith-Sig`, or the old one for a pre-rename pairing.
     pub fn sig_header(self) -> &'static str {
         match self {
-            Labels::Codync => "Codync-Sig",
+            Labels::Legacy => super::legacy_compat::SIG_HEADER,
             Labels::Kith => "Kith-Sig",
         }
     }
@@ -362,7 +362,7 @@ pub fn claim_input(l: Labels, claim_id: &str, nonce: &str, user_id: &str, comput
     format!("{}/claim/v1\n{claim_id}\n{nonce}\n{user_id}\n{computer_id}\n{box_key}", l.name())
 }
 
-/// The `Kith-Sig` / `Codync-Sig` signing input (`kith-sig-v1` / `codync-sig-v1`).
+/// The `Kith-Sig` signing input (`kith-sig-v1`, or the old family's prefix).
 pub fn request_sig_input(
     l: Labels,
     method: &str,
@@ -381,7 +381,7 @@ pub fn request_sig_input(
     )
 }
 
-/// The `Kith-Sig` / `Codync-Sig` header value.
+/// The `Kith-Sig` header value.
 pub fn request_sig_header(key: &SigningKey, ts: i64, nonce: &str, input: &str) -> String {
     let kid = b64(key.verifying_key().as_bytes());
     let sig = b64(&sign(key, input.as_bytes()));
@@ -396,8 +396,8 @@ mod tests {
 
     fn vectors(l: Labels) -> Value {
         let json = match l {
-            Labels::Codync => include_str!("../../../docs/reference/fixtures/remote-relay-vectors.json"),
-            Labels::Kith => include_str!("../../../docs/reference/fixtures/remote-relay-vectors.kith.json"),
+            Labels::Legacy => include_str!("../../../docs/reference/fixtures/legacy-compat-vectors.json"),
+            Labels::Kith => include_str!("../../../docs/reference/fixtures/remote-relay-vectors.json"),
         };
         serde_json::from_str(json).unwrap()
     }

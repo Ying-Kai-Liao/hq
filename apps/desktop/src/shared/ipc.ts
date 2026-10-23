@@ -4,9 +4,11 @@ import type { SSHBridge } from './ssh'
 import type { ScreenAgentState } from './computer-access'
 import type { IslandRect, IslandScreen, IslandSummary } from './island'
 import type { ErrorReport } from './error-report'
+import type { InviteLink } from './invite'
+import type { AccessProgress, AccessTicket, CloudResult, RelayCallError, RelayComputer, RelayState } from './relay'
 
 // The bridge between the main process (host lifecycle, loopback HTTP, tray, windows)
-// and the renderer (stores and UI). Exposed as `window.codync` by the preload script.
+// and the renderer (stores and UI). Exposed as `window.kith` by the preload script.
 
 export type HostState =
   | { kind: 'missingBinary' }
@@ -65,6 +67,8 @@ export type WindowCommand =
   | { kind: 'setRemoteScreen'; on: boolean }
   | { kind: 'computerAccess' }
   | { kind: 'newChat' }
+  /** An invite link arrived; the window takes it with `invites.takePending`. */
+  | { kind: 'joinInvite' }
   | { kind: 'search' }
   | { kind: 'toggleSidebar' }
   | { kind: 'toggleDetails' }
@@ -108,7 +112,7 @@ export type SpeechEvent =
   | { type: 'stopped' }
   | { type: 'error'; message: string }
 
-export interface CodyncBridge {
+export interface KithBridge {
   platform: 'darwin' | 'linux' | 'win32'
   appName: string
   appScheme: string
@@ -116,7 +120,7 @@ export interface CodyncBridge {
   appVersion: string
   /** The computer's name ("Kevin's MacBook Pro"). */
   computerName: string
-  /** Screenshot/UI checks: CODYNC_DEBUG_OPEN=compose | group | plugins | computers | <bot name>. */
+  /** Screenshot/UI checks: KITH_DEBUG_OPEN=compose | group | plugins | computers | <bot name>. */
   debugOpen: string | null
   host: {
     snapshot(): Promise<HostSnapshot>
@@ -172,9 +176,40 @@ export interface CodyncBridge {
     newBot(): void
     openApp(): void
   }
-  /** The Codync cloud's `/v1` API with the signed-in session (and the device key for `signed`). */
+  /** The Kith cloud's `/v1` API with the signed-in session (and the device key for `signed`). */
   cloud: {
     request(method: string, path: string, body: unknown, signed: boolean): Promise<{ ok: true; value: unknown } | { ok: false; error: { status: number; code: string; message: string | null } }>
+    /** Accepts an invite with h1 = hex sha256 of its token (never the token itself). */
+    acceptInvite(inviteId: string, h1: string): Promise<{ ok: true; value: unknown } | { ok: false; error: { status: number; code: string; message: string | null } }>
+  }
+  /**
+   * Other Macs over the Kith cloud relay (main/relay/): the end-to-end encrypted channel lives in the main process and is
+   * shared by every window; `signKey` is the Mac's own key, and must hash to `computerId` or nothing connects.
+   */
+  relay: {
+    /** The Macs this account owns or is a member of. Registers this device with the account the first time. */
+    computers(): Promise<CloudResult<RelayComputer[]>>
+    /** One call to the Mac's host API. Rejects with a `RelayCallError` (a host's own error comes back unchanged). */
+    call(computerId: string, signKey: string, method: string, body: unknown, timeoutMs: number): Promise<unknown>
+    /** `sub` "events": each element is one event's JSON; `onEnd` with an error when the channel dropped. */
+    stream(computerId: string, signKey: string, sub: string, body: unknown, onData: (line: string) => void, onEnd: (error: RelayCallError | null) => void): () => void
+    state(computerId: string, signKey: string): Promise<RelayState>
+    onState(cb: (computerId: string, state: RelayState) => void): () => void
+    /** After access was granted: a channel that stopped on "access removed" tries again. */
+    restart(computerId: string): Promise<void>
+    /** Closes the channel (the Mac was removed from the list). */
+    forget(computerId: string): Promise<void>
+    /** Asks for this device to join a Mac; resolves once the six digits can be shown to its owner. */
+    requestAccess(computerId: string, signKey: string): Promise<CloudResult<AccessTicket>>
+    accessStatus(requestId: string): Promise<CloudResult<AccessProgress>>
+    cancelAccess(computerId: string, requestId: string | null): Promise<void>
+  }
+  /** Invite links: the one that arrived, and the token kept (encrypted, per computer) so a reconnect can prove again. */
+  invites: {
+    takePending(): Promise<InviteLink | null>
+    keep(computerId: string, inviteId: string, token: string): Promise<void>
+    kept(computerId: string): Promise<{ inviteId: string; token: string } | null>
+    forget(computerId: string): Promise<void>
   }
   updates: {
     state(): Promise<UpdateState>
@@ -216,7 +251,7 @@ export interface CodyncBridge {
      * (`kith://…`), like ASWebAuthenticationSession. Rejects when cancelled or timed out.
      */
     authenticate(url: string, scheme: string): Promise<string>
-    /** macOS: registers or removes the Codync Screen agent (SMAppService). */
+    /** macOS: registers or removes the Kith Screen agent (SMAppService). */
     screenAgentState(): Promise<ScreenAgentState>
     setScreenAgent(on: boolean): Promise<{ needsApproval: boolean }>
     syncScreenAgent(enabled: boolean): Promise<{ needsApproval: boolean }>

@@ -7,12 +7,14 @@ use std::path::Path;
 use std::sync::Mutex;
 
 /// Current schema version (kv `schema`).
-const SCHEMA: i64 = 4;
+const SCHEMA: i64 = 5;
 
 /// 3: authorized devices (keys, not push tickets) with their push and Live Activity
 /// tickets. The old ticket-only `devices` table is dropped; phones re-register on connect.
 /// 4: threads (`entries.thread_id`); instruction snapshots are kept per session, so the
 /// per-bot ones go.
+/// 5: invitee people: `devices.person_id` (NULL is the owner), invites, the memberships this host
+/// accepted, the people it made and the audit log of what non-owners asked.
 fn migrate(c: &Connection) -> Result<()> {
     let version: i64 =
         c.query_row("SELECT CAST(v AS INTEGER) FROM kv WHERE k = 'schema'", [], |r| r.get(0)).optional()?.unwrap_or(0);
@@ -22,6 +24,38 @@ fn migrate(c: &Connection) -> Result<()> {
     if version < 3 {
         migrate_3(c)?;
     }
+    if version < 4 {
+        migrate_4(c)?;
+    }
+    migrate_5(c)
+}
+
+fn migrate_5(c: &Connection) -> Result<()> {
+    c.execute_batch(
+        "BEGIN;
+         ALTER TABLE devices ADD COLUMN person_id TEXT;
+         ALTER TABLE devices ADD COLUMN proven INTEGER NOT NULL DEFAULT 0;
+         CREATE TABLE IF NOT EXISTS invites(
+            invite_id TEXT PRIMARY KEY, person_id TEXT NOT NULL, token_hash TEXT NOT NULL,
+            agents TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+            used_at INTEGER, revoked_at INTEGER);
+         CREATE TABLE IF NOT EXISTS people(
+            person_id TEXT PRIMARY KEY, name TEXT NOT NULL, agents TEXT NOT NULL DEFAULT '{}',
+            projects TEXT NOT NULL DEFAULT '[]', made TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL);
+         CREATE TABLE IF NOT EXISTS memberships(
+            membership_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, person_id TEXT NOT NULL,
+            invite_id TEXT NOT NULL, created_at INTEGER NOT NULL);
+         CREATE TABLE IF NOT EXISTS audit(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, person_id TEXT NOT NULL,
+            device_key TEXT NOT NULL, method TEXT NOT NULL, target TEXT, allowed INTEGER NOT NULL);
+         CREATE INDEX IF NOT EXISTS audit_at ON audit(at);
+         INSERT INTO kv(k, v) VALUES('schema', '5') ON CONFLICT(k) DO UPDATE SET v = '5';
+         COMMIT;",
+    )?;
+    Ok(())
+}
+
+fn migrate_4(c: &Connection) -> Result<()> {
     c.execute_batch(
         "BEGIN;
          ALTER TABLE entries ADD COLUMN thread_id TEXT;
@@ -88,6 +122,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn schema_five_adds_people_and_keeps_existing_devices_as_the_owners() {
+        let dir = std::env::temp_dir().join(format!("kith-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("t.db");
+        {
+            let s = Store::open(&db).unwrap();
+            drop(s);
+            let c = Connection::open(&db).unwrap();
+            // Back to a version-4 database: no person column, no people tables.
+            c.execute_batch(
+                "DROP TABLE invites; DROP TABLE people; DROP TABLE memberships; DROP TABLE audit;
+                 ALTER TABLE devices DROP COLUMN proven; ALTER TABLE devices DROP COLUMN person_id;
+                 INSERT INTO devices VALUES('old', 'Phone', 'ios', 'local', NULL, '[\"control\"]', NULL, 1, NULL);
+                 UPDATE kv SET v = '4' WHERE k = 'schema';",
+            )
+            .unwrap();
+        }
+        let s = Store::open(&db).unwrap();
+        assert_eq!(s.kv_get("schema").as_deref(), Some("5"));
+        assert_eq!(s.device("old").unwrap().person_id, None, "an old device is the owner's");
+        assert!(s.invites().unwrap().is_empty() && s.people().unwrap().is_empty());
+    }
+
+    #[test]
     fn migrations_replace_the_old_ticket_table_and_add_threads() {
         let dir = std::env::temp_dir().join(format!("kith-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -103,7 +161,7 @@ mod tests {
         }
         let s = Store::open(&db).unwrap();
         assert!(s.devices().unwrap().is_empty());
-        assert_eq!(s.kv_get("schema").as_deref(), Some("4"));
+        assert_eq!(s.kv_get("schema").as_deref(), Some("5"));
         assert!(s.thread("b", "root", 10).unwrap().is_empty(), "entries have a thread column");
         drop(s);
         let s = Store::open(&db).unwrap();

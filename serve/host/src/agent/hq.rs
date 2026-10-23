@@ -86,9 +86,47 @@ pub struct Launch {
     pub effort: Option<String>,
     #[serde(default)]
     pub permission_mode: Option<String>,
+    /// An invited person's run (see [`Launch::confine_to`]): bypass mode is switched off for the whole session.
+    #[serde(skip)]
+    pub confined: bool,
 }
 
+/// The modes an invited person's run is never started in: a free shell on this Mac, as the owner.
+const FREE_SHELL: &[&str] = &["bypassPermissions"];
+
 impl Launch {
+    /// Makes this launch `person`'s and nobody else's: the process gets `KITH_PERSON` (the kernel's own env already
+    /// has it; this does not rely on that), and the mode is the membership's, never a free shell. The kernel already
+    /// resolves the mode from the membership; this is the host's own check that nothing above it says otherwise.
+    fn confine_to(&mut self, person: &str) -> Result<()> {
+        if self.is_codex() {
+            bail!("{} runs on Codex; runs for anyone but the owner need Claude Code", self.harness);
+        }
+        if let Some(seen) = self.env.get("KITH_PERSON").filter(|p| p.as_str() != person) {
+            bail!("the kernel launched this run for {seen}, not {person}");
+        }
+        for (k, v) in crate::kernel::both("PERSON", person) {
+            self.env.insert(k, v);
+        }
+        let safe = |m: &str| !m.is_empty() && !FREE_SHELL.contains(&m);
+        if !self.permission_mode.as_deref().is_some_and(safe) {
+            self.permission_mode = Some("default".into());
+        }
+        if self.settings["permissions"]["defaultMode"].as_str().is_some_and(|m| !safe(m)) {
+            self.settings["permissions"]["defaultMode"] = "default".into();
+        }
+        // Not even a card can switch the session into bypass later (see `meta`).
+        if !self.settings.is_object() {
+            self.settings = json!({});
+        }
+        if !self.settings["permissions"].is_object() {
+            self.settings["permissions"] = json!({});
+        }
+        self.settings["permissions"]["disableBypassPermissionsMode"] = "disable".into();
+        self.confined = true;
+        Ok(())
+    }
+
     /// Whether this launch runs Codex (a backup entry), whose sessions take ACP's own parameters instead of Claude's
     /// `_meta`.
     pub fn is_codex(&self) -> bool {
@@ -96,9 +134,47 @@ impl Launch {
     }
 }
 
+/// `^[a-z][a-z0-9-]*$`, as kith-auth requires of a person.
+fn is_person_id(id: &str) -> bool {
+    id.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+        && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// The kernel refused a run for the person it was asked about (exit 3: not a member of the agent, or over their
+/// budget). The text is the kernel's own, fit to show in the person's chat.
+#[derive(Debug)]
+pub struct Refused(pub String);
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Refused {}
+
 /// Runs `bin args…` in `cwd` with `KITH_VIA=serve` (and `HQ_VIA`): its stdout, or the stderr text it failed with.
 pub(crate) async fn run(bin: &Path, args: &[&str], cwd: Option<&str>, budget: Duration) -> Result<String> {
+    run_as(bin, args, cwd, budget, None).await
+}
+
+/// [`run`] for `person` (an invited person's kith-auth id): the kernel then applies that person's membership, and the
+/// process gets `KITH_PERSON`. `None` is the owner and is told so: a `KITH_PERSON` the host itself was started with
+/// never leaks into the owner's runs.
+pub(crate) async fn run_as(
+    bin: &Path,
+    args: &[&str],
+    cwd: Option<&str>,
+    budget: Duration,
+    person: Option<&str>,
+) -> Result<String> {
     let shown = format!("kith {}", args.join(" "));
+    // The kernel's own rule for a person id; anything else never reaches its environment.
+    if let Some(person) = person
+        && !is_person_id(person)
+    {
+        bail!("'{person}' isn't a person id");
+    }
     let mut command = tokio::process::Command::new(bin);
     command
         .args(args)
@@ -107,6 +183,19 @@ pub(crate) async fn run(bin: &Path, args: &[&str], cwd: Option<&str>, budget: Du
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
+    // Tests give the kernel its temp folders here: the process environment is shared with every other test.
+    #[cfg(test)]
+    command.envs(
+        crate::channels::hq::TEST_ENV
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .map(|(k, v)| (*k, v)),
+    );
+    match person {
+        Some(person) => command.envs(crate::kernel::both("PERSON", person)),
+        None => command.env_remove("KITH_PERSON").env_remove("HQ_PERSON"),
+    };
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
@@ -124,6 +213,15 @@ pub(crate) async fn run(bin: &Path, args: &[&str], cwd: Option<&str>, budget: Du
         .map_err(|_| anyhow!("`{shown}` took longer than {}s", budget.as_secs()))??;
     if !status.success() {
         let why = stderr.trim();
+        if person.is_some() && status.code() == Some(3) {
+            // The kernel's text ends with the owner's command to raise a budget; the person gets the sentence only.
+            let why = why.strip_prefix("kith: ").unwrap_or(why);
+            let why = match why.split_once("; the owner can raise it") {
+                Some((said, _)) => format!("{said}; ask the owner to raise it."),
+                None => why.to_owned(),
+            };
+            return Err(Refused(why).into());
+        }
         bail!("`{shown}` failed ({status}){}", if why.is_empty() { String::new() } else { format!(": {why}") });
     }
     Ok(stdout)
@@ -271,6 +369,16 @@ impl InfoRun {
     }
 }
 
+/// `kith <agent> set permission <mode>`: this Mac's permission mode for the agent, used by its next run from any
+/// entry point (kith's own error text on failure, e.g. a mode it doesn't know). Returns the info read back from hq.
+pub async fn set_permission(agent: &str, mode: &str) -> Result<InfoRun> {
+    let Some(bin) = tokio::task::spawn_blocking(bin).await? else {
+        bail!("kith isn't installed on this computer (set KITH_KERNEL_BIN, or put `kith` on PATH)");
+    };
+    run(&bin, &[agent, "set", "permission", mode], None, LIST_TIMEOUT).await?;
+    Ok(refill(agent, true).await)
+}
+
 /// Runs kith for `agent`. A caller that finds a run in flight waits for it and takes its answer, `force` or not
 /// (a refresh asked for while one is running would only repeat it); otherwise a still-fresh answer is reused
 /// unless `force`.
@@ -349,16 +457,21 @@ pub async fn project_add(id: &str, path: &str) -> Result<()> {
 }
 
 /// Asks hq how to start `agent` for a run in `cwd`; `project` goes as `-p <id>`, so hq loads that project's context.
-/// The model and effort the user picked for the bot go to hq as `-m`/`-e`, so its ledger tag and `KITH_MODEL` say what ran.
+/// Model, effort and permission mode are hq's (the agent's `agent.md`, this Mac's kith settings): the bot's own copy of
+/// them is never passed (`-m`, `-e` or `--permission-mode` would win over hq), so what runs is what the apps show.
 /// `backup`: a chain entry (`claude:work`, `codex`…) to launch instead of the agent's own login; hq refuses an entry it
 /// can't run (not signed in, not allowed for this person) with exit 4, which is an error here.
+///
+/// `person`: an invited person's kith-auth id when the run is theirs. The kernel then resolves their membership (mode,
+/// deny rules, model, budget, memory folder) and fails closed: a refusal comes back as [`Refused`], never as a run of
+/// the owner's. `None` is the owner's run.
 pub async fn launch(
     bin: &Path,
     agent: &str,
     cwd: &str,
-    cfg: &BotConfig,
     project: Option<&str>,
     backup: Option<&str>,
+    person: Option<&str>,
 ) -> Result<Launch> {
     let mut args = vec![agent, "--launch-json"];
     if let Some(backup) = backup {
@@ -367,15 +480,12 @@ pub async fn launch(
     if let Some(project) = project {
         args.extend(["-p", project]);
     }
-    if let Some(model) = cfg.model.as_deref().filter(|m| !m.is_empty()) {
-        args.extend(["-m", model]);
-    }
-    if let Some(effort) = cfg.model_options.get("effort").filter(|e| !e.is_empty()) {
-        args.extend(["-e", effort]);
-    }
-    let out = run(bin, &args, Some(cwd), LAUNCH_TIMEOUT).await?;
-    let launch: Launch = serde_json::from_str(out.trim())
+    let out = run_as(bin, &args, Some(cwd), LAUNCH_TIMEOUT, person).await?;
+    let mut launch: Launch = serde_json::from_str(out.trim())
         .with_context(|| format!("`kith {agent} --launch-json` didn't print a launch object"))?;
+    if let Some(person) = person {
+        launch.confine_to(person)?;
+    }
     // A backup entry may run on another harness the host knows (Codex); the agent's own login is Claude.
     let runs = if backup.is_some() { ["claude", "codex"].as_slice() } else { ["claude"].as_slice() };
     if !launch.harness.is_empty() && !runs.contains(&launch.harness.as_str()) {
@@ -430,6 +540,9 @@ impl Launch {
         let mut options = Map::new();
         options.insert("settings".into(), settings);
         options.insert("strictMcpConfig".into(), true.into());
+        if self.confined {
+            options.insert("allowDangerouslySkipPermissions".into(), false.into());
+        }
         options.insert(
             "mcpServers".into(),
             if self.mcp_servers.is_object() { self.mcp_servers.clone() } else { json!({}) },
@@ -543,5 +656,45 @@ mod tests {
             sparse.env(),
             vec![("KITH_VIA".to_owned(), "serve".to_owned()), ("HQ_VIA".to_owned(), "serve".to_owned())]
         );
+    }
+
+    #[test]
+    fn an_invitees_launch_carries_the_person_and_never_a_free_shell() {
+        let mut l: Launch = serde_json::from_value(json!({
+            "harness": "claude", "permission_mode": "bypassPermissions",
+            "settings": {"permissions": {"defaultMode": "bypassPermissions"}},
+        }))
+        .unwrap();
+        l.confine_to("sam").unwrap();
+        assert_eq!(l.permission_mode.as_deref(), Some("default"));
+        assert_eq!(l.settings["permissions"]["defaultMode"], "default");
+        assert_eq!(l.env.get("KITH_PERSON").map(String::as_str), Some("sam"));
+        assert_eq!(l.env.get("HQ_PERSON").map(String::as_str), Some("sam"));
+        // No mode at all is the least, not the agent's.
+        let mut none: Launch = serde_json::from_value(json!({"harness": "claude"})).unwrap();
+        none.confine_to("sam").unwrap();
+        assert_eq!(none.permission_mode.as_deref(), Some("default"));
+        // Another person's launch, or Codex, is not theirs to run.
+        let mut other: Launch = serde_json::from_value(json!({"env": {"KITH_PERSON": "kim"}})).unwrap();
+        assert!(other.confine_to("sam").is_err());
+        let mut codex: Launch = serde_json::from_value(json!({"harness": "codex"})).unwrap();
+        assert!(codex.confine_to("sam").is_err());
+        // The session itself can't be moved into bypass later (an exit-plan card, a settings rule).
+        assert_eq!(l.settings["permissions"]["disableBypassPermissionsMode"], "disable");
+        let meta = l.meta();
+        assert_eq!(meta["claudeCode"]["options"]["allowDangerouslySkipPermissions"], false);
+        assert_eq!(meta["claudeCode"]["options"]["settings"]["permissions"]["disableBypassPermissionsMode"], "disable");
+        let owner: Launch = serde_json::from_value(json!({"harness": "claude"})).unwrap();
+        assert!(owner.meta()["claudeCode"]["options"].get("allowDangerouslySkipPermissions").is_none());
+    }
+
+    #[test]
+    fn person_ids_have_the_kernels_shape() {
+        for ok in ["sam", "sam-2", "a1"] {
+            assert!(is_person_id(ok), "{ok}");
+        }
+        for bad in ["", "Sam", "-x", "1x", "a b", "a;b", "sam\n"] {
+            assert!(!is_person_id(bad), "{bad:?}");
+        }
     }
 }

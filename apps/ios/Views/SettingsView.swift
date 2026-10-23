@@ -1,5 +1,5 @@
-import CodyncKit
-import CodyncUI
+import KithKit
+import KithUI
 import SwiftUI
 
 /// Every computer this iPhone can use or ask for — paired here and in the account, merged by
@@ -24,6 +24,7 @@ struct SettingsView: View {
     @State private var voice: VoiceTarget?
     @State private var aboutAnalytics = false
     @State private var showLicenses = false
+    @State private var newChat: VoiceTarget?
 
     var body: some View {
         CardForm {
@@ -31,7 +32,9 @@ struct SettingsView: View {
                         ? "Computers in your account need your OK on the computer before this iPhone can use them."
                         : "Each bot runs on its own computer. Sign in to see the computers in your account.") {
                 ForEach(accounts.computers) { computer in
-                    if let store = accounts.store(for: computer.id) {
+                    if let store = accounts.store(for: computer.id), accounts.role(for: computer.id) == .member {
+                        MemberComputerRow(store: store, newChat: { newChat = VoiceTarget(store: store) }, remove: { confirmForget = computer })
+                    } else if let store = accounts.store(for: computer.id) {
                         ComputerRow(store: store, inAccount: cloudComputer(computer.id),
                                     openScreen: { openScreen(store) },
                                     openMarketplace: { closeSheets { app.marketplace = store.computer.id } },
@@ -59,7 +62,8 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
             }
 
-            let online = accounts.computers.compactMap { accounts.store(for: $0.id) }.filter { $0.connection == .online }
+            // What only the owner of a computer can use: a person invited to one sees none of it.
+            let online = accounts.ownedComputers.compactMap { accounts.store(for: $0.id) }.filter { $0.connection == .online }
             if !online.isEmpty {
                 CardSection("Voice chat", footer: "Apple speech on this iPhone, or OpenAI and Gemini on your own API key, kept on the computer.") {
                     ForEach(online, id: \.computer.id) { store in
@@ -73,15 +77,20 @@ struct SettingsView: View {
                 }
             }
 
-            if let linkStore = online.first {
+            // Linking their own Telegram or Discord account is for an invited person too.
+            if let linkStore = online.first ?? accounts.computers.compactMap({ accounts.store(for: $0.id) }).first(where: { $0.connection == .online }) {
                 LinkChatSection(store: linkStore)
+            }
+
+            if let owner = online.first {
+                PeopleSection(store: owner)
             }
 
             BackupsStatusSection()
 
             CardSection("Notifications", footer: "Get a result summary, a request for input, or a failure notice. Notification previews follow your iOS settings.") {
                 Toggle("Push notifications", isOn: $notificationsEnabled)
-                    .toggleStyle(.codync)
+                    .toggleStyle(.kith)
                     .onChange(of: notificationsEnabled) { PushRegistrar.shared.resync() }
                 notificationsRow
             }
@@ -95,7 +104,7 @@ struct SettingsView: View {
                     Text("Share usage analytics").lineLimit(1).layoutPriority(1)
                     IconButton("About usage analytics", systemImage: "info.circle") { aboutAnalytics = true }
                     Toggle(isOn: Binding(get: { analyticsEnabled }, set: { Analytics.shared.setEnabled($0) })) { EmptyView() }
-                        .toggleStyle(.codync)
+                        .toggleStyle(.kith)
                         .accessibilityLabel("Share usage analytics")
                 }
             }
@@ -139,36 +148,37 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
             }
         }
-        .codyncDialog("Remove the older \(confirmRemoveCopy?.name ?? "computer")?", isPresented: Binding(
+        .kithDialog("Remove the older \(confirmRemoveCopy?.name ?? "computer")?", isPresented: Binding(
             get: { confirmRemoveCopy != nil }, set: { if !$0 { confirmRemoveCopy = nil } }
         ), message: "It's this computer under an earlier identity and can't be reached anymore. Removing it only cleans up your account.") {
             guard let copy = confirmRemoveCopy else { return [] }
             return [DialogAction("Remove", destructive: true) { Task { await accounts.removeFromAccount(copy.computerId) } }]
         }
-        .codyncDialog("Start over?", isPresented: $confirmStartOver,
+        .kithDialog("Start over?", isPresented: $confirmStartOver,
                       message: "Signs out of every account and forgets every computer on this iPhone, then shows the welcome again. Your computers keep their bots and chats; pair again to use them.") {
             [DialogAction("Start over", destructive: true) { Task { await app.startOver() } }]
         }
         .refreshable { await accounts.refreshCloud() }
         .page("Computers & settings", pushed: pushed)
         .task { await accounts.refreshCloud() }
-        .codyncSheet(isPresented: $addingComputer) {
+        .kithSheet(isPresented: $addingComputer) {
             PairingView(inModal: true)
         }
-        .codyncSheet(item: $voice) { target in VoiceChatSettingsView().environment(target.store) }
-        .codyncSheet(isPresented: $aboutAnalytics) { AnalyticsSheet() }
-        .codyncSheet(isPresented: $showLicenses) { LicensesSheet() }
-        .codyncSheet(item: $access) { target in
+        .kithSheet(item: $newChat) { target in NewChatSheet(store: target.store).environment(accounts) }
+        .kithSheet(item: $voice) { target in VoiceChatSettingsView().environment(target.store) }
+        .kithSheet(isPresented: $aboutAnalytics) { AnalyticsSheet() }
+        .kithSheet(isPresented: $showLicenses) { LicensesSheet() }
+        .kithSheet(item: $access) { target in
             AccessRequestView(computer: target.computer, pending: accounts.pendingAccess[target.id] != nil)
         }
-        .codyncDialog("Remove \(confirmForget?.name ?? "computer")?",
+        .kithDialog("Remove \(confirmForget?.name ?? "computer")?",
                       isPresented: Binding(get: { confirmForget != nil }, set: { if !$0 { confirmForget = nil } }),
                       message: "Its bots and conversations stay on that computer. You can pair again any time.") {
             [DialogAction("Remove", destructive: true) {
                 if let c = confirmForget { accounts.forget(c.id) }
             }]
         }
-        .codyncDialog("Revoke this iPhone's access to \(confirmRevoke?.name ?? "the computer")?",
+        .kithDialog("Revoke this iPhone's access to \(confirmRevoke?.name ?? "the computer")?",
                       isPresented: Binding(get: { confirmRevoke != nil }, set: { if !$0 { confirmRevoke = nil } }),
                       message: "You can ask for access again; the computer will show a new code to confirm.") {
             [DialogAction("Revoke", destructive: true) {
@@ -244,6 +254,29 @@ struct SettingsView: View {
     }
 }
 
+/// A computer this account joined by invite: its name and role, a way to start a chat, and nothing of the owner's.
+private struct MemberComputerRow: View {
+    let store: BotStore
+    let newChat: () -> Void
+    let remove: () -> Void
+    @Environment(AccountStore.self) private var accounts
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ComputerBadge(store.computer, size: 40)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(store.hostName) · \(accounts.access(for: store.computer.id).title)")
+                    .font(.body.weight(.semibold)).foregroundStyle(Palette.text).lineLimit(1)
+                Text(store.connection == .online ? "Online" : "Not connected")
+                    .font(.subheadline).foregroundStyle(Palette.secondary)
+            }
+            Spacer()
+            if store.connection == .online { IconButton("New chat", systemImage: "square.and.pencil", action: newChat) }
+            IconButton("Remove", systemImage: "trash", action: remove)
+        }
+    }
+}
+
 /// A computer this iPhone can use: its connection, how it's reached, and whether it's in the account.
 private struct ComputerRow: View {
     let store: BotStore
@@ -262,7 +295,8 @@ private struct ComputerRow: View {
         HStack(spacing: 12) {
             ComputerBadge(store.computer, size: 40)
             VStack(alignment: .leading, spacing: 2) {
-                Text(store.hostName).font(.body.weight(.semibold)).foregroundStyle(Palette.text)
+                Text("\(store.hostName) · \(accounts.access(for: store.computer.id).title)")
+                    .font(.body.weight(.semibold)).foregroundStyle(Palette.text).lineLimit(1)
                 HStack(spacing: 4) {
                     Text(detail).lineLimit(stale ? 2 : 1)
                     if store.connection == .online { RouteIcon(route: store.hostRoute) }
@@ -322,8 +356,8 @@ private struct ComputerRow: View {
             items.append(MenuItem("Remove", icon: "trash", destructive: true, divider: revoke == nil, action: remove))
             return items
         }
-        .codyncSheet(isPresented: $voiceSettings) { VoiceChatSettingsView().environment(store) }
-        .codyncOverlay(isPresented: $coloring) { close in
+        .kithSheet(isPresented: $voiceSettings) { VoiceChatSettingsView().environment(store) }
+        .kithOverlay(isPresented: $coloring) { close in
             ZStack {
                 Color.black.opacity(0.35).ignoresSafeArea().onTapGesture(perform: close)
                 SwatchPanel(selected: store.computer.color) { id in
@@ -417,7 +451,7 @@ private struct OlderCopyRow: View {
 }
 
 /// A navigation row label with a trailing chevron.
-private struct LinkRow<Content: View>: View {
+struct LinkRow<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {

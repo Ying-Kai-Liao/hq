@@ -190,7 +190,7 @@ export function SkillGlyph() {
 /** Text that opens a web page (replaces the system `Link`). */
 export function WebLink({ title, url, className }: { title: string; url: string; className?: string }) {
   return (
-    <button className={`plain-link${className ? ` ${className}` : ''}`} title={url} onClick={() => window.codync.app.openExternal(url)}>
+    <button className={`plain-link${className ? ` ${className}` : ''}`} title={url} onClick={() => window.kith.app.openExternal(url)}>
       {title}
     </button>
   )
@@ -282,7 +282,7 @@ export function useWindowHeight() {
   return height
 }
 
-/** A Marketplace form in its own modal card (`.codyncSheet`). */
+/** A Marketplace form in its own modal card (`.kithSheet`). */
 export function FormSheet({ open, onClose, width = 520, height = 600, children }: { open: boolean; onClose: () => void; width?: number; height?: number; children: ReactNode }) {
   const windowHeight = useWindowHeight()
   return (

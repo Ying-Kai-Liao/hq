@@ -49,7 +49,7 @@ export interface Bot {
   computer: boolean
   /** Uses the memory all the user's bots share ("About you"). */
   sharedMemory: boolean
-  /** Keeps the harness's own memory (Claude Code's…) on beside Codync's; null where it has no switch. */
+  /** Keeps the harness's own memory (Claude Code's…) on beside Kith's; null where it has no switch. */
   harnessMemory: boolean | null
   /** Moves whenever memory changes, so an open memory screen fetches it again. */
   memoryRev: number
@@ -231,6 +231,8 @@ export interface EntryData {
   final?: boolean
   /** agent: the backup chain entry that answered (`codex`, `claude:work`); null or absent when the agent's own account did. */
   answeredBy?: string | null
+  /** agent: how full the session is, in percent; the host sets it on a turn's last entry only when it should show. */
+  contextPercent?: number
   /** user: queued | sent | cancelled | failed · tool: pending | in_progress | completed | failed · permission: pending | answered | cancelled | expired */
   status?: string
   clientNonce?: string
@@ -320,7 +322,7 @@ export interface Backend {
   curated?: boolean
   signedIn?: boolean
   canInstall?: boolean
-  /** Only for an agent that runs on Node.js, on a computer without its own: Codync's copy is missing or added. */
+  /** Only for an agent that runs on Node.js, on a computer without its own: Kith's copy is missing or added. */
   node?: 'missing' | 'added'
 }
 

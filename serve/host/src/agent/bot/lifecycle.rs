@@ -257,7 +257,7 @@ mod tests {
         let short = Duration::from_secs(5 * 60);
         assert_eq!(plan(&used, started, true, at(4), short), Release::Nothing);
         assert_eq!(plan(&used, started, true, at(5), short), Release::Agent);
-        // The same wait is no idleness yet at the 30 minutes Codync used.
+        // The same wait is no idleness yet at the 30 minutes the upstream project used.
         assert_eq!(plan(&used, started, true, at(5), Duration::from_secs(30 * 60)), Release::Nothing);
     }
 

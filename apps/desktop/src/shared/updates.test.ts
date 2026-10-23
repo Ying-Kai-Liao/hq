@@ -260,7 +260,6 @@ test('a build without an update feed never checks, and discards an update the ol
   assert.equal(f.shipIt.removed, 1, 'the installer job that would apply it on quit is removed')
   assert.deepEqual(f.removed, [
     '/Users/me/Library/Caches/com.yingkailiao.kith.ShipIt',
-    '/Users/me/Library/Caches/codync-desktop-updater/pending',
   ])
   f.app.emit('before-quit', { preventDefault() {} })
   assert.equal(f.calls.prepare + f.calls.install, 0)

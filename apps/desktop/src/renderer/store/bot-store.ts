@@ -286,7 +286,7 @@ export class BotStore extends BotSync {
     this.patchBot(bot, { sharedMemory })
   }
 
-  /** Whether the bot's harness keeps its own memory on beside Codync's. */
+  /** Whether the bot's harness keeps its own memory on beside Kith's. */
   setHarnessMemory(bot: Bot, harnessMemory: boolean) {
     this.patchBot(bot, { harnessMemory })
   }

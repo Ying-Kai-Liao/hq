@@ -2,12 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CodyncEnvironment</key><string>$(CODYNC_ENV)</string>
-    <key>CodyncAppGroup</key><string>$(CODYNC_APP_GROUP)</string>
-    <key>CodyncURLScheme</key><string>$(CODYNC_URL_SCHEME)</string>
-    <key>CodyncAPNSEnvironment</key><string>$(CODYNC_APNS_ENVIRONMENT)</string>
-	<key>CodyncKeychainGroup</key>
-	<string>$(AppIdentifierPrefix)$(CODYNC_KEYCHAIN_GROUP)</string>
+    <key>KithEnvironment</key><string>$(KITH_ENV)</string>
+    <key>KithAppGroup</key><string>$(KITH_APP_GROUP)</string>
+    <key>KithURLScheme</key><string>$(KITH_URL_SCHEME)</string>
+    <key>KithAPNSEnvironment</key><string>$(KITH_APNS_ENVIRONMENT)</string>
+	<key>KithKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)$(KITH_KEYCHAIN_GROUP)</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>

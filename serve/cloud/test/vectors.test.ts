@@ -1,22 +1,23 @@
-// docs/reference/fixtures/remote-relay-vectors.json (codync labels, pairings made before the rename) and
-// remote-relay-vectors.kith.json (kith labels), field by field: the TS reference implementation and the Worker's own code.
+// docs/reference/fixtures/remote-relay-vectors.json (kith labels) and legacy-compat-vectors.json (pairings made
+// before the rename), field by field: the TS reference implementation and the Worker's own code.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import CODYNC from "../../docs/reference/fixtures/remote-relay-vectors.json";
-import KITH from "../../docs/reference/fixtures/remote-relay-vectors.kith.json";
+import LEGACY from "../../docs/reference/fixtures/legacy-compat-vectors.json";
+import KITH from "../../docs/reference/fixtures/remote-relay-vectors.json";
 import { claimCanonical as workerClaimCanonical } from "../src/api";
+import { LEGACY_LABEL, LEGACY_SIG_HEADER } from "../src/legacy-compat";
 import { computerIdFor, fromB64url, sigCanonical, verifyEd25519, verifySig } from "../src/auth";
 import { parseAcl } from "../src/relay";
 import * as ref from "./ref";
 
 for (const [family, V] of [
-  ["codync", CODYNC],
+  [LEGACY_LABEL, LEGACY],
   ["kith", KITH],
 ] as const) {
   describe(`${family} labels`, () => {
     beforeAll(() => ref.useFamily(family));
     afterAll(() => ref.useFamily("kith"));
-    const HEADER = family === "kith" ? "Kith-Sig" : "Codync-Sig";
+    const HEADER = family === "kith" ? "Kith-Sig" : LEGACY_SIG_HEADER;
     const u = ref.unb64url;
     const hostSign = ref.signKey(u(V.keys.hostSignSeed));
     const hostBox = ref.boxKey(u(V.keys.hostBoxPriv));
@@ -196,7 +197,7 @@ for (const [family, V] of [
 
       it("accepts either header name, since the signed prefix says which family signed", async () => {
         const value = r.header.slice(`${HEADER}: `.length);
-        for (const name of ["Kith-Sig", "Codync-Sig"]) {
+        for (const name of ["Kith-Sig", LEGACY_SIG_HEADER]) {
           expect(await verifySig(req({ [name]: value }), new Uint8Array(), r.ts)).not.toBeNull();
         }
       });
@@ -205,7 +206,7 @@ for (const [family, V] of [
         const value = r.header.slice(`${HEADER}: `.length);
         // Upper-case Host is the same authority; a different host is not.
         expect(await verifySig(req({ [HEADER]: value }, r.authority.toUpperCase()), new Uint8Array(), r.ts)).not.toBeNull();
-        expect(await verifySig(req({ [HEADER]: value }, "codync-cloud.example.workers.dev"), new Uint8Array(), r.ts)).toBeNull();
+        expect(await verifySig(req({ [HEADER]: value }, "kith-cloud.example.workers.dev"), new Uint8Array(), r.ts)).toBeNull();
         expect(await verifySig(req({ [HEADER]: value }, r.authority, `${r.pathAndQuery}&pair=x`), new Uint8Array(), r.ts)).toBeNull();
         expect(await verifySig(req({ [HEADER]: value }), new Uint8Array([1]), r.ts)).toBeNull();
         expect(await verifySig(req({ [HEADER]: value.replace("v=1", "v=2") }), new Uint8Array(), r.ts)).toBeNull();

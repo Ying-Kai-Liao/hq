@@ -118,7 +118,7 @@ export async function user(c: Ctx): Promise<User> {
   return { userId: clerk.userId, email: row.email, createdAt: row.created_at };
 }
 
-/** Kith-Sig (or Codync-Sig) with D1 replay protection (§5). */
+/** Kith-Sig with D1 replay protection (§5). */
 export async function signed(c: Ctx): Promise<SignedRequest> {
   const s = await verifySig(c.req, c.raw, c.now);
   if (!s) throw new ApiError("badSignature");
@@ -267,7 +267,7 @@ export async function notify(env: Env, computerId: string, blocked: Blocked[] = 
   try {
     const res = await env.RELAY.get(env.RELAY.idFromName(computerId)).fetch(`https://do${path}`, {
       method: "POST",
-      headers: { "X-Codync-Internal": "1", "Content-Type": "application/json" },
+      headers: { "X-Kith-Internal": "1", "Content-Type": "application/json" },
       body: JSON.stringify(blocked.length ? { devices: blocked } : {}),
     });
     if (!res.ok) console.error("relay notify failed", { computerId, path, status: res.status });

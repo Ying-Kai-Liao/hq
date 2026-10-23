@@ -13,9 +13,11 @@ import { applyDockVisibility, setShowInDock, showInDock } from './dock'
 import { AccountService } from './account'
 import { Updates } from './updates'
 import { handleURL, registerAuthIPC, registerSchemes, urlFromArgv } from './auth'
+import { onInviteLink, registerInviteIPC } from './invites'
 import { registerSpeech } from './speech'
 import { registerScreenIPC } from './screen'
 import { registerCloud } from './cloud'
+import { registerRelay } from './relay/manager'
 import { registerSSH } from './ssh'
 import { QuitLifecycle } from './quit-lifecycle'
 import { Island } from './island'
@@ -32,7 +34,7 @@ function computerName() {
 }
 
 // UI checks drive the renderer over the DevTools protocol (development builds only).
-if (!app.isPackaged && process.env.CODYNC_REMOTE_DEBUG) app.commandLine.appendSwitch('remote-debugging-port', process.env.CODYNC_REMOTE_DEBUG)
+if (!app.isPackaged && process.env.KITH_REMOTE_DEBUG) app.commandLine.appendSwitch('remote-debugging-port', process.env.KITH_REMOTE_DEBUG)
 
 const host = new HostController()
 registerErrorReports(host)
@@ -73,8 +75,8 @@ function openChat() {
     titleBarStyle: isMac ? 'hidden' : 'default',
     webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: true, contextIsolation: true },
   })
-  // CODYNC_SHOW_INACTIVE: development and UI checks open the window without taking focus.
-  chat.on('ready-to-show', () => (process.env.CODYNC_SHOW_INACTIVE ? chat?.showInactive() : chat?.show()))
+  // KITH_SHOW_INACTIVE: development and UI checks open the window without taking focus.
+  chat.on('ready-to-show', () => (process.env.KITH_SHOW_INACTIVE ? chat?.showInactive() : chat?.show()))
   // Closing hides: the window keeps the stores (and the menu bar's data) alive.
   chat.on('close', (e) => quitLifecycle.closeToBackground(e, () => chat?.hide()))
   chat.on('closed', () => (chat = null))
@@ -146,7 +148,7 @@ function registerIPC(tray: Tray) {
   registerFileSaves()
   ipcMain.on('app:version', (e) => (e.returnValue = app.getVersion()))
   ipcMain.on('app:computerName', (e) => (e.returnValue = computerName()))
-  ipcMain.on('app:debugOpen', (e) => (e.returnValue = app.isPackaged ? null : (process.env.CODYNC_DEBUG_OPEN ?? null)))
+  ipcMain.on('app:debugOpen', (e) => (e.returnValue = app.isPackaged ? null : (process.env.KITH_DEBUG_OPEN ?? null)))
   ipcMain.handle('host:snapshot', () => snapshot())
   ipcMain.on('host:install', () => void host.install())
   ipcMain.on('host:restart', () => host.restart())
@@ -232,9 +234,11 @@ if (!app.requestSingleInstanceLock()) {
     registerIPC(tray)
     island.register()
     registerAuthIPC()
+    registerInviteIPC()
+    onInviteLink(() => send({ kind: 'joinInvite' }))
     registerSpeech()
     registerScreenIPC()
-    registerCloud(account)
+    registerRelay(registerCloud(account))
     registerSSH(() => BrowserWindow.getAllWindows())
     // Calls use the microphone (realtime voice); nothing else asks for permissions.
     session.defaultSession.setPermissionRequestHandler((_wc, permission, done) => done(permission === 'media' || permission === 'clipboard-sanitized-write'))

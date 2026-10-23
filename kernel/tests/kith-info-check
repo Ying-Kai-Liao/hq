@@ -111,6 +111,21 @@ check "unknown agent: exit 1 and a message" "[ $rc = 1 ] && grep -q \"no agent '
 KITH_PERSON=mallory "$KITH" echo --info-json >/dev/null 2>"$T/err"; rc=$?
 check "info-json refused for a guest run" "[ $rc = 1 ] && grep -q 'for the owner' $T/err"
 
+# kith AGENT set permission MODE: the apps' write-through; info and the next run read it back
+"$KITH" echo set permission plan 2>"$T/err"; rc=$?
+OUT=$("$KITH" echo --info-json 2>/dev/null)
+check "set permission: exit 0, info-json reads it back, settings.json keeps the choice" "[ $rc = 0 ] && is \"d['permission_mode']\" plan && grep -q '\"permission_mode\": \"plan\"' $KITH_MACHINE/settings.json"
+"$KITH" echo set permission nonsense 2>"$T/err"; rc=$?
+KEPT=$(KITH_STATE=$KITH_MACHINE python3 "$KERNEL/lib/kith_settings.py" permission_mode echo)
+check "set permission: an unknown mode is refused and changes nothing" "[ $rc = 1 ] && grep -q 'not one of' $T/err && [ $KEPT = plan ]"
+"$KITH" nope set permission auto 2>"$T/err"; rc=$?
+check "set permission: unknown agent" "[ $rc = 1 ] && grep -q \"no agent 'nope'\" $T/err"
+"$KITH" echo set model opus 2>/dev/null; rc=$?
+check "set: only permission is settable" "[ $rc = 2 ]"
+"$KITH" echo set permission '' 2>/dev/null; rc=$?
+OUT=$("$KITH" echo --info-json 2>/dev/null)
+check "set permission '': forgets the choice, kith's default applies again" "[ $rc = 0 ] && is \"d['permission_mode']\" auto"
+
 # memory --json
 OUT=$("$KITH" memory ls --agent echo --json)
 check "memory ls --json" "is \"(d['dir'] == '$A/memory', sorted(f['path'] for f in d['files']), sorted(d['files'][0]))\" \"(True, ['MEMORY.md', 'projects/alpha/plan.md'], ['bytes', 'modified', 'path'])\""

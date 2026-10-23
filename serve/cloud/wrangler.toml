@@ -1,22 +1,22 @@
-name = "codync-cloud"
+name = "kith-cloud"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
 
-# main: production at api.codync.dev (Clerk production instance)
-routes = [{ pattern = "api.codync.dev", custom_domain = true }]
+# The top level is only what the tests and `wrangler dev` run on (a local D1, no routes, no Clerk instance).
+# Nothing deploys from it: use `wrangler deploy --env kith` or `--env kith-dev`.
 
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["ComputerRelay"]
 
 [vars]
-CLERK_ISSUER = "https://clerk.codync.dev"
+CLERK_ISSUER = "https://clerk.invalid"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "codync"
-database_id = "858f4ad9-d3b5-4f3b-860f-464803a00017"
+database_name = "kith-local"
+database_id = "local"
 migrations_dir = "migrations"
 
 [[durable_objects.bindings]]
@@ -44,22 +44,12 @@ simple = { limit = 60, period = 60 }
 [triggers]
 crons = ["*/15 * * * *"]
 
-# dev: the deployed test environment at dev-api.codync.dev (Clerk development instance).
-[env.dev]
-name = "codync-cloud-dev"
-routes = [{ pattern = "dev-api.codync.dev", custom_domain = true }]
-vars = { CLERK_ISSUER = "https://sunny-mollusk-8651.clerk.accounts.dev" }
-d1_databases = [{ binding = "DB", database_name = "codync-dev", database_id = "0c03c398-3cec-4f06-a76e-998176ca19ae", migrations_dir = "migrations" }]
-durable_objects.bindings = [{ name = "RELAY", class_name = "ComputerRelay" }]
-ratelimits = [{ name = "REGISTER_LIMITER", namespace_id = "1002", simple = { limit = 10, period = 60 } }, { name = "TURN_LIMITER", namespace_id = "1012", simple = { limit = 12, period = 60 } }, { name = "HOOK_LIMITER", namespace_id = "1022", simple = { limit = 60, period = 60 } }]
-triggers = { crons = ["*/15 * * * *"] }
-
 # local: wrangler dev / e2e with a local D1; CLERK_JWT_KEY is injected by the test (--var).
 [env.local]
-name = "codync-cloud-local"
+name = "kith-cloud-local"
 routes = []
 vars = { CLERK_ISSUER = "https://clerk.test.local" }
-d1_databases = [{ binding = "DB", database_name = "codync-local", database_id = "local", migrations_dir = "migrations" }]
+d1_databases = [{ binding = "DB", database_name = "kith-local", database_id = "local", migrations_dir = "migrations" }]
 durable_objects.bindings = [{ name = "RELAY", class_name = "ComputerRelay" }]
 ratelimits = [{ name = "REGISTER_LIMITER", namespace_id = "1003", simple = { limit = 10, period = 60 } }, { name = "TURN_LIMITER", namespace_id = "1013", simple = { limit = 12, period = 60 } }, { name = "HOOK_LIMITER", namespace_id = "1023", simple = { limit = 60, period = 60 } }]
 

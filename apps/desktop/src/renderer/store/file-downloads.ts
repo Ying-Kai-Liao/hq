@@ -19,7 +19,7 @@ export class FileDownloads {
     job.cancelled = true
     this.jobs.delete(id)
     this.states.delete(id)
-    if (job.handle) void window.codync.files.cancel(job.handle).catch(console.error)
+    if (job.handle) void window.kith.files.cancel(job.handle).catch(console.error)
     this.changed()
   }
 
@@ -35,7 +35,7 @@ export class FileDownloads {
     try {
       validateSharedFile(file)
       if (!client) throw new Error('Connect to this computer to download the file')
-      job.handle = await window.codync.files.begin(file)
+      job.handle = await window.kith.files.begin(file)
       if (!job.handle || !alive()) return
       let offset = 0
       // The empty file still performs an authenticated read and verifies its digest.
@@ -43,19 +43,19 @@ export class FileDownloads {
         const chunk = await client.readFile(entryId, file.id, offset)
         if (!alive()) return
         const bytes = decodeFileChunk(chunk, file.size, offset)
-        if (bytes.length) await window.codync.files.write(job.handle, offset, bytes)
+        if (bytes.length) await window.kith.files.write(job.handle, offset, bytes)
         if (!alive()) return
         offset += bytes.length
         this.states.set(file.id, { kind: 'downloading', received: offset })
         this.changed()
       } while (offset < file.size)
       if (!alive()) return
-      await window.codync.files.finish(job.handle)
+      await window.kith.files.finish(job.handle)
       if (alive()) this.states.set(file.id, { kind: 'saved' })
     } catch (error) {
       if (alive()) this.states.set(file.id, { kind: 'failed', message: error instanceof Error ? error.message : String(error) })
     } finally {
-      if (job.handle) await window.codync.files.cancel(job.handle).catch(console.error)
+      if (job.handle) await window.kith.files.cancel(job.handle).catch(console.error)
       if (this.jobs.get(file.id) === job) {
         this.jobs.delete(file.id)
         if (this.states.get(file.id)?.kind === 'downloading') this.states.delete(file.id)

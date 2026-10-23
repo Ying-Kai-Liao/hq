@@ -157,15 +157,16 @@ function Projects({ info, failed }: { info: KithInfo; failed: boolean }) {
   )
 }
 
+/** Model, effort and permission are in the bot's settings (hq-backed rows, once); what is left here is the harness. */
 function ModelAndPermissions({ info }: { info: KithInfo }) {
   const rows: [string, string | null][] = [
-    ['Model', info.model], ['Effort', info.effort], ['Permission', info.permissionMode], ['Harness', info.harness],
+    ['Harness', info.harness],
     ['Read-only', info.readOnly ? 'yes' : null],
   ]
   const shown = rows.filter(([, v]) => v)
   if (!shown.length) return null
   return (
-    <Section title="Model & permissions">
+    <Section title="Harness">
       <div className="outlined-card kith-card">
         {shown.map(([label, value]) => (
           <div key={label} className="kith-model"><span>{label}</span><span className="kith-muted">{value}</span></div>

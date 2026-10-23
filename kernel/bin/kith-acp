@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""kith-acp — run a kith agent as an ACP agent (Agent Client Protocol), for clients like Codync.
+"""kith-acp — run a kith agent as an ACP agent (Agent Client Protocol), for ACP clients.
 
   kith acp <agent> [--keep team,…]
 
 Client -> this filter -> claude-agent-acp -> adapters/acp/claude-via-kith -> `kith <agent>` -> claude.
 
-The filter drops what Codync adds to every session (its instructions in `_meta.systemPrompt` and its MCP servers:
+The filter drops what the client adds to every session (its instructions in `_meta.systemPrompt` and its MCP servers:
 memory, team, routines, connectors, chat), so the agent runs with kith's own prompt, tools and memory only. `--keep`
-lets the named servers through (team, for bot-to-bot work). Codync's memory keeper (a summary run with a
+lets the named servers through (team, for bot-to-bot work). The client's memory keeper (a summary run with a
 plain-string system prompt) passes through and runs on plain claude, not as the agent.
 
-One session per chat: Codync runs a bot's group turns in the bot's own session, so the bot's 1:1 chat and every
+One session per chat: the client runs a bot's group turns in the bot's own session, so the bot's 1:1 chat and every
 group share one context. Here each group gets its own agent session, made on its first turn and kept in
 <machine>/acp/<agent>.json so a restart resumes it. The client never sees those sessions: their updates and
 permission requests reach it under the session it prompted, and its model and option changes apply to them too.
 Threads inside one group share the group's session (the prompt doesn't say which thread).
 
-Logs: <logs>/acp/ (filter.log, args.jsonl, dropped-<agent>.json: what Codync would have given the bot)."""
+Logs: <logs>/acp/ (filter.log, args.jsonl, dropped-<agent>.json: what the client would have given the bot)."""
 import json, os, queue, re, subprocess, sys, threading, time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
@@ -24,7 +24,7 @@ from kith_paths import paths  # noqa: E402  the one place that knows where kith'
 
 ADAPTER = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'adapters', 'acp')
 SESSION = {"session/new", "session/load", "session/fork", "session/resume"}
-# Codync's room turn (chat/group.rs member_prompt): "You are X, one participant in a group chat (…" and a header line.
+# The client's room turn (chat/group.rs member_prompt): "You are X, one participant in a group chat (…" and a header line.
 GROUP = re.compile(r'^\[Group chat: "(.+?)"(?:, in a thread)? - with ', re.M)
 # Client settings that belong to a session; replayed onto the group sessions.
 SETTINGS = {"session/set_model", "session/set_config_option", "session/set_mode"}
@@ -111,7 +111,7 @@ class Filter:
         system = meta.pop("systemPrompt", None) if isinstance(meta, dict) else None
         if system is not None:
             dropped.append("systemPrompt")
-        # Kept for study (Kai, 2026-10-19): what Codync would have given this bot.
+        # Kept for study (Kai, 2026-10-19): what the client would have given this bot.
         if servers or system is not None:
             with open(os.path.join(self.logs, f"dropped-{self.agent}.json"), "w") as f:
                 json.dump({"t": time.strftime("%FT%T"), "method": msg["method"], "mcpServers": servers,

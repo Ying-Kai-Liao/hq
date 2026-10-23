@@ -3,7 +3,7 @@ import { Icon } from '../components/Icon'
 import { Text } from '../components/Text'
 import { useApp } from '../store/context'
 
-const isMac = window.codync.platform === 'darwin'
+const isMac = window.kith.platform === 'darwin'
 
 /** What stands between this computer and the chat, with the one action that fixes it. */
 export function HostStateView({ compact = false }: { compact?: boolean }) {
@@ -11,11 +11,11 @@ export function HostStateView({ compact = false }: { compact?: boolean }) {
   const state = app.host.state
   switch (state.kind) {
     case 'notInstalled':
-      return <EmptyState compact={compact} icon="desktopcomputer" title={`Set up this ${isMac ? 'Mac' : 'computer'}`} message={`Kith runs your coding agents through the host, a small background service on this ${isMac ? 'Mac' : 'computer'}.`} action={['Install host', () => window.codync.host.install()]} />
+      return <EmptyState compact={compact} icon="desktopcomputer" title={`Set up this ${isMac ? 'Mac' : 'computer'}`} message={`Kith runs your coding agents through the host, a small background service on this ${isMac ? 'Mac' : 'computer'}.`} action={['Install host', () => window.kith.host.install()]} />
     case 'missingBinary':
-      return <EmptyState compact={compact} icon="desktopcomputer.trianglebadge.exclamationmark" title="The host is missing" message={window.codync.appScheme === 'kith-dev' ? 'Rebuild Kith Dev with its development host, then open it again.' : "This copy of Kith doesn't include its host. Download Kith again from github.com/Ying-Kai-Liao/kith."} />
+      return <EmptyState compact={compact} icon="desktopcomputer.trianglebadge.exclamationmark" title="The host is missing" message={window.kith.appScheme === 'kith-dev' ? 'Rebuild Kith Dev with its development host, then open it again.' : "This copy of Kith doesn't include its host. Download Kith again from github.com/Ying-Kai-Liao/kith."} />
     case 'failed':
-      return <EmptyState compact={compact} icon="desktopcomputer.trianglebadge.exclamationmark" title="The host isn't running" message={state.message} action={['Try again', () => window.codync.host.restart()]} />
+      return <EmptyState compact={compact} icon="desktopcomputer.trianglebadge.exclamationmark" title="The host isn't running" message={state.message} action={['Try again', () => window.kith.host.restart()]} />
     default:
       return <EmptyState compact={compact} icon="desktopcomputer" title="Starting the host…" message="This takes a few seconds." />
   }

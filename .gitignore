@@ -17,7 +17,7 @@ apps/desktop/build/
 .swiftpm/
 Package.resolved
 # Xcode Cloud resolves packages only from the checked-in pins
-!apps/Codync.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+!apps/Kith.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 *.p8
 .dev.vars
 .wrangler/

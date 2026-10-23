@@ -10,7 +10,7 @@ import { useAccount } from '../store/account'
 import googleLogo from '../assets/google.svg'
 import './account-welcome.css'
 
-const deviceName = window.codync.platform === 'darwin' ? 'Mac' : 'computer'
+const deviceName = window.kith.platform === 'darwin' ? 'Mac' : 'computer'
 
 /** First-run account choice. A restored session skips this screen as soon as it is back. */
 export function AccountWelcomeView({ onContinue }: { onContinue: () => void }) {

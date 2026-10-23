@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { InviteJoinSheet } from './settings/InviteJoinSheet'
 import type { WindowCommand } from '@shared/ipc'
 import { isSSHConnecting, showsChat as shouldShowChat } from '@shared/ssh-startup'
 import { draftOf, type Bot, type BotDraft } from '@shared/models'
@@ -51,7 +52,7 @@ export function ChatWindow() {
 
   useEffect(
     () =>
-      window.codync.app.onCommand((c: WindowCommand) => {
+      window.kith.app.onCommand((c: WindowCommand) => {
         switch (c.kind) {
           case 'computerAccess':
             return setShowAccess(true)
@@ -125,10 +126,11 @@ export function ChatWindow() {
         open={confirmReset}
         title="Reset all data?"
         message="Signs out every account and deletes this computer's bots, conversations, keys and settings. Kith then starts over from the welcome screen."
-        actions={[{ title: 'Reset everything', destructive: true, action: () => void window.codync.app.resetAllData() }]}
+        actions={[{ title: 'Reset everything', destructive: true, action: () => void window.kith.app.resetAllData() }]}
         onClose={() => setConfirmReset(false)}
       />
       {/* Approving a device: the code the device shows must match (spec §4.2 B). Closing puts it off. */}
+      <InviteJoinSheet />
       <Sheet open={approval !== null} onClose={() => approval && app.deferApproval(approval)}>
         {approval ? <ApprovalSheet key={approval.id} approval={approval} /> : null}
       </Sheet>
@@ -218,7 +220,7 @@ function ChatSplitView() {
 
   useEffect(
     () =>
-      window.codync.app.onCommand((c) => {
+      window.kith.app.onCommand((c) => {
         if (c.kind === 'newChat' && onlineStores.length) compose()
         if (c.kind === 'search') setSearching(true)
         if (c.kind === 'toggleSidebar') setCompact(!prefs.sidebarCompact.get())
@@ -228,7 +230,7 @@ function ChatSplitView() {
   // Screenshot/UI checks (development builds): open a screen at launch.
   const debugOpened = useRef(false)
   useEffect(() => {
-    const target = window.codync.debugOpen
+    const target = window.kith.debugOpen
     if (!target || debugOpened.current) return
     if (target === 'compose' || target === 'group') {
       if (!onlineStores.length) return
@@ -260,7 +262,7 @@ function ChatSplitView() {
     { title: bot.pinned ? 'Unpin' : 'Pin', icon: 'pin', action: () => store.setPinned(bot, !bot.pinned) },
     { title: 'Mark as Read', icon: 'bell.badge', action: () => store.markAllRead(bot.id) },
     { title: 'Edit Profile…', icon: 'square.and.pencil', divider: true, action: () => setEditing({ id: crypto.randomUUID(), draft: draftOf(bot), store }) },
-    { title: 'Copy conversation ID', icon: 'square.on.square', divider: true, action: () => window.codync.app.copy(bot.id) },
+    { title: 'Copy conversation ID', icon: 'square.on.square', divider: true, action: () => window.kith.app.copy(bot.id) },
     { title: 'New session', icon: 'arrow.counterclockwise', action: () => setNewSessionBot({ bot, store }) },
     { title: 'Hide from sidebar', icon: 'eye.slash', divider: true, action: () => store.setHidden(bot, true) },
     { title: 'Delete', icon: 'trash', destructive: true, action: () => setConfirmDelete({ bot, store }) },

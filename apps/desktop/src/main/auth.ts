@@ -1,5 +1,6 @@
 import { app, ipcMain, shell } from 'electron'
 import { identity } from './environment'
+import { handleInviteURL } from './invites'
 
 // Browser sign-ins that come back to this app on a custom scheme (ASWebAuthenticationSession's
 // job on the iPhone): connector OAuth (`kith://oauth`) and the account (`kith://callback`).
@@ -29,6 +30,8 @@ export function registerSchemes() {
 
 /** A URL on one of our schemes reached the app (open-url, or a second instance's argv). */
 export function handleURL(url: string) {
+  // An invite link is not a sign-in return: the window runs the join (main/invites.ts).
+  if (handleInviteURL(url, SCHEMES)) return
   const scheme = url.split(':')[0]?.toLowerCase()
   if (pending && scheme === pending.scheme.toLowerCase()) {
     clearTimeout(pending.timer)

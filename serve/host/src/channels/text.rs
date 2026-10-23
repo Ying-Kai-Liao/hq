@@ -87,7 +87,12 @@ pub fn context_pct(res: &Value) -> Option<f64> {
         .values()
         .filter(|m| num(m, "contextWindow") > 0.0)
         .max_by(|a, b| total(a).total_cmp(&total(b)))?;
-    Some(100.0 * used / num(main, "contextWindow"))
+    used_pct(used, num(main, "contextWindow"))
+}
+
+/// Percent of a `size`-token window that `used` tokens fill; None when the size is unknown (0).
+pub fn used_pct(used: f64, size: f64) -> Option<f64> {
+    (size > 0.0).then(|| 100.0 * used / size)
 }
 
 /// The last `n` characters of `s`.
