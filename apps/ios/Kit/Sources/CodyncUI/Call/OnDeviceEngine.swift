@@ -22,6 +22,13 @@ class OnDeviceEngine: VoiceEngine {
     private(set) var heard = ""
     /// The reply being read aloud.
     private(set) var said = ""
+    /// What was said on this call, for the call screen's captions.
+    var transcript = CallTranscript()
+    var captions: [CallCaption] { transcript.lines }
+    var supportsSpeaker: Bool { true }
+    /// Speaker rather than earpiece; kept so a route change (AirPods off) can put it back.
+    private var speakerOn = true
+    @ObservationIgnored private var routeObserver: (any NSObjectProtocol)?
     /// Microphone loudness, 0…1, while listening.
     private(set) var level: Float = 0
     /// A note under the call bar that doesn't end the call (a clip that couldn't be made).
@@ -88,16 +95,37 @@ class OnDeviceEngine: VoiceEngine {
         guard !ended else { return }
         do {
             let audio = AVAudioSession.sharedInstance()
-            try audio.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+            // The speaker is an override (`setSpeaker`), not the category's default, so the earpiece stays possible.
+            try audio.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
             try audio.setActive(true)
+            applyRoute()
+            routeObserver = NotificationCenter.default.addObserver(
+                forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+            ) { [weak self] _ in Task { @MainActor in self?.applyRoute() } }
         } catch {
             return fail("Couldn't start audio: \(error.localizedDescription)")
         }
         listen()
     }
 
+    func setSpeaker(_ on: Bool) {
+        speakerOn = on
+        applyRoute()
+    }
+
+    /// The speaker override unless headphones or Bluetooth are connected: they keep the call.
+    private func applyRoute() {
+        guard !ended else { return }
+        let audio = AVAudioSession.sharedInstance()
+        let external: Set<AVAudioSession.Port> = [.headphones, .bluetoothA2DP, .bluetoothHFP, .bluetoothLE, .usbAudio, .carAudio, .airPlay]
+        let connected = audio.currentRoute.outputs.contains { external.contains($0.portType) }
+        try? audio.overrideOutputAudioPort(speakerOn && !connected ? .speaker : .none)
+    }
+
     func end() {
         ended = true
+        if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
+        routeObserver = nil
         onActivityChanged?(false)
         stopListening()
         synthesizer.stopSpeaking(at: .immediate)
@@ -110,6 +138,7 @@ class OnDeviceEngine: VoiceEngine {
         guard !ended, !text.isEmpty, phase != .starting, !(phase.isFailed) else { return }
         stopListening()
         said = text
+        transcript.bot(text)
         phase = .speaking
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = Self.voice(for: text)
@@ -214,7 +243,10 @@ class OnDeviceEngine: VoiceEngine {
     private func submit() {
         let text = heard.trimmingCharacters(in: .whitespacesAndNewlines)
         stopListening()
-        if !text.isEmpty { send(text) }
+        if !text.isEmpty {
+            transcript.you(text)
+            send(text)
+        }
         // Keep listening while the bot works: more messages fold into its next turn.
         if phase == .speaking { restartListening() } else { listen() }
     }

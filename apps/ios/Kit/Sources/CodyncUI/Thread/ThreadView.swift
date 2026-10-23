@@ -19,8 +19,6 @@ public struct ThreadView: View {
     @State var confirmNewSession = false
     @State var confirmDelete: Bot?
     @State var calling = false
-    @State var callSpeaking = false
-    @State var interruptCall: (() -> Void)?
     /// The chat stays on the newest message until the reader scrolls away.
     @State var following = true
     @State var loadingEarlier = false
@@ -49,24 +47,29 @@ public struct ThreadView: View {
                         .padding(.bottom, 8)
                         .transition(.opacity)
                 } else {
-                    Composer(botId: botId,
-                             onCall: !calling && bot != nil ? { calling = true } : nil,
-                             onInterrupt: callSpeaking ? interruptCall : nil)
+                    Composer(botId: botId, onCall: callBlock == nil ? { startCall() } : nil)
                 }
             }
             .animation(Motion.reduced(Motion.layout, reduceMotion), value: model.mismatch)
         }
-        // Grok Bot's call: a bar floating over the chat, which stays readable and usable.
-        .overlay(alignment: .top) {
-            if calling {
-                CallView(botId: botId, isSpeaking: $callSpeaking, interrupt: $interruptCall) {
-                    withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { calling = false }
-                }
-                    .padding(.top, 4)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
+        // The call takes the whole screen; ending it, or leaving this chat, comes back here.
+        .fullScreenCover(isPresented: $calling) {
+            CallScreen(botId: botId) { calling = false }
         }
-        .animation(Motion.reduced(Motion.layout, reduceMotion), value: calling)
+    }
+
+    /// Why a call can't start now; nil when it can. The phone and header buttons show it.
+    var callBlock: String? {
+        if bot == nil { return "This chat is no longer available." }
+        if model.isOffline { return "\(model.hostName) is offline." }
+        if model.mismatch != nil { return "Update Kith to make calls." }
+        return nil
+    }
+
+    /// One call at a time: a second tap while the screen is coming up does nothing.
+    func startCall() {
+        guard callBlock == nil, !calling else { return }
+        calling = true
     }
 
     var conversation: some View {
@@ -83,7 +86,14 @@ public struct ThreadView: View {
             }
             .codyncSheet(item: $botChat) { BotConversationView(botId: botId, peerId: $0.id) }
             .codyncSheet(item: $details) { request in
-                BotDetailsView(botId: botId, request: request)
+                BotDetailsView(botId: botId, request: request, call: CallAction(blocked: callBlock) {
+                    // The call screen can only rise once the sheet is gone.
+                    details = nil
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(450))
+                        startCall()
+                    }
+                })
             }
             .codyncSheet(isPresented: $editingGroup) {
                 GroupEditorView(group: bot)
@@ -429,6 +439,7 @@ extension ThreadView {
                     }
                     .layoutPriority(1)
                 }
+                ToolbarItem(placement: .topBarTrailing) { callButton }
                 if model.screen != nil {
                     ToolbarItem(placement: .topBarTrailing) { computerButton }
                 }
@@ -456,6 +467,14 @@ extension ThreadView {
 
     private func openDetails() {
         if bot?.isGroup == true { editingGroup = true } else { details = DetailsRequest() }
+    }
+
+    /// Starts a voice call; disabled, with the reason as its hint, when none can start.
+    private var callButton: some View {
+        Button("Call", systemImage: "phone.fill", action: startCall)
+            .disabled(callBlock != nil || calling)
+            .accessibilityHint(callBlock ?? "")
+            .help(callBlock ?? "Call \(bot?.name ?? "")")
     }
 
     /// Opens the computer's screen; pulses while this bot is operating it (watch, then take over).
