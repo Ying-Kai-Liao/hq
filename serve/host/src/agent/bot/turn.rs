@@ -6,6 +6,7 @@ use crate::analytics::{self, TurnOutcome, TurnSource};
 use crate::channels::text::used_pct;
 use crate::chat::context::{self, Snapshot};
 use crate::chat::memory;
+use crate::chat::tasks::TaskState;
 use crate::hub::BotStatus;
 use crate::remote::push::{self, AlertKind};
 use crate::store::{EntryKind, Lane, now_ms};
@@ -197,6 +198,7 @@ impl Actor {
             }
         }
         self.lane = lane.clone();
+        self.hub.set_task_status(&lane, TaskState::Working);
         if !hidden {
             memory::summary::resume(&self.hub, &lane);
         }
@@ -524,6 +526,7 @@ impl Actor {
         } else {
             Ok(final_text.clone())
         });
+        self.hub.set_task_status(&self.lane, TaskState::after_turn(stopped, failed, &stop_reason));
         self.release_turn_claim();
         self.turn = None;
         if self.routine_completion.is_none() {

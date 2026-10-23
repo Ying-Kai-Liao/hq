@@ -106,7 +106,9 @@ private struct SharedImageViewer: View {
 
     private static func copy(_ data: Data, named name: String) -> URL? {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("KithShare-\(UUID().uuidString)", isDirectory: true)
-        let url = folder.appendingPathComponent(name)
+        // A name with a path in it would write outside the folder, or fail and leave the viewer without Share.
+        let leaf = (name as NSString).lastPathComponent
+        let url = folder.appendingPathComponent(leaf.isEmpty ? "image" : leaf)
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try data.write(to: url)

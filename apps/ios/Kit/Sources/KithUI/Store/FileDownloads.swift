@@ -20,6 +20,12 @@ public final class FileDownloads {
         public let url: URL
         public let botId: String
         public let threadId: String?
+
+        /// The chat presents the sheet unless the file's own thread screen is open, which presents it instead.
+        /// A task's replies render inline in the chat, so a thread file is the chat's whenever its thread is closed.
+        public func isPresentedByChat(openThread: String?) -> Bool {
+            threadId == nil || threadId != openThread
+        }
     }
     public private(set) var states: [String: State] = [:]
     public var export: Export?

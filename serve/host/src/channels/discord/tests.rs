@@ -789,3 +789,14 @@ async fn big_attachments_are_left_out_with_a_note_and_same_named_ones_both_stay(
     assert!(r.hq_calls()[0]["task"].as_str().unwrap().contains("(file too big: big.bin)"));
     r.idle().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_strangers_files_are_not_downloaded() {
+    let r = Rig::new().await.started().await;
+    let house = r.channel("house");
+    let host = r.fd.st.locked().host.clone();
+    let files = json!({"attachments": [{"id": "1", "filename": "note.txt", "url": format!("{host}/cdn/note.txt")}]});
+    let id = r.fd.say(&house, "424242", "read this", &files, true, None);
+    tokio::time::sleep(Duration::from_millis(800)).await; // time to (not) download
+    assert!(!r.core.attachments_dir(CONN).join(&id).exists());
+}

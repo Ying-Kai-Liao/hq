@@ -39,6 +39,7 @@
 #![allow(dead_code)] // the adapters (next packages) use what is not called yet
 
 mod adapter;
+mod attachments;
 mod core;
 mod discord;
 pub(crate) mod hq;
@@ -99,6 +100,7 @@ async fn run(hub: Arc<Hub>) {
     // A channel run can ring the person it serves (see `calls::run_env`).
     let calls_hub = hub.clone();
     let _ = core.call_env.set(Box::new(move |agent, person| crate::calls::run_env(&calls_hub, agent, person)));
+    tokio::spawn(attachments::prune_daily(core.attachments_root()));
     manager::Manager::new(core, Registry::builtin(), manager::Backoff::default()).run().await;
 }
 

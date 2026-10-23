@@ -62,3 +62,14 @@ private actor DelayedFileTransport: HostTransport {
         try image.write(to: URL(fileURLWithPath: directory).appendingPathComponent("iphone-\(scheme == .dark ? "dark" : "light").png"))
     }
 }
+
+@Test func exportSheetHasExactlyOnePresenter() {
+    func export(_ thread: String?) -> FileDownloads.Export {
+        .init(id: "f", url: URL(fileURLWithPath: "/tmp/f"), botId: "b", threadId: thread)
+    }
+    #expect(export(nil).isPresentedByChat(openThread: nil))
+    #expect(export(nil).isPresentedByChat(openThread: "t"))
+    #expect(export("t").isPresentedByChat(openThread: nil))
+    #expect(export("t").isPresentedByChat(openThread: "other"))
+    #expect(!export("t").isPresentedByChat(openThread: "t"))
+}

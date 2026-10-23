@@ -79,7 +79,8 @@ public struct ThreadView: View {
         chrome(chat)
             .readingConversation(botId)
             .kithSheet(item: Binding<FileDownloads.Export?>(get: {
-                guard let item = model.fileDownloads.export, item.botId == botId, item.threadId == nil else { return nil }
+                guard let item = model.fileDownloads.export, item.botId == botId,
+                      item.isPresentedByChat(openThread: openThread?.id) else { return nil }
                 return item
             }, set: { if $0 == nil { model.fileDownloads.dismissExport() } })) { item in
                 FileExportSheet(url: item.url) { model.fileDownloads.dismissExport() }
