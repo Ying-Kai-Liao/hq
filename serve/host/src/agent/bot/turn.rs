@@ -325,7 +325,7 @@ impl Actor {
             }
         }
         let sid = self.turn_session.clone().ok_or_else(|| anyhow!("no session"))?;
-        self.claim_for_turn(&sid, lane)?;
+        self.claim_for_turn(&sid, lane).await?;
         let prompt =
             if std::mem::take(&mut self.raw_prompt) { text.to_owned() } else { self.compose(&sid, text).await? };
         self.hub.set_runtime(&self.rt, |r| r.activity = "Thinking…".into());
@@ -353,11 +353,11 @@ impl Actor {
         Ok(())
     }
 
-    /// While a turn runs in a thread, the agent process holds the session: a writer claim for its pid keeps a terminal
+    /// While a turn runs (in a thread or the main chat), the agent process holds the session: a writer claim for its pid keeps a terminal
     /// out, also after a host crash leaves the process behind (the claim is live as long as the process is).
-    fn claim_for_turn(&mut self, sid: &str, lane: &Lane) -> Result<()> {
+    async fn claim_for_turn(&mut self, sid: &str, lane: &Lane) -> Result<()> {
         self.release_turn_claim();
-        let Some(pid) = self.conn.as_ref().and_then(|c| c.acp.pid()).filter(|_| lane.thread.is_some()) else {
+        let Some(pid) = self.conn.as_ref().and_then(|c| c.acp.pid()) else {
             return Ok(());
         };
         let state = self.hub.terminal.env().state;
@@ -365,7 +365,12 @@ impl Actor {
         let bot =
             lane.thread.as_deref().is_some_and(|r| self.hub.store.bot_conversation_of_thread(&lane.chat, r).is_some());
         let kind = if bot { crate::terminal::claim::Kind::Bot } else { crate::terminal::claim::Kind::App };
-        match crate::terminal::claim::take(&state, sid, kind, pid, false) {
+        // flock and `ps` block: not on an async worker thread.
+        let (st, id) = (state, sid.to_owned());
+        let taken = tokio::task::spawn_blocking(move || crate::terminal::claim::take(&st, &id, kind, pid, false))
+            .await
+            .unwrap_or_else(|e| Err(std::io::Error::other(e)));
+        match taken {
             Ok(Ok(())) => self.turn_claim = Some((sid.to_owned(), pid)),
             // A terminal got in between the start check and here: it keeps the session.
             Ok(Err(held)) if held.0.pid == pid => self.turn_claim = Some((sid.to_owned(), pid)),
