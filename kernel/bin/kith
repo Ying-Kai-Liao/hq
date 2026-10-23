@@ -482,7 +482,8 @@ s.setdefault("permissions", {}).setdefault("deny", []).extend(
 # is the only guard. The kernel CLIs run in Bash and are unaffected.
 roots = list(dict.fromkeys(r for k in ("KITH_STATE", "KITH_MACHINE") for r in (os.environ[k], os.path.realpath(os.environ[k]))))
 sensitive = ["secrets/**", "serve/token", "serve/identity.json", "serve/*.db", "serve/*.db-*", "browsers/**", "bridge/**",
-             "index/**"]   # the memory index holds every audience, not only yours: reached only through `kith recall`
+             "index/**",   # the memory index holds every audience, not only yours: reached only through `kith recall`
+             "memory.db*"]   # the history, and the promotion approvals kith_facets trusts: written by `kith memory` only
 for r in roots:
     for f in sensitive:
         for tool in ("Read", "Edit"):

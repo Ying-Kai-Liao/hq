@@ -49,6 +49,42 @@ check "frontmatter can narrow the audience" "[ \"\$(F \"print(k.facets_for('peop
 check "frontmatter cannot widen the audience" "[ \"\$(F \"print(k.facets_for('MEMORY.md','echo','---\\naudience: shared\\n---\\nx')['audience'])\")\" = owner ]"
 check "junk facets read as owner-only" "[ \"\$(F \"print(k.facets_for('x.md','echo','---\\naudience: person:../x\\n---\\n')['audience'])\")\" = owner ]"
 
+# promotion: a wider audience in the frontmatter counts only with a recorded, approved, not undone change
+python3 - "$KITH_STATE/memory.db" <<'PY'
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.executescript("""
+CREATE TABLE memory_dreams (id INTEGER PRIMARY KEY, bot TEXT, at INTEGER, undone INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE hq_promotions (id INTEGER PRIMARY KEY, agent TEXT, file TEXT, audience TEXT, status TEXT, dream INTEGER);
+INSERT INTO memory_dreams VALUES (1, 'echo', 0, 0), (2, 'echo', 0, 1);
+INSERT INTO hq_promotions VALUES (1, 'echo', 'MEMORY.md', 'shared', 'approved', 1),
+  (2, 'echo', 'MEMORY.md', 'shared', 'pending', NULL), (3, 'echo', 'MEMORY.md', 'shared', 'approved', 2),
+  (4, 'other', 'MEMORY.md', 'shared', 'approved', 1), (5, 'echo', 'people/sam/n.md', 'room:grp1', 'applied', 1),
+  (6, 'echo', 'sup.md', 'shared', 'approved', 1), (7, 'echo', 'sup.md', 'owner', 'applied', 1);
+""")
+db.commit()
+PY
+wide() { F "print(k.facets_for('${3:-MEMORY.md}','echo','---\\naudience: $2\\napproved_change: $1\\n---\\nx')['audience'])"; }
+check "an approved change lets the wider audience be read" "[ \"\$(wide 1 shared)\" = shared ]"
+check "a made-up change id does not" "[ \"\$(wide 99 shared)\" = owner ]"
+check "a pending change does not" "[ \"\$(wide 2 shared)\" = owner ]"
+check "an undone change does not" "[ \"\$(wide 3 shared)\" = owner ]"
+check "another agent's change does not" "[ \"\$(wide 4 shared)\" = owner ]"
+check "a change approved for another audience does not" "[ \"\$(wide 1 room:grp1)\" = owner ]"
+check "a change for another note does not" "[ \"\$(wide 1 shared people/sam/other.md)\" = person:sam ]"
+check "an approval a newer change superseded does not come back" "[ \"\$(wide 6 shared sup.md)\" = owner ]"
+check "an applied narrowing is read" "[ \"\$(wide 5 room:grp1 people/sam/n.md)\" = room:grp1 ]"
+check "the hand-edited wider frontmatter is still ignored" "[ \"\$(F \"print(k.facets_for('MEMORY.md','echo','---\\naudience: shared\\n---\\nx')['audience'])\")\" = owner ]"
+# the audience order (twin of crates/memory/src/tidy/promote.rs): from to allowed
+W() { F "print(k.within('$2', '$1', {'duo': ['owner', 'sam'], 'trio': ['sam', 'eve']}))"; }
+for row in "owner owner True" "room:trio owner True" "shared person:sam True" "person:sam owner True" "owner shared False" \
+  "owner person:sam False" "person:sam person:eve False" "person:sam shared False" "person:sam room:duo True" \
+  "person:sam room:trio False" "room:trio person:sam True" "room:trio room:duo True" "room:duo room:trio False" "person:sam room:nowhere False" \
+  "room:nowhere owner True" "room:nowhere room:nowhere True" "room:nowhere person:sam False"; do
+  set -- $row
+  check "within $1 -> $2 is $3" "[ \"\$(W $1 $2)\" = $3 ]"
+done
+
 # index files and modes
 "$R" index rebuild >/dev/null
 DB=$KITH_STATE/index/memory.db
@@ -113,6 +149,7 @@ check "a missing index is built on first recall, private" "env KITH_AGENT=echo \
 # the deny rule for every run
 "$KERNEL/bin/kith" echo --launch-json >"$T/launch.json" 2>"$T/err"
 check "settings deny Read and Edit of the index" "python3 -c 'import json,sys; d=json.load(open(\"$T/launch.json\"))[\"settings\"][\"permissions\"][\"deny\"]; sys.exit(0 if any(r.startswith(\"Read(\") and r.endswith(\"/index/**)\") for r in d) and any(r.startswith(\"Edit(\") and r.endswith(\"/index/**)\") for r in d) else 1)'"
+check "settings deny Read and Edit of memory.db (the approval proof)" "python3 -c 'import json,sys; d=json.load(open(\"$T/launch.json\"))[\"settings\"][\"permissions\"][\"deny\"]; sys.exit(0 if any(r.startswith(\"Read(\") and r.endswith(\"/memory.db*)\") for r in d) and any(r.startswith(\"Edit(\") and r.endswith(\"/memory.db*)\") for r in d) else 1)'"
 
 # a guest run asks the host (KITH_RUN_TOKEN + KITH_RUN_SOCKET): the transport never reads the index
 cat > "$T/fake-host.py" <<'PY'
