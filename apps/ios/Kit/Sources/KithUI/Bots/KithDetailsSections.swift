@@ -17,390 +17,282 @@ func kithBytes(_ n: Int) -> String {
     ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .file)
 }
 
-/// The caption under a kith bot's name: `kith · house` and the package chip. Long-press for where the package comes from.
+/// The package chip under a kith bot's name, mono: `kith · coder 1.4`. Opens a menu of where the package comes from
+/// (changes, unpushed, pinned, version).
 struct KithIdentityLine: View {
     let agent: String
     let store: KithInfoStore
 
     var body: some View {
-        HStack(spacing: 6) {
-            Text("kith · \(agent)")
-            if store.info?.errors["package"] != nil {
-                Text("Couldn't read the package").font(.caption)
-            } else if let package = store.info?.package, let chip = package.chip {
-                Text(chip)
-                    .font(.caption.monospaced())
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(Palette.surface, in: Capsule())
-                    .contextMenu {
-                        if let remote = package.remote { Text(remote) }
-                        if package.dirty { Text("Uncommitted changes") }
-                        if package.unpushed { Text("Not pushed") }
-                        if let pinned = package.pinned { Text("Pinned to \(pinned)") }
-                        Text("Package version \(package.version ?? chip)")
-                    }
-            }
-        }
-        .font(.footnote)
-        .foregroundStyle(Palette.secondary)
-    }
-}
-
-/// A titled outlined card, like the Computer switch above the routines.
-private struct KithCard<Content: View>: View {
-    let title: String
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Palette.text)
-                .padding(.leading, 2)
-                .accessibilityAddTraits(.isHeader)
-            VStack(alignment: .leading, spacing: 10) { content }
-                .outlinedCard()
-        }
-    }
-}
-
-/// A part kith couldn't read: said quietly instead of showing nothing.
-private struct KithUnreadable: View {
-    let title: String
-    let thing: String
-
-    var body: some View {
-        KithCard(title: title) {
-            Text("Couldn't read \(thing)").font(.footnote).foregroundStyle(Palette.secondary)
-        }
-    }
-}
-
-/// A row that opens and closes: title, count, chevron.
-private struct KithGroup<Content: View>: View {
-    let title: String
-    let count: Int
-    @ViewBuilder var content: Content
-    @State private var open = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button {
-                withAnimation(Motion.layout) { open.toggle() }
+        if store.info?.errors["package"] != nil {
+            Text("Couldn't read the package").font(.system(size: 11.5)).foregroundStyle(Palette.muted)
+        } else if let package = store.info?.package, let chip = package.chip {
+            DropdownMenu {
+                var items: [MenuItem] = []
+                if let remote = package.remote { items.append(MenuItem(remote, icon: "link") {}) }
+                if package.dirty { items.append(MenuItem("Uncommitted changes", icon: "pencil") {}) }
+                if package.unpushed { items.append(MenuItem("Not pushed", icon: "arrow.up") {}) }
+                if let pinned = package.pinned { items.append(MenuItem("Pinned to \(pinned)", icon: "pin") {}) }
+                items.append(MenuItem("Package version \(package.version ?? chip)", icon: "shippingbox") {})
+                return items
             } label: {
-                HStack {
-                    Text(title).font(.system(size: 15, weight: .semibold))
-                    Text("\(count)").foregroundStyle(Palette.secondary)
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Palette.secondary)
-                        .rotationEffect(.degrees(open ? 90 : 0))
+                HStack(spacing: 4) {
+                    Text("kith · \(agent) \(chip)")
+                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .semibold))
                 }
-                .foregroundStyle(Palette.text)
-                .contentShape(Rectangle())
+                .font(KithText.code.font)
+                .foregroundStyle(Palette.muted)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 3)
+                .background(Palette.panel, in: Capsule())
             }
-            .buttonStyle(.plain)
-            .accessibilityValue(open ? "Expanded" : "Collapsed")
-            if open { VStack(alignment: .leading, spacing: 12) { content } }
+            .accessibilityLabel("Package \(agent) \(chip)")
+        } else {
+            Text("kith · \(agent)").font(KithText.code.font).foregroundStyle(Palette.muted)
         }
-        .outlinedCard()
     }
 }
 
-/// The Details page's kith sections, top to bottom (serve/docs/bot-info.md).
-struct KithDetailsSections: View {
+/// The Details page for a kith bot, top to bottom (serve/docs/bot-info.md, app-style/agent-sheet.png): the host's
+/// About rows, Cost, Schedules & routines (one list), Projects, Harness, then Skills, Tools and Plugins.
+struct KithDetailsSections<About: View, Routines: View>: View {
     let store: KithInfoStore
+    let tint: AgentTint
+    let about: About
+    /// The routines list, given kith's schedules to show as read-only rows and whether it couldn't read them.
+    let routines: ([KithSchedule], Bool) -> Routines
+    @State private var period = CostPeriod.month
 
-    var body: some View {
-        switch store.phase {
-        case .unavailable:
-            EmptyView()
-        case .loading:
-            HStack(spacing: 8) {
-                ProgressView()
-                Text("Loading kith details…").foregroundStyle(Palette.secondary)
-            }
-            .font(.footnote)
-            .frame(maxWidth: .infinity)
-        case .loaded(let response):
-            if let info = response.info {
-                if let failed = store.refreshError {
-                    HStack {
-                        Text("Refresh failed: \(failed)").font(.footnote).foregroundStyle(Palette.danger).textSelection(.enabled)
-                        Spacer(minLength: 8)
-                        Button("Retry") { Task { await store.load(refresh: true) } }
-                            .buttonStyle(.plain).font(.footnote.weight(.semibold)).foregroundStyle(Palette.accent)
-                    }
-                    .padding(.bottom, 4)
-                }
-                sections(info)
-            } else if let error = response.error {
-                banner(error)
-            }
-        }
+    init(store: KithInfoStore, tint: AgentTint, @ViewBuilder about: () -> About,
+         @ViewBuilder routines: @escaping ([KithSchedule], Bool) -> Routines) {
+        self.store = store
+        self.tint = tint
+        self.about = about()
+        self.routines = routines
     }
 
-    private func banner(_ error: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Kith details unavailable: \(error)")
-                .font(.footnote)
-                .foregroundStyle(Palette.danger)
-                .textSelection(.enabled)
-            Button("Retry") { Task { await store.load(refresh: true) } }
-                .buttonStyle(.plain)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Palette.accent)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            switch store.phase {
+            case .unavailable:
+                about
+                routines([], false)
+            case .loading:
+                about
+                CardSection { SheetNote(text: "Loading kith details…") }
+                routines([], false)
+            case .loaded(let response):
+                if let info = response.info {
+                    if let failed = store.refreshError {
+                        SheetNote(text: "Refresh failed: \(failed)", danger: true) { Task { await store.load(refresh: true) } }
+                    }
+                    sections(info)
+                } else {
+                    if let error = response.error {
+                        SheetNote(text: "Kith details unavailable: \(error)", danger: true) { Task { await store.load(refresh: true) } }
+                    }
+                    about
+                    routines([], false)
+                }
+            }
         }
-        .outlinedCard()
     }
 
     @ViewBuilder private func sections(_ info: KithInfo) -> some View {
-        VStack(alignment: .leading, spacing: 28) {
-            about(info)
-            cost(info)
-            schedules(info)
-            projects(info)
-            model(info)
-            capabilities(info)
-        }
-    }
-
-    // MARK: about
-
-    /// The description stays in view; the long role prompt is one row, closed until opened.
-    @ViewBuilder private func about(_ info: KithInfo) -> some View {
-        if info.errors["role"] != nil {
-            KithUnreadable(title: "About", thing: "the role")
-        } else {
-            let prompt = info.role?.prompt
-            if (info.description ?? "").isEmpty == false || prompt != nil {
-                KithCard(title: "About") {
-                    if let text = info.description, !text.isEmpty {
-                        Text(text).foregroundStyle(Palette.text).textSelection(.enabled)
-                    }
-                    if let prompt { KithInstructionsRow(text: prompt) }
-                }
-            }
-        }
+        about
+        cost(info)
+        routines(info.schedules, info.errors["schedules"] != nil)
+        projects(info)
+        harness(info)
+        capabilities(info)
     }
 
     // MARK: cost
 
+    enum CostPeriod: String, CaseIterable { case today, week, month, all
+        var label: String {
+            switch self {
+            case .today: "Today"
+            case .week: "7 d"
+            case .month: "30 d"
+            case .all: "All"
+            }
+        }
+    }
+
     @ViewBuilder private func cost(_ info: KithInfo) -> some View {
-        if info.errors["cost"] != nil {
-            KithUnreadable(title: "Cost", thing: "the cost")
-        } else {
-            KithCard(title: "Cost") {
-                if let cost = info.cost {
-                    let figures: [(String, Double)] = [("Today", cost.today), ("7 days", cost.week), ("30 days", cost.month), ("All", cost.all)]
-                    HStack(alignment: .top, spacing: 0) {
-                        ForEach(figures, id: \.0) { label, usd in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(KithCost.format(usd)).font(.system(size: 17, weight: .semibold)).monospacedDigit()
-                                Text(label).font(.caption).foregroundStyle(Palette.secondary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+        CardSection("Cost") {
+            if info.errors["cost"] != nil {
+                SheetNote(text: "Couldn't read the cost")
+            } else if let cost = info.cost {
+                VStack(alignment: .leading, spacing: 12) {
+                    SegmentedChoice(selection: $period, options: CostPeriod.allCases.map { ($0, $0.label) })
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(KithCost.format(amount(cost)))
+                            .font(.system(size: 26, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Palette.ink)
+                        Spacer(minLength: 8)
+                        // The host counts requests and models over 30 days only.
+                        if period == .month {
+                            Text("\(cost.requestsMonth) requests").font(.system(size: 11.5)).foregroundStyle(Palette.muted)
                         }
                     }
-                    .foregroundStyle(Palette.text)
-                    Text("\(cost.requestsMonth) requests in 30 days").font(.footnote).foregroundStyle(Palette.secondary)
-                    let top = cost.topModels
-                    if !top.isEmpty {
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(top, id: \.model) { entry in
-                                HStack {
-                                    Text(entry.model).lineLimit(1).truncationMode(.middle)
-                                    Spacer(minLength: 8)
-                                    Text("\(KithCost.format(entry.usd)) · \(Int((entry.share * 100).rounded()))%").monospacedDigit()
+                    if period == .month {
+                        ForEach(cost.topModels, id: \.model) { entry in
+                            HStack(spacing: 10) {
+                                Text(entry.model).lineLimit(1).truncationMode(.middle).frame(width: 64, alignment: .leading)
+                                GeometryReader { proxy in
+                                    Capsule().fill(Palette.line)
+                                        .overlay(alignment: .leading) {
+                                            Capsule()
+                                                .fill(LinearGradient(colors: [tint.a, tint.b], startPoint: .leading, endPoint: .trailing))
+                                                .frame(width: max(4, proxy.size.width * entry.share))
+                                        }
                                 }
-                                .font(.footnote)
-                                .foregroundStyle(Palette.secondary)
+                                .frame(height: 5)
+                                Text(KithCost.format(entry.usd)).monospacedDigit().frame(minWidth: 44, alignment: .trailing)
                             }
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(Palette.muted)
                         }
                     }
-                } else {
-                    Text("No cost recorded yet").font(.footnote).foregroundStyle(Palette.secondary)
                 }
+            } else {
+                SheetNote(text: "No cost recorded yet")
             }
         }
     }
 
-    // MARK: schedules and projects
-
-    @ViewBuilder private func schedules(_ info: KithInfo) -> some View {
-        if info.errors["schedules"] != nil {
-            KithUnreadable(title: "Schedules", thing: "the schedules")
-        } else if !info.schedules.isEmpty {
-            KithCard(title: "Schedules") {
-                ForEach(Array(info.schedules.enumerated()), id: \.offset) { index, job in
-                    if index > 0 { Divider() }
-                    KithScheduleRow(job: job)
-                }
-            }
+    private func amount(_ cost: KithCost) -> Double {
+        switch period {
+        case .today: cost.today
+        case .week: cost.week
+        case .month: cost.month
+        case .all: cost.all
         }
     }
+
+    // MARK: projects, harness
 
     @ViewBuilder private func projects(_ info: KithInfo) -> some View {
         if info.errors["projects"] != nil {
-            KithUnreadable(title: "Projects", thing: "the projects")
+            CardSection("Projects") { SheetNote(text: "Couldn't read the projects") }
         } else if !info.projects.isEmpty {
-            KithCard(title: "Projects") {
-                ForEach(Array(info.projects.enumerated()), id: \.offset) { _, project in
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(project.id).foregroundStyle(Palette.text).lineLimit(1)
-                        Spacer(minLength: 8)
-                        Text([project.files == 1 ? "1 file" : "\(project.files) files",
-                              project.modified.map { kithAgo($0.date) }].compactMap { $0 }.joined(separator: " · "))
-                            .font(.footnote)
-                            .foregroundStyle(Palette.secondary)
-                    }
+            CardSection("Projects") {
+                ForEach(info.projects) { project in
+                    SheetRow(icon: "briefcase", title: project.id,
+                             detail: [project.files == 1 ? "1 file" : "\(project.files) files",
+                                      project.modified.map { kithAgo($0.date) }].compactMap { $0 }.joined(separator: " · "))
                 }
             }
         }
     }
 
-    // MARK: model, capabilities
-
-    @ViewBuilder private func model(_ info: KithInfo) -> some View {
+    @ViewBuilder private func harness(_ info: KithInfo) -> some View {
         // Model, effort and permission are in the bot's settings (hq-backed rows, once); the harness is what is left here.
-        let rows: [(String, String?)] = [("Harness", info.harness)]
-        KithCard(title: "Harness") {
-            ForEach(rows.filter { $0.1 != nil }, id: \.0) { label, value in
-                HStack {
-                    Text(label).foregroundStyle(Palette.secondary)
-                    Spacer(minLength: 8)
-                    Text(value ?? "").foregroundStyle(Palette.text)
-                }
-                .font(.subheadline)
+        if let harness = info.harness {
+            CardSection("Harness", footer: "Set in the agent's package") {
+                SheetRow(icon: "cpu", title: harness)
             }
-            Text("Set in the agent's package").font(.footnote).foregroundStyle(Palette.secondary)
         }
     }
+
+    // MARK: skills, tools, plugins
 
     @ViewBuilder private func capabilities(_ info: KithInfo) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            group("Skills", "skills", info, count: info.skills.count) {
-                ForEach(Array(info.skills.enumerated()), id: \.offset) { _, skill in
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            Text(skill.name).font(.subheadline.weight(.medium)).foregroundStyle(Palette.text)
-                            if skill.source != "package" {
-                                Text(skill.source)
-                                    .font(.caption2)
-                                    .foregroundStyle(Palette.secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 1)
-                                    .background(Palette.surface, in: Capsule())
+        let errors = ["skills", "tools", "mcp_servers", "plugins"].contains { info.errors[$0] != nil }
+        if errors || !(info.skills.isEmpty && info.tools.isEmpty && info.mcpServers.isEmpty && info.plugins.isEmpty) {
+            CardSection("Skills, tools, plugins") {
+                if info.errors["skills"] != nil { SheetNote(text: "Couldn't read skills") }
+                else if !info.skills.isEmpty {
+                    SheetCountRow(icon: "sparkles", title: "Skills", count: info.skills.count) {
+                        ForEach(info.skills) { skill in
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(skill.name).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.ink)
+                                    if skill.source != "package" {
+                                        Text(skill.source).font(.system(size: 10.5)).foregroundStyle(Palette.muted)
+                                            .padding(.horizontal, 6).padding(.vertical, 1)
+                                            .background(Palette.panel, in: Capsule())
+                                    }
+                                }
+                                if !skill.description.isEmpty {
+                                    Text(skill.description).font(.system(size: 11.5)).foregroundStyle(Palette.muted)
+                                }
                             }
                         }
-                        if !skill.description.isEmpty {
-                            Text(skill.description).font(.footnote).foregroundStyle(Palette.secondary)
+                    }
+                }
+                if info.errors["tools"] != nil { SheetNote(text: "Couldn't read tools") }
+                else if !info.tools.isEmpty {
+                    SheetCountRow(icon: "wrench.and.screwdriver", title: "Tools", count: info.tools.count) {
+                        ForEach(info.tools, id: \.self) { Text($0).font(KithText.code.font).foregroundStyle(Palette.ink) }
+                    }
+                }
+                if info.errors["mcp_servers"] != nil { SheetNote(text: "Couldn't read mcp servers") }
+                else if !info.mcpServers.isEmpty {
+                    SheetCountRow(icon: "server.rack", title: "MCP servers", count: info.mcpServers.count) {
+                        ForEach(info.mcpServers) { server in
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(server.name).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.ink)
+                                    if let kind = server.kind { Text(kind).font(.system(size: 11.5)).foregroundStyle(Palette.muted) }
+                                }
+                                if let target = server.target {
+                                    Text(target).font(KithText.code.font).foregroundStyle(Palette.muted).lineLimit(2)
+                                }
+                            }
                         }
                     }
                 }
-            }
-            group("Tools", "tools", info, count: info.tools.count) {
-                ForEach(Array(info.tools.enumerated()), id: \.offset) { _, tool in
-                    Text(tool).font(.footnote.monospaced()).foregroundStyle(Palette.text)
-                }
-            }
-            group("MCP servers", "mcp_servers", info, count: info.mcpServers.count) {
-                ForEach(Array(info.mcpServers.enumerated()), id: \.offset) { _, server in
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            Text(server.name).font(.subheadline.weight(.medium)).foregroundStyle(Palette.text)
-                            if let kind = server.kind { Text(kind).font(.caption).foregroundStyle(Palette.secondary) }
-                        }
-                        if let target = server.target {
-                            Text(target).font(.footnote.monospaced()).foregroundStyle(Palette.secondary).lineLimit(2)
-                        }
+                if info.errors["plugins"] != nil { SheetNote(text: "Couldn't read plugins") }
+                else if !info.plugins.isEmpty {
+                    SheetCountRow(icon: "puzzlepiece.extension", title: "Plugins", count: info.plugins.count) {
+                        ForEach(info.plugins, id: \.self) { Text($0).font(KithText.code.font).foregroundStyle(Palette.ink) }
                     }
                 }
             }
-            group("Plugins", "plugins", info, count: info.plugins.count) {
-                ForEach(info.plugins, id: \.self) { Text($0).font(.footnote.monospaced()).foregroundStyle(Palette.text) }
-            }
-        }
-    }
-
-    /// Hidden when empty, a quiet line when kith couldn't read it.
-    @ViewBuilder private func group<Rows: View>(_ title: String, _ key: String, _ info: KithInfo, count: Int,
-                                                @ViewBuilder rows: () -> Rows) -> some View {
-        if info.errors[key] != nil {
-            Text("Couldn't read \(title.lowercased())").font(.footnote).foregroundStyle(Palette.secondary)
-                .outlinedCard()
-        } else if count > 0 {
-            KithGroup(title: title, count: count, content: rows)
         }
     }
 }
 
-/// The role prompt: one row, closed by default.
-private struct KithInstructionsRow: View {
+/// The role prompt: a row that opens the full text in place.
+struct KithInstructionsRow: View {
     let text: String
     @State private var open = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button {
-                withAnimation(Motion.layout) { open.toggle() }
+                withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { open.toggle() }
             } label: {
-                HStack {
-                    Text("Instructions").font(.subheadline.weight(.medium))
-                    Spacer(minLength: 8)
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Palette.secondary)
-                        .rotationEffect(.degrees(open ? 90 : 0))
-                }
-                .foregroundStyle(Palette.text)
-                .contentShape(Rectangle())
+                SheetRow(icon: "doc.text", title: "Instructions", detail: open ? nil : String(text.prefix(90)), open: open)
             }
             .buttonStyle(.plain)
             .accessibilityValue(open ? "Expanded" : "Collapsed")
-            if open { MarkdownText(text) }
+            if open { MarkdownText(text).padding(.leading, 29) }
         }
     }
 }
 
-/// One schedule: the task, when it runs, and how the last run went.
-private struct KithScheduleRow: View {
+/// One kith schedule as a read-only row: the task, when it runs, and how the last run went.
+struct KithScheduleRow: View {
     let job: KithSchedule
     @State private var open = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Button { withAnimation(Motion.layout) { open.toggle() } } label: {
-                Text(job.task)
-                    .lineLimit(open ? nil : 1)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .foregroundStyle(Palette.text)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            HStack(spacing: 6) {
-                Text(job.plainCron).monospacedDigit()
-                if job.paused {
-                    Text("Paused")
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 1)
-                        .background(Palette.surface, in: Capsule())
-                }
-            }
-            .font(.footnote)
-            .foregroundStyle(Palette.secondary)
-            Text(status).font(.footnote).foregroundStyle(Palette.secondary)
+        Button { withAnimation(Motion.layout) { open.toggle() } } label: {
+            SheetRow(icon: "clock", title: job.task, detail: detail, chevron: true)
+                .lineLimit(open ? nil : 1)
         }
+        .buttonStyle(.plain)
     }
 
-    private var status: String {
-        var parts: [String] = []
+    private var detail: String {
+        var parts = ["kith schedule", job.plainCron + (job.paused ? " (paused)" : "")]
         if job.isRunning { parts.append("running") } else if let last = job.lastRun { parts.append("last run \(kithAgo(last.date))") } else { parts.append("never run") }
         if !job.paused, let next = job.nextRun, next.date > .now { parts.append("next in \(RelativeTime.until(next.date))") }
-        return parts.joined(separator: " · ")
+        return parts.joined(separator: " · ") + " · read-only"
     }
 }

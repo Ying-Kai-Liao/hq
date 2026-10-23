@@ -47,19 +47,32 @@ struct BotDetailsView: View {
 
     private var bot: Bot? { model.bots[botId] }
 
+    /// Where the identity's bottom edge is in the sheet; once it has scrolled off, a mini header takes over.
+    @State private var identityBottom: CGFloat = 200
+    private var scrolled: Bool { identityBottom < 24 }
+
     var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
-                if let bot { identity(bot) }
-                TabChoice(selection: $tab, options: [(.details, "Details"), (.memory, "Memory"), (.settings, "Settings")])
-                    .padding(.top, 18)
-                page.padding(.top, 20)
-                    .environment(\.cardStyle, .outlined)
-                    .environment(\.noteLines, 2)
+            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                if let bot {
+                    identity(bot)
+                        .background(GeometryReader { proxy in
+                            Color.clear.preference(key: IdentityBottomKey.self, value: proxy.frame(in: .named("agentSheet")).maxY)
+                        })
+                }
+                Section {
+                    page.padding(.top, 14)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 24)
+                        .environment(\.cardStyle, .outlined)
+                        .environment(\.noteLines, 2)
+                } header: {
+                    pinnedHeader
+                }
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 24)
         }
+        .coordinateSpace(name: "agentSheet")
+        .onPreferenceChange(IdentityBottomKey.self) { identityBottom = $0 }
         .scrollDismissesKeyboard(.interactively)
         .modifier(KithRefresh(store: kith))
         .background(Palette.background)
@@ -75,47 +88,74 @@ struct BotDetailsView: View {
         .kithSheet(item: $template) { BotTemplateView(draft: $0.draft) }
     }
 
+    /// Create template at the top left, close at the top right; the pill leaves once the identity scrolls away.
     private var actions: some View {
         HStack(spacing: 8) {
             if let bot {
-                cornerButton("Create template", "square.and.arrow.up") { template = EditorRequest(BotDraft(bot)) }
+                Button { template = EditorRequest(BotDraft(bot)) } label: {
+                    Label("Create template", systemImage: "square.on.square")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Palette.ink)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Palette.panel, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .opacity(scrolled ? 0 : 1)
+                .allowsHitTesting(!scrolled)
             }
-            cornerButton("Close details", "xmark") { dismiss() }
+            Spacer(minLength: 0)
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Palette.muted)
+                    .frame(width: 28, height: 28)
+                    .background(Palette.panel, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close details")
+            .help("Close details")
         }
         .padding(.top, 14)
-        .padding(.trailing, 14)
+        .padding(.horizontal, 16)
     }
 
-    /// Grok Bot's corner buttons: the page color, ringed by a soft shadow.
-    private func cornerButton(_ title: String, _ symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Palette.text)
-                .frame(width: 36, height: 36)
-                .background(Palette.background, in: Circle())
-                .shadow(color: .black.opacity(0.12), radius: 0.5)
-                .shadow(color: .black.opacity(0.04), radius: 2, y: 1)
+    /// The tabs, with a small bot and name above them once the identity has scrolled away.
+    private var pinnedHeader: some View {
+        VStack(spacing: 10) {
+            if scrolled, let bot {
+                HStack(spacing: 7) {
+                    CharacterAvatar(bot: bot, size: 24, animated: false)
+                    Text(bot.name).kithText(.agentName).foregroundStyle(Palette.ink)
+                }
+                .padding(.top, 14)
+                .transition(.opacity)
+            }
+            SegmentedChoice(selection: $tab, options: [(.details, "Details"), (.memory, "Memory"), (.settings, "Settings")])
+                .padding(.horizontal, 16)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-        .help(title)
+        .padding(.top, scrolled ? 0 : 18)
+        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity)
+        .background(Palette.background)
+        .animation(.easeOut(duration: 0.15), value: scrolled)
     }
 
+    /// The ink Call capsule; white on night in dark. `blocked` is why it can't be used now.
     private func callButton(_ call: CallAction) -> some View {
         VStack(spacing: 6) {
             Button(action: call.start) {
                 Label("Call", systemImage: "phone.fill")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Palette.onAccent)
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 10)
-                    .background(call.blocked == nil ? Palette.accentFill : Palette.accentDim, in: Capsule())
+                    .padding(.horizontal, 26)
+                    .padding(.vertical, 9)
+                    .background(Palette.ink.opacity(call.blocked == nil ? 1 : 0.35), in: Capsule())
             }
             .buttonStyle(PressScale())
             .disabled(call.blocked != nil)
             if let reason = call.blocked {
-                Text(reason).font(.footnote).foregroundStyle(Palette.secondary)
+                Text(reason).font(.system(size: 11.5)).foregroundStyle(Palette.muted)
             }
         }
     }
@@ -123,48 +163,68 @@ struct BotDetailsView: View {
     /// The bot's avatar and name, and what runs it.
     private func identity(_ bot: Bot) -> some View {
         VStack(spacing: 4) {
-            CharacterAvatar(bot: bot, size: 72)
-                .padding(.bottom, 10)
+            CharacterAvatar(bot: bot, size: 76)
+                .padding(.bottom, 8)
             Text(bot.name)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(Palette.text)
+                .kithText(.agentName)
+                .foregroundStyle(Palette.ink)
                 .multilineTextAlignment(.center)
             HStack(spacing: 5) {
-                AgentIcon(registry: model.hello?.backends.first { $0.id == bot.backend }?.registry ?? bot.backend, size: 13)
+                AgentIcon(registry: model.hello?.backends.first { $0.id == bot.backend }?.registry ?? bot.backend, size: 12)
                 Text(bot.model.map { "\(model.backendName(bot.backend)) · \($0)" } ?? model.backendName(bot.backend))
             }
-            .font(.footnote)
-            .foregroundStyle(Palette.secondary)
-            if let agent = bot.hqAgent, let kith { KithIdentityLine(agent: agent, store: kith) }
+            .font(.system(size: 11.5))
+            .foregroundStyle(Palette.muted)
+            if let agent = bot.hqAgent, let kith { KithIdentityLine(agent: agent, store: kith).padding(.top, 4) }
             if let call { callButton(call).padding(.top, 12) }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 64)
     }
 
+    /// The Details page: About, Cost, Schedules & routines, then what the package brings (kith bots).
+    @ViewBuilder private var detailsPage: some View {
+        if let kith, let bot {
+            KithDetailsSections(store: kith, tint: AgentTint.resolve(bot.avatarColor)) {
+                about
+            } routines: { schedules, unreadable in
+                routines(schedules, unreadable)
+            }
+            footer(kith)
+        } else {
+            VStack(alignment: .leading, spacing: 24) {
+                about
+                routines([], false)
+            }
+        }
+    }
+
+    @ViewBuilder private var about: some View {
+        if let draft = Binding($draft) {
+            BotSettingsForm(draft: draft, error: saveError, scrolls: false, part: .often, shown: shown, kith: kith)
+        }
+    }
+
+    private func routines(_ schedules: [KithSchedule], _ unreadable: Bool) -> some View {
+        RoutinesView(botId: botId, initialId: routineId, leave: { dismiss() }, kithSchedules: schedules,
+                     schedulesUnreadable: unreadable, botName: bot?.name ?? "the bot")
+    }
+
+    /// "Updated 9:41 · pull down to refresh".
+    @ViewBuilder private func footer(_ store: KithInfoStore) -> some View {
+        if case .loaded(let response) = store.phase, let at = response.fetchedAt {
+            Text("Updated \(Date(timeIntervalSince1970: Double(at) / 1000).formatted(date: .omitted, time: .shortened)) · pull down to refresh")
+                .font(.system(size: 11.5))
+                .foregroundStyle(Palette.muted)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 16)
+        }
+    }
+
     @ViewBuilder private var page: some View {
         switch tab {
         case .details:
-            VStack(alignment: .leading, spacing: 28) {
-                if let kith { KithDetailsSections(store: kith) }
-                if let draft = Binding($draft) {
-                    BotSettingsForm(draft: draft, error: saveError, scrolls: false, part: .often, shown: shown, kith: kith)
-                }
-                if let screen = model.screen, let bot {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Computer")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Palette.text)
-                            .padding(.leading, 2)
-                        SwitchRow("Use the computer",
-                                  detail: screen.controlReady == true ? nil : "On that computer, open Kith → Settings → Computer access to set it up first.",
-                                  isOn: Binding(get: { bot.computer }, set: { model.setComputer(bot, $0) }))
-                            .disabled(model.isOffline)
-                            .outlinedCard()
-                    }
-                }
-                RoutinesView(botId: botId, initialId: routineId) { dismiss() }
-            }
+            detailsPage
         case .memory:
             VStack(alignment: .leading, spacing: 20) {
                 // An hq agent's memory is its files; nothing is drawn until the bot is loaded, so the tab doesn't flip.
@@ -211,4 +271,9 @@ private struct KithRefresh: ViewModifier {
             content
         }
     }
+}
+
+private struct IdentityBottomKey: PreferenceKey {
+    static let defaultValue: CGFloat = 200
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }

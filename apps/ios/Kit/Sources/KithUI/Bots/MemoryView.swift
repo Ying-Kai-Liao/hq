@@ -1,34 +1,25 @@
 import KithKit
 import SwiftUI
 
-/// A bot's memory: what all your bots know about you, what this one knows, its tidy-ups, and its harness's own notes
-/// when the user kept them on.
+/// A plain bot's Memory page, as the mock's phone 5 draws it: the two switches, the entries (long-press for
+/// Edit / Pin / Archive / Forget), and a MORE group with the notes files, the harness's own notes and the tidy runs.
 struct MemoryCard: View {
     let botId: String
     /// False on an hq bot whose kith "Agent memory" lists the agent's files already.
     var showsHarnessTab = true
     @Environment(BotStore.self) private var host
     @State private var memory: MemoryStore?
-    @State private var section: Section = .bot
     @State private var editor: MemoryEditTarget?
-    @State private var confirmClear = false
+    /// Which layer the "Forget everything" dialog is about (true: what the user's bots share); nil: closed.
+    @State private var confirmClear: Bool?
     @State private var aboutHarness = false
-
-    enum Section: Hashable { case yours, bot, tidyUps, harness }
 
     private var bot: Bot? { host.bots[botId] }
 
     var body: some View {
-        VStack(spacing: 10) {
-            TabChoice(selection: Binding(get: { section }, set: { value in
-                withAnimation(Motion.layout) { section = value }
-                // Claude Code writes its notes outside Kith, so nothing moves `memoryRev`: read them again on the way in.
-                if value == .harness { Task { await memory?.load() } }
-            }), options: sections(memory?.view))
-            CardSection {
-                if let memory { contents(memory) }
-                else { Text("Loading memory…").foregroundStyle(Palette.secondary) }
-            }
+        VStack(alignment: .leading, spacing: 24) {
+            if let memory { contents(memory) }
+            else { CardSection { SheetNote(text: "Loading memory…") } }
         }
         // Memory changes anywhere move the bot's `memoryRev`: fetch again.
         .task(id: "\(botId)-\(bot?.memoryRev ?? 0)-\(bot?.sharedMemory ?? false)-\(bot?.harnessMemory ?? false)") {
@@ -36,106 +27,136 @@ struct MemoryCard: View {
             memory = store
             await store.load()
         }
-        // Claude Code's section goes when its memory is turned off (on another device too).
-        .onChange(of: memory?.view.map { $0.projectMemory == nil } ?? false) { _, gone in
-            if gone && section == .harness { section = .bot }
-        }
-        .onChange(of: showsHarnessTab) { _, shown in
-            if !shown && section == .harness { section = .bot }
-        }
         .kithSheet(isPresented: $aboutHarness) {
             if let bot { HarnessMemorySheet(harness: host.backendName(bot.backend), readable: bot.backend == "claude") }
         }
         .kithSheet(item: $editor) { target in
             if let memory { MemoryEditorView(memory: memory, target: target) }
         }
-        .kithDialog(section == .yours ? "Forget everything your bots share about you?" : "Forget everything this bot remembers?",
-                      isPresented: $confirmClear) {
+        .kithDialog(confirmClear == true ? "Forget everything your bots share about you?" : "Forget everything this bot remembers?",
+                      isPresented: Binding(get: { confirmClear != nil }, set: { if !$0 { confirmClear = nil } })) {
             [DialogAction("Forget everything", destructive: true) {
-                Task { await memory?.mutate("clearMemory", shared: section == .yours) }
+                let shared = confirmClear == true
+                Task { await memory?.mutate("clearMemory", shared: shared) }
             }]
         }
     }
 
     @ViewBuilder private func contents(_ memory: MemoryStore) -> some View {
-        if let error = memory.error { Text(error).foregroundStyle(Palette.danger).textSelection(.enabled) }
+        if let error = memory.error { SheetNote(text: error, danger: true) }
         if let view = memory.view {
-            switch section {
-            case .yours, .bot: layer(memory, view: view)
-            case .tidyUps: tidyUps(memory, view.tidyUps)
-            case .harness: harness(view.projectMemory)
+            switches(memory, view)
+            entries(memory, view, shared: false)
+            if (bot?.sharedMemory ?? view.shared) || !view.yours.entries.isEmpty {
+                entries(memory, view, shared: true)
             }
+            more(memory, view)
         } else if memory.error == nil {
-            Text("Loading memory…").foregroundStyle(Palette.secondary)
+            CardSection { SheetNote(text: "Loading memory…") }
         }
     }
 
-    private func sections(_ view: MemoryView?) -> [(id: Section, label: String)] {
-        [(Section.yours, "About you"), (.bot, "This bot"), (.tidyUps, "Tidy-ups")]
-            + (view?.projectMemory != nil && showsHarnessTab ? [(.harness, host.backendName(bot?.backend ?? "claude"))] : [])
-    }
+    // MARK: switches
 
-    @ViewBuilder private func layer(_ memory: MemoryStore, view: MemoryView) -> some View {
-        let shared = section == .yours
-        let layer = shared ? view.yours : view.bot
-        if shared, let bot {
-            Toggle("Use what your bots share", isOn: Binding(get: { bot.sharedMemory ?? view.shared }, set: { host.setSharedMemory(bot, $0) }))
-                .toggleStyle(.kith)
-        }
-        if !shared, let bot, let on = bot.harnessMemory {
-            let name = host.backendName(bot.backend)
-            HStack(spacing: 4) {
-                Text("\(name)'s own memory").lineLimit(1).layoutPriority(1)
-                IconButton("About \(name)'s own memory", systemImage: "info.circle") {
-                    withAnimation(Motion.layout) { aboutHarness = true }
-                }
-                Toggle(isOn: Binding(get: { on }, set: { host.setHarnessMemory(bot, $0) })) { EmptyView() }
-                    .toggleStyle(.kith)
-                    .disabled(memory.busy)
-                    .accessibilityLabel("\(name)'s own memory")
-            }
-        }
-        HStack(alignment: .top, spacing: 8) {
-            Text("\(shared ? "Your name, time zone, people and lasting preferences, shared by your bots." : "What this bot learned about you.") \(layer.used) of \(layer.cap) in use.")
-                .font(.footnote).foregroundStyle(Palette.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            IconButton("Add memory", systemImage: "plus") {
-                withAnimation(Motion.layout) { editor = MemoryEditTarget(entry: nil, shared: shared, text: "") }
-            }
-            .disabled(memory.busy)
-            moreMenu(memory)
-        }
-        if layer.entries.isEmpty {
-            empty("brain", shared ? "Nothing shared yet." : "Nothing yet. What this bot learns about you shows up here, and you can change any of it.")
-        }
-        ForEach(layer.entries) { entry in
-            HStack(alignment: .top, spacing: 8) {
-                Button {
-                    withAnimation(Motion.layout) { editor = MemoryEditTarget(entry: entry.id, shared: shared, text: entry.text) }
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            if entry.pinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(Palette.secondary) }
-                            Text(entry.text).foregroundStyle(entry.archived ? Palette.tertiary : Palette.text)
+    @ViewBuilder private func switches(_ memory: MemoryStore, _ view: MemoryView) -> some View {
+        if let bot {
+            CardSection {
+                SwitchRow("Use what your bots share", detail: "Your name, time zone, people and lasting preferences",
+                          isOn: Binding(get: { bot.sharedMemory ?? view.shared }, set: { host.setSharedMemory(bot, $0) }))
+                if let on = bot.harnessMemory {
+                    let name = host.backendName(bot.backend)
+                    HStack(spacing: 4) {
+                        SwitchRow("Own memory", detail: "\(name) keeps notes from your chats",
+                                  isOn: Binding(get: { on }, set: { host.setHarnessMemory(bot, $0) }))
+                            .disabled(memory.busy)
+                        IconButton("About \(name)'s own memory", systemImage: "info.circle") {
+                            withAnimation(Motion.layout) { aboutHarness = true }
                         }
-                        Text("\(author(entry)) · \(Date(milliseconds: entry.updatedAt).formatted(.relative(presentation: .named)))\(entry.archived ? " · archived" : "")")
-                            .font(.caption).foregroundStyle(Palette.secondary)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                entryMenu(memory, entry, shared: shared)
             }
-            .padding(.vertical, 6)
         }
-        if let files = view.files { MemoryFilesList(memory: memory, files: files, shared: shared) }
+    }
+
+    // MARK: entries
+
+    @ViewBuilder private func entries(_ memory: MemoryStore, _ view: MemoryView, shared: Bool) -> some View {
+        let layer = shared ? view.yours : view.bot
+        CardSection(shared ? "Shared entries" : "Entries", footer: "\(layer.used) of \(layer.cap) in use.") {
+            if layer.entries.isEmpty {
+                SheetNote(text: shared ? "Nothing shared yet."
+                          : "Nothing yet. What this bot learns about you shows up here, and you can change any of it.")
+                    .padding(.vertical, 6)
+            }
+            ForEach(layer.entries) { entry in entryRow(memory, entry, shared: shared) }
+        } accessory: {
+            HStack(spacing: 2) {
+                IconButton("Add memory", systemImage: "plus") {
+                    withAnimation(Motion.layout) { editor = MemoryEditTarget(entry: nil, shared: shared, text: "") }
+                }
+                .disabled(memory.busy)
+                moreMenu(memory, shared: shared)
+            }
+        }
+    }
+
+    private func entryRow(_ memory: MemoryStore, _ entry: MemoryEntry, shared: Bool) -> some View {
+        let when = Date(milliseconds: entry.updatedAt).formatted(.relative(presentation: .named))
+        return Button {
+            withAnimation(Motion.layout) { editor = MemoryEditTarget(entry: entry.id, shared: shared, text: entry.text) }
+        } label: {
+            SheetRow(icon: entry.pinned ? "pin.fill" : "lightbulb", title: entry.text,
+                     detail: "\(author(entry)) · \(when)\(entry.archived ? " · archived" : "")")
+                .opacity(entry.archived ? 0.6 : 1)
+                .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
+        .disabled(memory.busy)
+        .contextActions {
+            [MenuItem("Edit", icon: "pencil") {
+                withAnimation(Motion.layout) { editor = MemoryEditTarget(entry: entry.id, shared: shared, text: entry.text) }
+            },
+             MenuItem(entry.pinned ? "Unpin" : "Pin", icon: entry.pinned ? "pin.slash" : "pin") {
+                 Task { await memory.mutate("pinMemory", id: entry.id, pinned: !entry.pinned) }
+             },
+             MenuItem(entry.archived ? "Bring back" : "Archive", icon: entry.archived ? "tray.and.arrow.up" : "archivebox") {
+                 Task { await memory.mutate("archiveMemory", id: entry.id, archived: !entry.archived) }
+             },
+             MenuItem("Forget", icon: "trash", destructive: true, divider: true) {
+                 Task { await memory.mutate("forgetMemory", id: entry.id) }
+             }]
+        }
+    }
+
+    // MARK: more
+
+    @ViewBuilder private func more(_ memory: MemoryStore, _ view: MemoryView) -> some View {
+        CardSection("More") {
+            if let files = view.files {
+                let live = (files.bot.files + files.yours.files).filter { !$0.deleted }.count
+                SheetCountRow(icon: "doc.text", title: "Notes files", count: live) {
+                    MemoryFilesList(memory: memory, files: files, shared: false)
+                    if (bot?.sharedMemory ?? view.shared) || !files.yours.files.isEmpty {
+                        Text("Shared notes").font(.footnote.weight(.semibold)).foregroundStyle(Palette.secondary)
+                        MemoryFilesList(memory: memory, files: files, shared: true)
+                    }
+                }
+            }
+            if showsHarnessTab, let project = view.projectMemory {
+                SheetCountRow(icon: "brain", title: "\(host.backendName(bot?.backend ?? "claude")) memory (read-only)", count: nil) {
+                    harness(project)
+                }
+            }
+            SheetCountRow(icon: "sparkles", title: "Tidy runs", count: view.tidyUps.count) {
+                tidyUps(memory, view.tidyUps)
+            }
+        }
     }
 
     @ViewBuilder private func tidyUps(_ memory: MemoryStore, _ runs: [TidyRun]) -> some View {
         Text("Between chats the bot tidies its memory from your own words. Each run can be undone.")
             .font(.footnote).foregroundStyle(Palette.secondary)
-        if runs.isEmpty { empty("sparkles", "No tidy-ups yet.") }
+        if runs.isEmpty { SheetNote(text: "No tidy-ups yet.") }
         ForEach(runs) { run in
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -153,27 +174,15 @@ struct MemoryCard: View {
                     .disabled(memory.busy)
                 }
             }
-            .padding(.vertical, 6)
         }
     }
 
-    @ViewBuilder private func harness(_ project: MemoryView.Project?) -> some View {
-        if let project {
-            Text("Claude Code's own notes, read-only here.")
-                .font(.footnote).foregroundStyle(Palette.secondary)
-            Text(project.path).font(.caption).foregroundStyle(Palette.tertiary).textSelection(.enabled)
-            if project.text.isEmpty { empty("brain", "Nothing yet. Claude Code's notes show up here once it saves some.") }
-            else { Text(project.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-        }
-    }
-
-    private func empty(_ icon: String, _ text: String) -> some View {
-        VStack(spacing: 8) {
-            Image(systemName: icon).font(.title3).foregroundStyle(Palette.tertiary)
-            Text(text).multilineTextAlignment(.center).foregroundStyle(Palette.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 18)
+    @ViewBuilder private func harness(_ project: MemoryView.Project) -> some View {
+        Text("\(host.backendName(bot?.backend ?? "claude"))'s own notes, read-only here.")
+            .font(.footnote).foregroundStyle(Palette.secondary)
+        Text(project.path).font(.caption).foregroundStyle(Palette.tertiary).textSelection(.enabled)
+        if project.text.isEmpty { SheetNote(text: "Nothing yet. The notes show up here once it saves some.") }
+        else { Text(project.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
     }
 
     private func author(_ entry: MemoryEntry) -> String {
@@ -185,39 +194,19 @@ struct MemoryCard: View {
         }
     }
 
-    private func moreMenu(_ memory: MemoryStore) -> some View {
+    private func moreMenu(_ memory: MemoryStore, shared: Bool) -> some View {
         DropdownMenu {
             [MenuItem("Refresh", icon: "arrow.clockwise") { Task { await memory.load() } },
              MenuItem("Forget everything here", icon: "trash", destructive: true, divider: true) {
-                 withAnimation(Motion.layout) { confirmClear = true }
+                 withAnimation(Motion.layout) { confirmClear = shared }
              }]
-        } label: { menuLabel("More") }
-    }
-
-    private func entryMenu(_ memory: MemoryStore, _ entry: MemoryEntry, shared: Bool) -> some View {
-        DropdownMenu {
-            [MenuItem("Edit", icon: "pencil") {
-                withAnimation(Motion.layout) { editor = MemoryEditTarget(entry: entry.id, shared: shared, text: entry.text) }
-            },
-             MenuItem(entry.pinned ? "Unpin" : "Pin", icon: entry.pinned ? "pin.slash" : "pin") {
-                 Task { await memory.mutate("pinMemory", id: entry.id, pinned: !entry.pinned) }
-             },
-             MenuItem(entry.archived ? "Bring back" : "Archive", icon: entry.archived ? "tray.and.arrow.up" : "archivebox") {
-                 Task { await memory.mutate("archiveMemory", id: entry.id, archived: !entry.archived) }
-             },
-             MenuItem("Forget", icon: "trash", destructive: true, divider: true) {
-                 Task { await memory.mutate("forgetMemory", id: entry.id) }
-             }]
-        } label: { menuLabel("Memory actions") }
-        .disabled(memory.busy)
-    }
-
-    private func menuLabel(_ title: String) -> some View {
-        Image(systemName: "ellipsis")
-            .font(.body.weight(.medium))
-            .foregroundStyle(Palette.secondary)
-            .frame(width: 32, height: 32)
-            .contentShape(Rectangle())
-            .accessibilityLabel(title)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.body.weight(.medium))
+                .foregroundStyle(Palette.secondary)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+                .accessibilityLabel("More")
+        }
     }
 }

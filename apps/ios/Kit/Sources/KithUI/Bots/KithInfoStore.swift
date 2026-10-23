@@ -55,6 +55,9 @@ final class KithInfoStore {
                 return
             }
         }
+        #if DEBUG
+        if let seeded = DemoAgent.response(for: botId) { phase = .loaded(seeded); return }
+        #endif
         let botId = botId
         let task = Task { [client] in
             refreshing = true
