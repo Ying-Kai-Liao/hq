@@ -93,6 +93,8 @@ pub struct Hub {
     pub terms: Arc<crate::agent::term::Terms>,
     /// One sync of the hq bots at a time (see `hq`).
     hq_sync: tokio::sync::Mutex<()>,
+    /// Terminal sessions shown as threads (see `terminal`).
+    pub terminal: crate::terminal::Terminal,
     /// How many agent turns run at once, and whether memory has room for another.
     pub gate: Arc<crate::agent::gate::Gate>,
 }
@@ -144,6 +146,7 @@ impl Hub {
             screen,
             terms: Arc::default(),
             hq_sync: tokio::sync::Mutex::new(()),
+            terminal: crate::terminal::Terminal::default(),
             gate,
         })
     }
@@ -165,6 +168,7 @@ impl Hub {
         crate::routines::start(self);
         crate::analytics::start(self);
         hq::start(self);
+        crate::terminal::start(self);
         Ok(())
     }
 
@@ -438,6 +442,22 @@ impl Hub {
         added
     }
 
+    /// [`Self::add_entry`] stamped `at` (ms), without refreshing the thread's summary: the caller imports many
+    /// lines and refreshes it once ([`Self::refresh_thread_summary`]).
+    pub fn add_entry_at(&self, lane: &Lane, kind: EntryKind, turn: i64, data: &Value, at: i64) -> Option<Entry> {
+        let _g = self.emit_lock.locked();
+        match self.store.insert_entry_at(lane, kind, turn, data, at) {
+            Ok(e) => {
+                let _ = self.events.send(json!({"type": "entry", "rev": e.rev, "entry": e}));
+                Some(e)
+            }
+            Err(error) => {
+                tracing::error!(error = format!("{error:#}"), chat = lane.chat, "couldn't save imported entry");
+                None
+            }
+        }
+    }
+
     pub fn add_entry_once(&self, id: &str, lane: &Lane, kind: EntryKind, data: &Value) -> Result<(Entry, bool)> {
         let (entry, added) = {
             let _guard = self.emit_lock.locked();
@@ -512,14 +532,17 @@ impl Hub {
         }
     }
 
-    fn refresh_thread_summary(&self, chat: &str, root: &str) {
+    pub(crate) fn refresh_thread_summary(&self, chat: &str, root: &str) {
         let Some(mut root_entry) = self.store.entry(root) else { return };
         match self.store.thread_summary(chat, root) {
-            Ok(summary) if root_entry.data["thread"] != summary => {
-                root_entry.data["thread"] = summary;
-                self.set_entry(root, &root_entry.data);
+            Ok(mut summary) => {
+                // What the terminal says about the thread (see `terminal`) isn't counted from entries.
+                crate::terminal::carry_over(&root_entry.data["thread"], &mut summary);
+                if root_entry.data["thread"] != summary {
+                    root_entry.data["thread"] = summary;
+                    self.set_entry(root, &root_entry.data);
+                }
             }
-            Ok(_) => {}
             Err(error) => tracing::warn!(error = format!("{error:#}"), root, "couldn't summarize thread"),
         }
     }

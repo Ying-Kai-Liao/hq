@@ -145,6 +145,27 @@ thread through `KITH_DISCORD_WEBHOOK_URL` and `KITH_DISCORD_THREAD_ID`. Grant it
 `kith-auth grant serve discord <profile>` (secret `DISCORD_BOT_TOKEN`); no restart is needed. The bot needs the
 Message Content intent. For tests, `KITH_DISCORD_API_BASE` and `KITH_DISCORD_GATEWAY_URL` move both addresses.
 
+## Terminal sessions as threads
+
+A `kith <agent>` session in a terminal is listed by the kernel in `$KITH_STATE/live/terminal/<session>.json`. The host
+(`src/terminal/`) looks every 3 seconds and, for sessions of the last 14 days with something the user said, keeps one
+thread per session under the owner's bot of that agent: the transcript (`~/.claude/projects/.../<session>.jsonl`) is
+imported into it as user / agent / thought / tool entries, incrementally (a byte cursor in kv). The root's
+`data.thread` carries `origin` (`terminal`; absent for app threads), `liveWriter` (`terminal` | `app` | null),
+`liveBusy`, `terminal: {sessionId, cwd}`; `originLabel` and `originBot` are reserved. Writer changes add `notice`
+entries with `data.writerChange` (`startedInTerminal`, `openedInTerminal`, `tookOver`, `terminalClosed`).
+
+- Live = the registry's pid runs and `~/.claude/sessions/<pid>.json` names the same session; busy = its `status`
+  is anything but `idle`.
+- `send` to a thread whose terminal is live fails with `liveInTerminal` (HTTP 409), and nothing is saved. Otherwise
+  the thread's lane loads the terminal's session (`session/load`) in its recorded folder, so the same Claude session
+  carries on.
+- `POST /api/resolveThread {"thread": <thread id | session id>}` gives `{botId, threadId, agent, sessionId, cwd,
+  hostBusy}` for `kith <agent> --resume <thread>`.
+- `POST /api/takeOverThread {"botId", "threadId"}` ends an idle terminal (writes `<session>.taken`, SIGTERM, waits up to
+  5 s); a busy one is refused with `terminalBusy`; a closed one is a no-op.
+- Both are owner only. Nothing here is logged beyond ids.
+
 ## Updates
 
 This build never fetches releases; rebuild with `kith serve start` (from `~/.kith/hq-serve`; from a dev checkout add `--dev`).

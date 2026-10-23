@@ -117,6 +117,11 @@ pub enum Cmd {
     ResetPlace {
         lane: Lane,
     },
+    /// A terminal wrote to the session of a thread (see `terminal`): this actor forgets what it holds of it, so
+    /// its next turn loads the session again and sees what the terminal did.
+    ForgetLoaded {
+        lane: Lane,
+    },
     Reconfigure(Box<BotConfig>),
     Shutdown,
 }

@@ -30,9 +30,13 @@ const LIVE_CHAT: &str = "WHERE NOT EXISTS (SELECT 1 FROM bots WHERE id = ?2 AND 
 
 impl Store {
     pub fn insert_entry(&self, lane: &Lane, kind: EntryKind, turn: i64, data: &Value) -> Result<Entry> {
+        self.insert_entry_at(lane, kind, turn, data, now_ms())
+    }
+
+    /// [`Self::insert_entry`] stamped `now` (ms): lines imported from a terminal session keep when they were said.
+    pub fn insert_entry_at(&self, lane: &Lane, kind: EntryKind, turn: i64, data: &Value, now: i64) -> Result<Entry> {
         let c = self.db.locked();
         let rev = next_rev(&c)?;
-        let now = now_ms();
         let id = uuid::Uuid::new_v4().to_string();
         let added = c.execute(
             &format!(
