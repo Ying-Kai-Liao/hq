@@ -4,6 +4,7 @@ mod agent;
 mod analytics;
 mod api;
 mod background;
+mod calls;
 mod channels;
 mod chat;
 mod compat;

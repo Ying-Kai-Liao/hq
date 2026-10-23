@@ -19,7 +19,8 @@ Use send_file(path, name?) to share a generated regular file (any type, up to 10
 /// An hq agent's: what it writes already reaches the user as its reply, so only files need a tool.
 pub const FILES_INSTRUCTIONS: &str = "Use send_file(path, name?) to give the user an image or any other regular file (up to 100 MiB) in this chat or thread: \
 images show inline, other files as a download card. A local path in your reply is not a download. \
-Also use it on a call: the user sees the file in the chat, nothing is read aloud. A successful call is final; don't repeat it.";
+Also use it on a call: the user sees the file in the chat, nothing is read aloud. A successful call is final; don't repeat it. \
+Use call_person(reason) only for something that truly needs the user's voice now: it rings their open Kith app, and the answer says ringing, busy, rate-limited or not-allowed. Don't call again to chase it.";
 
 /// Longest message accepted, in bytes.
 const MAX_MESSAGE_BYTES: usize = 32 * 1024;

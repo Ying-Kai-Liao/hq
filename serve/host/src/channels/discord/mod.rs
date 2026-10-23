@@ -171,6 +171,9 @@ pub struct Discord {
     rt: Mutex<Rt>,
     /// Webhooks are made one at a time, so two posts to a new channel don't make two.
     hook_lock: tokio::sync::Mutex<()>,
+    /// Message ids of working lines already edited to "stopped". The run ending and the Stop press race;
+    /// "stopping…" must never land after "stopped". Held across the edit to order them.
+    stopped_lines: tokio::sync::Mutex<HashSet<String>>,
     /// Set once the server is known and set up: messages wait for it.
     ready: watch::Sender<bool>,
 }
@@ -185,6 +188,7 @@ impl Discord {
             alive: Alive::default(),
             rt: Mutex::new(Rt::default()),
             hook_lock: tokio::sync::Mutex::new(()),
+            stopped_lines: tokio::sync::Mutex::new(HashSet::new()),
             ready: watch::channel(false).0,
         })
     }
@@ -813,6 +817,13 @@ impl Discord {
             } else {
                 return;
             };
+        if content == "-# stopping…" {
+            let stopped = self.stopped_lines.lock().await;
+            if !id_of(&it["message"]["id"]).is_some_and(|m| stopped.contains(&m)) {
+                self.finish_press(&app, token, content, private).await;
+            }
+            return;
+        }
         self.finish_press(&app, token, content, private).await;
     }
 
@@ -1077,6 +1088,11 @@ impl Adapter for Discord {
         Box::pin(async move {
             let shown = !handle.is_null();
             let done = if ended == Ended::Stopped && shown {
+                let mut stopped = self.stopped_lines.lock().await;
+                if stopped.len() > 1024 {
+                    stopped.clear();
+                }
+                stopped.extend(id_of(&handle["id"]));
                 self.edit_line(handle, json!({"content": STOPPED, "components": []}), false).await
             } else if ended == Ended::Stopped {
                 self.post_(conv, agent, STOPPED, None).await

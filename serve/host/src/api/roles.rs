@@ -38,8 +38,17 @@ pub const MEMBER_METHODS: &[&str] = &[
     "keepConversation",
     // Only the project folders the owner shared with them.
     "projects",
+    // The project of their own chat's thread: read it, or correct it (to projects shared with them; see `guard`).
+    "threadProjects",
+    "setThreadProjects",
     // The code that links their own Telegram, Discord or Slack account to their person.
     "linkCode",
+    // Answering an incoming call from their own agent; the handler checks the call is theirs.
+    "callAccept",
+    "callDecline",
+    "callGreet",
+    // The app logs the end of a call it took (frees the person for the next one).
+    "logCall",
     // Their own bot guests (docs/kith-bot-guests.md): inviting one from what they hold, seeing and removing their own.
     // Each handler checks the bot is theirs; deciding on a bot and the per-person toggle stay the owner's.
     "createBotInvite",
@@ -189,8 +198,8 @@ pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: 
     }
     match method {
         // Checked by their own handlers, or about no chat at all.
-        "hello" | "projects" | "linkCode" | "startChat" | "createBotInvite" | "revokeBotInvite" | "revokeBot"
-        | "myBots" | "setBotLimits" => {}
+        "hello" | "projects" | "linkCode" | "startChat" | "callAccept" | "callDecline" | "callGreet"
+        | "createBotInvite" | "revokeBotInvite" | "revokeBot" | "myBots" | "setBotLimits" => {}
         // A card or message names its chat only through the entry.
         "respondPermission" | "react" | "editHandoff" | "keepConversation" => {
             let id = b["entryId"].as_str().unwrap_or_default();
@@ -218,6 +227,13 @@ pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: 
             }
         }
         _ => own_bot(hub, person, b["botId"].as_str().unwrap_or_default()).await?,
+    }
+    if method == "setThreadProjects" {
+        let shared = hub.store.person(person).map(|p| p.projects).unwrap_or_default();
+        let ids = b["projects"].as_array().into_iter().flatten().filter_map(Value::as_str);
+        if ids.into_iter().any(|id| !shared.iter().any(|s| s == id)) {
+            return Err(denied("That project isn't shared with you."));
+        }
     }
     if method == "send" {
         // A folder on this Mac is the owner's to pick; a project must be one shared with them.
@@ -299,6 +315,8 @@ pub fn event_for(store: &Store, who: Option<&str>, v: Value) -> Option<Value> {
         "bot" => v["bot"]["id"].as_str().map(str::to_owned),
         "entry" => v["entry"]["botId"].as_str().or_else(|| v["entry"]["bot_id"].as_str()).map(str::to_owned),
         "resync" => return Some(v),
+        // A call goes to whoever the chat belongs to, never to the owner for an invitee's chat.
+        "call" => v["call"]["botId"].as_str().map(str::to_owned),
         _ => return who.is_none().then_some(v),
     };
     let owner = bot.as_deref().and_then(|b| bot_person(store, b));

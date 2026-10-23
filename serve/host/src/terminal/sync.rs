@@ -643,8 +643,8 @@ fn before_send_blocking(hub: &Hub, t: &Thread) -> Result<()> {
     // The same lock `resolve` (hostBusy) and a turn's start take: a claim, a resume and a start see each other in order.
     let lock = hub.terminal.thread_lock(&t.key());
     let _one = lock.locked();
-    if held(hub, t) {
-        return Err(HeldByWriter { code: "liveInTerminal" }.into());
+    if let Some(w) = writer(hub, t) {
+        return Err(HeldByWriter { code: w.code() }.into());
     }
     sync_one(hub, t);
     if hub.store.kv_get(&stale_key(t)).is_some() && hub.store.kv_delete(&stale_key(t)).is_ok() {
@@ -653,12 +653,30 @@ fn before_send_blocking(hub: &Hub, t: &Thread) -> Result<()> {
     Ok(())
 }
 
-/// Whether a terminal (or a take-over) holds the thread, judged on what is on disk now: a claim, a live registry file of
-/// the lane's session or of the last scanned one, or a live process. `info` alone lags a scan behind.
-fn held(hub: &Hub, t: &Thread) -> bool {
+/// Who holds a thread, as far as a send into it is concerned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Writer {
+    /// A terminal, a take-over, or a take-over under way.
+    Terminal,
+    /// A bot guest's turn (`Kind::Bot` claim, taken by `agent/bot/turn.rs` with the agent process's pid).
+    Bot,
+}
+
+impl Writer {
+    fn code(self) -> &'static str {
+        match self {
+            Self::Terminal => "liveInTerminal",
+            Self::Bot => "heldByOtherWriter",
+        }
+    }
+}
+
+/// Who holds the thread, judged on what is on disk now: a claim, a live registry file of the lane's session or of the
+/// last scanned one, or a live process. `info` alone lags a scan behind.
+fn writer(hub: &Hub, t: &Thread) -> Option<Writer> {
     let env = hub.terminal.env();
     if hub.terminal.taking.locked().contains(&t.key()) {
-        return true;
+        return Some(Writer::Terminal);
     }
     let lane_sid = hub.store.kv_get(&lane_key("session", &t.bot, &t.lane())).filter(|s| !s.is_empty());
     let known = info(hub, t);
@@ -667,16 +685,33 @@ fn held(hub: &Hub, t: &Thread) -> bool {
         if !registry::safe_id(&sid) {
             continue;
         }
-        if claim::holder(&env.state, &sid).is_some() {
-            return true;
+        if let Some(c) = claim::holder(&env.state, &sid) {
+            return Some(if c.kind == claim::Kind::Bot { Writer::Bot } else { Writer::Terminal });
         }
         if let Some(reg) = registry::read_one(&env.state, &sid)
             && registry::liveness(&reg, env.sessions.as_deref()).is_live()
         {
-            return true;
+            return Some(Writer::Terminal);
         }
     }
-    known.is_some_and(|reg| registry::liveness(&reg, env.sessions.as_deref()).is_live())
+    known.filter(|reg| registry::liveness(reg, env.sessions.as_deref()).is_live()).map(|_| Writer::Terminal)
+}
+
+/// A bot guest asks into its conversation's thread (`botAsk`): refused, as `heldByOtherWriter`, while a writer other than
+/// the bot's own turns holds it (a terminal, a take-over). A `Kind::Bot` claim is the bot's own running turn: its ask
+/// waits behind it in the thread's lane. Same lock as `before_send` and the start of a turn.
+pub async fn bot_gate(hub: &Arc<Hub>, chat: &str, root: &str) -> Result<(), HeldByWriter> {
+    let (hub, t) = (hub.clone(), Thread { bot: chat.to_owned(), root: root.to_owned() });
+    tokio::task::spawn_blocking(move || {
+        let lock = hub.terminal.thread_lock(&t.key());
+        let _one = lock.locked();
+        match writer(&hub, &t) {
+            Some(Writer::Terminal) => Err(HeldByWriter { code: "heldByOtherWriter" }),
+            Some(Writer::Bot) | None => Ok(()),
+        }
+    })
+    .await
+    .unwrap_or(Err(HeldByWriter { code: "heldByOtherWriter" }))
 }
 
 /// Brings this one thread in step with the registry now, with its lock held: a fork becomes the lane's session
@@ -720,8 +755,10 @@ pub async fn start_gate(
         let t = Thread { bot: lane.chat.clone(), root: root.clone() };
         let lock = hub.terminal.thread_lock(&t.key());
         let _one = lock.locked();
-        if held(&hub, &t) {
-            return Err(HeldByWriter { code: "liveInTerminal" });
+        // A bot's claim is a turn of the host's own, which the thread's lane queue already orders; only others refuse.
+        if writer(&hub, &t) == Some(Writer::Terminal) {
+            let bot = hub.store.bot_conversation_of_thread(&lane.chat, root).is_some();
+            return Err(HeldByWriter { code: if bot { "heldByOtherWriter" } else { "liveInTerminal" } });
         }
         begin(&hub);
         Ok(())

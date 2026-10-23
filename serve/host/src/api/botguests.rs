@@ -903,8 +903,13 @@ async fn ask(hub: &Arc<Hub>, caller: &Caller, bot: &BotGuest, b: &Value) -> Resu
             return Err(BotError::err(429, "busy", format!("This bot already has {} turns running.", bot.concurrent)));
         }
     }
-    // TODO(writer claim): refuse here with `heldByOtherWriter` when an app user holds this thread. The gate goes on the
-    // generic writer-claim API of the continue-anywhere work once it merges; `liveWriter` below is display only.
+    // One writer per thread: a terminal or a take-over holding the conversation's thread refuses, it doesn't queue (the
+    // queue above is for the bot's own turns). A new conversation has no thread yet. `liveWriter` is display only.
+    if let Some(c) = &known {
+        crate::terminal::bot_gate(hub, &c.chat_bot_id, &c.thread_root)
+            .await
+            .map_err(|e| BotError::err(409, e.code, "Something else is writing to this conversation right now."))?;
+    }
 
     let chat = match chat {
         Some(c) => c,
@@ -931,7 +936,7 @@ async fn ask(hub: &Arc<Hub>, caller: &Caller, bot: &BotGuest, b: &Value) -> Resu
     hub.store.audit_add(&bot.person_id, caller.device_key(), "botAsk", Some(&conv.conversation_id), true);
     let prompt = crate::chat::prompt::of_bot_guest(first, provider_label(&bot.provider), &bot.name, &owner, text);
     hub.send_cmd(&chat, Cmd::Send { lane, entry_id: entry.id.clone(), text: prompt, route: false })?;
-    // TODO(writer claim): take the claim for this bot turn here, and release it in `turn_ended`.
+    // The claim itself is taken when the turn starts (`claim_for_turn`, `Kind::Bot`) and released when it ends.
     set_writer(hub, &chat, &conv.thread_root, Some("bot"));
     Ok(json!({
         "conversation": conv.conversation_id, "entryId": entry.id, "turn": turn, "seq": entry.rev,

@@ -1,33 +1,32 @@
 import type { Usage } from '@shared/models'
-import { HStack, VStack } from '../../components/Stack'
+import { CardSection } from '../../components/Controls'
 import { Text } from '../../components/Text'
-import { prefs, usePref } from '../../lib/prefs'
-import { ProviderMascot } from '../usage/ProviderMascot'
-import { UsageBar } from '../usage/UsageBar'
-import { providerTintCSS, resetDescription, windowTitle } from '../usage/usage-model'
+import { resetDescription, windowTitle } from '../usage/usage-model'
 import './settings.css'
 
-/** Every limit as a bar under its provider, the way the menu bar lists them. */
-export function UsageLimits({ usage }: { usage: Usage }) {
-  const [style] = usePref(prefs.usageIconStyle)
+/** One group per provider: a row per limit with its name, "NN% · resets …" and an ink bar. Near the limit the bar stays ink. */
+export function UsageLimits({ usage, computer }: { usage: Usage; computer: string | null }) {
   return (
-    <VStack gap={18}>
+    <>
       {usage.providers.map((provider) => (
-        <VStack key={provider.id} gap={10}>
-          <HStack gap={8}>
-            <ProviderMascot provider={provider} size={18} style={style} />
-            <Text size="body" weight="semibold" tone="text">{provider.name}</Text>
-          </HStack>
-          {provider.windows.map((w) => (
-            <HStack key={w.id} gap={10} className="settings-usage-row">
-              <Text tone="text" truncate className="settings-usage-title">{windowTitle(w)}</Text>
-              <UsageBar percent={w.percent} tint={providerTintCSS(provider.id)} />
-              <Text tone="text" tabular className="settings-usage-percent">{Math.round(w.percent)}%</Text>
-              <Text tone="secondary" truncate className="settings-usage-reset">{resetDescription(w) ?? ''}</Text>
-            </HStack>
-          ))}
-        </VStack>
+        <CardSection key={provider.id} title={computer ? `${computer} · ${provider.name}` : provider.name}>
+          {provider.windows.map((w) => {
+            const percent = Math.min(100, Math.max(0, Math.round(w.percent)))
+            const reset = resetDescription(w)
+            return (
+              <div key={w.id} className="settings-usage-row">
+                <div className="settings-usage-line">
+                  <Text tone="text" truncate>{windowTitle(w)}</Text>
+                  <Text size="caption" tone="secondary">{reset ? `${percent}% · ${reset}` : `${percent}%`}</Text>
+                </div>
+                <div className="settings-usage-bar" role="progressbar" aria-label={`${windowTitle(w)} ${percent}% used`} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+                  <i style={{ width: `${Math.max(2, percent)}%` }} />
+                </div>
+              </div>
+            )
+          })}
+        </CardSection>
       ))}
-    </VStack>
+    </>
   )
 }

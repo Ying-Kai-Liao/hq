@@ -144,7 +144,7 @@ async fn an_hq_agent_appears_and_starts_from_launch_json() {
     let bot = s.house().await;
     assert_eq!(bot["description"], "Keeps the house");
     assert_eq!(bot["backend"], "claude");
-    assert_eq!(bot["permission"], "ask");
+    assert_eq!(bot["permission"], "default");
     assert_eq!(s.launches().len(), 0, "nothing starts before the first message");
     let id = bot["id"].as_str().unwrap();
     // These read the main chat's answer; tasks (the default) answer in a thread.
@@ -624,7 +624,7 @@ async fn the_hosts_own_copy_never_overrides_hq() {
             json!({"id": id, "model": "opus", "modelOptions": {"effort": "high"}, "fastMode": true, "permission": "auto"}),
         )
         .await;
-    assert_eq!(edited["bot"]["permission"], "ask", "the edit of an hq bot's permission isn't stored");
+    assert_eq!(edited["bot"]["permission"], "default", "the edit of an hq bot's permission isn't stored");
     assert_eq!(edited["bot"]["fastMode"], false);
     assert!(edited["bot"]["model"].is_null());
 
@@ -646,7 +646,11 @@ async fn an_hq_agent_shares_an_image_with_the_tool_it_is_given() {
 
     let results: Value =
         serde_json::from_str(&std::fs::read_to_string(s.home.join("file-results.json")).unwrap()).unwrap();
-    assert_eq!(results["tools"], json!(["send_file"]), "only file sharing: its words already are its reply");
+    assert_eq!(
+        results["tools"],
+        json!(["send_file", "call_person"]),
+        "only file sharing and ringing the person: its words already are its reply"
+    );
     assert!(results["sent"]["isError"].is_null(), "{results}");
     let history = s.host.call("history", json!({"botId": id})).await;
     let shared =

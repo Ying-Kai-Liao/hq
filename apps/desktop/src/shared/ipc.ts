@@ -56,6 +56,18 @@ export interface TraySummary {
 }
 
 /** Things the tray menu (or the app menu) asks the window to do. */
+/** What the native Profile menu shows: the renderer knows the account, the Macs and the pending requests. */
+export interface ProfileMenuSpec {
+  name: string
+  /** "Google · 2 Macs · 2 people": only the parts the data has. */
+  detail: string
+  signedIn: boolean
+  busy: boolean
+  /** Pending access requests: a count after Settings…. */
+  approvals: number
+}
+export type ProfileMenuChoice = 'computers' | 'extensions' | 'usage' | 'settings' | 'help' | 'issue' | 'signOut' | 'apple' | 'google' | 'github'
+
 export type WindowCommand =
   | { kind: 'openBot'; ref: string }
   | { kind: 'stopBot'; ref: string }
@@ -74,6 +86,8 @@ export type WindowCommand =
   | { kind: 'toggleDetails' }
   | { kind: 'respondPermission'; ref: string; entryId: string; optionId: string }
   | { kind: 'sendMessage'; ref: string; text: string }
+  /** The Settings window is already open: show this page (a SettingsPage id). */
+  | { kind: 'openSettingsPage'; page: string }
 
 /** The app's own updates (electron-updater, release builds only). */
 export interface UpdateState {
@@ -241,6 +255,8 @@ export interface KithBridge {
     pickFolder(defaultPath?: string | null): Promise<string | null>
     readClipboardFiles(): Promise<{ name: string; data: Uint8Array }[]>
     setTraySummary(summary: TraySummary): void
+    /** Brings the chat window to the front (an incoming call). */
+    raiseWindow(): void
     onCommand(cb: (command: WindowCommand) => void): () => void
     resetAllData(): Promise<void>
     setLaunchAtLogin(on: boolean): Promise<boolean>
@@ -248,6 +264,10 @@ export interface KithBridge {
     setShowInDock(on: boolean): Promise<boolean>
     launchAtLogin(): Promise<boolean>
     openSettings(url: string): void
+    /** Opens (or focuses) the Settings window, on `page` when given (a SettingsPage id). */
+    openSettingsWindow(page?: string): void
+    /** Pops the native Profile menu at the pointer; resolves with the chosen item, null when dismissed. */
+    profileMenu(menu: ProfileMenuSpec): Promise<ProfileMenuChoice | null>
     /**
      * Opens `url` in the system browser and resolves with the URL it returns to on `scheme`
      * (`kith://…`), like ASWebAuthenticationSession. Rejects when cancelled or timed out.

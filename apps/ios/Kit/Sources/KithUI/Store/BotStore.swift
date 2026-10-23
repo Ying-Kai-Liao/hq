@@ -56,6 +56,10 @@ public final class BotStore {
     public internal(set) var client: HostClient?
     /// Set on a computer this account joined by invite: shows the invite token on every connection that hasn't yet.
     @ObservationIgnored public var inviteTokens: (any InviteTokenStore)?
+    /// Agents ringing the person right now (see `IncomingCalls`).
+    public internal(set) var incomingCalls: [IncomingCall] = []
+    /// Accepted calls already told to greet, so the agent speaks first only once.
+    @ObservationIgnored var greeted: Set<String> = []
     public internal(set) var hello: Hello?
     /// The host's version and `minApp`, kept even when the rest of its `hello` can't be read.
     public internal(set) var hostVersion: HostVersion?

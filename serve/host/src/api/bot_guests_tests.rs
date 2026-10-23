@@ -591,3 +591,44 @@ async fn a_bots_stream_carries_only_its_own_words() {
     let t = call(&r, &j.caller, "botThread", json!({"conversation": first["conversation"]})).await.unwrap();
     assert_eq!(t["done"], true);
 }
+
+#[tokio::test]
+async fn a_terminal_holding_the_thread_refuses_an_ask_and_a_retry_still_answers() {
+    use crate::terminal::{Env, claim};
+    let r = Rig::new().await;
+    r.owner_bot("house");
+    r.hub.terminal.set_env(Env { state: r.dir.join("state"), sessions: Some(r.dir.join("sessions")) });
+    let state = r.hub.terminal.env().state;
+    let j = active_bot(&r).await;
+    let first = call(&r, &j.caller, "botAsk", ask("one", "n1")).await.unwrap();
+    let conv = r.hub.store.bot_conversation_by_id(first["conversation"].as_str().unwrap()).unwrap();
+    let lane = Lane::in_thread(&conv.chat_bot_id, &conv.thread_root);
+    r.hub.store.kv_set(&crate::store::lane_key("session", &conv.chat_bot_id, &lane), "sbot1").unwrap();
+    // Asks only: the first turn has no agent here and may add a notice at any time.
+    let sent = || {
+        r.hub
+            .store
+            .thread(&conv.chat_bot_id, &conv.thread_root, 50)
+            .unwrap()
+            .iter()
+            .filter(|e| e.kind == "user")
+            .count()
+    };
+    let before = sent();
+
+    // A terminal holds the thread (this test process stands in for it).
+    let me = std::process::id();
+    assert!(claim::take(&state, "sbot1", claim::Kind::Terminal, me, false).unwrap().is_ok());
+    let more = json!({"conversation": conv.conversation_id, "text": "two", "clientNonce": "n2"});
+    let e = call(&r, &j.caller, "botAsk", more.clone()).await.unwrap_err();
+    assert_eq!(code(&e), Some("heldByOtherWriter"));
+    assert_eq!(sent(), before, "nothing was sent");
+    // A retry of an ask already sent answers the same, ahead of the gate, and takes no claim.
+    let retry = call(&r, &j.caller, "botAsk", ask("one", "n1")).await.unwrap();
+    assert_eq!(retry["duplicate"], true);
+    assert_eq!(claim::holder(&state, "sbot1").unwrap().kind, claim::Kind::Terminal);
+
+    claim::release(&state, "sbot1", me, false);
+    call(&r, &j.caller, "botAsk", more).await.unwrap();
+    assert!(claim::holder(&state, "sbot1").is_none(), "the claim is taken when the turn starts, never by the ask");
+}

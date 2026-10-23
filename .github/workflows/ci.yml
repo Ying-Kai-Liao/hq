@@ -3,14 +3,16 @@ name: ci
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   workflow_dispatch:
-  # The merge queue tests each batch on a temporary branch; every job the filters select runs in full there.
+  # GitHub's own merge queue needs an org-owned repo, so this never fires here; kept for a possible move.
   merge_group:
     types: [checks_requested]
 
+# Label events don't start this workflow (ci-label.yml dispatches it for ci:full), so a label such as `queue` never
+# creates a run, and never a skipped `ci` check that Mergify would read as the latest result.
 # A PR gets one group per ref, so a re-push cancels the older run. Every other run (push to main,
 # merge_group, workflow_dispatch) gets its own group keyed by sha, so merges never cancel each other. GitHub keeps
 # only one pending run per group, so sharing a group for main would drop the older queued run.
@@ -36,10 +38,12 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      # The heavy tier (macOS builds, all e2e, guest-linux) runs on everything but a pull request, and on a ready
-      # (non-draft) pull request that carries the ci:full label. pull_request is empty on merge_group, so it is
-      # only read when the event is a pull request.
-      heavy: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false && contains(github.event.pull_request.labels.*.name, 'ci:full')) }}
+      # The heavy tier (macOS builds, all e2e, guest-linux) runs on everything but a pull request. A pull request
+      # runs it when it is a Mergify queue batch (a draft PR from a mergify/merge-queue/* branch, which Mergify
+      # builds on top of the latest main), or when it is ready (non-draft) and carries the ci:full label. Ordinary
+      # drafts stay cheap-only. pull_request is empty on other events, so it is only read for pull requests.
+      # Batch PRs each have their own ref, so the per-ref concurrency group never makes one cancel another.
+      heavy: ${{ github.event_name != 'pull_request' || startsWith(github.head_ref, 'mergify/merge-queue/') || (github.event.pull_request.draft == false && contains(github.event.pull_request.labels.*.name, 'ci:full')) }}
       kernel: ${{ github.event_name == 'merge_group' || steps.f.outputs.kernel }}
       host: ${{ github.event_name == 'merge_group' || steps.h.outputs.host }}
       host_core: ${{ github.event_name == 'merge_group' || steps.h.outputs.host_core }}
@@ -157,6 +161,8 @@ jobs:
         run: kernel/tests/kith-auth-check
       - name: Cost bots check
         run: kernel/tests/kith-cost-bots-check
+      - name: Call check
+        run: kernel/tests/kith-call-check
       - name: Trajectory check
         run: kernel/tests/kith-trajectory-check
       - name: Load check
@@ -574,8 +580,9 @@ jobs:
 
   # The single check to require: passes when every needed job passed or was
   # skipped by the filter, fails on any failure or cancellation.
+  # Skipped when the run itself is cancelled (a re-push superseded it), so it reports no failing `ci`. A job cancelled or timed out inside a live run still fails it through RESULTS.
   ci:
-    if: always()
+    if: ${{ !cancelled() }}
     needs: [changes, kernel, host, host-build, host-test, host-e2e, host-crates, cloud, licenses, thread-writers, relay, ios, desktop, desktop-js, desktop-relay-e2e, guest-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 5

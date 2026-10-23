@@ -55,7 +55,7 @@ impl Rig {
         hub.terminal.set_env(Env { state: dir.join("state"), sessions: Some(dir.join("sessions")) });
         let cfg: BotConfig = serde_json::from_value(json!({
             "id": "", "name": "builder", "backend": "claude", "cwd": dir.to_string_lossy(),
-            "hqAgent": "builder", "permission": "ask", "tasks": true, "connectors": [], "skills": [],
+            "hqAgent": "builder", "permission": "default", "tasks": true, "connectors": [], "skills": [],
         }))
         .unwrap();
         let bot = hub.create_bot(cfg).unwrap()["id"].as_str().unwrap().to_owned();
@@ -826,4 +826,60 @@ async fn a_second_take_over_while_one_holds_its_claim_does_nothing() {
     assert_eq!(v["tookOver"], false);
     assert!(!registry::dir(&r.state()).join("s1.taken").exists(), "the terminal was not signalled");
     assert!(registry::pid_runs(me));
+}
+
+#[tokio::test]
+async fn a_bot_holding_the_thread_refuses_an_app_send_as_another_writer() {
+    let r = Rig::new();
+    let root = r.app_thread("s5");
+    let me = r.sleeper();
+    assert!(claim::take(&r.state(), "s5", Kind::Bot, me, false).unwrap().is_ok());
+    let e = sync::before_send(&r.hub, &r.bot, &root).await.unwrap_err();
+    assert_eq!(e.downcast_ref::<HeldByWriter>().unwrap().code, "heldByOtherWriter");
+    assert!(e.to_string().starts_with("heldByOtherWriter"));
+    // The bot's turn is over: the claim is released, the thread is free.
+    claim::release(&r.state(), "s5", me, false);
+    sync::before_send(&r.hub, &r.bot, &root).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_bots_own_claim_does_not_stop_the_next_turn_of_its_lane_but_a_terminal_does() {
+    use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
+    let r = Rig::new();
+    let root = r.app_thread("s5");
+    let lane = Lane::in_thread(&r.bot, &root);
+    let (bot, term) = (r.sleeper(), r.sleeper());
+    let began = Arc::new(AtomicBool::new(false));
+    let mark = |flag: &Arc<AtomicBool>| {
+        let flag = flag.clone();
+        move |_: &Hub| flag.store(true, SeqCst)
+    };
+    // The lane's queue orders the bot's turns with the app's; the claim only keeps other processes out.
+    assert!(claim::take(&r.state(), "s5", Kind::Bot, bot, false).unwrap().is_ok());
+    sync::start_gate(&r.hub, &lane, mark(&began)).await.unwrap();
+    assert!(began.load(SeqCst));
+    claim::release(&r.state(), "s5", bot, false);
+    assert!(claim::take(&r.state(), "s5", Kind::Terminal, term, false).unwrap().is_ok());
+    began.store(false, SeqCst);
+    sync::start_gate(&r.hub, &lane, mark(&began)).await.unwrap_err();
+    assert!(!began.load(SeqCst));
+}
+
+#[tokio::test]
+async fn a_bot_ask_is_refused_while_another_writer_holds_and_waits_behind_its_own_turn() {
+    let r = Rig::new();
+    let root = r.app_thread("s6");
+    let (bot, term, app) = (r.sleeper(), r.sleeper(), r.sleeper());
+    sync::bot_gate(&r.hub, &r.bot, &root).await.unwrap();
+    // A terminal holds: refused, not queued.
+    assert!(claim::take(&r.state(), "s6", Kind::Terminal, term, false).unwrap().is_ok());
+    assert_eq!(sync::bot_gate(&r.hub, &r.bot, &root).await.unwrap_err().code, "heldByOtherWriter");
+    claim::release(&r.state(), "s6", term, false);
+    // A take-over of the app holds too.
+    assert!(claim::take(&r.state(), "s6", Kind::App, app, true).unwrap().is_ok());
+    assert_eq!(sync::bot_gate(&r.hub, &r.bot, &root).await.unwrap_err().code, "heldByOtherWriter");
+    claim::release(&r.state(), "s6", app, true);
+    // Its own running turn: the ask goes on to the queue.
+    assert!(claim::take(&r.state(), "s6", Kind::Bot, bot, false).unwrap().is_ok());
+    sync::bot_gate(&r.hub, &r.bot, &root).await.unwrap();
 }

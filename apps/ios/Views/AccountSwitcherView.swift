@@ -21,6 +21,8 @@ struct AccountSwitcherButton: View {
 
 /// Who you're signed in as, the other accounts on this iPhone, and the way to the computers.
 struct AccountSwitcherView: View {
+    /// Pushed from the account card in Settings rather than opened as the account sheet.
+    var pushed = false
     @Environment(AppStore.self) private var app
     @Environment(AccountSession.self) private var account
     @State private var showSettings = false
@@ -30,19 +32,12 @@ struct AccountSwitcherView: View {
 
     var body: some View {
         CardForm {
-            Button { pairing = true } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "qrcode.viewfinder").font(.system(size: 22))
-                    Text("Scan a computer's code").font(.body.weight(.medium))
-                    Spacer(minLength: 8)
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Palette.tertiary)
+            CardSection {
+                Button { pairing = true } label: {
+                    RowLabel("Scan a computer's code", systemImage: "qrcode.viewfinder", chevron: true)
                 }
-                .foregroundStyle(Palette.text)
-                .padding(16)
-                .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
             }
-            .buttonStyle(PressScale())
 
             profile
                 .frame(maxWidth: .infinity)
@@ -54,10 +49,12 @@ struct AccountSwitcherView: View {
             }
 
             CardSection {
-                Button { showSettings = true } label: {
-                    RowLabel("Computers", systemImage: "desktopcomputer", chevron: true)
+                if !pushed {
+                    Button { showSettings = true } label: {
+                        RowLabel("Computers", systemImage: "desktopcomputer", chevron: true)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
                 if account.isSignedIn {
                     Button { confirmSignOut = true } label: {
                         RowLabel("Sign out", systemImage: "rectangle.portrait.and.arrow.right", tint: Palette.danger)
@@ -75,7 +72,7 @@ struct AccountSwitcherView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            ModalHeader("Account") {
+            PageHeader("Account", pushed: pushed) {
                 if account.isBusy {
                     ThinkingOrb(state: .connecting, size: 20)
                         .accessibilityHidden(false).accessibilityLabel("Signing in")
@@ -101,7 +98,11 @@ struct AccountSwitcherView: View {
     @ViewBuilder private var profile: some View {
         if account.isSignedIn {
             VStack(spacing: 10) {
-                AccountAvatar(url: account.avatarURL, email: account.email, size: 76)
+                if let url = account.avatarURL {
+                    AccountAvatar(url: url, email: account.email, size: 76)
+                } else {
+                    SkyPatch(id: account.userID ?? "you", size: 76, isYou: true)
+                }
                 Text(account.email ?? "")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Palette.text)

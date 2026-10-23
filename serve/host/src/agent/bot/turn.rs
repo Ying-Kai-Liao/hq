@@ -34,6 +34,11 @@ impl Actor {
     async fn compose(&mut self, sid: &str, text: &str) -> Result<String> {
         if self.is_hq() {
             let recalled = self.first_message_recall(text).await;
+            let moved = self.project_context().await;
+            let recalled = match (moved, recalled) {
+                (Some(m), Some(r)) => Some(format!("{m}\n\n{r}")),
+                (m, r) => m.or(r),
+            };
             return Ok(self.compose_hq(text, recalled));
         }
         let instructions = self.conn.as_ref().map_or(Instructions::FirstMessage, Conn::instructions);
@@ -114,10 +119,21 @@ impl Actor {
             },
             |e| e.turn,
         );
+        // Only a person's own words to an hq agent say what the chat is about.
+        let from_person = !hidden
+            && self.is_hq()
+            && self.active_request.is_none()
+            && self.active_group.is_none()
+            && self.active_routine.is_none()
+            && !entry_ids.is_empty();
+        self.project_turn = if from_person { self.infer_project(&lane, entry_ids, text).await } else { None };
         for id in entry_ids {
             // Bot-message notices belong to `chat::team`; writing them here would race its final status.
             if let Some(mut e) = self.hub.store.entry(id).filter(|e| e.kind == EntryKind::User.as_str()) {
                 e.data["status"] = json!(crate::chat::team::RequestStatus::Sent);
+                if let Some(turn) = &self.project_turn {
+                    e.data["projects"] = json!(turn.projects);
+                }
                 self.hub.set_entry(id, &e.data);
             }
         }
@@ -126,10 +142,17 @@ impl Actor {
             memory::summary::resume(&self.hub, &lane);
         }
         self.turn = Some(turn);
+        self.project_divider();
         // Only the user's own words feed memory: not another bot's, a room's or a routine's.
-        let from_user =
-            !hidden && self.active_request.is_none() && self.active_group.is_none() && self.active_routine.is_none();
-        self.turn_call = from_user
+        // The opening turn of a call the agent placed (`calls::greet`) is the host's, not the person's words.
+        let greeting = !entry_ids.is_empty()
+            && entry_ids.iter().all(|id| self.hub.store.entry(id).is_some_and(|e| e.data["greeting"] == true));
+        let from_user = !hidden
+            && !greeting
+            && self.active_request.is_none()
+            && self.active_group.is_none()
+            && self.active_routine.is_none();
+        self.turn_call = (from_user || greeting)
             && !entry_ids.is_empty()
             && entry_ids.iter().all(|id| self.hub.store.entry(id).is_some_and(|e| e.data["via"] == "call"));
         self.turn_text = from_user.then(|| text.to_owned());
@@ -279,12 +302,17 @@ impl Actor {
             return Ok(());
         };
         let state = self.hub.terminal.env().state;
-        match crate::terminal::claim::take(&state, sid, crate::terminal::claim::Kind::App, pid, false) {
+        // A bot guest's conversation is held as a bot, so an app send and a terminal see who writes.
+        let bot =
+            lane.thread.as_deref().is_some_and(|r| self.hub.store.bot_conversation_of_thread(&lane.chat, r).is_some());
+        let kind = if bot { crate::terminal::claim::Kind::Bot } else { crate::terminal::claim::Kind::App };
+        match crate::terminal::claim::take(&state, sid, kind, pid, false) {
             Ok(Ok(())) => self.turn_claim = Some((sid.to_owned(), pid)),
             // A terminal got in between the start check and here: it keeps the session.
             Ok(Err(held)) if held.0.pid == pid => self.turn_claim = Some((sid.to_owned(), pid)),
             Ok(Err(_)) => {
-                let held = crate::terminal::HeldByWriter { code: "liveInTerminal" };
+                let held =
+                    crate::terminal::HeldByWriter { code: if bot { "heldByOtherWriter" } else { "liveInTerminal" } };
                 self.notice(&held.to_string(), NoticeStyle::Error);
                 return Err(held.into());
             }

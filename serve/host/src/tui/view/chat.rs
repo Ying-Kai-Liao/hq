@@ -5,7 +5,7 @@ use ratatui::layout::{Position, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
-use super::super::app::{App, Click, Editor, Mark, SlashAction, Status};
+use super::super::app::{App, Click, Editor, Mark, PERMISSION_MODES, SlashAction, Status};
 use super::super::md::{truncate, width as w};
 use super::buffer::{fill, hline, put, put_line, rput, u};
 use super::set_cursor;
@@ -49,7 +49,7 @@ pub(super) fn chat(buf: &mut Buffer, r: Rect, app: &mut App, narrow: bool) {
         let names: Vec<String> = b.members.iter().map(|m| app.author_name(Some(m))).collect();
         put(buf, x, r.y, room, &truncate(&format!("group · {}", names.join(", ")), usize::from(room)), t.secondary);
     } else if !narrow {
-        let mode = if b.auto { "auto" } else { "ask" };
+        let mode = PERMISSION_MODES[b.mode.min(PERMISSION_MODES.len() - 1)];
         let fast = match (b.fast_mode, b.fast_refusal().is_some()) {
             (true, true) => " · ⚡ refused",
             (true, false) => " · ⚡ fast",

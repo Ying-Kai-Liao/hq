@@ -45,27 +45,32 @@ public struct HqSetting: Equatable, Sendable {
 
     public static let setInKith = "Set in Kith"
 
-    /// Permission modes hq knows (kernel/lib/kith_settings.py CHOICES), in the order the picker lists them.
+    /// Claude Code's own permission modes, in the order the picker lists them. Kith passes the pick to the agent unchanged.
     public static let permissionModes: [(id: String, label: String)] = [
-        ("default", "Ask for each tool"), ("manual", "Manual"), ("acceptEdits", "Accept edits"), ("plan", "Plan only"),
+        ("default", "Default"), ("acceptEdits", "Accept edits"), ("plan", "Plan only"),
         ("auto", "Auto"), ("dontAsk", "Don't ask"), ("bypassPermissions", "Bypass permissions"),
     ]
 
+    /// A stored mode as the picker knows it: the old `ask` and `manual` are `default`.
+    public static func permissionMode(_ mode: String) -> String {
+        mode == "ask" || mode == "manual" ? "default" : mode
+    }
+
     /// One line under each mode in the picker's menu; the row itself keeps showing just the label.
     public static func permissionDetail(_ mode: String) -> String? {
-        switch mode {
-        case "default", "manual": "Asks before each action that isn't pre-approved"
-        case "acceptEdits": "File edits allowed; other actions ask"
-        case "plan": "Plans only; changes nothing"
-        case "auto": "Claude decides what's safe, asks only for risky things"
-        case "dontAsk": "Only pre-approved actions; everything else is refused without asking"
-        case "bypassPermissions": "Everything allowed, no prompts"
+        switch permissionMode(mode) {
+        case "default": "Asks the first time each tool is used"
+        case "acceptEdits": "File edits are accepted without asking; other actions ask"
+        case "plan": "Read-only planning; changes nothing"
+        case "auto": "A classifier approves safe actions; risky ones ask or are blocked"
+        case "dontAsk": "Refuses anything not pre-approved by permission rules"
+        case "bypassPermissions": "No permission checks"
         default: nil
         }
     }
 
     public static func permissionLabel(_ mode: String) -> String {
-        permissionModes.first { $0.id == mode }?.label ?? mode
+        permissionModes.first { $0.id == permissionMode(mode) }?.label ?? mode
     }
 
     private static let callModelNames: [(id: String, label: String)] = [
@@ -88,7 +93,7 @@ public struct HqSetting: Equatable, Sendable {
     public static func rows(_ info: KithInfo?) -> [HqSetting] {
         let agentsDefault = "Agent's default"
         return [
-            HqSetting(key: .permission, label: "Permissions", value: info.map { $0.permissionMode ?? "auto" } ?? "…",
+            HqSetting(key: .permission, label: "Permissions", value: info.map { permissionMode($0.permissionMode ?? "auto") } ?? "…",
                       editable: info != nil,
                       hint: "Kept by Kith on this computer. Every chat of this agent uses it from its next turn."),
             HqSetting(key: .callModel, label: "Call model", value: info.map { $0.callModel ?? "default" } ?? "…",

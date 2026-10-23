@@ -414,7 +414,7 @@ pub(super) async fn chat_with(hub: &Arc<Hub>, person: &str, agent: &str) -> Resu
     let c = &template.config;
     let cfg = serde_json::from_value(json!({
         "id": "", "name": c.name, "description": c.description, "backend": "claude", "cwd": c.cwd,
-        "hqAgent": agent, "permission": "ask", "tasks": false, "connectors": [], "skills": [], "person": person,
+        "hqAgent": agent, "permission": "default", "tasks": false, "connectors": [], "skills": [], "person": person,
     }))
     .expect("a valid bot");
     let hub = hub.clone();

@@ -128,7 +128,12 @@ impl Slack {
                 StopPress::NotYours => {
                     self.quietly("chat.postEphemeral", tell("Only the person who started this can stop it.")).await;
                 }
-                StopPress::Stopping => self.quietly("chat.update", edit("stopping…")).await,
+                StopPress::Stopping => {
+                    let stopped = self.stopped_lines.lock().await;
+                    if !stopped.contains(&format!("{channel}:{}", ts.as_str().unwrap_or(""))) {
+                        self.quietly("chat.update", edit("stopping…")).await;
+                    }
+                }
                 StopPress::Finished => {}
             }
         } else if id.starts_with("kith-pick") || id.starts_with("hq-pick") {

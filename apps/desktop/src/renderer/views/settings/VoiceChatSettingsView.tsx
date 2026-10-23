@@ -1,7 +1,7 @@
 import { onDeviceUnavailableReason } from '../call/voice'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { HostClient } from '../../client/host-client'
-import { Button, CardForm, CardSection, ChoicePicker, IconButton, ProgressBar, Spinner, ValueRow } from '../../components/Controls'
+import { Button, CardForm, CardSection, ChoiceList, ChoicePicker, IconButton, ProgressBar, Spinner, ValueRow } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { ModalHeader, SheetPage } from '../../components/Overlay'
 import { HStack, Spacer, VStack } from '../../components/Stack'
@@ -18,6 +18,7 @@ import type { LocalVoiceStatus, VoiceModels, VoiceProvider } from './voice-setti
  * in `StoreContext`. `showsHeader` is false inside Settings, which titles the page itself.
  */
 export function VoiceChatSettingsView({ showsHeader = true }: { showsHeader?: boolean }) {
+  const store = useStore()
   const [engine, setEngine] = usePref(voice.engine)
   const [rate, setRate] = usePref(voice.rate)
   const [language, setLanguage] = usePref(voice.language)
@@ -37,19 +38,19 @@ export function VoiceChatSettingsView({ showsHeader = true }: { showsHeader?: bo
       {showsHeader ? <ModalHeader title="Voice chat" /> : null}
       <div className="settings-voice-body">
         <CardForm>
+          <CardSection title="Engine">
+            <ChoiceList
+              selection={engine}
+              options={[
+                ...(window.kith.speech.available || engine === 'device' ? [{ id: 'device', label: 'On device', detail: 'private, works offline' }] : []),
+                ...(window.kith.speech.available || kith ? [{ id: voice.KITH_ENGINE, label: 'Kith voice', detail: `runs on ${store.hostName} · free` }] : []),
+                ...voice.VOICE_PROVIDERS.map((p) => ({ id: p as string, label: voice.voiceInfo[p].name, detail: 'your own API key' })),
+              ]}
+              onChange={setEngine}
+            />
+          </CardSection>
           <CardSection title="Voice" footer={footer}>
             {[
-              <ValueRow key="engine" label="Engine">
-                <ChoicePicker
-                  selection={engine}
-                  options={[
-                    ...(window.kith.speech.available || engine === 'device' ? [{ id: 'device', label: 'On device' }] : []),
-                    ...(window.kith.speech.available || kith ? [{ id: voice.KITH_ENGINE, label: 'Kith voice (on this Mac, free)' }] : []),
-                    ...voice.VOICE_PROVIDERS.map((p) => ({ id: p, label: voice.voiceInfo[p].name })),
-                  ]}
-                  onChange={setEngine}
-                />
-              </ValueRow>,
               ...(provider
                 ? [
                     <ValueRow key="mode" label="Mode" detail={mode === 'speech' ? 'Sent when you pause, replies read aloud.' : 'A live conversation. Talk over replies.'}>

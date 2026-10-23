@@ -189,6 +189,34 @@ struct BotSettingsForm: View {
     }
 
     /// hq is the one source of an hq bot's settings: its rows replace Kith's own controls.
+    private static let permissionSubtitles = [
+        "default": "Asks before edits and commands",
+        "acceptEdits": "Edits files, asks before commands",
+        "plan": "Reads and plans, changes nothing",
+        "auto": "Decides itself, risky steps are checked",
+        "dontAsk": "Only pre-approved tools, denies the rest",
+        "bypassPermissions": "Never asks. Only in a sandbox",
+    ]
+
+    /// The six Claude Code modes as a stock menu; the old `ask`/`manual` read as Default.
+    private var permissionModeRow: some View {
+        let current = HqSetting.permissionMode(draft.permission)
+        return DropdownMenu {
+            HqSetting.permissionModes.map { mode in
+                MenuItem(mode.label, detail: Self.permissionSubtitles[mode.id], selected: current == mode.id,
+                         destructive: mode.id == "bypassPermissions") { draft.permission = mode.id }
+            }
+        } label: {
+            SheetRow(title: "Mode", detail: Self.permissionSubtitles[current]) {
+                HStack(spacing: 4) {
+                    Text(HqSetting.permissionLabel(current))
+                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .semibold))
+                }
+            }
+        }
+        .accessibilityLabel("Mode")
+    }
+
     @ViewBuilder private var settingsRows: some View {
         if let kith, !shown.kithSettings { HqSettingsRows(store: kith) } else { modelPicker }
     }
@@ -307,13 +335,10 @@ struct BotSettingsForm: View {
                         }
                     }
                 }
-                if shown.kithSettings {
-                    ValueRow("Permissions", detail: draft.permission == "auto"
-                             ? "Tool requests are approved automatically. Your agent's own settings (like Claude Code's permission rules) still apply."
-                             : "You'll get an approval card and a notification whenever the agent asks.") {
-                        ChoicePicker(selection: $draft.permission, options: [("ask", "Ask me"), ("auto", "Approve automatically")])
-                    }
-                }
+            }
+
+            if shown.kithSettings {
+                CardSection("Permissions") { permissionModeRow }
             }
 
             CardSection("Activity") {
@@ -403,7 +428,7 @@ struct SwitchRow: View {
                 }
             }
         }
-        .toggleStyle(.kith)
+        .toggleStyle(.kithGreen)
     }
 }
 

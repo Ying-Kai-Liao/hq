@@ -44,7 +44,10 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
         }
         "chatCall" => {
             let (bot, name) = (str_arg(&b, "botId")?, str_arg(&b, "name")?);
-            if crate::chat::profile::TOOLS.contains(&name) {
+            if name == "call_person" {
+                let reason = b["arguments"]["reason"].as_str().unwrap_or_default();
+                crate::calls::ring_and_wait(hub, bot, reason, false).await?
+            } else if crate::chat::profile::TOOLS.contains(&name) {
                 crate::chat::profile::call(hub, bot, name, &b["arguments"]).await?
             } else {
                 crate::chat::outbox::call(hub, actor_arg(&b, bot), name, &b["arguments"]).await?
@@ -269,6 +272,7 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
         "logCall" => {
             let bot = str_arg(&b, "botId")?;
             hub.store.bot(bot)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
+            hub.calls.ended(bot);
             let seconds = b["seconds"].as_u64().unwrap_or(0);
             let data = json!({"text": "Voice chat", "callSeconds": seconds});
             let e = hub.add_entry(&Lane::main(bot), EntryKind::Notice, hub.store.max_turn(bot), &data);

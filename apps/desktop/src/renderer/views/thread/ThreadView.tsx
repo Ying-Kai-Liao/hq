@@ -58,6 +58,15 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
     setCompactDetails(false)
     setCalling(true)
   }
+  // A call the person just accepted opens here and starts; the agent then speaks first.
+  const [greet, setGreet] = useState<string | null>(null)
+  useEffect(() => {
+    const id = store.takeCallStart(botId)
+    if (!id) return
+    setGreet(id)
+    setCompactDetails(false)
+    setCalling(true)
+  })
   const [routineId, setRoutineId] = useState<string | null>(null)
   const [routineRequest, setRoutineRequest] = useState(0)
   const root = useRef<HTMLDivElement>(null)
@@ -95,7 +104,7 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
   const preferredPanel = openThread ? repliesWidth : detailsWidth
   squeezeBelow.current = panelOpen ? preferredPanel : 0
   // The side panel's edge drags its width, leaving the conversation at least 380 wide.
-  const panelWidth = (w: number) => Math.min(Math.max(260, w), width.current - 380)
+  const panelWidth = (w: number) => Math.min(Math.max(260, w), Math.min(420, width.current - 380))
   // A compact Details presentation dismisses once the window is wide enough for the inspector.
   useEffect(() => {
     if (wide) setCompactDetails(false)
@@ -209,20 +218,20 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
           )}
         </div>
         {calling ? (
-          <CallView botId={botId} onSpeaking={setCallSpeaking} interrupt={interruptCall} onEnd={() => setCalling(false)} />
+          <CallView botId={botId} greet={greet} onSpeaking={setCallSpeaking} interrupt={interruptCall} onEnd={() => { setCalling(false); setGreet(null) }} />
         ) : null}
       </div>
       <ChatSidePanel
         open={panelOpen}
         width={panelWidth(preferredPanel)}
         min={260}
-        max={width.current - 380}
+        max={Math.min(420, width.current - 380)}
         onResize={(w) => (openThread ? setRepliesWidth : setDetailsWidth)(panelWidth(w))}
       >
         {openThread ? <RepliesView key={openThread} botId={botId} rootId={openThread} close={closeThread} /> : details}
       </ChatSidePanel>
 
-      <Sheet open={compactDetails} onClose={() => setCompactDetails(false)} width={340} height={600}>
+      <Sheet open={compactDetails} onClose={() => setCompactDetails(false)} width={380} height={600}>
         {details}
       </Sheet>
       <Sheet open={openThread !== null && !wide} onClose={closeThread} width={440} height={600}>

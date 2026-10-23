@@ -122,13 +122,14 @@ private struct DebugHooks: ViewModifier {
                 try? await Task.sleep(for: .seconds(1))
                 switch screen {
                 case "settings": app.showSettings = true
+                case "computers": app.showComputers = true
                 case "widgets": app.showSettings = true; app.openWidgets = true
                 case "chat":
                     if let computer = app.accounts.computers.first {
                         app.accounts.selection = BotReference(accountId: nil, computerId: computer.id, botId: DemoScreens.chatBotId)
                     }
                 case "agent", "agent-memory", "agent-settings": agentScreen = screen
-                default: break // "crew" and "crew-typing" are the root
+                default: break // "crew", "crew-typing" and "board" (BotListView opens its Board tab) are the root
                 }
             }
             await LiveActivities.shared.previewIfRequested()

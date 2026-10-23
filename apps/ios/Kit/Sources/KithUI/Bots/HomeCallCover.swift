@@ -6,8 +6,10 @@ public struct HomeCallCover: View {
     let store: BotStore
     let botId: String
     let close: () -> Void
+    var greet: String?
 
-    public init(store: BotStore, botId: String, close: @escaping () -> Void) {
+    public init(store: BotStore, botId: String, greet: String? = nil, close: @escaping () -> Void) {
+        self.greet = greet
         self.store = store
         self.botId = botId
         self.close = close
@@ -22,6 +24,6 @@ public struct HomeCallCover: View {
     }
 
     public var body: some View {
-        CallScreen(botId: botId, close: close).environment(store)
+        CallScreen(botId: botId, close: close, greet: greet).environment(store)
     }
 }

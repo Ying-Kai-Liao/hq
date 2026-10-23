@@ -69,6 +69,33 @@ extension BotStore {
 
     /// Stops the bot in its chat, or in the thread on `thread`; its other places keep working.
     public func stop(_ botId: String, thread: String? = nil) { perform(replay: true) { try await $0.stop(botId, thread: thread) } }
+    /// Accepts an incoming call; false when another device or the timeout got there first (it is then gone).
+    /// On success the call stays listed until `dismissCall`, so the screen can hand over to the call without a gap.
+    public func acceptCall(_ call: IncomingCall) async -> Bool {
+        if let client, (try? await client.callAccept(call.id)) != nil { return true }
+        dismissCall(call.id)
+        return false
+    }
+
+    public func dismissCall(_ id: String) { incomingCalls.removeAll { $0.id == id } }
+
+    public func declineCall(_ call: IncomingCall) {
+        incomingCalls.removeAll { $0.id == call.id }
+        perform { try await $0.callDecline(call.id) }
+    }
+
+    /// Drops the calls whose ring is over (the host's "missed" may not reach a device that lost the link).
+    public func expireCalls() {
+        let left = IncomingCalls.expire(incomingCalls)
+        if left.count != incomingCalls.count { incomingCalls = left }
+    }
+
+    /// The accepted call is live: the agent speaks first (once per call).
+    public func greetCall(_ id: String) {
+        guard greeted.insert(id).inserted else { return }
+        perform { try await $0.callGreet(id) }
+    }
+
     public func logCall(_ botId: String, seconds: Int) { perform { try await $0.logCall(botId, seconds: seconds) } }
     public func newSession(_ botId: String) { perform { try await $0.newSession(botId) } }
 

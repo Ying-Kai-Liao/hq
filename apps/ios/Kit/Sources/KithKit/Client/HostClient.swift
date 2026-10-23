@@ -8,6 +8,8 @@ public enum HostEvent: Sendable {
     case usage(Usage)
     case screen(ScreenState)
     case resync
+    /// An agent is calling (ringing), or a call stopped ringing (answered, declined, missed).
+    case call(IncomingCallEvent)
     /// An event this app version couldn't decode (host newer/older than the app).
     case undecodable(type: String)
 }
@@ -130,6 +132,8 @@ public struct HostClient: Sendable {
             return (try? d.decode(ScreenWrap.self, from: data)).map { .screen($0.screen) }
         case "resync":
             return .resync
+        case "call":
+            return IncomingCallEvent.decode(data).map { .call($0) }
         default:
             return nil
         }
@@ -271,6 +275,20 @@ public extension HostClient {
             if out.count >= res.size { break }
         } while true
         return out
+    }
+
+    /// Answers an incoming call (`id` from its event). The first device to answer wins; the others get an error.
+    func callAccept(_ id: String) async throws {
+        let _: Empty = try await call("callAccept", ["id": id])
+    }
+
+    func callDecline(_ id: String) async throws {
+        let _: Empty = try await call("callDecline", ["id": id])
+    }
+
+    /// The accepted call is live: the agent speaks first.
+    func callGreet(_ id: String) async throws {
+        let _: Empty = try await call("callGreet", ["id": id])
     }
 
     func logCall(_ botId: String, seconds: Int) async throws {

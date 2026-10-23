@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, CardSection, DropdownMenu, IconButton, Switch, TabChoice } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { Dialog, ModalHeader, Sheet } from '../../components/Overlay'
@@ -136,12 +136,14 @@ function BotMemory({ botId }: { botId: string }) {
 function EntryRow({ entry, memory, edit }: { entry: MemoryEntry; memory: MemoryStore; edit: () => void }) {
   const host = useStore()
   const archived = entry.state === 'archived'
-  return <div className="memory-item fade-in">
+  const menu = useRef<HTMLButtonElement>(null)
+  // Right-click opens the same menu as the ••• button.
+  return <div className="memory-item fade-in" onContextMenu={(e) => { e.preventDefault(); menu.current?.click() }}>
     <button className="press memory-content" onClick={edit}>
       <strong className={archived ? 'memory-archived' : undefined}>{entry.pinned && <Icon name="pin.fill" size={10} color="var(--secondary)" />}{entry.text}</strong>
       <small>{authorLabel(entry, (id) => host.authorName(id))} · {relativeTime.day(entry.updatedAt)}{archived ? ' · archived' : ''}</small>
     </button>
-    <DropdownMenu className="icon-button memory-menu" title="Memory actions" items={() => [
+    <DropdownMenu buttonRef={menu} className="icon-button memory-menu" title="Memory actions" items={() => [
       { title: 'Edit', icon: 'pencil', action: edit },
       { title: entry.pinned ? 'Unpin' : 'Pin', icon: entry.pinned ? 'pin.slash' : 'pin', action: () => void memory.mutate('pinMemory', { id: entry.id, pinned: !entry.pinned }) },
       { title: archived ? 'Bring back' : 'Archive', icon: archived ? 'tray.and.arrow.up' : 'archivebox', action: () => void memory.mutate('archiveMemory', { id: entry.id, archived: !archived }) },

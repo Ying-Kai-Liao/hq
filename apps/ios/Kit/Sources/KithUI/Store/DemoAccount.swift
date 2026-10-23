@@ -48,23 +48,28 @@ extension AccountStore {
         guard let store = accounts.store(for: mac.id) else { return accounts }
         let now = Int64(Date().timeIntervalSince1970 * 1000)
         func bot(_ id: String, _ name: String, kind: String = "agent", status: String = "idle", unread: Int = 0,
-                 last: String? = nil, minutesAgo: Int64 = 5, members: [String] = [], pinned: Bool = false) -> Bot? {
+                 last: String? = nil, minutesAgo: Int64 = 5, members: [String] = [], pinned: Bool = false,
+                 avatar: String = "auto", lanes: [String] = []) -> Bot? {
             var json: [String: Any] = [
                 "id": id, "name": name, "kind": kind, "rev": 1, "status": status, "unread": unread,
-                "members": members, "pinned": pinned, "lastAt": now - minutesAgo * 60_000,
+                "members": members, "pinned": pinned, "lastAt": now - minutesAgo * 60_000, "avatarSource": avatar,
             ]
+            if !lanes.isEmpty { json["workingLanes"] = lanes.map { ["chat": id, "thread": $0] } }
             if let last { json["lastMessage"] = last }
             return (try? JSONSerialization.data(withJSONObject: json)).flatMap { try? JSONDecoder().decode(Bot.self, from: $0) }
         }
         let bots = [
-            bot("ada", "Ada", status: "needsInput", unread: 3, last: "Can I run the migration on staging?", minutesAgo: 2, pinned: true),
-            bot("remy", "Remy", status: "working", last: "Reading the failing test output", minutesAgo: 1),
-            bot("nova", "Nova", last: "Left off: run kith doctor next", minutesAgo: 180),
-            bot("pip", "Pip", unread: 1, last: "Draft is in the shared folder", minutesAgo: 45),
+            bot("ada", "Ada", status: "needsInput", unread: 3, last: "Can I run the migration on staging?", minutesAgo: 2, pinned: true,
+                avatar: "crew:coder"),
+            bot("remy", "Remy", status: "working", last: "Reading the failing test output", minutesAgo: 1, avatar: "crew:designer",
+                lanes: DemoScreens.name == "board" ? ["r1", "r2"] : []),
+            bot("nova", "Nova", last: "Left off: run kith doctor next", minutesAgo: 180, avatar: "crew:image"),
+            bot("pip", "Pip", unread: 1, last: "Draft is in the shared folder", minutesAgo: 45, avatar: "crew:house"),
             bot("team", "Release crew", kind: "group", unread: 2, last: "Ada: the build is green", minutesAgo: 12, members: ["ada", "remy", "pip"]),
         ].compactMap { $0 }
         for b in bots { store.bots[b.id] = b }
         seedChat(store, now: now)
+        seedBoard(store, now: now)
         store.connection = .online
         store.caughtUp = true
         return accounts
@@ -72,6 +77,52 @@ extension AccountStore {
 }
 
 extension AccountStore {
+    /// Ada's question waits on every screen, so her row badge shows; the `board` demo adds the rest of the Board.
+    @MainActor
+    static func seedBoard(_ store: BotStore, now: Int64) {
+        func decode<T: Decodable>(_ json: [String: Any]) -> T? {
+            (try? JSONSerialization.data(withJSONObject: json)).flatMap { try? JSONDecoder().decode(T.self, from: $0) }
+        }
+        let minute: Int64 = 60_000
+        var seq: Int64 = 0
+        func entry(_ id: String, _ chat: String, _ kind: String, thread: String? = nil, ago: Int64, data: [String: Any]) -> Entry? {
+            seq += 1
+            var json: [String: Any] = ["id": id, "seq": seq, "botId": chat, "rev": seq, "kind": kind, "turn": seq,
+                                       "data": data, "createdAt": now - ago * minute, "updatedAt": now - ago * minute]
+            if let thread { json["threadId"] = thread }
+            return decode(json)
+        }
+        func permission(_ id: String, _ title: String, ago: Int64) -> Entry? {
+            entry(id, "ada", "permission", ago: ago, data: [
+                "title": title, "toolKind": "execute", "status": "pending", "cwd": "/Users/kai/kith",
+                "options": [["optionId": "o1", "name": "Allow once", "kind": "allow_once"],
+                            ["optionId": "o3", "name": "Deny", "kind": "reject_once"]],
+            ])
+        }
+        func task(_ id: String, _ chat: String, _ text: String, ago: Int64) -> Entry? {
+            entry(id, chat, "user", ago: ago, data: ["text": text, "task": true,
+                                                     "thread": ["count": 2, "lastAt": now - (ago - 1) * minute, "authors": [chat], "unread": 0]])
+        }
+        var ada = [permission("ap1", "psql -f migrate.sql", ago: 2)].compactMap { $0 }
+        var remy: [Entry] = []
+        var nova: [Entry] = []
+        var pip: [Entry] = []
+        if DemoScreens.name == "board" {
+            ada += [permission("ap2", "cargo test -p kith-host", ago: 6)].compactMap { $0 }
+            remy = [task("r1", "remy", "Fix the flaky sync test", ago: 20), task("r2", "remy", "Tidy the settings copy", ago: 12)].compactMap { $0 }
+            if let done = task("n1", "nova", "Check the host health", ago: 90) {
+                nova = [done, entry("n1a", "nova", "agent", thread: done.id, ago: 80, data: ["text": "All green: doctor passes.", "final": true]),
+                        entry("n2", "nova", "notice", ago: 30, data: ["text": "Handoff", "handoff": ["status": "sent", "reason": "away", "text": "Left off: run kith doctor next, then check the sleep notice."]])]
+                    .compactMap { $0 }
+            }
+            pip = [entry("p1", "pip", "user", ago: 3, data: ["text": "Can you also add the footer?", "status": "queued"])].compactMap { $0 }
+        }
+        store.entries["ada"] = ada
+        store.entries["remy"] = remy
+        store.entries["nova"] = nova
+        store.entries["pip"] = pip
+    }
+
     /// The `chat` demo: a bot with two folded threads, one held by a terminal, and the newest one open with a
     /// tool row, a reply and a question waiting.
     @MainActor

@@ -14,6 +14,7 @@ pub mod hq;
 mod hq_person_tests;
 pub mod node;
 pub mod own_memory;
+pub mod project;
 pub mod registry;
 pub mod term;
 pub mod workspace;

@@ -23,6 +23,8 @@ FILES=(
   serve/host/src/agent/bot/queue.rs   # on_cmd: Cmd::Send, Cmd::ForgetLoaded; next_in_queue
   serve/host/src/agent/bot/turn.rs    # start_turn (status Working), host_turn_ended
   serve/host/src/agent/bot/session.rs # forget_loaded
+  serve/host/src/api/botguests.rs     # ask: terminal::bot_gate (the bot's writer gate)
+  serve/host/src/terminal/claim.rs    # the writer claim, Kind::Bot
   serve/host/src/hub/actors.rs        # working_lanes, Cmd::ForgetLoaded fan-out
 )
 paths=()

@@ -9,6 +9,9 @@
                                                      --home makes one: inside the parent's home, else <root>/ID;
                                                      --json prints the entry as ls --json does
   kith project root [DIR]                              where new homes go (default ~/Documents); DIR changes it
+  kith project notes ID...                             the tier-1 notes of those projects as this run may see them
+                                                     (KITH_AGENT, KITH_PERSON, KITH_ROOM): what a chat gets when its
+                                                     subject moves to a project after its first message
   kith project open [ID] [claude options]              work on the whole project: Claude Code in its home (else its
                                                      folder) with every project it holds that is on this Mac
 
@@ -132,6 +135,33 @@ def open_project(argv):
     os.execvp('claude', args)
 
 
+def notes(ids):
+    """Who asks comes from the environment, never from arguments, as for `kith recall`."""
+    import kith_facets, kith_recall
+    who = kith_recall.caller()
+    agent, aud = who['agent'], who['audiences']
+    import re
+    if not agent or aud == [] or not re.fullmatch(r'[a-z][a-z0-9-]*', agent):
+        return 0   # not a known caller: nothing, like recall
+    if aud is None or who['who'] == 'owner':
+        reader = {'kind': 'owner', 'id': '', 'rooms': []}
+    elif who['who'].startswith('bot-'):
+        reader = {'kind': 'guest', 'id': who['who'], 'rooms': []}
+    else:
+        reader = {'kind': 'person', 'id': who['who'], 'rooms': [a[5:] for a in aud if a.startswith('room:')]}
+    p = paths()
+    home = next((d for d in (p['KITH_AGENTS'] / agent, p['KITH_STATE'] / 'agents' / agent) if d.is_dir()), None)
+    if not home:
+        return 0
+    room = os.environ.get('KITH_ROOM') or kith_facets.own_room(agent, reader)
+    out = kith_facets.project_notes(agent, home, reader, room, [i for i in ids if kith_facets.ID.match(i)])
+    if out['block']:
+        print(out['block'])
+        if out['more']:
+            print('(%d more project notes: kith recall <words> --project <id>)' % out['more'])
+    return 0
+
+
 def main(argv):
     if argv[:1] in (['-h'], ['--help']):
         print(__doc__.strip()); return 0
@@ -139,6 +169,8 @@ def main(argv):
         return add(argv[1:])
     if argv[:1] == ['root']:
         return subprocess.call([str(BIN / 'project-id'), '--root', *argv[1:]])
+    if argv[:1] == ['notes']:
+        return notes(argv[1:])
     if argv[:1] == ['open']:
         return open_project(argv[1:])
     projects = registry()

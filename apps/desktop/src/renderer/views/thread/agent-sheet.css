@@ -1,0 +1,163 @@
+/* The agent sheet (the inspector, and the narrow-window sheet): the designer's restyle of the
+   details panel. Section labels, grouped cards, the ink Call capsule, green switches. Light cards
+   are white with a 1 px line; dark cards are coal with no border. */
+.details-panel {
+  --sheet-card: var(--kith-ground);
+  --sheet-card-border: 1px solid var(--kith-line);
+  --sheet-green: #34c759;
+  background: var(--kith-ground);
+  font-family: var(--font-ui);
+}
+@media (prefers-color-scheme: dark) {
+  .details-panel {
+    --sheet-card: var(--kith-panel);
+    --sheet-card-border: 1px solid transparent;
+  }
+}
+
+/* The corner buttons: Create template as a pill with its label, and the close x. */
+.details-actions { left: 11px; justify-content: space-between; }
+.details-template {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--kith-panel);
+  color: var(--kith-ink);
+  font-size: calc(12.5px * var(--scale));
+  font-weight: 600;
+}
+
+/* Identity: the bot at 64 with no tile, Nunito name, backend and model, the package chip. */
+.details-name {
+  font-family: var(--font-agent);
+  font-weight: 800;
+  font-size: calc(21px * var(--scale));
+  color: var(--kith-ink);
+}
+.details-subtitle {
+  flex-wrap: wrap;
+  justify-content: center;
+  font-size: calc(12.5px * var(--scale));
+  color: var(--kith-muted);
+}
+.details-panel .kith-header { margin-top: 0; gap: 6px; }
+.kith-chip-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: var(--kith-panel);
+  color: var(--kith-muted);
+  font-family: var(--font-code);
+  font-size: calc(11px * var(--scale));
+}
+
+/* Call: an ink capsule. */
+.call-capsule {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 96px;
+  height: 34px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: var(--kith-ink);
+  color: var(--kith-ground);
+  font-size: calc(14px * var(--scale));
+  font-weight: 600;
+}
+.call-capsule:disabled { opacity: 0.4; cursor: default; }
+
+/* Details | Memory | Settings: one segmented control across the panel. */
+.details-panel .tab-choice {
+  margin: 0 16px;
+  padding: 2px;
+  gap: 0;
+  border-radius: 10px;
+  background: var(--kith-panel);
+}
+.details-panel .tab-choice-option {
+  flex: 1;
+  height: 28px;
+  padding: 0;
+  border-radius: 8px;
+  font-size: calc(12.5px * var(--scale));
+  font-weight: 600;
+  color: var(--kith-muted);
+}
+.details-panel .tab-choice-option.on {
+  background: var(--kith-ground);
+  color: var(--kith-ink);
+  box-shadow: 0 1px 2px rgba(20, 22, 27, 0.12);
+}
+@media (prefers-color-scheme: dark) {
+  .details-panel .tab-choice-option.on { background: var(--kith-line); }
+}
+
+/* Section labels: 10.5 bold uppercase tracked muted. */
+.details-tab { gap: 6px; padding: 14px 16px 0; }
+.details-section, .details-tab .card-section { gap: 6px; margin-top: 10px; }
+.details-section-title,
+.details-tab .card-section-title h3,
+.sheet-label {
+  font-size: calc(10.5px * var(--scale));
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--kith-muted);
+}
+.sheet-label-row { display: flex; align-items: center; justify-content: space-between; padding: 0 2px; }
+.sheet-label-row .icon-button { margin: -6px -4px; }
+
+/* Cards: radius 14, rows 42 min. */
+.details-tab .card-section-rows,
+.details-tab .outlined-card,
+.details-tab .kith-card,
+.details-tab .kith-banner {
+  background: var(--sheet-card);
+  border: var(--sheet-card-border);
+  border-radius: 14px;
+}
+.details-tab .card-row { min-height: 42px; padding: 8px 14px; }
+.details-tab .hairline { background: var(--kith-line); }
+@media (prefers-color-scheme: dark) {
+  .details-tab .hairline { background: rgba(255, 255, 255, 0.08); }
+}
+.details-tab .field-box { background: var(--kith-panel); }
+
+/* Green switches. */
+.details-panel .switch-track.on { background: var(--sheet-green); }
+.details-panel .switch-track.on .switch-knob { background: #fff; }
+
+/* Schedules & routines: one card, rows divided by hairlines. */
+.details-tab .routines-card { padding: 0 14px; display: flex; flex-direction: column; }
+.routines-item { min-height: 42px; align-items: center; }
+.routines-item + .routines-item, .routines-card > .kith-schedule + .routines-item { border-top: 1px solid var(--kith-line); }
+.routine-ask { color: var(--kith-accent); font-weight: 600; text-align: left; width: 100%; display: flex; }
+.routine-ask:disabled { opacity: 0.4; }
+.routines-card > .kith-schedule { padding: 8px 0; border-top: 1px solid var(--kith-line); }
+.routines-card > .kith-schedule:first-child { border-top: none; }
+.sheet-retry { color: var(--kith-accent); font-weight: 600; margin-left: 6px; }
+@media (prefers-color-scheme: dark) {
+  .routines-item + .routines-item, .routines-card > .kith-schedule, .routines-card > .kith-schedule + .routines-item { border-color: rgba(255, 255, 255, 0.08); }
+}
+
+/* Cost: range segments, the amount in mono 26, requests and a bar per model. */
+.sheet-range { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--kith-panel); }
+.sheet-range button { flex: 1; height: 24px; border-radius: 6px; font-size: calc(11.5px * var(--scale)); font-weight: 600; color: var(--kith-muted); }
+.sheet-range button.on { background: var(--kith-ground); color: var(--kith-ink); box-shadow: 0 1px 2px rgba(20, 22, 27, 0.12); }
+@media (prefers-color-scheme: dark) { .sheet-range button.on { background: var(--kith-line); } }
+.sheet-amount-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.sheet-amount { font-family: var(--font-code); font-size: calc(26px * var(--scale)); font-weight: 600; color: var(--kith-ink); font-variant-numeric: tabular-nums; }
+.sheet-bar { display: grid; grid-template-columns: 56px 1fr auto; align-items: center; gap: 8px; font-size: calc(11.5px * var(--scale)); color: var(--kith-muted); }
+.sheet-bar i { display: block; height: 6px; border-radius: 3px; background: var(--kith-accent); min-width: 3px; }
+.sheet-bar em { font-style: normal; font-family: var(--font-code); }
+
+/* Count rows (skills, tools, plugins) and the footer. */
+.sheet-count-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
+.sheet-footer { text-align: center; margin: 14px 0 0; color: var(--kith-muted); font-size: calc(11.5px * var(--scale)); }

@@ -4,7 +4,9 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
 use ratatui::style::{Modifier, Style};
 
-use super::super::app::{App, COLORS, Editor, FIELDS, Field, Form, GroupField, GroupForm, SHAPES, tilde};
+use super::super::app::{
+    App, COLORS, Editor, FIELDS, Field, Form, GroupField, GroupForm, PERMISSION_MODES, SHAPES, tilde,
+};
 use super::super::manage::Page;
 use super::super::md::{truncate, width as w};
 use super::super::sheets::page_tabs;
@@ -54,7 +56,7 @@ pub(super) fn form_view(buf: &mut Buffer, area: Rect, app: &App, f: &Form) {
             Field::ModelOptions => "Options",
             Field::Fast => "Fast mode",
             Field::Folder => "Workspace",
-            Field::Approvals => "Approvals",
+            Field::Approvals => "Permissions",
             Field::Notify => "Notify",
             Field::Computer => "Use computer",
             Field::Color => "Color",
@@ -160,8 +162,8 @@ pub(super) fn form_view(buf: &mut Buffer, area: Rect, app: &App, f: &Form) {
                 );
             }
             Field::Approvals => {
-                let s = if f.auto { "○ Ask   ◉ Auto (approve every request)" } else { "◉ Ask   ○ Auto" };
-                put(buf, vx, y, vw, s, t.text.patch(base));
+                let mode = PERMISSION_MODES[f.mode.min(PERMISSION_MODES.len() - 1)];
+                put(buf, vx, y, vw, &format!("◂ {mode} ▸"), t.text.patch(base));
             }
             Field::Computer => {
                 let s = if f.computer { "◉ On   ○ Off" } else { "○ On   ◉ Off" };

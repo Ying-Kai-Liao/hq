@@ -1,0 +1,236 @@
+/* The Settings window (docs/design mac-settings): plain ground, a slightly translucent sidebar of pages, a small
+   centred title, and iOS-style grouped cards. Everything below is scoped to .settings-win so the shared card
+   components look the same everywhere else. */
+.settings-win {
+  --sw-line: var(--kith-line);
+  --sw-select: var(--kith-panel);
+  --sw-green: #34c759;
+  display: flex;
+  height: 100vh;
+  background: var(--kith-ground);
+  color: var(--kith-ink);
+}
+@media (prefers-color-scheme: dark) {
+  .settings-win {
+    --sw-green: #30d158;
+  }
+}
+
+.settings-win-sidebar {
+  width: 210px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 10px 10px;
+  border-right: 1px solid var(--sw-line);
+  background: color-mix(in srgb, var(--kith-panel) 70%, transparent);
+  position: relative;
+}
+/* Room for the traffic lights; drags the window. */
+.settings-win-drag {
+  height: 44px;
+  flex: none;
+  margin: 0 -10px;
+}
+.settings-win-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  text-align: left;
+  color: var(--kith-ink);
+}
+.settings-win-item svg,
+.settings-win-item .icon {
+  color: var(--kith-muted);
+}
+.settings-win-item.selected {
+  background: var(--sw-select);
+  font-weight: 600;
+}
+.settings-win-item.selected svg,
+.settings-win-item.selected .icon {
+  color: var(--kith-ink);
+}
+.settings-win-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--kith-ink);
+  color: var(--kith-ground);
+  font: 700 10px var(--font-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-win-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.settings-win-title {
+  height: 52px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 600 15px var(--font-ui);
+}
+.settings-win-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 26px 26px;
+  animation: fade-in var(--fade) both;
+}
+.settings-win-content {
+  max-width: 560px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  font-size: 13px;
+}
+
+/* Grouped cards: section label, then a card of rows (42 min) split by hairlines. */
+.settings-win .card-section {
+  gap: 6px;
+}
+.settings-win .card-section-title {
+  padding: 0 4px;
+  min-height: 18px;
+}
+.settings-win .card-section-title h3 {
+  font: 700 10.5px var(--font-ui);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--kith-muted);
+}
+.settings-section-note {
+  font: 600 12px var(--font-ui);
+  color: var(--kith-ink);
+}
+.settings-win .card-section-rows {
+  background: var(--kith-ground);
+  border-radius: 14px;
+  border: 1px solid var(--kith-line);
+}
+@media (prefers-color-scheme: dark) {
+  /* In dark the card is coal and the line is the card's own colour. */
+  .settings-win .card-section-rows {
+    background: var(--kith-panel);
+    border-color: var(--kith-panel);
+  }
+}
+.settings-win .card-row {
+  min-height: 42px;
+  padding: 8px 14px;
+}
+.settings-win .card-row:empty {
+  display: none;
+}
+.settings-win .card-section-footer,
+.settings-hint {
+  padding: 0 4px;
+  color: var(--kith-muted);
+  font-size: 11.5px;
+}
+.settings-win .switch-track.on {
+  background: var(--sw-green);
+}
+.settings-win .switch-track.on .switch-knob {
+  background: #fff;
+}
+.settings-win .switch.bare {
+  width: auto;
+  flex: none;
+}
+.settings-win .card-row > .switch.bare {
+  flex: none;
+}
+
+.settings-grow {
+  flex: 1;
+  text-align: left;
+}
+.settings-nav-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  color: inherit;
+}
+.settings-computer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+/* The card row stretches its single child; a Mac's row keeps its switch and buttons at their own size. */
+.settings-computer > .button,
+.settings-computer > .styled-button {
+  flex: none;
+}
+
+/* Usage: name and "NN% · resets …" over a 6 pt ink bar. */
+.settings-usage-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.settings-usage-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.settings-usage-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--kith-panel);
+  position: relative;
+  overflow: hidden;
+}
+@media (prefers-color-scheme: dark) {
+  .settings-usage-bar {
+    background: var(--kith-line);
+  }
+}
+.settings-usage-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--kith-ink);
+}
+
+/* A card inside a card row (SSH rows) doesn't draw a second card. */
+.settings-win .settings-card {
+  background: transparent;
+  padding: 0;
+  margin: 0;
+}
+
+.settings-devices-body {
+  padding: 4px 16px 20px;
+  overflow-y: auto;
+}
+.settings-sheet-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}

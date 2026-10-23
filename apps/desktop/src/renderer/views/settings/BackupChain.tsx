@@ -29,9 +29,9 @@ export function useBackups(host: BotStore | null | undefined): BackupsStore | nu
 }
 
 /** Settings → Usage: every computer's backup order, under its limits. */
-export function BackupChains() {
+export function BackupChains({ only }: { only?: string } = {}) {
   const app = useApp()
-  const hosts = app.computers.flatMap((c) => app.store(c.id) ?? [])
+  const hosts = app.computers.filter((c) => !only || c.id === only).flatMap((c) => app.store(c.id) ?? [])
   return (
     <>
       {hosts.map((host) => <ComputerBackups key={host.computer.id} host={host} labeled={hosts.length > 1} />)}

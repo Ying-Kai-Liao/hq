@@ -1,0 +1,40 @@
+//! Calls between an agent and its person: the agent's `callPerson` (loopback only, from `kith-call`), and the
+//! person's answers from their apps.
+
+use super::devices::{Caller, Principal, principal};
+use super::str_arg;
+use crate::hub::Hub;
+use anyhow::{Result, bail};
+use serde_json::{Value, json};
+use std::ops::ControlFlow;
+use std::sync::Arc;
+
+pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<ControlFlow<Value, Value>> {
+    Ok(ControlFlow::Break(match method {
+        // `kith-call`: the run names its chat with the key the host put in its environment, so it can ring only the
+        // person that chat belongs to (an invitee's run never reaches the owner, whatever it unsets).
+        "callPerson" => {
+            let (chat, reason) = (str_arg(&b, "chat")?, str_arg(&b, "reason")?);
+            if !crate::calls::key_ok(hub, chat, b["key"].as_str()) {
+                return Ok(ControlFlow::Break(json!({"status": "not-allowed"})));
+            }
+            crate::calls::ring_and_wait(hub, chat, reason, b["wait"] == true).await?
+        }
+        "callAccept" | "callDecline" | "callGreet" => {
+            let who = match principal(&hub.store, caller) {
+                Principal::Owner => None,
+                Principal::Member(person) => Some(person),
+                Principal::Nobody | Principal::Unproven(_) | Principal::Bot { .. } | Principal::BotPending(_) => {
+                    bail!("this device isn't allowed on this computer")
+                }
+            };
+            let id = str_arg(&b, "id")?;
+            match method {
+                "callAccept" => crate::calls::accept(hub, who.as_deref(), id)?,
+                "callDecline" => crate::calls::decline(hub, who.as_deref(), id)?,
+                _ => crate::calls::greet(hub, who.as_deref(), id)?,
+            }
+        }
+        _ => return Ok(ControlFlow::Continue(b)),
+    }))
+}

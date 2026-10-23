@@ -108,7 +108,11 @@ pub struct Core {
     /// Connections whose live-agent outboxes are being posted.
     pub(super) pumps: Mutex<HashMap<String, JoinHandle<()>>>,
     hinted: Mutex<HashSet<String>>,
+    /// What a run gets to ring its person with, given its agent and person (set by the host, see `calls::run_env`).
+    pub(super) call_env: std::sync::OnceLock<CallEnv>,
 }
+
+pub type CallEnv = Box<dyn Fn(&str, Option<&str>) -> Vec<(String, String)> + Send + Sync>;
 
 impl Core {
     pub fn new(deps: Deps) -> Arc<Self> {
@@ -124,6 +128,7 @@ impl Core {
             inner: Mutex::new(Inner { st, path, busy: HashMap::new(), history: HashMap::new(), works: HashMap::new() }),
             pumps: Mutex::new(HashMap::new()),
             hinted: Mutex::new(HashSet::new()),
+            call_env: std::sync::OnceLock::new(),
         })
     }
 
