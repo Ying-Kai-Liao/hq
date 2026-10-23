@@ -11,8 +11,8 @@ private let log = Logger(subsystem: "com.pokai.Codync", category: "Call")
 /// sent as an ordinary message, and the bot's final replies are read aloud. The host sees text only.
 @MainActor
 @Observable
-final class OnDeviceEngine: VoiceEngine {
-    private(set) var phase: VoicePhase = .starting {
+class OnDeviceEngine: VoiceEngine {
+    var phase: VoicePhase = .starting {
         didSet { onActivityChanged?(!ended && phase.isActive) }
     }
     var provider: VoiceProvider? { nil }
@@ -24,14 +24,19 @@ final class OnDeviceEngine: VoiceEngine {
     private(set) var said = ""
     /// Microphone loudness, 0…1, while listening.
     private(set) var level: Float = 0
+    /// A note under the call bar that doesn't end the call (a clip that couldn't be made).
+    private(set) var warning: String?
     var muted = false {
         didSet {
-            guard muted != oldValue, phase == .listening else { return }
-            if muted { stopListening() } else { listen() }
+            guard muted != oldValue, phase == .listening || (phase == .speaking && talkOverEnabled) else { return }
+            if muted { stopListening() } else { restartListening() }
         }
     }
 
-    private let send: (String) -> Void
+    /// Replaced by a subclass that wraps it (Kith voice notes when the message was sent).
+    var send: (String) -> Void
+    /// The microphone stays on while the voice speaks, echo-cancelled, so talking over it works.
+    var talkOverEnabled = false
     /// The language picked in the call settings, else the phone's.
     private let recognizer = UserDefaults.standard.string(forKey: OnDeviceEngine.languageKey)
         .flatMap { $0.isEmpty ? nil : SFSpeechRecognizer(locale: Locale(identifier: $0)) } ?? SFSpeechRecognizer()
@@ -43,7 +48,7 @@ final class OnDeviceEngine: VoiceEngine {
     private var silence: Task<Void, Never>?
     private let synthesizer = AVSpeechSynthesizer()
     private var speechDone: SpeechDone?
-    private var ended = false
+    var ended = false
 
     /// Call settings (the gear), kept across calls.
     static let pauseKey = "callPause"
@@ -81,13 +86,13 @@ final class OnDeviceEngine: VoiceEngine {
             return fail("Speech recognition isn't available for this language right now.")
         }
         guard !ended else { return }
-            do {
-                let audio = AVAudioSession.sharedInstance()
-                try audio.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
-                try audio.setActive(true)
-            } catch {
-                return fail("Couldn't start audio: \(error.localizedDescription)")
-            }
+        do {
+            let audio = AVAudioSession.sharedInstance()
+            try audio.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+            try audio.setActive(true)
+        } catch {
+            return fail("Couldn't start audio: \(error.localizedDescription)")
+        }
         listen()
     }
 
@@ -124,8 +129,17 @@ final class OnDeviceEngine: VoiceEngine {
 
     // MARK: listening
 
-    private func listen() {
+    func listen() {
         phase = .listening
+        restartListening()
+    }
+
+    /// The microphone is listening (a recognition is running).
+    var micOn: Bool { task != nil }
+
+    /// A fresh recognition without changing the phase (a new utterance, or the mic kept on while speaking).
+    func restartListening() {
+        stopListening()
         heard = ""
         guard !muted, !ended, let recognizer else { return }
         generation += 1
@@ -137,6 +151,8 @@ final class OnDeviceEngine: VoiceEngine {
         let input = engine.inputNode
         input.removeTap(onBus: 0)
         do {
+            // Talking over the voice needs the speakers' sound taken out of the microphone's.
+            if talkOverEnabled, !input.isVoiceProcessingEnabled { try input.setVoiceProcessingEnabled(true) }
             let format = try MicTap.format(of: input)
             input.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.tap(request) { [weak self] level in
                 Task { @MainActor in self?.level = level }
@@ -150,7 +166,7 @@ final class OnDeviceEngine: VoiceEngine {
         task = recognizer.recognitionTask(with: request, resultHandler: Self.results(self, generation: generation))
     }
 
-    private func stopListening() {
+    func stopListening() {
         silence?.cancel()
         silence = nil
         generation += 1
@@ -163,9 +179,29 @@ final class OnDeviceEngine: VoiceEngine {
         level = 0
     }
 
+    /// The transcript as the user's words (a subclass drops the bot's own voice from it).
+    func heardText(_ text: String) -> String { text }
+
+    /// Words heard while the voice speaks: true if the user is talking over it (the subclass has then cut the voice).
+    func talkOver(_ words: String) -> Bool { false }
+
     fileprivate func recognized(_ text: String, final: Bool, generation: Int) {
-        guard generation == self.generation, phase == .listening else { return }
-        heard = text
+        guard generation == self.generation else { return }
+        let words = heardText(text)
+        if phase == .speaking {
+            if !talkOver(words) {
+                // The recognizer ended on the bot's own voice: start another.
+                if final { restartListening() }
+                return
+            }
+        }
+        guard phase == .listening else { return }
+        if words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // Only the bot's tail coming back.
+            if final { submit() }
+            return
+        }
+        heard = words
         silence?.cancel()
         if final { return submit() }
         silence = Task {
@@ -180,15 +216,22 @@ final class OnDeviceEngine: VoiceEngine {
         stopListening()
         if !text.isEmpty { send(text) }
         // Keep listening while the bot works: more messages fold into its next turn.
-        listen()
+        if phase == .speaking { restartListening() } else { listen() }
     }
 
-    private func finishedSpeaking() {
+    func finishedSpeaking() {
         guard phase == .speaking else { return }
         listen()
     }
 
-    private func fail(_ message: String) {
+    func setWarning(_ text: String?) { warning = text }
+
+    // Replies are spoken once final; Kith voice speaks them as they stream in.
+    var streamsReplies: Bool { false }
+    func streamReply(id: String, text: String, final: Bool) {}
+    func setWorking(_ working: Bool) {}
+
+    func fail(_ message: String) {
         stopListening()
         phase = .failed(message)
     }
