@@ -14,7 +14,7 @@ owner's runs only: an invitee gets the rules for their own part of the folder, n
 Unknown tags are ignored. Claude Code only: the Codex harness has no allow rules.
 
   kith_caps.py allow ROLE_DIR AGENT_DIR...   print the tool rules, one per line (AGENT_DIR: each spelling of the folder)
-  kith_caps.py own AGENT_DIR...              print the Read/Edit rules for the agent's own folder
+  kith_caps.py own AGENT_DIR...              print Read for the agent's own folder and Edit for its memory/, data/ and files/ (never role/)
   kith_caps.py unknown ROLE_DIR              print the tags in tools: this table does not know
 """
 import os, re, sys
@@ -52,7 +52,9 @@ def tags(role_dir):
 
 
 def own(dirs):
-    return ["%s(/%s/**)" % (tool, d) for d in dirs for tool in ("Read", "Edit")]   # Edit covers every file-writing tool
+    # Read the whole folder; edit only what the agent lives in. role/ (instructions, settings, capabilities) stays
+    # prompted, except role/skills/learned, which WRITABLE already allows. Edit covers every file-writing tool.
+    return ["Read(/%s/**)" % d for d in dirs] + ["Edit(/%s/%s/**)" % (d, sub) for d in dirs for sub in ("memory", "data", "files")]
 
 
 def allow(role_dir, dirs):

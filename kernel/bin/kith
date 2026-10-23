@@ -407,7 +407,7 @@ else
 fi
 [[ $p_owner == 1 ]] && writable="$home/memory"$'\n'"$home_real/memory" \
   || writable=$(printf '%s\n' "$mem" "$(real "$mem")" "$shared" "$(real "$shared")" "$files" "$(real "$files")")
-# dontAsk refuses whatever no allow rule names, so the owner's run gets its own folder (every spelling, as the add-dir
+# dontAsk refuses whatever no allow rule names, so the owner's run gets its own folder to read and memory/data/files to edit, never role/ (every spelling, as the add-dir
 # block below) and the tools its role declares (lib/kith_caps.py). Not for anyone else: their reach is the add-dirs.
 own_dirs=""
 if [[ $p_owner == 1 ]]; then

@@ -49,7 +49,9 @@ OUT=$(rules allow artist)
 [ -n "$OUT" ] || { echo "FAIL no allow rules found in launch-json"; exit 1; }
 for d in "$home" "$HOME/kith/agents/artist"; do
   expect "Read own folder $d" "$(n "Read(/$d/**)")" 1
-  expect "Edit own folder $d" "$(n "Edit(/$d/**)")" 1
+  for sub in memory data files; do expect "Edit $sub/ $d" "$(n "Edit(/$d/$sub/**)")" 1; done
+  expect "no Edit of whole folder $d" "$(n "Edit(/$d/**)")" 0
+  expect "no Edit of role/ $d (agent.md, settings.json stay prompted)" "$(grep -F -- "Edit(/$d/role" <<< "$OUT" | grep -vcF "Edit(/$d/role/skills/learned/**)")" 0
 done
 expect "Artifact" "$(n Artifact)" 1
 expect "ArtifactComments" "$(n ArtifactComments)" 1
@@ -63,7 +65,8 @@ expect "role's deny kept" "$(n 'Read(~/.codex/auth.json)')" 1
 expect "secrets deny kept" "$(grep -c 'secrets/\*\*' <<< "$OUT")" 2
 
 OUT=$(rules allow plain)
-expect "plain: own folder" "$(n "Edit(/$KITH_HOME/agents/plain/**)")" 1
+expect "plain: own folder" "$(n "Edit(/$KITH_HOME/agents/plain/data/**)")" 1
+expect "plain: no whole-folder Edit" "$(n "Edit(/$KITH_HOME/agents/plain/**)")" 0
 expect "plain: no Artifact" "$(n Artifact)" 0
 expect "plain: no chrome" "$(grep -c 'Chrome' <<< "$OUT")" 0
 OUT=$(rules allow blocky)
