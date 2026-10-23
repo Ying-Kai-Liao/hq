@@ -1,53 +1,83 @@
 import { memo } from 'react'
+import { avatarImage, DEFAULT_IMAGE } from '@shared/crew'
 import { folderName, isGroup, isWorking, needsInput, type Bot } from '@shared/models'
-import { AvatarWithStatus } from '../components/Avatar'
 import { Icon } from '../components/Icon'
-import { HStack, VStack } from '../components/Stack'
-import { Text } from '../components/Text'
-import { ThinkingOrb } from '../components/ThinkingOrb'
+import { BotAvatar, CountBadge, SkyPatch } from '../components/kith'
+import type { Face } from '../components/Avatar'
+import { LiveBot } from '../components/Avatar'
 import { messagePreview } from '../lib/message-preview'
 import type { BotStore } from '../store/bot-store'
+import { rowTime } from './crew/row-time'
+import './crew/crew-sidebar.css'
 
-/** A roster row: avatar with status, name, and the live activity or last message (Grok Bot's desktop sidebar). */
-export const BotRow = memo(function BotRow({ bot, store, compact, usingComputer, members }: { bot: Bot; store: BotStore; compact: boolean; usingComputer: boolean; members: Bot[] }) {
+const faceOf = (bot: Bot): Face => (isGroup(bot) ? 'group' : (avatarImage(bot) ?? DEFAULT_IMAGE))
+
+/**
+ * A Crew row (the mock's Mac density): the bot at 40 with no tile, its name, the time or state at the right, one
+ * status line (ink when it needs you) and the ink count of questions waiting. In the rail only the bot at 36 shows.
+ */
+export const BotRow = memo(function BotRow({ bot, store, compact, usingComputer, members, waiting }: {
+  bot: Bot
+  store: BotStore
+  compact: boolean
+  usingComputer: boolean
+  members: Bot[]
+  /** Questions waiting on you in this chat. */
+  waiting: number
+}) {
+  const working = isWorking(bot) && !needsInput(bot)
+  const state = working ? 'working' : 'idle'
+  const count = needsInput(bot) ? Math.max(1, waiting) : waiting
+  if (compact) {
+    return (
+      <span className="cs-rail-face">
+        <RowFace bot={bot} members={members} size={36} state={state} />
+      </span>
+    )
+  }
+  const group = isGroup(bot)
   return (
-    <HStack gap={compact ? 0 : 10} justify={compact ? 'center' : 'flex-start'} className="bot-row">
-      <AvatarWithStatus bot={bot} members={members} size={30} />
-      <VStack gap={2} className={`bot-row-text ${compact ? 'collapsed' : ''}`} aria-hidden={compact}>
-        <HStack align="baseline" gap={4} shrink>
-          {bot.pinned ? <Icon name="pin.fill" size={10} color="var(--tertiary)" /> : null}
-          <Text size="body" weight={bot.unread > 0 ? 'semibold' : 'medium'} tone="text" truncate>{bot.name}</Text>
+    <span className="cs-row">
+      <RowFace bot={bot} members={members} size={40} state={state} />
+      <span className="cs-row-main">
+        <span className="cs-row-top">
+          {bot.pinned ? <Icon name="pin.fill" size={9} color="var(--kith-muted)" /> : null}
+          <span className={`cs-row-name ${group ? 'group' : ''}`}>{bot.name}</span>
           {usingComputer ? <Icon name="cursorarrow.motionlines" size={10} color="var(--accent)" title="Using the computer" /> : null}
-        </HStack>
-        <HStack gap={6} shrink>
-          <HStack align="stretch" grow>
-            <Preview bot={bot} store={store} />
-          </HStack>
-          {bot.unread > 0 ? <span className="unread-badge">{bot.unread}</span> : null}
-        </HStack>
-      </VStack>
-    </HStack>
+          {count > 0 ? null : <span className="cs-row-right">{bot.unread > 0 ? <i className="cs-unread" aria-label="Unread" /> : null}{rightText(bot, store)}</span>}
+          {count > 0 ? <span className="cs-row-right"><CountBadge count={count} /></span> : null}
+        </span>
+        <span className={`cs-row-status ${count > 0 || bot.status === 'error' ? 'ink' : ''}`}>{statusLine(bot, store)}</span>
+      </span>
+    </span>
   )
 })
 
-/** Live activity while working, otherwise the last message (Grok Bot row behavior). */
-function Preview({ bot, store }: { bot: Bot; store: BotStore }) {
-  if (needsInput(bot)) {
+function RowFace({ bot, members, size, state }: { bot: Bot; members: Bot[]; size: 36 | 40; state: 'working' | 'idle' }) {
+  if (isGroup(bot) && members.length >= 2) {
+    const [a, b] = members
     return (
-      <HStack as="span" gap={6} shrink>
-        <ThinkingOrb state="listening" size={16} color="var(--warning)" />
-        <Text size="callout" tone="attention" truncate>{bot.activity || 'Needs your approval'}</Text>
-      </HStack>
+      <span className="cs-duo" style={{ width: size, height: size }} aria-hidden>
+        <span className="cs-duo-a kc-bot-shadow"><LiveBot face={faceOf(a!)} color={a!.avatarColor} size={26} id={a!.id} animated={false} /></span>
+        <span className="cs-duo-b kc-bot-shadow"><LiveBot face={faceOf(b!)} color={b!.avatarColor} size={26} id={b!.id} animated={false} /></span>
+        <span className="cs-duo-sky"><SkyPatch id={bot.id} size={15} /></span>
+      </span>
     )
   }
-  if (isWorking(bot)) {
-    return (
-      <HStack as="span" gap={6} shrink>
-        <ThinkingOrb size={13} color="var(--secondary)" />
-        <Text size="callout" tone="secondary" truncate>{bot.activity || 'Working…'}</Text>
-      </HStack>
-    )
-  }
-  if (bot.status === 'error') return <Text size="callout" tone="danger" truncate>{messagePreview(bot.lastMessage ?? 'Something went wrong')}</Text>
-  return <Text size="callout" tone="secondary" truncate>{messagePreview(bot.lastMessage ?? (isGroup(bot) ? `${bot.members.length} bots` : `${store.backendName(bot.backend)} · ${folderName(bot)}`))}</Text>
+  return <BotAvatar face={faceOf(bot)} color={bot.avatarColor} id={bot.id} size={size} state={state} />
+}
+
+/** At the row's right: "working" while it is, the offline state of its computer, else the time of its last message. */
+function rightText(bot: Bot, store: BotStore): string {
+  if (isWorking(bot)) return 'working'
+  if (store.isOffline) return 'offline'
+  return rowTime(bot.lastAt)
+}
+
+/** The status line: what it needs, what it is doing, or its last message. */
+function statusLine(bot: Bot, store: BotStore): string {
+  if (needsInput(bot)) return bot.activity || 'Needs your approval'
+  if (isWorking(bot)) return bot.activity || 'Working…'
+  if (bot.status === 'error') return messagePreview(bot.lastMessage ?? 'Something went wrong')
+  return messagePreview(bot.lastMessage ?? (isGroup(bot) ? `${bot.members.length} bots` : `${store.backendName(bot.backend)} · ${folderName(bot)}`))
 }
