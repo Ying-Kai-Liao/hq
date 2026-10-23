@@ -188,8 +188,9 @@ impl Store {
 
     pub fn people(&self) -> Result<Vec<PersonRow>> {
         let c = self.db.locked();
-        let mut st =
-            c.prepare("SELECT person_id, name, agents, projects, made, created_at, auto_bots FROM people ORDER BY created_at")?;
+        let mut st = c.prepare(
+            "SELECT person_id, name, agents, projects, made, created_at, auto_bots FROM people ORDER BY created_at",
+        )?;
         Ok(st.query_map([], row_person)?.collect::<rusqlite::Result<_>>()?)
     }
 

@@ -78,7 +78,10 @@ pub enum Principal {
     Unproven(String),
     /// A bot guest's key, proven and allowed in (docs/kith-bot-guests.md 5.6): `person` is the kith-auth person it
     /// runs as.
-    Bot { bot_id: String, person: String },
+    Bot {
+        bot_id: String,
+        person: String,
+    },
     /// A bot's key that has not shown its invite token or waits for the owner's allow: `hello`, `botStatus` and
     /// `proveBotInvite` only.
     BotPending(String),

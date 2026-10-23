@@ -123,7 +123,11 @@ fn opt_string(b: &Value, k: &str, max: usize) -> Result<Option<String>> {
     match b[k].as_str().map(str::trim).filter(|s| !s.is_empty()) {
         None => Ok(None),
         Some(s) if s.chars().count() <= max && !s.chars().any(char::is_control) => Ok(Some(s.to_owned())),
-        Some(_) => Err(BotError::new(400, "badRequest", format!("`{k}` is at most {max} characters, without control characters"))),
+        Some(_) => Err(BotError::new(
+            400,
+            "badRequest",
+            format!("`{k}` is at most {max} characters, without control characters"),
+        )),
     }
 }
 
@@ -278,7 +282,11 @@ async fn new_bot(hub: &Arc<Hub>, actor: &Actor, bin: &Path, owner_id: &str, b: &
         bail!("`{bad}` isn't an agent id.");
     }
     if hub.store.live_bot_count(actor.owner_person()) >= MAX_LIVE_BOTS {
-        return Err(BotError::new(409, "tooMany", format!("At most {MAX_LIVE_BOTS} bots at a time. Remove one first.")));
+        return Err(BotError::new(
+            409,
+            "tooMany",
+            format!("At most {MAX_LIVE_BOTS} bots at a time. Remove one first."),
+        ));
     }
     // A bot has at most what its owner has: a member can give only what they hold, the owner what is set up here.
     let here = agents_here(hub);
@@ -348,9 +356,7 @@ async fn revoke_bot_invite(hub: &Arc<Hub>, caller: &Caller, invite_id: &str) -> 
     if revoked {
         botsync::revoke_invite_in_cloud(hub, invite_id).await;
         // A bot that never joined is gone with its only invite.
-        if bot.state == BotState::Invited
-            && !hub.store.bot_invites_of(&bot.bot_id)?.iter().any(|i| i.open(now_ms()))
-        {
+        if bot.state == BotState::Invited && !hub.store.bot_invites_of(&bot.bot_id)?.iter().any(|i| i.open(now_ms())) {
             end_bot(hub, &bot.bot_id, BotState::Revoked, actor_kind(&actor), &actor_label(hub, caller).await).await;
         }
     }
@@ -416,10 +422,15 @@ fn bots(hub: &Arc<Hub>, caller: &Caller) -> Result<Value> {
 /// `myBots {}`: the caller's own bots, ended ones too (so they see why).
 fn my_bots(hub: &Arc<Hub>, caller: &Caller) -> Result<Value> {
     let actor = Actor::of(hub, caller)?;
-    let mut mine: Vec<BotGuest> = hub.store.bot_guests()?.into_iter().filter(|g| match &actor {
-        Actor::Owner => g.owner_person.is_none(),
-        Actor::Member(p) => g.owner_person.as_deref() == Some(p),
-    }).collect();
+    let mut mine: Vec<BotGuest> = hub
+        .store
+        .bot_guests()?
+        .into_iter()
+        .filter(|g| match &actor {
+            Actor::Owner => g.owner_person.is_none(),
+            Actor::Member(p) => g.owner_person.as_deref() == Some(p),
+        })
+        .collect();
     mine.reverse();
     Ok(json!({"bots": mine.iter().map(|g| view(hub, g, false)).collect::<Vec<_>>()}))
 }
@@ -630,7 +641,9 @@ pub(super) async fn bot_call(
     let Some(bot) = hub.store.bot_guest(&bot_id) else { return Err(Forbidden.into()) };
     let verdict = match permitted {
         Err(e) => Err(e.into()),
-        Ok(()) if !roles::bot_may(method) => Err(NotAllowed("This isn't available to bots on this computer.".into()).into()),
+        Ok(()) if !roles::bot_may(method) => {
+            Err(NotAllowed("This isn't available to bots on this computer.".into()).into())
+        }
         Ok(()) if !active && !roles::BOT_PENDING_METHODS.contains(&method) => {
             Err(BotError::new(403, "pending", "This bot is waiting for its owner's allow."))
         }
@@ -744,7 +757,10 @@ async fn prove(hub: &Arc<Hub>, caller: &Caller, bot: &BotGuest, b: &Value) -> Re
         Some(p) => hub.store.person(p).is_some_and(|p| p.auto_bots),
     };
     let (state, by) = if bot.state == BotState::Active || owner_auto {
-        (BotState::Active, if bot.state == BotState::Active { bot.decided_by.as_deref().unwrap_or("auto") } else { "auto" })
+        (
+            BotState::Active,
+            if bot.state == BotState::Active { bot.decided_by.as_deref().unwrap_or("auto") } else { "auto" },
+        )
     } else {
         (BotState::Pending, "")
     };
@@ -891,7 +907,9 @@ async fn ask(hub: &Arc<Hub>, caller: &Caller, bot: &BotGuest, b: &Value) -> Resu
 
     let chat = match chat {
         Some(c) => c,
-        None => chat_with(hub, &bot.person_id, &agent).await?["id"].as_str().context("a chat without an id")?.to_owned(),
+        None => {
+            chat_with(hub, &bot.person_id, &agent).await?["id"].as_str().context("a chat without an id")?.to_owned()
+        }
     };
     let owner = owner_label(hub, bot).await;
     let (conv, first) = match known {
@@ -906,7 +924,8 @@ async fn ask(hub: &Arc<Hub>, caller: &Caller, bot: &BotGuest, b: &Value) -> Resu
     });
     // `pasted`: memory never takes a bot's text as its owner's own words.
     let data = json!({"text": text, "clientNonce": nonce, "status": "queued", "attachments": [], "pasted": [text], "sender": sender});
-    let entry = hub.add_entry(&lane, EntryKind::User, turn, &data).ok_or_else(|| anyhow!("couldn't save the message"))?;
+    let entry =
+        hub.add_entry(&lane, EntryKind::User, turn, &data).ok_or_else(|| anyhow!("couldn't save the message"))?;
     hub.store.touch_bot_conversation(&conv.conversation_id, speaker.as_deref())?;
     hub.store.audit_add(&bot.person_id, caller.device_key(), "botAsk", Some(&conv.conversation_id), true);
     let prompt = crate::chat::prompt::of_bot_guest(first, provider_label(&bot.provider), &bot.name, &owner, text);
@@ -1010,12 +1029,8 @@ fn thread(hub: &Hub, bot: &BotGuest, b: &Value) -> Result<Value> {
         None => "the owner".to_owned(),
     };
     let shape = |e: &Entry| roles::bot_entry(&json!(e), &conv.conversation_id, &waits_on);
-    let entries: Vec<Value> = all
-        .iter()
-        .filter(|e| e.seq > after)
-        .filter_map(shape)
-        .take(usize::try_from(limit).unwrap_or(200))
-        .collect();
+    let entries: Vec<Value> =
+        all.iter().filter(|e| e.seq > after).filter_map(shape).take(usize::try_from(limit).unwrap_or(200)).collect();
     // Done: the last ask has its final answer, or a terminal notice, or was taken back.
     let last = all.iter().rev().find(|e| e.kind == EntryKind::User.as_str());
     let done = last.is_none_or(|u| {

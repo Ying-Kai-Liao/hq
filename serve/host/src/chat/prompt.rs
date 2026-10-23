@@ -62,7 +62,9 @@ mod tests {
     #[test]
     fn only_the_first_bot_message_carries_the_source() {
         let first = of_bot_guest(true, "Grok", "Rex", "Sam", "what's on the list?");
-        assert!(first.starts_with("This conversation comes from an automated assistant (Grok bot \"Rex\", owned by Sam)"));
+        assert!(
+            first.starts_with("This conversation comes from an automated assistant (Grok bot \"Rex\", owned by Sam)")
+        );
         assert!(first.ends_with("what's on the list?"));
         assert_eq!(of_bot_guest(false, "Grok", "Rex", "Sam", "and the pantry?"), "and the pantry?");
     }

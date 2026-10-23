@@ -57,11 +57,14 @@ fn bot_events(hub: &Arc<Hub>, since: i64, bot_id: &str) -> impl Stream<Item = Va
     let mut catch_up: Vec<Value> =
         catch_up.into_iter().filter_map(|v| roles::event_for_bot(&hub.store, bot_id, v)).collect();
     catch_up.sort_by_key(|v| v["rev"].as_i64().unwrap_or(0));
-    catch_up.insert(0, roles::hello_for(&json!({
-        "hostId": hub.host_id,
-        "computerId": hub.identity.computer_id(),
-        "rev": hub.store.current_rev(),
-    })));
+    catch_up.insert(
+        0,
+        roles::hello_for(&json!({
+            "hostId": hub.host_id,
+            "computerId": hub.identity.computer_id(),
+            "rev": hub.store.current_rev(),
+        })),
+    );
     let (hub, bot) = (hub.clone(), bot_id.to_owned());
     let tail = live.filter_map(move |msg| {
         let (hub, bot) = (hub.clone(), bot.clone());

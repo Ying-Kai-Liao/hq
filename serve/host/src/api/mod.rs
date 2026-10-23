@@ -3,6 +3,8 @@
 //! direct end-to-end encrypted channel phones use (see `channel`).
 
 mod backups;
+#[cfg(test)]
+mod bot_guests_tests;
 pub mod botguests;
 mod bots;
 pub mod devices;
@@ -14,8 +16,6 @@ mod http;
 mod kith_info;
 mod marketplace;
 mod people;
-#[cfg(test)]
-mod bot_guests_tests;
 #[cfg(test)]
 mod proof_tests;
 mod remote;

@@ -23,9 +23,8 @@ fn code(e: &anyhow::Error) -> Option<&'static str> {
 
 /// `sam` made by an invite, bound to `user_sam`, with `house` and one phone.
 async fn sam(r: &Rig) -> Caller {
-    let made = call(r, &Caller::Local, "createInvite", json!({"name": "Sam", "agents": {"house": "member"}}))
-        .await
-        .unwrap();
+    let made =
+        call(r, &Caller::Local, "createInvite", json!({"name": "Sam", "agents": {"house": "member"}})).await.unwrap();
     let invite = made["inviteId"].as_str().unwrap().to_owned();
     let listed = [Member { membership_id: "mem_sam".into(), user_id: "user_sam".into(), invite_id: invite }];
     members::apply(&r.hub, Some(&r.bin), &listed, Some("user_owner")).await.unwrap();
@@ -48,11 +47,8 @@ async fn join(r: &Rig, owner: &Caller, body: Value) -> Joined {
     let made = call(r, owner, "createBotInvite", body).await.unwrap();
     let key = b64(&crypto::random::<32>());
     let invite = made["inviteId"].as_str().unwrap().to_owned();
-    let listed = Listed {
-        bot_device_id: format!("bd_{}", &key[..8]),
-        invite_id: invite.clone(),
-        device_key: key.clone(),
-    };
+    let listed =
+        Listed { bot_device_id: format!("bd_{}", &key[..8]), invite_id: invite.clone(), device_key: key.clone() };
     // The cloud lists every bot device it has, so the ones already admitted stay in the list.
     let mut all: Vec<Listed> = r
         .hub
@@ -93,9 +89,10 @@ fn ask(text: &str, nonce: &str) -> Value {
 async fn a_bot_joins_proves_asks_and_is_revoked() {
     let r = Rig::new().await;
     r.owner_bot("house");
-    let made = call(&r, &Caller::Local, "createBotInvite", json!({"name": "Rex", "provider": "grok", "agents": ["house"]}))
-        .await
-        .unwrap();
+    let made =
+        call(&r, &Caller::Local, "createBotInvite", json!({"name": "Rex", "provider": "grok", "agents": ["house"]}))
+            .await
+            .unwrap();
     let link = made["link"].as_str().unwrap();
     let cid = r.hub.identity.computer_id();
     assert!(link.contains(&format!("/b/{cid}/{}#t=", made["inviteId"].as_str().unwrap())), "{link}");
@@ -108,7 +105,11 @@ async fn a_bot_joins_proves_asks_and_is_revoked() {
     assert!(!posted.1.to_string().contains(&token_of(link)));
 
     // A key the cloud lists for an invite this host never made adds nothing.
-    let stranger = Listed { bot_device_id: "bd_x".into(), invite_id: "bi_unknown".into(), device_key: b64(&crypto::random::<32>()) };
+    let stranger = Listed {
+        bot_device_id: "bd_x".into(),
+        invite_id: "bi_unknown".into(),
+        device_key: b64(&crypto::random::<32>()),
+    };
     botsync::apply(&r.hub, &[stranger]).await.unwrap();
     assert_eq!(r.hub.store.devices().unwrap().len(), 0);
 
@@ -165,21 +166,38 @@ async fn a_bot_joins_proves_asks_and_is_revoked() {
 
     // A retry with the same nonce sends nothing new.
     let retry = call(&r, &bot, "botAsk", ask("what's on the list?", "n1")).await.unwrap();
-    assert_eq!((&retry["conversation"], &retry["entryId"], &retry["duplicate"]), (&first["conversation"], &first["entryId"], &json!(true)));
+    assert_eq!(
+        (&retry["conversation"], &retry["entryId"], &retry["duplicate"]),
+        (&first["conversation"], &first["entryId"], &json!(true))
+    );
     let users = r.hub.store.thread(&chat.chat_bot_id, &chat.thread_root, 50).unwrap();
     assert_eq!(users.iter().filter(|e| e.kind == "user").count(), 1);
 
     // Continue it, and find it by the provider's own id.
-    let more = call(&r, &bot, "botAsk", json!({"conversation": conv, "text": "and the pantry?", "clientNonce": "n2"})).await.unwrap();
+    let more = call(&r, &bot, "botAsk", json!({"conversation": conv, "text": "and the pantry?", "clientNonce": "n2"}))
+        .await
+        .unwrap();
     assert_eq!(more["conversation"], conv.as_str());
-    let by_ref = call(&r, &bot, "botAsk", json!({"agent": "house", "ref": "grok:8841", "text": "x", "clientNonce": "n3"})).await.unwrap();
-    let by_ref2 = call(&r, &bot, "botAsk", json!({"agent": "house", "ref": "grok:8841", "text": "y", "clientNonce": "n4"})).await.unwrap();
+    let by_ref =
+        call(&r, &bot, "botAsk", json!({"agent": "house", "ref": "grok:8841", "text": "x", "clientNonce": "n3"}))
+            .await
+            .unwrap();
+    let by_ref2 =
+        call(&r, &bot, "botAsk", json!({"agent": "house", "ref": "grok:8841", "text": "y", "clientNonce": "n4"}))
+            .await
+            .unwrap();
     assert_eq!(by_ref["conversation"], by_ref2["conversation"]);
     assert_ne!(by_ref["conversation"], conv.as_str());
 
     // What a bot reads back is only words, shaped.
     let t = call(&r, &bot, "botThread", json!({"conversation": conv})).await.unwrap();
-    assert!(t["entries"].as_array().unwrap().iter().all(|e| ["user", "agent", "notice", "waiting"].contains(&e["kind"].as_str().unwrap())));
+    assert!(
+        t["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|e| ["user", "agent", "notice", "waiting"].contains(&e["kind"].as_str().unwrap()))
+    );
     assert_eq!(t["entries"][0]["text"], "what's on the list?");
     let list = call(&r, &bot, "botConversations", json!({})).await.unwrap();
     assert_eq!(list["conversations"].as_array().unwrap().len(), 2);
@@ -188,7 +206,11 @@ async fn a_bot_joins_proves_asks_and_is_revoked() {
     let mut events = r.hub.events.subscribe();
     let out = call(&r, &Caller::Local, "revokeBot", json!({"botId": id})).await.unwrap();
     assert_eq!(out["revoked"], true);
-    assert_eq!(call(&r, &Caller::Local, "revokeBot", json!({"botId": id})).await.unwrap()["revoked"], false, "twice is fine");
+    assert_eq!(
+        call(&r, &Caller::Local, "revokeBot", json!({"botId": id})).await.unwrap()["revoked"],
+        false,
+        "twice is fine"
+    );
     assert_eq!(principal(&r.hub.store, &bot), Principal::Nobody);
     assert!(r.hub.store.device(&key).is_none());
     assert!(call(&r, &bot, "botAsk", ask("hi", "n9")).await.is_err());
@@ -303,7 +325,15 @@ async fn a_key_that_never_proves_is_dropped_after_ten_minutes() {
     assert_eq!(r.hub.store.bot_guest(&j.bot).unwrap().state, BotState::Joining);
     botsync::sweep_at(&r.hub, now_ms() + botsync::JOIN_MS + 60_000).await;
     assert_eq!(r.hub.store.bot_guest(&j.bot).unwrap().state, BotState::Revoked);
-    assert!(r.hub.store.device(match &j.caller { Caller::Device { key, .. } => key, _ => unreachable!() }).is_none());
+    assert!(
+        r.hub
+            .store
+            .device(match &j.caller {
+                Caller::Device { key, .. } => key,
+                _ => unreachable!(),
+            })
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -317,9 +347,14 @@ async fn limits_and_ownership_hold() {
     assert_eq!(code(&e), Some("tooLong"));
     let first = call(&r, &j.caller, "botAsk", ask("one", "m1")).await.unwrap();
     let other = active_bot(&r).await;
-    let e = call(&r, &other.caller, "botAsk", json!({"conversation": first["conversation"], "text": "mine now", "clientNonce": "z"}))
-        .await
-        .unwrap_err();
+    let e = call(
+        &r,
+        &other.caller,
+        "botAsk",
+        json!({"conversation": first["conversation"], "text": "mine now", "clientNonce": "z"}),
+    )
+    .await
+    .unwrap_err();
     assert_eq!(code(&e), Some("notFound"));
     let e = call(&r, &other.caller, "botThread", json!({"conversation": first["conversation"]})).await.unwrap_err();
     assert!(e.downcast_ref::<BotError>().is_some_and(|b| b.status == 404));
@@ -337,13 +372,25 @@ async fn limits_and_ownership_hold() {
     // A busy conversation queues; with noQueue it refuses; at five waiting it is busy.
     let busy = call(&r, &other.caller, "botAsk", ask("a", "q1")).await.unwrap();
     let conv = busy["conversation"].as_str().unwrap().to_owned();
-    let e = call(&r, &other.caller, "botAsk", json!({"conversation": conv, "text": "b", "clientNonce": "q2", "noQueue": true}))
-        .await
-        .unwrap_err();
+    let e = call(
+        &r,
+        &other.caller,
+        "botAsk",
+        json!({"conversation": conv, "text": "b", "clientNonce": "q2", "noQueue": true}),
+    )
+    .await
+    .unwrap_err();
     assert_eq!(code(&e), Some("busy"));
     let mut queued = 0;
     for i in 3..12 {
-        match call(&r, &other.caller, "botAsk", json!({"conversation": conv, "text": "more", "clientNonce": format!("q{i}")})).await {
+        match call(
+            &r,
+            &other.caller,
+            "botAsk",
+            json!({"conversation": conv, "text": "more", "clientNonce": format!("q{i}")}),
+        )
+        .await
+        {
             Ok(v) => {
                 assert_eq!(v["state"], "queued");
                 queued += 1;
@@ -388,12 +435,19 @@ async fn rotation_replaces_the_key_in_one_step() {
     assert_eq!(made["botId"], j.bot.as_str());
     let key = b64(&crypto::random::<32>());
     let inv = made["inviteId"].as_str().unwrap().to_owned();
-    botsync::apply(&r.hub, &[Listed { bot_device_id: "bd_new".into(), invite_id: inv.clone(), device_key: key.clone() }])
-        .await
-        .unwrap();
+    botsync::apply(
+        &r.hub,
+        &[Listed { bot_device_id: "bd_new".into(), invite_id: inv.clone(), device_key: key.clone() }],
+    )
+    .await
+    .unwrap();
     assert!(r.hub.store.device(&old).is_none(), "the old key stops working");
     let fresh = Caller::Device { key, scopes: vec![Scope::Control] };
-    assert_eq!(principal(&r.hub.store, &fresh), Principal::BotPending(j.bot.clone()), "unproven until it shows the token");
+    assert_eq!(
+        principal(&r.hub.store, &fresh),
+        Principal::BotPending(j.bot.clone()),
+        "unproven until it shows the token"
+    );
     let token = token_of(made["link"].as_str().unwrap());
     let proven = call(&r, &fresh, "proveBotInvite", json!({"inviteId": inv, "token": token})).await.unwrap();
     assert_eq!(proven["state"], "active", "a bot already let in stays in");
@@ -468,7 +522,19 @@ async fn every_router_method_is_denied_to_bots_unless_listed() {
         refused += 1;
     }
     assert!(refused > 100);
-    for m in ["respondPermission", "send", "startChat", "thread", "history", "upload", "projects", "linkCode", "createBotInvite", "decideBot", "revokeBot"] {
+    for m in [
+        "respondPermission",
+        "send",
+        "startChat",
+        "thread",
+        "history",
+        "upload",
+        "projects",
+        "linkCode",
+        "createBotInvite",
+        "decideBot",
+        "revokeBot",
+    ] {
         assert!(!roles::bot_may(m), "{m} is not for bots");
     }
     // Every allowed method really is answered for an active bot (a validation error, never "unknown method").
@@ -491,7 +557,10 @@ async fn every_router_method_is_denied_to_bots_unless_listed() {
     }
     assert!(known.contains("createBotInvite") && roles::member_may("createBotInvite"));
     let rows = r.hub.store.audit_list(0, Some(&r.hub.store.bot_guest(&active.bot).unwrap().person_id)).unwrap();
-    assert!(!rows.is_empty() && rows.iter().all(|row| !row.allowed || roles::bot_may(&row.method) || row.method.starts_with("bot.")));
+    assert!(
+        !rows.is_empty()
+            && rows.iter().all(|row| !row.allowed || roles::bot_may(&row.method) || row.method.starts_with("bot."))
+    );
 }
 
 #[tokio::test]
@@ -509,9 +578,11 @@ async fn a_bots_stream_carries_only_its_own_words() {
     r.hub.add_entry(&lane, crate::store::EntryKind::Thought, 1, &json!({"text": "secret thought"}));
     r.hub.add_entry(&lane, crate::store::EntryKind::Agent, 1, &json!({"text": "answer", "final": true}));
     let stream = super::events_stream(&r.hub, 0, None, &j.caller).unwrap();
-    let evs: Vec<Value> = Box::pin(stream).take_until(tokio::time::sleep(std::time::Duration::from_millis(300))).collect().await;
+    let evs: Vec<Value> =
+        Box::pin(stream).take_until(tokio::time::sleep(std::time::Duration::from_millis(300))).collect().await;
     assert_eq!(evs[0]["type"], "hello");
-    let texts: Vec<&str> = evs.iter().filter(|e| e["type"] == "entry").map(|e| e["entry"]["text"].as_str().unwrap()).collect();
+    let texts: Vec<&str> =
+        evs.iter().filter(|e| e["type"] == "entry").map(|e| e["entry"]["text"].as_str().unwrap()).collect();
     assert!(texts.contains(&"mine") && texts.contains(&"answer"), "{texts:?}");
     assert!(!texts.contains(&"theirs") && !texts.contains(&"secret thought"), "{texts:?}");
     assert!(evs.iter().all(|e| e["type"] != "bot" && e["type"] != "usage"));

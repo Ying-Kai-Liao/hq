@@ -297,7 +297,9 @@ impl Store {
 
     pub fn touch_bot_guest(&self, id: &str) {
         let c = self.db.locked();
-        if let Err(error) = c.execute("UPDATE bot_guests SET last_seen_at = ?2 WHERE bot_id = ?1", params![id, now_ms()]) {
+        if let Err(error) =
+            c.execute("UPDATE bot_guests SET last_seen_at = ?2 WHERE bot_id = ?1", params![id, now_ms()])
+        {
             tracing::warn!(%error, "couldn't note a bot's last call");
         }
     }
@@ -441,7 +443,8 @@ impl Store {
 
     /// Kai's "allow this person's bots without asking".
     pub fn set_auto_bots(&self, person: &str, on: bool) -> Result<bool> {
-        let n = self.db.locked().execute("UPDATE people SET auto_bots = ?2 WHERE person_id = ?1", params![person, on])?;
+        let n =
+            self.db.locked().execute("UPDATE people SET auto_bots = ?2 WHERE person_id = ?1", params![person, on])?;
         Ok(n > 0)
     }
 
