@@ -212,7 +212,8 @@ async fn the_cli_rings_only_the_chat_its_key_names() {
         let out = rpc(&r, &Caller::Local, "callPerson", body).await.unwrap();
         assert_eq!(out["status"], "not-allowed");
     }
-    assert!(rpc(&r, &Caller::Local, "callPerson", json!({"chat": mine, "reason": "hi"})).await.is_err());
+    let keyless = rpc(&r, &Caller::Local, "callPerson", json!({"chat": mine, "reason": "hi"})).await.unwrap();
+    assert_eq!(keyless["status"], "not-allowed", "no key, no ring");
     assert!(
         rpc(&r, &Caller::Local, "callPerson", json!({"chat": mine, "key": key(&mine), "reason": "  "})).await.is_err()
     );
