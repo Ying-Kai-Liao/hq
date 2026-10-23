@@ -45,7 +45,7 @@ export class AppModel extends Observable {
   stores = new Map<string, BotStore>()
   selection: BotRef | null = null
   lastError: string | null = null
-  /** Codync Screen waits for the user to allow it in System Settings → Login Items. */
+  /** Kith Screen waits for the user to allow it in System Settings → Login Items. */
   screenNeedsApproval = false
   screenError: string | null = null
   private screenSynced = false
@@ -75,8 +75,8 @@ export class AppModel extends Observable {
   }
 
   async start() {
-    window.codync.host.onChange((s) => this.setHost(s))
-    this.setHost(await window.codync.host.snapshot())
+    window.kith.host.onChange((s) => this.setHost(s))
+    this.setHost(await window.kith.host.snapshot())
   }
 
   private setHost(snapshot: HostSnapshot) {
@@ -206,12 +206,12 @@ export class AppModel extends Observable {
     return null
   }
 
-  /** Remote screen: starts/stops Codync Screen and tells the host (it only accepts this from the computer itself). */
+  /** Remote screen: starts/stops Kith Screen and tells the host (it only accepts this from the computer itself). */
   async setRemoteScreen(on: boolean) {
     const local = this.local
     if (!local) return
     try {
-      this.screenNeedsApproval = (await window.codync.app.setScreenAgent(on)).needsApproval
+      this.screenNeedsApproval = (await window.kith.app.setScreenAgent(on)).needsApproval
       await local.setScreenEnabled(on)
       this.screenError = null
     } catch (error) {
@@ -224,7 +224,7 @@ export class AppModel extends Observable {
   private syncScreen(store: BotStore) {
     if (this.screenSynced || !store.screen) return
     this.screenSynced = true
-    void window.codync.app.syncScreenAgent(store.screen.enabled).then((r) => {
+    void window.kith.app.syncScreenAgent(store.screen.enabled).then((r) => {
       this.screenNeedsApproval = r.needsApproval
       this.changed()
     }).catch((error: unknown) => {

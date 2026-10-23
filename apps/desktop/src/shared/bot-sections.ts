@@ -1,7 +1,7 @@
 import type { KithInfo } from './kith-info.ts'
 
 /**
- * Which of Codync's own cards an hq bot's page still shows. The Kith sections (serve-bot-details) carry
+ * Which of Kith's own cards an hq bot's page still shows. The Kith sections (serve-bot-details) carry
  * the same facts, read from the agent's package, so each fact shows once and Kith's copy wins.
  * A card goes only once Kith has the fact on screen: while the details load, fail or are missing,
  * every card stays, and a plain bot (no `hqAgent`) always shows all of them.
@@ -18,14 +18,14 @@ export interface BotSections {
    */
   harnessMemoryTab: boolean
   /**
-   * Codync's own permission, model, effort and Fast mode controls. hq is the one source for an hq bot's settings (the
+   * Kith's own permission, model, effort and Fast mode controls. hq is the one source for an hq bot's settings (the
    * host ignores its stored copy), so they go and the `hqSettings` rows take their place. A host that predates the
    * `kithInfo` call can't serve those, so the controls stay there.
    */
-  codyncSettings: boolean
+  kithSettings: boolean
 }
 
-export const ALL_SECTIONS: BotSections = { instructions: true, backendPicker: true, harnessMemoryTab: true, codyncSettings: true }
+export const ALL_SECTIONS: BotSections = { instructions: true, backendPicker: true, harnessMemoryTab: true, kithSettings: true }
 
 export function botSections(
   hqAgent: string | null | undefined,
@@ -33,13 +33,13 @@ export function botSections(
   unsupportedHost = false,
 ): BotSections {
   if (!hqAgent) return ALL_SECTIONS
-  const codyncSettings = unsupportedHost
-  if (!info) return { ...ALL_SECTIONS, harnessMemoryTab: false, codyncSettings }
+  const kithSettings = unsupportedHost
+  if (!info) return { ...ALL_SECTIONS, harnessMemoryTab: false, kithSettings }
   return {
     instructions: !(info.role || info.description) || info.errors.role !== undefined,
     backendPicker: !info.harness,
     harnessMemoryTab: false,
-    codyncSettings,
+    kithSettings,
   }
 }
 

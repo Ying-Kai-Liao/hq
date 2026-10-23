@@ -40,7 +40,7 @@ function emphasis(text: string, key: string): ReactNode[] {
     if (m[1] !== undefined) {
       const url = m[2]!
       out.push(
-        <a key={k} href={url} title={url} className="md-link" onClick={(e) => { e.preventDefault(); window.codync.app.openExternal(url) }}>
+        <a key={k} href={url} title={url} className="md-link" onClick={(e) => { e.preventDefault(); window.kith.app.openExternal(url) }}>
           {emphasis(m[1], `${k}-`)}
         </a>,
       )

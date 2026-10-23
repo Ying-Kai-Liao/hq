@@ -5,7 +5,7 @@ import { prefs } from './host-controller'
 import { identity } from './environment'
 import { shouldSyncScreenAgent } from '../shared/computer-access'
 
-// Codync Screen (capture + input for Remote screen): on macOS a launchd agent inside the app
+// Kith Screen (capture + input for Remote screen): on macOS a launchd agent inside the app
 // bundle (apps/screen-macos, registered through SMAppService), which owns the Screen Recording
 // and Accessibility grants. Linux starts its helper from the host, so nothing happens here.
 
@@ -39,7 +39,7 @@ export function setScreenAgent(on: boolean): { needsApproval: boolean } {
 }
 
 /**
- * Keeps Codync Screen registered while the host has Remote screen on, and registers it again
+ * Keeps Kith Screen registered while the host has Remote screen on, and registers it again
  * when this app ships a different helper binary (launchd keeps running the old one).
  */
 export function syncScreenAgent(enabled: boolean): { needsApproval: boolean } {

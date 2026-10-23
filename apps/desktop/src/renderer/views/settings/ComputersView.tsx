@@ -42,7 +42,7 @@ export function ComputersView() {
 
         <div>
           <SectionHeader title="Over SSH">
-            <IconButton title="Add SSH computer" icon="plus" onClick={() => setEditing({ profile: newSSHProfile(window.codync.hostPort), isNew: true })} />
+            <IconButton title="Add SSH computer" icon="plus" onClick={() => setEditing({ profile: newSSHProfile(window.kith.hostPort), isNew: true })} />
           </SectionHeader>
           <Reveal show={sshState.state.profiles.length === 0}>
             <Text as="div" size="callout" tone="secondary">
@@ -367,7 +367,7 @@ function PairingPanel({ store }: { store: BotStore }) {
               </Text>
             ) : null}
             <IconButton title="New code" icon="arrow.clockwise" onClick={() => void load()} />
-            <IconButton title="Copy pairing link" icon="doc.on.doc" onClick={() => window.codync.app.copy(info.pairingUrl)} />
+            <IconButton title="Copy pairing link" icon="doc.on.doc" onClick={() => window.kith.app.copy(info.pairingUrl)} />
           </HStack>
         </>
       ) : error ? (
@@ -391,7 +391,7 @@ function SSHProfileEditor({ profile: initial, isNew }: { profile: SSHProfile; is
   const [remotePort, setRemotePort] = useState(String(initial.remotePort))
   const [user, setUser] = useState(initial.user ?? '')
   const [problem, setProblem] = useState<string | null>(null)
-  const bridge = window.codync.ssh
+  const bridge = window.kith.ssh
 
   const save = async () => {
     const isInt = (s: string) => /^-?\d+$/.test(s)

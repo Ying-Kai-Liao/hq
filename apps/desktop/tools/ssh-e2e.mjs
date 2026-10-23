@@ -56,7 +56,7 @@ async function verifyEvents(base, token) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 5000)
   try {
-    const response = await fetch(`${base}/events?since=0&client=codync-ssh-e2e`, {
+    const response = await fetch(`${base}/events?since=0&client=kith-ssh-e2e`, {
       headers: { Authorization: `Bearer ${token}` }, signal: controller.signal,
     })
     assert.equal(response.status, 200)

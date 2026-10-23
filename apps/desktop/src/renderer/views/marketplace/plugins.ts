@@ -78,13 +78,13 @@ export class Plugins extends Observable {
     const plan = await market.connectorSignIn(await this.store.ready(), id)
     if (!URL.canParse(plan.url)) return
     if (plan.callback !== 'app') {
-      window.codync.app.openExternal(plan.url)
+      window.kith.app.openExternal(plan.url)
       await this.waitForSignIn(id)
       return
     }
     let back: string
     try {
-      back = await window.codync.app.authenticate(plan.url, window.codync.appScheme)
+      back = await window.kith.app.authenticate(plan.url, window.kith.appScheme)
     } catch {
       return
     }

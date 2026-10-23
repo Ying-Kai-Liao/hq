@@ -100,7 +100,7 @@ function useModalFocus(open: boolean, mounted: boolean, layer: RefObject<HTMLEle
   }, [open, mounted, layer])
 }
 
-/** The Mac modal (`.codyncSheet`): a centered card over a dim; the content sizes it. */
+/** The Mac modal (`.kithSheet`): a centered card over a dim; the content sizes it. */
 export function Sheet({ open, onClose, width, height, dismissOnDim = false, children }: {
   open: boolean
   onClose: () => void
@@ -139,7 +139,7 @@ export interface DialogAction {
   action: () => void
 }
 
-/** A centered card over a dimmed screen with the actions and Cancel (`.codyncDialog`). */
+/** A centered card over a dimmed screen with the actions and Cancel (`.kithDialog`). */
 export function Dialog({ open, title, message, actions, cancel = 'Cancel', onClose }: {
   open: boolean
   title: string
@@ -190,7 +190,7 @@ export function Dialog({ open, title, message, actions, cancel = 'Cancel', onClo
   )
 }
 
-/** One row in a Codync menu: an action, or a choice when `selected` is set. */
+/** One row in a Kith menu: an action, or a choice when `selected` is set. */
 export interface MenuItem {
   title: string
   icon?: string
@@ -313,7 +313,7 @@ export function anchorPlacement(rect: DOMRect) {
 
 /**
  * Presents `MenuPanel` next to `anchor` (or at `point`, for right-clicks), flipping to stay on
- * screen; a click anywhere else closes it (`.codyncMenu` / `.contextActions`).
+ * screen; a click anywhere else closes it (`.kithMenu` / `.contextActions`).
  */
 export function AnchoredMenu({ open, onClose, anchor, point, items, reactions }: {
   open: boolean
@@ -345,7 +345,7 @@ export function AnchoredMenu({ open, onClose, anchor, point, items, reactions }:
   )
 }
 
-/** Right-click opens a Codync menu at the pointer (kit's `.contextActions`). */
+/** Right-click opens a Kith menu at the pointer (kit's `.contextActions`). */
 export function useContextMenu() {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null)
   return {

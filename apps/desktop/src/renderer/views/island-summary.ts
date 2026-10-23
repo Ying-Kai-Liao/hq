@@ -28,7 +28,7 @@ export function useIslandSummary(app: AppModel) {
       const json = JSON.stringify(summary)
       if (json === sent) return
       sent = json
-      window.codync.island.setSummary(summary)
+      window.kith.island.setSummary(summary)
     }, 150)
   })
 }

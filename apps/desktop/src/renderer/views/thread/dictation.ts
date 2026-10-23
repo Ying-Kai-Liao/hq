@@ -31,7 +31,7 @@ export function useDictation(draft: string, setDraft: (text: string) => void) {
   const finish = useCallback(() => {
     off.current?.()
     off.current = null
-    window.codync.speech.stop()
+    window.kith.speech.stop()
     setListening(false)
     if (stopActive === finish) stopActive = null
   }, [])
@@ -39,12 +39,12 @@ export function useDictation(draft: string, setDraft: (text: string) => void) {
   const start = () => {
     stopActive?.()
     before.current = draft
-    off.current = window.codync.speech.onEvent((e) => {
+    off.current = window.kith.speech.onEvent((e) => {
       if (e.type === 'partial' || e.type === 'final') write.current(joinDictated(before.current, e.text))
       if (e.type === 'final') before.current = joinDictated(before.current, e.text)
       if (e.type === 'stopped' || e.type === 'error') finish()
     })
-    window.codync.speech.start(VoiceSettings.language() || null)
+    window.kith.speech.start(VoiceSettings.language() || null)
     stopActive = finish
     setListening(true)
   }
@@ -52,5 +52,5 @@ export function useDictation(draft: string, setDraft: (text: string) => void) {
   // A composer that goes away (another chat) stops listening.
   useEffect(() => () => { if (off.current) finish() }, [finish])
 
-  return { available: window.codync.speech.available, listening, toggle: () => (listening ? finish() : start()) }
+  return { available: window.kith.speech.available, listening, toggle: () => (listening ? finish() : start()) }
 }

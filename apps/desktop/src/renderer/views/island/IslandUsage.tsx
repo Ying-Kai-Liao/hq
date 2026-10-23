@@ -5,7 +5,7 @@ import { mascotDataURL } from '../usage/ProviderMascot'
 import { providerTintCSS, resetDescription, tightest, windowTitle } from '../usage/usage-model'
 import type { IslandModel } from './island-model'
 
-// Codync's own part of the island: the plan limits the menu bar already tracks (local usage
+// Kith's own part of the island: the plan limits the menu bar already tracks (local usage
 // only), as a meter in the header and a Usage tab.
 
 /** A provider's character for the black island, whatever the system appearance. */

@@ -19,7 +19,7 @@ export class FileSink {
 
   static async create(destination: string, meta: SharedFile, id: string) {
     validateSharedFile(meta)
-    const partial = `${destination}.${id}.codync-partial`
+    const partial = `${destination}.${id}.kith-partial`
     const file = await open(partial, 'wx', 0o600)
     return new FileSink(file, partial, destination, meta)
   }

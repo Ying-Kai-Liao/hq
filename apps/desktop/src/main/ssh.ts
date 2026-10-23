@@ -134,7 +134,7 @@ function run(bin: string, args: string[], input?: string): Promise<Result> {
   })
 }
 
-/** Tunnels a crashed or force-quit Codync left running: only Codync's tunnels carry this known_hosts file. */
+/** Tunnels a crashed or force-quit Kith left running: only Kith's tunnels carry this known_hosts file. */
 const killOrphanTunnels = () => run('/usr/bin/pkill', ['-f', '--', orphanTunnelPattern(dataDir)])
 
 /** Binds port 0 on loopback to learn a free port. */
@@ -298,7 +298,7 @@ class SSHComputers {
     for (const id of new Set([...this.tunnels.keys(), ...this.tasks.keys()])) this.disconnect(id)
   }
 
-  /** The user compared the fingerprints: remember the key in Codync's known_hosts and go on. */
+  /** The user compared the fingerprints: remember the key in Kith's known_hosts and go on. */
   async trustHostKey(id: string) {
     const lines = this.pendingKeys.get(id)
     if (this.status.get(id)?.kind !== 'confirmHostKey' || !lines) return

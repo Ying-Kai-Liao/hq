@@ -211,7 +211,7 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
           <div className="composer-box">
             {/* One capsule: attachments, the field, and send / stop / call. */}
             {canAttach ? (
-              <button className="press composer-add" aria-label="Add files" title="Add files" onClick={() => void window.codync.app.pickFiles().then(append)}>
+              <button className="press composer-add" aria-label="Add files" title="Add files" onClick={() => void window.kith.app.pickFiles().then(append)}>
                 <Icon name="plus" size={13} weight="medium" color="var(--text)" />
               </button>
             ) : null}
@@ -265,7 +265,7 @@ function DestinationComposer({ botId, thread, onCall, onInterrupt }: {
                   if (!canAttach) return
                   if (!hasFiles || (types.includes('text/plain') && !e.clipboardData.files.length)) return
                   e.preventDefault()
-                  void window.codync.app.readClipboardFiles().then((picked) => {
+                  void window.kith.app.readClipboardFiles().then((picked) => {
                     if (picked.length) return append(picked)
                     return Promise.all([...e.clipboardData.files].map(async (f) => ({ name: f.name || `pasted-${Date.now()}.png`, data: new Uint8Array(await f.arrayBuffer()) }))).then(append)
                   })
