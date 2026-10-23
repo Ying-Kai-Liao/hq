@@ -320,9 +320,9 @@ impl Actor {
             let mut env = process_env(crate::agent::auth::env(&self.hub.store, provider)?, &launch, backup.is_some());
             // Anyone but the owner asks the host who they are (`kith recall` over the run socket), with a token that
             // is theirs alone; the owner's process gets none.
-            let mut grant = person.as_deref().and_then(|p| {
-                crate::runauth::grant_for(p, &agent, launch.env.get("KITH_ROOM").map(String::as_str))
-            });
+            let mut grant = person
+                .as_deref()
+                .and_then(|p| crate::runauth::grant_for(p, &agent, launch.env.get("KITH_ROOM").map(String::as_str)));
             if let Some((_, vars)) = &grant {
                 env.extend(vars.iter().cloned());
             }

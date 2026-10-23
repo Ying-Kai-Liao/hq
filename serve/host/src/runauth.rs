@@ -18,6 +18,7 @@ use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -82,7 +83,10 @@ impl TokenTable {
     fn insert(&self, identity: RunIdentity) -> Result<(String, [u8; 32])> {
         let mut raw = [0u8; 32];
         getrandom::fill(&mut raw).map_err(|_| anyhow::anyhow!("random bytes unavailable"))?;
-        let token: String = raw.iter().map(|b| format!("{b:02x}")).collect();
+        let token = raw.iter().fold(String::with_capacity(64), |mut acc, b| {
+            let _ = write!(acc, "{b:02x}");
+            acc
+        });
         let key = digest(&token);
         self.entries.locked().insert(key, Entry { identity, pid: None });
         Ok((token, key))
@@ -98,7 +102,8 @@ impl TokenTable {
         self.entries.locked().remove(key);
     }
 
-    pub fn len(&self) -> usize {
+    #[cfg(test)]
+    fn len(&self) -> usize {
         self.entries.locked().len()
     }
 
@@ -193,9 +198,22 @@ pub fn grant_for_env(env: &mut Vec<(std::ffi::OsString, std::ffi::OsString)>, ag
 }
 
 /// `$KITH_MACHINE/run/host.sock`: outside the serve data folder, which a guest's sandbox denies.
+///
+/// The kernel's `KITH_MACHINE` (`kith_paths.py --json`) is the source of truth, because bin/kith allows exactly this
+/// path in a guest's sandbox: ~/.kith on this Mac's own layout, ~/.config/kith under the old link layout. Without a
+/// kernel to ask, the host's own reading of the same rules.
 pub fn socket_path() -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_default();
-    crate::kernel::machine_dir(&home).join("run").join("host.sock")
+    let asked = crate::kernel::current_kernel().and_then(|k| {
+        let out = std::process::Command::new("python3").arg(k.join("lib/kith_paths.py")).arg("--json").output().ok()?;
+        out.status.success().then(|| machine_from_paths_json(&out.stdout))?
+    });
+    let machine = asked.unwrap_or_else(|| crate::kernel::machine_dir(&dirs::home_dir().unwrap_or_default()));
+    machine.join("run").join("host.sock")
+}
+
+fn machine_from_paths_json(json: &[u8]) -> Option<PathBuf> {
+    let v: Value = serde_json::from_slice(json).ok()?;
+    v["KITH_MACHINE"].as_str().filter(|m| Path::new(m).is_absolute()).map(PathBuf::from)
 }
 
 // ---- requests
@@ -342,7 +360,10 @@ async fn run_recall(job: &Authorized) -> Response {
     if let Some(room) = &job.identity.room {
         command.envs(crate::kernel::both("ROOM", room));
     }
-    command.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
     command.kill_on_drop(true);
     let Ok(mut child) = command.spawn() else { return Response::refused("could not run recall") };
     let (mut out, mut err) = (child.stdout.take().expect("piped"), child.stderr.take().expect("piped"));
@@ -411,7 +432,9 @@ pub fn start() {
                 }
             });
         }
-        Err(error) => tracing::warn!(error = format!("{error:#}"), "run socket not started: guests' recall stays empty"),
+        Err(error) => {
+            tracing::warn!(error = format!("{error:#}"), "run socket not started: guests' recall stays empty");
+        }
     }
 }
 
@@ -454,7 +477,12 @@ mod tests {
     use super::*;
 
     fn id(person: &str) -> RunIdentity {
-        RunIdentity { person: person.into(), agent: "echo".into(), room: Some("1:1:echo:sam".into()), run_id: "r1".into() }
+        RunIdentity {
+            person: person.into(),
+            agent: "echo".into(),
+            room: Some("1:1:echo:sam".into()),
+            run_id: "r1".into(),
+        }
     }
 
     fn open_table() -> Arc<TokenTable> {
@@ -558,6 +586,15 @@ mod tests {
             let job = authorize(&t, &req(&g.token, "recall", &json!([sub, "rebuild"])), peer(5)).unwrap();
             assert_eq!(job.args[0], "--tier", "{sub} is a query word, never a subcommand");
         }
+    }
+
+    #[test]
+    fn the_socket_lives_under_the_kernels_machine_folder() {
+        let kept = machine_from_paths_json(br#"{"KITH_MACHINE": "/Users/x/.config/kith", "KITH_STATE": "/s"}"#);
+        assert_eq!(kept, Some(PathBuf::from("/Users/x/.config/kith")));
+        assert_eq!(machine_from_paths_json(br#"{"KITH_MACHINE": "relative"}"#), None);
+        assert_eq!(machine_from_paths_json(b"nope"), None);
+        assert!(socket_path().ends_with("run/host.sock"));
     }
 
     #[test]
