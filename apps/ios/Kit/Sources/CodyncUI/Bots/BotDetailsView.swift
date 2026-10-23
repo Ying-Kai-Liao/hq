@@ -140,8 +140,14 @@ struct BotDetailsView: View {
             }
         case .memory:
             VStack(alignment: .leading, spacing: 20) {
-                if let kith { KithMemorySection(store: kith) }
-                MemoryCard(botId: botId, showsHarnessTab: shown.harnessMemoryTab)
+                // An hq agent's memory is its files; nothing is drawn until the bot is loaded, so the tab doesn't flip.
+                if let bot {
+                    if let agent = bot.hqAgent, !agent.isEmpty, !bot.isGroup {
+                        HqMemoryCard(botId: botId, kith: kith)
+                    } else {
+                        MemoryCard(botId: botId, showsHarnessTab: shown.harnessMemoryTab)
+                    }
+                }
             }
         case .settings:
             if let draft = Binding($draft) {

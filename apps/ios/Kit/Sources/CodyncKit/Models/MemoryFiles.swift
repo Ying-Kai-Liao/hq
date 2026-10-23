@@ -37,10 +37,10 @@ public struct MemoryFileVersion: Decodable, Identifiable, Hashable, Sendable {
     public var id: Int64
     /// nil: the file was deleted.
     public var content: String?
-    /// user · bot · dream · computer
+    /// user · bot · tidy · computer
     public var author: String
     public var authorBot: String?
-    /// edit · delete · restore · undo · dream
+    /// edit · delete · restore · undo · tidy
     public var cause: String
     public var at: Int64
 }
