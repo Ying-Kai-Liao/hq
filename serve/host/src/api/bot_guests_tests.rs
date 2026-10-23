@@ -591,3 +591,34 @@ async fn a_bots_stream_carries_only_its_own_words() {
     let t = call(&r, &j.caller, "botThread", json!({"conversation": first["conversation"]})).await.unwrap();
     assert_eq!(t["done"], true);
 }
+
+#[tokio::test]
+async fn the_ask_cursor_catches_up_the_answer_and_a_failed_turn_is_marked_an_error() {
+    let r = Rig::new().await;
+    r.owner_bot("house");
+    let j = active_bot(&r).await;
+    let first = call(&r, &j.caller, "botAsk", ask("go", "c1")).await.unwrap();
+    let conv = r.hub.store.bot_conversation_by_id(first["conversation"].as_str().unwrap()).unwrap();
+    let user = r.hub.store.entry(first["entryId"].as_str().unwrap()).unwrap();
+    assert_eq!(first["seq"], user.rev, "the cursor botAsk hands out is the entry's rev");
+    let lane = Lane::in_thread(&conv.chat_bot_id, &conv.thread_root);
+    let answer = r.hub.add_entry(&lane, EntryKind::Agent, user.turn, &json!({"text": "done", "final": true})).unwrap();
+    let failed = r
+        .hub
+        .add_entry(&lane, EntryKind::Notice, user.turn + 1, &json!({"text": "The agent crashed", "style": "error"}))
+        .unwrap();
+
+    // Catching up from the ask's cursor returns the answer, whose seq is on the same scale.
+    let after = first["seq"].as_i64().unwrap();
+    let t = call(&r, &j.caller, "botThread", json!({"conversation": conv.conversation_id, "afterSeq": after}))
+        .await
+        .unwrap();
+    let got = t["entries"].as_array().unwrap();
+    let agent = got.iter().find(|e| e["kind"] == "agent").expect("the answer is past the cursor");
+    assert_eq!((agent["text"].as_str(), agent["seq"].as_i64()), (Some("done"), Some(answer.rev)));
+    assert!(got.iter().all(|e| e["seq"].as_i64().unwrap() > after));
+    // The failed turn's notice says so; the client ends the turn on it.
+    let notice = got.iter().find(|e| e["kind"] == "notice").expect("the error notice is shown");
+    assert_eq!((notice["error"].as_bool(), notice["seq"].as_i64()), (Some(true), Some(failed.rev)));
+    assert!(agent.get("error").is_none());
+}
