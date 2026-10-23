@@ -73,6 +73,10 @@ struct SettingsView: View {
                 }
             }
 
+            if let linkStore = online.first {
+                LinkChatSection(store: linkStore)
+            }
+
             BackupsStatusSection()
 
             CardSection("Notifications", footer: "Get a result summary, a request for input, or a failure notice. Notification previews follow your iOS settings.") {
@@ -513,4 +517,67 @@ private struct TextSizeOverride: ViewModifier {
 extension View {
     /// Applies the Text size setting; put it once at the app root.
     func appTextSize() -> some View { modifier(TextSizeOverride()) }
+}
+
+/// "Link Telegram or Discord": a one-time code that ties a chat account to your Kith person.
+/// Hidden when the computer's host is older than the `linkCode` method.
+struct LinkChatSection: View {
+    let store: BotStore
+    @State private var code: LinkCode?
+    @State private var busy = false
+    @State private var unsupported = false
+    @State private var copied = false
+    @State private var error: String?
+
+    var body: some View {
+        if !unsupported {
+            CardSection("Link Telegram or Discord", footer: error ?? "Chat with your bots from your own Telegram or Discord account.") {
+                if let code {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(code.code)
+                            .font(.system(size: 34, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(Palette.text)
+                            .textSelection(.enabled)
+                        TimelineView(.periodic(from: .now, by: 30)) { context in
+                            let minutes = max(1, Int((code.expiry.timeIntervalSince(context.date) / 60).rounded()))
+                            Text("Send /link \(code.code) to your Kith bot in Telegram or Discord. Expires in about \(minutes) min.")
+                                .font(.footnote)
+                                .foregroundStyle(Palette.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Button(copied ? "Copied" : "Copy") {
+                        UIPasteboard.general.string = "/link \(code.code)"
+                        copied = true
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Palette.text)
+                }
+                Button { Task { await request() } } label: {
+                    Label(code == nil ? "Get a link code" : "New code", systemImage: "link")
+                        .foregroundStyle(Palette.text)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(busy)
+            }
+        }
+    }
+
+    private func request() async {
+        guard !busy, let client = store.client else { return }
+        busy = true
+        error = nil
+        copied = false
+        defer { busy = false }
+        do {
+            code = try await client.linkCode()
+        } catch let HostError.http(status, message) where status == 404 || message.localizedCaseInsensitiveContains("unknown method") {
+            // An older host doesn't know the method: the row goes away rather than failing.
+            unsupported = true
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
 }
