@@ -31,6 +31,9 @@ public final class AccountStore {
     public private(set) var cloudComputers: [CloudComputer] = []
     /// Access requests waiting for approval on the computer, with the SAS to show.
     public private(set) var pendingAccess: [ComputerID: AccessTicket] = [:]
+    /// Computers this account joined by an invite, not owns. Learned from the cloud's `role`, and from the invite token
+    /// kept here (which also covers the time before the cloud list has loaded or while it is unreachable).
+    public private(set) var memberComputers: Set<ComputerID> = []
     public var lastError: String?
     public var selection: BotReference? {
         didSet { if let id = selection?.computerId, !retired { storage.lastComputerId = id } }
@@ -43,6 +46,7 @@ public final class AccountStore {
     public var onRosterChanged: (@MainActor ([RosterItem]) -> Void)?
 
     private let cloud: CloudClient?
+    public let inviteTokens: any InviteTokenStore
     private let computerOrder: ComputerOrderStore
     private let makeStore: @MainActor (Computer) -> BotStore
     /// Persisted in the context (channel route).
@@ -54,15 +58,16 @@ public final class AccountStore {
     private var asked: Set<ComputerID> = []
 
     public convenience init(storage: SharedStore.Context, cloud: CloudClient?) {
-        self.init(storage: storage, cloud: cloud) { computer in
+        self.init(storage: storage, cloud: cloud, inviteTokens: KeychainInviteStore(context: storage)) { computer in
             BotStore(computer: computer, storage: storage)
         }
     }
 
-    init(storage: SharedStore.Context, cloud: CloudClient?,
+    init(storage: SharedStore.Context, cloud: CloudClient?, inviteTokens: (any InviteTokenStore)? = nil,
          makeStore: @escaping @MainActor (Computer) -> BotStore) {
         self.storage = storage
         self.cloud = cloud
+        self.inviteTokens = inviteTokens ?? KeychainInviteStore(context: storage)
         computerOrder = ComputerOrderStore(storage: storage)
         self.makeStore = makeStore
         saved = storage.computers.filter(\.isConsistent)
@@ -85,6 +90,15 @@ public final class AccountStore {
 
     public func store(for id: ComputerID) -> BotStore? { stores[id] }
 
+    /// What this account is on a computer. Owner unless the cloud or a kept invite token says member.
+    public func role(for id: ComputerID) -> ComputerRole {
+        if let role = cloudComputers.first(where: { $0.computerId == id })?.role { return role }
+        return memberComputers.contains(id) ? .member : .owner
+    }
+
+    /// The computers this account owns (or pairs by QR), for the screens only an owner has.
+    public var ownedComputers: [Computer] { computers.filter { role(for: $0.id) == .owner } }
+
     // MARK: computers
 
     /// QR pairing (§4.1); the computer is saved in this context and connected.
@@ -99,6 +113,8 @@ public final class AccountStore {
     }
 
     public func forget(_ id: ComputerID) {
+        inviteTokens.forget(id)
+        memberComputers.remove(id)
         saved.removeAll { $0.id == id }
         persist()
         close(id)
@@ -273,6 +289,57 @@ public final class AccountStore {
         }
     }
 
+    // MARK: joining by invite
+
+    /// The account joins the computer an invite is for. `proof` is h1 (`InviteLink.proof`), never the token.
+    public func acceptInvite(inviteId: String, proof: String) async throws -> InviteAccepted {
+        guard let cloud else { throw CloudError(status: 0, code: "signedOut", message: "Sign in to join.") }
+        return try await cloud.acceptInvite(inviteId, proof: proof)
+    }
+
+    /// Keeps the token before anything else is done with the invite: if it can't be stored, the join stops.
+    public func keepInvite(_ invite: StoredInvite, for id: ComputerID) throws {
+        try inviteTokens.keep(invite, for: id)
+        memberComputers.insert(id)
+    }
+
+    /// Asks a computer the account just joined for access. Returns false while the computer is offline: it is asked
+    /// again by `refreshCloud` once it is back (that asks every online computer this device can't use yet).
+    public func askToJoin(_ id: ComputerID) async throws -> Bool {
+        guard let cloud else { throw CloudError(status: 0, code: "signedOut", message: "Sign in to join.") }
+        let list = try await cloud.computers()
+        guard !retired else { throw CancellationError() }
+        if list != cloudComputers { Motion.animate { cloudComputers = list } }
+        guard let target = list.first(where: { $0.computerId == id }) else {
+            throw CloudError(status: 404, code: "notFound", message: "That computer isn't in your account yet. Try the link again in a moment.")
+        }
+        if stores[id] != nil || pendingAccess[id] != nil { return true }
+        guard target.isOnline else { return false }
+        asked.insert(id)
+        _ = try await requestAccess(id)
+        return true
+    }
+
+    /// Waits for the computer to take this device (a member needs no code), then for the connection.
+    /// nil when it isn't reachable within `patience`; throws when the computer turns this device away.
+    public func connection(to id: ComputerID, patience: Duration = .seconds(45)) async throws -> HostClient? {
+        let deadline = ContinuousClock.now + patience
+        while ContinuousClock.now < deadline, !retired {
+            if let store = stores[id] {
+                switch store.connection {
+                case .online:
+                    if let client = store.client { return client }
+                case let .unauthorized(message):
+                    throw HostError.unauthorized(message)
+                default:
+                    break
+                }
+            }
+            try await Task.sleep(for: .milliseconds(500))
+        }
+        return nil
+    }
+
     // MARK: lifecycle
 
     public func setActive(_ active: Bool) {
@@ -315,6 +382,9 @@ public final class AccountStore {
         }
         store.onComputerChanged = { [weak self] computer in self?.computerChanged(computer) }
         store.onRosterChanged = { [weak self] in self?.rosterChanged() }
+        // Before the store starts: an invited person's first call to the computer shows the token.
+        if inviteTokens.stored(for: id) != nil { memberComputers.insert(id) }
+        store.inviteTokens = inviteTokens
         stores[id] = store
         if isActive { store.setActive(true) }
     }

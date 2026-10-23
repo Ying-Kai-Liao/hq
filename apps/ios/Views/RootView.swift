@@ -320,7 +320,8 @@ private struct AccessBanners: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            ForEach(Array(accounts.pendingAccess.values).sorted { $0.requestId < $1.requestId }) { ticket in
+            // A computer joined by invite takes a member itself: there is no code to compare.
+            ForEach(Array(accounts.pendingAccess.values).filter { accounts.role(for: $0.computerId) != .member }.sorted { $0.requestId < $1.requestId }) { ticket in
                 let name = accounts.cloudComputers.first { $0.computerId == ticket.computerId }?.name ?? "Your computer"
                 HStack(spacing: 12) {
                     Spinner(size: 16)

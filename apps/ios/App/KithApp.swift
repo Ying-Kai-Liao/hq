@@ -40,6 +40,14 @@ struct KithApp: App {
                         .environment(app.account)
                         .tint(Palette.accent)
                 }
+                .kithSheet(item: Binding(get: { app.inviteJoin }, set: { if $0 == nil { app.closeInviteJoin() } })) { join in
+                    // Above RootView, which is rebuilt when signing in switches the account's stores.
+                    InviteJoinView(model: join)
+                        .environment(app)
+                        .environment(app.accounts)
+                        .environment(app.account)
+                        .tint(Palette.accent)
+                }
                 .onChange(of: app.account.userID, initial: true) { _, userID in
                     app.switchAccount(to: userID)
                 }
@@ -111,6 +119,8 @@ final class AppStore {
     var showUsage = false
     /// The computer whose marketplace is open.
     var marketplace: ComputerID?
+    /// An invite link being joined, shown as a sheet.
+    private(set) var inviteJoin: InviteJoinModel?
 
     private init() {
         let session = AccountSession()
@@ -198,6 +208,12 @@ final class AppStore {
         }
         guard let scheme = url.scheme, AppEnvironment.current.accepts(scheme: scheme) else { return }
         switch url.host() {
+        case "invite":
+            guard let invite = InviteLink(url, scheme: scheme) else {
+                accounts.lastError = "That invite link isn't valid. Ask for a new one."
+                return
+            }
+            joinInvite(invite)
         case "pair":
             // Scanned with the Camera app: pair right away.
             let accounts = accounts
@@ -225,6 +241,23 @@ final class AppStore {
         default:
             break
         }
+    }
+
+    /// The same link opened twice shows the join that is already running.
+    private func joinInvite(_ link: InviteLink) {
+        if let current = inviteJoin, current.link == link {
+            current.start()
+            return
+        }
+        inviteJoin?.cancel()
+        let model = InviteJoinModel(link: link, app: self)
+        inviteJoin = model
+    }
+
+    /// Closing the sheet keeps a waiting join going on its own: the token is kept, and connecting proves it.
+    func closeInviteJoin() {
+        inviteJoin?.cancel()
+        inviteJoin = nil
     }
 
     private static func makeAccounts(_ storage: SharedStore.Context, session: AccountSession) -> (AccountStore, CloudClient?) {

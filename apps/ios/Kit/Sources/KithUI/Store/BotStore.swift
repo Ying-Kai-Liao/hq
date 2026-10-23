@@ -54,6 +54,8 @@ public final class BotStore {
     var waiting = 0
     public internal(set) var hostRoute: HostRoute?
     public internal(set) var client: HostClient?
+    /// Set on a computer this account joined by invite: shows the invite token on every connection that hasn't yet.
+    @ObservationIgnored public var inviteTokens: (any InviteTokenStore)?
     public internal(set) var hello: Hello?
     /// The host's version and `minApp`, kept even when the rest of its `hello` can't be read.
     public internal(set) var hostVersion: HostVersion?

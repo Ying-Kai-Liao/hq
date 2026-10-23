@@ -330,6 +330,30 @@ public struct Hello: Codable, Sendable {
     public var minApp: String?
     /// The cloud relay the host uses; nil = cloud off.
     public var cloud: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case hostId, name, version, os, device, home, backends, rev, screen, urls, computerId, signKey, boxKey, minApp, cloud
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        hostId = try c.decode(String.self, forKey: .hostId)
+        name = try c.decode(String.self, forKey: .name)
+        version = try c.decode(String.self, forKey: .version)
+        os = try c.decode(String.self, forKey: .os)
+        device = try c.decodeIfPresent(String.self, forKey: .device)
+        home = try c.decodeIfPresent(String.self, forKey: .home)
+        // An invited person's hello leaves out the backends (and paths): a missing list is empty, a malformed one still fails.
+        backends = try c.decodeIfPresent([Backend].self, forKey: .backends) ?? []
+        rev = try c.decode(Int64.self, forKey: .rev)
+        screen = try c.decodeIfPresent(ScreenState.self, forKey: .screen)
+        urls = try c.decodeIfPresent([String].self, forKey: .urls)
+        computerId = try c.decodeIfPresent(ComputerID.self, forKey: .computerId)
+        signKey = try c.decodeIfPresent(String.self, forKey: .signKey)
+        boxKey = try c.decodeIfPresent(String.self, forKey: .boxKey)
+        minApp = try c.decodeIfPresent(String.self, forKey: .minApp)
+        cloud = try c.decodeIfPresent(String.self, forKey: .cloud)
+    }
 }
 
 public struct DirListing: Codable, Sendable {
