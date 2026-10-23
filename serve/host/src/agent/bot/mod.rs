@@ -307,6 +307,8 @@ pub(crate) struct Conn {
     model_options: HashMap<String, (String, String)>,
     /// Sessions whose switch to the call model the agent refused: not asked again.
     call_refused: HashSet<String>,
+    /// An invited person's or bot guest's run token: revoked when this process's `Conn` is dropped.
+    pub(crate) run_grant: Option<crate::runauth::RunGrant>,
 }
 
 impl Conn {
