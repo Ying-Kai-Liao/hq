@@ -208,11 +208,17 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
                 }
             }
             // `/skill …` reaches the agent as "read this skill first"; the chat keeps what was typed.
-            let prompt = crate::chat::prompt::of_message(&hub.store, &row.config, text, &attachments);
+            // `via: "call"`: spoken in a voice call. Its turn gets the call note and the call model; the chat keeps
+            // only what was said. Any other value (or none, from an older app) is a typed message.
+            let call = b["via"] == "call";
+            let prompt = crate::chat::prompt::of_message(&hub.store, &row.config, text, &attachments, call);
             let turn = hub.store.max_turn(bot) + 1;
             // A group has no agent of its own to queue behind: its message is simply sent.
             let status = if row.config.is_group() { "sent" } else { "queued" };
             let mut data = json!({"text": text, "clientNonce": nonce, "status": status, "attachments": attachments});
+            if call {
+                data["via"] = "call".into();
+            }
             // What the user pasted rather than typed: memory never takes it as the user's own words.
             let pasted: Vec<&str> = b["pasted"]
                 .as_array()

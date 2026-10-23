@@ -5,6 +5,9 @@
   kith_settings.py KEY AGENT      print this Mac's choice for one agent (agents.AGENT.KEY), empty when there is none
   kith_settings.py set permission_mode AGENT MODE   record this Mac's choice for one agent; an empty MODE forgets it
                                   (the agent's own suggestion, then kith's default, apply again). kith AGENT set permission MODE
+  kith_settings.py set call_model [AGENT] MODEL     the model voice-call turns run on: for one agent (kith AGENT set call-model
+                                  MODEL), or without AGENT for every agent. 'default' (or '') forgets the choice; 'own' means
+                                  the agent's own model, so a call changes nothing about which model answers
 
 Settings that are kith's, not one agent's (its settings.json), one account's (kith-auth) or one entry point's (an env
 var such as KITH_BRIDGE_PERMISSION_MODE). The file is this Mac's and is never committed, like secrets/env: what an
@@ -19,6 +22,10 @@ unattended Mac may do is decided per Mac. Without the file, or for a key it leav
                     MODE}}. An agent's defaultMode is its author's suggestion; the mode chosen here (kith install asks)
                     wins over it, and only the caller's wins over this; {"live_at_login": true} for a live agent
                     (session: live) whose session starts when you log in to this Mac (kith live login)
+  call_model        the model a turn spoken in a voice call runs on (same session, only the model differs): a model name
+                    Claude Code takes ("sonnet", "haiku", "opus"), or "own" for the agent's own model. Default "sonnet":
+                    a call wants a quick reply. agents.<agent>.call_model replaces it for that agent. Schedules, channels
+                    and typed messages never use it
   backups           the backup chain kith serve tries when the agent's own harness runs out of usage: entry ids in
                     order ("claude:work", "claude-api:main", "codex"; see lib/kith_accounts.py). Empty by default.
                     agents.<agent>.backups replaces it for that agent; an explicit [] means no backups for it
@@ -26,13 +33,13 @@ unattended Mac may do is decided per Mac. Without the file, or for a key it leav
 
   kith_settings.py backups [AGENT]   the chain that applies, one id per line
 """
-import json, os, sys
+import json, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from kith_paths import paths  # noqa: E402  the one place that knows where kith's folders are
 
 FILE = paths()['KITH_MACHINE'] / 'settings.json'
-DEFAULTS = {'permission_mode': 'auto', 'plugins': [], 'backups': []}
+DEFAULTS = {'permission_mode': 'auto', 'plugins': [], 'backups': [], 'call_model': 'sonnet'}
 CHOICES = {'permission_mode': ('default', 'manual', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions')}
 
 
@@ -69,6 +76,42 @@ def get(key, agent=None):
     return read()[0].get(key, DEFAULTS[key])
 
 
+def valid_call_model(value):
+    """A model Claude Code takes: an alias (optionally with its 1M window), a full claude-* id, or kith's own words."""
+    return bool(re.fullmatch(r'(default|own|(sonnet|haiku|opus)(\[1m\])?|claude-[a-z0-9.\-]+(\[1m\])?)', value))
+
+
+def global_call_model():
+    """The model every agent's calls use unless it chose its own ('own' = the agent's own model)."""
+    v = read()[0].get('call_model', DEFAULTS['call_model'])
+    return v if isinstance(v, str) and v else DEFAULTS['call_model']
+
+
+def call_model(agent=None):
+    """The model a voice-call turn runs on for the agent ('' when it keeps its own model): the agent's choice, else the
+    global one, else the default. 'own' is the explicit way to say "the agent's own model"."""
+    s = read()[0]
+    chosen = s.get('agents', {}).get(agent, {}).get('call_model') if agent else None
+    if not chosen:
+        chosen = s.get('call_model', DEFAULTS['call_model'])
+    chosen = chosen if isinstance(chosen, str) else ''
+    return '' if chosen in ('own', 'default') else chosen.strip()
+
+
+def choose_global(key, value):
+    """Record this Mac's choice for every agent; 'default' or '' forgets it. Keeps the rest of the file."""
+    s, why = read()
+    if why:
+        raise ValueError(why)
+    if key == 'call_model' and value and not valid_call_model(value):
+        raise ValueError(f'call model {value!r} is not sonnet, haiku, opus, a claude-* model id, own or default')
+    if value in ('', 'default'):
+        s.pop(key, None)
+    else:
+        s[key] = value
+    write(s)
+
+
 def choose(agent, key, value):
     """Record this Mac's choice for one agent, keeping the rest of the file."""
     s, why = read()
@@ -77,6 +120,10 @@ def choose(agent, key, value):
     if key in CHOICES and value not in CHOICES[key] + ('',):
         raise ValueError(f'{key} {value!r} is not one of {", ".join(CHOICES[key])}')
     agents = s.setdefault('agents', {})
+    if key == 'call_model' and value == 'default':
+        value = ''
+    if key == 'call_model' and value and not valid_call_model(value):
+        raise ValueError(f'call model {value!r} is not sonnet, haiku, opus, a claude-* model id, own or default')
     if value == '':   # forgetting the choice: the agent's own suggestion and kith's default apply again
         agents.get(agent, {}).pop(key, None)
     else:
@@ -125,16 +172,22 @@ def clear_backups(agent):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) == 5 and sys.argv[1] == 'set':   # set KEY AGENT VALUE
-        if sys.argv[2] != 'permission_mode':
+    if len(sys.argv) in (4, 5) and sys.argv[1] == 'set':   # set KEY [AGENT] VALUE
+        if sys.argv[2] not in ('permission_mode', 'call_model') or (len(sys.argv) == 4 and sys.argv[2] != 'call_model'):
             sys.exit(f'kith: {sys.argv[2]} is not a setting kith can set per agent')
         try:
-            choose(sys.argv[3], sys.argv[2], sys.argv[4])
+            if len(sys.argv) == 4:
+                choose_global(sys.argv[2], sys.argv[3])
+            else:
+                choose(sys.argv[3], sys.argv[2], sys.argv[4])
         except ValueError as e:
             sys.exit(f'kith: {e}')
         sys.exit(0)
     if len(sys.argv) not in (2, 3) or sys.argv[1] not in DEFAULTS:
         sys.exit(__doc__.strip())
+    if sys.argv[1] == 'call_model':   # the model that applies, '' for the agent's own
+        print(call_model(*sys.argv[2:]))
+        sys.exit(0)
     if sys.argv[1] == 'backups':
         print('\n'.join(backups(*sys.argv[2:])[0]))
         sys.exit(0)

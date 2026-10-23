@@ -176,6 +176,14 @@ extension BotStore {
         perform(replay: true) { _ = try await $0.updateBot(d) }
     }
 
+    /// A palette colour for the bot's body (`AvatarPalette.Swatch.stored`).
+    public func setAvatarColor(_ bot: Bot, _ color: String) {
+        var d = BotDraft(bot)
+        d.avatarColor = color
+        bots[bot.id]?.avatarColor = color
+        perform(replay: true) { _ = try await $0.updateBot(d) }
+    }
+
     public func setHidden(_ bot: Bot, _ hidden: Bool) {
         var d = BotDraft(bot)
         d.hidden = hidden

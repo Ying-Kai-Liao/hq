@@ -20,11 +20,17 @@ struct Setup {
 }
 
 async fn start() -> Setup {
+    start_with("instructions_agent.py claude").await
+}
+
+/// [`start`] with another scripted agent (`fixture [args]`).
+async fn start_with(agent: &str) -> Setup {
+    let (script, args) = agent.split_once(' ').unwrap_or((agent, ""));
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let home = std::env::temp_dir().join(format!("kith-hq-e2e-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&home).unwrap();
     let stub = fixtures.join("stub_hq.py");
-    let acp = format!("{} claude", common::python_agent(&fixtures.join("instructions_agent.py")));
+    let acp = format!("{} {args}", common::python_agent(&fixtures.join(script)));
     let home_text = home.to_string_lossy().into_owned();
     let area = std::env::temp_dir().join(format!("kith-hq-e2e-area-{}", uuid::Uuid::new_v4()));
     for dir in ["alpha", "beta", "plain", ".dot"] {
@@ -160,7 +166,8 @@ async fn an_hq_agent_appears_and_starts_from_launch_json() {
     let options = &params["_meta"]["claudeCode"]["options"];
     assert_eq!(options["strictMcpConfig"], true);
     assert_eq!(options["mcpServers"]["pantry"]["command"], "pantry-mcp");
-    assert_eq!(options["allowedTools"], json!(["Read"]));
+    assert_eq!(options["allowedTools"], json!(["Read", "mcp__kith-files"]), "plus the host's file sharing");
+    assert_eq!(options["mcpServers"]["kith-files"]["args"][1], "files");
     assert_eq!(options["extraArgs"], json!({"disable-slash-commands": null}));
     assert_eq!(options["model"], "haiku");
     assert!(options["settings"]["hooks"].is_object());
@@ -523,6 +530,77 @@ async fn permission_is_written_through_to_hq_and_read_back() {
     assert_eq!(std::fs::read_to_string(s.home.join("permission")).unwrap(), "plan");
 }
 
+/// A message spoken in a call: its turn gets the voice note and runs on the call model, the chat keeps the spoken
+/// words only, and a typed message after it is back on the agent's own model, in the same session.
+#[tokio::test]
+async fn a_call_turn_gets_the_voice_note_and_the_call_model() {
+    let s = start().await;
+    let id = s.house().await["id"].as_str().unwrap().to_owned();
+    s.host.call("updateBot", json!({"id": id, "tasks": false})).await;
+    let finals = |entries: &Value| entries.as_array().unwrap().iter().filter(|e| e["data"]["final"] == true).count();
+    let say = |text: &'static str, via: Option<&'static str>| {
+        let (host, id) = (&s.host, id.clone());
+        async move {
+            let mut body = json!({"botId": id, "text": text, "clientNonce": uuid::Uuid::new_v4().to_string()});
+            if let Some(via) = via {
+                body["via"] = via.into();
+            }
+            let before = finals(&host.call("history", json!({"botId": id})).await["entries"]);
+            host.call("send", body).await;
+            let deadline = Instant::now() + Duration::from_secs(30);
+            loop {
+                let entries = host.call("history", json!({"botId": id})).await["entries"].clone();
+                if finals(&entries) > before {
+                    return entries;
+                }
+                assert!(Instant::now() < deadline, "no answer to {text:?}");
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        }
+    };
+    say("first", None).await;
+    let prompts = |s: &Setup| -> Vec<String> {
+        s.requests("session/prompt")
+            .iter()
+            .map(|r| r["params"]["prompt"][0]["text"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let models = |s: &Setup| -> Vec<String> {
+        s.requests("session/set_config_option")
+            .iter()
+            .filter(|r| r["params"]["configId"] == "model")
+            .map(|r| r["params"]["value"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert!(models(&s).is_empty(), "a typed turn runs on the launch model: {:?}", models(&s));
+
+    let entries = say("what is on today", Some("call")).await;
+    let sent = prompts(&s);
+    assert!(sent[1].starts_with("what is on today\n\n[Kith: You are on a live voice call"), "{}", sent[1]);
+    assert_eq!(models(&s), ["sonnet"], "the call turn runs on the default call model, via the model config option");
+    assert!(s.requests("session/set_model").is_empty(), "the adapter has no session/set_model");
+    let user = entries.as_array().unwrap().iter().find(|e| e["data"]["text"] == "what is on today").unwrap();
+    assert_eq!(user["data"]["text"], "what is on today", "the chat keeps only what was said");
+
+    say("and a typed one", None).await;
+    assert_eq!(prompts(&s)[2], "and a typed one", "no note on a typed message");
+    assert_eq!(models(&s), ["sonnet", "haiku"], "back on the agent's own model (hq's launch model)");
+    assert_eq!(s.launches().len(), 1, "same process and session: nothing relaunched");
+    assert_eq!(s.requests("session/new").len(), 1);
+
+    // The app's pick reaches the next call at once; `own` keeps the agent's model, so nothing is switched.
+    let got = s.host.call("kithSetCallModel", json!({"botId": id, "model": "opus"})).await;
+    assert_eq!(got["info"]["call_model"], "opus");
+    say("a spoken one", Some("call")).await;
+    assert_eq!(models(&s), ["sonnet", "haiku", "opus"]);
+    s.host.call("kithSetCallModel", json!({"botId": id, "model": "own"})).await;
+    say("another typed", None).await;
+    say("spoken, own model", Some("call")).await;
+    assert_eq!(models(&s), ["sonnet", "haiku", "opus", "haiku"], "a call on the agent's own model switches nothing");
+    let why = s.host.refused("kithSetCallModel", json!({"botId": id, "model": "--bad"})).await;
+    assert!(why.contains("model must be"), "{why}");
+}
+
 #[tokio::test]
 async fn a_plain_bot_has_no_hq_permission_to_set() {
     let s = start().await;
@@ -556,4 +634,22 @@ async fn the_hosts_own_copy_never_overrides_hq() {
     assert_eq!(args, ["house", "--launch-json"], "no -m, -e or --permission-mode of the host's: {args:?}");
     let options = &s.requests("session/new")[0]["params"]["_meta"]["claudeCode"]["options"];
     assert_eq!(options["model"], "haiku", "hq's model");
+}
+
+#[tokio::test]
+async fn an_hq_agent_shares_an_image_with_the_tool_it_is_given() {
+    let s = start_with("hq_file_agent.py").await;
+    let id = s.house().await["id"].as_str().unwrap().to_owned();
+    s.host.call("updateBot", json!({"id": id, "tasks": false})).await;
+    std::fs::write(s.home.join("pic.png"), b"\x89PNG\r\n\x1a\nnot really").unwrap();
+    s.host.reply(&id, "send me the picture").await;
+
+    let results: Value =
+        serde_json::from_str(&std::fs::read_to_string(s.home.join("file-results.json")).unwrap()).unwrap();
+    assert_eq!(results["tools"], json!(["send_file"]), "only file sharing: its words already are its reply");
+    assert!(results["sent"]["isError"].is_null(), "{results}");
+    let history = s.host.call("history", json!({"botId": id})).await;
+    let shared =
+        history["entries"].as_array().unwrap().iter().find(|e| e["data"]["files"].is_array()).expect("a file entry");
+    assert_eq!(shared["data"]["files"][0]["name"], "pic.png");
 }

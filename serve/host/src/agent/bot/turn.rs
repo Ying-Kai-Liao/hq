@@ -104,6 +104,9 @@ impl Actor {
         // Only the user's own words feed memory: not another bot's, a room's or a routine's.
         let from_user =
             !hidden && self.active_request.is_none() && self.active_group.is_none() && self.active_routine.is_none();
+        self.turn_call = from_user
+            && !entry_ids.is_empty()
+            && entry_ids.iter().all(|id| self.hub.store.entry(id).is_some_and(|e| e.data["via"] == "call"));
         self.turn_text = from_user.then(|| text.to_owned());
         self.turn_entries = if from_user { entry_ids.to_vec() } else { Vec::new() };
         self.turn_memory_revision.clear();
@@ -175,6 +178,7 @@ impl Actor {
         self.hub.set_runtime(&self.rt, |r| r.session.clone_from(&session));
         if let Some(sid) = session {
             self.sync_fast_mode(&sid).await;
+            self.sync_call_model(&sid).await;
         }
         if hidden && self.session_fresh {
             // A new session must never silently repeat an interrupted routine, and has nothing to compact.

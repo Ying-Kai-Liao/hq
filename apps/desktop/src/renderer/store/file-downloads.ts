@@ -5,6 +5,11 @@ import type { HostClient } from '../client/host-client'
 export type DownloadState = { kind: 'downloading'; received: number } | { kind: 'saved' } | { kind: 'failed'; message: string }
 interface Job { cancelled: boolean; handle: string | null }
 
+/** Pictures an agent shared, kept after the first read (a shared file never changes). Bounded by total size. */
+const imageCache = new Map<string, Uint8Array>()
+const IMAGE_CACHE_BYTES = 100_000_000
+let imageCacheBytes = 0
+
 /** Scoped to one computer store; retiring it cannot save a file into another account. */
 export class FileDownloads {
   readonly states = new Map<string, DownloadState>()
@@ -24,6 +29,36 @@ export class FileDownloads {
   }
 
   retire() { this.retired = true; for (const id of this.jobs.keys()) this.cancel(id) }
+
+  /** A shared file's bytes through the same chunked read the download uses (so a remote computer stays
+   * within the relay's limits), cached by file id. Null when it can't be read now. */
+  async bytes(client: HostClient | null, entryId: string, file: SharedFile): Promise<Uint8Array | null> {
+    const cached = imageCache.get(file.id)
+    if (cached) return cached
+    if (!client || this.retired) return null
+    try {
+      validateSharedFile(file)
+      const out = new Uint8Array(file.size)
+      let offset = 0
+      while (offset < file.size) {
+        const bytes = decodeFileChunk(await client.readFile(entryId, file.id, offset), file.size, offset)
+        if (this.retired) return null
+        out.set(bytes, offset)
+        offset += bytes.length
+      }
+      imageCache.set(file.id, out)
+      imageCacheBytes += out.length
+      // Oldest first, but never the picture just read.
+      for (const [id, kept] of imageCache) {
+        if (imageCacheBytes <= IMAGE_CACHE_BYTES || id === file.id) break
+        imageCache.delete(id)
+        imageCacheBytes -= kept.length
+      }
+      return out
+    } catch {
+      return null
+    }
+  }
 
   async save(client: HostClient | null, entryId: string, file: SharedFile) {
     if (this.retired || this.jobs.has(file.id)) return
