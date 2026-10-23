@@ -7,12 +7,15 @@ public struct HandoffCardModel: Equatable, Sendable {
     public var next: String?
     public var files: [String]
     public var prs: [String]
+    /// One carried-over summary with no Done/Next split (a host handoff is a single text); shown without a heading.
+    public var note: String?
 
-    public init(done: String? = nil, next: String? = nil, files: [String] = [], prs: [String] = []) {
+    public init(done: String? = nil, next: String? = nil, files: [String] = [], prs: [String] = [], note: String? = nil) {
         self.done = done
         self.next = next
         self.files = files
         self.prs = prs
+        self.note = note
     }
 
     private static func clean(_ s: String?) -> String? {
@@ -22,7 +25,8 @@ public struct HandoffCardModel: Equatable, Sendable {
 
     var doneText: String? { Self.clean(done) }
     var nextText: String? { Self.clean(next) }
-    public var isEmpty: Bool { doneText == nil && nextText == nil && files.isEmpty && prs.isEmpty }
+    var noteText: String? { Self.clean(note) }
+    public var isEmpty: Bool { doneText == nil && nextText == nil && noteText == nil && files.isEmpty && prs.isEmpty }
 }
 
 public struct HandoffCardView: View {
@@ -39,6 +43,7 @@ public struct HandoffCardView: View {
                     Image(systemName: "bookmark").font(.system(size: 14, weight: .semibold))
                 }
                 .foregroundStyle(Palette.ink)
+                if let note = model.noteText { Text(note).kithText(.body).foregroundStyle(Palette.ink) }
                 if let done = model.doneText { field("Done", done) }
                 if let next = model.nextText { field("Next", next) }
                 if !model.files.isEmpty { list("Files", model.files, icon: "doc", mono: true) }
