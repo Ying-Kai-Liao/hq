@@ -393,23 +393,6 @@
   flex: none;
 }
 
-.call-overlay {
-  position: absolute;
-  top: 16px;
-  left: 0;
-  right: 0;
-  z-index: 6;
-  display: flex;
-  justify-content: center;
-  animation: call-in var(--layout) both;
-}
-@keyframes call-in {
-  from {
-    opacity: 0;
-    transform: translateY(-100%);
-  }
-}
-
 /* The conversation's room for the panel changes in one step; the panel itself slides over it, out
    of the flow, so a long chat is laid out once per open or close, not on every frame. */
 .side-panel-slot {

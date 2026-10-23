@@ -26,6 +26,8 @@ const CLIP_CHARS = 160
  */
 export class KithVoiceEngine extends OnDeviceEngine {
   override readonly streamsReplies = true
+  override readonly canChooseOutput = true
+  private sinkId = ''
   private voiceName: string | undefined
   private player: HTMLAudioElement | null = null
   private stopPlayer: (() => void) | null = null
@@ -85,6 +87,21 @@ export class KithVoiceEngine extends OnDeviceEngine {
     this.cutVoice()
   }
 
+  override async setOutputDevice(deviceId: string) {
+    this.sinkId = deviceId
+    await this.applySink(this.player)
+  }
+
+  private async applySink(player: HTMLAudioElement | null) {
+    // setSinkId is Chromium's; '' goes back to the system default.
+    const sink = player as (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }) | null
+    try {
+      await sink?.setSinkId?.(this.sinkId)
+    } catch (e) {
+      this.setWarning(`Couldn't switch the speaker (${errorMessage(e)}).`)
+    }
+  }
+
   setWorking(working: boolean) {
     this.working = working
   }
@@ -133,6 +150,7 @@ export class KithVoiceEngine extends OnDeviceEngine {
   /** Nothing left to say for now; the microphone goes on listening (it never stopped). */
   protected finishedSpeaking() {
     if (this.phase !== 'speaking' || this.pumping || this.queue.pending) return
+    this.captions.settleBot()
     if (this.micOn) this.setPhase('listening')
     else this.listen()
   }
@@ -142,6 +160,8 @@ export class KithVoiceEngine extends OnDeviceEngine {
     if (this.ended || !said || this.phase === 'starting' || this.phase === 'failed') return
     this.queue.add(clips(said, CLIP_CHARS))
     this.echoRef += ` ${said}`
+    this.captions.said(said)
+    this.changed()
     this.lastSpokenAt = Date.now()
     this.firstEnqueuedAt ??= performance.now()
     if (this.phase !== 'speaking') this.setPhase('speaking')
@@ -191,6 +211,7 @@ export class KithVoiceEngine extends OnDeviceEngine {
       if (generation !== this.speakGeneration) return resolve()
       const url = URL.createObjectURL(new Blob([audio as BlobPart], { type: 'audio/wav' }))
       const player = new Audio(url)
+      if (this.sinkId) void this.applySink(player)
       const done = () => {
         if (this.player === player) {
           this.player = null
@@ -230,5 +251,6 @@ export class KithVoiceEngine extends OnDeviceEngine {
     this.pumping = false
     this.queue.stop()
     this.stopPlayer?.()
+    this.captions.settleBot()
   }
 }
