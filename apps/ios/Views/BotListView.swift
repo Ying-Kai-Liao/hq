@@ -1,5 +1,5 @@
-import CodyncKit
-import CodyncUI
+import KithKit
+import KithUI
 import SwiftUI
 
 /// The roster: every bot on every computer is a person you can message (Grok Bot sidebar, phone-sized).
@@ -106,7 +106,7 @@ struct BotListView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 // A native menu: the bar hosts toolbar buttons outside SwiftUI's layout,
-                // so an anchored Codync menu can't find where the button is.
+                // so an anchored Kith menu can't find where the button is.
                 Menu("New", systemImage: "plus") {
                     Button("New bot", systemImage: "plus", action: newBot)
                     Button("New group chat", systemImage: "person.2", action: newGroup)
@@ -120,7 +120,7 @@ struct BotListView: View {
             for computer in accounts.computers { accounts.store(for: computer.id)?.restartStream() }
             await accounts.refreshCloud()
         }
-        .codyncSheet(item: $editing) { target in
+        .kithSheet(item: $editing) { target in
             // A new bot can move to another computer until it's created.
             let computerId = editing?.computerId ?? target.computerId
             if let store = accounts.store(for: computerId) {
@@ -140,7 +140,7 @@ struct BotListView: View {
                     }
             }
         }
-        .codyncSheet(item: $editingGroup) { target in
+        .kithSheet(item: $editingGroup) { target in
             if let store = accounts.store(for: target.computerId) {
                 GroupEditorView(group: target.group)
                     .environment(store)
@@ -151,7 +151,7 @@ struct BotListView: View {
                     }
             }
         }
-        .codyncDialog("Delete \(confirmDelete?.bot.name ?? "bot")?",
+        .kithDialog("Delete \(confirmDelete?.bot.name ?? "bot")?",
                       isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
                       message: confirmDelete?.bot.isGroup == true ? "Its bots and their own chats stay." : "Files it changed on your computer stay as they are.") {
             let item = confirmDelete

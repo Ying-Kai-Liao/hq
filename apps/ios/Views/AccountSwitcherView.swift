@@ -1,5 +1,5 @@
-import CodyncKit
-import CodyncUI
+import KithKit
+import KithUI
 import SwiftUI
 
 struct AccountSwitcherButton: View {
@@ -90,8 +90,8 @@ struct AccountSwitcherView: View {
         .onChange(of: account.userID) { _, _ in withAnimation(Motion.layout) { addingAccount = false } }
         .hidesSystemNavigationBar()
         .navigationDestination(isPresented: $showSettings) { SettingsView(pushed: true) }
-        .codyncSheet(isPresented: $pairing) { PairingView(inModal: true) }
-        .codyncDialog("Sign out of \(account.email ?? "this account")?", isPresented: $confirmSignOut,
+        .kithSheet(isPresented: $pairing) { PairingView(inModal: true) }
+        .kithDialog("Sign out of \(account.email ?? "this account")?", isPresented: $confirmSignOut,
                       message: "This iPhone forgets the account's computers. Your bots stay on them.") {
             [DialogAction("Sign out", destructive: true) { Task { await app.signOut() } }]
         }

@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = "apps/ios/App/CodyncApp.swift"
+SOURCE = "apps/ios/App/KithApp.swift"
 
 HEADER = r"""
 #import <Foundation/Foundation.h>
@@ -177,7 +177,7 @@ def main():
     start = source.index("    nonisolated func userNotificationCenter(")
     end = source.index("    nonisolated func userNotificationCenter(", start + 1)
     method = source[start:end].rstrip()
-    with tempfile.TemporaryDirectory(prefix="codync-notification-") as temp:
+    with tempfile.TemporaryDirectory(prefix="kith-notification-") as temp:
         path = Path(temp)
         header = path / "NotificationFixture.h"
         objc = path / "NotificationFixture.m"

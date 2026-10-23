@@ -1,8 +1,8 @@
-import CodyncKit
-import CodyncUI
+import KithKit
+import KithUI
 import SwiftUI
 
-/// "Add a widget", acted out on a drawn iPhone: hold the Home Screen, Edit, Add Widget, find Codync,
+/// "Add a widget", acted out on a drawn iPhone: hold the Home Screen, Edit, Add Widget, find Kith,
 /// add it, Done. Every frame is a pure function of one clock, so it loops, pauses and scrubs.
 struct WidgetSetupDemo: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

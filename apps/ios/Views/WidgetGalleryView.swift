@@ -1,5 +1,5 @@
-import CodyncKit
-import CodyncUI
+import KithKit
+import KithUI
 import SwiftUI
 import WidgetKit
 
@@ -118,7 +118,7 @@ struct WidgetGalleryView: View {
                     sectionLabel("Choose the look")
                     SegmentedChoice(selection: Binding(
                         get: { usageIconStyle },
-                        set: { usageIconStyle = $0; WidgetCenter.shared.reloadTimelines(ofKind: "CodyncProviderUsage") }
+                        set: { usageIconStyle = $0; WidgetCenter.shared.reloadTimelines(ofKind: "KithProviderUsage") }
                     ), options: [(UsageIconStyle.character.rawValue, "Character"), (UsageIconStyle.original.rawValue, "Original icon")])
                     Text("Applies to Usage in the app and in widgets.")
                         .font(.caption).foregroundStyle(Palette.secondary)
@@ -234,7 +234,7 @@ struct WidgetGalleryView: View {
         let animation = Motion.reduced(Motion.layout, reduceMotion)
         withAnimation(animation) { widgetCheckFailed = false }
         WidgetCenter.shared.getCurrentConfigurations { result in
-            let installed = (try? result.get())?.contains { $0.kind.hasPrefix("Codync") }
+            let installed = (try? result.get())?.contains { $0.kind.hasPrefix("Kith") }
             Task { @MainActor in
                 withAnimation(animation) {
                     hasWidget = installed

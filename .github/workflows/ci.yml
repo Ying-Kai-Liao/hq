@@ -64,7 +64,7 @@ jobs:
               - 'scripts/notices/**'
               - 'apps/packaging/cua-driver/LICENSE'
               - 'serve/host/crates/memory/LICENSE'
-              - 'apps/ios/Kit/Sources/CodyncKit/Resources/ThirdPartyNotices/**'
+              - 'apps/ios/Kit/Sources/KithKit/Resources/ThirdPartyNotices/**'
               - '.github/workflows/ci.yml'
 
   kernel:

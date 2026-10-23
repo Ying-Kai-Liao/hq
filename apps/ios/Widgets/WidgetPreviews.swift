@@ -1,5 +1,5 @@
 #if DEBUG
-import CodyncKit
+import KithKit
 import SwiftUI
 import WidgetKit
 import ActivityKit
