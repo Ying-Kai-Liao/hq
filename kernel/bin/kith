@@ -454,7 +454,7 @@ fi
 fill < "$pkg/settings.json" | OWN_DIRS=$own_dirs ROLE_DIR=$pkg API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post HOOK="\"$KITH/bin/kith-cost\" tag" SESSIONS_HOOK="\"$KITH/bin/kith-sessions\" record" WRITABLE="$writable
 $src_pkg/skills/learned
 $state_projects" python3 -c '
-import json, os, sys
+import json, os, re, sys
 s = json.load(sys.stdin)
 s.setdefault("hooks", {}).setdefault("SessionStart", []).append(
     {"hooks": [{"type": "command", "command": os.environ["HOOK"], "timeout": 10}]})
@@ -485,6 +485,15 @@ for r in roots:
                 s["permissions"]["deny"].append(rule)
 s["permissions"]["deny"].extend(d for d in os.environ["DENY"].split("\n") if d)   # from the membership of the person the run is for
 allow = s["permissions"].setdefault("allow", [])
+# A role rule for a kernel tool, Bash({{KITH}}/bin/tool...), names the path bare; the path may have a space, and then a
+# working call quotes it and only Bash("{{KITH}}/bin/tool"...) matches. Add that spelling next to each such rule.
+kbin = "Bash(%s/bin/" % os.environ["KITH_ROOT"]
+for rules in (allow, s["permissions"]["deny"]):
+    for r in [r for r in rules if r.startswith(kbin)]:
+        name = re.match(r"[^ :)]*", r[len(kbin):]).group()
+        q = "Bash(\"%s%s\"%s" % (kbin[5:], name, r[len(kbin) + len(name):])
+        if q not in rules:
+            rules.insert(rules.index(r) + 1, q)
 allow.extend(r for r in dict.fromkeys("Edit(/%s/**)" % d for d in os.environ["WRITABLE"].split("\n") if d.strip()) if r not in allow)
 sys.path.insert(0, os.environ["KITH_ROOT"] + "/lib")
 import kith_caps
