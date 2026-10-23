@@ -195,6 +195,42 @@ public struct BotActivityIndicator: View {
     }
 }
 
+/// The working indicator of the Dynamic Island and Lock Screen: Kith's hop, drawn by the KithHop
+/// fonts (apps/ios/tools/make-kith-glyph-fonts.py). A Live Activity cannot run an animation, but
+/// a timer redraws every second, so the fonts map each digit to a pose and draw only the timer's
+/// last digit (every other character shapes to nothing): the text is one face wide however the
+/// system lays out timer text, and the bot steps through ten poses, one a second.
+public struct HopFrames: View {
+    let content: Text
+    let color: Color
+    let size: CGFloat
+
+    /// `content` is the timer (`Text(since, style: .timer)`) while the bot works, or one digit for
+    /// a still pose (`Text("0")` is the resting frame, used with Reduce Motion).
+    public init(_ content: Text, color: Color, size: CGFloat) {
+        self.content = content; self.color = color; self.size = size
+    }
+
+    public var body: some View {
+        ZStack {
+            layer("KithHop-Ghost").foregroundStyle(color.opacity(0.3))
+            layer("KithHop-Dot").foregroundStyle(color)
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+
+    private func layer(_ font: String) -> some View {
+        content
+            .font(.custom(font, fixedSize: size))
+            // Western digits whatever the region: the fonts only have those.
+            .environment(\.locale, Locale(identifier: "en_US_POSIX"))
+            .lineLimit(1)
+            .frame(width: size, height: size)
+            .clipped()
+    }
+}
+
 /// The expanded island's bottom row: Review while the bot needs you, else the running time.
 public struct ActivityIslandFooter: View {
     let state: BotActivityPresentation
