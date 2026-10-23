@@ -17,6 +17,7 @@ import { PermissionCard } from './PermissionCard'
 import { ConnectionRequestCard } from '../marketplace/ConnectionRequestCard'
 import { HandoffNotice } from './HandoffNotice'
 import { AnsweredBy } from './AnsweredBy'
+import { contextLabel } from './context-hint'
 
 export function reactionPick(store: BotStore, entry: Entry): ReactionPick {
   return { emoji: QUICK_REACTIONS, chosen: entry.data.reactions ?? [], toggle: (e) => store.react(entry, e) }
@@ -49,6 +50,7 @@ export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrac
           <AgentBubble entry={entry} openTrace={openTrace} reply={reply} />
           <VStack gap={4} className={chat && isGroup(chat) ? 'chat-row-indent' : undefined}>
             <AnsweredBy answeredBy={entry.data.answeredBy} />
+            <ContextHint contextPercent={entry.data.contextPercent} />
             <ReactionsRow entry={entry} />
             {chip}
           </VStack>
@@ -67,6 +69,12 @@ export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrac
       return <div className="chat-row notice"><NoticeRow entry={entry} /></div>
   }
 })
+
+/** A quiet "context N%" under the reply; the host sets it only above its threshold. */
+function ContextHint({ contextPercent }: { contextPercent: unknown }) {
+  const label = contextLabel(contextPercent)
+  return label ? <Text size="footnote" tone="tertiary">{label}</Text> : null
+}
 
 /** Follows the store: the card shows a spinner while its answer is on its way. */
 function LivePermission({ entry }: { entry: Entry }) {

@@ -32,6 +32,11 @@ struct ChatRow: View {
                 AgentBubble(entry: entry, openTrace: openTrace, reply: reply)
                 Group {
                     AnsweredByLabel(answeredBy: entry.data.answeredBy)
+                    if let percent = entry.data.contextPercent {
+                        Text("context \(percent)%")
+                            .font(.footnote)
+                            .foregroundStyle(Palette.tertiary)
+                    }
                     ReactionsRow(entry: entry)
                     threadChip
                 }

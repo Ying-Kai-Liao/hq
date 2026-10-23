@@ -15,6 +15,8 @@ public struct EntryData: Codable, Hashable, Sendable {
     public var final: Bool?
     /// agent: the backup chain entry that answered (`codex`, `claude:work`); nil when the agent's own account did.
     public var answeredBy: String?
+    /// agent: how full the session is, in percent; the host sets it on a turn's last entry only when it should show.
+    public var contextPercent: Int?
     /// user: queued | sent | cancelled | failed · tool: pending | in_progress | completed | failed · permission: pending | answered | cancelled | expired
     public var status: String?
     public var clientNonce: String?

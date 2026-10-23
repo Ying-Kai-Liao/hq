@@ -50,3 +50,9 @@ private func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
     #expect(try decode(EntryData.self, #"{"text":"hi","answeredBy":null}"#).answeredBy == nil)
     #expect(try decode(EntryData.self, #"{"text":"old message"}"#).answeredBy == nil)
 }
+
+@Test func entryDataKeepsContextPercent() throws {
+    #expect(try decode(EntryData.self, #"{"text":"hi","contextPercent":42}"#).contextPercent == 42)
+    #expect(try decode(EntryData.self, #"{"text":"hi","contextPercent":120}"#).contextPercent == 120)
+    #expect(try decode(EntryData.self, #"{"text":"old message"}"#).contextPercent == nil)
+}
