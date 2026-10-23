@@ -583,6 +583,9 @@ jobs:
   # Skipped when the run itself is cancelled (a re-push superseded it) or is label noise, so those runs report no
   # `ci` at all. A job cancelled or timed out inside a live run still fails it through RESULTS.
   ci:
+    # A job skipped by `if` still creates a check run, and Mergify reads the latest check named `ci`. Label-noise
+    # runs therefore get another display name (the job id stays `ci`), so they never leave a skipped `ci`.
+    name: ${{ (github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'ci:full') && 'ci-label-noop' || 'ci' }}
     if: ${{ !cancelled() && !(github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'ci:full') }}
     needs: [changes, kernel, host, host-build, host-test, host-e2e, host-crates, cloud, licenses, thread-writers, relay, ios, desktop, desktop-js, desktop-relay-e2e, guest-linux]
     runs-on: ubuntu-latest
