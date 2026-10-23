@@ -45,7 +45,9 @@ function start(sender: WebContents, locale: string | null, options?: { echoCance
       } catch {}
     }
   })
-  proc.on('exit', () => {
+  proc.stderr.on('data', (chunk: Buffer) => console.error('speech helper:', chunk.toString('utf8').trim()))
+  proc.on('exit', (code, signal) => {
+    if (code || signal) console.error(`speech helper exited (${code ?? signal})`)
     if (child === proc) child = null
     if (generation === mine) emit({ type: 'stopped' })
   })
