@@ -1,5 +1,6 @@
 import {
   isWorking,
+  normalizeBot,
   needsInput,
   type AnalyticsEvent,
   type Bot,
@@ -427,6 +428,20 @@ export class BotStore extends BotSync {
       for (const e of older) this.upsert(e)
       this.changed()
     } catch {}
+  }
+
+  /** An invited person's own chat with a granted agent; opens it. */
+  async startChat(agent: string) {
+    try {
+      const { bot } = await this.withLink((c) => c.startChat(agent))
+      const next = normalizeBot(bot)
+      this.bots.set(next.id, next)
+      this.onRosterChanged?.()
+      this.setSelection(next.id)
+    } catch (error) {
+      this.lastError = error instanceof Error ? error.message : String(error)
+      this.changed()
+    }
   }
 
   setSelection(id: string | null) {

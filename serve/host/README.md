@@ -58,6 +58,14 @@ When memory is what blocks, agents at rest (nothing running or queued, sessions 
 again) are stopped first, longest idle first. A turn that waits on another bot's reply gives its
 slot to that bot meanwhile; a turn waiting for you to answer a permission card keeps its slot.
 
+If memory still blocks after that for `reclaim_sessions_after_seconds`, the host runs the
+resource-manager agent's `res.py reclaim` (a plain script call, no model), which closes top-level
+Claude Code sessions on the Mac that have been idle at least `reclaim_idle_hours` with near-zero CPU
+and no build or test children, longest idle first, stopping once memory is back under the limits. It
+never closes the hq session, flow sessions, protected processes or the session driving it. Once per
+blocked stretch, then not again within 30 minutes; resource-manager logs it and sends one Telegram
+line per round. A missing `res.py` is logged once and the feature stays off until restart.
+
 Set these in `<data dir>/config.json` (same file as `relay_url`) or with the environment (the
 variable wins). They are read at start; restart to change them. A value that isn't valid is logged
 and the default is used.
@@ -68,6 +76,8 @@ and the default is used.
 | `min_free_memory_percent` | `KITH_SERVE_MIN_FREE_MEMORY_PERCENT` | 25 | wait while available memory is below this; 0 turns the check off |
 | `max_swap_used_gb` | `KITH_SERVE_MAX_SWAP_USED_GB` | 3 | wait while swap in use is above this; 0 turns the check off |
 | `idle_shutdown_minutes` | `KITH_SERVE_IDLE_SHUTDOWN_MINUTES` | 10 | an unused agent stops after this long (it loads its session again on the next message), at least 1 |
+| `reclaim_sessions_after_seconds` | `KITH_SERVE_RECLAIM_SESSIONS_AFTER_SECONDS` | 120 | memory blocking this long runs the idle-session reclaim; 0 turns it off |
+| `reclaim_idle_hours` | `KITH_SERVE_RECLAIM_IDLE_HOURS` | 3 | only Claude Code sessions idle at least this many hours are closed (decimals ok), above 0 |
 
 Available memory is `kern.memorystatus_level` on macOS (the "free percentage" `memory_pressure`
 prints) and `MemAvailable` on Linux; a platform or read error counts as room. `GET /health` has a
@@ -135,9 +145,30 @@ thread through `KITH_DISCORD_WEBHOOK_URL` and `KITH_DISCORD_THREAD_ID`. Grant it
 `kith-auth grant serve discord <profile>` (secret `DISCORD_BOT_TOKEN`); no restart is needed. The bot needs the
 Message Content intent. For tests, `KITH_DISCORD_API_BASE` and `KITH_DISCORD_GATEWAY_URL` move both addresses.
 
+## Terminal sessions as threads
+
+A `kith <agent>` session in a terminal is listed by the kernel in `$KITH_STATE/live/terminal/<session>.json`. The host
+(`src/terminal/`) looks every 3 seconds and, for sessions of the last 14 days with something the user said, keeps one
+thread per session under the owner's bot of that agent: the transcript (`~/.claude/projects/.../<session>.jsonl`) is
+imported into it as user / agent / thought / tool entries, incrementally (a byte cursor in kv). The root's
+`data.thread` carries `origin` (`terminal`; absent for app threads), `liveWriter` (`terminal` | `app` | null),
+`liveBusy`, `terminal: {sessionId, cwd}`; `originLabel` and `originBot` are reserved. Writer changes add `notice`
+entries with `data.writerChange` (`startedInTerminal`, `openedInTerminal`, `tookOver`, `terminalClosed`).
+
+- Live = the registry's pid runs and `~/.claude/sessions/<pid>.json` names the same session; busy = its `status`
+  is anything but `idle`.
+- `send` to a thread whose terminal is live fails with `liveInTerminal` (HTTP 409), and nothing is saved. Otherwise
+  the thread's lane loads the terminal's session (`session/load`) in its recorded folder, so the same Claude session
+  carries on.
+- `POST /api/resolveThread {"thread": <thread id | session id>}` gives `{botId, threadId, agent, sessionId, cwd,
+  hostBusy}` for `kith <agent> --resume <thread>`.
+- `POST /api/takeOverThread {"botId", "threadId"}` ends an idle terminal (writes `<session>.taken`, SIGTERM, waits up to
+  5 s); a busy one is refused with `terminalBusy`; a closed one is a no-op.
+- Both are owner only. Nothing here is logged beyond ids.
+
 ## Updates
 
-This build never fetches releases; rebuild with `kith serve start`.
+This build never fetches releases; rebuild with `kith serve start` (from `~/.kith/hq-serve`; from a dev checkout add `--dev`).
 
 ## Analytics (optional)
 

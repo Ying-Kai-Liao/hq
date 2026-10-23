@@ -161,6 +161,16 @@ impl Hub {
                     || Cmd::ResetPlace { lane: lane.clone() },
                 )
             }
+            // Only what the actor holds of the thread's session is dropped; the stored session stays.
+            Cmd::ForgetLoaded { ref lane } => {
+                let lane = lane.clone();
+                let main = Lane::main(bot_id);
+                self.each_actor(
+                    bot_id,
+                    |home| *home == lane || (lane.thread.is_some() && lane.chat == bot_id && *home == main),
+                    || Cmd::ForgetLoaded { lane: lane.clone() },
+                )
+            }
             // A new session starts the bot afresh in its groups too; its threads keep theirs.
             Cmd::NewSession => {
                 self.forget_group_sessions(bot_id);

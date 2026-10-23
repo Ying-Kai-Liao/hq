@@ -51,6 +51,19 @@ public struct HqSetting: Equatable, Sendable {
         ("auto", "Auto"), ("dontAsk", "Don't ask"), ("bypassPermissions", "Bypass permissions"),
     ]
 
+    /// One line under each mode in the picker's menu; the row itself keeps showing just the label.
+    public static func permissionDetail(_ mode: String) -> String? {
+        switch mode {
+        case "default", "manual": "Asks before each action that isn't pre-approved"
+        case "acceptEdits": "File edits allowed; other actions ask"
+        case "plan": "Plans only; changes nothing"
+        case "auto": "Claude decides what's safe, asks only for risky things"
+        case "dontAsk": "Only pre-approved actions; everything else is refused without asking"
+        case "bypassPermissions": "Everything allowed, no prompts"
+        default: nil
+        }
+    }
+
     public static func permissionLabel(_ mode: String) -> String {
         permissionModes.first { $0.id == mode }?.label ?? mode
     }

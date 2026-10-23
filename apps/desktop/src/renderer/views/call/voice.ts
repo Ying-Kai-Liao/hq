@@ -74,7 +74,7 @@ export abstract class VoiceEngine extends Observable {
   level = 0
   /** Live text of the call for the call screen. Engines that don't report text leave it empty. */
   readonly captions = new Captions()
-  /** Whether `setOutputDevice` does anything (the engine plays through an audio element). */
+  /** Whether `setOutputDevice` does anything (the engine plays through a Web Audio context). */
   readonly canChooseOutput: boolean = false
   abstract readonly provider: VoiceProvider | null
   /** Keeps the call subscribed to replies while audio is active. */

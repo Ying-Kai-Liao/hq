@@ -104,7 +104,8 @@ const bridge: KithBridge = {
     accessStatus: async () => ({ ok: false, error: { status: 503, code: 'demo', message: DEMO_UNAVAILABLE } }),
     cancelAccess: async () => {},
   },
-  invites: { takePending: async () => null, keep: async () => {}, kept: async () => null, forget: async () => {} },
+  invites: { takePending: async () => null, keep: async () => {}, has: async () => false,
+    kept: async () => null, forget: async () => {} },
   updates: { state: async () => updates, onChange: none, check() {}, install() {}, setAutoCheck() {}, setAutoDownload() {} },
   files: { begin: unavailable, write: async () => {}, finish: async () => {}, cancel: async () => {} },
   app: {

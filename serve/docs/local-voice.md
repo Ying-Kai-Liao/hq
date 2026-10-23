@@ -46,3 +46,24 @@ No vault key needed (the `voiceLocal*` methods skip the vault unlock). Paired de
 `text` is 1–4000 bytes. `voiceLocalSpeak` downloads the model first if it is missing and waits. Requests are
 answered one at a time, so a call can prefetch the next sentence while one plays. `available` is false off Apple
 silicon or when `kith-tts` isn't found, and `error` says which.
+
+## What the clip sounds like
+
+Every clip leaves `kith-tts` through `crates/tts/src/lib.rs`, not straight from the model:
+
+- **Edges**: silence under -50 dBFS is trimmed, then exactly 30 ms lead and 150 ms tail are added back, with a 3 ms
+  fade in and 8 ms fade out. The model used to hand out about 500 ms of trailing silence per sentence, which the
+  call player (gapless) turned into a half-second hole between sentences.
+- **Level**: the clip is brought to -16 LUFS (BS.1770 integrated loudness) with a -1 dBFS peak ceiling and at most
+  12 dB of gain. As shipped before, speech sat near -24 LUFS with peaks around -7 dBFS, 8 dB quieter than other
+  audio on the phone. A voice with a high crest factor stops at the ceiling a little under the target.
+- **16-bit conversion**: rounded with TPDF dither (fixed seed, so the same text encodes to the same bytes) instead
+  of truncating toward zero.
+
+Sampler settings are the ptts defaults (temperature 0.3, no CFG: this checkpoint refuses CFG with a precomputed
+voice embedding). Phonon has no speed control.
+
+`scripts/voice-samples/` renders the same three call-style texts with Phonon (as shipped, fixed, every voice, f32
+weights, other temperatures), Kokoro, Piper and macOS `say`, level-matches them and measures them; the
+`Voice samples` workflow runs it on a macOS runner and uploads the files and `index.md`. Kokoro and Piper are
+evaluated only: Piper's runtime and Kokoro's espeak-ng phonemiser are GPL and not part of Kith.

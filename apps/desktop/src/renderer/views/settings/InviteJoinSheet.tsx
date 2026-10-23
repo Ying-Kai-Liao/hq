@@ -7,6 +7,7 @@ import { HStack, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
 import { useModel } from '../../lib/observable'
 import { useAccount } from '../../store/account'
+import { useApp } from '../../store/context'
 import { inviteJoin } from '../../store/invite-join'
 
 const progress: Record<JoinStep, string> = {
@@ -24,6 +25,11 @@ const progress: Record<JoinStep, string> = {
 export function InviteJoinSheet() {
   const join = useModel(inviteJoin)
   const account = useAccount()
+  const app = useApp()
+  useEffect(() => {
+    inviteJoin.adopt = (id) => app.relayMacs.adopt(id)
+    return () => void (inviteJoin.adopt = null)
+  }, [app])
   // A link that arrived while the app was starting.
   useEffect(() => void inviteJoin.start(), [])
   useEffect(() => window.kith.app.onCommand((c) => c.kind === 'joinInvite' && void inviteJoin.start()), [])

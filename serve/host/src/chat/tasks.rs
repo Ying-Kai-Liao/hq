@@ -42,7 +42,11 @@ fn current(hub: &Hub, bot: &str) -> Option<Entry> {
             return None;
         }
     };
-    recent.into_iter().rev().find(|e| e.kind == EntryKind::User.as_str() && is_task(e))
+    // A terminal session's thread is continued by naming it, never by the next burst of talk.
+    recent
+        .into_iter()
+        .rev()
+        .find(|e| e.kind == EntryKind::User.as_str() && is_task(e) && e.data["thread"]["origin"] != "terminal")
 }
 
 /// A task goes on while it works, and until it has been idle for [`IDLE_MS`].

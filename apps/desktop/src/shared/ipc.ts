@@ -208,6 +208,8 @@ export interface KithBridge {
   invites: {
     takePending(): Promise<InviteLink | null>
     keep(computerId: string, inviteId: string, token: string): Promise<void>
+    /** Whether a token is kept for it; the token itself stays out of the window unless `kept` is asked for it. */
+    has(computerId: string): Promise<boolean>
     kept(computerId: string): Promise<{ inviteId: string; token: string } | null>
     forget(computerId: string): Promise<void>
   }

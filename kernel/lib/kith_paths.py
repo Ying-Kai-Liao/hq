@@ -139,15 +139,20 @@ def _has_hook(binary):
 
 def kith_bin():
     """The kith program (the Rust host, which also answers `kith memory check|log|diff|undo|forget|hook`): KITH_BIN, else
-    one built in this kernel's own checkout, else a kith on PATH that isn't the kernel's bash entry, else the host kith
-    serve installed; the first that has `kith memory hook`. '' when there is none."""
+    a kith on PATH that isn't the kernel's bash entry, else the host kith serve installed, else one built in this
+    kernel's checkout (CARGO_TARGET_DIR or serve/host/target); the first that has `kith memory hook`. A dev build never
+    beats an installed host by accident (CARGO_TARGET_DIR is set in sessions started from the repo): KITH_DEV_BIN=1 puts
+    the build right after KITH_BIN. '' when there is none."""
     own = KERNEL / 'bin' / 'kith'
     target = Path(os.environ.get('CARGO_TARGET_DIR') or KERNEL.parent / 'serve/host/target')
-    candidates = [os.environ.get('KITH_BIN'), target / 'dev-app/kith', target / 'release/kith', target / 'debug/kith',
-                  shutil.which('kith'), HOME / '.kith/serve/bin/kith-serve', HOME / '.kith/serve-main/bin/kith-serve']
+    built = [target / 'dev-app/kith', target / 'release/kith', target / 'debug/kith']
+    installed = [shutil.which('kith'), HOME / '.kith/serve/bin/kith-serve', HOME / '.kith/serve-main/bin/kith-serve']
+    explicit = os.environ.get('KITH_BIN')
+    candidates = [explicit, *built, *installed] if os.environ.get('KITH_DEV_BIN') == '1' else [explicit, *installed, *built]
     for c in candidates:
+        # Any kernel bash entry is out, not only this kernel's own: ~/.local/bin/kith may be another checkout's.
         if c and os.access(c, os.X_OK) and Path(c).is_file() and not (own.exists() and os.path.samefile(c, own)) \
-                and _has_hook(str(c)):
+                and Path(os.path.realpath(c)).parts[-3:] != ('kernel', 'bin', 'kith') and _has_hook(str(c)):
             return str(c)
     return ''
 

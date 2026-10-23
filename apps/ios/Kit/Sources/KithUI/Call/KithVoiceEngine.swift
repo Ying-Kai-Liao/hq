@@ -12,6 +12,11 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Kith", cate
 /// A reply is spoken while it is still being written: each finished sentence goes into the clip
 /// queue once. The microphone stays on while it speaks (echo-cancelled), and talking over the voice
 /// stops it at once; the turn goes on and what was said is sent as the next message.
+///
+/// Talk-over is two signals. Energy on the echo-cancelled microphone (`BargeInDetector`) ducks the
+/// voice after ~100 ms of speech-level sound; two recognized words that aren't the bot's own text
+/// cut it, and so does ~400 ms of sustained energy (conservative until tuned on a real phone). A duck that isn't followed by more sound (a cough)
+/// is undone after ~300 ms of quiet.
 @MainActor
 final class KithVoiceEngine: OnDeviceEngine {
     struct Host {
@@ -32,7 +37,8 @@ final class KithVoiceEngine: OnDeviceEngine {
     private var voiceName: String?
     private var queue: ClipQueue<Data>!
     private var stream = SentenceStream()
-    private var playback: Playback?
+    private var player: ClipPlayer!
+    private let bargeIn: BargeInGate
     /// Bumped by every cut of the voice; a clip or pump from before it does nothing more.
     private var speakGeneration = 0
     /// A clip is playing or about to (the pump is running).
@@ -48,6 +54,11 @@ final class KithVoiceEngine: OnDeviceEngine {
 
     init(host: Host, send: @escaping (String) -> Void) {
         self.host = host
+        var detector = BargeInDetector.Config()
+        // A tuning knob for rooms where the default misfires (dB above the noise floor).
+        let margin = UserDefaults.standard.double(forKey: "callBargeMarginDb")
+        if margin > 0 { detector.marginDb = margin }
+        bargeIn = BargeInGate(config: detector)
         super.init(send: send)
         self.send = { [weak self] text in
             self?.sentAt = .now
@@ -57,6 +68,60 @@ final class KithVoiceEngine: OnDeviceEngine {
         }
         talkOverEnabled = true
         queue = ClipQueue { [weak self] text in await self?.fetchClip(text) }
+        player = ClipPlayer(engine: engine) { [unowned self] in try self.ensureEngineRunning() }
+        prepareGraph = { [unowned self] in self.player.prepareGraph() }
+        player.onDrained = { [weak self] in
+            self?.bargeIn.setArmed(false)
+            self?.finishedSpeaking()
+        }
+        let gate = bargeIn
+        micFrame = { [weak self] db, seconds in
+            guard let (event, onset) = gate.feed(db: db, seconds: seconds) else { return }
+            Task { @MainActor in self?.bargeInEvent(event, onset: onset) }
+        }
+    }
+
+    override var holdsEngine: Bool { !player.idle }
+
+    /// The route changed under the engine: what was queued on it is gone, so the voice moves on to what comes next.
+    override func engineConfigurationChanged() {
+        player.reset()
+        player.reconnect()
+        bargeIn.setArmed(false)
+        super.engineConfigurationChanged()
+        finishedSpeaking()
+    }
+
+    override func interruptionBegan() {
+        player.reset()
+        bargeIn.setArmed(false)
+        finishedSpeaking()
+    }
+
+    /// The speaker echoes into the microphone far more than an earpiece does: it needs a louder voice to count.
+    override func setSpeaker(_ on: Bool) {
+        super.setSpeaker(on)
+        bargeIn.setSpeaker(on)
+    }
+
+    /// Energy on the microphone while the voice plays (see `BargeInDetector`).
+    private func bargeInEvent(_ event: BargeInDetector.Event, onset: Double) {
+        guard !ended else { return }
+        let since = { (ProcessInfo.processInfo.systemUptime - onset) * 1000 }
+        switch event {
+        case .duck:
+            guard phase == .speaking, !player.idle else { return }
+            player.duck(true)
+            log.info("talk-over: voice ducked \(Int(since())) ms after the first loud frame")
+        case .resume:
+            player.duck(false)
+            log.info("talk-over: false alarm, voice back up")
+        case .stop:
+            guard phase == .speaking, !player.idle || pumping else { return }
+            cutVoice()
+            phase = .listening
+            log.info("talk-over: voice stopped \(Int(since())) ms after the first loud frame")
+        }
     }
 
     override func start() async {
@@ -119,7 +184,7 @@ final class KithVoiceEngine: OnDeviceEngine {
         guard SpeechEcho.wordCount(words) >= 2, !SpeechEcho.isEcho(words, spoken: echoRef) else { return false }
         cutVoice()
         phase = .listening
-        log.info("talked over, voice stopped")
+        log.info("talk-over: words heard, voice stopped")
         return true
     }
 
@@ -131,7 +196,7 @@ final class KithVoiceEngine: OnDeviceEngine {
 
     /// Nothing left to say for now; the microphone goes on listening (it never stopped).
     override func finishedSpeaking() {
-        guard phase == .speaking, !pumping, !queue.pending else { return }
+        guard phase == .speaking, !pumping, !queue.pending, player.idle else { return }
         if micOn { phase = .listening } else { listen() }
     }
 
@@ -162,8 +227,8 @@ final class KithVoiceEngine: OnDeviceEngine {
             let next: Data? = await queue.take()
             guard generation == speakGeneration, !ended else { return }
             guard let audio = next else { break }
-            await play(audio, generation)
-            guard generation == speakGeneration, !ended else { return }
+            // Queued behind what's playing, not awaited: the next clip is on the node before this one ends.
+            play(audio)
         }
         // A clip that couldn't be made drops the rest of this stretch of speech.
         queue.stop()
@@ -185,18 +250,14 @@ final class KithVoiceEngine: OnDeviceEngine {
         }
     }
 
-    /// Returns when the clip ends, fails to play, or playback is stopped.
-    private func play(_ audio: Data, _ generation: Int) async {
-        guard generation == speakGeneration else { return }
-        let playback = Playback()
-        self.playback = playback
-        await playback.play(audio) {
+    private func play(_ audio: Data) {
+        let ok = player.schedule(audio) {
             if let started = self.firstEnqueuedAt {
                 log.info("first clip playing \((ContinuousClock.now - started).formatted()) after its text was ready")
                 self.firstEnqueuedAt = nil
             }
         }
-        if self.playback === playback { self.playback = nil }
+        if ok { bargeIn.setArmed(true) }
     }
 
     /// Stops the voice, drops queued clips, and gives up what's still being written of the replies on air.
@@ -205,50 +266,7 @@ final class KithVoiceEngine: OnDeviceEngine {
         stream.muteOpen()
         pumping = false
         queue.stop()
-        playback?.stop()
-        playback = nil
-    }
-}
-
-/// One clip through AVAudioPlayer: `play` returns when it ends, can't be read, or `stop` came.
-@MainActor
-private final class Playback: NSObject, AVAudioPlayerDelegate {
-    private var player: AVAudioPlayer?
-    private var done: CheckedContinuation<Void, Never>?
-
-    func play(_ audio: Data, started: () -> Void) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            do {
-                let player = try AVAudioPlayer(data: audio)
-                player.delegate = self
-                self.player = player
-                done = continuation
-                guard player.play() else { throw VoiceError("the clip wouldn't start") }
-                started()
-            } catch {
-                log.error("play: \(error.localizedDescription, privacy: .public)")
-                // `done` isn't set yet when the player couldn't even be made.
-                if done == nil { continuation.resume() } else { finish() }
-            }
-        }
-    }
-
-    func stop() {
-        player?.stop()
-        finish()
-    }
-
-    private func finish() {
-        player = nil
-        done?.resume()
-        done = nil
-    }
-
-    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor in self.finish() }
-    }
-
-    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: (any Error)?) {
-        Task { @MainActor in self.finish() }
+        bargeIn.setArmed(false)
+        player.stop()
     }
 }

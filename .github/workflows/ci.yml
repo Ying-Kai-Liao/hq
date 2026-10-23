@@ -2,12 +2,12 @@ name: ci
 
 on:
   pull_request:
-    branches: [serve, main, apps]
+    branches: [main]
   push:
-    branches: [serve, apps]
+    branches: [main]
   workflow_dispatch:
 
-# One run per ref; a re-push to a PR cancels the older run, pushes to serve queue up.
+# One run per ref; a re-push to a PR cancels the older run, pushes to main queue up (never cancelled).
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -31,27 +31,23 @@ jobs:
       pull-requests: read
     outputs:
       kernel: ${{ steps.f.outputs.kernel }}
-      host: ${{ steps.f.outputs.host }}
-      cloud: ${{ steps.f.outputs.cloud }}
+      host: ${{ steps.h.outputs.host }}
+      cloud: ${{ steps.h.outputs.cloud }}
       licenses: ${{ steps.f.outputs.licenses }}
+      ios: ${{ steps.h.outputs.ios }}
+      desktop: ${{ steps.h.outputs.desktop }}
+      relay: ${{ steps.h.outputs.relay }}
+      e2e: ${{ steps.h.outputs.e2e }}
     steps:
       - uses: actions/checkout@v4
+      # On push to main dorny compares with the previous commit, so main only runs what changed.
+      # Kernel and licenses keep markdown: the notices file and kernel docs are checked content.
       - uses: dorny/paths-filter@v3
         id: f
         with:
           filters: |
             kernel:
               - 'kernel/**'
-              - '.github/workflows/ci.yml'
-            host:
-              - 'serve/host/**'
-              - 'serve/rust-toolchain.toml'
-              # crypto.rs compiles the shared test vectors in.
-              - 'serve/docs/reference/fixtures/**'
-              - '.github/workflows/ci.yml'
-            cloud:
-              - 'serve/cloud/**'
-              - 'serve/docs/reference/fixtures/**'
               - '.github/workflows/ci.yml'
             licenses:
               - '**/Cargo.lock'
@@ -66,7 +62,33 @@ jobs:
               - 'serve/host/crates/memory/LICENSE'
               - 'apps/ios/Kit/Sources/KithKit/Resources/ThirdPartyNotices/**'
               - '.github/workflows/ci.yml'
-
+      # 'every': a file must match the whole list, so each filter is one brace pattern plus a markdown
+      # exclusion. A docs-only change then runs no heavy job. The only markdown that ships is
+      # apps/ios/WhatsNew.md (an iOS resource), so ios excludes just READMEs.
+      - uses: dorny/paths-filter@v3
+        id: h
+        with:
+          predicate-quantifier: every
+          filters: |
+            host:
+              - '{serve/host/**,serve/rust-toolchain.toml,serve/docs/reference/fixtures/**,.github/workflows/ci.yml}'
+              - '!**/*.md'
+            cloud:
+              - '{serve/cloud/**,serve/docs/reference/fixtures/**,.github/workflows/ci.yml}'
+              - '!**/*.md'
+            relay:
+              - '{serve/relay/**,.github/workflows/ci.yml}'
+              - '!**/*.md'
+            ios:
+              - '{apps/ios/**,apps/shared/**,apps/Kith.xcodeproj/**,apps/project.yml,.github/workflows/ci.yml}'
+              - '!**/README.md'
+            desktop:
+              - '{apps/desktop/**,apps/packaging/**,apps/shared/**,apps/screen-macos/**,apps/Kith.xcodeproj/**,apps/project.yml,serve/host/**,serve/rust-toolchain.toml,serve/docs/reference/fixtures/**,.github/workflows/ci.yml}'
+              - '!**/*.md'
+            # The e2e also runs serve/cloud's wrangler dev, so cloud changes trigger it (not the macOS desktop job).
+            e2e:
+              - '{apps/desktop/**,apps/packaging/**,apps/shared/**,apps/screen-macos/**,apps/Kith.xcodeproj/**,apps/project.yml,serve/host/**,serve/rust-toolchain.toml,serve/docs/reference/fixtures/**,serve/cloud/**,.github/workflows/ci.yml}'
+              - '!**/*.md'
   kernel:
     needs: changes
     if: needs.changes.outputs.kernel == 'true'
@@ -91,21 +113,10 @@ jobs:
         run: kernel/tests/kith-migrate-check
       - name: Unknown agent check
         run: kernel/tests/kith-unknown-agent-check
-
-  host-fmt:
-    needs: changes
-    if: needs.changes.outputs.host == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: serve
-    steps:
-      - uses: actions/checkout@v4
-      # rustup reads serve/rust-toolchain.toml (1.99.0 + clippy + rustfmt) from here.
-      - name: Install pinned toolchain
-        run: rustup show active-toolchain || rustup toolchain install
-      - run: cargo fmt --manifest-path host/Cargo.toml --all --check
+      - name: Auth check
+        run: kernel/tests/kith-auth-check
+      - name: Cost bots check
+        run: kernel/tests/kith-cost-bots-check
 
   host:
     needs: changes
@@ -117,13 +128,20 @@ jobs:
         working-directory: serve
     steps:
       - uses: actions/checkout@v4
-      - name: Install system libraries
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
+      # rustup reads serve/rust-toolchain.toml (pinned + clippy + rustfmt). Format first: it fails in seconds,
+      # before the apt and cache steps.
       - name: Install pinned toolchain
         run: rustup show active-toolchain || rustup toolchain install
+      - name: Format
+        run: cargo fmt --manifest-path host/Cargo.toml --all --check
+      - name: Install system libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
+      # Only main saves the cache: PR refs can't share caches, so their saves just evict main's.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: serve/host
+          shared-key: host-linux
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Clippy
         run: cargo clippy --manifest-path host/Cargo.toml --workspace --all-targets -- -D warnings
       - name: Test
@@ -149,6 +167,9 @@ jobs:
         run: npm run typecheck
       - name: Vitest
         run: npm test
+      # wrangler dev with a local D1 and a fake host; no secrets.
+      - name: Bot guests e2e
+        run: npm run e2e:bot
 
   # THIRD_PARTY_NOTICES.md is generated; fail when it is stale or a shipped license is unsafe to sell with Kith
   # (scripts/notices/policy.json, docs/open-source.md).
@@ -162,6 +183,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            apps/desktop/package-lock.json
+            serve/cloud/package-lock.json
+            serve/relay/package-lock.json
       # The npm licenses are read from node_modules; scripts stay off, nothing is built.
       - name: Install npm dependencies
         run: |
@@ -173,11 +199,127 @@ jobs:
       - name: Notices are current and licenses pass the policy
         run: node scripts/notices/generate.mjs --check
 
+  relay:
+    needs: changes
+    if: needs.changes.outputs.relay == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: serve/relay
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: serve/relay/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+
+  ios:
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: build/dd/SourcePackages
+          key: ${{ runner.os }}-ios-packages-${{ hashFiles('apps/ios/Kit/Package.swift', 'apps/Kith.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+      # The project is committed (xcodegen output), so there is nothing to generate.
+      - name: Build iOS Dev for the simulator
+        run: >-
+          xcodebuild build
+          -project apps/Kith.xcodeproj
+          -scheme "iOS Dev"
+          -configuration DevDebug
+          -derivedDataPath build/dd
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO
+
+  desktop:
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: macos-26
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      # rustup reads serve/rust-toolchain.toml from here; tools/native-host.mjs builds with it.
+      - name: Install pinned toolchain
+        working-directory: serve
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: serve/host
+          shared-key: desktop-macos
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Native pieces
+        run: |
+          mkdir -p build/native
+          # SF Symbols masks and the DMG background are generated at build time, never committed.
+          npm run icons
+          swift ../packaging/dmg/background.swift build/dmg-background.tiff
+      - name: Build the Mac dev app (unsigned)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run dist:mac:dev -- --publish never
+      - name: Show the result
+        run: ls -la dist
+
+  # The desktop's relay client against a real kith-serve and wrangler dev (owner, then an invitee). Linux: cheaper than
+  # the Mac runner, and nothing in it is macOS-only.
+  desktop-relay-e2e:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install system libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
+      - name: Install pinned toolchain
+        working-directory: serve
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: serve/host
+          shared-key: desktop-relay-e2e
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo build --manifest-path serve/host/Cargo.toml --bin kith-serve
+      - run: npm --prefix serve/cloud ci --no-audit --no-fund
+      - run: npm --prefix apps/desktop ci --ignore-scripts --no-audit --no-fund
+      - name: Relay e2e (real host)
+        working-directory: apps/desktop
+        env:
+          KITH_SERVE_HOST_BIN: ${{ github.workspace }}/serve/host/target/debug/kith-serve
+        run: npm run e2e:relay:host
+
   # The single check to require: passes when every needed job passed or was
   # skipped by the filter, fails on any failure or cancellation.
   ci:
     if: always()
-    needs: [changes, kernel, host-fmt, host, cloud, licenses]
+    needs: [changes, kernel, host, cloud, licenses, relay, ios, desktop, desktop-relay-e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
