@@ -20,6 +20,8 @@ verification/threads/run.sh --show VARIANT PROP   # TLC's full output (the count
 verification/threads/drift.sh                     # which covered files changed since the sync commit
 ```
 
+CI runs `run.sh` (job `thread-writers`) on pull requests and pushes that touch `verification/threads/`, this skill, or the covered code (the files `drift.sh` lists).
+
 `run.sh` exits 0 only when every row of `verification/threads/checks.tsv` (variant, kind, property, expected
 pass/fail) came out as expected. Tools are pinned and sha256-checked: `tla2tools.jar` v1.7.4 (MIT) and, only when
 no Java 11+ is on PATH, Temurin JRE 21.0.9+10; both are cached under

@@ -11,6 +11,10 @@ on:
       version:
         description: "Version for the file names (default: serve/host/Cargo.toml's)"
         required: false
+      guest_only:
+        description: "Dry run of the Linux client build only (skips the macOS build; nothing is published off a tag)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,6 +24,7 @@ env:
 
 jobs:
   build:
+    if: ${{ !inputs.guest_only }}
     runs-on: macos-latest
     timeout-minutes: 60
     strategy:
@@ -72,9 +77,70 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  # The client-only kith for Linux VMs (cloud bots): one static musl binary per CPU, built with zig as the C compiler
+  # (ring still compiles a little C). Each arch builds on its own native runner, so the smoke test and the install test
+  # run the real binary (docs/kith-bot-guests.md section 10). If aarch64-musl ever fails under zigbuild, build
+  # aarch64-unknown-linux-gnu.2.17 instead (runs on any glibc since 2014).
+  build-guest:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, target: x86_64-unknown-linux-musl, runner: ubuntu-latest }
+          - { arch: aarch64, target: aarch64-unknown-linux-musl, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version
+        id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then v=${GITHUB_REF_NAME#v}
+          elif [ -n "$INPUT_VERSION" ]; then v=$INPUT_VERSION
+          else v=$(sed -n 's/^version = "\(.*\)"/\1/p' serve/host/Cargo.toml | head -1); fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Rust + zig
+        run: |
+          cd serve
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add ${{ matrix.target }}
+          python3 -m venv "$RUNNER_TEMP/zig"
+          "$RUNNER_TEMP/zig/bin/pip" install ziglang cargo-zigbuild
+          echo "$RUNNER_TEMP/zig/bin" >> "$GITHUB_PATH"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: serve/host
+          key: guest-${{ matrix.target }}
+      - name: Build
+        run: cd serve/host && cargo zigbuild --release --locked -p kith-guest --target ${{ matrix.target }}
+      - name: Static check
+        run: |
+          f=serve/host/target/${{ matrix.target }}/release/kith-guest
+          file "$f"
+          file "$f" | grep -qE 'statically linked|static-pie'
+      - name: Pack
+        run: scripts/package-guest.sh "${{ steps.v.outputs.version }}" ${{ matrix.arch }} serve/host/target/${{ matrix.target }}/release/kith-guest dist
+      - name: Smoke test
+        run: |
+          mkdir smoke && tar -C smoke -xzf dist/*.tar.gz
+          scripts/smoke-guest.sh smoke/kith-guest-*/bin/kith
+      - name: Install test
+        run: |
+          KITH_GUEST_PREFIX="$RUNNER_TEMP/prefix" KITH_INSTALL_TARBALL="$(echo dist/*.tar.gz)" sh scripts/install-guest.sh
+          scripts/smoke-guest.sh "$RUNNER_TEMP/prefix/bin/kith"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kith-guest-linux-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
   publish:
-    if: github.ref_type == 'tag'
-    needs: build
+    # The Linux client never blocks the Mac release at first: publish runs when the Mac build passed (flip to
+    # requiring build-guest once it has been stable for a few releases).
+    if: ${{ !cancelled() && github.ref_type == 'tag' && needs.build.result == 'success' }}
+    needs: [build, build-guest]
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -59,6 +59,10 @@ public struct EntryData: Codable, Hashable, Sendable {
     public var files: [SharedFile]?
     /// notice: a finished voice call's length.
     public var callSeconds: Int?
+    /// notice (divider): who started or stopped writing. Open string; see `WriterChange`.
+    public var writerChange: String?
+    /// notice: when the writer changed, in ms.
+    public var at: Int64?
 
     public init(text: String? = nil, status: String? = nil, clientNonce: String? = nil) {
         self.text = text

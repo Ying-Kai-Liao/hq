@@ -8,6 +8,7 @@ import {
 import { isUnsupportedHost, parseKithInfoResult, parseSearchResult, type KithInfoResult, type KithSearchResult } from '@shared/kith-info'
 import { isAccessRemoved, parseGranted } from '@shared/mac-role'
 import { parseAudit, parseCreatedInvite, parseInvites, parsePeople, type AuditRow, type CreatedInvite, type PendingInvite, type Person, type Role } from '@shared/people'
+import { threadWriterCode, threadWriterMessage, type TakeOverResult, type ThreadWriterCode } from '@shared/thread-writer'
 import type { PlaceFolder, PlaceSelection, ProjectInfo, RecentFolder, StartingFolder } from '@shared/place-folders'
 import {
   normalizeBot,
@@ -47,6 +48,22 @@ export class HostError extends Error {
   get isTransient() {
     return this.status === 0
   }
+}
+
+/** A refusal about who holds a thread: a send to one open in a terminal, or a take-over the terminal's work stops. */
+export class ThreadWriterError extends HostError {
+  constructor(
+    readonly writerCode: ThreadWriterCode,
+    from: HostError,
+  ) {
+    super(from.status, threadWriterMessage(from.message), from.code)
+  }
+}
+
+/** Turns a host 409 about the thread's writer into a `ThreadWriterError`; anything else passes through. */
+function typedWriterError(error: unknown): unknown {
+  const code = threadWriterCode(error)
+  return code && error instanceof HostError ? new ThreadWriterError(code, error) : error
 }
 
 export interface HostTransport {
@@ -217,7 +234,20 @@ export class HostClient {
 
   /** `pasted`: what the user pasted rather than typed, which memory never takes as their own words. */
   async send(botId: string, text: string, clientNonce: string, threadId: string | null, attachments: string[] | null, pasted: string[] = [], newTask = false, place: StartingFolder | null = null, via: 'call' | null = null) {
-    return (await this.call<{ entry: Entry }>('send', { botId, text, clientNonce, threadId, attachments, ...(pasted.length ? { pasted } : {}), ...(newTask ? { newTask } : {}), ...(place ?? {}), ...(via ? { via } : {}) })).entry
+    try {
+      return (await this.call<{ entry: Entry }>('send', { botId, text, clientNonce, threadId, attachments, ...(pasted.length ? { pasted } : {}), ...(newTask ? { newTask } : {}), ...(place ?? {}), ...(via ? { via } : {}) })).entry
+    } catch (e) {
+      throw typedWriterError(e)
+    }
+  }
+
+  /** Takes a thread over from the terminal that holds it; the host ends an idle terminal. Owner only. Throws `ThreadWriterError` (`terminalBusy`) while it works. */
+  async takeOverThread(botId: string, threadId: string): Promise<TakeOverResult> {
+    try {
+      return await this.call<TakeOverResult>('takeOverThread', { botId, threadId }, 30_000)
+    } catch (e) {
+      throw typedWriterError(e)
+    }
   }
 
   /** Kith's project registry; without Kith the host answers `projects: []` and an `error` line. */
