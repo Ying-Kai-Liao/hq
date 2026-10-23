@@ -60,7 +60,7 @@ export class BotSync extends BotMirror {
     if (this.connection.kind !== 'online') this.setConnection({ kind: 'connecting' })
     const transport = this.makeTransport()
     this.client = new HostClient(transport)
-    this.hostRoute = this.isLoopback ? 'loopback' : null
+    this.hostRoute = this.isLoopback ? 'loopback' : this.fixedRoute
     this.runEvents(this.client)
   }
 
@@ -112,6 +112,8 @@ export class BotSync extends BotMirror {
     const attempt = async () => {
       if (!alive()) return
       try {
+        await this.beforeConnect?.(client)
+        if (!alive()) return
         await this.refreshHello(client)
         if (!alive()) return
         if (this.mismatch) {
@@ -146,9 +148,13 @@ export class BotSync extends BotMirror {
         })
       } catch (error) {
         if (!alive()) return
-        const message = error instanceof Error ? error.message : String(error)
-        this.setConnection({ kind: 'offline', message })
-        if (error instanceof HostError && error.status === 401) return
+        const explained = this.explain?.(error) ?? null
+        const message = explained?.message ?? (error instanceof Error ? error.message : String(error))
+        // Access to a relayed Mac was removed (the link's word, not a lease that may come back): shown as such, and no
+        // retry until the person asks again. Any other 401 on a relayed Mac keeps retrying.
+        const removed = !this.isLoopback && error instanceof HostError && error.isAccessRemoved
+        this.setConnection(removed ? { kind: 'unauthorized', message } : { kind: 'offline', message })
+        if (explained?.final || removed || (this.isLoopback && error instanceof HostError && error.status === 401)) return
       }
       if (!alive()) return
       await sleep(backoff)
