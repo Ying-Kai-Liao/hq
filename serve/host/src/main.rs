@@ -550,8 +550,8 @@ fn cap_log() {
 }
 
 async fn serve(bind: &str, port: u16) -> Result<()> {
-    let _instance_lock = tokio::task::spawn_blocking(service::lock_host).await??;
-    tokio::task::spawn_blocking(service::capture_binary_identity).await??;
+    let _instance_lock = watchdog::blocking("host-lock", || service::lock_host_within(service::LOCK_WAIT)).await??;
+    watchdog::blocking("binary-identity", service::capture_binary_identity).await??;
     let listener =
         tokio::net::TcpListener::bind((bind, port)).await.with_context(|| format!("binding {bind}:{port}"))?;
     cap_log();

@@ -109,6 +109,22 @@ pub fn lock_host() -> Result<std::fs::File> {
     Ok(file)
 }
 
+/// How long a starting host waits for an exiting predecessor to release `host.lock` (launchd restarts it at once).
+pub const LOCK_WAIT: Duration = Duration::from_secs(10);
+
+/// Like `lock_host`, but retries every 100 ms for up to `wait`. A live second host still never gets in: it
+/// only gets the lock when the holder lets go (an exited process drops it at once, so a stale file is free).
+pub fn lock_host_within(wait: Duration) -> Result<std::fs::File> {
+    let deadline = Instant::now() + wait;
+    loop {
+        match lock_host() {
+            Ok(lock) => return Ok(lock),
+            Err(error) if Instant::now() >= deadline => return Err(error),
+            Err(_) => std::thread::sleep(Duration::from_millis(100)),
+        }
+    }
+}
+
 fn run(cmd: &str, args: &[&str]) -> Result<()> {
     let ok = Command::new(cmd).args(args).status().with_context(|| format!("running {cmd}"))?.success();
     if !ok {
@@ -392,6 +408,22 @@ fn legacy(bin: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_start_waits_for_an_exiting_host_but_never_shares_the_lock() {
+        let held = lock_host().unwrap();
+        // A live holder: the wait runs out and the second host is refused.
+        let started = Instant::now();
+        assert!(lock_host_within(Duration::from_millis(300)).is_err());
+        assert!(started.elapsed() >= Duration::from_millis(300));
+        // A predecessor that lets go mid-wait: the start gets the lock.
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            drop(held);
+        });
+        assert!(lock_host_within(Duration::from_secs(5)).is_ok());
+        releaser.join().unwrap();
+    }
 
     fn temp_settings(contents: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("kith-settings-{}", uuid::Uuid::new_v4()));

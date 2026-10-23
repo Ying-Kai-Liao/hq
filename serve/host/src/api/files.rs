@@ -21,6 +21,6 @@ pub async fn read(hub: &Arc<Hub>, body: &Value) -> Result<Value> {
     let offset = body["offset"].as_u64().ok_or_else(|| anyhow!("offset must be a nonnegative integer"))?;
     let root = files::root(bot);
     let size = meta.size;
-    let data = tokio::task::spawn_blocking(move || files::read(&root, &meta, offset)).await??;
+    let data = crate::watchdog::blocking("file-read", move || files::read(&root, &meta, offset)).await??;
     Ok(json!({"data": base64::engine::general_purpose::STANDARD.encode(data), "size": size}))
 }
