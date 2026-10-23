@@ -477,6 +477,9 @@ fn nothing_to_check(m: &str) -> bool {
             | "revokeBotInvite"
             | "revokeBot"
             | "myBots"
+            | "callAccept"
+            | "callDecline"
+            | "callGreet"
             | "setBotLimits"
     )
 }
