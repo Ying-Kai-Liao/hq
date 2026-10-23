@@ -314,9 +314,10 @@ held=$([[ -n $project ]] && "$KITH/bin/project-id" --children "$project" --all |
 # when there is one. Anyone else's: about them, the shared part and their own. In a group room only what everyone there
 # may see; a bot guest (bot-<hex>) is shared craft and its own room's notes.
 load_kind=person; [[ $p_owner == 1 ]] && load_kind=owner; [[ ${p_id:-} == bot-* ]] && load_kind=guest
-eval "$(python3 "$KITH/lib/kith_facets.py" load --agent "$agent" --home "$home" --person-file "$person_file" \
+load_out=$(python3 "$KITH/lib/kith_facets.py" load --agent "$agent" --home "$home" --person-file "$person_file" \
   --kind "$load_kind" --person "${p_id:-}" --rooms "$p_rooms" --room "${KITH_ROOM:-}" --project "$project" \
-  --agent-md "$src_pkg/agent.md")" || { echo "kith: couldn't load memory" >&2; exit 1; }
+  --agent-md "$src_pkg/agent.md") || { echo "kith: couldn't load memory" >&2; exit 1; }
+eval "$load_out"
 prompt="$(template | fill)
 $mems
 <session project=\"${project:-none}\"$load_attrs${parents:+ parents=\"$parents\"}${held:+ holds=\"$(printf '%s\n' "$held" | cut -f1 | paste -sd' ' -)\"} cwd=\"$PWD\" date=\"$(date +%F)\"$p_line/>"

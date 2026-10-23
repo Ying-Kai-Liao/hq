@@ -64,9 +64,17 @@ check "another person's 1:1 room id is a group room (fail closed)" \
 check "own 1:1 room named explicitly changes nothing" "[ \"\$(P KITH_PERSON=sam KITH_ROOM=1:1:echo:sam)\" = \"\$SAM\" ]"
 check "a room id that is not a valid id loads shared only" "! P KITH_ROOM='a b' | grep -q 'owner memory'"
 
+# a helper agent inherits the caller's room (1:1:<parent>:<person>): still one reader, so the 1:1 load
+check "helper agent, owner: the parent's 1:1 room is still a 1:1" "grep -q 'owner memory zebra' <<<\"\$(P KITH_ROOM=1:1:parent:owner)\""
+check "helper agent, invitee: their memory loads" "grep -q 'sam likes tea' <<<\"\$(P KITH_PERSON=sam KITH_ROOM=1:1:parent:sam)\""
+check "a 1:1 naming another person stays closed" "! grep -q 'owner memory zebra' <<<\"\$(P KITH_ROOM=1:1:parent:sam)\""
+check "group runs say so on the session line" "grep -qE 'loaded=\"[0-9]+\" room=\"group\"' <<<\"\$GO\" && ! grep -qE 'loaded=\"[0-9]+\" room=\"group\"' <<<\"\$OWN\""
+check "a channel group chat with no KITH_ROOM is a group (like recall)" \
+  "! grep -q 'owner memory zebra' <<<\"\$(P KITH_VIA=telegram)\" && grep -qE 'loaded=\"[0-9]+\" room=\"group\"' <<<\"\$(P KITH_VIA=telegram)\""
+
 # the filter itself: members known, caps, ordering, guests
-export OWNER='{"kind":"owner"}' SAMR='{"kind":"person","id":"sam","rooms":["grp1"]}' GUEST='{"kind":"guest","id":"bot-ab12"}' EVE='{"kind":"person","id":"eve"}'
-F() { python3 -c "import sys, os, json; sys.path.insert(0,'$KERNEL/lib'); import kith_facets as k; R={n: json.loads(os.environ[n]) for n in ('OWNER','SAMR','GUEST','EVE')}; $1"; }
+export OWNER='{"kind":"owner"}' SAMR='{"kind":"person","id":"sam","rooms":["grp1"]}' GUEST='{"kind":"guest","id":"bot-ab12","rooms":["grp1"]}' STRAY='{"kind":"guest","id":"bot-ab12"}' EVE='{"kind":"person","id":"eve"}'
+F() { python3 -c "import sys, os, json; sys.path.insert(0,'$KERNEL/lib'); import kith_facets as k; R={n: json.loads(os.environ[n]) for n in ('OWNER','SAMR','GUEST','STRAY','EVE')}; $1"; }
 check "group with known members: the intersection (shared, and the room's notes)" \
   "[ \"\$(F \"print(sorted(k.load_audiences(R['OWNER'],'grp1','echo',[R['SAMR']])))\")\" = \"['room:grp1', 'shared']\" ]"
 check "group with a member outside the room: shared only" \
@@ -74,7 +82,9 @@ check "group with a member outside the room: shared only" \
 check "the room's own notes load when everyone present is in the room" \
   "F \"r=k.load_memory('echo','$KITH_HOME/agents/echo','$KITH_STATE/user.md',R['OWNER'],'grp1',[],8000,[R['SAMR']]); print(r['block'])\" | grep -q 'grp1 room note'"
 check "a bot guest: shared and its own room's notes, never the owner's or a person's" \
-  "[ \"\$(F \"print(sorted(k.load_audiences(R['GUEST'],'grp1','echo')))\")\" = \"['room:grp1', 'shared']\" ] && [ \"\$(F \"print(sorted(k.load_audiences(R['GUEST'],'','echo')))\")\" = \"['shared']\" ]"
+  "[ \"\$(F \"print(sorted(k.load_audiences(R['GUEST'],'grp1','echo')))\")\" = \"['room:grp1', 'shared']\" ] && [ \"\$(F \"print(sorted(k.load_audiences(R['STRAY'],'','echo')))\")\" = \"['shared']\" ]"
+check "a guest's KITH_ROOM is not trusted: a room kith-auth does not list gives shared only" \
+  "[ \"\$(F \"print(sorted(k.load_audiences(R['STRAY'],'grp1','echo')))\")\" = \"['shared']\" ]"
 check "a guest loads its room's notes and no one else's" \
   "F \"r=k.load_memory('echo','$KITH_HOME/agents/echo','$KITH_STATE/user.md',R['GUEST'],'grp1',[]); print(r['block'])\" | grep -q 'grp1 room note' && ! F \"r=k.load_memory('echo','$KITH_HOME/agents/echo','$KITH_STATE/user.md',R['GUEST'],'grp1',[]); print(r['block'])\" | grep -qE 'owner memory|sam likes|about'"
 check "over the cap the project notes go first (oldest first); about you and memory never" \

@@ -105,21 +105,30 @@ def own_room(agent, reader):
     return '1:1:%s:%s' % (agent, 'owner' if reader.get('kind') == 'owner' else reader.get('id', '-'))
 
 
+def is_one_to_one(room, reader):
+    """`1:1:<agent>:<person>` whose person is the reader. The agent part is not compared: a helper agent a run calls
+    inherits the room of the agent that called it (1:1:<parent>:<person>), and it is still the same one reader. A 1:1
+    naming someone else is not the reader's."""
+    who = 'owner' if reader.get('kind') == 'owner' else reader.get('id', '-')
+    return room.startswith('1:1:') and room.rsplit(':', 1)[-1] == who
+
+
 def is_group_room(room, agent, reader):
     """Anything but the reader's own 1:1 is read by more than one person, or is a room we cannot vouch for: fail closed."""
-    return bool(room) and room != own_room(agent, reader)
+    return bool(room) and not is_one_to_one(room, reader)
 
 
 def audience_set(reader, room=''):
     """The audience values one reader may see. reader = {'kind': owner|person|guest, 'id', 'rooms': [room ids]}.
-    A guest bot is shared craft and the room it is in, never the owner's or a person's."""
+    A guest bot is shared craft and the rooms kith-auth says it is in, never the owner's or a person's; its KITH_ROOM
+    is not trusted."""
     base = {'owner': {'owner', 'shared'}, 'person': {'shared', 'person:' + reader.get('id', '-')},
             'guest': {'shared'}}.get(reader.get('kind'))
     if base is None:
         return set()
     rooms = set(reader.get('rooms', []))
-    if room and reader['kind'] != 'person' and not room.startswith('1:1:'):
-        rooms.add(room)   # the owner runs in any room; a guest bot is the room it was invited to
+    if room and reader['kind'] == 'owner' and not room.startswith('1:1:'):
+        rooms.add(room)   # the owner runs in any room
     return base | {'room:' + r for r in rooms}
 
 
@@ -174,6 +183,8 @@ def load_memory(agent, home, person_file, reader, room, projects, cap=LOAD_CAP, 
     mem = Path(home) / 'memory'
     kind = reader.get('kind')
     who = 'owner' if kind == 'owner' else reader.get('id', '-')
+    if is_one_to_one(room, reader):
+        room = own_room(agent, reader)   # this agent's own 1:1, whichever agent the room was named for
     group = kind != 'guest' and is_group_room(room, agent, reader)
     aud = load_audiences(reader, room, agent, members)
     solo = audience_set(reader)
@@ -212,7 +223,7 @@ def load_memory(agent, home, person_file, reader, room, projects, cap=LOAD_CAP, 
     block = '\n'.join(_tag(c[1], c[2], c[5]) for c in shown)
     if withheld:
         block += '\n' + WITHHELD
-    return {'block': block, 'loaded': len(shown), 'more': more, 'withheld': withheld}
+    return {'block': block, 'loaded': len(shown), 'more': more, 'withheld': withheld, 'group': group}
 
 
 def main(argv):
@@ -239,9 +250,11 @@ def main(argv):
     room = a.room if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}', a.room) else ('?' if a.room else '')
     reader = {'kind': a.kind, 'id': a.person, 'rooms': [r for r in a.rooms.split() if ID.match(r)]}
     if not room and a.kind != 'guest':
-        room = own_room(a.agent, reader)
+        # A channel group chat sets no room: like `kith recall`, a group VIA without one is a group (shared only)
+        room = '?' if os.environ.get('KITH_VIA') in ('telegram', 'slack', 'discord', 'group') else own_room(a.agent, reader)
     out = load_memory(a.agent, a.home, a.person_file, reader, room, [a.project] if a.project else [], cap)
-    attrs = ' loaded="%d"%s' % (out['loaded'], ' more="%d"' % out['more'] if out['more'] else '')
+    attrs = ' loaded="%d"%s%s' % (out['loaded'], ' more="%d"' % out['more'] if out['more'] else '',
+                                  ' room="group"' if out['group'] else '')
     print('mems=%s\nload_attrs=%s' % (shlex.quote(out['block']), shlex.quote(attrs)))
     return 0
 

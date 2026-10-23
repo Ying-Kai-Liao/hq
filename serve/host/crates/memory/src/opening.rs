@@ -47,9 +47,9 @@ impl Scope {
         Self { asker: Reader::Owner, room: None, members: None, projects: Vec::new() }
     }
 
-    /// A group room of the owner's own bots: the owner is the only person there.
+    /// A group room: the same rule as for hq agents, so the members are not known and only `shared` loads.
     pub fn owner_group(room: &str) -> Self {
-        Self { room: Some(room.to_owned()), members: Some(vec![Reader::Owner]), ..Self::owner() }
+        Self { room: Some(room.to_owned()), ..Self::owner() }
     }
 
     /// What loads here: the asker's set in a 1:1, in a group room the intersection of everyone's.
@@ -305,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    fn the_opening_cuts_room_notes_to_their_room_and_says_nothing_of_the_rest_when_nothing_is_withheld() {
+    fn the_opening_of_a_group_room_holds_only_shared_and_says_what_is_withheld() {
         let conn = Connection::open_in_memory().unwrap();
         crate::schema::migrate(&conn).unwrap();
         let new = |room: Option<&'static str>, text: &'static str| New { bot: Some("a"), text, room, evidence: &[] };
@@ -316,10 +316,9 @@ mod tests {
         let chat = load(&conn, "a", false, &Scope::owner()).unwrap();
         assert_eq!(chat.bot.iter().map(|e| e.text.as_str()).collect::<Vec<_>>(), ["Plain"]);
         let grp1 = load(&conn, "a", false, &Scope::owner_group("grp1")).unwrap();
-        let mut texts: Vec<_> = grp1.bot.iter().map(|e| e.text.as_str()).collect();
-        texts.sort_unstable();
-        assert_eq!(texts, ["Learned in grp1", "Plain"]);
-        assert!(!grp1.render().contains("ask me in our 1:1"), "everyone present is the owner: nothing is withheld");
+        assert!(grp1.bot.is_empty(), "the owner's entries are not shared");
+        let text = grp1.render();
+        assert!(text.contains(WITHHELD) && !text.contains("Plain") && !text.contains("grp1"), "{text}");
     }
 
     #[test]

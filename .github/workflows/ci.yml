@@ -117,6 +117,8 @@ jobs:
         run: kernel/tests/kith-auth-check
       - name: Cost bots check
         run: kernel/tests/kith-cost-bots-check
+      - name: Load check
+        run: kernel/tests/kith-load-check
 
   host:
     needs: changes
