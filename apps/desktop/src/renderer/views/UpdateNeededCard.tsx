@@ -39,10 +39,10 @@ export function UpdateNeededCard() {
   // computer's own host is put back on the app's bundled copy. Linux has no bundled host, so the
   // card says how to update it instead.
   const updatesApp = mismatch.kind === 'updateApp'
-  const restartsHost = !updatesApp && store === app.local && !app.host.dev && window.codync.platform !== 'linux'
+  const restartsHost = !updatesApp && store === app.local && !app.host.dev && window.kith.platform !== 'linux'
   const button = updatesApp
     ? updates && <UpdateButton updates={updates} kind="primary" />
-    : restartsHost && <Button onClick={() => window.codync.host.restart()}>{`Update ${store.hostName}`}</Button>
+    : restartsHost && <Button onClick={() => window.kith.host.restart()}>{`Update ${store.hostName}`}</Button>
   return (
     <HStack align="flex-start" gap={12} className="update-needed">
       <Icon name="arrow.down.circle" size={15} color="var(--warning)" />

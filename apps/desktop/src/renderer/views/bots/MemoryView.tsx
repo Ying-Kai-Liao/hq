@@ -54,7 +54,7 @@ function BotMemory({ botId }: { botId: string }) {
     <div className="memory-panel">
       <TabChoice label="Memory" selection={section} options={sections} onChange={(next) => {
         setSection(next)
-        // Claude Code writes its notes outside Codync, so nothing moves `memoryRev`: read them again on the way in.
+        // Claude Code writes its notes outside Kith, so nothing moves `memoryRev`: read them again on the way in.
         if (next === 'harness') void memory.load()
       }} />
       <CardSection>

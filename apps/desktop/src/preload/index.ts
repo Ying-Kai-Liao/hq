@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { sshBridge } from './ssh'
-import type { CallError, CodyncBridge, HostSnapshot, TraySummary, WindowCommand } from '../shared/ipc'
+import type { CallError, KithBridge, HostSnapshot, TraySummary, WindowCommand } from '../shared/ipc'
 
 let streamId = 0
 const streams = new Map<string, { onData: (line: string) => void; onEnd: (error: CallError | null) => void }>()
@@ -18,8 +18,8 @@ function listen<T>(channel: string, cb: (value: T) => void) {
   return () => void ipcRenderer.removeListener(channel, handler)
 }
 
-const bridge: CodyncBridge = {
-  platform: process.platform as CodyncBridge['platform'],
+const bridge: KithBridge = {
+  platform: process.platform as KithBridge['platform'],
   appName: ipcRenderer.sendSync('app:name') as string,
   appScheme: ipcRenderer.sendSync('app:scheme') as string,
   hostPort: ipcRenderer.sendSync('app:hostPort') as number,
@@ -122,4 +122,4 @@ const bridge: CodyncBridge = {
   },
 }
 
-contextBridge.exposeInMainWorld('codync', bridge)
+contextBridge.exposeInMainWorld('kith', bridge)

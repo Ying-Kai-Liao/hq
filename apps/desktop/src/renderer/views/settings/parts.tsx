@@ -5,7 +5,7 @@ import { Text } from '../../components/Text'
 import type { BotStore } from '../../store/bot-store'
 import './settings.css'
 
-export const isMac = window.codync.platform === 'darwin'
+export const isMac = window.kith.platform === 'darwin'
 /** "this Mac" on macOS; "this computer" elsewhere. */
 export const thisMac = isMac ? 'this Mac' : 'this computer'
 

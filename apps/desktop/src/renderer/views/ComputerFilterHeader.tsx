@@ -65,8 +65,8 @@ export function ComputerFilterHeader({ hidden, setHidden, manage, compact = fals
     }
     if (app.computers.length > 1) app.computers.forEach((c, i) => list.push({ title: `Only ${c.name}`, divider: i === 0, action: () => setHidden(selection.only(c.id)) }))
     if (stores.length) list.push({ title: 'Reconnect', icon: 'arrow.clockwise', divider: true, action: () => stores.forEach((s) => s.restartStream()) })
-    if (app.host.state.kind === 'notInstalled') list.push({ title: `Install host on this ${window.codync.platform === 'darwin' ? 'Mac' : 'computer'}`, icon: 'desktopcomputer', action: () => window.codync.host.install() })
-    if (app.host.state.kind === 'failed') list.push({ title: 'Try again on this computer', icon: 'arrow.clockwise', action: () => window.codync.host.restart() })
+    if (app.host.state.kind === 'notInstalled') list.push({ title: `Install host on this ${window.kith.platform === 'darwin' ? 'Mac' : 'computer'}`, icon: 'desktopcomputer', action: () => window.kith.host.install() })
+    if (app.host.state.kind === 'failed') list.push({ title: 'Try again on this computer', icon: 'arrow.clockwise', action: () => window.kith.host.restart() })
     list.push({ title: 'Manage computers', icon: 'desktopcomputer', action: manage })
     return list
   }

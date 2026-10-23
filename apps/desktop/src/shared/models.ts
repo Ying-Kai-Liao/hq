@@ -49,7 +49,7 @@ export interface Bot {
   computer: boolean
   /** Uses the memory all the user's bots share ("About you"). */
   sharedMemory: boolean
-  /** Keeps the harness's own memory (Claude Code's…) on beside Codync's; null where it has no switch. */
+  /** Keeps the harness's own memory (Claude Code's…) on beside Kith's; null where it has no switch. */
   harnessMemory: boolean | null
   /** Moves whenever memory changes, so an open memory screen fetches it again. */
   memoryRev: number
@@ -320,7 +320,7 @@ export interface Backend {
   curated?: boolean
   signedIn?: boolean
   canInstall?: boolean
-  /** Only for an agent that runs on Node.js, on a computer without its own: Codync's copy is missing or added. */
+  /** Only for an agent that runs on Node.js, on a computer without its own: Kith's copy is missing or added. */
   node?: 'missing' | 'added'
 }
 

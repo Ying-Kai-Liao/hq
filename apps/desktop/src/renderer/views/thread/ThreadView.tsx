@@ -113,7 +113,7 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
 
   useEffect(
     () =>
-      window.codync.app.onCommand((c) => {
+      window.kith.app.onCommand((c) => {
         if (c.kind === 'toggleDetails') toggleDetails()
       }),
     [toggleDetails],

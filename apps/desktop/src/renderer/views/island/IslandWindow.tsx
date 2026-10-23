@@ -102,7 +102,7 @@ const TABS: { tab: IslandTab; icon: string; label: string }[] = [
   { tab: 'usage', icon: 'gauge.with.dots.needle.33percent', label: 'Usage' },
 ]
 
-/** Tabs on the left of the notch; the working count, the usage meter and Codync on the right. */
+/** Tabs on the left of the notch; the working count, the usage meter and Kith on the right. */
 function Header({ model, mode }: { model: IslandModel; mode: IslandMode }) {
   const selected = mode === 'message' || mode === 'usage' ? mode : mode === 'overview' || mode === 'empty' ? 'bots' : null
   const count = model.activeCount

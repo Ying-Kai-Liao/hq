@@ -15,13 +15,12 @@ export interface AccountConfig {
 type Setting = string | null | undefined
 
 /**
- * The Clerk key and cloud URL a build runs with. `KITH_*` wins over the older `CODYNC_*` names,
- * which win over the build's account-config.json. Empty or malformed values mean "not configured".
+ * The Clerk key and cloud URL a build runs with. `KITH_*` in the environment wins over the build's account-config.json. Empty or malformed values mean "not configured".
  */
 export function resolveAccountConfig(env: Record<string, string | undefined>, file: { clerkPublishableKey?: Setting; cloudURL?: Setting }): AccountConfig {
   const pick = (...values: Setting[]) => values.find((v) => v !== undefined && v !== null && v.trim() !== '')?.trim() ?? ''
-  const key = pick(env.KITH_CLERK_PUBLISHABLE_KEY, env.CODYNC_CLERK_PUBLISHABLE_KEY, file.clerkPublishableKey)
-  const cloud = pick(env.KITH_CLOUD_URL, env.CODYNC_CLOUD_URL, file.cloudURL)
+  const key = pick(env.KITH_CLERK_PUBLISHABLE_KEY, file.clerkPublishableKey)
+  const cloud = pick(env.KITH_CLOUD_URL, file.cloudURL)
   return {
     clerkPublishableKey: key.startsWith('pk_test_') || key.startsWith('pk_live_') ? key : null,
     cloudURL: /^https:\/\//.test(cloud) ? cloud.replace(/\/$/, '') : null,

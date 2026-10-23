@@ -5,7 +5,7 @@ import { app, ipcMain, safeStorage } from 'electron'
 import type { AccountService } from './account'
 
 /**
- * The Codync cloud's user-facing `/v1` API (§8.4) with this install's device key (§3.2): an
+ * The Kith cloud's user-facing `/v1` API (§8.4) with this install's device key (§3.2): an
  * Ed25519 key per account, kept encrypted with the OS keychain, that signs `Kith-Sig` (§5).
  */
 

@@ -6,7 +6,7 @@ import type { IslandRect, IslandScreen, IslandSummary } from './island'
 import type { ErrorReport } from './error-report'
 
 // The bridge between the main process (host lifecycle, loopback HTTP, tray, windows)
-// and the renderer (stores and UI). Exposed as `window.codync` by the preload script.
+// and the renderer (stores and UI). Exposed as `window.kith` by the preload script.
 
 export type HostState =
   | { kind: 'missingBinary' }
@@ -108,7 +108,7 @@ export type SpeechEvent =
   | { type: 'stopped' }
   | { type: 'error'; message: string }
 
-export interface CodyncBridge {
+export interface KithBridge {
   platform: 'darwin' | 'linux' | 'win32'
   appName: string
   appScheme: string
@@ -116,7 +116,7 @@ export interface CodyncBridge {
   appVersion: string
   /** The computer's name ("Kevin's MacBook Pro"). */
   computerName: string
-  /** Screenshot/UI checks: CODYNC_DEBUG_OPEN=compose | group | plugins | computers | <bot name>. */
+  /** Screenshot/UI checks: KITH_DEBUG_OPEN=compose | group | plugins | computers | <bot name>. */
   debugOpen: string | null
   host: {
     snapshot(): Promise<HostSnapshot>
@@ -172,7 +172,7 @@ export interface CodyncBridge {
     newBot(): void
     openApp(): void
   }
-  /** The Codync cloud's `/v1` API with the signed-in session (and the device key for `signed`). */
+  /** The Kith cloud's `/v1` API with the signed-in session (and the device key for `signed`). */
   cloud: {
     request(method: string, path: string, body: unknown, signed: boolean): Promise<{ ok: true; value: unknown } | { ok: false; error: { status: number; code: string; message: string | null } }>
   }
@@ -216,7 +216,7 @@ export interface CodyncBridge {
      * (`kith://…`), like ASWebAuthenticationSession. Rejects when cancelled or timed out.
      */
     authenticate(url: string, scheme: string): Promise<string>
-    /** macOS: registers or removes the Codync Screen agent (SMAppService). */
+    /** macOS: registers or removes the Kith Screen agent (SMAppService). */
     screenAgentState(): Promise<ScreenAgentState>
     setScreenAgent(on: boolean): Promise<{ needsApproval: boolean }>
     syncScreenAgent(enabled: boolean): Promise<{ needsApproval: boolean }>

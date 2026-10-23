@@ -179,7 +179,7 @@ export function Notice({ model, bot, failed }: { model: IslandModel; bot: Island
   )
 }
 
-/** Writes to a bot without opening Codync: the chip picks the bot, Enter sends, Esc closes. */
+/** Writes to a bot without opening Kith: the chip picks the bot, Enter sends, Esc closes. */
 export function Message({ model }: { model: IslandModel }) {
   const [text, setText] = useState('')
   const bot = model.messageBot

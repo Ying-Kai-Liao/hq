@@ -146,8 +146,8 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
       <AutoTextArea className="field-box" value={draft.description} placeholder="e.g. Reviews PRs. Never pushes without asking." minRows={3} maxRows={8} onChange={(v) => set('description', v)} />
     </Field>
   )
-  // hq is the one source of an hq bot's permission, model, effort and Fast mode: one set of rows replaces Codync's own.
-  const model = kith && !shown.codyncSettings ? [<HqSettings key="hq" kith={kith} />] : [
+  // hq is the one source of an hq bot's permission, model, effort and Fast mode: one set of rows replaces Kith's own.
+  const model = kith && !shown.kithSettings ? [<HqSettings key="hq" kith={kith} />] : [
     <AgentModelPicker key="model" backend={draft.backend} models={models} selection={draft.model} onChange={setModel} options={draft.modelOptions ?? {}} onOptionsChange={setModelOptions} />,
     (draft.backend !== 'custom' && models.catalog?.fastMode) || draft.fastMode || (saved?.backend === draft.backend && fastModeShown(saved)) ? (
       // Shown while the agent offers it (its model list, or the bot's own sessions), or while it's on.
@@ -277,7 +277,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
               </DropdownMenu>
             </ValueRow>
           ) : null}
-          {shown.codyncSettings ? <ValueRow
+          {shown.kithSettings ? <ValueRow
             label="Permissions"
             detail={
               draft.permission === 'auto'

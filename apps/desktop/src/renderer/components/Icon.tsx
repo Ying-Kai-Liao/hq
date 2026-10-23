@@ -13,7 +13,7 @@ interface Metrics {
 // (Linux, Windows) the Lucide fallbacks draw instead.
 let manifest: Record<string, Metrics> | null = null
 const listeners = new Set<() => void>()
-if (window.codync?.platform === 'darwin') {
+if (window.kith?.platform === 'darwin') {
   void fetch(`${import.meta.env.BASE_URL}symbols/manifest.json`)
     .then((r) => (r.ok ? r.json() : {}))
     .then((m: Record<string, Metrics>) => {

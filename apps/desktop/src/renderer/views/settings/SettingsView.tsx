@@ -113,11 +113,11 @@ function GeneralSettings() {
   const [usageIconStyle, setUsageIconStyle] = usePref(prefs.usageIconStyle)
   const [compact, setCompact] = usePref(prefs.sidebarCompact)
   const [showInDock, setShowInDock] = useState(true)
-  useEffect(() => void window.codync.app.showInDock().then(setShowInDock), [])
+  useEffect(() => void window.kith.app.showInDock().then(setShowInDock), [])
   const [launchAtLogin, setLaunchAtLogin] = useState(false)
-  useEffect(() => void window.codync.app.launchAtLogin().then(setLaunchAtLogin), [])
+  useEffect(() => void window.kith.app.launchAtLogin().then(setLaunchAtLogin), [])
   const [island, setIsland] = useState(false)
-  useEffect(() => void window.codync.island.enabled().then(setIsland), [])
+  useEffect(() => void window.kith.island.enabled().then(setIsland), [])
 
   return (
     <CardForm>
@@ -168,13 +168,13 @@ function GeneralSettings() {
         </Switch>
       </CardSection>
       <CardSection title="System">
-        {window.codync.platform === 'darwin' ? <Switch on={showInDock} onChange={(on) => void window.codync.app.setShowInDock(on).then(setShowInDock)}>Show in Dock</Switch> : null}
-        {window.codync.island.supported ? (
-          <Switch on={island} onChange={(on) => void window.codync.island.setEnabled(on).then(setIsland)}>
-            {islandLabel(window.codync.platform)}
+        {window.kith.platform === 'darwin' ? <Switch on={showInDock} onChange={(on) => void window.kith.app.setShowInDock(on).then(setShowInDock)}>Show in Dock</Switch> : null}
+        {window.kith.island.supported ? (
+          <Switch on={island} onChange={(on) => void window.kith.island.setEnabled(on).then(setIsland)}>
+            {islandLabel(window.kith.platform)}
           </Switch>
         ) : null}
-        <Switch on={launchAtLogin} onChange={(on) => void window.codync.app.setLaunchAtLogin(on).then(setLaunchAtLogin)}>
+        <Switch on={launchAtLogin} onChange={(on) => void window.kith.app.setLaunchAtLogin(on).then(setLaunchAtLogin)}>
           Open at login
         </Switch>
       </CardSection>
@@ -250,7 +250,7 @@ function UpdateSettings() {
         {[
           <ValueRow key="version" label="Version" detail={lastChecked}>
             <HStack as="span" gap={10}>
-              <span>{window.codync.appVersion}</span>
+              <span>{window.kith.appVersion}</span>
               <UpdateButton updates={updates} />
             </HStack>
           </ValueRow>,
@@ -261,17 +261,17 @@ function UpdateSettings() {
                 </div>,
               ]
             : []),
-          <Switch key="check" on={updates.autoCheck} onChange={(on) => window.codync.updates.setAutoCheck(on)} disabled={!updates.supported}>
+          <Switch key="check" on={updates.autoCheck} onChange={(on) => window.kith.updates.setAutoCheck(on)} disabled={!updates.supported}>
             Automatically check for updates
           </Switch>,
-          <Switch key="download" on={updates.autoDownload} onChange={(on) => window.codync.updates.setAutoDownload(on)} disabled={!updates.supported}>
+          <Switch key="download" on={updates.autoDownload} onChange={(on) => window.kith.updates.setAutoDownload(on)} disabled={!updates.supported}>
             Automatically download and install
           </Switch>,
           ...(updates.error
             ? [
                 <div key="error" className="settings-row settings-appear">
                   <Text tone="attention" grow>{updates.error}</Text>
-                  <Button kind="secondary" onClick={() => window.codync.updates.check()} disabled={updates.checking}>
+                  <Button kind="secondary" onClick={() => window.kith.updates.check()} disabled={updates.checking}>
                     Retry
                   </Button>
                 </div>,

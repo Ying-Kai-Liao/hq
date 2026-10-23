@@ -6,7 +6,7 @@ import { Text } from '../../components/Text'
 
 /**
  * The memory screen's info button beside the harness's own memory switch: what turning it on means. The same text
- * as the kit's; the terminal UI says it short in a confirmation before turning it on. `readable`: Codync shows its
+ * as the kit's; the terminal UI says it short in a confirmation before turning it on. `readable`: Kith shows its
  * notes (Claude Code's are a file).
  */
 export function HarnessMemorySheet({ harness, readable }: { harness: string; readable: boolean }) {

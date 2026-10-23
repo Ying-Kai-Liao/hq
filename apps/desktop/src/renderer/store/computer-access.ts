@@ -18,11 +18,11 @@ export class ComputerAccess extends Observable {
   constructor(app: AppModel) { super(); this.app = app }
 
   get step() {
-    return computerAccessStep(window.codync.platform, this.app.local?.connection.kind === 'online', this.screen, this.agent)
+    return computerAccessStep(window.kith.platform, this.app.local?.connection.kind === 'online', this.screen, this.agent)
   }
 
   get helperName() { return this.screen?.permissionApp || 'Kith Screen' }
-  get computerName() { return this.app.local?.hostName || window.codync.computerName || 'Your computer' }
+  get computerName() { return this.app.local?.hostName || window.kith.computerName || 'Your computer' }
   get error() { return this.checkError ?? this.actionError }
 
   async refresh() {
@@ -30,7 +30,7 @@ export class ComputerAccess extends Observable {
     this.refreshing = true
     try {
       const local = this.app.local
-      this.agent = await window.codync.app.screenAgentState()
+      this.agent = await window.kith.app.screenAgentState()
       if (local?.client && local.connection.kind === 'online') {
         this.screen = normalizeScreen(await local.client.call<ScreenState>('screenStatus', {}))
       } else this.screen = null
@@ -78,7 +78,7 @@ export class ComputerAccess extends Observable {
   }
 
   openSettings(permission: keyof typeof computerPermissionSettings) {
-    window.codync.app.openSettings(computerPermissionSettings[permission])
+    window.kith.app.openSettings(computerPermissionSettings[permission])
   }
 }
 
