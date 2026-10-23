@@ -330,9 +330,11 @@ public struct Hello: Codable, Sendable {
     public var minApp: String?
     /// The cloud relay the host uses; nil = cloud off.
     public var cloud: String?
+    /// For an invited person: the agents the owner gave them. Missing from a host before it, and from an owner's hello.
+    public var grantedAgents: [GrantedAgent]?
 
     private enum CodingKeys: String, CodingKey {
-        case hostId, name, version, os, device, home, backends, rev, screen, urls, computerId, signKey, boxKey, minApp, cloud
+        case grantedAgents, hostId, name, version, os, device, home, backends, rev, screen, urls, computerId, signKey, boxKey, minApp, cloud
     }
 
     public init(from decoder: Decoder) throws {
@@ -353,6 +355,23 @@ public struct Hello: Codable, Sendable {
         boxKey = try c.decodeIfPresent(String.self, forKey: .boxKey)
         minApp = try c.decodeIfPresent(String.self, forKey: .minApp)
         cloud = try c.decodeIfPresent(String.self, forKey: .cloud)
+        // Only a convenience for New chat: a list in a shape this version can't read is the same as none.
+        grantedAgents = try? c.decodeIfPresent([GrantedAgent].self, forKey: .grantedAgents)
+    }
+}
+
+/// One agent an invited person may use, from the member `hello`.
+public struct GrantedAgent: Codable, Hashable, Sendable, Identifiable {
+    public var agent: String
+    public var name: String?
+    public var role: InviteRole
+    public var id: String { agent }
+    public var title: String { name?.isEmpty == false ? name! : agent }
+
+    public init(agent: String, name: String? = nil, role: InviteRole = .guest) {
+        self.agent = agent
+        self.name = name
+        self.role = role
     }
 }
 

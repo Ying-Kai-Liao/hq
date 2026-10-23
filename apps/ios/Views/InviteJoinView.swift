@@ -179,8 +179,38 @@ struct NewChatSheet: View {
         Array(Set(store.bots.values.compactMap(\.hqAgent).filter { !$0.isEmpty })).sorted()
     }
 
+    /// What the computer says was granted; nil from a host that doesn't say (then the fallback below).
+    private var granted: [GrantedAgent]? { store.hello?.grantedAgents }
+
     var body: some View {
         CardForm {
+            if let granted {
+                CardSection("Your agents", footer: granted.isEmpty ? "\(store.hostName) hasn't given you an agent yet." : nil) {
+                    ForEach(granted) { item in
+                        Button { Task { await start(item.agent) } } label: {
+                            HStack {
+                                Label(item.title, systemImage: "bubble.left")
+                                Spacer()
+                                Text(item.role.title).font(.subheadline).foregroundStyle(Palette.secondary)
+                            }
+                            .foregroundStyle(Palette.text)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(busy)
+                    }
+                }
+                if let error { Text(error).font(.footnote).foregroundStyle(Palette.danger) }
+            } else {
+                fallback
+            }
+        }
+        .background(Palette.background)
+        .safeAreaInset(edge: .top, spacing: 0) { ModalHeader("New chat") }
+    }
+
+    @ViewBuilder private var fallback: some View {
+        Group {
             if !known.isEmpty {
                 CardSection("Your agents") {
                     ForEach(known, id: \.self) { agent in
@@ -215,8 +245,6 @@ struct NewChatSheet: View {
             .buttonStyle(.primary)
             .disabled(busy || typed.trimmingCharacters(in: .whitespaces).isEmpty)
         }
-        .background(Palette.background)
-        .safeAreaInset(edge: .top, spacing: 0) { ModalHeader("New chat") }
     }
 
     private func start(_ agent: String) async {

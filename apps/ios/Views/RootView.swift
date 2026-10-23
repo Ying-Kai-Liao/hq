@@ -86,6 +86,8 @@ struct RootView: View {
                 StateTab()
                     .safeAreaInset(edge: .bottom, spacing: 0) { AccessBanners() }
             }
+            // Usage and widgets are the owner's: an account that only joined computers by invite has none.
+            .hidden(!accounts.computers.isEmpty && accounts.ownedComputers.isEmpty)
         }
         .tint(Palette.text)
         // Opening a bot (notification, widget, link) always lands on the Bots tab.

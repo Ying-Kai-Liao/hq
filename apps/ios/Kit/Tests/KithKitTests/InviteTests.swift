@@ -154,6 +154,18 @@ private func link(_ query: String, scheme: String = "kith") -> URL { URL(string:
     #expect(!InviteProof.isUnknownMethod(HostError.http(403, "That isn't this invite's token.")))
 }
 
+@Test func grantedAgentsInTheMemberHelloDecodeAndAreOptional() throws {
+    let base = #""hostId":"h1","name":"Mac","version":"3.0.0","os":"macos","rev":4"#
+    let with = try JSONDecoder().decode(Hello.self, from: Data(
+        #"{\#(base),"grantedAgents":[{"agent":"house","name":"House","role":"guest"},{"agent":"work","role":"member"},{"agent":"x","role":"odd"}]}"#.utf8))
+    #expect(with.grantedAgents?.map(\.agent) == ["house", "work", "x"])
+    #expect(with.grantedAgents?.map(\.role) == [.guest, .member, .guest])
+    #expect(with.grantedAgents?.map(\.title) == ["House", "work", "x"])
+    // An older host, or an owner's hello, says nothing; a malformed list is read as nothing too.
+    #expect(try JSONDecoder().decode(Hello.self, from: Data("{\(base)}".utf8)).grantedAgents == nil)
+    #expect(try JSONDecoder().decode(Hello.self, from: Data(#"{\#(base),"grantedAgents":"changed"}"#.utf8)).grantedAgents == nil)
+}
+
 // MARK: - requests
 
 @Test func hostCallsUseTheHostsMethodsAndShapes() async throws {
