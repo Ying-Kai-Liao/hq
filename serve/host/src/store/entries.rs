@@ -29,6 +29,8 @@ pub(super) const ENTRY_COLS: &str = "seq, id, bot_id, rev, kind, turn, data, cre
 const LIVE_CHAT: &str = "WHERE NOT EXISTS (SELECT 1 FROM bots WHERE id = ?2 AND deleted = 1)";
 
 impl Store {
+    /// Production writes go through `Hub::add_entry` (which holds and retries); this is the tests' direct way in.
+    #[cfg(test)]
     pub fn insert_entry(&self, lane: &Lane, kind: EntryKind, turn: i64, data: &Value) -> Result<Entry> {
         self.insert_entry_at(lane, kind, turn, data, now_ms())
     }
