@@ -314,6 +314,33 @@ describe("revoking a bot device", () => {
 });
 
 describe("sweep", () => {
+  it("deletes processed events and finished access requests older than 30 days, and keeps recent and pending ones", async () => {
+    const day = 86_400_000;
+    const now = Date.now();
+    for (const [id, age] of [["old", 31], ["new", 29]] as const)
+      await env.DB.prepare("INSERT INTO processed_events(provider, event_id, processed_at) VALUES ('clerk', ?, ?)").bind(`sw_${id}`, now - age * day).run();
+    const host = await newHost();
+    await env.DB.prepare("INSERT INTO accounts(user_id, created_at) VALUES ('sw_user', ?)").bind(now).run();
+    await env.DB.prepare("INSERT INTO devices(id, owner_user_id, sign_pub, name, platform, created_at) VALUES ('sw_dev', 'sw_user', 'sw_pub', 'x', 'ios', ?)").bind(now).run();
+    const req = (id: string, status: string, age: number) =>
+      env.DB.prepare(
+        `INSERT INTO access_requests(id, computer_id, device_id, user_id, status, commit_hash, created_at, expires_at)
+         VALUES (?, ?, 'sw_dev', 'sw_user', ?, 'h', ?, ?)`,
+      ).bind(id, host.cid, status, now - age * day, now - age * day + 600_000).run();
+    await req("sw_old_approved", "approved", 40);
+    await req("sw_old_denied", "denied", 40);
+    await req("sw_old_cancelled", "cancelled", 40);
+    await req("sw_new_approved", "approved", 5);
+    await req("sw_old_pending", "pending", 40);
+    await sweep(env, now);
+    await sweep(env, now); // twice: nothing left to delete, nothing breaks
+    const ev = await env.DB.prepare("SELECT event_id FROM processed_events WHERE event_id LIKE 'sw_%'").all<{ event_id: string }>();
+    expect(ev.results.map((r) => r.event_id)).toEqual(["sw_new"]);
+    const rq = await env.DB.prepare("SELECT id FROM access_requests WHERE id LIKE 'sw_%'").all<{ id: string }>();
+    // The old pending one is flipped to expired by the same sweep and is deleted by the second sweep.
+    expect(rq.results.map((r) => r.id).sort()).toEqual(["sw_new_approved"]);
+  });
+
   it("deletes unaccepted bot invites expired more than 7 days ago, and keeps the rest", async () => {
     const host = await newHost();
     const stale = await invite(host);
