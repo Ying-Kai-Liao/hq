@@ -5,9 +5,8 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 use super::{
-    After, AgentPicker, App, Bot, COLORS, Editor, FIELDS, Field, Form, GroupField, GroupForm, Overlay, PERMISSION_MODES,
-    SHAPES, Toggle,
-    cycle, merge_toggles,
+    After, AgentPicker, App, Bot, COLORS, Editor, FIELDS, Field, Form, GroupField, GroupForm, Overlay,
+    PERMISSION_MODES, SHAPES, Toggle, cycle, merge_toggles,
 };
 use crate::tui::manage::Page;
 
