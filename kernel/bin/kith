@@ -104,7 +104,32 @@ esac
 
 # An agent is a folder in the agents folder: its role (role/, its own repo: agent.md, skills, tools) next to its life
 # (memory/, data/, files/). Older layouts: the role is the folder itself and the life is <state>/agents/<name>.
-agent_dir() { for d in "$KITH_AGENTS/$1/role" "$KITH_AGENTS/$1" "$KITH/agents/$1"; do [[ -f $d/agent.md ]] && { echo "$d"; return; }; done; }
+agent_dir() { for d in "$KITH_AGENTS/$1/role" "$KITH_AGENTS/$1" "$KITH/agents/$1"; do [[ -f $d/agent.md ]] && { echo "$d"; return; }; done; return 0; }   # a miss is empty output, not a failure (set -e)
+
+# Installed agent names from all three layouts, one per line, deduped.
+agent_names() {
+  local d
+  for d in "$KITH_AGENTS"/*/ "$KITH"/agents/*/; do
+    if [[ -f ${d}role/agent.md || -f ${d}agent.md ]]; then basename "$d"; fi
+  done | sort -u
+}
+# Names that start with, contain, or sit within edit distance 2 of the typed one, comma-separated.
+agent_suggest() {
+  agent_names | awk -v t="$1" '
+    function lev(a, b,  i, j, la, lb, c, m, d) {
+      la = length(a); lb = length(b)
+      for (i = 0; i <= la; i++) d[i, 0] = i
+      for (j = 0; j <= lb; j++) d[0, j] = j
+      for (i = 1; i <= la; i++) for (j = 1; j <= lb; j++) {
+        c = (substr(a, i, 1) == substr(b, j, 1)) ? 0 : 1
+        m = d[i-1, j] + 1; if (d[i, j-1] + 1 < m) m = d[i, j-1] + 1; if (d[i-1, j-1] + c < m) m = d[i-1, j-1] + c
+        d[i, j] = m
+      }
+      return d[la, lb]
+    }
+    { if (index($0, t) || index(t, $0) || lev($0, t) <= 2) out = out (out ? ", " : "") $0 }
+    END { print out }'
+}
 
 if [[ $1 == ls && ${2:-} == --json ]]; then
   "$KITH/bin/kith-pkg" list --json | python3 -c '
@@ -136,7 +161,12 @@ fi
 agent=$1; shift
 [[ ${1:-} == --info-json ]] && exec "$KITH/bin/kith-info" "$agent"
 src_pkg=$(agent_dir "$agent")
-[[ -n $src_pkg ]] || { echo "kith: no agent '$agent' (try: kith ls, or kith install <github-link>)" >&2; exit 1; }
+if [[ -z $src_pkg ]]; then
+  echo "kith: no agent named \"$agent\"." >&2
+  guess=$(agent_suggest "$agent")
+  if [[ -n $guess ]]; then echo "Did you mean: $guess?" >&2; else echo "Run kith ls to see your agents." >&2; fi
+  exit 2
+fi
 [[ ${1:-} == --backups-json ]] && exec python3 "$KITH/lib/kith_accounts.py" backups-json "$agent" "$src_pkg/agent.md"
 if [[ $src_pkg == */role ]]; then home=${src_pkg%/role}; else home="$KITH_STATE/agents/$agent"; fi
 
