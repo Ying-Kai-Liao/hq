@@ -9,7 +9,7 @@
 #   kith ls [--json]                list agents (--json: name, description, home, model, effort, harness, for programs)
 #   kith who <words>                which agent owns this work: skills, tools, "Not yours" lines searched (kith-who)
 #   kith <agent> [-p ID] [-m MODEL] [-e EFFORT] [-H HARNESS] [--permission-mode MODE|--bypass] [task...]  interactive without a task, one-shot with one
-#   kith <agent> --resume THREAD    pick up in this terminal a thread started in the app, or a Claude session id (kith-sessions)
+#   kith <agent> --resume|-r THREAD   pick up in this terminal a thread started in the app, or a Claude session id; -r alone: pick from the recent ones; -c: the latest begun here (kith-sessions)
 #   kith <agent> --print [...]      show the assembled system prompt, don't run
 #   kith <agent> --inspect          start one run and report what it loads (tools, MCP servers, skills, plugins)
 #   kith <agent> --info-json        for a program (the bot detail page): one JSON object, the agent's role, package, skills, tools,
@@ -272,13 +272,15 @@ sys.exit("kith: MCP servers not connected: %s" % bad if bad else 0)'
   exit $?
 fi
 
-print=0 project="" launch=0 hold="" resume_thread="" backup="" acct="" backup_cfg_var="" backup_cfg_dir="" backup_api_helper=""
+print=0 project="" launch=0 hold="" resume_thread="" resume_pick="" backup="" acct="" backup_cfg_var="" backup_cfg_dir="" backup_api_helper=""
 while [[ $# -gt 0 ]]; do
   case $1 in
     --print)      print=1; shift ;;
     --launch-json) launch=1; shift ;;
     --hold)       hold=$2; shift 2 ;;
     --resume)     resume_thread=${2:?kith: --resume needs a thread id or a Claude session id}; shift 2 ;;
+    -r)           if [[ -n ${2:-} && $2 != -* ]]; then resume_thread=$2; shift 2; else resume_pick=pick; shift; fi ;;
+    -c|--continue) resume_pick=latest; shift ;;
     --backup)     backup=${2:?kith: --backup needs a chain entry id}; shift 2 ;;
     -p|--project) project=$2; shift 2 ;;
     -m|--model)   KITH_MODEL=$2; shift 2 ;;
@@ -287,15 +289,20 @@ while [[ $# -gt 0 ]]; do
     --permission-mode) KITH_PERMISSION_MODE=$2; shift 2 ;;
     --bypass)     KITH_PERMISSION_MODE=bypassPermissions; shift ;;
     --)           shift; break ;;
+    -*[[:space:]]*) break ;;   # a task that starts with a dash ("- one thing ...")
+    -*)           echo "kith: unknown flag '$1' (kith --help lists them)" >&2; exit 1 ;;
     *)            break ;;
   esac
 done
 # --resume THREAD: pick up in this terminal a session started in the app (or another terminal); the host names it
 # (bin/kith-sessions), and the run starts in the folder it ran in. Only the owner's own claude sessions are listed.
+# -r alone picks the session from the agent's recent ones, -c takes the latest begun in this folder; then the same.
 r_sid="" r_cwd="" r_from=""
-if [[ -n $resume_thread ]]; then
+if [[ -n $resume_thread || -n $resume_pick ]]; then
   [[ $launch -eq 0 && $print -eq 0 ]] || { echo "kith: --resume is for a run in this terminal, not --launch-json or --print" >&2; exit 1; }
   [[ $p_owner == 1 ]] || { echo "kith: --resume is for the owner's own sessions" >&2; exit 1; }
+  if [[ -z $resume_thread && $resume_pick == pick ]]; then resume_thread=$(python3 "$KITH/bin/kith-sessions" pick "$agent") || exit 1
+  elif [[ -z $resume_thread ]]; then resume_thread=$(python3 "$KITH/bin/kith-sessions" latest "$agent" "$PWD") || exit 1; fi
   eval "$(python3 "$KITH/bin/kith-sessions" resolve "$agent" "$resume_thread")" || exit 1
   [[ -z $r_cwd ]] || cd "$r_cwd" || exit 1
 fi
@@ -437,19 +444,11 @@ else
 fi
 [[ $p_owner == 1 ]] && writable="$home/memory"$'\n'"$home_real/memory" \
   || writable=$(printf '%s\n' "$mem" "$(real "$mem")" "$shared" "$(real "$shared")" "$files" "$(real "$files")")
-# dontAsk refuses whatever no allow rule names, so the owner's run gets its own folder to read and memory/data/files to edit, never role/ (every spelling, as the add-dir
-# block below) and the tools its role declares (lib/kith_caps.py). Not for anyone else: their reach is the add-dirs.
-own_dirs=""
-if [[ $p_owner == 1 ]]; then
-  for d in "$home" "$home_real" "$HOME/kith/agents/$agent" "$HOME/hq/agents/$agent"; do
-    [[ -d $d && $(cd "$d" && pwd -P) == "$home_real" ]] && own_dirs+="$d"$'\n'
-  done
-  own_dirs=$(printf '%s' "$own_dirs" | awk '!seen[$0]++')
-fi
-fill < "$pkg/settings.json" | OWN_DIRS=$own_dirs ROLE_DIR=$pkg API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post HOOK="\"$KITH/bin/kith-cost\" tag" SESSIONS_HOOK="\"$KITH/bin/kith-sessions\" record" WRITABLE="$writable
+fill < "$pkg/settings.json" | API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post HOOK="\"$KITH/bin/kith-cost\" tag" SESSIONS_HOOK="\"$KITH/bin/kith-sessions\" record" WRITABLE="$writable
 $src_pkg/skills/learned
+$(cd "$src_pkg" && pwd -P)/skills/learned
 $state_projects" python3 -c '
-import json, os, sys
+import json, os, re, sys
 s = json.load(sys.stdin)
 s.setdefault("hooks", {}).setdefault("SessionStart", []).append(
     {"hooks": [{"type": "command", "command": os.environ["HOOK"], "timeout": 10}]})
@@ -480,11 +479,17 @@ for r in roots:
                 s["permissions"]["deny"].append(rule)
 s["permissions"]["deny"].extend(d for d in os.environ["DENY"].split("\n") if d)   # from the membership of the person the run is for
 allow = s["permissions"].setdefault("allow", [])
+# A role rule for a kernel tool, Bash({{KITH}}/bin/tool...), names the path bare; the path may have a space, and then a
+# working call quotes it and only Bash("{{KITH}}/bin/tool"...) matches. Add that spelling next to each such rule.
+kbin = "Bash(%s/bin/" % os.environ["KITH_ROOT"]
+for rules in (allow, s["permissions"]["deny"]):
+    for r in [r for r in rules if r.startswith(kbin)]:
+        name = re.match(r"[^ :)]*", r[len(kbin):]).group()
+        q = "Bash(\"%s%s\"%s" % (kbin[5:], name, r[len(kbin) + len(name):])
+        if q not in rules:
+            rules.insert(rules.index(r) + 1, q)
 allow.extend(r for r in dict.fromkeys("Edit(/%s/**)" % d for d in os.environ["WRITABLE"].split("\n") if d.strip()) if r not in allow)
 sys.path.insert(0, os.environ["KITH_ROOT"] + "/lib")
-import kith_caps
-own = [d for d in os.environ["OWN_DIRS"].split("\n") if d]
-allow.extend(r for r in dict.fromkeys(kith_caps.own(own) + kith_caps.allow(os.environ["ROLE_DIR"], own)) if r not in allow)
 from kith_settings import get
 if not os.environ["PERM_MODE"]:
     s["permissions"].setdefault("defaultMode", get("permission_mode"))

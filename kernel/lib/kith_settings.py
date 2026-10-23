@@ -40,7 +40,7 @@ from kith_paths import paths  # noqa: E402  the one place that knows where kith'
 
 FILE = paths()['KITH_MACHINE'] / 'settings.json'
 DEFAULTS = {'permission_mode': 'auto', 'plugins': [], 'backups': [], 'call_model': 'sonnet'}
-CHOICES = {'permission_mode': ('default', 'manual', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions')}
+CHOICES = {'permission_mode': ('default', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions')}
 
 
 def read():
@@ -54,6 +54,13 @@ def read():
     if not isinstance(s, dict):
         return {}, f'{FILE} is not a JSON object'
     agents = s.get('agents', {})
+    # 'manual' was a mode kith invented; Claude Code's own 'default' is what it always meant. Old files still read back.
+    if s.get('permission_mode') == 'manual':
+        s['permission_mode'] = 'default'
+    if isinstance(agents, dict):
+        for a in agents.values():
+            if isinstance(a, dict) and a.get('permission_mode') == 'manual':
+                a['permission_mode'] = 'default'
     if not isinstance(agents, dict) or not all(isinstance(a, dict) for a in agents.values()):
         return {}, f'{FILE}: agents is not {{"<agent>": {{...}}}}'
     plugins = s.get('plugins', [])

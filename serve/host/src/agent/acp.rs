@@ -184,7 +184,10 @@ impl Acp {
         env: &[(String, String)],
     ) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Incoming>)> {
         let mut process = crate::shell::exec(command).tokio();
+        // A token or socket the host itself was started with is never an agent's; a guest's own comes in `env`.
         process
+            .env_remove(crate::runauth::TOKEN_ENV)
+            .env_remove(crate::runauth::SOCKET_ENV)
             .envs(env.iter().map(|(k, v)| (k, v)))
             .current_dir(cwd)
             .stdin(Stdio::piped())

@@ -15,6 +15,7 @@ mod market;
 mod mcp;
 mod remote;
 mod routines;
+mod runauth;
 mod screen;
 mod service;
 mod shell;
@@ -565,6 +566,8 @@ async fn serve(bind: &str, port: u16) -> Result<()> {
     write_token_file(&token)?;
     let identity = identity::Identity::load_or_create(&service::data_dir())?;
     tokio::task::spawn_blocking(backends::hydrate_path).await?;
+    // Before any run starts, so a guest's first run already gets its token.
+    runauth::start();
     let hub = hub::Hub::new(store, host_id, identity, token, port);
     hub.start()?;
     background::start(&hub);
