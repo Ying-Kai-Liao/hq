@@ -12,7 +12,7 @@ struct KithApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("onboardingCompleted") private var onboardingCompleted = false
     /// Cold launch with a computer to reach: the splash covers its connect and catch-up.
-    @State private var launching = !AppStore.shared.accounts.computers.isEmpty
+    @State private var launching = !AppStore.shared.accounts.computers.isEmpty && !DemoScreens.active
     init() {
         // A tapped widget bot arrives as an intent, not a URL.
         OpenBotIntent.open = { AppStore.shared.open($0) }
@@ -69,43 +69,65 @@ struct KithApp: App {
                     }
                     // Only leaving for the background disconnects; `.inactive` (Control Center,
                     // app switcher, system prompts) comes and goes too often to drop the link.
-                    app.accounts.setActive(phase != .background)
+                    app.accounts.setActive(phase != .background && !DemoScreens.active)
                     // Back in the app: a computer may have joined the account meanwhile.
                     if phase == .active {
                         Task { await app.accounts.refreshCloud() }
                     }
                 }
                 #if DEBUG
-                .overlay {
-                    // Design token gallery for screenshots: launch with -kithTokenGallery.
-                    if ProcessInfo.processInfo.arguments.contains("-kithTokenGallery") { KithTokenGallery() }
-                    if ProcessInfo.processInfo.arguments.contains("-kithComponentGallery") { KithComponentGallery() }
-                }
-                .task {
-                    // Simulator/UI-test pairing: SIMCTL_CHILD_KITH_PAIR_URL=kith://pair?...
-                    if let s = ProcessInfo.processInfo.environment["KITH_PAIR_URL"], let p = Pairing(string: s) {
-                        _ = try? await app.pair(p)
-                    }
-                    if ProcessInfo.processInfo.environment["KITH_OPEN_USAGE"] != nil { app.showUsage = true }
-                    // Screenshots: Settings, opened on the Widgets & Live Activities page.
-                    if ProcessInfo.processInfo.environment["KITH_STATE_SURFACE"] != nil { app.showSettings = true; app.openWidgets = true }
-                    if ProcessInfo.processInfo.environment["KITH_OPEN_SETTINGS"] != nil { app.showSettings = true }
-                    if ProcessInfo.processInfo.environment["KITH_OPEN_COMPUTERS"] != nil { app.showComputers = true }
-                    // Screenshots: KITH_OPEN_URL=kith://bot/<botId>?scope=local&computer=<id>, without the system prompt.
-                    if let s = ProcessInfo.processInfo.environment["KITH_OPEN_URL"], let url = URL(string: s) {
-                        try? await Task.sleep(for: .seconds(1))
-                        app.open(url)
-                    }
-                    await LiveActivities.shared.previewIfRequested()
-                    if ProcessInfo.processInfo.environment["KITH_OPEN_SCREEN"] != nil {
-                        try? await Task.sleep(for: .seconds(2))
-                        app.currentStore?.screenRequest = ScreenRequest()
-                    }
-                }
+                .modifier(DebugHooks(app: app))
                 #endif
         }
     }
 }
+
+#if DEBUG
+/// The screenshot and simulator hooks (galleries, pairing, demo screens), kept out of `KithApp.body` so its
+/// modifier chain stays quick to type-check.
+private struct DebugHooks: ViewModifier {
+    let app: AppStore
+
+    func body(content: Content) -> some View {
+        content
+        .overlay {
+            // Design token gallery for screenshots: launch with -kithTokenGallery.
+            if ProcessInfo.processInfo.arguments.contains("-kithTokenGallery") { KithTokenGallery() }
+            if ProcessInfo.processInfo.arguments.contains("-kithComponentGallery") { KithComponentGallery() }
+        }
+        .task {
+            // Simulator/UI-test pairing: SIMCTL_CHILD_KITH_PAIR_URL=kith://pair?...
+            if let s = ProcessInfo.processInfo.environment["KITH_PAIR_URL"], let p = Pairing(string: s) {
+                _ = try? await app.pair(p)
+            }
+            if ProcessInfo.processInfo.environment["KITH_OPEN_USAGE"] != nil { app.showUsage = true }
+            // Screenshots: Settings, opened on the Widgets & Live Activities page.
+            if ProcessInfo.processInfo.environment["KITH_STATE_SURFACE"] != nil { app.showSettings = true; app.openWidgets = true }
+            if ProcessInfo.processInfo.environment["KITH_OPEN_SETTINGS"] != nil { app.showSettings = true }
+            if ProcessInfo.processInfo.environment["KITH_OPEN_COMPUTERS"] != nil { app.showComputers = true }
+            // Screenshots: KITH_OPEN_URL=kith://bot/<botId>?scope=local&computer=<id>, without the system prompt.
+            if let s = ProcessInfo.processInfo.environment["KITH_OPEN_URL"], let url = URL(string: s) {
+                try? await Task.sleep(for: .seconds(1))
+                app.open(url)
+            }
+            if let screen = DemoScreens.name {
+                // One case per demo screen: later redesign PRs add theirs here.
+                try? await Task.sleep(for: .seconds(1))
+                switch screen {
+                case "settings": app.showSettings = true
+                case "widgets": app.showSettings = true; app.openWidgets = true
+                default: break // "crew" and "crew-typing" are the root
+                }
+            }
+            await LiveActivities.shared.previewIfRequested()
+            if ProcessInfo.processInfo.environment["KITH_OPEN_SCREEN"] != nil {
+                try? await Task.sleep(for: .seconds(2))
+                app.currentStore?.screenRequest = ScreenRequest()
+            }
+        }
+    }
+}
+#endif
 
 /// One `AccountStore` per account context: switching accounts retires the old one so
 /// in-flight work can't land on another user's screen or storage.
@@ -143,6 +165,13 @@ final class AppStore {
         Analytics.shared.userID = { [session] in session.userID }
         CrashReports.shared.start()
         contextID = storage.id
+        #if DEBUG
+        // Screenshots in CI have no host: `-kithDemoScreens <name>` swaps in a fixed account (see DemoScreens).
+        if DemoScreens.active {
+            (accounts, cloud) = (AccountStore.demo(storage: storage), nil)
+            return
+        }
+        #endif
         (accounts, cloud) = Self.makeAccounts(storage, session: session)
     }
 
