@@ -28,10 +28,6 @@ pub struct Listed {
     pub bot_device_id: String,
     pub invite_id: String,
     pub device_key: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub provider: Option<String>,
 }
 
 /// Applies the cloud's bot list. `None` (an older cloud that doesn't list bots) changes nothing. Never fails the pull:

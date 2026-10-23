@@ -886,8 +886,8 @@ async fn ask(hub: &Arc<Hub>, caller: &Caller, bot: &BotGuest, b: &Value) -> Resu
             return Err(BotError::new(429, "busy", format!("This bot already has {} turns running.", bot.concurrent)));
         }
     }
-    // Hook for the thread-origin package: it also refuses here with `heldByOtherWriter` when an app has taken the
-    // thread over, and sets the thread's `liveWriter` to "bot" while this turn runs.
+    // TODO(writer claim): refuse here with `heldByOtherWriter` when an app user holds this thread. The gate goes on the
+    // generic writer-claim API of the continue-anywhere work once it merges; `liveWriter` below is display only.
 
     let chat = match chat {
         Some(c) => c,
@@ -911,6 +911,8 @@ async fn ask(hub: &Arc<Hub>, caller: &Caller, bot: &BotGuest, b: &Value) -> Resu
     hub.store.audit_add(&bot.person_id, caller.device_key(), "botAsk", Some(&conv.conversation_id), true);
     let prompt = crate::chat::prompt::of_bot_guest(first, provider_label(&bot.provider), &bot.name, &owner, text);
     hub.send_cmd(&chat, Cmd::Send { lane, entry_id: entry.id.clone(), text: prompt, route: false })?;
+    // TODO(writer claim): take the claim for this bot turn here, and release it in `turn_ended`.
+    set_writer(hub, &chat, &conv.thread_root, Some("bot"));
     Ok(json!({
         "conversation": conv.conversation_id, "entryId": entry.id, "turn": turn, "seq": entry.rev,
         "state": if busy { "queued" } else { "running" }, "queued": queued + usize::from(busy && state != "queued"),
@@ -929,9 +931,14 @@ fn open_conversation(
 ) -> Result<BotConversation> {
     let id = format!("cv_{}", crypto::b64(&crypto::random::<12>()));
     let label = format!("from {} · {owner}'s {}", provider_label(&bot.provider), bot.name);
+    // The thread's origin keys live in the root's `thread` summary, where the terminal threads keep theirs and where a
+    // recount of the summary carries them over (`terminal::carry_over`).
     let root = json!({
-        "text": label, "style": "info", "conversation": id, "origin": "bot", "originLabel": label,
-        "originBot": {"provider": bot.provider, "owner": bot.owner_person, "name": bot.name},
+        "text": label, "style": "info", "conversation": id,
+        "thread": {
+            "origin": "bot", "originLabel": label, "liveWriter": null, "liveBusy": false,
+            "originBot": {"provider": bot.provider, "owner": bot.owner_person, "name": bot.name},
+        },
     });
     let root = hub
         .add_entry(&Lane::main(chat), EntryKind::Notice, hub.store.max_turn(chat), &root)
@@ -952,6 +959,37 @@ fn open_conversation(
     };
     hub.store.put_bot_conversation(&conv)?;
     Ok(conv)
+}
+
+/// The root's `thread` summary of a conversation.
+fn thread_summary(hub: &Hub, chat: &str, root: &str) -> Option<(Entry, Value)> {
+    let e = hub.store.entry(root).filter(|e| e.bot_id == chat)?;
+    let summary = e.data["thread"].clone();
+    Some((e, if summary.is_object() { summary } else { json!({}) }))
+}
+
+/// Marks who writes to a conversation's thread (`bot`, `app` or nobody) in its root summary, for the apps' origin tag.
+fn set_writer(hub: &Hub, chat: &str, root: &str, writer: Option<&str>) {
+    let Some((mut e, mut summary)) = thread_summary(hub, chat, root) else { return };
+    summary["liveWriter"] = writer.map_or(Value::Null, Value::from);
+    summary["liveBusy"] = writer.is_some().into();
+    if e.data["thread"] != summary {
+        e.data["thread"] = summary;
+        hub.set_entry(root, &e.data);
+    }
+}
+
+/// A host turn on `lane` ended: a bot conversation's thread is free again unless more asks wait in it.
+pub(crate) fn turn_ended(hub: &Hub, lane: &Lane) {
+    let Some(root) = &lane.thread else { return };
+    let Some(conv) = hub.store.bot_conversation_of_thread(&lane.chat, root) else { return };
+    let waiting = hub
+        .store
+        .thread(&lane.chat, root, 500)
+        .unwrap_or_default()
+        .iter()
+        .any(|e| e.kind == EntryKind::User.as_str() && e.data["status"] == "queued");
+    set_writer(hub, &conv.chat_bot_id, root, waiting.then_some("bot"));
 }
 
 fn own_conversation(hub: &Hub, bot: &BotGuest, b: &Value) -> Result<BotConversation> {
