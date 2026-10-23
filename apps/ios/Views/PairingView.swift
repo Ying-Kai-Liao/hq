@@ -90,7 +90,7 @@ private struct InstallPage: View {
                         Image(systemName: "laptopcomputer")
                             .font(.system(size: 150, weight: .ultraLight))
                             .foregroundStyle(Palette.tertiary)
-                        CharacterAvatar(shape: "blob", color: "blue", size: 52, mood: .working)
+                        CharacterAvatar(portrait: "crew-builder", size: 52, mood: .working)
                             .offset(y: -12)
                     }
                     .frame(maxWidth: .infinity)

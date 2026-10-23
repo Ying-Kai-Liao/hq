@@ -31,9 +31,6 @@ public extension UsageProvider {
     /// Claude and Codex run through ACP adapters (`claude-acp`, `codex-acp`); others by their own id.
     var registry: String { ["claude", "codex"].contains(id) ? "\(id)-acp" : id }
 
-    /// The character that stands for this provider.
-    var mascotShape: String { id == "codex" ? "hex" : "blob" }
-
     var tightest: UsageWindow? { windows.max { $0.percent < $1.percent } }
 }
 
@@ -52,7 +49,7 @@ public extension UsageWindow {
     }
 }
 
-/// A provider's character, with a red "!" once any of its limits is nearly used up.
+/// A provider's logo, with a red "!" once any of its limits is nearly used up.
 public struct ProviderMascot: View {
     let provider: UsageProvider
     let size: CGFloat
@@ -67,12 +64,15 @@ public struct ProviderMascot: View {
     public var body: some View {
         let full = (provider.tightest?.percent ?? 0) >= 90
         Group {
+            let logo = Image("agent-\(provider.registry)", bundle: .module)
+                .resizable().scaledToFit().padding(size * 0.08)
+                .foregroundStyle(provider.tint)
             if style == .original {
-                Image("agent-\(provider.registry)", bundle: .module)
-                    .resizable().scaledToFit().padding(size * 0.08)
-                    .foregroundStyle(provider.tint)
+                logo
             } else {
-                CharacterAvatar(shape: provider.mascotShape, tint: provider.tint, size: size, mood: full ? .needsInput : .idle)
+                // The character style puts the same logo on a soft tile of the provider's color.
+                logo.padding(size * 0.12)
+                    .background(provider.tint.opacity(0.14), in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
                     .overlay(alignment: .topTrailing) {
                         if full {
                             Image(systemName: "exclamationmark.circle.fill")
@@ -82,7 +82,7 @@ public struct ProviderMascot: View {
                                 .offset(x: size * 0.12, y: -size * 0.12)
                         }
                     }
-                }
+            }
         }
         .frame(width: size, height: size)
     }

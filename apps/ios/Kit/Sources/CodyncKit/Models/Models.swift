@@ -11,9 +11,11 @@ public struct Bot: Codable, Identifiable, Hashable, Sendable {
     public var members: [String]
     public var name: String
     public var description: String
+    /// `kith:<paletteId>` recolours the body; anything else (old ids like `blue` too) is the original.
     public var avatarColor: String
+    /// Wire only: Codync's dot shapes are gone from rendering.
     public var avatarShape: String
-    /// `auto` | `crew:<name>` | `spare:<name>` | `shape`; a host that doesn't send it means `auto`.
+    /// `auto` | `crew:<name>` | `spare:<name>` (an old `shape` means `auto`); a host that doesn't send it means `auto`.
     public var avatarSource: String = "auto"
     public var backend: String
     public var command: String?
@@ -403,8 +405,8 @@ public struct BotDraft: Codable, Hashable, Sendable {
     /// Only sent when the user changes it.
     public var harnessMemory: Bool?
 
-    public init(name: String = "", description: String = "", avatarColor: String = AvatarPalette.colors.randomElement()!.id,
-                avatarShape: String = AvatarPalette.shapes.randomElement()!, backend: String = "claude", cwd: String = "",
+    public init(name: String = "", description: String = "", avatarColor: String = "",
+                avatarShape: String = "blob", backend: String = "claude", cwd: String = "",
                 permission: String = "auto") {
         self.name = name
         self.description = description
@@ -453,7 +455,7 @@ extension Bot {
         members = try c.decodeIfPresent([String].self, forKey: .members) ?? []
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Bot"
         description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
-        avatarColor = try c.decodeIfPresent(String.self, forKey: .avatarColor) ?? "blue"
+        avatarColor = try c.decodeIfPresent(String.self, forKey: .avatarColor) ?? ""
         avatarShape = try c.decodeIfPresent(String.self, forKey: .avatarShape) ?? "blob"
         avatarSource = try c.decodeIfPresent(String.self, forKey: .avatarSource) ?? "auto"
         backend = try c.decodeIfPresent(String.self, forKey: .backend) ?? "custom"

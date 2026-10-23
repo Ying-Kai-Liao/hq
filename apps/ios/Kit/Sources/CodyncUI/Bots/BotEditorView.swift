@@ -171,7 +171,7 @@ struct BotSettingsForm: View {
         if part == .often { oftenSections } else { allSections }
     }
 
-    /// What the avatar shows now; nil when it is drawn as a shape.
+    /// The body the avatar shows now.
     private var draftPortrait: String? {
         CrewAvatar.asset(for: draft, isGroup: model.bots[draft.id ?? ""]?.isGroup ?? false)
     }
@@ -184,13 +184,7 @@ struct BotSettingsForm: View {
                         withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { pickingAvatar.toggle() }
                     } label: {
                         ValueRow("Avatar") {
-                            Group {
-                                if let portrait = draftPortrait {
-                                    CharacterAvatar(portrait: portrait, size: 28)
-                                } else {
-                                    CharacterAvatar(shape: draft.avatarShape, color: draft.avatarColor, size: 28)
-                                }
-                            }
+                            CharacterAvatar(portrait: draftPortrait, color: draft.avatarColor, size: 28, id: draft.id ?? "")
                             .padding(5)
                             .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
@@ -425,6 +419,7 @@ struct AvatarPicker: View {
     @Binding var draft: BotDraft
     /// What Automatic shows for this bot.
     let automatic: String?
+    var isGroup = false
 
     private var source: String { draft.avatarSource ?? "auto" }
 
@@ -441,37 +436,37 @@ struct AvatarPicker: View {
             grid(CrewAvatar.names.map { ("crew-\($0)", "crew:\($0)", $0) })
             label("Spares")
             grid(CrewAvatar.spares.map { ("spare-\($0)", "spare:\($0)", $0) })
-            label("Shapes")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(AvatarPalette.shapes, id: \.self) { s in
-                        let on = source == "shape" && s == draft.avatarShape
-                        CharacterAvatar(shape: s, color: draft.avatarColor, size: 36)
-                            .padding(4)
-                            .background(Circle().strokeBorder(on ? Palette.accent : .clear, lineWidth: 2))
-                            .onTapGesture { withAnimation(Motion.hover) { draft.avatarShape = s; draft.avatarSource = "shape" } }
-                            .accessibilityLabel("\(s) shape")
-                            .accessibilityAddTraits(on ? .isSelected : [])
+            if !isGroup {
+                label("Color")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        swatch(stored: "", name: "Original") {
+                            Circle().strokeBorder(Palette.border, lineWidth: 1.5)
+                                .overlay(Image(systemName: "nosign").font(.system(size: 13)).foregroundStyle(Palette.secondary))
+                        }
+                        ForEach(AvatarPalette.colors) { c in
+                            swatch(stored: c.stored, name: c.label) {
+                                Circle().fill(LinearGradient(colors: [Color(hex: c.a), Color(hex: c.b)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            }
+                        }
                     }
+                    .padding(4)
                 }
-                .padding(4)
-            }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(AvatarPalette.colors) { c in
-                        Circle()
-                            .fill(c.color)
-                            .frame(width: 26, height: 26)
-                            .padding(4)
-                            .background(Circle().strokeBorder(c.id == draft.avatarColor ? Palette.accent : .clear, lineWidth: 2))
-                            .onTapGesture { withAnimation(Motion.hover) { draft.avatarColor = c.id; draft.avatarSource = "shape" } }
-                            .accessibilityLabel(c.label)
-                            .accessibilityAddTraits(c.id == draft.avatarColor ? .isSelected : [])
-                    }
-                }
-                .padding(4)
             }
         }
+    }
+
+    /// One color choice; `stored` is what goes in `avatarColor` ("" is the untouched body).
+    private func swatch<Fill: View>(stored: String, name: String, @ViewBuilder fill: () -> Fill) -> some View {
+        let on = stored.isEmpty ? AvatarPalette.pick(draft.avatarColor) == nil : draft.avatarColor == stored
+        return fill()
+            .frame(width: 26, height: 26)
+            .padding(4)
+            .background(Circle().strokeBorder(on ? Palette.accent : .clear, lineWidth: 2))
+            .contentShape(Circle())
+            .onTapGesture { withAnimation(Motion.hover) { draft.avatarColor = stored } }
+            .accessibilityLabel(name)
+            .accessibilityAddTraits(on ? .isSelected : [])
     }
 
     private func label(_ text: String) -> some View {
@@ -485,7 +480,7 @@ struct AvatarPicker: View {
     }
 
     private func portrait(_ asset: String, value: String, name: String) -> some View {
-        CharacterAvatar(portrait: asset, size: 36)
+        CharacterAvatar(portrait: asset, color: draft.avatarColor, size: 36, still: true)
             .padding(4)
             .background(Circle().strokeBorder(source == value ? Palette.accent : .clear, lineWidth: 2))
             .contentShape(Circle())
