@@ -81,9 +81,17 @@ fn tool_near(name: &str, hq_bin: &Path, real: &Path, kernel: Option<&Path>) -> O
     near.into_iter().chain(packaged).find(|p| p.is_file())
 }
 
+/// Environment the tests give the tools `output` runs (a temp `KITH_AUTH` and so on). Tests used to set these on the
+/// process, which raced with the tests that read the real environment; only the child gets them now.
+#[cfg(test)]
+pub(crate) static TEST_ENV: Mutex<Vec<(&'static str, PathBuf)>> = Mutex::new(Vec::new());
+
 /// Runs a tool without a terminal: its output, or None when it can't start or takes too long.
 pub async fn output(bin: &Path, args: &[&str]) -> Option<std::process::Output> {
-    let child = tokio::process::Command::new(bin)
+    let mut cmd = tokio::process::Command::new(bin);
+    #[cfg(test)]
+    cmd.envs(TEST_ENV.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().map(|(k, v)| (*k, v)));
+    let child = cmd
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

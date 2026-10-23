@@ -187,8 +187,7 @@ mod tests {
         }
 
         fn point_env(&self) {
-            // SAFETY: tests in this module hold ONE_AT_A_TIME, so nothing else reads or writes the environment meanwhile.
-            unsafe { std::env::set_var("KITH_AUTH", self.dir.join("auth.json")) };
+            *hq::TEST_ENV.lock().unwrap() = vec![("KITH_AUTH", self.dir.join("auth.json"))];
         }
 
         /// What the handle sync sees: the same CLI, pointed at the temp store.
@@ -199,6 +198,12 @@ mod tests {
 
         fn who(&self, uid: &str) -> Value {
             serde_json::from_str(&self.auth(&["who", "kith", uid])).unwrap()
+        }
+    }
+
+    impl Drop for Rig {
+        fn drop(&mut self) {
+            hq::TEST_ENV.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
         }
     }
 

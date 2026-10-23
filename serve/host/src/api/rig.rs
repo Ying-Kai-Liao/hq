@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use crate::api::devices::Caller;
+use crate::channels::hq::TEST_ENV;
 use crate::hub::Hub;
 use crate::remote::account::{ONE_AT_A_TIME, TEST_BIN};
 use crate::remote::cloud::{self, Owner};
@@ -38,12 +39,9 @@ impl Rig {
             std::fs::create_dir_all(home.join("agents").join(agent)).unwrap();
             std::fs::write(home.join("agents").join(agent).join("agent.md"), format!("# {agent}\n")).unwrap();
         }
-        // SAFETY: every test that touches the environment holds ONE_AT_A_TIME.
-        unsafe {
-            std::env::set_var("KITH_AUTH", dir.join("auth.json"));
-            std::env::set_var("KITH_HOME", &home);
-            std::env::set_var("KITH_STATE", dir.join("state"));
-        }
+        // Only the kith-auth children see these: the process environment is shared with every other test.
+        *TEST_ENV.lock().unwrap() =
+            vec![("KITH_AUTH", dir.join("auth.json")), ("KITH_HOME", home.clone()), ("KITH_STATE", dir.join("state"))];
         let bin = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../kernel/bin/kith-auth");
         *TEST_BIN.lock().unwrap() = Some(bin.clone());
         let store = Store::open(&dir.join("t.db")).unwrap();
@@ -58,12 +56,18 @@ impl Rig {
     }
 
     pub fn auth(&self, args: &[&str]) -> String {
-        let out = std::process::Command::new(&self.bin).args(args).output().unwrap();
+        let out = self.command(args).output().unwrap();
         String::from_utf8_lossy(&out.stdout).into_owned()
     }
 
+    fn command(&self, args: &[&str]) -> std::process::Command {
+        let mut c = std::process::Command::new(&self.bin);
+        c.args(args).envs(TEST_ENV.lock().unwrap().iter().map(|(k, v)| (*k, v)));
+        c
+    }
+
     pub fn auth_ok(&self, args: &[&str]) -> bool {
-        std::process::Command::new(&self.bin).args(args).output().unwrap().status.success()
+        self.command(args).output().unwrap().status.success()
     }
 
     /// Whether kith-auth lets `person` use `agent`.
@@ -126,6 +130,7 @@ impl Rig {
 impl Drop for Rig {
     fn drop(&mut self) {
         *TEST_BIN.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+        TEST_ENV.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
     }
 }
 
