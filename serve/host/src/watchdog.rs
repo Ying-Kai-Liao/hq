@@ -46,9 +46,9 @@ pub fn limit_from(file: Option<&Value>, env: Option<&str>) -> Option<Duration> {
 
 /// Exits older than this no longer count towards the back-off.
 const EXIT_WINDOW_S: u64 = 3600;
-/// Each recent exit doubles the limit, up to this many doublings (180 s -> 24 min): a really deadlocked runtime
+/// Each recent exit doubles the limit, up to this many doublings (180 s -> 12 min): a really deadlocked runtime
 /// is still restarted, just not every three minutes.
-const MAX_DOUBLINGS: u32 = 3;
+const MAX_DOUBLINGS: u32 = 2;
 const EXITS_FILE: &str = "watchdog-exits.json";
 
 /// The stall limit after `recent` watchdog exits within the window.
@@ -84,7 +84,7 @@ struct Tracked(u64);
 
 impl Tracked {
     fn new(label: &'static str) -> Self {
-        let mut guard = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = IN_FLIGHT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let (next, map) = guard.get_or_insert_with(|| (0, HashMap::new()));
         *next += 1;
         map.insert(*next, (label, Instant::now()));
@@ -94,7 +94,7 @@ impl Tracked {
 
 impl Drop for Tracked {
     fn drop(&mut self) {
-        if let Some((_, map)) = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        if let Some((_, map)) = IN_FLIGHT.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut() {
             map.remove(&self.0);
         }
     }
@@ -115,12 +115,12 @@ where
 
 /// How many labelled blocking jobs are queued or running (tokio's own pool counts are unstable API).
 pub fn in_flight_count() -> usize {
-    IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(0, |(_, m)| m.len())
+    IN_FLIGHT.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref().map_or(0, |(_, m)| m.len())
 }
 
 /// The oldest labelled blocking work in flight, as `label=age_s`, at most `n` entries.
 pub fn oldest_in_flight(n: usize) -> Vec<String> {
-    let guard = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
+    let guard = IN_FLIGHT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut all: Vec<_> = guard.as_ref().map(|(_, m)| m.values().copied().collect()).unwrap_or_default();
     all.sort_by_key(|(_, since): &(&str, Instant)| *since);
     all.into_iter().take(n).map(|(label, since)| format!("{label}={}s", since.elapsed().as_secs())).collect()
@@ -297,15 +297,15 @@ mod tests {
         let base = Duration::from_secs(180);
         assert_eq!(backoff_limit(base, 0), base);
         assert_eq!(backoff_limit(base, 1), base * 2);
-        assert_eq!(backoff_limit(base, 3), base * 8);
-        assert_eq!(backoff_limit(base, 50), base * 8);
+        assert_eq!(backoff_limit(base, 3), base * 4);
+        assert_eq!(backoff_limit(base, 50), base * 4);
     }
 
     #[test]
     fn exits_are_counted_in_a_window_and_old_ones_drop() {
         let file = std::env::temp_dir().join(format!("kith-wd-exits-{}", std::process::id()));
         let _ = std::fs::remove_file(&file);
-        assert!(recent_exits(&file, 10_000).is_empty());
+        assert_eq!(recent_exits(&file, 10_000), Vec::<u64>::new());
         assert_eq!(record_exit(&file, 10_000), 1);
         assert_eq!(record_exit(&file, 10_100), 2);
         assert_eq!(recent_exits(&file, 10_200).len(), 2);
@@ -314,7 +314,7 @@ mod tests {
         assert_eq!(record_exit(&file, later), 2);
         // Junk is no history.
         std::fs::write(&file, b"nope").unwrap();
-        assert!(recent_exits(&file, 10_000).is_empty());
+        assert_eq!(recent_exits(&file, 10_000), Vec::<u64>::new());
         let _ = std::fs::remove_file(file);
     }
 
