@@ -14,6 +14,7 @@ import type { HostClient, HostRoute, HostTransport } from '../client/host-client
 import { Observable } from '../lib/observable'
 import { ComposerDrafts } from '@shared/composer-drafts'
 import { canLoadHistory } from '@shared/mirror-window'
+import { guestPrompts, macRole, visibleBots, type GrantedAgent, type GuestPrompt, type MacRole } from '@shared/mac-role'
 
 export type Connection =
   | { kind: 'unpaired' }
@@ -48,6 +49,13 @@ export class BotMirror extends Observable {
   selection: string | null = null
   /** Permission cards whose answer is on its way, with the chosen option. */
   answering = new Map<string, string>()
+
+  /** How a relayed Mac is reached (set by whoever builds the store); loopback stores say so themselves. */
+  fixedRoute: HostRoute | null = null
+  /** What the cloud and this device's kept invite say about this Mac before its own hello answers (relayed Macs only). */
+  roleHint: { cloudRole: 'owner' | 'member' | null; hasToken: boolean } = { cloudRole: null, hasToken: false }
+  /** Runs on every (re)connect before the first host call: an invited device shows its invite here. */
+  beforeConnect: ((client: HostClient) => Promise<void>) | null = null
 
   onRosterChanged: (() => void) | null = null
   onComputerChanged: ((c: Computer) => void) | null = null
@@ -103,9 +111,28 @@ export class BotMirror extends Observable {
     return null
   }
 
+  /** The agents this account holds on this Mac when it is someone else's; null on an owner's. */
+  get granted(): GrantedAgent[] | null {
+    return this.isLoopback ? null : (this.hello?.grantedAgents ?? null)
+  }
+
+  /** This account's part on this Mac: the host's own list wins, then the cloud's row and a kept invite. */
+  get role(): MacRole {
+    return this.isLoopback ? 'owner' : macRole({ granted: this.granted, ...this.roleHint })
+  }
+
+  get isOwner() {
+    return this.role === 'owner'
+  }
+
+  /** Guests' prompts waiting for this Mac's owner; not bots of the roster, so no unread and no fake bots. */
+  get guestPrompts(): GuestPrompt[] {
+    return this.isOwner ? guestPrompts(this.entries, this.bots) : []
+  }
+
   /** Roster order: pinned first, then where the user dragged them, then most recent activity. */
   get roster(): Bot[] {
-    return [...this.bots.values()].filter((b) => !b.hidden).sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.position - b.position || b.lastAt - a.lastAt)
+    return visibleBots([...this.bots.values()], this.granted).filter((b) => !b.hidden).sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.position - b.position || b.lastAt - a.lastAt)
   }
 
   get hiddenBots(): Bot[] {

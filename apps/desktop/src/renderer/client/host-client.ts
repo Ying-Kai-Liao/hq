@@ -6,6 +6,7 @@ import {
   type HqMemoryDiff, type HqMemoryList, type HqMemoryRead, type HqMemoryVersion, type HqSaveResult, type HqTidyUp, type HqUndoResult,
 } from '@shared/hq-memory'
 import { isUnsupportedHost, parseKithInfoResult, parseSearchResult, type KithInfoResult, type KithSearchResult } from '@shared/kith-info'
+import { parseGranted } from '@shared/mac-role'
 import { parseAudit, parseCreatedInvite, parseInvites, parsePeople, type AuditRow, type CreatedInvite, type PendingInvite, type Person, type Role } from '@shared/people'
 import type { PlaceFolder, PlaceSelection, ProjectInfo, RecentFolder, StartingFolder } from '@shared/place-folders'
 import {
@@ -191,7 +192,7 @@ export class HostClient {
   }
 
   hello() {
-    return this.call<Hello>('hello').then((h) => ({ ...h, backends: h.backends ?? [], screen: normalizeScreen(h.screen) ?? undefined }))
+    return this.call<Hello>('hello').then((h) => ({ ...h, backends: h.backends ?? [], screen: normalizeScreen(h.screen) ?? undefined, grantedAgents: parseGranted(h.grantedAgents) }))
   }
 
   async history(botId: string, beforeSeq: number, limit = 100) {
