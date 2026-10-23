@@ -313,6 +313,12 @@ extension BotStore {
         bots[group.id] = group
     }
 
+    /// A background load failed: log it, and tell the person unless the view just went away (a cancelled task isn't an error).
+    private func reportLoadFailure(_ what: String, _ error: Error) {
+        log.error("\(what) failed: \(error.localizedDescription)")
+        if !Task.isCancelled, !error.isCancellation { lastError = error.localizedDescription }
+    }
+
     /// Pages in a thread's replies (the stream only carries recent entries).
     public func loadThread(_ botId: String, root: String) async {
         guard let client else { return }
@@ -320,8 +326,7 @@ extension BotStore {
         do {
             page = try await client.threadPage(botId: botId, rootId: root)
         } catch {
-            log.error("thread load failed: \(error.localizedDescription)")
-            lastError = error.localizedDescription
+            reportLoadFailure("thread load", error)
             return
         }
         for e in page.entries { upsert(e) }
@@ -351,8 +356,7 @@ extension BotStore {
             let u = try await client.usage(refresh: true)
             if !Task.isCancelled { setUsage(u) }
         } catch {
-            log.error("usage refresh failed: \(error.localizedDescription)")
-            if !Task.isCancelled { lastError = error.localizedDescription }
+            reportLoadFailure("usage refresh", error)
         }
     }
 
@@ -363,8 +367,7 @@ extension BotStore {
         do {
             older = try await client.history(botId: botId, beforeSeq: first, limit: 100)
         } catch {
-            log.error("older messages failed: \(error.localizedDescription)")
-            lastError = error.localizedDescription
+            reportLoadFailure("older messages", error)
             return
         }
         if older.count < 100 { historyComplete.insert(botId) }

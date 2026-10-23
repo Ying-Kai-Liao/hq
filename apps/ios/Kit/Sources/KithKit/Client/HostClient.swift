@@ -74,6 +74,13 @@ struct BotSetting<Value: Encodable & Sendable>: Encodable {
     }
 }
 
+extension Error {
+    /// The task was cancelled (a view went away), which is no failure to show.
+    public var isCancellation: Bool {
+        self is CancellationError || (self as? URLError)?.code == .cancelled
+    }
+}
+
 public struct HostClient: Sendable {
     public let transport: any HostTransport
 
