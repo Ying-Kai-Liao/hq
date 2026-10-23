@@ -171,6 +171,7 @@ def _notes(mem, folder, agent):
 
 
 def _tag(path, text, scope):
+    text = text.replace('</long-term-memory>', '<\u200b/long-term-memory>')
     return '<long-term-memory path="%s"%s>\n%s\n</long-term-memory>' % (
         path, ' scope="%s"' % scope if scope else '', text.rstrip('\n'))
 

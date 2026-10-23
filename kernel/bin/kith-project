@@ -140,9 +140,10 @@ def notes(ids):
     import kith_facets, kith_recall
     who = kith_recall.caller()
     agent, aud = who['agent'], who['audiences']
-    if not agent or aud == []:
+    import re
+    if not agent or aud == [] or not re.fullmatch(r'[a-z][a-z0-9-]*', agent):
         return 0   # not a known caller: nothing, like recall
-    if aud is None:
+    if aud is None or who['who'] == 'owner':
         reader = {'kind': 'owner', 'id': '', 'rooms': []}
     elif who['who'].startswith('bot-'):
         reader = {'kind': 'guest', 'id': who['who'], 'rooms': []}
@@ -150,7 +151,7 @@ def notes(ids):
         reader = {'kind': 'person', 'id': who['who'], 'rooms': [a[5:] for a in aud if a.startswith('room:')]}
     p = paths()
     home = next((d for d in (p['KITH_AGENTS'] / agent, p['KITH_STATE'] / 'agents' / agent) if d.is_dir()), None)
-    if not home or not kith_facets.ID.match(agent):
+    if not home:
         return 0
     room = os.environ.get('KITH_ROOM') or kith_facets.own_room(agent, reader)
     out = kith_facets.project_notes(agent, home, reader, room, [i for i in ids if kith_facets.ID.match(i)])

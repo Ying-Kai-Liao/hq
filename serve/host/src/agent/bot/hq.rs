@@ -60,8 +60,8 @@ fn process_env(saved: Vec<(String, String)>, launch: &hq::Launch, backup: bool) 
 #[derive(Default)]
 pub(super) struct ProjectTurn {
     pub projects: Vec<String>,
-    /// Projects that became current with this message: their notes go with the turn.
-    pub newly: Vec<String>,
+    /// What the agent is to be told with this turn: the set that became current (empty: no project any more).
+    pub say: Option<Vec<String>>,
     pub change: Option<project::Change>,
 }
 
@@ -98,13 +98,17 @@ impl Actor {
         if self.cfg.is_group() {
             return None;
         }
-        let known = hq::projects_soon().await;
+        // Only projects the asker may know of: an invitee's are those shared with them, a bot guest's none.
+        let person = self.cfg.person.clone();
+        let shared = person.as_deref().and_then(|p| self.hub.store.person(p)).map(|p| p.projects).unwrap_or_default();
+        let known = project::allowed(hq::projects_soon().await, person.as_deref(), &shared);
         let recent = self.recent_user_texts(lane, entry_ids);
         let (hub, lane, text) = (self.hub.clone(), lane.clone(), text.to_owned());
-        let d = tokio::task::spawn_blocking(move || project::infer(&hub.store, &lane, &known, &text, &recent))
+        let entry = entry_ids.last().cloned().unwrap_or_default();
+        let d = tokio::task::spawn_blocking(move || project::infer(&hub.store, &lane, &known, &entry, &text, &recent))
             .await
             .ok()?;
-        Some(ProjectTurn { projects: d.state.projects, newly: d.newly, change: d.change })
+        Some(ProjectTurn { projects: d.state.projects, say: d.say, change: d.change })
     }
 
     /// The person's last two messages in `lane` before this turn's, oldest first.
@@ -141,16 +145,10 @@ impl Actor {
         if self.reuse_prompt {
             return None;
         }
-        let turn = self.project_turn.as_mut()?;
-        let moved = turn.change.is_some();
-        let newly = std::mem::take(&mut turn.newly);
-        if newly.is_empty() && !(moved && turn.projects.is_empty()) {
-            return None;
-        }
+        let say = self.project_turn.as_mut()?.say.take()?;
         let agent = self.cfg.hq_agent.clone()?;
         let bin = tokio::task::spawn_blocking(hq::bin).await.ok().flatten()?;
-        let now = self.project_turn.as_ref().map(|t| t.projects.clone())?;
-        Some(hq::project_context(&bin, &agent, self.cfg.person.as_deref(), &self.run_room(), &now).await)
+        Some(hq::project_context(&bin, &agent, self.cfg.person.as_deref(), &self.run_room(), &say).await)
     }
 
     /// What the prompt of an hq bot's turn is: the user's words, with the notes the host owes the agent (an earlier
