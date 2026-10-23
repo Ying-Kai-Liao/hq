@@ -301,7 +301,7 @@ impl Drop for World {
     }
 }
 
-fn bot_guest(bot_id: &str, person_id: &str, owner_person: Option<String>) -> BotGuest {
+pub(super) fn bot_guest(bot_id: &str, person_id: &str, owner_person: Option<String>) -> BotGuest {
     BotGuest {
         bot_id: bot_id.to_owned(),
         person_id: person_id.to_owned(),
@@ -331,7 +331,7 @@ fn agent_index(name: &str) -> Option<usize> {
 // ---- calls ----
 
 /// Every method the router answers, read from the api sources the same way `roles_tests` does.
-fn router_methods() -> Vec<String> {
+pub(super) fn router_methods() -> Vec<String> {
     let sources = [
         include_str!("bots.rs"),
         include_str!("host.rs"),
@@ -1035,13 +1035,15 @@ fn a_bot_guest_is_shown_words_only() {
 
 // TEMPORARY (not for merge): runs every property against every scratch break and reports who caught it.
 #[cfg(test)]
+#[allow(unused_qualifications)]
 mod meta {
     use super::*;
+    use std::fmt::Write as _;
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     #[test]
     fn every_break_is_caught() {
-        let props: [(&str, fn()); 6] = [
+        let props: [(&str, fn()); 8] = [
             ("guard_never_lets_a_person_past_their_grant", guard_never_lets_a_person_past_their_grant),
             ("guard_lets_a_granted_member_use_their_own_chat", guard_lets_a_granted_member_use_their_own_chat),
             ("kith_auth_answers_fail_closed", kith_auth_answers_fail_closed),
@@ -1051,13 +1053,16 @@ mod meta {
                 what_a_person_is_shown_has_no_paths_folders_or_error_text,
             ),
             ("a_real_bot_json_loses_where_it_works", a_real_bot_json_loses_where_it_works),
+            ("a_bot_guest_may_call_only_its_short_list", a_bot_guest_may_call_only_its_short_list),
+            ("a_bot_guest_is_shown_words_only", a_bot_guest_is_shown_words_only),
         ];
         std::panic::set_hook(Box::new(|_| {}));
         let mut table = String::new();
         let mut missed = Vec::new();
+        let mut clean_ok = true;
         for n in 0..=28usize {
             super::super::roles::MUT.with(|c| c.set(n));
-            let mut caught = None;
+            let mut caught = Vec::new();
             for (name, f) in props {
                 if let Err(e) = catch_unwind(AssertUnwindSafe(f)) {
                     let msg = e
@@ -1065,17 +1070,24 @@ mod meta {
                         .cloned()
                         .or_else(|| e.downcast_ref::<&str>().map(|s| (*s).to_owned()))
                         .unwrap_or_default();
-                    caught = Some(format!("{name}: {}", msg.chars().take(160).collect::<String>().replace('\n', " ")));
-                    break;
+                    caught.push(format!("{name} [{}]", msg.chars().take(110).collect::<String>().replace('\n', " ")));
                 }
             }
-            table += &format!("BREAK {n:>2} {}\n", caught.clone().unwrap_or_else(|| "NOT CAUGHT".into()));
-            if caught.is_none() && n > 0 {
+            if n == 0 {
+                clean_ok = caught.is_empty();
+            }
+            let _ = writeln!(
+                table,
+                "BREAK {n:>2} caught by {} :: {}",
+                caught.len(),
+                if caught.is_empty() { "NOT CAUGHT".to_owned() } else { caught.join(" | ") }
+            );
+            if caught.is_empty() && n > 0 {
                 missed.push(n);
             }
         }
         super::super::roles::MUT.with(|c| c.set(0));
         let _ = std::panic::take_hook();
-        panic!("META RESULT (break 0 is the clean code)\n{table}\nmissed: {missed:?}");
+        panic!("META RESULT clean_code_passes={clean_ok} (break 0 is the clean code)\n{table}\nmissed: {missed:?}");
     }
 }

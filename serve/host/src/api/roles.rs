@@ -259,6 +259,7 @@ pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: 
 }
 
 /// What an allowed method returns to `person`.
+#[allow(clippy::collapsible_if)] // TEMPORARY: the scratch breaks
 pub fn shape(hub: &Hub, person: &str, method: &str, mut v: Value) -> Value {
     match method {
         "hello" => {
@@ -460,7 +461,13 @@ pub fn shape_bot(mut v: Value) -> Value {
 
 /// The first event of a stream, trimmed for an invitee.
 pub fn hello_for(v: &Value) -> Value {
-    json!({"type": "hello", "hostId": v["hostId"], "computerId": v["computerId"], "rev": v["rev"], "cwd": if m(23) { v["cwd"].clone() } else { Value::Null }})
+    {
+        let mut hello = json!({"type": "hello", "hostId": v["hostId"], "computerId": v["computerId"], "rev": v["rev"]});
+        if m(23) {
+            hello["cwd"] = v["cwd"].clone();
+        }
+        hello
+    }
 }
 
 // TEMPORARY (not for merge): the scratch breaks of the invitee-access skill, switched per thread by the meta test.
