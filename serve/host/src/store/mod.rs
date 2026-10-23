@@ -5,6 +5,7 @@
 //! microseconds, so async callers use them directly; the one bulk read (a fresh
 //! client's catch-up) is capped per bot, and the history search runs through `spawn_blocking`.
 
+mod botguests;
 mod bots;
 mod devices;
 mod entries;
@@ -12,7 +13,9 @@ mod memory;
 mod model;
 mod people;
 mod schema;
+mod threads;
 
+pub use botguests::{BotConversation, BotGuest, BotInvite, BotState};
 pub use devices::{Device, DeviceSource, Scope};
 pub use model::{BotConfig, BotKind, BotRow, Entry, EntryKind, Lane, Permission, ReadScope, lane_key};
 pub use people::{Invite, Membership, PersonRow};

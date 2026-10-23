@@ -365,6 +365,15 @@ fn err(id: u64, status: u16, message: &str) -> Value {
     json!({"id": id, "err": {"status": status, "message": message}})
 }
 
+/// The same with a stable machine word for clients that act on it (bot guests); apps ignore `code`.
+fn err_coded(id: u64, status: u16, message: &str, code: Option<&str>) -> Value {
+    let mut v = err(id, status, message);
+    if let Some(code) = code {
+        v["err"]["code"] = code.into();
+    }
+    v
+}
+
 impl Channel {
     fn set_device(&mut self, d: &Device) {
         self.caller = Arc::new(Caller::Device { key: d.key.clone(), scopes: d.scopes.clone() });
@@ -485,7 +494,7 @@ impl Channel {
                 Ok(ok) => json!({"id": id, "ok": ok}),
                 Err(e) => {
                     let (status, message) = api::error_status(&e);
-                    err(id, status.as_u16(), &message)
+                    err_coded(id, status.as_u16(), &message, api::error_code(&e))
                 }
             };
             // Cancelled: the work is done (never aborted midway), the answer is dropped.

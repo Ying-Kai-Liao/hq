@@ -90,6 +90,28 @@ impl Actor {
         hidden: bool,
         done_tx: &mpsc::UnboundedSender<Done>,
     ) -> Result<()> {
+        // A terminal may have taken the thread since the message was accepted. Checked under the thread's lock, which
+        // is also where the turn is marked running: `resolveThread` then either sees this turn or the terminal's
+        // claim stops it. A refused message fails with a notice and the queue goes on.
+        let (rt, begin_lane) = (self.rt.clone(), lane.clone());
+        let begin = move |hub: &crate::hub::Hub| {
+            hub.set_runtime(&rt, |r| {
+                r.status = BotStatus::Working;
+                r.lane = Some(begin_lane);
+            });
+        };
+        if let Err(held) = crate::terminal::start_gate(&self.hub, &lane, begin).await {
+            for id in entry_ids {
+                if let Some(mut e) = self.hub.store.entry(id).filter(|e| e.kind == EntryKind::User.as_str()) {
+                    e.data["status"] = json!(crate::chat::team::RequestStatus::Failed);
+                    self.hub.set_entry(id, &e.data);
+                }
+            }
+            let turn = self.hub.store.max_turn(&lane.chat);
+            self.hub.add_entry(&lane, EntryKind::Notice, turn, &json!({"text": held.to_string(), "style": "error"}));
+            // `start_failed` closes whatever this turn was for (a request, a room turn, a routine) and clears inflight.
+            return Err(held.into());
+        }
         let turn = entry_ids.last().and_then(|id| self.hub.store.entry(id)).map_or_else(
             || {
                 self.hub.store.max_turn(&lane.chat)
@@ -116,6 +138,9 @@ impl Actor {
             }
         }
         self.lane = lane.clone();
+        if !hidden {
+            memory::summary::resume(&self.hub, &lane);
+        }
         self.turn = Some(turn);
         self.project_divider();
         // Only the user's own words feed memory: not another bot's, a room's or a routine's.
@@ -206,6 +231,7 @@ impl Actor {
                 Some("The agent could not reload this run's saved session; inspect before retrying".into()),
                 None,
             );
+            self.release_turn_claim();
             self.turn = None;
             if self.routine_completion.is_none() {
                 self.set_inflight(false);
@@ -234,6 +260,7 @@ impl Actor {
             }
         }
         let sid = self.turn_session.clone().ok_or_else(|| anyhow!("no session"))?;
+        self.claim_for_turn(&sid, lane)?;
         let prompt =
             if std::mem::take(&mut self.raw_prompt) { text.to_owned() } else { self.compose(&sid, text).await? };
         self.hub.set_runtime(&self.rt, |r| r.activity = "Thinking…".into());
@@ -259,6 +286,35 @@ impl Actor {
             let _ = done_tx.send(answer.response().await);
         });
         Ok(())
+    }
+
+    /// While a turn runs in a thread, the agent process holds the session: a writer claim for its pid keeps a terminal
+    /// out, also after a host crash leaves the process behind (the claim is live as long as the process is).
+    fn claim_for_turn(&mut self, sid: &str, lane: &Lane) -> Result<()> {
+        self.release_turn_claim();
+        let Some(pid) = self.conn.as_ref().and_then(|c| c.acp.pid()).filter(|_| lane.thread.is_some()) else {
+            return Ok(());
+        };
+        let state = self.hub.terminal.env().state;
+        match crate::terminal::claim::take(&state, sid, crate::terminal::claim::Kind::App, pid, false) {
+            Ok(Ok(())) => self.turn_claim = Some((sid.to_owned(), pid)),
+            // A terminal got in between the start check and here: it keeps the session.
+            Ok(Err(held)) if held.0.pid == pid => self.turn_claim = Some((sid.to_owned(), pid)),
+            Ok(Err(_)) => {
+                let held = crate::terminal::HeldByWriter { code: "liveInTerminal" };
+                self.notice(&held.to_string(), NoticeStyle::Error);
+                return Err(held.into());
+            }
+            Err(error) => tracing::warn!(%error, "couldn't claim a session for a turn"),
+        }
+        Ok(())
+    }
+
+    pub(super) fn release_turn_claim(&mut self) {
+        if let Some((sid, pid)) = self.turn_claim.take() {
+            let state = self.hub.terminal.env().state;
+            crate::terminal::claim::release(&state, &sid, pid, false);
+        }
     }
 
     pub(super) fn finish_turn(&mut self, done: &Done) {
@@ -396,6 +452,7 @@ impl Actor {
         } else {
             Ok(final_text.clone())
         });
+        self.release_turn_claim();
         self.turn = None;
         if self.routine_completion.is_none() {
             self.set_inflight(false);

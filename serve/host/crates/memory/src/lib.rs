@@ -11,6 +11,7 @@ pub mod files;
 pub mod opening;
 pub mod schema;
 pub mod store;
+pub mod summary;
 pub mod tidy;
 pub mod tokens;
 

@@ -60,7 +60,7 @@ pub(super) async fn tidy(hub: &Arc<Hub>, cfg: &BotConfig, messages: &[Message], 
     let material = Arc::new(material);
     let (system, prompt) = kd::prompt(&material.snapshot, messages);
     let reply = oneshot::one_shot_plain(hub, &system, &prompt).await?;
-    record_cost(&agent, &reply);
+    record_cost(&agent, &Tag { via: "tidy", turn: "tidy", person: None, project: None }, &reply);
     let mut plan = kd::parse(&reply.text).ok_or_else(|| anyhow!("tidying answered without a plan"))?;
     // A note belongs to the agent's own folder: the shared layer's files (people/, projects/) are the user's.
     for append in &mut plan.append {
@@ -89,19 +89,29 @@ pub(super) async fn tidy(hub: &Arc<Hub>, cfg: &BotConfig, messages: &[Message], 
     Ok(false)
 }
 
-/// Writes the run's tokens to the agent's cost ledger as its tidy (`kith cost record`). Nothing when the agent
-/// didn't report tokens; a failure is logged and never fails the run.
-fn record_cost(agent: &str, reply: &Reply) {
+/// How a background run is tagged in the cost ledger: `via` (what kind of run), and for a run done for a person or
+/// a project, who and which (`KITH_PERSON`, `KITH_PROJECT`, as for a run of that person's).
+pub(super) struct Tag<'a> {
+    pub via: &'a str,
+    pub turn: &'a str,
+    pub person: Option<&'a str>,
+    pub project: Option<&'a str>,
+}
+
+/// Writes the run's tokens to the agent's cost ledger (`kith cost record`). Nothing when the agent didn't report
+/// tokens; a failure is logged and never fails the run.
+pub(super) fn record_cost(agent: &str, tag: &Tag, reply: &Reply) {
     let Some(usage) = reply.usage else {
         tracing::debug!(agent, "the one-shot reported no token usage: no cost row for this tidy");
         return;
     };
     let row = serde_json::json!({
-        "id": uuid::Uuid::new_v4().to_string(), "session": reply.session, "model": "haiku", "turn": "tidy",
+        "id": uuid::Uuid::new_v4().to_string(), "session": reply.session, "model": "haiku", "turn": tag.turn,
         "input": usage.input, "output": usage.output, "cache_read": usage.cache_read,
         "cache_write": usage.cache_write, "cost": null,
     });
     let agent = agent.to_owned();
+    let (via, person, project) = (tag.via.to_owned(), tag.person.map(str::to_owned), tag.project.map(str::to_owned));
     tokio::spawn(async move {
         let result = async {
             let bin = tokio::task::spawn_blocking(crate::agent::hq::bin)
@@ -110,7 +120,9 @@ fn record_cost(agent: &str, reply: &Reply) {
             let mut child = tokio::process::Command::new(bin)
                 .args(["cost", "record"])
                 .env("KITH_AGENT", &agent)
-                .env("KITH_VIA", "tidy")
+                .env("KITH_VIA", &via)
+                .env("KITH_PERSON", person.as_deref().unwrap_or_default())
+                .env("KITH_PROJECT", project.as_deref().unwrap_or_default())
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
@@ -124,7 +136,7 @@ fn record_cost(agent: &str, reply: &Reply) {
         }
         .await;
         if let Err(e) = result {
-            tracing::warn!(agent, error = format!("{e:#}"), "couldn't record the tidy-up's cost");
+            tracing::warn!(agent, error = format!("{e:#}"), "couldn't record a background run's cost");
         }
     });
 }

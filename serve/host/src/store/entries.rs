@@ -8,7 +8,7 @@ use rusqlite::{OptionalExtension, params};
 use serde_json::Value;
 use std::fmt::Write as _;
 
-fn row_entry(r: &rusqlite::Row) -> rusqlite::Result<Entry> {
+pub(super) fn row_entry(r: &rusqlite::Row) -> rusqlite::Result<Entry> {
     let data: String = r.get(6)?;
     Ok(Entry {
         seq: r.get(0)?,
@@ -24,7 +24,7 @@ fn row_entry(r: &rusqlite::Row) -> rusqlite::Result<Entry> {
     })
 }
 
-const ENTRY_COLS: &str = "seq, id, bot_id, rev, kind, turn, data, created_at, updated_at, thread_id";
+pub(super) const ENTRY_COLS: &str = "seq, id, bot_id, rev, kind, turn, data, created_at, updated_at, thread_id";
 /// A bot still winding down after its deletion can't leave lines behind (`?2` is the chat).
 const LIVE_CHAT: &str = "WHERE NOT EXISTS (SELECT 1 FROM bots WHERE id = ?2 AND deleted = 1)";
 

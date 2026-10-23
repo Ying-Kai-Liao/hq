@@ -53,6 +53,14 @@ pub async fn one_shot(hub: &Arc<Hub>, cfg: &BotConfig, system: &str, user: &str)
     Ok(run(hub, cfg, system, user, false).await?.text)
 }
 
+/// [`one_shot`] with what the job used, for a job whose cost goes in a ledger (the thread summaries).
+pub async fn one_shot_reply(hub: &Arc<Hub>, cfg: &BotConfig, system: &str, user: &str) -> Result<Reply> {
+    if cfg.is_hq() {
+        bail!("{} is an hq agent: the host runs no background jobs as it", cfg.name);
+    }
+    run(hub, cfg, system, user, false).await
+}
+
 /// [`one_shot`] for an hq agent's tidying. The agent itself is not launched (no `--launch-json`, tools, servers or
 /// settings of its own), so the job takes no agent slot: it is plain Claude with model haiku, whatever the agent's
 /// own model. A test host names the ACP command in `KITH_SERVE_HQ_ACP_COMMAND`, as it does for the agents.

@@ -100,6 +100,8 @@ pub async fn end_access(hub: &Hub, bin: Option<&Path>, person: &str) -> Result<(
         for d in hub.store.devices_of(person)? {
             hub.revoke_device(&d.key)?;
         }
+        // Their bot guests lose their owner with the last membership.
+        crate::api::botguests::revoke_owned_by(hub, person, "person").await;
         if let Some(bin) = bin
             && let Err(e) = account::run(bin, &["handle", person, "kith", "--rm"]).await
         {

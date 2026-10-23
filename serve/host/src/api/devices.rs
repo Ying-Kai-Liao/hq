@@ -76,6 +76,15 @@ pub enum Principal {
     Member(String),
     /// The same, before it has: it may only call `proveInvite`.
     Unproven(String),
+    /// A bot guest's key, proven and allowed in (docs/kith-bot-guests.md 5.6): `person` is the kith-auth person it
+    /// runs as.
+    Bot {
+        bot_id: String,
+        person: String,
+    },
+    /// A bot's key that has not shown its invite token or waits for the owner's allow: `hello`, `botStatus` and
+    /// `proveBotInvite` only.
+    BotPending(String),
     Nobody,
 }
 
@@ -84,11 +93,27 @@ pub fn principal(store: &crate::store::Store, caller: &Caller) -> Principal {
     match caller {
         Caller::Local => Principal::Owner,
         Caller::Pairing { .. } => Principal::Nobody,
-        Caller::Device { key, .. } => store.device(key).map_or(Principal::Nobody, |d| match d.person_id {
-            None => Principal::Owner,
-            Some(p) if store.device_proven(key) => Principal::Member(p),
-            Some(p) => Principal::Unproven(p),
+        Caller::Device { key, .. } => store.device(key).map_or(Principal::Nobody, |d| {
+            if d.source == DeviceSource::Bot {
+                return bot_principal(store, key);
+            }
+            match d.person_id {
+                None => Principal::Owner,
+                Some(p) if store.device_proven(key) => Principal::Member(p),
+                Some(p) => Principal::Unproven(p),
+            }
         }),
+    }
+}
+
+/// A bot key is its bot's only while the bot's row says so; a revoked, denied or unknown bot is nobody.
+fn bot_principal(store: &crate::store::Store, key: &str) -> Principal {
+    use crate::store::BotState;
+    let Some(bot) = store.bot_guest_of_device(key) else { return Principal::Nobody };
+    match bot.state {
+        BotState::Active if store.device_proven(key) => Principal::Bot { bot_id: bot.bot_id, person: bot.person_id },
+        BotState::Joining | BotState::Pending | BotState::Active => Principal::BotPending(bot.bot_id),
+        BotState::Invited | BotState::Denied | BotState::Revoked => Principal::Nobody,
     }
 }
 
@@ -170,6 +195,10 @@ impl RejectCode {
 /// device only while its lease runs and the cloud state was applied on this connection.
 pub fn authorize(hub: &Hub, key: &str) -> Result<Device, RejectCode> {
     let d = hub.store.device(key).ok_or(RejectCode::Unauthorized)?;
+    // A bot's key is good only while its bot is (a denied or revoked bot's device is gone, but never trust the order).
+    if d.source == DeviceSource::Bot && bot_principal(&hub.store, key) == Principal::Nobody {
+        return Err(RejectCode::Revoked);
+    }
     if d.source == DeviceSource::Account
         && (!hub.cloud_synced.load(Ordering::Acquire) || d.lease_until.is_none_or(|t| t <= now_ms()))
     {
