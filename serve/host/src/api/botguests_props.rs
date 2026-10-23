@@ -766,7 +766,17 @@ struct Ev {
 fn a_bot_is_sent_only_its_own_conversations() {
     let feed = Feed::new();
     let ev = (0..3usize, 0..KINDS.len(), 0..feed.chats.len(), 0..feed.threads.len(), 0..ENTRY_KINDS.len())
-        .prop_map(|(to, kind, chat, thread, entry_kind)| Ev { to, kind, chat, thread, entry_kind });
+        .prop_map(|(to, kind, chat, thread, entry_kind)| Ev { to, kind, chat, thread, entry_kind })
+        // Half the draws name the receiver's own chat and thread, or no word would ever reach a bot.
+        .prop_flat_map(|e| (Just(e), proptest::bool::ANY))
+        .prop_map(|(mut e, own)| {
+            if own {
+                e.chat = e.to;
+                e.thread = e.to;
+                e.kind = 0;
+            }
+            e
+        });
     let served = std::cell::Cell::new(0usize);
     runner(400)
         .run(&ev, |e| {
@@ -811,7 +821,8 @@ fn a_bot_is_sent_only_its_own_conversations() {
     assert!(served.get() > 0, "no entry was ever sent to a bot: the property checked nothing");
 }
 
-// TEMPORARY (not for merge): runs every bot guest break against the property it targets, and break 0 against all.
+// TEMPORARY (not for merge): runs the bot guest breaks against the property each targets, and break 0 against all.
+// Split in groups so that each test stays inside the runner's per-test time limit.
 #[cfg(test)]
 #[allow(unused_qualifications)]
 mod meta {
@@ -819,15 +830,24 @@ mod meta {
     use std::fmt::Write as _;
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
-    #[test]
-    fn every_bot_break_is_caught() {
+    fn run(name: &str, f: fn()) -> Option<String> {
+        catch_unwind(AssertUnwindSafe(f)).err().map(|e| {
+            let msg = e
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| e.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+                .unwrap_or_default();
+            format!("{name} [{}]", msg.chars().take(300).collect::<String>().replace('\n', " "))
+        })
+    }
+
+    fn group(clean: bool, breaks: &[usize]) {
         SHRINK.store(0, Ordering::Relaxed);
         let props: [(&str, fn()); 3] = [
             ("a_bot_never_has_more_than_its_owner_holds_now", a_bot_never_has_more_than_its_owner_holds_now),
             ("a_bot_owner_has_at_most_ten_live_bots", a_bot_owner_has_at_most_ten_live_bots),
             ("a_bot_is_sent_only_its_own_conversations", a_bot_is_sent_only_its_own_conversations),
         ];
-        // break -> index of the property it targets
         let target = |n: usize| match n {
             37 | 38 => 1,
             39..=41 => 2,
@@ -836,35 +856,59 @@ mod meta {
         std::panic::set_hook(Box::new(|_| {}));
         let mut table = String::new();
         let mut missed = Vec::new();
-        let mut clean_ok = true;
-        let run = |name: &str, f: fn()| -> Option<String> {
-            catch_unwind(AssertUnwindSafe(f)).err().map(|e| {
-                let msg = e
-                    .downcast_ref::<String>()
-                    .cloned()
-                    .or_else(|| e.downcast_ref::<&str>().map(|s| (*s).to_owned()))
-                    .unwrap_or_default();
-                format!("{name} [{}]", msg.chars().take(260).collect::<String>().replace('\n', " "))
-            })
-        };
         super::super::roles::MUT.with(|c| c.set(0));
-        for (name, f) in props {
-            if let Some(why) = run(name, f) {
-                clean_ok = false;
-                let _ = writeln!(table, "CLEAN FAILS {why}");
+        if clean {
+            for (name, f) in props {
+                if let Some(why) = run(name, f) {
+                    let _ = writeln!(table, "CLEAN FAILS {why}");
+                }
             }
+            let _ = writeln!(table, "clean_code_passes={}", !table.contains("CLEAN FAILS"));
         }
-        for n in [29usize, 30, 31, 32, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 47, 48, 49, 50] {
-            super::super::roles::MUT.with(|c| c.set(n));
-            let (name, f) = props[target(n)];
+        for n in breaks {
+            super::super::roles::MUT.with(|c| c.set(*n));
+            let (name, f) = props[target(*n)];
             let caught = run(name, f);
             let _ = writeln!(table, "BREAK {n:>2} :: {}", caught.clone().unwrap_or_else(|| "NOT CAUGHT".into()));
             if caught.is_none() {
-                missed.push(n);
+                missed.push(*n);
             }
         }
         super::super::roles::MUT.with(|c| c.set(0));
         let _ = std::panic::take_hook();
-        panic!("META RESULT clean_code_passes={clean_ok}\n{table}\nmissed: {missed:?}");
+        panic!("META RESULT\n{table}\nmissed: {missed:?}");
+    }
+
+    #[test]
+    fn bot_breaks_clean() {
+        group(true, &[]);
+    }
+    #[test]
+    fn bot_breaks_a() {
+        group(false, &[29, 30, 31]);
+    }
+    #[test]
+    fn bot_breaks_b() {
+        group(false, &[32, 34, 35]);
+    }
+    #[test]
+    fn bot_breaks_c() {
+        group(false, &[36, 42, 43]);
+    }
+    #[test]
+    fn bot_breaks_d() {
+        group(false, &[44, 47, 48]);
+    }
+    #[test]
+    fn bot_breaks_e() {
+        group(false, &[49, 50]);
+    }
+    #[test]
+    fn bot_breaks_f() {
+        group(false, &[37, 38]);
+    }
+    #[test]
+    fn bot_breaks_g() {
+        group(false, &[39, 40, 41]);
     }
 }
