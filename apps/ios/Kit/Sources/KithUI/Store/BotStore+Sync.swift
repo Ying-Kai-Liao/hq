@@ -179,7 +179,11 @@ extension BotStore {
         case let .screen(s):
             screen = s
         case let .call(event):
-            incomingCalls = IncomingCalls.apply(incomingCalls, event)
+            if event.ringing && CallPresence.active > 0 {
+                declineCall(event.call)
+            } else {
+                incomingCalls = IncomingCalls.apply(incomingCalls, event)
+            }
         case .resync:
             restartEvents()
         case let .undecodable(type):

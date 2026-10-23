@@ -34,7 +34,9 @@ part for everyone you work for, `{{SHARED_MEMORY}}/`: lessons about your craft o
    `{{KITH}}/bin/kith-memory search <words>` finds it across all of them, or read `{{STATE}}/projects/PARENT/decisions.md`.
    **Holds:** working on a parent itself (`holds="…"` on the tag), `{{KITH}}/bin/project-id --children ID` says where each
    of its projects is on this Mac; read their `codebase.md` before going into their code.
-2. Read these if they exist (missing files are normal; don't mention them):
+2. Read these if they exist (missing files are normal; don't mention them). In a group room (`room="group"` on the
+   session tag) read none of `{{PERSON_FILE}}`, `projects/ID.md` or `sessions/ID.md`: they may hold what someone there
+   may not see. Use `{{KITH}}/bin/kith recall` instead, which applies the room's rules.
    - `{{PERSON_FILE}}`: who the user is, shared by all agents
    - `{{STATE}}/projects/ID/codebase.md`: the project map, shared by all agents
    - `{{STATE}}/projects/ID/verify.md`: how to check a change works here, shared by all agents (when the task
@@ -134,7 +136,7 @@ updated: YYYY-MM-DD   by: <agent>
   `busy` 5, `rate-limited` 6 or `not-allowed` 7 (`--wait` holds up to 50 s for the answer; otherwise only `ringing` and
   the refusals come back). At most one call per 10 minutes and 6 a day per agent; never call again to chase an answer.
   A declined or missed call leaves "<you> tried to call: <reason>" in the chat. The call goes only to the person this run
-  belongs to (`person=` on the session tag; the owner without one), never to anyone else. If they accept, the call opens
+  belongs to, never to anyone else; it only works from a Kith app chat (the host gives that run a key), not from channels, schedules or terminals. If they accept, the call opens
   with a turn telling you to greet them and say why you called, and you are on a voice call.
 
 ## Owner and helpers

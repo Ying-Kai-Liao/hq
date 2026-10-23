@@ -41,7 +41,7 @@ async fn calls_seen(r: &Rig, caller: &Caller) -> Vec<Value> {
 }
 
 fn ring_for(r: &Rig, bot: &str, reason: &str) -> Value {
-    ring(&r.hub, bot, None, reason).unwrap()
+    ring(&r.hub, bot, reason).unwrap()
 }
 
 fn notices(r: &Rig, bot: &str) -> Vec<Value> {
@@ -69,8 +69,8 @@ async fn a_call_rings_once_and_the_first_answer_wins() {
     assert!(late.to_string().contains("already accepted"), "{late:#}");
     let late = rpc(&r, &Caller::Local, "callDecline", json!({"id": id})).await.unwrap_err();
     assert!(late.to_string().contains("already accepted"), "{late:#}");
-    assert!(calls_seen(&r, &Caller::Local).await.is_empty(), "nothing rings any more");
-    assert!(notices(&r, &bot).is_empty(), "an accepted call leaves its line once the call is live");
+    assert_eq!(calls_seen(&r, &Caller::Local).await, Vec::<Value>::new(), "nothing rings any more");
+    assert_eq!(notices(&r, &bot), Vec::<Value>::new(), "an accepted call leaves its line once the call is live");
 
     // The agent speaks first, once, on a line that isn't the person's words.
     rpc(&r, &owner, "callGreet", json!({"id": id})).await.unwrap();
@@ -98,7 +98,7 @@ async fn declining_and_ringing_out_leave_a_line_in_the_chat() {
     // Nobody answers: it rings out. A different agent, so the rate limit isn't what is tested.
     r.hub.calls.set_ring_ms(40);
     let money = r.owner_bot("money");
-    let out = ring_and_wait(&r.hub, &money, None, "late", true).await.unwrap();
+    let out = ring_and_wait(&r.hub, &money, "late", true).await.unwrap();
     assert_eq!(out["status"], "missed");
     assert_eq!(notices(&r, &money)[0]["text"], "money tried to call: late");
     assert_eq!(notices(&r, &money)[0]["callState"], "missed");
@@ -125,13 +125,21 @@ async fn a_person_is_on_one_call_and_an_agent_rings_rarely() {
     // Ten minutes on it may ring again; the sixth in a day is the last.
     let now = now_ms();
     let hours = |h: i64| now - h * 60 * 60 * 1000;
-    r.hub.calls.inner.locked().rung.insert("house".into(), (1..=5).rev().map(hours).collect());
+    r.hub.calls.inner.locked().rung.insert(rate_key("house", None), (1..=5).rev().map(hours).collect());
     let sixth = ring_for(&r, &house, "sixth");
     assert_eq!(sixth["status"], "ringing");
     decline_now(&r, sixth["id"].as_str().unwrap());
-    r.hub.calls.inner.locked().rung.get_mut("house").unwrap().iter_mut().for_each(|t| *t -= 11 * 60 * 1000);
+    r.hub
+        .calls
+        .inner
+        .locked()
+        .rung
+        .get_mut(&rate_key("house", None))
+        .unwrap()
+        .iter_mut()
+        .for_each(|t| *t -= 11 * 60 * 1000);
     assert_eq!(ring_for(&r, &house, "seventh")["status"], "rate-limited", "six in the last day");
-    assert_eq!(ring(&r.hub, "unknown", None, "x").unwrap(), json!({"status": "not-allowed"}));
+    assert_eq!(ring(&r.hub, "unknown", "x").unwrap(), json!({"status": "not-allowed"}));
 }
 
 fn decline_now(r: &Rig, id: &str) {
@@ -162,7 +170,7 @@ async fn a_call_reaches_only_the_person_whose_chat_it_is() {
     let owners = ring_for(&r, &mine, "owner only");
     let id = owners["id"].as_str().unwrap().to_owned();
     assert_eq!(calls_seen(&r, &Caller::Local).await.len(), 1);
-    assert!(calls_seen(&r, &phone).await.is_empty());
+    assert_eq!(calls_seen(&r, &phone).await, Vec::<Value>::new());
     for method in ["callAccept", "callDecline", "callGreet"] {
         let e = rpc(&r, &phone, method, json!({"id": id})).await.unwrap_err();
         assert!(e.to_string().contains("gone"), "{method}: {e:#}");
@@ -175,7 +183,7 @@ async fn a_call_reaches_only_the_person_whose_chat_it_is() {
     assert_eq!(sams["status"], "ringing");
     let sid = sams["id"].as_str().unwrap().to_owned();
     assert_eq!(calls_seen(&r, &phone).await.len(), 1);
-    assert!(calls_seen(&r, &Caller::Local).await.is_empty(), "the owner never hears an invitee's call");
+    assert_eq!(calls_seen(&r, &Caller::Local).await, Vec::<Value>::new(), "the owner never hears an invitee's call");
     let e = rpc(&r, &Caller::Local, "callAccept", json!({"id": sid})).await.unwrap_err();
     assert!(e.to_string().contains("gone"), "{e:#}");
     rpc(&r, &phone, "callAccept", json!({"id": sid})).await.unwrap();
@@ -187,20 +195,40 @@ async fn a_call_reaches_only_the_person_whose_chat_it_is() {
 }
 
 #[tokio::test]
-async fn the_cli_rings_the_chat_of_the_person_it_runs_for() {
+async fn the_cli_rings_only_the_chat_its_key_names() {
     let r = Rig::new().await;
     let mine = r.owner_bot("house");
     let (_, theirs) = sam(&r).await;
-    assert_eq!(chat_of(&r.hub, "house", None).as_deref(), Some(mine.as_str()));
-    assert_eq!(chat_of(&r.hub, "house", Some("sam")).as_deref(), Some(theirs.as_str()));
-    assert_eq!(chat_of(&r.hub, "money", None), None);
-    assert_eq!(chat_of(&r.hub, "house", Some("kim")), None);
+    let key = |chat: &str| key(&r.hub.token, chat);
 
-    let out = rpc(&r, &Caller::Local, "callPerson", json!({"agent": "house", "person": "sam", "reason": "hi"}))
+    let out = rpc(&r, &Caller::Local, "callPerson", json!({"chat": theirs, "key": key(&theirs), "reason": "hi"}))
         .await
         .unwrap();
     assert_eq!(out["status"], "ringing");
-    let none = rpc(&r, &Caller::Local, "callPerson", json!({"agent": "money", "reason": "hi"})).await.unwrap();
-    assert_eq!(none["status"], "not-allowed", "an agent with no chat of that person's rings nobody");
-    assert!(rpc(&r, &Caller::Local, "callPerson", json!({"agent": "house", "reason": "  "})).await.is_err());
+    // Another chat's key, or none: nothing rings, and the owner is never reached by an invitee's run.
+    for body in
+        [json!({"chat": mine, "key": key(&theirs), "reason": "hi"}), json!({"chat": mine, "key": "", "reason": "hi"})]
+    {
+        let out = rpc(&r, &Caller::Local, "callPerson", body).await.unwrap();
+        assert_eq!(out["status"], "not-allowed");
+    }
+    assert!(rpc(&r, &Caller::Local, "callPerson", json!({"chat": mine, "reason": "hi"})).await.is_err());
+    assert!(
+        rpc(&r, &Caller::Local, "callPerson", json!({"chat": mine, "key": key(&mine), "reason": "  "})).await.is_err()
+    );
+    r.hub.calls.inner.locked().calls.clear();
+    let out =
+        rpc(&r, &Caller::Local, "callPerson", json!({"chat": mine, "key": key(&mine), "reason": "hi"})).await.unwrap();
+    assert_eq!(out["status"], "ringing");
+}
+
+#[tokio::test]
+async fn an_accepted_call_that_never_starts_frees_the_person() {
+    let r = Rig::new().await;
+    let (house, money) = (r.owner_bot("house"), r.owner_bot("money"));
+    let id = ring_for(&r, &house, "x")["id"].as_str().unwrap().to_owned();
+    accept(&r.hub, None, &id).unwrap();
+    assert_eq!(ring_for(&r, &money, "y")["status"], "busy");
+    r.hub.calls.inner.locked().calls.get_mut(&id).unwrap().settled -= 2 * GREET_MS;
+    assert_eq!(ring_for(&r, &money, "y")["status"], "ringing", "no callGreet came");
 }

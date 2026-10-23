@@ -7,9 +7,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# One run per ref; a re-push to a PR cancels the older run, pushes to main queue up (never cancelled).
+# A PR gets one group per ref, so a re-push cancels the older run. Every other run (push to main,
+# workflow_dispatch) gets its own group keyed by sha, so merges never cancel each other. GitHub keeps
+# only one pending run per group, so sharing a group for main would drop the older queued run.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.workflow, github.ref) || format('{0}-{1}-{2}', github.workflow, github.sha, github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -34,10 +36,12 @@ jobs:
       host: ${{ steps.h.outputs.host }}
       cloud: ${{ steps.h.outputs.cloud }}
       licenses: ${{ steps.f.outputs.licenses }}
+      threads: ${{ steps.f.outputs.threads }}
       ios: ${{ steps.h.outputs.ios }}
       desktop: ${{ steps.h.outputs.desktop }}
       relay: ${{ steps.h.outputs.relay }}
       e2e: ${{ steps.h.outputs.e2e }}
+      guest_linux: ${{ steps.h.outputs.guest_linux }}
     steps:
       - uses: actions/checkout@v4
       # On push to main dorny compares with the previous commit, so main only runs what changed.
@@ -62,6 +66,18 @@ jobs:
               - 'serve/host/crates/memory/LICENSE'
               - 'apps/ios/Kit/Sources/KithKit/Resources/ThirdPartyNotices/**'
               - '.github/workflows/ci.yml'
+            # The TLA+ model of one writer per thread and the code it covers (the list in the thread-writers skill).
+            threads:
+              - 'verification/threads/**'
+              - '.claude/skills/thread-writers/**'
+              - 'kernel/bin/kith-sessions'
+              - 'kernel/bin/kith'
+              - 'serve/host/src/terminal/**'
+              - 'serve/host/src/api/threads.rs'
+              - 'serve/host/src/api/bots.rs'
+              - 'serve/host/src/agent/bot/**'
+              - 'serve/host/src/hub/actors.rs'
+              - '.github/workflows/ci.yml'
       # 'every': a file must match the whole list, so each filter is one brace pattern plus a markdown
       # exclusion. A docs-only change then runs no heavy job. The only markdown that ships is
       # apps/ios/WhatsNew.md (an iOS resource), so ios excludes just READMEs.
@@ -84,6 +100,10 @@ jobs:
               - '!**/README.md'
             desktop:
               - '{apps/desktop/**,apps/packaging/**,apps/shared/**,apps/screen-macos/**,apps/Kith.xcodeproj/**,apps/project.yml,serve/host/**,serve/rust-toolchain.toml,serve/docs/reference/fixtures/**,.github/workflows/ci.yml}'
+              - '!**/*.md'
+            # The static Linux client (kith-guest) and the scripts and workflow that package and install it.
+            guest_linux:
+              - '{serve/host/crates/guest/**,serve/host/crates/wire/**,serve/host/Cargo.lock,serve/rust-toolchain.toml,scripts/package-guest.sh,scripts/install-guest.sh,scripts/smoke-guest.sh,.github/workflows/release.yml,.github/workflows/ci.yml}'
               - '!**/*.md'
             # The e2e also runs serve/cloud's wrangler dev, so cloud changes trigger it (not the macOS desktop job).
             e2e:
@@ -119,6 +139,28 @@ jobs:
         run: kernel/tests/kith-cost-bots-check
       - name: Call check
         run: kernel/tests/kith-call-check
+      - name: Load check
+        run: kernel/tests/kith-load-check
+
+  # Exits 0 when every row of verification/threads/checks.tsv matches its expected pass/fail, so green means no
+  # change from the recorded baseline (some rows are known findings on purpose).
+  thread-writers:
+    needs: changes
+    if: needs.changes.outputs.threads == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/kith-verify
+          key: kith-verify-${{ hashFiles('verification/threads/run.sh') }}
+      - name: TLA+ model check
+        run: verification/threads/run.sh
 
   host:
     needs: changes
@@ -317,11 +359,60 @@ jobs:
           KITH_SERVE_HOST_BIN: ${{ github.workspace }}/serve/host/target/debug/kith-serve
         run: npm run e2e:relay:host
 
+  # The Linux client for cloud-bot VMs: static musl build per CPU on a native runner (no qemu), then the one-command
+  # installer against the tarball it just built. Mirrors release.yml's build-guest without publishing anything.
+  guest-linux:
+    needs: changes
+    if: needs.changes.outputs.guest_linux == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, target: x86_64-unknown-linux-musl, runner: ubuntu-latest }
+          - { arch: aarch64, target: aarch64-unknown-linux-musl, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust + zig
+        run: |
+          cd serve
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add ${{ matrix.target }}
+          python3 -m venv "$RUNNER_TEMP/zig"
+          "$RUNNER_TEMP/zig/bin/pip" install ziglang cargo-zigbuild
+          echo "$RUNNER_TEMP/zig/bin" >> "$GITHUB_PATH"
+      # Only main saves the cache: PR refs can't share caches, so their saves just evict main's.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: serve/host
+          shared-key: guest-${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build
+        run: cd serve/host && cargo zigbuild --release --locked -p kith-guest --target ${{ matrix.target }}
+      - name: Static check
+        run: |
+          f=serve/host/target/${{ matrix.target }}/release/kith-guest
+          file "$f"
+          file "$f" | grep -qE 'statically linked|static-pie'
+      - name: No aws-lc, openssl or native-tls in the client
+        run: |
+          cd serve/host
+          if cargo tree -p kith-guest -e normal | grep -E 'aws-lc|openssl|native-tls'; then exit 1; fi
+      - name: Pack
+        run: scripts/package-guest.sh 0.0.0-ci ${{ matrix.arch }} serve/host/target/${{ matrix.target }}/release/kith-guest dist
+      - name: Install from the tarball and smoke test
+        run: |
+          KITH_GUEST_PREFIX="$RUNNER_TEMP/prefix" KITH_INSTALL_TARBALL="$(echo dist/*.tar.gz)" sh scripts/install-guest.sh
+          # Running it again upgrades in place.
+          KITH_GUEST_PREFIX="$RUNNER_TEMP/prefix" KITH_INSTALL_TARBALL="$(echo dist/*.tar.gz)" sh scripts/install-guest.sh
+          scripts/smoke-guest.sh "$RUNNER_TEMP/prefix/bin/kith"
+
   # The single check to require: passes when every needed job passed or was
   # skipped by the filter, fails on any failure or cancellation.
   ci:
     if: always()
-    needs: [changes, kernel, host, cloud, licenses, relay, ios, desktop, desktop-relay-e2e]
+    needs: [changes, kernel, host, cloud, licenses, thread-writers, relay, ios, desktop, desktop-relay-e2e, guest-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -66,6 +66,10 @@ upgrade. `KITH_VERSION`, `KITH_PREFIX` and `KITH_INSTALL_TARBALL` (a local file)
 `packaging/homebrew/kith.rb` (for the tap [`Ying-Kai-Liao/homebrew-kith`](https://github.com/Ying-Kai-Liao/homebrew-kith)). Releases are built by `.github/workflows/release.yml`
 on a `v*` tag.
 
+A Linux VM that only needs to join a computer and ask its agents (a cloud bot) installs the static client-only `kith`, no root:
+`curl -fsSL https://raw.githubusercontent.com/Ying-Kai-Liao/kith/main/scripts/install-guest.sh | sh`, then `kith join <link>`
+(x86_64 and aarch64; `KITH_VERSION`, `KITH_GUEST_PREFIX` in the script's header).
+
 `kith` is one binary: `kith serve <...>` is the host, `kith --version`, and every other `kith <args>` runs the kernel's
 `kith <args>`. It finds the kernel in `$KITH_KERNEL`, else `share/kith/kernel` beside the binary (the download, Homebrew),
 else `~/kith/kernel` (a git checkout).

@@ -239,8 +239,13 @@ public extension HostClient {
         let body = Body(botId: botId, text: text, clientNonce: clientNonce, threadId: threadId, attachments: attachments,
                         pasted: pasted?.isEmpty == false ? pasted : nil, newTask: newTask ? true : nil,
                         project: start?.projectId, folder: start?.folderPath, via: via)
-        let res: Res = try await call("send", body)
-        return res.entry
+        do {
+            let res: Res = try await call("send", body)
+            return res.entry
+        } catch {
+            // A thread another writer holds: the app shows "Working in terminal", not a failed send.
+            throw ThreadWriterError(error) ?? error
+        }
     }
 
     /// Bytes per `upload` call: base64 of it stays well under the channel's 1 MiB message.

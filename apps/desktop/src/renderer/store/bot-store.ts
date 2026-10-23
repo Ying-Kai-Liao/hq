@@ -13,7 +13,7 @@ import {
   type Usage,
 } from '@shared/models'
 import { normalizeFolder, type PlaceFolder, type PlaceSelection, type StartingFolder } from '@shared/place-folders'
-import { expireCalls, reduceCalls, type IncomingCall } from '@shared/incoming-call'
+import { expireCalls, type IncomingCall } from '@shared/incoming-call'
 import { FileDownloads } from './file-downloads'
 import { BotSync, sleep } from './bot-sync'
 

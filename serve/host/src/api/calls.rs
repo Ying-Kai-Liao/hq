@@ -11,15 +11,14 @@ use std::sync::Arc;
 
 pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<ControlFlow<Value, Value>> {
     Ok(ControlFlow::Break(match method {
-        // `kith-call`: the run says its agent (and the invited person it works for, if any), the host finds the chat.
-        // Only that person's own chat can be rung, so a run never reaches anyone else.
+        // `kith-call`: the run names its chat with the key the host put in its environment, so it can ring only the
+        // person that chat belongs to (an invitee's run never reaches the owner, whatever it unsets).
         "callPerson" => {
-            let (agent, reason) = (str_arg(&b, "agent")?, str_arg(&b, "reason")?);
-            let person = b["person"].as_str().filter(|p| !p.is_empty());
-            let Some(chat) = crate::calls::chat_of(hub, agent, person) else {
+            let (chat, reason) = (str_arg(&b, "chat")?, str_arg(&b, "reason")?);
+            if b["key"].as_str() != Some(&crate::calls::key(&hub.token, chat)) {
                 return Ok(ControlFlow::Break(json!({"status": "not-allowed"})));
-            };
-            crate::calls::ring_and_wait(hub, &chat, None, reason, b["wait"] == true).await?
+            }
+            crate::calls::ring_and_wait(hub, chat, reason, b["wait"] == true).await?
         }
         "callAccept" | "callDecline" | "callGreet" => {
             let who = match principal(&hub.store, caller) {

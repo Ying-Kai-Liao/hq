@@ -1,5 +1,6 @@
 import { mirrorStamp } from '@shared/mirror-stamp'
 import { isChat, type AccessRequest, type CloudStatus, type Entry } from '@shared/models'
+import { callPresence } from './call-presence'
 import { reduceCalls } from '@shared/incoming-call'
 import { isOutsideLoadedWindow, snapshotFloors } from '@shared/mirror-window'
 import { HostClient, HostError, type HostEvent } from '../client/host-client'
@@ -239,7 +240,8 @@ export class BotSync extends BotMirror {
         this.cloud = event.cloud
         break
       case 'call':
-        this.incomingCalls = reduceCalls(this.incomingCalls, event)
+        if (event.ringing && callPresence.active > 0) this.perform((c) => c.callDecline(event.call.id))
+        else this.incomingCalls = reduceCalls(this.incomingCalls, event)
         break
       case 'resync':
         this.restartEvents()

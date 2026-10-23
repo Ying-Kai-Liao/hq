@@ -44,6 +44,8 @@ pub const MEMBER_METHODS: &[&str] = &[
     "callAccept",
     "callDecline",
     "callGreet",
+    // The app logs the end of a call it took (frees the person for the next one).
+    "logCall",
 ];
 
 /// All an unproven device of an invited person may call: showing the invite token (see `people::prove_invite`).

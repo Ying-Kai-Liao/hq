@@ -9,8 +9,12 @@ import Foundation
 final class RingTone {
     private var player: AVAudioPlayer?
     private var timer: Timer?
+    /// Whether this ring activated the audio session (and so is the one to let it go).
+    private var ringing = false
 
     func start() {
+        guard !ringing else { return }
+        ringing = true
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.ambient, mode: .default)
         try? session.setActive(true)
@@ -24,7 +28,11 @@ final class RingTone {
         }
     }
 
+    /// Safe to call twice (Accept, then the view going away): only the first lets the session go, so it can't
+    /// deactivate the call that took the session over.
     func stop() {
+        guard ringing else { return }
+        ringing = false
         timer?.invalidate()
         timer = nil
         player?.stop()

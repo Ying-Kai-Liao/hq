@@ -1,6 +1,7 @@
 import { isWorking } from '@shared/models'
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { Sheet } from '../../components/Overlay'
+import { callPresence } from '../../store/call-presence'
 import { useModel } from '../../lib/observable'
 import { useStore } from '../../store/context'
 import { chosenKithVoice, voiceLocalPrepare, voiceLocalSpeak, voiceLocalStatus } from '../settings/voice-settings'
@@ -151,9 +152,11 @@ export function CallView({ botId, greet, onSpeaking, interrupt, onEnd }: {
 
   useEffect(() => {
     const startedAt = Date.now()
+    callPresence.active++
     begin(VoiceSettings.provider())
     return () => {
       closed.current = true
+      callPresence.active--
       engine.current?.end()
       countCloudMinutes()
       onSpeaking(false)

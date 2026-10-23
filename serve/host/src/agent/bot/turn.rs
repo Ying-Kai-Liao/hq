@@ -18,17 +18,23 @@ use tokio::sync::mpsc;
 const PROFILE_AGAIN: &str = "Your context was summarized. This is your full, current profile and memory; it replaces any earlier bot profile in this conversation.";
 
 impl Actor {
+    /// The group room the current turn is in: memory loads for that room (a bot's own chat and threads are none).
+    pub(super) fn memory_room(&self) -> Option<String> {
+        self.active_group.as_ref().map(|g| g.lane.chat.clone())
+    }
+
     /// This session's frozen instructions (reads memory files when re-rendering).
     pub(super) async fn snapshot(&self, session: &str) -> Result<Snapshot> {
-        let (hub, cfg, session) = (self.hub.clone(), self.cfg.clone(), session.to_owned());
-        tokio::task::spawn_blocking(move || context::resolve(&hub.store, &cfg, &session)).await?
+        let (hub, cfg, session, room) = (self.hub.clone(), self.cfg.clone(), session.to_owned(), self.memory_room());
+        tokio::task::spawn_blocking(move || context::resolve(&hub.store, &cfg, &session, room.as_deref())).await?
     }
 
     /// The prompt for `text` in session `sid`: what the agent should hear first (its profile, a handoff, a thread's
     /// start, a memory change) and after (a profile update, how to share files).
     async fn compose(&mut self, sid: &str, text: &str) -> Result<String> {
         if self.is_hq() {
-            return Ok(self.compose_hq(text));
+            let recalled = self.first_message_recall(text).await;
+            return Ok(self.compose_hq(text, recalled));
         }
         let instructions = self.conn.as_ref().map_or(Instructions::FirstMessage, Conn::instructions);
         let mut snapshot = self.snapshot(sid).await?;
@@ -43,7 +49,9 @@ impl Actor {
             // The instructions reaching the agent now hold memory as it was when they were rendered.
             memory::opened(&self.hub.store, &self.cfg.id, sid, &snapshot.memory)?;
         }
-        if let Some((notice, revision)) = memory::change_notice(&self.hub.store, &self.cfg, sid) {
+        if let Some((notice, revision)) =
+            memory::change_notice(&self.hub.store, &self.cfg, sid, self.memory_room().as_deref())
+        {
             prompt = format!("{notice}\n\n{prompt}");
             self.turn_memory_revision = revision;
         }
@@ -94,9 +102,15 @@ impl Actor {
         self.lane = lane.clone();
         self.turn = Some(turn);
         // Only the user's own words feed memory: not another bot's, a room's or a routine's.
-        let from_user =
-            !hidden && self.active_request.is_none() && self.active_group.is_none() && self.active_routine.is_none();
-        self.turn_call = from_user
+        // The opening turn of a call the agent placed (`calls::greet`) is the host's, not the person's words.
+        let greeting = !entry_ids.is_empty()
+            && entry_ids.iter().all(|id| self.hub.store.entry(id).is_some_and(|e| e.data["greeting"] == true));
+        let from_user = !hidden
+            && !greeting
+            && self.active_request.is_none()
+            && self.active_group.is_none()
+            && self.active_routine.is_none();
+        self.turn_call = (from_user || greeting)
             && !entry_ids.is_empty()
             && entry_ids.iter().all(|id| self.hub.store.entry(id).is_some_and(|e| e.data["via"] == "call"));
         self.turn_text = from_user.then(|| text.to_owned());

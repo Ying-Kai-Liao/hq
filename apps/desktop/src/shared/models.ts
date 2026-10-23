@@ -170,6 +170,16 @@ export interface ThreadSummary {
   /** Who replied, first reply first: bot ids, and `user`. */
   authors: string[]
   unread?: number
+  /** Where the conversation started: absent = in the app; `terminal`; later `bot`, `discord`, `telegram`, `slack`. Open string (see `thread-writer.ts`). */
+  origin?: string
+  originLabel?: string
+  /** A bot-guest thread: whose bot started it. */
+  originBot?: { provider?: string; owner?: string; name?: string }
+  /** Who may write now: absent/null = the app (or nobody), `terminal`, later `bot`. Open string; any value but `app` holds the thread. */
+  liveWriter?: string | null
+  /** The writer is mid-turn. */
+  liveBusy?: boolean
+  terminal?: { sessionId?: string; cwd?: string }
 }
 
 export interface Attachment {
@@ -255,6 +265,10 @@ export interface EntryData {
   entries?: PlanItem[]
   /** notice: info | error | divider */
   style?: string
+  /** notice (divider): startedInTerminal | openedInTerminal | tookOver | terminalClosed; open string. */
+  writerChange?: string
+  /** notice: when the writer changed, in ms. */
+  at?: number
   author?: string
   thread?: ThreadSummary
   /** user, in the main chat: the first message of a task; the task goes on in its thread (see `tasks`). */

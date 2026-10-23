@@ -71,10 +71,12 @@ struct CallScreen: View {
         .animation(Motion.reduced(Motion.fade, reduceMotion), value: notice)
         .onAppear {
             startedAt = .now
+            CallPresence.active += 1
             Analytics.shared.capture(.voiceCallStarted)
             begin(cloud: VoiceSettings.provider)
         }
         .onDisappear {
+            CallPresence.active -= 1
             session?.end()
             countCloudMinutes()
             model.endVoiceCall(callID)

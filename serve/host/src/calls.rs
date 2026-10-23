@@ -26,6 +26,8 @@ const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 const PER_DAY: usize = 6;
 /// An accepted call counts as active (so another agent's call is busy) until the app logs its end, or this long.
 const ACTIVE_MS: i64 = 30 * 60 * 1000;
+/// An accepted call counts as dropped when the app hasn't started its voice call (`callGreet`) within this long.
+const GREET_MS: i64 = 60_000;
 /// Longest reason kept, in characters.
 const MAX_REASON: usize = 200;
 /// How long `wait` holds a `callPerson` request open.
@@ -56,7 +58,6 @@ impl State {
 pub struct Call {
     pub id: String,
     pub bot_id: String,
-    pub thread: Option<String>,
     /// Whose call it is: `None` is the owner, else the invited person.
     pub person: Option<String>,
     pub reason: String,
@@ -68,7 +69,9 @@ pub struct Call {
 
 impl Call {
     fn live(&self, now: i64) -> bool {
-        self.state == State::Ringing || (self.state == State::Accepted && now - self.settled < ACTIVE_MS)
+        // An accepted call whose app never started the voice call (`greet`) doesn't hold the person for long.
+        let limit = if self.greeted { ACTIVE_MS } else { GREET_MS };
+        self.state == State::Ringing || (self.state == State::Accepted && now - self.settled < limit)
     }
 }
 
@@ -149,7 +152,7 @@ fn wire(hub: &Hub, call: &Call) -> Value {
         "type": "call",
         "rev": hub.store.current_rev(),
         "call": {
-            "id": call.id, "botId": call.bot_id, "threadId": call.thread, "name": name, "reason": call.reason,
+            "id": call.id, "botId": call.bot_id, "name": name, "reason": call.reason,
             "createdAt": call.created, "remainingMs": (call.created + hub.calls.ring_ms() - now_ms()).max(0),
             "state": call.state.as_str(),
         },
@@ -165,9 +168,22 @@ fn clean(reason: &str) -> String {
     reason.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(MAX_REASON).collect()
 }
 
+/// What the rate limit counts: one agent's calls to one person.
+fn rate_key(agent: &str, person: Option<&str>) -> String {
+    format!("{agent}\u{1f}{}", person.unwrap_or_default())
+}
+
+/// The proof a run has of being in chat `bot`: the host puts it in that run's environment (`KITH_CALL_KEY`), and
+/// `kith-call` presents it. A run can't ring any other chat, whatever else its environment says.
+pub fn key(host_token: &str, bot: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(format!("kith-call:{host_token}:{bot}"));
+    digest.iter().fold(String::new(), |s, b| s + &format!("{b:02x}"))
+}
+
 /// An agent rings its person. `bot_id` is the chat the agent works in, which also says who is called. The answer's
 /// `status` is `ringing`, `busy`, `rate-limited` or `not-allowed`.
-pub fn ring(hub: &Arc<Hub>, bot_id: &str, thread: Option<String>, reason: &str) -> Result<Value> {
+pub fn ring(hub: &Arc<Hub>, bot_id: &str, reason: &str) -> Result<Value> {
     let reason = clean(reason);
     if reason.is_empty() {
         bail!("reason is required: say in a few words why you're calling");
@@ -178,14 +194,14 @@ pub fn ring(hub: &Arc<Hub>, bot_id: &str, thread: Option<String>, reason: &str) 
     let person = row.config.person.clone();
     let agent = row.config.hq_agent.clone().unwrap_or_else(|| bot_id.to_owned());
     let now = now_ms();
-    let (call, rung) = {
+    let call = {
         let mut g = hub.calls.inner.locked();
         g.calls.retain(|_, c| c.live(now) || now - c.settled < 60_000);
         // A person is on one call at a time, whoever it is with.
         if g.calls.values().any(|c| c.person == person && c.live(now)) {
             return Ok(json!({"status": "busy"}));
         }
-        let rung = g.rung.entry(agent).or_default();
+        let rung = g.rung.entry(rate_key(&agent, person.as_deref())).or_default();
         rung.retain(|t| now - t < DAY_MS);
         let gap = rung.last().map(|t| MIN_GAP_MS - (now - t)).filter(|w| *w > 0);
         if gap.is_some() || rung.len() >= PER_DAY {
@@ -196,7 +212,6 @@ pub fn ring(hub: &Arc<Hub>, bot_id: &str, thread: Option<String>, reason: &str) 
         let call = Call {
             id: uuid::Uuid::new_v4().to_string(),
             bot_id: bot_id.to_owned(),
-            thread,
             person,
             reason,
             created: now,
@@ -205,9 +220,10 @@ pub fn ring(hub: &Arc<Hub>, bot_id: &str, thread: Option<String>, reason: &str) 
             greeted: false,
         };
         g.calls.insert(call.id.clone(), call.clone());
-        (call, g.rung.clone())
+        // Saved under the lock, so two rings can't write the file out of order.
+        hub.calls.save(&g.rung);
+        call
     };
-    hub.calls.save(&rung);
     emit(hub, &call);
     let (hub, id) = (hub.clone(), call.id.clone());
     tokio::spawn(async move {
@@ -242,14 +258,15 @@ fn settle(hub: &Arc<Hub>, id: &str, to: State, who: Who) -> Result<Call> {
             "text": format!("{name} tried to call: {}", call.reason),
             "missedCall": true, "callState": to.as_str(), "callReason": call.reason,
         });
-        let lane = Lane { chat: call.bot_id.clone(), thread: call.thread.clone() };
+        // Always the main chat: the voice call talks there, so the call's lines and the greeting go with it.
+        let lane = Lane::main(&call.bot_id);
         hub.add_entry(&lane, EntryKind::Notice, hub.store.max_turn(&call.bot_id), &data);
     }
     Ok(call)
 }
 
 pub fn accept(hub: &Arc<Hub>, who: Option<&str>, id: &str) -> Result<Value> {
-    settle(hub, id, State::Accepted, Some(who)).map(|c| json!({"botId": c.bot_id, "threadId": c.thread}))
+    settle(hub, id, State::Accepted, Some(who)).map(|c| json!({"botId": c.bot_id}))
 }
 
 pub fn decline(hub: &Arc<Hub>, who: Option<&str>, id: &str) -> Result<Value> {
@@ -269,8 +286,9 @@ pub fn greet(hub: &Arc<Hub>, who: Option<&str>, id: &str) -> Result<Value> {
         c.clone()
     };
     let row = hub.store.bot(&call.bot_id)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?;
-    let lane = Lane { chat: call.bot_id.clone(), thread: call.thread.clone() };
-    let data = json!({"text": format!("{} called: {}", row.config.name, call.reason), "callState": "accepted", "callReason": call.reason});
+    // Always the main chat: the voice call talks there, so the call's lines and the greeting go with it.
+    let lane = Lane::main(&call.bot_id);
+    let data = json!({"text": format!("{} called: {}", row.config.name, call.reason), "callState": "accepted", "callReason": call.reason, "via": "call", "greeting": true});
     let turn = hub.store.max_turn(&call.bot_id);
     let Some(notice) = hub.add_entry(&lane, EntryKind::Notice, turn, &data) else { bail!("couldn't save the call") };
     let ask = format!("[The person accepted your call. Greet them and say why you called: {}]", call.reason);
@@ -281,14 +299,8 @@ pub fn greet(hub: &Arc<Hub>, who: Option<&str>, id: &str) -> Result<Value> {
 
 /// `callPerson` and the `call_person` tool, after the caller has said which chat it is. With `wait` the answer holds
 /// until the person answered or the ring ended: `status` then is `accepted`, `declined` or `missed`.
-pub async fn ring_and_wait(
-    hub: &Arc<Hub>,
-    bot_id: &str,
-    thread: Option<String>,
-    reason: &str,
-    wait: bool,
-) -> Result<Value> {
-    let mut out = ring(hub, bot_id, thread, reason)?;
+pub async fn ring_and_wait(hub: &Arc<Hub>, bot_id: &str, reason: &str, wait: bool) -> Result<Value> {
+    let mut out = ring(hub, bot_id, reason)?;
     let Some(id) = out["id"].as_str().filter(|_| wait).map(str::to_owned) else { return Ok(out) };
     let deadline = tokio::time::Instant::now() + WAIT;
     while tokio::time::Instant::now() < deadline {
@@ -316,18 +328,6 @@ pub fn tool() -> Value {
         },
         "annotations": {"readOnlyHint": false, "idempotentHint": false},
     })
-}
-
-/// The chat a CLI run called from: `agent`'s chat with `person` (`None` is the owner).
-pub fn chat_of(hub: &Hub, agent: &str, person: Option<&str>) -> Option<String> {
-    let rows = hub.store.bots().ok()?;
-    let mine = |r: &&crate::store::BotRow| {
-        !r.deleted
-            && !r.config.is_group()
-            && r.config.hq_agent.as_deref() == Some(agent)
-            && r.config.person.as_deref() == person
-    };
-    rows.iter().find(mine).map(|r| r.config.id.clone())
 }
 
 #[cfg(test)]
