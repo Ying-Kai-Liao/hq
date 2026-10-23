@@ -168,7 +168,12 @@ impl Core {
 
     /// Where a connection's downloaded attachments go: one folder per connection.
     pub fn attachments_dir(&self, conn: &str) -> std::path::PathBuf {
-        self.paths.data.join("attachments").join(conn.replace('/', "_"))
+        self.attachments_root().join(conn.replace('/', "_"))
+    }
+
+    /// All connections' attachments: what the daily prune sweeps.
+    pub fn attachments_root(&self) -> std::path::PathBuf {
+        self.paths.data.join("attachments")
     }
 
     /// Whether a thread of this key exists.
@@ -264,6 +269,13 @@ impl Core {
             w.owner = true;
         }
         (w.person.clone(), w)
+    }
+
+    /// Whether hq knows the sender (the check `handle` makes before anything else): an adapter downloads a
+    /// message's files only for these, so a stranger can't make this Mac fetch anything.
+    pub async fn knows_sender(&self, platform: &str, uid: &str, admin: bool) -> bool {
+        let w = hq::who(&self.paths, platform, uid).await;
+        w.person.is_some() || (admin && w.owner_id.is_some() && !w.owner_linked)
     }
 
     async fn usable(&self, person: &str) -> Vec<String> {

@@ -711,8 +711,10 @@ impl Discord {
             || self.core.room_default(&room).is_some();
         let mut files = Vec::new();
         let mut text = text;
-        if ours {
-            // only for messages hq may act on
+        let has_files = msg["attachments"].as_array().is_some_and(|a| !a.is_empty());
+        let admin = owner.as_deref() == Some(uid.as_str());
+        if ours && has_files && self.core.knows_sender("discord", &uid, admin).await {
+            // only for messages hq may act on, from people hq knows
             for a in msg["attachments"].as_array().into_iter().flatten() {
                 match self.download(&mid, files.len(), a).await {
                     Ok(Some(p)) => files.push(p),
@@ -726,7 +728,7 @@ impl Discord {
         }
         let id = mid.parse::<u64>().unwrap_or(0);
         Ok(Some(Incoming {
-            admin: owner.as_deref() == Some(uid.as_str()),
+            admin,
             uid,
             text,
             room,
