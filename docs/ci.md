@@ -41,7 +41,7 @@ This repo uses merge commits and a Mergify merge queue (`.mergify.yml`). Once `c
 gh pr edit <n> --add-label queue
 ```
 
-Mergify batches up to 8 queued PRs (waiting at most 3 minutes for company) on top of the latest main as a draft PR on a `mergify/merge-queue/*` branch, and runs the full suite there; the batch's `ci` is the heavy run. If it passes, the PRs merge with merge commits. If it fails, Mergify splits the batch and re-tests to find the failing PR, which is dropped on its own. There are no intermediate or integration branches. The `queue` label is removed once a PR merges, so adding it again re-queues a PR that left the queue.
+Mergify batches up to 8 queued PRs (waiting at most 3 minutes for company) on top of the latest main as a draft PR on a `mergify/merge-queue/*` branch, and runs the full suite there; the batch's `ci` is the heavy run. If it passes, the PRs merge with merge commits. If it fails, Mergify splits the batch and re-tests to find the failing PR, which is dropped on its own. There are no intermediate or integration branches. The `queue` label is removed only once a PR merges. A PR that Mergify drops from a failed batch keeps the label, so to queue it again, remove the label and add it back.
 
 Never `gh pr merge` directly: that skips the heavy tier.
 
