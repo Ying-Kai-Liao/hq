@@ -418,7 +418,7 @@ async fn refill(agent: &str, force: bool) -> InfoRun {
 async fn refill_with<F, Fut>(agent: &str, force: bool, read: F) -> InfoRun
 where
     F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<Value>>,
+    Fut: Future<Output = Result<Value>>,
 {
     let slot = slot(agent);
     let _turn = if let Ok(turn) = slot.gate.try_lock() {
@@ -790,8 +790,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_forced_refill_reads_again_after_the_run_it_waited_for() {
-        let mode = Arc::new(std::sync::Mutex::new("ask".to_owned()));
-        let read_mode = |mode: Arc<std::sync::Mutex<String>>, pause: u64| async move {
+        let mode = std::sync::Arc::new(std::sync::Mutex::new("ask".to_owned()));
+        let read_mode = |mode: std::sync::Arc<std::sync::Mutex<String>>, pause: u64| async move {
             let seen = mode.lock().unwrap().clone();
             tokio::time::sleep(Duration::from_millis(pause)).await;
             Ok(json!({"permission": seen}))
