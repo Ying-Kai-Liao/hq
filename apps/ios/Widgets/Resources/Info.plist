@@ -13,6 +13,11 @@
 	<array>
 		<string>KithHop-Dot.ttf</string>
 		<string>KithHop-Ghost.ttf</string>
+		<string>Inter-Regular.ttf</string>
+		<string>Inter-SemiBold.ttf</string>
+		<string>Inter-Bold.ttf</string>
+		<string>JetBrainsMono-Regular.ttf</string>
+		<string>Nunito-Variable.ttf</string>
 	</array>
 	<key>NSExtension</key>
 	<dict>
