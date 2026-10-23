@@ -175,6 +175,8 @@ targets:
         script: |
           # The scheme chooses an environment independently of Debug/Release optimization.
           cp "$SRCROOT/shared/Config/$CODYNC_ENV.plist" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AccountConfig.plist"
+          # The Open-source licenses screen reads the generated third-party notices.
+          cp "$SRCROOT/../THIRD_PARTY_NOTICES.md" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/THIRD_PARTY_NOTICES.md"
           # The build environment's KITH_CLERK_PUBLISHABLE_KEY / KITH_CLOUD_URL (or the older CODYNC_* names) win over the plist.
           ACCOUNT_PLIST="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AccountConfig.plist"
           ACCOUNT_KEY="${KITH_CLERK_PUBLISHABLE_KEY:-$CODYNC_CLERK_PUBLISHABLE_KEY}"
