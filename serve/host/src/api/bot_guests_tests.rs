@@ -604,7 +604,16 @@ async fn a_terminal_holding_the_thread_refuses_an_ask_and_a_retry_still_answers(
     let conv = r.hub.store.bot_conversation_by_id(first["conversation"].as_str().unwrap()).unwrap();
     let lane = Lane::in_thread(&conv.chat_bot_id, &conv.thread_root);
     r.hub.store.kv_set(&crate::store::lane_key("session", &conv.chat_bot_id, &lane), "sbot1").unwrap();
-    let sent = || r.hub.store.thread(&conv.chat_bot_id, &conv.thread_root, 50).unwrap().len();
+    // Asks only: the first turn has no agent here and may add a notice at any time.
+    let sent = || {
+        r.hub
+            .store
+            .thread(&conv.chat_bot_id, &conv.thread_root, 50)
+            .unwrap()
+            .iter()
+            .filter(|e| e.kind == "user")
+            .count()
+    };
     let before = sent();
 
     // A terminal holds the thread (this test process stands in for it).
