@@ -27,7 +27,8 @@ impl Actor {
     /// This session's frozen instructions (reads memory files when re-rendering).
     pub(super) async fn snapshot(&self, session: &str) -> Result<Snapshot> {
         let (hub, cfg, session, room) = (self.hub.clone(), self.cfg.clone(), session.to_owned(), self.memory_room());
-        tokio::task::spawn_blocking(move || context::resolve(&hub.store, &cfg, &session, room.as_deref())).await?
+        crate::watchdog::blocking("bot-context", move || context::resolve(&hub.store, &cfg, &session, room.as_deref()))
+            .await?
     }
 
     /// The prompt for `text` in session `sid`: what the agent should hear first (its profile, a handoff, a thread's
