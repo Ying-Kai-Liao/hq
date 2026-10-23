@@ -433,6 +433,11 @@ impl Actor {
 
 /// The context fullness to show on a reply: whole percent, once the session is at least `show` full.
 /// None below that, with `show` off, or when the session's window size is unknown.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    reason = "token counts are far below 2^52 and a percent fits in i64"
+)]
 fn context_percent(usage: Option<(u64, u64)>, show: Option<f64>) -> Option<i64> {
     let (used, size) = usage?;
     let pct = used_pct(used as f64, size as f64)?;
