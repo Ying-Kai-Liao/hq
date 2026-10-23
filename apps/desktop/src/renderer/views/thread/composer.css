@@ -20,7 +20,8 @@
   align-items: flex-end;
   gap: 8px;
   padding: 8px 14px 14px;
-  max-width: var(--column);
+  /* The mock's box: 620 wide, centred. */
+  max-width: calc(620px * var(--scale));
   margin: 0 auto;
   width: 100%;
 }
@@ -88,7 +89,7 @@
   min-width: 0;
   background: var(--composer-fill);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-s);
+  box-shadow: var(--shadow-s), inset 0 0 0 0.5px var(--kith-line);
   display: flex;
   flex-direction: column;
 }
@@ -173,8 +174,8 @@
   place-items: center;
   flex: none;
   margin-bottom: calc(max(0px, (round(up, calc(var(--conversation) * 1.25), 1px) + 10px - 25px) / 2));
-  background: var(--accent-fill);
-  color: var(--on-accent);
+  background: var(--kith-ink);
+  color: var(--background);
   transition: background-color var(--morph), color var(--morph), transform var(--press);
 }
 .composer-send.interrupt {
