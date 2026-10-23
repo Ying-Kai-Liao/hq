@@ -12,7 +12,7 @@
 
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
 import { generateKeyPairSync } from 'node:crypto'
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -136,6 +136,9 @@ async function main() {
   chmodSync(join(kbin, 'kith'), 0o755)
   symlinkSync(join(KERNEL_BIN, 'kith-auth'), join(kbin, 'kith-auth'))
   mkdirSync(join(tmp, 'agent'), { recursive: true })
+  // kith-auth only grants agents it can find in the Kith home.
+  mkdirSync(join(tmp, 'kith-home/agents/house'), { recursive: true })
+  writeFileSync(join(tmp, 'kith-home/agents/house/agent.md'), '# house\n')
 
   check(kithAuth('person', 'kai', 'owner').status === 0, 'owner person exists in the throwaway kith-auth')
   hostPort = await freePort()
@@ -208,7 +211,7 @@ async function invitee(computerId: string, signKey: string) {
   check(link && link.computerId === computerId, 'the owner made an invite for the real host')
   if (!link) return
 
-  const token = await clerkToken('user_invitee_e2e')
+  const token = await clerkToken('user_inviteee2e')
   const device = signerFromSeed(Buffer.alloc(32, 0x62)) // fake, low entropy
   const req = (method: string, path: string, body: unknown, signed: boolean) =>
     cloud(method, `/${path}`, { token, signer: signed ? device : undefined, body }).then((r) =>
@@ -221,7 +224,10 @@ async function invitee(computerId: string, signKey: string) {
     return links.get(id)!
   }
   const api: RelayApi = {
-    computers: async () => (await req('GET', 'v1/computers', undefined, true)) as any,
+    computers: async () => {
+      const r = await req('GET', 'v1/computers', undefined, true)
+      return r.ok ? { ok: true, value: (r.value as any).computers } : r
+    },
     requestAccess: (id, key) => requestAccess({ request: req, signer: device, computerId: id, signKey: key, cancelled: () => false, created: () => {}, pollMs: 300 }),
     accessStatus: async (id) => {
       const r = await req('GET', `v1/access-requests/${id}`, undefined, false)
@@ -235,11 +241,11 @@ async function invitee(computerId: string, signKey: string) {
     },
     call: (id, key, method, body, ms) => linkOf(id, key).call(method, body, ms),
   }
-  // The Mac's owner approves what the invitee asks, as soon as it is there.
+  // The Mac's owner approves what the invitee asks once the Mac shows its digits (after the device revealed its nonce).
   let approving = true
   void (async () => {
     while (approving) {
-      for (const r of (await loopback('accessRequests').catch(() => ({ requests: [] }))).requests) await loopback('decideAccessRequest', { requestId: r.requestId, approve: true }).catch(() => {})
+      for (const r of (await loopback('accessRequests').catch(() => ({ requests: [] }))).requests.filter((x: any) => x.code)) await loopback('decideAccessRequest', { requestId: r.requestId, approve: true }).catch(() => {})
       await sleep(300)
     }
   })()

@@ -66,8 +66,22 @@ export function relayJoinDeps(
     async requestAccess(computerId) {
       const c = await find(api, computerId)
       if (c.access === 'approved') return
-      const outcome = await askForAccess(api, c, wait)
-      if (outcome !== 'approved') throw new Error(accessText(outcome))
+      // Right after the cloud accept the Mac may not have heard of the new member yet and turns the request down:
+      // asking again a few seconds later is the same request done properly.
+      const sleep = wait.sleep ?? nap
+      for (let attempt = 1; ; attempt++) {
+        let outcome: AccessOutcome | null = null
+        let failure: Error | null = null
+        try {
+          outcome = await askForAccess(api, c, wait)
+        } catch (e) {
+          failure = e instanceof Error ? e : new Error(String(e))
+        }
+        if (outcome === 'approved') return
+        const turnedDown = outcome === 'denied' || (failure !== null && /didn't take/i.test(failure.message))
+        if (!turnedDown || attempt >= 4 || wait.cancelled?.()) throw failure ?? new Error(accessText(outcome!))
+        await sleep(4000)
+      }
     },
     async connect(computerId): Promise<HostCaller | null> {
       const c = await find(api, computerId)
