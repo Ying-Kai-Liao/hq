@@ -8,7 +8,7 @@ private func link(_ overrides: [String: String?] = [:], scheme: String = "kith")
     var q: [String: String?] = [
         "v": "3", "name": "Kevin's Mac", "id": v.str("keys", "computerId"), "sk": v.str("keys", "hostSignPub"),
         "bk": v.str("keys", "hostBoxPub"), "code": v.str("pairing", "code"),
-        "urls": "http://192.168.1.5:19222,http://100.64.1.2:19222", "cloud": "https://codync-cloud-staging.example.workers.dev",
+        "urls": "http://192.168.1.5:19222,http://100.64.1.2:19222", "cloud": "https://kith-cloud-staging.example.workers.dev",
     ]
     for (k, value) in overrides { q[k] = value }
     var comps = URLComponents(string: "\(scheme)://pair")!
@@ -23,7 +23,7 @@ private func link(_ overrides: [String: String?] = [:], scheme: String = "kith")
     #expect(p.computer.signKey == v.str("keys", "hostSignPub"))
     #expect(p.computer.boxKey == v.str("keys", "hostBoxPub"))
     #expect(p.computer.urls == ["http://192.168.1.5:19222", "http://100.64.1.2:19222"])
-    #expect(p.computer.cloud?.absoluteString == "https://codync-cloud-staging.example.workers.dev")
+    #expect(p.computer.cloud?.absoluteString == "https://kith-cloud-staging.example.workers.dev")
     #expect(p.code == v.str("pairing", "code"))
     // A kith:// link starts a pairing on the kith/* labels.
     #expect(p.computer.labelFamily == .kith)

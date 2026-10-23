@@ -42,14 +42,14 @@ describe("routing", () => {
 
   it("keeps /internal/* unreachable from outside", async () => {
     for (const path of ["/internal/block", "/v1/relay/internal/block", "/v1/relay/device/%2Finternal%2Fblock?v=1", "/relay"]) {
-      const res = await SELF.fetch(`https://cloud.test${path}`, { method: "POST", headers: { "X-Codync-Internal": "1" }, body: "{}" });
+      const res = await SELF.fetch(`https://cloud.test${path}`, { method: "POST", headers: { "X-Kith-Internal": "1" }, body: "{}" });
       expect(res.status, path).not.toBe(200);
     }
     const host = await newHost();
     // The DO itself refuses anything without the Worker's internal header.
     const res = await stub(host).fetch("https://do/internal/block", { method: "POST", body: JSON.stringify({ devices: [] }) });
     expect(res.status).toBe(404);
-    expect((await stub(host).fetch("https://do/other", { headers: { "X-Codync-Internal": "1" } })).status).toBe(404);
+    expect((await stub(host).fetch("https://do/other", { headers: { "X-Kith-Internal": "1" } })).status).toBe(404);
   });
 
   it("requires registration for the host and a known computer for devices", async () => {

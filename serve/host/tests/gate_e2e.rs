@@ -30,7 +30,7 @@ impl Host {
         let home = std::env::temp_dir().join(format!("kith-gate-e2e-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&home).unwrap();
         let (child, base) = common::serve_env(&home, env).await;
-        let token = std::fs::read_to_string(home.join("token")).unwrap().trim().to_owned();
+        let token = common::read_token(&home).trim().to_owned();
         Self { child, base, token, home }
     }
 

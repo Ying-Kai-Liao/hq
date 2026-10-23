@@ -9,6 +9,10 @@ mod common;
 #[path = "../src/remote/crypto.rs"]
 #[allow(dead_code)]
 mod crypto;
+/// `crypto.rs` names its sibling `legacy_compat` through `super`.
+#[path = "../src/remote/legacy_compat.rs"]
+#[allow(dead_code)]
+mod legacy_compat;
 
 use ed25519_dalek::SigningKey;
 use futures::{SinkExt as _, StreamExt as _};
@@ -35,7 +39,7 @@ async fn start_host() -> Host {
     let home = std::env::temp_dir().join(format!("kith-e2e-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&home).unwrap();
     let (child, base) = common::serve(&home).await;
-    let token = std::fs::read_to_string(home.join("token")).unwrap().trim().to_owned();
+    let token = common::read_token(&home).trim().to_owned();
     Host { child, base, token, home }
 }
 

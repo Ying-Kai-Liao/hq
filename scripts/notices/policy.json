@@ -1,0 +1,33 @@
+{
+  "about": "License policy and inputs for scripts/notices/generate.mjs. See docs/open-source.md.",
+  "allow": [
+    "MIT", "MIT-0", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MPL-2.0", "Zlib", "Unicode-3.0",
+    "Unicode-DFS-2016", "0BSD", "CC0-1.0", "Unlicense", "BSL-1.0", "OFL-1.1", "BlueOak-1.0.0", "Python-2.0",
+    "CC-BY-4.0", "WTFPL", "Apache-1.1", "NCSA", "libpng-2.0", "CDLA-Permissive-2.0"
+  ],
+  "review": ["LGPL-*", "EPL-*", "CDDL-*", "CC-BY-SA-*"],
+  "deny": [
+    "GPL-*", "AGPL-*", "SSPL-*", "BUSL-*", "Commons-Clause", "CC-BY-NC*", "*-NC", "*-NC-*", "Elastic-*",
+    "PolyForm-Noncommercial*", "UNLICENSED", "NONE"
+  ],
+  "prefer": ["MIT", "Apache-2.0", "BSD-3-Clause", "BSD-2-Clause", "ISC", "Zlib", "Unlicense", "0BSD", "CC0-1.0"],
+  "exceptions": {},
+  "npm": [
+    { "name": "apps/desktop", "dir": "apps/desktop", "bundled": ["react", "react-dom", "@xterm/xterm", "@xterm/addon-fit", "@xterm/addon-web-links", "lucide", "qrcode"] },
+    { "name": "serve/cloud", "dir": "serve/cloud", "bundled": [] },
+    { "name": "serve/relay", "dir": "serve/relay", "bundled": [] }
+  ],
+  "cargo": ["serve/host/Cargo.lock"],
+  "swiftpm": [
+    "apps/ios/Kit/Package.resolved",
+    "apps/Codync.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+  ],
+  "vendored": [
+    { "name": "cua-driver", "license": "MIT", "file": "apps/packaging/cua-driver/LICENSE", "url": "https://github.com/trycua/cua", "note": "Computer-use driver shipped beside the app." },
+    { "name": "kith-mem", "license": "Apache-2.0", "file": "serve/host/crates/memory/LICENSE", "url": "https://github.com/Ying-Kai-Liao/kith", "note": "Bot memory crate, built in this repository and mirrored to its own." },
+    { "name": "thinking-orbs", "license": "MIT", "file": "apps/ios/Kit/Sources/CodyncKit/Resources/ThirdPartyNotices/thinking-orbs-LICENSE.txt", "url": "https://github.com/jakubantalik/thinking-orbs", "note": "Ported to SwiftUI (iOS) and React (desktop) as ThinkingOrb." }
+  ],
+  "extras": [
+    { "name": "electron", "versionFrom": "npm:apps/desktop:electron", "license": "MIT", "github": "electron/electron", "ref": "v{version}", "note": "The desktop app runs on Electron; its bundled Chromium licenses ship inside the app as LICENSES.chromium.html." }
+  ]
+}

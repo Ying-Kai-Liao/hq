@@ -48,12 +48,12 @@ test('the Mac app bundles the service binary and the kith release layout', () =>
   assert.ok(prod.win.extraResources.some((f: { to: string }) => f.to === 'kith-serve.exe'))
 })
 
-test('the staged release layout carries the licenses and the NOTICE (Apache-2.0 requires it with redistributions)', () => {
+test('the staged release layout carries the licenses, NOTICE and third-party notices (Apache-2.0 requires it with redistributions)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'kith-stage-'))
   try {
     const share = join(dir, 'share/kith')
     execFileSync('sh', [fileURLToPath(new URL('../../../../scripts/stage-kernel.sh', import.meta.url)), share])
-    for (const f of ['LICENSE', 'LICENSE.serve', 'NOTICE', 'kernel/bin/kith']) assert.ok(existsSync(join(share, f)), f)
+    for (const f of ['LICENSE', 'LICENSE.serve', 'NOTICE', 'THIRD_PARTY_NOTICES.md', 'kernel/bin/kith']) assert.ok(existsSync(join(share, f)), f)
     assert.match(readFileSync(join(share, 'NOTICE'), 'utf8'), /Copyright/)
   } finally {
     rmSync(dir, { recursive: true, force: true })

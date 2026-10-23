@@ -217,7 +217,7 @@ impl Pairing {
     }
 
     /// The live codes as ACL offers: `(offerId, expiresAt)`. Each code is offered under both label
-    /// families: a link shown before the Kith rename (`codync://`) is still redeemable by an updated app.
+    /// families: a link shown before the Kith rename (under the old labels) is still redeemable by an updated app.
     pub fn offers(&mut self) -> Vec<(String, i64)> {
         self.prune(now_ms());
         self.codes
@@ -295,9 +295,9 @@ mod tests {
         let first = p.issue();
         assert!(p.open());
         let code = crypto::unb64_n(&first.code).unwrap();
-        let (kith, codync) =
-            (crypto::offer_id(crypto::Labels::Kith, &code), crypto::offer_id(crypto::Labels::Codync, &code));
-        assert_eq!(p.offers(), [(kith, first.expires_at), (codync, first.expires_at)]);
+        let (kith, legacy) =
+            (crypto::offer_id(crypto::Labels::Kith, &code), crypto::offer_id(crypto::Labels::Legacy, &code));
+        assert_eq!(p.offers(), [(kith, first.expires_at), (legacy, first.expires_at)]);
         assert!(!p.redeem("CAgICAgICAgICAgICAgICA"));
         assert!(p.redeem(&first.code));
         assert!(!p.redeem(&first.code), "single use");

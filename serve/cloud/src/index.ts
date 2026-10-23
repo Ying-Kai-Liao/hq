@@ -1,9 +1,10 @@
-// Codync cloud: accounts (Clerk), computers, access grants (D1) and the end-to-end encrypted relay
+// Kith cloud: accounts (Clerk), computers, access grants (D1) and the end-to-end encrypted relay
 // (one ComputerRelay Durable Object per computer). The cloud only ever sees ciphertext and routing
 // metadata; the host stays the sole authority on which devices may decrypt (docs/reference/remote-relay.md).
 
 import * as api from "./api";
 import { ApiError, type Ctx } from "./api";
+import * as legacy from "./legacy-compat";
 import type { ComputerRelay } from "./relay";
 
 export { ComputerRelay } from "./relay";
@@ -35,8 +36,8 @@ const MAX_REQUEST = 128 * 1024;
 const ID = "([A-Za-z0-9_-]{1,64})";
 const routes: [string, RegExp, Handler][] = [
   ["GET", /^\/v1\/health$/, api.health],
-  ["GET", /^\/v1\/oauth\/callback$/, api.oauthCallback],
-  ["GET", /^\/v1\/oauth\/callback\/dev$/, api.oauthDevCallback],
+  ["GET", /^\/v1\/oauth\/callback$/, legacy.oauthLegacyCallback],
+  ["GET", /^\/v1\/oauth\/callback\/dev$/, legacy.oauthLegacyDevCallback],
   ["GET", /^\/v1\/oauth\/callback\/kith$/, api.oauthKithCallback],
   ["GET", /^\/v1\/oauth\/callback\/kith-dev$/, api.oauthKithDevCallback],
   ["GET", /^\/v1\/me$/, api.me],

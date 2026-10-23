@@ -3,15 +3,15 @@ import Foundation
 import Testing
 @testable import CodyncKit
 
-/// docs/reference/fixtures/remote-relay-vectors.json (`codync/*` labels, pairings made before the Kith rename) and
-/// remote-relay-vectors.kith.json (`kith/*`): the single source of truth shared with the host and the cloud.
+/// docs/reference/fixtures/remote-relay-vectors.json (`kith/*` labels) and
+/// legacy-compat-vectors.json (pairings made before the Kith rename): the single source of truth shared with the host and the cloud.
 struct Vectors: Sendable {
     let family: LabelFamily
     let data: Data
     var json: [String: Any] { (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:] }
 
     static func load(_ family: LabelFamily) -> Vectors {
-        let file = family == .kith ? "remote-relay-vectors.kith.json" : "remote-relay-vectors.json"
+        let file = family == .kith ? "remote-relay-vectors.json" : "legacy-compat-vectors.json"
         return Vectors(family: family, data: (try? Data(contentsOf: URL(filePath: #filePath).deletingLastPathComponent()
             .appending(path: "../../../../../serve/docs/reference/fixtures/\(file)").standardized)) ?? Data())
     }
@@ -215,7 +215,7 @@ private func raw(_ key: SymmetricKey) -> Data { key.withUnsafeBytes { Data($0) }
 
 @Test(arguments: LabelFamily.allCases) func requestSignature(_ family: LabelFamily) throws {
     let v = Vectors.load(family)
-    let input = RelayCrypto.requestSigInput(method: "get", authority: "Codync-Cloud-Staging.example.workers.dev",
+    let input = RelayCrypto.requestSigInput(method: "get", authority: "Kith-Cloud-Staging.example.workers.dev",
                                             pathAndQuery: v.str("requestSig", "pathAndQuery"), ts: 1_790_000_000_000,
                                             nonce: v.str("requestSig", "nonce"), body: Data(), family: family)
     #expect(input == Data(v.str("requestSig", "canonical").utf8))
@@ -230,7 +230,7 @@ private func raw(_ key: SymmetricKey) -> Data { key.withUnsafeBytes { Data($0) }
     let sig = try #require(Data(base64URL: header.components(separatedBy: ",sig=")[1]))
     #expect(v.deviceSign.publicKey.isValidSignature(sig, for: input))
 
-    let url = try #require(URL(string: "https://Codync-Cloud-Staging.example.workers.dev/v1/relay/device/NHUPmL1Z_PyUbaRaqr6TOw?v=1"))
+    let url = try #require(URL(string: "https://Kith-Cloud-Staging.example.workers.dev/v1/relay/device/NHUPmL1Z_PyUbaRaqr6TOw?v=1"))
     #expect(RelayCrypto.authority(of: url) == v.str("requestSig", "authority"))
     #expect(RelayCrypto.pathAndQuery(of: url) == v.str("requestSig", "pathAndQuery"))
     #expect(RelayCrypto.authority(of: URL(string: "http://127.0.0.1:8787/v1")!) == "127.0.0.1:8787")

@@ -1,7 +1,8 @@
-// Authentication: Clerk session JWTs (users) and Kith-Sig (host and device keys, spec §5; the pre-rename Codync-Sig is still accepted).
+// Authentication: Clerk session JWTs (users) and Kith-Sig (host and device keys, spec §5).
 
 import { verifyToken } from "@clerk/backend";
 import type { Env } from "./index";
+import { LEGACY_LABEL, LEGACY_SIG_HEADER } from "./legacy-compat";
 
 // ---- encoding ----
 
@@ -55,8 +56,8 @@ export async function verifyEd25519(pub: Uint8Array, sig: Uint8Array, msg: Uint8
 
 // ---- Kith-Sig (§5) ----
 
-/** Label families, newest first: peers that haven't updated yet still sign with `codync`. */
-export const LABEL_FAMILIES = ["kith", "codync"] as const;
+/** Label families, newest first; the old one is for peers that haven't updated yet (legacy-compat.ts). */
+export const LABEL_FAMILIES = ["kith", LEGACY_LABEL] as const;
 export type LabelFamily = (typeof LABEL_FAMILIES)[number];
 
 export const SIG_WINDOW_MS = 300_000;
@@ -68,7 +69,7 @@ export interface SignedRequest {
   nonce: string;
 }
 
-/** The exact bytes a Kith-Sig (or, with `family` "codync", a Codync-Sig) signs. */
+/** The exact bytes a Kith-Sig signs (with an old `family`, the old header's input). */
 export async function sigCanonical(
   method: string,
   authority: string,
@@ -86,7 +87,7 @@ export async function sigCanonical(
  * D1 `sig_nonces` for HTTP, the DO's `nonces` table for relay sockets. `null` = reject.
  */
 export async function verifySig(req: Request, body: Uint8Array, now = Date.now()): Promise<SignedRequest | null> {
-  const header = req.headers.get("Kith-Sig") ?? req.headers.get("Codync-Sig");
+  const header = req.headers.get("Kith-Sig") ?? req.headers.get(LEGACY_SIG_HEADER);
   if (!header) return null;
   const f = new Map<string, string>();
   for (const part of header.split(",")) {

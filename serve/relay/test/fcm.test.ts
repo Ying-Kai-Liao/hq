@@ -5,7 +5,7 @@ import worker, { fcmData, latestTicketIndices, openTicket } from "../src/index.t
 const pair = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048,
   publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
 const keyBytes = await crypto.subtle.exportKey("pkcs8", pair.privateKey);
-const account = { project_id: "test-codync", client_email: "push@test-codync.iam.gserviceaccount.com",
+const account = { project_id: "test-kith", client_email: "push@test-kith.iam.gserviceaccount.com",
   private_key: "-----BEGIN PRIVATE KEY-----\n" + btoa(String.fromCharCode(...new Uint8Array(keyBytes))) + "\n-----END PRIVATE KEY-----" };
 for (const invalid of ["private-secret-not-json", "null", "{}", '{"project_id":42}']) {
   assert.throws(() => fcmClient(invalid), error => error instanceof FcmError && error.reason === "invalid FCM service account");
@@ -29,7 +29,7 @@ const sender: typeof fetch = async function(this: unknown, url, options) {
     assert.equal(claims.exp - claims.iat, 3600);
     return Response.json({ access_token: "test-access", expires_in: 3600 });
   }
-  assert.equal(String(url), "https://fcm.googleapis.com/v1/projects/test-codync/messages:send");
+  assert.equal(String(url), "https://fcm.googleapis.com/v1/projects/test-kith/messages:send");
   assert.equal(new Headers(options?.headers).get("Authorization"), "Bearer test-access");
   const payload = JSON.parse(String(options?.body));
   assert.equal(payload.message.token, "CaseSensitiveToken");
@@ -39,7 +39,7 @@ const sender: typeof fetch = async function(this: unknown, url, options) {
   if (failure) return Response.json({ error: { status: failure.code, details: failure.detail ? [
     { "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError", errorCode: failure.detail },
   ] : [] } }, { status: failure.status });
-  return Response.json({ name: "projects/test-codync/messages/test" });
+  return Response.json({ name: "projects/test-kith/messages/test" });
 };
 const client = new FcmClient(account, sender);
 await Promise.all([client.push("CaseSensitiveToken", { sealed: "ciphertext" }, true), client.push("CaseSensitiveToken", { sealed: "ciphertext" }, false)]);

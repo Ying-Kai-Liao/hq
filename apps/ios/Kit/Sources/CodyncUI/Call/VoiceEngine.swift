@@ -40,6 +40,14 @@ protocol VoiceEngine: AnyObject, Observable {
     func streamReply(id: String, text: String, final: Bool)
     /// The bot started or stopped working.
     func setWorking(_ working: Bool)
+    /// What you are saying right now, before it is sent.
+    var heard: String { get }
+    /// Captions of the call: what you said and the sentences the bot spoke.
+    var captions: [CallCaption] { get }
+    /// True when the engine's audio can be moved between the speaker and the earpiece.
+    var supportsSpeaker: Bool { get }
+    /// Speaker (true) or earpiece; headphones and Bluetooth win over both while connected.
+    func setSpeaker(_ on: Bool)
 }
 
 extension VoiceEngine {
@@ -47,6 +55,10 @@ extension VoiceEngine {
     var streamsReplies: Bool { false }
     func streamReply(id: String, text: String, final: Bool) {}
     func setWorking(_ working: Bool) {}
+    var heard: String { "" }
+    var captions: [CallCaption] { [] }
+    var supportsSpeaker: Bool { false }
+    func setSpeaker(_ on: Bool) {}
 }
 
 struct VoiceError: LocalizedError {

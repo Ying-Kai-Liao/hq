@@ -139,6 +139,7 @@ final class KithVoiceEngine: OnDeviceEngine {
         let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !ended, !said.isEmpty, phase != .starting, !phase.isFailed else { return }
         queue.add(CloudSpeechEngine.clips(said, limit: Self.clipChars))
+        transcript.bot(said)
         echoRef += " " + said
         lastSpokenAt = .now
         if firstEnqueuedAt == nil { firstEnqueuedAt = .now }

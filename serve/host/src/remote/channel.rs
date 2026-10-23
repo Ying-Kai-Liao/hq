@@ -288,7 +288,7 @@ async fn handshake(
         return None;
     };
     let cid = hub.identity.cid_raw();
-    // Devices paired before the rename sign under `codync/*`; the signature says which family this is.
+    // Devices paired before the rename sign under the old labels (`legacy_compat`); the signature says which family this is.
     let Some(labels) = crypto::Labels::ALL
         .into_iter()
         .find(|l| crypto::verify(&dk_raw, &crypto::hs1_input(*l, &cid, &dk_raw, &ek_d, &n), &sig).is_ok())
@@ -762,11 +762,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_device_paired_with_codync_labels_still_connects() {
+    async fn a_device_paired_before_the_rename_still_connects() {
         let hub = temp_hub();
         let key = paired_phone(&hub).await;
         let mut legacy = Phone::direct(&hub, key);
-        legacy.labels = crypto::Labels::Codync;
+        legacy.labels = crypto::Labels::Legacy;
         assert!(matches!(legacy.hello(&hub, false).await, Out::Msg(v) if v["t"] == "welcome"));
         let hello = legacy.call(1, "hello", json!({})).await;
         assert_eq!(hello["ok"]["computerId"], hub.identity.computer_id(), "frames use the legacy labels both ways");

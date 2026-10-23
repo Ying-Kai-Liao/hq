@@ -1,14 +1,14 @@
 import AVFoundation
+import AVKit
 import CodyncKit
 import SwiftUI
+import UIKit
 
-/// A voice call with a bot, as Grok Bot does it: a floating bar over the chat, which stays
-/// readable underneath. What you say goes out as ordinary messages, its final replies are
-/// read aloud, and the chat gets a "Voice chat · 00:16" line when the call ends.
-struct CallView: View {
+/// A voice call with a bot, full screen over its chat: the bot's living avatar, what is being
+/// said, and the call's buttons. What you say goes out as ordinary messages, its final replies
+/// are read aloud, and the chat gets a "Voice chat · 00:16" line when the call ends.
+struct CallScreen: View {
     let botId: String
-    @Binding var isSpeaking: Bool
-    @Binding var interrupt: (() -> Void)?
     let close: () -> Void
     @Environment(BotStore.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -17,28 +17,56 @@ struct CallView: View {
     @State private var startedAt = Date.now
     /// When the current cloud engine started, for this month's minutes.
     @State private var cloudStartedAt: Date?
-    /// One line under the bar, e.g. why the call fell back to on-device voice.
+    /// One line under the captions, e.g. why the call fell back to on-device voice.
     @State private var notice: String?
     @State private var settings = false
+    @State private var speakerOn = true
 
     private var bot: Bot? { model.bots[botId] }
     private var color: Color { bot.map { AvatarPalette.color($0.avatarColor) } ?? Palette.accent }
+    private var speaking: Bool { session?.phase == .speaking }
+    private var statusText: String {
+        CallStatus.text(phase: session?.phase, muted: session?.muted == true,
+                        working: bot?.isWorking == true, warning: session?.warning)
+    }
 
     var body: some View {
-        VStack(spacing: 6) {
-            bar
+        VStack(spacing: 0) {
+            Spacer(minLength: 24)
+            avatar
+            VStack(spacing: 4) {
+                Text(bot?.name ?? "")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(Palette.text)
+                Text(statusText)
+                    .font(.subheadline)
+                    .foregroundStyle(session?.phase.isFailed == true ? Palette.danger : Palette.secondary)
+                // Audio leaves the phone: say where.
+                if let provider = session?.provider {
+                    Text("Voice by \(provider.name)").font(.caption).foregroundStyle(Palette.tertiary)
+                }
+                TimelineView(.periodic(from: startedAt, by: 1)) { context in
+                    Text(CallStatus.clock(Int(context.date.timeIntervalSince(startedAt))))
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(Palette.tertiary)
+                }
+            }
+            .padding(.top, 18)
             if case .failed(let message) = session?.phase {
                 line(message, color: Palette.danger)
             } else if let notice {
                 line(notice, color: Palette.secondary)
-            } else if let warning = session?.warning {
-                line(warning, color: Palette.secondary)
             }
+            captions
+                .padding(.top, 12)
+            controls
+                .padding(.bottom, 24)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Palette.background.ignoresSafeArea())
         .animation(Motion.reduced(Motion.fade, reduceMotion), value: session?.phase)
         .animation(Motion.reduced(Motion.fade, reduceMotion), value: notice)
-        .animation(Motion.reduced(Motion.fade, reduceMotion), value: session?.warning)
         .onAppear {
             startedAt = .now
             Analytics.shared.capture(.voiceCallStarted)
@@ -47,20 +75,20 @@ struct CallView: View {
         .onDisappear {
             session?.end()
             countCloudMinutes()
-            isSpeaking = false
-            interrupt = nil
             model.endVoiceCall(callID)
             model.logCall(botId, seconds: Int(Date.now.timeIntervalSince(startedAt)))
         }
         .onChange(of: session?.phase) { _, phase in
-            isSpeaking = phase == .speaking
-            interrupt = phase == .speaking ? { session?.interrupt() } : nil
             // A cloud engine that can't start or drops mid-call hands over to on-device voice.
             if case .failed(let message) = phase, let provider = session?.provider {
                 countCloudMinutes()
                 notice = "\(provider.name) isn't available (\(message)). Using on-device voice."
                 begin(cloud: nil)
             }
+        }
+        .onChange(of: bot == nil) { _, gone in
+            // The bot was deleted (on another device) mid-call.
+            if gone { close() }
         }
         .codyncSheet(isPresented: $settings) { VoiceChatSettingsView() }
     }
@@ -154,28 +182,90 @@ struct CallView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .glass(in: Capsule())
+            .padding(.top, 10)
             .transition(.opacity)
     }
 
-    private var bar: some View {
-        HStack(spacing: 10) {
-            avatar
-            CallLevelDots(level: session?.level ?? 0, speaking: session?.phase == .speaking,
-                          working: bot?.isWorking == true, color: color, reduceMotion: reduceMotion)
-                .frame(minWidth: Self.dotsWidth, maxWidth: Self.dotsMaxWidth, minHeight: Self.dotsHeight, maxHeight: Self.dotsHeight)
-                .accessibilityLabel(statusText)
-            // Audio leaves the phone: say where.
-            if let provider = session?.provider {
-                Text(provider.name)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Palette.secondary)
-                    .accessibilityLabel("Voice by \(provider.name)")
+    /// The bot, big; it swells with your voice while you speak and while it talks.
+    /// Tapping it while it talks cuts the reply short.
+    private var avatar: some View {
+        let level = CGFloat(session?.level ?? 0)
+        return Button { session?.interrupt() } label: {
+            ZStack {
+                Circle()
+                    .fill(color.opacity(0.14))
+                    .frame(width: 220, height: 220)
+                    .scaleEffect(reduceMotion ? 1 : 1 + level * 0.18 + (speaking ? 0.06 : 0))
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: level)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: speaking)
+                if let bot { CharacterAvatar(bot: bot, size: 168) }
             }
-            round("Call settings", "gearshape") { settings = true }
+            .frame(width: 240, height: 240)
+        }
+        .buttonStyle(.plain)
+        .disabled(!speaking)
+        .accessibilityLabel(speaking ? "Interrupt" : bot?.name ?? "")
+    }
+
+    /// What you said and what the bot is saying, newest at the bottom; your words still being
+    /// heard show dimmed under them.
+    private var captions: some View {
+        let lines = session?.captions ?? []
+        let heard = session?.heard ?? ""
+        return ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 10) {
+                    ForEach(lines) { caption in
+                        Text(caption.text)
+                            .font(.body)
+                            .foregroundStyle(caption.speaker == .you ? Palette.secondary : Palette.text)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .id(caption.id)
+                    }
+                    if !heard.isEmpty {
+                        Text(heard)
+                            .font(.body)
+                            .foregroundStyle(Palette.tertiary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .id("heard")
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+            .scrollIndicators(.hidden)
+            .onChange(of: lines.last?.text) { _, _ in scroll(proxy, lines: lines, heard: heard) }
+            .onChange(of: heard) { _, _ in scroll(proxy, lines: lines, heard: heard) }
+        }
+        .frame(maxHeight: .infinity)
+        .accessibilityLabel("Captions")
+    }
+
+    private func scroll(_ proxy: ScrollViewProxy, lines: [CallCaption], heard: String) {
+        let target: AnyHashable? = heard.isEmpty ? lines.last?.id : "heard"
+        guard let target else { return }
+        withAnimation(Motion.reduced(.easeOut(duration: 0.2), reduceMotion)) { proxy.scrollTo(target, anchor: .bottom) }
+    }
+
+    private var controls: some View {
+        HStack(spacing: 16) {
             let muted = session?.muted == true
-            round(muted ? "Unmute" : "Mute", muted ? "mic.slash" : "mic", on: muted) { session?.muted.toggle() }
+            round(muted ? "Unmute" : "Mute", muted ? "mic.slash.fill" : "mic.fill", on: muted) { session?.muted.toggle() }
+            if session?.supportsSpeaker == true {
+                round(speakerOn ? "Switch to earpiece" : "Switch to speaker", speakerOn ? "speaker.wave.3.fill" : "ear", on: speakerOn) {
+                    speakerOn.toggle()
+                    session?.setSpeaker(speakerOn)
+                }
+            }
+            // Bluetooth and AirPlay outputs, from the system.
+            RoutePicker()
+                .frame(width: Self.buttonSize, height: Self.buttonSize)
+                .background(Palette.surface, in: Circle())
+                .accessibilityLabel("Audio output")
+            round("Call settings", "gearshape.fill") { settings = true }
             Button(action: close) {
-                Image(systemName: "xmark")
+                Image(systemName: "phone.down.fill")
                     .font(.system(size: Self.iconSize, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: Self.buttonSize, height: Self.buttonSize)
@@ -183,96 +273,34 @@ struct CallView: View {
             }
             .buttonStyle(PressScale())
             .accessibilityLabel("End call")
-            .help("End call")
         }
-        .padding(.leading, 14)
-        .padding(.trailing, 7)
-        .padding(.vertical, 7)
-            .glass(in: Capsule())
-            .shadow(color: .black.opacity(0.08), radius: 16, y: 6)
-    }
-
-    /// The bot; tapping it while it talks cuts the reply short.
-    private var avatar: some View {
-        Button { session?.interrupt() } label: {
-            Group {
-                if let bot { CharacterAvatar(bot: bot, size: 34) }
-            }
-            .scaleEffect(session?.phase == .speaking && !reduceMotion ? 1.1 : 1)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: session?.phase == .speaking)
-        }
-        .buttonStyle(.plain)
-        .disabled(session?.phase != .speaking)
-        .accessibilityLabel(session?.phase == .speaking ? "Interrupt" : bot?.name ?? "")
     }
 
     private func round(_ label: String, _ symbol: String, on: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: Self.iconSize, weight: .medium))
-                .foregroundStyle(on ? Palette.onAccent : Self.buttonInk)
+                .foregroundStyle(on ? Palette.onAccent : Palette.text)
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: Self.buttonSize, height: Self.buttonSize)
-                .background(on ? Palette.accentFill : Self.buttonFill, in: Circle())
+                .background(on ? Palette.accentFill : Palette.surface, in: Circle())
         }
         .buttonStyle(PressScale())
         .accessibilityLabel(label)
-        .help(label)
     }
 
-    // The bar spans the screen.
-    private static let buttonSize: CGFloat = 46
-    private static let iconSize: CGFloat = 17
-    private static let dotsHeight: CGFloat = 20
-    private static let dotsWidth: CGFloat = 0
-    private static let dotsMaxWidth: CGFloat = .infinity
-        private static let buttonFill = Palette.background
-        private static let buttonInk = Palette.text
-
-    private var statusText: String {
-        switch session?.phase {
-        case .starting, nil: "Connecting"
-        case .speaking: "Speaking"
-        case .failed: "Can't listen"
-        case .listening where session?.muted == true: "Muted"
-        case .listening: bot?.isWorking == true ? "Working, listening" : "Listening"
-        }
-    }
+    private static let buttonSize: CGFloat = 56
+    private static let iconSize: CGFloat = 20
 }
 
-/// The dotted line in the call bar: it follows your voice while listening, ripples while
-/// the bot talks, breathes while it works, and rests as faint dots otherwise.
-private struct CallLevelDots: View {
-    let level: Float
-    let speaking: Bool
-    let working: Bool
-    let color: Color
-    let reduceMotion: Bool
-
-    var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
-            Canvas { canvas, size in
-                let t = context.date.timeIntervalSinceReferenceDate
-                let spacing: CGFloat = 8
-                let count = max(1, Int(size.width / spacing))
-                for i in 0..<count {
-                    let x = CGFloat(i) * spacing + spacing / 2
-                    let wave = (sin(Double(i) * 0.55 - t * 6) + 1) / 2
-                    let amount: Double = if speaking {
-                        0.5 + 0.5 * wave
-                    } else if level > 0.05 {
-                        max(0.2, Double(level)) * (0.45 + 0.55 * wave)
-                    } else if working {
-                        0.25 * ((sin(t * 2.4) + 1) / 2)
-                    } else {
-                        0.08
-                    }
-                    let height = 4 + CGFloat(amount) * (size.height - 4)
-                    let rect = CGRect(x: x - 1.25, y: (size.height - height) / 2, width: 2.5, height: height)
-                    let tint = speaking ? Palette.accent : color
-                    canvas.fill(Path(roundedRect: rect, cornerRadius: 1.25), with: .color(tint.opacity(0.5 + 0.5 * amount)))
-                }
-            }
-        }
+/// The system's output picker (AirPods, Bluetooth speakers, AirPlay).
+private struct RoutePicker: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.tintColor = UIColor(Palette.text)
+        picker.activeTintColor = UIColor(Palette.accent)
+        return picker
     }
+
+    func updateUIView(_ view: AVRoutePickerView, context: Context) {}
 }

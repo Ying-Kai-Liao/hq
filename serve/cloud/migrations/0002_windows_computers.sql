@@ -28,7 +28,7 @@ CREATE TABLE access_requests_new (
   device_id   TEXT NOT NULL REFERENCES devices(id),
   user_id     TEXT NOT NULL REFERENCES accounts(user_id),
   status      TEXT NOT NULL CHECK (status IN ('pending','approved','denied','expired','cancelled')),
-  commit_hash  TEXT NOT NULL,                   -- SHA-256("codync/sascommit/v1" ‖ dk ‖ nD)
+  commit_hash  TEXT NOT NULL,                   -- SHA-256("<family>/sascommit/v1" ‖ dk ‖ nD)
   host_nonce   TEXT,                            -- nH，host 設一次
   device_nonce TEXT,                            -- nD，host_nonce 存在後裝置才可設
   created_at  INTEGER NOT NULL,
