@@ -117,7 +117,7 @@ The `channels` object in `config.json` (read at start):
 | `debounce_s` | 2 | seconds a run waits for more messages |
 | `router` | `jev` | `off` merges every message sent while an agent works |
 | `interrupt` | true | false makes corrections wait for the next turn |
-| `context_show` | 30 | a reply ends with "context N%" from this fullness; `"off"` never |
+| `context_show` | 30 | a reply ends with "context N%" from this fullness, and the last reply of a turn in the apps carries `contextPercent`; `"off"` never |
 | `permission_mode` | unset | the owner's runs; unset leaves it to the agent, then kith |
 | `discord_guild` | unset | server name or id when the Discord bot is in several |
 

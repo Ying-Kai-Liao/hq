@@ -3,6 +3,7 @@
 use super::{Actor, Conn, Done, Instructions, NoticeStyle, Queued, Seg};
 use crate::agent::acp::{self, Incoming};
 use crate::analytics::{self, TurnOutcome, TurnSource};
+use crate::channels::text::used_pct;
 use crate::chat::context::{self, Snapshot};
 use crate::chat::memory;
 use crate::hub::BotStatus;
@@ -107,6 +108,7 @@ impl Actor {
         self.tools.clear();
         self.plan_entry = None;
         self.last_text = None;
+        self.last_agent = None;
         self.sent.clear();
         self.files.summary = None;
         self.files.cancel();
@@ -234,6 +236,7 @@ impl Actor {
         if self.turn.is_none() {
             return;
         }
+        let compaction = self.compacting.is_some();
         self.after_turn(done);
         // The bot's own edits to its memory files, checked and shown in the chat it made them from.
         if !self.is_hq() {
@@ -289,6 +292,14 @@ impl Actor {
                 }
                 final_text = text;
             }
+        }
+        // After the `final` marking above: `flush(true)` rewrote the open segment's data wholesale.
+        if !compaction
+            && let (Some(id), Some(sid)) = (self.last_agent.take(), &self.turn_session)
+            && let Some(pct) =
+                context_percent(self.conn.as_ref().and_then(|c| c.usage.get(sid)).copied(), self.context_show)
+        {
+            tag_context(&self.hub, &id, pct);
         }
         if final_text.is_none() {
             final_text = self.files.summary.take();
@@ -420,6 +431,22 @@ impl Actor {
     }
 }
 
+/// The context fullness to show on a reply: whole percent, once the session is at least `show` full.
+/// None below that, with `show` off, or when the session's window size is unknown.
+fn context_percent(usage: Option<(u64, u64)>, show: Option<f64>) -> Option<i64> {
+    let (used, size) = usage?;
+    let pct = used_pct(used as f64, size as f64)?;
+    (pct >= show?).then(|| pct.round() as i64)
+}
+
+/// Merges `contextPercent` into the entry's data, keeping everything else the entry holds.
+fn tag_context(hub: &crate::hub::Hub, id: &str, pct: i64) {
+    if let Some(mut e) = hub.store.entry(id).filter(|e| e.kind == EntryKind::Agent.as_str()) {
+        e.data["contextPercent"] = json!(pct);
+        hub.set_entry(id, &e.data);
+    }
+}
+
 /// A finished turn alerts once the user's work is done: not while their next message
 /// is already queued. A turn that ended short of `end_turn` always reports the failure.
 fn turn_alert(failed: bool, stop_reason: &str, more: bool) -> Option<AlertKind> {
@@ -432,6 +459,38 @@ fn turn_alert(failed: bool, stop_reason: &str, more: bool) -> Option<AlertKind> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn context_hint_needs_enough_use_and_a_known_size() {
+        assert_eq!(context_percent(Some((500, 1000)), Some(30.0)), Some(50));
+        assert_eq!(context_percent(Some((300, 1000)), Some(30.0)), Some(30), "at the threshold");
+        assert_eq!(context_percent(Some((299, 1000)), Some(30.0)), None, "below");
+        assert_eq!(context_percent(Some((500, 1000)), None), None, "off");
+        assert_eq!(context_percent(None, Some(30.0)), None, "no usage yet");
+        assert_eq!(context_percent(Some((500, 0)), Some(0.0)), None, "unknown size");
+        assert_eq!(context_percent(Some((1234, 10000)), Some(0.0)), Some(12), "rounds");
+    }
+
+    #[tokio::test]
+    async fn the_tag_lands_on_one_entry_and_keeps_its_data() {
+        let dir = std::env::temp_dir().join(format!("kith-hint-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = crate::store::Store::open(std::path::Path::new(":memory:")).unwrap();
+        let identity = crate::remote::identity::Identity::load_or_create(&dir).unwrap();
+        let hub = crate::hub::Hub::new(store, "hint-test".into(), identity, "test".into(), 0);
+        let lane = Lane { chat: "bot".into(), thread: None };
+        let first = hub.add_entry(&lane, EntryKind::Agent, 1, &json!({"text": "a", "final": false})).unwrap();
+        let last =
+            hub.add_entry(&lane, EntryKind::Agent, 1, &json!({"text": "b", "final": true, "files": [1]})).unwrap();
+        tag_context(&hub, &last.id, 42);
+        tag_context(&hub, &last.id, 43);
+        let last = hub.store.entry(&last.id).unwrap();
+        assert_eq!(last.data["contextPercent"], json!(43));
+        assert_eq!((last.data["text"].as_str(), last.data["final"].as_bool()), (Some("b"), Some(true)));
+        assert_eq!(last.data["files"], json!([1]));
+        assert!(hub.store.entry(&first.id).unwrap().data.get("contextPercent").is_none());
+        tag_context(&hub, "missing", 10);
+    }
 
     #[test]
     fn only_finished_tasks_alert() {

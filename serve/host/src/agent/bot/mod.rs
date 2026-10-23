@@ -195,6 +195,8 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig, home: Lane, tidier: mpsc::UnboundedS
         tools: HashMap::new(),
         plan_entry: None,
         last_text: None,
+        last_agent: None,
+        context_show: crate::channels::settings::Settings::load().context_show,
         sent: Vec::new(),
         files: files::FileShares::default(),
         perms: HashMap::new(),
@@ -371,6 +373,10 @@ struct Actor {
     tools: HashMap<String, String>,
     plan_entry: Option<String>,
     last_text: Option<String>,
+    /// The turn's last `agent` entry (streamed text, a sent message or a file card): carries the context hint.
+    last_agent: Option<String>,
+    /// `channels.context_show`: the session fullness (percent) from which a reply gets the hint; None: never.
+    context_show: Option<f64>,
     /// Messages the bot sent the user this turn (`send_message`); none: its last text is the reply.
     sent: Vec<String>,
     files: files::FileShares,
