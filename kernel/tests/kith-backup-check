@@ -21,6 +21,7 @@ printf -- '---\nname: echo\ndescription: test agent\nmodel: sonnet\n---\nYou ech
 cat > "$T/bin/claude" <<'EOF'
 #!/bin/sh
 case "$1 $2" in
+  "--version "*) echo "2.1.309 (Claude Code)" ;;
   "plugin list") echo '[]' ;;
   "auth status") [ -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.fake-login" ] && { echo '{"loggedIn":true}'; exit 0; }; echo '{"loggedIn":false}'; exit 1 ;;
   "auth login") mkdir -p "$CLAUDE_CONFIG_DIR" && touch "$CLAUDE_CONFIG_DIR/.fake-login"; echo "fake claude login in $CLAUDE_CONFIG_DIR" ;;

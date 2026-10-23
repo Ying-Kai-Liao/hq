@@ -378,6 +378,11 @@ if [[ $p_owner == 0 ]]; then
   perm_mode=$p_mode
   [[ $harness == claude ]] \
     || { echo "kith: $agent for ${KITH_PERSON}: runs for anyone but the owner need Claude Code (path rules), not $harness" >&2; exit $([[ -n $backup ]] && echo 4 || echo 3); }
+  # Their reads are an allowlist (permissions.blockReadsOutsideWorkingDirectories for the file tools, sandbox denyRead of
+  # the home folder for Bash), which Claude Code enforces from 2.1.257: an older or unreadable version is no run at all.
+  cv=$(claude --version 2>/dev/null | sed -n 's/^\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1)
+  [[ -n $cv && $(printf '%s\n2.1.257\n' "$cv" | sort -V | head -1) == 2.1.257 ]] \
+    || { echo "kith: runs for anyone but the owner need Claude Code 2.1.257 or newer (read limits); found '${cv:-none}'" >&2; exit $([[ -n $backup ]] && echo 4 || echo 3); }
   # They see this agent's own life only: every other agent's folder and the owner's user.md are denied by path
   # (logical and resolved), on top of the narrower directories below.
   for d in "$KITH_AGENTS"/*/; do
@@ -496,8 +501,13 @@ if os.environ["P_OWNER"] == "0":
         if d.startswith("Read(/") and d.endswith(")"):
             path = d[5:-1]
             path = path[1:] if path.startswith("//") else path
-            path = path[:-3] if path.endswith("/**") else path
-            if path.startswith("/") and "*" not in path:
+            keep = []   # a rule with a glob (dir/**, dir/*.md) denies its parent folder: over-approximating is fine for a deny
+            for part in path.split("/"):
+                if "*" in part:
+                    break
+                keep.append(part)
+            path = "/".join(keep)
+            if path.startswith("/") and len(path) > 1:
                 deny_read += both(path)
     uv_cache = os.environ.get("UV_CACHE_DIR") or os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "uv")
     allow_write = [d.strip() for d in os.environ["WRITABLE"].split("\n") if d.strip()] + [uv_cache]
@@ -560,6 +570,48 @@ if [[ $p_owner == 1 ]]; then
     seen=0; for ((i = 1; i < ${#dirs[@]}; i += 2)); do [[ ${dirs[i]} == "$d" ]] && seen=1; done
     [[ $seen == 1 ]] || dirs+=(--add-dir "$d")
   done
+fi
+# Anyone but the owner reads an allowlist, not a blocklist: nothing in the home folder (ssh keys, tokens of other tools,
+# other repos) except what the run was given. Claude Code applies the narrower path, so the denies above stay on top of
+# these. Bash gets it from the sandbox (denyRead of the home folder, allowRead of the add-dirs, the working directory and
+# what uv and python need to start); the file tools from blockReadsOutsideWorkingDirectories, which already limits them to
+# the working directory and the --add-dir folders.
+if [[ $p_owner == 0 && $harness == claude ]]; then
+  read_dirs=$PWD
+  for ((i = 1; i < ${#dirs[@]}; i += 2)); do read_dirs+=$'\n'"${dirs[i]}"; done
+  READ_DIRS=$read_dirs python3 -c '
+import json, os, sys
+f = sys.argv[1]
+s = json.load(open(f))
+def both(p):
+    return list(dict.fromkeys((p, os.path.realpath(p))))
+home = os.path.expanduser("~")
+allow = []
+for d in os.environ["READ_DIRS"].split("\n"):
+    if d:
+        allow += both(os.path.abspath(d))
+# what a kernel helper needs to start: uv, the pythons it manages, the kith program itself
+for d in (os.environ.get("UV_CACHE_DIR"), os.path.join(os.environ.get("XDG_CACHE_HOME") or home + "/.cache", "uv"),
+          home + "/Library/Caches/uv", home + "/.local/share/uv", home + "/.local/bin"):
+    if d:
+        allow += both(d)
+try:   # the developer shims of macOS look the toolchain up here, which can sit on another volume
+    import subprocess
+    dev = subprocess.run(["xcode-select", "-p"], capture_output=True, text=True, timeout=5).stdout.strip()
+    if ".app/" in dev:   # xcrun loads frameworks from the whole bundle
+        dev = dev[:dev.index(".app/") + 4]
+    if dev:
+        allow += both(dev)
+except (OSError, subprocess.SubprocessError):
+    pass
+fs = s["sandbox"]["filesystem"]
+fs["denyRead"] = list(dict.fromkeys(fs["denyRead"] + both(home)))
+fs["allowRead"] = [a for a in dict.fromkeys(allow)]
+s["permissions"]["blockReadsOutsideWorkingDirectories"] = True
+# The tool reads the owner global config (name, email, credential helpers), which sits in the closed home folder and
+# makes it fail outright when it cannot be read: point it at nothing instead.
+s.setdefault("env", {})["GIT_CONFIG_GLOBAL"] = "/dev/null"
+json.dump(s, open(f, "w"), indent=1)' "$runs/$$.settings.json"
 fi
 # The read-only kernel commands PROTOCOL tells agents to run, allowed without a prompt. Under every path the kernel
 # has (logical, resolved, ~/kith/kernel) and, since a path with a space gets quoted, with the program in quotes too.
