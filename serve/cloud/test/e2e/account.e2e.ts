@@ -30,10 +30,10 @@ const home = join(tmp, "home");
 const authFile = join(tmp, "auth.json");
 const children: ChildProcess[] = [];
 
-const check = (cond: unknown, what: string): asserts cond => {
+function check(cond: unknown, what: string): asserts cond {
   if (!cond) throw new Error(`check failed: ${what}`);
   console.log(`  ok ${what}`);
-};
+}
 
 function run(cmd: string, args: string[], env: Record<string, string> = {}): ChildProcess {
   const child = spawn(cmd, args, { cwd: CLOUD_DIR, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });

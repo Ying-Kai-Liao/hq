@@ -15,6 +15,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 const PLATFORM: &str = "kith";
 /// The Clerk user id this host last bound (or found bound) to its owner person.
 const APPLIED: &str = "account_handle";
+/// The conflicting account id already warned about, so repeated pulls stay quiet.
+static CONFLICT_WARNED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 static NO_OWNER_LOGGED: AtomicBool = AtomicBool::new(false);
 /// How long a `linkCode` stays good, in minutes.
 const LINK_MINUTES: u32 = 15;
@@ -56,7 +58,15 @@ async fn apply(store: &Store, bin: &Path, owner: Option<&str>) -> Result<()> {
     match (&found.person, &found.owner_id) {
         (Some(_), _) if found.owner => {}
         (Some(person), _) => {
-            tracing::warn!(person, uid, "this Kith account is already another person's in kith-auth; not taking it over");
+            let mut last = CONFLICT_WARNED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if last.as_deref() != Some(uid) {
+                tracing::warn!(
+                    person,
+                    uid,
+                    "this Kith account is already another person's in kith-auth; not taking it over"
+                );
+                *last = Some(uid.to_owned());
+            }
             return Ok(());
         }
         (None, Some(person)) => {
@@ -92,7 +102,10 @@ async fn run(bin: &Path, args: &[&str]) -> Result<String> {
 /// Which person a call is for. Phase A: every paired or claimed device is the owner, so it is the owner person;
 /// phase B maps `Caller::Device` keys to invited people here.
 async fn caller_person(bin: &Path, _caller: &Caller) -> Result<String> {
-    who(bin, "-").await.owner_id.ok_or_else(|| anyhow!("kith-auth has no owner person yet (kith-auth person <you> owner)"))
+    who(bin, "-")
+        .await
+        .owner_id
+        .ok_or_else(|| anyhow!("kith-auth has no owner person yet (kith-auth person <you> owner)"))
 }
 
 /// `linkCode`: a one-time code the caller's person sends as `/link <code>` to the Kith bot on Telegram, Discord or Slack.
@@ -139,10 +152,14 @@ mod tests {
             String::from_utf8_lossy(&out.stdout).into_owned()
         }
 
+        fn point_env(&self) {
+            // SAFETY: tests in this module hold ONE_AT_A_TIME, so nothing else reads or writes the environment meanwhile.
+            unsafe { std::env::set_var("KITH_AUTH", self.dir.join("auth.json")) };
+        }
+
         /// What the handle sync sees: the same CLI, pointed at the temp store.
         async fn apply(&self, owner: Option<&str>) {
-            // SAFETY: tests in this module run one at a time (they share the process environment).
-            unsafe { std::env::set_var("KITH_AUTH", self.dir.join("auth.json")) };
+            self.point_env();
             apply(&self.store, &self.bin, owner).await.unwrap();
         }
 
@@ -202,7 +219,7 @@ mod tests {
         let _g = ONE_AT_A_TIME.lock().await;
         let r = Rig::new();
         r.auth(&["person", "kai", "owner"]);
-        unsafe { std::env::set_var("KITH_AUTH", r.dir.join("auth.json")) };
+        r.point_env();
         assert_eq!(caller_person(&r.bin, &Caller::Local).await.unwrap(), "kai");
         let out = run(&r.bin, &["invite", "kai", "15"]).await.unwrap();
         assert_eq!(out.lines().next().unwrap().len(), 6);
