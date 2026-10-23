@@ -32,8 +32,15 @@ public struct ThreadChipModel: Equatable, Sendable {
     /// "your turn": a plain dot and the words, in place of the bot and counts.
     public var yourTurn: Bool
     public var tint: AgentTint
+    /// Where the thread started, when not in the app: a small tag on the meta line.
+    public var origin: OriginTag.Origin?
+    /// A terminal holds the thread: the writer chip on the meta line.
+    public var writer: StatusChip.Kind?
 
-    public init(face: CrewFace, replies: Int, newReplies: Int = 0, time: String, place: Place? = nil, yourTurn: Bool = false, tint: AgentTint = .neutral) {
+    public init(face: CrewFace, replies: Int, newReplies: Int = 0, time: String, place: Place? = nil, yourTurn: Bool = false, tint: AgentTint = .neutral,
+                origin: OriginTag.Origin? = nil, writer: StatusChip.Kind? = nil) {
+        self.origin = origin
+        self.writer = writer
         self.face = face
         self.replies = replies
         self.newReplies = newReplies
@@ -75,7 +82,7 @@ public struct TranscriptTurn<Replies: View>: View {
         VStack(alignment: speaker == .you ? .trailing : .leading, spacing: 6) {
             bubble
             if let thread, speaker == .you {
-                chip(thread)
+                ThreadChipView(thread, isOpen: isOpen, onToggle: onToggle, onOpenThread: onOpenThread)
                 if isOpen {
                     HStack(alignment: .top, spacing: 10) {
                         RoundedRectangle(cornerRadius: 1).fill(thread.tint.a).frame(width: 2)
@@ -100,9 +107,31 @@ public struct TranscriptTurn<Replies: View>: View {
             .frame(maxWidth: .infinity, alignment: speaker == .you ? .trailing : .leading)
             .padding(speaker == .you ? .leading : .trailing, 56)
     }
+}
 
-    private func chip(_ t: ThreadChipModel) -> some View {
+/// The thread chip on its own: place in grey, then the pill (bot, "N replies", "1 new", time) and the chevron.
+/// `TranscriptTurn` draws it under your bubble; the chat screen draws it under bubbles it renders itself.
+public struct ThreadChipView: View {
+    let t: ThreadChipModel
+    let isOpen: Bool
+    let onToggle: () -> Void
+    let onOpenThread: () -> Void
+    /// Replaces the spoken label of the chip's main button (the chevron keeps its own).
+    let openLabel: String?
+
+    public init(_ model: ThreadChipModel, isOpen: Bool = false, openLabel: String? = nil,
+                onToggle: @escaping () -> Void = {}, onOpenThread: @escaping () -> Void = {}) {
+        t = model
+        self.openLabel = openLabel
+        self.isOpen = isOpen
+        self.onToggle = onToggle
+        self.onOpenThread = onOpenThread
+    }
+
+    public var body: some View {
         HStack(spacing: 8) {
+            if let origin = t.origin { OriginTag(origin) }
+            if let writer = t.writer { StatusChip(writer, tint: t.tint) }
             if let place = t.place {
                 Label { Text(place.text).lineLimit(1) } icon: { Image(systemName: place.symbol) }
                     .labelStyle(PlaceLabelStyle())
@@ -131,6 +160,7 @@ public struct TranscriptTurn<Replies: View>: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(openLabel.map { Text($0) } ?? Text(t.yourTurn ? "your turn" : t.repliesText))
                 Button(action: onToggle) {
                     Image(systemName: isOpen ? "chevron.up" : "chevron.down")
                         .font(.system(size: 12, weight: .semibold))
