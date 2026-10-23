@@ -40,6 +40,8 @@
 #   kith live start|where|send <agent> ...               agents that run as one live session (session: live) (kith-live)
 #   kith remote add|ls|rm ...  ·  kith ask <agent>@<machine>   agents on your other machines, over ssh (kith-remote)
 #   kith memory search <words> [--agent NAME|--all]      search what the agents wrote down (kith-memory)
+#   kith recall <query> [--project p] [--room r] [--thread t] [--tier 2|3|all] [--json]   search notes within what you may see (kith-recall)
+#   kith memory index rebuild|update                     the local memory index behind recall (kith-recall)
 #   kith memory check|log|diff|undo|forget|tidy ...           the write checks and versions of memory files (kith-memory)
 #   kith project [ls [--json]|open ID|root|add ID [dir] [--in P] [--home [DIR]]]  projects: what each holds, its folder, its memory
 #   kith schedule [ls|add|rm|run|log|--install ...]      run agent tasks on a cron schedule (kith-sched)
@@ -72,7 +74,7 @@ set -euo pipefail
 src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
 KITH="$(cd "$(dirname "$src")/.." && pwd)"
 
-[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,44p' "$0" | sed 's/^#   //'; exit 0; }
+[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,46p' "$0" | sed 's/^#   //'; exit 0; }
 # migrate runs before the paths below are exported: it moves what they point at, and its children must see the new ones
 [[ $1 == migrate ]] && exec "$KITH/bin/kith-migrate" "${@:2}"
 . "$KITH/lib/kith-env.sh"   # KITH_X and the old HQ_X agree (role repos read HQ_X)
@@ -96,6 +98,7 @@ case $1 in
   account)            shift; exec "$KITH/bin/kith-account" "${@:---help}" ;;
   new)                shift; exec "$KITH/bin/kith-new" "$@" ;;
   remote)             shift; exec "$KITH/bin/kith-remote" "${@:---help}" ;;
+  recall)             shift; exec "$KITH/bin/kith-recall" "${@:---help}" ;;
   memory)             shift; exec "$KITH/bin/kith-memory" "${@:---help}" ;;
   who)                shift; exec "$KITH/bin/kith-who" "${@:---help}" ;;
   project)            shift; exec "$KITH/bin/kith-project" "$@" ;;
@@ -458,7 +461,8 @@ s.setdefault("permissions", {}).setdefault("deny", []).extend(
 # only: a Bash `cat` of the same file is not stopped by them (in auto mode the classifier, in default mode the prompt,
 # is the only guard there). The kernel CLIs run in Bash and are unaffected.
 roots = list(dict.fromkeys(r for k in ("KITH_STATE", "KITH_MACHINE") for r in (os.environ[k], os.path.realpath(os.environ[k]))))
-sensitive = ["secrets/**", "serve/token", "serve/identity.json", "serve/*.db", "serve/*.db-*", "browsers/**", "bridge/**"]
+sensitive = ["secrets/**", "serve/token", "serve/identity.json", "serve/*.db", "serve/*.db-*", "browsers/**", "bridge/**",
+             "index/**"]   # the memory index holds every audience, not only yours: reached only through `kith recall`
 for r in roots:
     for f in sensitive:
         for tool in ("Read", "Edit"):

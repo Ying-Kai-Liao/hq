@@ -11,6 +11,7 @@
   kith-memory diff <file> [V1 [V2]] [--json]   what changed between two versions (default: the last change)
   kith-memory undo <file> [VERSION]         put the file back to a version (default: before the last change); the undo is a version too
   kith-memory tidy <agent> [--json] [-n N]  the tidy-ups of an agent's memory; `tidy undo <agent> <id>` puts one back
+  kith-memory index rebuild|update          the local index behind `kith recall` (see kith-recall --help)
   kith-memory forget <text>                 keep a fact out of memory for good: no agent or tidy writes it again
 
 Searches the markdown in the state folder: an agent's memory/ (MEMORY.md, topic files, projects/, sessions/) and its
@@ -154,6 +155,8 @@ def main(argv):
     if not argv or argv[0] in ('-h', '--help'):
         print(__doc__.strip()); return
     cmd, rest = argv[0], argv[1:]
+    if cmd == 'index':   # the local index behind `kith recall`
+        os.execv(str(KITH / 'bin' / 'kith-recall'), ['kith-recall', 'index', *rest])
     if cmd in HOST_VERBS:   # the checks and the history live in the kith program (kith-mem), which gets the same folders
         binary = kith_bin()
         if not binary:

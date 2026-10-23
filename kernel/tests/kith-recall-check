@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# kith-recall-check — note facets, the local FTS5 index and `kith recall`, in a throwaway HOME and KITH_HOME with fixture
+# memory (the real ~/.kith is never read or written).
+#
+#   kernel/tests/kith-recall-check     a few seconds; prints each check, exits 1 when one fails
+set -uo pipefail
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-recall-check.XXXXXX")
+T=$(cd "$T" && pwd -P)
+trap 'rm -rf "$T"' EXIT
+export HOME=$T/home KITH_HOME=$T/kith KITH_STATE=$T/dot KITH_AUTH=$T/dot/auth.json
+unset KITH_AGENT KITH_PERSON KITH_ROOM HQ_STATE HQ_HOME KITH_PROJECT
+mkdir -p "$HOME" "$KITH_STATE"
+M=$KITH_HOME/agents/echo/memory
+mkdir -p "$M/shared" "$M/people/sam" "$M/people/eve" "$M/projects/alpha" "$M/sessions" "$KITH_HOME/agents/other/memory" \
+  "$KITH_STATE/people" "$KITH_STATE/secrets" "$KITH_HOME/agents/echo/role" "$KITH_HOME/agents/other/role"
+for a in echo other; do printf -- '---\nname: %s\ndescription: test agent\n---\nYou test.\n' $a > "$KITH_HOME/agents/$a/role/agent.md"; done
+echo 'owner secret zebra plan' > "$M/MEMORY.md"
+echo 'shared craft zebra tip' > "$M/shared/MEMORY.md"
+echo 'sam likes zebra tea' > "$M/people/sam/MEMORY.md"
+echo 'eve private zebra' > "$M/people/eve/MEMORY.md"
+echo 'alpha zebra detail' > "$M/projects/alpha/notes.md"
+printf -- '---\naudience: owner\nprojects: [beta]\n---\nnarrowed zebra note\n' > "$M/people/sam/narrow.md"
+printf -- '---\naudience: shared\n---\nwiden attempt zebra\n' > "$M/MEMORY2.md"
+echo 'session zebra log' > "$M/sessions/s1.md"
+echo 'other agent zebra' > "$KITH_HOME/agents/other/memory/MEMORY.md"
+echo 'about owner zebra' > "$KITH_STATE/user.md"
+echo 'sam profile zebra' > "$KITH_STATE/people/sam.md"
+echo 'TOPSECRET zebra' > "$KITH_STATE/secrets/key.md"
+R=$KERNEL/bin/kith-recall KA=$KERNEL/bin/kith-auth
+python3 "$KA" person kai owner >/dev/null; python3 "$KA" person sam >/dev/null; python3 "$KA" person eve >/dev/null
+python3 "$KA" member echo sam >/dev/null; python3 "$KA" member echo eve >/dev/null
+fails=0
+check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; fails=$((fails + 1)); fi; }
+# audiences "a b" seen by a recall for zebra, as the env given in $1 (a list of VAR=value)
+aud() { env "$@" "$R" zebra -n 50 --json | python3 -c 'import json,sys; print(" ".join(sorted(set(h["audience"] for h in json.load(sys.stdin)))))'; }
+count() { python3 -c 'import json,sys; print(len(json.load(sys.stdin)))'; }
+F() { python3 -c "import sys; sys.path.insert(0,'$KERNEL/lib'); import kith_facets as k; $1"; }
+
+# facets
+check "default: MEMORY.md is owner-only" "[ \"\$(F \"print(k.facets_for('MEMORY.md','echo')['audience'])\")\" = owner ]"
+check "default: shared/" "[ \"\$(F \"print(k.facets_for('shared/a.md','echo')['audience'])\")\" = shared ]"
+check "default: people/<id>/ is the person and the 1:1 room" "[ \"\$(F \"f=k.facets_for('people/sam/a.md','echo'); print(f['audience'],f['room'])\")\" = 'person:sam 1:1:echo:sam' ]"
+check "default: projects/<p>/" "[ \"\$(F \"f=k.facets_for('projects/alpha/a.md','echo'); print(f['audience'],f['projects'])\")\" = \"owner ['alpha']\" ]"
+check "default: sessions/ is project-detail" "[ \"\$(F \"f=k.facets_for('sessions/s1.md','echo'); print(f['kind'],f['thread'])\")\" = 'project-detail s1' ]"
+check "frontmatter overrides projects and room" "[ \"\$(F \"f=k.facets_for('MEMORY.md','echo','---\\nprojects: [a, b]\\nroom: r1\\n---\\nx'); print(f['projects'],f['room'])\")\" = \"['a', 'b'] r1\" ]"
+check "frontmatter can narrow the audience" "[ \"\$(F \"print(k.facets_for('people/sam/a.md','echo','---\\naudience: owner\\n---\\nx')['audience'])\")\" = owner ]"
+check "frontmatter cannot widen the audience" "[ \"\$(F \"print(k.facets_for('MEMORY.md','echo','---\\naudience: shared\\n---\\nx')['audience'])\")\" = owner ]"
+check "junk facets read as owner-only" "[ \"\$(F \"print(k.facets_for('x.md','echo','---\\naudience: person:../x\\n---\\n')['audience'])\")\" = owner ]"
+
+# index files and modes
+"$R" index rebuild >/dev/null
+DB=$KITH_STATE/index/memory.db
+mode() { stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1"; }
+check "index folder is 0700 and file 0600" "[ \"\$(mode $KITH_STATE/index)\" = 700 ] && [ \"\$(mode $DB)\" = 600 ]"
+check "rebuild leaves no .new file" "[ ! -e $DB.new ]"
+INO=$(ls -i "$DB" | awk '{print $1}'); "$R" index rebuild >/dev/null
+check "rebuild replaces the file in one step (new inode)" "[ \"\$(ls -i $DB | awk '{print \$1}')\" != $INO ]"
+check "the secrets folder is never indexed" "! env KITH_AGENT=echo \"$R\" TOPSECRET | grep -q TOPSECRET"
+
+# owner
+check "owner sees owner, shared and person rows" "[ \"\$(aud KITH_AGENT=echo)\" = 'owner person:eve person:sam shared' ]"
+check "owner: the other agent's notes stay out" "! env KITH_AGENT=echo \"$R\" zebra | grep -q 'agents/other'"
+check "owner: user.md is found" "env KITH_AGENT=echo \"$R\" 'about owner' | grep -q 'about owner'"
+check "frontmatter 'shared' in an owner file did not widen it" "[ \"\$(env KITH_AGENT=echo \"$R\" widen --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0][\"audience\"])')\" = owner ]"
+check "--project narrows" "[ \"\$(env KITH_AGENT=echo \"$R\" zebra --project alpha --json | count)\" = 1 ]"
+
+# invitee
+check "invitee sees shared and own person rows only" "[ \"\$(aud KITH_AGENT=echo KITH_PERSON=sam)\" = 'person:sam shared' ]"
+check "invitee gets no owner or other person's text" "! env KITH_AGENT=echo KITH_PERSON=sam \"$R\" zebra | grep -qE 'owner secret|alpha zebra|session zebra|about owner|narrowed|eve private'"
+check "invitee: --project / --room of others widen nothing" "[ \"\$(env KITH_AGENT=echo KITH_PERSON=sam \"$R\" zebra --project alpha --json)\" = '[]' ] && [ \"\$(env KITH_AGENT=echo KITH_PERSON=sam \"$R\" zebra --room 1:1:echo:eve --json)\" = '[]' ]"
+check "there is no --person flag" "! env KITH_AGENT=echo KITH_PERSON=sam \"$R\" zebra --person kai 2>/dev/null"
+check "unknown person gets nothing" "[ \"\$(env KITH_AGENT=echo KITH_PERSON=zed \"$R\" zebra --json)\" = '[]' ]"
+check "an agent they are no member of: nothing" "[ \"\$(env KITH_AGENT=other KITH_PERSON=sam \"$R\" zebra --json)\" = '[]' ]"
+check "no KITH_AGENT, not the owner: nothing" "[ \"\$(env KITH_PERSON=sam \"$R\" zebra --json)\" = '[]' ]"
+
+# group room: the answer is read by everyone there, so only what all of them may see
+check "group room: the invitee loses person:sam" "[ \"\$(aud KITH_AGENT=echo KITH_PERSON=sam KITH_ROOM=grp1)\" = shared ]"
+check "group room: the owner is cut down too" "[ \"\$(aud KITH_AGENT=echo KITH_ROOM=grp1)\" = shared ]"
+check "1:1 room changes nothing" "[ \"\$(aud KITH_AGENT=echo KITH_PERSON=sam KITH_ROOM=1:1:echo:sam)\" = 'person:sam shared' ]"
+
+# bots: this tree's kith-auth has no `people --json`, so a bot fails closed
+check "bot guest with no resolvable parent gets nothing" "[ \"\$(env KITH_AGENT=echo KITH_PERSON=bot-ab12 \"$R\" zebra --json)\" = '[]' ]"
+BR() { python3 -c 'import sys, json; sys.path.insert(0, sys.argv[1]); import kith_recall as r; print(r.bot_root(json.loads(sys.argv[2]), "bot-a"))' "$KERNEL/lib" "$1"; }
+BOT_OK='{"bot-a": {"bot_of": "kai"}, "kai": {}}' BOT_GONE='{"bot-a": {"bot_of": "gone"}}'
+check "bot_root follows bot_of to the root" '[ "$(BR "$BOT_OK")" = kai ]'
+check "bot_root: a missing parent is None" '[ "$(BR "$BOT_GONE")" = None ]'
+
+# output shape
+check "text output frames hits as data" "env KITH_AGENT=echo \"$R\" zebra | grep -q '^<recalled source=\"note\" tier=\"2\" audience=\"'"
+check "--json shape" "env KITH_AGENT=echo \"$R\" zebra --json | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if set(d[0])=={\"kind\",\"tier\",\"agent\",\"audience\",\"room\",\"projects\",\"link\",\"snippet\"} else 1)'"
+check "results are capped (-n)" "[ \"\$(env KITH_AGENT=echo \"$R\" zebra -n 2 --json | count)\" = 2 ]"
+
+# staleness and corruption
+echo 'fresh quokka' >> "$M/MEMORY.md"
+check "a changed file is re-indexed on recall" "env KITH_AGENT=echo \"$R\" quokka | grep -q quokka"
+rm "$M/MEMORY.md"
+check "a deleted file leaves the index" "! env KITH_AGENT=echo \"$R\" quokka | grep -q quokka"
+echo garbage > "$DB"
+check "a corrupt index is rebuilt" "env KITH_AGENT=echo \"$R\" 'shared craft' | grep -q 'shared craft'"
+rm -rf "$KITH_STATE/index"
+check "a missing index is built on first recall, private" "env KITH_AGENT=echo \"$R\" 'shared craft' | grep -q 'shared craft' && [ \"\$(mode $KITH_STATE/index)\" = 700 ]"
+
+# the deny rule for every run
+"$KERNEL/bin/kith" echo --launch-json >"$T/launch.json" 2>"$T/err"
+check "settings deny Read and Edit of the index" "python3 -c 'import json,sys; d=json.load(open(\"$T/launch.json\"))[\"settings\"][\"permissions\"][\"deny\"]; sys.exit(0 if any(r.startswith(\"Read(\") and r.endswith(\"/index/**)\") for r in d) and any(r.startswith(\"Edit(\") and r.endswith(\"/index/**)\") for r in d) else 1)'"
+
+echo
+if [ $fails = 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi
