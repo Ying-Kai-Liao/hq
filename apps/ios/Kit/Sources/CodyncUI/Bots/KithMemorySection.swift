@@ -1,22 +1,15 @@
 import CodyncKit
 import SwiftUI
 
-/// A memory file to open in the viewer, near a line when it came from a search hit.
-struct KithMemoryTarget: Identifiable, Hashable {
-    let path: String
-    var line: Int?
-    var id: String { "\(path):\(line ?? 0)" }
-}
-
-/// "Agent memory" on a kith bot's Memory page: search and the files in the agent's own memory folder.
-/// Read-only; it is not the bot memory below it.
+/// Search over a kith agent's memory. Used as "This agent"'s search: a hit opens through `openHit`.
 struct KithMemorySection: View {
     let store: KithInfoStore
+    /// Opens a hit's file (`path` relative to the memory folder) near `line`.
+    let openHit: (String, Int?) -> Void
     @State private var query = ""
     @State private var result: KithSearchResult?
     @State private var searching = false
     @State private var searchFailed = false
-    @State private var target: KithMemoryTarget?
 
     /// Nothing to show once the load is over: an older host, or a bot kith doesn't know.
     private var hidden: Bool {
@@ -34,18 +27,11 @@ struct KithMemorySection: View {
             EmptyView()
         } else {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Agent memory")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Palette.text)
-                    .padding(.leading, 2)
-                    .accessibilityAddTraits(.isHeader)
                 searchField
-                if trimmed.isEmpty { files } else { hits }
+                if !trimmed.isEmpty { hits }
             }
-            .padding(.bottom, 8)
             // Typing again cancels the request in flight; 300 ms after the last key it asks.
             .task(id: trimmed) { await runSearch(trimmed) }
-            .codyncSheet(item: $target) { KithMemoryFileView(store: store, target: $0) }
         }
     }
 
@@ -139,53 +125,11 @@ struct KithMemorySection: View {
         .padding(.vertical, 8)
         .contentShape(Rectangle())
         if hit.openable {
-            Button { target = KithMemoryTarget(path: hit.path, line: hit.line) } label: { content }
+            Button { openHit(hit.path, hit.line) } label: { content }
                 .buttonStyle(.plain)
                 .foregroundStyle(Palette.text)
         } else {
             content.foregroundStyle(Palette.secondary).opacity(0.55).accessibilityHint("Can't be opened here")
-        }
-    }
-
-    // MARK: files
-
-    @ViewBuilder private var files: some View {
-        if let info = store.info {
-            if info.errors["memory"] != nil {
-                note("Couldn't read the memory files")
-            } else if let memory = info.memory, !memory.files.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(memory.ordered.enumerated()), id: \.element.id) { index, file in
-                        if index > 0 { Divider() }
-                        Button { target = KithMemoryTarget(path: file.path) } label: {
-                            HStack(spacing: 8) {
-                                Text(file.path).lineLimit(1).truncationMode(.middle)
-                                Spacer(minLength: 8)
-                                Text([kithBytes(file.bytes), file.modified.map { kithAgo($0.date) }]
-                                    .compactMap { $0 }.joined(separator: " · "))
-                                    .font(.footnote)
-                                    .foregroundStyle(Palette.secondary)
-                            }
-                            .padding(.vertical, 10)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Palette.text)
-                    }
-                    Divider()
-                    Text("\(memory.files.count) \(memory.files.count == 1 ? "file" : "files") · \(kithBytes(memory.totalBytes))")
-                        .font(.footnote)
-                        .foregroundStyle(Palette.secondary)
-                        .padding(.vertical, 8)
-                }
-                .outlinedCard(vertical: 0)
-            } else {
-                note("No memory files yet")
-            }
-        } else if let failure = store.failure {
-            note("Kith details unavailable: \(failure)")
-        } else {
-            note("Loading…")
         }
     }
 

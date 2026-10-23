@@ -17,12 +17,12 @@ import Testing
         "authorBot": null, "pinned": false, "supersededBy": null, "room": null, "evidence": [], "createdAt": 1,
         "updatedAt": 2, "rev": 3}], "used": 4, "cap": 400},
      "bot": {"entries": [], "used": 0, "cap": 1200},
-     "dreams": [{"id": 7, "bot": "b", "at": 5, "undone": false, "added": [{"id": 1, "text": "Lives in Taipei"}], "archived": []}],
+     "tidyUps": [{"id": 7, "bot": "b", "at": 5, "undone": false, "added": [{"id": 1, "text": "Lives in Taipei"}], "archived": []}],
      "projectMemory": null, "memoryRev": 9}
     """
     let view = try JSONDecoder().decode(MemoryView.self, from: Data(json.utf8))
     #expect(view.yours.entries.first?.text == "Lives in Taipei")
-    #expect(view.dreams.first?.added.count == 1)
+    #expect(view.tidyUps.first?.added.count == 1)
     #expect(view.projectMemory == nil)
 }
 
@@ -51,7 +51,7 @@ import Testing
 @Test func memoryFilesDecode() throws {
     let json = """
     {"shared": false, "yours": {"entries": [], "used": 0, "cap": 400}, "bot": {"entries": [], "used": 0, "cap": 1200},
-     "dreams": [{"id": 1, "bot": "b", "at": 5, "undone": false, "added": [], "archived": [],
+     "tidyUps": [{"id": 1, "bot": "b", "at": 5, "undone": false, "added": [], "archived": [],
         "files": [{"name": "people.md", "shared": false, "version": 3}]}],
      "projectMemory": null,
      "files": {"yours": {"files": [], "folder": "/d/shared-memory"},
@@ -62,5 +62,49 @@ import Testing
     """
     let view = try JSONDecoder().decode(MemoryView.self, from: Data(json.utf8))
     #expect(view.files?.bot.files.first?.description == "The user's family")
-    #expect(view.dreams.first?.files?.first?.name == "people.md")
+    #expect(view.tidyUps.first?.files?.first?.name == "people.md")
+}
+
+@Test func aHostBeforeTheTidyRenameStillListsItsRunsAsDreams() throws {
+    let json = """
+    {"shared": true, "yours": {"entries": [], "used": 0, "cap": 400}, "bot": {"entries": [], "used": 0, "cap": 1200},
+     "dreams": [{"id": 3, "bot": "b", "at": 5, "undone": false, "added": [], "archived": []}]}
+    """
+    #expect(try JSONDecoder().decode(MemoryView.self, from: Data(json.utf8)).tidyUps.first?.id == 3)
+}
+
+@Test func hqMemoryAnswersDecode() throws {
+    let decoder = JSONDecoder()
+    let list = try decoder.decode(HqMemoryList.self, from: Data("""
+    {"agent": [{"name": "notes.md", "shared": false, "path": "/x", "size": 3, "modified": 5},
+               {"name": "MEMORY.md", "shared": false, "path": "/y", "size": 9, "modified": 6}],
+     "shared": [{"name": "user.md", "shared": true, "path": "/z", "size": 0, "modified": 0}]}
+    """.utf8))
+    #expect(list.agent.map(\.name) == ["MEMORY.md", "notes.md"])
+    #expect(list.shared.first?.shared == true)
+
+    let read = try decoder.decode(HqMemoryText.self, from: Data("""
+    {"name": "a.md", "shared": false, "text": "", "bytes": 0, "modified": 0, "exists": false}
+    """.utf8))
+    #expect(!read.exists && !read.truncated)
+
+    let saved = try decoder.decode(HqMemoryWrite.self, from: Data("""
+    {"version": {"id": 4, "at": 9, "author": "dream", "authorBot": null, "cause": "dream", "deleted": false, "bytes": 5, "lines": 1},
+     "warnings": ["Dropped 80% of the file"]}
+    """.utf8))
+    #expect(saved.version?.author == "tidy" && saved.version?.cause == "tidy")
+    #expect(saved.warnings.count == 1)
+    let unchanged = try decoder.decode(HqMemoryWrite.self, from: Data(#"{"version": null, "warnings": []}"#.utf8))
+    #expect(unchanged.version == nil)
+
+    let runs = try decoder.decode([HqTidyUp].self, from: Data("""
+    [{"id": 2, "at": 7, "undone": false, "files": [],
+      "changes": [{"kind": "reviewed", "file": "MEMORY.md", "shared": false, "text": "new", "was": "old"}]}]
+    """.utf8))
+    #expect(runs.first?.changes.first?.was == "old")
+
+    let undo = try decoder.decode(HqTidyUndo.self, from: Data("""
+    {"restored": ["MEMORY.md"], "refused": [{"file": "user.md", "reason": "changed since"}], "undone": false}
+    """.utf8))
+    #expect(undo.refused.first?.reason == "changed since" && !undo.undone)
 }
