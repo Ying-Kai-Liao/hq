@@ -18,9 +18,10 @@ test('parses the groups, packages and license texts of the notices file', () => 
   assert.equal(n.groups[1].packages.length, 1)
 })
 
-test('the checked-in THIRD_PARTY_NOTICES.md parses and names the Codync attribution', () => {
+test('the checked-in THIRD_PARTY_NOTICES.md parses and carries the upstream attribution from NOTICE', () => {
   const n = parseNotices(readFileSync(fileURLToPath(new URL('../../../../THIRD_PARTY_NOTICES.md', import.meta.url)), 'utf8'))
-  assert.match(n.intro, /Apache-2\.0/)
+  const notice = readFileSync(fileURLToPath(new URL('../../../../NOTICE', import.meta.url)), 'utf8').trim().split('\n\n')
+  assert.ok(n.intro.includes(notice[1]))
   assert.ok(n.groups.length > 3)
   for (const g of n.groups) assert.ok(g.packages.length > 0 && g.texts.length > 0, g.license)
 })
