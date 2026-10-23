@@ -8,11 +8,15 @@ The test makes symlinks <rig>/bin/kith, kith-auth and kith-live to this file; th
   granted.json  {"<platform>": ["<profile>", ..]}               what `kith-auth granted` lists
   secrets.json  {"<profile>": {"<VAR>": "<value>"}}             what `kith-auth get` prints
   live.json     {"running": bool}                               whether `kith-live send` finds a session
+  chain.json    the backup chain `kith <agent> --backups-json` prints (default: the primary alone)
+  depleted.json {"<primary|entry id>": <epoch the limit lifts or null>}  accounts a run on which ends on a usage limit
+  unavailable.json ["<entry id>", ..]                                    entries `kith --backup` refuses with exit 4
   calls.jsonl   every call, one JSON object per line
 
 `kith <agent> <task>` answers {"result": "echo:<task>", "session_id": "sess-<agent>-<n>"}. A task that starts with
 SLOW sleeps until killed, SLEEP for 1.5 s; one containing SEND leaves two posts in KITH_BRIDGE_OUTBOX; FAIL exits 1;
-BIGCTX reports a context 60% full, BGHOLD leaves a process holding its output open.
+BIGCTX reports a context 60% full, BGHOLD leaves a process holding its output open. `kith <agent> --backup ID <task>`
+runs on that chain entry; `kith <agent> --backups-json` prints the chain.
 """
 import json
 import os
@@ -88,13 +92,23 @@ elif me == "kith-live":
     if not load("live", {"running": True}).get("running"):
         fail("no live session for that agent")
 elif me == "kith":
-    agent, task = args[0], args[1]
+    agent = args[0]
+    if args[1] == "--backups-json":
+        log({"tool": "kith-chain", "agent": agent})
+        default = {"chain": [{"id": "claude", "harness": "claude", "account": None, "kind": "primary", "ready": True}]}
+        print(json.dumps({"version": 1, "agent": agent, **load("chain", default)}))
+        sys.exit(0)
+    backup = args[2] if args[1] == "--backup" else None
+    task = args[-1]
     env = os.environ
+    if backup and backup in load("unavailable", []):
+        print(f"kith: {backup}: not logged in", file=sys.stderr)
+        sys.exit(4)
     log({
         "tool": "kith", "agent": agent, "task": task,
         "resume": env.get("KITH_RESUME"), "person": env.get("KITH_PERSON"), "via": env.get("KITH_VIA"),
         "output": env.get("KITH_OUTPUT"), "extra": env.get("FAKE_EXTRA"), "mode": env.get("KITH_PERMISSION_MODE"),
-        "outbox": bool(env.get("KITH_BRIDGE_OUTBOX")),
+        "outbox": bool(env.get("KITH_BRIDGE_OUTBOX")), "backup": backup,
         "withheld": sorted(k for k in env if k.startswith(("JEV_", "TELEGRAM_", "SLACK_", "DISCORD_", "HQ_DISCORD_", "KITH_DISCORD_"))
                            or k in ("HQ_AGENT", "KITH_AGENT")),
         "cwd": os.getcwd(),
@@ -117,13 +131,28 @@ elif me == "kith":
                 json.dump(item, f)
             os.rename(name + ".tmp", name)
             time.sleep(0.01)
+    depleted = load("depleted", {})
+    account = backup or "primary"
+    if account in depleted:
+        # What a spent account prints: Claude Code's error result with the API status, or kith's usage_limit for Codex.
+        res = {"type": "result", "subtype": "success", "is_error": True, "num_turns": 1,
+               "result": "You've hit your limit"}
+        if backup and backup.startswith("codex"):
+            res = {"type": "result", "subtype": "error", "is_error": True, "num_turns": 0, "usage_limit": {"resets_at": depleted[account]},
+                   "result": "usage limit reached"}
+        else:
+            res["api_error_status"] = 429
+            if depleted[account]:
+                res["result"] = f"Claude AI usage limit reached|{depleted[account]}"
+        print(json.dumps(res))
+        sys.exit(1)
     if task.startswith("SLOW"):
         time.sleep(60)
     if task.startswith("SLEEP"):
         time.sleep(1.5)
     if "FAIL" in task:
         fail("boom")
-    out = {"result": "echo:" + task, "session_id": f"sess-{agent}-{counts[agent]}", "is_error": False}
+    out = {"result": "echo:" + task, "session_id": f"sess-{backup or agent}-{counts[agent]}", "is_error": False}
     if "BIGCTX" in task:
         out["usage"] = {"iterations": [{"input_tokens": 600}]}
         out["modelUsage"] = {"m": {"contextWindow": 1000, "inputTokens": 600}}

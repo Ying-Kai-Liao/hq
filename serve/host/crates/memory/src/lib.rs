@@ -6,12 +6,12 @@
 
 pub mod check;
 pub mod compaction;
-pub mod dream;
 pub mod evidence;
 pub mod files;
 pub mod opening;
 pub mod schema;
 pub mod store;
+pub mod tidy;
 pub mod tokens;
 
 pub use rusqlite;

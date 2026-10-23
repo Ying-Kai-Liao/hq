@@ -2,7 +2,7 @@
 //! that) into the host's memory tables. Each bot moves once; then the old files go.
 //!
 //! What the old opening showed comes in active, as far as the bot's cap allows: the profile and pinned facts
-//! first, then the newest. The rest is archived, still searchable. Dreaming changes moved entries only on the
+//! first, then the newest. The rest is archived, still searchable. Tidying changes moved entries only on the
 //! user's own contrary words.
 
 use crate::hub::Hub;
@@ -100,8 +100,8 @@ fn import_bot(store: &Store, bot: &str, dir: &Path) -> Result<()> {
         }
         Ok(())
     })?;
-    // Dreaming starts from now: what came before is in the moved memory already.
-    super::dream::set_bookmark(store, bot, store.last_seq(bot))?;
+    // Tidying starts from now: what came before is in the moved memory already.
+    super::tidy::set_bookmark(store, bot, store.last_seq(bot))?;
     store.kv_set(&marker, &count.to_string())?;
     tracing::info!(bot, facts = count, "moved the bot's old memory");
     Ok(())

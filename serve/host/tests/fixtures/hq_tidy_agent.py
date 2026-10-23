@@ -1,8 +1,8 @@
-"""A scripted stand-in for claude-agent-acp, for an hq agent's chat and its dreaming.
+"""A scripted stand-in for claude-agent-acp, for an hq agent's chat and its tidying.
 
 It answers like Claude's adapter (`_meta.claudeCode` in `initialize`). A session whose `systemPrompt` starts with the
-dreaming job gets a plan; any other prompt gets "ok". Every `session/new` is appended to `sessions.jsonl` in the
-working directory the host started it in (the agent's folder for the chat, `background` for the dream). The plan
+tidying job gets a plan; any other prompt gets "ok". Every `session/new` is appended to `sessions.jsonl` in the
+working directory the host started it in (the agent's folder for the chat, `background` for the tidy). The plan
 adds one line the user said and one only the bot did, which the host's audit drops.
 """
 import json

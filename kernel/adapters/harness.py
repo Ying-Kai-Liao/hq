@@ -131,6 +131,9 @@ class Run:
                               'cache_read': u.get('cached_input_tokens', 0)}
             elif t in ('turn.failed', 'error'):
                 r['error'] = (d.get('error') or {}).get('message') or d.get('message') or t
+                limit = usage_limit(r['error'])
+                if limit is not None:
+                    r['usage_limit'] = limit
         return r
 
     def pi(self):
@@ -362,13 +365,32 @@ class Run:
             print(json.dumps({'type': 'result', 'subtype': 'error' if r['error'] else 'success', 'harness': self.harness,
                               'is_error': bool(r['error']), 'result': r['text'] or r['error'] or '',
                               'session_id': sid, 'num_turns': r.get('turns', 0), 'total_cost_usd': cost,
-                              'usage': r.get('usage') or {}}, ensure_ascii=False))
+                              'usage': r.get('usage') or {},
+                              **({'usage_limit': r['usage_limit']} if 'usage_limit' in r else {})}, ensure_ascii=False))
         else:
             if r['text']:
                 print(r['text'])
             if r['error']:
                 note('%s: %s' % (self.harness, r['error']))
         return 1 if r['error'] else 0
+
+
+def usage_limit(message):
+    """codex reports a spent plan as an error whose message is itself JSON with error.type usage_limit_reached (and
+    resets_at, epoch seconds, or resets_in_seconds). {'resets_at': epoch or None} for that, else None. Plain text is
+    matched only on codex's own opening words, so a task that talks about limits is not taken for one."""
+    try:
+        e = (json.loads(message) or {}).get('error') or {}
+    except (TypeError, ValueError, AttributeError):
+        e = {}
+    if e.get('type') == 'usage_limit_reached':
+        at = e.get('resets_at')
+        if not at and e.get('resets_in_seconds'):
+            at = int(dt.datetime.now().timestamp() + e['resets_in_seconds'])
+        return {'resets_at': at}
+    if isinstance(message, str) and message.lower().startswith("you've hit your usage limit"):
+        return {'resets_at': None}
+    return None
 
 
 def jsonl(text):

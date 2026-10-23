@@ -201,7 +201,7 @@ impl Store {
     }
 
     /// Messages in all of `bot_id`'s own lanes (its chat and threads) after `after_seq`, oldest first: the
-    /// user's, and final replies. Dreaming reads these.
+    /// user's, and final replies. Tidying reads these.
     pub fn conversation_since(&self, bot_id: &str, after_seq: i64, limit: i64) -> Result<Vec<Entry>> {
         let c = self.db.locked();
         let mut st = c.prepare(&format!(

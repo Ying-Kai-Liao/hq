@@ -25,11 +25,11 @@ final class Recognizer {
 
     func start() async {
         guard await AVCaptureDevice.requestAccess(for: .audio) else {
-            return fail("Allow the microphone for Codync in System Settings to talk to your bots.")
+            return fail("Allow the microphone for Kith in System Settings to talk to your bots.")
         }
         let status = await withCheckedContinuation { done in SFSpeechRecognizer.requestAuthorization { done.resume(returning: $0) } }
         guard status == .authorized else {
-            return fail("Allow Speech Recognition for Codync in System Settings to talk to your bots.")
+            return fail("Allow Speech Recognition for Kith in System Settings to talk to your bots.")
         }
         guard let recognizer, recognizer.isAvailable else {
             return fail("Speech recognition isn't available for this language right now.")

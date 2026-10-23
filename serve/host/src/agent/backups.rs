@@ -18,6 +18,9 @@ pub const RATE_LIMIT: &str = "rate_limit";
 pub const USAGE_95: &str = "usage_95";
 /// The usage at which an entry stops being started on (a window of the 5-hour or weekly limit).
 pub const EARLY_PERCENT: f64 = 95.0;
+/// A turn moves on at most this many times; every move marks the entry it leaves, so it is also the chain's length
+/// that ends it. Shared by the bots' turns and the channels' runs.
+pub const MAX_MOVES: usize = 3;
 /// How long an entry stays out when the provider didn't say when its limit lifts; it is checked again then.
 pub const UNKNOWN_RESET_SECS: i64 = 3600;
 /// A chain with backups is asked of hq again after this long, in the background (hq checks each entry's login, which

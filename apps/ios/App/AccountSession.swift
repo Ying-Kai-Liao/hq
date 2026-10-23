@@ -39,7 +39,7 @@ final class AccountSession {
     /// Clerk restores the persisted Keychain session during configuration. Don't offer a fresh sign-in
     /// until that restore has completed, or an update can briefly look like a signed-out install.
     var isReady: Bool { clerk?.isLoaded ?? true }
-    /// The Codync cloud (accounts and the encrypted relay); nil in builds without one.
+    /// The Kith cloud (accounts and the encrypted relay); nil in builds without one.
     let cloudURL: URL?
     var isSignedIn: Bool { userID != nil }
     var email: String? { clerk?.user?.primaryEmailAddress?.emailAddress }
@@ -53,28 +53,27 @@ final class AccountSession {
         let config = Bundle.main.url(forResource: "AccountConfig", withExtension: "plist")
             .flatMap { try? Data(contentsOf: $0) }
             .flatMap { try? PropertyListDecoder().decode(Configuration.self, from: $0) }
-        cloudURL = (env["CODYNC_CLOUD_URL"] ?? config?.cloudURL)
-            .flatMap { URL(string: $0.trimmingCharacters(in: .whitespacesAndNewlines)) }
-            .flatMap { Pairing.isCloudURL($0) ? $0 : nil }
-        let key = (env["CODYNC_CLERK_PUBLISHABLE_KEY"] ?? config?.clerkPublishableKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard key.hasPrefix("pk_test_") || key.hasPrefix("pk_live_") else {
+        let resolved = AccountConfig.resolve(env: env, cloudURL: config?.cloudURL, clerkPublishableKey: config?.clerkPublishableKey)
+        cloudURL = resolved.cloudURL
+        guard let key = resolved.clerkPublishableKey else {
             clerk = nil
             return
         }
-        let scheme = Bundle.main.bundleIdentifier ?? "com.pokai.Codync"
+        let scheme = Bundle.main.bundleIdentifier ?? AccountConfig.fallbackScheme(
+            environment: Bundle.main.object(forInfoDictionaryKey: "CodyncEnvironment") as? String)
         clerk = Clerk.configure(publishableKey: key, options: .init(
             telemetryEnabled: false,
             redirectConfig: .init(redirectUrl: "\(scheme)://callback", callbackUrlScheme: scheme)
         ))
     }
 
-    /// The signed-in session's JWT for the Codync cloud (Clerk caches it for a minute).
+    /// The signed-in session's JWT for the Kith cloud (Clerk caches it for a minute).
     func sessionToken() async throws -> String {
         guard let clerk, isSignedIn, let token = try await clerk.auth.getToken() else { throw SessionError.signedOut }
         return token
     }
 
-    /// The Codync cloud for `userID`'s context; nil when signed out or the build has no cloud.
+    /// The Kith cloud for `userID`'s context; nil when signed out or the build has no cloud.
     /// Requests stop working once another account becomes active, so one account's calls never carry another's token.
     func cloudClient(for userID: String?, identity: DeviceIdentity?) -> CloudClient? {
         guard let userID, let cloudURL, isConfigured else { return nil }
@@ -92,6 +91,7 @@ final class AccountSession {
     enum SignInProvider: String {
         case google = "Google"
         case apple = "Apple"
+        case github = "GitHub"
     }
 
     func signIn(provider: SignInProvider = .google) async {
@@ -104,11 +104,13 @@ final class AccountSession {
         errorMessage = nil
         defer { isBusy = false }
         do {
-            // Both providers use Clerk's transfer flow and activate the same kind of session.
+            // All providers use Clerk's transfer flow and activate the same kind of session.
             let result: TransferFlowResult
             switch provider {
             case .google:
                 result = try await clerk.auth.signInWithOAuth(provider: .google, prefersEphemeralWebBrowserSession: isSignedIn)
+            case .github:
+                result = try await clerk.auth.signInWithOAuth(provider: .github, prefersEphemeralWebBrowserSession: isSignedIn)
             case .apple:
                 result = try await clerk.auth.signInWithApple()
             }
@@ -175,7 +177,7 @@ final class AccountSession {
         catch { errorMessage = "Couldn't finish signing in. Please try again." }
     }
 
-    /// `AccountConfig.plist` (`CODYNC_CLERK_PUBLISHABLE_KEY` / `CODYNC_CLOUD_URL` override it).
+    /// `AccountConfig.plist` (`KITH_CLERK_PUBLISHABLE_KEY` / `KITH_CLOUD_URL`, or the older `CODYNC_*` names, override it).
     private struct Configuration: Decodable {
         let clerkPublishableKey: String?
         let cloudURL: String?

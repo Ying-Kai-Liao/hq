@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Spinner } from '../components/Controls'
+import { GitHubMark } from '../components/GitHubMark'
 import { Icon } from '../components/Icon'
 import type { MenuItem } from '../components/Overlay'
 import { HStack, IconSlot, VStack } from '../components/Stack'
@@ -34,6 +35,8 @@ interface PanelItem {
   detail?: string | null
   /** A bundled image in place of the symbol (the Google logo). */
   image?: string
+  /** A themed glyph in place of the symbol (the GitHub mark). */
+  glyph?: ReactNode
   chevron?: boolean
   disabled?: boolean
   destructive?: boolean
@@ -56,6 +59,7 @@ export function AccountPanelLayer({ compact, approvals, onDismiss, onUsage, onSe
     : [
         { title: 'Continue with Apple', icon: 'apple.logo', disabled: isBusy, action: () => { onDismiss(); void account.signIn('apple') } },
         { title: 'Continue with Google', icon: 'person.crop.circle.badge.plus', image: googleLogo, disabled: isBusy, action: () => { onDismiss(); void account.signIn('google') } },
+        { title: 'Continue with GitHub', icon: 'person.crop.circle.badge.plus', glyph: <GitHubMark size={14} />, disabled: isBusy, action: () => { onDismiss(); void account.signIn('github') } },
       ]
   const open = (url: string) => {
     onDismiss()
@@ -142,7 +146,7 @@ function PanelRows({ items, onDismiss, after, dismissOnActivate = false }: { ite
             }}
           >
             <IconSlot width={20}>
-              {item.image ? <img src={item.image} alt="" width={14} height={14} /> : <Icon name={item.icon} size={14} />}
+              {item.glyph ?? (item.image ? <img src={item.image} alt="" width={14} height={14} /> : <Icon name={item.icon} size={14} />)}
             </IconSlot>
             <Text size="callout" truncate grow>{item.title}</Text>
             {item.detail ? <Text size="body" tone="secondary">{item.detail}</Text> : null}

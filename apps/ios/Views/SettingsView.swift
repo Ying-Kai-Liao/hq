@@ -23,6 +23,7 @@ struct SettingsView: View {
     @State private var confirmRemoveCopy: CloudComputer?
     @State private var voice: VoiceTarget?
     @State private var aboutAnalytics = false
+    @State private var showLicenses = false
 
     var body: some View {
         CardForm {
@@ -72,6 +73,10 @@ struct SettingsView: View {
                 }
             }
 
+            if let linkStore = online.first {
+                LinkChatSection(store: linkStore)
+            }
+
             BackupsStatusSection()
 
             CardSection("Notifications", footer: "Get a result summary, a request for input, or a failure notice. Notification previews follow your iOS settings.") {
@@ -85,7 +90,7 @@ struct SettingsView: View {
                 SegmentedChoice(selection: $textSize, options: TextSizePreference.allCases.map { ($0.rawValue, $0.label) })
             }
 
-            CardSection(footer: "Which features you use, never your messages, code or files. Helps us spot bugs sooner and make Codync better for you.") {
+            CardSection(footer: "Which features you use, never your messages, code or files. Helps us spot bugs sooner and make Kith better for you.") {
                 HStack(spacing: 4) {
                     Text("Share usage analytics").lineLimit(1).layoutPriority(1)
                     IconButton("About usage analytics", systemImage: "info.circle") { aboutAnalytics = true }
@@ -119,7 +124,7 @@ struct SettingsView: View {
                 Button("Source code") { openURL(URL(string: "https://github.com/Ying-Kai-Liao/kith")!) }
                     .buttonStyle(.plain)
                     .foregroundStyle(Palette.text)
-                Button("Built on Codync (Apache-2.0)") { openURL(URL(string: "https://github.com/leepokai/Codync")!) }
+                Button("Open-source licenses") { showLicenses = true }
                     .buttonStyle(.plain)
                     .foregroundStyle(Palette.text)
             }
@@ -152,6 +157,7 @@ struct SettingsView: View {
         }
         .codyncSheet(item: $voice) { target in VoiceChatSettingsView().environment(target.store) }
         .codyncSheet(isPresented: $aboutAnalytics) { AnalyticsSheet() }
+        .codyncSheet(isPresented: $showLicenses) { LicensesSheet() }
         .codyncSheet(item: $access) { target in
             AccessRequestView(computer: target.computer, pending: accounts.pendingAccess[target.id] != nil)
         }
@@ -378,7 +384,7 @@ private struct AccountComputerRow: View {
         let online = computer.isOnline ? "Online" : "Offline"
         if let ticket { return "Waiting for your OK on the computer · \(ticket.code)" }
         return switch computer.access {
-        case "granted": "Approved for an earlier install of Codync. Revoke it, then ask again."
+        case "granted": "Approved for an earlier install of Kith. Revoke it, then ask again."
         case "pending": "\(online) · A request is waiting"
         default: "\(online) · In your account"
         }
@@ -511,4 +517,67 @@ private struct TextSizeOverride: ViewModifier {
 extension View {
     /// Applies the Text size setting; put it once at the app root.
     func appTextSize() -> some View { modifier(TextSizeOverride()) }
+}
+
+/// "Link Telegram or Discord": a one-time code that ties a chat account to your Kith person.
+/// Hidden when the computer's host is older than the `linkCode` method.
+struct LinkChatSection: View {
+    let store: BotStore
+    @State private var code: LinkCode?
+    @State private var busy = false
+    @State private var unsupported = false
+    @State private var copied = false
+    @State private var error: String?
+
+    var body: some View {
+        if !unsupported {
+            CardSection("Link Telegram or Discord", footer: error ?? "Chat with your bots from your own Telegram or Discord account.") {
+                if let code {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(code.code)
+                            .font(.system(size: 34, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(Palette.text)
+                            .textSelection(.enabled)
+                        TimelineView(.periodic(from: .now, by: 30)) { context in
+                            let minutes = max(1, Int((code.expiry.timeIntervalSince(context.date) / 60).rounded()))
+                            Text("Send /link \(code.code) to your Kith bot in Telegram or Discord. Expires in about \(minutes) min.")
+                                .font(.footnote)
+                                .foregroundStyle(Palette.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Button(copied ? "Copied" : "Copy") {
+                        UIPasteboard.general.string = "/link \(code.code)"
+                        copied = true
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Palette.text)
+                }
+                Button { Task { await request() } } label: {
+                    Label(code == nil ? "Get a link code" : "New code", systemImage: "link")
+                        .foregroundStyle(Palette.text)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(busy)
+            }
+        }
+    }
+
+    private func request() async {
+        guard !busy, let client = store.client else { return }
+        busy = true
+        error = nil
+        copied = false
+        defer { busy = false }
+        do {
+            code = try await client.linkCode()
+        } catch let HostError.http(status, message) where status == 404 || message.localizedCaseInsensitiveContains("unknown method") {
+            // An older host doesn't know the method: the row goes away rather than failing.
+            unsupported = true
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
 }

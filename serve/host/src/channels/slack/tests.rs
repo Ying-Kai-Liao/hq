@@ -363,7 +363,13 @@ fn new_core(paths: &Paths) -> Arc<Core> {
         ..Settings::default()
     };
     let gate = Gate::new(GateSettings::unlimited(), Box::new(memory::System));
-    Core::new(core::Deps { paths: paths.clone(), settings, gate, judge: Judge::fixed(None, paths.clone()) })
+    Core::new(core::Deps {
+        paths: paths.clone(),
+        settings,
+        gate,
+        judge: Judge::fixed(None, paths.clone()),
+        backups: Arc::new(crate::agent::backups::Backups::new(paths.data.join("backups.json"))),
+    })
 }
 
 impl Rig {

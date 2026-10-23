@@ -318,6 +318,12 @@ public extension HostClient {
         return try await call("listDirs", Body(path: path, showHidden: showHidden ? true : nil))
     }
 
+    /// A one-time code to send a Kith bot as `/link CODE`, tying that chat account to this person.
+    /// An older host answers with `HostError.http(404, …)`; asking again gives a fresh code.
+    func linkCode() async throws -> LinkCode {
+        try await call("linkCode")
+    }
+
     // MARK: kith bot details (serve/docs/bot-info.md)
 
     func kithInfo(botId: String, refresh: Bool = false) async throws -> KithInfoResponse {
@@ -451,6 +457,15 @@ public extension HostClient {
     func termClose(_ term: String) async throws {
         let _: Empty = try await call("termClose", ["term": term])
     }
+}
+
+/// What the host's `linkCode` returns; `expiresAt` is epoch milliseconds.
+public struct LinkCode: Decodable, Sendable, Equatable {
+    public var code: String
+    public var expiresAt: Double
+
+    public var expiry: Date { Date(timeIntervalSince1970: expiresAt / 1000) }
+    public init(code: String, expiresAt: Double) { self.code = code; self.expiresAt = expiresAt }
 }
 
 public struct ScreenAnswer: Codable, Sendable {

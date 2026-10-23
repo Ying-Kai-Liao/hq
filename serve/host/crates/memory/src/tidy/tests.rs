@@ -41,10 +41,10 @@ fn keeps_only_changes_backed_by_the_users_own_words() {
     let (kept, rejected) = audit(&snapshot, &messages, plan);
     assert_eq!(kept.add.iter().map(|a| a.text.as_str()).collect::<Vec<_>>(), ["Lives in Tainan"]);
     assert_eq!(rejected.len(), 4);
-    let Outcome::Changed(dream) = apply(&conn, &snapshot, &kept, &messages, 5, 5).unwrap() else { panic!() };
-    assert_eq!(dream.added[0].text, "Lives in Tainan");
-    let entry = store::get(&conn, dream.added[0].id).unwrap().unwrap();
-    assert_eq!((entry.author, entry.evidence), (Author::Dream, vec!["u1".to_owned()]));
+    let Outcome::Changed(tidy) = apply(&conn, &snapshot, &kept, &messages, 5, 5).unwrap() else { panic!() };
+    assert_eq!(tidy.added[0].text, "Lives in Tainan");
+    let entry = store::get(&conn, tidy.added[0].id).unwrap().unwrap();
+    assert_eq!((entry.author, entry.evidence), (Author::Tidy, vec!["u1".to_owned()]));
 }
 
 #[test]
@@ -86,20 +86,20 @@ fn a_replacement_links_the_old_entry_and_undo_reverses_the_run() {
         ..Plan::default()
     };
     let (kept, _) = audit(&snapshot, &messages, plan);
-    let Outcome::Changed(dream) = apply(&conn, &snapshot, &kept, &messages, 5, 5).unwrap() else { panic!() };
+    let Outcome::Changed(tidy) = apply(&conn, &snapshot, &kept, &messages, 5, 5).unwrap() else { panic!() };
     let archived = store::get(&conn, old.id).unwrap().unwrap();
     assert_eq!(archived.state, State::Archived);
-    assert_eq!(archived.superseded_by, Some(dream.added[0].id));
-    assert_eq!(recent(&conn, "a", 5).unwrap(), std::slice::from_ref(&dream));
+    assert_eq!(archived.superseded_by, Some(tidy.added[0].id));
+    assert_eq!(recent(&conn, "a", 5).unwrap(), std::slice::from_ref(&tidy));
 
-    let undone = undo(&conn, dream.id, 6, 6).unwrap();
+    let undone = undo(&conn, tidy.id, 6, 6).unwrap();
     assert!(undone.undone);
     assert_eq!(store::get(&conn, old.id).unwrap().unwrap().state, State::Active);
-    assert!(store::get(&conn, dream.added[0].id).unwrap().is_none());
+    assert!(store::get(&conn, tidy.added[0].id).unwrap().is_none());
     // Forgotten by the undo, so the next run can't add it again.
     let again = store::add(
         &conn,
-        Writer::Dream("a"),
+        Writer::Tidy("a"),
         New { bot: Some("a"), text: "Lives in Tainan", room: None, evidence: &[] },
         7,
         7,
@@ -125,7 +125,7 @@ fn a_run_is_dropped_when_the_user_edited_memory_meanwhile() {
 #[test]
 fn reviews_rewrite_dated_entries_in_the_past_tense() {
     let conn = db();
-    let trip = seed(&conn, Writer::Dream("a"), "Going to Singapore in July 2026");
+    let trip = seed(&conn, Writer::Tidy("a"), "Going to Singapore in July 2026");
     let tea = seed(&conn, Writer::Bot("a"), "Likes tea");
     for i in 0..6 {
         seed(&conn, Writer::Bot("a"), &format!("Filler {i}"));
@@ -141,12 +141,12 @@ fn reviews_rewrite_dated_entries_in_the_past_tense() {
     let (kept, rejected) = audit(&snapshot, &[], plan);
     assert_eq!(kept.review.len(), 1);
     assert!(rejected[0].contains("no date"));
-    let Outcome::Changed(dream) = apply(&conn, &snapshot, &kept, &[], 5, 5).unwrap() else { panic!() };
-    assert_eq!(dream.added[0].text, "Went to Singapore in July 2026");
-    assert_eq!(store::get(&conn, trip.id).unwrap().unwrap().superseded_by, Some(dream.added[0].id));
+    let Outcome::Changed(tidy) = apply(&conn, &snapshot, &kept, &[], 5, 5).unwrap() else { panic!() };
+    assert_eq!(tidy.added[0].text, "Went to Singapore in July 2026");
+    assert_eq!(store::get(&conn, trip.id).unwrap().unwrap().superseded_by, Some(tidy.added[0].id));
 
     // The next day's review leaves its own rewrite alone.
-    let went = dream.added[0].id;
+    let went = tidy.added[0].id;
     let snapshot = super::snapshot(&conn, "a", false, "2026-10-18").unwrap();
     let again = Plan { review: vec![Review { id: went, text: "Went to Singapore".into() }], ..Plan::default() };
     let (kept, _) = audit(&snapshot, &[], again);
@@ -202,7 +202,7 @@ fn notes_for_files_cite_the_user_and_entries_move_out_only_when_full() {
     assert!(rejected.iter().any(|r| r.contains("lowercase")) && rejected.iter().any(|r| r.contains("description")));
     assert!(rejected.iter().any(|r| r.contains("isn't full")));
 
-    let Outcome::Changed(dream) = apply(&conn, &snapshot, &kept, &messages, 5, 5).unwrap() else { panic!() };
+    let Outcome::Changed(tidy) = apply(&conn, &snapshot, &kept, &messages, 5, 5).unwrap() else { panic!() };
     let notes = notes(&snapshot, &kept);
     assert_eq!(
         notes,
@@ -214,8 +214,8 @@ fn notes_for_files_cite_the_user_and_entries_move_out_only_when_full() {
         }]
     );
     // The caller wrote it, or didn't.
-    discard_if_empty(&conn, dream.id).unwrap();
-    assert!(get(&conn, dream.id).unwrap().is_none(), "a run whose notes all failed is no run");
+    discard_if_empty(&conn, tidy.id).unwrap();
+    assert!(get(&conn, tidy.id).unwrap().is_none(), "a run whose notes all failed is no run");
 }
 
 #[test]
@@ -237,8 +237,8 @@ fn a_full_layer_moves_detail_out() {
     };
     let (kept, rejected) = audit(&snapshot, &[], plan);
     assert!(rejected.is_empty(), "{rejected:?}");
-    let Outcome::Changed(dream) = apply(&conn, &snapshot, &kept, &[], 5, 5).unwrap() else { panic!() };
-    assert_eq!(dream.archived[0].id, filler[0].id);
+    let Outcome::Changed(tidy) = apply(&conn, &snapshot, &kept, &[], 5, 5).unwrap() else { panic!() };
+    assert_eq!(tidy.archived[0].id, filler[0].id);
     assert_eq!(notes(&snapshot, &kept)[0].text, filler[0].text);
     let version = files::record(
         &conn,
@@ -246,9 +246,9 @@ fn a_full_layer_moves_detail_out() {
             bot: Some("a"),
             name: "week.md",
             content: Some("---\ndescription: The user's week\n---\nFiller"),
-            author: files::Author::Dream,
+            author: files::Author::Tidy,
             author_bot: Some("a"),
-            cause: files::Cause::Dream,
+            cause: files::Cause::Tidy,
             mtime: 1,
             size: 1,
         },
@@ -256,7 +256,7 @@ fn a_full_layer_moves_detail_out() {
         6,
     )
     .unwrap();
-    record_file(&conn, dream.id, version.id).unwrap();
-    let logged = get(&conn, dream.id).unwrap().unwrap();
+    record_file(&conn, tidy.id, version.id).unwrap();
+    let logged = get(&conn, tidy.id).unwrap().unwrap();
     assert_eq!(logged.files, [FileChange { name: "week.md".into(), shared: false, version: version.id }]);
 }

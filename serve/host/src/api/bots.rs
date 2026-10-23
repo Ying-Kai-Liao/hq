@@ -293,8 +293,8 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             hub.send_cmd(str_arg(&b, "botId")?, Cmd::NewSession)?;
             json!({})
         }
-        "memory" | "saveMemory" | "pinMemory" | "archiveMemory" | "forgetMemory" | "clearMemory" | "undoDream"
-        | "answerMemory" | "undoMemory" | "memoryFile" | "saveMemoryFile" | "deleteMemoryFile"
+        "memory" | "saveMemory" | "pinMemory" | "archiveMemory" | "forgetMemory" | "clearMemory" | "undoTidy"
+        | "undoDream" | "answerMemory" | "undoMemory" | "memoryFile" | "saveMemoryFile" | "deleteMemoryFile"
         | "restoreMemoryFile" => crate::chat::memory::call(hub, method, &b).await?,
         m if crate::chat::memory::HQ_METHODS.contains(&m) => {
             let (hub, method, b) = (hub.clone(), m.to_owned(), b.clone());
