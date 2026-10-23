@@ -140,6 +140,15 @@ private func houseInfo() throws -> KithInfo {
     #expect(HqSetting.permissionLabel("somethingNew") == "somethingNew")
 }
 
+@Test func permissionPickerHoldsClaudeCodesSixModesAndOldValuesReadAsDefault() throws {
+    #expect(HqSetting.permissionModes.map(\.id) == ["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"])
+    #expect(HqSetting.permissionMode("ask") == "default" && HqSetting.permissionMode("manual") == "default")
+    #expect(HqSetting.permissionMode("auto") == "auto")
+    var info = try houseInfo()
+    info.permissionMode = "manual"
+    #expect(HqSetting.rows(info)[0].value == "default")
+}
+
 @Test func theCallModelShowsHqsChoiceAndAnUnknownOneAsItIs() throws {
     var info = try houseInfo()
     info.callModel = "haiku"

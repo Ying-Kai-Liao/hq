@@ -193,7 +193,8 @@ pub struct Form {
     pub model_options: (String, BTreeMap<String, String>),
     pub fast: bool,
     pub cwd: String,
-    pub auto: bool,
+    /// Index into `model::PERMISSION_MODES`.
+    pub mode: usize,
     pub notify: bool,
     pub computer: bool,
     pub color: usize,

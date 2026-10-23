@@ -43,7 +43,7 @@ impl Fixture {
             let cfg: BotConfig = serde_json::from_value(json!({
                 "id": id, "name": id, "backend": "fixture", "cwd": cwd, "tasks": false,
                 "command": crate::shell::python(&agent),
-                "notify": false, "permission": "ask",
+                "notify": false, "permission": "default",
             }))
             .unwrap();
             store.save_bot(&cfg).unwrap();

@@ -5,7 +5,7 @@ use super::{Actor, Seg, SegKind};
 use crate::agent::acp::{self, Incoming};
 use crate::hub::BotStatus;
 use crate::remote::push::{self, AlertKind};
-use crate::store::{EntryKind, Permission};
+use crate::store::EntryKind;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
@@ -161,20 +161,6 @@ impl Actor {
             options = once_only(options);
         }
         let tool = &params["toolCall"];
-        // An hq bot asks only when hq's permission mode says so: the bot's own Auto doesn't answer for it.
-        if self.cfg.permission == Permission::Auto && !self.is_hq() {
-            let pick = ["allow_once", "allow_always"]
-                .iter()
-                .find_map(|k| options.iter().find(|o| o["kind"] == *k))
-                .or_else(|| options.first());
-            if let (Some(o), Some(conn)) = (pick, &self.conn) {
-                let _ = conn
-                    .acp
-                    .respond(rpc_id, json!({"outcome": {"outcome": "selected", "optionId": o["optionId"]}}))
-                    .await;
-                return;
-            }
-        }
         let title = tool["title"]
             .as_str()
             .filter(|t| !t.is_empty())

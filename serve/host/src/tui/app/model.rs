@@ -6,6 +6,9 @@ use std::collections::BTreeMap;
 use super::super::manage::Reply;
 use super::tilde;
 
+/// Claude Code's permission modes, as the host stores them.
+pub const PERMISSION_MODES: [&str; 6] = ["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"];
+
 pub enum Msg {
     Online(bool),
     /// A new events connection asked for everything after `since`; its `hello` starts the catch-up.
@@ -92,7 +95,8 @@ pub struct Bot {
     pub backend: String,
     pub cwd: String,
     pub managed_workspace: bool,
-    pub auto: bool,
+    /// Index into [`PERMISSION_MODES`].
+    pub mode: usize,
     pub model: Option<String>,
     /// The model's own settings (effort, fast…): option id → value.
     pub model_options: BTreeMap<String, String>,
@@ -203,7 +207,10 @@ impl Bot {
             backend: s("backend"),
             cwd: s("cwd"),
             managed_workspace: v["managedWorkspace"] == true,
-            auto: v["permission"] == "auto",
+            mode: PERMISSION_MODES
+                .iter()
+                .position(|m| v["permission"] == *m || (*m == "default" && v["permission"] == "ask"))
+                .unwrap_or(0),
             model: v["model"].as_str().filter(|m| !m.is_empty()).map(str::to_owned),
             model_options: v["modelOptions"]
                 .as_object()

@@ -43,16 +43,20 @@ export function botSections(
   }
 }
 
-/** Permission modes hq knows (kernel/lib/kith_settings.py CHOICES), in the order the picker lists them. */
+/** Claude Code's own permission modes, in the order the picker lists them. Kith passes the pick to the agent unchanged. */
 export const PERMISSION_MODES: { id: string; label: string; detail: string }[] = [
-  { id: 'default', label: 'Ask for each tool', detail: "Asks before each action that isn't pre-approved" },
-  { id: 'manual', label: 'Manual', detail: "Asks before each action that isn't pre-approved" },
-  { id: 'acceptEdits', label: 'Accept edits', detail: 'File edits allowed; other actions ask' },
-  { id: 'plan', label: 'Plan only', detail: 'Plans only; changes nothing' },
-  { id: 'auto', label: 'Auto', detail: "Claude decides what's safe, asks only for risky things" },
-  { id: 'dontAsk', label: "Don't ask", detail: 'Only pre-approved actions; everything else is refused without asking' },
-  { id: 'bypassPermissions', label: 'Bypass permissions', detail: 'Everything allowed, no prompts' },
+  { id: 'default', label: 'Default', detail: 'Asks the first time each tool is used' },
+  { id: 'acceptEdits', label: 'Accept edits', detail: 'File edits are accepted without asking; other actions ask' },
+  { id: 'plan', label: 'Plan only', detail: 'Read-only planning; changes nothing' },
+  { id: 'auto', label: 'Auto', detail: 'A classifier approves safe actions; risky ones ask or are blocked' },
+  { id: 'dontAsk', label: "Don't ask", detail: 'Refuses anything not pre-approved by permission rules' },
+  { id: 'bypassPermissions', label: 'Bypass permissions', detail: 'No permission checks' },
 ]
+
+/** A stored mode as the picker knows it: the old `ask` and `manual` are `default`. */
+export function permissionMode(mode: string | null | undefined): string {
+  return mode === 'ask' || mode === 'manual' ? 'default' : (mode ?? 'auto')
+}
 
 /** What a voice call can run on (`kith <agent> set call-model`); `default` follows this Mac's global call model (sonnet unless changed), `own` is the agent's own model. */
 const CALL_MODEL_NAMES: { id: string; label: string }[] = [
@@ -92,7 +96,7 @@ export function hqSettings(info: Pick<KithInfo, 'permissionMode' | 'callModel' |
   return [
     {
       key: 'permission', label: 'Permissions', editable: info !== null,
-      value: info ? (info.permissionMode ?? 'auto') : '…',
+      value: info ? permissionMode(info.permissionMode) : '…',
       hint: 'Kept by Kith on this computer. Every chat of this agent uses it from its next turn.',
     },
     {
@@ -113,5 +117,5 @@ export function callModelLabel(id: string, defaultIs: string | null = null): str
 
 /** The picker's label for a mode id; an id this app doesn't know shows as it is. */
 export function permissionLabel(mode: string): string {
-  return PERMISSION_MODES.find((m) => m.id === mode)?.label ?? mode
+  return PERMISSION_MODES.find((m) => m.id === permissionMode(mode))?.label ?? mode
 }

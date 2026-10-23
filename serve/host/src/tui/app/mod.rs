@@ -14,7 +14,7 @@ mod ui;
 
 pub use editor::Editor;
 pub use exchange::{ConversationRow, Exchange, Item, Outcome, conversation, group, rows};
-pub use model::{After, AgentModel, Bot, Entry, Kind, Mark, ModelOption, Msg, Status};
+pub use model::{After, AgentModel, Bot, Entry, Kind, Mark, ModelOption, Msg, PERMISSION_MODES, Status};
 pub use slash::SlashAction;
 pub use ui::{
     ACTIONS, Action, AgentPicker, COLORS, Click, Confirm, ConfirmAct, Dir, FIELDS, FILTERS, Field, Focus, FolderPicker,

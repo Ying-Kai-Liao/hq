@@ -357,6 +357,10 @@ async fn phone_pairs_and_chats_over_the_direct_channel() {
     loop {
         let v = phone.inner().await;
         let e = &v["ev"]["entry"];
+        // The agent asks first: no host-side auto-approval any more, so the card is answered.
+        if v["id"] == 3 && e["kind"] == "permission" && e["data"]["status"] == "pending" {
+            host.call("respondPermission", json!({"entryId": e["id"], "optionId": "allow"})).await;
+        }
         if v["id"] == 3 && e["kind"] == "agent" && e["data"]["final"] == true {
             assert!(e["data"]["text"].as_str().unwrap().starts_with("Done"), "{e}");
             break;

@@ -217,7 +217,7 @@ impl Actor {
 
     /// A Codex backup's new session starts in the mode that matches the agent's permission mode, when the adapter lists
     /// it. Left as it is when it doesn't, or when the call fails.
-    async fn set_codex_mode(&mut self, sid: &str, res: &Value, permission: Option<&str>) {
+    pub(super) async fn set_codex_mode(&mut self, sid: &str, res: &Value, permission: Option<&str>) {
         let Some(mode) = permission.and_then(codex_mode) else { return };
         let listed = res["modes"]["availableModes"].as_array();
         if listed.is_some_and(|modes| !modes.iter().any(|m| m["id"] == mode)) {
@@ -232,7 +232,7 @@ impl Actor {
     /// mode its transcript ended in) and ignores the `defaultMode` the launch carries as a setting, so the host asks
     /// for the mode once the session exists. An invited person's launch has already been confined, so this is never
     /// bypass for them. Left as it is when the adapter doesn't offer the mode, or when the call fails.
-    async fn set_claude_mode(&mut self, sid: &str, res: &Value, permission: Option<&str>) {
+    pub(super) async fn set_claude_mode(&mut self, sid: &str, res: &Value, permission: Option<&str>) {
         let Some(mode) = permission.filter(|m| !m.is_empty()) else { return };
         if res["modes"]["currentModeId"] == mode {
             return;
@@ -244,6 +244,21 @@ impl Actor {
         }
         if let Err(error) = self.session_request("session/set_mode", json!({"sessionId": sid, "modeId": mode})).await {
             tracing::warn!(mode, error = format!("{error:#}"), "couldn't set the session's permission mode");
+        }
+    }
+
+    /// A non-hq bot's session starts in the bot's own permission mode, passed to the agent unchanged. Codex has its
+    /// own mode names, so it gets [`codex_mode`]'s translation. Left as it is when the agent doesn't offer the mode.
+    /// A person's bot never starts in bypass, whatever its field says.
+    pub(super) async fn set_bot_mode(&mut self, sid: &str, res: &Value) {
+        let mode = self.cfg.permission.mode_id();
+        if self.cfg.person.is_some() && mode == "bypassPermissions" {
+            return;
+        }
+        if self.cfg.backend == "codex" {
+            self.set_codex_mode(sid, res, Some(mode)).await;
+        } else {
+            self.set_claude_mode(sid, res, Some(mode)).await;
         }
     }
 

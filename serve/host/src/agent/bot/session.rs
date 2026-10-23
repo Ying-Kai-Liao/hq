@@ -271,6 +271,7 @@ impl Actor {
                 conn.loaded.insert(sid.clone(), Instant::now());
                 self.set_session(slot, Some(&sid));
                 self.note_options(&sid, &res, Listing::Session);
+                self.set_bot_mode(&sid, &res).await;
                 context::adopt(&self.hub.store, &self.cfg, &sid, parent.system.clone(), parent.memory.clone())?;
                 memory::opened(&self.hub.store, &self.cfg.id, &sid, &parent.memory)?;
                 if instructions == Instructions::ClaudeMeta {
@@ -326,6 +327,7 @@ impl Actor {
             }
             match res {
                 Ok(res) => {
+                    let loaded = res.clone();
                     // A resumed session can come back on the agent's last-used model (Cursor
                     // keeps one for all its sessions), so the bot's own is set again.
                     let res = if res.get("configOptions").is_some() || res.get("models").is_some() {
@@ -335,6 +337,7 @@ impl Actor {
                     };
                     conn.loaded.insert(sid.clone(), Instant::now());
                     self.note_options(&sid, &res, Listing::Session);
+                    self.set_bot_mode(&sid, &loaded).await;
                     if let Some(s) = snapshot {
                         // Its system prompt now names the bot and holds memory as rendered.
                         context::mark_announced(&self.hub.store, &self.cfg.id, &s, s.system_identity.clone())?;
@@ -370,6 +373,7 @@ impl Actor {
         conn.loaded.insert(sid.clone(), Instant::now());
         let options = select_model(&conn.acp, &res, &sid, &self.cfg).await?;
         self.note_options(&sid, &options, Listing::Session);
+        self.set_bot_mode(&sid, &res).await;
         self.set_session(slot, Some(&sid));
         self.session_fresh = true;
         self.turn_session = Some(sid.clone());

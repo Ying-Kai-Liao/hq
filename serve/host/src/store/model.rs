@@ -4,15 +4,38 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-/// How a bot handles the agent's permission requests (wire values `ask` / `auto`).
+/// The bot's permission mode: one of Claude Code's own, passed to the agent unchanged. Bots saved before the modes
+/// were Claude's own hold `ask` (read as `default`) or `auto`.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
 pub enum Permission {
-    /// Every request becomes an approval card on the phone.
+    #[serde(rename = "default", alias = "ask")]
     Ask,
-    /// Requests are approved once, automatically. New bots start here.
+    #[serde(rename = "acceptEdits")]
+    AcceptEdits,
+    #[serde(rename = "plan")]
+    Plan,
+    /// New bots start here.
     #[default]
+    #[serde(rename = "auto")]
     Auto,
+    #[serde(rename = "dontAsk")]
+    DontAsk,
+    #[serde(rename = "bypassPermissions")]
+    BypassPermissions,
+}
+
+impl Permission {
+    /// The mode id the agent knows it by.
+    pub fn mode_id(self) -> &'static str {
+        match self {
+            Self::Ask => "default",
+            Self::AcceptEdits => "acceptEdits",
+            Self::Plan => "plan",
+            Self::Auto => "auto",
+            Self::DontAsk => "dontAsk",
+            Self::BypassPermissions => "bypassPermissions",
+        }
+    }
 }
 
 /// Transcript entry kinds (the `kind` column / wire field).
@@ -273,7 +296,13 @@ mod tests {
     fn permission_wire_values_round_trip() {
         let p: Permission = serde_json::from_str("\"auto\"").unwrap();
         assert_eq!(p, Permission::Auto);
-        assert_eq!(serde_json::to_string(&Permission::Ask).unwrap(), "\"ask\"");
+        assert_eq!(serde_json::to_string(&Permission::Ask).unwrap(), "\"default\"");
+        assert_eq!(serde_json::from_str::<Permission>("\"ask\"").unwrap(), Permission::Ask, "old bots read as default");
+        for mode in ["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"] {
+            let p: Permission = serde_json::from_str(&format!("\"{mode}\"")).unwrap();
+            assert_eq!(p.mode_id(), mode);
+            assert_eq!(serde_json::to_string(&p).unwrap(), format!("\"{mode}\""));
+        }
         assert!(serde_json::from_str::<Permission>("\"yolo\"").is_err(), "unknown modes are rejected at the boundary");
     }
 
