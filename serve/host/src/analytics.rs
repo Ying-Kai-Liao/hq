@@ -564,13 +564,26 @@ mod tests {
         let missing = std::io::Error::new(std::io::ErrorKind::NotFound, "/Users/me/bin/agent");
         let spawn = Err::<(), _>(missing).context("starting `/Users/me/bin/agent`");
         assert_eq!(code(&spawn.expect_err("failed")), ("not_installed", None));
-        let auth = anyhow::Error::new(RpcError { code: -32000, message: "Authentication required".into(), kind: None });
+        let auth = anyhow::Error::new(RpcError {
+            code: -32000,
+            message: "Authentication required".into(),
+            kind: None,
+            resets_at: None,
+        });
         assert_eq!(code(&auth), ("sign_in", None));
-        let rpc =
-            anyhow::Error::new(RpcError { code: -32603, message: "Internal error: /Users/me".into(), kind: None });
+        let rpc = anyhow::Error::new(RpcError {
+            code: -32603,
+            message: "Internal error: /Users/me".into(),
+            kind: None,
+            resets_at: None,
+        });
         assert_eq!(code(&rpc), ("agent_error", Some(-32603)));
-        let limited =
-            anyhow::Error::new(RpcError { code: -32603, message: "x".into(), kind: Some("rate_limit".into()) });
+        let limited = anyhow::Error::new(RpcError {
+            code: -32603,
+            message: "x".into(),
+            kind: Some("rate_limit".into()),
+            resets_at: None,
+        });
         assert_eq!(failure_kind(&limited).1.and_then(|r| r.kind.as_deref()), Some("rate_limit"));
         assert_eq!(code(&anyhow::anyhow!("something else")), ("other", None));
     }

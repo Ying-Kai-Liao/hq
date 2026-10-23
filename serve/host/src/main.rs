@@ -8,6 +8,7 @@ mod channels;
 mod chat;
 mod compat;
 mod environment;
+mod hqmem;
 mod hub;
 mod kernel;
 mod market;
@@ -22,6 +23,7 @@ mod tui;
 mod update;
 mod usage;
 mod voice;
+mod voice_local;
 mod watchdog;
 
 use agent::backends;
@@ -191,6 +193,11 @@ enum Sub {
     /// Add Kith's own Node.js, for agents that run on it (an agent's setup step).
     #[command(hide = true)]
     Node,
+    /// Check and version the agents' memory files: `check`, `log`, `diff`, `undo`, `forget`.
+    Memory {
+        #[command(subcommand)]
+        cmd: hqmem::Cmd,
+    },
     /// Built-in MCP servers that bots are started with (stdio).
     #[command(hide = true)]
     Mcp {
@@ -483,6 +490,7 @@ async fn main() -> Result<()> {
             );
             Ok(())
         }
+        Sub::Memory { cmd } => std::process::exit(hqmem::run(cmd)?),
         Sub::Node => agent::node::add().await,
         Sub::Npm { args } => std::process::exit(agent::node::npm(&args).await?),
         Sub::Statusline { port, wrapped } => {

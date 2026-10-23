@@ -40,6 +40,8 @@ pub struct RpcError {
     /// The adapter's own category (`data.errorKind`: Claude's `rate_limit`, `overloaded`, …), kept only
     /// when it's an identifier, as it can go to usage analytics.
     pub kind: Option<String>,
+    /// When the adapter says a usage limit lifts (epoch seconds), if it does.
+    pub resets_at: Option<i64>,
 }
 
 /// ACP's "authentication required".
@@ -69,6 +71,29 @@ pub fn needs_sign_in(e: &anyhow::Error) -> bool {
 /// stream ended with one ("The Claude Agent session has ended") until the session is closed.
 pub fn may_end_session(e: &anyhow::Error) -> bool {
     e.chain().filter_map(|c| c.downcast_ref::<RpcError>()).any(|r| r.code == INTERNAL_ERROR && r.kind.is_none())
+}
+
+/// An agent turn that ended because the account's usage ran out, not because of anything in the turn. Found from the
+/// adapter's error category only, never its text; `overloaded` (a busy service) is not depletion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Depleted {
+    /// Epoch seconds the limit lifts, when the adapter said.
+    pub resets_at: Option<i64>,
+}
+
+/// Whether `e` is a usage limit: Claude's `rate_limit`, Codex's `usage_limit_reached` (either spelling of the
+/// identifier, snake or camel case).
+pub fn depleted(e: &anyhow::Error) -> Option<Depleted> {
+    e.chain().filter_map(|c| c.downcast_ref::<RpcError>()).find_map(|r| {
+        let kind = r.kind.as_deref()?.replace('_', "").to_ascii_lowercase();
+        matches!(kind.as_str(), "ratelimit" | "usagelimitreached" | "usagelimitexceeded")
+            .then_some(Depleted { resets_at: r.resets_at })
+    })
+}
+
+/// An epoch given in seconds or milliseconds, in seconds.
+pub fn epoch_secs(t: i64) -> i64 {
+    if t > 100_000_000_000 { t / 1000 } else { t }
 }
 
 /// A way an agent fails that the host itself recognizes, kept as a type so usage
@@ -118,13 +143,20 @@ impl Answer {
                     Some(d) => format!("{msg} ({d})"),
                     None => msg,
                 };
-                let kind = e["data"]["errorKind"]
-                    .as_str()
-                    .filter(|k| {
-                        !k.is_empty() && k.len() <= 40 && k.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+                // Claude's adapter names `errorKind`; Codex's errors carry theirs as `codexErrorInfo` or `code`.
+                let kind = ["errorKind", "codexErrorInfo", "code"]
+                    .iter()
+                    .filter_map(|key| e["data"][key].as_str())
+                    .find(|k| {
+                        !k.is_empty() && k.len() <= 40 && k.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
                     })
                     .map(str::to_owned);
-                Err(RpcError { code: e["code"].as_i64().unwrap_or_default(), message, kind }.into())
+                let resets_at = ["resetsAt", "resets_at"]
+                    .iter()
+                    .find_map(|key| e["data"][key].as_i64())
+                    .filter(|t| *t > 0)
+                    .map(epoch_secs);
+                Err(RpcError { code: e["code"].as_i64().unwrap_or_default(), message, kind, resets_at }.into())
             }
             // The reader drops every waiter when the process goes away.
             Err(_) => Err(Failure::error(FailureKind::Exited, "agent process exited")),
@@ -396,6 +428,34 @@ mod tests {
         assert_eq!(kind(json!({"errorKind": "Usage: /Users/me"})).await, None);
         assert_eq!(kind(json!({"errorKind": ""})).await, None);
         assert_eq!(kind(json!("details")).await, None);
+    }
+
+    #[tokio::test]
+    async fn only_a_usage_limit_is_depletion() {
+        let failed = |data: Value| async move {
+            let (tx, rx) = oneshot::channel();
+            let _ = tx.send(Err(json!({"code": -32603, "message": "Internal error", "data": data})));
+            Answer { rx }.response().await.expect_err("an error answer")
+        };
+        let limited = depleted(&failed(json!({"errorKind": "rate_limit", "resetsAt": 1_790_000_000_000_i64})).await);
+        assert_eq!(limited, Some(Depleted { resets_at: Some(1_790_000_000) }), "milliseconds become seconds");
+        assert_eq!(
+            depleted(&failed(json!({"errorKind": "usage_limit_reached"})).await),
+            Some(Depleted { resets_at: None })
+        );
+        assert!(depleted(&failed(json!({"codexErrorInfo": "usageLimitExceeded"})).await).is_some());
+        assert!(
+            depleted(&failed(json!({"errorKind": "overloaded"})).await).is_none(),
+            "a busy service is not depletion"
+        );
+        // Text alone never decides.
+        let by_text = anyhow::Error::new(RpcError {
+            code: -32603,
+            message: "rate limit reached".into(),
+            kind: None,
+            resets_at: None,
+        });
+        assert!(depleted(&by_text).is_none());
     }
 
     #[cfg(unix)]

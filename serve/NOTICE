@@ -12,3 +12,8 @@ https://github.com/leepokai/Codync/blob/main/TRADEMARK.md and
 https://codync.dev/terms.
 
 Codync 2.11.0 and earlier were released under the MIT License.
+
+Local voice (kith-tts) uses Phonon, Gradium's on-device text to speech: the ptts runtime
+(https://github.com/gradium-ai/xn-ptts, MIT OR Apache-2.0, used under Apache-2.0) and the Phonon 31M English
+model and voices (https://huggingface.co/gradium/phonon-31m-en and /gradium/phonon-voices, Apache-2.0,
+Copyright Gradium). The model files are downloaded on first use and are not part of this repository.

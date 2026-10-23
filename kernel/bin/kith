@@ -37,6 +37,7 @@
 #   kith live start|where|send <agent> ...               agents that run as one live session (session: live) (kith-live)
 #   kith remote add|ls|rm ...  ·  kith ask <agent>@<machine>   agents on your other machines, over ssh (kith-remote)
 #   kith memory search <words> [--agent NAME|--all]      search what the agents wrote down (kith-memory)
+#   kith memory check|log|diff|undo|forget ...           the write checks and versions of memory files (kith-memory)
 #   kith project [ls [--json]|open ID|root|add ID [dir] [--in P] [--home [DIR]]]  projects: what each holds, its folder, its memory
 #   kith schedule [ls|add|rm|run|log|--install ...]      run agent tasks on a cron schedule (kith-sched)
 #   kith acp <agent> [--keep team,…]                     the agent as an ACP agent, one session per chat (kith-acp)
@@ -359,15 +360,32 @@ state_projects="$KITH_STATE/projects"$'\n'"$KITH_STATE_REAL/projects"
 [[ $p_owner == 0 ]] && state_projects=${project:+"$KITH_STATE/projects/$project"$'\n'"$KITH_STATE_REAL/projects/$project"}
 if [[ $harness == claude ]]; then
 plugins=$(claude plugin list --json 2>/dev/null || echo '[]')
+# Memory checks: before a Write/Edit/MultiEdit of a memory file the host's `kith memory hook pre` runs kith-mem's
+# checks and blocks a refused write with the reason; after it, `post` records the version. Files that aren't memory
+# return at once. Without the kith binary (a kernel checkout never built) writes still go through, unchecked.
+mem_pre="" mem_post=""
+if mbin=$(python3 "$KITH/lib/kith_paths.py" --bin) && [[ -n $mbin ]]; then
+  mem_pre=$(printf '%q memory hook pre --agent %q --state %q --agents %q' "$mbin" "$agent" "$KITH_STATE" "$KITH_AGENTS")
+  mem_post=${mem_pre/ hook pre / hook post }
+  # Claude Code blocks a tool call on exit 2, which an older kith binary's usage error also exits with; the hook says
+  # "deny" in JSON instead, and any failure of its own lets the write through.
+  mem_pre+=" || true" mem_post+=" || true"
+else
+  echo "kith: no kith binary found, so memory writes by $agent are not checked or versioned (kith serve start builds it)" >&2
+fi
 [[ $p_owner == 1 ]] && writable="$home/memory"$'\n'"$home_real/memory" \
   || writable=$(printf '%s\n' "$mem" "$(real "$mem")" "$shared" "$(real "$shared")" "$files" "$(real "$files")")
-fill < "$pkg/settings.json" | API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode HOOK="\"$KITH/bin/kith-cost\" tag" WRITABLE="$writable
+fill < "$pkg/settings.json" | API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post HOOK="\"$KITH/bin/kith-cost\" tag" WRITABLE="$writable
 $src_pkg/skills/learned
 $state_projects" python3 -c '
 import json, os, sys
 s = json.load(sys.stdin)
 s.setdefault("hooks", {}).setdefault("SessionStart", []).append(
     {"hooks": [{"type": "command", "command": os.environ["HOOK"], "timeout": 10}]})
+for event, key in (("PreToolUse", "MEM_PRE"), ("PostToolUse", "MEM_POST")):
+    if os.environ[key]:
+        s["hooks"].setdefault(event, []).append(
+            {"matcher": "Write|Edit|MultiEdit", "hooks": [{"type": "command", "command": os.environ[key], "timeout": 10}]})
 sec = os.environ["KITH_SECRETS"]   # a folder of its own, or (the older layout) two files among the machine things
 files = ["%s/**" % sec] if sec != os.environ["KITH_MACHINE"] else ["%s/env" % sec, "%s/auth.json" % sec]
 s.setdefault("permissions", {}).setdefault("deny", []).extend(

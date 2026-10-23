@@ -35,6 +35,10 @@ impl Actor {
     }
 
     pub(super) fn set_session(&mut self, slot: Option<&str>, sid: Option<&str>) {
+        // A session ended for good ends on a backup account too.
+        if sid.is_none() {
+            self.backup_sessions.retain(|(_, s), _| s != slot.unwrap_or_default());
+        }
         let Some(root) = slot else {
             self.session_id = sid.map(str::to_owned);
             let stored = if self.is_main() {

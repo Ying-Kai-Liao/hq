@@ -68,15 +68,30 @@ elif args[:2] == ["memory", "search"]:
     n = int(args[args.index("-n") + 1])
     hit = {"path": "notes.md", "line": 1, "agent": args[args.index("--agent") + 1], "snippet": f"{args[2]} agent={args[args.index('--agent') + 1]}"}
     print(json.dumps({"hits": ([hit] * 3)[:n]}))
+elif args == ["house", "--backups-json"]:
+    # `chain.json` is the chain after the agent's own login; without one the agent has no backups.
+    path = os.path.join(home, "chain.json")
+    chain = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else []
+    primary = {"id": "claude", "harness": "claude", "account": None, "kind": "primary", "ready": True}
+    print(json.dumps({"version": 1, "agent": "house", "chain": [primary] + chain}))
 elif args[:2] == ["house", "--launch-json"]:
     fail = os.path.join(home, "fail")
     if os.path.exists(fail):
         print(open(fail, encoding="utf-8").read(), file=sys.stderr)
         sys.exit(1)
+    backup = args[args.index("--backup") + 1] if "--backup" in args else None
+    # A file named `launch_fail_<entry>` (":" as "_") makes hq refuse that entry, as it does one it can't run.
+    if backup and os.path.exists(os.path.join(home, "launch_fail_" + backup.replace(":", "_"))):
+        print(f"{backup} is not logged in", file=sys.stderr)
+        sys.exit(4)
+    harness = "codex" if backup and backup.split(":")[0] == "codex" else "claude"
+    account = backup.split(":")[1] if backup and ":" in backup else None
     model = args[args.index("-m") + 1] if "-m" in args else "haiku"
     print(json.dumps({
-        "version": 1, "agent": "house", "agent_version": "v1", "harness": "claude", "cwd": home,
-        "env": {"KITH_AGENT": "house", "HQ_AGENT": "house", "KITH_VIA": os.environ.get("KITH_VIA", ""), "HQ_VIA": os.environ.get("KITH_VIA", ""), "KITH_MODEL": model, "HQ_MODEL": model},
+        "version": 1, "agent": "house", "agent_version": "v1", "harness": harness, "cwd": home,
+        "backup": backup, "provider": harness, "account": account,
+        "env": {"KITH_AGENT": "house", "HQ_AGENT": "house", "KITH_VIA": os.environ.get("KITH_VIA", ""), "HQ_VIA": os.environ.get("KITH_VIA", ""), "KITH_MODEL": model, "HQ_MODEL": model,
+                "KITH_PROVIDER": harness, "KITH_ACCOUNT": account or "", "KITH_BACKUP": backup or ""},
         "system_prompt": "You are house, the household keeper.",
         "settings": {"hooks": {"SessionStart": []}},
         "mcp_servers": {"pantry": {"command": "pantry-mcp", "args": [], "env": {}}},

@@ -58,6 +58,10 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
             )
             .await?
         }
+        // On this computer, no key: the vault stays locked for these (see `route`).
+        "voiceLocalStatus" => crate::voice_local::status().await,
+        "voiceLocalPrepare" => crate::voice_local::prepare().await,
+        "voiceLocalSpeak" => crate::voice_local::speak(str_arg(&b, "text")?, b["voice"].as_str()).await?,
         "hello" => {
             let port = hub.port;
             json!({

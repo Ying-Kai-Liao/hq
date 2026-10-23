@@ -1,3 +1,4 @@
+import type { AvatarImage } from './crew'
 import type { BotStatus, UsageProvider } from './models'
 
 // The notch island: a black shape at the top of the screen (in the notch on a
@@ -15,7 +16,8 @@ export interface IslandStep {
 export interface IslandBot {
   ref: string
   name: string
-  shape: string
+  /** The crew or spare face it wears. */
+  image: AvatarImage
   /** Its avatar palette id. */
   color: string
   /** A `BotStatus`, or a newer one this app doesn't know. */
@@ -43,7 +45,7 @@ export interface IslandOption {
 export interface IslandPermission {
   ref: string
   entryId: string
-  bot: Pick<IslandBot, 'name' | 'shape' | 'color' | 'backend'>
+  bot: Pick<IslandBot, 'name' | 'image' | 'color' | 'backend'>
   headline: string
   title: string
   options: IslandOption[]

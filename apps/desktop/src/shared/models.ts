@@ -87,7 +87,7 @@ export function normalizeBot(raw: Partial<Bot> & { id: string }): Bot {
     members: raw.members ?? [],
     name: raw.name ?? 'Bot',
     description: raw.description ?? '',
-    avatarColor: raw.avatarColor ?? 'blue',
+    avatarColor: raw.avatarColor ?? '',
     avatarShape: raw.avatarShape ?? 'blob',
     avatarSource: raw.avatarSource ?? 'auto',
     backend: raw.backend ?? 'custom',

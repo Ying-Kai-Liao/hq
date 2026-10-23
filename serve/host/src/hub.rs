@@ -75,6 +75,8 @@ pub struct Hub {
     me: Weak<Hub>,
     pub phone_clients: AtomicUsize,
     pub usage: Mutex<Usage>,
+    /// Which backup subscriptions are out of usage until when (see `agent::backups`).
+    pub backups: crate::agent::backups::Backups,
     keep_awake: Mutex<service::KeepAwake>,
     /// Generation of the authorized-device table and pairing offers: bumped on every
     /// change so open channels re-check their device (and the ACL is republished).
@@ -132,6 +134,7 @@ impl Hub {
             runtime: Mutex::default(),
             phone_clients: AtomicUsize::new(0),
             usage: Mutex::default(),
+            backups: crate::agent::backups::Backups::new(service::data_dir().join("backups.json")),
             keep_awake: Mutex::default(),
             auth: watch::Sender::new(0),
             pairing: Mutex::default(),
