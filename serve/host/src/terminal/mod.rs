@@ -61,7 +61,15 @@ pub struct Terminal {
 impl Terminal {
     pub fn env(&self) -> Env {
         use crate::LockExt;
-        self.env.locked().clone().unwrap_or_default()
+        #[cfg_attr(not(test), allow(unused_mut))]
+        let mut env = self.env.locked();
+        // A test host never reads or writes this machine's state (turn claims would collide across parallel tests).
+        #[cfg(test)]
+        if env.is_none() {
+            let dir = std::env::temp_dir().join(format!("kith-terminal-env-{}", uuid::Uuid::new_v4()));
+            *env = Some(Env { state: dir.join("state"), sessions: Some(dir.join("sessions")) });
+        }
+        env.clone().unwrap_or_default()
     }
 
     #[cfg(test)]
