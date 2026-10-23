@@ -9,6 +9,7 @@
 #   kith ls [--json]                list agents (--json: name, description, home, model, effort, harness, for programs)
 #   kith who <words>                which agent owns this work: skills, tools, "Not yours" lines searched (kith-who)
 #   kith <agent> [-p ID] [-m MODEL] [-e EFFORT] [-H HARNESS] [--permission-mode MODE|--bypass] [task...]  interactive without a task, one-shot with one
+#   kith <agent> --resume THREAD    pick up in this terminal a thread started in the app, or a Claude session id (kith-sessions)
 #   kith <agent> --print [...]      show the assembled system prompt, don't run
 #   kith <agent> --inspect          start one run and report what it loads (tools, MCP servers, skills, plugins)
 #   kith <agent> --info-json        for a program (the bot detail page): one JSON object, the agent's role, package, skills, tools,
@@ -261,12 +262,13 @@ sys.exit("kith: MCP servers not connected: %s" % bad if bad else 0)'
   exit $?
 fi
 
-print=0 project="" launch=0 hold="" backup="" acct="" backup_cfg_var="" backup_cfg_dir="" backup_api_helper=""
+print=0 project="" launch=0 hold="" resume_thread="" backup="" acct="" backup_cfg_var="" backup_cfg_dir="" backup_api_helper=""
 while [[ $# -gt 0 ]]; do
   case $1 in
     --print)      print=1; shift ;;
     --launch-json) launch=1; shift ;;
     --hold)       hold=$2; shift 2 ;;
+    --resume)     resume_thread=${2:?kith: --resume needs a thread id or a Claude session id}; shift 2 ;;
     --backup)     backup=${2:?kith: --backup needs a chain entry id}; shift 2 ;;
     -p|--project) project=$2; shift 2 ;;
     -m|--model)   KITH_MODEL=$2; shift 2 ;;
@@ -278,6 +280,15 @@ while [[ $# -gt 0 ]]; do
     *)            break ;;
   esac
 done
+# --resume THREAD: pick up in this terminal a session started in the app (or another terminal); the host names it
+# (bin/kith-sessions), and the run starts in the folder it ran in. Only the owner's own claude sessions are listed.
+r_sid="" r_cwd="" r_from=""
+if [[ -n $resume_thread ]]; then
+  [[ $launch -eq 0 && $print -eq 0 ]] || { echo "kith: --resume is for a run in this terminal, not --launch-json or --print" >&2; exit 1; }
+  [[ $p_owner == 1 ]] || { echo "kith: --resume is for the owner's own sessions" >&2; exit 1; }
+  eval "$(python3 "$KITH/bin/kith-sessions" resolve "$agent" "$resume_thread")" || exit 1
+  [[ -z $r_cwd ]] || cd "$r_cwd" || exit 1
+fi
 # A program reads stdout as the JSON alone: whatever a helper prints on the way goes to stderr; fd 3 is the real stdout.
 [[ $print -eq 1 ]] && launch=0
 [[ $launch -eq 1 ]] && exec 3>&1 1>&2
@@ -339,6 +350,13 @@ export KITH_MODEL=${KITH_MODEL:-} KITH_EFFORT=${KITH_EFFORT:-$(field effort)} KI
 # For this run only, like KITH_CLAUDE_ARGS below: a helper this agent starts runs on its own harness, in its own session.
 out_format=${KITH_OUTPUT:-} resume=${KITH_RESUME:-} perm_mode=${KITH_PERMISSION_MODE:-}
 unset KITH_HARNESS KITH_OUTPUT KITH_RESUME KITH_PERMISSION_MODE HQ_HARNESS HQ_OUTPUT HQ_RESUME HQ_PERMISSION_MODE
+# --resume THREAD wins over a caller's KITH_RESUME, and only claude sessions can be taken up.
+if [[ -n $r_sid ]]; then
+  [[ $harness == claude ]] || { echo "kith: --resume continues Claude sessions; $agent runs on $harness" >&2; exit 1; }
+  resume=$r_sid
+fi
+# These two belong to one run (listing a terminal session, and where it was resumed from): a helper this agent starts must not inherit them.
+unset KITH_TERMINAL_SESSION KITH_RESUMED_FROM
 if [[ $launch -eq 1 ]]; then
   case $harness in claude|codex) ;; *) echo "kith: $agent runs on $harness; --launch-json covers claude and codex only for now" >&2; exit $([[ -n $backup ]] && echo 4 || echo 1) ;; esac
   out_format="" resume=""; unset KITH_CLAUDE_ARGS HQ_CLAUDE_ARGS
@@ -407,13 +425,16 @@ else
 fi
 [[ $p_owner == 1 ]] && writable="$home/memory"$'\n'"$home_real/memory" \
   || writable=$(printf '%s\n' "$mem" "$(real "$mem")" "$shared" "$(real "$shared")" "$files" "$(real "$files")")
-fill < "$pkg/settings.json" | API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post HOOK="\"$KITH/bin/kith-cost\" tag" WRITABLE="$writable
+fill < "$pkg/settings.json" | API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post HOOK="\"$KITH/bin/kith-cost\" tag" SESSIONS_HOOK="\"$KITH/bin/kith-sessions\" record" WRITABLE="$writable
 $src_pkg/skills/learned
 $state_projects" python3 -c '
 import json, os, sys
 s = json.load(sys.stdin)
 s.setdefault("hooks", {}).setdefault("SessionStart", []).append(
     {"hooks": [{"type": "command", "command": os.environ["HOOK"], "timeout": 10}]})
+# Lists the session in the apps when it is a listable terminal run (kith-sessions says which); never fails the session.
+s["hooks"]["SessionStart"].append(
+    {"hooks": [{"type": "command", "command": os.environ["SESSIONS_HOOK"], "timeout": 5}]})
 for event, key in (("PreToolUse", "MEM_PRE"), ("PostToolUse", "MEM_POST")):
     if os.environ[key]:
         s["hooks"].setdefault(event, []).append(
@@ -613,4 +634,9 @@ fi
 unset KITH_CLAUDE_ARGS HQ_CLAUDE_ARGS
 if [[ $# -gt 0 ]]; then exec claude "${args[@]}" -p "$*"; fi
 [[ -t 0 && -t 1 ]] || { echo "kith: no terminal for an interactive session; give a task (kith $agent \"...\") or run it in a terminal" >&2; exit 1; }
-exec claude "${args[@]}"
+# An interactive owner run is listed in the apps (the SessionStart hook above) and may be taken over from there, which ends
+# claude: it runs as a child of kith-sessions so the note about getting it back can follow it (signals and the exit code
+# pass through). One-shots above stay exec.
+[[ $p_owner == 1 && $harness == claude ]] && export KITH_TERMINAL_SESSION=1
+[[ -n $r_sid ]] && export KITH_RESUMED_FROM=$r_from
+exec python3 "$KITH/bin/kith-sessions" run "$agent" -- claude "${args[@]}"
