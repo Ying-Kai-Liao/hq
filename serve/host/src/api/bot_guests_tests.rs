@@ -9,7 +9,7 @@ use super::{botguests::BotError, dispatch, roles};
 use crate::remote::botsync::{self, Listed};
 use crate::remote::crypto::{self, b64};
 use crate::remote::members::{self, Listed as Member};
-use crate::store::{BotState, Scope, now_ms};
+use crate::store::{BotState, EntryKind, Lane, Scope, now_ms};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
@@ -375,6 +375,13 @@ async fn limits_and_ownership_hold() {
     // A busy conversation queues; with noQueue it refuses; at five waiting it is busy.
     let busy = call(&r, &other.caller, "botAsk", ask("a", "q1")).await.unwrap();
     let conv = busy["conversation"].as_str().unwrap().to_owned();
+    // The rig has no agent process, so nothing keeps the first turn running; a message waiting in the thread is what
+    // makes the conversation busy, whatever the timing.
+    let cv = r.hub.store.bot_conversation_by_id(&conv).unwrap();
+    let waiting = json!({"text": "waiting", "clientNonce": "w0", "status": "queued", "attachments": []});
+    r.hub
+        .add_entry(&Lane::in_thread(&cv.chat_bot_id, &cv.thread_root), EntryKind::User, 99, &waiting)
+        .expect("a waiting message");
     let e = call(
         &r,
         &other.caller,
@@ -577,9 +584,9 @@ async fn a_bots_stream_carries_only_its_own_words() {
     call(&r, &other.caller, "botAsk", ask("theirs", "s2")).await.unwrap();
     // The agent's thought and tool call are never sent.
     let conv = r.hub.store.bot_conversation_by_id(first["conversation"].as_str().unwrap()).unwrap();
-    let lane = crate::store::Lane::in_thread(&conv.chat_bot_id, &conv.thread_root);
-    r.hub.add_entry(&lane, crate::store::EntryKind::Thought, 1, &json!({"text": "secret thought"}));
-    r.hub.add_entry(&lane, crate::store::EntryKind::Agent, 1, &json!({"text": "answer", "final": true}));
+    let lane = Lane::in_thread(&conv.chat_bot_id, &conv.thread_root);
+    r.hub.add_entry(&lane, EntryKind::Thought, 1, &json!({"text": "secret thought"}));
+    r.hub.add_entry(&lane, EntryKind::Agent, 1, &json!({"text": "answer", "final": true}));
     let stream = super::events_stream(&r.hub, 0, None, &j.caller).unwrap();
     let evs: Vec<Value> =
         Box::pin(stream).take_until(tokio::time::sleep(std::time::Duration::from_millis(300))).collect().await;
