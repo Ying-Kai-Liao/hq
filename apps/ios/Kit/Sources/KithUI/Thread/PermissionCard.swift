@@ -1,11 +1,14 @@
 import KithKit
 import SwiftUI
 
-/// Approval card in Grok Bot's choice-card style: what the agent wants, where
-/// it runs, and the answers as a list of rows.
+/// An approval or a question from the agent, as the redesign's decision card: what it wants, where it runs, and the
+/// answers as buttons in the agent's colour pair. Answering calls `respond` exactly as before; the card disables
+/// every button while an answer is on its way, so a double tap sends once.
 struct PermissionCard: View {
     let entry: Entry
     let hostName: String
+    /// The agent's colour pair (neutral grey for an old colour).
+    var tint: AgentTint = .neutral
     /// The option whose answer is on its way to the computer, if any.
     var answering: String?
     /// Set when the owner has to answer (a guest's chat): "Waiting for <name>" in place of the buttons.
@@ -26,22 +29,34 @@ struct PermissionCard: View {
         }
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text(headline).font(.headline).foregroundStyle(Palette.text)
-                if pending {
-                    Circle().fill(Palette.warning).frame(width: 7, height: 7)
-                }
-            }
-            Text(d.title ?? "")
-                .font(.subheadline.monospaced())
-                .foregroundStyle(Palette.secondary)
-                .lineLimit(expanded ? nil : 3)
-            Label("Runs on \(hostName)\(d.cwd.map { " · \(($0 as NSString).lastPathComponent)" } ?? "")", systemImage: "desktopcomputer")
-                .font(.caption)
-                .foregroundStyle(Palette.tertiary)
+    private var place: String {
+        "Runs on \(hostName)\(d.cwd.map { " · \(($0 as NSString).lastPathComponent)" } ?? "")"
+    }
 
+    /// The card's values; the option ids are the host's.
+    var cardModel: DecisionCardModel {
+        DecisionCardModel(heading: place, question: headline, detail: d.title, options: ordered.map { o in
+            DecisionOption(id: o.optionId, title: label(o), role: o.kind == "allow_once" ? .primary : o.kind.hasPrefix("allow") ? .normal : .destructive)
+        })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if pending, waiting == nil {
+                DecisionCard(cardModel, tint: tint, answering: answering) { respond($0) }
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(place).kithText(.label).foregroundStyle(Palette.muted)
+                    Text(headline).kithText(.body).fontWeight(.semibold).foregroundStyle(Palette.ink)
+                    if let title = d.title, !title.isEmpty {
+                        Text(title).kithText(.code).foregroundStyle(Palette.muted).lineLimit(expanded ? nil : 3)
+                    }
+                    Text(waiting ?? outcome).kithText(.secondary).fontWeight(.medium).foregroundStyle(Palette.muted)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+                .background(Palette.panel, in: RoundedRectangle(cornerRadius: KithRadius.card, style: .continuous))
+            }
             if hasDetail {
                 Disclosure(isExpanded: $expanded) {
                     VStack(alignment: .leading, spacing: 8) {
@@ -55,24 +70,11 @@ struct PermissionCard: View {
                     }
                     .padding(.top, 6)
                 } label: {
-                    Text("Details").font(.caption.weight(.medium)).foregroundStyle(Palette.secondary)
+                    Text("Details").kithText(.secondary).fontWeight(.medium).foregroundStyle(Palette.muted)
                 }
-            }
-
-            if let waiting {
-                Text(waiting)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(Palette.secondary)
-            } else if pending {
-                buttons
-            } else {
-                Text(outcome)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(Palette.secondary)
+                .padding(.horizontal, 4)
             }
         }
-        .padding(16)
-        .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .padding(.trailing, 40)
     }
 
@@ -94,32 +96,6 @@ struct PermissionCard: View {
         case "reject_always": "Never"
         default: o.name
         }
-    }
-
-    private var buttons: some View {
-        let options = ordered
-        return VStack(spacing: 0) {
-            ForEach(Array(options.enumerated()), id: \.element.id) { i, o in
-                if i > 0 { Rectangle().fill(Palette.border).frame(height: 0.5) }
-                Button { respond(o.optionId) } label: {
-                    HStack(spacing: 8) {
-                        Text(label(o))
-                            .font(.body.weight(o.kind == "allow_once" ? .semibold : .regular))
-                            .foregroundStyle(o.kind.hasPrefix("allow") ? Palette.text : Palette.danger)
-                        Spacer(minLength: 0)
-                        if answering == o.optionId { Spinner(size: 14) }
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
-                    .padding(.horizontal, 14)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(answering != nil)
-                .opacity(answering == nil || answering == o.optionId ? 1 : 0.4)
-            }
-        }
-        .background(Palette.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .padding(.top, 4)
     }
 
     private var outcome: String {

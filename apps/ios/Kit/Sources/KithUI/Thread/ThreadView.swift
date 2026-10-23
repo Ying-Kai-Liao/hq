@@ -37,7 +37,6 @@ public struct ThreadView: View {
     /// composer, without the platform's top chrome.
     private var chat: some View {
         transcript
-        .background(Palette.background)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 6) {
                 if let mismatch = model.mismatch {
@@ -47,7 +46,8 @@ public struct ThreadView: View {
                         .padding(.bottom, 8)
                         .transition(.opacity)
                 } else {
-                    Composer(botId: botId, onCall: callBlock == nil ? { startCall() } : nil)
+                    // The phone is in the top bar, so the dock has no call button.
+                    Composer(botId: botId)
                 }
             }
             .animation(Motion.reduced(Motion.layout, reduceMotion), value: model.mismatch)
@@ -146,35 +146,16 @@ public struct ThreadView: View {
 
     // MARK: chrome
 
-    var connectionSubtitle: some View {
-        HStack(spacing: 6) {
-            Group {
-                if model.shownConnection == .connecting {
-                    Spinner(size: 8)
-                } else {
-                    Image(systemName: connectionSymbol).font(.system(size: 8, weight: .medium))
-                }
-            }
-            .frame(width: 12)
-            .accessibilityHidden(true)
-            Text(model.connectionLabel)
-                .lineLimit(1)
-                .truncationMode(.middle)
+    /// The old connection subtitle as a chip under the name; nil while Live (nothing to say).
+    var connectionChip: StatusChip.Kind? {
+        switch model.shownConnection {
+        case .connecting: return .catchingUp
+        case .computerOffline, .offline: return .macUnreachable
+        case .unauthorized: return .machineTrouble("No access")
+        case .unpaired: return .machineTrouble("Not paired")
+        case .online: break
         }
-        .font(.system(size: 10, weight: .medium))
-        .foregroundStyle(Palette.secondary)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(model.hostName), \(connectionDescription)")
-        .help("\(model.hostName) · \(connectionDescription)")
-    }
-
-    private var connectionSymbol: String {
-        guard model.connection == .online else { return "wifi.slash" }
-        switch model.hostRoute {
-        case .relay: return "cloud"
-        case .direct: return "wifi"
-        case nil: return "network"
-        }
+        return model.mismatch != nil ? .machineTrouble("Needs update") : nil
     }
 
     private var connectionDescription: String {
@@ -190,20 +171,6 @@ public struct ThreadView: View {
         case .relay: return "Connected through Cloudflare"
         case .direct: return "Connected over Wi-Fi or Tailscale"
         case nil: return "Connected"
-        }
-    }
-
-    var title: some View {
-        HStack(spacing: 7) {
-            if let bot {
-                let size: CGFloat = 22
-                if bot.isGroup { GroupAvatar(members: model.members(of: bot), size: size) } else { CharacterAvatar(bot: bot, size: size) }
-            }
-            Text(bot?.name ?? "")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Palette.text)
-                .lineLimit(1)
-                .truncationMode(.tail)
         }
     }
 
@@ -301,23 +268,23 @@ struct GroupIntroCard: View {
     var body: some View {
         VStack(spacing: 12) {
             GroupAvatar(members: model.members(of: group), size: 72)
-            Text(group.name).font(.title2.weight(.semibold)).foregroundStyle(Palette.text)
+            Text(group.name).kithText(.topBar).foregroundStyle(Palette.ink)
             let names = model.members(of: group).map(\.name)
             if group.name != names.joined(separator: ", ") {
                 Text(names.joined(separator: " · "))
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.secondary)
+                    .kithText(.secondary)
+                    .foregroundStyle(Palette.muted)
                     .multilineTextAlignment(.center)
             }
             if !group.description.isEmpty {
                 Text(group.description)
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.secondary)
+                    .kithText(.secondary)
+                    .foregroundStyle(Palette.muted)
                     .multilineTextAlignment(.center)
             }
             Text("Everyone answers in turn. @mention a bot to ask just that one.")
-                .font(.subheadline)
-                .foregroundStyle(Palette.secondary)
+                .kithText(.secondary)
+                .foregroundStyle(Palette.muted)
                 .multilineTextAlignment(.center)
                 .padding(.top, 4)
         }
@@ -332,21 +299,21 @@ struct IntroCard: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            CharacterAvatar(bot: bot, size: 72)
-            Text(bot.name).font(.title2.weight(.semibold)).foregroundStyle(Palette.text)
+            BotAvatar(bot: bot, size: 72)
+            Text(bot.name).kithText(.agentName).foregroundStyle(Palette.ink)
             Text(bot.managedWorkspace ? "\(model.backendName(bot.backend)) · Personal workspace" : "\(model.backendName(bot.backend)) in \(bot.cwd)")
-                .font(.subheadline)
-                .foregroundStyle(Palette.secondary)
+                .kithText(.secondary)
+                .foregroundStyle(Palette.muted)
                 .multilineTextAlignment(.center)
             if !bot.description.isEmpty {
                 Text(bot.description)
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.secondary)
+                    .kithText(.secondary)
+                    .foregroundStyle(Palette.muted)
                     .multilineTextAlignment(.center)
             }
             Text("Tell it what you need. You'll get a notification when it's done or needs you.")
-                .font(.subheadline)
-                .foregroundStyle(Palette.secondary)
+                .kithText(.secondary)
+                .foregroundStyle(Palette.muted)
                 .multilineTextAlignment(.center)
                 .padding(.top, 4)
         }
@@ -416,74 +383,105 @@ extension ThreadView {
         }
     }
 
-    /// The system navigation bar: the title pill holds the bot's actions; the corner is the computer.
+    /// The sky strip and top bar replace the system navigation bar; the folder chip sits under it.
     func chrome(_ content: some View) -> some View {
         content
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar(.visible, for: .navigationBar)
-            // The folder chip gets its own row under the bar: stacked into the title it left the name
-            // and the status a sliver of height and the path no width.
+            .hidesSystemNavigationBar()
+            .background { Palette.background.ignoresSafeArea() }
             .safeAreaInset(edge: .top, spacing: 0) {
-                if bot?.isGroup != true, model.placeFolder(botId, thread: nil) != nil {
-                    PlaceFolderChip(botId: botId)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 4)
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: 1) {
-                        header
-                        connectionSubtitle
+                VStack(spacing: 4) {
+                    topBar
+                    if bot?.isGroup != true, model.placeFolder(botId, thread: nil) != nil {
+                        PlaceFolderChip(botId: botId)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, KithSpacing.gutter)
                     }
-                    .layoutPriority(1)
                 }
-                ToolbarItem(placement: .topBarTrailing) { callButton }
-                if model.screen != nil {
-                    ToolbarItem(placement: .topBarTrailing) { computerButton }
+                .padding(.bottom, 4)
+                .background(alignment: .top) {
+                    // Rows scroll under the bar: the sky is opaque for its first ~95 pt, then fades into the ground.
+                    SkyBackground(.header)
                 }
             }
     }
 
-    var header: some View {
-        // Like Grok Bot: the title pill holds the bot's actions; the corner is the computer.
-        Menu {
-            Text("\(model.hostName) · \(model.connectionLabel)")
-            Button("Reconnect", systemImage: "arrow.clockwise") { model.restartStream() }
-            Divider()
-            Button("Details", systemImage: "info.circle", action: openDetails)
-            ForEach(menuItems) { item in
-                if item.divider { Divider() }
-                Button(role: item.destructive ? .destructive : nil, action: item.action) {
-                    if let icon = item.icon { Label(item.title, systemImage: icon) } else { Text(item.title) }
+    /// Back, the bot's picture and name (they open the agent sheet), the phone and the ••• menu. Under the name: a
+    /// chip when the computer isn't Live, or "using the computer" while the agent has the screen.
+    private var topBar: some View {
+        HStack(spacing: 8) {
+            TopGlassButton("Back", systemImage: "chevron.left") { dismiss() }
+            Button(action: openDetails) {
+                HStack(spacing: 10) {
+                    if let bot {
+                        if bot.isGroup {
+                            GroupAvatar(members: model.members(of: bot), size: KithSize.botAvatarTopBar)
+                        } else {
+                            BotAvatar(bot: bot, size: KithSize.botAvatarTopBar)
+                        }
+                    }
+                    Text(bot?.name ?? "")
+                        .kithText(bot?.isGroup == true ? .topBar : .agentName)
+                        .foregroundStyle(Palette.ink)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
             }
-        } label: {
-            title
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(bot?.name ?? "Conversation"), details")
+            .layoutPriority(1)
+            statusLine
+            Spacer(minLength: 4)
+            TopGlassButton("Call", systemImage: "phone.fill", action: startCall)
+                .disabled(callBlock != nil || calling)
+                .opacity(callBlock != nil ? 0.4 : 1)
+                .accessibilityHint(callBlock ?? "")
+            TopGlassMenu("\(bot?.name ?? "Conversation") actions", systemImage: "ellipsis") { menuContent }
         }
-        .accessibilityLabel("\(bot?.name ?? "Conversation") actions")
+        .padding(.horizontal, KithSpacing.gutter)
+        .padding(.top, 4)
+    }
+
+    /// Whether this bot is operating the computer's screen right now.
+    private var usingComputer: Bool { model.screen?.agentBot == botId }
+
+    @ViewBuilder private var statusLine: some View {
+        if usingComputer {
+            Button { model.screenRequest = ScreenRequest(watching: botId) } label: {
+                Label("using the computer", systemImage: "display")
+                    .kithText(.secondary).foregroundStyle(Palette.muted)
+                    .symbolEffect(.pulse, options: .repeating)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Shows the computer's screen")
+        } else if let kind = connectionChip {
+            StatusChip(kind)
+                .help("\(model.hostName) · \(connectionDescription)")
+        }
+    }
+
+    @ViewBuilder private var menuContent: some View {
+        Text("\(model.hostName) · \(model.connectionLabel)")
+        Button("Reconnect", systemImage: "arrow.clockwise") { model.restartStream() }
+        if model.screen != nil {
+            Button("Show the computer", systemImage: "display") {
+                model.screenRequest = usingComputer ? ScreenRequest(watching: botId) : ScreenRequest()
+            }
+        }
+        Divider()
+        Button("Details", systemImage: "info.circle", action: openDetails)
+        ForEach(menuItems) { item in
+            if item.divider { Divider() }
+            Button(role: item.destructive ? .destructive : nil, action: item.action) {
+                if let icon = item.icon { Label(item.title, systemImage: icon) } else { Text(item.title) }
+            }
+        }
     }
 
     private func openDetails() {
         if bot?.isGroup == true { editingGroup = true } else { details = DetailsRequest() }
-    }
-
-    /// Starts a voice call; disabled, with the reason as its hint, when none can start.
-    private var callButton: some View {
-        Button("Call", systemImage: "phone.fill", action: startCall)
-            .disabled(callBlock != nil || calling)
-            .accessibilityHint(callBlock ?? "")
-            .help(callBlock ?? "Call \(bot?.name ?? "")")
-    }
-
-    /// Opens the computer's screen; pulses while this bot is operating it (watch, then take over).
-    private var computerButton: some View {
-        let operating = model.screen?.agentBot == botId
-        return Button("Computer", systemImage: "desktopcomputer") {
-            model.screenRequest = operating ? ScreenRequest(watching: botId) : ScreenRequest()
-        }
-        .symbolEffect(.pulse, options: .repeating, isActive: operating)
     }
 
     func openSettings() {

@@ -23,13 +23,12 @@ struct Composer: View {
     @State private var files: [OutgoingFile] = []
     @State private var pickingFiles = false
     @State private var pickingPhotos = false
+    @State private var pickingCamera = false
     @State private var photoItems: [PhotosPickerItem] = []
     @FocusState private var focused: Bool
     @State private var dictation = Dictation()
     /// The box when dictation started; the words heard go after it.
     @State private var dictatedAfter = ""
-    /// One line of the field's text, following Dynamic Type: the send button centers on the last line.
-    @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
 
     /// The next message starts a task of its own.
     @State private var newTask = false
@@ -58,7 +57,7 @@ struct Composer: View {
         if thread != nil { return "Reply…" }
         if bot?.isGroup == true { return "Message everyone · @ to ask one bot" }
         if newTask { return "New task for \(name)" }
-        return working ? "Queue a message for \(name)" : "Ask \(name)"
+        return working ? "Queue a message for \(name)" : "Tell \(name)…"
     }
 
     /// The `@partial` being typed at the end, if any.
@@ -105,36 +104,28 @@ struct Composer: View {
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            field
+            dock
         }
         .animation(Motion.layout, value: suggestions.map(\.id))
         .animation(Motion.layout, value: commands.map(\.id))
     }
 
-    private var fieldPadding: CGFloat { 10 }
-    private var buttonSize: CGFloat { 34 }
-    private var boxPadding: CGFloat { 6 }
-    /// The one-line field's height; the + circle matches it.
-    private var fieldHeight: CGFloat { max(textLineHeight + 2 * fieldPadding, buttonSize) + 2 * boxPadding }
-    private var textLineHeight: CGFloat {
-        lineHeight
-    }
-
-    private var field: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            if canAttach { addButton }
-            VStack(alignment: .leading, spacing: 0) {
-                if newTask {
-                    newTaskChip.transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                if !files.isEmpty {
-                    fileChips.transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                box
-            }
-            .glass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            // Lines, not the text: an animated transaction on every keystroke breaks IME composition.
-            .animation(Motion.layout, value: draft.count(where: \.isNewline))
+    /// The chat box: the redesign's `ChatDock`, with this composer's features in its slots and bindings.
+    private var dock: some View {
+        ChatDock(text: $draft, placeholder: placeholder, showsCall: onCall != nil, hasAttachment: !files.isEmpty,
+                 onSend: submit, onMic: toggleDictation,
+                 onCall: {
+                     // The call takes the microphone.
+                     dictation.stop()
+                     onCall?()
+                 },
+                 onPhotos: { pickingPhotos = true },
+                 onCamera: {
+                     if ChatCameraPicker.isAvailable { pickingCamera = true } else { model.lastError = "This device has no camera." }
+                 },
+                 onFiles: { pickingFiles = true },
+                 extraActions: extraActions, micListening: dictation.listening) {
+            accessory
         }
         .animation(Motion.layout, value: files.map(\.id))
         .animation(Motion.layout, value: newTask)
@@ -146,118 +137,17 @@ struct Composer: View {
         .fileImporter(isPresented: $pickingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { add(urls) }
         }
-            .photosPicker(isPresented: $pickingPhotos, selection: $photoItems, maxSelectionCount: 10, matching: .images)
-            .onChange(of: photoItems) { _, items in
-                guard !items.isEmpty else { return }
-                photoItems = []
-                Task { await addPhotos(items) }
-            }
-        .padding(.horizontal, 16)
+        .photosPicker(isPresented: $pickingPhotos, selection: $photoItems, maxSelectionCount: 10, matching: .images)
+        .onChange(of: photoItems) { _, items in
+            guard !items.isEmpty else { return }
+            photoItems = []
+            Task { await addPhotos(items) }
+        }
+        .fullScreenCover(isPresented: $pickingCamera) {
+            ChatCameraPicker { data in append(HomeAttachments.photos([data])) }.ignoresSafeArea()
+        }
         .padding(.top, 6)
-        .padding(.bottom, 16)
-    }
-
-    private enum Trailing: Equatable {
-        case interrupt, stop, call, send
-    }
-
-    private var trailing: Trailing {
-        if onInterrupt != nil, draft.isEmpty, files.isEmpty { return .interrupt }
-        if working, draft.isEmpty, files.isEmpty { return .stop }
-        if onCall != nil, draft.isEmpty, files.isEmpty { return .call }
-        return .send
-    }
-
-    /// One button that morphs between call, send, stop and interrupt: its symbol replaces itself,
-    /// its fill crossfades and the capsule narrows to a circle, so switching never pops.
-    private var trailingButton: some View {
-        let state = trailing
-        let enabled = state != .send || canSend
-        let (symbol, label, size): (String, String, CGFloat) = switch state {
-        case .interrupt: ("stop.fill", "Interrupt", 12)
-        case .stop: ("stop.fill", "Stop", 12)
-        case .call: ("waveform", "Call", 15)
-        case .send: ("arrow.up", "Send", 14)
-        }
-        let fill: Color = switch state {
-        case .interrupt: Palette.danger
-        case .send: canSend ? Palette.accentFill : Palette.accentDim
-        case .stop, .call: Palette.accentFill
-        }
-        let ink: Color = switch state {
-        case .interrupt: .white
-        case .send: canSend ? Palette.onAccent : Palette.tertiary
-        case .stop, .call: Palette.onAccent
-        }
-        return Button {
-            switch state {
-            case .interrupt: onInterrupt?()
-            case .stop: model.stop(botId, thread: place)
-            case .call:
-                // The call takes the microphone.
-                dictation.stop()
-                onCall?()
-            case .send: submit()
-            }
-        } label: {
-            Image(systemName: symbol)
-                .font(.system(size: size, weight: .bold))
-                .contentTransition(.symbolEffect(.replace))
-                .foregroundStyle(ink)
-                .frame(width: state == .call ? buttonSize * 1.35 : buttonSize, height: buttonSize)
-                .background(fill, in: Capsule())
-                .contentShape(Capsule())
-        }
-        .buttonStyle(PressScale())
-        .disabled(!enabled)
-        .accessibilityLabel(label)
-        .help(label)
-        .animation(Motion.reduced(Motion.morph, reduceMotion), value: state)
-        .animation(Motion.reduced(Motion.morph, reduceMotion), value: canSend)
-    }
-
-    /// Dictation, beside send / call (Grok Bot's): a light circle; red while it listens.
-    private var micButton: some View {
-        let on = dictation.listening
-        return Button {
-            if on {
-                dictation.stop()
-            } else {
-                dictatedAfter = draft
-                Task { await dictation.start { said in draft = Dictation.join(dictatedAfter, said) } }
-            }
-        } label: {
-            Image(systemName: on ? "mic.fill" : "mic")
-                .font(.system(size: 15, weight: .medium))
-                .contentTransition(.symbolEffect(.replace))
-                .foregroundStyle(on ? .white : Palette.secondary)
-                .frame(width: buttonSize, height: buttonSize)
-                .background(on ? Palette.danger : Palette.bubbleAgent, in: Circle())
-                .contentShape(Circle())
-        }
-        .buttonStyle(PressScale())
-        .accessibilityLabel(on ? "Stop dictating" : "Dictate")
-        .help(on ? "Stop dictating" : "Dictate")
-        .animation(Motion.reduced(Motion.morph, reduceMotion), value: on)
-    }
-
-    private var box: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField(placeholder, text: $draft, axis: .vertical)
-                .lineLimit(1...8)
-                .font(.body)
-                .textFieldStyle(.plain)
-                .focused($focused)
-                .padding(.vertical, fieldPadding)
-            micButton
-                .padding(.bottom, max(0, (textLineHeight + 2 * fieldPadding - buttonSize) / 2))
-            trailingButton
-                .padding(.bottom, max(0, (textLineHeight + 2 * fieldPadding - buttonSize) / 2))
-                .animation(Motion.layout, value: isEmpty)
-        }
-        .padding(.leading, 18)
-        .padding(.trailing, 6)
-        .padding(.vertical, boxPadding)
+        .padding(.bottom, 8)
         .onChange(of: [botId, thread], initial: true) {
             dictation.stop()
             draft = model.composerDraft(for: botId, thread: thread)
@@ -276,37 +166,78 @@ struct Composer: View {
         }
     }
 
-    /// Photos, files or the clipboard, from a system menu; dropping files on the box works too. In a bot's chat it
-    /// also starts a new task.
-    @ViewBuilder private var addButton: some View {
-            DropdownMenu {
-                var items = [MenuItem("Photos", icon: "photo.on.rectangle") { pickingPhotos = true },
-                             MenuItem("Files", icon: "folder") { pickingFiles = true }]
-                if UIPasteboard.general.hasImages || UIPasteboard.general.hasURLs {
-                    items.append(MenuItem("Paste", icon: "doc.on.clipboard") { pasteFiles() })
-                }
-                if tasks && !newTask {
-                    items.append(MenuItem("New task", icon: "square.and.pencil") {
-                        newTask = true
-                        focused = true
-                    })
-                }
-                return items
-            } label: { addLabel }
-                .accessibilityLabel("Add files")
+    /// Paste and New task join Photos / Camera / Files in the + menu.
+    private var extraActions: [ChatDockAction] {
+        guard canAttach else { return [] }
+        var items: [ChatDockAction] = []
+        if UIPasteboard.general.hasImages || UIPasteboard.general.hasURLs {
+            items.append(ChatDockAction("Paste", systemImage: "doc.on.clipboard") { pasteFiles() })
+        }
+        if tasks && !newTask {
+            items.append(ChatDockAction("New task", systemImage: "square.and.pencil") {
+                newTask = true
+                focused = true
+            })
+        }
+        return items
+    }
+
+    /// Above the field, inside the dock: the new-task chip, the files going out, and Stop / Interrupt / Stop dictating.
+    private var accessory: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if newTask {
+                newTaskChip.transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            if !files.isEmpty {
+                fileChips.transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            if onInterrupt != nil, draft.isEmpty, files.isEmpty {
+                pill("Interrupt", symbol: "stop.fill", tint: Palette.negative) { onInterrupt?() }
+            } else if working, draft.isEmpty, files.isEmpty {
+                pill("Stop", symbol: "stop.fill", tint: Palette.ink) { model.stop(botId, thread: place) }
+            }
+            if dictation.listening {
+                pill("Stop dictating", symbol: "mic.fill", tint: Palette.negative) { dictation.stop() }
+            }
+        }
+    }
+
+    private func pill(_ title: String, symbol: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .kithText(.secondary).fontWeight(.semibold)
+                .foregroundStyle(tint)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 36)
+                .background(tint.opacity(0.1), in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+        .accessibilityLabel(title)
+    }
+
+    private func toggleDictation() {
+        if dictation.listening {
+            dictation.stop()
+        } else {
+            dictatedAfter = draft
+            Task { await dictation.start { said in draft = Dictation.join(dictatedAfter, said) } }
+        }
     }
 
     /// Over the box while the next message starts a new task; its x goes back to the current one.
     private var newTaskChip: some View {
         HStack(spacing: 6) {
-            Image(systemName: "square.and.pencil").font(.caption).foregroundStyle(Palette.accent)
-            Text("New task").font(.subheadline).foregroundStyle(Palette.text)
+            Image(systemName: "square.and.pencil").font(.caption).foregroundStyle(Palette.ink)
+            Text("New task").kithText(.secondary).foregroundStyle(Palette.ink)
             Button { pickingFolder = true } label: {
                 HStack(spacing: 3) {
                     Image(systemName: startFolder == nil ? "folder" : "folder.fill").font(.caption2)
-                    Text(startFolderName).font(.caption).lineLimit(1)
+                    Text(startFolderName).kithText(.secondary).lineLimit(1)
                 }
-                .foregroundStyle(startFolder == nil ? Palette.tertiary : Palette.accent)
+                .foregroundStyle(startFolder == nil ? Palette.muted : Palette.ink)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Starting folder: \(startFolderName)")
@@ -315,7 +246,7 @@ struct Composer: View {
         .kithSheet(isPresented: $pickingFolder) {
             PlaceFolderPicker(current: nil, offersDefault: startFolder != nil) { startFolder = $0 }
         }
-        .padding(.leading, 18)
+        .padding(.leading, 14)
         .padding(.top, 8)
     }
 
@@ -325,15 +256,6 @@ struct Composer: View {
         case .folder(let path): (path as NSString).lastPathComponent
         case nil: "Default folder"
         }
-    }
-
-    private var addLabel: some View {
-        Image(systemName: "plus")
-            .font(.system(size: 18, weight: .medium))
-            .foregroundStyle(Palette.text)
-            .frame(width: fieldHeight, height: fieldHeight)
-            .glass(in: Circle())
-            .contentShape(Circle())
     }
 
     private var fileChips: some View {
@@ -431,11 +353,11 @@ private struct SuggestionChip<Icon: View>: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 icon
-                Text(title).font(.subheadline).foregroundStyle(Palette.text)
+                Text(title).kithText(.secondary).foregroundStyle(Palette.ink)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(Palette.surface, in: Capsule())
+            .background(Palette.panel, in: Capsule())
         }
         .buttonStyle(PressScale())
     }

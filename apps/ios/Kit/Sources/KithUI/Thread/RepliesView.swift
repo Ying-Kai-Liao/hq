@@ -20,8 +20,8 @@ struct RepliesView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("Thread").font(.body.weight(.semibold)).foregroundStyle(Palette.text)
-                    Text(chat?.name ?? "").font(.caption).foregroundStyle(Palette.tertiary).lineLimit(1)
+                    Text("Thread").kithText(.topBar).foregroundStyle(Palette.ink)
+                    Text(chat?.name ?? "").kithText(.secondary).foregroundStyle(Palette.muted).lineLimit(1)
                     PlaceFolderChip(botId: botId, thread: rootId)
                 }
                 Spacer(minLength: 8)
@@ -71,7 +71,6 @@ extension RepliesView {
     var messages: some View {
         let replies = model.replies(botId, root: rootId)
         let working = chat?.isWorking(in: botId, thread: rootId) == true && !model.isOffline
-        let items = ChatItem.build(replies)
         var rows: [ConversationRow] = []
         if let root {
             // The host's count, as on the thread's chip: messages, not the agent's trace.
@@ -83,19 +82,30 @@ extension RepliesView {
             rows.append(ConversationRow("count") {
                 HStack(spacing: 10) {
                     Text(count == 0 ? "No replies yet" : count == 1 ? "1 reply" : "\(count) replies")
-                        .font(.caption)
-                        .foregroundStyle(Palette.tertiary)
+                        .kithText(.secondary)
+                        .foregroundStyle(Palette.muted)
                         .fixedSize()
                     Rectangle().fill(Palette.border).frame(height: 1)
                 }
                 .padding(.vertical, 12)
             })
         }
-        for item in items {
-            if case let .entry(e, groupStart) = item.kind {
-                rows.append(ConversationRow(item.id, isUserMessage: item.isUserMessage) {
+        for reply in ThreadFeed.replies(replies) {
+            switch reply {
+            case .entry(let e, let groupStart):
+                rows.append(ConversationRow(reply.id, isUserMessage: e.kind == "user") {
                     ChatRow(entry: e, groupStart: groupStart, chat: chat) { showTrace = true }
                         .equatable()
+                })
+            case .tool(let e):
+                rows.append(ConversationRow(reply.id) { ToolCallRow(ThreadFeed.toolRow(e)).padding(.top, 4) })
+            case .earlier(let count, _):
+                rows.append(ConversationRow(reply.id) {
+                    Button { showTrace = true } label: {
+                        Text(count == 1 ? "1 earlier step" : "\(count) earlier steps")
+                            .kithText(.secondary).foregroundStyle(Palette.muted).frame(minHeight: 32, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
                 })
             }
         }

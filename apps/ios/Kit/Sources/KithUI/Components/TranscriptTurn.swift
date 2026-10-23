@@ -75,7 +75,7 @@ public struct TranscriptTurn<Replies: View>: View {
         VStack(alignment: speaker == .you ? .trailing : .leading, spacing: 6) {
             bubble
             if let thread, speaker == .you {
-                chip(thread)
+                ThreadChipView(thread, isOpen: isOpen, onToggle: onToggle, onOpenThread: onOpenThread)
                 if isOpen {
                     HStack(alignment: .top, spacing: 10) {
                         RoundedRectangle(cornerRadius: 1).fill(thread.tint.a).frame(width: 2)
@@ -100,8 +100,24 @@ public struct TranscriptTurn<Replies: View>: View {
             .frame(maxWidth: .infinity, alignment: speaker == .you ? .trailing : .leading)
             .padding(speaker == .you ? .leading : .trailing, 56)
     }
+}
 
-    private func chip(_ t: ThreadChipModel) -> some View {
+/// The thread chip on its own: place in grey, then the pill (bot, "N replies", "1 new", time) and the chevron.
+/// `TranscriptTurn` draws it under your bubble; the chat screen draws it under bubbles it renders itself.
+public struct ThreadChipView: View {
+    let t: ThreadChipModel
+    let isOpen: Bool
+    let onToggle: () -> Void
+    let onOpenThread: () -> Void
+
+    public init(_ model: ThreadChipModel, isOpen: Bool = false, onToggle: @escaping () -> Void = {}, onOpenThread: @escaping () -> Void = {}) {
+        t = model
+        self.isOpen = isOpen
+        self.onToggle = onToggle
+        self.onOpenThread = onOpenThread
+    }
+
+    public var body: some View {
         HStack(spacing: 8) {
             if let place = t.place {
                 Label { Text(place.text).lineLimit(1) } icon: { Image(systemName: place.symbol) }

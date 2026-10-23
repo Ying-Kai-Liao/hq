@@ -71,7 +71,8 @@ private struct TraceRow: View {
                 }.font(.subheadline).foregroundStyle(Palette.secondary)
             }
         case "tool":
-            ToolRow(data: d)
+            // One line, tap for the command and output: no terminal view.
+            ToolCallRow(ThreadFeed.toolRow(entry))
         case "plan":
             VStack(alignment: .leading, spacing: 6) {
                 Label("Plan", systemImage: "checklist").font(.subheadline.bold())
@@ -92,64 +93,5 @@ private struct TraceRow: View {
         default:
             Text(d.text ?? "").font(.footnote).foregroundStyle(Palette.tertiary)
         }
-    }
-}
-
-struct ToolRow: View {
-    let data: EntryData
-    @State private var expanded = false
-
-    private var icon: String {
-        switch data.toolKind {
-        case "read": "doc.text"
-        case "edit": "pencil"
-        case "delete": "trash"
-        case "move": "arrow.right.doc.on.clipboard"
-        case "search": "magnifyingglass"
-        case "execute": "terminal"
-        case "think": "brain"
-        case "fetch": "globe"
-        default: "wrench.and.screwdriver"
-        }
-    }
-
-    private var orb: ThinkingOrb.State {
-        switch data.toolKind {
-        case "search": .searching
-        case "fetch": .connecting
-        case "edit": .shaping
-        default: .working
-        }
-    }
-
-    private var hasBody: Bool {
-        !(data.output ?? "").isEmpty || !(data.diffs ?? []).isEmpty
-    }
-
-    var body: some View {
-        if hasBody {
-            Disclosure(isExpanded: $expanded) {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(data.diffs ?? [], id: \.self) { DiffView(diff: $0) }
-                    if let out = data.output, !out.isEmpty { CodeBox(text: out) }
-                }
-            } label: { label }
-        } else {
-            label
-        }
-    }
-
-    private var label: some View {
-        HStack(spacing: 8) {
-            Image(systemName: icon).frame(width: 18).foregroundStyle(Palette.secondary)
-            Text(data.title ?? "Tool").font(.subheadline).foregroundStyle(Palette.text).lineLimit(2)
-            Spacer(minLength: 4)
-            switch data.status {
-            case "completed": Image(systemName: "checkmark").foregroundStyle(Palette.accent)
-            case "failed": Image(systemName: "xmark").foregroundStyle(Palette.danger)
-            default: ThinkingOrb(state: orb, size: 16, color: Palette.secondary)
-            }
-        }
-        .font(.caption)
     }
 }
