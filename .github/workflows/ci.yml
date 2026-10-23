@@ -7,16 +7,19 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-  # The merge queue tests each batch on a temporary branch; every job the filters select runs in full there.
+  # GitHub's own merge queue needs an org-owned repo, so this never fires here; kept for a possible move.
   merge_group:
     types: [checks_requested]
 
+# Adding or removing a label other than ci:full (e.g. `queue`) starts a run that does nothing: `changes` and `ci`
+# are skipped below, and such runs get a group of their own that never cancels. Otherwise the label event would
+# cancel the real run on the same sha, and its `ci` job would report a failure that GitHub keeps blocking on.
 # A PR gets one group per ref, so a re-push cancels the older run. Every other run (push to main,
 # merge_group, workflow_dispatch) gets its own group keyed by sha, so merges never cancel each other. GitHub keeps
 # only one pending run per group, so sharing a group for main would drop the older queued run.
 concurrency:
-  group: ci-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.workflow, github.ref) || format('{0}-{1}-{2}', github.workflow, github.sha, github.run_id) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ (github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'ci:full') && format('noise-{0}', github.run_id) || github.event_name == 'pull_request' && format('{0}-{1}', github.workflow, github.ref) || format('{0}-{1}-{2}', github.workflow, github.sha, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'labeled' && github.event.action != 'unlabeled' || github.event.label.name == 'ci:full' }}
 
 permissions:
   contents: read
@@ -29,6 +32,7 @@ jobs:
   # Path filtering happens here, not in `on.paths`, so the `ci` job below always
   # reports and can be the one required check.
   changes:
+    if: ${{ !(github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'ci:full') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # dorny/paths-filter lists a pull request's files through the API.
@@ -36,10 +40,12 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      # The heavy tier (macOS builds, all e2e, guest-linux) runs on everything but a pull request, and on a ready
-      # (non-draft) pull request that carries the ci:full label. pull_request is empty on merge_group, so it is
-      # only read when the event is a pull request.
-      heavy: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false && contains(github.event.pull_request.labels.*.name, 'ci:full')) }}
+      # The heavy tier (macOS builds, all e2e, guest-linux) runs on everything but a pull request. A pull request
+      # runs it when it is a Mergify queue batch (a draft PR from a mergify/merge-queue/* branch, which Mergify
+      # builds on top of the latest main), or when it is ready (non-draft) and carries the ci:full label. Ordinary
+      # drafts stay cheap-only. pull_request is empty on other events, so it is only read for pull requests.
+      # Batch PRs each have their own ref, so the per-ref concurrency group never makes one cancel another.
+      heavy: ${{ github.event_name != 'pull_request' || startsWith(github.head_ref, 'mergify/merge-queue/') || (github.event.pull_request.draft == false && contains(github.event.pull_request.labels.*.name, 'ci:full')) }}
       kernel: ${{ github.event_name == 'merge_group' || steps.f.outputs.kernel }}
       host: ${{ github.event_name == 'merge_group' || steps.h.outputs.host }}
       host_core: ${{ github.event_name == 'merge_group' || steps.h.outputs.host_core }}
@@ -574,8 +580,10 @@ jobs:
 
   # The single check to require: passes when every needed job passed or was
   # skipped by the filter, fails on any failure or cancellation.
+  # Skipped when the run itself is cancelled (a re-push superseded it) or is label noise, so those runs report no
+  # `ci` at all. A job cancelled or timed out inside a live run still fails it through RESULTS.
   ci:
-    if: always()
+    if: ${{ !cancelled() && !(github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'ci:full') }}
     needs: [changes, kernel, host, host-build, host-test, host-e2e, host-crates, cloud, licenses, thread-writers, relay, ios, desktop, desktop-js, desktop-relay-e2e, guest-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -17,34 +17,36 @@ One workflow, `.github/workflows/ci.yml`. The single required check is the umbre
 | `desktop-js`, `desktop-relay-e2e` (heavy) | linux | Desktop typecheck and unit tests; the relay e2e against a real kith-serve. |
 | `ios`, `desktop` (heavy) | macos-26 | Only what needs macOS: the iOS build and the unsigned Mac app build. |
 
-No paid, larger or self-hosted runners. Rust caches come from Swatinem/rust-cache and are saved only on main (PR and queue refs cannot share caches and would evict main's). npm and SwiftPM caches are kept per job.
+No paid, larger or self-hosted runners. Rust caches come from Swatinem/rust-cache and are saved only on main (PR and batch refs cannot share caches and would evict main's). npm and SwiftPM caches are kept per job.
 
 ## Tiers
 
 - Cheap tier, every pull request: fmt, clippy, host unit tests, kernel, cloud and relay (typecheck, vitest), licenses, thread-writers, desktop typecheck and tests. All path-filtered.
-- Heavy tier: the macOS builds (`ios`, `desktop`), every e2e (`host-e2e`, `desktop-relay-e2e`, cloud's bot guests e2e step) and `guest-linux`. They run on merge_group, push to main and workflow_dispatch, never skipped there.
-- A pull request gets the heavy tier too when it carries the `ci:full` label (add it with `gh pr edit <n> --add-label ci:full`). A draft pull request gets the cheap tier only, even with the label; mark it ready to run the heavy tier.
+- Heavy tier: the macOS builds (`ios`, `desktop`), every e2e (`host-e2e`, `desktop-relay-e2e`, cloud's bot guests e2e step) and `guest-linux`. They run on Mergify queue batches, push to main and workflow_dispatch, never skipped there.
+- A pull request gets the heavy tier too when it carries the `ci:full` label (add it with `gh pr edit <n> --add-label ci:full`). A draft pull request gets the cheap tier only, even with the label; mark it ready to run the heavy tier. The exception is a Mergify batch: a draft PR from a `mergify/merge-queue/*` branch, which `ci.yml` treats as heavy.
 
-Jobs skipped by the tier count as passed in `ci`, so a green PR means "cheap tier green"; the queue runs the rest before anything lands on main.
+Jobs skipped by the tier count as passed in `ci`, so a green PR means "cheap tier green"; the Mergify queue runs the rest on the batch before anything lands on main.
 
 ## Path filters
 
 Filtering happens in `changes`, not in `on.paths`, so `ci` always reports. A docs-only change runs no heavy job. `host_core` (everything the host binary builds from) is narrower than `host`: a change only under `serve/host/crates/guest` or `crates/tts` skips `host-build` and `host-test`, because nothing in the host depends on them; `host-crates` still runs.
 
-On `merge_group` the filters are skipped and every output is true: queue batches run the full suite. Pushes to main and PRs use the filters as before.
+The filters apply on pull requests (batch PRs included), on pushes to main and on dispatch. On `merge_group` they are skipped and every output is true; that trigger never fires here (GitHub's merge queue needs an org-owned repo) and is kept for a possible move.
 
 ## Merging
 
-This repo uses merge commits and a merge queue:
+This repo uses merge commits and a Mergify merge queue (`.mergify.yml`). Once `ci` is green on the PR, queue it:
 
 ```
-gh pr merge <n> --auto --merge
+gh pr edit <n> --add-label queue
 ```
 
-The PR enters the queue once `ci` is green on it, and GitHub tests it (batched with others, up to about 8 per batch) against the latest main using the same workflow, in full. If a batch fails GitHub splits it and re-tests, so the failing PR is dropped on its own. There are no intermediate or integration branches; batching in the queue replaces them.
+Mergify batches up to 8 queued PRs (waiting at most 3 minutes for company) on top of the latest main as a draft PR on a `mergify/merge-queue/*` branch, and runs the full suite there; the batch's `ci` is the heavy run. If it passes, the PRs merge with merge commits. If it fails, Mergify splits the batch and re-tests to find the failing PR, which is dropped on its own. There are no intermediate or integration branches. The `queue` label is removed once a PR merges, so adding it again re-queues a PR that left the queue.
+
+Never `gh pr merge` directly: that skips the heavy tier.
 
 Never rebase or merge main into a branch just to be up to date. Do that only to resolve a real conflict.
 
 ## Concurrency
 
-A PR gets one group per ref, so a re-push cancels its older run. Pushes to main and merge-queue runs are keyed by sha and run id and are never cancelled.
+A PR gets one group per ref, so a re-push cancels its older run. Pushes to main are keyed by sha and run id and are never cancelled. Mergify batch PRs are pull requests on their own `mergify/merge-queue/*` refs, so each has its own group and batches don't cancel each other. Adding or removing a label other than `ci:full` (such as `queue`) starts a run in which everything, `ci` included, is skipped; it has its own group and never cancels the real run, and a cancelled run skips `ci` instead of reporting a failure.

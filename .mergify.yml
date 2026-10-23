@@ -1,0 +1,34 @@
+# Merge queue (Mergify). Label a PR `queue` to line it up; see docs/ci.md.
+# Mergify builds each batch as a draft PR on a mergify/merge-queue/* branch on top of the latest main, and the
+# full suite runs there (ci.yml treats those branches as heavy).
+queue_rules:
+  - name: default
+    merge_method: merge
+    batch_size: 8
+    # A lone PR waits at most this long for company before it is tested.
+    batch_max_wait_time: 3 min
+    queue_conditions:
+      - base = main
+      - -draft
+      - check-success = ci
+    merge_conditions:
+      - check-success = ci
+
+pull_request_rules:
+  - name: queue on the queue label
+    conditions:
+      - label = queue
+      - -draft
+    actions:
+      queue:
+        name: default
+
+  # So that adding the label again re-queues a PR that left the queue.
+  - name: drop the queue label once merged
+    conditions:
+      - merged
+      - label = queue
+    actions:
+      label:
+        remove:
+          - queue
