@@ -17,6 +17,8 @@ public enum CrewOrderMode: String, CaseIterable, Sendable {
 /// What the ordering needs to know about one room.
 public struct CrewOrderItem: Equatable, Sendable {
     public var id: String
+    /// Where the room's computer sits in the computer order kept on this device.
+    public var computer: Int
     public var pinned: Bool
     /// The stored manual order (the host's `position`).
     public var position: Int
@@ -24,8 +26,9 @@ public struct CrewOrderItem: Equatable, Sendable {
     public var needsYou: Bool
     public var working: Bool
 
-    public init(id: String, pinned: Bool, position: Int, lastAt: Int64, needsYou: Bool = false, working: Bool = false) {
+    public init(id: String, computer: Int = 0, pinned: Bool, position: Int, lastAt: Int64, needsYou: Bool = false, working: Bool = false) {
         self.id = id
+        self.computer = computer
         self.pinned = pinned
         self.position = position
         self.lastAt = lastAt
@@ -50,7 +53,10 @@ public enum CrewOrder {
 
     private static func bucket(_ item: CrewOrderItem) -> Int { item.needsYou ? 0 : item.working ? 1 : 2 }
 
+    /// Computers in their stored order, then each computer's own order: positions are per computer, so interleaving
+    /// two computers' rooms by position would put a dropped room where it can't be written.
     private static func manual(_ a: CrewOrderItem, _ b: CrewOrderItem) -> Bool {
+        if a.computer != b.computer { return a.computer < b.computer }
         if a.position != b.position { return a.position < b.position }
         if a.lastAt != b.lastAt { return a.lastAt > b.lastAt }
         return a.id < b.id

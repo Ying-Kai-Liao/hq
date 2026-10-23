@@ -1,9 +1,9 @@
 import Testing
 @testable import KithUI
 
-private func item(_ id: String, pinned: Bool = false, position: Int = 0, lastAt: Int64 = 0,
+private func item(_ id: String, computer: Int = 0, pinned: Bool = false, position: Int = 0, lastAt: Int64 = 0,
                   needsYou: Bool = false, working: Bool = false) -> CrewOrderItem {
-    CrewOrderItem(id: id, pinned: pinned, position: position, lastAt: lastAt, needsYou: needsYou, working: working)
+    CrewOrderItem(id: id, computer: computer, pinned: pinned, position: position, lastAt: lastAt, needsYou: needsYou, working: working)
 }
 
 @Test func automaticOrdersNeedsYouThenWorkingThenRecent() {
@@ -76,4 +76,12 @@ private func item(_ id: String, pinned: Bool = false, position: Int = 0, lastAt:
     #expect(CrewSearch.rank(entries, query: "design tab") == ["3", "1"])
     #expect(CrewSearch.rank(entries, query: "design") == ["1", "2", "3"])
     #expect(CrewSearch.rank(entries, query: "  ") == ["1", "2", "3"])
+}
+
+@Test func manualGroupsRoomsByComputerThenOwnOrder() {
+    let items = [
+        item("b0", computer: 1, position: 0), item("a1", computer: 0, position: 1), item("b1", computer: 1, position: 1),
+        item("a0", computer: 0, position: 0), item("pb", computer: 1, pinned: true), item("pa", computer: 0, pinned: true),
+    ]
+    #expect(CrewOrder.sorted(items, mode: .manual) == ["pa", "pb", "a0", "a1", "b0", "b1"])
 }

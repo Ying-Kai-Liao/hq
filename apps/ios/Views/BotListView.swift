@@ -102,9 +102,12 @@ struct BotListView: View {
         }
     }
 
+    /// Where this computer sits in the order kept on this iPhone.
+    private func computerIndex(_ id: ComputerID) -> Int { accounts.computers.firstIndex { $0.id == id } ?? 0 }
+
     private var frozen: Bool { touching || scrolling || lifted != nil }
 
-    private var computedOrder: [String] { CrewOrder.sorted(rooms.map { CrewRows.orderItem($0.item) }, mode: mode) }
+    private var computedOrder: [String] { CrewOrder.sorted(rooms.map { CrewRows.orderItem($0.item, computerIndex: computerIndex($0.item.ref.computerId)) }, mode: mode) }
 
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var searching: Bool { !trimmedQuery.isEmpty }
@@ -158,6 +161,7 @@ struct BotListView: View {
             .scrollContentBackground(.hidden)
             .environment(\.defaultMinListRowHeight, 0)
             .scrollDismissesKeyboard(.immediately)
+            .onDisappear { dictation.stop() }
             .onScrollPhaseChange { _, phase in scrolling = phase != .idle }
             .simultaneousGesture(DragGesture(minimumDistance: 0).updating($touching) { _, state, _ in state = true })
             .refreshable {
@@ -272,6 +276,7 @@ struct BotListView: View {
     }
 
     private func open(_ ref: BotReference) {
+        dictation.stop()
         query = ""
         accounts.selection = ref
     }
@@ -435,11 +440,13 @@ struct BotListView: View {
 
     /// One agent is called straight away; with several, the person picks.
     private func call() {
+        dictation.stop()
         let agents = rooms.filter { !$0.item.bot.isGroup }
         if agents.count == 1, let only = agents.first { startCall(only.store, only.item.bot.id) } else { picking = .call }
     }
 
     private func startCall(_ store: BotStore, _ botId: String) {
+        dictation.stop()
         if let block = HomeCallCover.block(store: store, botId: botId) {
             store.lastError = block
         } else {

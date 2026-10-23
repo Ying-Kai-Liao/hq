@@ -38,7 +38,11 @@ struct PickAgentSheet: View {
                         ForEach(choices) { choice in
                             Button {
                                 dismiss()
-                                choice.pick()
+                                // The sheet has to be gone before a chat or a call rises.
+                                Task {
+                                    try? await Task.sleep(for: .milliseconds(450))
+                                    choice.pick()
+                                }
                             } label: {
                                 CrewRow(choice.model)
                             }

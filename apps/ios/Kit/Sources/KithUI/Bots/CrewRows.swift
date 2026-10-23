@@ -36,8 +36,8 @@ public enum CrewRows {
         return using + MessagePreview.text(bot.lastMessage ?? (bot.isGroup ? "\(bot.members.count) bots" : "\(store.backendName(bot.backend)) · \(bot.folderName)"))
     }
 
-    public static func orderItem(_ item: RosterItem) -> CrewOrderItem {
-        CrewOrderItem(id: rowId(item), pinned: item.bot.pinned, position: item.bot.position, lastAt: item.bot.lastAt,
+    public static func orderItem(_ item: RosterItem, computerIndex: Int = 0) -> CrewOrderItem {
+        CrewOrderItem(id: rowId(item), computer: computerIndex, pinned: item.bot.pinned, position: item.bot.position, lastAt: item.bot.lastAt,
                       needsYou: item.bot.needsInput, working: item.bot.isWorking)
     }
 
