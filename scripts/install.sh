@@ -24,7 +24,7 @@ say() { printf '%s\n' "$*"; }
 die() { printf 'install: %s\n' "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-[ "$(uname -s)" = Darwin ] || die "kith's download is for macOS; on Linux clone https://github.com/$REPO and run ./install.sh"
+[ "$(uname -s)" = Darwin ] || die "kith's download is for macOS. A Linux VM that only needs the client: curl -fsSL https://raw.githubusercontent.com/$REPO/main/scripts/install-guest.sh | sh. The full kith on Linux: clone https://github.com/$REPO and run ./install.sh"
 case $(uname -m) in
   arm64|aarch64) ARCH=arm64 ;;
   x86_64) ARCH=x86_64 ;;

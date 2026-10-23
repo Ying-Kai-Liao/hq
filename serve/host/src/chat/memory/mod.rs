@@ -33,9 +33,17 @@ pub fn shared(cfg: &BotConfig) -> bool {
     cfg.shared_memory.unwrap_or_else(|| crate::agent::workspace::is_managed(cfg))
 }
 
+/// Who the memory is loaded for: the owner, in the group room `room` when the turn is a group's. Only that room's notes
+/// and the ones that belong to no room load (docs/memory-context.md, "Load rule at thread start").
+fn scope(cfg: &BotConfig, room: Option<&str>) -> kith_mem::opening::Scope {
+    let mut scope = room.map_or_else(kith_mem::opening::Scope::owner, kith_mem::opening::Scope::owner_group);
+    scope.projects = cfg.project.iter().cloned().collect();
+    scope
+}
+
 /// The memory section of a bot's instructions: its entries, then the index of its long-form files.
-pub fn opening(store: &Store, cfg: &BotConfig) -> String {
-    let entries = match store.memory_read(|c| kith_mem::opening::load(c, &cfg.id, shared(cfg))) {
+pub fn opening(store: &Store, cfg: &BotConfig, room: Option<&str>) -> String {
+    let entries = match store.memory_read(|c| kith_mem::opening::load(c, &cfg.id, shared(cfg), &scope(cfg, room))) {
         Ok(opening) => opening.render(),
         Err(error) => {
             tracing::warn!(bot = %cfg.id, error = format!("{error:#}"), "couldn't read memory");
@@ -100,14 +108,14 @@ fn opening_key(bot: &str, session: &str) -> String {
 
 /// When memory changed since this session last heard: the whole memory as it is now, to put before the next
 /// message, and the revision to acknowledge once it was delivered.
-pub fn change_notice(store: &Store, cfg: &BotConfig, session: &str) -> Option<(String, String)> {
+pub fn change_notice(store: &Store, cfg: &BotConfig, session: &str, room: Option<&str>) -> Option<(String, String)> {
     let revision = current_revision(store, &cfg.id);
     if revision.is_empty() || store.kv_get(&announced_key(&cfg.id, session)).unwrap_or_default() == revision {
         return None;
     }
     let notice = format!(
         "<memory_update>\nYour memory changed. This is all of it now and replaces any earlier memory in this conversation.\n{}\n</memory_update>",
-        opening(store, cfg)
+        opening(store, cfg, room)
     );
     Some((notice, revision))
 }
@@ -161,24 +169,24 @@ mod tests {
         .unwrap();
         let changes = |revision: &str| store.kv_set(&revision_key(&cfg.id), revision).unwrap();
         opened(&store, &cfg.id, "s1", "").unwrap();
-        assert!(change_notice(&store, &cfg, "s1").is_none());
+        assert!(change_notice(&store, &cfg, "s1", None).is_none());
 
         changes("7");
-        let (notice, revision) = change_notice(&store, &cfg, "s1").expect("a change");
+        let (notice, revision) = change_notice(&store, &cfg, "s1", None).expect("a change");
         assert!(notice.starts_with("<memory_update>"), "{notice}");
         mark_announced(&store, &cfg.id, "s1", &revision).unwrap();
-        assert!(change_notice(&store, &cfg, "s1").is_none(), "told once");
+        assert!(change_notice(&store, &cfg, "s1", None).is_none(), "told once");
         compacted(&store, &cfg.id, "s1").unwrap();
-        assert!(change_notice(&store, &cfg, "s1").is_some(), "the summary may have dropped the notice");
+        assert!(change_notice(&store, &cfg, "s1", None).is_some(), "the summary may have dropped the notice");
 
         // What the session wrote itself, with nothing else new, needs no notice; unless it missed something before.
         opened(&store, &cfg.id, "s1", "7").unwrap();
         changes("8");
         heard_own_write(&store, &cfg.id, "s1", "7").unwrap();
-        assert!(change_notice(&store, &cfg, "s1").is_none());
+        assert!(change_notice(&store, &cfg, "s1", None).is_none());
         changes("9");
         changes("10");
         heard_own_write(&store, &cfg.id, "s1", "9").unwrap();
-        assert!(change_notice(&store, &cfg, "s1").is_some());
+        assert!(change_notice(&store, &cfg, "s1", None).is_some());
     }
 }

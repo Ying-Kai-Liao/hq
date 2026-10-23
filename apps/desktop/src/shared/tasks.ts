@@ -2,6 +2,7 @@
 // the chat (`data.task`); the bot's answers and the rest of the burst are its thread. The chat shows a task inline
 // while it's going and folds it into a card once it's idle.
 import { isWorkingIn, type Bot, type Entry } from './models.ts'
+import { isHeldElsewhere } from './thread-writer.ts'
 
 /** The host's `tasks::IDLE_MS`: a task idle this long is over, and folds. */
 export const TASK_IDLE_MS = 10 * 60_000
@@ -25,7 +26,9 @@ export function chatAndTasks(all: Entry[]): Entry[] {
 /** Where the task stands: at work (or waiting on an approval), stopped, or done. */
 export function taskStatus(bot: Bot, root: Entry, replies: Entry[]): TaskStatus {
   if (isWorkingIn(bot, bot.id, root.id)) {
-    return replies.some((e) => e.kind === 'permission' && e.data.status === 'pending') ? 'needsYou' : 'working'
+    // A prompt in a thread another writer holds is read-only here, so it isn't ours to answer.
+    const held = isHeldElsewhere(root.data.thread)
+    return !held && replies.some((e) => e.kind === 'permission' && e.data.status === 'pending') ? 'needsYou' : 'working'
   }
   const last = [...replies].reverse().find((e) => e.kind === 'notice' || (e.kind === 'agent' && e.data.final === true))
   return last?.kind === 'notice' && last.data.text === 'Stopped.' ? 'stopped' : 'done'

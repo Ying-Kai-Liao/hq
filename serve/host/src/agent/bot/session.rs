@@ -352,9 +352,9 @@ impl Actor {
             }
         }
         let (revision, system) = {
-            let (hub, cfg) = (self.hub.clone(), self.cfg.clone());
+            let (hub, cfg, room) = (self.hub.clone(), self.cfg.clone(), self.memory_room());
             tokio::task::spawn_blocking(move || {
-                (memory::current_revision(&hub.store, &cfg.id), context::render(&hub.store, &cfg))
+                (memory::current_revision(&hub.store, &cfg.id), context::render(&hub.store, &cfg, room.as_deref()))
             })
             .await?
         };

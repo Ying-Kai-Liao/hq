@@ -513,6 +513,8 @@ impl Core {
         self.with(|i| {
             if let Some(mut th) = i.st.threads.shift_remove(&key) {
                 th["last"] = json!(agent);
+                // Whether the chat is a one-to-one, for the room a run is told it is in (see `run::run_room`).
+                th["private"] = json!(m.private);
                 th["at"] = json!(now());
                 i.st.threads.insert(key.clone(), th); // newest last, for pruning
             }

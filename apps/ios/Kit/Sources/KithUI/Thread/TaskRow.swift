@@ -20,91 +20,73 @@ struct TaskRow: View {
             let replies = model.replies(bot.id, root: root.id)
             let status = Tasks.status(of: root, bot: bot, replies: replies)
             let now = Int64(context.date.timeIntervalSince1970 * 1000)
-            let open = Tasks.isOpen(status, newest: newest, lastAt: Tasks.lastAt(root), now: now, choice: choice)
+            // A question that waits opens its thread even if it was folded by hand.
+            let open = ThreadFeed.hasQuestion(replies, held: root.data.thread?.isHeldElsewhere == true) || Tasks.isOpen(status, newest: newest, lastAt: Tasks.lastAt(root), now: now, choice: choice)
             // An older reply can be missing when only live ones arrived: load the whole thread.
             let missing = open && replies.count < (root.data.thread?.count ?? 0)
-            // The composer goes on with this task; any other one goes on in its thread.
-            let goesOn = newest && Tasks.isOpen(status, newest: newest, lastAt: Tasks.lastAt(root), now: now)
-            Group {
-                if open { expanded(replies, status, goesOn: goesOn) } else { card(status) }
-            }
-            .task(id: missing) {
-                if missing { await model.loadThread(bot.id, root: root.id) }
-            }
+            thread(replies, status, open: open, now: context.date)
+                .task(id: missing) {
+                    if missing { await model.loadThread(bot.id, root: root.id) }
+                }
         }
     }
 
-    private func card(_ status: TaskStatus) -> some View {
-        let count = root.data.thread?.count ?? 0
-        return Button {
-            withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { choice = true }
-        } label: {
-            HStack(spacing: 8) {
-                StatusIcon(status: status)
-                Text(Tasks.title(root))
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(Palette.text)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                Text("\(count == 1 ? "1 reply" : "\(count) replies") · \(RelativeTime.day(Date(milliseconds: Tasks.lastAt(root))))")
-                    .font(.footnote)
-                    .foregroundStyle(Palette.tertiary)
-                    .lineLimit(1)
-                    .fixedSize()
-                Image(systemName: "chevron.down").font(.caption2).foregroundStyle(Palette.tertiary)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PressScale())
-        .padding(.vertical, 4)
-        .accessibilityLabel("Open task: \(Tasks.title(root)), \(status.label)")
-    }
-
-    private func expanded(_ replies: [Entry], _ status: TaskStatus, goesOn: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                StatusIcon(status: status)
-                Text(status.label).font(.caption).foregroundStyle(Palette.secondary)
-                Spacer(minLength: 8)
+    /// Your message as a normal bubble; its thread hangs under it as the chip, and unfolds in place.
+    private func thread(_ replies: [Entry], _ status: TaskStatus, open: Bool, now: Date) -> some View {
+        let tint = AgentTint.resolve(bot.avatarColor)
+        let summary = root.data.thread
+        let chip = ThreadFeed.chip(face: CrewFace(bot: bot), tint: tint, count: summary?.count ?? 0, unread: summary?.unread,
+                                   lastAt: Tasks.lastAt(root), place: model.placeFolder(bot.id, thread: root.id),
+                                   yourTurn: ThreadFeed.hasQuestion(replies, held: summary?.isHeldElsewhere == true),
+                                   summary: summary, mac: model.hostName, now: now)
+        return VStack(alignment: .trailing, spacing: 4) {
+            ChatRow(entry: root, groupStart: true, chat: bot, openTrace: openTrace)
+            HStack(spacing: 4) {
                 if status.isBusy {
                     IconButton("Stop this task", systemImage: "stop.fill") { model.stop(bot.id, thread: root.id) }
                 }
-                if !goesOn {
-                    IconButton("Continue this task", systemImage: "arrowshape.turn.up.left", action: openThread)
-                }
-                IconButton("Fold this task", systemImage: "chevron.up") {
-                    withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { choice = false }
-                }
+                ThreadChipView(chip, isOpen: open, onToggle: {
+                    withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { choice = !open }
+                }, onOpenThread: openThread)
             }
-            ChatRow(entry: root, groupStart: true, chat: bot, openTrace: openTrace)
-            ForEach(ChatItem.build(replies)) { item in
-                if case let .entry(e, groupStart) = item.kind {
-                    ChatRow(entry: e, groupStart: groupStart, chat: bot, openTrace: openTrace)
-                }
-            }
-            if status.isBusy && !model.isOffline {
-                WorkingIndicator(bot: bot, thinking: model.currentThinking(bot.id, thread: root.id))
-                    .padding(.top, 6)
-            }
+            if open { openReplies(replies, status, tint: tint) }
         }
         .padding(.vertical, 4)
+    }
+
+    /// The replies under a thin line in the agent's colour: bubbles, tool rows, decision cards, left-off cards.
+    private func openReplies(_ replies: [Entry], _ status: TaskStatus, tint: AgentTint) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 1).fill(tint.a).frame(width: 2)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(status.label).kithText(.label).foregroundStyle(Palette.muted)
+                ForEach(ThreadFeed.replies(replies)) { reply in
+                    switch reply {
+                    case .entry(let e, let groupStart):
+                        ChatRow(entry: e, groupStart: groupStart, chat: bot, openTrace: openTrace)
+                    case .separator:
+                        EmptyView()
+                    case .tool(let e):
+                        ToolCallRow(ThreadFeed.toolRow(e))
+                    case .earlier(let count, _):
+                        Button(action: openTrace) {
+                            Text(count == 1 ? "1 earlier step" : "\(count) earlier steps")
+                                .kithText(.secondary).foregroundStyle(Palette.muted)
+                                .frame(minHeight: 32, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                if status.isBusy && !model.isOffline {
+                    WorkingIndicator(bot: bot, thinking: model.currentThinking(bot.id, thread: root.id))
+                        .padding(.top, 6)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.top, 4)
         // Its thread is on screen: the bot's answers here are read.
         .readingConversation(bot.id, thread: root.id)
-    }
-}
-
-private struct StatusIcon: View {
-    let status: TaskStatus
-
-    var body: some View {
-        switch status {
-        case .working: Spinner(size: 9)
-        case .needsYou: Image(systemName: "exclamationmark.circle").font(.caption).foregroundStyle(Palette.attention)
-        case .stopped: Image(systemName: "stop.circle").font(.caption).foregroundStyle(Palette.tertiary)
-        case .done: Image(systemName: "checkmark.circle").font(.caption).foregroundStyle(Palette.tertiary)
-        }
+        .transition(.opacity)
     }
 }

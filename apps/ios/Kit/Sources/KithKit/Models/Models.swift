@@ -157,6 +157,59 @@ public struct ThreadSummary: Codable, Hashable, Sendable {
     public var authors: [String]
     /// Replies the user hasn't read (threads are read on their own).
     public var unread: Int?
+    /// Where the conversation started: nil = in the app; `terminal`; later `bot`, `discord`, `telegram`, `slack`.
+    /// Open on purpose: a value this app doesn't know decodes fine (see `ThreadOrigin`).
+    public var origin: String?
+    public var originLabel: String?
+    /// A bot-guest thread: whose bot started it.
+    public var originBot: OriginBot?
+    /// Who may write now: nil = the app (or nobody), `terminal`, later `bot`. Open string; see `isHeldElsewhere`.
+    public var liveWriter: String?
+    /// The writer is mid-turn.
+    public var liveBusy: Bool?
+    public var terminal: TerminalSession?
+}
+
+public struct OriginBot: Codable, Hashable, Sendable {
+    public var provider: String?
+    public var owner: String?
+    public var name: String?
+}
+
+public struct TerminalSession: Codable, Hashable, Sendable {
+    public var sessionId: String?
+    public var cwd: String?
+}
+
+/// The origin words the apps know. Anything else is `.other` and still valid.
+public enum ThreadOrigin: Hashable, Sendable {
+    case app, terminal, bot, discord, telegram, slack
+    case other(String)
+
+    public init(_ raw: String?) {
+        switch raw {
+        case nil, "app": self = .app
+        case "terminal": self = .terminal
+        case "bot": self = .bot
+        case "discord": self = .discord
+        case "telegram": self = .telegram
+        case "slack": self = .slack
+        case let raw?: self = .other(raw)
+        }
+    }
+}
+
+public extension ThreadSummary {
+    var threadOrigin: ThreadOrigin { ThreadOrigin(origin) }
+    var isTerminalOrigin: Bool { origin == "terminal" }
+    /// Someone other than the app holds the conversation, so the app shows it read-only. An unknown writer counts as held.
+    var isHeldElsewhere: Bool { liveWriter.map { $0 != "app" } ?? false }
+    var isHeldByTerminal: Bool { liveWriter == "terminal" }
+}
+
+public extension Entry {
+    /// For the root entry of a thread: the command that continues it in a terminal.
+    func resumeCommand(agent: String) -> String { "kith \(agent) --resume \(id)" }
 }
 
 public struct FileDiff: Codable, Hashable, Sendable {

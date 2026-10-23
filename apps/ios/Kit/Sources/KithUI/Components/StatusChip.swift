@@ -40,6 +40,8 @@ public struct StatusChip: View {
         case live, catchingUp, needsYou, macUnreachable, urgent
         /// A machine-trouble line, already worded: "Mac mini busy, 1 queued".
         case machineTrouble(String)
+        /// A terminal holds the thread (continue-anywhere): idle, or working; `mac` names the machine.
+        case writer(working: Bool, mac: String?)
 
         public static func busy(computer: String, queued: Int) -> Kind {
             .machineTrouble(queued > 0 ? "\(computer) busy, \(queued) queued" : "\(computer) busy")
@@ -53,13 +55,15 @@ public struct StatusChip: View {
             case .macUnreachable: "Mac unreachable"
             case .urgent: "/urgent"
             case .machineTrouble(let text): text
+            case .writer(let working, let mac):
+                (working ? "Working in terminal" : "In terminal") + (mac.map { " · \($0)" } ?? "")
             }
         }
 
         var colour: Color {
             switch self {
             case .live: Palette.positive
-            case .catchingUp, .machineTrouble: Palette.muted
+            case .catchingUp, .machineTrouble, .writer: Palette.muted
             case .needsYou: Palette.ink
             case .macUnreachable, .urgent: Palette.negative
             }
@@ -72,14 +76,36 @@ public struct StatusChip: View {
             case .macUnreachable: "wifi.slash"
             case .urgent: "exclamationmark"
             case .machineTrouble: "hourglass"
+            case .writer: "terminal"
             }
         }
     }
 
     let kind: Kind
-    public init(_ kind: Kind) { self.kind = kind }
+    let tint: AgentTint
+    /// `tint` colours the writer chip's live dot with the agent's pair; other kinds ignore it.
+    public init(_ kind: Kind, tint: AgentTint = .neutral) { self.kind = kind; self.tint = tint }
 
     public var body: some View {
+        if case .writer(let working, _) = kind { writerChip(working: working) } else { standardChip }
+    }
+
+    /// Panel fill with a hairline, like the redesign's other quiet chips; the dot pulses only while working.
+    private func writerChip(working: Bool) -> some View {
+        HStack(spacing: 5) {
+            if working { LiveDot(tint: tint) } else { Image(systemName: "terminal").font(.system(size: 10, weight: .bold)) }
+            Text(kind.word).kithText(.secondary).fontWeight(.medium).lineLimit(1).truncationMode(.tail)
+        }
+        .foregroundStyle(Palette.muted)
+        .padding(.vertical, 3).padding(.leading, 6).padding(.trailing, 8)
+        .frame(minHeight: 20)
+        .background(Palette.panel, in: Capsule())
+        .overlay(Capsule().strokeBorder(Palette.line, lineWidth: 1))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(kind.word))
+    }
+
+    private var standardChip: some View {
         HStack(spacing: 5) {
             if let symbol = kind.symbol {
                 Image(systemName: symbol).font(.system(size: 10, weight: .bold))
@@ -102,6 +128,7 @@ public struct StatusChip: View {
         HStack { StatusChip(.live); StatusChip(.catchingUp); StatusChip(.needsYou) }
         HStack { StatusChip(.macUnreachable); StatusChip(.urgent) }
         StatusChip(.busy(computer: "Mac mini", queued: 1))
+        HStack { StatusChip(.writer(working: false, mac: "Mac mini")); StatusChip(.writer(working: true, mac: nil)) }
         HStack { CountBadge(1); CountBadge(12); CountBadge(100); CountBadge(3, size: KithSize.countBadgeBoard); CountBadge(0) }
     }
     .padding()

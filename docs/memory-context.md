@@ -161,8 +161,8 @@ Ordering in the prompt (fixed, so the cache stays warm):
 5. project memory for the current project(s), each project's index note first;
 6. the session line (`<session project=… holds=… …/>`), as today.
 
-Size budget: a single cap on the whole tier-1 block, in characters, set per agent in `settings.json` with a default
-of 24,000 characters. Inside the cap, the order above decides what is cut: when over the cap, room notes and
+Size budget: a single cap on the whole tier-1 block, in characters, set per agent (`memory_cap:` in its agent.md) with a default
+of 8,000 characters (Kai, q45). Inside the cap, the order above decides what is cut: when over the cap, room notes and
 project notes are cut from the oldest end first, never "about you" or the owner/person memory. Cut notes are reported
 as a count in the session line (`loaded="n" more="m"`) so the agent knows to call `kith recall`.
 

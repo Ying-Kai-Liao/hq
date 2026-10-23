@@ -34,7 +34,9 @@ part for everyone you work for, `{{SHARED_MEMORY}}/`: lessons about your craft o
    `{{KITH}}/bin/kith-memory search <words>` finds it across all of them, or read `{{STATE}}/projects/PARENT/decisions.md`.
    **Holds:** working on a parent itself (`holds="…"` on the tag), `{{KITH}}/bin/project-id --children ID` says where each
    of its projects is on this Mac; read their `codebase.md` before going into their code.
-2. Read these if they exist (missing files are normal; don't mention them):
+2. Read these if they exist (missing files are normal; don't mention them). In a group room (`room="group"` on the
+   session tag) read none of `{{PERSON_FILE}}`, `projects/ID.md` or `sessions/ID.md`: they may hold what someone there
+   may not see. Use `{{KITH}}/bin/kith recall` instead, which applies the room's rules.
    - `{{PERSON_FILE}}`: who the user is, shared by all agents
    - `{{STATE}}/projects/ID/codebase.md`: the project map, shared by all agents
    - `{{STATE}}/projects/ID/verify.md`: how to check a change works here, shared by all agents (when the task
