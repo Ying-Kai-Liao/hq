@@ -100,7 +100,7 @@ Cloudflare login; the rest are one-line commands. Nothing secret goes in the rep
 10. App builds: set `KITH_CLERK_PUBLISHABLE_KEY=pk_...` and `KITH_CLOUD_URL=https://kith-cloud.<your-account>.workers.dev` in the environment when you build the desktop and iOS apps (the apps pick them up at build time; see `apps/README.md`).
 11. On each Mac, keep a kith-auth owner person (`kith-auth person <you> owner`). When the Mac is claimed, the host binds `kith <clerk user id>` to that person; leaving the account removes it. The Settings "Link Telegram" button asks the host for `linkCode`.
 
-The rule from Codync stays: the cloud can only shorten a device's access, never grant it; the host decides.
+The rule stays: the cloud can only shorten a device's access, never grant it; the host decides.
 
 Local end-to-end of the account path (no Clerk account needed, a self-signed test key):
 
