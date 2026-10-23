@@ -3,6 +3,8 @@
 Status: built 2026-10-19 with the recommended answer to each decision below (the owner's memory stays in place,
 a shared part, outputs per person, memory kept when a person is removed). Kept as the design record.
 
+The facets and rooms design in `docs/memory-context.md` builds on this one.
+
 ## Why
 
 kith lets other people use the owner's agents through chat (`kith auth member`). Memory was built for one user, and
