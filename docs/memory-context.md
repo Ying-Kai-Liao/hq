@@ -131,8 +131,8 @@ trajectory (tier 3). Nothing is pruned automatically. Forget happens only on req
 
 ## Load rule at thread start
 
-Replaces the `memory` section at session start in `serve/host/src/chat/context.rs` (around lines 146-198) and the
-prompt build in `kernel/bin/kith` (the `mems` block, around the `memory_tag` calls).
+Replaces the `memory` section at session start in `serve/host/src/chat/context.rs` (`render`, the `memory::opening` call) and the
+prompt build in `kernel/bin/kith` (the `mems` block built with `memory_tag`).
 
 The load is a facet filter. A note is loaded when all of these hold:
 
@@ -238,7 +238,7 @@ replace each other (see Repeats).
 - Projects a turn loaded are recorded on the trajectory entry (`projects` on the user entry), so later recall and
   summaries can filter by them.
 - Most users never touch a project setting. The existing per-bot `project` (`BotConfig.project`,
-  `serve/host/src/store/model.rs` around 134-136) stays as an explicit pin: a pinned project wins over inference.
+  `BotConfig.project` in `serve/host/src/store/model.rs`) stays as an explicit pin: a pinned project wins over inference.
 
 ## Promotion
 
@@ -317,13 +317,12 @@ store (`entries`, `thread_summary` in `serve/host/src/store/entries.rs`).
 | Note files (all memory files above) | notes | from facets | re-indexed on change |
 | Thread summaries | summaries | from the thread's room | one row per thread, replaced on rewrite |
 | Host `entries` (every thread, every origin) | trajectory chunks | from the thread's room and person; terminal threads `owner` | one chunk per message or tool result; tool results only with the redaction rule |
-| Harness logs, `~/.claude/projects/*/<sid>.jsonl`, for runs that are not imported | trajectory chunks | from the run's `KITH_PERSON`/room, looked up from the session registry | read by `kith-sessions` (`kernel/bin/kith-sessions:134` is the glob) |
+| Harness logs, `~/.claude/projects/*/<sid>.jsonl`, for runs that are not imported | trajectory chunks | from the run's `KITH_PERSON`/room, looked up from the session registry | read by `kith-sessions` (`kernel/bin/kith-sessions`, the `projects/*/<sid>.jsonl` glob) |
 | Codex logs | not indexed yet | n/a | none are specified in this repo; add when a Codex run writes one |
 
 ### Storage
 
-- SQLite with FTS5 at `$KITH_MACHINE/index/memory.db` (`$KITH_MACHINE` is set by `kernel/lib/kith_paths.py`,
-  lines 79-120). The folder is mode 0700, the file 0600.
+- SQLite with FTS5 at `$KITH_MACHINE/index/memory.db` (`$KITH_MACHINE` is set by `paths()` in `kernel/lib/kith_paths.py`). The folder is mode 0700, the file 0600.
 - Never in git, never in cloud backup. `$KITH_MACHINE` is this Mac's own state. The cloud and git backups cover
   `$KITH_STATE` (notes, `user.md`) and the host store as they do today; the index is excluded from both.
 - Embeddings: later. The first version is FTS5 keyword search. Embeddings are a separate package after the
@@ -426,7 +425,7 @@ or the system text (the write checks reject planted instructions when the note w
 
 | Feature | Relation |
 |---|---|
-| kith-memory search (`kernel/bin/kith-memory` search, lines 16-66) | Narrowed for non-owners already (search-hole step 1). `kith recall` replaces it for search across tiers; `kith-memory search` stays for the owner's files. |
+| kith-memory search (`search` in `kernel/bin/kith-memory`) | Narrowed for non-owners already (search-hole step 1). `kith recall` replaces it for search across tiers; `kith-memory search` stays for the owner's files. |
 | Memory tab in apps | Shows notes with their facets; the room and projects are filters. (apps package, owned by kith-redesign.) |
 | Continue anywhere, terminal registry (`$KITH_STATE/live/terminal/<sid>.json`, `kernel/bin/kith-sessions`) | Terminal threads are normal threads with origin `terminal`; the registry is live state, not indexed. Owner-only. |
 | Bot guests (`docs/kith-bot-guests.md`) | Recall and load use the guest visible set. Referenced, not restated. |
@@ -443,11 +442,11 @@ first PR can land alone.
 Split:
 
 - **1a. Facets and mapping (no index yet).** Parse facets from frontmatter with folder defaults. Files:
-  `kernel/bin/kith-memory` (facet reader), `kernel/lib/` (new small module for facets), `serve/host/crates/memory/src/schema.rs`
+  `kernel/bin/kith-memory` (facet reader), `kernel/lib/` (new file: a small module for facets), `serve/host/crates/memory/src/schema.rs`
   (no schema change in 1a). Tests: a note with no facets reads as owner-only; a frontmatter facet overrides the
   folder default; a `room` row reads as room id. Depends on: nothing.
 - **1b. Index and `kith recall`.** Files: `kernel/bin/kith-memory` (new `index` and `recall` subcommands, or a new
-  `kernel/bin/kith-recall`), `kernel/bin/kith` (case block 85-104: add `recall`, and `memory index`),
+  file `kernel/bin/kith-recall`; both are proposals), `kernel/bin/kith` (the top-level `case $1 in` dispatch: add `recall`, new; `memory index` goes through the existing `memory` case),
   `kernel/lib/kith_paths.py` (`$KITH_MACHINE/index` path), `kernel/bin/kith` settings merge (deny rule for the
   index). Tests: visible set filters in the query; arguments cannot widen; rebuild is atomic (new file, rename);
   mode 0600 and folder 0700; a summary-less thread still indexes its trajectory. Depends on 1a. Ships alone:
@@ -456,8 +455,8 @@ Split:
 ### 2. Thread summaries and trajectory indexing
 
 - Summary write at thread end and compaction; one row per thread; cost tagged.
-- Trajectory indexing: host `entries` (`serve/host/src/store/entries.rs`: `thread`, `search_messages` at 159,
-  `thread_summary` at 254) and the harness log reader for non-imported runs (`kernel/bin/kith-sessions:134`).
+- Trajectory indexing: host `entries` (`serve/host/src/store/entries.rs`: `thread`, `search_messages`,
+  `thread_summary`) and the harness log reader for non-imported runs (`kernel/bin/kith-sessions`, the jsonl glob).
 - Redaction before indexing; the threat-model rule.
 - Files: `serve/host/src/store/entries.rs`, `serve/host/src/store/model.rs`, `serve/host/crates/memory/src/compaction.rs`
   (summary at compaction), `kernel/bin/kith-memory` (summary write check), `kernel/bin/kith-cost` (tag).
@@ -467,7 +466,7 @@ Split:
 ### 3. Load filter at thread start
 
 - Replace the memory section with the facet filter, the fixed order and the size budget.
-- Files: `serve/host/src/chat/context.rs` (around 105 and 146-198), `serve/host/crates/memory/src/opening.rs`,
+- Files: `serve/host/src/chat/context.rs` (`resolve`, `render`), `serve/host/crates/memory/src/opening.rs`,
   `kernel/bin/kith` (the `mems` block and `memory_tag`).
 - Tests: owner, invitee and bot guest each get the expected set; budget cuts from the oldest end and reports
   `more=`; the owner's prompt for an agent with no rooms and no projects is byte-identical to today (regression
@@ -476,7 +475,7 @@ Split:
 ### 4. Dynamic project inference and divider
 
 - Per-turn proposal, quiet label, correction, divider entry `Now on <project>`, pinned project wins.
-- Files: `serve/host/src/chat/context.rs`, `serve/host/src/store/model.rs` (`BotConfig.project` 134-136 stays),
+- Files: `serve/host/src/chat/context.rs`, `serve/host/src/store/model.rs` (`BotConfig.project` stays),
   `serve/host/src/chat/group.rs` (group lanes read the same project set), apps (divider, label: kith-redesign).
 - Tests: divider on change, no restart; pinned project overrides inference; the project set is recorded on the
   user entry. Depends on 3 (the load filter uses the project set).
@@ -510,7 +509,11 @@ Product choices only. Each has a recommended default.
    The alternative removes them from the store (not recommended; it breaks the "kept forever" decision).
 5. **Summary engine?** Recommended: the engine of the thread's last run writes the summary. The alternative is a
    fixed cheap model, which splits cost from the thread's run.
-6. **Load budget default?** Recommended: 24,000 characters, per agent in settings. Kai can raise it per agent.
+6. **Load budget default?** Recommended: 24,000 characters, per agent in `settings.json`. Kai can raise it per agent.
+7. **Backfill summaries for existing threads?** Recommended: lazy (on next open or recall, or by `kith summarise`),
+   no bulk job; see "Old data".
+8. **Embeddings for recall?** Recommended: not yet. FTS5 first; add embeddings only if recall misses what Kai
+   expects.
 
 ## Open (not designed here)
 
@@ -520,8 +523,8 @@ Product choices only. Each has a recommended default.
 
 ## Verification of paths
 
-Partly verified. These paths were confirmed to exist at origin/main (`git cat-file -e`): `kernel/bin/kith-memory`,
-`kernel/bin/kith-cost`, `kernel/bin/kith-sessions`, `kernel/lib/kith_paths.py`, `docs/design/feature-inventory.md`,
-`serve/host/src/chat/group.rs`, `serve/host/src/chat/memory/tidy.rs`, `serve/host/crates/memory/src/compaction.rs`,
-`serve/host/src/store/model.rs`. The other paths and all line numbers come from the brief and were not re-checked;
-confirm them before building.
+Checked against origin/main (`git ls-tree`, `git cat-file -e`, `git grep`): every existing path named above exists,
+and line numbers were replaced by function names (`render`, `resolve`, `memory_tag`, `search`, `search_messages`,
+`thread_summary`, `paths()`, `BotConfig.project`). Proposals, not in the repo yet: `kith recall`, `kith-memory index`
+and `recall`, `kernel/bin/kith-recall`, the facets module under `kernel/lib/`, `kith summarise`,
+`$KITH_MACHINE/index/memory.db`, `memory/rooms/`.
