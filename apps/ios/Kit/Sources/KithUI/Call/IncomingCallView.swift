@@ -42,7 +42,7 @@ public struct IncomingCallView: View {
                     .frame(width: 200, height: 200)
                     .scaleEffect(pulse ? 1.08 : 0.96)
                     .opacity(pulse ? 1 : 0.7)
-                if let bot { CharacterAvatar(bot: bot, size: 150).kithBotShadow() }
+                if let bot { CharacterAvatar(bot: bot, size: 160).kithBotShadow() }
             }
             .frame(width: 220, height: 220)
             VStack(spacing: 4) {

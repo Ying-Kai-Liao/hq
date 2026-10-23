@@ -36,7 +36,7 @@ struct CallScreen: View {
                         working: bot?.isWorking == true, warning: session?.warning)
     }
     /// Mono top line: where the voice runs, and the computer the bot lives on.
-    private var topLine: String { "\(session?.provider?.name ?? "On device") · \(model.hostName)" }
+    private var topLine: String { "\(session?.provider.map { "Voice by \($0.name)" } ?? "On device") · \(model.hostName)" }
     /// The glow rings the bot only while someone can be heard.
     private var ringShown: Bool { session?.phase.isActive == true && session?.muted != true }
     private var glowPair: (Color, Color)? {
@@ -70,7 +70,7 @@ struct CallScreen: View {
                     .foregroundStyle(Palette.muted)
                 TimelineView(.periodic(from: startedAt, by: 1)) { context in
                     Text(CallStatus.clock(Int(context.date.timeIntervalSince(startedAt))))
-                        .font(Self.mono(13).monospacedDigit())
+                        .font(Self.mono(12).monospacedDigit())
                         .foregroundStyle(Palette.ink)
                 }
             }
@@ -208,7 +208,7 @@ struct CallScreen: View {
                         .padding(.top, 1)
                     Text(info.text)
                         .font(.custom(KithFonts.interRegular, size: 13))
-                        .foregroundStyle(Palette.ink)
+                        .foregroundStyle(Palette.muted)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     if info.retry {
@@ -246,7 +246,7 @@ struct CallScreen: View {
                         .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: level)
                         .transition(.opacity)
                 }
-                if let bot { CharacterAvatar(bot: bot, size: 150).kithBotShadow() }
+                if let bot { CharacterAvatar(bot: bot, size: 160).kithBotShadow() }
             }
             .frame(width: 220, height: 220)
         }
