@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { avatarImage, DEFAULT_IMAGE } from '@shared/crew'
 import type { IslandBot, IslandPermission, IslandSummary } from '@shared/island'
 import { folderName, isGroup, isWorking, type Bot, type Entry } from '@shared/models'
 import { useModels } from '../lib/observable'
@@ -48,7 +49,7 @@ function islandBot(store: BotStore, bot: Bot, ref: string, name: string): Island
   return {
     ref,
     name,
-    shape: bot.avatarShape,
+    image: avatarImage(bot) ?? DEFAULT_IMAGE,
     color: bot.avatarColor,
     status: bot.status,
     backend: store.backendName(bot.backend),
@@ -74,7 +75,7 @@ function pendingCards({ ref, bot, store }: RosterItem): IslandPermission[] {
       return {
         ref: refKey(ref),
         entryId: e.id,
-        bot: { name: author.name, shape: author.avatarShape, color: author.avatarColor, backend: store.backendName(author.backend) },
+        bot: { name: author.name, image: avatarImage(author) ?? DEFAULT_IMAGE, color: author.avatarColor, backend: store.backendName(author.backend) },
         headline: permissionHeadline(e.data.toolKind),
         title: e.data.title ?? '',
         options: sortedOptions(e.data.options ?? []).map((o) => ({ id: o.optionId, label: optionLabel(o), kind: o.kind })),

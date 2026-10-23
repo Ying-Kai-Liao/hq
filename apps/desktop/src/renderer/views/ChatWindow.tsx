@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { WindowCommand } from '@shared/ipc'
 import { isSSHConnecting, showsChat as shouldShowChat } from '@shared/ssh-startup'
 import { draftOf, type Bot, type BotDraft } from '@shared/models'
-import { CharacterAvatar } from '../components/Avatar'
+import { LiveBot } from '../components/Avatar'
 import { Button, ChoicePicker, IconButton, ResizeHandle } from '../components/Controls'
 import { AnchoredMenu, Dialog, ModalHeader, Sheet, type MenuItem } from '../components/Overlay'
 import { HStack, Spacer } from '../components/Stack'
@@ -328,9 +328,9 @@ function ChatSplitView() {
       <div className="empty-detail">
         <div className="detail-drag drag" />
         <HStack align="stretch" className="empty-detail-crew">
-          <CharacterAvatar shape="blob" color="blue" size={60} mood="working" />
-          <CharacterAvatar shape="squircle" color="orange" size={60} />
-          <CharacterAvatar shape="teardrop" color="violet" size={60} mood="working" />
+          <LiveBot face={{ kind: 'crew', name: 'builder' }} size={60} id="builder" mood="working" />
+          <LiveBot face={{ kind: 'crew', name: 'designer' }} size={60} id="designer" />
+          <LiveBot face={{ kind: 'crew', name: 'coder' }} size={60} id="coder" mood="working" />
         </HStack>
         <Text as="div" size="title2" weight="semibold">{connecting ? 'Connecting to your computers…' : 'Your coding agents, as teammates.'}</Text>
         <Text as="div" tone="secondary" className="empty-detail-message">{connecting ? 'Your bots will appear once connected. Manage computers to see connection progress.' : 'Pick a bot, or create one for each kind of work and point it at a project.'}</Text>

@@ -74,8 +74,10 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  max-width: 60%;
+  gap: 6px;
+  /* Leaves each side the width of the details button, so a narrow window never slides the pill under it. */
+  max-width: calc(100% - 112px);
+  min-width: 0;
 }
 .title-stack .title-pill {
   max-width: 100%;
@@ -97,7 +99,9 @@
   background: var(--chrome-fill);
   border-radius: var(--radius-pill);
   box-shadow: var(--shadow-m);
-  max-width: 60%;
+  /* The name keeps room to read at the narrowest window. */
+  min-width: min(140px, 100%);
+  max-width: 100%;
   transition: opacity var(--layout), transform var(--layout);
 }
 .title-pill-chevron {

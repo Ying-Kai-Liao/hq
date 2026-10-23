@@ -1,4 +1,4 @@
-/** The crew with a face of their own (brand crew/<agent>.png, shipped in renderer/assets/crew). */
+/** The crew with a face of their own (layers in renderer/assets/bots/<name>, see living-bots.ts). */
 export const CREW = [
   'branding', 'builder', 'coder', 'designer', 'devops', 'finance', 'house', 'image',
   'lab', 'marketing', 'modeler', 'pemo', 'personal', 'resource-manager', 'sound', 'video',
@@ -17,7 +17,7 @@ export function crewName(bot: { id: string; name: string; kind: string }): strin
   return null
 }
 
-/** Extra portraits anyone can pick (brand crew/spare/<name>.png, shipped in renderer/assets/spare). */
+/** Extra portraits anyone can pick (layers in renderer/assets/bots/<name>). */
 export const SPARES = ['calendar', 'chart', 'cloud', 'globe', 'gradcap', 'heart', 'laptop', 'magnifier'] as const
 
 /** The portrait used when nothing else matches (`auto`). */
@@ -25,11 +25,12 @@ export const DEFAULT_CREW = 'builder'
 
 export type AvatarImage = { kind: 'crew' | 'spare'; name: string }
 
-/** The portrait a bot shows, or null for a group or a bot drawn as Codync's shape. */
+export const DEFAULT_IMAGE: AvatarImage = { kind: 'crew', name: DEFAULT_CREW }
+
+/** The portrait a bot shows, or null for a group (the cube on its tile). Old `shape` data means auto. */
 export function avatarImage(bot: { id: string; name: string; kind: string; avatarSource?: string }): AvatarImage | null {
   if (bot.kind === 'group') return null
   const source = bot.avatarSource ?? 'auto'
-  if (source === 'shape') return null
   const [kind, name = ''] = source.split(':')
   if (kind === 'crew' && (CREW as readonly string[]).includes(name)) return { kind, name }
   if (kind === 'spare' && (SPARES as readonly string[]).includes(name)) return { kind, name }

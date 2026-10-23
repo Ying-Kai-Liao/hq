@@ -1,0 +1,41 @@
+[package]
+name = "kith-tts"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Speaks text with a local Phonon model for kith serve, over JSON lines on stdio"
+license = "Apache-2.0"
+publish = false
+
+# Its own process so a crash in the model code only fails one request, and so kith serve's binary
+# carries none of the inference runtime.
+[[bin]]
+name = "kith-tts"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.23.1"
+# `hf` is the tokenizer; `hub` (downloads) stays off: kith serve fetches and checks the files itself.
+ptts = { version = "0.4.0", default-features = false, features = ["hf"] }
+serde_json = "1.0.151"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+ptts = { version = "0.4.0", default-features = false, features = ["hf", "accelerate"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+unused_qualifications = "warn"
+
+[lints.clippy]
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+unwrap_used = "warn"
+dbg_macro = "warn"
+todo = "warn"

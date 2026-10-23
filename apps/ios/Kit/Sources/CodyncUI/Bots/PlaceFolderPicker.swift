@@ -272,7 +272,7 @@ struct PlaceFolderChip: View {
     private func label(_ folder: PlaceFolder) -> some View {
         HStack(spacing: 4) {
             Image(systemName: folder.missing ? "exclamationmark.triangle.fill" : folder.icon).font(.system(size: 10))
-            Text(folder.name).lineLimit(1)
+            Text(folder.name).lineLimit(1).truncationMode(.middle)
             Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
         }
         .font(.system(size: 11, weight: .medium))

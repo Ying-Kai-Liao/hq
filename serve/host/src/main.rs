@@ -22,6 +22,7 @@ mod tui;
 mod update;
 mod usage;
 mod voice;
+mod voice_local;
 mod watchdog;
 
 use agent::backends;
