@@ -145,13 +145,13 @@ describe("accepting a bot invite", () => {
     await hostWs.nextT("cloud.changed");
   });
 
-  it("answers 409 to a second key, 403 to a wrong proof, 404 to an unknown invite, 400 to a malformed one, 401 unsigned", async () => {
+  it("answers 409 to a second key, 403 to a wrong proof or an unknown invite, 400 to a malformed one, 401 unsigned", async () => {
     const { inviteId, proof } = await setup();
     const a = ref.signKey();
     expect((await accept(a, inviteId, secrets().proof)).status).toBe(403);
     // The stored hash isn't a proof: the client must send sha256hex(t), not what the cloud keeps.
     expect((await accept(a, inviteId, secrets().tokenHash)).status).toBe(403);
-    expect((await accept(a, "binv_missing", proof)).status).toBe(404);
+    expect((await accept(a, "binv_missing", proof)).status).toBe(403);
     expect((await accept(a, inviteId, "nothex")).status).toBe(400);
     expect((await call("POST", `/v1/bot-invites/${inviteId}/accept`, { body: { token: proof, name: "Rex" } })).status).toBe(401);
     expect((await call("POST", `/v1/bot-invites/${inviteId}/accept`, { key: a, body: { token: proof } })).status).toBe(400);

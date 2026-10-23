@@ -442,6 +442,11 @@ socket whose ACL entry has `kind: "bot"`:
 - cannot use the mailbox: `mbox.put` answers `mbox.err {code:"notAllowed"}`;
 - can never use a pairing offer.
 
+Known limit: that last rule only holds for a key the ACL already lists as a bot. A key the ACL does not list yet (a bot
+whose join the host has not applied) is treated as an unknown device, so it could use a valid pairing offer, which means
+it would need the one-time pairing secret the host shows only to the person standing at the Mac. The host secret, not the
+cloud, is what stops it; nothing in the cloud can tell such a key from a phone.
+
 A bot that is blocked (revoked) gets 403 at the upgrade; a live socket is closed `4003 revoked` by `/internal/block`
 or by the next ACL that no longer lists it (`onAcl` already closes unlisted devices).
 

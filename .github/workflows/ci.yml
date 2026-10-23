@@ -42,6 +42,7 @@ jobs:
       relay: ${{ steps.h.outputs.relay }}
       e2e: ${{ steps.h.outputs.e2e }}
       guest_linux: ${{ steps.h.outputs.guest_linux }}
+      bot_e2e: ${{ steps.h.outputs.bot_e2e }}
     steps:
       - uses: actions/checkout@v4
       # On push to main dorny compares with the previous commit, so main only runs what changed.
@@ -104,6 +105,10 @@ jobs:
             # The static Linux client (kith-guest) and the scripts and workflow that package and install it.
             guest_linux:
               - '{serve/host/crates/guest/**,serve/host/crates/wire/**,serve/host/Cargo.lock,serve/rust-toolchain.toml,scripts/package-guest.sh,scripts/install-guest.sh,scripts/smoke-guest.sh,.github/workflows/release.yml,.github/workflows/ci.yml}'
+              - '!**/*.md'
+            # The real kith-guest against a real kith-serve and wrangler dev (apps/desktop/tools/relay-e2e-bot.ts).
+            bot_e2e:
+              - '{serve/host/**,serve/cloud/**,serve/rust-toolchain.toml,serve/docs/reference/fixtures/**,kernel/bin/kith-auth,apps/desktop/tools/relay-e2e-host.ts,apps/desktop/tools/relay-e2e-bot.ts,.github/workflows/ci.yml}'
               - '!**/*.md'
             # The e2e also runs serve/cloud's wrangler dev, so cloud changes trigger it (not the macOS desktop job).
             e2e:
@@ -357,6 +362,39 @@ jobs:
           KITH_SERVE_HOST_BIN: ${{ github.workspace }}/serve/host/target/debug/kith-serve
         run: npm run e2e:relay:host
 
+  # Bot guests, end to end: the real kith-guest binary joins and asks through wrangler dev and a real kith-serve with a
+  # stub agent (the desktop relay e2e's harness, plus the bot stage that runs when KITH_GUEST_BIN is set).
+  bot-guests-e2e:
+    needs: changes
+    if: needs.changes.outputs.bot_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install system libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
+      - name: Install pinned toolchain
+        working-directory: serve
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: serve/host
+          shared-key: bot-guests-e2e
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo build --manifest-path serve/host/Cargo.toml --bin kith-serve
+      - run: cargo build --manifest-path serve/host/Cargo.toml -p kith-guest
+      - run: npm --prefix serve/cloud ci --no-audit --no-fund
+      - run: npm --prefix apps/desktop ci --ignore-scripts --no-audit --no-fund
+      - name: Bot guests e2e (real host, real kith-guest)
+        working-directory: apps/desktop
+        env:
+          KITH_SERVE_HOST_BIN: ${{ github.workspace }}/serve/host/target/debug/kith-serve
+          KITH_GUEST_BIN: ${{ github.workspace }}/serve/host/target/debug/kith-guest
+        run: npm run e2e:relay:host
+
   # The Linux client for cloud-bot VMs: static musl build per CPU on a native runner (no qemu), then the one-command
   # installer against the tarball it just built. Mirrors release.yml's build-guest without publishing anything.
   guest-linux:
@@ -410,7 +448,7 @@ jobs:
   # skipped by the filter, fails on any failure or cancellation.
   ci:
     if: always()
-    needs: [changes, kernel, host, cloud, licenses, thread-writers, relay, ios, desktop, desktop-relay-e2e, guest-linux]
+    needs: [changes, kernel, host, cloud, licenses, thread-writers, relay, ios, desktop, desktop-relay-e2e, bot-guests-e2e, guest-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

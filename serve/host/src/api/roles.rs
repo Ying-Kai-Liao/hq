@@ -357,7 +357,7 @@ pub fn bot_entry(e: &Value, conversation: &str, waits_on: &str) -> Option<Value>
     let data = &e["data"];
     let text = |k: &str| data[k].as_str().unwrap_or_default().to_owned();
     let mut out = json!({
-        "id": e["id"], "seq": e["seq"], "turn": e["turn"], "at": e["createdAt"], "conversation": conversation,
+        "id": e["id"], "seq": e["rev"], "turn": e["turn"], "at": e["createdAt"], "conversation": conversation,
     });
     match e["kind"].as_str()? {
         "user" => {
@@ -376,6 +376,8 @@ pub fn bot_entry(e: &Value, conversation: &str, waits_on: &str) -> Option<Value>
         "notice" if data["style"] == "error" => {
             out["kind"] = "notice".into();
             out["text"] = text("text").into();
+            // The client ends the turn on a notice marked as an error.
+            out["error"] = true.into();
         }
         "permission" if data["status"] == "pending" => {
             out["kind"] = "waiting".into();
