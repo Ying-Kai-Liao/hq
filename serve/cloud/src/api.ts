@@ -6,6 +6,7 @@ import type { Ctx } from "./routes/common";
 
 export { ApiError, type Ctx } from "./routes/common";
 export * from "./routes/account";
+export * from "./routes/botguests";
 export * from "./routes/host";
 export * from "./routes/invites";
 export * from "./routes/relay";
@@ -39,5 +40,7 @@ export async function sweep(env: Env, now: number): Promise<void> {
        WHERE status = 'pending' AND expires_at <= ?`,
     ).bind(now),
     env.DB.prepare("DELETE FROM audit_events WHERE created_at <= ?").bind(now - 30 * 86_400_000),
+    // Unaccepted bot invites only: an accepted one is the record behind a bot device.
+    env.DB.prepare("DELETE FROM bot_invites WHERE accepted_at IS NULL AND expires_at <= ?").bind(now - 7 * 86_400_000),
   ]);
 }

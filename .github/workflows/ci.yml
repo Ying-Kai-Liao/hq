@@ -149,6 +149,9 @@ jobs:
         run: npm run typecheck
       - name: Vitest
         run: npm test
+      # wrangler dev with a local D1 and a fake host; no secrets.
+      - name: Bot guests e2e
+        run: npm run e2e:bot
 
   # THIRD_PARTY_NOTICES.md is generated; fail when it is stale or a shipped license is unsafe to sell with Kith
   # (scripts/notices/policy.json, docs/open-source.md).
