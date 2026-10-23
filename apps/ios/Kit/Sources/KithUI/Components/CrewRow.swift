@@ -38,10 +38,12 @@ public struct CrewRowModel: Identifiable, Equatable, Sendable {
     public var status: String?
     /// Questions waiting on you; 0 shows no badge.
     public var count: Int
+    /// Unread messages and nothing waiting on you: a bold name and a small dot instead of a badge.
+    public var unread: Bool
     public var state: BotAvatarState
 
     public init(id: String, shape: Shape, name: String, withPerson: String? = nil, trailing: String? = nil,
-                status: String? = nil, count: Int = 0, state: BotAvatarState = .idle) {
+                status: String? = nil, count: Int = 0, unread: Bool = false, state: BotAvatarState = .idle) {
         self.id = id
         self.shape = shape
         self.name = name
@@ -49,6 +51,7 @@ public struct CrewRowModel: Identifiable, Equatable, Sendable {
         self.trailing = trailing
         self.status = status
         self.count = count
+        self.unread = unread
         self.state = state
     }
 }
@@ -69,6 +72,7 @@ public struct CrewRow: View {
                     Text(model.name)
                         .kithText(isGroup ? .topBar : .agentName)
                         .foregroundStyle(Palette.ink)
+                        .fontWeight(showsDot ? .bold : nil)
                         .lineLimit(1)
                     if let person = model.withPerson {
                         Text("with \(person)").kithText(.body).foregroundStyle(Palette.muted).lineLimit(1)
@@ -78,6 +82,7 @@ public struct CrewRow: View {
                     if let trailing = model.trailing {
                         Text(trailing).kithText(.secondary).foregroundStyle(Palette.muted).lineLimit(1).fixedSize()
                     }
+                    if showsDot { Circle().fill(Palette.ink).frame(width: 8, height: 8) }
                     CountBadge(model.count)
                 }
                 if let status = model.status, !status.isEmpty {
@@ -93,9 +98,11 @@ public struct CrewRow: View {
         .accessibilityLabel(Text(accessibilityText))
     }
 
+    private var showsDot: Bool { model.unread && model.count == 0 }
+
     private var accessibilityText: String {
         [model.name, model.withPerson.map { "with \($0)" }, model.trailing, model.status,
-         model.count > 0 ? "\(model.count) waiting" : nil].compactMap { $0 }.joined(separator: ", ")
+         model.count > 0 ? "\(model.count) waiting" : nil, model.unread ? "unread" : nil].compactMap { $0 }.joined(separator: ", ")
     }
 }
 
