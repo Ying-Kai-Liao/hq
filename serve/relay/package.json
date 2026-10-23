@@ -1,7 +1,7 @@
 {
-  "name": "codync-relay",
+  "name": "kith-relay",
   "version": "1.0.0",
-  "description": "Codync APNs push relay (Cloudflare Worker)",
+  "description": "Kith APNs push relay (Cloudflare Worker)",
   "main": "src/index.ts",
   "scripts": {
     "deploy": "wrangler deploy",

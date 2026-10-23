@@ -3,7 +3,7 @@
 // Presence, ciphertext forwarding between the host socket and device sockets, ACL admission, and the
 // offline mailbox (device → host), and the queue of public routine webhook deliveries (§7.8). It never
 // parses channel frames and never stores chat. Reached only through requests the Worker builds itself
-// (`X-Codync-Internal: 1`), never a client's own request.
+// (`X-Kith-Internal: 1`), never a client's own request.
 
 import { DurableObject } from "cloudflare:workers";
 import { b64url, fromB64url, NONCE_TTL_MS, randomId, utf8, verifyEd25519 } from "./auth";
@@ -140,7 +140,7 @@ export class ComputerRelay extends DurableObject<Env> {
   // ---- entry points ----
 
   override async fetch(req: Request): Promise<Response> {
-    if (req.headers.get("X-Codync-Internal") !== "1") return errorResponse(404, "notFound");
+    if (req.headers.get("X-Kith-Internal") !== "1") return errorResponse(404, "notFound");
     const { pathname } = new URL(req.url);
     if (pathname === "/relay") return this.relay(req);
     if (pathname === "/internal/block" && req.method === "POST") return this.block(req);
@@ -155,17 +155,17 @@ export class ComputerRelay extends DurableObject<Env> {
   private async relay(req: Request): Promise<Response> {
     const h = (name: string) => req.headers.get(name) ?? "";
     if (h("Upgrade").toLowerCase() !== "websocket") return errorResponse(426, "upgradeRequired");
-    const role = h("X-Codync-Role");
-    const key = h("X-Codync-Key");
-    const nonce = h("X-Codync-Nonce");
+    const role = h("X-Kith-Role");
+    const key = h("X-Kith-Key");
+    const nonce = h("X-Kith-Nonce");
     if (!fromB64url(key, 32) || !fromB64url(nonce, 16)) return errorResponse(400, "badRequest");
     const now = Date.now();
     if (this.sql.exec("SELECT 1 FROM nonces WHERE kid = ? AND nonce = ?", key, nonce).toArray().length) {
       return errorResponse(401, "badSignature");
     }
     this.sql.exec("INSERT INTO nonces(kid, nonce, exp) VALUES (?, ?, ?)", key, nonce, now + NONCE_TTL_MS);
-    if (role === "host") return this.acceptHost(key, h("X-Codync-Computer"), now);
-    if (role === "device") return this.acceptDevice(key, h("X-Codync-Pair"), now);
+    if (role === "host") return this.acceptHost(key, h("X-Kith-Computer"), now);
+    if (role === "device") return this.acceptDevice(key, h("X-Kith-Pair"), now);
     return errorResponse(400, "badRequest");
   }
 
@@ -244,11 +244,11 @@ export class ComputerRelay extends DurableObject<Env> {
   // ---- routine webhooks (§7.8) ----
 
   /**
-   * `POST /internal/hook` with the sender's body and forwarded headers, `X-Codync-Hook: <id>`.
+   * `POST /internal/hook` with the sender's body and forwarded headers, `X-Kith-Hook: <id>`.
    * 401 for an unknown hook or a wrong key alike, so hook ids can't be probed.
    */
   private async hook(req: Request): Promise<Response> {
-    const id = req.headers.get("X-Codync-Hook") ?? "";
+    const id = req.headers.get("X-Kith-Hook") ?? "";
     const body = new Uint8Array(await req.arrayBuffer());
     if (!HOOK_ID.test(id)) return errorResponse(400, "badRequest");
     if (body.length > HOOK_MAX_BODY) return errorResponse(413, "tooLarge");

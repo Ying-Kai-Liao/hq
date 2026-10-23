@@ -1,4 +1,4 @@
-// Reference device/host crypto for the Codync relay protocol (spec §4–§7), built on @noble/*.
+// Reference device/host crypto for the Kith relay protocol (spec §4–§7), built on @noble/*.
 // Test-only: checked against docs/reference/fixtures/remote-relay-vectors.json, then used by the unit tests and the e2e harness.
 // Runs in both workerd (vitest) and Node (e2e).
 
@@ -74,15 +74,15 @@ export function boxKey(priv: Uint8Array = random(32)): BoxKey {
 
 // ---- label family ----
 
-/** Which labels the reference side speaks. New pairings use "kith"; the vectors also pin "codync" (pairings made before the rename). */
-export type Family = "kith" | "codync";
+/** Which labels the reference side speaks. New pairings use "kith"; the legacy-compat tests pin the old family. */
+export type Family = string;
 export let family: Family = "kith";
 export const useFamily = (f: Family) => {
   family = f;
 };
 const label = (rest: string) => `${family}/${rest}`;
 /** The signature header name for the current family. */
-export const sigHeader = () => (family === "kith" ? "Kith-Sig" : "Codync-Sig");
+export const sigHeader = () => `${family[0]!.toUpperCase()}${family.slice(1)}-Sig`;
 
 // ---- Kith-Sig (§5) ----
 

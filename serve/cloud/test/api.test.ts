@@ -85,18 +85,6 @@ async function grantAccess(user: User, host: TestHost) {
 
 describe("basics", () => {
   it("bounces a connector sign-in to the app", async () => {
-    const res = await SELF.fetch(`${ORIGIN}/v1/oauth/callback?code=abc&state=xyz`, { redirect: "manual" });
-    expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("codync://oauth?code=abc&state=xyz");
-  });
-
-  it("keeps development connector callbacks separate from production", async () => {
-    const res = await SELF.fetch(`${ORIGIN}/v1/oauth/callback/dev?code=abc&state=xyz`, { redirect: "manual" });
-    expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("codync-dev://oauth?code=abc&state=xyz");
-  });
-
-  it("bounces new callbacks to the kith schemes and leaves the old routes on codync", async () => {
     for (const [path, scheme] of [["kith", "kith"], ["kith-dev", "kith-dev"]]) {
       const res = await SELF.fetch(`${ORIGIN}/v1/oauth/callback/${path}?code=abc&state=xyz`, { redirect: "manual" });
       expect(res.status).toBe(302);
@@ -182,7 +170,7 @@ describe("Kith-Sig over HTTP", () => {
     const key = ref.signKey();
     expect((await register(key, { ts: Date.now() - 301_000 })).status).toBe(401);
     expect((await register(key, { ts: Date.now() + 301_000 })).status).toBe(401);
-    expect((await register(key, { authority: "codync-cloud.example.workers.dev" })).status).toBe(401);
+    expect((await register(key, { authority: "kith-cloud.example.workers.dev" })).status).toBe(401);
     expect((await register(key, { authority: AUTHORITY.toUpperCase() })).status).toBe(200);
   });
 
@@ -199,24 +187,6 @@ describe("Kith-Sig over HTTP", () => {
     }
     expect(statuses.slice(0, 10).every((s) => s === 200)).toBe(true);
     expect(statuses[10]).toBe(429);
-  });
-
-  it("still accepts the pre-rename Codync-Sig header and codync-sig-v1 prefix", async () => {
-    const key = ref.signKey();
-    const body = ref.enc.encode(JSON.stringify({ boxKey: ref.b64url(ref.boxKey().pub), name: "Mac", platform: "macos", version: "2.2.0" }));
-    ref.useFamily("codync");
-    let sig: string;
-    try {
-      sig = ref.signRequest(key, { method: "POST", authority: AUTHORITY, pathAndQuery: "/v1/host/register", body });
-    } finally {
-      ref.useFamily("kith");
-    }
-    const res = await worker.fetch(
-      new Request(`https://${AUTHORITY}/v1/host/register`, { method: "POST", headers: { "Codync-Sig": sig }, body }),
-      env,
-      {} as ExecutionContext,
-    );
-    expect(res.status).toBe(200);
   });
 
   it("binds the body", async () => {
@@ -283,12 +253,6 @@ describe("claims", () => {
     const list = await call("GET", "/v1/computers", { token: u.token });
     expect(list.body.computers.map((c: Json) => c.computerId)).toEqual([host.cid]);
     expect(list.body.computers[0].access).toBeNull();
-  });
-
-  it("still accepts a claim a host signed under the pre-rename codync labels", async () => {
-    const u = await newUser();
-    const host = await newHost();
-    expect((await claim(u, host, "codync")).status).toBe(200);
   });
 
   it("creates the computer row from the signed boxKey when the host never registered", async () => {

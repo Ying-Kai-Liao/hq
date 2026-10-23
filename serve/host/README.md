@@ -1,7 +1,6 @@
 # kith-serve
 
-Kith's host: runs coding-agent bots over ACP and serves the Kith apps. Built on
-[Codync](https://github.com/leepokai/Codync) (Apache-2.0); see `../NOTICE` and `LICENSE`.
+Kith's host: runs coding-agent bots over ACP and serves the Kith apps. Apache-2.0; see `../NOTICE` and `LICENSE`.
 
 ## One `kith` binary
 

@@ -75,11 +75,11 @@ export interface PairingInfo {
   cloud: string | null;
 }
 
-/** Parses a v3 `kith://pair?…` link (§4.1; `kith-dev://` from a development host; the pre-rename `codync` schemes are still accepted), refusing a mismatched computerId. */
+/** Parses a v3 `kith://pair?…` link (§4.1; `kith-dev://` from a development host), refusing a mismatched computerId. */
 export function parsePairing(link: string): PairingInfo {
   const u = new URL(link);
   const q = u.searchParams;
-  if (!["kith:", "kith-dev:", "codync:", "codync-dev:"].includes(u.protocol) || q.get("v") !== "3") throw new Error(`not a v3 pairing link: ${link}`);
+  if (!["kith:", "kith-dev:"].includes(u.protocol) || q.get("v") !== "3") throw new Error(`not a v3 pairing link: ${link}`);
   const signKey = ref.unb64url(q.get("sk") ?? "");
   if (ref.computerId(signKey) !== q.get("id")) throw new Error("pairing link id doesn't match sk");
   return {

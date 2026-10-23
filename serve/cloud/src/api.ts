@@ -22,14 +22,6 @@ export const health = async () => ({ ok: true, version: VERSION });
  * the query (code, state or error) to the app, which hands it to the host over the E2E channel. The code
  * is useless without the PKCE verifier that only the host holds.
  */
-export const oauthCallback = async (c: Ctx) =>
-  new Response(null, { status: 302, headers: { Location: `codync://oauth${c.url.search}`, "Cache-Control": "no-store" } });
-
-/** Separate callback route keeps installed production clients and older dev builds working. */
-export const oauthDevCallback = async (c: Ctx) =>
-  new Response(null, { status: 302, headers: { Location: `codync-dev://oauth${c.url.search}`, "Cache-Control": "no-store" } });
-
-/** The routes above keep bouncing to the `codync` schemes, the only ones apps installed before the rename wait for. */
 export const oauthKithCallback = async (c: Ctx) =>
   new Response(null, { status: 302, headers: { Location: `kith://oauth${c.url.search}`, "Cache-Control": "no-store" } });
 
