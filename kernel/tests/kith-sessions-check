@@ -209,4 +209,19 @@ for _ in $(seq 50); do [[ -f $REG/fb-sid.json ]] && break; sleep 0.2; done
 sleep 1; : > "$REG/fb-sid.taken"; : > "$T/go"; wait $BG
 grep -q "kith designer --resume fb-sid" "$T/tty.out" && ok "taken: host down, note falls back to the session id" || bad "taken fallback" "$(cat $T/tty.out)"
 
+# host location follows kith-serve: dev 19224/serve, packaged main 19225/serve-main; KITH_SERVE_* still override
+PK=$T/pk; mkdir -p "$PK/a/b/bin" "$PK/home/.kith/serve-main"
+cp "$KERNEL/bin/kith-serve" "$KERNEL/bin/kith-sessions" "$PK/a/b/bin/"; echo main > "$PK/a/env"; echo maintok > "$PK/home/.kith/serve-main/token"
+probe() {   # probe [VAR=value ...] — the url and token host_call would use, with urlopen stubbed
+  env -u KITH_SERVE_DIR -u KITH_SERVE_PORT HOME=$PK/home "$@" python3 - "$PK/a/b/bin/kith-sessions" <<'PY'
+import importlib.machinery, importlib.util, sys, urllib.request
+l = importlib.machinery.SourceFileLoader('ks', sys.argv[1]); m = importlib.util.module_from_spec(importlib.util.spec_from_loader('ks', l)); l.exec_module(m)
+def fake(req, timeout=0): print(req.full_url, req.get_header('Authorization')); raise OSError
+urllib.request.urlopen = fake
+m.host_call('resolveThread', {})
+PY
+}
+is "main env: port 19225 and serve-main token" "$(probe)" "http://127.0.0.1:19225/api/resolveThread Bearer maintok"
+is "main env: KITH_SERVE_PORT overrides the port" "$(probe KITH_SERVE_PORT=4242)" "http://127.0.0.1:4242/api/resolveThread Bearer maintok"
+
 exit $fail
