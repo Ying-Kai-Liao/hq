@@ -1,0 +1,371 @@
+/* The Mac sidebar in the designer's mock (app-style/mac-main): top row, Crew rows, Board, search results, dock, rail.
+   Colours are the Kith tokens (styles/tokens.css); the selected-row fill is the mock's #EEEFF3 (dark #262A33). */
+:root {
+  --cs-select: #eeeff3;
+  --cs-seg-on: #ffffff;
+  --cs-mark: rgba(255, 214, 102, 0.45);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cs-select: #262a33;
+    --cs-seg-on: #3a3f4b;
+    --cs-mark: rgba(255, 214, 102, 0.3);
+  }
+}
+
+/* One sky band runs across the whole window top and is gone into the ground by about 170 pt. */
+.window-sky {
+  height: var(--kith-sky-header-fade);
+}
+
+/* ---- top row (y = 40: clears the traffic lights) ---- */
+.cs-top {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  padding: 40px 12px 8px;
+}
+.cs-top-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cs-profile {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7);
+  overflow: hidden;
+}
+html:not([data-platform='darwin']) .cs-profile {
+  box-shadow: 0 0 0 2px var(--kith-glass-edge);
+}
+.cs-profile.open {
+  box-shadow: 0 0 0 2px var(--kith-ink);
+}
+.cs-profile-photo {
+  width: 30px;
+  height: 30px;
+  object-fit: cover;
+  border-radius: 50%;
+}
+.cs-top .kc-switch {
+  padding: 3px;
+}
+.cs-top .kc-switch-item {
+  height: 26px;
+  padding: 0 12px;
+  gap: 5px;
+  font: 500 calc(12.5px * var(--scale)) / normal var(--font-ui);
+}
+.cs-top .kc-switch-item.selected {
+  background: var(--cs-seg-on);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(20, 22, 27, 0.1);
+}
+.cs-top .kc-glass-button {
+  width: 32px;
+  height: 32px;
+}
+
+/* ---- Crew rows (the bot at 40, no tile) ---- */
+.cs-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 8px;
+  min-width: 0;
+}
+.cs-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+.cs-row-top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.cs-row-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--kith-ink);
+  font: 800 calc(14.5px * var(--scale)) / 1.25 var(--font-agent);
+}
+.cs-row-name.group {
+  font: 600 calc(13.5px * var(--scale)) / 1.25 var(--font-ui);
+}
+.cs-row-right {
+  flex: none;
+  margin-left: auto;
+  padding-left: 6px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--kith-muted);
+  font-size: calc(11.5px * var(--scale));
+  white-space: nowrap;
+}
+.cs-unread {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--kith-ink);
+}
+.cs-row-status {
+  display: block;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--kith-muted);
+  font-size: calc(12.5px * var(--scale));
+}
+.cs-row-status.ink {
+  color: var(--kith-ink);
+}
+.cs-duo {
+  position: relative;
+  flex: none;
+}
+.cs-duo-a,
+.cs-duo-b,
+.cs-duo-sky {
+  position: absolute;
+}
+.cs-duo-a {
+  left: 0;
+  top: 0;
+}
+.cs-duo-b {
+  right: 0;
+  bottom: 2px;
+}
+.cs-duo-sky {
+  left: 2px;
+  bottom: 0;
+  line-height: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--kith-ground);
+}
+.cs-rail-face {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  padding: 4px 0;
+}
+
+/* ---- the computer filter, when there is anything to filter ---- */
+.cs-filter {
+  padding: 0 8px 4px;
+}
+
+/* ---- Board and search results ---- */
+.cs-section-title {
+  display: flex;
+  justify-content: space-between;
+  margin: 10px 8px 4px;
+  color: var(--kith-muted);
+  font: 700 calc(10.5px * var(--scale)) / normal var(--font-ui);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.cs-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 8px;
+  border-radius: 10px;
+  text-align: left;
+  flex: none;
+}
+.cs-card:hover {
+  background: color-mix(in srgb, var(--cs-select) 60%, transparent);
+}
+.cs-card.selected {
+  background: var(--cs-select);
+}
+.cs-card .kc-count {
+  align-self: center;
+}
+.cs-card-face {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
+}
+.cs-card-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cs-card-text b,
+.cs-card-text small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cs-card-text b {
+  color: var(--kith-ink);
+  font-weight: 500;
+  font-size: calc(13px * var(--scale));
+}
+.cs-card-text small {
+  color: var(--kith-muted);
+  font-size: calc(11.5px * var(--scale));
+}
+.cs-card-text small.ink {
+  color: var(--kith-ink);
+}
+.cs-mark {
+  padding: 0 1px;
+  border-radius: 3px;
+  background: var(--cs-mark);
+  color: inherit;
+}
+.cs-key {
+  flex: none;
+  align-self: center;
+  color: var(--kith-muted);
+  font-size: calc(11px * var(--scale));
+}
+.cs-board-empty {
+  padding: 24px 12px;
+  color: var(--kith-muted);
+  font-size: calc(13px * var(--scale));
+  text-align: center;
+}
+
+/* ---- the dock at the foot: find or ask, with the call button to its right ---- */
+.cs-dock {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 10px 12px 12px;
+}
+.cs-box {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 6px 0 8px;
+  border-radius: 21px;
+  box-shadow: inset 0 0 0 0.5px var(--kith-glass-edge), 0 2px 14px rgba(20, 22, 27, 0.08);
+}
+.cs-box-plus,
+.cs-box-mic,
+.cs-box-send {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: var(--kith-ink);
+}
+.cs-box-plus:disabled {
+  opacity: 0.4;
+}
+.cs-box-mic {
+  color: var(--kith-muted);
+}
+.cs-box-mic.on {
+  color: var(--kith-ink);
+  background: color-mix(in srgb, var(--kith-ink) 10%, transparent);
+}
+/* Grey: Return opens the top match. */
+.cs-box-send {
+  width: 30px;
+  height: 30px;
+  background: var(--cs-select);
+  color: var(--kith-muted);
+}
+.cs-box-send:disabled {
+  opacity: 0.5;
+}
+.cs-box-field {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--kith-ink);
+  font: 400 calc(13.5px * var(--scale)) / normal var(--font-ui);
+}
+.cs-box-field::placeholder {
+  color: var(--kith-muted);
+}
+.cs-box:focus-within {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kith-ink) 35%, transparent), 0 2px 14px rgba(20, 22, 27, 0.08);
+}
+.cs-call-slot {
+  width: 0;
+  opacity: 0;
+  overflow: hidden;
+  flex: none;
+  transition: width 0.22s cubic-bezier(0.3, 0, 0.15, 1), opacity 0.16s ease, margin 0.22s cubic-bezier(0.3, 0, 0.15, 1);
+}
+.cs-call-slot.shown {
+  width: 42px;
+  margin-left: 8px;
+  opacity: 1;
+}
+.cs-call {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  color: var(--kith-ink);
+  box-shadow: inset 0 0 0 0.5px var(--kith-glass-edge), 0 2px 14px rgba(20, 22, 27, 0.08);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cs-call-slot {
+    transition: opacity 0.12s ease;
+  }
+}
+
+/* ---- the rail (under 180: 68 wide) ---- */
+.cs-rail-top {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  padding: 42px 0 8px;
+}
+.cs-rail-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.cs-rail-foot {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0 14px;
+}

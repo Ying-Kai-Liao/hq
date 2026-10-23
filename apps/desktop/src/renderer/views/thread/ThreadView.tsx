@@ -24,6 +24,7 @@ import { PlaceFolderControl } from '../bots/PlaceFolderPicker'
 import { GroupEditorView } from '../bots/GroupEditorView'
 import { BotTemplateView } from '../bots/BotTemplateView'
 import { CallView } from '../call/CallView'
+import { START_CALL_EVENT } from '../../lib/call-event'
 import { callBlockedReason } from '../call/call-availability'
 import { MacChatButton } from './MacChatButton'
 import './thread.css'
@@ -58,6 +59,10 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
     setCompactDetails(false)
     setCalling(true)
   }
+  useEffect(() => {
+    window.addEventListener(START_CALL_EVENT, startCall)
+    return () => window.removeEventListener(START_CALL_EVENT, startCall)
+  })
   const [routineId, setRoutineId] = useState<string | null>(null)
   const [routineRequest, setRoutineRequest] = useState(0)
   const root = useRef<HTMLDivElement>(null)

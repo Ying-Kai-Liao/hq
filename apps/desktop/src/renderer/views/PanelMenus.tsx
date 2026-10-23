@@ -44,12 +44,13 @@ interface PanelItem {
 }
 
 /** The account menu: a window-local floating surface (no system menu styling). */
-export function AccountPanelLayer({ compact, approvals, onDismiss, onUsage, onSettings }: {
+export function AccountPanelLayer({ compact, approvals, onDismiss, onUsage, onSettings, onExtensions }: {
   compact: boolean
   approvals: number
   onDismiss: () => void
   onUsage: () => void
   onSettings: () => void
+  onExtensions: () => void
 }) {
   const [page, setPage] = useState<'main' | 'support'>('main')
   const { user, isBusy, errorMessage } = useAccount()
@@ -76,6 +77,7 @@ export function AccountPanelLayer({ compact, approvals, onDismiss, onUsage, onSe
           { title: 'Usage', icon: 'gauge.with.dots.needle.33percent', chevron: true, action: onUsage },
           { title: 'Support', icon: 'book.closed', chevron: true, action: () => setPage('support') },
           { title: 'Settings', icon: 'gearshape', detail: approvals > 0 ? String(approvals) : null, action: onSettings },
+          { title: 'Extensions', icon: 'square.grid.2x2', action: onExtensions },
           ...auth,
         ]
   return (
@@ -85,7 +87,7 @@ export function AccountPanelLayer({ compact, approvals, onDismiss, onUsage, onSe
           items={items}
           onDismiss={onDismiss}
           after={(i) =>
-            page === 'main' && i === 3 ? (
+            page === 'main' && i === 4 ? (
               <>
                 <div className="panel-divider" />
                 <div className="panel-identity">

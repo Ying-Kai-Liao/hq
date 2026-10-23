@@ -5,6 +5,7 @@ import { moveInOrder } from '../lib/computer-roster'
 import { pointerDrag, type Point } from '../lib/pointer-drag'
 import { reduceMotion } from '../lib/theme'
 import { useSlide } from '../lib/slide'
+import { pendingQuestions } from '@shared/board'
 import { sameRef, refKey, type RosterItem } from '../store/app-model'
 import type { BotStore } from '../store/bot-store'
 import type { useComputerRoster } from '../store/computer-roster'
@@ -194,7 +195,7 @@ function RosterGhost({ lift, ghost, compact }: { lift: Lift; ghost: RefObject<HT
 }
 
 function RosterBotRow({ item, compact }: { item: RosterItem; compact: boolean }) {
-  return <BotRow bot={item.bot} store={item.store} compact={compact} usingComputer={item.store.screen?.agentBot === item.bot.id} members={isGroup(item.bot) ? item.store.members(item.bot) : noMembers} />
+  return <BotRow bot={item.bot} store={item.store} compact={compact} usingComputer={item.store.screen?.agentBot === item.bot.id} members={isGroup(item.bot) ? item.store.members(item.bot) : noMembers} waiting={pendingQuestions(item.store.allEntries(item.bot.id))} />
 }
 
 /** One roster button: drags to reorder, and slides when the others move. */

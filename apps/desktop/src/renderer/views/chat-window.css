@@ -49,8 +49,17 @@
 }
 
 .split {
+  position: relative;
   display: flex;
   height: 100%;
+}
+/* The sky band sits behind the sidebar and the conversation; both stay clear of it. */
+.split > .window-sky {
+  z-index: 0;
+}
+.split > .sidebar,
+.split > .detail {
+  z-index: 1;
 }
 /* An open account panel or action menu takes the clicks. */
 .split.covered {
@@ -61,7 +70,7 @@
   position: relative;
   flex: none;
   height: 100%;
-  background: var(--surface);
+  border-right: 1px solid var(--kith-line);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -70,34 +79,10 @@
 .sidebar.resizing {
   transition: none;
 }
-.sidebar-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 54px;
-  padding-left: 18px;
-  padding-right: 14px;
-  flex: none;
-  transition: opacity var(--layout), padding var(--layout);
-}
-/* Clears the traffic lights. */
-html[data-platform="darwin"] .sidebar-header {
-  padding-left: 80px;
-}
-.sidebar.compact .sidebar-header {
-  padding-left: 0;
-  opacity: 0;
-}
-/* The rail's computer filter. */
-.rail-header {
-  width: 70px;
-  align-self: center;
-}
-
 .roster {
   flex: 1;
   overflow-y: auto;
-  padding: 0 10px;
+  padding: 2px 8px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -109,12 +94,13 @@ html[data-platform="darwin"] .sidebar-header {
   outline-offset: -2px;
 }
 .sidebar.compact .roster {
-  padding-top: 4px;
+  padding: 4px 12px;
+  align-items: center;
 }
 .roster-row {
   width: 100%;
-  padding: 0 8px;
-  border-radius: var(--radius-m);
+  padding: 0;
+  border-radius: 10px;
   display: flex;
   transition: background-color var(--hover);
   flex: none;
@@ -124,10 +110,10 @@ html[data-platform="darwin"] .sidebar-header {
 }
 /* Hover is tracked in JS, so rows passed over during a drag don't light up. */
 .roster-row.hovered {
-  background: var(--bubble-agent);
+  background: color-mix(in srgb, var(--cs-select) 60%, transparent);
 }
 .roster-row.selected {
-  background: var(--roster-selected);
+  background: var(--cs-select);
 }
 /* Rows the pointer passes over while dragging don't light up. */
 .pointer-dragging .roster-row.hovered:not(.selected) {
@@ -149,7 +135,7 @@ html[data-platform="darwin"] .sidebar-header {
   transition: translate var(--morph);
 }
 .roster-ghost-card {
-  background: var(--roster-selected);
+  background: var(--cs-select);
   box-shadow: var(--shadow-l);
   scale: 0.94;
   opacity: 0.85;
@@ -167,39 +153,7 @@ html[data-platform="darwin"] .sidebar-header {
     opacity: 1;
   }
 }
-.bot-row {
-  padding: 9px 0;
-  width: 100%;
-}
-.bot-row-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  line-height: calc(16px * var(--scale));
-  transition: opacity var(--layout);
-}
-.bot-row-text.collapsed {
-  flex: none;
-  width: 0;
-  opacity: 0;
-}
-.unread-badge {
-  display: grid;
-  place-items: center;
-  flex: none;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 6px;
-  border-radius: var(--radius-pill);
-  background: var(--accent-fill);
-  color: var(--on-accent);
-  font-size: var(--text-caption);
-  font-weight: 600;
-}
-/* A selected row's fill doesn't touch its hovered neighbour's. */
-.roster-row + .roster-row {
-  margin-top: 4px;
-}
+
 .roster-empty {
   position: absolute;
   inset: 0;
@@ -231,27 +185,6 @@ html[data-platform="darwin"] .sidebar-header {
   position: absolute;
   inset: 0;
 }
-
-.rail-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 0 10px;
-  flex: none;
-}
-.rail-profile {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-m);
-  display: grid;
-  place-items: center;
-  margin-top: 4px;
-}
-.rail-profile.open {
-  background: var(--bubble-agent);
-}
-
 
 .detail {
   flex: 1;
@@ -289,12 +222,37 @@ html[data-platform="darwin"] .sidebar-header {
   justify-content: center;
   gap: 14px;
 }
-.empty-detail-crew > :not(:first-child) {
-  margin-left: -10px;
+.empty-detail-crew {
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+  margin-bottom: 6px;
+}
+.empty-detail-title {
+  margin: 0;
+  color: var(--kith-ink);
+  font: 600 calc(15px * var(--scale)) / 1.3 var(--font-ui);
 }
 .empty-detail-message {
+  margin: 0;
   max-width: 420px;
+  color: var(--kith-muted);
+  font: 400 calc(13px * var(--scale)) / 1.4 var(--font-ui);
   text-align: center;
+}
+.empty-detail-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 16px;
+  border-radius: 17px;
+  background: var(--kith-ink);
+  color: var(--kith-ground);
+  font: 600 calc(13px * var(--scale)) / 1 var(--font-ui);
+}
+.empty-detail-new:disabled {
+  opacity: 0.4;
 }
 
 .context-layer {
@@ -313,14 +271,15 @@ html[data-platform="darwin"] .sidebar-header {
   animation: panel-in var(--fade) both;
 }
 .account-panel {
-  left: 16px;
-  bottom: 64px;
+  left: 12px;
+  top: 82px;
   border-radius: var(--radius-l);
-  transform-origin: bottom left;
+  transform-origin: top left;
 }
-/* Above the rail's profile button. */
+/* Beside the rail's profile picture. */
 .account-panel.compact {
-  bottom: 68px;
+  left: 72px;
+  top: 40px;
 }
 .action-menu {
   width: 260px;

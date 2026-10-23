@@ -5,9 +5,10 @@ import type { WindowCommand } from '@shared/ipc'
 import { isSSHConnecting, showsChat as shouldShowChat } from '@shared/ssh-startup'
 import { draftOf, type Bot, type BotDraft } from '@shared/models'
 import { LiveBot } from '../components/Avatar'
-import { Button, ChoicePicker, IconButton, ResizeHandle } from '../components/Controls'
-import { AnchoredMenu, Dialog, ModalHeader, Sheet, type MenuItem } from '../components/Overlay'
-import { HStack, Spacer } from '../components/Stack'
+import { Icon } from '../components/Icon'
+import { ChoicePicker, ResizeHandle } from '../components/Controls'
+import { Dialog, ModalHeader, Sheet, type MenuItem } from '../components/Overlay'
+import { HStack } from '../components/Stack'
 import { Text } from '../components/Text'
 import { useModels } from '../lib/observable'
 import { prefs, stepTextSize, usePref, DEFAULT_TEXT_SIZE } from '../lib/prefs'
@@ -15,9 +16,7 @@ import { useApp, StoreContext } from '../store/context'
 import { refKey, sameRef, parseRef, type BotRef } from '../store/app-model'
 import type { BotStore } from '../store/bot-store'
 import { useComputerRoster } from '../store/computer-roster'
-import { BotRoster } from './BotRoster'
-import { SidebarFooter } from './SidebarFooter'
-import { UpdateBadge } from './UpdateButton'
+import { CrewSidebar, RosterEmpty } from './crew/CrewSidebar'
 import { ComputerFilterHeader, computerSelection } from './ComputerFilterHeader'
 import { ThreadView } from './thread/ThreadView'
 import { NewChatView } from './bots/NewChatView'
@@ -33,7 +32,7 @@ import { StartupRecovery } from './StartupRecovery'
 export { EmptyState } from './HostStateView'
 import { StarPrompt } from './StarPrompt'
 import { OpenVoiceSettings } from './call/CallView'
-import { AccountPanelLayer, DesktopActionMenu, ProfileAvatar } from './PanelMenus'
+import { AccountPanelLayer, DesktopActionMenu } from './PanelMenus'
 import { useTraySummary } from './tray-summary'
 import { useIslandSummary } from './island-summary'
 import { useSSH, useSSHAttachments } from './settings/ssh-model'
@@ -158,6 +157,9 @@ interface EditTarget {
   store: BotStore
 }
 
+/** The collapsed sidebar: the picture, new chat, the bots at 36. */
+const RAIL_WIDTH = 68
+
 function ChatSplitView() {
   const app = useApp()
   const ssh = useSSH()
@@ -170,8 +172,6 @@ function ChatSplitView() {
   const [composingGroup, setComposingGroup] = useState(false)
   const [composeComputer, setComposeComputer] = useState<string | null>(null)
   const previousSelection = useRef<BotRef | null>(null)
-  const [newMenu, setNewMenu] = useState(false)
-  const [railNewMenu, setRailNewMenu] = useState(false)
   const [contextBot, setContextBot] = useState<{ target: BotTarget; x: number; y: number } | null>(null)
   const [editing, setEditing] = useState<EditTarget | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<BotTarget | null>(null)
@@ -181,8 +181,7 @@ function ChatSplitView() {
   const openVoiceSettings = useCallback(() => setSettings('voice'), [])
   const [showAccount, setShowAccount] = useState(false)
   const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight })
-  const newButton = useRef<HTMLButtonElement>(null)
-  const railNewButton = useRef<HTMLButtonElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   useModels([...app.stores.values()])
 
@@ -223,7 +222,11 @@ function ChatSplitView() {
     () =>
       window.kith.app.onCommand((c) => {
         if (c.kind === 'newChat' && onlineStores.length) compose()
-        if (c.kind === 'search') setSearching(true)
+        // ⌘F: the sidebar's box, or the palette while only the rail shows.
+        if (c.kind === 'search') {
+          if (prefs.sidebarCompact.get()) setSearching(true)
+          else searchRef.current?.select()
+        }
         if (c.kind === 'toggleSidebar') setCompact(!prefs.sidebarCompact.get())
       }),
   )
@@ -256,6 +259,7 @@ function ChatSplitView() {
     { title: 'New chat', icon: 'square.and.pencil', action: () => compose() },
     { title: 'New group chat', icon: 'person.2', action: () => compose(true) },
   ]
+  const filterNeeded = app.computers.length > 1 || ssh.state.profiles.length > 0 || stores.some((s) => s.shownConnection.kind !== 'online')
 
   const openMarketplace = () => setMarketplace(([selectedStore, app.local, ...onlineStores].find((s) => s?.isOwner)?.computer.id) ?? null)
 
@@ -337,65 +341,44 @@ function ChatSplitView() {
     detail = (
       <div className="empty-detail">
         <div className="detail-drag drag" />
-        <HStack align="stretch" className="empty-detail-crew">
-          <LiveBot face={{ kind: 'crew', name: 'builder' }} size={60} id="builder" mood="working" />
-          <LiveBot face={{ kind: 'crew', name: 'designer' }} size={60} id="designer" />
-          <LiveBot face={{ kind: 'crew', name: 'coder' }} size={60} id="coder" mood="working" />
-        </HStack>
-        <Text as="div" size="title2" weight="semibold">{connecting ? 'Connecting to your computers…' : 'Your coding agents, as teammates.'}</Text>
-        <Text as="div" tone="secondary" className="empty-detail-message">{connecting ? 'Your bots will appear once connected. Manage computers to see connection progress.' : 'Pick a bot, or create one for each kind of work and point it at a project.'}</Text>
-        <Button onClick={() => compose()} disabled={!onlineStores.length}>
-          New Bot
-        </Button>
+        <div className="empty-detail-crew kith-bot-shadow">
+          <LiveBot face={{ kind: 'crew', name: 'builder' }} size={74} id="builder" mood="working" />
+          <LiveBot face={{ kind: 'crew', name: 'designer' }} size={92} id="designer" />
+          <LiveBot face={{ kind: 'crew', name: 'coder' }} size={74} id="coder" mood="working" />
+        </div>
+        <p className="empty-detail-title">{connecting ? 'Connecting to your computers…' : 'Your coding agents, as teammates.'}</p>
+        <p className="empty-detail-message">{connecting ? 'Your bots will appear once connected. Manage computers to see connection progress.' : 'Pick someone on the left, or ask the crew below.'}</p>
+        <button className="empty-detail-new" onClick={() => compose()} disabled={!onlineStores.length}>
+          <Icon name="square.and.pencil" size={13} weight="medium" />
+          New bot
+        </button>
       </div>
     )
   }
 
-  const width = compact ? 76 : sidebarWidth
+  const width = compact ? RAIL_WIDTH : sidebarWidth
   return (
     <div className={`split ${showAccount || contextBot ? 'covered' : ''}`}>
+      <div className="kith-sky-header window-sky" aria-hidden />
       <aside className={`sidebar ${compact ? 'compact' : ''} ${resizing ? 'resizing' : ''}`} style={{ width }}>
-        <div className="sidebar-header drag" inert={compact}>
-          <Spacer />
-          <HStack gap={6} className="no-drag">
-            <ComputerFilterHeader hidden={hidden} setHidden={setHidden} manage={() => setSettings('computers')} compact />
-            <IconButton title="Search" icon="magnifyingglass" size={32} className="sidebar-header-action" onClick={() => setSearching(true)} />
-            <IconButton title="New" icon="plus" size={32} className="sidebar-header-action" buttonRef={newButton} menuOpen={newMenu} onClick={() => setNewMenu((o) => !o)} disabled={!onlineStores.length} />
-          </HStack>
-          <AnchoredMenu open={newMenu} onClose={() => setNewMenu(false)} anchor={newButton} items={newItems} />
-        </div>
-        {compact ? (
-          <div className="rail-header drag">
-            <HStack align="stretch" justify="center" className="no-drag">
-              <ComputerFilterHeader hidden={hidden} setHidden={setHidden} manage={() => setSettings('computers')} compact />
-            </HStack>
-          </div>
-        ) : null}
-        <div className="roster" ref={listRef} tabIndex={0} onKeyDown={onListKey}>
-          <BotRoster roster={roster} compact={compact} onContext={(bot, store, x, y) => setContextBot({ target: { bot, store }, x, y })} />
-          {visibleRoster.length === 0 && !roster.grouped && !compact && mismatchStores.length === 0 ? (
-            <div className="roster-empty">
-              <Text as="div" size="body" weight="medium">{onlineStores.length ? 'No bots yet' : 'Waiting for a computer'}</Text>
-              {onlineStores.length ? <Text as="div" size="callout" tone="secondary">Use + to start a new chat.</Text> : null}
-            </div>
-          ) : null}
-        </div>
-        {compact ? (
-          <div className="rail-actions">
-            <IconButton title="Search" icon="magnifyingglass" onClick={() => setSearching(true)} />
-            <IconButton title="New" icon="plus" size={36} buttonRef={railNewButton} menuOpen={railNewMenu} disabled={!onlineStores.length} onClick={() => setRailNewMenu((o) => !o)} />
-            <AnchoredMenu open={railNewMenu} onClose={() => setRailNewMenu(false)} anchor={railNewButton} items={newItems} />
-            <IconButton title="Extensions" icon="square.grid.2x2" size={36} onClick={openMarketplace} />
-            <UpdateBadge size={32} />
-            <button className={`rail-profile ${showAccount ? 'open' : ''}`} aria-label="Open account menu for Account" title="Account" onClick={() => setShowAccount((s) => !s)}>
-              <ProfileAvatar />
-            </button>
-          </div>
-        ) : (
-          <SidebarFooter accountOpen={showAccount} onAccount={() => setShowAccount((s) => !s)} onExtensions={openMarketplace} />
-        )}
+        <CrewSidebar
+          compact={compact}
+          roster={roster}
+          items={visibleRoster}
+          listRef={listRef}
+          onListKey={onListKey}
+          onContext={(bot, store, x, y) => setContextBot({ target: { bot, store }, x, y })}
+          searchRef={searchRef}
+          newItems={newItems}
+          canCreate={onlineStores.length > 0}
+          accountOpen={showAccount}
+          onAccount={() => setShowAccount((s) => !s)}
+          onExtensions={openMarketplace}
+          filter={filterNeeded ? <ComputerFilterHeader hidden={hidden} setHidden={setHidden} manage={() => setSettings('computers')} compact /> : null}
+          emptyNote={visibleRoster.length === 0 && !roster.grouped && mismatchStores.length === 0 ? <RosterEmpty online={onlineStores.length > 0} /> : null}
+        />
       </aside>
-      <ResizeHandle label="Resize sidebar" width={width} min={76} max={sidebarMax} edge="trailing" onResize={resizeSidebar} onDragging={setResizing} />
+      <ResizeHandle label="Resize sidebar" width={width} min={RAIL_WIDTH} max={sidebarMax} edge="trailing" onResize={resizeSidebar} onDragging={setResizing} />
       <main className="detail">
         {/* The call bar's settings open this window's Settings at Voice chat. */}
         <OpenVoiceSettings.Provider value={openVoiceSettings}>{detail}</OpenVoiceSettings.Provider>
@@ -413,6 +396,10 @@ function ChatSplitView() {
           onSettings={() => {
             setShowAccount(false)
             setSettings('general')
+          }}
+          onExtensions={() => {
+            setShowAccount(false)
+            openMarketplace()
           }}
         />
       ) : null}

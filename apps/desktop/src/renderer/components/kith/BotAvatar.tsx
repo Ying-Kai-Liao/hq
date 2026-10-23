@@ -5,7 +5,7 @@ import { skyPatchOf } from './logic.ts'
 import './kith.css'
 
 export type BotState = 'working' | 'needsYou' | 'idle' | 'asleep'
-export type BotSize = 48 | 30 | 24 | 84
+export type BotSize = 48 | 40 | 36 | 30 | 24 | 84
 
 /**
  * A bot with no tile and a soft shadow, around the living bot (Avatar.tsx's LiveBot, untouched).

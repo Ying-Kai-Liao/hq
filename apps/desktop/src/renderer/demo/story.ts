@@ -6,14 +6,16 @@ import type { Bot, EntryData, Usage } from '@shared/models'
 export const COMPUTER_ID = 'demo-mac'
 export const HOST_NAME = 'MacBook Pro'
 const CWD = '/Users/demo/code/pace'
+/** The bots work in the `pace` project, so the Board lists it under Projects. */
+const pace = { kind: 'project' as const, project: 'pace', path: CWD, name: 'pace', inherited: false }
 
 export type SeedBot = Pick<Bot, 'id' | 'name' | 'description' | 'avatarColor' | 'avatarShape' | 'backend' | 'model'> &
-  Partial<Pick<Bot, 'avatarSource' | 'kind' | 'members' | 'permission' | 'status' | 'activity' | 'unread'>>
+  Partial<Pick<Bot, 'avatarSource' | 'kind' | 'members' | 'permission' | 'status' | 'activity' | 'unread' | 'folder' | 'workingChat' | 'workingThread'>>
 
 export const bots: SeedBot[] = [
-  { id: 'pacer', name: 'Pacer', description: 'Owns the pace math', avatarColor: '', avatarShape: 'blob', backend: 'claude', model: 'opus', permission: 'ask', status: 'needsInput', activity: 'Needs approval: Edit src/pace.js', unread: 1 },
-  { id: 'scout', name: 'Scout', description: 'Finds things in the repo and builds them', avatarColor: 'kith:mint', avatarShape: 'blob', backend: 'codex', model: null, unread: 1 },
-  { id: 'reviewer', name: 'Reviewer', description: 'Reviews every change before it ships', avatarColor: 'kith:violet', avatarShape: 'blob', backend: 'claude', model: 'sonnet', unread: 1 },
+  { id: 'pacer', name: 'Pacer', description: 'Owns the pace math', avatarColor: '', avatarShape: 'blob', backend: 'claude', model: 'opus', permission: 'ask', status: 'needsInput', activity: 'Needs approval: Edit src/pace.js', unread: 1, folder: pace },
+  { id: 'scout', name: 'Scout', description: 'Finds things in the repo and builds them', avatarColor: 'kith:mint', avatarShape: 'blob', backend: 'codex', model: null, unread: 1, status: 'working', activity: 'Running npm test', workingChat: 'scout', workingThread: 's1', folder: pace },
+  { id: 'reviewer', name: 'Reviewer', description: 'Reviews every change before it ships', avatarColor: 'kith:violet', avatarShape: 'blob', backend: 'claude', model: 'sonnet', unread: 1, folder: pace },
   { id: 'relay', name: 'Relay', description: 'Writes the release notes', avatarColor: 'kith:sky', avatarShape: 'blob', avatarSource: 'spare:globe', backend: 'codex', model: null, unread: 1 },
   { id: 'ship', kind: 'group', members: ['pacer', 'scout', 'reviewer'], name: 'Ship room', description: 'Getting weeklyTotals out', avatarColor: '', avatarShape: 'blob', backend: '', model: null },
 ]
@@ -30,7 +32,7 @@ export interface SeedEntry {
   threadId?: string
 }
 
-const user = (id: string, botId: string, at: number, text: string, threadId?: string): SeedEntry => ({ id, botId, kind: 'user', at, data: { text, status: 'sent' }, threadId })
+const user = (id: string, botId: string, at: number, text: string, threadId?: string, task = false): SeedEntry => ({ id, botId, kind: 'user', at, data: { text, status: 'sent', ...(task ? { task: true } : {}) }, threadId })
 const reply = (id: string, botId: string, author: string, at: number, text: string, threadId?: string): SeedEntry => ({ id, botId, kind: 'agent', at, data: { text, final: true, author }, threadId })
 const thought = (id: string, botId: string, at: number, text: string): SeedEntry => ({ id, botId, kind: 'thought', at, data: { text, author: botId } })
 const tool = (id: string, botId: string, at: number, title: string, toolKind: string, output = ''): SeedEntry => ({ id, botId, kind: 'tool', at, data: { title, toolKind, status: 'completed', output, author: botId } })
@@ -64,7 +66,7 @@ const isoWeekPatch = [
 
 export const entries: SeedEntry[] = [
   // Scout builds weeklyTotals.
-  user('s1', 'scout', 58, 'Add a weeklyTotals(runs) helper that sums distance and time per ISO week, with a test.'),
+  user('s1', 'scout', 58, 'Add a weeklyTotals(runs) helper that sums distance and time per ISO week, with a test.', undefined, true),
   thought('s2', 'scout', 58, 'isoWeek already lives in src/pace.js, so weeklyTotals can key on it and stay small.'),
   tool('s3', 'scout', 57, 'Read src/pace.js', 'read'),
   { id: 's4', botId: 'scout', kind: 'tool', at: 57, data: { title: 'Edit src/pace.js', toolKind: 'edit', status: 'completed', author: 'scout', diffs: [{ path: 'src/pace.js', added: 10, removed: 0, isNew: false, startLine: 18, patch: weeklyPatch }] } },
@@ -72,7 +74,7 @@ export const entries: SeedEntry[] = [
   reply('s6', 'scout', 'scout', 55, 'I added `weeklyTotals(runs)` to `src/pace.js`. It takes runs shaped like `{ date, distance, time }`, groups them by ISO week in UTC (keys like `"2026-W53"`) and sums distance and time. The new test covers the week that crosses into 2027. All 4 tests pass and nothing is committed yet.'),
 
   // Reviewer looks it over.
-  user('r1', 'reviewer', 50, 'Review weeklyTotals before we ship it.'),
+  user('r1', 'reviewer', 50, 'Review weeklyTotals before we ship it.', undefined, true),
   tool('r2', 'reviewer', 49, 'Read src/pace.js', 'read'),
   tool('r3', 'reviewer', 49, 'Read test/pace.test.js', 'read'),
   reply('r4', 'reviewer', 'reviewer', 48, 'I found no blockers. The ISO week math is right, including the New Year edge.\n\nTwo small things:\n- A bad date becomes a `"NaN-WNaN"` bucket instead of an error.\n- Weeks are grouped in UTC, so a late evening run west of UTC can land in the next week.'),
@@ -83,6 +85,9 @@ export const entries: SeedEntry[] = [
   user('l3', 'relay', 38, 'Make it one line for the changelog.', 'l2'),
   reply('l4', 'relay', 'relay', 38, 'Pace now shows your weekly distance and time totals.', 'l2'),
 
+  // Where Relay left off: its chat started over with a handoff.
+  { id: 'l5', botId: 'relay', kind: 'notice', at: 30, data: { text: 'New conversation', handoff: { status: 'sent', reason: 'away', text: 'Next: send the changelog line to the team channel once Ship room says go.' } } },
+
   // Ship room.
   user('g1', 'ship', 22, 'Is weeklyTotals ready to ship? One short sentence each.'),
   reply('g2', 'ship', 'reviewer', 21, 'Almost: the week math is right and all 4 tests pass, but a bad date gets bucketed as `"NaN-WNaN"` instead of raising an error. @Scout, can you add an invalid-date guard?'),
@@ -92,7 +97,7 @@ export const entries: SeedEntry[] = [
   reply('g6', 'ship', 'pacer', 15, 'Ship it once my `isoWeek` New Year fix lands. Dec 30, 2024 still comes out as 2024-W01 instead of 2025-W01.'),
 
   // Pacer waits for approval.
-  user('p1', 'pacer', 9, 'Fix the isoWeek New Year bug you mentioned.'),
+  user('p1', 'pacer', 9, 'Fix the isoWeek New Year bug you mentioned.', undefined, true),
   thought('p2', 'pacer', 9, 'The year is read before moving to the Thursday of the week, so late December dates get the wrong ISO year.'),
   tool('p3', 'pacer', 8, 'Read src/pace.js', 'read'),
   { id: 'p4', botId: 'pacer', kind: 'agent', at: 7, data: { text: 'Found it: the year comes from the date itself, not from the Thursday of its week.', final: false, author: 'pacer' } },
