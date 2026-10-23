@@ -443,6 +443,7 @@ if [[ $p_owner == 1 ]]; then
 fi
 fill < "$pkg/settings.json" | OWN_DIRS=$own_dirs ROLE_DIR=$pkg API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post HOOK="\"$KITH/bin/kith-cost\" tag" SESSIONS_HOOK="\"$KITH/bin/kith-sessions\" record" WRITABLE="$writable
 $src_pkg/skills/learned
+$(cd "$src_pkg" && pwd -P)/skills/learned
 $state_projects" python3 -c '
 import json, os, sys
 s = json.load(sys.stdin)
