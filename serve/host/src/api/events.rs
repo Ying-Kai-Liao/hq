@@ -73,6 +73,8 @@ pub fn events_stream(
     for e in hub.store.entries_since(since, CATCH_UP_PER_BOT)? {
         catch_up.push(json!({"type": "entry", "rev": e.rev, "entry": e}));
     }
+    // A call still ringing, for an app that connects (or reconnects) while it does.
+    catch_up.extend(hub.calls.ringing(hub));
     let mut catch_up: Vec<Value> =
         catch_up.into_iter().filter_map(|v| roles::event_for(&hub.store, who.as_deref(), v)).collect();
     catch_up.sort_by_key(|v| v["rev"].as_i64().unwrap_or(0));

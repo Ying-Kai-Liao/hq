@@ -241,6 +241,8 @@ export interface KithBridge {
     pickFolder(defaultPath?: string | null): Promise<string | null>
     readClipboardFiles(): Promise<{ name: string; data: Uint8Array }[]>
     setTraySummary(summary: TraySummary): void
+    /** Brings the chat window to the front (an incoming call). */
+    raiseWindow(): void
     onCommand(cb: (command: WindowCommand) => void): () => void
     resetAllData(): Promise<void>
     setLaunchAtLogin(on: boolean): Promise<boolean>

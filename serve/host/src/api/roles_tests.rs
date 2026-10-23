@@ -70,6 +70,7 @@ async fn a_caller_is_the_owner_or_a_person() {
 fn router_methods() -> BTreeSet<String> {
     let sources = [
         include_str!("bots.rs"),
+        include_str!("calls.rs"),
         include_str!("host.rs"),
         include_str!("folders.rs"),
         include_str!("backups.rs"),

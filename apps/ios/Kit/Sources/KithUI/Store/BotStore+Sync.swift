@@ -113,6 +113,8 @@ extension BotStore {
                 resetMirror()
             }
             hostId = id
+            // The host repeats the calls still ringing right after a hello.
+            incomingCalls = []
             setUsage(newUsage)
             screen = newScreen
             let hostRewound = hostRev < rev
@@ -176,6 +178,8 @@ extension BotStore {
             setUsage(u)
         case let .screen(s):
             screen = s
+        case let .call(event):
+            incomingCalls = IncomingCalls.apply(incomingCalls, event)
         case .resync:
             restartEvents()
         case let .undecodable(type):
@@ -212,6 +216,7 @@ extension BotStore {
         historyComplete = []
         windowFloors = [:]
         screen = nil
+        incomingCalls = []
         saveCache()
     }
 

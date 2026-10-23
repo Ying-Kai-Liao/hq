@@ -4,6 +4,7 @@
 
 mod backups;
 mod bots;
+mod calls;
 pub mod devices;
 mod events;
 mod files;
@@ -127,6 +128,10 @@ async fn route(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Resul
         ControlFlow::Continue(b) => b,
     };
     let b = match marketplace::call(hub, caller, method, b).await? {
+        ControlFlow::Break(v) => return Ok(v),
+        ControlFlow::Continue(b) => b,
+    };
+    let b = match calls::call(hub, caller, method, b).await? {
         ControlFlow::Break(v) => return Ok(v),
         ControlFlow::Continue(b) => b,
     };

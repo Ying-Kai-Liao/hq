@@ -58,6 +58,15 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
     setCompactDetails(false)
     setCalling(true)
   }
+  // A call the person just accepted opens here and starts; the agent then speaks first.
+  const [greet, setGreet] = useState<string | null>(null)
+  useEffect(() => {
+    const id = store.takeCallStart(botId)
+    if (!id) return
+    setGreet(id)
+    setCompactDetails(false)
+    setCalling(true)
+  })
   const [routineId, setRoutineId] = useState<string | null>(null)
   const [routineRequest, setRoutineRequest] = useState(0)
   const root = useRef<HTMLDivElement>(null)
@@ -209,7 +218,7 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
           )}
         </div>
         {calling ? (
-          <CallView botId={botId} onSpeaking={setCallSpeaking} interrupt={interruptCall} onEnd={() => setCalling(false)} />
+          <CallView botId={botId} greet={greet} onSpeaking={setCallSpeaking} interrupt={interruptCall} onEnd={() => { setCalling(false); setGreet(null) }} />
         ) : null}
       </div>
       <ChatSidePanel

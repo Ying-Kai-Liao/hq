@@ -1,3 +1,4 @@
+import { parseCall, type IncomingCall } from '@shared/incoming-call'
 import type { CallError } from '@shared/ipc'
 import type { RelayCallError } from '@shared/relay'
 import { parseBackups, type Backups } from '@shared/backups'
@@ -119,6 +120,8 @@ export type HostEvent =
   | { type: 'accessRequests'; requests: AccessRequest[] }
   | { type: 'cloud'; cloud: CloudStatus }
   | { type: 'resync' }
+  /** An agent is calling (ringing), or a call stopped ringing (answered, declined, missed). */
+  | { type: 'call'; call: IncomingCall; ringing: boolean }
   /** An event this app version couldn't read (host newer/older than the app). */
   | { type: 'undecodable'; kind: string }
 
@@ -162,6 +165,10 @@ export function parseEvent(line: string): HostEvent | null {
       return raw.cloud ? { type, cloud: raw.cloud as CloudStatus } : null
     case 'resync':
       return { type }
+    case 'call': {
+      const parsed = parseCall(raw)
+      return parsed ? { type, ...parsed } : null
+    }
     default:
       return null
   }
@@ -196,6 +203,20 @@ export class HostClient {
       const event = parseEvent(line)
       if (event) onEvent(event)
     }, onEnd)
+  }
+
+  /** Answering an incoming call (`id` from its event); the first device to answer wins, the others get an error. */
+  callAccept(id: string) {
+    return this.call<{ botId: string; threadId: string | null }>('callAccept', { id })
+  }
+
+  callDecline(id: string) {
+    return this.call<object>('callDecline', { id })
+  }
+
+  /** The accepted call is live: the agent speaks first. */
+  callGreet(id: string) {
+    return this.call<object>('callGreet', { id })
   }
 
   hello() {

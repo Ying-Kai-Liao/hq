@@ -128,6 +128,14 @@ updated: YYYY-MM-DD   by: <agent>
   `{{KITH}}/bin/kith-send --caption "text" FILE...`. Inside a Discord task it posts into that task's thread; otherwise
   it goes to his own Telegram DM (from an app chat too, with a hint: in an app chat share files with the `send_file`
   tool instead). Only to him, never anyone else.
+- To ring the person you work for (something that needs their voice now, not a result), use `{{KITH}}/bin/kith-call
+  "short reason"`; in a Kith app chat the same thing is the `call_person(reason)` tool of the `kith-files` server. It shows
+  as an incoming call in their open Kith app (no push). It prints and exits `ringing` 0, `declined` 3, `missed` 4,
+  `busy` 5, `rate-limited` 6 or `not-allowed` 7 (`--wait` holds up to 50 s for the answer; otherwise only `ringing` and
+  the refusals come back). At most one call per 10 minutes and 6 a day per agent; never call again to chase an answer.
+  A declined or missed call leaves "<you> tried to call: <reason>" in the chat. The call goes only to the person this run
+  belongs to (`person=` on the session tag; the owner without one), never to anyone else. If they accept, the call opens
+  with a turn telling you to greet them and say why you called, and you are on a voice call.
 
 ## Owner and helpers
 - **Owner:** the agent whose channel (or call) the task came in on owns it end to end. Do your part with your own

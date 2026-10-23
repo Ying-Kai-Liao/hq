@@ -117,6 +117,7 @@ const bridge: KithBridge = {
     pickFolder: async () => null,
     readClipboardFiles: async () => [],
     setTraySummary() {},
+    raiseWindow() {},
     onCommand: none,
     resetAllData: async () => {},
     setLaunchAtLogin: async () => false,

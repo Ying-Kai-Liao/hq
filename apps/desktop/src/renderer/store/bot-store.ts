@@ -13,6 +13,7 @@ import {
   type Usage,
 } from '@shared/models'
 import { normalizeFolder, type PlaceFolder, type PlaceSelection, type StartingFolder } from '@shared/place-folders'
+import { expireCalls, reduceCalls, type IncomingCall } from '@shared/incoming-call'
 import { FileDownloads } from './file-downloads'
 import { BotSync, sleep } from './bot-sync'
 
@@ -151,6 +152,50 @@ export class BotStore extends BotSync {
 
   newSession(botId: string) {
     this.perform((c) => c.call('newSession', { botId }))
+  }
+
+  /** The call the person just accepted, until its chat opens and starts the voice call (see `ThreadView`). */
+  callToStart: { botId: string; callId: string } | null = null
+
+  /** Accepts an incoming call; false when another device or the timeout got there first. */
+  async acceptCall(call: IncomingCall) {
+    try {
+      await (await this.ready()).callAccept(call.id)
+    } catch {
+      this.incomingCalls = this.incomingCalls.filter((c) => c.id !== call.id)
+      this.changed()
+      return false
+    }
+    this.incomingCalls = this.incomingCalls.filter((c) => c.id !== call.id)
+    this.callToStart = { botId: call.botId, callId: call.id }
+    this.changed()
+    return true
+  }
+
+  /** Drops the calls whose ring is over (the host's "missed" may not reach a device that lost the link). */
+  expireCalls() {
+    const left = expireCalls(this.incomingCalls)
+    if (left === this.incomingCalls) return
+    this.incomingCalls = left
+    this.changed()
+  }
+
+  declineCall(call: IncomingCall) {
+    this.incomingCalls = this.incomingCalls.filter((c) => c.id !== call.id)
+    this.changed()
+    this.perform((c) => c.callDecline(call.id))
+  }
+
+  /** The accepted call for `botId`, once: the chat that starts it takes it. */
+  takeCallStart(botId: string) {
+    const start = this.callToStart
+    if (start?.botId !== botId) return null
+    this.callToStart = null
+    return start.callId
+  }
+
+  greetCall(callId: string) {
+    this.perform((c) => c.callGreet(callId))
   }
 
   logCall(botId: string, seconds: number) {

@@ -26,8 +26,10 @@ import './call.css'
  * A voice call with a bot: the call screen takes over the chat while it lasts. What you say goes out as ordinary messages, its final replies are read
  * aloud, and the chat gets a "Voice chat · 00:16" line when the call ends.
  */
-export function CallView({ botId, onSpeaking, interrupt, onEnd }: {
+export function CallView({ botId, greet, onSpeaking, interrupt, onEnd }: {
   botId: string
+  /** An agent's call the person accepted: once the call is live the agent speaks first. */
+  greet?: string | null
   onSpeaking: (speaking: boolean) => void
   interrupt: { current: (() => void) | null }
   onEnd: () => void
@@ -45,6 +47,7 @@ export function CallView({ botId, onSpeaking, interrupt, onEnd }: {
   /** When the current cloud engine started, for this month's minutes. */
   const cloudStartedAt = useRef<number | null>(null)
   const closed = useRef(false)
+  const greeted = useRef(false)
   const bot = store.bots.get(botId)
 
   const countCloudMinutes = () => {
@@ -104,6 +107,10 @@ export function CallView({ botId, onSpeaking, interrupt, onEnd }: {
     let stopWatching: (() => void) | null = null
     next.onActivityChanged = (active) => {
       if (active && !stopWatching) {
+        if (greet && !greeted.current) {
+          greeted.current = true
+          store.greetCall(greet)
+        }
         stopWatching = watchVoiceCall(store, botId, {
           speak: (t) => next.speak(t),
           announce: (t) => next.announce(t),

@@ -40,6 +40,10 @@ pub const MEMBER_METHODS: &[&str] = &[
     "projects",
     // The code that links their own Telegram, Discord or Slack account to their person.
     "linkCode",
+    // Answering an incoming call from their own agent; the handler checks the call is theirs.
+    "callAccept",
+    "callDecline",
+    "callGreet",
 ];
 
 /// All an unproven device of an invited person may call: showing the invite token (see `people::prove_invite`).
@@ -146,7 +150,7 @@ pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: 
     }
     match method {
         // Checked by their own handlers, or about no chat at all.
-        "hello" | "projects" | "linkCode" | "startChat" => {}
+        "hello" | "projects" | "linkCode" | "startChat" | "callAccept" | "callDecline" | "callGreet" => {}
         // A card or message names its chat only through the entry.
         "respondPermission" | "react" | "editHandoff" | "keepConversation" => {
             let id = b["entryId"].as_str().unwrap_or_default();
@@ -238,6 +242,8 @@ pub fn event_for(store: &Store, who: Option<&str>, v: Value) -> Option<Value> {
         "bot" => v["bot"]["id"].as_str().map(str::to_owned),
         "entry" => v["entry"]["botId"].as_str().or_else(|| v["entry"]["bot_id"].as_str()).map(str::to_owned),
         "resync" => return Some(v),
+        // A call goes to whoever the chat belongs to, never to the owner for an invitee's chat.
+        "call" => v["call"]["botId"].as_str().map(str::to_owned),
         _ => return who.is_none().then_some(v),
     };
     let owner = bot.as_deref().and_then(|b| bot_person(store, b));

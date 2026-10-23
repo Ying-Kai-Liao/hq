@@ -11,6 +11,8 @@ struct RootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// First launch only: past the welcome, on to setup.
     @State private var welcomed = false
+    /// A call the person accepted, until its voice call ends.
+    @State private var answered: AnsweredCall?
 
     /// The open bot, as a NavigationStack path.
     private var path: Binding<[BotReference]> {
@@ -49,6 +51,31 @@ struct RootView: View {
                 ScreenView(watching: target.request.watching, close: close)
                     .environment(store)
                     .id(target.id)
+            }
+        }
+        .kithOverlay(isPresented: Binding(get: { ringing != nil || answered != nil }, set: { if !$0 { answered = nil } })) { close in
+            if let answered {
+                // The agent speaks first once the call is live.
+                HomeCallCover(store: answered.store, botId: answered.botId, greet: answered.callId) { self.answered = nil; close() }
+            } else if let (store, call) = ringing {
+                IncomingCallView(call: call, bot: store.bots[call.botId]) {
+                    Task {
+                        if await store.acceptCall(call) {
+                            answered = AnsweredCall(store: store, botId: call.botId, callId: call.id)
+                            store.dismissCall(call.id)
+                        }
+                    }
+                } decline: {
+                    store.declineCall(call)
+                }
+                .id(call.id)
+            }
+        }
+        .task {
+            // A call whose ring is over drops out here too, even if the host's "missed" never reached this phone.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                for computer in accounts.computers { accounts.store(for: computer.id)?.expireCalls() }
             }
         }
         .kithSheet(isPresented: Bindable(app).showComputers) {
@@ -93,6 +120,22 @@ struct RootView: View {
                 }
         }
         .tint(Palette.text)
+    }
+
+    // MARK: incoming calls
+
+    private struct AnsweredCall {
+        let store: BotStore
+        let botId: String
+        let callId: String
+    }
+
+    /// The first agent ringing on any computer.
+    private var ringing: (BotStore, IncomingCall)? {
+        for computer in accounts.computers {
+            if let store = accounts.store(for: computer.id), let call = store.incomingCalls.first { return (store, call) }
+        }
+        return nil
     }
 
     // MARK: one place for every computer's errors and screen requests

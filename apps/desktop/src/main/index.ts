@@ -142,6 +142,10 @@ function menu() {
 
 function registerIPC(tray: Tray) {
   registerHostProxy()
+  ipcMain.on('app:raiseWindow', () => {
+    openChat()
+    if (process.platform === 'darwin') app.focus({ steal: true })
+  })
   ipcMain.on('app:hostPort', (e) => (e.returnValue = identity.port))
   ipcMain.on('app:name', (e) => (e.returnValue = app.getName()))
   ipcMain.on('app:scheme', (e) => (e.returnValue = identity.scheme))

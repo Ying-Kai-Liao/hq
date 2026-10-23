@@ -10,6 +10,8 @@ import UIKit
 struct CallScreen: View {
     let botId: String
     let close: () -> Void
+    /// An agent's call the person accepted: once the call is live the agent speaks first.
+    var greet: String?
     @Environment(BotStore.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var session: (any VoiceEngine)?
@@ -143,8 +145,9 @@ struct CallScreen: View {
             engine = OnDeviceEngine { [model, botId] in model.sendSpoken($0, to: botId) }
         }
         let streams = engine.streamsReplies
-        engine.onActivityChanged = { [weak engine, model, botId, callID] (active: Bool) in
+        engine.onActivityChanged = { [weak engine, model, botId, callID, greet] (active: Bool) in
             guard let engine else { return }
+            if active, let greet { model.greetCall(greet) }
             Self.setActivity(active, engine: engine, streams: streams, model: model, botId: botId, callID: callID)
         }
         session = engine
