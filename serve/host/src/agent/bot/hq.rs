@@ -60,16 +60,35 @@ impl Actor {
         self.cfg.is_hq()
     }
 
+    /// The room an hq run is for: the group chat of the turn, else the 1:1 of this bot's person (or the owner).
+    pub(super) fn run_room(&self) -> String {
+        let agent = self.cfg.hq_agent.as_deref().unwrap_or_default();
+        hq::room_of(agent, self.cfg.person.as_deref(), self.memory_room().as_deref())
+    }
+
+    /// The notes to put before the first user message of a thread. Once per thread: the session is new only for its
+    /// first message, and a resumed one is not.
+    pub(super) async fn first_message_recall(&self, text: &str) -> Option<String> {
+        if !self.session_fresh || self.reuse_prompt || self.turn_text.is_none() {
+            return None;
+        }
+        let agent = self.cfg.hq_agent.clone()?;
+        let bin = tokio::task::spawn_blocking(hq::bin).await.ok().flatten()?;
+        hq::recall_for_first_message(&bin, &agent, self.cfg.person.as_deref(), &self.run_room(), text).await
+    }
+
     /// What the prompt of an hq bot's turn is: the user's words, with the notes the host owes the agent (an earlier
     /// conversation's handoff, where a thread branches off). Nothing about Kith.
-    pub(super) fn compose_hq(&mut self, text: &str) -> String {
+    pub(super) fn compose_hq(&mut self, text: &str, recalled: Option<String>) -> String {
         self.session_fresh = false;
         // The turn goes to the next account as the first one got it, handoff and thread notes included.
         let mut prompt = if self.reuse_prompt {
             self.thread_intro = None;
             self.attempt_prompt.clone().unwrap_or_else(|| text.to_owned())
         } else {
-            let mut prompt = text.to_owned();
+            // Notes recalled for a thread's first message go with the turn, never into the system prefix, so the cached
+            // prompt stays as it is.
+            let mut prompt = recalled.map_or_else(|| text.to_owned(), |r| format!("{r}\n\n{text}"));
             if let Some(handoff) = self.handoff.take() {
                 prompt = format!("{handoff}\n\n{prompt}");
             }
@@ -208,7 +227,8 @@ impl Actor {
             // An invited person's turn asks the kernel again even when a session is warm: their membership may have
             // been taken away, their budget used up or their mode changed since the last turn.
             warm = matches!((&current, &self.conn), (Some(sid), Some(conn)) if conn.loaded.contains_key(sid))
-                && self.conn_serving == self.serving;
+                && self.conn_serving == self.serving
+                && self.conn_room == self.run_room();
             if warm && person.is_none() {
                 self.turn_session = current;
                 return Ok(());
@@ -229,8 +249,17 @@ impl Actor {
                 prepared = Some((bin, target));
             }
             let Some((bin, target)) = &prepared else { unreachable!("prepared above") };
-            match hq::launch(bin, &agent, &target.cwd, target.project.as_deref(), backup.as_deref(), person.as_deref())
-                .await
+            let room = self.run_room();
+            match hq::launch(
+                bin,
+                &agent,
+                &target.cwd,
+                target.project.as_deref(),
+                backup.as_deref(),
+                person.as_deref(),
+                &room,
+            )
+            .await
             {
                 Ok(mut launch) => {
                     if target.explicit {
@@ -286,6 +315,7 @@ impl Actor {
         if self.conn.is_none() {
             self.conn_started_as = Some(started_as);
             self.conn_serving.clone_from(&self.serving);
+            self.conn_room = self.run_room();
             let provider = if launch.is_codex() { "codex" } else { self.cfg.backend.as_str() };
             let env = process_env(crate::agent::auth::env(&self.hub.store, provider)?, &launch, backup.is_some());
             let candidates = match std::env::var(hq::ACP_COMMAND_ENV) {

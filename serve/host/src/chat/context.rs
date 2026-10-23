@@ -95,7 +95,7 @@ fn save(store: &Store, bot_id: &str, s: &Snapshot) -> Result<()> {
 
 /// The snapshot for `session` at its current epoch, rendering a fresh one when
 /// the stored one belongs to another session or an earlier epoch.
-pub fn resolve(store: &Store, cfg: &BotConfig, session: &str) -> Result<Snapshot> {
+pub fn resolve(store: &Store, cfg: &BotConfig, session: &str, room: Option<&str>) -> Result<Snapshot> {
     let epoch = epoch(store, &cfg.id, session);
     let stored = load(store, &cfg.id, session);
     if let Some(s) = stored.as_ref().filter(|s| s.epoch == epoch && !s.system.is_empty()) {
@@ -106,7 +106,7 @@ pub fn resolve(store: &Store, cfg: &BotConfig, session: &str) -> Result<Snapshot
     let s = Snapshot {
         session: session.to_owned(),
         epoch,
-        system: render(store, cfg),
+        system: render(store, cfg, room),
         system_identity: identity.clone(),
         // A re-render reaches the agent only as Claude's system prompt or a re-sent profile (see `mark_announced`):
         // until then it knows the identity it last heard, so an update it missed is still announced.
@@ -159,8 +159,8 @@ pub fn adopt(store: &Store, cfg: &BotConfig, session: &str, system: String, memo
     Ok(s)
 }
 
-/// The bot's instructions, rendered live.
-pub fn render(store: &Store, cfg: &BotConfig) -> String {
+/// The bot's instructions, rendered live; `room` is the group room of the session, if it is one.
+pub fn render(store: &Store, cfg: &BotConfig, room: Option<&str>) -> String {
     let name = cfg.name.trim();
     let mut lines = vec!["Agent profile:".to_owned()];
     if !name.is_empty() {
@@ -192,7 +192,7 @@ pub fn render(store: &Store, cfg: &BotConfig) -> String {
     lines.push(String::new());
     lines.push(kith_mem::compaction::KEEP.to_owned());
     let mut out = lines.join("\n");
-    let memory = crate::chat::memory::opening(store, cfg);
+    let memory = crate::chat::memory::opening(store, cfg, room);
     if !memory.is_empty() {
         out.push_str("\n\n");
         out.push_str(&memory);
@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn instructions_distinguish_ask_replies_from_independent_user_reports() {
         let store = store();
-        let system = render(&store, &cfg("Reporter", "Report outcomes"));
+        let system = render(&store, &cfg("Reporter", "Report outcomes"), None);
         assert!(system.contains("ask_bot"));
         assert!(system.contains("message_bot"));
         assert!(system.contains("send_message is available"));
@@ -270,21 +270,21 @@ mod tests {
         let a = cfg("Fixer", "Fix bugs");
         let first = adopt(&store, &a, "s1", "SYSTEM v1".into(), String::new()).expect("adopt");
         // Frozen: resolving again returns the same text, even though a live render differs.
-        assert_eq!(resolve(&store, &a, "s1").expect("resolve").system, "SYSTEM v1");
+        assert_eq!(resolve(&store, &a, "s1", None).expect("resolve").system, "SYSTEM v1");
         assert!(profile_update(&store, &first, &a).is_none());
 
         let b = cfg("Fixer", "Fix bugs and write tests");
         let (text, identity) = profile_update(&store, &first, &b).expect("changed");
         assert!(text.contains("Current description: Fix bugs and write tests"));
         mark_announced(&store, &a.id, &first, identity).expect("mark");
-        let snap = resolve(&store, &b, "s1").expect("resolve");
+        let snap = resolve(&store, &b, "s1", None).expect("resolve");
         assert_eq!(snap.system, "SYSTEM v1");
         assert!(profile_update(&store, &snap, &b).is_none());
 
         // A compaction folds the new identity into a fresh render.
         assert!(bump_epoch(&store, &a.id, "s1", "c1").expect("bump"));
         assert!(!bump_epoch(&store, &a.id, "s1", "c1").expect("bump"));
-        let folded = resolve(&store, &b, "s1").expect("resolve");
+        let folded = resolve(&store, &b, "s1", None).expect("resolve");
         assert_eq!(folded.epoch, 1);
         assert!(folded.system.contains("Description: Fix bugs and write tests"));
         // A new session starts over at epoch 0.
@@ -298,7 +298,7 @@ mod tests {
         adopt(&store, &a, "s1", "SYSTEM v1".into(), String::new()).expect("adopt");
         let b = cfg("Fixer", "Fix bugs and write tests");
         invalidate(&store, &a.id).expect("invalidate");
-        let snap = resolve(&store, &b, "s1").expect("resolve");
+        let snap = resolve(&store, &b, "s1", None).expect("resolve");
         assert!(snap.system.contains("Description: Fix bugs and write tests"), "re-rendered");
         assert!(profile_update(&store, &snap, &b).is_some(), "the agent never heard the new description");
     }

@@ -189,7 +189,7 @@ if [[ $src_pkg == */role ]]; then home=${src_pkg%/role}; else home="$KITH_STATE/
 # Who the run is for: KITH_PERSON, set by the entry point (the bridge, a schedule) and inherited by every helper, so
 # access follows the person who asked however deep the calls go. Unset is the owner and changes nothing. A helper is
 # checked as one (--via the agent that called it). Fails closed: no answer from kith-auth, no run.
-caller=${KITH_AGENT:-}; [[ $caller == "$agent" ]] && caller=""; p_owner=1 p_mode="" p_model="" p_deny="" p_line="" p_env_names=""
+caller=${KITH_AGENT:-}; [[ $caller == "$agent" ]] && caller=""; p_owner=1 p_mode="" p_model="" p_deny="" p_line="" p_env_names="" p_rooms=""
 if [[ -n ${KITH_PERSON:-} ]]; then
   res=$("$KITH/bin/kith-auth" resolve "$agent" ${caller:+--via "$caller"}) \
     || { echo "kith: can't check whether ${KITH_PERSON} may use $agent (kith-auth resolve failed)" >&2; exit 1; }
@@ -202,6 +202,7 @@ print("p_mode=%s p_model=%s p_deny=%s" % (q(r.get("mode", "")), q(r.get("model",
 attrs = " ".join("%s=\"%s\"" % (k, str(r[k]).replace("\"", "")) for k in ("person", "name", "lang", "tz") if r.get(k))
 print("p_line=%s" % q(" " + attrs))
 print("p_budget=%s p_budget_agent=%s p_was=%s" % (q(r.get("budget", "")), q(r.get("budget_agent") or ""), q(",".join(r.get("was", [])))))
+print("p_rooms=%s" % q(" ".join(x for x in r.get("rooms", []) if isinstance(x, str))))
 for k, v in r.get("env", {}).items():
     print("export %s=%s" % (k, q(v)))
 print("p_env_names=%s" % q(" ".join(r.get("env", {}))))')"
@@ -312,16 +313,18 @@ info=$([[ -n $project ]] && "$KITH/bin/project-id" --info "$project" || true)
 parents=$(printf '%s\n' "$info" | tail -n +2 | cut -f1 | paste -sd' ' -)
 held=$([[ -n $project ]] && "$KITH/bin/project-id" --children "$project" --all || true)
 
-# Body without frontmatter, then long-term memory.
-# The owner's run: the agent's memory, then the shared part when there is one. Anyone else's: the shared part and
-# their own.
-memory_tag() { printf '<long-term-memory path="%s"%s>\n%s\n</long-term-memory>' "$1" "$2" "$(cat "$1" 2>/dev/null)"; }
-if [[ $p_owner == 1 ]]; then mems=$(memory_tag "$mem/MEMORY.md" "")
-else mems=$(memory_tag "$shared/MEMORY.md" ' scope="shared"')$'\n'$(memory_tag "$mem/MEMORY.md" " scope=\"$p_id\""); fi
-[[ $p_owner == 1 && -s $shared/MEMORY.md ]] && mems+=$'\n'$(memory_tag "$shared/MEMORY.md" ' scope="shared"')
+# Body without frontmatter, then long-term memory: the load filter of docs/memory-context.md (lib/kith_facets.py, the
+# same one the host's runs get through KITH_ROOM). The owner's run: about them, the agent's memory, then the shared part
+# when there is one. Anyone else's: about them, the shared part and their own. In a group room only what everyone there
+# may see; a bot guest (bot-<hex>) is shared craft and its own room's notes.
+load_kind=person; [[ $p_owner == 1 ]] && load_kind=owner; [[ ${p_id:-} == bot-* ]] && load_kind=guest
+load_out=$(python3 "$KITH/lib/kith_facets.py" load --agent "$agent" --home "$home" --person-file "$person_file" \
+  --kind "$load_kind" --person "${p_id:-}" --rooms "$p_rooms" --room "${KITH_ROOM:-}" --project "$project" \
+  --agent-md "$src_pkg/agent.md") || { echo "kith: couldn't load memory" >&2; exit 1; }
+eval "$load_out"
 prompt="$(template | fill)
 $mems
-<session project=\"${project:-none}\"${parents:+ parents=\"$parents\"}${held:+ holds=\"$(printf '%s\n' "$held" | cut -f1 | paste -sd' ' -)\"} cwd=\"$PWD\" date=\"$(date +%F)\"$p_line/>"
+<session project=\"${project:-none}\"$load_attrs${parents:+ parents=\"$parents\"}${held:+ holds=\"$(printf '%s\n' "$held" | cut -f1 | paste -sd' ' -)\"} cwd=\"$PWD\" date=\"$(date +%F)\"$p_line/>"
 
 if [[ $print -eq 1 ]]; then printf '%s\n' "$prompt"; [[ $# -gt 0 ]] && printf '\n[task] %s\n' "$*"; exit 0; fi
 
