@@ -637,7 +637,12 @@ pub fn apply(conn: &Connection, m: &Material, plan: &Plan) -> Result<Applied> {
                 let after = retagged(&text, &retag, change, "tidy");
                 if put_file(&mut out, &target, Some(&text), &after)? {
                     conn.execute("UPDATE hq_promotions SET dream = ?1 WHERE id = ?2", params![ensure_run()?, change])?;
-                    log("retagged", &target, &describe(&current, &retag, &p.file), Some(&current.audience.to_string()))?;
+                    log(
+                        "retagged",
+                        &target,
+                        &describe(&current, &retag, &p.file),
+                        Some(&current.audience.to_string()),
+                    )?;
                 } else {
                     conn.execute("DELETE FROM hq_promotions WHERE id = ?1", [change])?;
                 }
@@ -717,13 +722,7 @@ fn ask(conn: &Connection, agent: &str, p: &Promote, current: &NoteFacets, retag:
         .query_row(
             "SELECT 1 FROM hq_promotions WHERE agent = ?1 AND file = ?2 AND audience = ?3 AND room = ?4
                AND projects = ?5 AND status IN ('pending', 'declined')",
-            params![
-                agent,
-                p.file,
-                retag.audience.to_string(),
-                retag.room,
-                serde_json::to_string(&retag.projects)?
-            ],
+            params![agent, p.file, retag.audience.to_string(), retag.room, serde_json::to_string(&retag.projects)?],
             |_| Ok(()),
         )
         .is_ok();
@@ -843,11 +842,17 @@ pub fn answer(conn: &Connection, layout: &Layout, agent: &str, id: i64, approve:
     let who = if by.is_empty() { "owner" } else { by };
     // The row is `approved` before the file says so: the kernel trusts the row, and a write that fails leaves it
     // pending again.
-    conn.execute("UPDATE hq_promotions SET status = 'approved', decided_by = ?1, decided_at = ?2 WHERE id = ?3", params![who, now_ms(), id])?;
+    conn.execute(
+        "UPDATE hq_promotions SET status = 'approved', decided_by = ?1, decided_at = ?2 WHERE id = ?3",
+        params![who, now_ms(), id],
+    )?;
     let written = match write(conn, &target, Who::Tidy(agent), &retagged(&text, &retag, id, who))? {
         Ok(w) => w,
         Err(refusal) => {
-            conn.execute("UPDATE hq_promotions SET status = 'pending', decided_by = NULL, decided_at = NULL WHERE id = ?1", [id])?;
+            conn.execute(
+                "UPDATE hq_promotions SET status = 'pending', decided_by = NULL, decided_at = NULL WHERE id = ?1",
+                [id],
+            )?;
             bail!("{}: {}", target.label(), refusal.message());
         }
     };

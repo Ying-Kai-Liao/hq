@@ -82,10 +82,13 @@ fn a_retag_that_keeps_the_readers_is_applied_logged_and_undone() {
     let home = Home::new();
     let m = home.load();
     assert!(m.snapshot.facets.iter().any(|f| f.file == "people/sam/trip.md" && f.audience.to_string() == "person:sam"));
-    let kept = plan(&m, &serde_json::json!([
-        {"file": "people/sam/trip.md", "audience": "owner", "projects": ["japan"], "reason": "private trip"},
-        {"file": "plans.md", "projects": ["japan"]},
-    ]));
+    let kept = plan(
+        &m,
+        &serde_json::json!([
+            {"file": "people/sam/trip.md", "audience": "owner", "projects": ["japan"], "reason": "private trip"},
+            {"file": "plans.md", "projects": ["japan"]},
+        ]),
+    );
     let conn = home.conn();
     let applied = tidy::apply(&conn, &m, &kept).unwrap();
     assert!(applied.asked.is_empty() && applied.dropped.is_empty(), "{applied:?}");
@@ -140,10 +143,13 @@ fn only_the_person_asked_can_approve_and_the_approval_is_what_makes_it_wider() {
     let home = Home::new();
     home.set("people/sam/mood.md", "---\ndescription: Mood\n---\n- Sam is shy\n");
     let m = home.load();
-    let kept = plan(&m, &serde_json::json!([
-        {"file": "plans.md", "audience": "shared"},
-        {"file": "people/sam/mood.md", "audience": "shared"},
-    ]));
+    let kept = plan(
+        &m,
+        &serde_json::json!([
+            {"file": "plans.md", "audience": "shared"},
+            {"file": "people/sam/mood.md", "audience": "shared"},
+        ]),
+    );
     let conn = home.conn();
     tidy::apply(&conn, &m, &kept).unwrap();
     let waiting = tidy::promotions(&conn, "builder", "pending", 10).unwrap();
@@ -162,7 +168,10 @@ fn only_the_person_asked_can_approve_and_the_approval_is_what_makes_it_wider() {
     let done = tidy::answer(&conn, &home.layout, "builder", id("plans.md"), true, "").unwrap();
     assert_eq!(done.status, "approved");
     let text = home.text("plans.md");
-    assert!(text.contains("audience: shared") && text.contains(&format!("approved_change: {}", id("plans.md"))), "{text}");
+    assert!(
+        text.contains("audience: shared") && text.contains(&format!("approved_change: {}", id("plans.md"))),
+        "{text}"
+    );
     assert!(text.contains("approved_by: owner"), "{text}");
     assert_eq!(home.facets("plans.md").audience, Audience::Shared);
     // The change reads as a tidy-up in the log, and undoing it takes the wider audience away again.
@@ -208,7 +217,13 @@ fn the_check_runs_again_at_apply_and_at_the_answer() {
 fn a_note_with_no_facets_or_an_unknown_room_is_owner_only() {
     let home = Home::new();
     let m = home.load();
-    assert!(m.snapshot.facets.iter().filter(|f| f.file == "plans.md" || f.file == "MEMORY.md").all(|f| f.audience == Audience::Owner));
+    assert!(
+        m.snapshot
+            .facets
+            .iter()
+            .filter(|f| f.file == "plans.md" || f.file == "MEMORY.md")
+            .all(|f| f.audience == Audience::Owner)
+    );
     // Moving it into a room whose members nobody can tell is a question, not a retag.
     let kept = plan(&m, &serde_json::json!([{"file": "plans.md", "audience": "room:grp1"}]));
     let applied = tidy::apply(&home.conn(), &m, &kept).unwrap();

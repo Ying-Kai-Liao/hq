@@ -11,7 +11,9 @@ mod notes;
 mod promote;
 pub use log::{Change, FileChange, TidyUp, discard_if_empty, get, recent, record_file, undo};
 pub use notes::{Append, MoveOut, NOTE_CAP, Note, notes};
-pub use promote::{Audience, Judgement, NoteFacets, Promote, Retag, Roster, judge, set_frontmatter, split_frontmatter, valid_id};
+pub use promote::{
+    Audience, Judgement, NoteFacets, Promote, Retag, Roster, judge, set_frontmatter, split_frontmatter, valid_id,
+};
 
 use rusqlite::{Connection, params};
 use serde::Deserialize;

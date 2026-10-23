@@ -83,7 +83,8 @@ enum Readers {
 
 impl Roster {
     pub fn with_room(mut self, room: &str, members: &[&str]) -> Self {
-        self.rooms.insert(room.to_owned(), members.iter().filter(|m| **m != "owner").map(|m| (*m).to_owned()).collect());
+        self.rooms
+            .insert(room.to_owned(), members.iter().filter(|m| **m != "owner").map(|m| (*m).to_owned()).collect());
         self
     }
 
@@ -190,7 +191,10 @@ impl NoteFacets {
         let get = |k: &str| front.iter().find(|(key, _)| key == k).map(|(_, v)| v.as_str());
         if let Some(wanted) = get("audience").and_then(Audience::parse) {
             let change = get("approved_change").and_then(|c| c.parse().ok());
-            if wanted == audience || wanted == Audience::Owner || change.is_some_and(|c| granted(c, &wanted.to_string())) {
+            if wanted == audience
+                || wanted == Audience::Owner
+                || change.is_some_and(|c| granted(c, &wanted.to_string()))
+            {
                 audience = wanted;
             }
         }
@@ -261,17 +265,16 @@ pub fn judge(current: &NoteFacets, want: &Promote, roster: &Roster) -> Result<Ju
     if retag.audience == current.audience && retag.room == current.room && retag.projects == current.projects {
         return Ok(Judgement::Nothing);
     }
-    Ok(if roster.within(&retag.audience, &current.audience) { Judgement::Allowed(retag) } else { Judgement::Widens(retag) })
+    Ok(if roster.within(&retag.audience, &current.audience) {
+        Judgement::Allowed(retag)
+    } else {
+        Judgement::Widens(retag)
+    })
 }
 
 /// Keeps the proposals that name a note and ask for a valid, different tag; both the allowed and the widening ones
 /// (the host applies the first and asks about the second).
-pub(super) fn audit(
-    snapshot: &super::Snapshot,
-    promote: Vec<Promote>,
-    kept: &mut Plan,
-    rejected: &mut Vec<String>,
-) {
+pub(super) fn audit(snapshot: &super::Snapshot, promote: Vec<Promote>, kept: &mut Plan, rejected: &mut Vec<String>) {
     for p in promote {
         let Some(current) = snapshot.facets.iter().find(|f| f.file == p.file) else {
             rejected.push(format!("promote {}: no such note", p.file));
