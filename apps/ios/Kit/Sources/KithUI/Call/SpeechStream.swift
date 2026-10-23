@@ -118,6 +118,14 @@ enum SpeechEcho {
     /// A run of at least this many words copied from the spoken text counts as the bot's voice.
     private static let minRun = 3
 
+    /// How much of the bot's recent speech is kept to compare against.
+    static let windowChars = 800
+
+    /// `recent` with `said` added, keeping only the last `windowChars` characters.
+    static func remember(_ recent: String, adding said: String) -> String {
+        String((recent + " " + said).suffix(windowChars))
+    }
+
     private struct Token {
         let word: String
         /// UTF-16 offset where it ends in the original text.
@@ -172,7 +180,8 @@ enum SpeechEcho {
             let run = " " + said[..<n].map(\.word).joined(separator: " ") + " "
             if reference.contains(run) {
                 let rest = (heard as NSString).substring(from: min(said[n - 1].end, (heard as NSString).length))
-                return rest.trimmingCharacters(in: .whitespacesAndNewlines)
+                // The echo's closing punctuation ("today?") isn't the user's.
+                return String(rest.drop { !($0.isLetter || $0.isNumber) }).trimmingCharacters(in: .whitespacesAndNewlines)
             }
             n -= 1
         }
