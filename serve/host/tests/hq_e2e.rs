@@ -477,3 +477,70 @@ async fn moving_a_task_thread_to_another_project_after_its_turn_never_stalls_the
     let _ = stop.send(());
     watch.await.unwrap();
 }
+
+/// What an app does for an hq bot's permission: `kithSetPermission` goes through to hq, and hq's value is read back.
+#[tokio::test]
+async fn permission_is_written_through_to_hq_and_read_back() {
+    let s = start().await;
+    let id = s.house().await["id"].as_str().unwrap().to_owned();
+    let before = s.host.call("kithInfo", json!({"botId": id})).await;
+    assert_eq!(before["info"]["permission_mode"], "auto");
+
+    let got = s.host.call("kithSetPermission", json!({"botId": id, "mode": "plan"})).await;
+    assert_eq!(got["info"]["permission_mode"], "plan", "the answer is hq's info, read back");
+    assert_eq!(std::fs::read_to_string(s.home.join("permission")).unwrap(), "plan", "hq holds it");
+    let again = s.host.call("kithInfo", json!({"botId": id})).await;
+    assert_eq!(again["info"]["permission_mode"], "plan", "another device's next read sees hq's value, not a cache");
+
+    // The next turn starts the agent from hq's launch, which carries that mode and nothing the host chose.
+    s.host.reply(&id, "hello").await;
+    assert_eq!(s.launches().len(), 1);
+    let new = s.requests("session/new");
+    assert_eq!(new[0]["params"]["_meta"]["claudeCode"]["options"]["settings"]["permissions"]["defaultMode"], "plan");
+
+    // Changed by hand in hq: the app shows it on its next fetch.
+    std::fs::write(s.home.join("permission"), "default").unwrap();
+    let hand = s.host.call("kithInfo", json!({"botId": id, "refresh": true})).await;
+    assert_eq!(hand["info"]["permission_mode"], "default");
+
+    // An empty mode forgets this Mac's choice; a mode hq refuses is an error, and hq keeps what it had.
+    s.host.call("kithSetPermission", json!({"botId": id, "mode": ""})).await;
+    assert!(!s.home.join("permission").exists());
+    std::fs::write(s.home.join("permission"), "plan").unwrap();
+    let why = s.host.refused("kithSetPermission", json!({"botId": id, "mode": "nonsense"})).await;
+    assert!(why.contains("not one of"), "{why}");
+    assert_eq!(std::fs::read_to_string(s.home.join("permission")).unwrap(), "plan");
+}
+
+#[tokio::test]
+async fn a_plain_bot_has_no_hq_permission_to_set() {
+    let s = start().await;
+    let plain = s.host.bot("plain", "ask").await;
+    let why = s.host.refused("kithSetPermission", json!({"botId": plain, "mode": "plan"})).await;
+    assert!(why.contains("isn't a kith agent"), "{why}");
+}
+
+/// The host's own copy of model, effort, Fast mode and permission is not hq's, so it never reaches the launch and an
+/// app's edit of it is not stored.
+#[tokio::test]
+async fn the_hosts_own_copy_never_overrides_hq() {
+    let s = start().await;
+    let id = s.house().await["id"].as_str().unwrap().to_owned();
+    let edited = s
+        .host
+        .call(
+            "updateBot",
+            json!({"id": id, "model": "opus", "modelOptions": {"effort": "high"}, "fastMode": true, "permission": "auto"}),
+        )
+        .await;
+    assert_eq!(edited["bot"]["permission"], "ask", "the edit of an hq bot's permission isn't stored");
+    assert_eq!(edited["bot"]["fastMode"], false);
+    assert!(edited["bot"]["model"].is_null());
+
+    s.host.reply(&id, "hello").await;
+    let launch = &s.launches()[0];
+    let args: Vec<&str> = launch["args"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    assert_eq!(args, ["house", "--launch-json"], "no -m, -e or --permission-mode of the host's: {args:?}");
+    let options = &s.requests("session/new")[0]["params"]["_meta"]["claudeCode"]["options"];
+    assert_eq!(options["model"], "haiku", "hq's model");
+}

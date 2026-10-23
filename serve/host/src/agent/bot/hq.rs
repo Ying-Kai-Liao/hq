@@ -52,7 +52,7 @@ impl Actor {
         if let Some(notice) = &target.notice {
             self.notice(notice, NoticeStyle::Divider);
         }
-        let mut launch = hq::launch(&bin, &agent, &target.cwd, &self.cfg, target.project.as_deref()).await?;
+        let mut launch = hq::launch(&bin, &agent, &target.cwd, target.project.as_deref()).await?;
         if target.explicit {
             launch.cwd.clone_from(&target.cwd);
         }
@@ -137,7 +137,7 @@ impl Actor {
         let Some(conn) = self.conn.as_mut() else { bail!("agent not running") };
         let sid = res["sessionId"].as_str().ok_or_else(|| anyhow!("agent returned no sessionId"))?.to_owned();
         conn.loaded.insert(sid.clone(), Instant::now());
-        // The model was chosen by hq (`-m`), so the host doesn't set it again.
+        // The model, effort and permission mode are hq's (launch-json): the host sets none of them again.
         self.note_options(&sid, &res, Listing::Session);
         self.set_session(slot, Some(&sid));
         self.session_fresh = true;

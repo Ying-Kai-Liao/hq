@@ -263,6 +263,16 @@ impl InfoRun {
     }
 }
 
+/// `kith <agent> set permission <mode>`: this Mac's permission mode for the agent, used by its next run from any
+/// entry point (kith's own error text on failure, e.g. a mode it doesn't know). Returns the info read back from hq.
+pub async fn set_permission(agent: &str, mode: &str) -> Result<InfoRun> {
+    let Some(bin) = tokio::task::spawn_blocking(bin).await? else {
+        bail!("kith isn't installed on this computer (set KITH_KERNEL_BIN, or put `kith` on PATH)");
+    };
+    run(&bin, &[agent, "set", "permission", mode], None, LIST_TIMEOUT).await?;
+    Ok(refill(agent, true).await)
+}
+
 /// Runs kith for `agent`. A caller that finds a run in flight waits for it and takes its answer, `force` or not
 /// (a refresh asked for while one is running would only repeat it); otherwise a still-fresh answer is reused
 /// unless `force`.
@@ -341,17 +351,12 @@ pub async fn project_add(id: &str, path: &str) -> Result<()> {
 }
 
 /// Asks hq how to start `agent` for a run in `cwd`; `project` goes as `-p <id>`, so hq loads that project's context.
-/// The model and effort the user picked for the bot go to hq as `-m`/`-e`, so its ledger tag and `KITH_MODEL` say what ran.
-pub async fn launch(bin: &Path, agent: &str, cwd: &str, cfg: &BotConfig, project: Option<&str>) -> Result<Launch> {
+/// Model, effort and permission mode are hq's (the agent's `agent.md`, this Mac's kith settings): the bot's own copy of
+/// them is never passed (`-m`, `-e` or `--permission-mode` would win over hq), so what runs is what the apps show.
+pub async fn launch(bin: &Path, agent: &str, cwd: &str, project: Option<&str>) -> Result<Launch> {
     let mut args = vec![agent, "--launch-json"];
     if let Some(project) = project {
         args.extend(["-p", project]);
-    }
-    if let Some(model) = cfg.model.as_deref().filter(|m| !m.is_empty()) {
-        args.extend(["-m", model]);
-    }
-    if let Some(effort) = cfg.model_options.get("effort").filter(|e| !e.is_empty()) {
-        args.extend(["-e", effort]);
     }
     let out = run(bin, &args, Some(cwd), LAUNCH_TIMEOUT).await?;
     let launch: Launch = serde_json::from_str(out.trim())

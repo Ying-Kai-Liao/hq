@@ -143,7 +143,8 @@ impl Actor {
     pub(super) async fn on_permission(&mut self, rpc_id: Value, params: Value) {
         let options = params["options"].as_array().cloned().unwrap_or_default();
         let tool = &params["toolCall"];
-        if self.cfg.permission == Permission::Auto {
+        // An hq bot asks only when hq's permission mode says so: the bot's own Auto doesn't answer for it.
+        if self.cfg.permission == Permission::Auto && !self.is_hq() {
             let pick = ["allow_once", "allow_always"]
                 .iter()
                 .find_map(|k| options.iter().find(|o| o["kind"] == *k))

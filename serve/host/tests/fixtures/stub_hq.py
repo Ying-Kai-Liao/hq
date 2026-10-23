@@ -3,7 +3,8 @@
 `project ls --json` lists the projects in `projects.json` (`{"projects": [...]}`) and `project add <id> <path>` adds one.
 
 STUB_HQ_HOME is the agent's folder. Every call is appended to calls.jsonl there (arguments, KITH_VIA, working
-directory). A file named `fail` in that folder makes --launch-json fail with its text on stderr.
+directory). `house set permission MODE` writes the file `permission` there, which --info-json and --launch-json report
+(an empty MODE removes it), as kith keeps its per-agent choice. A file named `fail` in that folder makes --launch-json fail with its text on stderr.
 """
 import json
 import os
@@ -13,6 +14,11 @@ home = os.environ["STUB_HQ_HOME"]
 args = sys.argv[1:]
 with open(os.path.join(home, "calls.jsonl"), "a", encoding="utf-8") as log:
     log.write(json.dumps({"args": args, "via": os.environ.get("KITH_VIA") or os.environ.get("HQ_VIA"), "cwd": os.getcwd()}) + "\n")
+
+def permission(default):
+    path = os.path.join(home, "permission")
+    return open(path, encoding="utf-8").read().strip() if os.path.exists(path) else default
+
 
 if args == ["ls", "--json"]:
     print(json.dumps([{"name": "house", "description": "Keeps the house", "home": home, "model": None,
@@ -29,6 +35,15 @@ elif args[:2] == ["project", "add"]:
     projects.append({"id": args[2], "paths": [args[3]], "home": args[3], "remotes": [], "parent": None,
                      "memory": None, "exists": True})
     json.dump({"projects": projects}, open(path, "w", encoding="utf-8"))
+elif args[:3] == ["house", "set", "permission"] and len(args) == 4:
+    path = os.path.join(home, "permission")
+    if args[3] == "nonsense":
+        print("kith: permission_mode 'nonsense' is not one of default, manual", file=sys.stderr)
+        sys.exit(1)
+    if args[3]:
+        open(path, "w", encoding="utf-8").write(args[3])
+    elif os.path.exists(path):
+        os.remove(path)
 elif args == ["house", "--info-json"]:
     fail = os.path.join(home, "info_fail")
     if os.path.exists(fail):
@@ -39,7 +54,7 @@ elif args == ["house", "--info-json"]:
     files = [{"path": n, "bytes": os.path.getsize(os.path.join(memory, n)), "modified": "2026-10-22T00:00:00Z"} for n in names]
     print(json.dumps({
         "version": 1, "agent": "house", "description": "Keeps the house", "harness": "claude", "model": None,
-        "effort": None, "permission_mode": None, "home": home,
+        "effort": None, "permission_mode": permission("auto"), "home": home,
         "role": {"path": home + "/role", "intro": "Keeps the house.", "sections": [{"title": "Not yours", "text": "Money."}]},
         "package": {"version": None, "remote": None, "dirty": False, "unpushed": 0, "pinned": None},
         "skills": [], "tools": [], "mcp_servers": [], "plugins": [], "projects": [], "schedules": [], "cost": None,
@@ -66,7 +81,7 @@ elif args[:2] == ["house", "--launch-json"]:
         "settings": {"hooks": {"SessionStart": []}},
         "mcp_servers": {"pantry": {"command": "pantry-mcp", "args": [], "env": {}}},
         "add_dirs": [home + "/data"], "allowed_tools": ["Read"], "disable_slash_commands": True,
-        "model": model, "effort": None, "permission_mode": "default", "cost_tag": {}, "claude_args": [],
+        "model": model, "effort": None, "permission_mode": permission("default"), "cost_tag": {}, "claude_args": [],
     }))
 else:
     print("unknown agent", file=sys.stderr)

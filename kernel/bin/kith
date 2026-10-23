@@ -13,6 +13,7 @@
 #   kith <agent> --inspect          start one run and report what it loads (tools, MCP servers, skills, plugins)
 #   kith <agent> --info-json        for a program (the bot detail page): one JSON object, the agent's role, package, skills, tools,
 #                                 MCP servers, projects, schedules, cost and memory; read-only, local, each part fails soft (kith-info)
+#   kith <agent> set permission MODE   this Mac's permission mode for the agent (MODE '' forgets it); its next run uses it
 #   kith <agent> --launch-json [--hold PID] [...]   for a program that starts the run itself (kith serve): one JSON object on stdout
 #                                 with everything the run needs (env, cwd, system_prompt, settings, MCP servers, directories,
 #                                 claude_args to give claude as-is). Claude and Codex (Codex: settings and claude_args null); ignores
@@ -67,7 +68,7 @@ set -euo pipefail
 src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
 KITH="$(cd "$(dirname "$src")/.." && pwd)"
 
-[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,43p' "$0" | sed 's/^#   //'; exit 0; }
+[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,44p' "$0" | sed 's/^#   //'; exit 0; }
 # migrate runs before the paths below are exported: it moves what they point at, and its children must see the new ones
 [[ $1 == migrate ]] && exec "$KITH/bin/kith-migrate" "${@:2}"
 . "$KITH/lib/kith-env.sh"   # KITH_X and the old HQ_X agree (role repos read HQ_X)
@@ -132,6 +133,13 @@ fi
 
 agent=$1; shift
 [[ ${1:-} == --info-json ]] && exec "$KITH/bin/kith-info" "$agent"
+# kith AGENT set permission MODE: this Mac's permission mode for the agent (what kith install asks, what apps change).
+# MODE '' forgets it. Applies to the agent's next run from any entry point.
+if [[ ${1:-} == set ]]; then
+  [[ -n $(agent_dir "$agent") ]] || { echo "kith: no agent '$agent' (try: kith ls)" >&2; exit 1; }
+  [[ ${2:-} == permission && $# -eq 3 ]] || { echo "usage: kith $agent set permission MODE   (MODE '' forgets this Mac's choice)" >&2; exit 2; }
+  exec python3 "$KITH/lib/kith_settings.py" set permission_mode "$agent" "$3"
+fi
 src_pkg=$(agent_dir "$agent")
 [[ -n $src_pkg ]] || { echo "kith: no agent '$agent' (try: kith ls, or kith install <github-link>)" >&2; exit 1; }
 [[ ${1:-} == --backups-json ]] && exec python3 "$KITH/lib/kith_accounts.py" backups-json "$agent" "$src_pkg/agent.md"
