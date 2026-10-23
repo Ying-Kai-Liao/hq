@@ -18,17 +18,20 @@ use crate::store::{BotConversation, BotState, EntryKind, Lane, Scope, Store};
 use proptest::prelude::*;
 use proptest::test_runner::{Config, TestCaseError, TestRunner};
 use serde_json::{Value, json};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 const AGENTS: [&str; 2] = ["house", "money"];
 /// Kai (the Mac owner, no person row), and the two invited people.
 const WHO: [&str; 3] = ["kai", "sam", "ann"];
+/// How far a failing case is shrunk; the break proof sets it to 0 to stay quick.
+static SHRINK: AtomicU32 = AtomicU32::new(24);
 const SECRET: &str = "SECRET-PATH";
 
 /// Cases per property; every case builds a kith-auth and a store of its own and runs subprocesses, so the default is
 /// small. `PROPTEST_CASES` overrides it.
 fn runner(default: u32) -> TestRunner {
-    let mut config = Config { failure_persistence: None, max_shrink_iters: 24, ..Config::default() };
+    let mut config =
+        Config { failure_persistence: None, max_shrink_iters: SHRINK.load(Ordering::Relaxed), ..Config::default() };
     config.cases = std::env::var("PROPTEST_CASES").ok().and_then(|c| c.parse().ok()).unwrap_or(default);
     TestRunner::new(config)
 }
@@ -98,6 +101,7 @@ enum Op {
     Allow { bot: usize, always: bool },
     RevokeBot { actor: usize, bot: usize },
     RevokeInvite { actor: usize, bot: usize },
+    Reinvite { actor: usize, bot: usize },
     MyBots { actor: usize },
     SetLimits { actor: usize, bot: usize, rate: usize, conc: usize },
     SetAccess { person: usize, roles: [u8; 2] },
@@ -111,6 +115,7 @@ fn op() -> impl Strategy<Value = Op> {
         2 => (0..8usize, any::<bool>()).prop_map(|(bot, always)| Op::Allow { bot, always }),
         2 => (0..3usize, 0..8usize).prop_map(|(actor, bot)| Op::RevokeBot { actor, bot }),
         1 => (0..3usize, 0..8usize).prop_map(|(actor, bot)| Op::RevokeInvite { actor, bot }),
+        2 => (0..3usize, 0..8usize).prop_map(|(actor, bot)| Op::Reinvite { actor, bot }),
         1 => (0..3usize).prop_map(|actor| Op::MyBots { actor }),
         2 => (0..3usize, 0..8usize, 0..7usize, 0..6usize)
             .prop_map(|(actor, bot, rate, conc)| Op::SetLimits { actor, bot, rate, conc }),
@@ -307,6 +312,24 @@ impl State {
                     );
                 }
             }
+            Op::Reinvite { actor, bot } if n > 0 => {
+                // A fresh invite for a bot the caller already has (a rebuilt VM): theirs and still live, or refused.
+                let bi = bot % n;
+                let b = &self.bots[bi];
+                let ok = self.manages(actor, b) && b.state != St::Ended;
+                let id = b.id.clone();
+                let res =
+                    self.call(&self.callers[actor], "createBotInvite", json!({"name": "again", "botId": id})).await;
+                if ok {
+                    res.map_err(|e| format!("{} could not re-invite their own bot: {e:#}", WHO[actor]))?;
+                } else {
+                    check!(
+                        res.err().as_ref().is_some_and(refused),
+                        "{} made an invite for a bot that is not theirs or is gone",
+                        WHO[actor]
+                    );
+                }
+            }
             Op::MyBots { actor } => {
                 let res = self.call(&self.callers[actor], "myBots", json!({})).await;
                 if self.removed[actor] {
@@ -409,6 +432,32 @@ impl State {
                 }
             }
             _ => {}
+        }
+        Ok(())
+    }
+
+    /// Every method a bot may not call, by name, for every bot: refused whatever the state (a random draw hits a
+    /// single method too rarely).
+    async fn sweep(&self) -> Result<(), String> {
+        for b in &self.bots {
+            for m in &self.pool {
+                let listed = BOT_METHODS.contains(&m.as_str());
+                let waiting_ok = BOT_PENDING_METHODS.contains(&m.as_str());
+                let must_refuse = match b.state {
+                    St::Ended => true,
+                    St::Active => !listed,
+                    St::Pending => !waiting_ok,
+                };
+                if must_refuse {
+                    let res = self.call(&b.caller, m, json!({})).await;
+                    check!(
+                        res.as_ref().err().is_some_and(refused),
+                        "a bot of {} ({:?}) reached {m:?}: {res:?}",
+                        WHO[b.owner],
+                        b.state
+                    );
+                }
+            }
         }
         Ok(())
     }
@@ -546,6 +595,7 @@ fn a_bot_never_has_more_than_its_owner_holds_now() {
                     state.step(o).await?;
                     state.check_all().await?;
                 }
+                state.sweep().await?;
                 Ok::<(), String>(())
             });
             drop(state);
@@ -759,4 +809,62 @@ fn a_bot_is_sent_only_its_own_conversations() {
         })
         .unwrap();
     assert!(served.get() > 0, "no entry was ever sent to a bot: the property checked nothing");
+}
+
+// TEMPORARY (not for merge): runs every bot guest break against the property it targets, and break 0 against all.
+#[cfg(test)]
+#[allow(unused_qualifications)]
+mod meta {
+    use super::*;
+    use std::fmt::Write as _;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    #[test]
+    fn every_bot_break_is_caught() {
+        SHRINK.store(0, Ordering::Relaxed);
+        let props: [(&str, fn()); 3] = [
+            ("a_bot_never_has_more_than_its_owner_holds_now", a_bot_never_has_more_than_its_owner_holds_now),
+            ("a_bot_owner_has_at_most_ten_live_bots", a_bot_owner_has_at_most_ten_live_bots),
+            ("a_bot_is_sent_only_its_own_conversations", a_bot_is_sent_only_its_own_conversations),
+        ];
+        // break -> index of the property it targets
+        let target = |n: usize| match n {
+            37 | 38 => 1,
+            39..=41 => 2,
+            _ => 0,
+        };
+        std::panic::set_hook(Box::new(|_| {}));
+        let mut table = String::new();
+        let mut missed = Vec::new();
+        let mut clean_ok = true;
+        let run = |name: &str, f: fn()| -> Option<String> {
+            catch_unwind(AssertUnwindSafe(f)).err().map(|e| {
+                let msg = e
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| e.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+                    .unwrap_or_default();
+                format!("{name} [{}]", msg.chars().take(260).collect::<String>().replace('\n', " "))
+            })
+        };
+        super::super::roles::MUT.with(|c| c.set(0));
+        for (name, f) in props {
+            if let Some(why) = run(name, f) {
+                clean_ok = false;
+                let _ = writeln!(table, "CLEAN FAILS {why}");
+            }
+        }
+        for n in [29usize, 30, 31, 32, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 47, 48, 49, 50] {
+            super::super::roles::MUT.with(|c| c.set(n));
+            let (name, f) = props[target(n)];
+            let caught = run(name, f);
+            let _ = writeln!(table, "BREAK {n:>2} :: {}", caught.clone().unwrap_or_else(|| "NOT CAUGHT".into()));
+            if caught.is_none() {
+                missed.push(n);
+            }
+        }
+        super::super::roles::MUT.with(|c| c.set(0));
+        let _ = std::panic::take_hook();
+        panic!("META RESULT clean_code_passes={clean_ok}\n{table}\nmissed: {missed:?}");
+    }
 }

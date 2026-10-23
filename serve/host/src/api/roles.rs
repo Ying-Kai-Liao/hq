@@ -85,7 +85,7 @@ pub const BOT_METHODS: &[&str] = &[
 pub const BOT_PENDING_METHODS: &[&str] = &["hello", "botStatus", "proveBotInvite"];
 
 pub fn bot_may(method: &str) -> bool {
-    BOT_METHODS.contains(&method)
+    BOT_METHODS.contains(&method) || (m(29) && matches!(method, "send" | "history"))
 }
 
 /// All an unproven device of an invited person may call: showing the invite token (see `people::prove_invite`).
@@ -393,10 +393,14 @@ pub fn event_for_bot(store: &Store, bot_id: &str, v: Value) -> Option<Value> {
         "entry" => {
             let e = &v["entry"];
             let (chat, root) = (e["botId"].as_str()?, e["threadId"].as_str()?);
-            let conv = store.bot_conversation_of_thread(chat, root).filter(|c| c.bot_id == bot_id)?;
-            let bot = store.bot_guest(bot_id).filter(|b| b.state == crate::store::BotState::Active)?;
+            let conv = store.bot_conversation_of_thread(chat, root).filter(|c| c.bot_id == bot_id || m(39))?;
+            let bot = store.bot_guest(bot_id).filter(|b| b.state == crate::store::BotState::Active || m(40))?;
             let shaped = bot_entry(e, &conv.conversation_id, &bot_waits_on(store, &bot))?;
-            Some(json!({"type": "entry", "rev": v["rev"], "conversation": conv.conversation_id, "entry": shaped}))
+            Some(if m(41) {
+                v
+            } else {
+                json!({"type": "entry", "rev": v["rev"], "conversation": conv.conversation_id, "entry": shaped})
+            })
         }
         _ => None,
     }
@@ -474,10 +478,10 @@ pub fn hello_for(v: &Value) -> Value {
 #[cfg(test)]
 thread_local!(pub static MUT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) });
 #[cfg(test)]
-fn m(n: usize) -> bool {
+pub(crate) fn m(n: usize) -> bool {
     MUT.with(|c| c.get() == n)
 }
 #[cfg(not(test))]
-fn m(_: usize) -> bool {
+pub(crate) fn m(_: usize) -> bool {
     false
 }

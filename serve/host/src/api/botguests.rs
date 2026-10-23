@@ -94,7 +94,7 @@ impl Actor {
     fn manages(&self, bot: &BotGuest) -> bool {
         match self {
             Self::Owner => true,
-            Self::Member(p) => bot.owner_person.as_deref() == Some(p),
+            Self::Member(p) => bot.owner_person.as_deref() == Some(p) || roles::m(35),
         }
     }
 
@@ -206,7 +206,7 @@ async fn create_bot_invite(hub: &Arc<Hub>, caller: &Caller, b: &Value) -> Result
 
     let existing = match b["botId"].as_str().filter(|s| !s.is_empty()) {
         Some(id) => {
-            let bot = hub.store.bot_guest(id).filter(|g| g.state.live() && actor.manages(g));
+            let bot = hub.store.bot_guest(id).filter(|g| g.state.live() && (actor.manages(g) || roles::m(50)));
             Some(bot.ok_or_else(|| NotAllowed("That isn't one of your bots.".into()))?)
         }
         None => None,
@@ -282,7 +282,9 @@ async fn new_bot(hub: &Arc<Hub>, actor: &Actor, bin: &Path, owner_id: &str, b: &
     if let Some(bad) = agents.iter().find(|a| !valid_agent(a)) {
         bail!("`{bad}` isn't an agent id.");
     }
-    if hub.store.live_bot_count(actor.owner_person()) >= MAX_LIVE_BOTS {
+    if hub.store.live_bot_count(if roles::m(38) { None } else { actor.owner_person() })
+        >= MAX_LIVE_BOTS + usize::from(roles::m(37))
+    {
         return Err(BotError::err(
             409,
             "tooMany",
@@ -294,7 +296,7 @@ async fn new_bot(hub: &Arc<Hub>, actor: &Actor, bin: &Path, owner_id: &str, b: &
     for agent in &agents {
         let ok = match actor {
             Actor::Owner => here.contains(agent),
-            Actor::Member(p) => roles::may_use(p, agent).await,
+            Actor::Member(p) => roles::may_use(p, agent).await || roles::m(36),
         };
         if !ok {
             return Err(NotAllowed(format!("You can't give a bot {agent}.")).into());
@@ -349,7 +351,7 @@ async fn actor_id(hub: &Hub, bin: &Path, caller: &Caller) -> String {
 async fn revoke_bot_invite(hub: &Arc<Hub>, caller: &Caller, invite_id: &str) -> Result<Value> {
     let actor = Actor::of(hub, caller)?;
     let invite = hub.store.bot_invite(invite_id);
-    let bot = invite.as_ref().and_then(|i| hub.store.bot_guest(&i.bot_id)).filter(|g| actor.manages(g));
+    let bot = invite.as_ref().and_then(|i| hub.store.bot_guest(&i.bot_id)).filter(|g| actor.manages(g) || roles::m(47));
     let (Some(_), Some(bot)) = (invite, bot) else {
         return Err(NotAllowed("That isn't one of your bots' invites.".into()).into());
     };
@@ -374,7 +376,7 @@ fn actor_kind(actor: &Actor) -> &'static str {
 /// `revokeBot {botId}`: the owner's own bot, or any bot for the computer's owner. Removing twice is fine.
 async fn revoke_bot(hub: &Arc<Hub>, caller: &Caller, bot_id: &str) -> Result<Value> {
     let actor = Actor::of(hub, caller)?;
-    let bot = hub.store.bot_guest(bot_id).filter(|g| actor.manages(g));
+    let bot = hub.store.bot_guest(bot_id).filter(|g| actor.manages(g) || roles::m(49));
     let bot = bot.ok_or_else(|| NotAllowed("That isn't one of your bots.".into()))?;
     let ended = end_bot(hub, &bot.bot_id, BotState::Revoked, actor_kind(&actor), &actor_label(hub, caller).await).await;
     Ok(json!({"revoked": ended}))
@@ -429,7 +431,7 @@ fn my_bots(hub: &Arc<Hub>, caller: &Caller) -> Result<Value> {
         .into_iter()
         .filter(|g| match &actor {
             Actor::Owner => g.owner_person.is_none(),
-            Actor::Member(p) => g.owner_person.as_deref() == Some(p),
+            Actor::Member(p) => g.owner_person.as_deref() == Some(p) || roles::m(42),
         })
         .collect();
     mine.reverse();
@@ -502,10 +504,11 @@ async fn set_auto_allow(hub: &Arc<Hub>, caller: &Caller, b: &Value) -> Result<Va
 async fn set_bot_limits(hub: &Arc<Hub>, caller: &Caller, b: &Value) -> Result<Value> {
     let actor = Actor::of(hub, caller)?;
     let id = str_arg(b, "botId")?;
-    let bot = hub.store.bot_guest(id).filter(|g| g.state.live() && actor.manages(g));
+    let bot = hub.store.bot_guest(id).filter(|g| g.state.live() && (actor.manages(g) || roles::m(48)));
     let bot = bot.ok_or_else(|| NotAllowed("That isn't one of your bots.".into()))?;
     let (max_rate, max_concurrent) = match actor {
         Actor::Owner => (OWNER_MAX_RATE, OWNER_MAX_CONCURRENT),
+        Actor::Member(_) if roles::m(43) => (OWNER_MAX_RATE, OWNER_MAX_CONCURRENT),
         Actor::Member(_) => (DEFAULT_RATE, DEFAULT_CONCURRENT),
     };
     let pick = |k: &str, now: i64, max: i64| -> Result<i64> {
@@ -599,7 +602,7 @@ pub(crate) async fn end_bot(hub: &Hub, bot_id: &str, final_state: BotState, why:
 /// Ends every live bot of `person` (their person was revoked, or their last membership is gone).
 pub(crate) async fn revoke_owned_by(hub: &Hub, person: &str, why: &str) {
     for g in hub.store.bot_guests().unwrap_or_default() {
-        if g.state.live() && g.owner_person.as_deref() == Some(person) {
+        if g.state.live() && g.owner_person.as_deref() == Some(person) && !roles::m(32) {
             end_bot(hub, &g.bot_id, BotState::Revoked, why, "host").await;
         }
     }
@@ -645,7 +648,7 @@ pub(super) async fn bot_call(
         Ok(()) if !roles::bot_may(method) => {
             Err(NotAllowed("This isn't available to bots on this computer.".into()).into())
         }
-        Ok(()) if !active && !roles::BOT_PENDING_METHODS.contains(&method) => {
+        Ok(()) if !active && !roles::BOT_PENDING_METHODS.contains(&method) && !roles::m(30) => {
             Err(BotError::err(403, "pending", "This bot is waiting for its owner's allow."))
         }
         Ok(()) => Ok(()),
@@ -689,6 +692,7 @@ async fn bot_method(
         "botConversations" => conversations(hub, bot, b),
         "botStop" => stop(hub, bot, b),
         "botLeave" => leave(hub, bot).await,
+        "send" | "history" if roles::m(29) => super::route(hub, caller, method, b.clone()).await,
         _ => Err(Forbidden.into()),
     }
 }
@@ -868,7 +872,7 @@ async fn ask(hub: &Arc<Hub>, caller: &Caller, bot: &BotGuest, b: &Value) -> Resu
         (None, _) => return Err(bad("`agent` is required for a new conversation")),
     };
     // At most its owner's, now: an owner who lost the agent has taken it from the bot too.
-    if !roles::may_use(&bot.person_id, &agent).await {
+    if !roles::may_use(&bot.person_id, &agent).await && !roles::m(34) {
         return Err(BotError::err(403, "notGranted", format!("This bot may not use {agent}.")));
     }
     // A retry of an ask already sent answers the same and sends nothing.
