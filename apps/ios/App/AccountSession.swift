@@ -1,6 +1,6 @@
 import AuthenticationServices
 import ClerkKit
-import CodyncKit
+import KithKit
 import Foundation
 import Observation
 
@@ -60,7 +60,7 @@ final class AccountSession {
             return
         }
         let scheme = Bundle.main.bundleIdentifier ?? AccountConfig.fallbackScheme(
-            environment: Bundle.main.object(forInfoDictionaryKey: "CodyncEnvironment") as? String)
+            environment: Bundle.main.object(forInfoDictionaryKey: "KithEnvironment") as? String)
         clerk = Clerk.configure(publishableKey: key, options: .init(
             telemetryEnabled: false,
             redirectConfig: .init(redirectUrl: "\(scheme)://callback", callbackUrlScheme: scheme)
@@ -177,7 +177,7 @@ final class AccountSession {
         catch { errorMessage = "Couldn't finish signing in. Please try again." }
     }
 
-    /// `AccountConfig.plist` (`KITH_CLERK_PUBLISHABLE_KEY` / `KITH_CLOUD_URL`, or the older `CODYNC_*` names, override it).
+    /// `AccountConfig.plist` (`KITH_CLERK_PUBLISHABLE_KEY` / `KITH_CLOUD_URL` override it).
     private struct Configuration: Decodable {
         let clerkPublishableKey: String?
         let cloudURL: String?

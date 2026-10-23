@@ -1,5 +1,5 @@
 # Generate the Xcode project with: xcodegen generate --spec apps/project.yml
-name: Codync
+name: Kith
 options:
   bundleIdPrefix: com.yingkailiao
   deploymentTarget:
@@ -13,7 +13,7 @@ packages:
   Clerk:
     url: https://github.com/clerk/clerk-ios
     exactVersion: 1.5.6
-  CodyncKit:
+  KithKit:
     path: ios/Kit
   WebRTC:
     url: https://github.com/stasel/WebRTC
@@ -38,45 +38,45 @@ settings:
     KITH_ENTITLEMENTS_SUFFIX_YES: .personal
     DEAD_CODE_STRIPPING: YES
     ENABLE_USER_SCRIPT_SANDBOXING: NO
-    CODYNC_ENV: main
-    CODYNC_APP_NAME: Kith
-    CODYNC_IOS_BUNDLE_ID: com.yingkailiao.kith.ios
-    CODYNC_APP_GROUP: group.com.yingkailiao.kith
-    CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith
-    CODYNC_URL_SCHEME: kith
-    CODYNC_LEGACY_URL_SCHEME: codync
-    CODYNC_SCREEN_NAME: KithScreen
-    CODYNC_SCREEN_BUNDLE_ID: com.yingkailiao.kith.screen
-    CODYNC_DATA_FOLDER: .kith/serve-main
+    KITH_ENV: main
+    KITH_APP_NAME: Kith
+    KITH_IOS_BUNDLE_ID: com.yingkailiao.kith.ios
+    KITH_APP_GROUP: group.com.yingkailiao.kith
+    KITH_KEYCHAIN_GROUP: com.yingkailiao.kith
+    KITH_URL_SCHEME: kith
+    KITH_LEGACY_URL_SCHEME: codync
+    KITH_SCREEN_NAME: KithScreen
+    KITH_SCREEN_BUNDLE_ID: com.yingkailiao.kith.screen
+    KITH_DATA_FOLDER: .kith/serve-main
   configs:
     Debug:
-      CODYNC_APNS_ENVIRONMENT: sandbox
+      KITH_APNS_ENVIRONMENT: sandbox
     Release:
-      CODYNC_APNS_ENVIRONMENT: production
+      KITH_APNS_ENVIRONMENT: production
     DevDebug:
-      CODYNC_ENV: dev
-      CODYNC_APP_NAME: Kith
-      CODYNC_IOS_BUNDLE_ID: com.yingkailiao.kith.ios.dev
-      CODYNC_APP_GROUP: group.com.yingkailiao.kith.dev
-      CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith.dev
-      CODYNC_URL_SCHEME: kith-dev
-      CODYNC_LEGACY_URL_SCHEME: codync-dev
-      CODYNC_SCREEN_NAME: KithDevScreen
-      CODYNC_SCREEN_BUNDLE_ID: com.yingkailiao.kith.dev.screen
-      CODYNC_DATA_FOLDER: .kith/serve
-      CODYNC_APNS_ENVIRONMENT: sandbox
+      KITH_ENV: dev
+      KITH_APP_NAME: Kith
+      KITH_IOS_BUNDLE_ID: com.yingkailiao.kith.ios.dev
+      KITH_APP_GROUP: group.com.yingkailiao.kith.dev
+      KITH_KEYCHAIN_GROUP: com.yingkailiao.kith.dev
+      KITH_URL_SCHEME: kith-dev
+      KITH_LEGACY_URL_SCHEME: codync-dev
+      KITH_SCREEN_NAME: KithDevScreen
+      KITH_SCREEN_BUNDLE_ID: com.yingkailiao.kith.dev.screen
+      KITH_DATA_FOLDER: .kith/serve
+      KITH_APNS_ENVIRONMENT: sandbox
     DevRelease:
-      CODYNC_ENV: dev
-      CODYNC_APP_NAME: Kith
-      CODYNC_IOS_BUNDLE_ID: com.yingkailiao.kith.ios.dev
-      CODYNC_APP_GROUP: group.com.yingkailiao.kith.dev
-      CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith.dev
-      CODYNC_URL_SCHEME: kith-dev
-      CODYNC_LEGACY_URL_SCHEME: codync-dev
-      CODYNC_SCREEN_NAME: KithDevScreen
-      CODYNC_SCREEN_BUNDLE_ID: com.yingkailiao.kith.dev.screen
-      CODYNC_DATA_FOLDER: .kith/serve
-      CODYNC_APNS_ENVIRONMENT: production
+      KITH_ENV: dev
+      KITH_APP_NAME: Kith
+      KITH_IOS_BUNDLE_ID: com.yingkailiao.kith.ios.dev
+      KITH_APP_GROUP: group.com.yingkailiao.kith.dev
+      KITH_KEYCHAIN_GROUP: com.yingkailiao.kith.dev
+      KITH_URL_SCHEME: kith-dev
+      KITH_LEGACY_URL_SCHEME: codync-dev
+      KITH_SCREEN_NAME: KithDevScreen
+      KITH_SCREEN_BUNDLE_ID: com.yingkailiao.kith.dev.screen
+      KITH_DATA_FOLDER: .kith/serve
+      KITH_APNS_ENVIRONMENT: production
 schemes:
   iOS:
     build:
@@ -125,11 +125,11 @@ targets:
     settings:
       base:
         INFOPLIST_FILE: screen-macos/Info.plist
-        PRODUCT_NAME: $(CODYNC_SCREEN_NAME)
-        PRODUCT_BUNDLE_IDENTIFIER: $(CODYNC_SCREEN_BUNDLE_ID)
+        PRODUCT_NAME: $(KITH_SCREEN_NAME)
+        PRODUCT_BUNDLE_IDENTIFIER: $(KITH_SCREEN_BUNDLE_ID)
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSUIElement: YES
-        INFOPLIST_KEY_CFBundleDisplayName: $(CODYNC_APP_NAME) Screen
+        INFOPLIST_KEY_CFBundleDisplayName: $(KITH_APP_NAME) Screen
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_CFBundleIconName: AppIcon
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
@@ -160,27 +160,27 @@ targets:
     dependencies:
       - package: Clerk
         product: ClerkKit
-      - package: CodyncKit
-        product: CodyncKit
-      - package: CodyncKit
-        product: CodyncUI
+      - package: KithKit
+        product: KithKit
+      - package: KithKit
+        product: KithUI
       - target: Widgets
         embed: true
       - target: NotificationService
         embed: true
     postBuildScripts:
-      - name: Codync environment
+      - name: Kith environment
         basedOnDependencyAnalysis: false
         showEnvVars: false
         script: |
           # The scheme chooses an environment independently of Debug/Release optimization.
-          cp "$SRCROOT/shared/Config/$CODYNC_ENV.plist" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AccountConfig.plist"
+          cp "$SRCROOT/shared/Config/$KITH_ENV.plist" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AccountConfig.plist"
           # The Open-source licenses screen reads the generated third-party notices.
           cp "$SRCROOT/../THIRD_PARTY_NOTICES.md" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/THIRD_PARTY_NOTICES.md"
-          # The build environment's KITH_CLERK_PUBLISHABLE_KEY / KITH_CLOUD_URL (or the older CODYNC_* names) win over the plist.
+          # The build environment's KITH_CLERK_PUBLISHABLE_KEY / KITH_CLOUD_URL win over the plist.
           ACCOUNT_PLIST="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AccountConfig.plist"
-          ACCOUNT_KEY="${KITH_CLERK_PUBLISHABLE_KEY:-$CODYNC_CLERK_PUBLISHABLE_KEY}"
-          ACCOUNT_CLOUD="${KITH_CLOUD_URL:-$CODYNC_CLOUD_URL}"
+          ACCOUNT_KEY="${KITH_CLERK_PUBLISHABLE_KEY}"
+          ACCOUNT_CLOUD="${KITH_CLOUD_URL}"
           if [ -n "$ACCOUNT_KEY" ]; then /usr/libexec/PlistBuddy -c "Set :clerkPublishableKey $ACCOUNT_KEY" "$ACCOUNT_PLIST"; fi
           if [ -n "$ACCOUNT_CLOUD" ]; then /usr/libexec/PlistBuddy -c "Set :cloudURL $ACCOUNT_CLOUD" "$ACCOUNT_PLIST"; fi
           # Optional, gitignored: the PostHog project key. Absent = analytics sends nothing.
@@ -191,13 +191,13 @@ targets:
           fi
     settings:
       base:
-        PRODUCT_NAME: $(CODYNC_APP_NAME)
-        PRODUCT_BUNDLE_IDENTIFIER: $(CODYNC_IOS_BUNDLE_ID)
+        PRODUCT_NAME: $(KITH_APP_NAME)
+        PRODUCT_BUNDLE_IDENTIFIER: $(KITH_IOS_BUNDLE_ID)
         INFOPLIST_FILE: ios/Resources/Info.plist
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_ENTITLEMENTS: ios/Resources/iOS$(KITH_ENTITLEMENTS_SUFFIX_$(KITH_PERSONAL_TEAM)).entitlements
         TARGETED_DEVICE_FAMILY: "1,2"
-        INFOPLIST_KEY_CFBundleDisplayName: $(CODYNC_APP_NAME)
+        INFOPLIST_KEY_CFBundleDisplayName: $(KITH_APP_NAME)
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
@@ -219,18 +219,18 @@ targets:
     sources:
       - ios/Widgets
     dependencies:
-      - package: CodyncKit
-        product: CodyncKit
+      - package: KithKit
+        product: KithKit
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework
     settings:
       base:
-        PRODUCT_NAME: CodyncWidgets
-        PRODUCT_BUNDLE_IDENTIFIER: $(CODYNC_IOS_BUNDLE_ID).LiveActivity
+        PRODUCT_NAME: KithWidgets
+        PRODUCT_BUNDLE_IDENTIFIER: $(KITH_IOS_BUNDLE_ID).LiveActivity
         INFOPLIST_FILE: ios/Widgets/Resources/Info.plist
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_ENTITLEMENTS: ios/Widgets/Resources/Widgets.entitlements
-        INFOPLIST_KEY_CFBundleDisplayName: $(CODYNC_APP_NAME)
+        INFOPLIST_KEY_CFBundleDisplayName: $(KITH_APP_NAME)
         TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES
   # Opens end-to-end sealed alert text (spec §6.7) with this account's push key from the shared Keychain.
@@ -240,15 +240,15 @@ targets:
     sources:
       - ios/NotificationService
     dependencies:
-      - package: CodyncKit
-        product: CodyncKit
+      - package: KithKit
+        product: KithKit
     settings:
       base:
-        PRODUCT_NAME: CodyncNotificationService
-        PRODUCT_BUNDLE_IDENTIFIER: $(CODYNC_IOS_BUNDLE_ID).NotificationService
+        PRODUCT_NAME: KithNotificationService
+        PRODUCT_BUNDLE_IDENTIFIER: $(KITH_IOS_BUNDLE_ID).NotificationService
         INFOPLIST_FILE: ios/NotificationService/Info.plist
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_ENTITLEMENTS: ios/NotificationService/NotificationService.entitlements
-        INFOPLIST_KEY_CFBundleDisplayName: $(CODYNC_APP_NAME)
+        INFOPLIST_KEY_CFBundleDisplayName: $(KITH_APP_NAME)
         TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES

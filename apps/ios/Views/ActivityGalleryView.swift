@@ -1,6 +1,6 @@
 import ActivityKit
-import CodyncKit
-import CodyncUI
+import KithKit
+import KithUI
 import SwiftUI
 
 struct ActivityGalleryView: View {
@@ -35,7 +35,7 @@ struct ActivityGalleryView: View {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 10) {
                     Toggle(island ? "Show in Dynamic Island" : "Show Live Activities", isOn: $enabled)
-                        .toggleStyle(.codync)
+                        .toggleStyle(.kith)
                         .font(.subheadline.weight(.medium))
                     Text(island
                          ? "The Dynamic Island shows the same Live Activity as the Lock Screen, so this switch turns off both."

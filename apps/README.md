@@ -8,7 +8,7 @@ The project key is a public, write-only PostHog key and is built in as the defau
 "Share usage analytics" in Settings.
 
 To override it for a local build, put another key in a gitignored `Secrets.plist` that the
-build copies into the app (the "Codync environment" build phase in `project.yml`):
+build copies into the app (the "Kith environment" build phase in `project.yml`):
 
 ```sh
 cp apps/shared/Config/Secrets.example.plist apps/shared/Config/Secrets.plist
@@ -33,8 +33,7 @@ and the binary-hash check point at it) and `Contents/Resources/kith/` is the rel
 `"…/Resources/kith/bin/kith" --version`, `serve status` and `doctor` work as an installed `kith` does.
 Accounts are off until a build is given a Clerk application: `shared/Config/*.plist` stay empty
 (never commit a key), and the sign-in buttons stay hidden or disabled, so Kith runs on QR pairing
-alone. To turn them on, set two variables in the environment of the build (or of a development run;
-`CODYNC_CLERK_PUBLISHABLE_KEY` / `CODYNC_CLOUD_URL` still work as fallbacks):
+alone. To turn them on, set two variables in the environment of the build (or of a development run):
 
 - `KITH_CLERK_PUBLISHABLE_KEY`: the Kith Clerk app's publishable key (`pk_test_…` / `pk_live_…`), with
   Google, Apple and GitHub enabled and `kith://callback` and `kith-dev://callback` (plus the iOS
@@ -43,7 +42,7 @@ alone. To turn them on, set two variables in the environment of the build (or of
 
 The desktop build writes them into `resources/account-config.json` (`tools/account-config.mjs`, run by
 `npm run dev` and `dist:*`); the iOS build patches them into the app's `AccountConfig.plist` in the
-"Codync environment" build phase. Unset or empty keeps the plist's (empty) value. The relay URL comes
+"Kith environment" build phase. Unset or empty keeps the plist's (empty) value. The relay URL comes
 from the host's `config.json` (`relay_url`) and travels
 in the pairing link; the apps need no relay setting.
 
@@ -55,12 +54,12 @@ sign (no Push, Sign in with Apple or communication notifications; app groups and
 keychain group are kept):
 
 ```sh
-xcodebuild build -project apps/Codync.xcodeproj -scheme "iOS Dev" -configuration DevDebug \
+xcodebuild build -project apps/Kith.xcodeproj -scheme "iOS Dev" -configuration DevDebug \
   -destination 'generic/platform=iOS' -allowProvisioningUpdates \
   DEVELOPMENT_TEAM=<your team id> KITH_PERSONAL_TEAM=YES
 ```
 
-In Xcode: open `apps/Codync.xcodeproj`, scheme "iOS Dev", pick your phone, set the team on the
+In Xcode: open `apps/Kith.xcodeproj`, scheme "iOS Dev", pick your phone, set the team on the
 three targets, add the user-defined build setting `KITH_PERSONAL_TEAM = YES` to the project,
 Run. Then on the iPhone trust the developer: Settings, General, VPN & Device Management.
 Profiles from a free team expire after 7 days.
