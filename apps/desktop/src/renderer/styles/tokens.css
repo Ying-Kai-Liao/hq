@@ -1,0 +1,199 @@
+/* The Kith app design tokens (docs/design/DESIGN.md), mirroring apps/ios/Kit/Sources/KithKit/Design/Tokens.swift.
+   Everything is prefixed --kith- because theme.css already owns --accent, --panel and --attention with other
+   values; screens adopt these as they are redesigned. Dark follows theme.css: prefers-color-scheme (the website
+   demo rewrites that query to always apply). Nothing here changes an existing variable or element. */
+
+/* Inter (400/600/700), Nunito (variable, 800 used) and JetBrains Mono: SIL OFL 1.1, bundled so the app works
+   offline. Licence texts sit beside the files. */
+@font-face {
+  font-family: 'Inter';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('../assets/fonts/Inter-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  src: url('../assets/fonts/Inter-SemiBold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('../assets/fonts/Inter-Bold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Nunito';
+  font-weight: 200 1000;
+  font-style: normal;
+  font-display: swap;
+  src: url('../assets/fonts/Nunito-Variable.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('../assets/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+}
+
+:root {
+  --kith-ink: #14161b;
+  --kith-muted: #6b7280;
+  /* Secondary text over the sky. */
+  --kith-muted-on-sky: #4b5160;
+  --kith-line: #ecedf2;
+  --kith-panel: #f6f6fa;
+  --kith-accent: #6a45f2;
+  /* The lighter violet, for accent text and fills on dark grounds. */
+  --kith-accent-dark: #b49cff;
+  --kith-attention: #936000;
+  --kith-attention-bg: #fff1dc;
+  --kith-positive: #178357;
+  --kith-negative: #c93450;
+  /* The dark ground, in both appearances. */
+  --kith-night: #14161b;
+  /* Floating glass controls: white at 58% (dark: the agent bubble colour). */
+  --kith-glass-tint: rgba(255, 255, 255, 0.58);
+  --kith-glass-edge: rgba(255, 255, 255, 0.7);
+  --kith-ground: #ffffff;
+  /* A bot's soft drop shadow, so it sits on white or sky without a tile. */
+  --kith-bot-shadow: 0 2px 4px rgba(20, 22, 27, 0.12);
+
+  --kith-radius-chip: 999px;
+  --kith-radius-row-tool: 10px;
+  --kith-radius-card: 18px;
+  --kith-radius-sheet: 36px;
+  --kith-radius-glass-pill: 28px;
+
+  --kith-gutter: 16px;
+  --kith-row-v: 9px;
+  --kith-stack: 10px;
+
+  --kith-bot-avatar: 48px;
+  --kith-bot-avatar-top-bar: 30px;
+  --kith-bot-avatar-thread: 24px;
+  --kith-bot-avatar-colour-sheet: 84px;
+  --kith-chat-box: 54px;
+  --kith-top-button: 42px;
+  --kith-tool-row: 44px;
+  --kith-count-badge: 18px;
+  --kith-count-badge-board: 16px;
+  /* The agent chat's sky strip fades out by here. */
+  --kith-sky-header-fade: 170px;
+
+  --font-agent: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
+  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  --font-code: 'JetBrains Mono', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --kith-ink: #ffffff;
+    --kith-muted: #b4bac4;
+    --kith-muted-on-sky: #c3c8d2;
+    --kith-line: #2c303a;
+    --kith-panel: #1e2129;
+    --kith-accent: #b49cff;
+    --kith-attention: #ecaf52;
+    --kith-attention-bg: #3a2a12;
+    --kith-positive: #4cc38a;
+    --kith-negative: #ff7a8e;
+    --kith-glass-tint: rgba(30, 33, 41, 0.58);
+    --kith-glass-edge: rgba(255, 255, 255, 0.14);
+    --kith-ground: #14161b;
+  }
+}
+
+/* The type ramp (iOS KithText). Sizes follow the app's --scale text preference; like theme.css it is declared
+   again on .island, where --scale is reset. Each style is a family, size, weight, line height and tracking. */
+:root,
+.island {
+  --kith-size-agent-name: calc(16px * var(--scale));
+  --kith-size-top-bar: calc(16px * var(--scale));
+  --kith-size-body: calc(15px * var(--scale));
+  --kith-size-secondary: calc(13px * var(--scale));
+  --kith-size-label: calc(11px * var(--scale));
+  --kith-size-code: calc(12px * var(--scale));
+}
+
+.kith-text-agent-name {
+  font: 800 var(--kith-size-agent-name) / 1.2 var(--font-agent);
+}
+.kith-text-top-bar {
+  font: 600 var(--kith-size-top-bar) / normal var(--font-ui);
+}
+.kith-text-body {
+  font: 400 var(--kith-size-body) / 1.45 var(--font-ui);
+}
+.kith-text-secondary {
+  font: 400 var(--kith-size-secondary) / normal var(--font-ui);
+}
+.kith-text-label {
+  font: 700 var(--kith-size-label) / normal var(--font-ui);
+  letter-spacing: 0.06em;
+}
+.kith-text-code {
+  font: 400 var(--kith-size-code) / normal var(--font-code);
+}
+
+/* Floating controls only (top buttons, chat box, menus); content never sits in glass. */
+.kith-glass {
+  background: var(--kith-glass-tint);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  backdrop-filter: blur(20px) saturate(1.4);
+  box-shadow: inset 0 0 0 0.5px var(--kith-glass-edge);
+}
+.kith-bot-shadow {
+  filter: drop-shadow(0 2px 4px rgba(20, 22, 27, 0.12));
+}
+
+/* The morning sky, night in dark mode (the same clouds at night). Put it behind the content, outside the
+   scroll container, so it stays still while the content scrolls. `.kith-sky-day` / `.kith-sky-night` force a
+   variant. The images are 1179 wide: home 1160 tall, header 600. */
+.kith-sky-home,
+.kith-sky-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-position: top center;
+  background-size: 100% auto;
+  background-color: var(--kith-ground);
+}
+/* Home: fills the top and is gone into the ground by mid-height. */
+.kith-sky-home {
+  /* Sized from the width, so the image is never squeezed; the parent clips it. */
+  aspect-ratio: 1179 / 1160;
+  background-image: url('../assets/sky/sky-home-day.webp');
+  -webkit-mask-image: linear-gradient(#000 0, #000 35%, transparent 50%);
+  mask-image: linear-gradient(#000 0, #000 35%, transparent 50%);
+}
+/* Agent chat: a short strip behind the top bar, gone by --kith-sky-header-fade. */
+.kith-sky-header {
+  height: var(--kith-sky-header-fade);
+  background-image: url('../assets/sky/sky-header-day.webp');
+  -webkit-mask-image: linear-gradient(#000 55%, transparent 100%);
+  mask-image: linear-gradient(#000 55%, transparent 100%);
+}
+@media (prefers-color-scheme: dark) {
+  .kith-sky-home:not(.kith-sky-day) {
+    background-image: url('../assets/sky/sky-home-night.webp');
+  }
+  .kith-sky-header:not(.kith-sky-day) {
+    background-image: url('../assets/sky/sky-header-night.webp');
+  }
+}
+.kith-sky-home.kith-sky-night {
+  background-image: url('../assets/sky/sky-home-night.webp');
+}
+.kith-sky-header.kith-sky-night {
+  background-image: url('../assets/sky/sky-header-night.webp');
+}

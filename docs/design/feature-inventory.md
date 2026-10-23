@@ -514,21 +514,23 @@ Do not build these yet; they are unsettled in the design.
 - **Whether Crew shares the Board dock fully** (same chat box and call button on both). DESIGN.md says "Crew and Board"; the Board layout itself is "only sketched in phone-app v1" (DESIGN.md Open).
 - Branding's preset palette for user colours (15 gradient and plain pairs): colour sheet uses placeholders until confirmed.
 
-## Open: features without a home
+## Placed: features that had no home (designer, DESIGN.md draft v2, 2026-10-23)
 
-These features exist today and must survive. DESIGN.md does not place them. Each needs a decision from the designer (proposal in brackets) before the screen that holds it is rebuilt. Until then the current implementation stays as it is.
+These features exist today and must survive. Draft v1 did not place them; the designer's v2 does (DESIGN.md sections named below, decisions.md designer lines of 2026-10-23). Until the screen that holds each is rebuilt, the current implementation stays as it is.
 
-1. **State tab** (iOS I-A2, I-J4): widget, Live Activity and Dynamic Island setup galleries. [Settings > "Widgets & Live Activities", pushed from the Profile menu.]
-2. **Usage limits** (iOS I-J5, `kith://usage`; desktop D-170): iOS opens it from the State tab header. [Profile menu > Usage on iOS; desktop already has Settings > Usage.]
-3. **Extensions / marketplace and Credentials** (iOS I-F1 to I-F6, I-F8; desktop D-142 to D-159): agents, connectors, Composio apps, skills, custom connector, credentials, 1Password. [Computers > Extensions per Mac, as today's Computers row buttons; deep link `kith://plugins` keeps working.]
-4. **Remote Computer screen** (iOS I-I1; chat top bar Computer button I-C1): watch and take over the Mac. [A row in Computers, plus a button in the ••• menu while the agent is using the computer.]
-5. **Call screen look** (iOS I-H1; desktop D-109 to D-113): DESIGN.md places the call button only. [Keep layout, restyle with tokens; designer to confirm.]
-6. **First run: Welcome, Pairing onboarding, Restoring splash** (iOS I-E15, I-E16, I-A18; desktop D-66, D-67): no first-run screen in the mocks. [Restyle on the sky with the living crew; keep copy, demo and sign-in buttons.]
-7. **Star prompt** (desktop D-70): only on desktop today. [One-time stock sheet after setup.]
-8. **Message reactions** (iOS I-C8; desktop D-80 to D-82): user emoji on messages vs "never emoji" for icons. [Keep, they are user content; designer to confirm.]
-9. **Bot-to-bot conversation view** (iOS I-C15; desktop D-92): peeking at bots talking inside a group. Belongs to the unsettled group/team modes (threads3).
-10. **Manual order of the roster** (iOS I-A3, I-A8; desktop D-45): drag to reorder, synced to the host, pinned bots. The design sorts needs-you, working, recent. [Keep pinned + manual order as a tie-break inside each group; designer to confirm.]
-11. **Desktop notch island** (desktop D-3, D-184 to D-194): not in DESIGN.md. [Keep as is; only the bots lose their tiles.]
-12. **Desktop layout of the design**: Crew / Board switch, dock and top bar are described for a phone. Desktop currently has a sidebar roster + conversation + side panels, a rail, menu bar tray, native menus. Needs a designer decision (proposal: keep sidebar = Crew list, conversation pane = agent chat, dock in the conversation pane, Board as a second sidebar mode).
-13. **Website demo build** (desktop D-25): decide whether it follows the redesign.
-14. **Home search and router** (iOS I-B8) and **Correct this** (I-C21): new features, not in the apps at all. They are in DESIGN.md but need backend support (router, memory correction proposals). Not part of "keep what exists".
+1. **State tab** (iOS I-A2, I-J4): widget, Live Activity and Dynamic Island setup galleries. Decided: Settings > "Widgets & Live Activities", unchanged inside; the old State tab goes once the tab bar does.
+2. **Usage limits** (iOS I-J5, `kith://usage`; desktop D-170): Decided: Profile menu > Usage (`kith://usage` keeps working); desktop keeps Settings > Usage.
+3. **Extensions / marketplace and Credentials** (iOS I-F1 to I-F6, I-F8; desktop D-142 to D-159): Decided: Profile menu > Extensions (marketplace + Credentials; the sheet keeps its own computer switcher; `kith://plugins` keeps working).
+4. **Remote Computer screen** (iOS I-I1; chat top bar Computer button I-C1): Decided: three entries: the chat subtitle reads "using the computer" while the agent uses it, ••• > "Show the computer", Profile > Computers > a Mac (and `kith://screen`). The controls become glass pills over the screen, edge to edge on black (DESIGN.md "Computer screen").
+5. **Call screen look** (iOS I-H1; desktop D-109 to D-113): Decided: keep layout and behaviour, restyle only: full-bleed sky, large bot (160, no tile) with the mic-level ring, round glass controls, End stays the stock red (DESIGN.md "Call screen").
+6. **First run: Welcome, Pairing onboarding, Restoring splash** (iOS I-E15, I-E16, I-A18; desktop D-66, D-67): Decided: restyle on the morning sky with the living crew as the hero; copy, demo, sign-in buttons and pairing steps unchanged; the restoring splash is the Crew loading state (DESIGN.md "First run").
+7. **Star prompt** (desktop D-70): Decided: Mac only, today's behaviour in a stock sheet (cube mark, one line, Not now / Star on GitHub); not added to iOS (DESIGN.md "Star prompt (Mac)").
+8. **Message reactions** (iOS I-C8; desktop D-80 to D-82): Decided: kept. They are user content, so emoji are allowed here (the no-emoji rule is about icons); your own reaction carries a 1 px ink outline (DESIGN.md "Reactions").
+9. **Bot-to-bot conversation view** (iOS I-C15; desktop D-92): Decided: unchanged until group and team modes (threads3) settle.
+10. **Manual order of the roster** (iOS I-A3, I-A8; desktop D-45): Decided (Kai's default): Settings > Crew order: Automatic (default: needs you, then working, then recent; pinned rooms always on top in your own drag order; the stored manual order breaks ties) | Manual (today's behaviour exactly: your drag order for everything, synced to the host). The roster never re-sorts while the pointer is on the list (DESIGN.md "Crew order").
+11. **Desktop notch island** (desktop D-3, D-184 to D-194): Decided: keep every mode, shortcut and placement. It stays black; bots lose their tiles; the amber approval card becomes the decision card on dark; "Needs you" uses the inverted count badge.
+12. **Desktop layout of the design**: Decided (DESIGN.md "Mac"): each column is the phone screen it replaces: sidebar = Crew or Board (with the dock at its bottom, Cmd+F, Cmd+1..9), conversation pane = agent chat, inspector = agent sheet; rail keeps bots only; tray, native menus and the Pair iPhone window unchanged except labels.
+13. **Website demo build** (desktop D-25): Decided: it follows the redesign (same renderer, so it changes with each Mac PR; check it in each) and stays always-dark until Mac dark mode lands.
+14. **Home search and router** (iOS I-B8) and **Correct this** (I-C21): new features, not in the apps at all. Decided: designed, but the router ("Goes to"), memory search and Correct need backend first; the box filtering the list in place does not and ships with Crew home.
+
+Still open for Kai: night sky is built with night-1 (swapping to night-2 is an asset change); the crew order default is built as Automatic.
