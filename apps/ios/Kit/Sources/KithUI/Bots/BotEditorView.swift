@@ -98,6 +98,7 @@ struct BotSettingsForm: View {
     /// hq's projects for the default-project menu; empty when the computer has no hq.
     @State private var hqProjects: [HQProject] = []
     @State private var pickingAvatar = false
+    @State private var editingInstructions = false
     @State private var viewingSkill: SkillRef?
 
     var body: some View {
@@ -114,6 +115,9 @@ struct BotSettingsForm: View {
         .task { await model.refreshPlugins() }
         .task { hqProjects = (try? await model.projects().projects) ?? [] }
         .kithSheet(item: $viewingSkill) { SkillSheet(skill: $0) }
+        .kithSheet(isPresented: $pickingAvatar) {
+            ColourSheet(draft: $draft, isGroup: model.bots[draft.id ?? ""]?.isGroup ?? false)
+        }
         .kithSheet(isPresented: $pickingFolder) {
             FolderPicker(start: draft.cwd.isEmpty ? model.hello?.home : draft.cwd) {
                 draft.cwd = $0
@@ -122,11 +126,21 @@ struct BotSettingsForm: View {
         }
     }
 
-    /// What changes often: on the details sheet's Details page.
+    /// What changes often: on the details sheet's Details page, as one About card (Instructions, Agent, Model).
     private var oftenSections: some View {
-        VStack(alignment: .leading, spacing: 30) {
-            if shown.instructions { CardSection("Instructions") { instructions } }
-            CardSection("Agent") {
+        VStack(alignment: .leading, spacing: 24) {
+            CardSection("About") {
+                if let info = kith?.info {
+                    if info.errors["role"] != nil {
+                        SheetNote(text: "Couldn't read the role")
+                    } else {
+                        if let text = info.description, !text.isEmpty {
+                            Text(text).font(.system(size: 13)).foregroundStyle(Palette.ink).textSelection(.enabled)
+                        }
+                        if let prompt = info.role?.prompt { KithInstructionsRow(text: prompt) }
+                    }
+                }
+                if shown.instructions { instructionsRow }
                 if shown.backendPicker { agentPicker }
                 settingsRows
             }
@@ -134,6 +148,16 @@ struct BotSettingsForm: View {
                 Text(error).font(.footnote).foregroundStyle(Palette.danger)
             }
         }
+        .kithSheet(isPresented: $editingInstructions) { InstructionsEditor(text: $draft.description) }
+    }
+
+    /// The standing instructions, one row that opens an editor.
+    private var instructionsRow: some View {
+        Button { editingInstructions = true } label: {
+            SheetRow(icon: "doc.text", title: "Instructions",
+                     detail: draft.description.isEmpty ? "Rules that always apply" : String(draft.description.prefix(90)), chevron: true)
+        }
+        .buttonStyle(.plain)
     }
 
     private var instructions: some View {
@@ -185,32 +209,42 @@ struct BotSettingsForm: View {
         CrewAvatar.asset(for: draft, isGroup: model.bots[draft.id ?? ""]?.isGroup ?? false)
     }
 
+    /// "Cyan" or "Original body", under Look and colour.
+    private var lookSummary: String {
+        AvatarPalette.colors.first { $0.stored == draft.avatarColor }?.label ?? "Original colour"
+    }
+
     private var allSections: some View {
         VStack(alignment: .leading, spacing: 30) {
             CardSection("Profile") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Button {
-                        withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { pickingAvatar.toggle() }
-                    } label: {
-                        ValueRow("Avatar") {
-                            CharacterAvatar(portrait: draftPortrait, color: draft.avatarColor, size: 28, id: draft.id ?? "")
-                            .padding(5)
-                            .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                Button { pickingAvatar = true } label: {
+                    HStack(spacing: 11) {
+                        CharacterAvatar(portrait: draftPortrait, color: draft.avatarColor, size: 24, id: draft.id ?? "")
+                            .frame(width: 18)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Look and colour").font(.system(size: 13.5, weight: .medium)).foregroundStyle(Palette.ink)
+                            Text(lookSummary).font(.system(size: 11.5)).foregroundStyle(Palette.muted)
                         }
-                        .contentShape(Rectangle())
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Palette.muted.opacity(0.7))
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Edit Bot avatar")
-                    if pickingAvatar {
-                        AvatarPicker(draft: $draft, automatic: CrewAvatar.asset(source: "auto", id: draft.id ?? "", name: draft.name, isGroup: false))
-                            .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
+                    .frame(minHeight: 28)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Edit Bot avatar")
                 // A new bot is named from its first conversations (Grok Bot's flow); rename it any time after.
                 if draft.id != nil {
-                    Field("Name") {
-                        TextField("Name", text: $draft.name).fieldBox()
+                    HStack(spacing: 11) {
+                        Image(systemName: "pencil").font(.system(size: 13)).foregroundStyle(Palette.muted).frame(width: 18)
+                        Text("Name").font(.system(size: 13.5, weight: .medium)).foregroundStyle(Palette.ink)
+                        TextField("Name", text: $draft.name)
+                            .textFieldStyle(.plain)
+                            .multilineTextAlignment(.trailing)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Palette.muted)
                     }
+                    .frame(minHeight: 28)
                 }
                 if part == .all { instructions }
             }
@@ -235,9 +269,7 @@ struct BotSettingsForm: View {
                     agentPicker
                     settingsRows
                 }
-                ValueRow("Workspace", detail: draft.cwd.isEmpty
-                         ? "This bot has its own space for files. It can work in other folders when you ask."
-                         : "This project is the default starting folder. The bot can work elsewhere when you ask.") {
+                ValueRow("Folder") {
                     DropdownMenu {
                         [
                             MenuItem("Personal workspace", selected: draft.cwd.isEmpty) {
@@ -258,7 +290,7 @@ struct BotSettingsForm: View {
                     .help(draft.cwd.isEmpty ? "A persistent workspace allocated for this bot" : draft.cwd)
                 }
                 if !hqProjects.isEmpty || draft.project != nil {
-                    ValueRow("Default project", detail: "Chats, threads and tasks start in this hq project and load its context, unless one is picked for them.") {
+                    ValueRow("Default project") {
                         DropdownMenu {
                             var items = [MenuItem("None", selected: draft.project == nil) { draft.project = nil }]
                             items += hqProjects.map { project in
@@ -287,7 +319,7 @@ struct BotSettingsForm: View {
             CardSection("Activity") {
                 SwitchRow("Notifications", detail: "Get notified when this bot finishes or needs you",
                           isOn: Binding(get: { draft.notify ?? true }, set: { draft.notify = $0 }))
-                if model.screen != nil, part == .all {
+                if model.screen != nil, part != .often {
                     SwitchRow("Use the computer", detail: model.screen?.controlReady != true
                         ? "Let this bot use apps. On that computer, open Kith → Settings → Computer access to set up permissions first."
                         : model.screen?.enabled == true
@@ -431,6 +463,8 @@ struct AvatarPicker: View {
     /// What Automatic shows for this bot.
     let automatic: String?
     var isGroup = false
+    /// The colour sheet draws the pairs itself, above this picker.
+    var showsColour = true
 
     private var source: String { draft.avatarSource ?? "auto" }
 
@@ -447,7 +481,7 @@ struct AvatarPicker: View {
             grid(CrewAvatar.names.map { ("crew-\($0)", "crew:\($0)", $0) })
             label("Spares")
             grid(CrewAvatar.spares.map { ("spare-\($0)", "spare:\($0)", $0) })
-            if !isGroup {
+            if !isGroup, showsColour {
                 label("Color")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
@@ -498,5 +532,29 @@ struct AvatarPicker: View {
             .onTapGesture { withAnimation(Motion.hover) { draft.avatarSource = value } }
             .accessibilityLabel(name)
             .accessibilityAddTraits(source == value ? .isSelected : [])
+    }
+}
+
+/// The standing instructions in a sheet of their own.
+struct InstructionsEditor: View {
+    @Binding var text: String
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ModalHeader("Instructions") { EmptyView() }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("e.g. Reviews PRs. Never pushes without asking.", text: $text, axis: .vertical)
+                        .lineLimit(6...30)
+                        .fieldBox()
+                    Text("Rules that always apply. Put task-specific requests in the chat instead.")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Palette.muted)
+                }
+                .padding(20)
+            }
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .background(Palette.background)
     }
 }

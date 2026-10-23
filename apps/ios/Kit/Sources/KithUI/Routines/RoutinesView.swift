@@ -7,6 +7,10 @@ struct RoutinesView: View {
     var initialId: String?
     /// Goes back to the chat once a request to the bot is in the composer.
     var leave: (() -> Void)?
+    /// The kith bot's own schedules: read-only rows in the same list.
+    var kithSchedules: [KithSchedule] = []
+    var schedulesUnreadable = false
+    var botName = "the bot"
     @Environment(BotStore.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var routines: [Routine] = []
@@ -19,20 +23,20 @@ struct RoutinesView: View {
     @State private var loadError: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Routines")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Palette.text)
-                    .padding(.leading, 2)
-                Spacer(minLength: 0)
-                askInChat
-                IconButton("Set up a routine", systemImage: "plus") { open(nil) }
-                    .disabled(model.isOffline)
-            }
-            if let loadError { Text(loadError).font(.caption).foregroundStyle(Palette.danger) }
-            if let error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+        CardSection("Schedules & routines") {
             listing
+            if schedulesUnreadable { SheetNote(text: "Couldn't read kith's schedules") }
+            ForEach(kithSchedules) { KithScheduleRow(job: $0) }
+            Button { edit("I want a routine that ") } label: {
+                SheetRow(icon: "sparkles", title: "Ask \(botName) for a routine", accent: true)
+            }
+            .buttonStyle(.plain)
+            .disabled(model.isOffline)
+            if let loadError { SheetNote(text: loadError, danger: true) { Task { await load() } } }
+            if let error { SheetNote(text: error, danger: true) }
+        } accessory: {
+            IconButton("Set up a routine", systemImage: "plus") { open(nil) }
+                .disabled(model.isOffline)
         }
         .foregroundStyle(Palette.text)
         .font(.system(size: 13))
@@ -62,37 +66,17 @@ struct RoutinesView: View {
         }
     }
 
-    private var listing: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if routines.isEmpty {
-                Text(loaded ? "No routines yet. Ask the bot for one, or set it up yourself with +." : "Loading routines…")
-                    .font(.system(size: 12))
-                    .lineSpacing(3)
-                    .foregroundStyle(Palette.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .outlinedCard(vertical: 14)
-            } else {
-                VStack(spacing: 8) {
-                    ForEach(routines) { routine in
-                        row(routine).outlinedCard(vertical: 0)
-                    }
-                }
-            }
+    @ViewBuilder private var listing: some View {
+        if routines.isEmpty, kithSchedules.isEmpty {
+            SheetNote(text: loaded ? "No routines yet. Ask the bot for one, or set it up yourself with +." : "Loading routines…")
         }
+        ForEach(routines) { routine in row(routine) }
     }
 
     private func row(_ routine: Routine) -> some View {
         HStack(spacing: 12) {
             Button { open(routine.id) } label: {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(routine.name).foregroundStyle(Palette.text)
-                    Text(summary(routine))
-                        .font(.caption)
-                        .foregroundStyle(routine.lastError == nil ? Palette.secondary : Palette.danger)
-                }
-                .padding(.vertical, 10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+                SheetRow(icon: "clock", title: routine.name, detail: summary(routine))
             }
             .buttonStyle(.plain)
             Toggle(isOn: Binding(get: { routine.enabled }, set: { action("setRoutineEnabled", routine, enabled: $0) })) { EmptyView() }
@@ -111,13 +95,6 @@ struct RoutinesView: View {
             return "Last run \(runLabel(last).lowercased())"
         }
         return routine.triggerDescriptions.joined(separator: " · ")
-    }
-
-    private var askInChat: some View {
-        IconButton("Ask the bot for a routine", systemImage: "text.bubble") {
-            edit("I want a routine that ")
-        }
-        .disabled(model.isOffline)
     }
 
     private func runLabel(_ run: RoutineRun) -> String {
