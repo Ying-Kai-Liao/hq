@@ -13,9 +13,9 @@ mkdir -p "$S"
 cp -R "$ROOT/kernel" "$S/kernel"
 cp -R "$ROOT/.claude-plugin" "$S/.claude-plugin"
 cp "$ROOT/install.sh" "$ROOT/LICENSE" "$ROOT/README.md" "$S/"
-# serve/ is Apache-2.0 and its NOTICE has to travel with every redistribution of the host binary.
+# serve/ is Apache-2.0 and the NOTICE has to travel with every redistribution of the host binary.
 cp "$ROOT/serve/LICENSE" "$S/LICENSE.serve"
-cp "$ROOT/serve/NOTICE" "$S/NOTICE"
+cp "$ROOT/NOTICE" "$ROOT/THIRD_PARTY_NOTICES.md" "$S/"
 # Tests and caches are for the repo, not the install.
 rm -rf "$S/kernel/tests"
 find "$S" \( -name __pycache__ -o -name .DS_Store \) -prune -exec rm -rf {} +
