@@ -41,7 +41,7 @@
 mod adapter;
 mod core;
 mod discord;
-mod hq;
+pub(crate) mod hq;
 mod judge;
 mod manager;
 mod queue;
