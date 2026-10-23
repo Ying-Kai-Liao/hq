@@ -927,10 +927,13 @@ fn a_real_bot_json_loses_where_it_works() {
         bot_owner: 0,
         grants: [[Ans::Member, Ans::Fail], [Ans::Fail, Ans::Fail]],
         people: [Some(PersonSpec { agents: [1, 0], projects: [false, false] }), None],
-        bots: vec![BotSpec { owner: 1, deleted: false, agent: 1 }],
+        bots: vec![BotSpec { owner: 1, deleted: false, agent: 1 }, BotSpec { owner: 1, deleted: false, agent: 2 }],
         entries: vec![],
     };
     let ids = w.load(&sc);
+    // Their chat of an agent their person row no longer lists does not reach them.
+    let gone = json!({"type": "bot", "bot": {"id": ids.bots[1]}});
+    assert!(roles::event_for(&w.hub.store, Some("p1"), gone).is_none(), "a chat of an agent they lost");
     let row = w.hub.store.bot(&ids.bots[0]).unwrap().unwrap();
     let ev = json!({"type": "bot", "bot": w.hub.bot_json(&row)});
     assert!(ev.to_string().contains("/Users/secret-"), "the fixture must carry a path or this checks nothing");
