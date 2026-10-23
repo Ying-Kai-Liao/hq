@@ -1,15 +1,9 @@
 # Renders the voice A/B (Phonon as shipped and fixed, Phonon f32 and temperature, Kokoro, Piper, macOS say) on an
-# Apple-silicon runner and uploads the WAVs plus index.md as an artifact. Manual, or when the tooling itself
-# changes. Evaluation only: Piper's runtime and Kokoro's espeak-ng phonemiser are GPL and never ship in Kith.
+# Apple-silicon runner and uploads the WAVs plus index.md as an artifact. Manual only. Evaluation only: Piper's runtime and Kokoro's espeak-ng phonemiser are GPL and never ship in Kith.
 name: Voice samples
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - .github/workflows/voice-samples.yml
-      - scripts/voice-samples/**
-      - serve/host/crates/tts/**
 
 permissions:
   contents: read
@@ -26,6 +20,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: serve/host
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build the sample renderer
         working-directory: serve/host
         run: cargo build --release -p kith-tts --example samples
