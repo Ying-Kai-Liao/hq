@@ -7,9 +7,12 @@
 //! The functions here are what the `kith memory` commands and the Claude Code hook call; the host's dreaming
 //! calls them too, so a dream's write passes the same checks and lands in the same history.
 
+mod browse;
 mod cli;
+pub mod dream;
 mod hook;
 
+pub use browse::{diff, history, list_files, read_file, restore, save};
 pub use cli::{Cmd, run};
 
 use anyhow::{Context, Result};
@@ -231,6 +234,7 @@ pub fn open_with(layout: &Layout, busy: Duration) -> Result<Connection> {
     if schema::migrate(&conn).is_err() {
         schema::migrate(&conn)?;
     }
+    dream::migrate(&conn)?;
     Ok(conn)
 }
 
@@ -329,6 +333,15 @@ pub fn record_undo(conn: &Connection, target: &Target, who: Who<'_>) -> Result<O
     Ok(version)
 }
 
+/// Records the file as `who` just put an earlier version back by hand (the apps' restore).
+pub fn record_restore(conn: &Connection, target: &Target, who: Who<'_>) -> Result<Option<Version>> {
+    let (author, author_bot, _) = who.author();
+    let tx = immediate(conn)?;
+    let version = record_disk(&tx, target, (author, author_bot, Cause::Restore), false)?;
+    tx.commit()?;
+    Ok(version)
+}
+
 /// What a write passes. `old` is the file now (`None`: it doesn't exist), `new` what it would hold. Returns the
 /// warnings (a size cap, a big drop) or the reason it is refused. The user is never refused.
 pub fn guard(
@@ -408,7 +421,6 @@ fn pieces(text: &str) -> Vec<String> {
 
 /// What a checked write did.
 #[derive(Debug)]
-#[allow(dead_code)] // read by the dreaming that writes through `write`, the next phase
 pub struct Written {
     pub version: Option<Version>,
     pub warnings: Vec<String>,
@@ -416,7 +428,6 @@ pub struct Written {
 
 /// Writes a memory file as `who`: records the file as it is (so nothing is lost), checks the new content, writes it
 /// and records it. The call for code that writes memory itself, such as the host's dreaming.
-#[allow(dead_code)] // the dreaming that writes through it is the next phase
 pub fn write(
     conn: &Connection,
     target: &Target,
@@ -457,5 +468,7 @@ pub fn forget(conn: &Connection, text: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+mod dream_tests;
 #[cfg(test)]
 mod tests;

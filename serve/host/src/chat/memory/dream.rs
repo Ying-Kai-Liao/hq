@@ -12,8 +12,16 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
-/// Quiet time after the last turn before a run.
-const IDLE: Duration = Duration::from_secs(5 * 60);
+/// Quiet time after the last turn before a run. A test host shortens it with `KITH_SERVE_DREAM_IDLE_MS`.
+fn quiet_time() -> Duration {
+    static IDLE: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *IDLE.get_or_init(|| {
+        std::env::var("KITH_SERVE_DREAM_IDLE_MS")
+            .ok()
+            .and_then(|ms| ms.parse().ok())
+            .map_or(Duration::from_secs(5 * 60), Duration::from_millis)
+    })
+}
 /// User messages that start a run without waiting, and the most one run reads.
 const BATCH: usize = 8;
 /// Entries (the user's messages and final replies) one run looks at.
@@ -55,19 +63,26 @@ fn bookmark(store: &Store, bot: &str) -> i64 {
     store.kv_get(&bookmark_key(bot)).and_then(|v| v.parse().ok()).unwrap_or(0)
 }
 
-/// Starts the bot's dreamer. It runs once the bot has been quiet for [`IDLE`] after the user's turns, or right
+/// Starts the bot's dreamer. It runs once the bot has been quiet for [`quiet_time`] after the user's turns, or right
 /// away when [`BATCH`] of them are waiting, and once a day for the time review. It also names an unnamed bot. It
 /// stops when the bot actor drops the sender; what it hasn't read waits for the next one.
 pub fn spawn_dreamer(hub: Arc<Hub>, bot_id: String) -> mpsc::UnboundedSender<DreamEvent> {
     let (tx, mut rx) = mpsc::unbounded_channel::<DreamEvent>();
+    let hq = hub.store.bot(&bot_id).ok().flatten().is_some_and(|b| b.config.is_hq());
+    if hq && hub.store.kv_get(&bookmark_key(&bot_id)).is_none() {
+        // An hq bot's months of earlier chat were never dreamed over: the first run starts from now, not from them.
+        if let Err(e) = set_bookmark(&hub.store, &bot_id, hub.store.last_seq(&bot_id)) {
+            tracing::warn!(bot = %bot_id, error = format!("{e:#}"), "couldn't start the dream bookmark");
+        }
+    }
     tokio::spawn(async move {
         let mut waiting = waiting(&hub.store, &bot_id);
-        let idle = tokio::time::sleep(IDLE);
+        let idle = tokio::time::sleep(quiet_time());
         tokio::pin!(idle);
         let mut failures = 0u32;
         let mut retry_at: Option<Instant> = None;
         let quiet_until = |retry_at: Option<Instant>| {
-            let after = Instant::now() + IDLE;
+            let after = Instant::now() + quiet_time();
             retry_at.map_or(after, |at| at.max(after))
         };
         loop {
@@ -76,7 +91,8 @@ pub fn spawn_dreamer(hub: Arc<Hub>, bot_id: String) -> mpsc::UnboundedSender<Dre
                 event = rx.recv() => match event {
                     None => break,
                     Some(DreamEvent::Turn(turn)) => {
-                        if let Err(e) = naming::observe(&hub, &bot_id, turn).await {
+                        // An hq agent keeps its name.
+                        if !hq && let Err(e) = naming::observe(&hub, &bot_id, turn).await {
                             tracing::warn!(bot = %bot_id, error = format!("{e:#}"), "naming the bot failed");
                         }
                         waiting += 1;
@@ -104,7 +120,7 @@ pub fn spawn_dreamer(hub: Arc<Hub>, bot_id: String) -> mpsc::UnboundedSender<Dre
                 Ok(Ran::Later) => quiet_until(retry_at),
                 Err(e) => {
                     failures += 1;
-                    retry_at = Some(Instant::now() + IDLE * 2u32.pow(failures.min(5)));
+                    retry_at = Some(Instant::now() + quiet_time() * 2u32.pow(failures.min(5)));
                     tracing::warn!(bot = %bot_id, failures, error = format!("{e:#}"), "dreaming failed; it retries later");
                     quiet_until(retry_at)
                 }
@@ -127,6 +143,9 @@ fn review_due(store: &Store, bot: &str) -> bool {
     if store.kv_get(&reviewed_key(bot)).as_deref() == Some(today().as_str()) {
         return false;
     }
+    if let Some(agent) = store.bot(bot).ok().flatten().and_then(|b| b.config.hq_agent) {
+        return super::hq_dream::review_due(&agent);
+    }
     store.memory_read(|c| kith_mem::store::layer(c, Some(bot))).is_ok_and(|entries| {
         entries.iter().any(|e| {
             e.state == kith_mem::store::State::Active && e.author != kith_mem::store::Author::User && dated(&e.text)
@@ -136,7 +155,7 @@ fn review_due(store: &Store, bot: &str) -> bool {
 
 /// Whether a memory names a date the time review may have to turn into the past: a year, a month or day in
 /// Chinese, or an English month next to a number. Other numbers (prices, counts) don't count.
-fn dated(text: &str) -> bool {
+pub(super) fn dated(text: &str) -> bool {
     const MONTHS: [&str; 12] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
     let chars: Vec<char> = text.chars().collect();
     let year =
@@ -172,18 +191,41 @@ async fn run(hub: &Arc<Hub>, bot_id: &str) -> Result<Ran> {
         return Ok(Ran::Done { more });
     }
 
-    let shared = super::shared(&cfg);
-    let snapshot = hub.store.memory_read(|c| dream::snapshot(c, bot_id, shared, &today))?;
-    let (system, material) = dream::prompt(&snapshot, &messages);
-    let raw = oneshot::one_shot(hub, &cfg, &system, &material).await?;
+    let later = if cfg.is_hq() {
+        super::hq_dream::dream(hub, &cfg, &messages, &today).await?
+    } else {
+        dream_entries(hub, bot_id, &cfg, &messages, &today).await?
+    };
+    if later {
+        return Ok(Ran::Later);
+    }
+    set_bookmark(&hub.store, bot_id, last_seq)?;
+    if review {
+        hub.store.kv_set(&reviewed_key(bot_id), &today)?;
+    }
+    Ok(Ran::Done { more })
+}
+
+/// A run over the bot's entries (kith-mem's store). True when it should try again later: memory changed meanwhile.
+async fn dream_entries(
+    hub: &Arc<Hub>,
+    bot_id: &str,
+    cfg: &BotConfig,
+    messages: &[Message],
+    today: &str,
+) -> Result<bool> {
+    let shared = super::shared(cfg);
+    let snapshot = hub.store.memory_read(|c| dream::snapshot(c, bot_id, shared, today))?;
+    let (system, material) = dream::prompt(&snapshot, messages);
+    let raw = oneshot::one_shot(hub, cfg, &system, &material).await?;
     let plan = dream::parse(&raw).ok_or_else(|| anyhow!("dreaming answered without a plan"))?;
-    let (kept, rejected) = dream::audit(&snapshot, &messages, plan);
+    let (kept, rejected) = dream::audit(&snapshot, messages, plan);
     if !rejected.is_empty() {
         tracing::info!(bot = %bot_id, dropped = rejected.len(), reasons = ?rejected, "dreaming dropped changes");
     }
-    let outcome = hub.store.memory_write(|c, now, rev| dream::apply(c, &snapshot, &kept, &messages, now, rev))?;
+    let outcome = hub.store.memory_write(|c, now, rev| dream::apply(c, &snapshot, &kept, messages, now, rev))?;
     match outcome {
-        Outcome::Stale => return Ok(Ran::Later),
+        Outcome::Stale => return Ok(true),
         Outcome::Changed(dream) => {
             let notes = dream::notes(&snapshot, &kept);
             tracing::info!(
@@ -196,11 +238,7 @@ async fn run(hub: &Arc<Hub>, bot_id: &str) -> Result<Ran> {
         }
         Outcome::Unchanged => {}
     }
-    set_bookmark(&hub.store, bot_id, last_seq)?;
-    if review {
-        hub.store.kv_set(&reviewed_key(bot_id), &today)?;
-    }
-    Ok(Ran::Done { more })
+    Ok(false)
 }
 
 /// Usage of the bot's harness above [`HEADROOM_PERCENT`] in any window.
