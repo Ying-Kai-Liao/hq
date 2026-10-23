@@ -176,6 +176,7 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig, home: Lane, tidier: mpsc::UnboundedS
         home,
         rt,
         turn_session: None,
+        turn_claim: None,
         thread_intro: None,
         active_group: None,
         active_routine: None,
@@ -355,6 +356,8 @@ struct Actor {
     rt: String,
     /// The session the current turn prompts.
     turn_session: Option<String>,
+    /// The writer claim this turn holds on its session (session id, the agent process' pid); see `claim_for_turn`.
+    turn_claim: Option<(String, u32)>,
     /// Told on the first message of a new thread session: what the thread is about.
     thread_intro: Option<String>,
     active_group: Option<GroupTurn>,

@@ -1,5 +1,6 @@
 //! Keeps threads in step with the terminal registry: creating them, importing the transcript, saying who writes.
 
+use super::claim;
 use super::jsonl::{self, Item};
 use super::registry::{self, Live, Registry};
 use super::{Env, HeldByWriter, TerminalBusy};
@@ -415,6 +416,11 @@ fn thread_value(reg: &Registry, origin: &str, live: bool, busy: bool) -> Value {
 pub(super) fn import(hub: &Hub, t: &Thread, reg: &Registry) -> Result<()> {
     let lock = hub.terminal.thread_lock(&t.key());
     let _one = lock.locked();
+    import_locked(hub, t, reg)
+}
+
+/// `import` for a caller that holds the thread's lock already.
+fn import_locked(hub: &Hub, t: &Thread, reg: &Registry) -> Result<()> {
     let Some(size) = transcript_size(reg) else { return Ok(()) };
     let live = registry::liveness(reg, hub.terminal.env().sessions.as_deref()).is_live();
     let (dev, ino) = file_id(reg.transcript());
@@ -433,6 +439,10 @@ pub(super) fn import(hub: &Hub, t: &Thread, reg: &Registry) -> Result<()> {
     apply(hub, t, &read.items, live);
     save_cursor(hub, t, read.end, reg.transcript());
     done_importing(hub, t);
+    // A terminal that ran and closed between two scans was never seen live: the session still changed under the cache.
+    if !read.items.is_empty() {
+        forget_loaded(hub, t);
+    }
     Ok(())
 }
 
@@ -569,6 +579,8 @@ fn update_state(hub: &Hub, env: &Env, t: &Thread, reg: Option<&Registry>) {
 
 /// Tells the thread's actor to load its session again on the next turn.
 fn forget_loaded(hub: &Hub, t: &Thread) {
+    #[cfg(test)]
+    hub.terminal.forgets.locked().push(t.key());
     if let Err(error) = hub.send_cmd(&t.bot, Cmd::ForgetLoaded { lane: t.lane() }) {
         tracing::debug!(%error, "no actor to forget a terminal thread's session");
     }
@@ -628,18 +640,102 @@ pub async fn before_send(hub: &Arc<Hub>, bot: &str, root: &str) -> Result<()> {
 }
 
 fn before_send_blocking(hub: &Hub, t: &Thread) -> Result<()> {
-    let Some(reg) = info(hub, t) else { return Ok(()) };
-    let env = hub.terminal.env();
-    if hub.terminal.taking.locked().contains(&t.key()) || registry::liveness(&reg, env.sessions.as_deref()).is_live() {
+    // The same lock `resolve` (hostBusy) and a turn's start take: a claim, a resume and a start see each other in order.
+    let lock = hub.terminal.thread_lock(&t.key());
+    let _one = lock.locked();
+    if held(hub, t) {
         return Err(HeldByWriter { code: "liveInTerminal" }.into());
     }
-    if let Err(error) = import(hub, t, &reg) {
-        tracing::warn!(error = format!("{error:#}"), "couldn't catch up a terminal thread before a send");
-    }
+    sync_one(hub, t);
     if hub.store.kv_get(&stale_key(t)).is_some() && hub.store.kv_delete(&stale_key(t)).is_ok() {
         forget_loaded(hub, t);
     }
     Ok(())
+}
+
+/// Whether a terminal (or a take-over) holds the thread, judged on what is on disk now: a claim, a live registry file of
+/// the lane's session or of the last scanned one, or a live process. `info` alone lags a scan behind.
+fn held(hub: &Hub, t: &Thread) -> bool {
+    let env = hub.terminal.env();
+    if hub.terminal.taking.locked().contains(&t.key()) {
+        return true;
+    }
+    let lane_sid = hub.store.kv_get(&lane_key("session", &t.bot, &t.lane())).filter(|s| !s.is_empty());
+    let known = info(hub, t);
+    let sids = lane_sid.into_iter().chain(known.iter().map(|r| r.session_id.clone()));
+    for sid in sids {
+        if !registry::safe_id(&sid) {
+            continue;
+        }
+        if claim::holder(&env.state, &sid).is_some() {
+            return true;
+        }
+        if let Some(reg) = registry::read_one(&env.state, &sid)
+            && registry::liveness(&reg, env.sessions.as_deref()).is_live()
+        {
+            return true;
+        }
+    }
+    known.is_some_and(|reg| registry::liveness(&reg, env.sessions.as_deref()).is_live())
+}
+
+/// Brings this one thread in step with the registry now, with its lock held: a fork becomes the lane's session
+/// (`mapped` adopts it), the file's last lines are imported, and the cache is forgotten when any were.
+fn sync_one(hub: &Hub, t: &Thread) {
+    let env = hub.terminal.env();
+    for reg in registry::read_all(&env.state) {
+        // `mapped` adopts a fork (the lane's session becomes the fork); only the lane's current session is imported.
+        if mapped(hub, &reg).as_ref() != Some(t) {
+            continue;
+        }
+        let lane_sid = hub.store.kv_get(&lane_key("session", &t.bot, &t.lane()));
+        if lane_sid.as_deref() != Some(reg.session_id.as_str()) {
+            continue;
+        }
+        if let Ok(stored) = serde_json::to_string(&reg)
+            && hub.store.kv_get(&info_key(t)).as_deref() != Some(stored.as_str())
+        {
+            let _ = hub.store.kv_set(&info_key(t), &stored);
+        }
+        if let Err(error) = import_locked(hub, t, &reg) {
+            tracing::warn!(error = format!("{error:#}"), "couldn't catch up a terminal thread before a send");
+        }
+    }
+}
+
+/// A turn of the host is about to start in `lane`: refused while a terminal holds the thread. `begin` marks the turn
+/// running, inside the thread's lock, so `resolve` (which reads the lanes at work under the same lock) sees it. File and
+/// process reads: off the runtime.
+pub async fn start_gate(
+    hub: &Arc<Hub>,
+    lane: &Lane,
+    begin: impl FnOnce(&Hub) + Send + 'static,
+) -> Result<(), HeldByWriter> {
+    let (hub, lane) = (hub.clone(), lane.clone());
+    tokio::task::spawn_blocking(move || {
+        let Some(root) = &lane.thread else {
+            begin(&hub);
+            return Ok(());
+        };
+        let t = Thread { bot: lane.chat.clone(), root: root.clone() };
+        let lock = hub.terminal.thread_lock(&t.key());
+        let _one = lock.locked();
+        if held(&hub, &t) {
+            return Err(HeldByWriter { code: "liveInTerminal" });
+        }
+        begin(&hub);
+        Ok(())
+    })
+    .await
+    .unwrap_or(Err(HeldByWriter { code: "liveInTerminal" }))
+}
+
+/// A send accepted but not started yet: its user entry still says `queued`.
+fn send_queued(hub: &Hub, t: &Thread) -> bool {
+    let queued = |e: &crate::store::Entry| e.kind == EntryKind::User.as_str() && e.data["status"] == "queued";
+    // The root is the task's first message: its own turn may still be waiting.
+    hub.store.entry(&t.root).is_some_and(|e| queued(&e))
+        || hub.store.thread(&t.bot, &t.root, 50).unwrap_or_default().iter().any(queued)
 }
 
 /// What the kernel needs to resume a thread: `{botId, threadId, agent, sessionId, cwd, hostBusy}` for a thread id or
@@ -661,9 +757,19 @@ pub async fn resolve(hub: &Hub, which: &str) -> Value {
         return unknown();
     };
     let cwd = crate::agent::folder::resolve(&hub.store, &row.config, &t.lane()).await.cwd;
+    // Read under the thread's lock, after the kernel took its claim: a turn that starts later sees the claim, one that
+    // started earlier is counted here (running, or still queued).
+    let busy = {
+        let lock = hub.terminal.thread_lock(&t.key());
+        let _one = lock.locked();
+        hub.working_lanes(&row.config).contains(&t.lane())
+            || send_queued(hub, &t)
+            || hub.terminal.taking.locked().contains(&t.key())
+    };
+    // `claims`: this host takes writer claims for its turns; the kernel treats an answer without it as an older host's.
     json!({
         "botId": t.bot, "threadId": t.root, "agent": agent, "sessionId": session, "cwd": cwd,
-        "hostBusy": hub.working_lanes(&row.config).contains(&t.lane()),
+        "hostBusy": busy, "claims": 1,
     })
 }
 
@@ -700,10 +806,20 @@ async fn take_over_inner(hub: &Arc<Hub>, t: &Thread) -> Result<Value> {
         Live::Busy => return Err(TerminalBusy("terminalBusy: The terminal is working. Wait for it to finish.").into()),
         Live::Idle => {}
     }
+    // Held from here to the end: nobody resumes or sends into the session while it is being ended and imported. The
+    // terminal's own claim stays its own; this one is the host's, named for the take-over.
+    let sid = reg.session_id.clone();
+    if claim::take(&env.state, &sid, claim::Kind::App, std::process::id(), true)?.is_err() {
+        // A second take-over of the same session is already running.
+        return Ok(json!({"liveWriter": null, "tookOver": false}));
+    }
+    let _claim = ReleaseOnDrop { state: env.state.clone(), sid };
     // The terminal reads this to tell its user where the conversation went.
     let taken = registry::dir(&env.state).join(format!("{}.taken", reg.session_id));
     write_private(&taken, &chrono::Utc::now().to_rfc3339())?;
-    // Re-checked just before the signal: the pid may have changed hands.
+    // Re-checked just before the signal: the pid may have changed hands, or the terminal may have taken a prompt
+    // (`liveness` reads the session file's status and checks the process' start time). What is left is the time between
+    // this read and `kill(2)`: microseconds, and macOS has no way to signal "this process, if still idle".
     if registry::liveness(&reg, env.sessions.as_deref()) != Live::Idle || !registry::terminate(reg.pid) {
         let _ = std::fs::remove_file(&taken);
         return Err(TerminalBusy("terminalBusy: The terminal changed while taking over. Try again.").into());
@@ -715,6 +831,13 @@ async fn take_over_inner(hub: &Arc<Hub>, t: &Thread) -> Result<Value> {
             return Err(TerminalBusy("terminalBusy: The terminal didn't close. Close it yourself.").into());
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    // The terminal's own `run` gives its claim back right after claude exits.
+    let grace = tokio::time::Instant::now() + Duration::from_secs(2);
+    while claim::read(&claim::path(&env.state, &reg.session_id, false)).is_some_and(|c| c.is_live())
+        && tokio::time::Instant::now() < grace
+    {
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
     // The terminal's last lines, before the host writes after them.
     let (h, thread, r) = (hub.clone(), t.clone(), reg);
@@ -737,6 +860,18 @@ async fn take_over_inner(hub: &Arc<Hub>, t: &Thread) -> Result<Value> {
     })
     .await?;
     Ok(json!({"liveWriter": null, "tookOver": true}))
+}
+
+/// Gives the host's take-over claim back on every way out of `take_over_inner`.
+struct ReleaseOnDrop {
+    state: std::path::PathBuf,
+    sid: String,
+}
+
+impl Drop for ReleaseOnDrop {
+    fn drop(&mut self) {
+        claim::release(&self.state, &self.sid, std::process::id(), true);
+    }
 }
 
 fn write_private(path: &Path, text: &str) -> Result<()> {
