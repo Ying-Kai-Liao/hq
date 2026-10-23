@@ -9,11 +9,13 @@ use crate::store::{Store, now_ms};
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// The platform name of an account handle, next to telegram and discord.
 const PLATFORM: &str = "kith";
 /// The Clerk user id this host last bound (or found bound) to its owner person.
 const APPLIED: &str = "account_handle";
+static NO_OWNER_LOGGED: AtomicBool = AtomicBool::new(false);
 /// How long a `linkCode` stays good, in minutes.
 const LINK_MINUTES: u32 = 15;
 
@@ -63,8 +65,11 @@ async fn apply(store: &Store, bin: &Path, owner: Option<&str>) -> Result<()> {
             tracing::info!(person, "bound the claiming account to the owner person");
         }
         (None, None) => {
-            // Cached below, so the next pulls stay quiet until the account changes.
-            tracing::warn!("kith-auth has no owner person; not binding the account (kith-auth person <you> owner)");
+            // Not cached: the owner person may be made later, and the next pull should then bind. Logged once.
+            if !NO_OWNER_LOGGED.swap(true, Ordering::Relaxed) {
+                tracing::warn!("kith-auth has no owner person; not binding the account (kith-auth person <you> owner)");
+            }
+            return Ok(());
         }
     }
     store.kv_set(APPLIED, uid)?;
@@ -188,6 +193,7 @@ mod tests {
         let r = Rig::new();
         r.apply(Some("user_2AbC")).await;
         assert!(r.who("user_2AbC")["person"].is_null());
+        assert!(r.store.kv_get(APPLIED).is_none());
         assert!(!r.dir.join("auth.json").exists() || r.auth(&["people"]).contains("no people"));
     }
 
@@ -197,8 +203,7 @@ mod tests {
         let r = Rig::new();
         r.auth(&["person", "kai", "owner"]);
         unsafe { std::env::set_var("KITH_AUTH", r.dir.join("auth.json")) };
-        let who = who(&r.bin, "-").await;
-        assert_eq!(who.owner_id.as_deref(), Some("kai"));
+        assert_eq!(caller_person(&r.bin, &Caller::Local).await.unwrap(), "kai");
         let out = run(&r.bin, &["invite", "kai", "15"]).await.unwrap();
         assert_eq!(out.lines().next().unwrap().len(), 6);
     }
