@@ -286,7 +286,7 @@ async fn an_invitees_bot_waits_for_the_owner_who_may_always_allow() {
     assert_eq!(code(&e), Some("notGranted"));
     assert_eq!(
         call(&r, &j.caller, "botStatus", json!({})).await.unwrap()["agents"].as_array().unwrap().as_slice(),
-        &[] as &[serde_json::Value]
+        &[] as &[Value]
     );
 
     // Revoking Sam ends every bot of his, and Sam can no longer manage them.
