@@ -297,6 +297,8 @@ async fn the_state_survives_a_restart_of_the_host() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
+    // The startup sync turns tasks on once for a bot that has them off (see `hub::hq`); this test reads the main chat.
+    s.host.call("updateBot", json!({"id": s.bot, "tasks": false})).await;
     s.ask("after the restart").await;
 
     assert_eq!(s.prompts("primary").len(), 1, "still out: not asked again");

@@ -21,10 +21,13 @@ public struct VoiceChatSettingsView: View {
                 CardSection("Voice", footer: engineFooter) {
                     ValueRow("Engine") {
                         ChoicePicker(selection: $engine.animation(Motion.reduced(Motion.layout, reduceMotion)),
-                                     options: [("device", "On device")] + VoiceProvider.allCases.map { ($0.rawValue, $0.name) })
+                                     options: [("device", "On device"), (VoiceSettings.kithEngine, "Kith voice (on your computer, free)")] + VoiceProvider.allCases.map { ($0.rawValue, $0.name) })
                     }
                     if let provider = VoiceProvider(rawValue: engine) {
                         ModeRows(provider: provider).id(provider)
+                    } else if engine == VoiceSettings.kithEngine {
+                        languageRow
+                        PauseRow()
                     } else {
                         ValueRow("Language", detail: "The language you speak in calls.") {
                             ChoicePicker(selection: $language, options: languages)
@@ -37,6 +40,9 @@ public struct VoiceChatSettingsView: View {
                         PauseRow()
                     }
                 }
+                if engine == VoiceSettings.kithEngine {
+                    KithVoiceSettings()
+                }
                 if let provider = VoiceProvider(rawValue: engine) {
                     ProviderVoiceSettings(provider: provider).id(provider)
                 }
@@ -45,11 +51,94 @@ public struct VoiceChatSettingsView: View {
         .background(Palette.background)
     }
 
+    private var languageRow: some View {
+        ValueRow("Language", detail: "The language you speak in calls. The voice speaks English.") {
+            ChoicePicker(selection: $language, options: languages)
+        }
+    }
+
     private var engineFooter: String {
+        if engine == VoiceSettings.kithEngine {
+            return "Apple speech on this device to listen, a voice that runs on your computer to talk. Applies from the next call."
+        }
         guard let provider = VoiceProvider(rawValue: engine) else {
             return "Apple speech, on this device. Applies from the next call."
         }
         return "Your own \(provider.name) key, billed by \(provider.name). Applies from the next call."
+    }
+}
+
+/// Kith voice: the computer's Phonon model (state, download) and the voice. The computer is asked,
+/// so an older one shows why it can't.
+private struct KithVoiceSettings: View {
+    @Environment(BotStore.self) private var store
+    @State private var status: LocalVoiceStatus?
+    /// Why the voice can't be used, when the computer can't say.
+    @State private var problem: String?
+    @State private var voice = ""
+
+    private var downloading: Bool { status?.state == .downloading }
+
+    var body: some View {
+        CardSection("Kith voice", footer: hint ?? "About 65 MB, downloaded once.") {
+            ValueRow("Voice model", detail: stateText) {
+                if downloading {
+                    ProgressView(value: status?.progress ?? 0)
+                        .frame(width: 80)
+                        .accessibilityLabel("Downloading the voice")
+                } else if let status, status.available, status.state != .ready {
+                    Button(status.state == .error ? "Retry" : "Download") { Task { await refresh(prepare: true) } }
+                        .buttonStyle(.primary)
+                }
+            }
+            if let status, status.available, !status.voices.isEmpty {
+                ValueRow("Voice") {
+                    ChoicePicker(selection: $voice, options: status.voices.map { ($0, $0) })
+                }
+            }
+        }
+        .task { await refresh(prepare: false) }
+        .task(id: downloading) {
+            // Progress while the model downloads.
+            while downloading, !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                await refresh(prepare: false)
+            }
+        }
+        .onChange(of: voice) { _, v in
+            if !v.isEmpty { UserDefaults.standard.set(v, forKey: VoiceSettings.kithVoiceKey) }
+        }
+    }
+
+    private var stateText: String {
+        switch status?.state {
+        case .ready: "Ready"
+        case .downloading: "Downloading…"
+        case .error: "Failed"
+        default: status?.available == false ? "Unavailable" : "Not downloaded"
+        }
+    }
+
+    private var hint: String? {
+        if let problem { return problem }
+        guard let status else { return nil }
+        if !status.available { return "Kith voice isn't available on \(store.hostName)." }
+        return status.state == .error ? (status.error ?? "The voice couldn't be downloaded.") : nil
+    }
+
+    private func refresh(prepare: Bool) async {
+        guard let client = store.client else {
+            problem = "Not connected to \(store.hostName)."
+            return
+        }
+        do {
+            let next = prepare ? try await client.voiceLocalPrepare() : try await client.voiceLocalStatus()
+            status = next
+            problem = nil
+            voice = VoiceSettings.kithVoice(in: next) ?? ""
+        } catch {
+            problem = "\(store.hostName) can't do Kith voice yet. Update Kith there. (\(error.localizedDescription))"
+        }
     }
 }
 

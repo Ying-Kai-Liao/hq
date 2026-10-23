@@ -31,11 +31,14 @@ struct CallView: View {
                 line(message, color: Palette.danger)
             } else if let notice {
                 line(notice, color: Palette.secondary)
+            } else if let warning = session?.warning {
+                line(warning, color: Palette.secondary)
             }
         }
         .padding(.horizontal, 12)
         .animation(Motion.reduced(Motion.fade, reduceMotion), value: session?.phase)
         .animation(Motion.reduced(Motion.fade, reduceMotion), value: notice)
+        .animation(Motion.reduced(Motion.fade, reduceMotion), value: session?.warning)
         .onAppear {
             startedAt = .now
             Analytics.shared.capture(.voiceCallStarted)
@@ -96,21 +99,45 @@ struct CallView: View {
             case .gemini: GeminiLiveEngine(model: chosen, voice: voice, credential: credential, op: op)
             }
             cloudStartedAt = .now
+        } else if VoiceSettings.isKith {
+            // Apple speech to listen; Phonon on the computer to speak.
+            let client = { [model] () throws -> HostClient in
+                guard let client = model.client else { throw VoiceError("Not connected to \(model.hostName).") }
+                return client
+            }
+            engine = KithVoiceEngine(host: .init(
+                status: { try await client().voiceLocalStatus() },
+                prepare: { try await client().voiceLocalPrepare() },
+                speak: { try await client().voiceLocalSpeak($0, voice: $1) },
+                voice: { VoiceSettings.kithVoice(in: $0) }
+            )) { [model, botId] in model.send($0, to: botId) }
         } else {
             engine = OnDeviceEngine { [model, botId] in model.send($0, to: botId) }
         }
-        engine.onActivityChanged = { [weak engine, model, botId, callID] active in
-            if active {
-                model.beginVoiceCall(callID, botId: botId,
-                                     speak: { [weak engine] in engine?.speak(reply: $0) },
-                                     announce: { [weak engine] in engine?.announce($0) },
-                                     end: { [weak engine] in engine?.end() })
-            } else {
-                model.endVoiceCall(callID)
-            }
+        let streams = engine.streamsReplies
+        engine.onActivityChanged = { [weak engine, model, botId, callID] (active: Bool) in
+            guard let engine else { return }
+            Self.setActivity(active, engine: engine, streams: streams, model: model, botId: botId, callID: callID)
         }
         session = engine
         Task { await engine.start() }
+    }
+
+    /// Audio is active: the store hands this call the bot's replies; otherwise it lets go of it.
+    private static func setActivity(_ active: Bool, engine: any VoiceEngine, streams: Bool, model: BotStore, botId: String, callID: UUID) {
+        guard active else { return model.endVoiceCall(callID) }
+        var stream: (@MainActor (String, String, Bool) -> Void)?
+        var working: (@MainActor (Bool) -> Void)?
+        if streams {
+            stream = { [weak engine] id, text, isFinal in engine?.streamReply(id: id, text: text, final: isFinal) }
+            working = { [weak engine] busy in engine?.setWorking(busy) }
+        }
+        model.beginVoiceCall(callID, botId: botId,
+                             speak: { [weak engine] in engine?.speak(reply: $0) },
+                             announce: { [weak engine] in engine?.announce($0) },
+                             stream: stream, working: working,
+                             end: { [weak engine] in engine?.end() })
+        engine.setWorking(model.bots[botId]?.isWorking ?? false)
     }
 
     private func countCloudMinutes() {

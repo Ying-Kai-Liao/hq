@@ -45,8 +45,8 @@ settings:
     CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith
     CODYNC_URL_SCHEME: kith
     CODYNC_LEGACY_URL_SCHEME: codync
-    CODYNC_SCREEN_NAME: CodyncScreen
-    CODYNC_SCREEN_BUNDLE_ID: com.pokai.Codync.screen
+    CODYNC_SCREEN_NAME: KithScreen
+    CODYNC_SCREEN_BUNDLE_ID: com.yingkailiao.kith.screen
     CODYNC_DATA_FOLDER: .kith/serve-main
   configs:
     Debug:
@@ -61,7 +61,7 @@ settings:
       CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith.dev
       CODYNC_URL_SCHEME: kith-dev
       CODYNC_LEGACY_URL_SCHEME: codync-dev
-      CODYNC_SCREEN_NAME: CodyncDevScreen
+      CODYNC_SCREEN_NAME: KithDevScreen
       CODYNC_SCREEN_BUNDLE_ID: com.yingkailiao.kith.dev.screen
       CODYNC_DATA_FOLDER: .kith/serve
       CODYNC_APNS_ENVIRONMENT: sandbox
@@ -73,7 +73,7 @@ settings:
       CODYNC_KEYCHAIN_GROUP: com.yingkailiao.kith.dev
       CODYNC_URL_SCHEME: kith-dev
       CODYNC_LEGACY_URL_SCHEME: codync-dev
-      CODYNC_SCREEN_NAME: CodyncDevScreen
+      CODYNC_SCREEN_NAME: KithDevScreen
       CODYNC_SCREEN_BUNDLE_ID: com.yingkailiao.kith.dev.screen
       CODYNC_DATA_FOLDER: .kith/serve
       CODYNC_APNS_ENVIRONMENT: production

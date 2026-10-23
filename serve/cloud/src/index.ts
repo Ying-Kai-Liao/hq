@@ -61,6 +61,10 @@ const routes: [string, RegExp, Handler][] = [
   ["POST", new RegExp(`^/v1/host/access-requests/${ID}/decision$`), api.hostDecision],
   ["POST", new RegExp(`^/v1/host/grants/${ID}/revoke$`), api.hostRevokeGrant],
   ["POST", /^\/v1\/host\/unclaim$/, api.hostUnclaim],
+  ["POST", /^\/v1\/host\/invites$/, api.hostCreateInvite],
+  ["POST", new RegExp(`^/v1/host/invites/${ID}/revoke$`), api.hostRevokeInvite],
+  ["POST", new RegExp(`^/v1/host/memberships/${ID}/revoke$`), api.hostRevokeMembership],
+  ["POST", new RegExp(`^/v1/invites/${ID}/accept$`), api.acceptInvite],
   ["GET", /^\/v1\/relay\/host$/, api.relayHost],
   // Any segment reaches the handler so a malformed computerId gets its 400 (§7.1).
   ["GET", /^\/v1\/relay\/device\/([^/]+)$/, api.relayDevice],

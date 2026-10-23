@@ -1,4 +1,5 @@
 import { Observable } from '../../lib/observable'
+import { Captions } from './transcript'
 import {
   addVoiceUsage,
   chosenModel,
@@ -71,6 +72,10 @@ export abstract class VoiceEngine extends Observable {
   warning: string | null = null
   /** Microphone loudness, 0…1, while listening. Read every frame; not observed. */
   level = 0
+  /** Live text of the call for the call screen. Engines that don't report text leave it empty. */
+  readonly captions = new Captions()
+  /** Whether `setOutputDevice` does anything (the engine plays through an audio element). */
+  readonly canChooseOutput: boolean = false
   abstract readonly provider: VoiceProvider | null
   /** Keeps the call subscribed to replies while audio is active. */
   onActivityChanged: ((active: boolean) => void) | null = null
@@ -91,6 +96,9 @@ export abstract class VoiceEngine extends Observable {
     this.changed()
   }
   protected mutedChanged(_on: boolean) {}
+
+  /** Plays the bot's voice through this output device (a `deviceId` of `enumerateDevices`; '' is the default). */
+  async setOutputDevice(_deviceId: string): Promise<void> {}
 
   protected setWarning(warning: string | null) {
     if (warning === this.warning) return

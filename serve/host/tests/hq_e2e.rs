@@ -141,6 +141,8 @@ async fn an_hq_agent_appears_and_starts_from_launch_json() {
     assert_eq!(bot["permission"], "ask");
     assert_eq!(s.launches().len(), 0, "nothing starts before the first message");
     let id = bot["id"].as_str().unwrap();
+    // These read the main chat's answer; tasks (the default) answer in a thread.
+    s.host.call("updateBot", json!({"id": id, "tasks": false})).await;
 
     s.host.reply(id, "what do you keep track of?").await;
 
@@ -177,9 +179,12 @@ async fn an_hq_agent_appears_and_starts_from_launch_json() {
 async fn the_host_restart_loads_the_session_with_a_fresh_launch() {
     let mut s = start().await;
     let id = s.house().await["id"].as_str().unwrap().to_owned();
+    s.host.call("updateBot", json!({"id": id, "tasks": false})).await;
     s.host.reply(&id, "hello").await;
     s.host.restart(|_| {}).await;
     s.house().await;
+    // The startup sync turns tasks on once for a bot that has them off (see `hub::hq`); this test reads the main chat.
+    s.host.call("updateBot", json!({"id": id, "tasks": false})).await;
     s.host.reply(&id, "again").await;
     assert_eq!(s.launches().len(), 2, "the launch is fetched again");
     let load = s.requests("session/load");
@@ -193,6 +198,7 @@ async fn the_host_restart_loads_the_session_with_a_fresh_launch() {
 async fn a_failing_launch_says_why_in_the_chat() {
     let s = start().await;
     let id = s.house().await["id"].as_str().unwrap().to_owned();
+    s.host.call("updateBot", json!({"id": id, "tasks": false})).await;
     std::fs::write(s.home.join("fail"), "house is not allowed here").unwrap();
     s.host.call("send", json!({"botId": id, "text": "hi", "clientNonce": "n1"})).await;
     let deadline = Instant::now() + Duration::from_secs(20);
@@ -354,7 +360,9 @@ async fn pickers_list_projects_recent_folders_and_browsable_directories() {
     s.register_projects();
     let (id, _) = s.house_chat().await;
 
-    let projects = s.host.call("projects", json!({})).await;
+    // The startup sync lists the projects in the background and the host reuses that list for a few seconds, so
+    // whether it ran before `register_projects` is a race; a refresh is what the picker asks for on opening.
+    let projects = s.host.call("projects", json!({"refresh": true})).await;
     let ids: Vec<&str> = projects["projects"].as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap()).collect();
     assert_eq!(ids, ["alpha", "beta"]);
     assert_eq!(projects["projects"][0]["exists"], true);
@@ -408,10 +416,10 @@ async fn a_new_task_starts_in_the_folder_the_message_picked() {
     let s = start().await;
     s.register_projects();
     let id = s.house().await["id"].as_str().unwrap().to_owned();
-    // Tasks on (hq bots start without): the message opens a thread, which runs in alpha from its first turn.
-    s.host.call("updateBot", json!({"id": id, "tasks": true})).await;
+    // Tasks are on by default for hq bots too: the message opens a thread, which runs in alpha from its first turn.
     let sent =
         s.host.call("send", json!({"botId": id, "text": "a task", "clientNonce": "t1", "project": "alpha"})).await;
+    assert_eq!(sent["entry"]["data"]["task"], true, "an hq bot's message starts a task: {sent}");
     let task = sent["entry"]["id"].as_str().unwrap().to_owned();
     let deadline = Instant::now() + Duration::from_secs(30);
     while requests_in(&s.dir("alpha"), "session/prompt").is_empty() {

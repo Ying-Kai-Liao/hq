@@ -9,6 +9,7 @@ import {
   device,
   effectiveStatus,
   key,
+  memberComputer,
   notify,
   oneOf,
   optStr,
@@ -215,16 +216,18 @@ export async function listComputers(c: Ctx) {
     deviceId = d?.id ?? null;
   }
   const { results } = await c.env.DB.prepare(
-    `SELECT c.*, CASE
+    `SELECT c.*, CASE WHEN c.owner_user_id = ?2 THEN 'owner' ELSE 'member' END AS role, CASE
        WHEN ?1 IS NULL THEN NULL
        WHEN EXISTS(SELECT 1 FROM grants g WHERE g.computer_id = c.id AND g.device_id = ?1 AND g.status = 'active') THEN 'granted'
        WHEN EXISTS(SELECT 1 FROM access_requests r WHERE r.computer_id = c.id AND r.device_id = ?1
                    AND r.status = 'pending' AND r.expires_at > ?3) THEN 'pending'
        ELSE 'none' END AS access
-     FROM computers c WHERE c.owner_user_id = ?2 ORDER BY c.claimed_at`,
+     FROM computers c WHERE c.owner_user_id = ?2 OR (c.owner_user_id IS NOT NULL AND EXISTS(
+       SELECT 1 FROM memberships m WHERE m.computer_id = c.id AND m.user_id = ?2 AND m.revoked_at IS NULL))
+     ORDER BY c.claimed_at`,
   )
     .bind(deviceId, u.userId, c.now)
-    .all<ComputerRow & { access: string | null }>();
+    .all<ComputerRow & { access: string | null; role: "owner" | "member" }>();
   return { computers: results.map(computerView) };
 }
 
@@ -247,7 +250,7 @@ export async function createAccessRequest(c: Ctx, [computerId]: string[]) {
   const u = await user(c);
   const dev = await device(c, u.userId);
   const commit = key(body(c), "commit", 32);
-  await ownedComputer(c, computerId!, u.userId);
+  await memberComputer(c, computerId!, u.userId);
   const recent = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM access_requests WHERE user_id = ? AND created_at > ?")
     .bind(u.userId, c.now - 3600_000)
     .first<{ n: number }>();

@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 import Speech
 
-// codync-speech: transcribes the microphone on device with SFSpeechRecognizer and prints one
+// kith-speech: transcribes the microphone on device with SFSpeechRecognizer and prints one
 // JSON event per line: {"type":"started"}, {"type":"partial"|"final","text":…},
 // {"type":"level","value":0…1}, {"type":"error","message":…}. It runs until stdin closes or
 // SIGTERM. `--locales` prints the languages it can transcribe (a JSON array) and exits. The desktop app (src/main/speech.ts) owns endpointing: it stops this process when

@@ -1,7 +1,7 @@
 import type { SSHProfile } from '../shared/ssh.ts'
 
 // Preserve the login shell's PATH, then try the supported installers and the Mac app bundle.
-const REMOTE_PATH = '$PATH:/opt/homebrew/bin:/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:/Applications/Codync.app/Contents/Resources'
+const REMOTE_PATH = '$PATH:/opt/homebrew/bin:/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:/Applications/Kith.app/Contents/Resources'
 
 /** The caller validates the port before constructing the remote shell command. */
 export const remoteInfoCommand = (port: number, folder = '.kith/serve-main') => {

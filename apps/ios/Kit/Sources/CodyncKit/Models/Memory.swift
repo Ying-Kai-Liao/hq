@@ -8,7 +8,7 @@ public struct MemoryEntry: Decodable, Identifiable, Hashable, Sendable {
     /// active · archived
     public var state: String
     public var text: String
-    /// user · bot · dream · imported
+    /// user · bot · tidy · imported
     public var author: String
     public var authorBot: String?
     public var pinned: Bool
@@ -23,8 +23,8 @@ public struct MemoryLayer: Decodable, Hashable, Sendable {
     public var cap: Int
 }
 
-/// One dreaming run: what it added and archived. It can be undone.
-public struct DreamRun: Decodable, Identifiable, Hashable, Sendable {
+/// One tidy run: what it added and archived. It can be undone.
+public struct TidyRun: Decodable, Identifiable, Hashable, Sendable {
     public struct Change: Decodable, Hashable, Sendable {
         public var id: Int64
         public var text: String
@@ -53,11 +53,26 @@ public struct MemoryView: Decodable, Hashable, Sendable {
     public var shared: Bool
     public var yours: MemoryLayer
     public var bot: MemoryLayer
-    public var dreams: [DreamRun]
+    public var tidyUps: [TidyRun]
     /// Claude Code's own notes for the bot's project folder, read-only.
     public var projectMemory: Project?
     /// The long-form files of both layers.
     public var files: MemoryFiles?
+
+    private enum CodingKeys: String, CodingKey { case shared, yours, bot, tidyUps, projectMemory, files }
+    /// What a host from before the "tidy" rename calls `tidyUps`.
+    private enum OldKeys: String, CodingKey { case dreams }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        shared = try c.decode(Bool.self, forKey: .shared)
+        yours = try c.decode(MemoryLayer.self, forKey: .yours)
+        bot = try c.decode(MemoryLayer.self, forKey: .bot)
+        tidyUps = try c.decodeIfPresent([TidyRun].self, forKey: .tidyUps)
+            ?? decoder.container(keyedBy: OldKeys.self).decodeIfPresent([TidyRun].self, forKey: .dreams) ?? []
+        projectMemory = try c.decodeIfPresent(Project.self, forKey: .projectMemory)
+        files = try c.decodeIfPresent(MemoryFiles.self, forKey: .files)
+    }
 }
 
 /// The text a single change of a composer's draft inserted, when it is long enough that the user pasted it
@@ -78,7 +93,7 @@ extension HostClient {
         try await call("memory", ["botId": botId])
     }
 
-    /// A memory method on one bot (`saveMemory`, `pinMemory`, `archiveMemory`, `forgetMemory`, `clearMemory`, `undoDream`).
+    /// A memory method on one bot (`saveMemory`, `pinMemory`, `archiveMemory`, `forgetMemory`, `clearMemory`, `undoTidy`).
     public func memoryCall(_ method: String, _ body: some Encodable) async throws {
         let _: Empty = try await call(method, body)
     }

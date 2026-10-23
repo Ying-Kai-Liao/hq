@@ -6,9 +6,9 @@ test('a report keeps the error class and its frames, never the message', () => {
   const error = new TypeError('cannot read /Users/kevin/secret.txt')
   error.stack = [
     'TypeError: cannot read /Users/kevin/secret.txt',
-    '    at loadChat (file:///Applications/Codync.app/Contents/Resources/app.asar/out/renderer/assets/index-a1.js:99:2)',
-    '    at async open (file:///Applications/Codync.app/Contents/Resources/app.asar/out/renderer/assets/index-a1.js:10:4)',
-    '    at file:///Applications/Codync.app/Contents/Resources/app.asar/out/renderer/assets/index-a1.js:5:1',
+    '    at loadChat (file:///Applications/Kith.app/Contents/Resources/app.asar/out/renderer/assets/index-a1.js:99:2)',
+    '    at async open (file:///Applications/Kith.app/Contents/Resources/app.asar/out/renderer/assets/index-a1.js:10:4)',
+    '    at file:///Applications/Kith.app/Contents/Resources/app.asar/out/renderer/assets/index-a1.js:5:1',
   ].join('\n')
   const report = errorReport(error, 'desktop-renderer', 'onerror')
   assert.equal(report.type, 'TypeError')

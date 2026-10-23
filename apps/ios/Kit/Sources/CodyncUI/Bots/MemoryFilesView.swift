@@ -185,7 +185,7 @@ struct MemoryFileView: View {
         let by = switch version.author {
         case "user": "You"
         case "bot": host.bots[version.authorBot ?? ""]?.name ?? "A bot"
-        case "dream": "Dreaming"
+        case "tidy", "dream": "Tidying up"
         default: "This computer"
         }
         return switch version.cause {

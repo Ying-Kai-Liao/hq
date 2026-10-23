@@ -14,36 +14,73 @@ pub async fn serve(home: &Path) -> (Child, String) {
     serve_env(home, &[]).await
 }
 
+/// Kills the host it holds when dropped: a panic or failed assert before the caller owns the child (it never
+/// answered `/health`, the channels guard failed) must not leave a host running, connected to real bots.
+struct Reaper(Option<Child>);
+
+impl Drop for Reaper {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 /// [`serve`] with extra environment variables for the host.
 pub async fn serve_env(home: &Path, env: &[(&str, &str)]) -> (Child, String) {
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let port = std::net::TcpListener::bind("127.0.0.1:0").expect("free port").local_addr().expect("port").port();
         let base = format!("http://127.0.0.1:{port}");
-        let mut child = Command::new(env!("CARGO_BIN_EXE_kith-serve"))
-            .args(["serve", "--bind", "127.0.0.1", "--port", &port.to_string()])
-            .env("KITH_SERVE_HOME", home)
-            .env("KITH_SERVE_CLOUD", "off")
-            // Never the hq on this computer: a test that wants one passes its own `KITH_KERNEL_BIN`.
-            .env("KITH_KERNEL_BIN", "")
-            .env("HQ_BIN", "")
-            // The test machine's memory and a two-agent limit must not hold a test back (see `gate_e2e`).
-            .env("KITH_SERVE_MAX_RUNNING_AGENTS", "64")
-            .env("KITH_SERVE_MIN_FREE_MEMORY_PERCENT", "0")
-            .env("KITH_SERVE_MAX_SWAP_USED_GB", "0")
-            .envs(env.iter().copied())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("start the host");
-        while child.try_wait().expect("host state").is_none() {
+        let mut child = Reaper(Some(
+            Command::new(env!("CARGO_BIN_EXE_kith-serve"))
+                .args(["serve", "--bind", "127.0.0.1", "--port", &port.to_string()])
+                .env("KITH_SERVE_HOME", home)
+                .env("KITH_SERVE_CLOUD", "off")
+                // Never the hq on this computer: a test that wants one passes its own `KITH_KERNEL_BIN`.
+                .env("KITH_KERNEL_BIN", "")
+                .env("HQ_BIN", "")
+                // The test machine's memory and a two-agent limit must not hold a test back (see `gate_e2e`).
+                .env("KITH_SERVE_MAX_RUNNING_AGENTS", "64")
+                .env("KITH_SERVE_MIN_FREE_MEMORY_PERCENT", "0")
+                .env("KITH_SERVE_MAX_SWAP_USED_GB", "0")
+                .envs(env.iter().copied())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("start the host"),
+        ));
+        while child.0.as_mut().unwrap().try_wait().expect("host state").is_none() {
             if reqwest::get(format!("{base}/health")).await.is_ok() {
-                return (child, base);
+                // A temporary home never runs the real bots' channels (unless a test opts in).
+                if !env.iter().any(|(k, _)| *k == "KITH_SERVE_CHANNELS") {
+                    assert_channels_off(&base).await;
+                }
+                return (child.0.take().unwrap(), base);
             }
             assert!(Instant::now() < deadline, "host didn't start");
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         assert!(Instant::now() < deadline, "host didn't start");
+    }
+}
+
+/// The host decides about channels in the background after it listens: waits for `/health` to say they are off.
+async fn assert_channels_off(base: &str) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let health: serde_json::Value = reqwest::get(format!("{base}/health")).await.unwrap().json().await.unwrap();
+        let channels = &health["channels"];
+        assert!(
+            channels["connections"].as_array().is_none_or(Vec::is_empty),
+            "a test host connected to channels: {channels}"
+        );
+        if channels["off"] == "temporary home" {
+            return;
+        }
+        assert!(Instant::now() < deadline, "a temporary home didn't turn channels off: {channels}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 

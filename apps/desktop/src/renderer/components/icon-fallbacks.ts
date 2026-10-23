@@ -129,6 +129,7 @@ const map: Record<string, IconNode> = {
   'person.crop.circle.badge.plus': L.UserPlus,
   'person.fill': L.User,
   'phone.down.fill': L.PhoneOff,
+  'phone.fill': L.Phone,
   photo: L.Image,
   'photo.on.rectangle': L.Images,
   pin: L.Pin,

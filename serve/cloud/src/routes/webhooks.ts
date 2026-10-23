@@ -39,6 +39,9 @@ async function deleteAccount(env: Env, userId: string, now: number): Promise<voi
     "accountDeleted",
     now,
   );
+  const memberOf = await env.DB.prepare("SELECT DISTINCT computer_id FROM memberships WHERE user_id = ? AND revoked_at IS NULL")
+    .bind(userId)
+    .all<{ computer_id: string }>();
   const owned = await env.DB.prepare("SELECT id FROM computers WHERE owner_user_id = ?").bind(userId).all<{ id: string }>();
   await env.DB.batch([
     ...stmts,
@@ -46,6 +49,14 @@ async function deleteAccount(env: Env, userId: string, now: number): Promise<voi
       `INSERT INTO accounts(user_id, status, created_at, deleted_at) VALUES (?1, 'deleted', ?2, ?2)
        ON CONFLICT(user_id) DO UPDATE SET status = 'deleted', deleted_at = ?2`,
     ).bind(userId, now),
+    // Their own memberships, and everyone's memberships and unused invites on the computers they leave.
+    env.DB.prepare(
+      "UPDATE memberships SET revoked_at = ?1 WHERE revoked_at IS NULL AND (user_id = ?2 OR computer_id IN (SELECT id FROM computers WHERE owner_user_id = ?2))",
+    ).bind(now, userId),
+    env.DB.prepare(
+      `UPDATE invites SET revoked_at = ?1 WHERE accepted_by IS NULL AND revoked_at IS NULL
+       AND computer_id IN (SELECT id FROM computers WHERE owner_user_id = ?2)`,
+    ).bind(now, userId),
     env.DB.prepare("UPDATE devices SET revoked_at = ? WHERE owner_user_id = ? AND revoked_at IS NULL").bind(now, userId),
     env.DB.prepare(
       `UPDATE access_requests SET status = 'cancelled', decided_at = ?1
@@ -57,6 +68,6 @@ async function deleteAccount(env: Env, userId: string, now: number): Promise<voi
     ),
     audit(env, "system", "account.delete", userId, "ok", now),
   ]);
-  const computers = new Set([...blocks.keys(), ...owned.results.map((r) => r.id)]);
+  const computers = new Set([...blocks.keys(), ...owned.results.map((r) => r.id), ...memberOf.results.map((r) => r.computer_id)]);
   await Promise.all([...computers].map((id) => notify(env, id, blocks.get(id))));
 }
