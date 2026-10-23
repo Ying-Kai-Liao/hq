@@ -72,6 +72,8 @@ struct SettingsView: View {
                 }
             }
 
+            BackupsStatusSection()
+
             CardSection("Notifications", footer: "Get a result summary, a request for input, or a failure notice. Notification previews follow your iOS settings.") {
                 Toggle("Push notifications", isOn: $notificationsEnabled)
                     .toggleStyle(.codync)

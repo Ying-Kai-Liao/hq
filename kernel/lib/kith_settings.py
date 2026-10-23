@@ -107,6 +107,17 @@ def set_backups(agent, ids):
     write(s)
 
 
+def clear_backups(agent):
+    """Drop one agent's own chain, so it follows the global one again. Keeps the rest of the file."""
+    s, why = read()
+    if why:
+        raise ValueError(why)
+    own = s.get('agents', {}).get(agent)
+    if own is not None and 'backups' in own:
+        del own['backups']
+        write(s)
+
+
 if __name__ == '__main__':
     if len(sys.argv) not in (2, 3) or sys.argv[1] not in DEFAULTS:
         sys.exit(__doc__.strip())
