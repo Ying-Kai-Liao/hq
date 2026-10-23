@@ -207,7 +207,7 @@ impl Actor {
                 prepared = Some((bin, target));
             }
             let Some((bin, target)) = &prepared else { unreachable!("prepared above") };
-            match hq::launch(bin, &agent, &target.cwd, &self.cfg, target.project.as_deref(), backup.as_deref()).await {
+            match hq::launch(bin, &agent, &target.cwd, target.project.as_deref(), backup.as_deref()).await {
                 Ok(mut launch) => {
                     if target.explicit {
                         launch.cwd.clone_from(&target.cwd);
@@ -318,7 +318,7 @@ impl Actor {
         let Some(conn) = self.conn.as_mut() else { bail!("agent not running") };
         let sid = res["sessionId"].as_str().ok_or_else(|| anyhow!("agent returned no sessionId"))?.to_owned();
         conn.loaded.insert(sid.clone(), Instant::now());
-        // The model was chosen by hq (`-m`), so the host doesn't set it again.
+        // The model, effort and permission mode are hq's (launch-json): the host sets none of them again.
         self.note_options(&sid, &res, Listing::Session);
         self.hq_set_session(slot, &sid);
         if launch.is_codex() {

@@ -220,6 +220,11 @@ impl Hub {
         if cfg.is_hq() {
             cfg.backend.clone_from(&row.config.backend);
             cfg.command = None;
+            // Model, effort, Fast mode and permission are hq's; an app's (stale) copy doesn't get stored over them.
+            cfg.model.clone_from(&row.config.model);
+            cfg.model_options.clone_from(&row.config.model_options);
+            cfg.fast_mode = row.config.fast_mode;
+            cfg.permission = row.config.permission;
         }
         if cfg.name.trim().is_empty() {
             cfg.name.clone_from(&row.config.name);

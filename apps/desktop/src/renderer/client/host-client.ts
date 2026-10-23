@@ -188,6 +188,11 @@ export class HostClient {
     return parseKithInfoResult(await this.call('kithInfo', { botId, ...(refresh ? { refresh: true } : {}) }, 60_000))
   }
 
+  /** Writes an hq bot's permission mode through to hq (`kith <agent> set permission`) and returns hq's info read back. */
+  async kithSetPermission(botId: string, mode: string): Promise<KithInfoResult> {
+    return parseKithInfoResult(await this.call('kithSetPermission', { botId, mode }, 60_000))
+  }
+
   /** The backup chain: global order, per-agent orders and each entry's state. A host before this call answers 404. */
   async backups(): Promise<Backups> {
     return parseBackups(await this.call('backups', {}, 90_000))

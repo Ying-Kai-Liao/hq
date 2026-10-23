@@ -1,7 +1,8 @@
 //! What a kith bot is, for its detail page: the agent's `--info-json` passed through, a read of one file of its
 //! memory folder, and a search of that memory. The contract is in `serve/docs/bot-info.md` (beside `place-folders.md`,
 //! which `folders.rs` points to).
-//! Read-only, so a paired phone may call all three (none is in `LOCAL_ONLY`). Not Kith's own bot memory (`memory`).
+//! The reads are open to a paired phone (none is in `LOCAL_ONLY`); `kithSetPermission` writes through to hq, like `updateBot`
+//! it needs the Control scope. Not Kith's own bot memory (`memory`).
 
 use super::str_arg;
 use crate::agent::hq;
@@ -34,6 +35,17 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
                 }
             }
         },
+        // Write-through for the one setting hq keeps per Mac: the app's choice goes to hq (`kith <agent> set
+        // permission`), and the answer is hq's info read back, so every device shows what the next turn will use.
+        "kithSetPermission" => {
+            let name = kith_only(bot_agent(hub, str_arg(&b, "botId")?)?)?;
+            let mode = b["mode"].as_str().ok_or_else(|| anyhow!("mode is required"))?;
+            let got = hq::set_permission(&name, mode).await?;
+            match got.info {
+                Ok(info) => json!({"info": info, "fetchedAt": got.fetched_at}),
+                Err(e) => json!({"info": null, "error": e, "fetchedAt": got.fetched_at}),
+            }
+        }
         "kithMemoryFile" => {
             let name = kith_only(bot_agent(hub, str_arg(&b, "botId")?)?)?;
             let path = str_arg(&b, "path")?.to_owned();
