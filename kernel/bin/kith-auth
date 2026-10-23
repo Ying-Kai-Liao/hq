@@ -85,12 +85,14 @@ privilege between cooperating agents. For the owner it is not a sandbox: an agen
 Non-owner Claude runs (a person or a bot) are different: bin/kith starts them with the OS sandbox of Claude Code around Bash
 (macOS seatbelt), so the credential folders and other people's files are closed to a shell too.
 """
+import fcntl
 import getpass
 import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -120,7 +122,25 @@ def die(msg, code=1):
     sys.exit(code)
 
 
-def load_auth():
+_LOCK = None
+
+
+def lock_auth():
+    """Exclusive lock on a sibling file, held from the first read of a read-modify-write until the process ends (one
+    command is one transaction), so two writers (the host and a CLI, two CLIs) never interleave and lose a change.
+    flock goes with the process: a crashed writer leaves nothing to clean up."""
+    global _LOCK
+    if _LOCK is None:
+        AUTH.parent.mkdir(parents=True, exist_ok=True)
+        _LOCK = open(AUTH.with_name(AUTH.name + '.lock'), 'a')
+        fcntl.flock(_LOCK, fcntl.LOCK_EX)
+    return _LOCK
+
+
+def load_auth(write=False):
+    """auth.json as a dict. write=True: the caller will save_auth, so take the lock first."""
+    if write:
+        lock_auth()
     try:
         data = json.loads(AUTH.read_text())
     except FileNotFoundError:
@@ -133,30 +153,45 @@ def load_auth():
 
 
 def save_auth(data):
+    lock_auth()   # a save without a locked load (not the plan) still never races another save
     AUTH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = AUTH.with_name(AUTH.name + '.tmp')
     now = time.time()
     data['invites'] = {c: i for c, i in data.get('invites', {}).items() if i.get('expires', 0) > now}
     data = {k: v for k, v in data.items() if v or k in ('profiles', 'grants', 'env')}   # no empty people tables
-    tmp.write_text(json.dumps(data, indent=2) + '\n')
-    os.chmod(tmp, 0o600)
-    tmp.rename(AUTH)
+    fd, tmp = tempfile.mkstemp(prefix=AUTH.name + '.', suffix='.tmp', dir=AUTH.parent)   # mkstemp: 0600, a name of its own
+    try:
+        with os.fdopen(fd, 'w') as f:
+            f.write(json.dumps(data, indent=2) + '\n')
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, AUTH)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    dfd = os.open(AUTH.parent, os.O_RDONLY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
 
 
-def service_file(name):
-    """kernel/services/<name>.json, else one an installed agent brings in its role's services/ (an agent shared by
-    someone else can carry the definition of a service the kernel doesn't have)."""
+def service_file(name, agent=None):
+    """kernel/services/<name>.json, else one the agent brings in its own role's services/ (an agent shared by
+    someone else can carry the definition of a service the kernel doesn't have). Other agents' folders are not read."""
     f = SERVICES / f'{name}.json'
     if f.is_file():
         return f
-    for pkg in agent_dirs().values():
-        if (pkg / 'services' / f'{name}.json').is_file():
-            return pkg / 'services' / f'{name}.json'
+    pkg = agent_dirs().get(agent) if agent else None
+    if pkg and (pkg / 'services' / f'{name}.json').is_file():
+        return pkg / 'services' / f'{name}.json'
     return None
 
 
-def service(name):
-    f = service_file(name)
+def service(name, agent=None):
+    f = service_file(name, agent)
     if not f:
         die(f"no service '{name}' (kernel/services/, or an agent's services/)")
     return json.loads(f.read_text())
@@ -331,13 +366,13 @@ def resolve_ref(ref):
     return None
 
 
-def secrets(auth, svc, profile):
+def secrets(auth, svc, profile, agent=None):
     """{VAR: value} for every secret the service needs, from the profile. Exits if one is missing."""
     refs = auth['profiles'].get(profile)
     if refs is None:
         die(f"no profile '{profile}' in {AUTH}")
     out = {}
-    for var in service(svc).get('secrets', []):
+    for var in service(svc, agent).get('secrets', []):
         ref = refs.get(var)
         value = resolve_ref(ref) if ref else None
         if not value:
@@ -370,7 +405,7 @@ def settings(auth, agent, svc):
     os.environ['KITH_AGENT'] = agent
     for k, v in paths().items():   # $KITH_MACHINE and the rest, also when kith-auth runs on its own
         os.environ.setdefault(k, str(v))
-    spec = service(svc)
+    spec = service(svc, agent)
     if spec.get('browsers'):
         name, browser, folder = browser_profile(auth, agent)
         browser = browser or spec['browsers'][0]   # a new profile starts in the service's first browser
@@ -384,7 +419,7 @@ def settings(auth, agent, svc):
 
 
 def uses_browser(agent):
-    return any(service_file(s) and service(s).get('browsers') for s in needs(agent))
+    return any(service_file(s, agent) and service(s, agent).get('browsers') for s in needs(agent))
 
 
 def audit(agent, svc, profile, how):
@@ -425,7 +460,7 @@ def cmd_ls():
             note = '' if svc in wanted else '  (granted, not in needs)'
             refs = auth['profiles'].get(profile)
             try:
-                missing = [v for v in service(svc).get('secrets', [])
+                missing = [v for v in service(svc, agent).get('secrets', [])
                            if not (refs and refs.get(v) and resolve_ref(refs[v]))]
             except SystemExit:
                 missing = ['unknown service']
@@ -444,7 +479,7 @@ def cmd_mcp_config(agent):
     auth = load_auth()
     servers = {}
     for svc in needs(agent):
-        spec = service(svc)
+        spec = service(svc, agent)
         if spec.get('kind') != 'mcp':
             continue
         profile, why, refused = granted(auth, agent, svc)
@@ -454,7 +489,7 @@ def cmd_mcp_config(agent):
                   f'(kith-auth grant {agent} {svc} <profile>)', file=sys.stderr)
             continue
         try:
-            secrets(auth, svc, profile)    # skip a server whose secrets don't resolve instead of failing at start
+            secrets(auth, svc, profile, agent)    # skip a server whose secrets don't resolve instead of failing at start
         except SystemExit:
             print(f'kith: {agent}: {svc} skipped this run, its secrets don\'t resolve (kith-auth ls)', file=sys.stderr)
             continue
@@ -481,7 +516,7 @@ def cmd_mcp_names(agent):
     auth = load_auth()
     servers = {}
     for svc in needs(agent):
-        spec = service(svc)
+        spec = service(svc, agent)
         if spec.get('kind') == 'mcp' and granted(auth, agent, svc)[0]:
             servers[svc] = {'command': spec['mcp']['command']}
     print(json.dumps({'mcpServers': servers}))
@@ -494,7 +529,7 @@ def cmd_exec(args):
     svc, cmd = args[0], args[2:]
     auth = load_auth()
     profile = grant_for(auth, agent, svc)
-    env = sync_env({**os.environ, **settings(auth, agent, svc), **secrets(auth, svc, profile)})
+    env = sync_env({**os.environ, **settings(auth, agent, svc), **secrets(auth, svc, profile, agent)})
     audit(agent, svc, profile, 'exec')
     os.execvpe(cmd[0], cmd, env)
 
@@ -507,7 +542,7 @@ def cmd_get(args):
         die('get [--for AGENT] <service> <VAR>', 2)
     svc, var = args
     auth = load_auth()
-    if var not in service(svc).get('secrets', []):
+    if var not in service(svc, agent).get('secrets', []):
         die(f'{svc} declares no secret {var}')
     profile = grant_for(auth, agent, svc)
     value = secrets(auth, svc, profile)[var]
@@ -528,7 +563,7 @@ def cmd_set(profile, var):
                        capture_output=True, text=True)
     if r.returncode != 0:
         die(f'keychain: {r.stderr.strip()}')
-    auth = load_auth()
+    auth = load_auth(write=True)
     auth['profiles'].setdefault(profile, {})[var] = f'keychain:{kc}#{var}'
     save_auth(auth)
     print(f'stored in Keychain as {kc} / {var}; {profile} now reads it from there')
@@ -763,7 +798,7 @@ def cmd_person(args):
     pid, (kv, flags) = args[0], pairs(args[1:], {'name', 'lang', 'tz', 'id'})
     if not re.fullmatch(r'[a-z][a-z0-9-]*', pid):
         die('a person id is lowercase letters, digits and -, e.g. sam', 2)
-    auth = load_auth()
+    auth = load_auth(write=True)
     if 'id' in kv:
         return rename(auth, pid, kv.pop('id'))
     if 'owner' in flags and auth['people'].get(pid, {}).get('bot_of'):
@@ -879,7 +914,7 @@ def cmd_handle(args):
     if len(args) != 3:
         die('handle <id> <platform> <user-id> | handle <id> <platform> --rm', 2)
     pid, plat, uid = args
-    auth = load_auth()
+    auth = load_auth(write=True)
     need_person(auth, pid)
     if uid == '--rm':
         auth['people'][pid].get('handles', {}).pop(plat, None)
@@ -928,7 +963,7 @@ def cmd_who(args):
 def cmd_invite(args):
     if len(args) not in (1, 2):
         die('invite <id> [minutes]', 2)
-    auth = load_auth()
+    auth = load_auth(write=True)
     need_person(auth, args[0])
     minutes = int(args[1]) if len(args) == 2 else 15
     alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'   # no 0/O or 1/I to misread
@@ -942,10 +977,9 @@ def cmd_link(args):
     if len(args) != 3:
         die('link <platform> <user-id> <code>', 2)
     plat, uid, code = args
-    auth = load_auth()
+    auth = load_auth(write=True)
     inv = auth['invites'].pop(code.strip().upper(), None)
     if not inv or inv['expires'] < time.time():
-        save_auth(auth)
         die('that code is unknown or expired; ask for a new one (kith-auth invite <id>)')
     bind(auth, inv['person'], plat, uid)
     save_auth(auth)
@@ -956,7 +990,7 @@ def cmd_preset(args):
     if not args:
         die('preset <name> [mode=.. deny=a,b] [--rm]', 2)
     name, (kv, flags) = args[0], pairs(args[1:], {'mode', 'deny'})
-    auth = load_auth()
+    auth = load_auth(write=True)
     if '--rm' in flags:
         auth['presets'].pop(name, None)
     else:
@@ -973,6 +1007,15 @@ def cmd_preset(args):
     print(f'{name}: {json.dumps(preset(auth, name)) if name in auth["presets"] or name in PRESETS else "removed"}')
 
 
+def check_env_key(name):
+    """A guest's membership env becomes the environment of their run: a plain variable name, and none that would
+    change how the process starts or which kith it talks to."""
+    if not re.fullmatch(r'[A-Z_][A-Z0-9_]*', name) or name in ('PATH', 'HOME', 'SHELL') \
+            or re.match(r'(DYLD_|LD_|KITH_|HQ_)', name):
+        die(f'env.{name}: not a variable a membership may set (NAME in capitals, and not PATH, HOME, SHELL, DYLD_*, '
+            'LD_*, KITH_* or HQ_*)', 2)
+
+
 def cmd_member(args):
     if len(args) < 2:
         die('member <agent>[,..] <id> [preset=.. mode=.. deny=.. model=.. helpers=a,b budget=USD env.VAR=..] [--trusted] [--rm]', 2)
@@ -984,7 +1027,7 @@ def cmd_member(args):
                 raise ValueError
         except ValueError:
             die('budget is dollars a month, e.g. budget=20', 2)
-    auth = load_auth()
+    auth = load_auth(write=True)
     if pid != EVERYONE:
         need_person(auth, pid)
     if auth['people'].get(pid, {}).get('bot_of'):
@@ -1012,6 +1055,8 @@ def cmd_member(args):
                 row['trusted'] = True
         for k, v in kv.items():
             if k.startswith('env.'):
+                if v:
+                    check_env_key(k[4:])
                 env = row.setdefault('env', {})
                 env.update({k[4:]: v}) if v else env.pop(k[4:], None)
                 if not env:
@@ -1049,7 +1094,7 @@ def cmd_bot(args):
     kv, flags = pairs(rest, {'name', 'provider'})
     if not re.fullmatch(r'[a-z][a-z0-9-]*', bid):
         die('a bot id is lowercase letters, digits and -, e.g. bot-3f9a1c2e', 2)
-    auth = load_auth()
+    auth = load_auth(write=True)
     if '--rm' in flags:
         if not auth['people'].get(bid, {}).get('bot_of'):
             die(f"no bot '{bid}'")
@@ -1087,7 +1132,7 @@ def cmd_bot(args):
 def cmd_bots_cap(args):
     if len(args) > 1:
         die('bots-cap <amount|off>', 2)
-    auth = load_auth()
+    auth = load_auth(write=True)
     if args:
         if args[0] == 'off':
             auth.pop('owner_bots_budget', None)
@@ -1107,7 +1152,7 @@ def cmd_owner(args):
     if len(args) != 2:
         die('owner <profile> <id>|-|default', 2)
     prof, pid = args
-    auth = load_auth()
+    auth = load_auth(write=True)
     if prof not in auth['profiles']:
         die(f"no profile '{prof}'")
     if pid == '-':
@@ -1127,7 +1172,7 @@ def cmd_share(args):
     if len(args) not in (2, 3) or (len(args) == 3 and args[2] != '--rm'):
         die('share <profile> <id>[,..] [--rm]', 2)
     prof, ids = args[0], [i for i in args[1].split(',') if i]
-    auth = load_auth()
+    auth = load_auth(write=True)
     if prof not in auth['profiles']:
         die(f"no profile '{prof}'")
     for pid in ids:
@@ -1163,14 +1208,14 @@ def main(argv):
         cmd_ls()
     elif cmd == 'grant' and len(rest) == 3:
         who, svc, profile = rest
-        service(svc)
+        service(svc, None if who == '--all' else who.split(',')[0].split('@')[0])
         # agent@person: that person's own account for the agent (tried first in their runs)
         base = lambda a: a.split('@', 1)[0]
         uses = (lambda a: uses_browser(base(a))) if svc == 'browser' else (lambda a: svc in needs(base(a)))
         names = [a for a in agents() if uses(a)] if who == '--all' else [a for a in who.split(',') if a]
         if not names:
             die(f'no agent lists {svc} in its needs' if who == '--all' else 'no agent named', 2)
-        auth = load_auth()
+        auth = load_auth(write=True)
         for a in names:
             if '@' in a:
                 need_person(auth, a.split('@', 1)[1])
@@ -1186,7 +1231,7 @@ def main(argv):
             print(f'{agent} may use {svc} as {", ".join(profiles)}' + ('' if uses(agent) or agent in ('bridge', 'serve')
                                                                        else f' (not in its needs yet)'))
     elif cmd == 'revoke' and len(rest) == 2:
-        auth = load_auth()
+        auth = load_auth(write=True)
         auth['grants'].get(rest[0], {}).pop(rest[1], None)
         save_auth(auth)
         print(f'{rest[0]} may no longer use {rest[1]}')
@@ -1194,8 +1239,8 @@ def main(argv):
         cmd_set(*rest)
     elif cmd == 'env' and len(rest) >= 2:
         agent, svc, pairs = rest[0], rest[1], rest[2:]
-        service(svc)
-        auth = load_auth()
+        service(svc, agent)
+        auth = load_auth(write=True)
         mine = auth['env'].setdefault(agent, {}).setdefault(svc, {})
         for pair in pairs:
             var, eq, value = pair.partition('=')
@@ -1215,7 +1260,7 @@ def main(argv):
             print(f'{var}={value}')
     elif cmd == 'browser' and len(rest) in (1, 2):
         name = rest[0] if rest[0].startswith('browser/') else f'browser/{rest[0]}'
-        auth = load_auth()
+        auth = load_auth(write=True)
         prof = auth['profiles'].setdefault(name, {})
         if len(rest) == 2:
             if prof.get('browser') and prof['browser'] != rest[1]:
