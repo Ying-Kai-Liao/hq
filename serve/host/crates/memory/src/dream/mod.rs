@@ -51,6 +51,22 @@ pub struct Snapshot {
     stamp: Vec<(i64, i64)>,
 }
 
+impl Snapshot {
+    /// A snapshot of memory the caller keeps elsewhere than in this crate's entry store (the hq agents' Markdown
+    /// files): its lines as entries, its notes as files. [`audit`] and [`prompt`] work on it as on any other; the
+    /// caller checks that its files didn't change during the run, because there is no store to stamp.
+    pub fn from_parts(
+        bot: &str,
+        shared: bool,
+        entries: Vec<Entry>,
+        files: Vec<files::File>,
+        full: bool,
+        today: &str,
+    ) -> Self {
+        Self { bot: bot.to_owned(), shared, entries, files, full, today: today.to_owned(), stamp: Vec::new() }
+    }
+}
+
 pub fn snapshot(conn: &Connection, bot: &str, shared: bool, today: &str) -> store::Result<Snapshot> {
     let mut entries = store::layer(conn, Some(bot))?;
     if shared {

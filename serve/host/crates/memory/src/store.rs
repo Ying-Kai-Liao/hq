@@ -362,7 +362,8 @@ fn duplicate(conn: &Connection, bot: Option<&str>, text: &str) -> Result<bool> {
     Ok(false)
 }
 
-fn forgotten(conn: &Connection, bot: Option<&str>, text: &str) -> Result<bool> {
+/// Whether `text` (case, spacing and trailing punctuation aside) was forgotten or forbidden in a layer (`None`: "yours").
+pub fn forgotten(conn: &Connection, bot: Option<&str>, text: &str) -> Result<bool> {
     marked(conn, bot, &fingerprint(text))
 }
 

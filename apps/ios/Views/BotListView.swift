@@ -380,7 +380,7 @@ private struct EmptyRoster: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            CharacterAvatar(shape: "cloud", color: "green", size: 72)
+            CharacterAvatar(portrait: "spare-cloud", size: 72)
             Text("No bots yet").font(.title3.weight(.semibold)).foregroundStyle(Palette.text)
             Text(hasComputer
                  ? "Create a bot for each kind of work — a reviewer, a fixer, a docs writer — and point it at a project."

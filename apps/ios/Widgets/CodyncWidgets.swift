@@ -274,7 +274,7 @@ private struct EmptyWidget: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            CharacterAvatar(shape: "blob", color: "gray", size: 26, mood: .idle)
+            CharacterAvatar(portrait: "crew-builder", size: 26, still: true)
             Spacer(minLength: 0)
             Text(text).font(.caption).foregroundStyle(Palette.secondary)
         }
@@ -650,23 +650,10 @@ struct BotLiveActivity: Widget {
         .accessibilityLabel(state.title)
     }
 
-    /// While the bot works, the island's face plays its loop; otherwise it holds its mood.
-    @ViewBuilder
+    /// The bot's body with its eyes posed for the phase: one frame, since a Live Activity cannot animate.
     private func avatar(_ context: ActivityViewContext<BotActivityAttributes>, state: BotActivityPresentation, size: CGFloat) -> some View {
-        ZStack {
-            if let portrait = context.attributes.avatarPortrait {
-                // A portrait is one frame: nothing to play while the bot works.
-                CharacterAvatar(portrait: portrait, size: size).transition(.opacity)
-            } else if state.phase == .working {
-                WorkingBotFace(shape: context.attributes.avatarShape, color: context.attributes.avatarColor,
-                               since: context.state.startedAt ?? .now, size: size)
-                    .transition(.opacity)
-            } else {
-                ActivityAvatar(shape: context.attributes.avatarShape, color: context.attributes.avatarColor, state: state, size: size)
-                    .transition(.opacity)
-            }
-        }
-        .animation(Motion.activityPhase, value: state.phase)
+        ActivityAvatar(color: context.attributes.avatarColor, portrait: context.attributes.avatarPortrait, state: state, size: size)
+            .animation(Motion.activityPhase, value: state.phase)
     }
 }
 
@@ -685,30 +672,8 @@ private struct SurfaceTint: ViewModifier {
     }
 }
 
-/// The working bot, alive in the Dynamic Island. A Live Activity draws one frame and only a
-/// timer keeps changing, so this is a timer drawn in fonts whose digits are the ten frames of
-/// the bot's loop (tools/timer-fonts.py); only the seconds digit draws, one frame a second.
-/// Two layers, like the app's avatar: every dot in grey ink, the lit ones in the bot's color.
-struct WorkingBotFace: View {
-    let shape: String
-    let color: String
-    let since: Date
-    let size: CGFloat
-
-    private static let shapes: Set = ["blob", "pebble", "squircle", "tablet", "wedge", "hex", "cloud", "teardrop"]
-
-    var body: some View {
-        let shape = Self.shapes.contains(shape) ? shape : "blob"
-        ZStack {
-            TimerFrames(font: "CodyncBot-\(shape)-Ink", since: since, size: size).foregroundStyle(Palette.text.opacity(0.6))
-            TimerFrames(font: "CodyncBot-\(shape)-Tint", since: since, size: size).foregroundStyle(AvatarPalette.color(color))
-        }
-        .accessibilityHidden(true)
-    }
-}
-
-/// The thinking orb, orbiting in the Dynamic Island the same way: its faint orbit trails and
-/// its moving dots, one frame a second, in step with the working bot's face.
+/// The thinking orb, orbiting in the Dynamic Island: its faint orbit trails and its moving
+/// dots, one frame a second.
 struct WorkingOrb: View {
     let since: Date
     let color: Color

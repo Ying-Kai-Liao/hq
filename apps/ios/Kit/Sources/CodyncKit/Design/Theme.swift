@@ -49,32 +49,51 @@ public enum Palette {
     public static let removed = Color(light: 0xC93450, dark: 0xFF7A8E)
 }
 
+/// The 15 colour pairs a bot's body can wear (eyes.json `palette`, from branding). A pick is
+/// stored in `avatarColor` as `kith:<id>`; any other value, including the bare ids of the old
+/// palette (`blue`, `green`...), is the untouched original body.
 public enum AvatarPalette {
     public struct Swatch: Identifiable, Hashable, Sendable {
         public let id: String
         public let label: String
-        public let hex: UInt32
-        public var color: Color { Color(hex: hex) }
+        public let a: UInt32
+        public let b: UInt32
+        /// The value to store in `avatarColor`.
+        public var stored: String { "kith:" + id }
+        /// The deeper colour of the pair, for badges.
+        public var color: Color { Color(hex: a) }
     }
 
     public static let colors: [Swatch] = [
-        .init(id: "black", label: "Black", hex: 0x2B2B2B),
-        .init(id: "brown", label: "Brown", hex: 0x936439),
-        .init(id: "red", label: "Red", hex: 0xFF263C),
-        .init(id: "orange", label: "Orange", hex: 0xFF6700),
-        .init(id: "yellow", label: "Yellow", hex: 0xFF9800),
-        .init(id: "green", label: "Green", hex: 0x00C972),
-        .init(id: "cyan", label: "Cyan", hex: 0x00BCA6),
-        .init(id: "blue", label: "Blue", hex: 0x1084FE),
-        .init(id: "violet", label: "Violet", hex: 0x9159FE),
-        .init(id: "magenta", label: "Magenta", hex: 0xFF309B),
-        .init(id: "gray", label: "Gray", hex: 0x777777),
+        .init(id: "blue", label: "Blue", a: 0x6E8BFF, b: 0xC9D2FF),
+        .init(id: "sky", label: "Sky", a: 0x6E8BFF, b: 0xBFE3FF),
+        .init(id: "cyan", label: "Cyan", a: 0x5ED3F3, b: 0x8FB0FF),
+        .init(id: "teal", label: "Teal", a: 0x3FD0C0, b: 0xB8F2E4),
+        .init(id: "mint", label: "Mint", a: 0x3FD0C0, b: 0x7EE8C1),
+        .init(id: "green", label: "Green", a: 0x7BE29A, b: 0xC8F5D8),
+        .init(id: "sun", label: "Sun", a: 0xFFC56B, b: 0xFFE7A6),
+        .init(id: "apricot", label: "Apricot", a: 0xFFC56B, b: 0xFDCEC0),
+        .init(id: "peach", label: "Peach", a: 0xFFB59A, b: 0xFFB3C7),
+        .init(id: "coral", label: "Coral", a: 0xFF7E8E, b: 0xFFD1BF),
+        .init(id: "rose", label: "Rose", a: 0xFF5F7A, b: 0xFFC0C8),
+        .init(id: "pink", label: "Pink", a: 0xFF7EB0, b: 0xFFC9DC),
+        .init(id: "violet", label: "Violet", a: 0x8A5CFF, b: 0xD9C9FF),
+        .init(id: "orchid", label: "Orchid", a: 0xA67EFC, b: 0xF281F3),
+        .init(id: "dawn", label: "Dawn", a: 0x8FC7FC, b: 0xA67EFC),
     ]
 
-    public static let shapes = ["blob", "pebble", "squircle", "tablet", "wedge", "hex", "cloud", "teardrop"]
+    /// The palette id a stored `avatarColor` picks: only `kith:<id>` with a known id does; nil is the original body.
+    public static func pick(_ stored: String?) -> String? {
+        guard let stored, stored.hasPrefix("kith:") else { return nil }
+        let id = String(stored.dropFirst(5))
+        return colors.contains { $0.id == id } ? id : nil
+    }
 
+    /// A badge color (a computer's, a call's): the pair's deeper colour, with or without the
+    /// `kith:` prefix; the accent when it is neither. These are pastels, so never use one as text on white.
     public static func color(_ id: String) -> Color {
-        (colors.first { $0.id == id } ?? colors[7]).color
+        let bare = id.hasPrefix("kith:") ? String(id.dropFirst(5)) : id
+        return colors.first { $0.id == bare }?.color ?? Palette.accent
     }
 }
 

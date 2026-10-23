@@ -15,6 +15,14 @@ The host looks for `kith-tts` next to its own executable, then in the sibling ca
 (`../release`, `../debug`), then on `PATH`. A release tarball puts it in `bin/` beside `kith` (arm64 only). In a
 checkout: `cargo build --release -p kith-tts` next to `cargo build --release -p kith-serve`.
 
+Every install path puts it beside the host it installs:
+
+- `kith serve start` builds `kith-tts` (dev-app profile) with the host and copies it to `~/.kith/serve/bin/kith-tts`
+  by rename, like `kith-serve`; a packaged `kith` copies the `bin/kith-tts` from its tarball. A missing or failed
+  build doesn't stop the install: local voice reports unavailable.
+- The Mac app builds it in `tools/native-host.mjs` (arm64 only; an Intel build has none) and ships it in
+  `Resources/` next to `kith-serve`, which the app's service runs in place.
+
 ## Model files
 
 Downloaded on first use (or by `voiceLocalPrepare`) into `<KITH_SERVE_HOME or ~/.kith/serve>/models/phonon-31m-en/`,

@@ -38,7 +38,7 @@ struct WidgetGalleryView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 HStack(spacing: 14) {
-                    CharacterAvatar(shape: "hex", color: "gray", size: 42)
+                    CharacterAvatar(portrait: "crew-builder", size: 42)
                         .frame(width: 58, height: 58)
                         .background(Palette.bubbleUser, in: RoundedRectangle(cornerRadius: 16))
                     VStack(alignment: .leading, spacing: 4) {

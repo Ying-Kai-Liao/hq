@@ -58,7 +58,7 @@ const bridge: CodyncBridge = {
   speech: {
     available: ipcRenderer.sendSync('speech:available') as boolean,
     locales: () => ipcRenderer.sendSync('speech:locales') as string[],
-    start: (locale) => ipcRenderer.send('speech:start', locale),
+    start: (locale, options) => ipcRenderer.send('speech:start', locale, options),
     stop: () => ipcRenderer.send('speech:stop'),
     onEvent: (cb) => listen('speech:event', cb),
   },

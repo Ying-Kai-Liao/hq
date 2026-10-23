@@ -16,6 +16,7 @@ import { MarkdownText } from './Markdown'
 import { PermissionCard } from './PermissionCard'
 import { ConnectionRequestCard } from '../marketplace/ConnectionRequestCard'
 import { HandoffNotice } from './HandoffNotice'
+import { AnsweredBy } from './AnsweredBy'
 
 export function reactionPick(store: BotStore, entry: Entry): ReactionPick {
   return { emoji: QUICK_REACTIONS, chosen: entry.data.reactions ?? [], toggle: (e) => store.react(entry, e) }
@@ -47,6 +48,7 @@ export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrac
           {chat && isGroup(chat) && groupStart ? <AuthorLabel botId={entry.data.author} /> : null}
           <AgentBubble entry={entry} openTrace={openTrace} reply={reply} />
           <VStack gap={4} className={chat && isGroup(chat) ? 'chat-row-indent' : undefined}>
+            <AnsweredBy answeredBy={entry.data.answeredBy} />
             <ReactionsRow entry={entry} />
             {chip}
           </VStack>

@@ -14,6 +14,7 @@ import { UpdateButton, useUpdates } from '../UpdateButton'
 import { ComputersView } from './ComputersView'
 import { LinkChatRow } from './LinkChatRow'
 import { errorText, isMac, thisMac } from './parts'
+import { BackupChains } from './BackupChain'
 import { UsageLimits } from './UsageLimits'
 import { VoiceChatSettingsView } from './VoiceChatSettingsView'
 import { ComputerAccessView } from '../computer-access/ComputerAccessView'
@@ -96,6 +97,7 @@ function PageContent({ page }: { page: SettingsPage }) {
       return (
         <CardForm>
           <UsageLimitsList />
+          <BackupChains />
         </CardForm>
       )
     case 'updates':

@@ -296,6 +296,10 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
         "memory" | "saveMemory" | "pinMemory" | "archiveMemory" | "forgetMemory" | "clearMemory" | "undoDream"
         | "answerMemory" | "undoMemory" | "memoryFile" | "saveMemoryFile" | "deleteMemoryFile"
         | "restoreMemoryFile" => crate::chat::memory::call(hub, method, &b).await?,
+        m if crate::chat::memory::HQ_METHODS.contains(&m) => {
+            let (hub, method, b) = (hub.clone(), m.to_owned(), b.clone());
+            tokio::task::spawn_blocking(move || crate::chat::memory::hq_call(&hub, &method, &b)).await??
+        }
         "editHandoff" | "keepConversation" => crate::chat::handoff::call(hub, method, &b)?,
         "react" => {
             let e = hub.react(str_arg(&b, "entryId")?, str_arg(&b, "emoji")?)?;

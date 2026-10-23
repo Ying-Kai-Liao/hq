@@ -229,6 +229,8 @@ export interface EntryData {
   runId?: string
   text?: string
   final?: boolean
+  /** agent: the backup chain entry that answered (`codex`, `claude:work`); null or absent when the agent's own account did. */
+  answeredBy?: string | null
   /** user: queued | sent | cancelled | failed · tool: pending | in_progress | completed | failed · permission: pending | answered | cancelled | expired */
   status?: string
   clientNonce?: string

@@ -44,6 +44,8 @@
   background: color-mix(in srgb, var(--text) 11%, transparent);
 }
 .place-chip-row {
+  max-width: 100%;
+  min-width: 0;
   display: flex;
   justify-content: center;
   pointer-events: auto;
