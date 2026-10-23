@@ -6,9 +6,19 @@
   kith-memory ls --agent NAME --json                         {dir, files: [{path, bytes, modified}]} for programs
   kith-memory search <words> --agent NAME --json [-n N]      {hits: [{path, line, snippet}]}, path relative to memory/
 
+  kith-memory check <file> [--file F]       run the write checks on text from stdin (or F) meant for a memory file; exit 1 and the reason when refused
+  kith-memory log <file> [--json] [-n N]    every version of a memory file: number, when, who (agent, dream, kai, unknown), why
+  kith-memory diff <file> [V1 [V2]] [--json]   what changed between two versions (default: the last change)
+  kith-memory undo <file> [VERSION]         put the file back to a version (default: before the last change); the undo is a version too
+  kith-memory forget <text>                 keep a fact out of memory for good: no agent or dream writes it again
+
 Searches the markdown in the state folder: an agent's memory/ (MEMORY.md, topic files, projects/, sessions/) and its
 learned skills, plus what all agents share: user.md and projects/ (project maps, decisions). Inside a kith run
 ($KITH_AGENT set) the default is that agent and the shared files; from your terminal it is every agent. --agent picks one, --all every one.
+
+Writes to a memory file by an agent are checked (hidden characters, links that carry a prompt, planted instructions,
+passwords and keys, facts the user told Kith to forget) and every change is kept as a version in <state>/memory.db, made
+by the host's `kith memory` (kith-mem). The files are the truth: deleting memory.db loses history only.
 
 The files stay the only copy: each search indexes them afresh in memory (SQLite FTS5, ranked by bm25), so nothing
 goes stale and there is no index to commit. Passages are a heading or paragraph each. Words are ANDed; "a phrase"
@@ -24,8 +34,11 @@ from pathlib import Path
 
 KITH = Path(__file__).resolve().parent.parent
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
-from kith_paths import paths  # noqa: E402  the one place that knows where kith's folders are
+from kith_paths import paths, kith_bin  # noqa: E402  the one place that knows where kith's folders are
 STATE = paths()['KITH_STATE']
+
+
+HOST_VERBS = ('check', 'log', 'diff', 'undo', 'forget')
 
 
 def lives():
@@ -140,6 +153,11 @@ def main(argv):
     if not argv or argv[0] in ('-h', '--help'):
         print(__doc__.strip()); return
     cmd, rest = argv[0], argv[1:]
+    if cmd in HOST_VERBS:   # the checks and the history live in the kith program (kith-mem), which gets the same folders
+        binary = kith_bin()
+        if not binary:
+            sys.exit('kith-memory: %s needs the kith program, and this Mac has none (kith serve start builds it)' % cmd)
+        os.execv(binary, [binary, 'memory', cmd, *rest, '--state', str(STATE), '--agents', str(paths()['KITH_AGENTS'])])
     scope, limit, words, as_json = os.environ.get('KITH_AGENT') or None, 10, [], False
     own = scope
     i = 0

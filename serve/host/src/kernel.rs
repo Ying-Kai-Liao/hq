@@ -22,6 +22,9 @@ pub const KERNEL_ENV: &str = "KITH_KERNEL";
 const KERNEL_SERVE_VERBS: &[&str] = &["start", "stop", "restart", "status", "relay", "help", "-h", "--help"];
 /// Host subcommands that the host starts itself with its own binary (MCP servers, npm installs, Claude's
 /// statusLine): never the kernel's, whatever the binary is called.
+/// `kith memory <verb>` that the host answers (checks and history over the memory files); `ls` and `search` stay with
+/// the kernel's kith-memory, which hands these here.
+const MEMORY_VERBS: &[&str] = &["check", "log", "diff", "undo", "forget", "hook"];
 const HOST_INTERNAL: &[&str] = &["mcp", "npm", "node", "statusline", "compat"];
 
 #[derive(Debug, PartialEq, Eq)]
@@ -59,6 +62,9 @@ pub fn route(args: &[OsString]) -> Route {
             Some(v) if v.starts_with('-') => Route::Host(host_args(&rest[..1], &rest[1..])),
             Some(_) => Route::Host(host_args(&[], &rest[1..])),
         },
+        Some("memory") if rest.get(1).and_then(|a| a.to_str()).is_some_and(|v| MEMORY_VERBS.contains(&v)) => {
+            Route::Host(host_args(&[], rest))
+        }
         Some(s) if HOST_INTERNAL.contains(&s) => Route::Host(host_args(&[], rest)),
         _ => kernel(rest),
     }
@@ -222,6 +228,8 @@ mod tests {
             Route::Host(v(&["kith serve", "statusline", "--", "x"]))
         );
         assert_eq!(route(&v(&["hq", "ls"])), Route::Kernel(v(&["ls"])));
+        assert_eq!(route(&v(&["kith", "memory", "search", "x"])), Route::Kernel(v(&["memory", "search", "x"])));
+        assert_eq!(route(&v(&["kith", "memory", "log", "f"])), Route::Host(v(&["kith serve", "memory", "log", "f"])));
     }
 
     #[test]
