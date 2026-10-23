@@ -34,7 +34,10 @@ impl Kernel {
         let claude = fake.join("claude");
         std::fs::write(&claude, "#!/bin/sh\n[ \"$1\" = --version ] && echo \"2.1.309 (Claude Code)\"\n[ \"$1 $2\" = \"plugin list\" ] && echo \"[]\"\nexit 0\n").unwrap();
         std::fs::set_permissions(&claude, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-        let path = std::env::join_paths(std::iter::once(fake).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()))).unwrap();
+        let path = std::env::join_paths(
+            std::iter::once(fake).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())),
+        )
+        .unwrap();
         *TEST_ENV.lock().unwrap() = vec![
             ("PATH", PathBuf::from(path)),
             ("KITH_AUTH", dir.join("auth.json")),
