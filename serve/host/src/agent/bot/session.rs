@@ -434,7 +434,7 @@ impl Actor {
         self.set_session(slot.as_deref(), None);
         self.handoff = None;
         self.thread_intro = None;
-        if self.is_main() && !self.is_hq() {
+        if self.is_main() {
             let _ = self.dreamer.send(memory::DreamEvent::Flush);
         }
         if had_session {

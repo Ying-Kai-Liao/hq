@@ -10,6 +10,8 @@ mod file_api;
 mod file_notices;
 mod file_tools;
 pub mod files;
+mod hq_api;
+mod hq_dream;
 mod import;
 mod notices;
 mod tools;
@@ -17,6 +19,7 @@ mod tools;
 pub use api::call;
 pub use dates::ymd;
 pub use dream::{DreamEvent, spawn_dreamer};
+pub use hq_api::{METHODS as HQ_METHODS, call as hq_call};
 pub use import::import_old_memory;
 pub use tools::{INSTRUCTIONS, call as tool_call, tools};
 

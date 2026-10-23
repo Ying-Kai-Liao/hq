@@ -53,6 +53,11 @@ elif args[:2] == ["memory", "search"]:
     n = int(args[args.index("-n") + 1])
     hit = {"path": "notes.md", "line": 1, "agent": args[args.index("--agent") + 1], "snippet": f"{args[2]} agent={args[args.index('--agent') + 1]}"}
     print(json.dumps({"hits": ([hit] * 3)[:n]}))
+elif args == ["cost", "record"]:
+    # A dream's cost row: the JSON on stdin and who it is for.
+    with open(os.path.join(home, "cost.jsonl"), "a", encoding="utf-8") as cost:
+        cost.write(json.dumps({"row": json.load(sys.stdin), "agent": os.environ.get("KITH_AGENT"),
+                               "via": os.environ.get("KITH_VIA")}) + "\n")
 elif args == ["house", "--backups-json"]:
     # `chain.json` is the chain after the agent's own login; without one the agent has no backups.
     path = os.path.join(home, "chain.json")

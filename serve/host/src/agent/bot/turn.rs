@@ -364,10 +364,7 @@ impl Actor {
         {
             tracing::warn!(bot = %self.cfg.id, error = format!("{error:#}"), "couldn't record the profile update");
         }
-        // An hq agent keeps its own memory: Kith's keeper never reads its chat.
-        if let (Some(user), Some(agent), "end_turn", false) =
-            (self.turn_text.take(), &final_text, stop_reason.as_str(), self.is_hq())
-        {
+        if let (Some(user), Some(agent), "end_turn") = (self.turn_text.take(), &final_text, stop_reason.as_str()) {
             let turn = crate::chat::naming::Turn { user, agent: agent.clone() };
             let _ = self.dreamer.send(memory::DreamEvent::Turn(turn));
         }
