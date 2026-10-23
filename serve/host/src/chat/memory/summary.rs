@@ -325,6 +325,9 @@ async fn write_now(
     match hub.store.with_db(|c| rules::put(c, &summary)) {
         Ok(()) => {
             tracing::info!(bot, thread = key, reason = reason.as_str(), "thread summarised");
+            if let Some(root) = thread {
+                show_on_row(hub, root, &summary);
+            }
             Ok(Wrote::Yes)
         }
         Err(Refused::Check(refusal)) => {
@@ -334,6 +337,20 @@ async fn write_now(
         Err(Refused::Forgotten) => Ok(Wrote::Nothing),
         Err(Refused::Sqlite(e)) => Err(anyhow!(e)),
     }
+}
+
+/// Puts the summary on the thread's row (`data.thread.summary`), so the apps get it with the root entry in the one
+/// batch that already carries the list. `summaryAudience` says who may see it: `api::roles` drops both from what an
+/// invited person gets when it isn't theirs.
+fn show_on_row(hub: &Arc<Hub>, root: &str, s: &Summary) {
+    let Some(mut entry) = hub.store.entry(root) else { return };
+    set_row_summary(&mut entry.data, s);
+    hub.set_entry(root, &entry.data);
+}
+
+pub fn set_row_summary(data: &mut serde_json::Value, s: &Summary) {
+    data["thread"]["summary"] = serde_json::json!({"text": s.text, "writtenAt": s.written_at});
+    data["thread"]["summaryAudience"] = s.audience.clone().into();
 }
 
 #[cfg(test)]

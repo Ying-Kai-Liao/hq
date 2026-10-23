@@ -47,6 +47,8 @@ pub const MEMBER_METHODS: &[&str] = &[
     "revokeBot",
     "myBots",
     "setBotLimits",
+    // A `kith://thread/<id>#entry=<seq>` link: the thread when it is theirs, else a stable `not_shared`.
+    "resolveCitation",
 ];
 
 /// The whole of what a bot guest can call (docs/kith-bot-guests.md 5.7), deny by default like [`MEMBER_METHODS`].
@@ -190,7 +192,7 @@ pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: 
     match method {
         // Checked by their own handlers, or about no chat at all.
         "hello" | "projects" | "linkCode" | "startChat" | "createBotInvite" | "revokeBotInvite" | "revokeBot"
-        | "myBots" | "setBotLimits" => {}
+        | "myBots" | "setBotLimits" | "resolveCitation" => {}
         // A card or message names its chat only through the entry.
         "respondPermission" | "react" | "editHandoff" | "keepConversation" => {
             let id = b["entryId"].as_str().unwrap_or_default();
@@ -263,6 +265,11 @@ pub fn shape(hub: &Hub, person: &str, method: &str, mut v: Value) -> Value {
             if let Some(o) = v.as_object_mut() {
                 o.remove("folder");
             }
+            if let Some(list) = v["entries"].as_array_mut() {
+                for e in list {
+                    hide_foreign_summary(person, e);
+                }
+            }
         }
         "kithInfo" => {
             let info = if v["info"].is_object() {
@@ -276,6 +283,22 @@ pub fn shape(hub: &Hub, person: &str, method: &str, mut v: Value) -> Value {
         _ => {}
     }
     v
+}
+
+/// Whether the thread summary of `audience` may be seen by `person` (None: the owner, who sees all). Group rooms and
+/// terminal threads are the owner's until members of a room can be resolved.
+pub fn may_see_summary(person: Option<&str>, audience: &str) -> bool {
+    person.is_none_or(|p| audience == "shared" || audience.strip_prefix("person:") == Some(p))
+}
+
+/// Drops the thread summary from the row of entry `e` (an entry as JSON) unless `person` may see it; the audience
+/// itself is never sent to an invited person.
+fn hide_foreign_summary(person: &str, e: &mut Value) {
+    let Some(thread) = e["data"]["thread"].as_object_mut() else { return };
+    let audience = thread.remove("summaryAudience");
+    if !audience.as_ref().and_then(Value::as_str).is_some_and(|a| may_see_summary(Some(person), a)) {
+        thread.remove("summary");
+    }
 }
 
 /// Whose chat a bot is: `Some(None)` is the owner's, `None` an unknown bot.
@@ -314,7 +337,11 @@ pub fn event_for(store: &Store, who: Option<&str>, v: Value) -> Option<Value> {
             if !granted {
                 return None;
             }
-            Some(shape_bot(v))
+            let mut v = shape_bot(v);
+            if kind == "entry" {
+                hide_foreign_summary(me, &mut v["entry"]);
+            }
+            Some(v)
         }
         // A prompt of a bot guest of theirs, which they answer when they are a member of its agent.
         (Some(me), Some(Some(_))) if kind == "entry" && v["entry"]["kind"] == "permission" => {

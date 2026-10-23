@@ -119,6 +119,10 @@ pub struct BotConfig {
     /// it got it sends `null` where there is no switch.
     #[serde(default, deserialize_with = "null_as_false")]
     pub harness_memory: bool,
+    /// The thread rows in this bot's room show the thread's summary instead of its first message (the starting point
+    /// may just be a "hi"). Off unless the owner turns it on; the apps read the summary from the row (`data.thread`).
+    #[serde(default, deserialize_with = "null_as_false")]
+    pub row_shows_summary: bool,
     /// Created without a name: the host names it from its first conversations (see `naming`)
     /// until the user renames it.
     #[serde(default)]
