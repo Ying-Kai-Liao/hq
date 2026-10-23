@@ -117,7 +117,8 @@ mod tests {
             (TaskState::after_turn(false, true, "error"), "failed"),
             (TaskState::after_turn(false, false, "end_turn"), "done"),
         ] {
-            let root = hub.add_entry(&Lane::main("b"), EntryKind::User, 1, &json!({"text": "go", "task": true})).unwrap();
+            let root =
+                hub.add_entry(&Lane::main("b"), EntryKind::User, 1, &json!({"text": "go", "task": true})).unwrap();
             let lane = Lane::in_thread("b", &root.id);
             hub.set_task_status(&lane, TaskState::Working);
             assert_eq!(status(&root.id), "working");
