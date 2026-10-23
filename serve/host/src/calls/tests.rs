@@ -194,33 +194,84 @@ async fn a_call_reaches_only_the_person_whose_chat_it_is() {
     assert!(rpc(&r, &owner, "callPerson", json!({"agent": "house", "reason": "x"})).await.is_err());
 }
 
+fn env_of(env: &[(String, String)]) -> (String, String) {
+    let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone()).unwrap_or_default();
+    (get("KITH_CALL_CHAT"), get("KITH_CALL_KEY"))
+}
+
+async fn cli(r: &Rig, env: &[(String, String)], reason: &str) -> Value {
+    let (chat, key) = env_of(env);
+    rpc(r, &Caller::Local, "callPerson", json!({"chat": chat, "key": key, "reason": reason})).await.unwrap()
+}
+
 #[tokio::test]
-async fn the_cli_rings_only_the_chat_its_key_names() {
+async fn every_kind_of_run_rings_only_the_person_it_serves() {
+    let r = Rig::new().await;
+    let mine = r.owner_bot("house");
+    let (phone, theirs) = sam(&r).await;
+    let owner_phone = r.device("owner-phone", None);
+
+    // An app chat's run (a routine runs on its chat's actor, so it gets the same): the owner's chat rings the owner.
+    let app = env_for(&r.hub, &mine);
+    assert_eq!(cli(&r, &app, "from the app").await["status"], "ringing");
+    assert_eq!(calls_seen(&r, &owner_phone).await.len(), 1);
+    assert_eq!(calls_seen(&r, &phone).await, Vec::<Value>::new());
+    r.hub.calls.inner.locked().calls.clear();
+    r.hub.calls.inner.locked().rung.clear();
+
+    // A channel run for the owner gets the owner's chat; for an invitee, that invitee's.
+    let owner_channel = run_env(&r.hub, "house", None);
+    assert_eq!(env_of(&owner_channel).0, mine);
+    assert_eq!(cli(&r, &owner_channel, "owner channel").await["status"], "ringing");
+    assert_eq!(calls_seen(&r, &Caller::Local).await.len(), 1);
+    r.hub.calls.inner.locked().calls.clear();
+    r.hub.calls.inner.locked().rung.clear();
+
+    let sam_channel = run_env(&r.hub, "house", Some("sam"));
+    assert_eq!(env_of(&sam_channel).0, theirs);
+    assert_eq!(cli(&r, &sam_channel, "sam channel").await["status"], "ringing");
+    assert_eq!(calls_seen(&r, &phone).await.len(), 1);
+    assert_eq!(
+        calls_seen(&r, &Caller::Local).await,
+        Vec::<Value>::new(),
+        "an invitee's channel run never reaches the owner"
+    );
+    r.hub.calls.inner.locked().calls.clear();
+    r.hub.calls.inner.locked().rung.clear();
+
+    // A person with no app chat with the agent, or an agent they don't have: no key at all.
+    assert_eq!(run_env(&r.hub, "house", Some("kim")), Vec::<(String, String)>::new());
+    assert_eq!(run_env(&r.hub, "money", None), Vec::<(String, String)>::new());
+}
+
+#[tokio::test]
+async fn a_forged_or_mismatched_key_rings_nobody() {
     let r = Rig::new().await;
     let mine = r.owner_bot("house");
     let (_, theirs) = sam(&r).await;
-    let key = |chat: &str| key(&r.hub.token, chat);
-
-    let out = rpc(&r, &Caller::Local, "callPerson", json!({"chat": theirs, "key": key(&theirs), "reason": "hi"}))
-        .await
-        .unwrap();
-    assert_eq!(out["status"], "ringing");
-    // Another chat's key, or none: nothing rings, and the owner is never reached by an invitee's run.
-    for body in
-        [json!({"chat": mine, "key": key(&theirs), "reason": "hi"}), json!({"chat": mine, "key": "", "reason": "hi"})]
-    {
-        let out = rpc(&r, &Caller::Local, "callPerson", body).await.unwrap();
-        assert_eq!(out["status"], "not-allowed");
+    let (_, sam_key) = env_of(&env_for(&r.hub, &theirs));
+    let (_, owner_key) = env_of(&env_for(&r.hub, &mine));
+    let body = |chat: &str, key: Option<&str>| match key {
+        Some(k) => json!({"chat": chat, "key": k, "reason": "hi"}),
+        None => json!({"chat": chat, "reason": "hi"}),
+    };
+    // Sam's key on the owner's chat (the forged `KITH_PERSON=` case), the owner's on Sam's, a made-up one, a key
+    // for the right chat but another person, none at all, an unknown chat.
+    let forged = key(&r.hub.token, &mine, Some("sam"));
+    for (chat, k) in [
+        (&mine, Some(sam_key.as_str())),
+        (&theirs, Some(owner_key.as_str())),
+        (&mine, Some("deadbeef")),
+        (&mine, Some(forged.as_str())),
+        (&mine, None),
+        (&"nope".to_owned(), Some(owner_key.as_str())),
+    ] {
+        let out = rpc(&r, &Caller::Local, "callPerson", body(chat, k)).await.unwrap();
+        assert_eq!(out["status"], "not-allowed", "{chat} {k:?}");
     }
-    let keyless = rpc(&r, &Caller::Local, "callPerson", json!({"chat": mine, "reason": "hi"})).await.unwrap();
-    assert_eq!(keyless["status"], "not-allowed", "no key, no ring");
-    assert!(
-        rpc(&r, &Caller::Local, "callPerson", json!({"chat": mine, "key": key(&mine), "reason": "  "})).await.is_err()
-    );
-    r.hub.calls.inner.locked().calls.clear();
-    let out =
-        rpc(&r, &Caller::Local, "callPerson", json!({"chat": mine, "key": key(&mine), "reason": "hi"})).await.unwrap();
-    assert_eq!(out["status"], "ringing");
+    assert_eq!(r.hub.calls.ringing(&r.hub), Vec::<Value>::new());
+    let empty = rpc(&r, &Caller::Local, "callPerson", json!({"chat": mine, "key": owner_key, "reason": "  "})).await;
+    assert!(empty.is_err());
 }
 
 #[tokio::test]

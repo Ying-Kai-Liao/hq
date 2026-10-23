@@ -96,6 +96,9 @@ async fn run(hub: Arc<Hub>) {
     };
     let judge = judge::Judge::from_hub(hub.clone(), paths.clone());
     let core = Core::new(core::Deps { paths, settings, gate: hub.gate.clone(), judge, backups: hub.backups.clone() });
+    // A channel run can ring the person it serves (see `calls::run_env`).
+    let calls_hub = hub.clone();
+    let _ = core.call_env.set(Box::new(move |agent, person| crate::calls::run_env(&calls_hub, agent, person)));
     manager::Manager::new(core, Registry::builtin(), manager::Backoff::default()).run().await;
 }
 

@@ -15,7 +15,7 @@ pub(super) async fn call(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value
         // person that chat belongs to (an invitee's run never reaches the owner, whatever it unsets).
         "callPerson" => {
             let (chat, reason) = (str_arg(&b, "chat")?, str_arg(&b, "reason")?);
-            if b["key"].as_str() != Some(&crate::calls::key(&hub.token, chat)) {
+            if !crate::calls::key_ok(hub, chat, b["key"].as_str()) {
                 return Ok(ControlFlow::Break(json!({"status": "not-allowed"})));
             }
             crate::calls::ring_and_wait(hub, chat, reason, b["wait"] == true).await?

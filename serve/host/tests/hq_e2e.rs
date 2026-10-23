@@ -646,7 +646,11 @@ async fn an_hq_agent_shares_an_image_with_the_tool_it_is_given() {
 
     let results: Value =
         serde_json::from_str(&std::fs::read_to_string(s.home.join("file-results.json")).unwrap()).unwrap();
-    assert_eq!(results["tools"], json!(["send_file"]), "only file sharing: its words already are its reply");
+    assert_eq!(
+        results["tools"],
+        json!(["send_file", "call_person"]),
+        "only file sharing and ringing the person: its words already are its reply"
+    );
     assert!(results["sent"]["isError"].is_null(), "{results}");
     let history = s.host.call("history", json!({"botId": id})).await;
     let shared =

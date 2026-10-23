@@ -9,16 +9,17 @@
 #   not-allowed 7 (this agent has no Kith chat with the person it runs for)   host unreachable 1   usage 2
 # One call per agent per 10 minutes and 6 a day. There is no push: an app that isn't open misses the call, and a
 # declined or missed call leaves "<agent> tried to call: <reason>" in the chat. The host puts KITH_CALL_CHAT and
-# KITH_CALL_KEY in the environment of an app-chat run; the key proves which chat it is, so a call reaches only the
-# person that chat belongs to. Runs without them (channels, schedules, terminals) get not-allowed. In a Kith app chat
-# the same thing is the `call_person` tool of the kith-files server.
+# KITH_CALL_KEY in the environment of runs it starts (app chats, its routines, Telegram/Discord/Slack): the key proves
+# which person the run serves, so a call reaches only them, in the agent's main app chat with that person. Runs
+# without them (a terminal, a launchd schedule outside the host) get not-allowed. In a Kith app chat the same thing is
+# the `call_person` tool of the kith-files server.
 set -euo pipefail
 . "$(dirname "$0")/../lib/kith-env.sh"   # old HQ_X callers and secrets/env: KITH_X and HQ_X agree
 
 wait=false
 [[ ${1:-} == --wait ]] && { wait=true; shift; }
 [[ $# -gt 0 && -n "$*" ]] || { echo 'usage: kith-call [--wait] "short reason"' >&2; exit 2; }
-[[ -n ${KITH_CALL_CHAT:-} && -n ${KITH_CALL_KEY:-} ]] || { echo "not-allowed"; echo "kith-call: only an agent's Kith app chat can call (no KITH_CALL_KEY here)" >&2; exit 7; }
+[[ -n ${KITH_CALL_CHAT:-} && -n ${KITH_CALL_KEY:-} ]] || { echo "not-allowed"; echo "kith-call: only runs the Kith host started can call (no KITH_CALL_KEY here)" >&2; exit 7; }
 
 exec python3 - "$(dirname "$0")" "$wait" "$*" <<'PY'
 import json, os, subprocess, sys, urllib.error, urllib.request

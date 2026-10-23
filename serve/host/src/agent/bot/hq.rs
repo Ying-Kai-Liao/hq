@@ -263,8 +263,7 @@ impl Actor {
             {
                 Ok(mut launch) => {
                     // What lets `kith-call` ring this chat's person, and nobody else (see `calls::key`).
-                    launch.env.insert("KITH_CALL_CHAT".into(), self.cfg.id.clone());
-                    launch.env.insert("KITH_CALL_KEY".into(), crate::calls::key(&self.hub.token, &self.cfg.id));
+                    launch.env.extend(crate::calls::env_for(&self.hub, &self.cfg.id));
                     if target.explicit {
                         launch.cwd.clone_from(&target.cwd);
                     }

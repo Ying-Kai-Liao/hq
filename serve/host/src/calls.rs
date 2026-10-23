@@ -173,12 +173,41 @@ fn rate_key(agent: &str, person: Option<&str>) -> String {
     format!("{agent}\u{1f}{}", person.unwrap_or_default())
 }
 
-/// The proof a run has of being in chat `bot`: the host puts it in that run's environment (`KITH_CALL_KEY`), and
-/// `kith-call` presents it. A run can't ring any other chat, whatever else its environment says.
-pub fn key(host_token: &str, bot: &str) -> String {
+/// The proof a run has of serving `person` (`None` is the owner) in chat `bot`: the host puts it in that run's
+/// environment (`KITH_CALL_KEY`), and `kith-call` presents it. It covers both, so a run can ring no other chat and
+/// no other person, whatever else its environment says.
+pub fn key(host_token: &str, bot: &str, person: Option<&str>) -> String {
     use sha2::{Digest, Sha256};
-    let digest = Sha256::digest(format!("kith-call:{host_token}:{bot}"));
+    let digest = Sha256::digest(format!("kith-call:{host_token}:{bot}:{}", person.unwrap_or_default()));
     digest.iter().fold(String::new(), |s, b| s + &format!("{b:02x}"))
+}
+
+/// Whether `given` is the key issued for chat `bot` and the person it belongs to.
+pub fn key_ok(hub: &Hub, bot: &str, given: Option<&str>) -> bool {
+    let Some(row) = hub.store.bot(bot).ok().flatten().filter(|r| !r.deleted) else { return false };
+    given == Some(key(&hub.token, bot, row.config.person.as_deref()).as_str())
+}
+
+/// What a run serving chat `bot` gets to ring with: `KITH_CALL_CHAT` and `KITH_CALL_KEY`.
+pub fn env_for(hub: &Hub, bot: &str) -> Vec<(String, String)> {
+    let person = hub.store.bot(bot).ok().flatten().and_then(|r| r.config.person);
+    vec![("KITH_CALL_CHAT".into(), bot.to_owned()), ("KITH_CALL_KEY".into(), key(&hub.token, bot, person.as_deref()))]
+}
+
+/// The same for a run that doesn't come from an app chat (a channel's): the agent's main chat with the person it
+/// serves (`None` is the owner). Nothing when that person has no app chat with the agent, so it can't ring.
+pub fn run_env(hub: &Hub, agent: &str, person: Option<&str>) -> Vec<(String, String)> {
+    let chat = hub.store.bots().ok().and_then(|rows| {
+        rows.into_iter()
+            .find(|r| {
+                !r.deleted
+                    && !r.config.is_group()
+                    && r.config.hq_agent.as_deref() == Some(agent)
+                    && r.config.person.as_deref() == person
+            })
+            .map(|r| r.config.id)
+    });
+    chat.map(|c| env_for(hub, &c)).unwrap_or_default()
 }
 
 /// An agent rings its person. `bot_id` is the chat the agent works in, which also says who is called. The answer's
