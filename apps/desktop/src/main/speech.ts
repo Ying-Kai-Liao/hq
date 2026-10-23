@@ -25,12 +25,12 @@ function emit(event: SpeechEvent) {
   if (listener && !listener.isDestroyed()) listener.send('speech:event', event)
 }
 
-function start(sender: WebContents, locale: string | null) {
+function start(sender: WebContents, locale: string | null, options?: { echoCancel?: boolean }) {
   stop()
   listener = sender
   const path = helperPath()
   if (!path) return emit({ type: 'error', message: "On-device speech isn't available in this build." })
-  const proc = spawn(path, locale ? ['--locale', locale] : [], { stdio: 'pipe' })
+  const proc = spawn(path, [...(locale ? ['--locale', locale] : []), ...(options?.echoCancel ? ['--echo-cancel'] : [])], { stdio: 'pipe' })
   const mine = ++generation
   child = proc
   let buffer = ''
@@ -75,7 +75,7 @@ function locales() {
 export function registerSpeech() {
   ipcMain.on('speech:available', (e) => (e.returnValue = process.platform === 'darwin' && helperPath() !== null))
   ipcMain.on('speech:locales', (e) => (e.returnValue = locales()))
-  ipcMain.on('speech:start', (e, locale: string | null) => start(e.sender, locale))
+  ipcMain.on('speech:start', (e, locale: string | null, options?: { echoCancel?: boolean }) => start(e.sender, locale, options))
   ipcMain.on('speech:stop', () => stop())
   app.on('before-quit', stop)
 }

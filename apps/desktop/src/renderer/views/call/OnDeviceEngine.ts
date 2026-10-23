@@ -48,6 +48,8 @@ export class OnDeviceEngine extends VoiceEngine {
   private silence: ReturnType<typeof setTimeout> | null = null
   private offEvents: (() => void) | null = null
   protected speakGeneration = 0
+  /** The microphone stays on while the voice speaks, so the user can talk over it (needs echo cancellation). */
+  protected talkOverEnabled = false
 
   constructor(private send: (text: string) => void) {
     super()
@@ -73,9 +75,9 @@ export class OnDeviceEngine extends VoiceEngine {
   }
 
   protected mutedChanged(on: boolean) {
-    if (this.phase !== 'listening') return
+    if (this.phase !== 'listening' && !(this.phase === 'speaking' && this.talkOverEnabled)) return
     if (on) this.stopListening()
-    else this.listen()
+    else this.restartListening()
   }
 
   /** Reads a reply aloud (the bot's final message), pausing the microphone meanwhile. */
@@ -115,12 +117,32 @@ export class OnDeviceEngine extends VoiceEngine {
   // MARK: listening
 
   protected listen() {
-    this.heard = ''
     if (this.phase !== 'listening' && this.everStarted) this.setPhase('listening')
+    this.restartListening()
+  }
+
+  /** A fresh recognition without changing the phase (a new utterance, or the mic kept on while speaking). */
+  protected restartListening() {
+    this.heard = ''
     if (this.muted || this.ended) return
     this.recognizing = true
     this.started = false
-    window.codync.speech.start(VoiceSettings.language() || null)
+    window.codync.speech.start(VoiceSettings.language() || null, this.talkOverEnabled ? { echoCancel: true } : undefined)
+  }
+
+  /** The microphone is listening (a recognition is running). */
+  protected get micOn() {
+    return this.recognizing
+  }
+
+  /** The transcript as the user's words (a subclass drops the bot's own voice from it). */
+  protected heardText(text: string) {
+    return text
+  }
+
+  /** Words heard while the voice speaks: true if the user is talking over it (the subclass has then cut the voice). */
+  protected talkOver(_text: string) {
+    return false
   }
 
   protected stopListening() {
@@ -143,7 +165,7 @@ export class OnDeviceEngine extends VoiceEngine {
         }
         break
       case 'level':
-        if (this.phase === 'listening') this.level = e.value
+        if (this.phase === 'listening' || this.phase === 'speaking') this.level = e.value
         break
       case 'partial':
       case 'final':
@@ -169,8 +191,21 @@ export class OnDeviceEngine extends VoiceEngine {
   }
 
   private recognized(text: string, final: boolean) {
+    const words = this.heardText(text)
+    if (this.phase === 'speaking') {
+      if (!this.talkOver(words)) {
+        // The recognizer ended on the bot's own voice: start another.
+        if (final) this.restartListening()
+        return
+      }
+    }
     if (this.phase !== 'listening') return
-    this.heard = text
+    if (!words.trim()) {
+      // Only the bot's tail coming back.
+      if (final) this.submit()
+      return
+    }
+    this.heard = words
     if (this.silence) clearTimeout(this.silence)
     if (final) return this.submit()
     this.silence = setTimeout(() => this.submit(), VoiceSettings.pause() * 1000)
@@ -181,7 +216,8 @@ export class OnDeviceEngine extends VoiceEngine {
     this.stopListening()
     if (text) this.send(text)
     // Keep listening while the bot works: more messages fold into its next turn.
-    this.listen()
+    if (this.phase === 'speaking') this.restartListening()
+    else this.listen()
   }
 
   protected finishedSpeaking() {
