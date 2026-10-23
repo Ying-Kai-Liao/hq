@@ -407,7 +407,7 @@ async fn main() -> Result<()> {
                 });
                 match service::ensure_statusline(&home.join(".claude/settings.json"), host.as_deref()) {
                     Ok(true) => {
-                        println!("Claude Code's status line settings updated (your own status line still shows).")
+                        println!("Claude Code's status line settings updated (your own status line still shows).");
                     }
                     Ok(false) => {}
                     Err(e) => eprintln!("Couldn't set Claude Code's status line: {e}"),
