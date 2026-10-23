@@ -513,3 +513,50 @@ fn p6_malformed_lines_are_denied() {
 fn p7_pid_reuse_and_sibling_runs() {
     assert_eq!(prop_pid_reuse_and_sibling_runs(), Ok(()));
 }
+
+// ---- TEMPORARY: break meta-test (reverted after CI reports it)
+
+#[test]
+fn breaks_are_caught() {
+    type P = (&'static str, fn() -> Result<(), String>);
+    let props: &[P] = &[
+        ("P1", prop_identity_is_the_tokens),
+        ("P2", prop_foreign_peer_is_denied),
+        ("P3", prop_revoked_and_unknown_are_denied),
+        ("P4", prop_recall_args_allow_list),
+        ("P4b", prop_recall_args_caps_and_types),
+        ("P5", prop_only_recall_is_authorized),
+        ("P6", prop_malformed_lines_are_denied),
+        ("P7", prop_pid_reuse_and_sibling_runs),
+    ];
+    let names = [
+        (0u8, "clean"),
+        (1, "resolve ignores the peer"),
+        (2, "revoke is a no-op"),
+        (3, "unbound token matches any peer"),
+        (4, "recall_args passes dash words as words"),
+        (5, "recall_args lets --person through"),
+        (6, "authorize accepts any method"),
+        (7, "identity taken from the request's person"),
+        (8, "malformed line panics"),
+        (9, "size limit removed"),
+        (11, "arg count cap removed"),
+        (12, "authorize skips recall_args"),
+    ];
+    let mut report = String::new();
+    let mut problems = String::new();
+    for (k, name) in names {
+        crate::runauth::BREAK.with(|b| b.set(k));
+        let caught: Vec<&str> = props
+            .iter()
+            .filter(|(_, f)| std::panic::catch_unwind(f).map_or(true, |r| r.is_err()))
+            .map(|(n, _)| *n)
+            .collect();
+        crate::runauth::BREAK.with(|b| b.set(0));
+        report.push_str(&format!("BREAK {k:>2} {name:<45} caught by: {}\n", caught.join(" ")));
+        if (k == 0) != caught.is_empty() {
+            problems.push_str(&format!("break {k} ({name}) caught by {caught:?}\n"));
+        }
+    }
+    panic!("REPORT (temporary)\n{report}PROBLEMS:\n{problems}");
+}

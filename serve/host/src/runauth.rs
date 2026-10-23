@@ -27,6 +27,17 @@ use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, Buf
 pub const TOKEN_ENV: &str = "KITH_RUN_TOKEN";
 pub const SOCKET_ENV: &str = "KITH_RUN_SOCKET";
 
+#[cfg(test)]
+thread_local! { pub(crate) static BREAK: std::cell::Cell<u8> = const { std::cell::Cell::new(0) }; }
+#[cfg(test)]
+fn brk(n: u8) -> bool {
+    BREAK.with(|b| b.get() == n)
+}
+#[cfg(not(test))]
+fn brk(_: u8) -> bool {
+    false
+}
+
 /// A request line longer than this is refused unread.
 const MAX_REQUEST: usize = 64 * 1024;
 const MAX_ARGS: usize = 64;
@@ -99,6 +110,9 @@ impl TokenTable {
     }
 
     fn revoke(&self, key: &[u8; 32]) {
+        if brk(2) {
+            return;
+        }
         self.entries.locked().remove(key);
     }
 
@@ -113,8 +127,15 @@ impl TokenTable {
         let (identity, pid) = {
             let entries = self.entries.locked();
             let e = entries.get(&digest(token))?;
-            (e.identity.clone(), e.pid?)
+            (e.identity.clone(), e.pid)
         };
+        if brk(3) && pid.is_none() {
+            return Some(identity);
+        }
+        let pid = pid?;
+        if brk(1) {
+            return Some(identity);
+        }
         let peer = peer.pid?;
         (self.ancestry)(peer, pid).then_some(identity)
     }
@@ -248,8 +269,11 @@ pub struct Authorized {
 /// Checks a request line without running anything. Every token failure reads the same to the caller, so a probe
 /// learns nothing about which tokens exist.
 pub fn authorize(table: &TokenTable, line: &[u8], peer: PeerInfo) -> Result<Authorized, Response> {
-    if line.len() > MAX_REQUEST {
+    if line.len() > MAX_REQUEST && !brk(9) {
         return Err(Response::refused("request too large"));
+    }
+    if brk(8) {
+        serde_json::from_slice::<Value>(line).unwrap();
     }
     let Ok(req) = serde_json::from_slice::<Value>(line) else {
         return Err(Response::refused("malformed request"));
@@ -260,10 +284,18 @@ pub fn authorize(table: &TokenTable, line: &[u8], peer: PeerInfo) -> Result<Auth
     let Some(identity) = table.resolve(token, peer) else {
         return Err(Response::refused("not authorized"));
     };
+    let identity = match req["person"].as_str() {
+        Some(p) if brk(7) => RunIdentity { person: p.to_owned(), ..identity },
+        _ => identity,
+    };
     match method {
-        "recall" => {
-            let args = recall_args(req["args"].as_array().map_or(&[][..], Vec::as_slice))
-                .map_err(|why| Response::Refused(why.to_owned()))?;
+        _ if method == "recall" || brk(6) => {
+            let raw = req["args"].as_array().map_or(&[][..], Vec::as_slice);
+            let args = if brk(12) {
+                raw.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()
+            } else {
+                recall_args(raw).map_err(|why| Response::Refused(why.to_owned()))?
+            };
             Ok(Authorized { identity, args })
         }
         _ => Err(Response::refused("unknown method")),
@@ -278,7 +310,7 @@ const VALUE_FLAGS: &[&str] = &["--project", "--room", "--thread", "--tier", "-n"
 /// else (a word starting with `-` is not a query). The result starts with a flag, so a query that begins with `index`
 /// (or `forget`) can never reach a subcommand of `kith recall`.
 pub fn recall_args(args: &[Value]) -> Result<Vec<String>, &'static str> {
-    if args.len() > MAX_ARGS {
+    if args.len() > MAX_ARGS && !brk(11) {
         return Err("too many arguments");
     }
     let mut words = Vec::new();
@@ -289,7 +321,7 @@ pub fn recall_args(args: &[Value]) -> Result<Vec<String>, &'static str> {
         let Some(arg) = arg.as_str().filter(|a| a.len() <= MAX_ARG_LEN) else { return Err("bad argument") };
         if arg == "--json" {
             json = true;
-        } else if VALUE_FLAGS.contains(&arg) {
+        } else if VALUE_FLAGS.contains(&arg) || (brk(5) && arg == "--person") {
             let Some(value) = it.next().and_then(Value::as_str).filter(|v| v.len() <= MAX_ARG_LEN) else {
                 return Err("a flag needs a value");
             };
@@ -298,7 +330,7 @@ pub fn recall_args(args: &[Value]) -> Result<Vec<String>, &'static str> {
                 "-n" | "--limit" => limit = Some(value.to_owned()),
                 _ => flags.push((arg.to_owned(), value.to_owned())),
             }
-        } else if arg.starts_with('-') {
+        } else if arg.starts_with('-') && !brk(4) {
             return Err("that flag isn't available here");
         } else {
             words.push(arg.to_owned());
