@@ -339,7 +339,7 @@ describe("access requests", () => {
     expect(grantId).toMatch(/^grt_/);
     expect(sas).toMatch(/^\d{6}$/);
     const state = await call("GET", "/v1/host/state", { key: host.sign });
-    expect(state.body.grants).toEqual([{ grantId, deviceKey: u.dk, deviceName: "iPhone", platform: "ios", scopes: ["control", "screen"] }]);
+    expect(state.body.grants).toEqual([{ grantId, deviceKey: u.dk, deviceName: "iPhone", platform: "ios", scopes: ["control", "screen"], userId: u.userId }]);
     const list = await call("GET", "/v1/computers", { token: u.token, key: u.key });
     expect(list.body.computers[0].access).toBe("granted");
     const grants = await call("GET", `/v1/computers/${host.cid}/grants`, { token: u.token });
@@ -506,7 +506,7 @@ describe("revocation reaches the relay", () => {
     await grantAccess(u, host);
     expect((await call("POST", "/v1/host/unclaim", { key: host.sign, body: {} })).status).toBe(200);
     const state = await call("GET", "/v1/host/state", { key: host.sign });
-    expect(state.body).toEqual({ owner: null, grants: [], requests: [] });
+    expect(state.body).toEqual({ owner: null, grants: [], requests: [], memberships: [] });
     expect((await call("GET", "/v1/computers", { token: u.token })).body.computers).toEqual([]);
   });
 
@@ -549,7 +549,7 @@ describe("Clerk webhook", () => {
     const id = `msg_${ref.b64url(ref.random(8))}`;
     expect((await deliver(id, { type: "user.deleted", data: { id: u.userId } })).status).toBe(200);
     expect((await call("GET", "/v1/me", { token: u.token })).body.error.code).toBe("accountDeleted");
-    expect((await call("GET", "/v1/host/state", { key: host.sign })).body).toEqual({ owner: null, grants: [], requests: [] });
+    expect((await call("GET", "/v1/host/state", { key: host.sign })).body).toEqual({ owner: null, grants: [], requests: [], memberships: [] });
     expect((await deliver(id, { type: "user.deleted", data: { id: u.userId } })).status).toBe(200);
     const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM processed_events WHERE event_id = ?").bind(id).first<{ n: number }>();
     expect(n?.n).toBe(1);
