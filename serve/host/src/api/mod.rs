@@ -24,6 +24,8 @@ mod remote;
 pub(crate) mod rig;
 pub mod roles;
 #[cfg(test)]
+mod roles_props;
+#[cfg(test)]
 mod roles_tests;
 mod threads;
 
