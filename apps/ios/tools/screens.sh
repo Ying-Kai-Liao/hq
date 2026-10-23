@@ -42,6 +42,9 @@ modes=(
   "demo-chat|-kithDemoScreens chat"
   "demo-settings|-kithDemoScreens settings"
   "demo-widgets|-kithDemoScreens widgets"
+  "demo-agent|-kithDemoScreens agent"
+  "demo-agent-memory|-kithDemoScreens agent-memory"
+  "demo-agent-settings|-kithDemoScreens agent-settings"
 )
 
 for appearance in light dark; do

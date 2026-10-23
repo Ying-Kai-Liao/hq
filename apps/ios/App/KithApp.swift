@@ -87,9 +87,16 @@ struct KithApp: App {
 /// modifier chain stays quick to type-check.
 private struct DebugHooks: ViewModifier {
     let app: AppStore
+    /// The agent sheet demo shots (`-kithDemoScreens agent`, `agent-memory`, `agent-settings`).
+    @State private var agentScreen: String?
 
     func body(content: Content) -> some View {
         content
+        .fullScreenCover(isPresented: Binding(get: { agentScreen != nil }, set: { if !$0 { agentScreen = nil } })) {
+            if let screen = agentScreen, let computer = app.accounts.computers.first, let store = app.accounts.store(for: computer.id) {
+                DemoAgentSheet(store: store, screen: screen)
+            }
+        }
         .overlay {
             // Design token gallery for screenshots: launch with -kithTokenGallery.
             if ProcessInfo.processInfo.arguments.contains("-kithTokenGallery") { KithTokenGallery() }
@@ -120,6 +127,7 @@ private struct DebugHooks: ViewModifier {
                     if let computer = app.accounts.computers.first {
                         app.accounts.selection = BotReference(accountId: nil, computerId: computer.id, botId: DemoScreens.chatBotId)
                     }
+                case "agent", "agent-memory", "agent-settings": agentScreen = screen
                 default: break // "crew" and "crew-typing" are the root
                 }
             }
