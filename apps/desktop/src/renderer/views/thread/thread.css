@@ -416,6 +416,8 @@
   animation: fade-in 0.18s var(--ease-out) both;
   /* Opening or growing a thread never moves what the reader is looking at above it. */
   overflow-anchor: none;
+  /* The composer floats over the bottom of the transcript: scrolling this into view stops above it. */
+  scroll-margin-block: 8px calc(var(--composer-height, 70px) + 16px);
 }
 .inline-thread-head {
   display: flex;

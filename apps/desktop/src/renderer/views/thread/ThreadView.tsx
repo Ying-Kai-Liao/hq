@@ -136,6 +136,8 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
     lastOpened.current = { id: root.id, at: now }
     setOpenThread((open) => (open === root.id ? null : root.id))
   }, [])
+  // "Reply in thread" only ever opens; folding is the chip's job.
+  const replyInThread = useCallback((root: { id: string }) => setOpenThread(root.id), [])
   const closeThread = useCallback(() => setOpenThread(null), [])
 
   const presentRoutine = useCallback((id: string | null) => {
@@ -212,7 +214,7 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
           ) : null}
           </div>
         </div>
-        <Transcript botId={botId} openId={openThread} closeThread={closeThread} openTrace={openTrace} openThread={openThreadOn} openRoutine={presentRoutine} openBotChat={setBotChat} />
+        <Transcript botId={botId} openId={openThread} closeThread={closeThread} openTrace={openTrace} openThread={openThreadOn} replyInThread={replyInThread} openRoutine={presentRoutine} openBotChat={setBotChat} />
         <div className="composer-dock" ref={dock}>
           <div className="composer-fade" />
           {store.mismatch ? (
@@ -296,7 +298,7 @@ function ConnectionSubtitle() {
 /** The messages: every loaded message, brought to the newest as it changes while the reader is at the bottom. */
 const PAGE = 40
 
-const Transcript = memo(function Transcript({ botId, openId, closeThread, openTrace, openThread, openRoutine, openBotChat }: { botId: string; openId: string | null; closeThread: () => void; openTrace: () => void; openThread: (e: { id: string }) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void }) {
+const Transcript = memo(function Transcript({ botId, openId, closeThread, openTrace, openThread, replyInThread, openRoutine, openBotChat }: { botId: string; openId: string | null; closeThread: () => void; openTrace: () => void; openThread: (e: { id: string }) => void; replyInThread: (e: { id: string }) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void }) {
   const store = useStore()
   const bot = store.bots.get(botId) ?? null
   const live = !!bot && isWorkingIn(bot, botId, null) && !store.isOffline
@@ -350,11 +352,13 @@ const Transcript = memo(function Transcript({ botId, openId, closeThread, openTr
   }
 
   // Opening a thread grows the feed below the message the reader clicked: stay put, don't chase the bottom.
+  // A reader already following the end (or opening the very last row) keeps following the new replies.
   useLayoutEffect(() => {
-    if (openId) {
+    const lastRow = last?.kind === 'entry' || last?.kind === 'task' ? last.entry.id : null
+    if (openId && !followingRef.current && lastRow !== openId) {
       followingRef.current = false
       setFollowing(false)
-    }
+    } else if (openId && lastRow === openId) setFollowing(true)
   }, [openId])
 
   // Earlier messages going in above keep the reader's place; a follower stays at the bottom.
@@ -425,7 +429,7 @@ const Transcript = memo(function Transcript({ botId, openId, closeThread, openTr
                   openThread={openThread}
                 />
               ) : (
-                <Row item={item} chat={bot} openId={openId} closeThread={closeThread} openTrace={openTrace} openThread={openThread} openRoutine={openRoutine} openBotChat={openBotChat} />
+                <Row item={item} chat={bot} openId={openId} closeThread={closeThread} openTrace={openTrace} openThread={openThread} replyInThread={replyInThread} openRoutine={openRoutine} openBotChat={openBotChat} />
               )}
             </div>
           ))}
@@ -469,7 +473,7 @@ function useTasks(chat: Entry[]) {
   return { newest: currentTask(chat)?.id ?? null, now, choices, choose }
 }
 
-function Row({ item, chat, openId, closeThread, openTrace, openThread, openRoutine, openBotChat }: { item: ChatItem; chat: Bot | null; openId: string | null; closeThread: () => void; openTrace: () => void; openThread: (e: { id: string }) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void }) {
+function Row({ item, chat, openId, closeThread, openTrace, openThread, replyInThread, openRoutine, openBotChat }: { item: ChatItem; chat: Bot | null; openId: string | null; closeThread: () => void; openTrace: () => void; openThread: (e: { id: string }) => void; replyInThread: (e: { id: string }) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void }) {
   if (item.kind === 'separator') {
     return <TimeSeparator date={item.date} />
   }
@@ -487,7 +491,7 @@ function Row({ item, chat, openId, closeThread, openTrace, openThread, openRouti
   }
   return (
     <>
-      <ChatRow entry={e} groupStart={item.groupStart} chat={chat} openTrace={openTrace} openThread={openThread} openId={openId} />
+      <ChatRow entry={e} groupStart={item.groupStart} chat={chat} openTrace={openTrace} openThread={openThread} replyInThread={replyInThread} openId={openId} />
       {openId === e.id && chat ? <InlineThread key={e.id} botId={chat.id} rootId={e.id} close={closeThread} /> : null}
     </>
   )

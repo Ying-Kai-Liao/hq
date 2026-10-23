@@ -19,6 +19,8 @@ export function threadFeed(entries: Entry[]): ThreadReply[] {
   let run: Entry[] = []
   let lastAuthor: string | null = null
   const flush = () => {
+    // Tool steps between two replies break the run: the next agent reply opens a new group.
+    if (run.length) lastAuthor = null
     if (run.length > VISIBLE_STEPS) out.push({ kind: 'earlier', id: `earlier-${run[0]!.id}`, count: run.length - VISIBLE_STEPS })
     for (const e of run.slice(-VISIBLE_STEPS)) out.push({ kind: 'tool', id: e.id, entry: e })
     run = []

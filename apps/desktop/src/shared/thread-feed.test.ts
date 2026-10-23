@@ -24,6 +24,11 @@ test('author grouping and a stable id for the sender\'s own message', () => {
   assert.deepEqual(feed.map((f) => [f.id, f.kind === 'entry' && f.groupStart]), [['user-n', true], ['u2', false], ['a', true]])
 })
 
+test('an agent reply after tool steps starts a new group', () => {
+  const feed = threadFeed([entry('a1', 'agent', { final: true, author: 'x' }), entry('t', 'tool'), entry('a2', 'agent', { final: true, author: 'x' })])
+  assert.deepEqual(feed.filter((f) => f.kind === 'entry').map((f) => f.kind === 'entry' && f.groupStart), [true, true])
+})
+
 test('tool rows show the verb, file and diff size, or the failure', () => {
   const diff = { path: '/a/b/session.py', added: 6, removed: 2, isNew: false, startLine: 1, patch: '@@' }
   const edit = toolRowOf(entry('e', 'tool', { toolKind: 'edit', status: 'completed', diffs: [diff, diff] }))

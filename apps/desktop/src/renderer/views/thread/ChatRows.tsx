@@ -28,17 +28,19 @@ export function reactionPick(store: BotStore, entry: Entry): ReactionPick {
 }
 
 /** One chat-visible entry in a chat or a thread, with what can be done to it. */
-export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrace, openThread, openId = null }: {
+export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrace, openThread, replyInThread, openId = null }: {
   entry: Entry
   groupStart: boolean
   chat: Bot | null
   openTrace: () => void
   /** Main chat only: start (or open) the thread on this message. */
   openThread?: (e: Entry) => void
+  /** "Reply in thread": opens the thread, never folds one that is open. */
+  replyInThread?: (e: Entry) => void
   /** The thread open under its message: its chip tints in the agent's colours. */
   openId?: string | null
 }) {
-  const reply = openThread ? () => openThread(entry) : undefined
+  const reply = openThread ? () => (replyInThread ?? openThread)(entry) : undefined
   const chip = entry.data.thread && entry.data.thread.count > 0 && openThread ? <ThreadChip summary={entry.data.thread} open={() => openThread(entry)} isOpen={openId === entry.id} chat={chat} /> : null
   switch (entry.kind) {
     case 'user':
