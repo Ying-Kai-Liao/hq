@@ -242,7 +242,6 @@ struct WidgetsAndActivitiesView: View {
 private struct UsageSheet: View {
     @Environment(AppStore.self) private var app
     @Environment(AccountStore.self) private var accounts
-    @Environment(\.dismissModal) private var dismiss
     /// Picked here; also becomes the computer the Usage widget shows.
     @State private var picked: ComputerID?
 
@@ -250,7 +249,7 @@ private struct UsageSheet: View {
         let store = picked.flatMap(accounts.store(for:)) ?? app.currentStore
         VStack(spacing: 0) {
             ScreenHeader {
-                IconButton("Close", systemImage: "xmark") { dismiss() }
+                EmptyView()
             } title: {
                 Text("Usage").font(.body.weight(.semibold)).foregroundStyle(Palette.text)
             } trailing: {
@@ -268,6 +267,7 @@ private struct UsageSheet: View {
                     }
                     .accessibilityLabel("Computer: \(store.computer.name)")
                 }
+                DonePill()
             }
             if let store {
                 UsageView()
@@ -326,8 +326,31 @@ struct PageHeader<Trailing: View>: View {
                 trailing
             }
         } else {
-            ModalHeader(title) { trailing }
+            ScreenHeader {
+                EmptyView()
+            } title: {
+                Text(title).font(.body.weight(.semibold)).foregroundStyle(Palette.text).lineLimit(1)
+            } trailing: {
+                trailing
+                DonePill()
+            }
         }
+    }
+}
+
+/// The glass "Done" pill that closes a sheet from its title bar.
+struct DonePill: View {
+    @Environment(\.dismissModal) private var dismiss
+
+    var body: some View {
+        Button { dismiss() } label: {
+            Text("Done").font(.subheadline.weight(.semibold)).foregroundStyle(Palette.text)
+                .padding(.horizontal, 14).frame(height: 32)
+                .kithGlass(in: Capsule(), interactive: true)
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(.cancelAction)
+        .accessibilityLabel("Done")
     }
 }
 
