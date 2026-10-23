@@ -1,6 +1,8 @@
 import SwiftUI
+import WidgetKit
 
-/// Monochrome Lock Screen widgets; the system supplies the background and tint.
+/// Monochrome Lock Screen widgets; the system supplies the background and tint. No bots here:
+/// figures and words only, in the accent the Lock Screen applies.
 public struct AccessoryWidgetCard: View {
     public enum Kind { case bots, usage }
     public enum Family: String, CaseIterable { case circular = "Circle", rectangular = "Rectangle", inline = "Inline" }
@@ -29,48 +31,62 @@ public struct AccessoryWidgetCard: View {
         return top.map { "\($0.name) \(Int($0.window.percent.rounded()))%" } ?? "No usage yet"
     }
 
+    /// "2 need you · 2 working"
+    private var inlineText: String {
+        guard kind == .bots, paired, !bots.isEmpty else { return headline }
+        var parts: [String] = []
+        if needs > 0 { parts.append("\(needs) \(needs == 1 ? "needs" : "need") you") }
+        if working > 0 { parts.append("\(working) working") }
+        return parts.isEmpty ? headline : parts.joined(separator: " · ")
+    }
+
+    /// The window's first word with a percent sign: "Opus %".
+    private func usageCaption(_ title: String) -> String { "\(title.split(separator: " ").first.map(String.init) ?? title) %" }
+
     public var body: some View {
         Group {
             switch family {
             case .inline:
-                Label(headline, systemImage: kind == .bots ? "bubble.left.and.bubble.right" : "chart.bar")
+                Label(inlineText, systemImage: kind == .bots ? "message" : "chart.bar")
                     .font(.caption).lineLimit(1)
             case .circular:
                 if !paired {
                     Image(systemName: "desktopcomputer").accessibilityLabel(headline)
-                } else if kind == .usage, let top {
-                    Gauge(value: min(100, max(0, top.window.percent)), in: 0...100) {
-                        Text(top.name.prefix(2))
-                    } currentValueLabel: {
-                        Text("\(Int(top.window.percent.rounded()))").font(.system(size: 18, weight: .semibold))
-                    }
-                    .gaugeStyle(.accessoryCircularCapacity)
-                    .accessibilityLabel(headline)
                 } else {
                     VStack(spacing: 0) {
-                        Text(kind == .bots ? "\(count)" : "—").font(.system(size: 24, weight: .semibold, design: .rounded))
-                        Text(kind == .bots ? (needs > 0 ? "need you" : working > 0 ? "working" : "bots") : "usage")
-                            .font(.system(size: 9))
+                        Text(kind == .bots ? "\(count)" : top.map { "\(Int($0.window.percent.rounded()))" } ?? "—")
+                            .font(WidgetStyle.mono(24))
+                        Text(kind == .bots ? (needs > 0 ? "need you" : working > 0 ? "working" : "bots") : top.map { usageCaption($0.window.title) } ?? "usage")
+                            .font(WidgetStyle.label(9.5))
                     }
+                    .minimumScaleFactor(0.7)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(headline)
                 }
             case .rectangular:
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(headline).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                    if paired, kind == .bots {
+                    Text(kind == .bots ? "Bots" : "Usage limits").font(WidgetStyle.label(12, .bold)).lineLimit(1)
+                    if !paired {
+                        Text("Connect a computer").font(WidgetStyle.label(11)).lineLimit(1)
+                    } else if kind == .bots {
+                        if bots.isEmpty { Text("No bots yet").font(WidgetStyle.label(11)).lineLimit(1) }
                         ForEach(bots.sorted { rank($0) < rank($1) }.prefix(2)) { bot in
                             Text("\(bot.name) · \(bot.needsInput ? "Needs you" : bot.isWorking ? "Working" : "Ready")")
-                                .font(.system(size: 10)).lineLimit(1)
+                                .font(WidgetStyle.label(11)).lineLimit(1)
                         }
-                    } else if paired, let top {
-                        Text(top.window.title).font(.system(size: 10)).lineLimit(1)
+                    } else if let top {
+                        Text("\(top.window.title) \(Int(top.window.percent.rounded()))%").font(WidgetStyle.label(11)).lineLimit(1)
                         if let reset = top.window.resetsShort() {
-                            Text(reset).font(.system(size: 9)).lineLimit(1)
+                            Text(reset).font(WidgetStyle.label(11)).lineLimit(1)
                         }
+                    } else {
+                        Text("No usage yet").font(WidgetStyle.label(11)).lineLimit(1)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .widgetAccentable()
         .accessibilityElement(children: .combine)
     }
 

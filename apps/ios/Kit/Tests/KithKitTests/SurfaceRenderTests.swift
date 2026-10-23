@@ -46,20 +46,58 @@ import Testing
             VStack(alignment: .leading, spacing: 8) {
                 label("Team")
                 BotsTeamCard(bots: Bot.widgetPreview).padding(14).frame(width: 170, height: 170)
-                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22))
+                    .background(WidgetStyle.ground, in: RoundedRectangle(cornerRadius: 22))
             }
             VStack(alignment: .leading, spacing: 8) {
                 label("Bots · Small")
                 BotsWidgetCard(bots: Bot.widgetPreview, wide: false).padding(14).frame(width: 170, height: 170)
-                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22))
+                    .background(WidgetStyle.ground, in: RoundedRectangle(cornerRadius: 22))
             }
             VStack(alignment: .leading, spacing: 8) {
                 label("Bots · Medium")
                 BotsWidgetCard(bots: Bot.widgetPreview, wide: true).padding(14).frame(width: 364, height: 170)
-                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22))
+                    .background(WidgetStyle.ground, in: RoundedRectangle(cornerRadius: 22))
+            }
+        }
+        let more = VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .top, spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    label("Usage limits · Small")
+                    UsageLimitsCard(usage: .widgetPreview, medium: false, computer: "Mac mini").padding(14).frame(width: 170, height: 170)
+                        .background(WidgetStyle.ground, in: RoundedRectangle(cornerRadius: 22))
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    label("Usage limits · Medium")
+                    UsageLimitsCard(usage: .widgetPreview, medium: true).padding(14).frame(width: 364, height: 170)
+                        .background(WidgetStyle.ground, in: RoundedRectangle(cornerRadius: 22))
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    label("Provider usage · Small")
+                    ProviderWidgetCard(provider: Usage.widgetPreview.providers[0], layout: .small, computer: "MacBook")
+                        .padding(14).frame(width: 170, height: 170)
+                        .background(WidgetStyle.ground, in: RoundedRectangle(cornerRadius: 22))
+                }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                label("Bots · Large")
+                BotsWidgetCard(bots: Bot.widgetPreview, wide: true, large: true).padding(14).frame(width: 364, height: 382)
+                    .background(WidgetStyle.ground, in: RoundedRectangle(cornerRadius: 22))
+            }
+            HStack(spacing: 20) {
+                ForEach([(AccessoryWidgetCard.Kind.bots, "Bots"), (.usage, "Usage")], id: \.1) { kind, name in
+                    VStack(alignment: .leading, spacing: 8) {
+                        label("Lock Screen · \(name)")
+                        HStack(spacing: 12) {
+                            AccessoryWidgetCard(kind: kind, family: .circular, bots: Bot.widgetPreview, usage: .widgetPreview).frame(width: 64, height: 64)
+                            AccessoryWidgetCard(kind: kind, family: .rectangular, bots: Bot.widgetPreview, usage: .widgetPreview).frame(width: 160, height: 64)
+                        }
+                        AccessoryWidgetCard(kind: kind, family: .inline, bots: Bot.widgetPreview, usage: .widgetPreview).frame(width: 240, height: 24)
+                    }
+                }
             }
         }
         try save(widgets, scheme: scheme, to: "\(dir)/widgets-\(scheme == .dark ? "dark" : "light").png")
+        try save(more, scheme: scheme, to: "\(dir)/widgets2-\(scheme == .dark ? "dark" : "light").png")
     }
 }
 

@@ -31,58 +31,47 @@ struct ActivityGalleryView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Toggle(island ? "Show in Dynamic Island" : "Show Live Activities", isOn: $enabled)
-                        .toggleStyle(.kith)
-                        .font(.subheadline.weight(.medium))
-                    Text(island
-                         ? "The Dynamic Island shows the same Live Activity as the Lock Screen, so this switch turns off both."
-                         : "Starts when you send a task from this iPhone. Follow its progress, then open the conversation when your bot needs you.")
-                        .font(.footnote).foregroundStyle(Palette.secondary)
-                    if !allowed {
+        CardForm {
+            CardSection(island ? "Dynamic Island" : "Live Activities",
+                        footer: "iOS chooses the presentation based on your device and other active tasks. These previews don't start a Live Activity; approvals happen in Kith.") {
+                VStack(spacing: 14) {
+                    if forms.count > 1 {
+                        ChoicePicker(selection: Binding(get: { form ?? forms[0] }, set: { form = $0 }), options: forms.map { ($0, $0.rawValue) })
+                    }
+                    if let bot = Bot.widgetPreview.first {
+                        BotActivityPreview(bot: bot, state: state, form: form ?? forms[0], startedAt: startedAt)
+                            .frame(maxWidth: .infinity, minHeight: 90)
+                            .padding(12)
+                            .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    SegmentedChoice(selection: $phase, options: [
+                        (.working, "Running"), (.needsInput, "Needs you"), (.completed, "Done"),
+                    ])
+                }
+                Toggle(isOn: $enabled) {
+                    switchLabel("Live Activities", "a task's progress on the Lock Screen", symbol: "rectangle.on.rectangle")
+                }
+                .toggleStyle(.kithGreen)
+                Toggle(isOn: $enabled) {
+                    switchLabel("Dynamic Island", "the same task around the camera", symbol: "capsule")
+                }
+                .toggleStyle(.kithGreen)
+                if !allowed {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text("Live Activities are turned off in iOS Settings.")
-                            .font(.footnote).foregroundStyle(Palette.secondary)
+                            .font(.footnote).foregroundStyle(Palette.muted)
                         Button("Open iOS Settings") { openURL(URL(string: UIApplication.openSettingsURLString)!) }
                             .buttonStyle(.plain)
                             .font(.footnote.weight(.medium))
                             .foregroundStyle(Palette.accent)
                     }
                 }
-                .padding(16).background(Palette.surface, in: RoundedRectangle(cornerRadius: 20))
-
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack {
-                        Text("Preview").font(.subheadline.weight(.medium))
-                        Spacer()
-                        Text("Sample task").font(.caption).foregroundStyle(Palette.secondary)
-                    }
-                    if forms.count > 1 {
-                        ChoicePicker(selection: Binding(get: { form ?? forms[0] }, set: { form = $0 }), options: forms.map { ($0, $0.rawValue) })
-                    }
-                    ChoicePicker(selection: $phase, options: [
-                        (.sending, "Sending"), (.queued, "Waiting for computer"),
-                        (.working, "Working"), (.needsInput, "Needs you"), (.completed, "Done"),
-                        (.failed, "Error"), (.stale, "Update delayed"),
-                    ])
-                    if let bot = Bot.widgetPreview.first {
-                        BotActivityPreview(bot: bot, state: state, form: form ?? forms[0], startedAt: startedAt)
-                            .frame(maxWidth: .infinity, minHeight: 90)
-                            .padding(12)
-                            .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 28))
-                    }
-                }
-                VStack(alignment: .leading, spacing: 14) {
-                    ForEach(forms, id: \.self) { explanation($0) }
-                }
-                Text("iOS chooses the presentation based on your device and other active tasks. These previews don't start a Live Activity. Approvals are handled inside Kith.")
-                    .font(.footnote).foregroundStyle(Palette.secondary)
             }
-            .padding(18).frame(maxWidth: 560).frame(maxWidth: .infinity)
-        }
-        .background(Palette.background)
 
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(forms, id: \.self) { explanation($0) }
+            }
+        }
         .tint(Palette.accent)
         .onChange(of: enabled) { _, value in if !value { LiveActivities.shared.endAll() } }
         .onChange(of: scenePhase) { _, value in
@@ -90,16 +79,26 @@ struct ActivityGalleryView: View {
         }
     }
 
+    private func switchLabel(_ title: String, _ detail: String, symbol: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol).frame(width: 24).foregroundStyle(Palette.muted)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).foregroundStyle(Palette.ink)
+                Text(detail).font(.caption).foregroundStyle(Palette.muted)
+            }
+        }
+    }
+
     private func explanation(_ form: BotActivityPreview.Form) -> some View {
         let detail = switch form {
-        case .lockScreen: "The bot in its mood, its current step in the state's color, the running time and a thinking orb. When the bot needs you, Review opens the request."
-        case .compact: "The bot and a thinking orb beside the camera, outlined in the state's color. The orb becomes a check or warning when the task ends."
-        case .minimal: "Just the orb when iOS displays multiple Live Activities."
+        case .lockScreen: "The bot, its current step, and the running time. When the bot needs you, Review opens the request."
+        case .compact: "The bot beside the camera, with the running time or Needs you."
+        case .minimal: "Just the bot, when iOS displays multiple Live Activities."
         case .expanded: "Touch and hold the Dynamic Island for the current step and the running time, or Review when the bot needs you. Tap to open the conversation."
         }
         return VStack(alignment: .leading, spacing: 4) {
             Text(form.rawValue).font(.subheadline.weight(.medium)).accessibilityAddTraits(.isHeader)
-            Text(detail).font(.footnote).foregroundStyle(Palette.secondary)
+            Text(detail).font(.footnote).foregroundStyle(Palette.muted)
         }
     }
 }
