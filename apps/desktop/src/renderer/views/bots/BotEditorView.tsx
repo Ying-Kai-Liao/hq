@@ -13,7 +13,7 @@ import { Text } from '../../components/Text'
 import { paletteColor, paletteValue } from '@shared/living-bots'
 import { AVATAR_PALETTE } from '../../lib/theme'
 import { useStore } from '../../store/context'
-import { botSections } from '@shared/bot-sections'
+import { botSections, PERMISSION_MODES, permissionMode } from '@shared/bot-sections'
 import { useAgentModels } from './agent-models'
 import { AgentModelPicker } from './AgentModelPicker'
 import { errorText, fillDefaults, isValid, lastPathComponent, normalized, usePlugins, type Plugins } from './drafts'
@@ -279,18 +279,11 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
           ) : null}
           {shown.kithSettings ? <ValueRow
             label="Permissions"
-            detail={
-              draft.permission === 'auto'
-                ? "Tool requests are approved automatically. Your agent's own settings (like Claude Code's permission rules) still apply."
-                : "You'll get an approval card and a notification whenever the agent asks."
-            }
+            detail={PERMISSION_MODES.find((m) => m.id === permissionMode(draft.permission))?.detail}
           >
             <ChoicePicker
-              selection={draft.permission}
-              options={[
-                { id: 'ask', label: 'Ask me' },
-                { id: 'auto', label: 'Approve automatically' },
-              ]}
+              selection={permissionMode(draft.permission)}
+              options={PERMISSION_MODES}
               onChange={(id) => set('permission', id)}
             />
           </ValueRow> : null}

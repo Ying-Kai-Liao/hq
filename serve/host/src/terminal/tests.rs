@@ -55,7 +55,7 @@ impl Rig {
         hub.terminal.set_env(Env { state: dir.join("state"), sessions: Some(dir.join("sessions")) });
         let cfg: BotConfig = serde_json::from_value(json!({
             "id": "", "name": "builder", "backend": "claude", "cwd": dir.to_string_lossy(),
-            "hqAgent": "builder", "permission": "ask", "tasks": true, "connectors": [], "skills": [],
+            "hqAgent": "builder", "permission": "default", "tasks": true, "connectors": [], "skills": [],
         }))
         .unwrap();
         let bot = hub.create_bot(cfg).unwrap()["id"].as_str().unwrap().to_owned();

@@ -112,7 +112,7 @@ impl Rig {
     pub fn owner_bot(&self, agent: &str) -> String {
         let cfg: BotConfig = serde_json::from_value(json!({
             "id": "", "name": agent, "backend": "claude", "cwd": self.dir.to_string_lossy(),
-            "hqAgent": agent, "permission": "ask", "tasks": false, "connectors": [], "skills": [],
+            "hqAgent": agent, "permission": "default", "tasks": false, "connectors": [], "skills": [],
         }))
         .unwrap();
         self.hub.create_bot(cfg).unwrap()["id"].as_str().unwrap().to_owned()

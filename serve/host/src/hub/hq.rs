@@ -151,7 +151,7 @@ impl Hub {
 fn new_bot(agent: &HqAgent) -> BotConfig {
     serde_json::from_value(json!({
         "id": "", "name": agent.name, "description": agent.description, "backend": "claude", "cwd": agent.home,
-        "hqAgent": agent.name, "permission": "ask", "connectors": [], "skills": [],
+        "hqAgent": agent.name, "permission": "default", "connectors": [], "skills": [],
     }))
     .expect("a valid bot")
 }

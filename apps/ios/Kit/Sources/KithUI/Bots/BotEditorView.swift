@@ -276,10 +276,13 @@ struct BotSettingsForm: View {
                     }
                 }
                 if shown.kithSettings {
-                    ValueRow("Permissions", detail: draft.permission == "auto"
-                             ? "Tool requests are approved automatically. Your agent's own settings (like Claude Code's permission rules) still apply."
-                             : "You'll get an approval card and a notification whenever the agent asks.") {
-                        ChoicePicker(selection: $draft.permission, options: [("ask", "Ask me"), ("auto", "Approve automatically")])
+                    ValueRow("Permissions", detail: HqSetting.permissionDetail(draft.permission)) {
+                        ChoicePicker(
+                            selection: Binding(
+                                get: { HqSetting.permissionMode(draft.permission) },
+                                set: { draft.permission = $0 }),
+                            options: HqSetting.permissionModes,
+                            detail: { HqSetting.permissionDetail($0) })
                     }
                 }
             }

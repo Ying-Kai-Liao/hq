@@ -5,7 +5,8 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 use super::{
-    After, AgentPicker, App, Bot, COLORS, Editor, FIELDS, Field, Form, GroupField, GroupForm, Overlay, SHAPES, Toggle,
+    After, AgentPicker, App, Bot, COLORS, Editor, FIELDS, Field, Form, GroupField, GroupForm, Overlay, PERMISSION_MODES,
+    SHAPES, Toggle,
     cycle, merge_toggles,
 };
 use crate::tui::manage::Page;
@@ -132,7 +133,7 @@ impl App {
             model_options: (b.model.clone().unwrap_or_default(), b.model_options.clone()),
             fast: b.fast_mode,
             cwd: if b.managed_workspace { String::new() } else { b.cwd.clone() },
-            auto: b.auto,
+            mode: b.mode,
             notify: b.notify,
             computer: b.computer,
             color: COLORS.iter().position(|c| *c == b.color).unwrap_or(7),
@@ -170,7 +171,7 @@ impl App {
             model_options: (String::new(), BTreeMap::new()),
             fast: false,
             cwd: String::new(),
-            auto: true,
+            mode: PERMISSION_MODES.iter().position(|m| *m == "auto").unwrap_or(0),
             notify: true,
             computer: false,
             color: (n * 7) % COLORS.len(),
@@ -286,7 +287,7 @@ impl App {
                         }
                     }
                     Field::Fast => f.fast = !f.fast,
-                    Field::Approvals => f.auto = !f.auto,
+                    Field::Approvals => f.mode = cycle(f.mode, d, PERMISSION_MODES.len()),
                     Field::Notify => f.notify = !f.notify,
                     Field::Computer => f.computer = !f.computer,
                     Field::Color if !space => f.color = cycle(f.color, d, COLORS.len()),
@@ -370,7 +371,7 @@ impl Form {
             "description": self.instructions.text.trim(),
             "backend": self.backend,
             "cwd": self.cwd,
-            "permission": if self.auto { "auto" } else { "ask" },
+            "permission": PERMISSION_MODES[self.mode.min(PERMISSION_MODES.len() - 1)],
             "model": if model.is_empty() { Value::Null } else { model.into() },
             "modelOptions": self.model_options().cloned().unwrap_or_default(),
             "fastMode": self.fast,

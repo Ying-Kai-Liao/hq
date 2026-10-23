@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { ALL_SECTIONS, botSections, callModelLabel, hqSettings, permissionLabel } from './bot-sections.ts'
+import { ALL_SECTIONS, botSections, callModelLabel, hqSettings, PERMISSION_MODES, permissionLabel, permissionMode } from './bot-sections.ts'
 import { parseKithInfo } from './kith-info.ts'
 
 const house = parseKithInfo(JSON.parse(readFileSync(new URL('./test-support/kith-house-info.json', import.meta.url), 'utf8')))!
@@ -60,4 +60,13 @@ test('hq settings: the call model is written through to hq, and shows hq\'s choi
 test('a permission mode shows by its label, an unknown one as it is', () => {
   assert.equal(permissionLabel('bypassPermissions'), 'Bypass permissions')
   assert.equal(permissionLabel('somethingNew'), 'somethingNew')
+})
+
+test('the picker lists Claude Code\'s six modes only, and the old ask and manual read as default', () => {
+  assert.deepEqual(PERMISSION_MODES.map((m) => m.id), ['default', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions'])
+  assert.equal(permissionMode('ask'), 'default')
+  assert.equal(permissionMode('manual'), 'default')
+  assert.equal(permissionMode('auto'), 'auto')
+  assert.equal(hqSettings({ permissionMode: 'manual', callModel: null, model: null, effort: null })[0].value, 'default')
+  assert.equal(permissionLabel('manual'), 'Default')
 })
