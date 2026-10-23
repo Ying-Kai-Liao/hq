@@ -89,7 +89,7 @@ struct AuthorLabel: View {
             if let bot { CharacterAvatar(bot: bot, size: 26, animated: false) }
             Text(model.authorName(botId))
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(bot.map { AvatarPalette.color($0.avatarColor) } ?? Palette.secondary)
+                .foregroundStyle(Palette.text)
         }
     }
 }

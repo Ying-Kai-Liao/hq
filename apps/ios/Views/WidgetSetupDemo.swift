@@ -353,7 +353,7 @@ private struct DemoPhone: View {
                         .frame(width: 20, height: 20)
                         .background(tint.gradient, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
                 } else {
-                    CharacterAvatar(shape: "hex", color: "gray", size: 20)
+                    CharacterAvatar(portrait: "crew-builder", size: 20, still: true)
                 }
             }
             Text(title).font(.system(size: 10, weight: .medium)).foregroundStyle(.white)
@@ -369,7 +369,7 @@ private struct DemoPhone: View {
         VStack(spacing: 12) {
             Capsule().fill(.white.opacity(0.3)).frame(width: 28, height: 3).padding(.top, 6)
             HStack(spacing: 6) {
-                CharacterAvatar(shape: "hex", color: "gray", size: 18)
+                CharacterAvatar(portrait: "crew-builder", size: 18, still: true)
                 Text("Codync").font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
             }
             Text("See who needs you and who's still working.")
