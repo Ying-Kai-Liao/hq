@@ -265,7 +265,8 @@ pub fn shape(hub: &Hub, person: &str, method: &str, mut v: Value) -> Value {
             if let Some(o) = v.as_object_mut() {
                 o.remove("folder");
             }
-            if let Some(list) = v["entries"].as_array_mut() {
+            // `get_mut`: indexing would add `entries: null` to a `not_shared` answer.
+            if let Some(list) = v.get_mut("entries").and_then(Value::as_array_mut) {
                 for e in list {
                     hide_foreign_summary(person, e);
                 }

@@ -675,6 +675,7 @@ async fn a_citation_opens_for_its_audience_and_is_not_shared_for_anyone_else() {
 #[tokio::test]
 async fn resolving_a_main_chat_citation_hides_other_threads_summaries_from_a_member() {
     let r = Rig::new().await;
+    r.owner_bot("house");
     let (sam, _) = joined(&r, json!({"house": "member"})).await;
     let theirs = chat_of(&r, &sam).await;
     root_with_summary(&r, &theirs, "person:sam");
@@ -697,6 +698,7 @@ async fn resolving_a_main_chat_citation_hides_other_threads_summaries_from_a_mem
 #[tokio::test]
 async fn forgetting_a_thread_takes_the_summary_off_its_row() {
     let r = Rig::new().await;
+    r.owner_bot("house");
     let (sam, _) = joined(&r, json!({"house": "member"})).await;
     let theirs = chat_of(&r, &sam).await;
     let mine = root_with_summary(&r, &theirs, "person:sam");
