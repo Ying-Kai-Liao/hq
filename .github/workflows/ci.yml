@@ -7,9 +7,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# One run per ref; a re-push to a PR cancels the older run, pushes to main queue up (never cancelled).
+# A PR gets one group per ref, so a re-push cancels the older run. Every other run (push to main,
+# workflow_dispatch) gets its own group keyed by sha, so merges never cancel each other. GitHub keeps
+# only one pending run per group, so sharing a group for main would drop the older queued run.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.workflow, github.ref) || format('{0}-{1}-{2}', github.workflow, github.sha, github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
