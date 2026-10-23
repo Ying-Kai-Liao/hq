@@ -13,13 +13,13 @@ function checkUpgrade(c: Ctx): void {
 /** Forwards the upgrade to the computer's DO in a request the Worker builds itself; the client's URL never reaches it. */
 async function forward(c: Ctx, computerId: string, role: "host" | "device", s: SignedRequest, pair: string): Promise<Response> {
   const headers = new Headers({
-    "X-Codync-Internal": "1",
-    "X-Codync-Role": role,
-    "X-Codync-Key": s.kid,
-    "X-Codync-Nonce": s.nonce,
-    "X-Codync-Ts": String(s.ts),
-    "X-Codync-Pair": pair,
-    "X-Codync-Computer": computerId,
+    "X-Kith-Internal": "1",
+    "X-Kith-Role": role,
+    "X-Kith-Key": s.kid,
+    "X-Kith-Nonce": s.nonce,
+    "X-Kith-Ts": String(s.ts),
+    "X-Kith-Pair": pair,
+    "X-Kith-Computer": computerId,
   });
   for (const [name, value] of c.req.headers) {
     if (name === "upgrade" || name.startsWith("sec-websocket-")) headers.set(name, value);
@@ -71,8 +71,8 @@ export async function routineHook(c: Ctx, [computerId, hookId]: string[]): Promi
   const row = await c.env.DB.prepare("SELECT status FROM computers WHERE id = ?").bind(computerId).first<{ status: string }>();
   if (!row || row.status !== "active") throw new ApiError("notFound");
   const headers = new Headers(c.req.headers);
-  headers.set("X-Codync-Internal", "1");
-  headers.set("X-Codync-Hook", hookId!);
+  headers.set("X-Kith-Internal", "1");
+  headers.set("X-Kith-Hook", hookId!);
   return c.env.RELAY.get(c.env.RELAY.idFromName(computerId!)).fetch(
     new Request("https://do/internal/hook", { method: "POST", headers, body: c.raw }),
   );

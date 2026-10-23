@@ -9,7 +9,7 @@ case ${1:-} in
   -*) ;;
   *) exec claude "$@" ;;
 esac
-# Codync's memory keeper (kith-acp left a marker): a no-tools summary run, not the agent's work.
+# The client's memory keeper (kith-acp left a marker): a no-tools summary run, not the agent's work.
 keeper=${KITH_ACP_LOG:?}/keeper-${KITH_ACP_PID:-none}
 if [[ -e $keeper ]]; then
   rm -f "$keeper"

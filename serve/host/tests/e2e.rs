@@ -9,6 +9,10 @@ mod common;
 #[path = "../src/remote/crypto.rs"]
 #[allow(dead_code)]
 mod crypto;
+/// `crypto.rs` names its sibling `legacy_compat` through `super`.
+#[path = "../src/remote/legacy_compat.rs"]
+#[allow(dead_code)]
+mod legacy_compat;
 
 use ed25519_dalek::SigningKey;
 use futures::{SinkExt as _, StreamExt as _};

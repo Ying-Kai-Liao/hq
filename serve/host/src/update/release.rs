@@ -67,7 +67,7 @@ pub async fn download(url: &str, limit: usize) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-/// The newest release. This build has no update channel (Codync's was removed with the fork),
+/// The newest release. This build has no update channel (the fork's upstream one was removed),
 /// so there is none: nothing here ever contacts a release server.
 #[allow(clippy::unused_async)]
 pub async fn latest() -> Result<Release> {

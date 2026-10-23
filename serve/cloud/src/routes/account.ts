@@ -1,5 +1,6 @@
 // Clerk-authenticated account routes: devices, claims, computers, access requests and grants.
 
+import { LEGACY_SIG_HEADER } from "../legacy-compat";
 import { computerIdFor, fromB64url, LABEL_FAMILIES, randomId, utf8, verifyEd25519, type LabelFamily } from "../auth";
 import {
   ApiError,
@@ -162,7 +163,7 @@ export async function completeClaim(c: Ctx, [claimId]: string[]) {
     .bind(claimId, u.userId)
     .first<{ nonce: string }>();
   if (!claim) throw new ApiError("notFound");
-  // A host that hasn't updated yet signs the claim under the `codync` labels.
+  // A host that hasn't updated yet signs the claim under the old labels (legacy-compat.ts).
   const signer = fromB64url(signKey, 32)!;
   let signedClaim = false;
   for (const family of LABEL_FAMILIES) {
@@ -206,7 +207,7 @@ export async function completeClaim(c: Ctx, [claimId]: string[]) {
 export async function listComputers(c: Ctx) {
   const u = await user(c);
   let deviceId: string | null = null;
-  if (c.req.headers.has("Kith-Sig") || c.req.headers.has("Codync-Sig")) {
+  if (c.req.headers.has("Kith-Sig") || c.req.headers.has(LEGACY_SIG_HEADER)) {
     const s = await signed(c);
     const d = await c.env.DB.prepare(
       "UPDATE devices SET last_used_at = ? WHERE owner_user_id = ? AND sign_pub = ? AND revoked_at IS NULL RETURNING id",

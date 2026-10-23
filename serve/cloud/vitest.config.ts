@@ -9,7 +9,7 @@ const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 20
 export default defineConfig(async () => ({
   plugins: [
     cloudflareTest({
-      wrangler: { configPath: "./wrangler.toml", environment: "dev" },
+      wrangler: { configPath: "./wrangler.toml", environment: "local" },
       miniflare: {
         d1Databases: ["ANDROID_MIGRATION_DB"],
         // The pool's bundled workerd trails wrangler's; pin to the newest date it supports.

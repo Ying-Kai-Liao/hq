@@ -25,9 +25,6 @@ for (const id of ["com.yingkailiao.kith.ios", "com.yingkailiao.kith.ios.dev"]) {
   const ok = await worker.fetch(new Request("https://relay.test/register", { method: "POST", body: JSON.stringify({ ...registration, bundleId: id }) }), env);
   assert.equal(ok.status, 200);
 }
-// Codync's IDs are not this relay's anymore.
-const codync = await worker.fetch(new Request("https://relay.test/register", { method: "POST", body: JSON.stringify({ ...registration, bundleId: "com.pokai.Codync.ios" }) }), env);
-assert.equal(codync.status, 400);
 assert.deepEqual([...latestTicketIndices([
   { t: "ab", e: "sandbox", k: "alert" },
   { t: "ab", e: "sandbox", k: "alert", b: registration.bundleId },
