@@ -208,6 +208,8 @@ apply to full `kith <agent>` runs.
 
 ## Planned
 
+**Bot guests** (design 2026-10-23, [docs/kith-bot-guests.md](kith-bot-guests.md)): cloud agents with their own VM (Grok Bot, and others) join a Kith computer by invite with a client-only Linux `kith` and ask its agents over the same end-to-end relay. Each bot belongs to one person and gets at most their access.
+
 **People and channels**, what is left of the 2026-10-19 design (the rest is built, above; Slack waits for an app):
 
 - **An `admin` level** (everything but the owner's logins, folder isolation off). On hold until the owner asks.

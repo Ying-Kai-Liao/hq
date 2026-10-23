@@ -74,6 +74,7 @@ const map: Record<string, IconNode> = {
   'doc.badge.plus': L.FilePlus,
   'doc.on.clipboard': L.Clipboard,
   'doc.on.clipboard.fill': L.Clipboard,
+  briefcase: L.Briefcase,
   'doc.on.doc': L.Copy,
   'doc.plaintext': L.FileText,
   'doc.richtext': L.FileText,

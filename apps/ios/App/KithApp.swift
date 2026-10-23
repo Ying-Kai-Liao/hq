@@ -79,6 +79,7 @@ struct KithApp: App {
                 .overlay {
                     // Design token gallery for screenshots: launch with -kithTokenGallery.
                     if ProcessInfo.processInfo.arguments.contains("-kithTokenGallery") { KithTokenGallery() }
+                    if ProcessInfo.processInfo.arguments.contains("-kithComponentGallery") { KithComponentGallery() }
                 }
                 .task {
                     // Simulator/UI-test pairing: SIMCTL_CHILD_KITH_PAIR_URL=kith://pair?...

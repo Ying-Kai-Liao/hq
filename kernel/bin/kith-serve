@@ -182,6 +182,8 @@ case ${1:-help} in
   restart) "$SELF" stop; cmd_start --no-build ;;
   status)  cmd_status ;;
   relay)   shift; cmd_relay "$@" ;;
+  # Where this install's host lives, for kith-sessions: one rule, the one above.
+  endpoint) echo "$DATA $PORT" ;;
   help|-h|--help) usage ;;
   *) echo "kith serve: unknown command '$1'" >&2; usage >&2; exit 2 ;;
 esac

@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+"""kith-sessions — terminal `kith <agent>` sessions the host can list and continue on the phone (continue anywhere).
+
+  kith-sessions record                     SessionStart hook (stdin: the hook's JSON): writes $KITH_STATE/live/terminal/<sid>.json
+                                           for a listable session, nothing otherwise. Never fails the session.
+  kith-sessions resolve AGENT THREAD       for `kith AGENT --resume THREAD`: prints shell assignments (r_sid, r_cwd, r_from); the host
+                                           names the session (POST /api/resolveThread), else a raw Claude session id found on disk
+  kith-sessions run AGENT -- CMD...        run CMD (claude) as a child: signals and exit code pass through; afterwards, if the host
+                                           took the session over while it ran, say how to get it back
+
+Registry file (contract with the host, serve/): dir 0700, file 0600, written by tmp + rename:
+  {"v":1,"sessionId","agent","cwd","transcriptPath","pid" (the claude process),"project","source","resumedFrom","startedAt"}
+Live = the pid runs and ~/.claude/sessions/<pid>.json names the same sessionId (the host decides; resolve reuses it).
+Listable = interactive, the owner's, started in a terminal by `kith <agent>`: the launcher sets KITH_TERMINAL_SESSION=1 for
+exactly that run, so -p one-shots and helpers inherit nothing.
+"""
+import datetime as dt, json, os, signal, subprocess, sys, urllib.error, urllib.request
+from pathlib import Path
+
+
+def now():
+    return dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def reg_dir():
+    state = os.environ.get('KITH_STATE')
+    return Path(state) / 'live' / 'terminal' if state else None
+
+
+def claude_dir():
+    return Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude')
+
+
+def listable(cwd, env=os.environ):
+    return (env.get('KITH_TERMINAL_SESSION') == '1' and not env.get('KITH_PERSON') and env.get('KITH_VIA', 'terminal') == 'terminal'
+            and env.get('KITH_HIDE_SESSION') != '1' and bool(env.get('KITH_AGENT')) and '/.claude/worktrees/' not in cwd + '/')
+
+
+def ps_row(pid):
+    out = subprocess.run(['ps', '-o', 'ppid=,comm=', '-p', str(pid)], capture_output=True, text=True, timeout=3).stdout.split(None, 1)
+    return (int(out[0]), out[1].strip()) if len(out) == 2 else (0, '')
+
+
+def claude_pid(sid):
+    """The claude process above this hook: the ancestor whose ~/.claude/sessions file names our session, else the first called claude."""
+    pid, named = os.getppid(), 0
+    for _ in range(12):
+        if pid <= 1:
+            break
+        try:
+            if json.loads((claude_dir() / 'sessions' / f'{pid}.json').read_text()).get('sessionId') == sid:
+                return pid
+        except (OSError, ValueError):
+            pass
+        ppid, comm = ps_row(pid)
+        if not named and os.path.basename(comm) == 'claude':
+            named = pid
+        pid = ppid
+    return named or None
+
+
+def write_atomic(path, data):
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(path.parent, 0o700)
+    tmp = path.with_name(f'.{path.name}.{os.getpid()}.tmp')
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w') as f:
+        json.dump(data, f)
+    os.replace(tmp, path)
+
+
+def record():
+    try:
+        hook, env = json.load(sys.stdin), os.environ
+        sid, cwd, d = hook.get('session_id'), hook.get('cwd') or os.getcwd(), reg_dir()
+        if not (sid and d and listable(cwd)):
+            return
+        path, started = d / f'{sid}.json', now()
+        if hook.get('source') == 'compact':   # same session, same file: keep when it began
+            try:
+                started = json.loads(path.read_text()).get('startedAt', started)
+            except (OSError, ValueError):
+                pass
+        write_atomic(path, {
+            'v': 1, 'sessionId': sid, 'agent': env['KITH_AGENT'], 'cwd': cwd, 'transcriptPath': hook.get('transcript_path'),
+            'pid': claude_pid(sid), 'project': env.get('KITH_PROJECT') or None, 'source': hook.get('source') or 'startup',
+            'resumedFrom': env.get('KITH_RESUMED_FROM') or None, 'startedAt': started})
+    except Exception as e:  # noqa: BLE001 — listing must never block a session
+        print(f'kith-sessions record: {e}', file=sys.stderr)
+
+
+def host_endpoint():
+    """(data dir, port) of this install's host. kith-serve owns the rule (dev 19224 / packaged main 19225); the env overrides win."""
+    data, port = os.environ.get('KITH_SERVE_DIR'), os.environ.get('KITH_SERVE_PORT')
+    if not (data and port):
+        try:
+            d, p = subprocess.run([str(Path(__file__).resolve().parent / 'kith-serve'), 'endpoint'], capture_output=True, text=True,
+                                  timeout=4, check=True).stdout.split()
+        except Exception:  # noqa: BLE001 — fall back to the dev defaults
+            d, p = str(Path.home() / '.kith' / 'serve'), '19224'
+        data, port = data or d, port or p
+    return Path(data), port
+
+
+def host_call(method, body):
+    """The host's local API (owner token over loopback), as the host's own CLI reaches it. None when it can't be reached."""
+    try:
+        data, port = host_endpoint()
+        token = (data / 'token').read_text().strip()
+        req = urllib.request.Request(f'http://127.0.0.1:{port}/api/{method}',
+                                     json.dumps(body).encode(), {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=4) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:   # a refusal with a body is an answer ("unknown thread"); a 404 is an older host
+        try:
+            return json.load(e)
+        except ValueError:
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def live_pid(entry):
+    pid = entry.get('pid')
+    try:
+        os.kill(pid, 0)
+        return pid if json.loads((claude_dir() / 'sessions' / f'{pid}.json').read_text()).get('sessionId') == entry.get('sessionId') else None
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def transcript_cwd(sid):
+    """The folder a Claude session ran in, from its transcript; None when there is no such session, '' when it names no folder."""
+    for t in (claude_dir() / 'projects').glob(f'*/{sid}.jsonl'):
+        try:
+            with open(t) as f:
+                for _, line in zip(range(60), f):
+                    try:
+                        c = json.loads(line).get('cwd')
+                    except ValueError:
+                        continue
+                    if c:
+                        return c
+        except OSError:
+            pass
+        return ''
+    return None
+
+
+def resolve(agent, thread):
+    die = lambda m: sys.exit(f'kith: {m}')
+    r = host_call('resolveThread', {'thread': thread})
+    if r and not r.get('error') and r.get('sessionId'):
+        if r.get('agent') != agent:
+            die(f'that thread belongs to {r.get("agent")}, not {agent}: kith {r.get("agent")} --resume {thread}')
+        if r.get('hostBusy'):
+            die('the app is answering in that thread right now; try again when it has finished')
+        sid, cwd = r['sessionId'], r.get('cwd') or ''
+    else:   # host not running, an older host, or not one of its threads: a raw Claude session id will do
+        sid, cwd = thread, transcript_cwd(thread)
+        if cwd is None:
+            die(f'unknown thread "{thread}"' + ('' if r is not None else ' (the Kith host is not running, so only a Claude session id can be resumed)'))
+    d = reg_dir()
+    try:
+        e = json.loads((d / f'{sid}.json').read_text()) if d else {}
+    except (OSError, ValueError):
+        e = {}
+    if e and live_pid(e):
+        die(f'that session is open in another terminal (pid {live_pid(e)}); close it first')
+    if e and e.get('agent') not in (None, agent):
+        die(f'that session belongs to {e["agent"]}, not {agent}')
+    cwd = cwd or e.get('cwd') or ''
+    if cwd and not os.path.isdir(cwd):
+        die(f'the session\'s folder {cwd} is gone')
+    q = lambda s: "'" + s.replace("'", "'\\''") + "'"
+    print(f'r_sid={q(sid)} r_cwd={q(cwd)} r_from={q(sid)}')
+
+
+def run(agent, cmd):
+    """Run cmd as a child of ours so the take-over note can follow it. The child gets the default signals back; we ignore ^C
+    (the child decides what it means), pass TERM/HUP on and return its exit code (128+n for a signal)."""
+    child = os.fork()
+    if not child:
+        for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            signal.signal(s, signal.SIG_DFL)
+        try:
+            os.execvp(cmd[0], cmd)
+        except OSError as e:
+            print(f'kith: cannot run {cmd[0]}: {e}', file=sys.stderr)
+            os._exit(127)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    for s in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(s, lambda n, _f: os.kill(child, n))
+    st = 0
+    while True:
+        try:
+            _, st = os.waitpid(child, 0)
+            break
+        except InterruptedError:
+            continue
+        except ChildProcessError:
+            break
+    try:
+        taken_note(agent, child)
+    except Exception as e:  # noqa: BLE001
+        print(f'kith-sessions: {e}', file=sys.stderr)
+    return os.waitstatus_to_exitcode(st)   # a signal death comes back as -n
+
+
+def taken_note(agent, pid):
+    d = reg_dir()
+    if not d or not d.is_dir():
+        return
+    for f in d.glob('*.json'):
+        try:
+            e = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        taken = f.with_suffix('.taken')
+        if e.get('pid') != pid or not taken.exists():
+            continue
+        # a .taken left by an earlier crash is older than this run
+        began = dt.datetime.strptime(e['startedAt'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc).timestamp()
+        fresh = taken.stat().st_mtime >= began
+        taken.unlink(missing_ok=True)
+        if fresh:
+            r = host_call('resolveThread', {'thread': e['sessionId']}) or {}
+            print(f'continued in Kith — get it back with: kith {agent} --resume {r.get("threadId") or e["sessionId"]}', file=sys.stderr)
+
+
+if __name__ == '__main__':
+    a = sys.argv[1:]
+    if a[:1] == ['record']:
+        record()
+    elif a[:1] == ['resolve'] and len(a) == 3:
+        resolve(a[1], a[2])
+    elif a[:1] == ['run'] and len(a) > 3 and a[2] == '--':
+        rc = run(a[1], a[3:])
+        sys.exit(128 - rc if rc < 0 else rc)
+    else:
+        sys.exit(__doc__)

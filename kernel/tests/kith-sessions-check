@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+# kith-sessions-check — continue anywhere, the kernel side: `kith <agent>` terminal sessions are recorded for the host
+# (bin/kith-sessions record), `kith <agent> --resume <thread>` picks one up, and a take-over leaves a note.
+#
+#   kernel/tests/kith-sessions-check     a few seconds; prints each check, exits 1 when one fails
+#
+# claude is a stub on PATH (it fires the SessionStart hook the way Claude Code does, then exits or waits); the host is a
+# stub http server on a free port. Nothing touches the real ~/.kith or ~/.claude.
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-sessions-check.XXXXXX")
+T=$(cd "$T" && pwd -P)
+trap 'kill $HOSTPID 2>/dev/null; rm -rf "$T"' EXIT
+export HOME=$T/home KITH_HOME=$T/kith KITH_STATE=$T/state CLAUDE_CONFIG_DIR=$T/claude
+unset KITH_PROJECT KITH_PERSON KITH_AGENT KITH_PERMISSION_MODE HQ_HOME HQ_STATE KITH_VIA KITH_HIDE_SESSION KITH_RESUME KITH_CLAUDE_ARGS
+mkdir -p "$HOME" "$KITH_STATE" "$KITH_HOME/agents/designer/role" "$CLAUDE_CONFIG_DIR/sessions" "$CLAUDE_CONFIG_DIR/projects/p" "$T/bin" "$T/work/a" "$T/serve"
+printf -- '---\nname: designer\ndescription: test agent\n---\nbody\n' > "$KITH_HOME/agents/designer/role/agent.md"
+SK=$KERNEL/bin/kith-sessions
+REG=$KITH_STATE/live/terminal
+fail=0
+ok() { echo "ok   $1"; }
+bad() { echo "FAIL $1${2:+: $2}"; fail=1; }
+is() { [[ $2 == "$3" ]] && ok "$1" || bad "$1" "got '$2', wanted '$3'"; }
+field() { python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get(sys.argv[2]); print("" if v is None else v)' "$1" "$2"; }
+
+hook() {   # hook <sid> <cwd> <source> [VAR=value ...] — the SessionStart hook, run from a child of a fake "claude" process
+  local sid=$1 cwd=$2 src=$3; shift 3
+  printf '{"session_id":"%s","transcript_path":"%s/%s.jsonl","cwd":"%s","source":"%s"}' "$sid" "$CLAUDE_CONFIG_DIR/projects/p" "$sid" "$cwd" "$src" |
+    env KITH_STATE=$KITH_STATE KITH_AGENT=designer KITH_TERMINAL_SESSION=1 "$@" python3 "$SK" record
+}
+
+# --- the listable / not listable matrix ---------------------------------------------------------------------------------
+hook s-ok "$T/work/a" startup;                                   [[ -f $REG/s-ok.json ]] && ok "listable: written" || bad "listable: written"
+hook s-oneshot "$T/work/a" startup KITH_TERMINAL_SESSION=;      [[ ! -e $REG/s-oneshot.json ]] && ok "-p one-shot (flag unset): nothing" || bad "-p one-shot writes"
+hook s-person "$T/work/a" startup KITH_PERSON=anna;             [[ ! -e $REG/s-person.json ]] && ok "KITH_PERSON: nothing" || bad "person writes"
+hook s-serve "$T/work/a" startup KITH_VIA=serve;                [[ ! -e $REG/s-serve.json ]] && ok "KITH_VIA=serve: nothing" || bad "via serve writes"
+hook s-term "$T/work/a" startup KITH_VIA=terminal;              [[ -f $REG/s-term.json ]] && ok "KITH_VIA=terminal: written" || bad "via terminal"
+hook s-hide "$T/work/a" startup KITH_HIDE_SESSION=1;            [[ ! -e $REG/s-hide.json ]] && ok "KITH_HIDE_SESSION: nothing" || bad "hide writes"
+hook s-wt "$T/x/.claude/worktrees/w1" startup;                  [[ ! -e $REG/s-wt.json ]] && ok "worktree cwd: nothing" || bad "worktree writes"
+hook s-noagent "$T/work/a" startup KITH_AGENT=;                 [[ ! -e $REG/s-noagent.json ]] && ok "no agent: nothing" || bad "no agent writes"
+printf '{"session_id":"s-nostate","cwd":"/x","source":"startup"}' | env -u KITH_STATE KITH_AGENT=designer KITH_TERMINAL_SESSION=1 python3 "$SK" record
+[[ $? == 0 ]] && ok "no KITH_STATE: skipped, exit 0" || bad "no KITH_STATE"
+printf 'not json' | python3 "$SK" record 2>/dev/null; [[ $? == 0 ]] && ok "bad stdin: exit 0" || bad "bad stdin"
+
+# --- the file: contract fields, modes, no temp files left ----------------------------------------------------------------
+f=$REG/s-ok.json
+is "sessionId" "$(field $f sessionId)" s-ok
+is "agent" "$(field $f agent)" designer
+is "cwd" "$(field $f cwd)" "$T/work/a"
+is "transcriptPath" "$(field $f transcriptPath)" "$CLAUDE_CONFIG_DIR/projects/p/s-ok.jsonl"
+is "source" "$(field $f source)" startup
+is "v" "$(field $f v)" 1
+is "resumedFrom null" "$(field $f resumedFrom)" ""
+is "file mode 0600" "$(stat -f %Lp $f)" 600
+is "dir mode 0700" "$(stat -f %Lp $REG)" 700
+is "no tmp files left" "$(ls -A $REG | grep -c '\.tmp$')" 0
+hook s-res "$T/work/a" resume KITH_RESUMED_FROM=abc KITH_PROJECT=proj
+is "resumedFrom" "$(field $REG/s-res.json resumedFrom)" abc
+is "project" "$(field $REG/s-res.json project)" proj
+# compact rewrites the same file and keeps when it began; a pid is found from the parent chain (the fake claude's sessions file)
+sleep 300 & SLEEPPID=$!
+printf '{"pid":%s,"sessionId":"s-pid"}' "$SLEEPPID" > "$CLAUDE_CONFIG_DIR/sessions/$SLEEPPID.json"
+hook s-pid "$T/work/a" startup; started=$(field $REG/s-pid.json startedAt)
+sleep 1.1; hook s-pid "$T/work/a" compact
+is "compact keeps startedAt" "$(field $REG/s-pid.json startedAt)" "$started"
+is "compact source" "$(field $REG/s-pid.json source)" compact
+kill $SLEEPPID 2>/dev/null; wait $SLEEPPID 2>/dev/null
+
+# --- the launcher: stub claude, stub host -------------------------------------------------------------------------------
+cat > "$T/bin/claude" <<'STUB'
+#!/usr/bin/env bash
+# plugin list: nothing; otherwise record how it was called, fire the SessionStart hook as Claude Code does, wait for a
+# marker if asked, then exit with STUB_EXIT.
+[[ $1 == plugin ]] && { echo '[]'; exit 0; }
+a=$*; printf '%s\n' "$PWD" "${a//$'\n'/ }" "${KITH_RESUMED_FROM:-}" "${KITH_TERMINAL_SESSION:-}" > "$STUB_OUT"
+sid=${STUB_SID:-stub-sid}
+printf '{"pid":%s,"sessionId":"%s"}' "$$" "$sid" > "$CLAUDE_CONFIG_DIR/sessions/$$.json"
+printf '{"session_id":"%s","transcript_path":"%s/p/%s.jsonl","cwd":"%s","source":"startup"}' "$sid" "$CLAUDE_CONFIG_DIR/projects" "$sid" "$PWD" |
+  python3 -c 'import json,sys,subprocess; h=json.load(sys.stdin); import os
+cmd=json.load(open(os.environ["SETTINGS"]))["hooks"]["SessionStart"][-1]["hooks"][0]["command"]
+subprocess.run(cmd, shell=True, input=json.dumps(h).encode())' 2>/dev/null
+[[ -n ${STUB_WAIT:-} ]] && { while [[ ! -e $STUB_WAIT ]]; do sleep 0.1; done; }
+exit ${STUB_EXIT:-0}
+STUB
+chmod +x "$T/bin/claude"
+export PATH=$T/bin:$PATH STUB_OUT=$T/stub.out
+# the settings file the launcher builds is in the run files, which are removed at exit: copy it from --settings when the stub runs
+mv "$T/bin/claude" "$T/bin/claude.real"
+cat > "$T/bin/claude" <<'WRAP'
+#!/usr/bin/env bash
+[[ $1 == plugin ]] && exec "$(dirname "$0")/claude.real" "$@"
+prev=""; for a in "$@"; do [[ $prev == --settings ]] && cp "$a" "$STUB_SETTINGS"; prev=$a; done
+export SETTINGS=$STUB_SETTINGS
+exec "$(dirname "$0")/claude.real" "$@"
+WRAP
+chmod +x "$T/bin/claude"
+export STUB_SETTINGS=$T/settings.json
+
+tty() { script -q /dev/null "$@" >"$T/tty.out" 2>&1 < <(sleep 20); }   # a terminal for the interactive run; stdout/err captured to a file
+
+# the SessionStart hook list keeps kith-cost first and adds kith-sessions
+rm -rf "$REG"; (cd "$T/work/a" && STUB_SID=run1 tty "$KERNEL/bin/kith" designer)
+cmds=$(python3 -c 'import json; print("|".join(h["hooks"][0]["command"].rsplit("/",1)[-1] for h in json.load(open("'$T/settings.json'"))["hooks"]["SessionStart"]))')
+[[ $cmds == *"kith-cost\" tag|kith-sessions\" record"* ]] && ok "settings: kith-cost tag then kith-sessions record" || bad "hook list" "$cmds"
+[[ -f $REG/run1.json ]] && ok "interactive run: registered" || bad "interactive run: registered"
+is "interactive: claude's cwd" "$(sed -n 1p $T/stub.out)" "$T/work/a"
+is "interactive: flag set for the hook" "$(sed -n 4p $T/stub.out)" 1
+is "no resume: no resumedFrom" "$(field $REG/run1.json resumedFrom)" ""
+is "pid is the claude process" "$(python3 -c 'import json;print("ok" if json.load(open("'$REG/run1.json'"))["pid"] else "none")')" ok
+
+# a one-shot never sets the flag and never registers
+rm -rf "$REG"; (cd "$T/work/a" && STUB_SID=once "$KERNEL/bin/kith" designer "say hi" >/dev/null 2>&1)
+is "-p one-shot: flag unset" "$(sed -n 4p $T/stub.out)" ""
+[[ ! -e $REG/once.json ]] && ok "-p one-shot: not registered" || bad "-p one-shot registered"
+
+# exit code passes through
+(cd "$T/work/a" && STUB_EXIT=7 tty "$KERNEL/bin/kith" designer); is "exit code passes through" "$?" 7
+
+# --resume flag parsing and the host
+cat > "$T/host.py" <<'PY'
+import json, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+ANSWERS = json.load(open(sys.argv[2]))
+class H(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        ok = self.headers.get("Authorization") == "Bearer tok" and self.path == "/api/resolveThread"
+        a = ANSWERS.get(body["thread"], {"error": "unknown thread"}) if ok else {"error": "no"}
+        self.send_response(200 if ok and "error" not in a else 400); self.end_headers(); self.wfile.write(json.dumps(a).encode())
+    def log_message(self, *a): pass
+HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+PY
+mkdir -p "$T/work/b"
+cat > "$T/answers.json" <<JSON
+{"th-1": {"botId":"b","threadId":"th-1","agent":"designer","sessionId":"app-sid","cwd":"$T/work/b","hostBusy":false},
+ "app-sid": {"botId":"b","threadId":"th-1","agent":"designer","sessionId":"app-sid","cwd":"$T/work/b","hostBusy":false},
+ "th-busy": {"botId":"b","threadId":"th-busy","agent":"designer","sessionId":"busy-sid","cwd":"$T/work/b","hostBusy":true},
+ "th-other": {"botId":"b","threadId":"th-other","agent":"coder","sessionId":"o-sid","cwd":"$T/work/b","hostBusy":false}}
+JSON
+PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
+echo tok > "$T/serve/token"
+python3 "$T/host.py" "$PORT" "$T/answers.json" & HOSTPID=$!
+sleep 0.5
+export KITH_SERVE_DIR=$T/serve KITH_SERVE_PORT=$PORT
+
+(cd "$T/work/a" && STUB_SID=app-sid tty "$KERNEL/bin/kith" designer --resume th-1); rc=$?
+is "--resume thread: exit" "$rc" 0
+is "--resume: runs in the thread's cwd" "$(sed -n 1p $T/stub.out)" "$T/work/b"
+[[ "$(sed -n 2p $T/stub.out)" == *"--resume app-sid"* ]] && ok "--resume: claude gets --resume <sessionId>" || bad "--resume args" "$(sed -n 2p $T/stub.out)"
+is "--resume: resumedFrom in the registry" "$(field $REG/app-sid.json resumedFrom)" app-sid
+err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume th-busy 2>&1 >/dev/null); rc=$?
+[[ $rc != 0 && $err == *"answering in that thread"* ]] && ok "--resume: refuses while the app is replying" || bad "hostBusy" "$rc $err"
+err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume th-other 2>&1 >/dev/null); rc=$?
+[[ $rc != 0 && $err == *"belongs to coder"* ]] && ok "--resume: refuses another agent's thread" || bad "agent mismatch" "$rc $err"
+err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume 2>&1 >/dev/null); rc=$?
+[[ $rc != 0 && $err == *"--resume needs"* ]] && ok "--resume without a value" || bad "no value" "$rc $err"
+err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume nope 2>&1 >/dev/null); rc=$?
+[[ $rc != 0 && $err == *"unknown thread"* ]] && ok "--resume: unknown thread" || bad "unknown" "$rc $err"
+# a session that is live in another terminal is refused (liveness: the pid runs and its sessions file names the session)
+sleep 300 & LIVE=$!
+printf '{"pid":%s,"sessionId":"app-sid"}' "$LIVE" > "$CLAUDE_CONFIG_DIR/sessions/$LIVE.json"
+python3 - "$REG/app-sid.json" "$LIVE" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); d["pid"] = int(sys.argv[2]); json.dump(d, open(sys.argv[1], "w"))
+PY
+err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume th-1 2>&1 >/dev/null); rc=$?
+[[ $rc != 0 && $err == *"open in another terminal"* ]] && ok "--resume: refuses a live session" || bad "live" "$rc $err"
+kill $LIVE 2>/dev/null; wait $LIVE 2>/dev/null
+
+# host not running: a raw Claude session id found on disk works, anything else errors
+kill $HOSTPID 2>/dev/null; wait $HOSTPID 2>/dev/null
+printf '{"cwd":"%s","type":"user"}\n' "$T/work/b" > "$CLAUDE_CONFIG_DIR/projects/p/raw-sid.jsonl"
+(cd "$T/work/a" && STUB_SID=raw-sid tty "$KERNEL/bin/kith" designer --resume raw-sid); rc=$?
+is "host down: raw session id resumes" "$rc" 0
+is "host down: in the transcript's cwd" "$(sed -n 1p $T/stub.out)" "$T/work/b"
+err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume th-1 2>&1 >/dev/null); rc=$?
+[[ $rc != 0 && $err == *"host is not running"* ]] && ok "host down: a thread id errors clearly" || bad "host down thread" "$rc $err"
+# KITH_RESUME / KITH_CLAUDE_ARGS still work on their own
+(cd "$T/work/a" && KITH_CLAUDE_ARGS="--output-format json" "$KERNEL/bin/kith" designer "hi" >/dev/null 2>&1)
+[[ "$(sed -n 2p $T/stub.out)" == *"--output-format json"* ]] && ok "KITH_CLAUDE_ARGS still passed" || bad "KITH_CLAUDE_ARGS"
+(cd "$T/work/a" && KITH_RESUME=old-sid "$KERNEL/bin/kith" designer "hi" >/dev/null 2>&1)
+[[ "$(sed -n 2p $T/stub.out)" == *"--resume old-sid"* ]] && ok "KITH_RESUME still passed" || bad "KITH_RESUME"
+
+# --- the take-over note --------------------------------------------------------------------------------------------------
+note() { sed 's/\r//' "$T/tty.out" | grep -c "continued in Kith"; }
+host_up() { python3 "$T/host.py" "$PORT" "$T/answers.json" & HOSTPID=$!; sleep 0.5; }
+host_up
+# the host takes the session over while claude runs: it writes <sid>.taken, then claude ends
+rm -f "$T/go" "$REG/app-sid.json"
+(cd "$T/work/a" && STUB_SID=app-sid STUB_WAIT=$T/go tty "$KERNEL/bin/kith" designer) & BG=$!
+for _ in $(seq 50); do [[ -f $REG/app-sid.json ]] && [[ -n $(field $REG/app-sid.json startedAt) ]] && grep -q "\"pid\": *[0-9]" $REG/app-sid.json && break; sleep 0.2; done
+sleep 1; : > "$REG/app-sid.taken"; : > "$T/go"; wait $BG
+is "taken: note printed once" "$(note)" 1
+grep -q "kith designer --resume th-1" "$T/tty.out" && ok "taken: note names the thread id from the host" || bad "taken: thread id" "$(cat $T/tty.out)"
+[[ ! -e $REG/app-sid.taken ]] && ok "taken: file deleted" || bad "taken file kept"
+# no .taken: no note
+(cd "$T/work/a" && STUB_SID=app-sid tty "$KERNEL/bin/kith" designer); is "no .taken: no note" "$(note)" 0
+# a .taken older than the session's start (left by a crash) is removed silently
+: > "$REG/app-sid.taken"; touch -t 202001010000 "$REG/app-sid.taken"
+(cd "$T/work/a" && STUB_SID=app-sid tty "$KERNEL/bin/kith" designer)
+is "stale .taken: no note" "$(note)" 0
+[[ ! -e $REG/app-sid.taken ]] && ok "stale .taken: removed" || bad "stale .taken kept"
+# host down: the note falls back to the session id
+kill $HOSTPID 2>/dev/null; wait $HOSTPID 2>/dev/null
+rm -f "$T/go" "$REG/app-sid.json"
+(cd "$T/work/a" && STUB_SID=fb-sid STUB_WAIT=$T/go tty "$KERNEL/bin/kith" designer) & BG=$!
+for _ in $(seq 50); do [[ -f $REG/fb-sid.json ]] && break; sleep 0.2; done
+sleep 1; : > "$REG/fb-sid.taken"; : > "$T/go"; wait $BG
+grep -q "kith designer --resume fb-sid" "$T/tty.out" && ok "taken: host down, note falls back to the session id" || bad "taken fallback" "$(cat $T/tty.out)"
+
+# host location follows kith-serve: dev 19224/serve, packaged main 19225/serve-main; KITH_SERVE_* still override
+PK=$T/pk; mkdir -p "$PK/a/b/bin" "$PK/home/.kith/serve-main"
+cp "$KERNEL/bin/kith-serve" "$KERNEL/bin/kith-sessions" "$PK/a/b/bin/"; echo main > "$PK/a/env"; echo maintok > "$PK/home/.kith/serve-main/token"
+probe() {   # probe [VAR=value ...] — the url and token host_call would use, with urlopen stubbed
+  env -u KITH_SERVE_DIR -u KITH_SERVE_PORT HOME=$PK/home "$@" python3 - "$PK/a/b/bin/kith-sessions" <<'PY'
+import importlib.machinery, importlib.util, sys, urllib.request
+l = importlib.machinery.SourceFileLoader('ks', sys.argv[1]); m = importlib.util.module_from_spec(importlib.util.spec_from_loader('ks', l)); l.exec_module(m)
+def fake(req, timeout=0): print(req.full_url, req.get_header('Authorization')); raise OSError
+urllib.request.urlopen = fake
+m.host_call('resolveThread', {})
+PY
+}
+is "main env: port 19225 and serve-main token" "$(probe)" "http://127.0.0.1:19225/api/resolveThread Bearer maintok"
+is "main env: KITH_SERVE_PORT overrides the port" "$(probe KITH_SERVE_PORT=4242)" "http://127.0.0.1:4242/api/resolveThread Bearer maintok"
+
+exit $fail
