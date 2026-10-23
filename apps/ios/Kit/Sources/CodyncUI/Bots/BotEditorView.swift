@@ -90,6 +90,8 @@ struct BotSettingsForm: View {
     var part: FormPart = .all
     /// An hq bot's details sheet shows kith's copy of some facts: those cards go (`BotSections`).
     var shown = BotSections.all
+    /// An hq bot's kith details: its permission, model, effort and Fast mode come from hq (`HqSettingsRows`).
+    var kith: KithInfoStore?
     @Environment(BotStore.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pickingFolder = false
@@ -126,7 +128,7 @@ struct BotSettingsForm: View {
             if shown.instructions { CardSection("Instructions") { instructions } }
             CardSection("Agent") {
                 if shown.backendPicker { agentPicker }
-                modelPicker
+                settingsRows
             }
             if let error {
                 Text(error).font(.footnote).foregroundStyle(Palette.danger)
@@ -160,6 +162,11 @@ struct BotSettingsForm: View {
                     .fieldBox()
             }
         }
+    }
+
+    /// hq is the one source of an hq bot's settings: its rows replace Codync's own controls.
+    @ViewBuilder private var settingsRows: some View {
+        if let kith, !shown.codyncSettings { HqSettingsRows(store: kith) } else { modelPicker }
     }
 
     private var modelPicker: some View {
@@ -232,7 +239,7 @@ struct BotSettingsForm: View {
                 }
                 if part == .all {
                     agentPicker
-                    modelPicker
+                    settingsRows
                 }
                 ValueRow("Workspace", detail: draft.cwd.isEmpty
                          ? "This bot has its own space for files. It can work in other folders when you ask."
@@ -274,10 +281,12 @@ struct BotSettingsForm: View {
                         }
                     }
                 }
-                ValueRow("Permissions", detail: draft.permission == "auto"
-                         ? "Tool requests are approved automatically. Your agent's own settings (like Claude Code's permission rules) still apply."
-                         : "You'll get an approval card and a notification whenever the agent asks.") {
-                    ChoicePicker(selection: $draft.permission, options: [("ask", "Ask me"), ("auto", "Approve automatically")])
+                if shown.codyncSettings {
+                    ValueRow("Permissions", detail: draft.permission == "auto"
+                             ? "Tool requests are approved automatically. Your agent's own settings (like Claude Code's permission rules) still apply."
+                             : "You'll get an approval card and a notification whenever the agent asks.") {
+                        ChoicePicker(selection: $draft.permission, options: [("ask", "Ask me"), ("auto", "Approve automatically")])
+                    }
                 }
             }
 

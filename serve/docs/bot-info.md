@@ -71,3 +71,20 @@ fails, `hits` is empty and `error` says why. Same 400 for an unknown or non-kith
 Each hit gets `"openable": bool`, added by the host: true only when `kithMemoryFile` would accept the hit's `path`.
 Hits in the memory folder have relative paths. Learned-skill and shared-file hits keep the absolute path kith gives
 and are `openable: false`; show them without a link to open.
+
+## `kithSetPermission { botId, mode }`
+
+```json
+{ "info": { ...info-json... } | null, "error": "why", "fetchedAt": 1760000000000 }
+```
+
+The one write of this page, and the only hq setting an app can change for a kith bot: runs
+`kith <agent> set permission <mode>` (this Mac's permission mode for the agent, kept in `~/.kith/settings.json`; an empty
+`mode` forgets it) and answers with the agent's info read back from kith, so the app shows hq's value, not its own pick.
+Every entry point of that agent (this app, Discord, Telegram) uses it from its next turn; a turn running now keeps its
+mode. kith's refusal (a mode it doesn't know) is HTTP 400 with its text, and hq keeps what it had. A paired phone with
+the Control scope may call it, as it may `updateBot`. Same 400 for an unknown or non-kith bot as above.
+
+For a kith bot the host never stores or passes its own model, effort, Fast mode or permission (`updateBot` leaves them
+as they were, `kith <agent> --launch-json` is called without `-m`, `-e` or `--permission-mode`): hq is the source.
+Old bots may still carry a stale copy in the host's config; it is ignored, not cleared.

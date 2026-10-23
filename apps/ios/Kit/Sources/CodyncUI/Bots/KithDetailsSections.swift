@@ -264,9 +264,9 @@ struct KithDetailsSections: View {
     // MARK: model, capabilities
 
     @ViewBuilder private func model(_ info: KithInfo) -> some View {
-        let rows: [(String, String?)] = [("Model", info.model), ("Effort", info.effort), ("Permission", info.permissionMode),
-                                         ("Harness", info.harness)]
-        KithCard(title: "Model & permissions") {
+        // Model, effort and permission are in the bot's settings (hq-backed rows, once); the harness is what is left here.
+        let rows: [(String, String?)] = [("Harness", info.harness)]
+        KithCard(title: "Harness") {
             ForEach(rows.filter { $0.1 != nil }, id: \.0) { label, value in
                 HStack {
                     Text(label).foregroundStyle(Palette.secondary)
@@ -274,9 +274,6 @@ struct KithDetailsSections: View {
                     Text(value ?? "").foregroundStyle(Palette.text)
                 }
                 .font(.subheadline)
-            }
-            if info.errors["permission_mode"] != nil {
-                Text("Couldn't read the permission mode").font(.footnote).foregroundStyle(Palette.secondary)
             }
             Text("Set in the agent's package").font(.footnote).foregroundStyle(Palette.secondary)
         }

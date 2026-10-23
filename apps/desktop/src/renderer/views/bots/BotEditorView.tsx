@@ -20,6 +20,7 @@ import { FormSheet } from '../marketplace/pieces'
 import { SkillSheet, type SkillRef } from '../marketplace/SkillSheet'
 import { AnchoredPanel, AutoTextArea, Field, SwitchRow } from './parts'
 import { useKithInfo } from './kith/use-kith'
+import { HqSettings } from './kith/HqSettings'
 import './bots.css'
 
 /** Create or edit a bot in a modal: the settings form plus Close / Save. */
@@ -135,7 +136,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
   // An hq bot's Details and Settings tabs sit beside the Kith sections, which show the same facts: those cards go.
   // The editor sheet has no Kith sections, so it keeps everything.
   const kith = useKithInfo(draft.id ?? '')
-  const shown = botSections(saved?.hqAgent, part === 'all' || kith?.unsupported ? null : (kith?.info ?? null))
+  const shown = botSections(saved?.hqAgent, part === 'all' || kith?.unsupported ? null : (kith?.info ?? null), !kith || kith.unsupported)
   const connectors = plugins?.connectors ?? []
   const skills = plugins?.skills ?? []
 
@@ -144,7 +145,8 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
       <AutoTextArea className="field-box" value={draft.description} placeholder="e.g. Reviews PRs. Never pushes without asking." minRows={3} maxRows={8} onChange={(v) => set('description', v)} />
     </Field>
   )
-  const model = [
+  // hq is the one source of an hq bot's permission, model, effort and Fast mode: one set of rows replaces Codync's own.
+  const model = kith && !shown.codyncSettings ? [<HqSettings key="hq" kith={kith} />] : [
     <AgentModelPicker key="model" backend={draft.backend} models={models} selection={draft.model} onChange={setModel} options={draft.modelOptions ?? {}} onOptionsChange={setModelOptions} />,
     (draft.backend !== 'custom' && models.catalog?.fastMode) || draft.fastMode || (saved?.backend === draft.backend && fastModeShown(saved)) ? (
       // Shown while the agent offers it (its model list, or the bot's own sessions), or while it's on.
@@ -277,7 +279,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
               </DropdownMenu>
             </ValueRow>
           ) : null}
-          <ValueRow
+          {shown.codyncSettings ? <ValueRow
             label="Permissions"
             detail={
               draft.permission === 'auto'
@@ -293,7 +295,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
               ]}
               onChange={(id) => set('permission', id)}
             />
-          </ValueRow>
+          </ValueRow> : null}
         </CardSection>
 
         <CardSection title="Activity">

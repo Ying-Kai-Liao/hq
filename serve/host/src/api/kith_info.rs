@@ -1,7 +1,8 @@
 //! What a kith bot is, for its detail page: the agent's `--info-json` passed through, a read of one file of its
 //! memory folder, and a search of that memory. The contract is in `serve/docs/bot-info.md` (beside `place-folders.md`,
 //! which `folders.rs` points to).
-//! Read-only, so a paired phone may call all three (none is in `LOCAL_ONLY`). Not Kith's own bot memory (`memory`).
+//! The reads are open to a paired phone (none is in `LOCAL_ONLY`); `kithSetPermission` writes through to hq, like `updateBot`
+//! it needs the Control scope. Not Kith's own bot memory (`memory`).
 
 use super::str_arg;
 use crate::agent::hq;

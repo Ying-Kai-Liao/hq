@@ -82,6 +82,35 @@ final class KithInfoStore {
         if inflight == task { inflight = nil }
     }
 
+    /// Why the last permission change failed; the old value stays shown.
+    private(set) var permissionError: String?
+    private(set) var savingPermission = false
+
+    /// The host has no `kithInfo` (or couldn't be reached): the kith sections and hq-backed settings stay hidden.
+    var unavailable: Bool {
+        if case .unavailable = phase { return true }
+        return false
+    }
+
+    /// Writes the mode through to hq. What shows afterwards is hq's own answer, read back, never the pick itself.
+    func setPermission(_ mode: String) async {
+        guard !savingPermission else { return }
+        savingPermission = true
+        permissionError = nil
+        defer { savingPermission = false }
+        do {
+            let response = try await client().kithSetPermission(botId: botId, mode: mode)
+            if response.info != nil {
+                refreshError = nil
+                phase = .loaded(response)
+            } else {
+                permissionError = response.error ?? "kith has no answer"
+            }
+        } catch {
+            permissionError = error.localizedDescription
+        }
+    }
+
     func search(_ query: String) async throws -> KithSearchResult {
         try await client().kithMemorySearch(botId: botId, query: query, limit: 30)
     }

@@ -29,7 +29,7 @@ struct BotDetailsView: View {
     /// A kith bot's details (serve/docs/bot-info.md); nil for any other bot. Kept while `bot` events arrive.
     @State private var kith: KithInfoStore?
     /// Cards that kith's sections repeat go once kith has the fact on screen.
-    private var shown: BotSections { BotSections(hqAgent: bot?.hqAgent, info: kith?.info) }
+    private var shown: BotSections { BotSections(hqAgent: bot?.hqAgent, info: kith?.info, unsupportedHost: kith?.unavailable ?? true) }
 
     init(botId: String, request: DetailsRequest) {
         self.botId = botId
@@ -121,7 +121,7 @@ struct BotDetailsView: View {
             VStack(alignment: .leading, spacing: 28) {
                 if let kith { KithDetailsSections(store: kith) }
                 if let draft = Binding($draft) {
-                    BotSettingsForm(draft: draft, error: saveError, scrolls: false, part: .often, shown: shown)
+                    BotSettingsForm(draft: draft, error: saveError, scrolls: false, part: .often, shown: shown, kith: kith)
                 }
                 if let screen = model.screen, let bot {
                     VStack(alignment: .leading, spacing: 10) {
@@ -145,7 +145,7 @@ struct BotDetailsView: View {
             }
         case .settings:
             if let draft = Binding($draft) {
-                BotSettingsForm(draft: draft, error: saveError, scrolls: false, part: .rarely, shown: shown)
+                BotSettingsForm(draft: draft, error: saveError, scrolls: false, part: .rarely, shown: shown, kith: kith)
             }
         }
     }

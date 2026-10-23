@@ -173,6 +173,11 @@ export class HostClient {
     return parseKithInfoResult(await this.call('kithInfo', { botId, ...(refresh ? { refresh: true } : {}) }, 60_000))
   }
 
+  /** Writes an hq bot's permission mode through to hq (`kith <agent> set permission`) and returns hq's info read back. */
+  async kithSetPermission(botId: string, mode: string): Promise<KithInfoResult> {
+    return parseKithInfoResult(await this.call('kithSetPermission', { botId, mode }, 60_000))
+  }
+
   /** One file of the agent's memory folder (`path` relative to it); the host reads the first 512 KB. */
   async kithMemoryFile(botId: string, path: string): Promise<KithMemoryFile> {
     return parseMemoryFile(await this.call('kithMemoryFile', { botId, path }, 30_000))
