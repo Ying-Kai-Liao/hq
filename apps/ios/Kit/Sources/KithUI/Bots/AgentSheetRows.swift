@@ -51,14 +51,14 @@ struct SheetRow<Trailing: View>: View {
 }
 
 extension SheetRow where Trailing == EmptyView {
-    init(icon: String? = nil, title: String, detail: String? = nil, chevron: Bool = false, accent: Bool = false) {
-        self.init(icon: icon, title: title, detail: detail, chevron: chevron, accent: accent) { EmptyView() }
+    init(icon: String? = nil, title: String, detail: String? = nil, chevron: Bool = false, open: Bool? = nil, accent: Bool = false) {
+        self.init(icon: icon, title: title, detail: detail, chevron: chevron, open: open, accent: accent) { EmptyView() }
     }
 }
 
 extension SheetRow where Trailing == Text {
-    init(icon: String? = nil, title: String, detail: String? = nil, value: String, chevron: Bool = false) {
-        self.init(icon: icon, title: title, detail: detail, chevron: chevron) { Text(value) }
+    init(icon: String? = nil, title: String, detail: String? = nil, value: String, chevron: Bool = false, open: Bool? = nil) {
+        self.init(icon: icon, title: title, detail: detail, chevron: chevron, open: open) { Text(value) }
     }
 }
 
