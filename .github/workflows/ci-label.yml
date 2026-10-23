@@ -1,0 +1,25 @@
+name: ci-label
+
+# Adding the ci:full label runs ci.yml's heavy tier by dispatching it on the PR branch (a workflow_dispatch run
+# is heavy). This is a separate workflow so that label events never start ci.yml itself, which would leave a skipped
+# check named `ci` that Mergify reads as the latest result. Its single job is not named `ci`.
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    if: ${{ github.event.label.name == 'ci:full' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch the full ci run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: gh workflow run ci.yml --ref "$BRANCH"

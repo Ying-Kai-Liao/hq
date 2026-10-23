@@ -3,7 +3,7 @@ name: ci
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   workflow_dispatch:
@@ -11,15 +11,14 @@ on:
   merge_group:
     types: [checks_requested]
 
-# Adding or removing a label other than ci:full (e.g. `queue`) starts a run that does nothing: `changes` and `ci`
-# are skipped below, and such runs get a group of their own that never cancels. Otherwise the label event would
-# cancel the real run on the same sha, and its `ci` job would report a failure that GitHub keeps blocking on.
+# Label events don't start this workflow (ci-label.yml dispatches it for ci:full), so a label such as `queue` never
+# creates a run, and never a skipped `ci` check that Mergify would read as the latest result.
 # A PR gets one group per ref, so a re-push cancels the older run. Every other run (push to main,
 # merge_group, workflow_dispatch) gets its own group keyed by sha, so merges never cancel each other. GitHub keeps
 # only one pending run per group, so sharing a group for main would drop the older queued run.
 concurrency:
-  group: ci-${{ (github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'ci:full') && format('noise-{0}', github.run_id) || github.event_name == 'pull_request' && format('{0}-{1}', github.workflow, github.ref) || format('{0}-{1}-{2}', github.workflow, github.sha, github.run_id) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'labeled' && github.event.action != 'unlabeled' || github.event.label.name == 'ci:full' }}
+  group: ci-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.workflow, github.ref) || format('{0}-{1}-{2}', github.workflow, github.sha, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -32,7 +31,6 @@ jobs:
   # Path filtering happens here, not in `on.paths`, so the `ci` job below always
   # reports and can be the one required check.
   changes:
-    if: ${{ !(github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'ci:full') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # dorny/paths-filter lists a pull request's files through the API.
@@ -580,10 +578,9 @@ jobs:
 
   # The single check to require: passes when every needed job passed or was
   # skipped by the filter, fails on any failure or cancellation.
-  # Skipped when the run itself is cancelled (a re-push superseded it) or is label noise, so those runs report no
-  # `ci` at all. A job cancelled or timed out inside a live run still fails it through RESULTS.
+  # Skipped when the run itself is cancelled (a re-push superseded it), so it reports no failing `ci`. A job cancelled or timed out inside a live run still fails it through RESULTS.
   ci:
-    if: ${{ !cancelled() && !(github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'ci:full') }}
+    if: ${{ !cancelled() }}
     needs: [changes, kernel, host, host-build, host-test, host-e2e, host-crates, cloud, licenses, thread-writers, relay, ios, desktop, desktop-js, desktop-relay-e2e, guest-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 5
