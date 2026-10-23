@@ -3,11 +3,11 @@ name: ci
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled, auto_merge_enabled]
   push:
     branches: [main]
   workflow_dispatch:
-  # The merge queue tests each batch on a temporary branch; every job the filters select runs in full there.
+  # Kept for a possible move to an org-owned repo (a merge queue needs one); it never fires on this repo today.
   merge_group:
     types: [checks_requested]
 
@@ -36,10 +36,14 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      # The heavy tier (macOS builds, all e2e, guest-linux) runs on everything but a pull request, and on a ready
-      # (non-draft) pull request that carries the ci:full label. pull_request is empty on merge_group, so it is
-      # only read when the event is a pull request.
-      heavy: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false && contains(github.event.pull_request.labels.*.name, 'ci:full')) }}
+      # The heavy tier (macOS builds, all e2e, guest-linux) runs on everything but a pull request. A ready
+      # (non-draft) pull request runs it when it carries the ci:full label or has auto-merge on (the
+      # auto_merge_enabled event itself counts, in case the payload's auto_merge is not set yet). pull_request is
+      # empty on other events, so it is only read when the event is a pull request.
+      # Once auto-merge is on, every later run on the PR is heavy too (auto_merge != null), whatever its trigger:
+      # a push, another label, a ready_for_review. So a heavy run cancelled by concurrency is always replaced by
+      # a heavy one, and the head sha ends up with a real `ci`.
+      heavy: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false && (contains(github.event.pull_request.labels.*.name, 'ci:full') || github.event.pull_request.auto_merge != null || github.event.action == 'auto_merge_enabled')) }}
       kernel: ${{ github.event_name == 'merge_group' || steps.f.outputs.kernel }}
       host: ${{ github.event_name == 'merge_group' || steps.h.outputs.host }}
       host_core: ${{ github.event_name == 'merge_group' || steps.h.outputs.host_core }}
@@ -574,7 +578,11 @@ jobs:
 
   # The single check to require: passes when every needed job passed or was
   # skipped by the filter, fails on any failure or cancellation.
+  # The check is named `ci` only on full runs. A cheap pull request run names it `ci-fast`, so the required `ci`
+  # stays pending and `gh pr merge --auto` waits for a full run instead of merging on a cheap pass. Nothing else
+  # may produce a check called `ci`.
   ci:
+    name: ${{ needs.changes.outputs.heavy == 'true' && 'ci' || 'ci-fast' }}
     if: always()
     needs: [changes, kernel, host, host-build, host-test, host-e2e, host-crates, cloud, licenses, thread-writers, relay, ios, desktop, desktop-js, desktop-relay-e2e, guest-linux]
     runs-on: ubuntu-latest
