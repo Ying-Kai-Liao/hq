@@ -127,6 +127,24 @@ test('a helper in the owner session has its own permissions; in a guest session 
   expect(guest.registered[0].hooks).toBeUndefined()
 })
 
+test('KITH_OWNER decides: an owner run whose KITH_PERSON names the owner still gets the helper permissions', async () => {
+  const owner = setup({ KITH_PERSON: 'kai', KITH_OWNER: '1' })
+  await owner.fire('session.start', { cwd: owner.root })
+  expect(owner.registered[0].permissionMode).toBe('default')
+  const guest = setup({ KITH_PERSON: 'guest', KITH_OWNER: '0' })
+  await guest.fire('session.start', { cwd: guest.root })
+  expect(guest.registered[0].hooks).toBeUndefined()
+})
+
+test('mcp__kith__invoke returns at SubagentStop when no turn.complete came', async () => {
+  const t = setup()
+  await t.fire('session.start', { cwd: t.root })
+  const pending = t.handlers['tool.call'][0](t.$, { agent: 'builder', task: 'go' })
+  await new Promise((r) => setTimeout(r, 20))
+  await t.fire('classic.SubagentStop', { agent_id: 'agent-1', last_assistant_message: 'stopped report' })
+  expect((await pending).result).toBe('stopped report')
+})
+
 test('kith-helper-allow allows writes under its folders only, symlinks and .. resolved', () => {
   const root = mkdtempSync(join(tmpdir(), 'kith-allow-'))
   mkdirSync(join(root, 'life/memory'), { recursive: true })

@@ -188,7 +188,9 @@ export const register: Register = (on, options) => {
     // A subagent inherits the caller's permissions. For the owner's session the helper gets its own role's instead
     // (its permission mode, and its own memory, files and notes writable). A run for anyone else (KITH_PERSON, set by
     // bin/kith) stays capped by the caller: nothing is widened for a guest.
-    const isOwner = !(await $.env.get('KITH_PERSON'))
+    // bin/kith says whether the run is the owner's (KITH_OWNER; KITH_PERSON can name the owner too); without it, no person means owner.
+    const flag = await $.env.get('KITH_OWNER')
+    const isOwner = flag !== undefined && flag !== '' ? flag === '1' : !(await $.env.get('KITH_PERSON'))
     for (const [name, dir] of Object.entries(installed)) {
       const file = `${dir}/agent.md`
       if (!(await $.fs.exists(file))) continue
@@ -321,6 +323,12 @@ export const register: Register = (on, options) => {
   // note from its last message. The project is resolved now, not at spawn (a rename in between), and a helper resumed with
   // SendMessage is checked against its resume, not its first start.
   on('classic.SubagentStop', async ($, e, next) => {
+    // A helper that stops without a turn.complete still answers a waiting invoke.
+    const waiter = waiting.get(e.agent_id)
+    if (waiter) {
+      waiting.delete(e.agent_id)
+      waiter(e.last_assistant_message ?? '')
+    }
     const run = spawned.get(e.agent_id)
     if (!run) return next(e)
     const kith = await kithRoot($, (options.kith_path || options.hq_path))
