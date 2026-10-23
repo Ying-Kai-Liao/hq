@@ -937,6 +937,10 @@ fn a_real_bot_json_loses_where_it_works() {
     let row = w.hub.store.bot(&ids.bots[0]).unwrap().unwrap();
     let ev = json!({"type": "bot", "bot": w.hub.bot_json(&row)});
     assert!(ev.to_string().contains("/Users/secret-"), "the fixture must carry a path or this checks nothing");
+    // The owner of the computer hears an invitee's chat only as a permission prompt.
+    assert!(roles::event_for(&w.hub.store, None, ev.clone()).is_none(), "an invitee's chat reached the owner");
+    let say = json!({"type": "entry", "entry": {"botId": ids.bots[0], "kind": "agent"}});
+    assert!(roles::event_for(&w.hub.store, None, say).is_none(), "an invitee's words reached the owner");
     let seen = roles::event_for(&w.hub.store, Some("p1"), ev).expect("their own chat reaches them");
     assert!(!seen.to_string().contains("/Users/secret-"), "{seen}");
 }

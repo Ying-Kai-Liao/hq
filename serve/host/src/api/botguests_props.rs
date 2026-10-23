@@ -656,9 +656,18 @@ fn a_bot_never_has_more_than_its_owner_holds_now() {
             let outcome = rt.block_on(async {
                 // Kai's own bot first, so a case never passes by refusing everything.
                 state.create(0, 3).await?;
+                // And one of each person's, so the cascades below always have something to cut.
+                state.create(1, 3).await?;
+                state.create(2, 1).await?;
                 state.check_all().await?;
                 for o in &ops {
                     state.step(o).await?;
+                    state.check_all().await?;
+                }
+                state.sweep().await?;
+                // Then, whatever came before: one person loses an agent, the other is removed.
+                for o in [Op::SetAccess { person: 2, roles: [0, 0] }, Op::Remove { person: 1 }] {
+                    state.step(&o).await?;
                     state.check_all().await?;
                 }
                 state.sweep().await?;
