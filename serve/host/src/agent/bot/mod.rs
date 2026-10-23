@@ -193,6 +193,7 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig, home: Lane, tidier: mpsc::UnboundedS
         tidier,
         turn_text: None,
         turn_entries: Vec::new(),
+        project_turn: None,
         turn_memory_revision: String::new(),
         announce: None,
         turn: None,
@@ -385,6 +386,9 @@ struct Actor {
     turn_text: Option<String>,
     /// The user messages this turn answers (none when it isn't the user's).
     turn_entries: Vec<String>,
+    /// The project set this turn runs under and what the host owes the agent about it (see `agent::project`). None
+    /// for a turn that isn't a person's message to an hq agent.
+    project_turn: Option<hq::ProjectTurn>,
     /// The memory change this turn's notice told the agent about (see `memory::change_notice`).
     turn_memory_revision: String,
     /// A profile update this turn carried, recorded once the agent got it.

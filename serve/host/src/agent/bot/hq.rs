@@ -7,8 +7,9 @@ use super::launch::{launch_commands, start_agent};
 use super::{Actor, NoticeStyle};
 use crate::agent::acp::Incoming;
 use crate::agent::backups::{Backups, ChainEntry, NoAccount, Pick};
-use crate::agent::{folder, hq};
+use crate::agent::{folder, hq, project};
 use crate::hub::Hub;
+use crate::store::{EntryKind, Lane};
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -55,6 +56,15 @@ fn process_env(saved: Vec<(String, String)>, launch: &hq::Launch, backup: bool) 
     env
 }
 
+/// The project set of a turn and what changed with it.
+#[derive(Default)]
+pub(super) struct ProjectTurn {
+    pub projects: Vec<String>,
+    /// What the agent is to be told with this turn: the set that became current (empty: no project any more).
+    pub say: Option<Vec<String>>,
+    pub change: Option<project::Change>,
+}
+
 impl Actor {
     pub(super) fn is_hq(&self) -> bool {
         self.cfg.is_hq()
@@ -74,7 +84,71 @@ impl Actor {
         }
         let agent = self.cfg.hq_agent.clone()?;
         let bin = tokio::task::spawn_blocking(hq::bin).await.ok().flatten()?;
-        hq::recall_for_first_message(&bin, &agent, self.cfg.person.as_deref(), &self.run_room(), text).await
+        let project = self.project_turn.as_ref().and_then(|t| t.projects.first()).map(String::as_str);
+        hq::recall_for_first_message(&bin, &agent, self.cfg.person.as_deref(), &self.run_room(), text, project).await
+    }
+
+    /// Decides the project set of a person's message (see `agent::project`) and saves it. A pinned project
+    /// (`BotConfig.project`) wins and is never a change; so does nothing for a group, whose lane has more than one
+    /// person's words in it.
+    pub(super) async fn infer_project(&self, lane: &Lane, entry_ids: &[String], text: &str) -> Option<ProjectTurn> {
+        if let Some(pin) = &self.cfg.project {
+            return Some(ProjectTurn { projects: vec![pin.clone()], ..ProjectTurn::default() });
+        }
+        if self.cfg.is_group() {
+            return None;
+        }
+        // Only projects the asker may know of: an invitee's are those shared with them, a bot guest's none.
+        let person = self.cfg.person.clone();
+        let shared = person.as_deref().and_then(|p| self.hub.store.person(p)).map(|p| p.projects).unwrap_or_default();
+        let known = project::allowed(hq::projects_soon().await, person.as_deref(), &shared);
+        let recent = self.recent_user_texts(lane, entry_ids);
+        let (hub, lane, text) = (self.hub.clone(), lane.clone(), text.to_owned());
+        let entry = entry_ids.last().cloned().unwrap_or_default();
+        let d = tokio::task::spawn_blocking(move || project::infer(&hub.store, &lane, &known, &entry, &text, &recent))
+            .await
+            .ok()?;
+        Some(ProjectTurn { projects: d.state.projects, say: d.say, change: d.change })
+    }
+
+    /// The person's last two messages in `lane` before this turn's, oldest first.
+    fn recent_user_texts(&self, lane: &Lane, this_turn: &[String]) -> Vec<String> {
+        let rows = match &lane.thread {
+            Some(root) => self.hub.store.thread(&lane.chat, root, 8),
+            None => self.hub.store.history(&lane.chat, i64::MAX, 8),
+        }
+        .unwrap_or_default();
+        let mut texts: Vec<String> = rows
+            .iter()
+            .filter(|e| e.kind == EntryKind::User.as_str() && !this_turn.contains(&e.id))
+            .filter_map(|e| e.data["text"].as_str().map(str::to_owned))
+            .collect();
+        texts.drain(..texts.len().saturating_sub(2));
+        texts
+    }
+
+    /// The divider for a change of this turn's project set: "Now on <project>", in the lane, with the move spelled out
+    /// for the apps in `projectChange`. The first inference of a thread is a label, not a change.
+    pub(super) fn project_divider(&self) {
+        let Some(change) = self.project_turn.as_ref().and_then(|t| t.change.as_ref()) else { return };
+        let data = json!({
+            "text": project::divider_text(&change.to),
+            "style": NoticeStyle::Divider,
+            "projectChange": project::change_data(&change.from, &change.to, "inferred"),
+        });
+        self.add(EntryKind::Notice, self.turn.unwrap_or_default(), data);
+    }
+
+    /// What the turn carries about its project when it just became current: the line and the new project's notes. Once:
+    /// the turn's retries reuse the prompt they were given.
+    pub(super) async fn project_context(&mut self) -> Option<String> {
+        if self.reuse_prompt {
+            return None;
+        }
+        let say = self.project_turn.as_mut()?.say.take()?;
+        let agent = self.cfg.hq_agent.clone()?;
+        let bin = tokio::task::spawn_blocking(hq::bin).await.ok().flatten()?;
+        Some(hq::project_context(&bin, &agent, self.cfg.person.as_deref(), &self.run_room(), &say).await)
     }
 
     /// What the prompt of an hq bot's turn is: the user's words, with the notes the host owes the agent (an earlier

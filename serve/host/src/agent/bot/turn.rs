@@ -34,6 +34,11 @@ impl Actor {
     async fn compose(&mut self, sid: &str, text: &str) -> Result<String> {
         if self.is_hq() {
             let recalled = self.first_message_recall(text).await;
+            let moved = self.project_context().await;
+            let recalled = match (moved, recalled) {
+                (Some(m), Some(r)) => Some(format!("{m}\n\n{r}")),
+                (m, r) => m.or(r),
+            };
             return Ok(self.compose_hq(text, recalled));
         }
         let instructions = self.conn.as_ref().map_or(Instructions::FirstMessage, Conn::instructions);
@@ -114,10 +119,21 @@ impl Actor {
             },
             |e| e.turn,
         );
+        // Only a person's own words to an hq agent say what the chat is about.
+        let from_person = !hidden
+            && self.is_hq()
+            && self.active_request.is_none()
+            && self.active_group.is_none()
+            && self.active_routine.is_none()
+            && !entry_ids.is_empty();
+        self.project_turn = if from_person { self.infer_project(&lane, entry_ids, text).await } else { None };
         for id in entry_ids {
             // Bot-message notices belong to `chat::team`; writing them here would race its final status.
             if let Some(mut e) = self.hub.store.entry(id).filter(|e| e.kind == EntryKind::User.as_str()) {
                 e.data["status"] = json!(crate::chat::team::RequestStatus::Sent);
+                if let Some(turn) = &self.project_turn {
+                    e.data["projects"] = json!(turn.projects);
+                }
                 self.hub.set_entry(id, &e.data);
             }
         }
@@ -126,6 +142,7 @@ impl Actor {
             memory::summary::resume(&self.hub, &lane);
         }
         self.turn = Some(turn);
+        self.project_divider();
         // Only the user's own words feed memory: not another bot's, a room's or a routine's.
         let from_user =
             !hidden && self.active_request.is_none() && self.active_group.is_none() && self.active_routine.is_none();

@@ -171,6 +171,7 @@ def _notes(mem, folder, agent):
 
 
 def _tag(path, text, scope):
+    text = text.replace('</long-term-memory>', '<\u200b/long-term-memory>')
     return '<long-term-memory path="%s"%s>\n%s\n</long-term-memory>' % (
         path, ' scope="%s"' % scope if scope else '', text.rstrip('\n'))
 
@@ -224,6 +225,28 @@ def load_memory(agent, home, person_file, reader, room, projects, cap=LOAD_CAP, 
     if withheld:
         block += '\n' + WITHHELD
     return {'block': block, 'loaded': len(shown), 'more': more, 'withheld': withheld, 'group': group}
+
+
+def project_notes(agent, home, reader, room, projects, cap=LOAD_CAP, members=None):
+    """Only the project section of load_memory, for a chat whose project moved after its first message: the same
+    filter (audience, room, projects empty or current), index note first, newest after, cut to `cap` characters."""
+    mem = Path(home) / 'memory'
+    kind = reader.get('kind')
+    if is_one_to_one(room, reader):
+        room = own_room(agent, reader)
+    aud = load_audiences(reader, room, agent, members)
+    shown = []
+    for p in projects:
+        if ID.match(p):
+            notes = sorted(_notes(mem, 'projects/' + p, agent), key=lambda n: (n[0].rsplit('/', 1)[-1] not in INDEX_NAMES, -n[2]))
+            shown += [(str(mem / rel), t, mt, 'project:' + p) for rel, t, mt, f in notes if loads(f, aud, room, projects)]
+    more = 0
+    for c in sorted(shown, key=lambda c: c[2]):
+        if sum(len(x[1]) for x in shown) <= cap:
+            break
+        shown.remove(c)
+        more += 1
+    return {'block': '\n'.join(_tag(c[0], c[1], c[3]) for c in shown), 'loaded': len(shown), 'more': more}
 
 
 def main(argv):

@@ -554,3 +554,34 @@ async fn an_invitee_never_reaches_a_terminal_thread() {
     let owner_view = events(&r, &Caller::Local).await;
     assert!(serde_json::to_string(&owner_view).unwrap().contains("terminal secret"));
 }
+
+#[tokio::test]
+async fn a_thread_project_is_corrected_only_in_own_chats_and_to_shared_projects() {
+    let r = Rig::new().await;
+    let owner_house = r.owner_bot("house");
+    let owner_money = r.owner_bot("money");
+    let (sam, _) = joined(&r, json!({"house": "member"})).await;
+    let started = call(&r, &sam, "startChat", json!({"agent": "house"})).await.unwrap();
+    let chat = started["bot"]["id"].as_str().unwrap().to_owned();
+
+    // Not the owner's chat; not a project nobody shared with them (checked before anything is looked up).
+    let e = call(&r, &sam, "setThreadProjects", json!({"botId": owner_house, "projects": []})).await.unwrap_err();
+    assert!(e.is::<NotAllowed>(), "{e:#}");
+    let e = call(&r, &sam, "threadProjects", json!({"botId": owner_house})).await.unwrap_err();
+    assert!(e.is::<NotAllowed>(), "{e:#}");
+    let e = call(&r, &sam, "setThreadProjects", json!({"botId": chat, "projects": ["secret-site"]})).await.unwrap_err();
+    assert!(e.is::<NotAllowed>(), "{e:#}");
+    // Their own chat reads, and an empty correction is theirs to make.
+    let got = call(&r, &sam, "threadProjects", json!({"botId": chat})).await.unwrap();
+    assert_eq!((got["projects"].clone(), got["pinned"].clone()), (json!([]), json!(false)));
+    let set = call(&r, &sam, "setThreadProjects", json!({"botId": chat, "projects": []})).await.unwrap();
+    assert_eq!((set["by"].clone(), set["changed"].clone()), (json!("person"), json!(false)));
+
+    // A thread root of another bot is no thread of this one.
+    let lane = crate::store::Lane::main(&owner_house);
+    let root = r.hub.add_entry(&lane, crate::store::EntryKind::User, 1, &json!({"text": "hi"})).unwrap();
+    let e = call(&r, &Caller::Local, "threadProjects", json!({"botId": owner_money, "threadId": root.id}))
+        .await
+        .unwrap_err();
+    assert!(format!("{e:#}").contains("unknown message"), "{e:#}");
+}
