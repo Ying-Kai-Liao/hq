@@ -17,7 +17,12 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
         // Writes the thread's summary now (`kith summarise --thread`): `{written: bool}`.
         "summariseThread" => {
             let written = matches!(
-                crate::chat::memory::summary::summarise_now(hub, &str_arg(&b, "thread")?).await?,
+                crate::chat::memory::summary::summarise_now(
+                    hub,
+                    &str_arg(&b, "thread")?,
+                    b["force"].as_bool().unwrap_or(false)
+                )
+                .await?,
                 crate::chat::memory::summary::Wrote::Yes
             );
             serde_json::json!({"written": written})

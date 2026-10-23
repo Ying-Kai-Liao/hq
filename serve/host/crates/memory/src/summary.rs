@@ -114,12 +114,10 @@ pub fn put(conn: &Connection, s: &Summary) -> Result<(), Refused> {
     if s.text.chars().count() > MAX_CHARS {
         return Err(Refused::Check(Refusal::TooLong));
     }
-    if forgotten(conn, &s.thread_id)? {
-        return Err(Refused::Forgotten);
-    }
-    conn.execute(
+    // The forgotten check and the write are one statement: a forget landing between them can't be undone by this write.
+    let written = conn.execute(
         "INSERT INTO thread_summaries (thread_id, room, agent, audience, projects, text, links, covered_seq, reason, written_at, cost_via)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11 WHERE NOT EXISTS (SELECT 1 FROM thread_forgotten WHERE thread_id = ?1)
          ON CONFLICT (thread_id) DO UPDATE SET room = ?2, agent = ?3, audience = ?4, projects = ?5, text = ?6, links = ?7,
            covered_seq = ?8, reason = ?9, written_at = ?10, cost_via = ?11",
         params![
@@ -136,6 +134,9 @@ pub fn put(conn: &Connection, s: &Summary) -> Result<(), Refused> {
             s.cost_via,
         ],
     )?;
+    if written == 0 {
+        return Err(Refused::Forgotten);
+    }
     Ok(())
 }
 

@@ -55,7 +55,7 @@ def entry(i, bot_id, kind, data, thread=None):
                (i, bot_id, n[0], kind, 1, json.dumps(data), 1_700_000_000_000 + n[0], 0, thread))
 entry('own-main', 'own', 'user', {'text': 'ownermain walrus plan'})
 entry('t-term', 'own', 'user', {'text': 'terminal walrus start', 'thread': {'origin': 'terminal', 'terminal': {'sessionId': 'tsess'}}})
-entry('t-term-1', 'own', 'tool', {'title': 'Bash cat .env', 'output': 'DATABASE_URL=x\nAPI_KEY=hunter2value\nwalrus tool output sk-abcdefghijklmnop1234 and Bearer abcdefghijklmnopqrstuv'}, 't-term')
+entry('t-term-1', 'own', 'tool', {'title': 'Bash cat .env', 'output': 'DATABASE_URL=postgres://dbuser:pw123secret@db.example/x\nAPI_KEY=hunter2value\nSTRIPE_KEY=rk_live_abcdefgh12345\nglpat-abcdefghij123456789 npm_abcdefghijkl1234 hf_abcdefghijkl1234\nmirror https://u:urlpass99@host/p\nwalrus tool output sk-abcdefghijklmnop1234 and Bearer abcdefghijklmnopqrstuv'}, 't-term')
 entry('t-term-2', 'own', 'tool', {'title': 'Bash key', 'output': '-----BEGIN RSA PRIVATE KEY-----\nMIIEwalrusSECRETBODY\n-----END RSA PRIVATE KEY-----\nafter walrus'}, 't-term')
 entry('t-own', 'own', 'user', {'text': 'owner thread walrus'})
 entry('t-own-1', 'own', 'agent', {'text': 'owner thread answer walrus', 'final': True}, 't-own')
@@ -100,7 +100,7 @@ check "text output frames trajectory as data" "env KITH_AGENT=echo \"$R\" 'owner
 
 # --- redaction (indexed text only)
 env KITH_AGENT=echo "$R" walrus --tier 3 -n 50 --json > "$T/out.json"
-check "tool results: keys, tokens, KEY=value and PEM blocks are redacted" "! cat $T/out.json | grep -qE 'hunter2value|sk-abcdef|abcdefghijklmnopqrstuv|MIIEwalrusSECRETBODY|BEGIN RSA'"
+check "tool results: keys, tokens, KEY=value and PEM blocks are redacted" "! cat $T/out.json | grep -qE 'hunter2value|pw123secret|urlpass99|rk_live_abcdefgh|glpat-abcdefghij|npm_abcdefghijkl|hf_abcdefghijkl|sk-abcdef|abcdefghijklmnopqrstuv|MIIEwalrusSECRETBODY|BEGIN RSA'"
 check "redaction keeps the rest of the result searchable" "cat $T/out.json | grep -q 'walrus tool output' && cat $T/out.json | grep -q 'after walrus' && cat $T/out.json | grep -q 'redacted'"
 check "the stored entry is unchanged" "[ \"\$(SQL \"select count(*) from entries where data like '%hunter2value%' and id='t-term-1'\")\" = 1 ]"
 check "redact(): card numbers, ids, secret names" "python3 -c \"
@@ -125,6 +125,13 @@ env KITH_AGENT=echo "$R" index rebuild >/dev/null
 check "a forgotten thread is never indexed again, even after a rebuild or new entries" "! env KITH_AGENT=echo \"$R\" 'after forget' --tier all | grep -q 'after forget'"
 check "other threads are untouched" "env KITH_AGENT=echo \"$R\" 'terminal walrus start' --tier 3 | grep -q 'terminal walrus start'"
 
+# --- summarise / forget are the owner's own: not a person, a bot guest, a group room or a channel run
+for who in "KITH_PERSON=sam" "KITH_PERSON=bot-ab12" "KITH_ROOM=grp1" "KITH_VIA=telegram" "KITH_VIA=discord KITH_ROOM=1:1:echo:owner"; do
+  check "summarise is refused under $who" "! env KITH_AGENT=echo $who \"$R\" summarise --thread t-own 2>/dev/null"
+  check "forget is refused under $who" "! env KITH_AGENT=echo $who \"$R\" forget --thread t-eve 2>/dev/null && env KITH_AGENT=echo \"$R\" 'Eve walrus' --json | grep -q 'Eve walrus'"
+done
+check "an agent run that is not the owner (unknown person env) is refused" "! env KITH_AGENT=echo KITH_PERSON=zed \"$R\" forget --thread t-eve 2>/dev/null"
+
 # --- harness logs: only when the cost ledger attributes the session
 P=$HOME/.claude/projects/-work; mkdir -p "$P"
 log() { printf '%s\n' '{"type":"user","message":{"role":"user","content":"harness walrus question"}}' \
@@ -143,7 +150,7 @@ mkdir -p "$KITH_STATE/live/terminal"; echo '{}' > "$KITH_STATE/live/terminal/ter
 env KITH_AGENT=echo "$R" 'harness walrus' --tier 3 -n 50 --json > "$T/harness.json"
 check "an attributed owner log is indexed as owner trajectory" "cat $T/harness.json | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if any(h[\"link\"].startswith(\"kith://thread/own1#entry=\") and h[\"audience\"]==\"owner\" for h in d) else 1)'"
 check "an unattributed log is skipped, and so is a terminal session the host imports" "! cat $T/harness.json | grep -qE 'thread/(lost1|term1)'"
-check "a person's log is theirs alone" "cat $T/harness.json | grep -q 'thread/sam1' && [ \"\$(env KITH_AGENT=echo KITH_PERSON=sam \"$R\" 'harness walrus' --tier 3 -n 50 --json | python3 -c 'import json,sys; print(sorted(set(h[\"link\"].split(\"#\")[0] for h in json.load(sys.stdin))))')\" = \"['kith://thread/sam1']\" ]"
+check "only terminal runs' logs are read: a chat run (the host store has it) is skipped" "! cat $T/harness.json | grep -q 'thread/sam1' && [ \"\$(env KITH_AGENT=echo KITH_PERSON=sam \"$R\" 'harness walrus' --tier 3 -n 50 --json)\" = '[]' ]"
 for w in walrus Read; do env KITH_AGENT=echo "$R" $w --tier 3 --thread own1 -n 50 --json; done > "$T/harness2.json"
 check "harness tool calls are chunks, results are redacted" "! cat $T/harness2.json | grep -q abc999secret && cat $T/harness2.json | grep -q 'Read /work/harness.txt' && cat $T/harness2.json | grep -q 'redacted'"
 

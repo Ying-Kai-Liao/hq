@@ -48,7 +48,13 @@ def host_call(method, body, timeout=240):
 
 def thread_command(cmd, argv):
     """summarise|forget --thread <id>: the owner's, never a person's or a bot guest's (the host sets KITH_PERSON for those)."""
-    if os.environ.get('KITH_PERSON'):
+    env = os.environ.get
+    room = env('KITH_ROOM') or ''
+    # The owner at a shell (no run environment), or the owner's own 1:1 run. Not a person or bot guest, not a group room, not a
+    # channel run (those strip KITH_PERSON), and with KITH_AGENT set the recall caller must be the owner.
+    owner = (not env('KITH_PERSON') and not (room and not room.startswith('1:1:')) and (env('KITH_VIA') or '') not in kr.GROUP_VIAS
+             and (not env('KITH_AGENT') or kr._caller()['audiences'] is None))
+    if not owner:
         print('kith %s: only the owner may do that' % cmd, file=sys.stderr); return 1
     if len(argv) != 2 or argv[0] != '--thread' or not kr.kith_trajectory.THREAD_ID.fullmatch(argv[1]):
         print('usage: kith %s --thread <id>' % cmd, file=sys.stderr); return 2
@@ -57,7 +63,8 @@ def thread_command(cmd, argv):
             print('kith forget: no Kith host store on this Mac', file=sys.stderr); return 1
         kr.open_index().close()   # drops its rows now
         print('forgotten: %s (its entries are kept; nothing about it is indexed again)' % argv[1]); return 0
-    r = host_call('summariseThread', {'thread': argv[1]})
+    # An agent's call is not forced: a thread already summarised is left alone (no repeated spend). The owner at a shell forces.
+    r = host_call('summariseThread', {'thread': argv[1], 'force': not os.environ.get('KITH_AGENT')})
     if not isinstance(r, dict) or 'written' not in r:
         print('kith summarise: %s' % ((r or {}).get('error') or 'the host could not be reached'), file=sys.stderr); return 1
     print('summary written' if r['written'] else 'nothing written (too short, forgotten, or the summary failed the memory checks)')

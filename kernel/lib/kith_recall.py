@@ -145,10 +145,22 @@ def _connect(path):
 
 
 @contextlib.contextmanager
-def _lock():
+def _lock(wait=None):
+    """The index lock; with `wait` seconds, raises TimeoutError instead of blocking past them."""
     fd = os.open(str(_private_dir() / '.lock'), os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        if wait is None:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        else:
+            end = time.time() + wait
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError:
+                    if time.time() > end:
+                        raise TimeoutError('index busy')
+                    time.sleep(0.1)
         yield
     finally:
         os.close(fd)
@@ -209,8 +221,11 @@ def open_index():
                 db.close()
                 rebuild()
                 db = _connect(db_path())
-            with _lock():
-                update(db)
+            try:
+                with _lock(wait=8):   # another process is indexing: answer from the index as it is
+                    update(db)
+            except TimeoutError:
+                pass
             return db
         except sqlite3.DatabaseError:
             if attempt:

@@ -22,8 +22,9 @@ use std::time::Duration;
 const IDLE_MS: i64 = 30 * 60 * 1000;
 /// How often a bot's threads are looked at for an end.
 const SWEEP: Duration = Duration::from_secs(5 * 60);
-/// Summaries one sweep writes: the cost of a burst of finished threads spreads over sweeps.
-const PER_SWEEP: usize = 2;
+/// Summaries the sweeps of all bots together write per [`SWEEP`]: the cost of a burst of finished threads spreads
+/// over sweeps, however many bots there are.
+const PER_WINDOW: usize = 4;
 /// A thread needs this many chat messages to be worth a summary.
 const MIN_MESSAGES: i64 = 2;
 /// The newest messages a run reads, each cut, and the most of them in all.
@@ -83,7 +84,7 @@ async fn sweep(hub: &Arc<Hub>, bot: &str) -> Result<()> {
     let since: i64 = hub.store.kv_get(&since_key(bot)).and_then(|v| v.parse().ok()).unwrap_or(0);
     let lanes = hub.store.lanes_active_since(bot, since)?;
     let now = now_ms();
-    let (mut written, mut pending, mut newest) = (0, false, since);
+    let (mut pending, mut newest) = (false, since);
     for lane in lanes {
         newest = newest.max(lane.last_seq);
         if lane.messages < MIN_MESSAGES {
@@ -97,11 +98,10 @@ async fn sweep(hub: &Arc<Hub>, bot: &str) -> Result<()> {
         if !needs(&hub.store, &key, lane.last_seq) {
             continue;
         }
-        if written >= PER_SWEEP {
+        if !take_budget(now) {
             pending = true;
             continue;
         }
-        written += 1;
         if let Err(e) = write(hub, bot, lane.thread.as_deref(), Reason::End, false).await {
             tracing::warn!(bot, thread = key, error = format!("{e:#}"), "couldn't summarise a thread");
         }
@@ -110,6 +110,20 @@ async fn sweep(hub: &Arc<Hub>, bot: &str) -> Result<()> {
         hub.store.kv_set(&since_key(bot), &newest.to_string())?;
     }
     Ok(())
+}
+
+/// One more sweep summary for this host in the current window, or none left.
+fn take_budget(now: i64) -> bool {
+    static WINDOW: Mutex<(i64, usize)> = Mutex::new((0, 0));
+    let mut w = WINDOW.locked();
+    if now - w.0 >= i64::try_from(SWEEP.as_millis()).unwrap_or(i64::MAX) {
+        *w = (now, 0);
+    }
+    if w.1 >= PER_WINDOW {
+        return false;
+    }
+    w.1 += 1;
+    true
 }
 
 /// Whether the thread has chat after what its summary covers (or an earlier failed attempt looked at).
@@ -140,7 +154,8 @@ pub fn request(hub: &Arc<Hub>, bot: &str, thread: Option<&str>, reason: Reason) 
 
 /// The owner asked for this thread's summary (`kith summarise --thread <id>`): written now, whether or not one
 /// covers it. `thread` is a root entry id, or `main:<bot>` for a bot's own chat.
-pub async fn summarise_now(hub: &Arc<Hub>, thread: &str) -> Result<Wrote> {
+/// `force` writes even when a summary covers the thread; an agent's request doesn't.
+pub async fn summarise_now(hub: &Arc<Hub>, thread: &str, force: bool) -> Result<Wrote> {
     let (bot, root) = match thread.strip_prefix("main:") {
         Some(bot) => (bot.to_owned(), None),
         None => {
@@ -148,12 +163,22 @@ pub async fn summarise_now(hub: &Arc<Hub>, thread: &str) -> Result<Wrote> {
             (root.bot_id, Some(root.id))
         }
     };
-    write(hub, &bot, root.as_deref(), Reason::End, true).await
+    write(hub, &bot, root.as_deref(), Reason::End, force).await
 }
 
-/// A message in a thread that has no summary yet (an old one, from before this existed) writes it now.
+/// Whether a thread is old data: its root is at or below the bookmark the sweeper started from. Newer threads get
+/// their summary when they end, not on a message in the middle of them.
+fn old_thread(root_seq: i64, since: Option<i64>) -> bool {
+    since.is_some_and(|since| root_seq <= since)
+}
+
+/// A message in an old thread that has no summary yet (from before this existed) writes it now.
 pub fn resume(hub: &Arc<Hub>, lane: &Lane) {
     let Some(root) = lane.thread.as_deref() else { return };
+    let since = hub.store.kv_get(&since_key(&lane.chat)).and_then(|v| v.parse().ok());
+    if !hub.store.entry(root).is_some_and(|r| old_thread(r.seq, since)) {
+        return;
+    }
     if hub.store.with_db(|c| rules::get(c, root).ok().flatten().is_some() || rules::forgotten(c, root).unwrap_or(true))
     {
         return;
@@ -278,10 +303,11 @@ async fn write_now(
         None => oneshot::one_shot_reply(hub, &runner, SYSTEM, &user).await?,
     };
     let f = facets(&cfg, thread.and_then(|t| hub.store.entry(t)).as_ref());
-    // Tagged to the person and project the thread was for (the room is the agent and person); the owner's own is none.
+    // Tagged to the person and project the thread was for (the room is the agent and person). A terminal thread is the
+    // owner's whoever the chat belongs to, so it carries no person.
     if let Some(agent) = runner.hq_agent.as_deref() {
-        let tag =
-            Tag { via: "summary", turn: "summary", person: cfg.person.as_deref(), project: cfg.project.as_deref() };
+        let person = if f.audience == "owner" { None } else { cfg.person.as_deref() };
+        let tag = Tag { via: "summary", turn: "summary", person, project: cfg.project.as_deref() };
         record_cost(agent, &tag, &reply);
     }
     let summary = Summary {
@@ -383,6 +409,28 @@ mod tests {
             .collect();
         let (text, _) = material(&entries);
         assert!(text.len() <= MATERIAL_CHARS + 200 && text.contains("59 xx") && !text.contains("user: 0 xx"));
+    }
+
+    #[test]
+    fn only_old_threads_are_summarised_on_a_message() {
+        assert!(old_thread(5, Some(10)) && old_thread(10, Some(10)), "before the sweeper first ran");
+        assert!(!old_thread(11, Some(10)), "a new thread waits for its end");
+        assert!(!old_thread(1, None), "no bookmark yet: nothing is old");
+    }
+
+    #[test]
+    fn a_sweep_never_backfills_and_the_host_shares_one_budget() {
+        let s = temp_store();
+        let lane = Lane::main("b1");
+        let old = s.insert_entry(&lane, EntryKind::User, 1, &json!({"text": "old"})).unwrap();
+        let bookmark = old.seq;
+        s.insert_entry(&lane, EntryKind::User, 2, &json!({"text": "new"})).unwrap();
+        let lanes = s.lanes_active_since("b1", bookmark).unwrap();
+        assert_eq!(lanes.iter().map(|l| l.messages).sum::<i64>(), 1, "only what came after the bookmark is looked at");
+        let t = 10_000_000_000;
+        let taken = (0..10).filter(|_| take_budget(t)).count();
+        assert_eq!(taken, PER_WINDOW, "all bots together");
+        assert!(take_budget(t + 6 * 60_000), "a new window");
     }
 
     #[test]

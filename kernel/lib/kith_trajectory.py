@@ -11,7 +11,7 @@ a person's chat is `person:<id>`, a group chat is `room:<chat>`. Text is redacte
 are not touched. A forgotten thread is never indexed again (its entries stay in the host store). The index is derived:
 this module only adds rows to it (the caller holds the index lock).
 """
-import hashlib, json, os, re, sqlite3, time
+import hashlib, json, os, re, sqlite3, subprocess, time
 from pathlib import Path
 
 from kith_paths import DOT, paths
@@ -25,12 +25,16 @@ THREAD_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9:_.-]{0,127}')
 
 # ---- redaction: best effort, so common leaks stay out of search results. The deny rules are the real boundary.
 
-_NAME = r'[\w.-]*(?:secret|token|passw(?:or)?d|passphrase|api[_-]?key|private[_-]?key|access[_-]?key|credential|authorization)[\w.-]*'
+_NAME = (r'[\w.-]*(?:secret|token|passw(?:or)?d|passphrase|api[_-]?key|private[_-]?key|access[_-]?key|credential|authorization'
+         r'|_key|_pass|_dsn|database_url|db_url|dsn)[\w.-]*')
 REDACTIONS = [
     (re.compile(r'-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)', re.S), '[redacted]'),
     (re.compile(r'-----BEGIN [A-Z ]*(?:CERTIFICATE|KEY)[A-Z ]*-----.*?(?:-----END [A-Z ]*-----|\Z)', re.S), '[redacted]'),
+    # scheme://user:password@host
+    (re.compile(r'(?i)\b([a-z][a-z0-9+.-]*://[^\s:/@]+:)[^\s@/]+@'), r'\1[redacted]@'),
     (re.compile(r'(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}'), r'\1 [redacted]'),
-    (re.compile(r'\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9]{12,}|github_pat_[A-Za-z0-9_]{12,}|xox[abprs]-[A-Za-z0-9-]{8,}'
+    (re.compile(r'\b(?:[sr]k_(?:live|test)_[A-Za-z0-9]{8,}|glpat-[A-Za-z0-9_-]{12,}|npm_[A-Za-z0-9]{12,}|hf_[A-Za-z0-9]{12,}'
+                r'|ya29\.[A-Za-z0-9_-]{12,}|sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9]{12,}|github_pat_[A-Za-z0-9_]{12,}|xox[abprs]-[A-Za-z0-9-]{8,}'
                 r'|(?:AKIA|ASIA)[0-9A-Z]{12,}|AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,})'),
      '[redacted]'),
     # NAME=value, NAME: value, "name": "value" for names that look secret
@@ -65,7 +69,15 @@ def host_db_path():
     """serve.db of this install's host: KITH_SERVE_DB, else the newest of the packaged and the dev data folders."""
     if os.environ.get('KITH_SERVE_DB'):
         return Path(os.environ['KITH_SERVE_DB'])
-    folders = [Path(os.environ['KITH_SERVE_HOME'])] if os.environ.get('KITH_SERVE_HOME') else [DOT / 'serve-main', DOT / 'serve']
+    if os.environ.get('KITH_SERVE_HOME'):
+        folders = [Path(os.environ['KITH_SERVE_HOME'])]
+    else:   # the data folder kith-serve is configured for (dev or packaged); the newest store only when it can't say
+        try:
+            out = subprocess.run([str(Path(__file__).resolve().parent.parent / 'bin' / 'kith-serve'), 'endpoint'],
+                                 capture_output=True, text=True, timeout=4, check=True).stdout.split()
+            folders = [Path(out[0])]
+        except Exception:  # noqa: BLE001
+            folders = [DOT / 'serve-main', DOT / 'serve']
     found = [f / 'serve.db' for f in folders if (f / 'serve.db').is_file()]
     return max(found, key=lambda p: p.stat().st_mtime, default=None)
 
@@ -290,7 +302,8 @@ def claude_dir():
 
 
 def _attributed():
-    """{session: (agent, person)} of the cost ledger's runs that name an agent and are not channel runs."""
+    """{session: (agent, person)} of the cost ledger's terminal runs that name an agent. Chat and channel runs (serve, app,
+    Discord...) are in the host store already, and their ledger person can differ from the thread's."""
     path = paths()['KITH_MACHINE'] / 'cost.db'
     if not path.is_file():
         return {}
@@ -298,7 +311,7 @@ def _attributed():
         c = sqlite3.connect('file:%s?mode=ro' % path, uri=True, timeout=5)
         try:
             return {s: (a, p or '') for s, a, v, p in c.execute('SELECT session, agent, via, person FROM runs WHERE agent IS NOT NULL AND agent != ""')
-                    if (v or 'terminal') not in GROUP_VIAS}
+                    if (v or 'terminal') == 'terminal'}
         finally:
             c.close()
     except sqlite3.Error:
@@ -368,7 +381,8 @@ def sync_harness(db, host):
                 imported = {r[0] for r in host.execute("SELECT json_extract(data, '$.thread.terminal.sessionId') FROM entries "
                                                        "WHERE json_extract(data, '$.thread.origin') = 'terminal'")}
         _delete(db, 'source_path = ?', ('harness:' + str(path),))
-        if sid in imported:
+        if sid in imported:   # the host has it as entries: remembered, so it isn't checked again until the log changes
+            db.execute('INSERT OR REPLACE INTO traj_files VALUES(?,?,?)', (str(path), st.st_mtime_ns, st.st_size))
             continue
         agent, person = run
         f = {'agent': agent, 'room': '1:1:%s:%s' % (agent, person or 'owner'),
