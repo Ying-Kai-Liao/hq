@@ -154,6 +154,7 @@ function FileSheet({ botId, store, target, guard, onClose }: { botId: string; st
           value={editor.draft} onChange={(e) => editor.setDraft(e.target.value)} />
       </>}
       {read && tab === 'history' && <div className="memory-versions">
+        {editor.versions.length > 1 && <p className="memory-muted">Each row is the file after that change. Restore this version brings that state back; Undo this change brings back the state before it.</p>}
         {!editor.versions.length && <p className="memory-muted">No versions yet. The first one is kept when the file is first changed.</p>}
         {editor.versions.map((v, i) => {
           const diff = editor.diffs.get(v.id)
@@ -169,7 +170,6 @@ function FileSheet({ botId, store, target, guard, onClose }: { botId: string; st
             {(i > 0 && !v.deleted) || (older && !older.deleted) ? <div className="memory-item memory-version-actions">
               {i > 0 && !v.deleted && <Button kind="secondary" disabled={editor.busy} onClick={() => setRestore({ id: v.id, undo: false })}>Restore this version</Button>}
               {older && !older.deleted && <Button kind="secondary" disabled={editor.busy} onClick={() => setRestore({ id: older.id, undo: true })}>Undo this change</Button>}
-              <small className="memory-muted">Restore: the file as it was after this change. Undo: as it was before.</small>
             </div> : null}
             {diff === 'loading' && <p className="memory-muted" role="status"><Spinner size={12} /> Loading…</p>}
             {diff && diff !== 'loading' && ('error' in diff
