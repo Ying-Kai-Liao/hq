@@ -117,7 +117,7 @@ pub struct Opening {
 /// Active entries, pinned first and then the most recently changed, until each layer's cap.
 pub fn load(conn: &Connection, bot: &str, shared: bool, scope: &Scope) -> store::Result<Opening> {
     let mut opening = Opening::default();
-    let mut filter = |entries: Vec<Entry>, withheld: &mut bool| {
+    let filter = |entries: Vec<Entry>, withheld: &mut bool| {
         let (kept, rest): (Vec<_>, Vec<_>) = entries.into_iter().partition(|e| scope.loads(&facets(e)));
         *withheld |= rest.iter().any(|e| e.state == State::Active && scope.withheld(&facets(e)));
         kept

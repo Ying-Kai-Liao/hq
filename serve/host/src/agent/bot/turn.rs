@@ -33,7 +33,8 @@ impl Actor {
     /// start, a memory change) and after (a profile update, how to share files).
     async fn compose(&mut self, sid: &str, text: &str) -> Result<String> {
         if self.is_hq() {
-            return Ok(self.compose_hq(text));
+            let recalled = self.first_message_recall(text).await;
+            return Ok(self.compose_hq(text, recalled));
         }
         let instructions = self.conn.as_ref().map_or(Instructions::FirstMessage, Conn::instructions);
         let mut snapshot = self.snapshot(sid).await?;
@@ -48,7 +49,9 @@ impl Actor {
             // The instructions reaching the agent now hold memory as it was when they were rendered.
             memory::opened(&self.hub.store, &self.cfg.id, sid, &snapshot.memory)?;
         }
-        if let Some((notice, revision)) = memory::change_notice(&self.hub.store, &self.cfg, sid, self.memory_room().as_deref()) {
+        if let Some((notice, revision)) =
+            memory::change_notice(&self.hub.store, &self.cfg, sid, self.memory_room().as_deref())
+        {
             prompt = format!("{notice}\n\n{prompt}");
             self.turn_memory_revision = revision;
         }
