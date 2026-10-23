@@ -54,7 +54,8 @@ async fn stop_ends_a_turn_that_is_still_starting_and_the_next_message_starts_afr
 
     // A fresh agent process answers at once.
     host.reply(&bot, "second").await;
-    let echoed = history(&host, &bot).await.iter().any(|e| e["data"]["text"].as_str().is_some_and(|t| t.contains("second")));
+    let echoed =
+        history(&host, &bot).await.iter().any(|e| e["data"]["text"].as_str().is_some_and(|t| t.contains("second")));
     assert!(echoed);
 }
 
