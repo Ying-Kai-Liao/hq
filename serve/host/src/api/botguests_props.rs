@@ -18,20 +18,17 @@ use crate::store::{BotConversation, BotState, EntryKind, Lane, Scope, Store};
 use proptest::prelude::*;
 use proptest::test_runner::{Config, TestCaseError, TestRunner};
 use serde_json::{Value, json};
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const AGENTS: [&str; 2] = ["house", "money"];
 /// Kai (the Mac owner, no person row), and the two invited people.
 const WHO: [&str; 3] = ["kai", "sam", "ann"];
-/// How far a failing case is shrunk; the break proof sets it to 0 to stay quick.
-static SHRINK: AtomicU32 = AtomicU32::new(24);
 const SECRET: &str = "SECRET-PATH";
 
 /// Cases per property; every case builds a kith-auth and a store of its own and runs subprocesses, so the default is
 /// small. `PROPTEST_CASES` overrides it.
 fn runner(default: u32) -> TestRunner {
-    let mut config =
-        Config { failure_persistence: None, max_shrink_iters: SHRINK.load(Ordering::Relaxed), ..Config::default() };
+    let mut config = Config { failure_persistence: None, max_shrink_iters: 24, ..Config::default() };
     config.cases = std::env::var("PROPTEST_CASES").ok().and_then(|c| c.parse().ok()).unwrap_or(default);
     TestRunner::new(config)
 }
@@ -902,96 +899,4 @@ fn a_bot_is_sent_only_its_own_conversations() {
         })
         .unwrap();
     assert!(served.get() > 0, "no entry was ever sent to a bot: the property checked nothing");
-}
-
-// TEMPORARY (not for merge): runs the bot guest breaks against the property each targets, and break 0 against all.
-// Split in groups so that each test stays inside the runner's per-test time limit.
-#[cfg(test)]
-#[allow(unused_qualifications)]
-mod meta {
-    use super::*;
-    use std::fmt::Write as _;
-    use std::panic::{AssertUnwindSafe, catch_unwind};
-
-    fn run(name: &str, f: fn()) -> Option<String> {
-        catch_unwind(AssertUnwindSafe(f)).err().map(|e| {
-            let msg = e
-                .downcast_ref::<String>()
-                .cloned()
-                .or_else(|| e.downcast_ref::<&str>().map(|s| (*s).to_owned()))
-                .unwrap_or_default();
-            format!("{name} [{}]", msg.chars().take(300).collect::<String>().replace('\n', " "))
-        })
-    }
-
-    fn group(clean: bool, breaks: &[usize]) {
-        SHRINK.store(0, Ordering::Relaxed);
-        let props: [(&str, fn()); 3] = [
-            ("a_bot_never_has_more_than_its_owner_holds_now", a_bot_never_has_more_than_its_owner_holds_now),
-            ("a_bot_owner_has_at_most_ten_live_bots", a_bot_owner_has_at_most_ten_live_bots),
-            ("a_bot_is_sent_only_its_own_conversations", a_bot_is_sent_only_its_own_conversations),
-        ];
-        let target = |n: usize| match n {
-            37 | 38 => 1,
-            39..=41 => 2,
-            _ => 0,
-        };
-        std::panic::set_hook(Box::new(|_| {}));
-        let mut table = String::new();
-        let mut missed = Vec::new();
-        super::super::roles::MUT.with(|c| c.set(0));
-        if clean {
-            for (name, f) in props {
-                if let Some(why) = run(name, f) {
-                    let _ = writeln!(table, "CLEAN FAILS {why}");
-                }
-            }
-            let _ = writeln!(table, "clean_code_passes={}", !table.contains("CLEAN FAILS"));
-        }
-        for n in breaks {
-            super::super::roles::MUT.with(|c| c.set(*n));
-            let (name, f) = props[target(*n)];
-            let caught = run(name, f);
-            let _ = writeln!(table, "BREAK {n:>2} :: {}", caught.clone().unwrap_or_else(|| "NOT CAUGHT".into()));
-            if caught.is_none() {
-                missed.push(*n);
-            }
-        }
-        super::super::roles::MUT.with(|c| c.set(0));
-        let _ = std::panic::take_hook();
-        panic!("META RESULT\n{table}\nmissed: {missed:?}");
-    }
-
-    #[test]
-    fn bot_breaks_clean() {
-        group(true, &[]);
-    }
-    #[test]
-    fn bot_breaks_a() {
-        group(false, &[29, 30, 31]);
-    }
-    #[test]
-    fn bot_breaks_b() {
-        group(false, &[32, 34, 35]);
-    }
-    #[test]
-    fn bot_breaks_c() {
-        group(false, &[36, 42, 43]);
-    }
-    #[test]
-    fn bot_breaks_d() {
-        group(false, &[44, 47, 48]);
-    }
-    #[test]
-    fn bot_breaks_e() {
-        group(false, &[49, 50]);
-    }
-    #[test]
-    fn bot_breaks_f() {
-        group(false, &[37, 38]);
-    }
-    #[test]
-    fn bot_breaks_g() {
-        group(false, &[39, 40, 41]);
-    }
 }

@@ -112,12 +112,7 @@ fn bot_principal(store: &crate::store::Store, key: &str) -> Principal {
     use crate::store::BotState;
     let Some(bot) = store.bot_guest_of_device(key) else { return Principal::Nobody };
     match bot.state {
-        BotState::Active | BotState::Pending
-            if store.device_proven(key) && (bot.state == BotState::Active || crate::api::roles::m(31)) =>
-        {
-            Principal::Bot { bot_id: bot.bot_id, person: bot.person_id }
-        }
-        BotState::Revoked if crate::api::roles::m(44) => Principal::BotPending(bot.bot_id),
+        BotState::Active if store.device_proven(key) => Principal::Bot { bot_id: bot.bot_id, person: bot.person_id },
         BotState::Joining | BotState::Pending | BotState::Active => Principal::BotPending(bot.bot_id),
         BotState::Invited | BotState::Denied | BotState::Revoked => Principal::Nobody,
     }
