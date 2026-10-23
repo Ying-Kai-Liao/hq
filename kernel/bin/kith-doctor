@@ -136,6 +136,8 @@ def repos_and_agents():
     for name, chosen in sorted(own.get('agents', {}).items()):
         if chosen.get('permission_mode'):
             note(f'  {name}: {chosen["permission_mode"]}, your choice over its own settings')
+    for key, old in kith_settings.retired():
+        warn(f'{kith_settings.FILE}: {key} is {old}, which kith no longer offers: it reads as {kith_settings.current(old)}')
     listed = json.loads(run(str(KITH / 'bin' / 'kith-pkg'), 'list', '--json').stdout or '{}')
     if not listed:
         warn('no agents: kith install <owner>/<repo>, or kith new <name> "<what it does>"')
@@ -144,6 +146,13 @@ def repos_and_agents():
         notes = []
         if o.get('dirty'):
             notes.append('uncommitted edits')
+        try:
+            suggested = json.loads((Path(o['dir']) / 'settings.json').read_text()).get('permissions', {}).get('defaultMode')
+        except (OSError, ValueError, AttributeError):
+            suggested = None
+        if kith_settings.current(suggested) != suggested:
+            notes.append(f'its settings.json defaultMode is {suggested}, which kith no longer offers: '
+                         f'it reads as {kith_settings.current(suggested)}')
         m = re.search(r'^harness:\s*(\S+)', (Path(o['dir']) / 'agent.md').read_text(), re.M)
         harness = {'claude-code': 'claude'}.get(m.group(1), m.group(1)) if m else 'claude'
         if harness != 'claude' and not shutil.which(harness) \

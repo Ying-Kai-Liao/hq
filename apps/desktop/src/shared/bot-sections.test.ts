@@ -63,7 +63,7 @@ test('a permission mode shows by its label, an unknown one as it is', () => {
 })
 
 test('the picker lists Claude Code\'s six modes only, and the old ask and manual read as default', () => {
-  assert.deepEqual(PERMISSION_MODES.map((m) => m.id), ['default', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions'])
+  assert.deepEqual(PERMISSION_MODES.map((m) => m.id), ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions'])
   assert.equal(permissionMode('ask'), 'default')
   assert.equal(permissionMode('manual'), 'default')
   assert.equal(permissionMode('auto'), 'auto')

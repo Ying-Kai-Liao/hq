@@ -49,7 +49,6 @@ export const PERMISSION_MODES: { id: string; label: string; detail: string }[] =
   { id: 'acceptEdits', label: 'Accept edits', detail: 'File edits are accepted without asking; other actions ask' },
   { id: 'plan', label: 'Plan only', detail: 'Read-only planning; changes nothing' },
   { id: 'auto', label: 'Auto', detail: 'A classifier approves safe actions; risky ones ask or are blocked' },
-  { id: 'dontAsk', label: "Don't ask", detail: 'Refuses anything not pre-approved by permission rules' },
   { id: 'bypassPermissions', label: 'Bypass permissions', detail: 'No permission checks' },
 ]
 
@@ -59,7 +58,6 @@ const PERMISSION_MENU_TEXT: Record<string, { label: string; detail: string }> = 
   acceptEdits: { label: 'Accept edits', detail: 'Edits files, asks before commands' },
   plan: { label: 'Plan', detail: 'Reads and plans, changes nothing' },
   auto: { label: 'Auto', detail: 'Decides itself, risky steps are checked' },
-  dontAsk: { label: "Don't ask", detail: 'Only pre-approved tools, denies the rest' },
   bypassPermissions: { label: 'Bypass permissions', detail: 'Never asks. Only in a sandbox' },
 }
 
@@ -68,9 +66,10 @@ export function permissionMenu(): { id: string; label: string; detail: string; r
   return PERMISSION_MODES.map((m) => ({ ...m, ...PERMISSION_MENU_TEXT[m.id], risky: m.id === 'bypassPermissions' }))
 }
 
-/** A stored mode as the picker knows it: the old `ask` and `manual` are `default`. */
+/** A stored mode as the picker knows it: the old `ask` and `manual` are `default`, a stored `dontAsk` is `auto`. */
 export function permissionMode(mode: string | null | undefined): string {
-  return mode === 'ask' || mode === 'manual' ? 'default' : (mode ?? 'auto')
+  if (mode === 'ask' || mode === 'manual') return 'default'
+  return mode === 'dontAsk' ? 'auto' : (mode ?? 'auto')
 }
 
 /** What a voice call can run on (`kith <agent> set call-model`); `default` follows this Mac's global call model (sonnet unless changed), `own` is the agent's own model. */

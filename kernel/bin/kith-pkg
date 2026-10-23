@@ -693,7 +693,7 @@ def choose_mode(name, home):
     """Someone's agent only suggests its permission mode (settings.json defaultMode): the mode it starts in on this Mac
     is the installer's, kept in kith's settings so an update of theirs can't change it. bypassPermissions needs a yes."""
     try:
-        mode = json.loads((home / 'settings.json').read_text()).get('permissions', {}).get('defaultMode')
+        mode = kith_settings.current(json.loads((home / 'settings.json').read_text()).get('permissions', {}).get('defaultMode'))
     except (OSError, ValueError):
         mode = None
     if not mode:
