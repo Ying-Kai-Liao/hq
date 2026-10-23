@@ -1,0 +1,67 @@
+[package]
+name = "kith-guest"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Client-only Kith for a cloud bot's VM: joins a Kith computer by invite and asks its agents over the end-to-end relay"
+license = "Apache-2.0"
+publish = false
+
+# Packaged as `kith` inside the Linux tarball; cargo builds it as `kith-guest` so the workspace has no output-name clash
+# with the host's `kith` binary (docs/kith-bot-guests.md section 10.1).
+[lib]
+name = "kith_guest"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kith-guest"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+base64 = "0.23.1"
+clap = { version = "4.6.7", features = ["derive", "env"] }
+ed25519-dalek = "3.0.0"
+futures-util = { version = "0.3.31", default-features = false, features = ["sink", "std"] }
+gethostname = "1.1.0"
+kith-wire = { path = "../wire" }
+# TLS is rustls on the ring provider with webpki-roots (no system CA bundle needed on a bare VM). The workspace lockfile
+# also holds aws-lc-rs through the host's reqwest; that needs cmake and a C toolchain per target and breaks musl cross
+# builds, so every TLS dependency here turns default features off. Checked by:
+#   cargo tree -p kith-guest -e normal | grep -E 'aws-lc|openssl|native-tls'   (prints nothing)
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+tokio = { version = "1.53.1", features = ["rt", "net", "time", "macros", "sync", "io-util", "signal"] }
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+# The one HTTPS call (the invite accept). ureq 3 is blocking and small; with `rustls` it brings ring and webpki-roots
+# and nothing else. It runs on tokio's blocking pool.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+url = "2"
+uuid = { version = "1.26.1", features = ["v4"] }
+webpki-roots = "1"
+x25519-dalek = { version = "3.0.0", features = ["static_secrets"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"
+unused_qualifications = "warn"
+
+[lints.clippy]
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+module_name_repetitions = "allow"
+too_many_lines = "allow"
+unwrap_used = "warn"
+dbg_macro = "warn"
+todo = "warn"
