@@ -234,6 +234,7 @@ pub fn prop_identity_is_the_tokens() -> Result<(), String> {
             let got = authorize(&t, &line, peer).map_err(|e| TestCaseError::fail(format!("refused: {e:?}")))?;
             prop_assert_eq!(&got.identity, &r.identity);
             prop_assert_eq!(Some(got.identity), t.resolve(&r.token, peer));
+            prop_assert_eq!(Ok(got.args), recall_args(&render(&items)).map_err(String::from));
         }
         Ok(())
     })
