@@ -66,6 +66,23 @@ pub async fn serve_env(home: &Path, env: &[(&str, &str)]) -> (Child, String) {
     }
 }
 
+/// The host's token file, once it is there: the host writes it independently of answering
+/// `/health`, and `std::fs::write` truncates first, so a read can see no file or an empty one.
+#[allow(dead_code)]
+pub fn read_token(home: &Path) -> String {
+    let path = home.join("token");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        if let Ok(t) = std::fs::read_to_string(&path)
+            && !t.trim().is_empty()
+        {
+            return t;
+        }
+        assert!(Instant::now() < deadline, "the host never wrote its token file {}", path.display());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// The host decides about channels in the background after it listens: waits for `/health` to say they are off.
 async fn assert_channels_off(base: &str) {
     let deadline = Instant::now() + Duration::from_secs(10);
