@@ -63,7 +63,7 @@ export function AccountPanelLayer({ compact, approvals, onDismiss, onUsage, onSe
       ]
   const open = (url: string) => {
     onDismiss()
-    window.codync.app.openExternal(url)
+    window.kith.app.openExternal(url)
   }
   const items: PanelItem[] =
     page === 'support'

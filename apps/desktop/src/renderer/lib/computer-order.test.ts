@@ -26,7 +26,7 @@ test('computer ordering stays on each device, survives restart, and isolates acc
     window: {
       addEventListener: (type: string, callback: (event: unknown) => void) => listeners.set(type, [...listeners.get(type) ?? [], callback]),
       setInterval: () => assert.fail('Ordering must not poll'),
-      codync: { cloud: { request: network }, account: { state: async () => session, onChange() {} } },
+      kith: { cloud: { request: network }, account: { state: async () => session, onChange() {} } },
     },
     fetch: network,
   })

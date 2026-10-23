@@ -1,7 +1,7 @@
 // Reads THIRD_PARTY_NOTICES.md (written by scripts/notices/generate.mjs) for the Open-source licenses screen.
 // The format is fixed by the generator: `## <license>` opens a group, `- name version (source)` a package with
 // two-space-indented detail lines under it, and a ~~~~~ fence a license text. The iOS app parses the same file
-// (apps/ios/Kit/Sources/CodyncUI/LicensesSheet.swift): change both together.
+// (apps/ios/Kit/Sources/KithUI/LicensesSheet.swift): change both together.
 
 export interface NoticePackage {
   name: string

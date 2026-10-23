@@ -8,7 +8,7 @@ const house = parseKithInfo(JSON.parse(readFileSync(new URL('./test-support/kith
 
 test('an hq bot with Kith details hides the cards Kith repeats', () => {
   assert.deepEqual(botSections('house', house), {
-    instructions: false, backendPicker: false, harnessMemoryTab: false, codyncSettings: false,
+    instructions: false, backendPicker: false, harnessMemoryTab: false, kithSettings: false,
   })
 })
 
@@ -18,20 +18,20 @@ test('a plain bot keeps every card, whatever Kith says', () => {
 })
 
 test('an hq bot keeps every card until Kith details are on screen, except the harness notes tab', () => {
-  assert.deepEqual(botSections('house', null), { ...ALL_SECTIONS, harnessMemoryTab: false, codyncSettings: false })
+  assert.deepEqual(botSections('house', null), { ...ALL_SECTIONS, harnessMemoryTab: false, kithSettings: false })
 })
 
 test('a card stays when Kith could not read what it repeats', () => {
   const partial = { ...house, harness: null, errors: { role: 'unreadable' } }
   assert.deepEqual(botSections('house', partial), {
-    instructions: true, backendPicker: true, harnessMemoryTab: false, codyncSettings: false,
+    instructions: true, backendPicker: true, harnessMemoryTab: false, kithSettings: false,
   })
 })
 
-test('an hq bot on a host without kithInfo keeps Codync\'s own settings controls', () => {
-  assert.equal(botSections('house', null, true).codyncSettings, true)
-  assert.equal(botSections('house', house, true).codyncSettings, true)
-  assert.equal(botSections('house', house, false).codyncSettings, false)
+test('an hq bot on a host without kithInfo keeps Kith\'s own settings controls', () => {
+  assert.equal(botSections('house', null, true).kithSettings, true)
+  assert.equal(botSections('house', house, true).kithSettings, true)
+  assert.equal(botSections('house', house, false).kithSettings, false)
 })
 
 test('hq settings: permission is written through to hq, the rest is read-only "Set in Kith"', () => {

@@ -5,7 +5,7 @@ import { HStack, Spacer, VStack } from './Stack'
 import { Text } from './Text'
 import './controls.css'
 
-// Codync's own controls (kit Controls.swift): never the stock ones.
+// Kith's own controls (kit Controls.swift): never the stock ones.
 
 export const IconButton = IconButtonBase
 
@@ -50,7 +50,7 @@ export function Switch({ on, onChange, children, label, disabled, className }: {
   )
 }
 
-/** A button that opens a Codync menu. */
+/** A button that opens a Kith menu. */
 export function DropdownMenu({ items, children, className, style, title }: { items: () => MenuItem[]; children: ReactNode; className?: string; style?: CSSProperties; title?: string }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLButtonElement>(null)
@@ -64,7 +64,7 @@ export function DropdownMenu({ items, children, className, style, title }: { ite
   )
 }
 
-/** Picks one value: the current choice in a pill with a chevron, opening a Codync menu. */
+/** Picks one value: the current choice in a pill with a chevron, opening a Kith menu. */
 export function ChoicePicker<T extends string | number>({ selection, options, onChange, fill, fits = false }: {
   selection: T
   /** `leading`: a picture before the label, in the menu and on the picker (an agent's logo). */

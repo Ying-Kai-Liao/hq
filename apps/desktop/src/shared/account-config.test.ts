@@ -4,10 +4,9 @@ import { providerName, providerStrategy, resolveAccountConfig } from './account-
 
 const file = { clerkPublishableKey: 'pk_test_file', cloudURL: 'https://file.example/' }
 
-test('KITH_* wins over CODYNC_*, which wins over the build file', () => {
-  const env = { KITH_CLERK_PUBLISHABLE_KEY: 'pk_live_kith', KITH_CLOUD_URL: 'https://kith.example/', CODYNC_CLERK_PUBLISHABLE_KEY: 'pk_test_old', CODYNC_CLOUD_URL: 'https://old.example' }
+test('KITH_* wins over the build file', () => {
+  const env = { KITH_CLERK_PUBLISHABLE_KEY: 'pk_live_kith', KITH_CLOUD_URL: 'https://kith.example/' }
   assert.deepEqual(resolveAccountConfig(env, file), { clerkPublishableKey: 'pk_live_kith', cloudURL: 'https://kith.example' })
-  assert.deepEqual(resolveAccountConfig({ CODYNC_CLERK_PUBLISHABLE_KEY: 'pk_test_old', CODYNC_CLOUD_URL: 'https://old.example' }, file), { clerkPublishableKey: 'pk_test_old', cloudURL: 'https://old.example' })
   assert.deepEqual(resolveAccountConfig({}, file), { clerkPublishableKey: 'pk_test_file', cloudURL: 'https://file.example' })
 })
 

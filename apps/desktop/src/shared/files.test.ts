@@ -8,7 +8,7 @@ import { FileSink } from '../main/file-sink.ts'
 import { decodeFileChunk, FILE_CHUNK_SIZE, saveName } from './files.ts'
 
 test('verified downloads preserve binary and empty files and replace only on success', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'codync-download-'))
+  const directory = await mkdtemp(join(tmpdir(), 'kith-download-'))
   try {
     for (const data of [Buffer.alloc(0), Buffer.alloc(FILE_CHUNK_SIZE + 11, 255)]) {
       const destination = join(directory, 'output')
@@ -27,7 +27,7 @@ test('verified downloads preserve binary and empty files and replace only on suc
 })
 
 test('cancelled and corrupt downloads preserve existing destinations and remove partial files', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'codync-download-'))
+  const directory = await mkdtemp(join(tmpdir(), 'kith-download-'))
   try {
     const destination = join(directory, 'output')
     await writeFile(destination, 'original')
@@ -58,7 +58,7 @@ test('retiring a computer while Save is pending cancels its handle without fetch
   let resolve!: (value: string) => void
   const pending = new Promise<string>((done) => { resolve = done })
   const cancelled: string[] = []
-  Object.defineProperty(globalThis, 'window', { configurable: true, value: { codync: { files: {
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { kith: { files: {
     begin: () => pending, cancel: async (id: string) => { cancelled.push(id) },
   } } } })
   const downloads = new FileDownloads(() => {})
@@ -78,7 +78,7 @@ test('cancelling an outstanding chunk cannot write or commit a late response', a
   let resolve!: (value: { data: string; size: number }) => void
   const pending = new Promise<{ data: string; size: number }>((done) => { resolve = done })
   let writes = 0, commits = 0
-  Object.defineProperty(globalThis, 'window', { configurable: true, value: { codync: { files: {
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { kith: { files: {
     begin: async () => 'handle', cancel: async () => {}, write: async () => { writes++ }, finish: async () => { commits++ },
   } } } })
   const downloads = new FileDownloads(() => {})

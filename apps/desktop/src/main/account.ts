@@ -19,7 +19,7 @@ const REDIRECT = `${SCHEME}://callback`
 
 export const isMainEnvironment = () => identity.releaseUpdates
 
-/** `KITH_CLERK_PUBLISHABLE_KEY` / `KITH_CLOUD_URL` (or the `CODYNC_*` names), else the build's account config. */
+/** `KITH_CLERK_PUBLISHABLE_KEY` / `KITH_CLOUD_URL`, else the build's account config. */
 const loadConfig = (): AccountConfig => resolveAccountConfig(process.env, buildConfig)
 
 /** The Frontend API host is the publishable key's payload: `pk_test_<base64("host$")>`. */
@@ -111,7 +111,7 @@ export class AccountService extends EventEmitter {
     try {
       const sealed = await fs.readFile(this.storePath)
       const text = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(sealed) : sealed.toString('utf8')
-      // A token from another Clerk application (an older Codync build, or a changed key) is no use here.
+      // A token from another Clerk application (an older Kith build, or a changed key) is no use here.
       const saved = JSON.parse(text) as { key?: string; token?: string }
       if (saved.key === this.config.clerkPublishableKey && saved.token) this.deviceToken = saved.token
       else await fs.rm(this.storePath, { force: true })

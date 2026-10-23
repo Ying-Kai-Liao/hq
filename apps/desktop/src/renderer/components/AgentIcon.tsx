@@ -1,6 +1,6 @@
 import { Icon } from './Icon'
 
-// Agents' logos by ACP registry id, or by Codync's id for agents outside the registry
+// Agents' logos by ACP registry id, or by Kith's id for agents outside the registry
 // (template images: drawn in the current color).
 const icons = import.meta.glob<string>('../assets/agents/*.svg', { eager: true, query: '?url', import: 'default' })
 const byId = new Map(Object.entries(icons).map(([path, url]) => [path.split('/').pop()!.replace('.svg', ''), url]))

@@ -6,7 +6,7 @@ import { defineConfig, type Plugin } from 'vite'
 // web/ at /demo/desktop/. Separate from the Electron build (electron.vite.config.ts).
 // The website is dark: the demo always uses the app's dark palette (bridge.ts answers matchMedia).
 const alwaysDark: Plugin = {
-  name: 'codync-demo-dark',
+  name: 'kith-demo-dark',
   enforce: 'pre',
   transform: (code, id) => (id.endsWith('.css') ? code.replaceAll('@media (prefers-color-scheme: dark)', '@media all') : null),
 }

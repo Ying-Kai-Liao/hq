@@ -1,4 +1,4 @@
-/** How long after the first ask the second one waits, for people who kept using Codync. */
+/** How long after the first ask the second one waits, for people who kept using Kith. */
 export const SECOND_ASK_AFTER = 7 * 24 * 60 * 60 * 1000
 
 /** Where the GitHub star ask stands on this computer. */

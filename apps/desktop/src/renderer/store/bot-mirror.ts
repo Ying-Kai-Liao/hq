@@ -64,12 +64,12 @@ export class BotMirror extends Observable {
     computer: Computer,
     readonly isLoopback: boolean,
     protected makeTransport: () => HostTransport,
-    protected appVersion = window.codync.appVersion,
+    protected appVersion = window.kith.appVersion,
     readonly contextId = 'local',
   ) {
     super()
     this.computer = computer
-    this.composerDrafts = new ComposerDrafts(localStorage, `codync-drafts-v1-${JSON.stringify([contextId, computer.id])}`,
+    this.composerDrafts = new ComposerDrafts(localStorage, `kith-drafts-v1-${JSON.stringify([contextId, computer.id])}`,
       () => this.setError("Couldn't save the draft on this device. Your text is still here; keep this window open until you send or copy it."))
     this.loadCache()
   }
@@ -209,7 +209,7 @@ export class BotMirror extends Observable {
   // MARK: cache (instant launch, offline reading)
 
   private get cacheKey() {
-    return `codync-mirror-${this.contextId}-${this.computer.id}`
+    return `kith-mirror-${this.contextId}-${this.computer.id}`
   }
 
   private loadCache() {

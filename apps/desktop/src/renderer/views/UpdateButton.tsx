@@ -9,8 +9,8 @@ import { Dialog } from '../components/Overlay'
 export function useUpdates() {
   const [updates, setUpdates] = useState<UpdateState | null>(null)
   useEffect(() => {
-    void window.codync.updates.state().then(setUpdates)
-    return window.codync.updates.onChange(setUpdates)
+    void window.kith.updates.state().then(setUpdates)
+    return window.kith.updates.onChange(setUpdates)
   }, [])
   return updates
 }
@@ -19,7 +19,7 @@ export function useUpdates() {
 export function UpdateButton({ updates, kind = 'secondary' }: { updates: UpdateState; kind?: 'primary' | 'secondary' }) {
   const action = updateAction(updates)
   return (
-    <Button kind={updates.staged ? 'primary' : kind} onClick={() => window.codync.updates.check()} disabled={!action.enabled}>
+    <Button kind={updates.staged ? 'primary' : kind} onClick={() => window.kith.updates.check()} disabled={!action.enabled}>
       {action.label}
     </Button>
   )
@@ -46,7 +46,7 @@ export function UpdateBadge({ size }: { size: number }) {
         open={confirming}
         title={`Update to Kith ${updates.availableVersion}?`}
         message="Kith restarts to install it."
-        actions={[{ title: 'Update', action: () => window.codync.updates.install() }]}
+        actions={[{ title: 'Update', action: () => window.kith.updates.install() }]}
         onClose={() => setConfirming(false)}
       />
     </>

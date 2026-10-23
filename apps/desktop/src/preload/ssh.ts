@@ -1,7 +1,7 @@
 import { ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { SSHBridge, SSHState } from '../shared/ssh'
 
-/** `window.codync.ssh`: SSH computers, run by the main process (main/ssh.ts). */
+/** `window.kith.ssh`: SSH computers, run by the main process (main/ssh.ts). */
 export const sshBridge: SSHBridge = {
   state: () => ipcRenderer.invoke('ssh:state') as Promise<SSHState>,
   onChange(cb) {

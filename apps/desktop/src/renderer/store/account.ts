@@ -26,12 +26,12 @@ export class AccountSession extends Observable {
   }
 
   async start() {
-    const state = await window.codync.account.state()
+    const state = await window.kith.account.state()
     this.apply(state)
-    window.codync.account.onChange((s) => this.apply(s))
+    window.kith.account.onChange((s) => this.apply(s))
   }
 
-  private apply(s: Awaited<ReturnType<typeof window.codync.account.state>>) {
+  private apply(s: Awaited<ReturnType<typeof window.kith.account.state>>) {
     this.isReady = s.ready
     this.isConfigured = s.configured
     this.isBusy = s.busy
@@ -42,15 +42,15 @@ export class AccountSession extends Observable {
   }
 
   async signIn(provider: SignInProvider) {
-    await window.codync.account.signIn(provider)
+    await window.kith.account.signIn(provider)
   }
 
   async signOut() {
-    await window.codync.account.signOut()
+    await window.kith.account.signOut()
   }
 
   sessionToken() {
-    return window.codync.account.token()
+    return window.kith.account.token()
   }
 }
 
