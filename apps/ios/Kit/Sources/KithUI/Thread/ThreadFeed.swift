@@ -159,6 +159,13 @@ enum ThreadFeed {
         return out
     }
 
+    /// Fewer replies are loaded than the host's summary counts. The summary counts a thread's user messages and final
+    /// agent replies only, so loaded tool rows, thoughts and cards must not count toward it. No summary: nothing to compare.
+    static func isMissingReplies(_ replies: [Entry], summary: ThreadSummary?) -> Bool {
+        guard let total = summary?.count else { return false }
+        return replies.filter { $0.kind == "user" || ($0.kind == "agent" && $0.data.final == true) }.count < total
+    }
+
     /// A question waits on the reader: a permission card still pending. In a thread another writer holds it is
     /// theirs to answer, not the reader's.
     static func hasQuestion(_ replies: [Entry], held: Bool = false) -> Bool {

@@ -23,7 +23,7 @@ struct TaskRow: View {
             // A question that waits opens its thread even if it was folded by hand.
             let open = ThreadFeed.hasQuestion(replies, held: root.data.thread?.isHeldElsewhere == true) || Tasks.isOpen(status, newest: newest, lastAt: Tasks.lastAt(root), now: now, choice: choice)
             // An older reply can be missing when only live ones arrived: load the whole thread.
-            let missing = open && replies.count < (root.data.thread?.count ?? 0)
+            let missing = open && ThreadFeed.isMissingReplies(replies, summary: root.data.thread)
             thread(replies, status, open: open, now: context.date)
                 .task(id: missing) {
                     if missing { await model.loadThread(bot.id, root: root.id) }
