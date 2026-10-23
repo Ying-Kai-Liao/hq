@@ -9,9 +9,12 @@ import { useModel } from '../../lib/observable'
 import { DEFAULT_TEXT_SIZE, prefs, TEXT_SIZES, usePref } from '../../lib/prefs'
 import { useAccount } from '../../store/account'
 import { StoreContext, useApp } from '../../store/context'
+import { peopleFor } from '../../store/people-store'
+import { pagesFor, type ComputerRole } from '@shared/people'
 import { ComputerBadge } from '../ComputerBadge'
 import { UpdateButton, useUpdates } from '../UpdateButton'
 import { ComputersView } from './ComputersView'
+import { PeopleView } from './PeopleView'
 import { LinkChatRow } from './LinkChatRow'
 import { errorText, isMac, thisMac } from './parts'
 import { BackupChains } from './BackupChain'
@@ -23,32 +26,50 @@ import { AnalyticsSheet } from './AnalyticsSheet'
 import { LicensesSheet } from './LicensesSheet'
 
 /** The chat window's Settings: pages in a sidebar, ChatGPT's settings layout. */
-export type SettingsPage = 'general' | 'computers' | 'access' | 'voice' | 'usage' | 'updates'
+export type SettingsPage = 'general' | 'computers' | 'people' | 'access' | 'voice' | 'usage' | 'updates'
 
 const thisComputer = isMac ? 'This Mac' : 'This computer'
 const pages: { id: SettingsPage; title: string; label?: string; group: string; icon: string }[] = [
   { id: 'general', title: 'General', group: 'Personal', icon: 'gearshape' },
   { id: 'computers', title: 'Computers & devices', label: 'Computers', group: thisComputer, icon: 'desktopcomputer' },
+  { id: 'people', title: 'People', group: thisComputer, icon: 'person.2' },
   { id: 'access', title: 'Computer access', group: thisComputer, icon: 'hand.raised' },
   { id: 'voice', title: 'Voice chat', group: 'Personal', icon: 'waveform' },
   { id: 'usage', title: 'Usage', group: 'Personal', icon: 'gauge.with.dots.needle.33percent' },
   { id: 'updates', title: 'Updates', group: thisComputer, icon: 'arrow.down.circle' },
 ]
 
+/** Pages only the owner of the connected Mac has: an invited person keeps General and nothing about the Mac itself. */
+const ownerOnly: SettingsPage[] = ['computers', 'people', 'access', 'voice', 'usage', 'updates']
+
+/** This account's part in the connected Mac, from the cloud's computer rows; the owner when it isn't listed (the Mac's own app). */
+export function useComputerRole(): ComputerRole {
+  const app = useApp()
+  const id = app.local?.computer.id
+  return app.cloud.computers.find((c) => c.computerId === id)?.role === 'member' ? 'member' : 'owner'
+}
+
 export function SettingsView({ page: initial }: { page: SettingsPage }) {
   // Kept here: the sheet's content doesn't follow the window's state once shown.
   const [page, setPage] = useState(initial)
   const app = useApp()
   const dismiss = useDismiss()
-  const current = pages.find((p) => p.id === page)!
+  const role = useComputerRole()
+  // A host before invites answers "unknown method": People hides rather than failing.
+  const people = useModel(app.local ? peopleFor(app.local) : null)
+  const online = app.local?.connection.kind === 'online'
+  useEffect(() => void (online && role === 'owner' && people?.supported === null ? people.load() : undefined), [online, role, people, people?.supported])
+  const visible = pagesFor(role, pages.map((p) => p.id), ownerOnly).filter((id) => id !== 'people' || people?.supported === true)
+  const shown = pages.filter((p) => visible.includes(p.id))
+  const current = shown.find((p) => p.id === page) ?? shown[0]!
   return (
     <div className="settings">
       <nav className="settings-sidebar">
         {['Personal', thisComputer].map((group) => (
           <Fragment key={group}>
             <div className="settings-group">{group}</div>
-            {pages.filter((p) => p.group === group).map((item) => (
-              <button key={item.id} className={`settings-item ${item.id === page ? 'selected' : ''}`} aria-current={item.id === page ? 'page' : undefined} onClick={() => setPage(item.id)}>
+            {shown.filter((p) => p.group === group).map((item) => (
+              <button key={item.id} className={`settings-item ${item.id === current.id ? 'selected' : ''}`} aria-current={item.id === current.id ? 'page' : undefined} onClick={() => setPage(item.id)}>
                 <IconSlot width={18} tone="secondary">
                   <Icon name={item.icon} size={13} />
                 </IconSlot>
@@ -64,8 +85,8 @@ export function SettingsView({ page: initial }: { page: SettingsPage }) {
       <div className="settings-divider" />
       <div className="settings-main">
         <Text as="div" size={24} weight="semibold" tone="text" className="settings-title">{current.title}</Text>
-        <div key={page} className="settings-page">
-          <PageContent page={page} />
+        <div key={current.id} className="settings-page">
+          <PageContent page={current.id} />
         </div>
       </div>
       <span className="settings-close">
@@ -78,6 +99,8 @@ export function SettingsView({ page: initial }: { page: SettingsPage }) {
 function PageContent({ page }: { page: SettingsPage }) {
   const app = useApp()
   switch (page) {
+    case 'people':
+      return <PeopleView />
     case 'access':
       return <ComputerAccessView />
     case 'general':

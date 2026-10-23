@@ -5,6 +5,7 @@ import {
   type HqMemoryDiff, type HqMemoryList, type HqMemoryRead, type HqMemoryVersion, type HqSaveResult, type HqTidyUp, type HqUndoResult,
 } from '@shared/hq-memory'
 import { isUnsupportedHost, parseKithInfoResult, parseSearchResult, type KithInfoResult, type KithSearchResult } from '@shared/kith-info'
+import { parseAudit, parseCreatedInvite, parseInvites, parsePeople, type AuditRow, type CreatedInvite, type PendingInvite, type Person, type Role } from '@shared/people'
 import type { PlaceFolder, PlaceSelection, ProjectInfo, RecentFolder, StartingFolder } from '@shared/place-folders'
 import {
   normalizeBot,
@@ -238,6 +239,46 @@ export class HostClient {
 
   async hqUndoTidy(botId: string, id: number): Promise<HqUndoResult> {
     return parseUndo(await this.callRenamed('kithMemoryUndoTidy', 'kithMemoryUndoDream', { botId, id }, 30_000))
+  }
+
+  // People an owner invited (serve/host/src/api/people.rs). A host before invites answers "unknown method".
+  async people(): Promise<Person[]> {
+    return parsePeople(await this.call('people'))
+  }
+
+  async invites(): Promise<PendingInvite[]> {
+    return parseInvites(await this.call('invites'))
+  }
+
+  /** `who` is an existing person's id or a new person's name. */
+  async createInvite(who: { personId: string } | { name: string }, agents: Record<string, Role>): Promise<CreatedInvite> {
+    return parseCreatedInvite(await this.call('createInvite', { ...who, agents }, 60_000))
+  }
+
+  revokeInvite(inviteId: string) {
+    return this.call('revokeInvite', { inviteId })
+  }
+
+  setPersonAccess(personId: string, agents: Record<string, Role>, projects: string[]) {
+    return this.call('setPersonAccess', { personId, agents, projects }, 60_000)
+  }
+
+  revokePerson(personId: string) {
+    return this.call('revokePerson', { personId }, 60_000)
+  }
+
+  async audit(since = 0, personId: string | null = null): Promise<AuditRow[]> {
+    return parseAudit(await this.call('audit', { since, ...(personId ? { personId } : {}) }))
+  }
+
+  /** The first call of an invited device: shows the invite token from the link. Until it works the Mac refuses everything else. */
+  proveInvite(inviteId: string, token: string) {
+    return this.call('proveInvite', { inviteId, token })
+  }
+
+  /** An invited person's own chat with a granted agent. */
+  startChat(agent: string) {
+    return this.call<{ bot: Bot }>('startChat', { agent }, 60_000)
   }
 
   async recentFolders() {

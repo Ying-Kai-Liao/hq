@@ -86,7 +86,11 @@ const bridge: KithBridge = {
     newBot() {},
     openApp() {},
   },
-  cloud: { request: async () => ({ ok: false, error: { status: 503, code: 'demo', message: DEMO_UNAVAILABLE } }) },
+  cloud: {
+    request: async () => ({ ok: false, error: { status: 503, code: 'demo', message: DEMO_UNAVAILABLE } }),
+    acceptInvite: async () => ({ ok: false, error: { status: 503, code: 'demo', message: DEMO_UNAVAILABLE } }),
+  },
+  invites: { takePending: async () => null, keep: async () => {}, kept: async () => null, forget: async () => {} },
   updates: { state: async () => updates, onChange: none, check() {}, install() {}, setAutoCheck() {}, setAutoDownload() {} },
   files: { begin: unavailable, write: async () => {}, finish: async () => {}, cancel: async () => {} },
   app: {
