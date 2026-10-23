@@ -43,3 +43,5 @@ whatif-fixes	PROPERTY	CacheNeverStale	pass
 broken-no-forget	PROPERTY	CacheNeverStale	fail
 broken-takeover-busy	PROPERTY	TakeoverOnlyWhenIdle	fail
 broken-no-procstart	INVARIANT	NoForeignSignal	fail
+code-claims-bot	PROPERTY	BotRefusedWhileHeld	pass
+code-claims-bot	INVARIANT	NeverBotRuns	fail
