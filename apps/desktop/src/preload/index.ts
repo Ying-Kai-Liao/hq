@@ -156,6 +156,7 @@ const bridge: KithBridge = {
     pickFolder: (defaultPath) => ipcRenderer.invoke('app:pickFolder', defaultPath ?? null),
     readClipboardFiles: () => ipcRenderer.invoke('app:clipboardFiles'),
     setTraySummary: (summary: TraySummary) => ipcRenderer.send('app:traySummary', summary),
+    raiseWindow: () => ipcRenderer.send('app:raiseWindow'),
     onCommand: (cb: (c: WindowCommand) => void) => listen('app:command', cb),
     resetAllData: () => ipcRenderer.invoke('app:resetAllData'),
     setLaunchAtLogin: (on) => ipcRenderer.invoke('app:setLaunchAtLogin', on),

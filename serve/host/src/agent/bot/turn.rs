@@ -144,9 +144,15 @@ impl Actor {
         self.turn = Some(turn);
         self.project_divider();
         // Only the user's own words feed memory: not another bot's, a room's or a routine's.
-        let from_user =
-            !hidden && self.active_request.is_none() && self.active_group.is_none() && self.active_routine.is_none();
-        self.turn_call = from_user
+        // The opening turn of a call the agent placed (`calls::greet`) is the host's, not the person's words.
+        let greeting = !entry_ids.is_empty()
+            && entry_ids.iter().all(|id| self.hub.store.entry(id).is_some_and(|e| e.data["greeting"] == true));
+        let from_user = !hidden
+            && !greeting
+            && self.active_request.is_none()
+            && self.active_group.is_none()
+            && self.active_routine.is_none();
+        self.turn_call = (from_user || greeting)
             && !entry_ids.is_empty()
             && entry_ids.iter().all(|id| self.hub.store.entry(id).is_some_and(|e| e.data["via"] == "call"));
         self.turn_text = from_user.then(|| text.to_owned());

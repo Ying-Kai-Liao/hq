@@ -1,5 +1,7 @@
 import { mirrorStamp } from '@shared/mirror-stamp'
 import { isChat, type AccessRequest, type CloudStatus, type Entry } from '@shared/models'
+import { callPresence } from './call-presence'
+import { reduceCalls } from '@shared/incoming-call'
 import { isOutsideLoadedWindow, snapshotFloors } from '@shared/mirror-window'
 import { HostClient, HostError, type HostEvent } from '../client/host-client'
 import { BotMirror, type Connection } from './bot-mirror'
@@ -199,6 +201,8 @@ export class BotSync extends BotMirror {
         this.hostId = event.hostId
         this.usage = event.usage
         this.screen = event.screen
+        // The host repeats the calls still ringing right after a hello.
+        this.incomingCalls = []
         if (event.rev < this.rev) this.rev = 0
         this.floors = snapshotFloors(this.entries, this.rev === 0 ? 0 : this.requestedSince)
         break
@@ -235,6 +239,10 @@ export class BotSync extends BotMirror {
       case 'cloud':
         this.cloud = event.cloud
         break
+      case 'call':
+        if (event.ringing && callPresence.active > 0) this.perform((c) => c.callDecline(event.call.id))
+        else this.incomingCalls = reduceCalls(this.incomingCalls, event)
+        break
       case 'resync':
         this.restartEvents()
         break
@@ -265,6 +273,7 @@ export class BotSync extends BotMirror {
     this.historyComplete = new Set()
     this.floors = new Map()
     this.screen = null
+    this.incomingCalls = []
     this.saveCache()
   }
 

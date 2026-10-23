@@ -33,6 +33,7 @@ import { StartupRecovery } from './StartupRecovery'
 export { EmptyState } from './HostStateView'
 import { StarPrompt } from './StarPrompt'
 import { OpenVoiceSettings } from './call/CallView'
+import { IncomingCalls } from './call/IncomingCall'
 import { AccountPanelLayer, DesktopActionMenu, ProfileAvatar } from './PanelMenus'
 import { useTraySummary } from './tray-summary'
 import { useIslandSummary } from './island-summary'
@@ -101,6 +102,7 @@ export function ChatWindow() {
   return (
     <div className="chat-window">
       <Summaries />
+      <IncomingCalls />
       {onboarded ? (
         accessSetup === null ? (
           <ComputerAccessView onContinue={(ready) => setAccessSetup(ready ? 'ready' : 'later')} />

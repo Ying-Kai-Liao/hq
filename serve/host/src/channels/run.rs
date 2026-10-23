@@ -220,6 +220,12 @@ impl Core {
             set(&mut env, "PERSON", &person); // bin/hq checks the membership again and sets their mode
         }
         set(&mut env, "BRIDGE_OUTBOX", &outbox.to_string_lossy());
+        // To ring the person this run serves, and nobody else (`kith-call`).
+        if let Some(call_env) = self.call_env.get() {
+            for (k, v) in call_env(agent, (!owner).then_some(person.as_str())) {
+                env.push((k.into(), v.into()));
+            }
+        }
         for (k, v) in ad.env(conv, agent) {
             env.push((k.into(), v.into())); // already under both spellings
         }

@@ -1,3 +1,4 @@
+import type { IncomingCall } from '@shared/incoming-call'
 import { mirrorStamp } from '@shared/mirror-stamp'
 import { checkVersions, isBelow, type VersionMismatch } from '@shared/compat'
 import {
@@ -42,6 +43,8 @@ export class BotMirror extends Observable {
   accessRequests: AccessRequest[] = []
   cloud: CloudStatus | null = null
   historyComplete = new Set<string>()
+  /** Agents ringing the person right now (see `shared/incoming-call`). */
+  incomingCalls: IncomingCall[] = []
   routineDrafts = new Map<string, string>()
   readonly composerDrafts: ComposerDrafts
   lastError: string | null = null

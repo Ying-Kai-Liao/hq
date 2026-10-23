@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# kith-call-check — kith-call posts the chat, its key and the reason to the host's callPerson, with
+# the host's token, and turns the host's status into an exit code. A fake host on loopback; no network, no secrets.
+#
+#   kernel/tests/kith-call-check
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+call="$here/../bin/kith-call"
+tmp=$(mktemp -d); trap '{ kill ${srv:-0}; wait ${srv:-0}; } 2>/dev/null || true; rm -rf "$tmp"' EXIT
+fail() { echo "FAIL: $*" >&2; exit 1; }
+
+echo secret-token > "$tmp/token"
+cat > "$tmp/host.py" <<'PY'
+import http.server, json, sys
+answers = {'a': {'status': 'ringing', 'id': '1'}, 'b': {'status': 'rate-limited', 'retryAfterSeconds': 540},
+           'c': {'status': 'busy'}, 'd': {'status': 'not-allowed'}, 'e': {'status': 'declined'}}
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        open(sys.argv[2], 'w').write(json.dumps({'path': self.path, 'auth': self.headers['Authorization'], 'body': body}))
+        out = answers[body['reason'][0]]
+        self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers()
+        self.wfile.write(json.dumps(out).encode())
+    def log_message(self, *a): pass
+s = http.server.HTTPServer(('127.0.0.1', 0), H)
+open(sys.argv[1], 'w').write(str(s.server_address[1]))
+s.serve_forever()
+PY
+python3 "$tmp/host.py" "$tmp/port" "$tmp/seen.json" & srv=$!
+for _ in $(seq 50); do [[ -s $tmp/port ]] && break; sleep 0.1; done
+[[ -s $tmp/port ]] || fail "the fake host did not start"
+
+export KITH_SERVE_DIR=$tmp KITH_SERVE_PORT=$(cat "$tmp/port") KITH_CALL_CHAT=chat1 KITH_CALL_KEY=k1
+
+out=$("$call" "a call about dinner") || fail "ringing should exit 0: $out"
+[[ $out == ringing ]] || fail "status: $out"
+python3 - "$tmp/seen.json" <<'PY' || fail "request"
+import json, sys
+s = json.load(open(sys.argv[1]))
+assert s['path'] == '/api/callPerson' and s['auth'] == 'Bearer secret-token', s
+assert s['body'] == {'chat': 'chat1', 'key': 'k1', 'reason': 'a call about dinner', 'wait': False}, s
+PY
+
+"$call" --wait "a" >/dev/null
+python3 - "$tmp/seen.json" <<'PY' || fail "wait not sent"
+import json, sys
+assert json.load(open(sys.argv[1]))['body']['wait'] is True
+PY
+code=0; env -u KITH_CALL_KEY -u HQ_CALL_KEY "$call" "a" >/dev/null 2>&1 || code=$?
+[[ $code == 7 ]] || fail "a run without the key should be not-allowed (7), got $code"
+
+for pair in "b:6" "c:5" "d:7" "e:3"; do
+  code=0; out=$("$call" "${pair%%:*}") || code=$?
+  [[ $code == ${pair##*:} ]] || fail "'${pair%%:*}' exited $code ($out), wanted ${pair##*:}"
+done
+[[ $("$call" b || true) == "rate-limited (try again in 540 s)" ]] || fail "retry hint missing"
+
+code=0; "$call" >/dev/null 2>&1 || code=$?; [[ $code == 2 ]] || fail "no reason should be a usage error, got $code"
+code=0; KITH_SERVE_PORT=1 "$call" "a" >/dev/null 2>&1 || code=$?; [[ $code == 1 ]] || fail "unreachable host should exit 1, got $code"
+echo "ok: kith-call sends agent, person and reason, and maps every status to an exit code"

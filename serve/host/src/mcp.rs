@@ -63,9 +63,10 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
         // An hq agent's chat: its words already reach the user as its reply, so it gets only the way to share files.
         Server::Files => {
             let tools = crate::chat::outbox::tools();
-            let send_file: Vec<Value> =
+            let mut files: Vec<Value> =
                 tools.as_array().into_iter().flatten().filter(|t| t["name"] == "send_file").cloned().collect();
-            ("kith-files", crate::chat::outbox::FILES_INSTRUCTIONS, Value::Array(send_file))
+            files.push(crate::calls::tool());
+            ("kith-files", crate::chat::outbox::FILES_INSTRUCTIONS, Value::Array(files))
         }
         Server::Team => ("kith-team", crate::chat::team::INSTRUCTIONS, crate::chat::team::tools()),
         Server::Memory => ("kith-memory", crate::chat::memory::INSTRUCTIONS, crate::chat::memory::tools()),
@@ -92,8 +93,13 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
                     Server::Computer => computer_tools(port, &token).await,
                     _ => json!({"tools": available_tools}),
                 }),
-                "tools/call" if matches!(server, Server::Files) && params["name"] != "send_file" => {
-                    Ok(json!({"content": [{"type": "text", "text": "unknown tool: only send_file"}], "isError": true}))
+                "tools/call"
+                    if matches!(server, Server::Files)
+                        && !["send_file", "call_person"].contains(&params["name"].as_str().unwrap_or_default()) =>
+                {
+                    Ok(
+                        json!({"content": [{"type": "text", "text": "unknown tool: only send_file and call_person"}], "isError": true}),
+                    )
                 }
                 "tools/call" => Ok(call(port, &token, &bot, params, server).await),
                 method => Err(json!({"code": -32601, "message": format!("unknown method {method}")})),
