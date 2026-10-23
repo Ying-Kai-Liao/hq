@@ -69,6 +69,7 @@ for who in guest bot-3f9a1c2e; do
   expect "$who: the file tools are limited to the working directories" "$(q "$S" 's["permissions"].get("blockReadsOutsideWorkingDirectories")')" True
   expect "$who: the denies stay on top of the allowlist (index not allowed)" "$(q "$S" "not any(a == '$T/real state/index' or a == '$T/real state' for a in fs['allowRead'])")" True
   expect "$who: global config of the owner is not read" "$(q "$S" 's["env"]["GIT_CONFIG_GLOBAL"]')" /dev/null
+  expect "$who: the link to the state folder is itself readable" "$(q "$S" "'$T/linked state' in fs['allowRead']")" True
   expect "$who: the Read/Edit deny rules stay" "$(q "$S" 'any(r.startswith("Read(") for r in s["permissions"]["deny"])')" True
 done
 

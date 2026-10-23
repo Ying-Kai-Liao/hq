@@ -604,6 +604,14 @@ try:   # the developer shims of macOS look the toolchain up here, which can sit 
         allow += both(dev)
 except (OSError, subprocess.SubprocessError):
     pass
+# A link on the way to an allowed folder (~/kith, the state folder on another disk) is read as a link before it is followed:
+# allow the link itself. Seatbelt matches resolved paths, so this opens the link and nothing behind it.
+for a in list(allow):
+    d = os.path.dirname(a)
+    while d not in ("/", ""):
+        if os.path.islink(d):
+            allow.append(d)
+        d = os.path.dirname(d)
 fs = s["sandbox"]["filesystem"]
 fs["denyRead"] = list(dict.fromkeys(fs["denyRead"] + both(home)))
 fs["allowRead"] = [a for a in dict.fromkeys(allow)]
