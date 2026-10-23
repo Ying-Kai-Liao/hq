@@ -238,6 +238,7 @@ struct SettingsView: View {
         }
         .task { notificationsAllowed = await PushRegistrar.shared.isAllowed() }
         .task { if app.openWidgets { app.openWidgets = false; widgets = true } }
+        .onChange(of: app.openWidgets) { _, open in if open { app.openWidgets = false; widgets = true } }
     }
 
 

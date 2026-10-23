@@ -123,7 +123,11 @@ private struct DebugHooks: ViewModifier {
                 switch screen {
                 case "settings": app.showSettings = true
                 case "computers": app.showComputers = true
-                case "widgets": app.showSettings = true; app.openWidgets = true
+                case "widgets":
+                    // The page is pushed inside the Settings sheet, so wait for the sheet and its stack to be up.
+                    app.showSettings = true
+                    try? await Task.sleep(for: .seconds(1.5))
+                    app.openWidgets = true
                 case "chat":
                     if let computer = app.accounts.computers.first {
                         app.accounts.selection = BotReference(accountId: nil, computerId: computer.id, botId: DemoScreens.chatBotId)
