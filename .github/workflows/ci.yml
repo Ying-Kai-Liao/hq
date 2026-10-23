@@ -7,14 +7,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-  # GitHub's own merge queue needs an org-owned repo, so this never fires here; kept for a possible move.
-  merge_group:
-    types: [checks_requested]
 
-# Label events don't start this workflow (ci-label.yml dispatches it for ci:full), so a label such as `queue` never
-# creates a run, and never a skipped `ci` check that Mergify would read as the latest result.
+# Label events don't start this workflow (ci-label.yml dispatches it for ci:full), so a label never
+# creates a run, and never a skipped `ci` check.
 # A PR gets one group per ref, so a re-push cancels the older run. Every other run (push to main,
-# merge_group, workflow_dispatch) gets its own group keyed by sha, so merges never cancel each other. GitHub keeps
+# workflow_dispatch, including the reviewer's batch run) gets its own group keyed by sha, so merges never cancel each other. GitHub keeps
 # only one pending run per group, so sharing a group for main would drop the older queued run.
 concurrency:
   group: ci-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.workflow, github.ref) || format('{0}-{1}-{2}', github.workflow, github.sha, github.run_id) }}
@@ -39,32 +36,28 @@ jobs:
       pull-requests: read
     outputs:
       # The heavy tier (macOS builds, all e2e, guest-linux) runs on everything but a pull request. A pull request
-      # runs it when it is a Mergify queue batch (a draft PR from a mergify/merge-queue/* branch, which Mergify
-      # builds on top of the latest main), or when it is ready (non-draft) and carries the ci:full label. Ordinary
-      # drafts stay cheap-only. pull_request is empty on other events, so it is only read for pull requests.
-      # Batch PRs each have their own ref, so the per-ref concurrency group never makes one cancel another.
-      heavy: ${{ github.event_name != 'pull_request' || startsWith(github.head_ref, 'mergify/merge-queue/') || (github.event.pull_request.draft == false && contains(github.event.pull_request.labels.*.name, 'ci:full')) }}
-      kernel: ${{ github.event_name == 'merge_group' || steps.f.outputs.kernel }}
-      host: ${{ github.event_name == 'merge_group' || steps.h.outputs.host }}
-      host_core: ${{ github.event_name == 'merge_group' || steps.h.outputs.host_core }}
-      cloud: ${{ github.event_name == 'merge_group' || steps.h.outputs.cloud }}
-      licenses: ${{ github.event_name == 'merge_group' || steps.f.outputs.licenses }}
-      threads: ${{ github.event_name == 'merge_group' || steps.f.outputs.threads }}
-      ios: ${{ github.event_name == 'merge_group' || steps.h.outputs.ios }}
-      desktop: ${{ github.event_name == 'merge_group' || steps.h.outputs.desktop }}
-      relay: ${{ github.event_name == 'merge_group' || steps.h.outputs.relay }}
-      e2e: ${{ github.event_name == 'merge_group' || steps.h.outputs.e2e }}
-      guest_linux: ${{ github.event_name == 'merge_group' || steps.h.outputs.guest_linux }}
-      bot_e2e: ${{ github.event_name == 'merge_group' || steps.h.outputs.bot_e2e }}
+      # runs it when it is ready (non-draft) and carries the ci:full label. Ordinary drafts stay cheap-only.
+      # The flow reviewer's batch is checked by a workflow_dispatch run on its flow/batch-<sha> branch, which is heavy.
+      # pull_request is empty on other events, so it is only read for pull requests.
+      heavy: ${{ github.event_name != 'pull_request' || (github.event.pull_request.draft == false && contains(github.event.pull_request.labels.*.name, 'ci:full')) }}
+      kernel: ${{ steps.f.outputs.kernel }}
+      host: ${{ steps.h.outputs.host }}
+      host_core: ${{ steps.h.outputs.host_core }}
+      cloud: ${{ steps.h.outputs.cloud }}
+      licenses: ${{ steps.f.outputs.licenses }}
+      threads: ${{ steps.f.outputs.threads }}
+      ios: ${{ steps.h.outputs.ios }}
+      desktop: ${{ steps.h.outputs.desktop }}
+      relay: ${{ steps.h.outputs.relay }}
+      e2e: ${{ steps.h.outputs.e2e }}
+      guest_linux: ${{ steps.h.outputs.guest_linux }}
+      bot_e2e: ${{ steps.h.outputs.bot_e2e }}
     steps:
       - uses: actions/checkout@v4
-        if: github.event_name != 'merge_group'
       # On push to main dorny compares with the previous commit, so main only runs what changed.
       # Kernel and licenses keep markdown: the notices file and kernel docs are checked content.
-      # The filters are skipped on merge_group (no base to diff there); the outputs above are true instead.
       - uses: dorny/paths-filter@v3
         id: f
-        if: github.event_name != 'merge_group'
         with:
           filters: |
             kernel:
@@ -100,7 +93,6 @@ jobs:
       # apps/ios/WhatsNew.md (an iOS resource), so ios excludes just READMEs.
       - uses: dorny/paths-filter@v3
         id: h
-        if: github.event_name != 'merge_group'
         with:
           predicate-quantifier: every
           filters: |
@@ -218,7 +210,7 @@ jobs:
         run: cargo fmt --manifest-path host/Cargo.toml --all --check
       - name: Install system libraries
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
-      # Only main saves the cache: PR and queue refs can't share caches, so their saves just evict main's.
+      # Only main saves the cache: PR and batch refs can't share caches, so their saves just evict main's.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: serve/host
