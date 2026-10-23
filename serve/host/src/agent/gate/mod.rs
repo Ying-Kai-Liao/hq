@@ -13,6 +13,7 @@
 //! running or queued, sessions it can load again), longest idle first, and only then lets turns wait.
 
 pub mod memory;
+mod reclaim;
 mod settings;
 
 use crate::LockExt;
@@ -106,6 +107,8 @@ struct State {
     /// Actor key -> its turn's slot, for [`Gate::park`].
     slots: HashMap<String, Weak<Slot>>,
     last_memory: Option<Memory>,
+    /// The last session reclaim: when it ended and how many sessions it closed.
+    last_reclaim: Option<(std::time::SystemTime, usize)>,
 }
 
 pub struct Gate {
@@ -242,14 +245,14 @@ impl Gate {
 
     /// Gate state for `/health`.
     pub fn status(&self) -> Value {
-        let (waiting, blocked, last) = {
+        let (waiting, blocked, last, last_reclaim) = {
             let st = self.state.locked();
             let blocked = match &st.blocked {
                 None => Value::Null,
                 Some(Blocked::Slots) => json!("slots"),
                 Some(Blocked::Memory(_)) => json!("memory"),
             };
-            (st.waiters.len(), blocked, st.last_memory)
+            (st.waiters.len(), blocked, st.last_memory, st.last_reclaim)
         };
         // A reading of its own, so an idle host reports its memory too.
         let memory = self.probe.read().ok().or(last);
@@ -261,6 +264,12 @@ impl Gate {
             "minFreeMemoryPercent": self.settings.min_free_percent,
             "maxSwapUsedGb": self.settings.max_swap_gb,
             "idleShutdownMinutes": self.settings.idle_shutdown.as_secs() / 60,
+            "reclaimSessionsAfterSeconds": self.settings.reclaim_after.as_secs(),
+            "reclaimIdleHours": self.settings.reclaim_idle_hours,
+            "lastReclaim": last_reclaim.map(|(at, closed)| json!({
+                "at": at.duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()),
+                "closed": closed,
+            })),
             "memory": memory.map(|m| json!({"freePercent": m.free_percent.round(), "swapUsedGb": (m.swap_used_gb * 100.0).round() / 100.0})),
         })
     }
@@ -365,16 +374,50 @@ impl Drop for Parked {
 /// Keeps waiting turns moving: re-checks memory every few seconds and whenever a slot is released, stops idle
 /// agents when memory is what holds the line, and keeps the waiting bots' status line current.
 pub async fn run(gate: Arc<Gate>, hub: Weak<Hub>) {
+    let mut trigger = reclaim::Trigger::default();
+    let (done_tx, mut done_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    // Where res.py is: looked up on first use; `Some(None)` once it is known to be missing.
+    let mut script: Option<Option<std::path::PathBuf>> = None;
     loop {
         tokio::select! {
             () = gate.wake.notified() => {}
             () = tokio::time::sleep(RECHECK) => {}
         }
         let Some(hub) = hub.upgrade() else { return };
+        while done_rx.try_recv().is_ok() {
+            trigger.finished();
+        }
         gate.pump();
         while gate.memory_blocked() && hub.reclaim_idle_agent().await {
             tokio::time::sleep(SETTLE).await;
             gate.pump();
+        }
+        // Own idle bots are stopped by now; if memory still holds the line, the Mac's idle sessions go next.
+        if script != Some(None) && trigger.due(std::time::Instant::now(), gate.memory_blocked(), &gate.settings) {
+            if script.is_none() {
+                script = Some(find_reclaim_script().await);
+            }
+            match script.clone().flatten() {
+                Some(path) => {
+                    let (gate, done) = (gate.clone(), done_tx.clone());
+                    tokio::spawn(async move {
+                        match reclaim::run_script(&path, &gate.settings).await {
+                            Ok(closed) => {
+                                tracing::info!(closed, "memory held the line; reclaimed idle sessions");
+                                gate.state.locked().last_reclaim = Some((std::time::SystemTime::now(), closed));
+                            }
+                            Err(error) => tracing::warn!(error, "session reclaim failed"),
+                        }
+                        let _ = done.send(());
+                        // Waiting turns start as soon as memory is back.
+                        gate.wake.notify_one();
+                    });
+                }
+                None => {
+                    tracing::warn!("resource-manager's res.py not found; not reclaiming idle sessions");
+                    trigger.finished();
+                }
+            }
         }
         for (rt, text) in gate.waiting_lines() {
             hub.set_runtime(&rt, |r| {
@@ -384,6 +427,11 @@ pub async fn run(gate: Arc<Gate>, hub: Weak<Hub>) {
             });
         }
     }
+}
+
+async fn find_reclaim_script() -> Option<std::path::PathBuf> {
+    let paths = tokio::task::spawn_blocking(crate::channels::hq::Paths::discover).await.ok().flatten()?;
+    reclaim::find_script(&paths.agent_roots)
 }
 
 #[cfg(test)]

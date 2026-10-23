@@ -8,6 +8,8 @@ pub const DEFAULT_MAX_RUNNING: usize = 2;
 pub const DEFAULT_MIN_FREE_PERCENT: f64 = 25.0;
 pub const DEFAULT_MAX_SWAP_GB: f64 = 3.0;
 pub const DEFAULT_IDLE_MINUTES: u64 = 10;
+pub const DEFAULT_RECLAIM_SECONDS: u64 = 120;
+pub const DEFAULT_RECLAIM_IDLE_HOURS: f64 = 3.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Settings {
@@ -19,6 +21,11 @@ pub struct Settings {
     pub max_swap_gb: f64,
     /// How long a bot may sit unused before its agent gives its memory back.
     pub idle_shutdown: Duration,
+    /// Memory blocking the line this long (after the bots' own idle stop) runs the resource-manager's session
+    /// reclaim; zero turns it off.
+    pub reclaim_after: Duration,
+    /// Only Claude Code sessions idle at least this many hours are closed by it.
+    pub reclaim_idle_hours: f64,
 }
 
 impl Default for Settings {
@@ -28,6 +35,8 @@ impl Default for Settings {
             min_free_percent: DEFAULT_MIN_FREE_PERCENT,
             max_swap_gb: DEFAULT_MAX_SWAP_GB,
             idle_shutdown: Duration::from_secs(DEFAULT_IDLE_MINUTES * 60),
+            reclaim_after: Duration::from_secs(DEFAULT_RECLAIM_SECONDS),
+            reclaim_idle_hours: DEFAULT_RECLAIM_IDLE_HOURS,
         }
     }
 }
@@ -48,7 +57,7 @@ impl Settings {
 
     /// No limit and no memory check, for unit tests that run bots without caring about the gate.
     pub fn unlimited() -> Self {
-        Self { max_running: 1024, min_free_percent: 0.0, max_swap_gb: 0.0, ..Self::default() }
+        Self { max_running: 1024, min_free_percent: 0.0, max_swap_gb: 0.0, reclaim_after: Duration::ZERO, ..Self::default() }
     }
 
     /// `file`: the parsed config.json, if any. `env`: looks up an environment variable.
@@ -74,6 +83,8 @@ impl Settings {
         let min_free = pick("min_free_memory_percent", &|n| (0.0..=100.0).contains(&n));
         let max_swap = pick("max_swap_used_gb", &|n| n.is_finite() && n >= 0.0);
         let idle = pick("idle_shutdown_minutes", &whole);
+        let reclaim_after = pick("reclaim_sessions_after_seconds", &|n| n.fract() == 0.0 && (0.0..=86_400.0).contains(&n));
+        let reclaim_hours = pick("reclaim_idle_hours", &|n| n.is_finite() && n > 0.0 && n <= 8760.0);
         let d = Self::default();
         // Validated whole numbers within 1..=100_000, so the casts lose nothing.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -82,6 +93,8 @@ impl Settings {
             min_free_percent: min_free.unwrap_or(d.min_free_percent),
             max_swap_gb: max_swap.unwrap_or(d.max_swap_gb),
             idle_shutdown: idle.map_or(d.idle_shutdown, |n| Duration::from_secs(n as u64 * 60)),
+            reclaim_after: reclaim_after.map_or(d.reclaim_after, |n| Duration::from_secs(n as u64)),
+            reclaim_idle_hours: reclaim_hours.unwrap_or(d.reclaim_idle_hours),
         };
         (settings, warnings)
     }
@@ -114,6 +127,7 @@ mod tests {
         assert_eq!(s, Settings::default());
         assert_eq!(warnings, Vec::<String>::new());
         assert_eq!(s.idle_shutdown, Duration::from_secs(600));
+        assert_eq!((s.reclaim_after, s.reclaim_idle_hours), (Duration::from_secs(120), 3.0));
         let (s, warnings) = Settings::from_sources(Some(&json!({"relay_url": "https://x"})), &env_of(&[]));
         assert_eq!(s, Settings::default());
         assert_eq!(warnings, Vec::<String>::new());
@@ -122,7 +136,8 @@ mod tests {
     #[test]
     fn the_config_file_sets_each_key_and_the_environment_wins() {
         let file = json!({
-            "max_running_agents": 4, "min_free_memory_percent": 30, "max_swap_used_gb": 1.5, "idle_shutdown_minutes": 5
+            "max_running_agents": 4, "min_free_memory_percent": 30, "max_swap_used_gb": 1.5, "idle_shutdown_minutes": 5,
+            "reclaim_sessions_after_seconds": 60, "reclaim_idle_hours": 1.5
         });
         let (s, warnings) = Settings::from_sources(Some(&file), &env_of(&[]));
         assert_eq!(warnings, Vec::<String>::new());
@@ -132,22 +147,27 @@ mod tests {
                 max_running: 4,
                 min_free_percent: 30.0,
                 max_swap_gb: 1.5,
-                idle_shutdown: Duration::from_secs(300)
+                idle_shutdown: Duration::from_secs(300),
+                reclaim_after: Duration::from_secs(60),
+                reclaim_idle_hours: 1.5
             }
         );
         let env = env_of(&[("KITH_SERVE_MAX_RUNNING_AGENTS", "3"), ("KITH_SERVE_IDLE_SHUTDOWN_MINUTES", " 20 ")]);
         let (s, _) = Settings::from_sources(Some(&file), &env);
         assert_eq!(s.max_running, 3);
         assert_eq!(s.idle_shutdown, Duration::from_secs(1200));
+        let env = env_of(&[("KITH_SERVE_RECLAIM_SESSIONS_AFTER_SECONDS", "0"), ("KITH_SERVE_RECLAIM_IDLE_HOURS", "6")]);
+        let (s, _) = Settings::from_sources(Some(&file), &env);
+        assert_eq!((s.reclaim_after, s.reclaim_idle_hours), (Duration::ZERO, 6.0));
         assert!((s.min_free_percent - 30.0).abs() < f64::EPSILON);
     }
 
     #[test]
     fn unusable_values_fall_back_with_a_warning() {
-        let file = json!({"max_running_agents": 0, "min_free_memory_percent": 140, "max_swap_used_gb": -1, "idle_shutdown_minutes": "soon"});
+        let file = json!({"max_running_agents": 0, "min_free_memory_percent": 140, "max_swap_used_gb": -1, "idle_shutdown_minutes": "soon", "reclaim_sessions_after_seconds": -5, "reclaim_idle_hours": 0});
         let (s, warnings) = Settings::from_sources(Some(&file), &env_of(&[]));
         assert_eq!(s, Settings::default());
-        assert_eq!(warnings.len(), 4);
+        assert_eq!(warnings.len(), 6);
         // A bad environment value falls to the file's, then the default.
         let env = env_of(&[("KITH_SERVE_MAX_RUNNING_AGENTS", "many")]);
         let (s, warnings) = Settings::from_sources(Some(&json!({"max_running_agents": 5})), &env);
