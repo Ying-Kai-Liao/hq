@@ -82,6 +82,7 @@ enum Readers {
 }
 
 impl Roster {
+    #[must_use]
     pub fn with_room(mut self, room: &str, members: &[&str]) -> Self {
         self.rooms
             .insert(room.to_owned(), members.iter().filter(|m| **m != "owner").map(|m| (*m).to_owned()).collect());
@@ -181,7 +182,7 @@ impl NoteFacets {
                 audience = Audience::Person(id);
             }
             ["rooms", id, _, ..] if valid_id(id) => {
-                room = id.to_owned();
+                id.clone_into(&mut room);
                 audience = Audience::Room(id.to_owned());
             }
             ["projects", id, _, ..] if valid_id(id) => projects = vec![id.to_owned()],
@@ -199,7 +200,7 @@ impl NoteFacets {
             }
         }
         if let Some(r) = get("room").filter(|r| !r.is_empty() && valid_id(&r.replace(':', "-"))) {
-            room = r.to_owned();
+            r.clone_into(&mut room);
         }
         if let Some(p) = get("projects") {
             projects = list(p);

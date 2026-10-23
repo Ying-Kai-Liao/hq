@@ -206,22 +206,7 @@ there, when it is detail rather than something every reply needs."
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let notes = if snapshot.facets.is_empty() {
-        String::new()
-    } else {
-        let rows = snapshot
-            .facets
-            .iter()
-            .map(|f| {
-                let room = if f.room.is_empty() { String::new() } else { format!(", room {}", f.room) };
-                let projects =
-                    if f.projects.is_empty() { String::new() } else { format!(", projects {}", f.projects.join("/")) };
-                format!("- {} (read by {}{room}{projects})", f.file, f.audience)
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        format!("Notes and who reads them:\n{rows}\n\n")
-    };
+    let notes = notes_section(snapshot);
     let conversations = messages
         .iter()
         .enumerate()
@@ -237,6 +222,25 @@ there, when it is detail rather than something every reply needs."
             "Memory now:\n{memory}\n\nLong-form files now:\n{files}\n\n{notes}Conversations since the last review, oldest first:\n\n{conversations}"
         ),
     )
+}
+
+/// The notes tidying may retag and who reads each, for the model; empty when the memory has no facets.
+fn notes_section(snapshot: &Snapshot) -> String {
+    if snapshot.facets.is_empty() {
+        return String::new();
+    }
+    let rows = snapshot
+        .facets
+        .iter()
+        .map(|f| {
+            let room = if f.room.is_empty() { String::new() } else { format!(", room {}", f.room) };
+            let projects =
+                if f.projects.is_empty() { String::new() } else { format!(", projects {}", f.projects.join("/")) };
+            format!("- {} (read by {}{room}{projects})", f.file, f.audience)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("Notes and who reads them:\n{rows}\n\n")
 }
 
 /// What the model proposed.
