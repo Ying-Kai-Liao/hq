@@ -16,6 +16,7 @@ struct KithApp: App {
     init() {
         // A tapped widget bot arrives as an intent, not a URL.
         OpenBotIntent.open = { AppStore.shared.open($0) }
+        KithUIFonts.register()
     }
 
     var body: some Scene {
@@ -75,6 +76,10 @@ struct KithApp: App {
                     }
                 }
                 #if DEBUG
+                .overlay {
+                    // Design token gallery for screenshots: launch with -kithTokenGallery.
+                    if ProcessInfo.processInfo.arguments.contains("-kithTokenGallery") { KithTokenGallery() }
+                }
                 .task {
                     // Simulator/UI-test pairing: SIMCTL_CHILD_KITH_PAIR_URL=kith://pair?...
                     if let s = ProcessInfo.processInfo.environment["KITH_PAIR_URL"], let p = Pairing(string: s) {
