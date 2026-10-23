@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { InviteJoinSheet } from './settings/InviteJoinSheet'
 import type { WindowCommand } from '@shared/ipc'
 import { isSSHConnecting, showsChat as shouldShowChat } from '@shared/ssh-startup'
 import { draftOf, type Bot, type BotDraft } from '@shared/models'
@@ -129,6 +130,7 @@ export function ChatWindow() {
         onClose={() => setConfirmReset(false)}
       />
       {/* Approving a device: the code the device shows must match (spec §4.2 B). Closing puts it off. */}
+      <InviteJoinSheet />
       <Sheet open={approval !== null} onClose={() => approval && app.deferApproval(approval)}>
         {approval ? <ApprovalSheet key={approval.id} approval={approval} /> : null}
       </Sheet>

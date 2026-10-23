@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { app, ipcMain, safeStorage } from 'electron'
 import type { AccountService } from './account'
+import { isInviteProof } from '../shared/invite'
 
 /**
  * The Kith cloud's user-facing `/v1` API (§8.4) with this install's device key (§3.2): an
@@ -67,7 +68,7 @@ export interface CloudFailure {
 }
 
 export function registerCloud(account: AccountService) {
-  ipcMain.handle('cloud:request', async (_e, method: string, path: string, body: unknown, signed: boolean) => {
+  const send = async (method: string, path: string, body: unknown, signed: boolean) => {
     const base = account.state.cloudURL
     const user = account.state.user
     if (!base || !user) return { ok: false, error: { status: 0, code: 'signedOut', message: 'Sign in again to reach your account.' } satisfies CloudFailure }
@@ -93,5 +94,14 @@ export function registerCloud(account: AccountService) {
     } catch {
       return { ok: false, error: { status: 0, code: 'unreachable', message: "Can't reach the Kith cloud. Check your connection." } }
     }
+  }
+  ipcMain.handle('cloud:request', (_e, method: string, path: string, body: unknown, signed: boolean) => send(method, path, body, signed))
+  // Joining by invite link: the cloud gets h1 = sha256(token) and nothing else of the link. The shape is checked here so a
+  // renderer slip can't put the token itself on the wire.
+  ipcMain.handle('cloud:acceptInvite', (_e, inviteId: string, h1: string) => {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(inviteId) || !isInviteProof(h1)) {
+      return { ok: false, error: { status: 400, code: 'badInvite', message: 'This invite link looks wrong. Ask for a new one.' } }
+    }
+    return send('POST', `v1/invites/${inviteId}/accept`, { token: h1 }, false)
   })
 }

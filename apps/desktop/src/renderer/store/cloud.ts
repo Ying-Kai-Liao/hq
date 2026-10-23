@@ -21,6 +21,8 @@ export interface CloudComputer {
   claimedAt?: number | null
   /** `none` · `pending` · `granted`. */
   access?: string | null
+  /** This account's part in the computer: its owner, or invited to it. Absent from an older cloud (then owner). */
+  role?: 'owner' | 'member'
 }
 
 export interface CloudDevice {

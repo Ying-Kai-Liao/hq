@@ -4,6 +4,7 @@ import type { SSHBridge } from './ssh'
 import type { ScreenAgentState } from './computer-access'
 import type { IslandRect, IslandScreen, IslandSummary } from './island'
 import type { ErrorReport } from './error-report'
+import type { InviteLink } from './invite'
 
 // The bridge between the main process (host lifecycle, loopback HTTP, tray, windows)
 // and the renderer (stores and UI). Exposed as `window.kith` by the preload script.
@@ -65,6 +66,8 @@ export type WindowCommand =
   | { kind: 'setRemoteScreen'; on: boolean }
   | { kind: 'computerAccess' }
   | { kind: 'newChat' }
+  /** An invite link arrived; the window takes it with `invites.takePending`. */
+  | { kind: 'joinInvite' }
   | { kind: 'search' }
   | { kind: 'toggleSidebar' }
   | { kind: 'toggleDetails' }
@@ -175,6 +178,15 @@ export interface KithBridge {
   /** The Kith cloud's `/v1` API with the signed-in session (and the device key for `signed`). */
   cloud: {
     request(method: string, path: string, body: unknown, signed: boolean): Promise<{ ok: true; value: unknown } | { ok: false; error: { status: number; code: string; message: string | null } }>
+    /** Accepts an invite with h1 = hex sha256 of its token (never the token itself). */
+    acceptInvite(inviteId: string, h1: string): Promise<{ ok: true; value: unknown } | { ok: false; error: { status: number; code: string; message: string | null } }>
+  }
+  /** Invite links: the one that arrived, and the token kept (encrypted, per computer) so a reconnect can prove again. */
+  invites: {
+    takePending(): Promise<InviteLink | null>
+    keep(computerId: string, inviteId: string, token: string): Promise<void>
+    kept(computerId: string): Promise<{ inviteId: string; token: string } | null>
+    forget(computerId: string): Promise<void>
   }
   updates: {
     state(): Promise<UpdateState>

@@ -13,6 +13,7 @@ import { applyDockVisibility, setShowInDock, showInDock } from './dock'
 import { AccountService } from './account'
 import { Updates } from './updates'
 import { handleURL, registerAuthIPC, registerSchemes, urlFromArgv } from './auth'
+import { onInviteLink, registerInviteIPC } from './invites'
 import { registerSpeech } from './speech'
 import { registerScreenIPC } from './screen'
 import { registerCloud } from './cloud'
@@ -232,6 +233,8 @@ if (!app.requestSingleInstanceLock()) {
     registerIPC(tray)
     island.register()
     registerAuthIPC()
+    registerInviteIPC()
+    onInviteLink(() => send({ kind: 'joinInvite' }))
     registerSpeech()
     registerScreenIPC()
     registerCloud(account)

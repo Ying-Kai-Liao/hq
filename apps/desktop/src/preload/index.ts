@@ -84,6 +84,13 @@ const bridge: KithBridge = {
   },
   cloud: {
     request: (method, path, body, signed) => ipcRenderer.invoke('cloud:request', method, path, body, signed),
+    acceptInvite: (inviteId, h1) => ipcRenderer.invoke('cloud:acceptInvite', inviteId, h1),
+  },
+  invites: {
+    takePending: () => ipcRenderer.invoke('invite:takePending'),
+    keep: (computerId, inviteId, token) => ipcRenderer.invoke('invite:keep', computerId, inviteId, token),
+    kept: (computerId) => ipcRenderer.invoke('invite:kept', computerId),
+    forget: (computerId) => ipcRenderer.invoke('invite:forget', computerId),
   },
   updates: {
     state: () => ipcRenderer.invoke('updates:state'),
