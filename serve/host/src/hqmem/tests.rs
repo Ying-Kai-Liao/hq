@@ -264,7 +264,7 @@ fn deleting_the_history_loses_only_history() {
     }
     assert_eq!(std::fs::read_to_string(&t.path).unwrap(), "- kept\n");
     let conn = open(&home.layout).unwrap();
-    assert!(files::versions(&conn, Some("builder"), "MEMORY.md", 10).unwrap().is_empty());
+    assert_eq!(files::versions(&conn, Some("builder"), "MEMORY.md", 10).unwrap(), vec![]);
     assert_eq!(sync(&conn, &t).unwrap().unwrap().cause, Cause::Baseline);
 }
 
@@ -289,7 +289,7 @@ fn two_sessions_write_in_order() {
     }
     let conn = open(&home.layout).unwrap();
     let all = files::versions(&conn, Some("builder"), "MEMORY.md", 100).unwrap();
-    assert!(!all.is_empty());
+    assert_ne!(all, vec![]);
     assert!(all.windows(2).all(|w| w[0].id > w[1].id && w[0].rev > w[1].rev));
 }
 
