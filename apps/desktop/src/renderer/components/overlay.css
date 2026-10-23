@@ -225,6 +225,11 @@
   flex: 1;
   margin-right: 16px;
 }
+.menu-detail {
+  display: block;
+  font-size: var(--text-caption);
+  color: var(--secondary);
+}
 
 .reaction-button {
   display: grid;

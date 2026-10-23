@@ -1,3 +1,5 @@
+import { BARGE_DEFAULTS, BargeInDetector, levelToDb, type BargeEvent } from './audio-chain'
+import { ClipPlayer } from './clip-player'
 import { OnDeviceEngine } from './OnDeviceEngine'
 import { ClipQueue, clips } from './speech-clips'
 import { isEcho, SentenceStream, shouldCue, stripEcho, wordCount } from './speech-stream'
@@ -23,14 +25,23 @@ const CLIP_CHARS = 160
  * A reply is spoken while it is still being written: each finished sentence goes into the clip
  * queue once. The microphone stays on while it speaks (echo-cancelled), and talking over the voice
  * stops it at once; the turn goes on and what was said is sent as the next message.
+ *
+ * Talk-over is two signals. Energy on the echo-cancelled microphone (`BargeInDetector`) ducks the
+ * voice after ~100 ms of speech-level sound; two recognized words that
+ * aren't the bot's own text also cut it, and so does ~400 ms of sustained energy. A duck that isn't followed by more sound (a cough) is
+ * undone after ~300 ms of quiet.
  */
 export class KithVoiceEngine extends OnDeviceEngine {
   override readonly streamsReplies = true
   override readonly canChooseOutput = true
-  private sinkId = ''
   private voiceName: string | undefined
-  private player: HTMLAudioElement | null = null
-  private stopPlayer: (() => void) | null = null
+  private player = new ClipPlayer()
+  private bargeIn = new BargeInDetector({
+    ...BARGE_DEFAULTS,
+    // A tuning knob for rooms where the default misfires (dB above the noise floor).
+    marginDb: Number(localStorage.getItem('callBargeMarginDb')) || BARGE_DEFAULTS.marginDb,
+  })
+  private lastLevelAt = 0
   private queue: ClipQueue<Uint8Array>
   private stream = new SentenceStream()
   /** A clip is playing or about to (the pump is running). */
@@ -56,6 +67,10 @@ export class KithVoiceEngine extends OnDeviceEngine {
     })
     this.talkOverEnabled = true
     this.queue = new ClipQueue((text) => this.fetchClip(text))
+    this.player.onSinkLost = (e) => this.setWarning(`Couldn't use that speaker (${errorMessage(e)}); using the default.`)
+    this.player.onDrained = () => {
+      this.finishedSpeaking()
+    }
   }
 
   async start() {
@@ -85,20 +100,46 @@ export class KithVoiceEngine extends OnDeviceEngine {
     if (this.cueTimer) clearInterval(this.cueTimer)
     this.cueTimer = null
     this.cutVoice()
+    this.player.close()
   }
 
   override async setOutputDevice(deviceId: string) {
-    this.sinkId = deviceId
-    await this.applySink(this.player)
-  }
-
-  private async applySink(player: HTMLAudioElement | null) {
-    // setSinkId is Chromium's; '' goes back to the system default.
-    const sink = player as (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }) | null
     try {
-      await sink?.setSinkId?.(this.sinkId)
+      await this.player.setSink(deviceId)
     } catch (e) {
       this.setWarning(`Couldn't switch the speaker (${errorMessage(e)}).`)
+    }
+  }
+
+  /** Energy on the microphone while the voice plays (see `BargeInDetector`). */
+  protected override micLevel(level: number) {
+    const now = performance.now()
+    // Reports come ~20 a second, each the loudness of one short buffer: it stands for the time since the last.
+    // The first report after a gap stands for one buffer, not the whole silence.
+    const gap = (now - this.lastLevelAt) / 1000
+    const seconds = this.lastLevelAt && gap < 0.25 ? Math.min(0.1, gap) : 0.05
+    this.lastLevelAt = now
+    const armed = this.phase === 'speaking' && !this.player.idle
+    const event = this.bargeIn.feed(levelToDb(level), seconds, now, armed)
+    if (event) this.bargeInEvent(event, this.bargeIn.onsetAt ?? now)
+  }
+
+  private bargeInEvent(event: BargeEvent, onset: number) {
+    const since = () => Math.round(performance.now() - onset)
+    switch (event) {
+      case 'duck':
+        this.player.duck(true)
+        console.info(`kith voice: talk-over: voice ducked ${since()} ms after the first loud report`)
+        break
+      case 'resume':
+        this.player.duck(false)
+        console.info('kith voice: talk-over: false alarm, voice back up')
+        break
+      case 'stop':
+        this.cutVoice()
+        this.setPhase('listening')
+        console.info(`kith voice: talk-over: voice stopped ${since()} ms after the first loud report`)
+        break
     }
   }
 
@@ -137,7 +178,7 @@ export class KithVoiceEngine extends OnDeviceEngine {
     if (wordCount(words) < 2 || isEcho(words, this.echoRef)) return false
     this.cutVoice()
     this.setPhase('listening')
-    console.info('kith voice: talked over, voice stopped')
+    console.info('kith voice: talk-over: words heard, voice stopped')
     return true
   }
 
@@ -149,7 +190,7 @@ export class KithVoiceEngine extends OnDeviceEngine {
 
   /** Nothing left to say for now; the microphone goes on listening (it never stopped). */
   protected finishedSpeaking() {
-    if (this.phase !== 'speaking' || this.pumping || this.queue.pending) return
+    if (this.phase !== 'speaking' || this.pumping || this.queue.pending || !this.player.idle) return
     this.captions.settleBot()
     if (this.micOn) this.setPhase('listening')
     else this.listen()
@@ -183,7 +224,8 @@ export class KithVoiceEngine extends OnDeviceEngine {
       const clip = await this.queue.take()
       if (generation !== this.speakGeneration || this.ended) return
       if (!clip) break
-      await this.play(clip, generation)
+      // Queued behind what's playing, not awaited: the next clip is on the audio clock before this one ends.
+      await this.play(clip)
       if (generation !== this.speakGeneration || this.ended) return
     }
     // A clip that couldn't be made drops the rest of this stretch of speech.
@@ -205,43 +247,20 @@ export class KithVoiceEngine extends OnDeviceEngine {
     }
   }
 
-  /** Resolves when the clip ends, fails to play, or playback is stopped. */
-  private play(audio: Uint8Array, generation: number) {
-    return new Promise<void>((resolve) => {
-      if (generation !== this.speakGeneration) return resolve()
-      const url = URL.createObjectURL(new Blob([audio as BlobPart], { type: 'audio/wav' }))
-      const player = new Audio(url)
-      if (this.sinkId) void this.applySink(player)
-      const done = () => {
-        if (this.player === player) {
-          this.player = null
-          this.stopPlayer = null
+  private async play(audio: Uint8Array) {
+    // A clip that can't be played is skipped; the pump goes on.
+    try {
+      const ok = await this.player.add(audio, () => {
+        if (this.firstEnqueuedAt !== null) {
+          console.info(`kith voice: first clip playing ${Math.round(performance.now() - this.firstEnqueuedAt)} ms after its text was ready`)
+          this.firstEnqueuedAt = null
         }
-        player.onended = null
-        player.onerror = null
-        URL.revokeObjectURL(url)
-        resolve()
-      }
-      player.onended = done
-      player.onerror = () => {
-        console.error('kith voice: unreadable clip')
-        done()
-      }
-      this.player = player
-      this.stopPlayer = () => {
-        player.pause()
-        done()
-      }
-      void player
-        .play()
-        .then(() => {
-          if (this.firstEnqueuedAt !== null) {
-            console.info(`kith voice: first clip playing ${Math.round(performance.now() - this.firstEnqueuedAt)} ms after its text was ready`)
-            this.firstEnqueuedAt = null
-          }
-        })
-        .catch(() => player.onerror?.(new Event('error')))
-    })
+      })
+      if (!ok) console.error('kith voice: unreadable clip')
+    } catch (e) {
+      console.error('kith voice: playback failed:', errorMessage(e))
+      this.setWarning(`Couldn't play the reply (${errorMessage(e)}).`)
+    }
   }
 
   /** Stops the voice, drops queued clips, and gives up what's still being written of the replies on air. */
@@ -250,7 +269,7 @@ export class KithVoiceEngine extends OnDeviceEngine {
     this.stream.muteOpen()
     this.pumping = false
     this.queue.stop()
-    this.stopPlayer?.()
+    this.player.stop()
     this.captions.settleBot()
   }
 }

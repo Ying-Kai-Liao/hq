@@ -197,6 +197,96 @@ fn parallel_asks_keep_the_slot_given_up_until_the_last_is_back() {
     assert_eq!(running(&gate), 1, "a counts again, once");
 }
 
+mod reclaim_trigger {
+    use super::super::reclaim::{COOLDOWN, Trigger};
+    use super::*;
+    use std::time::Instant;
+
+    fn at(t0: Instant, secs: u64) -> Instant {
+        t0 + Duration::from_secs(secs)
+    }
+
+    #[test]
+    fn runs_once_after_memory_has_blocked_long_enough() {
+        let (s, t0, mut t) = (Settings::default(), Instant::now(), Trigger::default());
+        assert!(!t.due(t0, true, &s));
+        assert!(!t.due(at(t0, 119), true, &s), "not yet");
+        assert!(t.due(at(t0, 120), true, &s));
+        t.finished(Some(1));
+        assert!(!t.due(at(t0, 125), true, &s), "once per stretch");
+        assert!(!t.due(at(t0, 120 + COOLDOWN.as_secs() - 1), true, &s));
+        assert!(t.due(at(t0, 120 + COOLDOWN.as_secs()), true, &s), "again after the cooldown");
+    }
+
+    #[test]
+    fn not_again_while_it_is_still_running() {
+        let (s, t0, mut t) = (Settings::default(), Instant::now(), Trigger::default());
+        assert!(!t.due(t0, true, &s));
+        assert!(t.due(at(t0, 200), true, &s));
+        assert!(!t.due(at(t0, 200 + COOLDOWN.as_secs() + 5), true, &s));
+        t.finished(Some(1));
+        assert!(t.due(at(t0, 200 + COOLDOWN.as_secs() + 10), true, &s));
+    }
+
+    #[test]
+    fn an_unblocked_moment_starts_a_new_stretch() {
+        let (s, t0, mut t) = (Settings::default(), Instant::now(), Trigger::default());
+        assert!(!t.due(t0, true, &s));
+        assert!(t.due(at(t0, 130), true, &s));
+        t.finished(Some(1));
+        assert!(!t.due(at(t0, 140), false, &s));
+        assert!(!t.due(at(t0, 150), true, &s), "the clock starts over");
+        assert!(!t.due(at(t0, 269), true, &s));
+        assert!(t.due(at(t0, 270), true, &s));
+    }
+
+    #[test]
+    fn flapping_after_a_run_that_closed_nothing_waits_out_the_cooldown() {
+        let (s, t0, mut t) = (Settings::default(), Instant::now(), Trigger::default());
+        assert!(!t.due(t0, true, &s));
+        assert!(t.due(at(t0, 130), true, &s));
+        t.finished(Some(0));
+        assert!(!t.due(at(t0, 140), false, &s));
+        assert!(!t.due(at(t0, 150), true, &s));
+        assert!(!t.due(at(t0, 300), true, &s), "new stretch, threshold passed, still in the cooldown");
+        assert!(t.due(at(t0, 130 + COOLDOWN.as_secs()), true, &s));
+        t.finished(None);
+        assert!(!t.due(at(t0, 140 + COOLDOWN.as_secs()), false, &s));
+        assert!(!t.due(at(t0, 150 + COOLDOWN.as_secs()), true, &s));
+        assert!(!t.due(at(t0, 400 + COOLDOWN.as_secs()), true, &s), "a failed run counts the same");
+    }
+
+    #[test]
+    fn a_new_stretch_after_a_run_that_closed_something_runs_again() {
+        let (s, t0, mut t) = (Settings::default(), Instant::now(), Trigger::default());
+        assert!(!t.due(t0, true, &s));
+        assert!(t.due(at(t0, 130), true, &s));
+        t.finished(Some(2));
+        assert!(!t.due(at(t0, 140), false, &s));
+        assert!(!t.due(at(t0, 150), true, &s));
+        assert!(t.due(at(t0, 270), true, &s));
+    }
+
+    #[test]
+    fn zero_seconds_never_runs() {
+        let s = Settings { reclaim_after: Duration::ZERO, ..Settings::default() };
+        let (t0, mut t) = (Instant::now(), Trigger::default());
+        assert!(!t.due(t0, true, &s));
+        assert!(!t.due(at(t0, 100_000), true, &s));
+    }
+
+    #[test]
+    fn status_shows_the_reclaim_settings() {
+        let (gate, _) = gate(2);
+        let st = gate.status();
+        assert_eq!(
+            (st["reclaimSessionsAfterSeconds"].clone(), st["reclaimIdleHours"].clone()),
+            (json!(120), json!(3.0))
+        );
+        assert!(st["lastReclaim"].is_null());
+    }
+}
+
 #[test]
 fn an_owner_turn_goes_ahead_of_an_invitee_who_waited_longer() {
     let (gate, _) = gate(1);

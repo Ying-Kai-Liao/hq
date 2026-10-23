@@ -13,6 +13,7 @@ import { QUICK_REACTIONS, type BotStore } from '../../store/bot-store'
 import { AttachmentList } from './Attachments'
 import { relativeTime } from './chat-items'
 import { MarkdownText } from './Markdown'
+import { ownerNameFrom, waitingFor } from '@shared/mac-role'
 import { PermissionCard } from './PermissionCard'
 import { ConnectionRequestCard } from '../marketplace/ConnectionRequestCard'
 import { HandoffNotice } from './HandoffNotice'
@@ -79,7 +80,7 @@ function ContextHint({ contextPercent }: { contextPercent: unknown }) {
 /** Follows the store: the card shows a spinner while its answer is on its way. */
 function LivePermission({ entry }: { entry: Entry }) {
   const store = useLiveStore()
-  return <PermissionCard entry={entry} hostName={store.hostName} answering={store.answering.get(entry.id) ?? null} respond={(o) => store.respond(entry, o)} />
+  return <PermissionCard entry={entry} hostName={store.hostName} answering={store.answering.get(entry.id) ?? null} respond={(o) => store.respond(entry, o)} waiting={waitingFor(entry, ownerNameFrom(store.bots.get(entry.botId)?.activity))} />
 }
 
 /** Who wrote a message in a group: their avatar and name in their color. */

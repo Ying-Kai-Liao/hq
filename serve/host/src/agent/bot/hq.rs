@@ -135,6 +135,25 @@ impl Actor {
         }
     }
 
+    /// A Claude session starts in the mode kith launched the agent with. The adapter starts in "default" (or in the
+    /// mode its transcript ended in) and ignores the `defaultMode` the launch carries as a setting, so the host asks
+    /// for the mode once the session exists. An invited person's launch has already been confined, so this is never
+    /// bypass for them. Left as it is when the adapter doesn't offer the mode, or when the call fails.
+    async fn set_claude_mode(&mut self, sid: &str, res: &Value, permission: Option<&str>) {
+        let Some(mode) = permission.filter(|m| !m.is_empty()) else { return };
+        if res["modes"]["currentModeId"] == mode {
+            return;
+        }
+        let offered = res["modes"]["availableModes"].as_array().is_some_and(|ms| ms.iter().any(|m| m["id"] == mode));
+        if !offered {
+            tracing::warn!(mode, "the agent doesn't offer the permission mode kith launched it with");
+            return;
+        }
+        if let Err(error) = self.session_request("session/set_mode", json!({"sessionId": sid, "modeId": mode})).await {
+            tracing::warn!(mode, error = format!("{error:#}"), "couldn't set the session's permission mode");
+        }
+    }
+
     /// `session/new` and `session/load` for `launch`: Claude's `_meta` for Claude, ACP's own parameters for a Codex
     /// backup (its servers as a list, the instructions as `systemPrompt` when it takes them).
     fn hq_params(&self, launch: &hq::Launch, session: Option<&str>) -> Value {
@@ -317,6 +336,9 @@ impl Actor {
                     Ok(res) => {
                         conn.loaded.insert(sid.clone(), Instant::now());
                         self.note_options(&sid, &res, Listing::Session);
+                        if !launch.is_codex() {
+                            self.set_claude_mode(&sid, &res, launch.permission_mode.as_deref()).await;
+                        }
                         self.turn_session = Some(sid);
                         // The agent's own account came back to a session that missed what a backup answered.
                         self.preface = self.recovery_preface();
@@ -343,11 +365,14 @@ impl Actor {
         let Some(conn) = self.conn.as_mut() else { bail!("agent not running") };
         let sid = res["sessionId"].as_str().ok_or_else(|| anyhow!("agent returned no sessionId"))?.to_owned();
         conn.loaded.insert(sid.clone(), Instant::now());
-        // The model, effort and permission mode are hq's (launch-json): the host sets none of them again.
+        // The model and effort are hq's (launch-json): the host sets neither again. The permission mode is set once,
+        // below, because the adapter starts every session in "default".
         self.note_options(&sid, &res, Listing::Session);
         self.hq_set_session(slot, &sid);
         if launch.is_codex() {
             self.set_codex_mode(&sid, &res, launch.permission_mode.as_deref()).await;
+        } else {
+            self.set_claude_mode(&sid, &res, launch.permission_mode.as_deref()).await;
         }
         self.session_fresh = true;
         self.turn_session = Some(sid);

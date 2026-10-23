@@ -1,6 +1,7 @@
 // Wire types for kith-serve (see host/src/api/). Field names match the
 // host's camelCase JSON. Timestamps are epoch milliseconds.
 
+import type { GrantedAgent } from './mac-role.ts'
 import { normalizeFolder, type PlaceFolder } from './place-folders.ts'
 
 export type { PlaceFolder } from './place-folders.ts'
@@ -246,6 +247,11 @@ export interface EntryData {
   command?: string
   detail?: string
   cwd?: string
+  /** permission, in an invited person's run: who answers it (a guest's go to the owner), whose run it is and which agent. */
+  approver?: 'owner' | 'member'
+  person?: string
+  personName?: string
+  agent?: string
   entries?: PlanItem[]
   /** notice: info | error | divider */
   style?: string
@@ -385,6 +391,8 @@ export interface Hello {
   cloud?: string | null
   /** Product analytics on this computer: on unless its owner turned it off. */
   analytics?: boolean
+  /** For an invited person: the agents the owner gave them. Absent from an owner's hello and from a host before roles. */
+  grantedAgents?: GrantedAgent[] | null
 }
 
 /** Events only the desktop app knows about; the host records everything else from API calls. */

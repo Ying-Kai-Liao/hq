@@ -7,6 +7,7 @@ import { BotStore } from './bot-store'
 import { CloudModel } from './cloud'
 import { DeviceComputerOrder } from './computer-order'
 import { ComputerAccess } from './computer-access'
+import { RelayMacs } from './relay-macs'
 
 /** A bot on a computer: bot ids are only unique per computer. */
 export interface BotRef {
@@ -60,12 +61,15 @@ export class AppModel extends Observable {
   readonly computerAccess: ComputerAccess
   readonly computerOrder: DeviceComputerOrder
   readonly cloud: CloudModel
+  /** Other Macs over the Kith cloud: owned and joined, each a computer of this model once connected. */
+  readonly relayMacs: RelayMacs
 
   constructor(private mirrors = true) {
     super()
     this.computerAccess = new ComputerAccess(this)
     this.computerOrder = new DeviceComputerOrder()
     this.cloud = new CloudModel(this)
+    this.relayMacs = new RelayMacs(this)
     account.subscribe(() => this.noteAccount())
   }
 

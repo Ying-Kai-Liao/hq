@@ -193,6 +193,8 @@ export function Dialog({ open, title, message, actions, cancel = 'Cancel', onClo
 /** One row in a Kith menu: an action, or a choice when `selected` is set. */
 export interface MenuItem {
   title: string
+  /** A second, quieter line under the title. */
+  detail?: string
   icon?: string
   /** A picture in the icon's place (an agent's logo). */
   leading?: ReactNode
@@ -277,7 +279,10 @@ export function MenuPanel({ items, reactions, dismiss, maxHeight }: { items: Men
                 {item.leading ?? (item.icon ? <Icon name={item.icon} size={12} /> : null)}
               </span>
             ) : null}
-            <span className="menu-title">{item.title}</span>
+            <span className="menu-title">
+              {item.title}
+              {item.detail ? <span className="menu-detail">{item.detail}</span> : null}
+            </span>
             {item.selected !== undefined ? (
               <span className={`check-slot${item.selected ? ' on' : ''}`}>
                 <Icon name="checkmark" size={10} weight="semibold" />

@@ -11,6 +11,7 @@ import type { useComputerRoster } from '../store/computer-roster'
 import { StoreContext, useApp } from '../store/context'
 import { BotRow } from './BotRow'
 import { ComputerRosterSection } from './ComputerRosterSection'
+import { GuestPromptList } from './GuestPromptList'
 import { UpdateNeededCard } from './UpdateNeededCard'
 
 /** A bot being dragged among its computer's bots, and the order it has made so far. */
@@ -159,12 +160,14 @@ export function BotRoster({ roster, compact, onContext }: {
   const sections = roster.sections.map(({ computer, store, items }, index) => {
     const notice = store.mismatch && !compact ? <StoreContext.Provider value={store}><UpdateNeededCard /></StoreContext.Provider> : null
     const rows = ordered(computer.id, items).map((item) => row(item, items))
-    if (!roster.grouped) return <div key={computer.id}>{notice}{rows}</div>
+    const prompts = compact ? null : <GuestPromptList store={store} />
+    if (!roster.grouped) return <div key={computer.id}>{notice}{prompts}{rows}</div>
     return (
       <ComputerRosterSection key={computer.id} store={store} compact={compact}
         collapsed={roster.collapsed.includes(computer.id)} toggle={() => roster.toggle(computer.id)}
         previous={roster.sections[index - 1]?.computer.id} next={roster.sections[index + 1]?.computer.id}
         dragged={dragged} setDragged={setDragged} move={roster.move} notice={notice}>
+        {prompts}
         {rows}
         {!items.length && !store.mismatch && !compact ? <div className="computer-roster-empty">{store.shownConnection.kind === 'online' ? 'No bots yet' : store.connectionLabel}</div> : null}
       </ComputerRosterSection>

@@ -46,7 +46,8 @@ export function optionLabel(o: PermissionOption) {
 }
 
 /** Approval card in Grok Bot's choice-card style: what the agent wants, where it runs, the answers. */
-export function PermissionCard({ entry, hostName, answering, respond }: { entry: Entry; hostName: string; answering: string | null; respond: (option: string | null) => void }) {
+/** `waiting`: the owner's name when this card is for them to answer (a guest's run); the buttons are theirs, not this person's. */
+export function PermissionCard({ entry, hostName, answering, respond, waiting = null }: { entry: Entry; hostName: string; answering: string | null; respond: (option: string | null) => void; waiting?: string | null }) {
   const [expanded, setExpanded] = useState(false)
   const d = entry.data
   const pending = d.status === 'pending'
@@ -76,7 +77,9 @@ export function PermissionCard({ entry, hostName, answering, respond }: { entry:
             </VStack>
           </Disclosure>
         ) : null}
-        {pending ? (
+        {waiting ? (
+          <Text as="div" size="caption" weight="medium" tone="secondary">{`Waiting for ${waiting}`}</Text>
+        ) : pending ? (
           <div className="permission-card-options">
             {options.map((o, i) => (
               <div key={o.optionId}>
