@@ -65,6 +65,9 @@ def db():
         via text, project text, started text);''')
     if 'person' not in [r[1] for r in c.execute('pragma table_info(runs)')]:
         c.execute('alter table runs add column person text')   # who the run was for: KITH_PERSON; null is the owner
+    for col in ('provider', 'account'):   # which harness and which login answered (KITH_PROVIDER / KITH_ACCOUNT); null is claude, ambient
+        if col not in [r[1] for r in c.execute('pragma table_info(runs)')]:
+            c.execute(f'alter table runs add column {col} text')
     # the person comes from the session: a helper or kith:<name> subagent in a person's run counts for them too
     c.executescript('''
       drop view if exists hq_req;
@@ -82,7 +85,10 @@ def db():
 
 def sync(c, quiet=False):
     seen = dict(c.execute('select path, size from seen'))
-    files = glob.glob(str(PROJECTS / '*/*.jsonl')) + glob.glob(str(PROJECTS / '*/*/subagents/*.jsonl'))
+    # an extra Claude account (kith account add claude) keeps its transcripts in its own config dir
+    files = []
+    for root in [str(PROJECTS)] + glob.glob(str(MACHINE / 'accounts/claude/*/projects')):
+        files += glob.glob(root + '/*/*.jsonl') + glob.glob(root + '/*/*/subagents/*.jsonl')
     n = 0
     for f in files:
         try:
@@ -169,10 +175,11 @@ def tag(c):
         env = os.environ.get
         if hook.get('session_id') and env('KITH_AGENT'):
             c.execute('insert or replace into runs (session, agent, version, model, effort, via, project, started, '
-                      'person) values (?,?,?,?,?,?,?,?,?)', (
+                      'person, provider, account) values (?,?,?,?,?,?,?,?,?,?,?)', (
                 hook['session_id'], env('KITH_AGENT'), env('KITH_AGENT_VERSION'), env('KITH_MODEL') or None,
                 env('KITH_EFFORT') or None, env('KITH_VIA', 'terminal'), env('KITH_PROJECT') or None,
-                dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S'), env('KITH_PERSON') or None))
+                dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S'), env('KITH_PERSON') or None,
+                env('KITH_PROVIDER') or None, env('KITH_ACCOUNT') or None))
             c.commit()
     except Exception as e:  # noqa: BLE001 — cost tracking must never block a run
         print(f'kith-cost tag: {e}', file=sys.stderr)
@@ -187,9 +194,10 @@ def record(c):
             r['id'], r['session'], now, os.getcwd(), r.get('model'), 'main', r.get('turn'), r.get('input', 0),
             r.get('output', 0), r.get('cache_read', 0), r.get('cache_write', 0), r.get('cost')))
         c.execute('insert or ignore into runs (session, agent, version, model, effort, via, project, started, '
-                  'person) values (?,?,?,?,?,?,?,?,?)', (
+                  'person, provider, account) values (?,?,?,?,?,?,?,?,?,?,?)', (
             r['session'], env('KITH_AGENT'), env('KITH_AGENT_VERSION'), r.get('model'), env('KITH_EFFORT') or None,
-            env('KITH_VIA', 'terminal'), env('KITH_PROJECT') or None, now[:19], env('KITH_PERSON') or None))
+            env('KITH_VIA', 'terminal'), env('KITH_PROJECT') or None, now[:19], env('KITH_PERSON') or None,
+            env('KITH_PROVIDER') or None, env('KITH_ACCOUNT') or None))
         c.commit()
     except Exception as e:  # noqa: BLE001 — cost tracking must never block a run
         print(f'kith-cost record: {e}', file=sys.stderr)

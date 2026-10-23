@@ -29,6 +29,37 @@ elif args[:2] == ["project", "add"]:
     projects.append({"id": args[2], "paths": [args[3]], "home": args[3], "remotes": [], "parent": None,
                      "memory": None, "exists": True})
     json.dump({"projects": projects}, open(path, "w", encoding="utf-8"))
+elif args[:2] in (["backup", "list"], ["account", "list"]) or args[:3] in (["account", "backup", "set"], ["account", "backup", "reset"]):
+    # The chain settings (`chain_settings.json`: {"backups": [...], "agents": {name: [...]}}) and the extra accounts
+    # (`accounts.json`: [{"id", "logged_in", "why"?}]). An id listed in `not_ready.json` ({id: why}) is not ready.
+    path = os.path.join(home, "chain_settings.json")
+    st = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {"backups": [], "agents": {}}
+    opt = args[args.index("--agent") + 1] if "--agent" in args else None
+    if args[:2] == ["account", "list"]:
+        acc = os.path.join(home, "accounts.json")
+        print(open(acc, encoding="utf-8").read() if os.path.exists(acc) else "[]")
+    elif args[0] == "backup":
+        bad = os.path.join(home, "not_ready.json")
+        bad = json.load(open(bad, encoding="utf-8")) if os.path.exists(bad) else {}
+        ids = st["agents"].get(opt, st["backups"]) if opt else st["backups"]
+        rows = []
+        for i in ids:
+            row = {"id": i, "ready": i not in bad}
+            if i in bad:
+                row["why"] = bad[i]
+                row["fix"] = "kith account add " + i.replace(":", " ")
+            rows.append(row)
+        print(json.dumps({"agent": opt, "source": "agent" if opt and opt in st["agents"] else "global", "backups": rows}))
+    else:
+        if args[2] == "reset":
+            st["agents"].pop(opt, None)
+        else:
+            ids = [a for a in args[3:] if a != "--agent" and a != opt]
+            if opt:
+                st["agents"][opt] = ids
+            else:
+                st["backups"] = ids
+        json.dump(st, open(path, "w", encoding="utf-8"))
 elif args == ["house", "--info-json"]:
     fail = os.path.join(home, "info_fail")
     if os.path.exists(fail):
@@ -53,15 +84,35 @@ elif args[:2] == ["memory", "search"]:
     n = int(args[args.index("-n") + 1])
     hit = {"path": "notes.md", "line": 1, "agent": args[args.index("--agent") + 1], "snippet": f"{args[2]} agent={args[args.index('--agent') + 1]}"}
     print(json.dumps({"hits": ([hit] * 3)[:n]}))
+elif args == ["cost", "record"]:
+    # A dream's cost row: the JSON on stdin and who it is for.
+    with open(os.path.join(home, "cost.jsonl"), "a", encoding="utf-8") as cost:
+        cost.write(json.dumps({"row": json.load(sys.stdin), "agent": os.environ.get("KITH_AGENT"),
+                               "via": os.environ.get("KITH_VIA")}) + "\n")
+elif args == ["house", "--backups-json"]:
+    # `chain.json` is the chain after the agent's own login; without one the agent has no backups.
+    path = os.path.join(home, "chain.json")
+    chain = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else []
+    primary = {"id": "claude", "harness": "claude", "account": None, "kind": "primary", "ready": True}
+    print(json.dumps({"version": 1, "agent": "house", "chain": [primary] + chain}))
 elif args[:2] == ["house", "--launch-json"]:
     fail = os.path.join(home, "fail")
     if os.path.exists(fail):
         print(open(fail, encoding="utf-8").read(), file=sys.stderr)
         sys.exit(1)
+    backup = args[args.index("--backup") + 1] if "--backup" in args else None
+    # A file named `launch_fail_<entry>` (":" as "_") makes hq refuse that entry, as it does one it can't run.
+    if backup and os.path.exists(os.path.join(home, "launch_fail_" + backup.replace(":", "_"))):
+        print(f"{backup} is not logged in", file=sys.stderr)
+        sys.exit(4)
+    harness = "codex" if backup and backup.split(":")[0] == "codex" else "claude"
+    account = backup.split(":")[1] if backup and ":" in backup else None
     model = args[args.index("-m") + 1] if "-m" in args else "haiku"
     print(json.dumps({
-        "version": 1, "agent": "house", "agent_version": "v1", "harness": "claude", "cwd": home,
-        "env": {"KITH_AGENT": "house", "HQ_AGENT": "house", "KITH_VIA": os.environ.get("KITH_VIA", ""), "HQ_VIA": os.environ.get("KITH_VIA", ""), "KITH_MODEL": model, "HQ_MODEL": model},
+        "version": 1, "agent": "house", "agent_version": "v1", "harness": harness, "cwd": home,
+        "backup": backup, "provider": harness, "account": account,
+        "env": {"KITH_AGENT": "house", "HQ_AGENT": "house", "KITH_VIA": os.environ.get("KITH_VIA", ""), "HQ_VIA": os.environ.get("KITH_VIA", ""), "KITH_MODEL": model, "HQ_MODEL": model,
+                "KITH_PROVIDER": harness, "KITH_ACCOUNT": account or "", "KITH_BACKUP": backup or ""},
         "system_prompt": "You are house, the household keeper.",
         "settings": {"hooks": {"SessionStart": []}},
         "mcp_servers": {"pantry": {"command": "pantry-mcp", "args": [], "env": {}}},

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { chipOf, defaultFolderOf, needsConfirm, normalizeFolder, pickerSections, projectAt, projectIdFromName, selectionOfRecent } from './place-folders.ts'
+import { chipOf, middleEllipsis, defaultFolderOf, needsConfirm, normalizeFolder, pickerSections, projectAt, projectIdFromName, selectionOfRecent } from './place-folders.ts'
 
 test('a folder name becomes a lowercase-kebab project id', () => {
   assert.equal(projectIdFromName('My Project_v2'), 'my-project-v2')
@@ -55,4 +55,12 @@ test('a new task starts in the bot’s default, not in the chat’s own pick', (
   assert.equal(defaultFolderOf({ ...base, project: null })?.name, 'w')
   assert.equal(defaultFolderOf({ ...base, project: null, managedWorkspace: true })?.kind, 'workspace')
   assert.equal(defaultFolderOf({ ...base, folder: null }), null)
+})
+
+test('middleEllipsis keeps the start and the end of a long name', () => {
+  assert.equal(middleEllipsis('short', 10), 'short')
+  const cut = middleEllipsis('a-very-long-project-folder-name-v2', 16)
+  assert.equal(Array.from(cut).length, 16)
+  assert.ok(cut.startsWith('a-very-') && cut.endsWith('-name-v2'.slice(-7)) && cut.includes('…'))
+  assert.equal(chipOf({ kind: 'folder', path: '/x', name: 'x'.repeat(60), inherited: false }).label.length, 26)
 })

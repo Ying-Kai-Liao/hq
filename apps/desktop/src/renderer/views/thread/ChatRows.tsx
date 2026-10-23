@@ -8,7 +8,6 @@ import { AnchoredMenu, useContextMenu, type MenuItem, type ReactionPick } from '
 import { HStack, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
 import { ThinkingOrb } from '../../components/ThinkingOrb'
-import { avatarColor } from '../../lib/theme'
 import { useStore as useLiveStore, useStoreRef as useStore } from '../../store/context'
 import { QUICK_REACTIONS, type BotStore } from '../../store/bot-store'
 import { AttachmentList } from './Attachments'
@@ -17,6 +16,7 @@ import { MarkdownText } from './Markdown'
 import { PermissionCard } from './PermissionCard'
 import { ConnectionRequestCard } from '../marketplace/ConnectionRequestCard'
 import { HandoffNotice } from './HandoffNotice'
+import { AnsweredBy } from './AnsweredBy'
 
 export function reactionPick(store: BotStore, entry: Entry): ReactionPick {
   return { emoji: QUICK_REACTIONS, chosen: entry.data.reactions ?? [], toggle: (e) => store.react(entry, e) }
@@ -48,6 +48,7 @@ export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrac
           {chat && isGroup(chat) && groupStart ? <AuthorLabel botId={entry.data.author} /> : null}
           <AgentBubble entry={entry} openTrace={openTrace} reply={reply} />
           <VStack gap={4} className={chat && isGroup(chat) ? 'chat-row-indent' : undefined}>
+            <AnsweredBy answeredBy={entry.data.answeredBy} />
             <ReactionsRow entry={entry} />
             {chip}
           </VStack>
@@ -80,7 +81,7 @@ export function AuthorLabel({ botId }: { botId?: string | null }) {
   return (
     <HStack gap={8}>
       {bot ? <BotAvatar bot={bot} size={26} animated={false} /> : null}
-      <Text size="subheadline" weight="medium" tone="secondary" style={bot ? { color: avatarColor(bot.avatarColor) } : undefined}>{store.authorName(botId)}</Text>
+      <Text size="subheadline" weight="medium" tone="secondary">{store.authorName(botId)}</Text>
     </HStack>
   )
 }

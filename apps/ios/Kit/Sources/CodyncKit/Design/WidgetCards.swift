@@ -326,7 +326,7 @@ public struct BotsTeamCard: View {
                 botTile(bot)
             }
         } else {
-            CharacterAvatar(shape: "blob", color: "gray", size: 26)
+            CharacterAvatar(portrait: "crew-builder", size: 26, still: true)
                 .opacity(0.18)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Palette.bubbleAgent.opacity(0.5), in: RoundedRectangle(cornerRadius: 16))

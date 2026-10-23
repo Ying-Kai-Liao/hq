@@ -5,6 +5,7 @@ import {
   chosenVoice,
   engine,
   isVoiceProvider,
+  KITH_ENGINE,
   language,
   mode,
   pause,
@@ -42,6 +43,8 @@ export const VoiceSettings = {
   voice: chosenVoice,
   isSpeechMode: (p: VoiceProvider) => mode(p).get() === 'speech',
   remember: rememberStatus,
+  /** Kith voice is picked: on-device listening, speech from the computer. */
+  isKith: () => engine.get() === KITH_ENGINE,
   /** A pause this long (seconds) ends what you're saying and sends it. */
   pause: () => (pause.get() > 0 ? pause.get() : 1.5),
   /** AVSpeechUtterance's rate (0…1, 0.5 normal), as the Mac stores it. */
@@ -64,6 +67,8 @@ export type VoicePhase = 'starting' | 'listening' | 'speaking' | 'failed'
 export abstract class VoiceEngine extends Observable {
   phase: VoicePhase = 'starting'
   failure: string | null = null
+  /** Something went wrong or is slow, but the call goes on (a clip that wouldn't speak, a voice downloading). */
+  warning: string | null = null
   /** Microphone loudness, 0…1, while listening. Read every frame; not observed. */
   level = 0
   abstract readonly provider: VoiceProvider | null
@@ -87,6 +92,12 @@ export abstract class VoiceEngine extends Observable {
   }
   protected mutedChanged(_on: boolean) {}
 
+  protected setWarning(warning: string | null) {
+    if (warning === this.warning) return
+    this.warning = warning
+    this.changed()
+  }
+
   protected setPhase(phase: VoicePhase) {
     this.phase = phase
     this.changed()
@@ -108,6 +119,12 @@ export abstract class VoiceEngine extends Observable {
   abstract speak(reply: string): void
   /** A notice from the computer (an approval is waiting) to say. */
   abstract announce(notice: string): void
+  /** True if the engine speaks a reply while it streams in (`streamReply`) rather than when it's final. */
+  readonly streamsReplies: boolean = false
+  /** The full text so far of an agent entry; `final` once its turn is over. Only called when `streamsReplies`. */
+  streamReply(_id: string, _text: string, _final: boolean) {}
+  /** Whether the bot is working on a turn. */
+  setWorking(_working: boolean) {}
 }
 
 export const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -202,20 +219,4 @@ export function fromBase64(text: string) {
 
 // MARK: spoken text
 
-/** A chat reply as it should sound: markdown syntax and code blocks dropped (kit SpokenText). */
-export function spokenText(markdown: string) {
-  const rules: [RegExp, string][] = [
-    [/```[\s\S]*?```/g, ''], // code blocks
-    [/!?\[([^\]]*)\]\([^)]*\)/g, '$1'], // links and images → their text
-    [/`([^`]*)`/g, '$1'], // inline code
-    [/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, ''], // headings, quotes, list markers
-    [/(\*\*|\*|~~)(\S[^\n]*?)\1/g, '$2'], // emphasis (not `_`: it's in identifiers)
-    [/^[ \t]*\|?[ \t:|-]{3,}\|?[ \t]*$/gm, ''], // table rules
-    [/^[ \t]*\|[ \t]*|[ \t]*\|[ \t]*$/gm, ''], // table edges
-    [/[ \t]*\|[ \t]*/g, ', '], // table cells
-    [/\n{2,}/g, '\n'],
-  ]
-  let text = markdown
-  for (const [pattern, template] of rules) text = text.replace(pattern, template)
-  return text.trim()
-}
+export { spokenText } from './spoken-text'

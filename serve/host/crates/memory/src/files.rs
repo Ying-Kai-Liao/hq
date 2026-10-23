@@ -46,6 +46,8 @@ pub enum Cause {
     /// A bot's change taken back from the chat.
     Undo,
     Dream,
+    /// The file as it was found the first time it was seen, so a later change can be undone back to it.
+    Baseline,
 }
 
 /// A file as last recorded.
@@ -493,6 +495,7 @@ fn cause_name(cause: Cause) -> &'static str {
         Cause::Restore => "restore",
         Cause::Undo => "undo",
         Cause::Dream => "dream",
+        Cause::Baseline => "baseline",
     }
 }
 
@@ -502,6 +505,7 @@ fn parse_cause(name: &str) -> Cause {
         "restore" => Cause::Restore,
         "undo" => Cause::Undo,
         "dream" => Cause::Dream,
+        "baseline" => Cause::Baseline,
         _ => Cause::Edit,
     }
 }
@@ -520,6 +524,19 @@ mod tests {
 
     fn change<'a>(bot: Option<&'a str>, name: &'a str, content: Option<&'a str>) -> Change<'a> {
         Change { bot, name, content, author: Author::Bot, author_bot: Some("a"), cause: Cause::Edit, mtime: 1, size: 1 }
+    }
+
+    #[test]
+    fn a_baseline_is_a_version_that_reads_back() {
+        let conn = conn();
+        let first = Change {
+            cause: Cause::Baseline,
+            author: Author::Computer,
+            author_bot: None,
+            ..change(None, "user.md", Some("a"))
+        };
+        record(&conn, &first, 1, 1).unwrap();
+        assert_eq!(versions(&conn, None, "user.md", 5).unwrap()[0].cause, Cause::Baseline);
     }
 
     #[test]

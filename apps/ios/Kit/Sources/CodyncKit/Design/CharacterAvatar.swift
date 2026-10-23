@@ -1,62 +1,43 @@
 import SwiftUI
 
-/// Grok-Bot-style character drawn like the app icon: an even grid of dots,
-/// shaded as if the silhouette were a ball, with the eyes left hollow (two
-/// missing pairs of dots). The eyes glance side to side while the bot works
-/// and blink now and then; a badge shows when it needs you.
+/// A crew bot: a body drawn from art, two black ovals for eyes and, at 16 pt and up, motion
+/// (MOTION.md). `portrait` is a `CrewAvatar` asset (`crew-lab`, `spare-chart`); nil is a group's
+/// cube on its tile. `color` is the stored `avatarColor`: only `kith:<paletteId>` recolours.
 public struct CharacterAvatar: View {
-    public enum Mood: Sendable { case idle, working, needsInput }
+    public enum Mood: Sendable { case idle, working, needsInput, error }
 
-    let shape: String
-    let color: Color
+    let portrait: String?
+    let color: String
     let size: CGFloat
     let mood: Mood
     let still: Bool
-    /// A portrait's asset name (`CrewAvatar`), drawn instead of the dotted character.
-    var portrait: String?
+    let botId: String
 
-    /// `still` draws one frame of the mood (widgets and Live Activities render one frame);
-    /// a change of mood then moves the halftone highlight and the eyes, animatable dot by dot.
-    public init(shape: String, color: String, size: CGFloat = 40, mood: Mood = .idle, still: Bool = false) {
-        self.init(shape: shape, tint: AvatarPalette.color(color), size: size, mood: mood, still: still)
-    }
-
-    public init(shape: String, tint: Color, size: CGFloat = 40, mood: Mood = .idle, still: Bool = false) {
-        self.shape = shape
-        self.color = tint
+    public init(portrait: String?, color: String = "", size: CGFloat = 40, mood: Mood = .idle, still: Bool = false, id: String = "") {
+        self.portrait = portrait
+        self.color = color
         self.size = size
         self.mood = mood
         self.still = still
+        self.botId = id
     }
 
-    /// A portrait alone (a `CrewAvatar` asset), for the editor.
-    public init(portrait: String, size: CGFloat = 40) {
-        self.init(shape: "blob", color: "blue", size: size)
-        self.portrait = portrait
-    }
-
+    /// `animated: false` keeps the bot's blink but not its mood (lists, tiny faces).
     public init(bot: Bot, size: CGFloat = 40, animated: Bool = true) {
-        self.init(
-            shape: bot.avatarShape,
-            color: bot.avatarColor,
-            size: size,
-            mood: animated ? bot.mood : .idle
-        )
-        portrait = CrewAvatar.asset(for: bot)
+        self.init(portrait: CrewAvatar.asset(for: bot), color: bot.avatarColor, size: size, mood: animated ? bot.mood : .idle, id: bot.id)
     }
 
-    /// The bot's current mood, drawn as one frame.
+    /// The bot's current mood as one frame: widgets, notifications and Live Activities cannot run animation.
     public init(bot: Bot, size: CGFloat = 40, still: Bool) {
-        self.init(shape: bot.avatarShape, color: bot.avatarColor, size: size, mood: bot.mood, still: still)
-        portrait = CrewAvatar.asset(for: bot)
+        self.init(portrait: CrewAvatar.asset(for: bot), color: bot.avatarColor, size: size, mood: bot.mood, still: still, id: bot.id)
     }
 
     public var body: some View {
         Group {
             if let portrait {
-                CrewAvatar.image(portrait).resizable().scaledToFit()
+                BotFace(asset: portrait, color: color, botId: botId.isEmpty ? portrait : botId, size: size, mood: mood, still: still)
             } else {
-                DottedBody(shape: shape, color: color, size: size, mood: mood, paused: still)
+                GroupAvatar(members: [], size: size, still: still)
             }
         }
         .frame(width: size, height: size)
@@ -65,265 +46,103 @@ public struct CharacterAvatar: View {
 }
 
 public extension Bot {
-    var mood: CharacterAvatar.Mood { needsInput ? .needsInput : isWorking ? .working : .idle }
+    var mood: CharacterAvatar.Mood { status == "error" ? .error : needsInput ? .needsInput : isWorking ? .working : .idle }
 }
 
-/// Keep the halftone at every size. Small icons use fewer, larger dots so the
-/// gaps and hollow eyes survive rasterization in widgets and the Dynamic Island.
-struct DotGrid {
-    let cells: Int
-    init(size: CGFloat) { cells = size < 18 ? 7 : size < 28 ? 9 : 13 }
-    var eyeColumns: [Int] { cells == 7 ? [2, 4] : cells == 9 ? [3, 6] : [4, 8] }
-    var eyeRows: [Int] { cells == 13 ? [4, 5, 6] : cells == 9 ? [3, 4] : [2, 3] }
-}
-
-struct DottedBody: View {
-    let shape: String
-    let color: Color
+/// Body and eyes, as Core Animation when it moves and as plain SwiftUI when it does not
+/// (a widget frame, under 16 pt, Reduce Motion), so the two always put the eyes in the same place.
+struct BotFace: View {
+    let asset: String
+    var color = ""
+    var botId: String
     let size: CGFloat
-    let mood: CharacterAvatar.Mood
-    let paused: Bool
+    var mood: CharacterAvatar.Mood = .idle
+    var still = false
+    var placement: BotPlacement = .identity
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Where the light sits and where the eyes look.
-    struct Pose: Equatable {
-        var yaw: Double
-        var glance: Int
-        var blinking = false
-        /// The needs-you ripple's phase, nil without one.
-        var ripple: Double?
-
-        /// One frame of the mood: in widgets and Live Activities, which render one frame, a
-        /// change of mood moves the halftone highlight and the eyes to the new pose.
-        static func still(_ mood: CharacterAvatar.Mood) -> Pose {
-            switch mood {
-            case .idle: Pose(yaw: -0.7, glance: 0)
-            case .working: Pose(yaw: 1.1, glance: 1)
-            case .needsInput: Pose(yaw: 0, glance: 0, ripple: 0.6)
-            }
+    var body: some View {
+        let tier = AvatarTier.tier(size: size, still: still, reduceMotion: reduceMotion)
+        let paletteId = LivingBotTint.paletteId(color)
+        if tier == .still || tier == .reduced {
+            StillBot(asset: asset, paletteId: paletteId, size: size, mood: mood, placement: placement, reduced: tier == .reduced)
+        } else {
+            LivingBotRepresentable(spec: .init(asset: asset, paletteId: paletteId, botId: botId, size: size, mood: mood, placement: placement))
+                .frame(width: size, height: size)
         }
     }
+}
 
-    /// One dot's look for a pose: radius, grey ink, and how much of the bot's color shows.
-    struct Ink {
-        let dot: Dot
-        let radius: CGFloat
-        let ink: Double
-        let tint: Double
-        let eye: Bool
-    }
+/// One frame of a bot: the state's eye pose and, for an error, the slump and droop. Reduce
+/// Motion shows the eyes centred and nothing else.
+struct StillBot: View {
+    let asset: String
+    let paletteId: String?
+    let size: CGFloat
+    let mood: CharacterAvatar.Mood
+    var placement: BotPlacement = .identity
+    var reduced = false
 
     var body: some View {
-        let grid = DotGrid(size: size)
-        let step = size / CGFloat(grid.cells)
-        let dots = Self.grid(shape: shape, size: size, step: step, cells: grid.cells)
-        if paused {
-            // One view per dot (not a Canvas), so the system interpolates each dot's size and
-            // color between two poses, also inside a Live Activity.
+        if let rig = LivingBotData.rig(forAsset: asset), let image = LivingBotTint.image(asset: asset, paletteId: paletteId) {
+            let g = BotGeometry(rig: rig, size: size, placement: placement)
+            let box = g.body
+            let pose = reduced ? (x: 0.0, y: 0.0) : BotPose.gaze(mood)
+            let off = g.gazeOffset(pose.x, pose.y)
+            let error = mood == .error && !reduced
             ZStack(alignment: .topLeading) {
-                ForEach(Self.inks(dots, grid: grid, step: step, size: size, pose: .still(mood)), id: \.dot.id) { d in
-                    Circle()
-                        .fill(Palette.text.opacity(d.ink))
-                        .overlay(Circle().fill(color.opacity(d.tint)))
-                        .frame(width: d.radius * 2, height: d.radius * 2)
-                        .position(d.dot.center)
-                        .opacity(d.eye ? 0 : 1)
+                Image(decorative: image, scale: 1).resizable().interpolation(.medium).frame(width: box.width, height: box.height)
+                ForEach(Array(rig.eyes.enumerated()), id: \.offset) { _, eye in
+                    Ellipse().fill(.black)
+                        .frame(width: eye.w * box.width, height: eye.h * box.width)
+                        .rotationEffect(.degrees(eye.tilt))
+                        .scaleEffect(x: 1, y: error ? BotPose.droop : 1)
+                        .position(x: eye.x * box.width + off.width, y: eye.y * box.width + off.height)
                 }
             }
+            .frame(width: box.width, height: box.height, alignment: .topLeading)
+            .scaleEffect(x: error ? BotPose.slump.sx : 1, y: error ? BotPose.slump.sy : 1,
+                         anchor: UnitPoint(x: rig.anchor.x, y: rig.anchor.y))
+            .position(x: box.midX, y: box.midY)
             .frame(width: size, height: size)
         } else {
-            let still = mood == .idle || reduceMotion
-            TimelineView(.animation(paused: still)) { timeline in
-                let t = still ? 0 : timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 3600)
-                // Glance: whole-cell steps left / center / right, like a small display.
-                let pose = Pose(yaw: mood == .working ? t * 1.4 : -0.7,
-                                glance: mood == .working ? Int((sin(t * 2 * .pi / 3.2) * 1.4).rounded()) : 0,
-                                blinking: !still && (t / 4.7).truncatingRemainder(dividingBy: 1) < 0.035,
-                                ripple: mood == .needsInput ? t * 5 : nil)
-                Canvas { ctx, _ in
-                    for d in Self.inks(dots, grid: grid, step: step, size: size, pose: pose) where !d.eye {
-                        let p = d.dot.center, r = d.radius
-                        let dot = Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
-                        ctx.fill(dot, with: .color(Palette.text.opacity(d.ink)))
-                        if d.tint > 0 { ctx.fill(dot, with: .color(color.opacity(d.tint))) }
-                    }
-                }
-            }
-        }
-    }
-
-    /// The working loop the Dynamic Island plays one frame per second (a timer Text in a font
-    /// whose digits are these frames; see tools/timer-fonts.py): the light circles the ball
-    /// once, the eyes look right, back, left, and blink on the last frame.
-    static func workingLoop(shape: String, size: CGFloat) -> [[Ink]] {
-        let cells = DotGrid(size: size)
-        let step = size / CGFloat(cells.cells)
-        let dots = grid(shape: shape, size: size, step: step, cells: cells.cells)
-        let glances = [0, 1, 1, 1, 0, -1, -1, -1, 0, 0]
-        return glances.indices.map { k in
-            let pose = Pose(yaw: -0.7 + Double(k) * 2 * .pi / 10, glance: glances[k], blinking: k == 9)
-            return inks(dots, grid: cells, step: step, size: size, pose: pose)
-        }
-    }
-
-    /// Shades the dots as a lit ball; the eyes stay hollow.
-    static func inks(_ dots: [Dot], grid: DotGrid, step: CGFloat, size: CGFloat, pose: Pose) -> [Ink] {
-        let eyeRows = pose.blinking ? Array(grid.eyeRows.suffix(1)) : grid.eyeRows
-        let eyeCols = grid.eyeColumns.map { $0 + pose.glance }
-        let half = size / 2
-        let lx = sin(pose.yaw) * 0.8, ly = 0.55, lz = cos(pose.yaw) * 0.5 + 0.6  // never fully behind
-        let ll = (lx * lx + ly * ly + lz * lz).squareRoot()
-        return dots.map { (d: Dot) -> Ink in
-            let p = d.center
-            let u = Double((p.x - half) / half), v = Double((half - p.y) / half)
-            let z = max(0.2, 1 - u * u - v * v).squareRoot()
-            let nl = (u * u + v * v + z * z).squareRoot()
-            var shade = 0.3 + 0.7 * max(0, (u * lx + v * ly + z * lz) / (nl * ll))
-            if let phase = pose.ripple {
-                let ripple = 0.5 + 0.5 * sin((u * u + v * v).squareRoot() * 9 - phase)
-                shade *= 0.6 + 0.4 * ripple
-            }
-            return Ink(dot: d,
-                       radius: step * CGFloat(0.42 * (0.55 + 0.45 * shade)),
-                       ink: grid.cells < 13 ? 0.4 + 0.4 * shade : 0.2 + 0.4 * min(1, shade / 0.7),
-                       tint: shade > 0.6 ? (shade - 0.6) / 0.4 : 0,
-                       eye: eyeCols.contains(d.col) && eyeRows.contains(d.row))
-        }
-    }
-
-    struct Dot {
-        let row: Int
-        let col: Int
-        let center: CGPoint
-        var id: Int { row * 100 + col }
-    }
-
-    /// Square-grid dot centers that fall inside the silhouette.
-    static func grid(shape: String, size: CGFloat, step: CGFloat, cells: Int) -> [Dot] {
-        let path = CharacterShape(kind: shape).path(in: CGRect(x: 0, y: 0, width: size, height: size))
-        var out: [Dot] = []
-        for row in 0..<cells {
-            for col in 0..<cells {
-                let p = CGPoint(x: (CGFloat(col) + 0.5) * step, y: (CGFloat(row) + 0.5) * step)
-                if path.contains(p) { out.append(Dot(row: row, col: col, center: p)) }
-            }
-        }
-        return out
-    }
-}
-
-/// The eight Grok Bot character silhouettes.
-public struct CharacterShape: Shape {
-    let kind: String
-
-    public init(kind: String) { self.kind = kind }
-
-    public func path(in r: CGRect) -> Path {
-        let w = r.width, h = r.height
-        switch kind {
-        case "pebble":
-            return Path(ellipseIn: r.insetBy(dx: 0, dy: h * 0.1))
-        case "squircle":
-            return Path(roundedRect: r.insetBy(dx: w * 0.04, dy: h * 0.04), cornerRadius: w * 0.3, style: .continuous)
-        case "tablet":
-            return Path(roundedRect: r.insetBy(dx: w * 0.14, dy: 0), cornerRadius: w * 0.22, style: .continuous)
-        case "wedge":
-            var p = Path()
-            p.move(to: CGPoint(x: w * 0.5, y: h * 0.04))
-            p.addQuadCurve(to: CGPoint(x: w * 0.98, y: h * 0.86), control: CGPoint(x: w * 0.9, y: h * 0.4))
-            p.addQuadCurve(to: CGPoint(x: w * 0.02, y: h * 0.86), control: CGPoint(x: w * 0.5, y: h * 1.04))
-            p.addQuadCurve(to: CGPoint(x: w * 0.5, y: h * 0.04), control: CGPoint(x: w * 0.1, y: h * 0.4))
-            return p
-        case "hex":
-            var p = Path()
-            for i in 0..<6 {
-                let a = CGFloat(i) * .pi / 3 - .pi / 2
-                let pt = CGPoint(x: w / 2 + cos(a) * w * 0.49, y: h / 2 + sin(a) * h * 0.49)
-                i == 0 ? p.move(to: pt) : p.addLine(to: pt)
-            }
-            p.closeSubpath()
-            return p.strokedPath(.init(lineWidth: w * 0.08, lineJoin: .round)).union(p)
-        case "cloud":
-            var p = Path()
-            p.addEllipse(in: CGRect(x: 0, y: h * 0.3, width: w * 0.55, height: h * 0.55))
-            p.addEllipse(in: CGRect(x: w * 0.45, y: h * 0.3, width: w * 0.55, height: h * 0.55))
-            p.addEllipse(in: CGRect(x: w * 0.18, y: h * 0.08, width: w * 0.64, height: h * 0.64))
-            p.addRoundedRect(in: CGRect(x: w * 0.1, y: h * 0.5, width: w * 0.8, height: h * 0.35), cornerSize: CGSize(width: w * 0.15, height: w * 0.15))
-            return p
-        case "teardrop":
-            var p = Path()
-            p.move(to: CGPoint(x: w * 0.5, y: 0))
-            p.addCurve(to: CGPoint(x: w * 0.94, y: h * 0.62), control1: CGPoint(x: w * 0.62, y: h * 0.2), control2: CGPoint(x: w * 0.94, y: h * 0.38))
-            p.addArc(center: CGPoint(x: w * 0.5, y: h * 0.62), radius: w * 0.44, startAngle: .degrees(0), endAngle: .degrees(180), clockwise: false)
-            p.addCurve(to: CGPoint(x: w * 0.5, y: 0), control1: CGPoint(x: w * 0.06, y: h * 0.38), control2: CGPoint(x: w * 0.38, y: h * 0.2))
-            return p
-        default: // blob
-            var p = Path()
-            let c = CGPoint(x: w / 2, y: h / 2)
-            let steps = 64
-            for i in 0...steps {
-                let a = Double(i) / Double(steps) * 2 * .pi
-                let rr = 0.46 + 0.035 * sin(a * 3 + 0.6)
-                let pt = CGPoint(x: c.x + cos(a) * w * rr, y: c.y + sin(a) * h * rr)
-                i == 0 ? p.move(to: pt) : p.addLine(to: pt)
-            }
-            p.closeSubpath()
-            return p
+            Color.clear.frame(width: size, height: size)
         }
     }
 }
 
-/// A group chat's face, clustered like iMessage: two bots tucked diagonally,
-/// three in a triangle, four in a 2×2 grid; past four the last cell counts the rest.
+/// A group chat's face: the cube bot that holds the crew, on the soft logo tile (LAYERS.md
+/// section 5). Its eyes are drawn like any bot's, so the group blinks too.
 public struct GroupAvatar: View {
-    let members: [Bot]
     let size: CGFloat
-    let animated: Bool
+    let still: Bool
+    let id: String
 
-    public init(members: [Bot], size: CGFloat = 40, animated: Bool = true) {
-        self.members = members
+    /// `members` is kept for the call sites; the tile shows the same cube whoever is in the chat.
+    public init(members: [Bot] = [], size: CGFloat = 40, animated: Bool = true, still: Bool = false, id: String = "group") {
         self.size = size
-        self.animated = animated
+        self.still = still
+        self.id = id
+    }
+
+    /// Base #F6F6FA with the logo gradient (#8FC7FC, #A67EFC, #F281F3, #FDCEC0, 135 degrees) on top at 45%.
+    static var tile: some View {
+        ZStack {
+            Color(hex: 0xF6F6FA)
+            LinearGradient(colors: [Color(hex: 0x8FC7FC), Color(hex: 0xA67EFC), Color(hex: 0xF281F3), Color(hex: 0xFDCEC0)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing).opacity(0.45)
+        }
     }
 
     public var body: some View {
+        let placement = LivingBotData.rigs["kith"]?.group ?? BotPlacement(scale: 1.134, dx: 0, dy: 0.0045)
         ZStack {
-            switch members.count {
-            case 0:
-                Image(systemName: "person.2")
-                    .font(.system(size: size * 0.4))
-                    .foregroundStyle(.secondary)
-            case 1:
-                CharacterAvatar(bot: members[0], size: size, animated: animated)
-            case 2:
-                place(members[1], size * 0.66, .topTrailing)
-                place(members[0], size * 0.66, .bottomLeading)
-            case 3:
-                place(members[0], size * 0.55, .top)
-                place(members[1], size * 0.55, .bottomLeading)
-                place(members[2], size * 0.55, .bottomTrailing)
-            default:
-                place(members[0], size * 0.5, .topLeading)
-                place(members[1], size * 0.5, .topTrailing)
-                place(members[2], size * 0.5, .bottomLeading)
-                if members.count == 4 {
-                    place(members[3], size * 0.5, .bottomTrailing)
-                } else {
-                    Text("+\(members.count - 3)")
-                        .font(.system(size: size * 0.24, weight: .bold, design: .rounded))
-                        .foregroundStyle(.secondary)
-                        .frame(width: size * 0.5, height: size * 0.5)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                }
-            }
+            Self.tile
+            BotFace(asset: "kith-cube", botId: id, size: size, still: still, placement: placement)
         }
         .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.24, style: .continuous))
         .accessibilityHidden(true)
-    }
-
-    private func place(_ bot: Bot, _ side: CGFloat, _ corner: Alignment) -> some View {
-        CharacterAvatar(bot: bot, size: side, animated: animated)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: corner)
     }
 }
 
@@ -342,7 +161,7 @@ public struct AvatarWithStatus: View {
 
     public var body: some View {
         Group {
-            if bot.isGroup { GroupAvatar(members: members, size: size) } else { CharacterAvatar(bot: bot, size: size) }
+            if bot.isGroup { GroupAvatar(members: members, size: size, id: bot.id) } else { CharacterAvatar(bot: bot, size: size) }
         }
             .overlay(alignment: .bottomTrailing) {
                 if bot.needsInput {

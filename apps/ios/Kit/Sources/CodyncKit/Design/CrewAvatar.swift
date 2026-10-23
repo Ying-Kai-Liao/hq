@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// The portraits a bot can wear: the crew with a face of their own (brand crew/<agent>.png) and
-/// the spares anyone can pick (crew/spare/<name>.png), 256 px in CrewAvatars.xcassets.
-/// Bundled with the app; the host never serves them.
+/// The bodies a bot can wear: the crew (one per agent) and the spares anyone can pick, 512 px
+/// eyeless bodies in CrewAvatars.xcassets; their eyes, tint maps and motion data are in
+/// Resources/LivingBots. Bundled with the app; the host never serves them.
 public enum CrewAvatar {
     public static let names: [String] = [
         "branding", "builder", "coder", "designer", "devops", "finance", "house", "image",
@@ -26,13 +26,12 @@ public enum CrewAvatar {
         return [slug(botName), id, unprefixed].first { names.contains($0) }
     }
 
-    /// The image asset a bot shows, or nil when it is drawn as Codync's shape (`shape`) or is a group.
-    /// `source` is the bot's `avatarSource`: `auto`, `crew:<name>`, `spare:<name>` or `shape`; a
-    /// missing or unknown one is `auto`, so older hosts and newer hosts both draw something.
+    /// The body asset a bot shows, or nil for a group (the cube on its tile).
+    /// `source` is the bot's `avatarSource`: `auto`, `crew:<name>` or `spare:<name>`; a missing or
+    /// unknown one (the old `shape` too) is `auto`, so older hosts and newer hosts both draw something.
     public static func asset(source: String?, id: String, name: String, isGroup: Bool) -> String? {
         if isGroup { return nil }
         let source = source ?? "auto"
-        if source == "shape" { return nil }
         if source.hasPrefix("crew:"), names.contains(String(source.dropFirst(5))) { return "crew-" + source.dropFirst(5) }
         if source.hasPrefix("spare:"), spares.contains(String(source.dropFirst(6))) { return "spare-" + source.dropFirst(6) }
         return "crew-" + (crewName(id: id, name: name, isGroup: false) ?? fallback)
@@ -46,6 +45,4 @@ public enum CrewAvatar {
     public static func asset(for draft: BotDraft, isGroup: Bool) -> String? {
         asset(source: draft.avatarSource, id: draft.id ?? "", name: draft.name, isGroup: isGroup)
     }
-
-    static func image(_ asset: String) -> Image { Image(asset, bundle: .module) }
 }

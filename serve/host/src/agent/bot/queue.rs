@@ -90,9 +90,7 @@ impl Actor {
                 self.forget_session();
                 // Retain and summarize completed exchanges even when the user starts afresh. The chat shows no line
                 // for it: the user just confirmed it.
-                if !self.is_hq() {
-                    let _ = self.dreamer.send(memory::DreamEvent::Flush);
-                }
+                let _ = self.dreamer.send(memory::DreamEvent::Flush);
             }
             Cmd::Reconfigure(cfg) => {
                 let cfg = *cfg;
@@ -387,7 +385,9 @@ impl Actor {
         self.finish_routine(crate::routines::Status::Failed, Some(format!("Could not start routine: {e:#}")), None);
         self.complete_request(Err(anyhow!("couldn't start recipient: {e:#}")), false);
         self.complete_group(Err(anyhow!("couldn't start: {e:#}")));
-        if !self.invite_sign_in(e) {
+        if let Some(none) = e.downcast_ref::<crate::agent::backups::NoAccount>() {
+            self.notice(&none.0, NoticeStyle::Info);
+        } else if !self.invite_sign_in(e) {
             // `{:#}` keeps the reason ("starting `npx …`: EACCES"), not just "agent process exited".
             self.notice(&format!("Couldn't start the agent: {e:#}"), NoticeStyle::Error);
         }

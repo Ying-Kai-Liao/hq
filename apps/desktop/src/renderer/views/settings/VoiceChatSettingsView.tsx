@@ -1,7 +1,7 @@
 import { onDeviceUnavailableReason } from '../call/voice'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { HostClient } from '../../client/host-client'
-import { Button, CardForm, CardSection, ChoicePicker, IconButton, Spinner, ValueRow } from '../../components/Controls'
+import { Button, CardForm, CardSection, ChoicePicker, IconButton, ProgressBar, Spinner, ValueRow } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { ModalHeader, SheetPage } from '../../components/Overlay'
 import { HStack, Spacer, VStack } from '../../components/Stack'
@@ -10,7 +10,7 @@ import { usePref } from '../../lib/prefs'
 import { useStore } from '../../store/context'
 import { errorText, liveClient, Reveal } from './parts'
 import * as voice from './voice-settings'
-import type { VoiceModels, VoiceProvider } from './voice-settings'
+import type { LocalVoiceStatus, VoiceModels, VoiceProvider } from './voice-settings'
 
 /**
  * Voice chat settings: which voice carries calls (on-device speech, or OpenAI / Gemini on the
@@ -24,7 +24,10 @@ export function VoiceChatSettingsView({ showsHeader = true }: { showsHeader?: bo
   const languages = useMemo(() => voice.languageOptions(window.codync.speech.locales()), [])
   const provider = voice.isVoiceProvider(engine) ? engine : null
   const [mode, setMode] = usePref(voice.mode(provider ?? 'openai'))
-  const footer = provider
+  const kith = engine === voice.KITH_ENGINE
+  const footer = kith
+    ? 'Listens on this computer; the bot speaks with a free voice run by your Kith computer. Applies from the next call.'
+    : provider
     ? `Your own ${voice.voiceInfo[provider].name} key, billed by ${voice.voiceInfo[provider].name}. Applies from the next call.`
     : window.codync.speech.available
       ? 'On-device speech, on this computer. Applies from the next call.'
@@ -39,7 +42,11 @@ export function VoiceChatSettingsView({ showsHeader = true }: { showsHeader?: bo
               <ValueRow key="engine" label="Engine">
                 <ChoicePicker
                   selection={engine}
-                  options={[...(window.codync.speech.available || engine === 'device' ? [{ id: 'device', label: 'On device' }] : []), ...voice.VOICE_PROVIDERS.map((p) => ({ id: p, label: voice.voiceInfo[p].name }))]}
+                  options={[
+                    ...(window.codync.speech.available || engine === 'device' ? [{ id: 'device', label: 'On device' }] : []),
+                    ...(window.codync.speech.available || kith ? [{ id: voice.KITH_ENGINE, label: 'Kith voice (on this Mac, free)' }] : []),
+                    ...voice.VOICE_PROVIDERS.map((p) => ({ id: p, label: voice.voiceInfo[p].name })),
+                  ]}
                   onChange={setEngine}
                 />
               </ValueRow>,
@@ -54,21 +61,87 @@ export function VoiceChatSettingsView({ showsHeader = true }: { showsHeader?: bo
                     <ValueRow key="language" label="Language" detail="The language you speak in calls.">
                       <ChoicePicker selection={language} options={languages} onChange={setLanguage} />
                     </ValueRow>,
-                    <ValueRow key="rate" label="Reading speed">
-                      <ChoicePicker
-                        selection={rate}
-                        options={[{ id: 0.42, label: 'Slower' }, { id: voice.DEFAULT_RATE, label: 'Normal' }, { id: 0.56, label: 'Faster' }]}
-                        onChange={setRate}
-                      />
-                    </ValueRow>,
+                    ...(kith
+                      ? []
+                      : [
+                          <ValueRow key="rate" label="Reading speed">
+                            <ChoicePicker
+                              selection={rate}
+                              options={[{ id: 0.42, label: 'Slower' }, { id: voice.DEFAULT_RATE, label: 'Normal' }, { id: 0.56, label: 'Faster' }]}
+                              onChange={setRate}
+                            />
+                          </ValueRow>,
+                        ]),
                     <PauseRow key="pause" />,
                   ]),
             ]}
           </CardSection>
+          {kith ? <KithVoiceSettings /> : null}
           {provider ? <ProviderVoiceSettings key={provider} provider={provider} /> : null}
         </CardForm>
       </div>
     </SheetPage>
+  )
+}
+
+/** Kith voice: the computer's Phonon model (state, download) and the voice. The computer is asked, so an older one shows why it can't. */
+function KithVoiceSettings() {
+  const store = useStore()
+  const [status, setStatus] = useState<LocalVoiceStatus | null>(null)
+  /** Why the voice can't be used, when the computer can't say. */
+  const [problem, setProblem] = useState<string | null>(null)
+  const [voiceName, setVoiceName] = useState<string | undefined>(() => voice.chosenKithVoice(null))
+  const downloading = status?.state === 'downloading'
+
+  const load = async (act: (c: HostClient) => Promise<LocalVoiceStatus>) => {
+    const client = liveClient(store)
+    if (!client) return setProblem(`Not connected to ${store.hostName}.`)
+    try {
+      const next = await act(client)
+      setStatus(next)
+      setProblem(null)
+      setVoiceName(voice.chosenKithVoice(next))
+    } catch (e) {
+      setProblem(`${store.hostName} can't do Kith voice yet. Update Kith there. (${errorText(e)})`)
+    }
+  }
+
+  useEffect(() => void load(voice.voiceLocalStatus), [])
+  // Progress while the model downloads.
+  useEffect(() => {
+    if (!downloading) return
+    const timer = setInterval(() => void load(voice.voiceLocalStatus), 1000)
+    return () => clearInterval(timer)
+  }, [downloading])
+
+  const state = status?.state
+  const hint = problem ?? (status && !status.available ? `Kith voice isn't available on ${store.hostName}.` : status?.state === 'error' ? (status.error ?? "The voice couldn't be downloaded.") : null)
+  return (
+    <CardSection title="Kith voice" footer={hint ?? 'About 65 MB, downloaded once.'}>
+      {[
+        <ValueRow key="model" label="Voice model" detail={state === 'ready' ? 'Ready' : state === 'downloading' ? 'Downloading…' : state === 'error' ? 'Failed' : status?.available === false ? 'Unavailable' : 'Not downloaded'}>
+          {state === 'downloading' ? (
+            <ProgressBar value={status?.progress ?? 0} label="Downloading the voice" />
+          ) : status?.available && state !== 'ready' ? (
+            <Button onClick={() => void load(voice.voiceLocalPrepare)}>{state === 'error' ? 'Retry' : 'Download'}</Button>
+          ) : null}
+        </ValueRow>,
+        ...(status?.available && status.voices.length
+          ? [
+              <ValueRow key="voice" label="Voice">
+                <ChoicePicker
+                  selection={voiceName ?? status.defaultVoice}
+                  options={status.voices.map((v) => ({ id: v, label: v }))}
+                  onChange={(v) => {
+                    setVoiceName(v)
+                    voice.saveKithVoice(v)
+                  }}
+                />
+              </ValueRow>,
+            ]
+          : []),
+      ]}
+    </CardSection>
   )
 }
 

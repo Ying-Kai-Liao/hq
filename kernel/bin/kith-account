@@ -1,0 +1,240 @@
+#!/usr/bin/env python3
+"""kith-account — extra logins for the backup chain, and the chain itself.
+
+  kith account add claude <name> [--yes]   an extra Claude subscription account in ~/.kith/accounts/claude/<name>, then its login
+  kith account add codex <name>            an extra Codex login in ~/.kith/accounts/codex/<name>, then its login
+  kith account list [--json]               each account, its harness and whether it is logged in
+  kith account remove <harness> <name> --yes   delete the account's folder (its login on this Mac)
+
+  kith backup list [--agent A] [--json]    the backup chain (global, or what agent A uses)
+  kith backup add <id> [--agent A] [--at N]    add an entry; --at N moves one already there to place N (1 = first backup)
+  kith backup remove <id> [--agent A]      take an entry out
+  kith account backup set [id ...] [--agent A]   replace the whole chain in one write (no ids: empty); what the apps use
+  kith account backup reset --agent A     drop A's own chain, so A follows the global one again
+
+An entry id is claude, claude:<name>, claude-api:<profile>, codex or codex:<name> (lib/kith_accounts.py). The chain is the
+backups kith serve moves to, in order, when the agent's own harness runs out of usage; it is empty until you add entries.
+Each login is made by the harness itself, in the account's folder (CLAUDE_CONFIG_DIR / CODEX_HOME), as you at the
+terminal; kith never reads, copies or prints a token.
+"""
+import json, os, re, shutil, subprocess, sys
+from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'lib'))
+import kith_accounts as acc  # noqa: E402
+import kith_settings  # noqa: E402
+
+WARNING = """\
+Before adding a second Claude subscription account:
+
+  Anthropic's usage policy does not allow using several accounts to get past usage limits. Accounts used that
+  way can be suspended without notice. Whether to do this is your decision; kith only keeps the logins apart.
+
+  Allowed ways to get more room: a Claude API key (kith backup add claude-api:<profile>) or another provider
+  (kith backup add codex).
+"""
+NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*$')
+
+
+def die(msg, code=1):
+    print(f'kith: {msg}', file=sys.stderr)
+    sys.exit(code)
+
+
+def flag(args, name):
+    if name in args:
+        args.remove(name)
+        return True
+    return False
+
+
+def option(args, name):
+    if name in args:
+        i = args.index(name)
+        if i + 1 >= len(args):
+            die(f'{name} needs a value', 2)
+        v = args[i + 1]
+        del args[i:i + 2]
+        return v
+    return None
+
+
+def harness_name(args, usage):
+    if len(args) != 2 or args[0] not in ('claude', 'codex'):
+        die(usage, 2)
+    h, n = args
+    if not NAME_RE.match(n):
+        die(f"'{n}' is not an account name (letters, digits, . _ -)", 2)
+    return h, n
+
+
+def cmd_add(args):
+    yes = flag(args, '--yes')
+    h, n = harness_name(args, 'account add claude|codex <name>')
+    d = acc.account_dir(h, n)
+    if shutil.which(h) is None:
+        die(f'{h} is not installed here; install it first, then run this again')
+    if h == 'claude' and not d.exists():
+        print(WARNING)
+        if not yes:
+            try:
+                answer = input('Add this account? Type y to continue: ')
+            except EOFError:
+                answer = ''
+            if answer.strip().lower() not in ('y', 'yes'):
+                die('not added')
+    d.mkdir(parents=True, exist_ok=True)
+    os.chmod(d, 0o700)
+    if h == 'claude':
+        argv, env = ['claude', 'auth', 'login'], {'CLAUDE_CONFIG_DIR': str(d)}
+    else:
+        print('This logs Codex in separately from your usual Codex login (device code; the browser step is yours).')
+        argv, env = ['codex', 'login', '--device-auth'], {'CODEX_HOME': str(d)}
+    print(f'Login for {h}:{n} in {d}\n')
+    code = subprocess.call(argv, env={**os.environ, **env})
+    if code:
+        die(f'the login ended with exit {code}; run kith account add {h} {n} again to retry', code)
+    print(f'\nAdd it to the chain with: kith backup add {h}:{n}')
+
+
+def cmd_list(args):
+    as_json = flag(args, '--json')
+    rows = []
+    for h in ('claude', 'codex'):
+        root = acc.machine() / 'accounts' / h
+        for d in sorted(root.iterdir()) if root.is_dir() else []:
+            if d.is_dir() and not d.name.startswith('.'):
+                ok, why = acc.logged_in(h, d)
+                rows.append({'id': f'{h}:{d.name}', 'harness': h, 'name': d.name, 'dir': str(d), 'logged_in': ok,
+                             **({} if ok else {'why': why})})
+    if as_json:
+        print(json.dumps(rows))
+    elif not rows:
+        print('no extra accounts (kith account add claude|codex <name>)')
+    for r in rows if not as_json else []:
+        print(f"{r['id']:<20} {r['harness']:<7} {'logged in' if r['logged_in'] else r['why']}")
+
+
+def cmd_remove(args):
+    yes = flag(args, '--yes')
+    h, n = harness_name(args, 'account remove <claude|codex> <name> --yes')
+    d = acc.account_dir(h, n)
+    if not d.is_dir() or d.is_symlink():
+        die(f'no account {h}:{n}')
+    agents = [None, *kith_settings.read()[0].get('agents', {})]
+    used = any(f'{h}:{n}' in kith_settings.backups(a)[0] for a in agents)
+    note = f' It is in a backup chain; take it out with kith backup remove {h}:{n}.' if used else ''
+    if not yes:
+        die(f'this deletes {d} and the {h} login kept in it (nothing else).{note} Run again with --yes.', 2)
+    shutil.rmtree(d)
+    print(f'removed {d}.{note}')
+    if h == 'claude':
+        print('Claude Code may keep a Keychain item for it; `CLAUDE_CONFIG_DIR=<dir> claude auth logout` before removing drops that too.')
+
+
+def target(args):
+    agent = option(args, '--agent')
+    ids, where = kith_settings.backups(agent)
+    return agent, ids, where
+
+
+def _fix(entry, agent):
+    try:
+        return acc.fix(entry, agent)
+    except ValueError:
+        return None
+
+
+def cmd_backup_write(sub, args):
+    agent = option(args, '--agent')
+    if sub == 'reset':
+        if not agent or args:
+            die('backup reset --agent A', 2)
+        kith_settings.clear_backups(agent)
+        print(f'{agent} follows the global backups')
+        return
+    try:
+        for i in args:
+            acc.parse(i)
+    except ValueError as e:
+        die(str(e), 2)
+    ids = list(dict.fromkeys(args))
+    kith_settings.set_backups(agent, ids)
+    print(f"backups for {agent or 'every agent'}: {', '.join(ids) or 'none'}")
+
+
+def cmd_backup(args):
+    if not args or args[0] not in ('list', 'add', 'remove', 'set', 'reset'):
+        die('backup list|add|remove|set|reset (kith account --help)', 2)
+    sub, args = args[0], args[1:]
+    as_json = flag(args, '--json')
+    if sub == 'list':
+        agent, ids, where = target(args)
+        rows = []
+        for i in ids:
+            try:
+                ready, why = acc.check(i, agent)
+            except ValueError as e:
+                ready, why = False, str(e)
+            fix = None if ready else _fix(i, agent)
+            rows.append({'id': i, 'ready': ready, **({} if ready else {'why': why}), **({'fix': fix} if fix else {})})
+        if as_json:
+            print(json.dumps({'agent': agent, 'source': where, 'backups': rows}))
+        else:
+            print(f"backups for {agent or 'every agent'} ({'its own list' if where == 'agent' else 'the global list'}):" if rows else
+                  f"no backups for {agent or 'any agent'} (kith backup add <id>)")
+            for n, r in enumerate(rows, 1):
+                print(f"  {n}. {r['id']:<22} {'ready' if r['ready'] else 'not ready: ' + r['why']}")
+        return
+    if sub in ('set', 'reset'):
+        return cmd_backup_write(sub, args)
+    at = option(args, '--at')
+    agent, ids, where = target(args)
+    if len(args) != 1:
+        die(f'backup {sub} <id> [--agent A]' + (' [--at N]' if sub == 'add' else ''), 2)
+    entry = args[0]
+    try:
+        acc.parse(entry)
+        position = int(at) if at is not None else None
+        if position is not None and position < 1:
+            raise ValueError('--at counts from 1')
+    except ValueError as e:
+        die(str(e), 2)
+    scope = f'for {agent}' if agent else 'for every agent'
+    if sub == 'add':
+        if entry in ids and position is None:
+            print(f'{entry} is already in the backups {scope} (--at N moves it)')
+            return
+        new = [i for i in ids if i != entry]
+        new.insert(min(position - 1, len(new)) if position else len(new), entry)
+        kith_settings.set_backups(agent, new)
+        print(f"{entry} is backup {new.index(entry) + 1} {scope}")
+        ready, why = acc.check(entry, agent)
+        if not ready:
+            f = acc.fix(entry, agent)
+            print(f"note: not ready yet ({why})" + (f"; to make it ready: {f}" if f else ''), file=sys.stderr)
+        if acc.parse(entry)[0] == 'claude' and acc.parse(entry)[1]:
+            print('note: extra Claude subscription accounts are used at your own risk; see the warning in kith account add claude.',
+                  file=sys.stderr)
+    else:
+        if entry not in ids:
+            print(f'{entry} is not in the backups {scope}')
+            return
+        kith_settings.set_backups(agent, [i for i in ids if i != entry])
+        print(f'removed {entry} {scope}')
+
+
+def main(argv):
+    if not argv or argv[0] in ('-h', '--help'):
+        print(__doc__.strip())
+        return
+    cmd, rest = argv[0], argv[1:]
+    try:
+        {'add': cmd_add, 'list': cmd_list, 'ls': cmd_list, 'remove': cmd_remove, 'rm': cmd_remove, 'backup': cmd_backup}.get(
+            cmd, lambda _: die(f'unknown command: {cmd} (kith account --help)', 2))(rest)
+    except ValueError as e:   # settings the file can't be written back to
+        die(str(e))
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

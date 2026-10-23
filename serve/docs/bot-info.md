@@ -71,3 +71,28 @@ fails, `hits` is empty and `error` says why. Same 400 for an unknown or non-kith
 Each hit gets `"openable": bool`, added by the host: true only when `kithMemoryFile` would accept the hit's `path`.
 Hits in the memory folder have relative paths. Learned-skill and shared-file hits keep the absolute path kith gives
 and are `openable: false`; show them without a link to open.
+
+## Memory files and dreams (a kith agent's bot)
+
+The files are the truth: `agents/<name>/memory/**` and the shared user layer (`user.md`, `people/`, `projects/` in the
+state folder). Every call below takes `botId` (same 400 for an unknown or non-kith bot, or one whose agent is gone) and,
+for a file, `shared` (bool: the user layer; default false: the agent's own `memory/`) and `name` (the path inside that
+layer, `MEMORY.md`, `people/mum.md`; anything that isn't a Markdown memory file is a 400).
+
+| Method | Arguments | Answer |
+| --- | --- | --- |
+| `kithMemoryList` | | `{ agent: [file], shared: [file] }`, `file` = `{ name, shared, path, size, modified }` |
+| `kithMemoryRead` | `shared`, `name` | `{ name, shared, text, bytes, modified, truncated?, exists }`; a file not made yet is `text: ""`, `exists: false`; at most 512 KB |
+| `kithMemorySave` | `shared`, `name`, `text` | `{ version, warnings }`: Kai's save, never refused (a size cap or a big drop only warns); `version` is `null` when nothing changed |
+| `kithMemoryHistory` | `shared`, `name`, `limit?` (50, max 500) | `{ name, shared, versions: [version] }`, newest first |
+| `kithMemoryDiff` | `shared`, `name`, `from?`, `to?` (version ids) | `{ from, to, diff }`; by default the version before the newest to the newest; `diff` has `- `/`+ ` lines, `  ` context, `…` gaps |
+| `kithMemoryRestore` | `shared`, `name`, `version` | `{ version, warnings }`: the file becomes that version's content, as a new version (cause `restore`) |
+| `kithMemoryDreams` | `limit?` (20, max 100) | `{ dreams: [dream] }`, newest first |
+| `kithMemoryUndoDream` | `id` | `{ restored: [label], refused: [{ file, reason }], undone }` |
+
+`version` = `{ id, at, author: "kai"|"agent"|"dream"|"unknown", authorBot, cause: "edit"|"delete"|"restore"|"undo"|"dream"|"baseline", deleted, bytes, lines }`;
+`unknown` is a change made outside the hook (an editor, a shell). `dream` = `{ id, at, undone, files: [{ name, shared, version }], changes: [{ kind, file, shared, text, was }] }`;
+`kind` is `added`, `archived`, `reviewed` (`text` the new line, `was` the old), `noted` (a line appended to a note) or `indexed` (the MEMORY.md line naming a note).
+`kithMemoryUndoDream` puts every file the run wrote back to what it was before; a file that changed after the run (the
+agent, Kai or a later dream) is left alone and named in `refused` with the reason, and the run stays not undone until its
+files are all back. HTTP 400 when it can restore nothing. Calls that change a file also emit the bot, so a page refetches.

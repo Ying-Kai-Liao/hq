@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+# kith-backup-check — the backup chain: settings (global, per-agent override), `kith backup|account`, `kith <agent> --backups-json`
+# and `--launch-json --backup`, and the cost ledger's provider/account columns. Fake `claude` and `codex` on PATH, a throwaway
+# HOME and KITH_HOME: the real ~/.kith, Keychain and logins are never touched and no real login is run.
+#
+#   kernel/tests/kith-backup-check     a few seconds; prints each check, exits 1 when one fails
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-backup-check.XXXXXX")
+T=$(cd "$T" && pwd -P)
+trap 'rm -rf "$T"' EXIT
+export HOME=$T/home KITH_HOME=$T/kith KITH_AUTH=$T/auth.json
+unset KITH_STATE HQ_STATE KITH_PROJECT KITH_PERSON KITH_AGENT KITH_CLAUDE_ARGS KITH_HARNESS KITH_PERMISSION_MODE CLAUDE_CONFIG_DIR CODEX_HOME HQ_HOME
+mkdir -p "$HOME" "$KITH_HOME/state" "$KITH_HOME/agents/echo/role" "$T/bin"
+M=$KITH_HOME/state   # this Mac's machine folder (KITH_MACHINE)
+export KITH_STATE=$M
+printf -- '---\nname: echo\ndescription: test agent\nmodel: sonnet\n---\nYou echo.\n' > "$KITH_HOME/agents/echo/role/agent.md"
+
+# Fake claude: logged in when its config dir (or ~/.claude) holds a .fake-login file. Fake codex: the same for CODEX_HOME (or ~/.codex).
+cat > "$T/bin/claude" <<'EOF'
+#!/bin/sh
+case "$1 $2" in
+  "plugin list") echo '[]' ;;
+  "auth status") [ -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.fake-login" ] && { echo '{"loggedIn":true}'; exit 0; }; echo '{"loggedIn":false}'; exit 1 ;;
+  "auth login") mkdir -p "$CLAUDE_CONFIG_DIR" && touch "$CLAUDE_CONFIG_DIR/.fake-login"; echo "fake claude login in $CLAUDE_CONFIG_DIR" ;;
+esac
+EOF
+cat > "$T/bin/codex" <<'EOF'
+#!/bin/sh
+case "$1 $2" in
+  "login status") [ -f "${CODEX_HOME:-$HOME/.codex}/.fake-login" ] && exit 0; echo "Not logged in"; exit 1 ;;
+  "login --device-auth") mkdir -p "$CODEX_HOME" && touch "$CODEX_HOME/.fake-login"; echo "fake codex login in $CODEX_HOME" ;;
+esac
+EOF
+chmod +x "$T/bin/claude" "$T/bin/codex"
+export PATH=$T/bin:$PATH
+
+KITH=$KERNEL/bin/kith
+fails=0
+check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; fails=$((fails + 1)); fi; }
+# is EXPR EXPECTED: the python expression EXPR over the JSON in $OUT (as d) prints EXPECTED.
+is() { [ "$(EXPR=$1 OUT=$OUT python3 -c 'import json,os; d=json.loads(os.environ["OUT"]); print(eval(os.environ["EXPR"]))')" = "$2" ]; }
+SET=$M/settings.json
+st() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(eval(sys.argv[2]))' "$SET" "$1"; }
+
+# --- no settings: nothing changes ------------------------------------------------------------------------------------
+OUT=$("$KITH" echo --backups-json 2>&1)
+check "no settings: the chain is just the primary" "is \"[(c['id'], c['kind'], c['ready']) for c in d['chain']]\" \"[('claude', 'primary', True)]\""
+check "backups-json carries version and agent" "is \"(d['version'], d['agent'])\" \"(1, 'echo')\""
+OUT=$("$KITH" backup list --json); check "backup list --json: empty by default" "is \"(d['source'], d['backups'])\" \"('global', [])\""
+OUT=$("$KITH" echo --launch-json 2>/dev/null)
+check "plain launch-json: backup null, provider claude, no account" "is \"(d['backup'], d['provider'], d['account'], d['harness'], d['env']['KITH_PROVIDER'], d['env']['KITH_ACCOUNT'])\" \"(None, 'claude', None, 'claude', 'claude', '')\""
+check "plain launch-json: no apiKeyHelper, no config dir in env" "is \"('apiKeyHelper' not in d['settings'], 'CLAUDE_CONFIG_DIR' in d['env'])\" '(True, False)'"
+
+# --- id validation ----------------------------------------------------------------------------------------------------
+for bad in "Claude:x" "claude:" "claude:../x" "claude-api" "a b" ":x"; do
+  "$KITH" backup add "$bad" >/dev/null 2>&1; rc=$?
+  check "backup add refuses '$bad'" "[ $rc != 0 ] && [ ! -e '$SET' ]"
+done
+
+# --- accounts ---------------------------------------------------------------------------------------------------------
+"$KITH" account add claude work </dev/null >/dev/null 2>&1; rc=$?
+check "account add claude without a y does not continue" "[ $rc != 0 ] && [ ! -e $M/accounts/claude/work ]"
+OUT=$("$KITH" account add claude work --yes 2>&1); rc=$?
+check "account add claude --yes prints the policy warning" "[ $rc = 0 ] && echo \"\$OUT\" | grep -q 'usage policy' && echo \"\$OUT\" | grep -q 'suspended' && echo \"\$OUT\" | grep -q 'claude-api'"
+check "account dir is private and holds the (fake) login" "[ \$(stat -f %Lp $M/accounts/claude/work 2>/dev/null || stat -c %a $M/accounts/claude/work) = 700 ] && [ -f $M/accounts/claude/work/.fake-login ]"
+printf 'keep\n' > "$M/accounts/claude/work/notes"
+OUT=$("$KITH" account add claude work --yes 2>&1)
+check "account add again re-logs in without wiping the dir" "[ -f $M/accounts/claude/work/notes ] && ! echo \"\$OUT\" | grep -q 'usage policy'"
+printf 'y\n' | "$KITH" account add claude second >/dev/null 2>&1; rc=$?
+check "a typed y continues" "[ $rc = 0 ] && [ -d $M/accounts/claude/second ]"
+OUT=$("$KITH" account add codex deep 2>&1)
+check "account add codex: short note, no policy warning, CODEX_HOME login" "echo \"\$OUT\" | grep -q 'fake codex login' && ! echo \"\$OUT\" | grep -qi 'usage policy' && [ -f $M/accounts/codex/deep/.fake-login ]"
+rm "$M/accounts/claude/second/.fake-login"
+OUT=$("$KITH" account list --json)
+check "account list --json: harness and login state" "is \"sorted((a['id'], a['logged_in']) for a in d)\" \"[('claude:second', False), ('claude:work', True), ('codex:deep', True)]\""
+"$KITH" account remove claude second >/dev/null 2>&1; rc=$?
+check "account remove refuses without --yes and deletes nothing" "[ $rc != 0 ] && [ -d $M/accounts/claude/second ]"
+OUT=$("$KITH" account remove claude second 2>&1)
+check "account remove says what it would delete" "echo \"\$OUT\" | grep -q 'deletes $M/accounts/claude/second'"
+"$KITH" account remove claude second --yes >/dev/null 2>&1
+check "account remove --yes deletes it" "[ ! -e $M/accounts/claude/second ]"
+
+# --- backup list / add / remove ---------------------------------------------------------------------------------------
+printf '{"permission_mode":"plan","agents":{"echo":{"permission_mode":"auto"}},"plugins":["x@y"]}\n' > "$SET"
+"$KITH" backup add claude:work >/dev/null 2>&1; "$KITH" backup add codex >/dev/null 2>&1
+check "backup add writes the global list and keeps other keys" "[ \"\$(st \"d['backups']\")\" = \"['claude:work', 'codex']\" ] && [ \"\$(st \"d['permission_mode'], d['plugins'], d['agents']['echo']['permission_mode']\")\" = \"('plan', ['x@y'], 'auto')\" ]"
+OUT=$("$KITH" backup add claude:work 2>&1)
+check "adding an id already there is a no-op with a message" "echo \"\$OUT\" | grep -q 'already' && [ \"\$(st \"d['backups']\")\" = \"['claude:work', 'codex']\" ]"
+"$KITH" backup add codex --at 1 >/dev/null 2>&1
+check "--at moves an entry that is already there" "[ \"\$(st \"d['backups']\")\" = \"['codex', 'claude:work']\" ]"
+OUT=$("$KITH" backup add codex:later 2>&1)
+check "adding an entry that isn't ready warns and prints the command" "echo \"\$OUT\" | grep -q 'kith account add codex later' && [ \"\$(st \"d['backups'][-1]\")\" = codex:later ]"
+OUT=$("$KITH" backup add claude-api:main 2>&1)
+check "claude-api warning names the two kith auth commands" "echo \"\$OUT\" | grep -q 'kith auth set anthropic/main ANTHROPIC_API_KEY' && echo \"\$OUT\" | grep -q 'kith auth grant'"
+"$KITH" backup remove claude-api:main >/dev/null 2>&1; "$KITH" backup remove codex:later >/dev/null 2>&1
+check "backup remove" "[ \"\$(st \"d['backups']\")\" = \"['codex', 'claude:work']\" ]"
+OUT=$("$KITH" backup list --json)
+check "backup list --json: readiness per entry" "is \"[(b['id'], b['ready']) for b in d['backups']]\" \"[('codex', False), ('claude:work', True)]\""
+
+# --- per-agent override -----------------------------------------------------------------------------------------------
+OUT=$("$KITH" backup list --agent echo --json); check "an agent without an override uses the global list" "is \"(d['source'], [b['id'] for b in d['backups']])\" \"('global', ['codex', 'claude:work'])\""
+"$KITH" backup remove codex --agent echo >/dev/null 2>&1
+check "removing for one agent writes its override and leaves the global list" "[ \"\$(st \"d['agents']['echo']['backups']\")\" = \"['claude:work']\" ] && [ \"\$(st \"d['backups']\")\" = \"['codex', 'claude:work']\" ] && [ \"\$(st \"d['agents']['echo']['permission_mode']\")\" = auto ]"
+OUT=$("$KITH" echo --backups-json); check "backups-json follows the agent's override" "is \"[c['id'] for c in d['chain']]\" \"['claude', 'claude:work']\""
+"$KITH" backup remove claude:work --agent echo >/dev/null 2>&1
+check "an explicit [] means no backups for the agent" "[ \"\$(st \"d['agents']['echo']['backups']\")\" = '[]' ]"
+OUT=$("$KITH" echo --backups-json); check "backups-json: explicit [] beats the global list" "is \"[c['id'] for c in d['chain']]\" \"['claude']\""
+OUT=$("$KITH" backup list --agent echo --json); check "backup list --agent: source agent, empty" "is \"(d['source'], d['backups'])\" \"('agent', [])\""
+# set replaces the whole list in one write (de-duplicated); reset drops the agent's own list; list says how to fix a not-ready entry
+"$KITH" account backup set codex claude:work codex --agent echo >/dev/null 2>&1
+check "backup set writes the agent's list whole, without repeats" "[ \"\$(st \"d['agents']['echo']['backups']\")\" = \"['codex', 'claude:work']\" ]"
+"$KITH" account backup set 'Bad id' >/dev/null 2>&1; rc=$?
+check "backup set refuses a bad id and changes nothing" "[ $rc != 0 ] && [ \"\$(st \"d['agents']['echo']['backups']\")\" = \"['codex', 'claude:work']\" ]"
+"$KITH" account backup set --agent echo >/dev/null 2>&1
+check "backup set with no ids is an explicit empty list" "[ \"\$(st \"d['agents']['echo']['backups']\")\" = '[]' ]"
+"$KITH" account backup reset --agent echo >/dev/null 2>&1
+check "backup reset drops the override and keeps the rest" "[ \"\$(st \"'backups' in d['agents']['echo']\")\" = False ] && [ \"\$(st \"d['agents']['echo']['permission_mode']\")\" = auto ]"
+"$KITH" account backup reset >/dev/null 2>&1; rc=$?; check "backup reset needs --agent" "[ $rc != 0 ]"
+"$KITH" account backup set codex:later >/dev/null 2>&1; OUT=$("$KITH" backup list --json)
+check "backup list --json: a not-ready entry carries the command that fixes it" "is \"[(b['id'], b.get('fix')) for b in d['backups']]\" \"[('codex:later', 'kith account add codex later')]\""
+printf '{"backups":["claude:work"],"agents":{"echo":{"backups":["codex"]},"other":{}}}\n' > "$SET"
+OUT=$("$KITH" echo --backups-json)
+check "an agent's own list replaces the global one" "is \"[c['id'] for c in d['chain']]\" \"['claude', 'codex']\""
+check "settings reader: absent override falls back, agent override wins" "python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import kith_settings as k; assert [k.backups(\"other\"), k.backups(\"echo\"), k.backups()] == [([\"claude:work\"], \"global\"), ([\"codex\"], \"agent\"), ([\"claude:work\"], \"global\")]' '$KERNEL/lib'"
+
+# --- backups-json readiness with the fake binaries --------------------------------------------------------------------
+printf '{"backups":["claude:work","claude:nobody","codex","codex:deep","claude-api:main","pi"]}\n' > "$SET"
+OUT=$("$KITH" echo --backups-json)
+check "readiness per entry" "is \"[(c['id'], c['kind'], c['ready']) for c in d['chain']]\" \"[('claude', 'primary', True), ('claude:work', 'subscription', True), ('claude:nobody', 'subscription', False), ('codex', 'subscription', False), ('codex:deep', 'subscription', True), ('claude-api:main', 'api-key', False), ('pi', 'subscription', False)]\""
+check "not ready entries say why; harness and account fields" "is \"(d['chain'][3]['why'], d['chain'][2]['why'], d['chain'][1]['account'], d['chain'][5]['harness'], d['chain'][5]['account'], d['chain'][3]['account'])\" \"('not logged in', 'no account nobody', 'work', 'claude', 'main', None)\""
+mkdir -p "$HOME/.codex" && touch "$HOME/.codex/.fake-login"
+OUT=$("$KITH" echo --backups-json); check "ambient codex becomes ready once logged in" "is \"d['chain'][3]['ready']\" True"
+KEEP=$PATH; export PATH=$(echo "$PATH" | sed "s|$T/bin:||")
+OUT=$(env PATH="/usr/bin:/bin" "$KITH" echo --backups-json 2>/dev/null); export PATH=$KEEP
+check "claude/codex not installed: not ready, says so" "is \"(d['chain'][1]['ready'], 'not installed' in d['chain'][1]['why'])\" \"(False, True)\""
+
+# --- launch-json per entry --------------------------------------------------------------------------------------------
+OUT=$("$KITH" echo --launch-json --backup claude:work 2>/dev/null); rc=$?
+check "claude:<name>: harness claude, CLAUDE_CONFIG_DIR set, provider and account" "[ $rc = 0 ] && is \"(d['harness'], d['backup'], d['provider'], d['account'], d['env']['CLAUDE_CONFIG_DIR'], d['env']['KITH_PROVIDER'], d['env']['KITH_ACCOUNT'])\" \"('claude', 'claude:work', 'claude', 'work', '$M/accounts/claude/work', 'claude', 'work')\""
+check "claude:<name>: same shape (settings, claude_args, model kept) and the cost hook is in settings" "is \"(d['model'], isinstance(d['claude_args'], list), 'kith-cost' in str(d['settings']['hooks']['SessionStart']))\" \"('sonnet', True, True)\""
+"$KITH" echo --launch-json --backup claude:nobody >/dev/null 2>"$T/err"; rc=$?
+check "an account that doesn't exist: exit 4, one line" "[ $rc = 4 ] && [ \$(wc -l < $T/err) = 1 ]"
+"$KITH" echo --launch-json --backup pi >/dev/null 2>"$T/err"; rc=$?
+check "an unsupported harness: exit 4" "[ $rc = 4 ]"
+"$KITH" echo --launch-json --backup 'bad id' >/dev/null 2>"$T/err"; rc=$?
+check "an unknown id: exit 4" "[ $rc = 4 ]"
+rm "$M/accounts/claude/work/.fake-login"
+"$KITH" echo --launch-json --backup claude:work >/dev/null 2>"$T/err"; rc=$?
+check "logged out: exit 4 with the command that fixes it" "[ $rc = 4 ] && grep -q 'kith account add claude work' $T/err"
+touch "$M/accounts/claude/work/.fake-login"
+
+OUT=$("$KITH" echo --launch-json --backup codex 2>/dev/null); rc=$?
+check "codex: harness codex, model null, settings and claude_args null" "[ $rc = 0 ] && is \"(d['harness'], d['model'], d['settings'], d['claude_args'], d['provider'], d['account'], d['backup'])\" \"('codex', None, None, None, 'codex', None, 'codex')\""
+check "codex: prompt, dirs, cwd, mcp servers and permission mode are there" "is \"('You echo.' in d['system_prompt'], len(d['add_dirs']) > 0, bool(d['cwd']), isinstance(d['mcp_servers'], dict), d['permission_mode'] is not None, 'CODEX_HOME' in d['env'])\" '(True, True, True, True, True, False)'"
+OUT=$("$KITH" echo --launch-json --backup codex:deep 2>/dev/null)
+check "codex:<name>: CODEX_HOME set" "is \"(d['env']['CODEX_HOME'], d['account'])\" \"('$M/accounts/codex/deep', 'deep')\""
+OUT=$("$KITH" echo --launch-json -H codex 2>/dev/null); rc=$?
+check "launch-json for an agent that runs on codex no longer refuses" "[ $rc = 0 ] && is \"(d['harness'], d['backup'])\" \"('codex', None)\""
+"$KITH" echo --launch-json -H pi >/dev/null 2>&1; rc=$?
+check "other harnesses are still refused" "[ $rc = 1 ]"
+
+# claude-api: the key never shows; the helper does
+"$KERNEL/bin/kith-auth" grant echo anthropic anthropic/main >/dev/null 2>&1
+OUT=$("$KITH" echo --backups-json); check "claude-api ready once kith-auth grants the profile" "is \"d['chain'][5]['ready']\" True"
+SECRET=sk-ant-SECRETVALUE-0123
+OUT=$(ANTHROPIC_API_KEY=$SECRET "$KITH" echo --launch-json --backup claude-api:main 2>"$T/err"); rc=$?
+check "claude-api: harness claude, apiKeyHelper wraps kith-auth get" "[ $rc = 0 ] && is \"(d['harness'], d['account'], d['provider'], 'kith-auth' in d['settings']['apiKeyHelper'], 'anthropic/main' in d['settings']['apiKeyHelper'], 'CLAUDE_CONFIG_DIR' in d['env'])\" \"('claude', 'main', 'claude', True, True, False)\""
+check "claude-api: the key is nowhere in the output" "! echo \"\$OUT\" | grep -q SECRETVALUE && ! grep -q SECRETVALUE $T/err"
+"$KITH" backup remove claude-api:main >/dev/null 2>&1
+"$KERNEL/bin/kith-auth" revoke echo anthropic >/dev/null 2>&1
+"$KITH" echo --launch-json --backup claude-api:main >/dev/null 2>"$T/err"; rc=$?
+check "claude-api without a grant: exit 4 with the kith auth commands" "[ $rc = 4 ] && grep -q 'kith auth set anthropic/main' $T/err"
+
+# non-owner runs: codex refused with 4; claude:<name> allowed
+"$KERNEL/bin/kith-auth" person guest name=Guest >/dev/null 2>&1
+"$KERNEL/bin/kith-auth" member echo guest mode=default >/dev/null 2>&1
+KITH_PERSON=guest "$KITH" echo --launch-json --backup codex >/dev/null 2>"$T/err"; rc=$?
+check "a person's run: a codex backup is refused with exit 4" "[ $rc = 4 ]"
+OUT=$(KITH_PERSON=guest "$KITH" echo --launch-json --backup claude:work 2>/dev/null); rc=$?
+check "a person's run: claude:<name> is fine" "[ $rc = 0 ] && is \"d['env']['CLAUDE_CONFIG_DIR']\" '$M/accounts/claude/work'"
+
+# --- cost ledger ------------------------------------------------------------------------------------------------------
+python3 - "$M/cost.db" <<'EOF'
+import sqlite3, sys
+c = sqlite3.connect(sys.argv[1])
+c.executescript('''create table runs (session text primary key, agent text, version text, model text, effort text,
+  via text, project text, started text, person text);
+  insert into runs values ('old1','echo','v1','sonnet',null,'terminal',null,'2026-10-01T00:00:00',null);''')
+c.commit()
+EOF
+printf '{"session_id":"s1"}' | KITH_AGENT=echo KITH_PROVIDER=claude KITH_ACCOUNT=work KITH_STATE=$M "$KERNEL/bin/kith-cost" tag
+printf '{"session_id":"s2"}' | KITH_AGENT=echo KITH_STATE=$M "$KERNEL/bin/kith-cost" tag
+printf '{"id":"r1","session":"s3","model":"codex","input":1,"output":1}' | KITH_AGENT=echo KITH_PROVIDER=codex KITH_ACCOUNT=deep KITH_STATE=$M "$KERNEL/bin/kith-cost" record
+rows=$(python3 -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(sorted(c.execute("select session, provider, account from runs")))' "$M/cost.db")
+check "old DB gets the columns; old rows stay null; new rows carry provider/account (tag and record)" "[ \"\$rows\" = \"[('old1', None, None), ('s1', 'claude', 'work'), ('s2', None, None), ('s3', 'codex', 'deep')]\" ]"
+
+echo
+if [ $fails = 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi

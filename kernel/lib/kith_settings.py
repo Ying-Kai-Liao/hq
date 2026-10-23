@@ -17,6 +17,12 @@ unattended Mac may do is decided per Mac. Without the file, or for a key it leav
                     MODE}}. An agent's defaultMode is its author's suggestion; the mode chosen here (kith install asks)
                     wins over it, and only the caller's wins over this; {"live_at_login": true} for a live agent
                     (session: live) whose session starts when you log in to this Mac (kith live login)
+  backups           the backup chain kith serve tries when the agent's own harness runs out of usage: entry ids in
+                    order ("claude:work", "claude-api:main", "codex"; see lib/kith_accounts.py). Empty by default.
+                    agents.<agent>.backups replaces it for that agent; an explicit [] means no backups for it
+                    (kith backup list|add|remove edits both)
+
+  kith_settings.py backups [AGENT]   the chain that applies, one id per line
 """
 import json, os, sys
 
@@ -24,7 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from kith_paths import paths  # noqa: E402  the one place that knows where kith's folders are
 
 FILE = paths()['KITH_MACHINE'] / 'settings.json'
-DEFAULTS = {'permission_mode': 'auto', 'plugins': []}
+DEFAULTS = {'permission_mode': 'auto', 'plugins': [], 'backups': []}
 CHOICES = {'permission_mode': ('default', 'manual', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions')}
 
 
@@ -45,6 +51,9 @@ def read():
     if not isinstance(plugins, list) or not all(isinstance(p, str) for p in plugins):
         return {}, f'{FILE}: plugins is not a list of plugin ids'
     for where, d in [('', s)] + [(f'agents.{n}.', a) for n, a in agents.items()]:
+        b = d.get('backups', [])
+        if not isinstance(b, list) or not all(isinstance(i, str) for i in b):
+            return {}, f'{FILE}: {where}backups is not a list of entry ids'
         for k, v in d.items():
             if k in CHOICES and v not in CHOICES[k]:
                 return {}, f'{FILE}: {where}{k} {v!r} is not one of {", ".join(CHOICES[k])}'
@@ -66,12 +75,54 @@ def choose(agent, key, value):
     if key in CHOICES and value not in CHOICES[key]:
         raise ValueError(f'{key} {value!r} is not one of {", ".join(CHOICES[key])}')
     s.setdefault('agents', {}).setdefault(agent, {})[key] = value
+    write(s)
+
+
+def write(s):
+    """The whole file, atomically (a reader never sees half of it)."""
     FILE.parent.mkdir(parents=True, exist_ok=True)
-    FILE.write_text(json.dumps(s, indent=2) + '\n')
+    tmp = FILE.with_name(FILE.name + '.tmp')
+    tmp.write_text(json.dumps(s, indent=2) + '\n')
+    os.replace(tmp, FILE)
+
+
+def backups(agent=None):
+    """(ids, where): the chain that applies to the agent, and whether it is the agent's own ('agent', even when []) or 'global'."""
+    s = read()[0]
+    own = s.get('agents', {}).get(agent, {}) if agent else {}
+    if 'backups' in own:
+        return list(own['backups']), 'agent'
+    return list(s.get('backups', [])), 'global'
+
+
+def set_backups(agent, ids):
+    """Record the chain: one agent's override, or with agent None the global one. Keeps the rest of the file."""
+    s, why = read()
+    if why:
+        raise ValueError(why)
+    if agent:
+        s.setdefault('agents', {}).setdefault(agent, {})['backups'] = list(ids)
+    else:
+        s['backups'] = list(ids)
+    write(s)
+
+
+def clear_backups(agent):
+    """Drop one agent's own chain, so it follows the global one again. Keeps the rest of the file."""
+    s, why = read()
+    if why:
+        raise ValueError(why)
+    own = s.get('agents', {}).get(agent)
+    if own is not None and 'backups' in own:
+        del own['backups']
+        write(s)
 
 
 if __name__ == '__main__':
     if len(sys.argv) not in (2, 3) or sys.argv[1] not in DEFAULTS:
         sys.exit(__doc__.strip())
+    if sys.argv[1] == 'backups':
+        print('\n'.join(backups(*sys.argv[2:])[0]))
+        sys.exit(0)
     v = get(*sys.argv[1:])
     print('\n'.join(v) if isinstance(v, list) else v)

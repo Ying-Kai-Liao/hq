@@ -1,13 +1,12 @@
 import { useRef, useState } from 'react'
 import type { IslandBot, IslandPermission } from '@shared/island'
-import { CharacterAvatar } from '../../components/Avatar'
 import { Button, Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { ThinkingOrb } from '../../components/ThinkingOrb'
 import { avatarColor, withAlpha } from '../../lib/theme'
 import type { IslandModel } from './island-model'
 import { useArrivals, useFlip, useSwap } from './island-motion'
-import { AgentRow, AMBER, badgeOf, BigCharacter, GREEN, KeyHint, MiniColumn, moodOf, RED, StateBadge, StatusDot, stepIcon } from './island-parts'
+import { AgentRow, AMBER, badgeOf, BigCharacter, GREEN, IslandBotAvatar, KeyHint, MiniColumn, moodOf, RED, StateBadge, StatusDot, stepIcon } from './island-parts'
 
 const veil = (color: string, alpha: number) => `radial-gradient(120% 90% at 50% 130%, ${withAlpha(color, alpha)}, ${withAlpha(color, 0)} 70%)`
 
@@ -29,7 +28,7 @@ export function Wings({ model, peek }: { model: IslandModel; peek: boolean }) {
       {model.screen.notch || peek ? null : <span className="island-wings-label">{label}</span>}
       <span className="island-wing-left">
         <span key={focus.ref} className={`island-wing-avatar ${swap}`}>
-          <CharacterAvatar shape={focus.shape} color={focus.color} size={peek ? 18 : 20} mood={moodOf(focus)} dark />
+          <IslandBotAvatar bot={focus} size={peek ? 18 : 20} />
           {peek ? null : <StateBadge badge={badgeOf(focus)} small />}
         </span>
       </span>
@@ -39,7 +38,7 @@ export function Wings({ model, peek }: { model: IslandModel; peek: boolean }) {
             <span ref={cluster} className="island-cluster">
               {others.map((b) => (
                 <span key={b.ref} data-flip={b.ref} className={`island-cluster-bot ${arrivals.has(b.ref) ? 'island-swap' : ''}`}>
-                  <CharacterAvatar shape={b.shape} color={b.color} size={11} mood={moodOf(b)} dark />
+                  <IslandBotAvatar bot={b} size={11} />
                   {b.status === 'needsInput' ? <StatusDot bot={b} /> : null}
                 </span>
               ))}
@@ -93,7 +92,7 @@ export function Overview({ model }: { model: IslandModel }) {
               title={b.detail}
             >
               <span className="island-pill-bot">
-                <CharacterAvatar shape={b.shape} color={b.color} size={24} mood={moodOf(b)} dark />
+                <IslandBotAvatar bot={b} size={24} />
                 <StatusDot bot={b} />
               </span>
               <span className="truncate">{b.name}</span>
@@ -190,7 +189,7 @@ export function Message({ model }: { model: IslandModel }) {
     <div className="island-with-minis">
       <div className="island-card island-message">
         <span key={bot.ref} className={`island-message-bot ${swap}`}>
-          <CharacterAvatar shape={bot.shape} color={bot.color} size={44} mood={moodOf(bot)} dark />
+          <IslandBotAvatar bot={bot} size={44} />
         </span>
         <div className="island-message-body">
           <div className="island-agent">
@@ -201,7 +200,7 @@ export function Message({ model }: { model: IslandModel }) {
               onClick={() => model.nextMessageBot()}
               title="Choose a bot"
             >
-              <CharacterAvatar shape={bot.shape} color={bot.color} size={18} mood={moodOf(bot)} dark />
+              <IslandBotAvatar bot={bot} size={18} />
               {bot.name}
               <Icon name="chevron.down" size={8} weight="bold" scaled={false} />
             </button>

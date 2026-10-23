@@ -1,10 +1,11 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { TraySummary } from '@shared/ipc'
 import { isGroup, isWorking, needsInput, folderName, type Bot, type UsageWindow } from '@shared/models'
-import { drawCharacter, moodOf } from '../components/Avatar'
+import { avatarImage, DEFAULT_IMAGE } from '@shared/crew'
+import { drawBotIcon, iconBody, onIconsLoaded } from '../components/living-bots-art'
 import { useModels } from '../lib/observable'
 import { prefs, usePref } from '../lib/prefs'
-import { avatarColor, isDark, palette } from '../lib/theme'
+import { isDark, palette } from '../lib/theme'
 import type { AppModel } from '../store/app-model'
 import { providerTint, resetDate, untilText, windowTitle } from './usage/usage-model'
 import { mascotDataURL } from './usage/ProviderMascot'
@@ -31,10 +32,14 @@ function canvasURL(key: string, width: number, height: number, draw: (ctx: Canva
 }
 
 function avatarIcon(bot: Bot) {
-  const key = `bot|${bot.id}|${bot.avatarShape}|${bot.avatarColor}|${bot.status}|${bot.unread > 0}`
+  const name = (avatarImage(bot) ?? DEFAULT_IMAGE).name
+  // The body loads once; until it has, the bot has no icon and the summary is sent again when it is ready.
+  const body = iconBody(name, bot.avatarColor)
+  if (!body) return null
+  const key = `bot|${name}|${bot.avatarColor}|${bot.status}|${bot.unread > 0}`
   return canvasURL(key, 20, 20, (ctx) => {
     const dark = isDark()
-    drawCharacter(ctx, { shape: bot.avatarShape, fill: avatarColor(bot.avatarColor), size: 20, mood: moodOf(bot, false), dark, t: 0, still: true })
+    drawBotIcon(ctx, name, body, 20)
     const badge = needsInput(bot) ? palette(dark).warning : bot.unread > 0 ? (dark ? '#FFFFFF' : '#000000') : null
     if (badge) {
       const r = needsInput(bot) ? 3.6 : 2.8
@@ -83,6 +88,8 @@ function usageLine(w: UsageWindow) {
 export function useTraySummary(app: AppModel) {
   const stores = [...app.stores.values()]
   useModels(stores)
+  const [, iconsLoaded] = useState(0)
+  useEffect(() => onIconsLoaded(() => iconsLoaded((n) => n + 1)), [])
   const [textSize] = usePref(prefs.textSize)
   const [iconStyle] = usePref(prefs.usageIconStyle)
   useEffect(() => {

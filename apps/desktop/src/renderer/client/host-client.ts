@@ -1,4 +1,5 @@
 import type { CallError } from '@shared/ipc'
+import { parseBackups, type Backups } from '@shared/backups'
 import { parseKithInfoResult, parseMemoryFile, parseSearchResult, type KithInfoResult, type KithMemoryFile, type KithSearchResult } from '@shared/kith-info'
 import type { PlaceFolder, PlaceSelection, ProjectInfo, RecentFolder, StartingFolder } from '@shared/place-folders'
 import {
@@ -171,6 +172,16 @@ export class HostClient {
   /** A Kith bot's details from `kith <agent> --info-json`; `refresh` runs kith now instead of taking the host's 30 s copy. A host before this call answers 404. */
   async kithInfo(botId: string, refresh = false): Promise<KithInfoResult> {
     return parseKithInfoResult(await this.call('kithInfo', { botId, ...(refresh ? { refresh: true } : {}) }, 60_000))
+  }
+
+  /** The backup chain: global order, per-agent orders and each entry's state. A host before this call answers 404. */
+  async backups(): Promise<Backups> {
+    return parseBackups(await this.call('backups', {}, 90_000))
+  }
+
+  /** Replaces a whole order: `agent` null is the global one; `chain` null drops the agent's own order. Answers like `backups`. */
+  async backupsSet(agent: string | null, chain: string[] | null): Promise<Backups> {
+    return parseBackups(await this.call('backupsSet', { agent, chain }, 90_000))
   }
 
   /** One file of the agent's memory folder (`path` relative to it); the host reads the first 512 KB. */

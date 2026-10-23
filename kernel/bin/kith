@@ -4,6 +4,8 @@
 #   kith init [--from <github-user>]   set kith up on this Mac, or bring yours back on a new one (kith-init)
 #   kith doctor                     check the install: links, repos, agents, services, plugin, background jobs
 #   kith backup [--yes|--check|--nightly [off]]   everything to private GitHub repos, making the missing ones; --check says what isn't; --nightly at 03:00 (kith-state)
+#   kith backup list|add|remove ...                      the backup chain kith serve moves to when the agent's own harness runs out of usage (kith-account)
+#   kith account add|list|remove ...                     extra Claude / Codex logins for that chain, one folder each (kith-account)
 #   kith ls [--json]                list agents (--json: name, description, home, model, effort, harness, for programs)
 #   kith who <words>                which agent owns this work: skills, tools, "Not yours" lines searched (kith-who)
 #   kith <agent> [-p ID] [-m MODEL] [-e EFFORT] [-H HARNESS] [--permission-mode MODE|--bypass] [task...]  interactive without a task, one-shot with one
@@ -13,7 +15,10 @@
 #                                 MCP servers, projects, schedules, cost and memory; read-only, local, each part fails soft (kith-info)
 #   kith <agent> --launch-json [--hold PID] [...]   for a program that starts the run itself (kith serve): one JSON object on stdout
 #                                 with everything the run needs (env, cwd, system_prompt, settings, MCP servers, directories,
-#                                 claude_args to give claude as-is). Claude only; ignores KITH_CLAUDE_ARGS/KITH_OUTPUT/KITH_RESUME.
+#                                 claude_args to give claude as-is). Claude and Codex (Codex: settings and claude_args null); ignores
+#                                 KITH_CLAUDE_ARGS/KITH_OUTPUT/KITH_RESUME. --backup ID launches that backup chain entry instead (exit 4 when it
+#                                 can't run); "backup", "provider" and "account" say which login the run is on.
+#   kith <agent> --backups-json     for a program: the agent's backup chain as one JSON object, each entry with whether it is ready
 #                                 Nothing in it points at a temp file. The pinned snapshot (KITH_AGENT_DIR) is kept while --hold's
 #                                 pid (default: the caller) lives; pass the long-lived process's pid. KITH_VIA=<name> tags the cost ledger.
 #   kith versions|pin|unpin|rollback <agent> [VERSION]   agent package versions (kith-pkg)
@@ -31,6 +36,7 @@
 #   kith live start|where|send <agent> ...               agents that run as one live session (session: live) (kith-live)
 #   kith remote add|ls|rm ...  ·  kith ask <agent>@<machine>   agents on your other machines, over ssh (kith-remote)
 #   kith memory search <words> [--agent NAME|--all]      search what the agents wrote down (kith-memory)
+#   kith memory check|log|diff|undo|forget ...           the write checks and versions of memory files (kith-memory)
 #   kith project [ls [--json]|open ID|root|add ID [dir] [--in P] [--home [DIR]]]  projects: what each holds, its folder, its memory
 #   kith schedule [ls|add|rm|run|log|--install ...]      run agent tasks on a cron schedule (kith-sched)
 #   kith acp <agent> [--keep team,…]                     the agent as an ACP agent, one session per chat (kith-acp)
@@ -62,7 +68,7 @@ set -euo pipefail
 src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
 KITH="$(cd "$(dirname "$src")/.." && pwd)"
 
-[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,38p' "$0" | sed 's/^#   //'; exit 0; }
+[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,43p' "$0" | sed 's/^#   //'; exit 0; }
 # migrate runs before the paths below are exported: it moves what they point at, and its children must see the new ones
 [[ $1 == migrate ]] && exec "$KITH/bin/kith-migrate" "${@:2}"
 . "$KITH/lib/kith-env.sh"   # KITH_X and the old HQ_X agree (role repos read HQ_X)
@@ -81,7 +87,9 @@ case $1 in
   live)               shift; exec "$KITH/bin/kith-live" "${@:---help}" ;;
   init)               shift; exec "$KITH/bin/kith-init" "$@" ;;
   doctor)             shift; exec "$KITH/bin/kith-doctor" "$@" ;;
-  backup)             shift; exec "$KITH/bin/hq-state" backup "$@" ;;
+  backup)             case ${2:-} in list|add|remove) shift; exec "$KITH/bin/kith-account" backup "$@" ;; esac
+                      shift; exec "$KITH/bin/hq-state" backup "$@" ;;
+  account)            shift; exec "$KITH/bin/kith-account" "${@:---help}" ;;
   new)                shift; exec "$KITH/bin/kith-new" "$@" ;;
   remote)             shift; exec "$KITH/bin/kith-remote" "${@:---help}" ;;
   memory)             shift; exec "$KITH/bin/kith-memory" "${@:---help}" ;;
@@ -127,6 +135,7 @@ agent=$1; shift
 [[ ${1:-} == --info-json ]] && exec "$KITH/bin/kith-info" "$agent"
 src_pkg=$(agent_dir "$agent")
 [[ -n $src_pkg ]] || { echo "kith: no agent '$agent' (try: kith ls, or kith install <github-link>)" >&2; exit 1; }
+[[ ${1:-} == --backups-json ]] && exec python3 "$KITH/lib/kith_accounts.py" backups-json "$agent" "$src_pkg/agent.md"
 if [[ $src_pkg == */role ]]; then home=${src_pkg%/role}; else home="$KITH_STATE/agents/$agent"; fi
 
 # Who the run is for: KITH_PERSON, set by the entry point (the bridge, a schedule) and inherited by every helper, so
@@ -212,12 +221,13 @@ sys.exit("kith: MCP servers not connected: %s" % bad if bad else 0)'
   exit $?
 fi
 
-print=0 project="" launch=0 hold=""
+print=0 project="" launch=0 hold="" backup="" acct="" backup_cfg_var="" backup_cfg_dir="" backup_api_helper=""
 while [[ $# -gt 0 ]]; do
   case $1 in
     --print)      print=1; shift ;;
     --launch-json) launch=1; shift ;;
     --hold)       hold=$2; shift 2 ;;
+    --backup)     backup=${2:?kith: --backup needs a chain entry id}; shift 2 ;;
     -p|--project) project=$2; shift 2 ;;
     -m|--model)   KITH_MODEL=$2; shift 2 ;;
     -e|--effort)  KITH_EFFORT=$2; shift 2 ;;
@@ -271,6 +281,17 @@ elif [[ $pkg == "$src_pkg" ]]; then runs=$(mktemp -d); else runs=$pkg/.runs; mkd
 field() { awk -v k="$1" 'NR==1 && /^---$/ {fm=1; next} fm && /^---$/ {exit} fm && $1 == k":" {sub(/^[^:]*:[ \t]*/, ""); print; exit}' "$pkg/agent.md" 2>/dev/null || true; }
 own=$(field harness); own=${own:-claude}; [[ $own == claude-code ]] && own=claude
 harness=${KITH_HARNESS:-$own}; [[ $harness == claude-code ]] && harness=claude
+# A backup chain entry (--launch-json --backup ID) replaces the harness and login; the agent's own stays the primary.
+if [[ -n $backup ]]; then
+  [[ $launch -eq 1 ]] || { echo "kith: --backup goes with --launch-json" >&2; exit 2; }
+  be=$(python3 "$KITH/lib/kith_accounts.py" launch-env "$agent" "$backup") || exit 4
+  eval "$be"
+  harness=$backup_harness acct=$backup_account
+  [[ -n $backup_cfg_var ]] && export "$backup_cfg_var=$backup_cfg_dir"
+  [[ $harness == "$own" ]] || KITH_MODEL=""   # agent.md's model names a model of its own harness
+fi
+# Which harness and login answer this run, for the cost ledger (kith-cost reads them from the hook and from `record`)
+export KITH_PROVIDER=$harness KITH_ACCOUNT=$acct
 # agent.md's model names a model of its own harness: on another one (-H), that harness's default unless -m says.
 [[ $harness == "$own" ]] && KITH_MODEL=${KITH_MODEL:-$(field model)}
 [[ -n $p_model ]] && KITH_MODEL=$p_model   # the person's membership picks the model over the agent's and the caller's
@@ -279,7 +300,7 @@ export KITH_MODEL=${KITH_MODEL:-} KITH_EFFORT=${KITH_EFFORT:-$(field effort)} KI
 out_format=${KITH_OUTPUT:-} resume=${KITH_RESUME:-} perm_mode=${KITH_PERMISSION_MODE:-}
 unset KITH_HARNESS KITH_OUTPUT KITH_RESUME KITH_PERMISSION_MODE HQ_HARNESS HQ_OUTPUT HQ_RESUME HQ_PERMISSION_MODE
 if [[ $launch -eq 1 ]]; then
-  [[ $harness == claude ]] || { echo "kith: $agent runs on $harness; --launch-json covers claude only for now" >&2; exit 1; }
+  case $harness in claude|codex) ;; *) echo "kith: $agent runs on $harness; --launch-json covers claude and codex only for now" >&2; exit $([[ -n $backup ]] && echo 4 || echo 1) ;; esac
   out_format="" resume=""; unset KITH_CLAUDE_ARGS HQ_CLAUDE_ARGS
   export KITH_VIA=${KITH_VIA:-terminal}
 fi
@@ -291,7 +312,7 @@ fi
 if [[ $p_owner == 0 ]]; then
   perm_mode=$p_mode
   [[ $harness == claude ]] \
-    || { echo "kith: $agent for ${KITH_PERSON}: runs for anyone but the owner need Claude Code (path rules), not $harness" >&2; exit 3; }
+    || { echo "kith: $agent for ${KITH_PERSON}: runs for anyone but the owner need Claude Code (path rules), not $harness" >&2; exit $([[ -n $backup ]] && echo 4 || echo 3); }
   # They see this agent's own life only: every other agent's folder and the owner's user.md are denied by path
   # (logical and resolved), on top of the narrower directories below.
   for d in "$KITH_AGENTS"/*/; do
@@ -331,15 +352,32 @@ state_projects="$KITH_STATE/projects"$'\n'"$KITH_STATE_REAL/projects"
 [[ $p_owner == 0 ]] && state_projects=${project:+"$KITH_STATE/projects/$project"$'\n'"$KITH_STATE_REAL/projects/$project"}
 if [[ $harness == claude ]]; then
 plugins=$(claude plugin list --json 2>/dev/null || echo '[]')
+# Memory checks: before a Write/Edit/MultiEdit of a memory file the host's `kith memory hook pre` runs kith-mem's
+# checks and blocks a refused write with the reason; after it, `post` records the version. Files that aren't memory
+# return at once. Without the kith binary (a kernel checkout never built) writes still go through, unchecked.
+mem_pre="" mem_post=""
+if mbin=$(python3 "$KITH/lib/kith_paths.py" --bin) && [[ -n $mbin ]]; then
+  mem_pre=$(printf '%q memory hook pre --agent %q --state %q --agents %q' "$mbin" "$agent" "$KITH_STATE" "$KITH_AGENTS")
+  mem_post=${mem_pre/ hook pre / hook post }
+  # Claude Code blocks a tool call on exit 2, which an older kith binary's usage error also exits with; the hook says
+  # "deny" in JSON instead, and any failure of its own lets the write through.
+  mem_pre+=" || true" mem_post+=" || true"
+else
+  echo "kith: no kith binary found, so memory writes by $agent are not checked or versioned (kith serve start builds it)" >&2
+fi
 [[ $p_owner == 1 ]] && writable="$home/memory"$'\n'"$home_real/memory" \
   || writable=$(printf '%s\n' "$mem" "$(real "$mem")" "$shared" "$(real "$shared")" "$files" "$(real "$files")")
-fill < "$pkg/settings.json" | DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode HOOK="\"$KITH/bin/kith-cost\" tag" WRITABLE="$writable
+fill < "$pkg/settings.json" | API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post HOOK="\"$KITH/bin/kith-cost\" tag" WRITABLE="$writable
 $src_pkg/skills/learned
 $state_projects" python3 -c '
 import json, os, sys
 s = json.load(sys.stdin)
 s.setdefault("hooks", {}).setdefault("SessionStart", []).append(
     {"hooks": [{"type": "command", "command": os.environ["HOOK"], "timeout": 10}]})
+for event, key in (("PreToolUse", "MEM_PRE"), ("PostToolUse", "MEM_POST")):
+    if os.environ[key]:
+        s["hooks"].setdefault(event, []).append(
+            {"matcher": "Write|Edit|MultiEdit", "hooks": [{"type": "command", "command": os.environ[key], "timeout": 10}]})
 sec = os.environ["KITH_SECRETS"]   # a folder of its own, or (the older layout) two files among the machine things
 files = ["%s/**" % sec] if sec != os.environ["KITH_MACHINE"] else ["%s/env" % sec, "%s/auth.json" % sec]
 s.setdefault("permissions", {}).setdefault("deny", []).extend(
@@ -359,6 +397,8 @@ every = get("plugins")
 on = s.setdefault("enabledPlugins", {})
 for p in installed:
     on.setdefault(p, p in ("kith@kith", "hq@hq") or p in every)
+if os.environ["API_HELPER"]:   # claude-api backup: Claude Code asks kith-auth for the key itself; it is never in our output
+    s["apiKeyHelper"] = os.environ["API_HELPER"]
 json.dump(s, sys.stdout, indent=1)' > "$runs/$$.settings.json"
 fi
 
@@ -402,6 +442,53 @@ done < <(printf '%s\n' "$KITH" "$kith_real" "$KITH_HOME/kernel" | awk '!seen[$0]
   || { echo "kith: $agent: no shared services this run (kith-auth failed)" >&2; echo '{"mcpServers": {}}' > "$runs/$$.mcp.json"; }
 
 kith_env_sync   # the exports above reach role repos under their old HQ_ names too
+# The agent's MCP servers for a launch-json run: the granted shared services plus its own mcp.json, as one {"mcpServers": {...}}.
+merged_mcp() {
+  local f=("$runs/$$.mcp.json"); [[ -f $pkg/mcp.json ]] && f+=("$pkg/mcp.json")
+  python3 -c '
+import json, sys
+servers = {}
+for f in sys.argv[1:]:
+    d = json.load(open(f))
+    servers.update(d.get("mcpServers", d))
+print(json.dumps({"mcpServers": servers}))' "${f[@]}"
+}
+# The launch JSON for kith serve, from the lists built above: dirs[] holds --add-dir pairs; the arguments are the argv to give
+# claude (none for Codex, which the host builds itself: settings and claude_args are then null).
+emit_launch() {
+  local add_dirs allowed_tools no_slash settings=null
+  add_dirs=$(for ((i = 1; i < ${#dirs[@]}; i += 2)); do printf '%s\n' "${dirs[i]}"; done)
+  allowed_tools=$(printf '%s\n' "${allowed[@]}")
+  [[ $harness == claude ]] && settings=$(cat "$runs/$$.settings.json")
+  grep -q '^global_skills: *true' "$pkg/capabilities.yaml" 2>/dev/null && no_slash=false || no_slash=true
+  [[ $harness == claude ]] || allowed_tools=""
+  ENV_NAMES="$(python3 "$KITH/lib/kith_paths.py" --sh | sed -n 's/^export \([A-Z_]*\)=.*/\1/p' | paste -sd' ' -) KITH_ROOT KITH_AGENT KITH_AGENT_DIR KITH_AGENT_HOME KITH_AGENT_VERSION KITH_MODEL KITH_EFFORT KITH_PROJECT KITH_PERSON KITH_VIA KITH_PROVIDER KITH_ACCOUNT $backup_cfg_var $p_env_names HQ_ROOT HQ_AGENT HQ_AGENT_DIR HQ_AGENT_HOME HQ_AGENT_VERSION HQ_MODEL HQ_EFFORT HQ_PROJECT HQ_PERSON HQ_VIA" \
+    ADD_DIRS=$add_dirs ALLOWED=$allowed_tools SETTINGS=$settings MCP=$(merged_mcp) PROMPT=$prompt PERM_MODE=$perm_mode NO_SLASH=$no_slash \
+    BACKUP=$backup HARNESS=$harness KITH_LIB=$KITH/lib \
+    python3 -c '
+import json, os
+e = os.environ.get
+import sys
+sys.path.insert(0, e("KITH_LIB"))
+from kith_settings import get
+env = {k: os.environ[k] for k in e("ENV_NAMES").split() if k in os.environ}
+settings = json.loads(e("SETTINGS"))
+nz = lambda k: e(k) or None
+claude = e("HARNESS") == "claude"
+print(json.dumps({
+    "version": 1, "agent": e("KITH_AGENT"), "agent_version": e("KITH_AGENT_VERSION"), "harness": e("HARNESS"), "cwd": os.getcwd(),
+    "env": env, "system_prompt": e("PROMPT"), "settings": settings, "mcp_servers": json.loads(e("MCP"))["mcpServers"],
+    "add_dirs": [d for d in e("ADD_DIRS").split("\n") if d], "allowed_tools": [a for a in e("ALLOWED").split("\n") if a],
+    "disable_slash_commands": e("NO_SLASH") == "true", "model": nz("KITH_MODEL"), "effort": nz("KITH_EFFORT"),
+    "project": nz("KITH_PROJECT"),
+    "permission_mode": e("PERM_MODE") or (settings or {}).get("permissions", {}).get("defaultMode") or (None if claude else get("permission_mode")),
+    "cost_tag": {"agent": e("KITH_AGENT"), "version": e("KITH_AGENT_VERSION"), "model": nz("KITH_MODEL"), "effort": nz("KITH_EFFORT"),
+                 "via": e("KITH_VIA"), "project": nz("KITH_PROJECT"), "person": nz("KITH_PERSON")},
+    "claude_args": sys.argv[1:] if claude else None,
+    "backup": nz("BACKUP"), "provider": nz("KITH_PROVIDER"), "account": nz("KITH_ACCOUNT")}))' "$@" >&3
+}
+# Codex (or another harness the launch JSON covers): the same facts, without Claude's settings.
+if [[ $launch -eq 1 && $harness != claude ]]; then emit_launch; exit 0; fi
 # Another harness: the same run, handed to its adapter (prompt in a file, directories and MCP configs as lists).
 if [[ $harness != claude ]]; then
   printf '%s\n' "$prompt" > "$runs/$$.prompt.md"
@@ -424,14 +511,7 @@ fi
 settings_arg="$runs/$$.settings.json" mcp_arg="$runs/$$.mcp.json"
 if [[ $launch -eq 1 ]]; then
   settings_arg=$(cat "$runs/$$.settings.json")
-  mcp_files=("$runs/$$.mcp.json"); [[ -f $pkg/mcp.json ]] && mcp_files+=("$pkg/mcp.json")
-  mcp_arg=$(python3 -c '
-import json, sys
-servers = {}
-for f in sys.argv[1:]:
-    d = json.load(open(f))
-    servers.update(d.get("mcpServers", d))
-print(json.dumps({"mcpServers": servers}))' "${mcp_files[@]}")
+  mcp_arg=$(merged_mcp)
 fi
 args=(--append-system-prompt "$prompt" "${dirs[@]}" --settings "$settings_arg" --allowedTools "${allowed[@]}")
 args+=(--strict-mcp-config --mcp-config "$mcp_arg")
@@ -446,32 +526,7 @@ if [[ -n $resume ]]; then
   if [[ $resume == *:* ]]; then echo "kith: session $resume is not a Claude Code session; starting a new one" >&2
   else args+=(--resume "$resume"); fi
 fi
-if [[ $launch -eq 1 ]]; then
-  # The same lists, handed over as data: dirs[] holds --add-dir pairs, args[] is the argv to give claude.
-  add_dirs=$(for ((i = 1; i < ${#dirs[@]}; i += 2)); do printf '%s\n' "${dirs[i]}"; done)
-  allowed_tools=$(printf '%s\n' "${allowed[@]}")
-  grep -q '^global_skills: *true' "$pkg/capabilities.yaml" 2>/dev/null && no_slash=false || no_slash=true
-  ENV_NAMES="$(python3 "$KITH/lib/kith_paths.py" --sh | sed -n 's/^export \([A-Z_]*\)=.*/\1/p' | paste -sd' ' -) KITH_ROOT KITH_AGENT KITH_AGENT_DIR KITH_AGENT_HOME KITH_AGENT_VERSION KITH_MODEL KITH_EFFORT KITH_PROJECT KITH_PERSON KITH_VIA $p_env_names HQ_ROOT HQ_AGENT HQ_AGENT_DIR HQ_AGENT_HOME HQ_AGENT_VERSION HQ_MODEL HQ_EFFORT HQ_PROJECT HQ_PERSON HQ_VIA" \
-    ADD_DIRS=$add_dirs ALLOWED=$allowed_tools SETTINGS=$settings_arg MCP=$mcp_arg PROMPT=$prompt PERM_MODE=$perm_mode NO_SLASH=$no_slash \
-    python3 -c '
-import json, os
-e = os.environ.get
-import sys
-env = {k: os.environ[k] for k in e("ENV_NAMES").split() if k in os.environ}
-settings = json.loads(e("SETTINGS"))
-nz = lambda k: e(k) or None
-print(json.dumps({
-    "version": 1, "agent": e("KITH_AGENT"), "agent_version": e("KITH_AGENT_VERSION"), "harness": "claude", "cwd": os.getcwd(),
-    "env": env, "system_prompt": e("PROMPT"), "settings": settings, "mcp_servers": json.loads(e("MCP"))["mcpServers"],
-    "add_dirs": [d for d in e("ADD_DIRS").split("\n") if d], "allowed_tools": [a for a in e("ALLOWED").split("\n") if a],
-    "disable_slash_commands": e("NO_SLASH") == "true", "model": nz("KITH_MODEL"), "effort": nz("KITH_EFFORT"),
-    "project": nz("KITH_PROJECT"),
-    "permission_mode": e("PERM_MODE") or settings.get("permissions", {}).get("defaultMode"),
-    "cost_tag": {"agent": e("KITH_AGENT"), "version": e("KITH_AGENT_VERSION"), "model": nz("KITH_MODEL"), "effort": nz("KITH_EFFORT"),
-                 "via": e("KITH_VIA"), "project": nz("KITH_PROJECT"), "person": nz("KITH_PERSON")},
-    "claude_args": sys.argv[1:]}))' "${args[@]}" >&3
-  exit 0
-fi
+if [[ $launch -eq 1 ]]; then emit_launch "${args[@]}"; exit 0; fi
 # Extra claude flags from a caller such as kith-bridge (e.g. --output-format json --resume <session>).
 # For anyone but the owner, permission flags in them are dropped: the membership's mode stands.
 if [[ -n ${KITH_CLAUDE_ARGS:-} ]]; then

@@ -90,10 +90,26 @@ export function pickerSections(projects: ProjectInfo[], recent: RecentFolder[], 
 /** The selection for a recent folder: its project when it is one. */
 export const selectionOfRecent = (r: { path: string; project: string | null }): PlaceSelection => (r.project ? { project: r.project } : { folder: r.path })
 
+/**
+ * `text` cut to `max` characters with the middle replaced by an ellipsis, so a long folder name keeps its
+ * start and its end (the last folder name is the part that tells places apart).
+ */
+export function middleEllipsis(text: string, max: number) {
+  const chars = Array.from(text)
+  if (chars.length <= max || max < 3) return text
+  const keep = max - 1
+  const head = Math.ceil(keep / 2)
+  const tail = keep - head
+  return chars.slice(0, head).join('') + '…' + chars.slice(chars.length - tail).join('')
+}
+
+/** The header chip's longest label; the full name stays in the tooltip. */
+const CHIP_LABEL_MAX = 26
+
 /** A short line for the header chip, and its icon. */
 export function chipOf(folder: PlaceFolder) {
   return {
-    label: folder.name,
+    label: middleEllipsis(folder.name, CHIP_LABEL_MAX),
     icon: folder.kind === 'project' ? 'arrow.triangle.branch' : folder.kind === 'folder' ? 'folder' : 'house.fill',
     title: folder.path ?? folder.name,
   }

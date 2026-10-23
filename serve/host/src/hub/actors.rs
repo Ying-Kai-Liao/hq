@@ -24,9 +24,8 @@ impl Hub {
     /// Starts the bot's own chat, and any place where the previous host process cut off a turn so it resumes.
     pub(super) fn spawn_bot(self: &Arc<Self>, cfg: &BotConfig) {
         let id = cfg.id.clone();
-        // An hq agent keeps its own memory (in its folder): Kith's keeper never runs for it. Its sends go nowhere.
-        let dreamer =
-            if cfg.is_hq() { mpsc::unbounded_channel().0 } else { memory::spawn_dreamer(self.clone(), id.clone()) };
+        // An hq agent keeps its memory in files in its folder: its dreamer writes those, through hqmem.
+        let dreamer = memory::spawn_dreamer(self.clone(), id.clone());
         let mut places = HashMap::new();
         let mut homes = vec![Lane::main(&id)];
         homes.extend(bot::interrupted_places(&self.store, &id));

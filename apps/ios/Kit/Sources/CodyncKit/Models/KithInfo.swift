@@ -132,6 +132,14 @@ public struct KithRole: Decodable, Hashable, Sendable {
         intro = c.value(.intro) ?? ""
         sections = c.list(.sections)
     }
+
+    /// The whole role prompt as one markdown text: the intro, then every section under its title. Nil when there is none.
+    public var prompt: String? {
+        let parts = [intro.trimmingCharacters(in: .whitespacesAndNewlines)]
+            + sections.map { "## \($0.title)\n\n" + $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let text = parts.filter { !$0.isEmpty }.joined(separator: "\n\n")
+        return text.isEmpty ? nil : text
+    }
 }
 
 public struct KithRoleSection: Decodable, Hashable, Sendable, Identifiable {

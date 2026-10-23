@@ -6,6 +6,7 @@ import { HStack } from '../../components/Stack'
 import { useModel } from '../../lib/observable'
 import { useStore } from '../../store/context'
 import { MemoryStore, authorLabel, type MemoryEntry } from '../../store/memory-store'
+import { botSections } from '@shared/bot-sections'
 import { FormSheet } from '../marketplace/pieces'
 import { relativeTime } from '../thread/chat-items'
 import { HarnessMemorySheet } from './HarnessMemorySheet'
@@ -31,12 +32,14 @@ export function MemoryCard({ botId }: { botId: string }) {
   useEffect(() => { void memory.load() }, [memory, bot?.memoryRev, bot?.sharedMemory, bot?.harnessMemory])
 
   const view = memory.view
+  // An hq bot's "Agent memory" above lists the agent's own files, so the harness's notes tab would repeat it.
+  const harnessTab = view?.projectMemory && botSections(bot?.hqAgent, kith?.unsupported ? null : (kith?.info ?? null)).harnessMemoryTab
   // Claude Code's section goes when its memory is turned off (on another device too).
-  useEffect(() => { if (section === 'harness' && view && !view.projectMemory) setSection('bot') }, [section, view])
+  useEffect(() => { if (section === 'harness' && view && !harnessTab) setSection('bot') }, [section, view, harnessTab])
   const harness = host.backendName(bot?.backend ?? 'claude')
   const sections: { id: Section; label: string }[] = [
     { id: 'yours', label: 'About you' }, { id: 'bot', label: 'This bot' }, { id: 'dreams', label: 'Dreams' },
-    ...(view?.projectMemory ? [{ id: 'harness' as const, label: harness }] : []),
+    ...(harnessTab ? [{ id: 'harness' as const, label: harness }] : []),
   ]
   const layer = section === 'yours' ? view?.yours : section === 'bot' ? view?.bot : undefined
   const save = () => {
