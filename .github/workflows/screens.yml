@@ -1,0 +1,99 @@
+# Screenshots of the redesigned screens, uploaded as artifacts (screens-ios, screens-desktop).
+# Separate from apps.yml/ci.yml on purpose: never a required check, so it cannot block a merge.
+#
+# Adding a screen to the iOS shots:
+#   1. In apps/ios/App/KithApp.swift, add a case to the `-kithDemoScreens` switch (next to the
+#      -kithTokenGallery overlays); the demo account is apps/ios/Kit/Sources/KithUI/Store/DemoAccount.swift.
+#   2. In apps/ios/tools/screens.sh, add one line to `modes`: "demo-<name>|-kithDemoScreens <name>".
+#   3. Optionally map its file to a mock in `mock_for` in scripts/screens-summary.sh.
+# Run it by hand against any branch: gh workflow run screens.yml -f ref=<branch>
+name: Screens
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag or sha to screenshot (default: the selected ref)'
+        required: false
+        default: ''
+  pull_request:
+    paths:
+      - apps/ios/**
+      - apps/desktop/src/renderer/**
+      - docs/design/**
+      - .github/workflows/screens.yml
+
+concurrency:
+  group: screens-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/cache@v4
+        with:
+          path: build/dd/SourcePackages
+          key: ${{ runner.os }}-ios-packages-${{ hashFiles('apps/ios/Kit/Package.swift', 'apps/Kith.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+      # The project is committed (xcodegen output), so there is nothing to generate.
+      - name: Build iOS Dev for the simulator
+        run: >-
+          xcodebuild build
+          -project apps/Kith.xcodeproj
+          -scheme "iOS Dev"
+          -configuration DevDebug
+          -derivedDataPath build/dd
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO
+      - name: Screenshots
+        run: bash apps/ios/tools/screens.sh build/dd screens
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screens-ios
+          path: screens/*.png
+          retention-days: 14
+          if-no-files-found: warn
+      - name: Summary
+        if: always() && github.event_name == 'pull_request'
+        run: bash scripts/screens-summary.sh ios screens >> "$GITHUB_STEP_SUMMARY"
+
+  desktop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      # Playwright is installed for this job only (--no-save): it is not a dev dependency of the app.
+      - run: npm install --no-save --no-audit --no-fund playwright
+      - run: npx playwright install --with-deps chromium
+      - name: Screenshots
+        run: node tools/screens.mjs "$GITHUB_WORKSPACE/screens"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screens-desktop
+          path: screens/*.png
+          retention-days: 14
+          if-no-files-found: warn
+      - name: Summary
+        if: always() && github.event_name == 'pull_request'
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/screens-summary.sh desktop screens >> "$GITHUB_STEP_SUMMARY"

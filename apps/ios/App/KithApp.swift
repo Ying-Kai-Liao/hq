@@ -12,7 +12,7 @@ struct KithApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("onboardingCompleted") private var onboardingCompleted = false
     /// Cold launch with a computer to reach: the splash covers its connect and catch-up.
-    @State private var launching = !AppStore.shared.accounts.computers.isEmpty
+    @State private var launching = !AppStore.shared.accounts.computers.isEmpty && !DemoScreens.active
     init() {
         // A tapped widget bot arrives as an intent, not a URL.
         OpenBotIntent.open = { AppStore.shared.open($0) }
@@ -69,7 +69,7 @@ struct KithApp: App {
                     }
                     // Only leaving for the background disconnects; `.inactive` (Control Center,
                     // app switcher, system prompts) comes and goes too often to drop the link.
-                    app.accounts.setActive(phase != .background)
+                    app.accounts.setActive(phase != .background && !DemoScreens.active)
                     // Back in the app: a computer may have joined the account meanwhile.
                     if phase == .active {
                         Task { await app.accounts.refreshCloud() }
@@ -92,6 +92,15 @@ struct KithApp: App {
                     if let s = ProcessInfo.processInfo.environment["KITH_OPEN_URL"], let url = URL(string: s) {
                         try? await Task.sleep(for: .seconds(1))
                         app.open(url)
+                    }
+                    if let screen = DemoScreens.name {
+                        // One case per demo screen: later redesign PRs add theirs here.
+                        try? await Task.sleep(for: .seconds(1))
+                        switch screen {
+                        case "settings": app.showComputers = true
+                        case "widgets": app.tab = .state
+                        default: break // "crew" is the root
+                        }
                     }
                     await LiveActivities.shared.previewIfRequested()
                     if ProcessInfo.processInfo.environment["KITH_OPEN_SCREEN"] != nil {
@@ -138,6 +147,13 @@ final class AppStore {
         Analytics.shared.userID = { [session] in session.userID }
         CrashReports.shared.start()
         contextID = storage.id
+        #if DEBUG
+        // Screenshots in CI have no host: `-kithDemoScreens <name>` swaps in a fixed account (see DemoScreens).
+        if DemoScreens.active {
+            (accounts, cloud) = (AccountStore.demo(storage: storage), nil)
+            return
+        }
+        #endif
         (accounts, cloud) = Self.makeAccounts(storage, session: session)
     }
 
