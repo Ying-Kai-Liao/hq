@@ -402,16 +402,13 @@ async fn main() -> Result<()> {
             {
                 // Wrap only from the stable installed binary of the Main build; dev builds and
                 // cargo target paths would leave a dangling wrapper, so they only repair one.
-                let host = service::current_exe()
-                    .ok()
-                    .filter(|exe| {
-                        environment::Environment::current() == environment::Environment::Main
-                            && update::is_standalone(exe)
-                    });
+                let host = service::current_exe().ok().filter(|exe| {
+                    environment::Environment::current() == environment::Environment::Main && update::is_standalone(exe)
+                });
                 match service::ensure_statusline(&home.join(".claude/settings.json"), host.as_deref()) {
-                    Ok(true) => println!(
-                        "Claude Code's status line settings updated (your own status line still shows)."
-                    ),
+                    Ok(true) => {
+                        println!("Claude Code's status line settings updated (your own status line still shows).")
+                    }
                     Ok(false) => {}
                     Err(e) => eprintln!("Couldn't set Claude Code's status line: {e}"),
                 }
