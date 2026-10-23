@@ -6,7 +6,7 @@
 set -uo pipefail
 
 KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
-T=$(mktemp -d "${TMPDIR:-/tmp}/kith-serve-check.XXXXXX")
+T=$(mktemp -d "$(dirname "${TMPDIR:-/tmp}/x")/kith-serve-check.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 export HOME=$T/home
 mkdir -p "$HOME" "$T/repo/kernel/bin" "$T/repo/serve/host/src" "$T/stubs" "$T/target/dev-app"
@@ -213,6 +213,9 @@ rm -rf "$HOME/.kith"; mkdir -p "$T/ptarget"
 stubhook "$T/ptarget/dev-app/kith" built
 (
   unset KITH_BIN KITH_DEV_BIN; export CARGO_TARGET_DIR=$T/ptarget
+  # A kernel bash entry on PATH (the real ~/.local/bin/kith) must not be picked, and a kith stub on PATH is not under test here.
+  mkdir -p "$T/pathbin"; ln -sf "$KERNEL/bin/kith" "$T/pathbin/kith"; export PATH="$T/pathbin:$PATH"
+  check "kith_bin: a kernel bash entry on PATH is never the answer" "[ \"\$(resolve)\" != '$T/pathbin/kith' ]"
   check "kith_bin: no installed host falls back to the target build" "[ \"\$(resolve)\" = '$T/ptarget/dev-app/kith' ]"
   stubhook "$HOME/.kith/serve/bin/kith-serve" installed
   check "kith_bin: the installed host beats CARGO_TARGET_DIR" "[ \"\$(resolve)\" = '$HOME/.kith/serve/bin/kith-serve' ]"

@@ -150,8 +150,9 @@ def kith_bin():
     explicit = os.environ.get('KITH_BIN')
     candidates = [explicit, *built, *installed] if os.environ.get('KITH_DEV_BIN') == '1' else [explicit, *installed, *built]
     for c in candidates:
+        # Any kernel bash entry is out, not only this kernel's own: ~/.local/bin/kith may be another checkout's.
         if c and os.access(c, os.X_OK) and Path(c).is_file() and not (own.exists() and os.path.samefile(c, own)) \
-                and _has_hook(str(c)):
+                and Path(os.path.realpath(c)).parts[-3:] != ('kernel', 'bin', 'kith') and _has_hook(str(c)):
             return str(c)
     return ''
 
