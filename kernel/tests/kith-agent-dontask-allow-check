@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# kith-agent-dontask-allow-check — `kith <agent> --launch-json` allows the owner's run its own folder under every
-# spelling and the tools the role declares in capabilities.yaml (lib/kith_caps.py), only those, once each, and keeps
-# every deny rule. Throwaway HOME and KITH_HOME; fake `claude` on PATH.
+# kith-agent-dontask-allow-check — `kith <agent> --launch-json` adds no allow rules of its own for the owner's run
+# beyond the memory/skills Edit list: nothing from capabilities.yaml `tools:` and no read of the agent's own folder.
+# The role's settings.json allow/deny rules pass through, every deny rule stays, and the mode reaches claude unchanged. Throwaway HOME and KITH_HOME; fake `claude` on PATH.
 #
 #   kernel/tests/kith-agent-dontask-allow-check     a few seconds; exits 1 when a check fails
 set -uo pipefail
@@ -47,32 +47,31 @@ n() { grep -cxF -- "$1" <<< "$OUT"; }
 home=$KITH_HOME/agents/artist
 OUT=$(rules allow artist)
 [ -n "$OUT" ] || { echo "FAIL no allow rules found in launch-json"; exit 1; }
-for d in "$home" "$HOME/kith/agents/artist"; do
-  expect "Read own folder $d" "$(n "Read(/$d/**)")" 1
-  for sub in memory data files; do expect "Edit $sub/ $d" "$(n "Edit(/$d/$sub/**)")" 1; done
-  expect "no Edit of whole folder $d" "$(n "Edit(/$d/**)")" 0
-  expect "no Edit of role/ $d (agent.md, settings.json stay prompted)" "$(grep -F -- "Edit(/$d/role" <<< "$OUT" | grep -vcF "Edit(/$d/role/skills/learned/**)")" 0
-done
-expect "Artifact" "$(n Artifact)" 1
-expect "ArtifactComments" "$(n ArtifactComments)" 1
-expect "headless chrome" "$(n 'Bash(/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless*)')" 1
 expect "role's own allow kept" "$(n 'Bash(echo:*)')" 1
-expect "no render rules without render" "$(grep -c 'python3' <<< "$OUT")" 0
-expect "no bare Bash allow" "$(grep -cxE 'Bash|Bash\(\*\)|Bash\(python3:\*\)' <<< "$OUT")" 0
+expect "Edit memory/ still allowed (one-shot runs save memory)" "$(n "Edit(/$home/memory/**)")" 1
+expect "no Read of own folder" "$(grep -c '^Read(' <<< "$OUT")" 0
+for sub in data files; do expect "no Edit of $sub/" "$(n "Edit(/$home/$sub/**)")" 0; done
+expect "tools: artifacts approves nothing" "$(grep -c 'Artifact' <<< "$OUT")" 0
+expect "tools: browser approves nothing" "$(grep -c 'Chrome' <<< "$OUT")" 0
+expect "tools: render approves nothing" "$(grep -c 'python3' <<< "$OUT")" 0
 expect "no duplicate rules" "$(sort <<< "$OUT" | uniq -d | wc -l | tr -d ' ')" 0
 OUT=$(rules deny artist)
 expect "role's deny kept" "$(n 'Read(~/.codex/auth.json)')" 1
 expect "secrets deny kept" "$(grep -c 'secrets/\*\*' <<< "$OUT")" 2
-
-OUT=$(rules allow plain)
-expect "plain: own folder" "$(n "Edit(/$KITH_HOME/agents/plain/data/**)")" 1
-expect "plain: no whole-folder Edit" "$(n "Edit(/$KITH_HOME/agents/plain/**)")" 0
-expect "plain: no Artifact" "$(n Artifact)" 0
-expect "plain: no chrome" "$(grep -c 'Chrome' <<< "$OUT")" 0
 OUT=$(rules allow blocky)
-expect "block list: infographic means chrome" "$(grep -c 'Chrome.app.*--headless' <<< "$OUT")" 2
-expect "block list: render python3 in own folder" "$(n "Bash(python3 $KITH_HOME/agents/blocky/*)")" 1
-expect "block list: no Artifact" "$(n Artifact)" 0
-OUT=$(rules allow unk)
-expect "unknown tag adds nothing" "$(grep -c 'Bash\|Artifact' <<< "$OUT")" 1   # only the role's Bash(echo:*)
+expect "block list tools: no Chrome" "$(grep -c 'Chrome' <<< "$OUT")" 0
+# The mode: a stored 'manual' reads as default; the six built-in modes pass through; manual is refused on set.
+mkdir -p "$KITH_HOME/machine"
+SETTINGS=$(python3 "$KERNEL/lib/kith_paths.py" --sh | sed -n 's/^export KITH_MACHINE=//p' | tr -d "'\"")
+mkdir -p "$SETTINGS"
+printf '{"permission_mode":"manual","agents":{"plain":{"permission_mode":"manual"},"unk":{"permission_mode":"plan"}}}' > "$SETTINGS/settings.json"
+expect "stored manual (global) reads as default" "$(python3 "$KERNEL/lib/kith_settings.py" permission_mode)" default
+expect "stored manual (agent) reads as default" "$(python3 "$KERNEL/lib/kith_settings.py" permission_mode plain)" default
+expect "other agent's mode kept" "$(python3 "$KERNEL/lib/kith_settings.py" permission_mode unk)" plan
+python3 "$KERNEL/lib/kith_settings.py" set permission_mode plain manual >/dev/null 2>&1
+expect "set manual is refused" "$?" 1
+for m in default acceptEdits plan auto dontAsk bypassPermissions; do
+  python3 "$KERNEL/lib/kith_settings.py" set permission_mode plain $m >/dev/null 2>&1
+  expect "mode $m accepted and read back" "$(python3 "$KERNEL/lib/kith_settings.py" permission_mode plain)" $m
+done
 exit $((fails > 0))
