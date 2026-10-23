@@ -439,6 +439,11 @@ fn requester(hub: &Hub, owner_uid: Option<&str>, user_id: Option<&str>) -> Resul
     }
 }
 
+/// Whether a request is the owner's (its code is compared by the owner, so it counts against the hourly budget).
+fn is_owner_request(hub: &Hub, owner_uid: Option<&str>, user_id: Option<&str>) -> bool {
+    matches!(requester(hub, owner_uid, user_id), Ok(None))
+}
+
 /// The cloud can only shorten access: a local account device listed with the same grant and
 /// key is renewed, one missing is removed; grants this host never approved are ignored, and so are grants
 /// whose account is not the device's owner or its bound person.
@@ -510,10 +515,14 @@ async fn sync_requests(hub: &Hub, base: &str, list: Vec<StateRequest>, owner_uid
                 } else if let Err(why) = requester(hub, owner_uid, s.user_id.as_deref()) {
                     tracing::warn!(request_id = s.request_id, why, "denying an access request from an unknown account");
                     next.push(Next::Deny(s.request_id.clone()));
-                } else if budget.len() >= SAS_NONCES_PER_HOUR {
+                } else if is_owner_request(hub, owner_uid, s.user_id.as_deref()) && budget.len() >= SAS_NONCES_PER_HOUR {
                     throttled = true;
                 } else {
-                    budget.push(now_ms());
+                    // A member's code is never compared (they skip the comparison), so their requests don't spend
+                    // the budget that guards the owner's own 6-digit code, and can't use it up to lock the owner out.
+                    if is_owner_request(hub, owner_uid, s.user_id.as_deref()) {
+                        budget.push(now_ms());
+                    }
                     next.push(Next::Offer(Box::new(Request {
                         id: s.request_id.clone(),
                         device_key: dk,
@@ -976,5 +985,31 @@ mod tests {
         pull(&hub, &base).await.unwrap();
         assert_eq!(fake.posts.lock().unwrap().len(), SAS_NONCES_PER_HOUR);
         assert!(hub.cloud.status().last_error.is_some(), "the Mac hears about it");
+    }
+
+    #[tokio::test]
+    async fn a_members_requests_do_not_spend_the_owners_budget() {
+        let hub = temp_hub();
+        let fake = Arc::new(FakeCloud::default());
+        let base = fake_cloud(fake.clone()).await;
+        hub.store
+            .add_membership(&crate::store::Membership {
+                membership_id: "mem_m".into(),
+                user_id: "user_m".into(),
+                person_id: "sam".into(),
+                invite_id: "inv".into(),
+                created_at: now_ms(),
+            })
+            .unwrap();
+        let request = |id: String, user: Option<&str>| {
+            json!({"requestId": id, "deviceKey": b64(&crypto::random::<32>()), "commit": b64(&[0u8; 32]), "userId": user})
+        };
+        let mut requests: Vec<Value> = (0..8).map(|i| request(format!("member_{i}"), Some("user_m"))).collect();
+        requests.push(request("mine".into(), None));
+        *fake.state.lock().unwrap() = json!({"owner": null, "grants": [], "requests": requests});
+        pull(&hub, &base).await.unwrap();
+        let posts = fake.posts.lock().unwrap();
+        assert!(posts.iter().any(|(p, _)| p.contains("mine")), "the owner's own request still gets its code");
+        assert_eq!(posts.len(), 9, "members' requests are not rationed: their code is never compared");
     }
 }

@@ -68,6 +68,20 @@ use crate::hub::Hub;
 use std::path::Path;
 use std::sync::Arc;
 
+/// The running core, for the host to reach the chat runs of a person whose access ended.
+static CORE: std::sync::OnceLock<Arc<Core>> = std::sync::OnceLock::new();
+
+/// Ends the chat-channel runs of `person` (all, or only those on agents they may no longer use). A host without
+/// channels has none.
+pub async fn stop_person_runs(person: &str, only_denied: bool) {
+    if let Some(core) = CORE.get() {
+        let n = core.stop_person(person, only_denied).await;
+        if n > 0 {
+            tracing::info!(person, n, "stopped channel runs after an access change");
+        }
+    }
+}
+
 /// Starts the channels in the background: nothing happens without hq, or with `channels.enabled` off.
 pub fn start(hub: &Arc<Hub>) {
     tokio::spawn(run(hub.clone()));
@@ -99,6 +113,7 @@ async fn run(hub: Arc<Hub>) {
     // A channel run can ring the person it serves (see `calls::run_env`).
     let calls_hub = hub.clone();
     let _ = core.call_env.set(Box::new(move |agent, person| crate::calls::run_env(&calls_hub, agent, person)));
+    let _ = CORE.set(core.clone());
     manager::Manager::new(core, Registry::builtin(), manager::Backoff::default()).run().await;
 }
 

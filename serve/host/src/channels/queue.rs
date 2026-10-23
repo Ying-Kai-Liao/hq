@@ -309,6 +309,41 @@ impl Core {
         Ok(())
     }
 
+    /// Ends every run of `person`'s threads (their access is gone), or with `only_denied` those on an agent they may
+    /// no longer use. Their queued messages go too, so nothing starts the run again. -> how many runs it ended.
+    pub async fn stop_person(&self, person: &str, only_denied: bool) -> usize {
+        let mine: Vec<String> = self.with(|i| {
+            i.busy
+                .keys()
+                .filter(|wk| {
+                    let key = wk.rsplit_once('#').map_or(wk.as_str(), |(k, _)| k);
+                    i.st.threads.get(key).and_then(|t| t.get("person")).and_then(Value::as_str) == Some(person)
+                })
+                .cloned()
+                .collect()
+        });
+        let mut stopped = 0;
+        for wk in mine {
+            let agent = wk.rsplit_once('#').map_or("", |(_, a)| a);
+            if only_denied && hq::resolve(&self.paths, person, agent).await.allowed {
+                continue;
+            }
+            let ended = self.with(|i| {
+                i.st.inbox.insert(wk.clone(), Vec::new());
+                let now = i.busy.get_mut(&wk).filter(|b| b.stoppable())?;
+                now.ended = Some(Ended::Stopped);
+                if let Some(pid) = now.pid {
+                    kill(pid);
+                }
+                now.cancel.notify_one();
+                i.save();
+                Some(())
+            });
+            stopped += usize::from(ended.is_some());
+        }
+        stopped
+    }
+
     /// The Stop button -> what to show on it.
     pub async fn stop_pressed(&self, ad: &Arc<dyn Adapter>, wid: &str, uid: &str) -> StopPress {
         let wk = self.with(|i| i.works.get(wid).cloned());

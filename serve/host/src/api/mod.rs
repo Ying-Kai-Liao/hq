@@ -16,7 +16,9 @@ mod host;
 mod http;
 mod kith_info;
 mod marketplace;
-mod people;
+pub(crate) mod people;
+#[cfg(test)]
+mod people_tests;
 #[cfg(test)]
 mod proof_tests;
 mod remote;
