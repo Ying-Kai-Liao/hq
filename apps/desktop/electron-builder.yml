@@ -54,6 +54,9 @@ mac:
   extraResources:
     - from: build/native/kith-serve
       to: kith-serve
+    # Local voice helper, found next to the host (arm64 only; absent on an Intel build).
+    - from: build/native/kith-tts
+      to: kith-tts
     # The `kith` command line in the release layout (Resources/kith/bin/kith, share/kith/kernel).
     - from: build/native/kith
       to: kith
