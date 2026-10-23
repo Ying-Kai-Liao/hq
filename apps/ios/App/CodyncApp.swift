@@ -20,7 +20,7 @@ struct CodyncApp: App {
 
     var body: some Scene {
         WindowGroup {
-            Group { if ProcessInfo.processInfo.environment["KITH_GALLERY"] != nil { AvatarGallery() } else { RootView() } }
+            RootView()
                 .id("\(app.contextID)#\(app.generation)")
                 .environment(app)
                 .environment(app.accounts)
