@@ -203,11 +203,6 @@ export class HostClient {
     return parseBackups(await this.call('backupsSet', { agent, chain }, 90_000))
   }
 
-  /** One file of the agent's memory folder (`path` relative to it); the host reads the first 512 KB. */
-  async kithMemoryFile(botId: string, path: string): Promise<KithMemoryFile> {
-    return parseMemoryFile(await this.call('kithMemoryFile', { botId, path }, 30_000))
-  }
-
   async kithMemorySearch(botId: string, query: string, limit = 30): Promise<KithSearchResult> {
     return parseSearchResult(await this.call('kithMemorySearch', { botId, query, limit }, 30_000))
   }
