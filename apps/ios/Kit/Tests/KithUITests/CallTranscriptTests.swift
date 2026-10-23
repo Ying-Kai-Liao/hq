@@ -27,7 +27,7 @@ import Testing
     #expect(CallStatus.text(phase: .starting, muted: false, working: false, warning: "Downloading voice…") == "Downloading voice…")
     #expect(CallStatus.text(phase: .listening, muted: true, working: true, warning: nil) == "Muted")
     #expect(CallStatus.text(phase: .listening, muted: false, working: true, warning: nil) == "Working…")
-    #expect(CallStatus.text(phase: .speaking, muted: false, working: false, warning: nil) == "Speaking")
+    #expect(CallStatus.text(phase: .speaking, muted: false, working: false, warning: nil) == "Speaking · tap to interrupt")
     #expect(CallStatus.text(phase: .failed("x"), muted: false, working: false, warning: nil) == "Can't listen")
 }
 
