@@ -3,7 +3,7 @@
 //! (a shell script answering from a table written per case), so the subprocess path is the product's own.
 //! Method: `.claude/skills/invitee-access/SKILL.md`. Run only these: `cargo test roles_props`.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::many_single_char_names)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::devices::NotAllowed;
 use super::roles::{self, MEMBER_METHODS, UNPROVEN_METHODS};
@@ -426,20 +426,20 @@ fn fail(msg: impl Into<String>) -> TestCaseError {
 }
 
 /// Everything a successful `guard` from `person` must imply, stated from the scenario and not from `roles`.
-fn check_guard_ok(w: &World, sc: &Scenario, c: &CallSpec, ids: &Ids, b: &Value) -> Result<(), TestCaseError> {
-    let me = PEOPLE[c.person];
-    let m = c.method.as_str();
-    if !MEMBER_METHODS.contains(&m) {
-        return Err(fail(format!("{m} is not on MEMBER_METHODS but guard let {me} through")));
+fn check_guard_ok(world: &World, sc: &Scenario, call: &CallSpec, ids: &Ids, body: &Value) -> Result<(), TestCaseError> {
+    let me = PEOPLE[call.person];
+    let method = call.method.as_str();
+    if !MEMBER_METHODS.contains(&method) {
+        return Err(fail(format!("{method} is not on MEMBER_METHODS but guard let {me} through")));
     }
-    if nothing_to_check(m) {
+    if nothing_to_check(method) {
         return Ok(());
     }
     // The chat the call is about.
-    let chat = if by_entry(m) {
-        let entry = w.hub.store.entry(b["entryId"].as_str().unwrap_or_default());
+    let chat = if by_entry(method) {
+        let entry = world.hub.store.entry(body["entryId"].as_str().unwrap_or_default());
         let Some(entry) = entry else { return Err(fail("guard let an unknown entry through")) };
-        if m == "respondPermission" {
+        if method == "respondPermission" {
             if entry.kind != "permission" {
                 return Err(fail("respondPermission let through for a card that is not a permission request"));
             }
@@ -454,9 +454,10 @@ fn check_guard_ok(w: &World, sc: &Scenario, c: &CallSpec, ids: &Ids, b: &Value) 
         }
         entry.bot_id
     } else {
-        b["botId"].as_str().unwrap_or_default().to_owned()
+        body["botId"].as_str().unwrap_or_default().to_owned()
     };
-    let row = w.hub.store.bot(&chat).unwrap().ok_or_else(|| fail("guard let through a chat that does not exist"))?;
+    let row =
+        world.hub.store.bot(&chat).unwrap().ok_or_else(|| fail("guard let through a chat that does not exist"))?;
     if row.deleted {
         return Err(fail("guard let through a deleted chat"));
     }
@@ -466,25 +467,25 @@ fn check_guard_ok(w: &World, sc: &Scenario, c: &CallSpec, ids: &Ids, b: &Value) 
     let Some(agent) = row.config.hq_agent.as_deref().and_then(agent_index) else {
         return Err(fail("guard let through a chat with no (known) agent"));
     };
-    let ans = &sc.grants[c.person][agent];
+    let ans = &sc.grants[call.person][agent];
     if !ans.allowed() {
         return Err(fail(format!("kith-auth says {ans:?} for {me}/{} and guard let through", AGENTS[agent])));
     }
-    if m == "respondPermission" && !ans.member() {
+    if method == "respondPermission" && !ans.member() {
         return Err(fail(format!("respondPermission let through for a non-member answer {ans:?}")));
     }
-    if m == "send" {
-        match Change::from_args(b) {
+    if method == "send" {
+        match Change::from_args(body) {
             Ok(Change::Nothing) => {}
-            Ok(Change::Set(Pick::Project(p))) => {
-                let shared = sc.people[c.person]
+            Ok(Change::Set(Pick::Project(project))) => {
+                let shared = sc.people[call.person]
                     .as_ref()
-                    .is_some_and(|s| PROJECTS.iter().zip(s.projects).any(|(x, on)| on && *x == p));
+                    .is_some_and(|s| PROJECTS.iter().zip(s.projects).any(|(x, on)| on && *x == project));
                 if !shared {
-                    return Err(fail(format!("send let {me} start in project {p} that is not shared with them")));
+                    return Err(fail(format!("send let {me} start in project {project} that is not shared with them")));
                 }
             }
-            other => return Err(fail(format!("send let through a folder pick: {b} -> {other:?}"))),
+            other => return Err(fail(format!("send let through a folder pick: {body} -> {other:?}"))),
         }
     }
     let _ = ids;
