@@ -24,6 +24,7 @@ import { PlaceFolderControl } from '../bots/PlaceFolderPicker'
 import { GroupEditorView } from '../bots/GroupEditorView'
 import { BotTemplateView } from '../bots/BotTemplateView'
 import { CallView } from '../call/CallView'
+import { callBlockedReason } from '../call/call-availability'
 import { MacChatButton } from './MacChatButton'
 import './thread.css'
 import './composer.css'
@@ -50,6 +51,13 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
   const [calling, setCalling] = useState(false)
   const [callSpeaking, setCallSpeaking] = useState(false)
   const interruptCall = useRef<(() => void) | null>(null)
+  const callBlocked = callBlockedReason(store)
+  // One call per chat window: a second press (double click, or the details page while in a call) does nothing.
+  const startCall = () => {
+    if (calling || callBlocked) return
+    setCompactDetails(false)
+    setCalling(true)
+  }
   const [routineId, setRoutineId] = useState<string | null>(null)
   const [routineRequest, setRoutineRequest] = useState(0)
   const root = useRef<HTMLDivElement>(null)
@@ -129,6 +137,8 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
       key={routineRequest}
       botId={botId}
       routineId={routineId}
+      callBlocked={callBlocked}
+      onCall={bot && !calling ? startCall : null}
       tab={detailsTab}
       setTab={setDetailsTab}
       editGroup={() => setEditingGroup(true)}
@@ -150,6 +160,15 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
           <TopFade />
           <div className="top-chrome-row">
             <Spacer />
+            {bot ? (
+              <MacChatButton
+                className="ringed"
+                title={callBlocked ?? 'Voice call'}
+                icon="phone.fill"
+                disabled={!!callBlocked || calling}
+                onClick={startCall}
+              />
+            ) : null}
             {(!showSettings || openThread || !wide) && !compactDetails ? (
               <MacChatButton className="ringed" title="Conversation details" icon="chevron.left.2" direction={[-1, 0]} onClick={toggleDetails} />
             ) : null}
@@ -184,15 +203,13 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
           ) : (
             <Composer
               botId={botId}
-              onCall={!calling && bot ? () => setCalling(true) : null}
+              onCall={!calling && bot && !callBlocked ? startCall : null}
               onInterrupt={callSpeaking ? () => interruptCall.current?.() : null}
             />
           )}
         </div>
         {calling ? (
-          <div className="call-overlay">
-            <CallView botId={botId} onSpeaking={setCallSpeaking} interrupt={interruptCall} onEnd={() => setCalling(false)} />
-          </div>
+          <CallView botId={botId} onSpeaking={setCallSpeaking} interrupt={interruptCall} onEnd={() => setCalling(false)} />
         ) : null}
       </div>
       <ChatSidePanel

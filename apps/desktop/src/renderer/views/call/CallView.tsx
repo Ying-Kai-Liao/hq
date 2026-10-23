@@ -1,15 +1,12 @@
 import { isWorking } from '@shared/models'
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
-import { BotAvatar } from '../../components/Avatar'
-import { Icon } from '../../components/Icon'
 import { Sheet } from '../../components/Overlay'
-import { Text } from '../../components/Text'
 import { useModel } from '../../lib/observable'
-import { avatarColor, useDark, useReduceMotion, withAlpha } from '../../lib/theme'
 import { useStore } from '../../store/context'
 import { chosenKithVoice, voiceLocalPrepare, voiceLocalSpeak, voiceLocalStatus } from '../settings/voice-settings'
 import { VoiceChatSettingsView } from '../settings/VoiceChatSettingsView'
 import { CallOperator } from './call-operator'
+import { CallScreen } from './CallScreen'
 
 /**
  * Opens the window's own Settings at Voice chat; without it (no Settings screen around) the
@@ -26,8 +23,7 @@ import { watchVoiceCall } from './voice-call'
 import './call.css'
 
 /**
- * A voice call with a bot, as Grok Bot does it: a floating bar over the chat, which stays
- * readable underneath. What you say goes out as ordinary messages, its final replies are read
+ * A voice call with a bot: the call screen takes over the chat while it lasts. What you say goes out as ordinary messages, its final replies are read
  * aloud, and the chat gets a "Voice chat · 00:16" line when the call ends.
  */
 export function CallView({ botId, onSpeaking, interrupt, onEnd }: {
@@ -50,7 +46,6 @@ export function CallView({ botId, onSpeaking, interrupt, onEnd }: {
   const cloudStartedAt = useRef<number | null>(null)
   const closed = useRef(false)
   const bot = store.bots.get(botId)
-  const color = bot ? avatarColor(bot.avatarColor) : null
 
   const countCloudMinutes = () => {
     const provider = engine.current?.provider
@@ -173,9 +168,9 @@ export function CallView({ botId, onSpeaking, interrupt, onEnd }: {
     }
   }, [session, phase])
 
-  const speaking = phase === 'speaking'
   const muted = session?.muted === true
   const working = bot ? isWorking(bot) : false
+  const downloading = session?.warning?.startsWith('Downloading') === true
   const statusText =
     phase === null || phase === 'starting'
       ? 'Connecting'
@@ -185,114 +180,28 @@ export function CallView({ botId, onSpeaking, interrupt, onEnd }: {
           ? "Can't listen"
           : muted
             ? 'Muted'
-            : working
-              ? 'Working, listening'
-              : 'Listening'
-  const failure = blocked ?? (phase === 'failed' ? session?.failure : null)
-  const warning = session?.warning ?? null
+            : downloading
+              ? 'Downloading voice…'
+              : working
+                ? 'Working…'
+                : 'Listening'
+  const failure = blocked ?? (phase === 'failed' ? session?.failure : null) ?? null
 
   return (
-    <div className="call">
-      <div className="call-bar">
-        <button
-          className={`call-avatar ${speaking ? 'speaking' : ''}`}
-          disabled={!speaking}
-          aria-label={speaking ? 'Interrupt' : (bot?.name ?? '')}
-          title={speaking ? 'Interrupt' : undefined}
-          onClick={() => session?.interrupt()}
-        >
-          {bot ? <BotAvatar bot={bot} size={34} /> : <span className="call-avatar-empty" />}
-        </button>
-        <CallLevelDots engine={session} working={working} color={color} label={statusText} />
-        {/* Audio leaves the computer: say where. */}
-        {session?.provider ? (
-          <Text size="caption2" weight="semibold" tone="secondary" aria-label={`Voice by ${providerName(session.provider)}`}>
-            {providerName(session.provider)}
-          </Text>
-        ) : null}
-        <button className="call-round" title="Call settings" aria-label="Call settings" onClick={() => (openVoiceSettings ? openVoiceSettings() : setSettings(true))}>
-          <Icon name="gearshape" size={16} weight="medium" scaled={false} />
-        </button>
-        <button
-          className={`call-round ${muted ? 'on' : ''}`}
-          title={muted ? 'Unmute' : 'Mute'}
-          aria-label={muted ? 'Unmute' : 'Mute'}
-          onClick={() => session && (session.muted = !session.muted)}
-        >
-          <Icon name={muted ? 'mic.slash' : 'mic'} size={16} weight="medium" scaled={false} />
-        </button>
-        <button className="call-round end" title="End call" aria-label="End call" onClick={onEnd}>
-          <Icon name="xmark" size={16} weight="semibold" scaled={false} />
-        </button>
-      </div>
-      {failure ? (
-        <Text as="div" key="failure" tone="danger" className="call-line">
-          {failure}
-        </Text>
-      ) : warning ? (
-        <Text as="div" key={warning} tone="secondary" className="call-line">
-          {warning}
-        </Text>
-      ) : notice ? (
-        <Text as="div" key={notice} tone="secondary" className="call-line">
-          {notice}
-        </Text>
-      ) : null}
+    <>
+      <CallScreen
+        bot={bot}
+        session={session}
+        statusText={statusText}
+        failure={failure}
+        notice={notice}
+        working={working}
+        onSettings={() => (openVoiceSettings ? openVoiceSettings() : setSettings(true))}
+        onEnd={onEnd}
+      />
       <Sheet open={settings} onClose={() => setSettings(false)}>
         <VoiceChatSettingsView />
       </Sheet>
-    </div>
+    </>
   )
-}
-
-const DOTS_WIDTH = 120
-const DOTS_HEIGHT = 16
-
-/**
- * The dotted line in the call bar: it follows your voice while listening, ripples while the bot
- * talks, breathes while it works, and rests as faint dots otherwise.
- */
-function CallLevelDots({ engine, working, color, label }: { engine: VoiceEngine | null; working: boolean; color: string | null; label: string }) {
-  const canvas = useRef<HTMLCanvasElement>(null)
-  const dark = useDark()
-  const reduceMotion = useReduceMotion()
-  const live = useRef({ engine, working, color, dark, reduceMotion })
-  live.current = { engine, working, color, dark, reduceMotion }
-
-  useEffect(() => {
-    const el = canvas.current
-    const ctx = el?.getContext('2d')
-    if (!el || !ctx) return
-    const scale = window.devicePixelRatio || 1
-    el.width = DOTS_WIDTH * scale
-    el.height = DOTS_HEIGHT * scale
-    let frame = 0
-    const draw = (now: number) => {
-      const { engine, working, color, dark, reduceMotion } = live.current
-      const t = reduceMotion ? 0 : now / 1000
-      const speaking = engine?.phase === 'speaking'
-      const level = engine?.level ?? 0
-      const accent = dark ? '#ffffff' : '#000000'
-      const tint = speaking ? accent : (color ?? accent)
-      ctx.setTransform(scale, 0, 0, scale, 0, 0)
-      ctx.clearRect(0, 0, DOTS_WIDTH, DOTS_HEIGHT)
-      const spacing = 8
-      const count = Math.max(1, Math.floor(DOTS_WIDTH / spacing))
-      for (let i = 0; i < count; i++) {
-        const x = i * spacing + spacing / 2
-        const wave = (Math.sin(i * 0.55 - t * 6) + 1) / 2
-        const amount = speaking ? 0.5 + 0.5 * wave : level > 0.05 ? Math.max(0.2, level) * (0.45 + 0.55 * wave) : working ? 0.25 * ((Math.sin(t * 2.4) + 1) / 2) : 0.08
-        const height = 4 + amount * (DOTS_HEIGHT - 4)
-        ctx.fillStyle = withAlpha(tint, 0.5 + 0.5 * amount)
-        ctx.beginPath()
-        ctx.roundRect(x - 1.25, (DOTS_HEIGHT - height) / 2, 2.5, height, 1.25)
-        ctx.fill()
-      }
-      frame = requestAnimationFrame(draw)
-    }
-    frame = requestAnimationFrame(draw)
-    return () => cancelAnimationFrame(frame)
-  }, [])
-
-  return <canvas ref={canvas} role="img" aria-label={label} className="call-dots" style={{ width: DOTS_WIDTH, height: DOTS_HEIGHT }} />
 }
