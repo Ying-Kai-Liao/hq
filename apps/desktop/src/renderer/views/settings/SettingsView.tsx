@@ -89,7 +89,7 @@ export function SettingsWindow({ initial }: { initial: SettingsPage }) {
           </div>
         </div>
       </main>
-      <Sheet open={approval !== null} onClose={() => approval && app.deferApproval(approval)}>
+      <Sheet className="settings-sheet" open={approval !== null} onClose={() => approval && app.deferApproval(approval)}>
         {approval ? <ApprovalSheet key={approval.id} approval={approval} /> : null}
       </Sheet>
     </div>
@@ -212,7 +212,7 @@ function CrewSettings() {
           <Switch key="login" on={launchAtLogin} onChange={(on) => void window.kith.app.setLaunchAtLogin(on).then(setLaunchAtLogin)}>Open at login</Switch>,
         ]}
       </CardSection>
-      <Sheet open={backups} onClose={() => setBackups(false)} width={460}>
+      <Sheet className="settings-sheet" open={backups} onClose={() => setBackups(false)} width={460}>
         <ModalHeader title="Backups" />
         <div className="settings-devices-body">
           <BackupChains />
@@ -312,10 +312,10 @@ function PrivacySettings() {
           </button>
         </CardSection>
       ) : null}
-      <FormSheet open={about} onClose={() => setAbout(false)}>
+      <FormSheet className="settings-sheet" open={about} onClose={() => setAbout(false)}>
         <AnalyticsSheet />
       </FormSheet>
-      <Sheet open={access} onClose={() => setAccess(false)} width={660} height={Math.min(820, window.innerHeight - 80)}>
+      <Sheet className="settings-sheet" open={access} onClose={() => setAccess(false)} width={660} height={Math.min(820, window.innerHeight - 80)}>
         <ModalHeader title="Computer access" />
         <ComputerAccessView />
       </Sheet>
@@ -386,7 +386,7 @@ function AboutSettings() {
           <Icon name="arrow.up.right.square" size={11} color="var(--secondary)" />
         </button>
       </CardSection>
-      <FormSheet open={licenses} onClose={() => setLicenses(false)}>
+      <FormSheet className="settings-sheet" open={licenses} onClose={() => setLicenses(false)}>
         <LicensesSheet />
       </FormSheet>
     </>

@@ -6,6 +6,7 @@ import { pointerDrag, type Point } from '../lib/pointer-drag'
 import { reduceMotion } from '../lib/theme'
 import { useSlide } from '../lib/slide'
 import { pendingQuestions } from '@shared/board'
+import { prefs, usePref } from '../lib/prefs'
 import { sameRef, refKey, type RosterItem } from '../store/app-model'
 import type { BotStore } from '../store/bot-store'
 import type { useComputerRoster } from '../store/computer-roster'
@@ -30,6 +31,9 @@ interface Lift {
   seq: number
 }
 
+// Automatic order has no drag: the rows sort themselves.
+const noDrag = {} as ReturnType<typeof pointerDrag>
+
 export function BotRoster({ roster, compact, onContext }: {
   roster: ReturnType<typeof useComputerRoster>
   compact: boolean
@@ -37,6 +41,7 @@ export function BotRoster({ roster, compact, onContext }: {
 }) {
   const app = useApp()
   const selected = app.selection
+  const [crewOrder] = usePref(prefs.crewOrder)
   const [hovered, setHovered] = useState<string | null>(null)
   const [dragged, setDragged] = useState<string | null>(null)
   const [botDrag, setBotDragState] = useState<BotDrag | null>(null)
@@ -151,7 +156,7 @@ export function BotRoster({ roster, compact, onContext }: {
         onClick={() => app.select(item.ref)}
         onContext={(x, y) => onContext(item.bot, item.store, x, y)}
         lifted={held && lift !== null}
-        drag={pointerDrag({ start: (from) => liftRow(item, siblings, from), over: dragOver, drop, cancel: endDrag })}
+        drag={crewOrder === 'manual' ? pointerDrag({ start: (from) => liftRow(item, siblings, from), over: dragOver, drop, cancel: endDrag }) : noDrag}
       >
         <RosterBotRow item={item} compact={compact} />
       </RosterRow>

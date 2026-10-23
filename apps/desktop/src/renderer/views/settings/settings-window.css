@@ -1,17 +1,22 @@
 /* The Settings window (docs/design mac-settings): plain ground, a slightly translucent sidebar of pages, a small
    centred title, and iOS-style grouped cards. Everything below is scoped to .settings-win so the shared card
-   components look the same everywhere else. */
-.settings-win {
+   components look the same everywhere else. The Settings window's sheets are portalled out of it, so they carry
+   .settings-sheet and take the same card, row and switch rules (the :is() selectors below). */
+.settings-win,
+.settings-sheet {
   --sw-line: var(--kith-line);
   --sw-select: var(--kith-panel);
   --sw-green: #34c759;
+}
+.settings-win {
   display: flex;
   height: 100vh;
   background: var(--kith-ground);
   color: var(--kith-ink);
 }
 @media (prefers-color-scheme: dark) {
-  .settings-win {
+  .settings-win,
+  .settings-sheet {
     --sw-green: #30d158;
   }
 }
@@ -107,14 +112,14 @@
 }
 
 /* Grouped cards: section label, then a card of rows (42 min) split by hairlines. */
-.settings-win .card-section {
+:is(.settings-win, .settings-sheet) .card-section {
   gap: 6px;
 }
-.settings-win .card-section-title {
+:is(.settings-win, .settings-sheet) .card-section-title {
   padding: 0 4px;
   min-height: 18px;
 }
-.settings-win .card-section-title h3 {
+:is(.settings-win, .settings-sheet) .card-section-title h3 {
   font: 700 10.5px var(--font-ui);
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -124,42 +129,42 @@
   font: 600 12px var(--font-ui);
   color: var(--kith-ink);
 }
-.settings-win .card-section-rows {
+:is(.settings-win, .settings-sheet) .card-section-rows {
   background: var(--kith-ground);
   border-radius: 14px;
   border: 1px solid var(--kith-line);
 }
 @media (prefers-color-scheme: dark) {
   /* In dark the card is coal and the line is the card's own colour. */
-  .settings-win .card-section-rows {
+  :is(.settings-win, .settings-sheet) .card-section-rows {
     background: var(--kith-panel);
     border-color: var(--kith-panel);
   }
 }
-.settings-win .card-row {
+:is(.settings-win, .settings-sheet) .card-row {
   min-height: 42px;
   padding: 8px 14px;
 }
-.settings-win .card-row:empty {
+:is(.settings-win, .settings-sheet) .card-row:empty {
   display: none;
 }
-.settings-win .card-section-footer,
+:is(.settings-win, .settings-sheet) .card-section-footer,
 .settings-hint {
   padding: 0 4px;
   color: var(--kith-muted);
   font-size: 11.5px;
 }
-.settings-win .switch-track.on {
+:is(.settings-win, .settings-sheet) .switch-track.on {
   background: var(--sw-green);
 }
-.settings-win .switch-track.on .switch-knob {
+:is(.settings-win, .settings-sheet) .switch-track.on .switch-knob {
   background: #fff;
 }
-.settings-win .switch.bare {
+:is(.settings-win, .settings-sheet) .switch.bare {
   width: auto;
   flex: none;
 }
-.settings-win .card-row > .switch.bare {
+:is(.settings-win, .settings-sheet) .card-row > .switch.bare {
   flex: none;
 }
 
@@ -219,7 +224,7 @@
 }
 
 /* A card inside a card row (SSH rows) doesn't draw a second card. */
-.settings-win .settings-card {
+:is(.settings-win, .settings-sheet) .settings-card {
   background: transparent;
   padding: 0;
   margin: 0;
