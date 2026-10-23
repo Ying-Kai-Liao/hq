@@ -37,6 +37,7 @@ jobs:
       ios: ${{ steps.h.outputs.ios }}
       desktop: ${{ steps.h.outputs.desktop }}
       relay: ${{ steps.h.outputs.relay }}
+      e2e: ${{ steps.h.outputs.e2e }}
     steps:
       - uses: actions/checkout@v4
       # On push to main dorny compares with the previous commit, so main only runs what changed.
@@ -82,6 +83,10 @@ jobs:
               - '{apps/ios/**,apps/shared/**,apps/Kith.xcodeproj/**,apps/project.yml,.github/workflows/ci.yml}'
               - '!**/README.md'
             desktop:
+              - '{apps/desktop/**,apps/packaging/**,apps/shared/**,apps/screen-macos/**,apps/Kith.xcodeproj/**,apps/project.yml,serve/host/**,serve/rust-toolchain.toml,serve/docs/reference/fixtures/**,.github/workflows/ci.yml}'
+              - '!**/*.md'
+            # The e2e also runs serve/cloud's wrangler dev, so cloud changes trigger it (not the macOS desktop job).
+            e2e:
               - '{apps/desktop/**,apps/packaging/**,apps/shared/**,apps/screen-macos/**,apps/Kith.xcodeproj/**,apps/project.yml,serve/host/**,serve/rust-toolchain.toml,serve/docs/reference/fixtures/**,serve/cloud/**,.github/workflows/ci.yml}'
               - '!**/*.md'
   kernel:
@@ -276,7 +281,7 @@ jobs:
   # the Mac runner, and nothing in it is macOS-only.
   desktop-relay-e2e:
     needs: changes
-    if: needs.changes.outputs.desktop == 'true'
+    if: needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
