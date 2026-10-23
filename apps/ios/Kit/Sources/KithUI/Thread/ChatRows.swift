@@ -233,7 +233,7 @@ struct AgentBubble: View {
         VStack(alignment: .leading, spacing: 4) {
             Group {
                 if let files = entry.data.files, !files.isEmpty {
-                    ForEach(files) { file in FileDownloadCard(entry: entry, file: file) }
+                    ForEach(files) { file in SharedFileView(entry: entry, file: file) }
                 } else {
                     MarkdownText(entry.data.text ?? "").equatable()
                         .padding(.horizontal, 16)

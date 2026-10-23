@@ -1,0 +1,5 @@
+ClaimOnResolve = TRUE
+TakeoverAtomic = TRUE
+SyncLaneAtStart = TRUE
+ForgetOnImport = TRUE
+ForgetsCache = FALSE

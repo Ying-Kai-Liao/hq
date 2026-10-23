@@ -158,7 +158,8 @@ extension BotStore {
             let calls = Array(voiceCalls.values).filter { $0.botId == e.botId && e.rev > $0.startRev }
             // The chat's replies and its tasks' are heard; other threads aren't.
             let heard = e.threadId.map { root in chat(e.botId).contains { $0.id == root && $0.isTask } } ?? true
-            if e.kind == "agent", heard, known?.data.final != true, let text = e.data.text, !text.isEmpty {
+            // A shared file's entry carries only its name and size for the chat's card: never read aloud.
+            if e.kind == "agent", heard, known?.data.final != true, e.data.files?.isEmpty != false, let text = e.data.text, !text.isEmpty {
                 let final = e.data.final == true
                 for call in calls {
                     // Replies already final when the call began never get here (`known` was final).
