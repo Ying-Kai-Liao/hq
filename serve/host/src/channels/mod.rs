@@ -30,7 +30,7 @@
 //! `debounce_s` (seconds to wait for more messages before a run starts, default 2), `router` (`jev` or `off`,
 //! default `jev` when a Jev key is found), `interrupt` (false: corrections wait for the next turn instead of
 //! restarting the run, default true), `context_show` (a reply ends with a "context N%" line once the session is at
-//! least this full, default 30, `"off"` never), `permission_mode` (the owner's runs; unset leaves it to the agent's
+//! least this full, default 30, `"off"` never; the apps get it as `contextPercent` on a turn's last agent entry), `permission_mode` (the owner's runs; unset leaves it to the agent's
 //! settings and hq's default), `discord_guild` (server name or id for the Discord adapter).
 //!
 //! Connections: for each of discord, telegram and slack, the profiles `hq-auth granted --for serve <platform>`
@@ -46,11 +46,11 @@ mod judge;
 mod manager;
 mod queue;
 mod run;
-mod settings;
+pub(crate) mod settings;
 mod slack;
 mod state;
 mod telegram;
-mod text;
+pub(crate) mod text;
 
 #[cfg(test)]
 mod fake;

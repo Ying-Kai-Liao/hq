@@ -101,8 +101,10 @@ impl Actor {
             let mut snapshot = completed.result?;
             let text = format!("{} ({} bytes)", snapshot.meta.name, snapshot.meta.size);
             self.close_seg();
-            self.add(EntryKind::Agent, turn, json!({"text": text, "final": true, "files": [snapshot.meta]}))
+            let entry = self
+                .add(EntryKind::Agent, turn, json!({"text": text, "final": true, "files": [snapshot.meta]}))
                 .ok_or_else(|| anyhow!("couldn't save the file message"))?;
+            self.last_agent = Some(entry.id);
             snapshot.commit();
             self.files.summary = Some(text);
             self.set_activity("Working…");

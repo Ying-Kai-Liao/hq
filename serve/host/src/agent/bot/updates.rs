@@ -248,8 +248,10 @@ impl Actor {
             anyhow::bail!("send_message isn't available in this turn: write your answer as your reply");
         }
         self.close_seg();
-        self.add(EntryKind::Agent, turn, json!({"text": text, "final": true}))
+        let entry = self
+            .add(EntryKind::Agent, turn, json!({"text": text, "final": true}))
             .ok_or_else(|| anyhow::anyhow!("couldn't save the message"))?;
+        self.last_agent = Some(entry.id);
         self.sent.push(text);
         self.set_activity("Working…");
         Ok(())
@@ -270,6 +272,7 @@ impl Actor {
             };
             if let Some(e) = self.add(k, self.turn.unwrap_or(0), data) {
                 if kind == SegKind::Text {
+                    self.last_agent = Some(e.id.clone());
                     self.last_text = Some(e.id.clone());
                 }
                 self.seg =
