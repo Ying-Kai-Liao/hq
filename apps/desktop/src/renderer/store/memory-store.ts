@@ -8,7 +8,7 @@ export interface MemoryEntry {
   bot: string | null
   state: 'active' | 'archived' | string
   text: string
-  /** user · bot · dream · imported */
+  /** user · bot · tidy · imported (`dream` from a host before the rename) */
   author: string
   authorBot: string | null
   pinned: boolean
@@ -19,8 +19,8 @@ export interface MemoryEntry {
 
 export interface MemoryLayer { entries: MemoryEntry[]; used: number; cap: number }
 
-/** One dreaming run: what it added and archived; it can be undone. */
-export interface DreamRun {
+/** One tidy-up run: what it added and archived; it can be undone. */
+export interface TidyRun {
   id: number
   at: number
   undone: boolean
@@ -54,10 +54,10 @@ export interface MemoryFileVersion {
   id: number
   /** null: the file was deleted. */
   content: string | null
-  /** user · bot · dream · computer */
+  /** user · bot · tidy · computer (`dream` from a host before the rename) */
   author: string
   authorBot: string | null
-  /** edit · delete · restore · undo · dream */
+  /** edit · delete · restore · undo · tidy */
   cause: string
   at: number
 }
@@ -77,7 +77,7 @@ export interface MemoryView {
   shared: boolean
   yours: MemoryLayer
   bot: MemoryLayer
-  dreams: DreamRun[]
+  tidyUps: TidyRun[]
   /** Claude Code's own notes for the bot's project folder, read-only. */
   projectMemory: { path: string; text: string } | null
   memoryRev: number
@@ -99,9 +99,12 @@ export class MemoryStore extends Observable {
   async load() {
     const request = ++this.request
     try {
-      const view = await (await this.client()).call<MemoryView>('memory', { botId: this.botId })
-      // A host before 2.18.0 answers with its old memory listing, which has no layers or dreams.
-      if (!Array.isArray(view.dreams)) throw new Error(OLDER_HOST)
+      const view = await (await this.client()).call<MemoryView & { dreams?: TidyRun[] }>('memory', { botId: this.botId })
+      // A host before 2.18.0 answers with its old memory listing, which has no layers or tidy-ups; one from before
+      // the rename calls them `dreams`.
+      const tidyUps = Array.isArray(view.tidyUps) ? view.tidyUps : view.dreams
+      if (!Array.isArray(tidyUps)) throw new Error(OLDER_HOST)
+      view.tidyUps = tidyUps
       if (request === this.request) {
         this.view = view
         this.error = null
@@ -154,7 +157,7 @@ export function authorLabel(entry: MemoryEntry, botName: (id: string | null) => 
   switch (entry.author) {
     case 'user': return 'You wrote it'
     case 'bot': return `${botName(entry.authorBot)} remembered it`
-    case 'dream': return 'Dreaming'
+    case 'tidy': case 'dream': return 'Tidy-up'
     default: return 'Moved from the old memory'
   }
 }
@@ -163,7 +166,7 @@ export function authorLabel(entry: MemoryEntry, botName: (id: string | null) => 
 export function versionLabel(version: MemoryFileVersion, botName: (id: string | null) => string) {
   const by = version.author === 'user' ? 'You'
     : version.author === 'bot' ? botName(version.authorBot)
-    : version.author === 'dream' ? 'Dreaming' : 'This computer'
+    : version.author === 'tidy' || version.author === 'dream' ? 'Tidy-up' : 'This computer'
   switch (version.cause) {
     case 'delete': return `${by} deleted it`
     case 'restore': return `${by} brought back a version`

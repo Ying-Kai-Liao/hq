@@ -6,23 +6,25 @@ import { HStack } from '../../components/Stack'
 import { useModel } from '../../lib/observable'
 import { useStore } from '../../store/context'
 import { MemoryStore, authorLabel, type MemoryEntry } from '../../store/memory-store'
-import { botSections } from '@shared/bot-sections'
 import { FormSheet } from '../marketplace/pieces'
 import { relativeTime } from '../thread/chat-items'
 import { HarnessMemorySheet } from './HarnessMemorySheet'
 import { type FileTarget, MemoryFileSheet, fileRows } from './MemoryFiles'
-import { KithMemory } from './kith/KithMemory'
-import { useKithInfo } from './kith/use-kith'
+import { HqMemory } from './HqMemory'
 import './memory.css'
 
-type Section = 'yours' | 'bot' | 'dreams' | 'harness'
+type Section = 'yours' | 'bot' | 'tidy' | 'harness'
 
-/** A bot's memory: what all your bots know about you, what this one knows, its dreams, and its harness's own notes when the user kept them on. */
+/** A bot's memory. An hq agent has one memory, its plain files (`HqMemory`); any other bot has what all your bots know about you, what this one knows, its tidy-ups, and its harness's own notes when the user kept them on. */
 export function MemoryCard({ botId }: { botId: string }) {
+  const hq = !!useStore().bots.get(botId)?.hqAgent
+  return hq ? <HqMemory botId={botId} /> : <BotMemory botId={botId} />
+}
+
+function BotMemory({ botId }: { botId: string }) {
   const host = useStore()
   const memory = useModel(useMemo(() => new MemoryStore(botId, () => host.ready()), [botId, host]))
   const bot = host.bots.get(botId)
-  const kith = useKithInfo(botId)
   const [section, setSection] = useState<Section>('bot')
   const [draft, setDraft] = useState<{ id?: number; text: string } | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
@@ -32,13 +34,12 @@ export function MemoryCard({ botId }: { botId: string }) {
   useEffect(() => { void memory.load() }, [memory, bot?.memoryRev, bot?.sharedMemory, bot?.harnessMemory])
 
   const view = memory.view
-  // An hq bot's "Agent memory" above lists the agent's own files, so the harness's notes tab would repeat it.
-  const harnessTab = view?.projectMemory && botSections(bot?.hqAgent, kith?.unsupported ? null : (kith?.info ?? null)).harnessMemoryTab
+  const harnessTab = view?.projectMemory
   // Claude Code's section goes when its memory is turned off (on another device too).
   useEffect(() => { if (section === 'harness' && view && !harnessTab) setSection('bot') }, [section, view, harnessTab])
   const harness = host.backendName(bot?.backend ?? 'claude')
   const sections: { id: Section; label: string }[] = [
-    { id: 'yours', label: 'About you' }, { id: 'bot', label: 'This bot' }, { id: 'dreams', label: 'Dreams' },
+    { id: 'yours', label: 'About you' }, { id: 'bot', label: 'This bot' }, { id: 'tidy', label: 'Tidy-ups' },
     ...(harnessTab ? [{ id: 'harness' as const, label: harness }] : []),
   ]
   const layer = section === 'yours' ? view?.yours : section === 'bot' ? view?.bot : undefined
@@ -48,7 +49,6 @@ export function MemoryCard({ botId }: { botId: string }) {
   }
 
   return <>
-    {kith ? <KithMemory botId={botId} kith={kith} /> : null}
     <div className="memory-panel">
       <TabChoice label="Memory" selection={section} options={sections} onChange={(next) => {
         setSection(next)
@@ -86,17 +86,17 @@ export function MemoryCard({ botId }: { botId: string }) {
           ...layer.entries.map((entry) => <EntryRow key={entry.id} entry={entry} memory={memory} edit={() => setDraft({ id: entry.id, text: entry.text })} />),
           ...(view?.files ? fileRows(memory, view.files, section === 'yours', setFile) : []),
         ]}
-        {view && section === 'dreams' && [
+        {view && section === 'tidy' && [
           <p key="note" className="memory-muted">Between chats the bot tidies its memory from your own words. Each run can be undone.</p>,
-          ...(view.dreams.length ? [] : [<div key="empty" className="memory-empty"><Icon name="moon" size={20} color="var(--tertiary)" /><span>No dreams yet.</span></div>]),
-          ...view.dreams.map((dream) => <div className="memory-item fade-in" key={dream.id}>
+          ...(view.tidyUps.length ? [] : [<div key="empty" className="memory-empty"><Icon name="sparkles" size={20} color="var(--tertiary)" /><span>No tidy-ups yet.</span></div>]),
+          ...view.tidyUps.map((run) => <div className="memory-item fade-in" key={run.id}>
             <div className="memory-content">
-              <strong>{relativeTime.day(dream.at)}{dream.undone ? ' · undone' : ''}</strong>
-              {dream.added.map((c) => <span key={`a${c.id}`}>+ {c.text}</span>)}
-              {dream.archived.map((c) => <span key={`r${c.id}`} className="memory-archived">− {c.text}</span>)}
-              {(dream.files ?? []).map((f) => <span key={`f${f.version}`} className="memory-muted">Added to {f.name}</span>)}
+              <strong>{relativeTime.day(run.at)}{run.undone ? ' · undone' : ''}</strong>
+              {run.added.map((c) => <span key={`a${c.id}`}>+ {c.text}</span>)}
+              {run.archived.map((c) => <span key={`r${c.id}`} className="memory-archived">− {c.text}</span>)}
+              {(run.files ?? []).map((f) => <span key={`f${f.version}`} className="memory-muted">Added to {f.name}</span>)}
             </div>
-            {!dream.undone && <IconButton title="Undo this dream" icon="arrow.uturn.backward" disabled={memory.busy} onClick={() => void memory.mutate('undoDream', { id: dream.id })} />}
+            {!run.undone && <IconButton title="Undo this tidy" icon="arrow.uturn.backward" disabled={memory.busy} onClick={() => void memory.mutate('undoTidy', { id: run.id })} />}
           </div>),
         ]}
         {view?.projectMemory && section === 'harness' && <div className="memory-content">
