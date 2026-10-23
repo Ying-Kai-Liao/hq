@@ -88,21 +88,3 @@ struct CameraPicker: UIViewControllerRepresentable {
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
     }
 }
-
-/// The glass pill in the middle of the top bar while Board is not built yet: Crew alone, in the switch's look.
-struct CrewOnlyPill: View {
-    var body: some View {
-        Text("Crew")
-            .kithText(.topBar)
-            .foregroundStyle(Palette.ink)
-            .padding(.horizontal, 20)
-            .frame(minHeight: KithSize.topButton - 6)
-            .background(Capsule().fill(Palette.ink.opacity(0.09)))
-            .padding(3)
-            .frame(minHeight: KithSize.topButton)
-            .kithGlass(in: Capsule())
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text("Crew"))
-            .accessibilityAddTraits(.isHeader)
-    }
-}

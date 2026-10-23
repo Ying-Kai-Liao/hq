@@ -11,7 +11,7 @@ Local voice (kith-tts) uses Phonon, Gradium's on-device text to speech: the ptts
 model and voices (https://huggingface.co/gradium/phonon-31m-en and /gradium/phonon-voices, Apache-2.0,
 Copyright Gradium). The model files are downloaded on first use and are not part of this repository.
 
-Kith includes 592 third-party packages and vendored files under the licenses below.
+Kith includes 595 third-party packages and vendored files under the licenses below.
 
 ## 0BSD
 
@@ -3929,12 +3929,21 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - universal-hash 0.6.1 (cargo)
   https://github.com/RustCrypto/traits
   Copyright (c) 2019-2025 RustCrypto Developers
+- ureq-proto 0.6.5 (cargo)
+  https://github.com/algesten/ureq-proto
+  Copyright 2022 Martin Algesten
+- ureq 3.4.2 (cargo)
+  https://github.com/algesten/ureq
+  Copyright (c) 2019 Martin Algesten
 - url 2.5.8 (cargo)
   https://github.com/servo/rust-url
   Copyright (c) 2013-2025 The rust-url developers
 - utf8_iter 1.0.4 (cargo)
   https://github.com/hsivonen/utf8_iter
   Copyright Mozilla Foundation
+- utf8-zero 0.8.1 (cargo)
+  https://github.com/algesten/utf8-zero
+  Copyright Simon Sapin <simon.sapin@exyr.org>, Martin Algesten <martin@algesten.se>
 - utf8parse 0.2.2 (cargo)
   https://github.com/alacritty/vte
   Copyright (c) 2016 Joe Wilm
