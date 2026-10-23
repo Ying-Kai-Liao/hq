@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# kith-doctor-dontask-check — `kith doctor` warns when an agent runs in dontAsk (where a call no allow rule names is
+# refused) and its agent.md or skills use an Artifact tool, `kith ask` or one of its own tools/ scripts that its
+# settings.json permissions.allow lacks; agents in another mode, or whose allow list covers what they use, get no
+# such line. Throwaway HOME and KITH_HOME; fake `claude` on PATH.
+#
+#   kernel/tests/kith-doctor-dontask-check     a few seconds; exits 1 when a check fails
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-doctor-dontask-check.XXXXXX")
+T=$(cd "$T" && pwd -P)
+trap 'rm -rf "$T"' EXIT
+export HOME=$T/home KITH_HOME="$T/root" KITH_AUTH=$T/auth.json KITH_STATE=$T/state
+unset HQ_STATE KITH_PROJECT KITH_PERSON KITH_AGENT KITH_PERMISSION_MODE HQ_HOME
+mkdir -p "$HOME" "$T/bin" "$KITH_STATE/projects"
+printf '#!/bin/sh\n[ "$1 $2" = "plugin list" ] && echo "[]"\nexit 0\n' > "$T/bin/claude"; chmod +x "$T/bin/claude"
+export PATH=$T/bin:$PATH
+
+# mkagent NAME SETTINGS-JSON: an agent whose agent.md and one skill use Artifact, ArtifactData, kith ask (another
+# agent, --wait and itself) and its own tools/run.py; tools/gone.sh is not in its tools/ folder, tools/themes/ is a folder.
+mkagent() {
+  r=$KITH_HOME/agents/$1/role
+  mkdir -p "$r/skills/show" "$r/tools/themes"
+  printf -- '---\nname: %s\ndescription: test agent\n---\nPublish the page with the Artifact tool.\n' "$1" > "$r/agent.md"
+  printf 'Ask coder: `"{{KITH}}/bin/kith" ask coder -p <ID> "..."`, then `kith ask --wait <id>`. Others reach you with `kith ask %s`.\n' "$1" >> "$r/agent.md"
+  printf 'Run `{{AGENT_DIR}}/tools/run.py <ID>` first. A repo may have its own tools/gone.sh. Colours: tools/themes/a.json.\n' >> "$r/agent.md"
+  printf -- '---\nname: show\n---\nRead the data back with ArtifactData. Artifacts are pages.\n' > "$r/skills/show/SKILL.md"
+  touch "$r/tools/run.py"
+  printf '%s' "$2" > "$r/settings.json"
+}
+mkagent gappy '{"permissions":{"defaultMode":"dontAsk","allow":["Read","Bash(kith ask coder:*)"]}}'
+mkagent covered '{"permissions":{"defaultMode":"dontAsk","allow":["Artifact","ArtifactData",
+  "Bash({{HQ}}/bin/kith ask coder:*)","Bash(kith ask --wait *)","Bash(python3 \"{{AGENT_DIR}}/tools/run.py\" scan:*)"]}}'
+mkagent relaxed '{"permissions":{"allow":["Read"]}}'
+mkagent picked '{"permissions":{"defaultMode":"dontAsk","allow":["Read"]}}'      # this Mac chose auto for it
+mkagent forced '{"permissions":{"defaultMode":"auto","allow":["Read"]}}'         # this Mac chose dontAsk for it
+MACHINE=$(python3 "$KERNEL/lib/kith_paths.py" --sh | sed -n 's/^export KITH_MACHINE=//p' | tr -d "'\"")
+mkdir -p "$MACHINE"
+printf '{"agents":{"picked":{"permission_mode":"auto"},"forced":{"permission_mode":"dontAsk"}}}' > "$MACHINE/settings.json"
+
+OUT=$("$KERNEL/bin/kith-doctor" 2>&1)
+fails=0
+expect() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1 (got $2, want $3)"; fails=$((fails + 1)); fi; }
+line() { grep -E "^  ! $1 runs in dontAsk" <<< "$OUT"; }
+has() { grep -cF -- "$2" <<< "$(line "$1")" | tr -d ' '; }
+
+expect "the agents check ran to the end" "$(grep -c 'repos_and_agents: the check itself failed' <<< "$OUT")" 0
+expect "gappy is warned about" "$(line gappy | wc -l | tr -d ' ')" 1
+for gap in Artifact ArtifactData '{{KITH}}/bin/kith ask coder' 'kith ask --wait' tools/run.py; do
+  expect "gappy: names $gap" "$(has gappy "$gap")" 1
+done
+expect "gappy: Artifacts in prose is no tool" "$(has gappy ArtifactComments)" 0
+expect "gappy: kith ask to itself is not a gap" "$(has gappy 'ask gappy')" 0
+expect "gappy: a tools/ script it doesn't have is not a gap" "$(has gappy gone.sh)" 0
+expect "gappy: a tools/ folder is not a script" "$(has gappy themes)" 0
+expect "covered: allow list covers it (quoted, {{HQ}}, wildcard, subcommand)" "$(line covered | wc -l | tr -d ' ')" 0
+expect "relaxed: not dontAsk, not checked" "$(line relaxed | wc -l | tr -d ' ')" 0
+expect "picked: this Mac's auto wins over dontAsk" "$(line picked | wc -l | tr -d ' ')" 0
+expect "forced: this Mac's dontAsk is checked" "$(line forced | wc -l | tr -d ' ')" 1
+[ $fails -gt 0 ] && printf '%s\n' "$OUT" | sed -n '/^agents/,/^services/p'
+exit $((fails > 0))

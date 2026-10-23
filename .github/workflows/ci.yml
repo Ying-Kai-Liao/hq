@@ -131,6 +131,8 @@ jobs:
         run: kernel/tests/kith-info-check
       - name: Migrate check
         run: kernel/tests/kith-migrate-check
+      - name: Doctor dontAsk check
+        run: kernel/tests/kith-doctor-dontask-check
       - name: Unknown agent check
         run: kernel/tests/kith-unknown-agent-check
       - name: Auth check

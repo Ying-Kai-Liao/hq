@@ -4,12 +4,13 @@
   kith doctor            every check: ✓ fine, ! worth a look, ✗ broken (exit 1 when anything is broken)
 
 Links and folders, whether `kith migrate` has moved this Mac off the hq names (and what is left on them), the tools kith needs, one backup line (state, memories and each agent: on GitHub,
-behind, or on this Mac only), kith's default permission mode, each agent's checks, services and grants, the people
+behind, or on this Mac only), kith's default permission mode, each agent's checks (in dontAsk also the Artifact tools, kith ask and tools/ scripts
+its instructions use that its allow list lacks), services and grants, the people
 setup (memberships, grants and profiles naming no one, shared logins, free shells), the Claude Code plugin (and the
 plugins this Mac turns on for every agent), and the background jobs: loaded, running, and not stuck (a job whose
 the uv launcher (kith-uv, or hq-uv before the rename) never starts its script has usually lost Full Disk Access).
 """
-import json, os, plistlib, re, shutil, subprocess, sys
+import fnmatch, json, os, plistlib, re, shutil, subprocess, sys
 from pathlib import Path
 
 KITH = Path(os.environ.get('KITH_ROOT') or os.path.dirname(os.path.dirname(
@@ -166,6 +167,42 @@ def repos_and_agents():
             (warn if notes else ok)(f'{name}' + (f' ({", ".join(notes)})' if notes else ''))
         if live:
             note(f'  {live}')
+        gaps = dontask_gaps(name, Path(o['dir']))
+        if gaps:
+            warn(f'{name} runs in dontAsk, which refuses what no allow rule names, and its instructions use '
+                 f'{", ".join(gaps)}: add allow rules in {o["dir"]}/settings.json')
+
+
+def dontask_gaps(name, role):
+    """What an agent whose owner runs start in dontAsk is told to use in its agent.md and skills (an Artifact tool,
+    `kith ask`, one of its own tools/ scripts) that no rule in its settings.json permissions.allow covers."""
+    try:
+        perms = json.loads((role / 'settings.json').read_text()).get('permissions', {})
+    except (OSError, ValueError):
+        return []
+    mode = kith_settings.get('permission_mode', name) or perms.get('defaultMode') or kith_settings.get('permission_mode')
+    if mode != 'dontAsk':   # the same order bin/kith picks the mode in
+        return []
+    docs = [role / 'agent.md', *(Path(d) / 'SKILL.md' for d, _, f in os.walk(role / 'skills', followlinks=True)
+                                 if 'SKILL.md' in f)]
+    text = '\n'.join(p.read_text(errors='replace') for p in docs if p.is_file()).replace('"', '')
+    allow = [r.replace('"', '').replace('{{HQ}}', '{{KITH}}') for r in perms.get('allow', [])]
+    bash = [r[5:-1] for r in allow if r.startswith('Bash(') and r.endswith(')')]
+
+    def covered(cmd):   # a Bash rule as Claude Code reads it: `prefix:*`, else a pattern where * is anything
+        return 'Bash' in allow or any(cmd == p[:-2] or cmd.startswith(p[:-2] + ' ') if p.endswith(':*')
+                                      else fnmatch.fnmatchcase(cmd, p) for p in bash)
+    gaps = [t for t in dict.fromkeys(re.findall(r'\bArtifact(?:Comments|Data)?\b', text)) if t not in allow]
+    for cmd in dict.fromkeys(re.findall(r'(?<![\w/.-])((?:\{\{(?:KITH|HQ)\}\}/bin/)?(?:kith|hq) ask (?:--wait|[a-z][\w-]*))', text)):
+        cmd = cmd.replace('{{HQ}}', '{{KITH}}')
+        if not cmd.endswith(f' ask {name}') and not covered(cmd + ' x'):
+            gaps.append(cmd)
+    own = {p.name for p in (role / 'tools').iterdir() if p.is_file()} if (role / 'tools').is_dir() else set()
+    for tool in dict.fromkeys(re.findall(r'(?<![\w.-])tools/([\w.-]+)', text)):
+        named = any(w == f'tools/{tool}' or w.endswith(f'/tools/{tool}') for p in bash for w in p.removesuffix(':*').split())
+        if tool in own and not named and 'Bash' not in allow:
+            gaps.append(f'tools/{tool}')
+    return gaps
 
 
 def services():
