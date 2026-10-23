@@ -366,7 +366,7 @@ impl Actor {
         }
         if let (Some(user), Some(agent), "end_turn") = (self.turn_text.take(), &final_text, stop_reason.as_str()) {
             let turn = crate::chat::naming::Turn { user, agent: agent.clone() };
-            let _ = self.dreamer.send(memory::DreamEvent::Turn(turn));
+            let _ = self.tidier.send(memory::TidyEvent::Turn(turn));
         }
         self.hub.set_runtime(&self.rt, |r| {
             r.status = if failed { BotStatus::Error } else { BotStatus::Idle };

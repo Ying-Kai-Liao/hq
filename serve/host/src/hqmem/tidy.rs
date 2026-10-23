@@ -1,12 +1,12 @@
-//! Dreaming over the agents' files: kith-mem's dream (entries, quotes from the user's words, an audit) mapped onto
+//! Tidying over the agents' files: kith-mem's tidy (entries, quotes from the user's words, an audit) mapped onto
 //! the Markdown an hq agent keeps.
 //!
 //! What the model sees as entries are the bullet lines of the agent's `memory/MEMORY.md` and of the shared
-//! `user.md`, numbered 1.. for the run. A line is the dream's own when it is under a `## From conversations`
+//! `user.md`, numbered 1.. for the run. A line is the tidy-up's own when it is under a `## From conversations`
 //! heading and a run logged writing it (the agent also appends to the end of MEMORY.md, which may be that
 //! section); only those can be archived, rewritten or moved out. Every other line is shown as the user's. The agent's other
 //! top-level notes (`memory/*.md`) are the "long-form files": listed with their descriptions, appended to, never
-//! rewritten. Every file goes through [`super::write`] as `Who::Dream`, so the same checks, forgotten facts and
+//! rewritten. Every file goes through [`super::write`] as `Who::Tidy`, so the same checks, forgotten facts and
 //! versions apply as to any write, and a refused file is dropped whole.
 //!
 //! Each run is a row of `memory_dreams` (keyed by the agent) with the versions it wrote in `memory_dream_files`
@@ -14,18 +14,18 @@
 
 use super::{Layout, Target, Who, now_ms, put, read, record_undo, sync, write};
 use anyhow::{Result, anyhow, bail};
-use kith_mem::dream::{self, Plan, Snapshot};
 use kith_mem::files::{self, File, Version};
 use kith_mem::rusqlite::{Connection, params};
 use kith_mem::store::{self, Author, Entry, State};
+use kith_mem::tidy::{self, Plan, Snapshot};
 use kith_mem::tokens;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-/// The heading a dream's own lines live under, in `MEMORY.md` (read every session) and in `user.md`.
+/// The heading a tidy-up's own lines live under, in `MEMORY.md` (read every session) and in `user.md`.
 pub const SECTION: &str = "From conversations";
-/// The most lines one run shows the model; the dream's own come first.
+/// The most lines one run shows the model; the tidy-up's own come first.
 const MAX_LINES: usize = 200;
 /// The most notes listed as long-form files.
 const MAX_NOTES: usize = 30;
@@ -82,7 +82,7 @@ struct Line {
     file: usize,
     /// Its index among the file's lines.
     index: usize,
-    dream: bool,
+    tidy: bool,
 }
 
 /// The memory of one agent as a run sees it.
@@ -99,7 +99,7 @@ pub struct Material {
 struct Bullet {
     index: usize,
     text: String,
-    dream: bool,
+    tidy: bool,
 }
 
 fn heading(trimmed: &str) -> Option<&str> {
@@ -110,9 +110,9 @@ fn marker(trimmed: &str) -> Option<&str> {
     trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* "))
 }
 
-/// The bullet lines of a file outside its frontmatter, and whether each is under the dream's heading.
+/// The bullet lines of a file outside its frontmatter, and whether each is under the tidy-up's heading.
 fn bullets(content: &str) -> Vec<Bullet> {
-    let (mut front, mut dream, mut out) = (false, false, Vec::new());
+    let (mut front, mut tidy, mut out) = (false, false, Vec::new());
     for (index, raw) in content.lines().enumerate() {
         let t = raw.trim();
         if index == 0 && t == "---" {
@@ -124,9 +124,9 @@ fn bullets(content: &str) -> Vec<Bullet> {
             continue;
         }
         if let Some(h) = heading(t) {
-            dream = h == SECTION;
+            tidy = h == SECTION;
         } else if let Some(text) = marker(t).map(str::trim).filter(|t| !t.is_empty()) {
-            out.push(Bullet { index, text: text.to_owned(), dream });
+            out.push(Bullet { index, text: text.to_owned(), tidy });
         }
     }
     out
@@ -136,7 +136,7 @@ fn clip(text: &str) -> String {
     if text.chars().count() <= LINE_CHARS { text.to_owned() } else { text.chars().take(LINE_CHARS).collect() }
 }
 
-/// The lines (as [`norm`] reads them) that the agent's runs wrote and are still in effect: what the dream may change.
+/// The lines (as [`norm`] reads them) that the agent's runs wrote and are still in effect: what the tidy may change.
 pub fn written(conn: &Connection, agent: &str) -> Result<HashSet<String>> {
     let mut stmt = conn.prepare(
         "SELECT c.text FROM hq_dream_changes c JOIN memory_dreams d ON d.id = c.dream
@@ -147,7 +147,7 @@ pub fn written(conn: &Connection, agent: &str) -> Result<HashSet<String>> {
 }
 
 /// Reads the agent's memory and the shared one. `None` when the agent has no folder here. `written` is what
-/// [`written`] says; without it every line under the dream's heading counts as the dream's.
+/// [`written`] says; without it every line under the tidy-up's heading counts as the tidy-up's.
 pub fn load(layout: &Layout, agent: &str, today: &str, written: Option<&HashSet<String>>) -> Result<Option<Material>> {
     let Some(dir) = agent_dir(layout, agent) else { return Ok(None) };
     let wanted = |shared: bool, name: &str| {
@@ -193,14 +193,14 @@ pub fn load(layout: &Layout, agent: &str, today: &str, written: Option<&HashSet<
     for (file, l) in loaded.iter().take(2).enumerate() {
         let lines = bullets(l.content.as_deref().unwrap_or_default());
         all.extend(lines.into_iter().map(|mut b| {
-            b.dream &= written.is_none_or(|w| w.contains(&norm(&b.text)));
+            b.tidy &= written.is_none_or(|w| w.contains(&norm(&b.text)));
             (file, b)
         }));
     }
     if all.len() > MAX_LINES {
-        let mut room = MAX_LINES.saturating_sub(all.iter().filter(|(_, b)| b.dream).count());
+        let mut room = MAX_LINES.saturating_sub(all.iter().filter(|(_, b)| b.tidy).count());
         all.retain(|(_, b)| {
-            b.dream || {
+            b.tidy || {
                 let keep = room > 0;
                 room = room.saturating_sub(1);
                 keep
@@ -214,8 +214,8 @@ pub fn load(layout: &Layout, agent: &str, today: &str, written: Option<&HashSet<
             bot: (file == 0).then(|| agent.to_owned()),
             state: State::Active,
             text: clip(&b.text),
-            author: if b.dream { Author::Dream } else { Author::User },
-            author_bot: b.dream.then(|| agent.to_owned()),
+            author: if b.tidy { Author::Tidy } else { Author::User },
+            author_bot: b.tidy.then(|| agent.to_owned()),
             pinned: false,
             superseded_by: None,
             room: None,
@@ -224,7 +224,7 @@ pub fn load(layout: &Layout, agent: &str, today: &str, written: Option<&HashSet<
             updated_at: 0,
             rev: 0,
         });
-        lines.push(Line { full: b.text, file, index: b.index, dream: b.dream });
+        lines.push(Line { full: b.text, file, index: b.index, tidy: b.tidy });
     }
     let full = loaded[0].content.as_deref().is_some_and(|c| c.lines().count() >= FULL_LINES)
         || loaded[1].content.as_deref().is_some_and(|c| tokens::estimate(c) >= FULL_USER_TOKENS);
@@ -233,9 +233,9 @@ pub fn load(layout: &Layout, agent: &str, today: &str, written: Option<&HashSet<
 }
 
 impl Material {
-    /// The texts of the lines the dream wrote itself (what the time review may rewrite).
-    pub fn dream_lines(&self) -> impl Iterator<Item = &str> {
-        self.snapshot.entries.iter().zip(&self.lines).filter(|(_, l)| l.dream).map(|(e, _)| e.text.as_str())
+    /// The texts of the lines the tidy wrote itself (what the time review may rewrite).
+    pub fn tidy_lines(&self) -> impl Iterator<Item = &str> {
+        self.snapshot.entries.iter().zip(&self.lines).filter(|(_, l)| l.tidy).map(|(e, _)| e.text.as_str())
     }
 }
 
@@ -278,7 +278,7 @@ impl Doc {
         self.lines.iter().any(|l| l.contains(name))
     }
 
-    /// Adds a bullet at the end of the dream's section, which a file without one gets.
+    /// Adds a bullet at the end of the tidy-up's section, which a file without one gets.
     fn add(&mut self, text: &str, title: &str) {
         let line = format!("- {}", one_line(text));
         if self.lines.iter().all(|l| l.trim().is_empty()) {
@@ -331,7 +331,7 @@ struct Note {
 #[derive(Debug, Default)]
 pub struct Applied {
     /// The logged run; `None` when nothing was written.
-    pub dream: Option<i64>,
+    pub tidy: Option<i64>,
     /// Memory changed during the run: nothing was written.
     pub stale: bool,
     pub versions: Vec<Version>,
@@ -389,7 +389,7 @@ pub fn apply(conn: &Connection, m: &Material, plan: &Plan) -> Result<Applied> {
         if before == Some(after) {
             return Ok(false);
         }
-        match write(conn, target, Who::Dream(&m.agent), after)? {
+        match write(conn, target, Who::Tidy(&m.agent), after)? {
             Ok(written) => {
                 if let Some(v) = written.version {
                     conn.execute(
@@ -469,14 +469,14 @@ pub fn apply(conn: &Connection, m: &Material, plan: &Plan) -> Result<Applied> {
     };
     for a in &plan.archive {
         if let (Some(l), Some(e)) = (line(a.id), entry(a.id))
-            && l.dream
+            && l.tidy
         {
             marks(l.file, l.index, None, &mut changes, "archived", e.text.clone(), None);
         }
     }
     for r in &plan.review {
         if let (Some(l), Some(e)) = (line(r.id), entry(r.id))
-            && l.dream
+            && l.tidy
         {
             marks(l.file, l.index, Some(&r.text), &mut changes, "reviewed", one_line(&r.text), Some(e.text.clone()));
         }
@@ -521,14 +521,14 @@ pub fn apply(conn: &Connection, m: &Material, plan: &Plan) -> Result<Applied> {
             }
         }
     }
-    out.dream = run.get();
+    out.tidy = run.get();
     Ok(out)
 }
 
 /// The agent's latest runs, newest first, as the apps show them.
 pub fn runs(conn: &Connection, agent: &str, limit: usize) -> Result<Vec<Value>> {
     let mut out = Vec::new();
-    for run in dream::recent(conn, agent, limit)? {
+    for run in tidy::recent(conn, agent, limit)? {
         let mut stmt =
             conn.prepare("SELECT kind, file, shared, text, was FROM hq_dream_changes WHERE dream = ?1 ORDER BY rowid")?;
         let changes: Vec<Value> = stmt
@@ -557,7 +557,7 @@ pub struct Report {
 /// Puts back the files a run wrote. A file that changed after the run (the agent's turn, the user, a later run) is
 /// left as it is and named with the reason; the run counts as undone once all of its files are back.
 pub fn undo(conn: &Connection, layout: &Layout, agent: &str, id: i64) -> Result<Report> {
-    let run = dream::get(conn, id)?.filter(|d| d.bot == agent).ok_or_else(|| anyhow!("unknown dream"))?;
+    let run = tidy::get(conn, id)?.filter(|d| d.bot == agent).ok_or_else(|| anyhow!("unknown tidy"))?;
     let mut out = Report { undone: run.undone, ..Report::default() };
     let mut back: Vec<(String, bool)> = Vec::new();
     if run.undone {
@@ -589,10 +589,10 @@ pub fn undo(conn: &Connection, layout: &Layout, agent: &str, id: i64) -> Result<
             let who = match newest.author {
                 files::Author::User => "you".to_owned(),
                 files::Author::Bot => newest.author_bot.clone().unwrap_or_else(|| "the agent".into()),
-                files::Author::Dream => "a later dream".into(),
+                files::Author::Tidy => "a later tidy".into(),
                 files::Author::Computer => "something outside kith".into(),
             };
-            out.refused.push((label, format!("changed after the dream (by {who}); restore a version by hand")));
+            out.refused.push((label, format!("changed after the tidy (by {who}); restore a version by hand")));
             continue;
         }
         put(&target.path, before.as_deref())?;
@@ -619,7 +619,7 @@ pub fn undo(conn: &Connection, layout: &Layout, agent: &str, id: i64) -> Result<
     }
     if out.restored.is_empty() && !out.refused.is_empty() {
         let why: Vec<String> = out.refused.iter().map(|(f, r)| format!("{f}: {r}")).collect();
-        bail!("can't undo this dream. {}", why.join("; "));
+        bail!("can't undo this tidy-up. {}", why.join("; "));
     }
     Ok(out)
 }

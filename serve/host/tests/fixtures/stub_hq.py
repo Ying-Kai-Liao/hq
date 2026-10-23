@@ -54,7 +54,7 @@ elif args[:2] == ["memory", "search"]:
     hit = {"path": "notes.md", "line": 1, "agent": args[args.index("--agent") + 1], "snippet": f"{args[2]} agent={args[args.index('--agent') + 1]}"}
     print(json.dumps({"hits": ([hit] * 3)[:n]}))
 elif args == ["cost", "record"]:
-    # A dream's cost row: the JSON on stdin and who it is for.
+    # A tidy-up's cost row: the JSON on stdin and who it is for.
     with open(os.path.join(home, "cost.jsonl"), "a", encoding="utf-8") as cost:
         cost.write(json.dumps({"row": json.load(sys.stdin), "agent": os.environ.get("KITH_AGENT"),
                                "via": os.environ.get("KITH_VIA")}) + "\n")

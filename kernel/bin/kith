@@ -36,7 +36,7 @@
 #   kith live start|where|send <agent> ...               agents that run as one live session (session: live) (kith-live)
 #   kith remote add|ls|rm ...  ·  kith ask <agent>@<machine>   agents on your other machines, over ssh (kith-remote)
 #   kith memory search <words> [--agent NAME|--all]      search what the agents wrote down (kith-memory)
-#   kith memory check|log|diff|undo|forget ...           the write checks and versions of memory files (kith-memory)
+#   kith memory check|log|diff|undo|forget|tidy ...           the write checks and versions of memory files (kith-memory)
 #   kith project [ls [--json]|open ID|root|add ID [dir] [--in P] [--home [DIR]]]  projects: what each holds, its folder, its memory
 #   kith schedule [ls|add|rm|run|log|--install ...]      run agent tasks on a cron schedule (kith-sched)
 #   kith acp <agent> [--keep team,…]                     the agent as an ACP agent, one session per chat (kith-acp)

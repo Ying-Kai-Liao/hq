@@ -2,7 +2,7 @@
 //! stay in the kernel's kith-memory, which hands these here.)
 
 use super::hook::{self, Phase};
-use super::{Layout, Target, Who, forget, guard, open, put, read, record_undo, sync};
+use super::{Layout, Target, Who, forget, guard, open, put, read, record_undo, sync, tidy};
 use anyhow::{Context, Result, bail};
 use clap::Subcommand;
 use kith_mem::files::{self, Author, Cause, Version};
@@ -50,12 +50,27 @@ pub enum Cmd {
         #[command(flatten)]
         env: Env,
     },
-    /// Keep a fact out of memory: no agent or dream writes it again.
+    /// Keep a fact out of memory: no agent or tidy writes it again.
     Forget {
         #[arg(required = true, num_args = 1..)]
         text: Vec<String>,
         #[command(flatten)]
         env: Env,
+    },
+    /// The tidy-ups of an agent's memory (what Kith changed between turns); `tidy undo` puts one back.
+    #[command(args_conflicts_with_subcommands = true)]
+    Tidy {
+        /// The agent whose tidy-ups to list.
+        agent: Option<String>,
+        #[arg(long)]
+        json: bool,
+        /// How many tidy-ups to show.
+        #[arg(short = 'n', long, default_value_t = 20)]
+        limit: usize,
+        #[command(flatten)]
+        env: Env,
+        #[command(subcommand)]
+        undo: Option<TidySub>,
     },
     /// Claude Code hook on `Write`, `Edit` and `MultiEdit` (stdin: the hook's JSON).
     #[command(hide = true)]
@@ -64,15 +79,29 @@ pub enum Cmd {
         /// The agent whose run this is.
         #[arg(long)]
         agent: String,
-        /// The write is the agent's dreaming.
-        #[arg(long)]
-        dream: bool,
+        /// The write is the agent's tidying (`--dream` is the old name).
+        #[arg(long, alias = "dream")]
+        tidy: bool,
         #[command(flatten)]
         env: Env,
     },
 }
 
 /// Where the memory is; the kernel's commands pass what `lib/kith_paths.py` says, a terminal falls back to the env.
+#[derive(Subcommand, Debug)]
+pub enum TidySub {
+    /// Put every file a tidy-up wrote back to what it was. A file changed since is left alone and named.
+    Undo {
+        agent: String,
+        /// The id `kith memory tidy` shows.
+        id: i64,
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        env: Env,
+    },
+}
+
 #[derive(clap::Args, Debug, Default)]
 pub struct Env {
     #[arg(long, hide = true)]
@@ -93,10 +122,10 @@ impl Env {
 pub fn run(cmd: Cmd) -> Result<i32> {
     let mut out = std::io::stdout().lock();
     match cmd {
-        Cmd::Hook { phase, agent, dream, env } => {
+        Cmd::Hook { phase, agent, tidy, env } => {
             let mut input = String::new();
             std::io::stdin().read_to_string(&mut input)?;
-            let outcome = hook::run(phase, &input, &env.layout(), &agent, dream);
+            let outcome = hook::run(phase, &input, &env.layout(), &agent, tidy);
             if !outcome.stdout.is_empty() {
                 writeln!(out, "{}", outcome.stdout)?;
             }
@@ -205,12 +234,53 @@ pub fn run(cmd: Cmd) -> Result<i32> {
             )?;
             Ok(0)
         }
+        Cmd::Tidy { agent, json, limit, env, undo } => {
+            let layout = env.layout();
+            match (undo, agent) {
+                (Some(TidySub::Undo { agent, id, json, env }), _) => {
+                    let layout = env.layout();
+                    let report = tidy::undo(&open(&layout)?, &layout, &agent, id)?;
+                    if json {
+                        let refused: Vec<_> =
+                            report.refused.iter().map(|(f, why)| json!({"file": f, "reason": why})).collect();
+                        let body = json!({"restored": report.restored, "refused": refused, "undone": report.undone});
+                        writeln!(out, "{body}")?;
+                    } else {
+                        for file in &report.restored {
+                            writeln!(out, "restored {file}")?;
+                        }
+                        for (file, why) in &report.refused {
+                            writeln!(out, "left {file}: {why}")?;
+                        }
+                        writeln!(out, "{}", if report.undone { "Tidy-up undone." } else { "Not fully undone." })?;
+                    }
+                    Ok(0)
+                }
+                (None, Some(agent)) => {
+                    let runs = tidy::runs(&open(&layout)?, &agent, limit)?;
+                    if json {
+                        writeln!(out, "{}", json!({"tidyUps": runs}))?;
+                    } else if runs.is_empty() {
+                        writeln!(out, "{agent}: no tidy-ups yet.")?;
+                    } else {
+                        for run in &runs {
+                            let n = run["changes"].as_array().map_or(0, Vec::len);
+                            let state = if run["undone"] == true { "  (undone)" } else { "" };
+                            let at = when(run["at"].as_i64().unwrap_or(0));
+                            writeln!(out, "{:>5}  {at}  {n} changes{state}", run["id"])?;
+                        }
+                    }
+                    Ok(0)
+                }
+                (None, None) => bail!("which agent? kith memory tidy <agent>"),
+            }
+        }
         Cmd::Forget { text, env } => {
             let layout = env.layout();
             let conn = open(&layout)?;
             let text = text.join(" ");
             forget(&conn, &text)?;
-            writeln!(out, "Forgotten: no agent or dream will write that to memory again.")?;
+            writeln!(out, "Forgotten: no agent or tidy will write that to memory again.")?;
             for (label, line) in lines_with(&layout, &text) {
                 writeln!(out, "still written in {label}: {line}")?;
             }
@@ -268,7 +338,7 @@ fn when(ms: i64) -> String {
 fn who_label(v: &Version) -> String {
     match v.author {
         Author::Bot => v.author_bot.clone().unwrap_or_else(|| "agent".into()),
-        Author::Dream => format!("dream ({})", v.author_bot.as_deref().unwrap_or("?")),
+        Author::Tidy => format!("tidy ({})", v.author_bot.as_deref().unwrap_or("?")),
         Author::User => "kai".into(),
         Author::Computer => "unknown".into(),
     }
@@ -279,7 +349,7 @@ fn cause_label(v: &Version) -> &'static str {
         (Cause::Baseline, _) => "baseline (first seen)",
         (Cause::Undo, _) => "undo",
         (Cause::Restore, _) => "restore",
-        (Cause::Dream, _) => "dream",
+        (Cause::Tidy, _) => "tidy",
         (Cause::Delete, _) => "deleted",
         (Cause::Edit, Author::Bot) => "turn",
         (Cause::Edit, Author::User) => "hand edit",

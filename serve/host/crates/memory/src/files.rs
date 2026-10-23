@@ -30,7 +30,7 @@ const DIFF_PAIRS: usize = 4_000_000;
 pub enum Author {
     User,
     Bot,
-    Dream,
+    Tidy,
     /// Changed outside Kith, or by no bot's tool call.
     Computer,
 }
@@ -45,7 +45,7 @@ pub enum Cause {
     Restore,
     /// A bot's change taken back from the chat.
     Undo,
-    Dream,
+    Tidy,
     /// The file as it was found the first time it was seen, so a later change can be undone back to it.
     Baseline,
 }
@@ -134,7 +134,7 @@ pub fn description(content: &str) -> Option<String> {
     None
 }
 
-/// The checks a bot's or dreaming's file passes: what memory may say, the cap and the description.
+/// The checks a bot's or tidying's file passes: what memory may say, the cap and the description.
 pub fn check(content: &str) -> std::result::Result<(), Refusal> {
     if content.trim().is_empty() {
         return Err(Refusal::Empty);
@@ -474,7 +474,7 @@ fn author_name(author: Author) -> &'static str {
     match author {
         Author::User => "user",
         Author::Bot => "bot",
-        Author::Dream => "dream",
+        Author::Tidy => "tidy",
         Author::Computer => "computer",
     }
 }
@@ -482,7 +482,7 @@ fn author_name(author: Author) -> &'static str {
 fn parse_author(name: &str) -> Author {
     match name {
         "bot" => Author::Bot,
-        "dream" => Author::Dream,
+        "tidy" | "dream" => Author::Tidy,
         "computer" => Author::Computer,
         _ => Author::User,
     }
@@ -494,7 +494,7 @@ fn cause_name(cause: Cause) -> &'static str {
         Cause::Delete => "delete",
         Cause::Restore => "restore",
         Cause::Undo => "undo",
-        Cause::Dream => "dream",
+        Cause::Tidy => "tidy",
         Cause::Baseline => "baseline",
     }
 }
@@ -504,7 +504,7 @@ fn parse_cause(name: &str) -> Cause {
         "delete" => Cause::Delete,
         "restore" => Cause::Restore,
         "undo" => Cause::Undo,
-        "dream" => Cause::Dream,
+        "tidy" | "dream" => Cause::Tidy,
         "baseline" => Cause::Baseline,
         _ => Cause::Edit,
     }
@@ -537,6 +537,12 @@ mod tests {
         };
         record(&conn, &first, 1, 1).unwrap();
         assert_eq!(versions(&conn, None, "user.md", 5).unwrap()[0].cause, Cause::Baseline);
+    }
+
+    #[test]
+    fn rows_written_before_the_rename_read_as_tidy() {
+        assert_eq!((parse_author("dream"), parse_cause("dream")), (Author::Tidy, Cause::Tidy));
+        assert_eq!((author_name(Author::Tidy), cause_name(Cause::Tidy)), ("tidy", "tidy"));
     }
 
     #[test]

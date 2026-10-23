@@ -10,7 +10,7 @@
 //!
 //! Context (from Grok Bot too): the bot's instructions and memory are a frozen
 //! snapshot per session and compaction epoch (`context`), finished turns feed
-//! its dreaming (`memory`), messages sent while it works are folded into
+//! its tidying (`memory`), messages sent while it works are folded into
 //! its next turn, and a turn cut off by a host restart is resumed.
 //!
 //! Lanes: besides its own chat, a bot talks in threads (each a session of its own,
@@ -144,13 +144,8 @@ pub struct BotHandle {
     pub task: tokio::task::JoinHandle<()>,
 }
 
-/// Starts the actor for `home`, one of the places the bot talks. All of a bot's actors share its `dreamer`.
-pub fn spawn(
-    hub: Arc<Hub>,
-    cfg: BotConfig,
-    home: Lane,
-    dreamer: mpsc::UnboundedSender<memory::DreamEvent>,
-) -> BotHandle {
+/// Starts the actor for `home`, one of the places the bot talks. All of a bot's actors share its `tidier`.
+pub fn spawn(hub: Arc<Hub>, cfg: BotConfig, home: Lane, tidier: mpsc::UnboundedSender<memory::TidyEvent>) -> BotHandle {
     let (tx, rx) = mpsc::unbounded_channel();
     let rt = actor_key(&cfg.id, &home);
     // The session of the actor's own lane: the bot's main one, or a group lane's. A thread's is found by its root.
@@ -188,7 +183,7 @@ pub fn spawn(
         handoff: None,
         compaction_notice: None,
         applied_system: HashMap::new(),
-        dreamer,
+        tidier,
         turn_text: None,
         turn_entries: Vec::new(),
         turn_memory_revision: String::new(),
@@ -360,7 +355,7 @@ struct Actor {
     compaction_notice: Option<String>,
     /// Session -> the instructions this process last handed Claude as its system prompt.
     applied_system: HashMap<String, String>,
-    dreamer: mpsc::UnboundedSender<memory::DreamEvent>,
+    tidier: mpsc::UnboundedSender<memory::TidyEvent>,
     /// The user's words for this turn (None for a hidden turn or one not from the user); feeds memory.
     turn_text: Option<String>,
     /// The user messages this turn answers (none when it isn't the user's).

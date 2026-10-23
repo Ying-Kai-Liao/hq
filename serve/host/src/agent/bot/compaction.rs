@@ -128,7 +128,7 @@ impl Actor {
         let mut c = self.conversation(&sid);
         c.compacted(self.compacting.is_some(), self.compacting == Some(true), now_ms());
         self.save_conversation(&sid, &c);
-        let _ = self.dreamer.send(memory::DreamEvent::Flush);
+        let _ = self.tidier.send(memory::TidyEvent::Flush);
         let data = json!({
             "text": "Earlier context was summarized to make room.",
             "style": "info",
@@ -243,11 +243,11 @@ impl Actor {
         }
     }
 
-    /// Runs a compaction the host decided on, as a hidden turn in the main chat. Dreaming goes first, and Claude's
+    /// Runs a compaction the host decided on, as a hidden turn in the main chat. Tidying goes first, and Claude's
     /// opening is rendered again, so the compaction keeps current memory (render, load, compact).
     pub(super) async fn start_compaction(&mut self, idle: bool, done_tx: &tokio::sync::mpsc::UnboundedSender<Done>) {
         let (Some(sid), Some(command)) = (self.session_id.clone(), self.compact_command()) else { return };
-        let _ = self.dreamer.send(memory::DreamEvent::Flush);
+        let _ = self.tidier.send(memory::TidyEvent::Flush);
         if let Err(error) = context::refresh(&self.hub.store, &self.cfg.id, &sid) {
             tracing::warn!(bot = %self.cfg.id, error = format!("{error:#}"), "couldn't refresh the opening");
         }

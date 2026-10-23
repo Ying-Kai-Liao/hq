@@ -1,4 +1,4 @@
-//! What dreaming adds to long-form files: a line that cites the user's words (`append`), or an entry moved out of a
+//! What tidying adds to long-form files: a line that cites the user's words (`append`), or an entry moved out of a
 //! nearly full layer (`moveOut`). It only appends; it never rewrites a file. The caller writes them ([`notes`]).
 
 use serde::Deserialize;

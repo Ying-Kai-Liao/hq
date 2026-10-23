@@ -2,7 +2,7 @@
 //! versions, a diff and a restore. Every call names a file by `shared` (the shared user layer, or the agent's own
 //! memory/) and its `name` inside that layer; the answers are JSON values the API passes on as they are.
 
-use super::dream::{agent_dir, target_of};
+use super::tidy::{agent_dir, target_of};
 use super::{Layout, Target, Who, put, read, record_restore, sync, write};
 use anyhow::{Result, anyhow, bail};
 use kith_mem::files::{self, Author, Cause, Version};
@@ -102,7 +102,7 @@ fn author(v: &Version) -> &'static str {
     match v.author {
         Author::User => "kai",
         Author::Bot => "agent",
-        Author::Dream => "dream",
+        Author::Tidy => "tidy",
         Author::Computer => "unknown",
     }
 }
@@ -113,7 +113,7 @@ fn cause(v: &Version) -> &'static str {
         Cause::Delete => "delete",
         Cause::Restore => "restore",
         Cause::Undo => "undo",
-        Cause::Dream => "dream",
+        Cause::Tidy => "tidy",
         Cause::Baseline => "baseline",
     }
 }

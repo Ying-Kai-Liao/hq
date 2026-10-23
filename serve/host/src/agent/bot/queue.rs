@@ -90,7 +90,7 @@ impl Actor {
                 self.forget_session();
                 // Retain and summarize completed exchanges even when the user starts afresh. The chat shows no line
                 // for it: the user just confirmed it.
-                let _ = self.dreamer.send(memory::DreamEvent::Flush);
+                let _ = self.tidier.send(memory::TidyEvent::Flush);
             }
             Cmd::Reconfigure(cfg) => {
                 let cfg = *cfg;

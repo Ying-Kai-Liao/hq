@@ -350,10 +350,10 @@ fn put(path: &Path, content: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// Dreaming's notes: each appended to its file as a list line (a new file gets frontmatter first), and logged with
+/// Tidying's notes: each appended to its file as a list line (a new file gets frontmatter first), and logged with
 /// the run. A run whose notes all failed and that changed nothing else is dropped.
-pub fn write_notes(hub: &Hub, cfg: &BotConfig, dream: i64, notes: &[kith_mem::dream::Note]) {
-    let writer = Writer { author: Author::Dream, bot: Some(cfg), session: None, cause: Cause::Dream };
+pub fn write_notes(hub: &Hub, cfg: &BotConfig, tidy: i64, notes: &[kith_mem::tidy::Note]) {
+    let writer = Writer { author: Author::Tidy, bot: Some(cfg), session: None, cause: Cause::Tidy };
     for note in notes {
         let layer = note.bot.as_deref();
         let line = if note.text.starts_with(['-', '#', '*']) { note.text.clone() } else { format!("- {}", note.text) };
@@ -367,26 +367,25 @@ pub fn write_notes(hub: &Hub, cfg: &BotConfig, dream: i64, notes: &[kith_mem::dr
         });
         match written {
             Ok(version) => {
-                if let Err(error) = hub.store.memory_write(|c, _, _| kith_mem::dream::record_file(c, dream, version.id))
-                {
-                    tracing::warn!(bot = %cfg.id, error = format!("{error:#}"), "couldn't log a dream's note");
+                if let Err(error) = hub.store.memory_write(|c, _, _| kith_mem::tidy::record_file(c, tidy, version.id)) {
+                    tracing::warn!(bot = %cfg.id, error = format!("{error:#}"), "couldn't log a tidy-up's note");
                 }
             }
             Err(error) => {
-                tracing::info!(bot = %cfg.id, file = %note.file, error = format!("{error:#}"), "dreaming's note wasn't written");
+                tracing::info!(bot = %cfg.id, file = %note.file, error = format!("{error:#}"), "tidying's note wasn't written");
             }
         }
     }
-    if let Err(error) = hub.store.memory_write(|c, _, _| kith_mem::dream::discard_if_empty(c, dream)) {
-        tracing::warn!(bot = %cfg.id, error = format!("{error:#}"), "couldn't tidy the dream log");
+    if let Err(error) = hub.store.memory_write(|c, _, _| kith_mem::tidy::discard_if_empty(c, tidy)) {
+        tracing::warn!(bot = %cfg.id, error = format!("{error:#}"), "couldn't tidy the tidy-up log");
     }
 }
 
 /// Undoing a run puts back the files it appended to, newest note first. A file changed since keeps its change.
-pub fn undo_notes(hub: &Hub, dream: &kith_mem::dream::Dream) {
+pub fn undo_notes(hub: &Hub, tidy: &kith_mem::tidy::TidyUp) {
     let writer = Writer { author: Author::User, bot: None, session: None, cause: Cause::Undo };
-    for change in dream.files.iter().rev() {
-        let layer = (!change.shared).then_some(dream.bot.as_str());
+    for change in tidy.files.iter().rev() {
+        let layer = (!change.shared).then_some(tidy.bot.as_str());
         let undone = (|| -> Result<Version> {
             let versions = hub.store.memory_read(|c| mf::versions(c, layer, &change.name, 50))?;
             let at = versions.iter().position(|v| v.id == change.version).ok_or_else(|| anyhow!("version gone"))?;
@@ -395,7 +394,7 @@ pub fn undo_notes(hub: &Hub, dream: &kith_mem::dream::Dream) {
             write(hub, layer, &change.name, before, wrote.as_deref(), writer)
         })();
         if let Err(error) = undone {
-            tracing::info!(file = %change.name, error = format!("{error:#}"), "a dream's note stays: the file changed since");
+            tracing::info!(file = %change.name, error = format!("{error:#}"), "a tidy-up's note stays: the file changed since");
         }
     }
 }

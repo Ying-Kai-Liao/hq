@@ -1,16 +1,16 @@
 //! Write checks and version history for the hq agents' memory files.
 //!
 //! The Markdown files stay the truth (agents/<name>/memory/** and the shared user layer in the state folder:
-//! user.md, people/, projects/). This module puts kith-mem's checks in front of an agent's or dream's write and
+//! user.md, people/, projects/). This module puts kith-mem's checks in front of an agent's or tidy-up's write and
 //! records every change as a version in one SQLite file, `<state>/memory.db`. Deleting that file loses history only.
 //!
-//! The functions here are what the `kith memory` commands and the Claude Code hook call; the host's dreaming
-//! calls them too, so a dream's write passes the same checks and lands in the same history.
+//! The functions here are what the `kith memory` commands and the Claude Code hook call; the host's tidying
+//! calls them too, so a tidy-up's write passes the same checks and lands in the same history.
 
 mod browse;
 mod cli;
-pub mod dream;
 mod hook;
+pub mod tidy;
 
 pub use browse::{diff, history, list_files, read_file, restore, save};
 pub use cli::{Cmd, run};
@@ -203,8 +203,8 @@ fn resolve(path: &Path) -> PathBuf {
 pub enum Who<'a> {
     /// An agent in a turn.
     Agent(&'a str),
-    /// The agent's dreaming.
-    Dream(&'a str),
+    /// The agent's tidying.
+    Tidy(&'a str),
     /// The user, by hand or from their own terminal: never checked.
     Kai,
 }
@@ -213,7 +213,7 @@ impl Who<'_> {
     fn author(self) -> (Author, Option<String>, Cause) {
         match self {
             Who::Agent(name) => (Author::Bot, Some(name.to_owned()), Cause::Edit),
-            Who::Dream(name) => (Author::Dream, Some(name.to_owned()), Cause::Dream),
+            Who::Tidy(name) => (Author::Tidy, Some(name.to_owned()), Cause::Tidy),
             Who::Kai => (Author::User, None, Cause::Edit),
         }
     }
@@ -234,7 +234,7 @@ pub fn open_with(layout: &Layout, busy: Duration) -> Result<Connection> {
     if schema::migrate(&conn).is_err() {
         schema::migrate(&conn)?;
     }
-    dream::migrate(&conn)?;
+    tidy::migrate(&conn)?;
     Ok(conn)
 }
 
@@ -441,7 +441,7 @@ pub struct Written {
 }
 
 /// Writes a memory file as `who`: records the file as it is (so nothing is lost), checks the new content, writes it
-/// and records it. The call for code that writes memory itself, such as the host's dreaming.
+/// and records it. The call for code that writes memory itself, such as the host's tidying.
 pub fn write(
     conn: &Connection,
     target: &Target,
@@ -476,13 +476,13 @@ pub fn put(path: &Path, content: Option<&str>) -> Result<()> {
     std::fs::rename(&tmp, path).context("replace the file")
 }
 
-/// Tells Kith to keep a fact out of memory: no agent or dream writes it again.
+/// Tells Kith to keep a fact out of memory: no agent or tidy writes it again.
 pub fn forget(conn: &Connection, text: &str) -> Result<()> {
     store::forbid(conn, None, text, None)?;
     Ok(())
 }
 
 #[cfg(test)]
-mod dream_tests;
-#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tidy_tests;

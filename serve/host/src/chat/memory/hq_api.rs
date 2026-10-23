@@ -1,15 +1,15 @@
 //! The apps' Memory tab for an hq agent's bot: the agent's memory files and the shared user layer, as files with
-//! versions, and the runs of its dreaming. Contract in `serve/docs/bot-info.md`.
+//! versions, and the runs of its tidying. Contract in `serve/docs/bot-info.md`.
 //!
 //! Every method takes `botId`; those about a file also `shared` (the user layer's `user.md`, `people/`,
 //! `projects/`; false: the agent's own `memory/`) and `name` (the path inside that layer).
 
-use crate::hqmem::{self, Layout, dream};
+use crate::hqmem::{self, Layout, tidy};
 use crate::hub::Hub;
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
 
-/// Dream runs a call lists.
+/// Tidy-ups a call lists.
 const RUNS_DEFAULT: usize = 20;
 const RUNS_MAX: usize = 100;
 const VERSIONS_DEFAULT: usize = 50;
@@ -22,6 +22,9 @@ pub const METHODS: &[&str] = &[
     "kithMemoryHistory",
     "kithMemoryDiff",
     "kithMemoryRestore",
+    "kithMemoryTidyUps",
+    "kithMemoryUndoTidy",
+    // Deprecated names of the two above, still called by app builds that predate the rename.
     "kithMemoryDreams",
     "kithMemoryUndoDream",
 ];
@@ -73,13 +76,13 @@ pub fn call(hub: &Hub, method: &str, b: &Value) -> Result<Value> {
             hub.emit_bot(str_arg(b, "botId")?);
             out
         }
-        "kithMemoryDreams" => {
-            let runs = dream::runs(&hqmem::open(&layout)?, &agent, count(b, "limit", RUNS_DEFAULT, RUNS_MAX))?;
-            json!({"dreams": runs})
+        "kithMemoryTidyUps" | "kithMemoryDreams" => {
+            let runs = tidy::runs(&hqmem::open(&layout)?, &agent, count(b, "limit", RUNS_DEFAULT, RUNS_MAX))?;
+            json!({"tidyUps": runs, "dreams": runs})
         }
-        "kithMemoryUndoDream" => {
+        "kithMemoryUndoTidy" | "kithMemoryUndoDream" => {
             let run = id("id").ok_or_else(|| anyhow!("id required"))?;
-            let undone = dream::undo(&hqmem::open(&layout)?, &layout, &agent, run)?;
+            let undone = tidy::undo(&hqmem::open(&layout)?, &layout, &agent, run)?;
             hub.emit_bot(str_arg(b, "botId")?);
             let refused: Vec<Value> = undone.refused.iter().map(|(f, why)| json!({"file": f, "reason": why})).collect();
             json!({"restored": undone.restored, "refused": refused, "undone": undone.undone})
