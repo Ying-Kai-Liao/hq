@@ -63,6 +63,10 @@ OUT=$("$KITH" backup list --json); check "backup list --json: empty by default" 
 OUT=$("$KITH" echo --launch-json 2>/dev/null)
 check "plain launch-json: backup null, provider claude, no account" "is \"(d['backup'], d['provider'], d['account'], d['harness'], d['env']['KITH_PROVIDER'], d['env']['KITH_ACCOUNT'])\" \"(None, 'claude', None, 'claude', 'claude', '')\""
 check "plain launch-json: no apiKeyHelper, no config dir in env" "is \"('apiKeyHelper' not in d['settings'], 'CLAUDE_CONFIG_DIR' in d['env'])\" '(True, False)'"
+check "plain launch-json: the call model is sonnet unless chosen, next to the agent's own model" "is \"(d['model'], d['call_model'])\" \"('sonnet', 'sonnet')\""
+"$KITH" echo set call-model own 2>/dev/null; OUT=$("$KITH" echo --launch-json 2>/dev/null)
+check "launch-json: call-model own leaves no call model" "is \"d['call_model']\" None"
+"$KITH" echo set call-model default 2>/dev/null; rm -f "$SET"   # the next checks want no settings file
 
 # --- id validation ----------------------------------------------------------------------------------------------------
 for bad in "Claude:x" "claude:" "claude:../x" "claude-api" "a b" ":x"; do

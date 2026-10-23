@@ -216,8 +216,8 @@ export class HostClient {
   }
 
   /** `pasted`: what the user pasted rather than typed, which memory never takes as their own words. */
-  async send(botId: string, text: string, clientNonce: string, threadId: string | null, attachments: string[] | null, pasted: string[] = [], newTask = false, place: StartingFolder | null = null) {
-    return (await this.call<{ entry: Entry }>('send', { botId, text, clientNonce, threadId, attachments, ...(pasted.length ? { pasted } : {}), ...(newTask ? { newTask } : {}), ...(place ?? {}) })).entry
+  async send(botId: string, text: string, clientNonce: string, threadId: string | null, attachments: string[] | null, pasted: string[] = [], newTask = false, place: StartingFolder | null = null, via: 'call' | null = null) {
+    return (await this.call<{ entry: Entry }>('send', { botId, text, clientNonce, threadId, attachments, ...(pasted.length ? { pasted } : {}), ...(newTask ? { newTask } : {}), ...(place ?? {}), ...(via ? { via } : {}) })).entry
   }
 
   /** Kith's project registry; without Kith the host answers `projects: []` and an `error` line. */
@@ -233,6 +233,11 @@ export class HostClient {
   /** Writes an hq bot's permission mode through to hq (`kith <agent> set permission`) and returns hq's info read back. */
   async kithSetPermission(botId: string, mode: string): Promise<KithInfoResult> {
     return parseKithInfoResult(await this.call('kithSetPermission', { botId, mode }, 60_000))
+  }
+
+  /** Writes an hq bot's call model through to hq (`kith <agent> set call-model`): a model, `own` or `default`. Returns hq's info read back. */
+  async kithSetCallModel(botId: string, model: string): Promise<KithInfoResult> {
+    return parseKithInfoResult(await this.call('kithSetCallModel', { botId, model }, 60_000))
   }
 
   /** The backup chain: global order, per-agent orders and each entry's state. A host before this call answers 404. */

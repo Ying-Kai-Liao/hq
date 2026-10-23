@@ -95,7 +95,7 @@ export class CallOperator {
   private send(text: string) {
     const trimmed = text.trim()
     if (!trimmed) return { error: 'Nothing to send.' }
-    this.store.send(trimmed, this.botId)
+    this.store.send(trimmed, this.botId, null, [], crypto.randomUUID(), [], false, null, 'call')
     return { sent: true, note: "The bot's reply will arrive as a separate message." }
   }
 
