@@ -17,6 +17,8 @@ struct ChatRow: View {
 
     var body: some View {
         let reply = openThread.map { open in { open(entry) } }
+        // The replying agent's colour pair (in a group, the one who wrote it).
+        let tint = AgentTint.resolve((entry.data.author.flatMap { model.bots[$0] } ?? chat)?.avatarColor)
         switch entry.kind {
         case "user":
             VStack(alignment: .trailing, spacing: 4) {
@@ -34,8 +36,8 @@ struct ChatRow: View {
                     AnsweredByLabel(answeredBy: entry.data.answeredBy)
                     if let percent = entry.data.contextPercent {
                         Text("context \(percent)%")
-                            .font(.footnote)
-                            .foregroundStyle(Palette.tertiary)
+                            .kithText(.secondary)
+                            .foregroundStyle(Palette.muted)
                     }
                     ReactionsRow(entry: entry)
                     threadChip
@@ -47,8 +49,9 @@ struct ChatRow: View {
         case "permission":
             VStack(alignment: .leading, spacing: 4) {
                 if chat?.isGroup == true { AuthorLabel(botId: entry.data.author) }
-                PermissionCard(entry: entry, hostName: model.hostName, answering: model.answering[entry.id],
-                               waiting: GuestPrompt.waitingText(for: entry, activity: chat?.activity)) { option in
+                PermissionCard(entry: entry, hostName: model.hostName, tint: tint, answering: model.answering[entry.id],
+                               waiting: heldElsewhere ? "Open in the terminal: answer it there."
+                                   : GuestPrompt.waitingText(for: entry, activity: chat?.activity)) { option in
                     model.respond(entry, option: option)
                 }
             }
@@ -64,9 +67,15 @@ struct ChatRow: View {
         }
     }
 
+    /// The prompt is in a thread a terminal holds: read-only here.
+    private var heldElsewhere: Bool {
+        guard let root = entry.threadId else { return false }
+        return model.allEntries(entry.botId).first { $0.id == root }?.data.thread?.isHeldElsewhere == true
+    }
+
     @ViewBuilder private var threadChip: some View {
         if let summary = entry.data.thread, summary.count > 0, let openThread {
-            ThreadChip(summary: summary) { openThread(entry) }
+            ThreadChip(summary: summary, yourTurn: ThreadFeed.hasQuestion(model.replies(entry.botId, root: entry.id), held: summary.isHeldElsewhere)) { openThread(entry) }
         }
     }
 }
@@ -77,8 +86,8 @@ struct TimeSeparator: View {
 
     var body: some View {
         Text(RelativeTime.separator(date))
-            .font(.footnote)
-            .foregroundStyle(Palette.tertiary)
+            .kithText(.secondary)
+            .foregroundStyle(Palette.muted)
             .frame(maxWidth: .infinity)
             .padding(.top, 18)
             .padding(.bottom, 6)
@@ -101,48 +110,22 @@ struct AuthorLabel: View {
     }
 }
 
-/// Under a message with a thread (Slack's): who replied, how many, how recently.
+/// Under a message with a thread: the redesign's chip (who replied, how many, how recently). Tapping either part opens it.
 struct ThreadChip: View {
     let summary: ThreadSummary
+    var yourTurn = false
     let open: () -> Void
     @Environment(BotStore.self) private var model
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Button(action: open) {
-            HStack(spacing: 6) {
-                HStack(spacing: -6) {
-                    ForEach(summary.authors.compactMap { model.bots[$0] }.prefix(3)) { bot in
-                        CharacterAvatar(bot: bot, size: 18, animated: false)
-                    }
-                }
-                Text(summary.count == 1 ? "1 reply" : "\(summary.count) replies")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Palette.accent)
-                if let unread = summary.unread, unread > 0 {
-                    Text("\(unread) new")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Palette.text)
-                        .transition(.opacity)
-                } else {
-                    Text(RelativeTime.day(Date(milliseconds: summary.lastAt)))
-                        .font(.footnote)
-                        .foregroundStyle(Palette.tertiary)
-                }
-                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(Palette.tertiary)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(Palette.surface, in: Capsule())
-            .contentShape(Capsule())
-        }
-        .buttonStyle(PressScale())
-        .animation(Motion.reduced(Motion.layout, reduceMotion), value: summary.unread)
-        .accessibilityLabel(
-            "View thread, \(summary.count) \(summary.count == 1 ? "reply" : "replies")"
-                + ((summary.unread ?? 0) > 0 ? ", \(summary.unread ?? 0) new" : "")
-        )
-        .help("View thread")
+        let author = summary.authors.lazy.compactMap { model.bots[$0] }.first
+        let chip = ThreadFeed.chip(face: author.map(CrewFace.init(bot:)) ?? CrewFace(portrait: nil),
+                                    tint: AgentTint.resolve(author?.avatarColor), count: summary.count, unread: summary.unread,
+                                    lastAt: summary.lastAt, place: nil, yourTurn: yourTurn,
+                                   summary: summary, mac: model.hostName)
+        ThreadChipView(chip, openLabel: "View thread, \(summary.count) \(summary.count == 1 ? "reply" : "replies")"
+                           + ((summary.unread ?? 0) > 0 ? ", \(summary.unread ?? 0) new" : ""),
+                       onToggle: open, onOpenThread: open)
     }
 }
 
@@ -166,12 +149,12 @@ struct UserBubble: View {
 
     private var text: some View {
             Text(entry.data.text ?? "")
-                .font(.body)
-                .foregroundStyle(Palette.text)
+                .kithText(.body)
+                .foregroundStyle(Palette.ink)
                 .textSelection(.enabled)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .background(Palette.bubbleUser, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(Palette.bubbleUser, in: RoundedRectangle(cornerRadius: KithRadius.card + 4, style: .continuous))
                 .contextActions(reactions: model.reactionPick(entry)) {
                     var items = [MenuItem("Copy", icon: "square.on.square") { Pasteboard.copy(entry.data.text) }]
                     if let reply { items.append(MenuItem("Reply in thread", icon: "arrowshape.turn.up.left", action: reply)) }
@@ -236,9 +219,9 @@ struct AgentBubble: View {
                     ForEach(files) { file in SharedFileView(entry: entry, file: file) }
                 } else {
                     MarkdownText(entry.data.text ?? "").equatable()
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .background(Palette.bubbleAgent, in: RoundedRectangle(cornerRadius: KithRadius.card + 4, style: .continuous))
                 }
             }
                 .contextActions(reactions: model.reactionPick(entry)) {
@@ -258,10 +241,13 @@ struct AgentBubble: View {
 
 struct NoticeRow: View {
     let entry: Entry
+    @Environment(BotStore.self) private var model
 
     var body: some View {
         let text = entry.data.text ?? ""
-        if let seconds = entry.data.callSeconds {
+        if let kind = ThreadFeed.writerDivider(entry, mac: model.hostName) {
+            WriterDivider(kind, time: entry.date.formatted(date: .omitted, time: .shortened))
+        } else if let seconds = entry.data.callSeconds {
             Label("\(text) · \(String(format: "%02d:%02d", seconds / 60, seconds % 60))", systemImage: "waveform")
                 .font(.footnote.monospacedDigit())
                 .foregroundStyle(Palette.secondary)
@@ -383,7 +369,8 @@ extension BotStore {
     }
 }
 
-/// The user's reactions under a message; tapping one takes it back.
+/// The user's reactions under a message: emoji are user content, so they stay emoji. Each is yours, so each has a
+/// 1 pt ink outline; tapping one takes it back. The face button adds another.
 struct ReactionsRow: View {
     let entry: Entry
     @Environment(BotStore.self) private var model
@@ -397,7 +384,8 @@ struct ReactionsRow: View {
                             .font(.system(size: 15))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
-                            .background(Palette.surface, in: Capsule())
+                            .background(Palette.panel, in: Capsule())
+                            .overlay(Capsule().strokeBorder(Palette.ink, lineWidth: 1))
                             .contentShape(Capsule())
                     }
                     .buttonStyle(PressScale())
@@ -405,6 +393,20 @@ struct ReactionsRow: View {
                     .accessibilityLabel("Remove reaction \(emoji)")
                     .transition(.scale.combined(with: .opacity))
                 }
+                Menu {
+                    ForEach(BotStore.quickReactions.filter { !reactions.contains($0) }, id: \.self) { emoji in
+                        Button(emoji) { model.react(entry, emoji) }
+                    }
+                } label: {
+                    Image(systemName: "face.smiling")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Palette.muted)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Palette.panel, in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .accessibilityLabel("Add reaction")
             }
         }
     }

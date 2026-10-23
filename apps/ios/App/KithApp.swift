@@ -116,6 +116,10 @@ private struct DebugHooks: ViewModifier {
                 switch screen {
                 case "settings": app.showSettings = true
                 case "widgets": app.showSettings = true; app.openWidgets = true
+                case "chat":
+                    if let computer = app.accounts.computers.first {
+                        app.accounts.selection = BotReference(accountId: nil, computerId: computer.id, botId: DemoScreens.chatBotId)
+                    }
                 default: break // "crew" and "crew-typing" are the root
                 }
             }
