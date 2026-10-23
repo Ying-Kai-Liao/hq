@@ -131,11 +131,11 @@ fn a_widening_retag_waits_for_the_person_and_is_asked_once() {
     assert!(asks.contains(&("plans.md", "")) && asks.contains(&("people/sam/mood.md", "sam")), "{asks:?}");
     // The same proposal again is not asked again, and nor is one the person answered "keep private" to.
     let again = tidy::apply(&conn, &m, &plan(&m, &wide)).unwrap();
-    assert!(again.asked.is_empty());
+    assert_eq!(again.asked, Vec::<i64>::new());
     let id = waiting.iter().find(|p| p["file"] == "plans.md").unwrap()["id"].as_i64().unwrap();
     let kept_private = tidy::answer(&conn, &home.layout, "builder", id, false, "").unwrap();
     assert_eq!(kept_private, Answered { status: "declined", run: None });
-    assert!(tidy::apply(&conn, &m, &plan(&m, &wide)).unwrap().asked.is_empty());
+    assert_eq!(tidy::apply(&conn, &m, &plan(&m, &wide)).unwrap().asked, Vec::<i64>::new());
 }
 
 #[test]
