@@ -5,13 +5,14 @@ import Foundation
 // while it's going and folds it into a card once it's idle.
 
 public enum TaskStatus: Sendable {
-    case working, needsYou, stopped, done
+    case working, needsYou, stopped, failed, done
 
     public var label: String {
         switch self {
         case .working: "Working"
         case .needsYou: "Needs you"
         case .stopped: "Stopped"
+        case .failed: "Failed"
         case .done: "Done"
         }
     }
@@ -34,12 +35,20 @@ public enum Tasks {
         return all.filter { $0.threadId.map(tasks.contains) ?? true }
     }
 
-    /// Where the task stands: at work (or waiting on an approval), stopped, or done.
+    /// Where the task stands: at work (or waiting on an approval), stopped, failed, or done.
     public static func status(of root: Entry, bot: Bot, replies: [Entry]) -> TaskStatus {
         if bot.isWorking(in: bot.id, thread: root.id) {
             // A prompt in a thread another writer holds is read-only here, so it isn't ours to answer.
             let held = root.data.thread?.isHeldElsewhere == true
             return !held && replies.contains { $0.kind == "permission" && $0.data.status == "pending" } ? .needsYou : .working
+        }
+        // The host says how a finished turn ended; an older host doesn't, so the thread's entries tell. A host
+        // "working" or "needsYou" while no lane is working is stale (the host restarted), so it isn't taken.
+        switch root.data.thread?.status {
+        case "stopped": return .stopped
+        case "failed": return .failed
+        case "done": return .done
+        default: break
         }
         let last = replies.last { $0.kind == "notice" || ($0.kind == "agent" && $0.data.final == true) }
         return last?.kind == "notice" && last?.data.text == "Stopped." ? .stopped : .done

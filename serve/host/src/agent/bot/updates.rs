@@ -3,6 +3,7 @@
 use super::fast_mode::Listing;
 use super::{Actor, Seg, SegKind};
 use crate::agent::acp::{self, Incoming};
+use crate::chat::tasks::TaskState;
 use crate::hub::BotStatus;
 use crate::remote::push::{self, AlertKind};
 use crate::store::EntryKind;
@@ -218,6 +219,7 @@ impl Actor {
                 self.parked_prompts.insert(e.id.clone(), self.hub.gate.park(&self.rt));
             }
             self.perms.insert(e.id, rpc_id);
+            self.hub.set_task_status(&self.lane, TaskState::NeedsYou);
         }
         self.hub.set_runtime(&self.rt, |r| {
             r.status = BotStatus::NeedsInput;
@@ -267,6 +269,7 @@ impl Actor {
             self.hub.set_entry(entry_id, &e.data);
         }
         if self.perms.is_empty() && self.turn.is_some() {
+            self.hub.set_task_status(&self.lane, TaskState::Working);
             self.hub.set_runtime(&self.rt, |r| {
                 r.status = BotStatus::Working;
                 r.activity = "Continuing…".into();
