@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { sshBridge } from './ssh'
 import type { CallError, KithBridge, HostSnapshot, TraySummary, WindowCommand } from '../shared/ipc'
+import type { RelayCallError } from '../shared/relay'
 
 let streamId = 0
 const streams = new Map<string, { onData: (line: string) => void; onEnd: (error: CallError | null) => void }>()
@@ -9,6 +10,15 @@ ipcRenderer.on('host:stream:data', (_e, id: string, line: string) => streams.get
 ipcRenderer.on('host:stream:end', (_e, id: string, error: CallError | null) => {
   const s = streams.get(id)
   streams.delete(id)
+  s?.onEnd(error)
+})
+
+const relayStreams = new Map<string, { onData: (line: string) => void; onEnd: (error: RelayCallError | null) => void }>()
+
+ipcRenderer.on('relay:stream:data', (_e, id: string, line: string) => relayStreams.get(id)?.onData(line))
+ipcRenderer.on('relay:stream:end', (_e, id: string, error: RelayCallError | null) => {
+  const s = relayStreams.get(id)
+  relayStreams.delete(id)
   s?.onEnd(error)
 })
 
@@ -85,6 +95,36 @@ const bridge: KithBridge = {
   cloud: {
     request: (method, path, body, signed) => ipcRenderer.invoke('cloud:request', method, path, body, signed),
     acceptInvite: (inviteId, h1) => ipcRenderer.invoke('cloud:acceptInvite', inviteId, h1),
+  },
+  relay: {
+    computers: () => ipcRenderer.invoke('relay:computers'),
+    async call(computerId, signKey, method, body, timeoutMs) {
+      const result = (await ipcRenderer.invoke('relay:call', computerId, signKey, method, body, timeoutMs)) as
+        | { ok: true; value: unknown }
+        | { ok: false; error: RelayCallError }
+      if (!result.ok) throw result.error
+      return result.value
+    },
+    stream(computerId, signKey, sub, body, onData, onEnd) {
+      const id = `r${++streamId}`
+      relayStreams.set(id, { onData, onEnd })
+      ipcRenderer.send('relay:stream:open', id, computerId, signKey, sub, body)
+      return () => {
+        if (!relayStreams.delete(id)) return
+        ipcRenderer.send('relay:stream:close', id)
+      }
+    },
+    state: (computerId, signKey) => ipcRenderer.invoke('relay:state', computerId, signKey),
+    onState(cb) {
+      const handler = (_e: IpcRendererEvent, computerId: string, state: Parameters<typeof cb>[1]) => cb(computerId, state)
+      ipcRenderer.on('relay:state:change', handler)
+      return () => void ipcRenderer.removeListener('relay:state:change', handler)
+    },
+    restart: (computerId) => ipcRenderer.invoke('relay:restart', computerId),
+    forget: (computerId) => ipcRenderer.invoke('relay:forget', computerId),
+    requestAccess: (computerId, signKey) => ipcRenderer.invoke('relay:requestAccess', computerId, signKey),
+    accessStatus: (requestId) => ipcRenderer.invoke('relay:accessStatus', requestId),
+    cancelAccess: (computerId, requestId) => ipcRenderer.invoke('relay:cancelAccess', computerId, requestId),
   },
   invites: {
     takePending: () => ipcRenderer.invoke('invite:takePending'),

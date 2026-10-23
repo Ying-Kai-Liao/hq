@@ -1,9 +1,11 @@
-import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, type KeyObject } from 'node:crypto'
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, type KeyObject } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { app, ipcMain, safeStorage } from 'electron'
 import type { AccountService } from './account'
 import { isInviteProof } from '../shared/invite'
+import { signatureHeader as kithSig, type Signer } from './relay/crypto'
+import type { CloudFailure, CloudResult } from '../shared/relay'
 
 /**
  * The Kith cloud's user-facing `/v1` API (§8.4) with this install's device key (§3.2): an
@@ -52,23 +54,25 @@ function publicFromSeed(seed: Buffer) {
   return (pub.export({ format: 'jwk' }) as { x: string }).x
 }
 
+/** The account's device key as the signer the relay client uses. */
+const signerOf = (id: Identity): Signer => ({ publicKey: Buffer.from(id.publicKey, 'base64url'), sign: (m) => sign(null, m, id.key) })
+
 /** `Kith-Sig: v=1,kid,ts,nonce,sig` over method, authority, path and the body's hash. */
 function signatureHeader(id: Identity, method: string, url: URL, body: Buffer) {
-  const ts = Date.now()
-  const nonce = b64url(randomBytes(16))
-  const input = ['kith-sig-v1', method.toUpperCase(), url.host.toLowerCase(), `${url.pathname || '/'}${url.search}`, String(ts), nonce, b64url(createHash('sha256').update(body).digest())].join('\n')
-  const sig = sign(null, Buffer.from(input), id.key)
-  return `v=1,kid=${id.publicKey},ts=${ts},nonce=${nonce},sig=${b64url(sig)}`
+  return kithSig(signerOf(id), { method, authority: url.host, pathAndQuery: `${url.pathname || '/'}${url.search}`, body })
 }
 
-export interface CloudFailure {
-  status: number
-  code: string
-  message: string | null
+/** What the relay client needs from the cloud session: signed requests, and the device key to sign the relay upgrade. */
+export interface CloudAccess {
+  request(method: string, path: string, body: unknown, signed: boolean): Promise<CloudResult<unknown>>
+  /** The signed-in account's device key and id; null when signed out. */
+  device(): Promise<{ userId: string; signer: Signer; cloudURL: string } | null>
 }
 
-export function registerCloud(account: AccountService) {
-  const send = async (method: string, path: string, body: unknown, signed: boolean) => {
+export type { CloudFailure }
+
+export function registerCloud(account: AccountService): CloudAccess {
+  const send = async (method: string, path: string, body: unknown, signed: boolean): Promise<CloudResult<unknown>> => {
     const base = account.state.cloudURL
     const user = account.state.user
     if (!base || !user) return { ok: false, error: { status: 0, code: 'signedOut', message: 'Sign in again to reach your account.' } satisfies CloudFailure }
@@ -104,4 +108,13 @@ export function registerCloud(account: AccountService) {
     }
     return send('POST', `v1/invites/${inviteId}/accept`, { token: h1 }, false)
   })
+  return {
+    request: send,
+    async device() {
+      const user = account.state.user
+      const cloudURL = account.state.cloudURL
+      if (!user || !cloudURL) return null
+      return { userId: user.userId, signer: signerOf(await identity(user.userId)), cloudURL }
+    },
+  }
 }

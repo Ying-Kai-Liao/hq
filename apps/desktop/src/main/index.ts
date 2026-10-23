@@ -17,6 +17,7 @@ import { onInviteLink, registerInviteIPC } from './invites'
 import { registerSpeech } from './speech'
 import { registerScreenIPC } from './screen'
 import { registerCloud } from './cloud'
+import { registerRelay } from './relay/manager'
 import { registerSSH } from './ssh'
 import { QuitLifecycle } from './quit-lifecycle'
 import { Island } from './island'
@@ -237,7 +238,7 @@ if (!app.requestSingleInstanceLock()) {
     onInviteLink(() => send({ kind: 'joinInvite' }))
     registerSpeech()
     registerScreenIPC()
-    registerCloud(account)
+    registerRelay(registerCloud(account))
     registerSSH(() => BrowserWindow.getAllWindows())
     // Calls use the microphone (realtime voice); nothing else asks for permissions.
     session.defaultSession.setPermissionRequestHandler((_wc, permission, done) => done(permission === 'media' || permission === 'clipboard-sanitized-write'))
