@@ -14,6 +14,19 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
         "resolveThread" => crate::terminal::resolve(hub, str_arg(&b, "thread")?).await,
         // Ends the terminal that holds the thread; refused while it works, a no-op once it is closed.
         "takeOverThread" => crate::terminal::take_over(hub, str_arg(&b, "botId")?, str_arg(&b, "threadId")?).await?,
+        // Writes the thread's summary now (`kith summarise --thread`): `{written: bool}`.
+        "summariseThread" => {
+            let written = matches!(
+                crate::chat::memory::summary::summarise_now(
+                    hub,
+                    str_arg(&b, "thread")?,
+                    b["force"].as_bool().unwrap_or(false)
+                )
+                .await?,
+                crate::chat::memory::summary::Wrote::Yes
+            );
+            serde_json::json!({"written": written})
+        }
         _ => return Ok(ControlFlow::Continue(b)),
     }))
 }

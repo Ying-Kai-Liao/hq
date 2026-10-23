@@ -122,6 +122,9 @@ impl Actor {
             }
         }
         self.lane = lane.clone();
+        if !hidden {
+            memory::summary::resume(&self.hub, &lane);
+        }
         self.turn = Some(turn);
         // Only the user's own words feed memory: not another bot's, a room's or a routine's.
         let from_user =
