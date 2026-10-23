@@ -1,0 +1,11 @@
+\* A kernel with claims talking to the host before #147 (no "claims" in its answer, none of the host's new steps).
+HostClaims = FALSE
+GateReadsDisk = FALSE
+GateChecksClaim = FALSE
+SyncAtGate = FALSE
+StartGate = FALSE
+HostTakesTurnClaim = FALSE
+BusyCountsQueued = FALSE
+BusyCountsTaking = FALSE
+TakeoverClaims = FALSE
+ForgetOnImport = FALSE

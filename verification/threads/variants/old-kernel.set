@@ -1,0 +1,3 @@
+\* The host of #147 with a kernel from before it: --resume takes no claim and does not read the take-over claim.
+ResumeClaims = FALSE
+KernelChecksTakeover = FALSE

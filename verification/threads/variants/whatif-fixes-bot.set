@@ -1,6 +1,0 @@
-ClaimOnResolve = TRUE
-TakeoverAtomic = TRUE
-SyncLaneAtStart = TRUE
-ForgetOnImport = TRUE
-BotEnabled = TRUE
-BotGate = "live"

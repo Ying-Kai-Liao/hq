@@ -1,0 +1,3 @@
+\* On top of the what-if that closes the gate-to-save window, so that only this switch is left to blame.
+GateHoldsToSave = TRUE
+BusyCountsQueued = FALSE

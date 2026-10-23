@@ -1,4 +1,5 @@
-ClaimOnResolve = TRUE
 TakeoverAtomic = TRUE
 SyncLaneAtStart = TRUE
-ForgetOnImport = TRUE
+GateHoldsToSave = TRUE
+ResolveAdopts = TRUE
+BotGate = "live"

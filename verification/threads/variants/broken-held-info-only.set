@@ -1,0 +1,2 @@
+\* held() trusts the host's copy of the registry (the scan, every 3 s) and ignores the files on disk.
+GateReadsDisk = FALSE
