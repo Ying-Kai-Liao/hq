@@ -41,6 +41,7 @@ modes=(
   "demo-crew-typing|-kithDemoScreens crew-typing"
   "demo-chat|-kithDemoScreens chat"
   "demo-settings|-kithDemoScreens settings"
+  "demo-computers|-kithDemoScreens computers"
   "demo-widgets|-kithDemoScreens widgets"
 )
 

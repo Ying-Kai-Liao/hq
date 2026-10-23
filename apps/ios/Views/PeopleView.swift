@@ -64,6 +64,11 @@ struct PeopleView: View {
                 ForEach(people.people) { person in
                     Button { editing = person } label: { PersonRow(person: person) }
                         .buttonStyle(.plain)
+                    // kith-bot-guests: that person's bot guests go here as rows under them. The empty list keeps
+                    // the hook in the row stream without adding a row.
+                    ForEach(botGuestRows(of: person)) { guest in
+                        BotGuestRow(guest: guest)
+                    }
                 }
                 Button { inviting = true } label: {
                     Label("Invite someone", systemImage: "person.badge.plus")
@@ -99,6 +104,23 @@ struct PeopleView: View {
         .kithSheet(isPresented: $inviting) { InviteSheet(people: people, store: store) }
         .kithSheet(item: $editing) { person in EditPersonSheet(person: person, people: people, store: store) }
         .kithSheet(isPresented: $showActivity) { ActivitySheet(people: people) }
+    }
+}
+
+/// A bot guest listed under the person who brought it. Placeholder shape for kith-bot-guests to fill in.
+struct BotGuestRowItem: Identifiable {
+    let id: String
+    let name: String
+}
+
+/// The bot guests under one person. Empty until kith-bot-guests wires the host's list in.
+private func botGuestRows(of person: HostPerson) -> [BotGuestRowItem] { [] }
+
+private struct BotGuestRow: View {
+    let guest: BotGuestRowItem
+
+    var body: some View {
+        Text(guest.name).kithText(.body).padding(.leading, 20)
     }
 }
 

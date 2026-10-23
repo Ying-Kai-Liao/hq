@@ -115,6 +115,7 @@ private struct DebugHooks: ViewModifier {
                 try? await Task.sleep(for: .seconds(1))
                 switch screen {
                 case "settings": app.showSettings = true
+                case "computers": app.showComputers = true
                 case "widgets": app.showSettings = true; app.openWidgets = true
                 case "chat":
                     if let computer = app.accounts.computers.first {

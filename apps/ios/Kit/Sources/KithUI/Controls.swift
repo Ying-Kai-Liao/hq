@@ -465,8 +465,8 @@ public struct CardSection<Content: View, Accessory: View>: View {
             if let title {
                 HStack(spacing: 8) {
                     Text(title)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Palette.text)
+                        .kithText(.topBar)
+                        .foregroundStyle(Palette.ink)
                         .accessibilityAddTraits(.isHeader)
                     Spacer(minLength: 0)
                     accessory
@@ -477,16 +477,16 @@ public struct CardSection<Content: View, Accessory: View>: View {
                 _VariadicView.Tree(HairlineRows()) { content }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(cardStyle == .filled ? Palette.surface : .clear, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(cardStyle == .filled ? Palette.panel : .clear, in: RoundedRectangle(cornerRadius: KithRadius.card, style: .continuous))
             .overlay {
                 if cardStyle == .outlined {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.border)
+                    RoundedRectangle(cornerRadius: KithRadius.card, style: .continuous).strokeBorder(Palette.line)
                 }
             }
             if let footer {
                 Text(footer)
-                    .font(.caption)
-                    .foregroundStyle(Palette.secondary)
+                    .kithText(.secondary)
+                    .foregroundStyle(Palette.muted)
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 2)
@@ -650,7 +650,7 @@ extension View {
         padding(.horizontal, 14)
             .padding(.vertical, vertical)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.border))
+            .overlay(RoundedRectangle(cornerRadius: KithRadius.card, style: .continuous).strokeBorder(Palette.line))
     }
 }
 
