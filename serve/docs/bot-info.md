@@ -120,6 +120,15 @@ layer, `MEMORY.md`, `people/mum.md`; anything that isn't a Markdown memory file 
 | `kithMemoryRestore` | `shared`, `name`, `version` | `{ version, warnings }`: the file becomes that version's content, as a new version (cause `restore`) |
 | `kithMemoryTidyUps` | `limit?` (20, max 100) | `{ tidyUps: [tidyUp] }`, newest first |
 | `kithMemoryUndoTidy` | `id` | `{ restored: [label], refused: [{ file, reason }], undone }` |
+| `kithMemoryPromotions` | `status?` (`pending` default, `declined`, `approved`, `stale`), `limit?` | `{ promotions: [{ id, file, from, audience, room, projects, reason, asks, status, at, decidedAt }] }` |
+| `kithMemoryAnswerPromotion` | `id`, `answer` (`approve` or `keep`) | `{ status: approved/declined/stale, run? }` |
+
+Promotion: tidying may retag a note (frontmatter `audience`, `room`, `projects`; no file moves). A retag that keeps the
+readers the same or fewer is applied as a tidy-up (change kind `retagged`, undoable). One that adds readers is stored
+as a pending promotion and never applied by tidying; `asks` is the person who must answer (empty: the owner, shown as
+"Ask <person>" otherwise). This call answers for the owner only: `approve` of a question asked of another person is
+refused, `keep` (keep private) always works. An approval writes `approved_by` / `approved_change` into the note and
+a row the kernel checks (`kith_facets.py`); `run` is the tidy-up that wrote it.
 
 `version` = `{ id, at, author: "kai"|"agent"|"tidy"|"unknown", authorBot, cause: "edit"|"delete"|"restore"|"undo"|"tidy"|"baseline", deleted, bytes, lines }`;
 `unknown` is a change made outside the hook (an editor, a shell). `tidyUp` = `{ id, at, undone, files: [{ name, shared, version }], changes: [{ kind, file, shared, text, was }] }`;
