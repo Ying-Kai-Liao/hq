@@ -70,34 +70,84 @@ import Testing
     try data.write(to: URL(fileURLWithPath: path))
 }
 
-/// Writes the Dynamic Island's working loops (the bot in every shape and the thinking orb,
-/// 10 frames each, in points of a 20 pt face) for tools/timer-fonts.py:
-/// `TEST_RUNNER_CODYNC_FRAMES_FILE=<file.json> xcodebuild test … -only-testing:'CodyncKitTests/exportBotFrames()'`.
-/// Each font is one layer: `Ink` every dot of the bot, `Tint` its lit dots (in its color),
-/// `Ghost` the orb's faint orbit trails, `Dot` its moving dots.
-@MainActor @Test func exportBotFrames() throws {
-    guard let file = ProcessInfo.processInfo.environment["CODYNC_FRAMES_FILE"] else { return }
-    func dots(_ list: [(x: Double, y: Double, r: Double)]) -> [[String: Double]] {
-        list.map { ["x": $0.x, "y": $0.y, "r": $0.r] }
-    }
-    var fonts: [String: [[[String: Double]]]] = [:]
-    for shape in ["blob", "pebble", "squircle", "tablet", "wedge", "hex", "cloud", "teardrop"] {
-        let loop = DottedBody.workingLoop(shape: shape, size: 20)
-        fonts["CodyncBot-\(shape)-Ink"] = loop.map { f in dots(f.filter { !$0.eye }.map { ($0.dot.center.x, $0.dot.center.y, $0.radius) }) }
-        fonts["CodyncBot-\(shape)-Tint"] = loop.map { f in
-            dots(f.filter { !$0.eye && $0.tint > 0.35 }.map { ($0.dot.center.x, $0.dot.center.y, $0.radius) })
+/// A still frame of the bot carries its state: a working bot's eyes sit lower than an idle one's,
+/// an errored bot slumps and droops, and Reduce Motion centres the eyes whatever the state.
+@MainActor @Test func theStillBotPosesItsEyesPerState() throws {
+    func frame(_ mood: CharacterAvatar.Mood, reduced: Bool = false) throws -> [UInt8] {
+        let view = StillBot(asset: "crew-builder", paletteId: nil, size: 64, mood: mood, reduced: reduced).environment(\.colorScheme, .light)
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 1
+        let cg = try #require(renderer.cgImage)
+        var px = [UInt8](repeating: 0, count: cg.width * cg.height * 4)
+        px.withUnsafeMutableBytes { buf in
+            let ctx = CGContext(data: buf.baseAddress, width: cg.width, height: cg.height, bitsPerComponent: 8, bytesPerRow: cg.width * 4,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
         }
+        return px
     }
-    let orb = ThinkingOrbGeometry.workingLoop(size: 20)
-    fonts["CodyncOrb-Ghost"] = orb.map { f in dots(f.dots.filter { $0.alpha < 1 }.map { ($0.x, $0.y, $0.radius) }) }
-    fonts["CodyncOrb-Dot"] = orb.map { f in dots(f.dots.filter { $0.alpha >= 1 }.map { ($0.x, $0.y, $0.radius) }) }
-    let data = try JSONSerialization.data(withJSONObject: ["size": 20, "fonts": fonts], options: [.sortedKeys])
-    try data.write(to: URL(fileURLWithPath: file))
+    let idle = try frame(.idle), working = try frame(.working), error = try frame(.error)
+    #expect(idle != working)
+    #expect(idle != error)
+    #expect(try frame(.working, reduced: true) == idle)
+    #expect(try frame(.error, reduced: true) == idle)
 }
 
-/// The loop is ten frames (one per second of a timer digit) and actually moves.
-@MainActor @Test func workingLoopHasTenDistinctFrames() {
-    let frames = DottedBody.workingLoop(shape: "blob", size: 20)
-    #expect(frames.count == 10)
-    #expect(frames[0].map(\.radius) != frames[3].map(\.radius))
+// MARK: - The hop glyph fonts
+
+/// Registers the committed KithHop fonts, as the widget extension's UIAppFonts does.
+private func registerHopFonts() {
+    let fonts = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Widgets/Resources/Fonts")
+    for name in ["KithHop-Dot", "KithHop-Ghost"] {
+        CTFontManagerRegisterFontsForURL(fonts.appendingPathComponent("\(name).ttf") as CFURL, .process, nil)
+    }
+}
+
+@MainActor private func hopPixels(_ content: Text, size: CGFloat = 64) throws -> [UInt8] {
+    let view = HopFrames(content, color: .white, size: size).background(Color.black).environment(\.colorScheme, .dark)
+    let renderer = ImageRenderer(content: view)
+    renderer.scale = 1
+    let cg = try #require(renderer.cgImage)
+    var px = [UInt8](repeating: 0, count: cg.width * cg.height * 4)
+    px.withUnsafeMutableBytes { buf in
+        let ctx = CGContext(data: buf.baseAddress, width: cg.width, height: cg.height, bitsPerComponent: 8, bytesPerRow: cg.width * 4,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+    }
+    return px
+}
+
+/// The fonts map each digit to a pose and draw only the timer's last digit, so a timer steps
+/// through the hop one pose a second whatever its length.
+@MainActor @Test func theHopFontsDrawOneStepPerSecond() throws {
+    registerHopFonts()
+    let poses = try (0...9).map { try hopPixels(Text("\($0)")) }
+    // Every digit draws a lit body on the black ground, and no two poses are the same picture.
+    for pose in poses { #expect(pose.enumerated().filter { $0.offset % 4 == 0 && $0.element > 200 }.count > 200) }
+    #expect(Set(poses).count >= 8)  // rest and settle frames can coincide at this size
+    // Only the last character shows: "10:07" is the pose of "7".
+    #expect(try hopPixels(Text("10:07")) == poses[7])
+    #expect(try hopPixels(Text("0:59")) == poses[9])
+}
+
+/// Writes the hop's ten poses on the Dynamic Island's black, for design review:
+/// `TEST_RUNNER_CODYNC_RENDER_DIR=<dir> xcodebuild test … -only-testing:CodyncKitTests/renderHop`.
+@MainActor @Test func renderHop() throws {
+    guard let dir = ProcessInfo.processInfo.environment["CODYNC_RENDER_DIR"] else { return }
+    registerHopFonts()
+    let blue = Color(red: 0.36, green: 0.55, blue: 1)
+    let sheet = HStack(spacing: 18) {
+        ForEach(0..<10, id: \.self) { digit in
+            VStack(spacing: 8) {
+                HopFrames(Text("\(digit)"), color: blue, size: 56)
+                HopFrames(Text("\(digit)"), color: blue, size: 20)
+            }
+        }
+    }
+    .padding(24).background(Color.black)
+    let renderer = ImageRenderer(content: sheet)
+    renderer.scale = 2
+    try #require(renderer.uiImage?.pngData()).write(to: URL(fileURLWithPath: "\(dir)/hop-poses.png"))
 }

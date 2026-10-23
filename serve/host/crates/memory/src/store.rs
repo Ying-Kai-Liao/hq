@@ -25,7 +25,7 @@ pub enum State {
 pub enum Author {
     User,
     Bot,
-    Dream,
+    Tidy,
     /// Brought over from an earlier memory store.
     Imported,
 }
@@ -35,7 +35,7 @@ pub enum Author {
 pub enum Writer<'a> {
     User,
     Bot(&'a str),
-    Dream(&'a str),
+    Tidy(&'a str),
     Import,
 }
 
@@ -44,14 +44,14 @@ impl Writer<'_> {
         match self {
             Self::User => Author::User,
             Self::Bot(_) => Author::Bot,
-            Self::Dream(_) => Author::Dream,
+            Self::Tidy(_) => Author::Tidy,
             Self::Import => Author::Imported,
         }
     }
 
     fn bot(self) -> Option<String> {
         match self {
-            Self::Bot(bot) | Self::Dream(bot) => Some(bot.to_owned()),
+            Self::Bot(bot) | Self::Tidy(bot) => Some(bot.to_owned()),
             Self::User | Self::Import => None,
         }
     }
@@ -66,7 +66,7 @@ pub struct Entry {
     pub state: State,
     pub text: String,
     pub author: Author,
-    /// The bot that wrote it, for bot and dream writes.
+    /// The bot that wrote it, for bot and tidy writes.
     pub author_bot: Option<String>,
     pub pinned: bool,
     /// The entry that replaced this archived one.
@@ -85,7 +85,7 @@ pub struct Entry {
 pub enum Error {
     Refused(Refusal),
     NotFound,
-    /// A bot or dreaming tried to change an entry the user wrote.
+    /// A bot or tidying tried to change an entry the user wrote.
     UsersOwn,
     Sqlite(rusqlite::Error),
 }
@@ -142,7 +142,7 @@ pub fn cap(bot: Option<&str>) -> usize {
 
 pub fn add(conn: &Connection, writer: Writer<'_>, new: New<'_>, now: i64, rev: i64) -> Result<Entry> {
     admissible(conn, writer, new.bot, new.text)?;
-    if let Writer::Bot(bot) | Writer::Dream(bot) = writer
+    if let Writer::Bot(bot) | Writer::Tidy(bot) = writer
         && spent(conn, bot, new.evidence)?
     {
         return Err(Refusal::Forgotten.into());
@@ -177,7 +177,7 @@ pub fn admissible(conn: &Connection, writer: Writer<'_>, bot: Option<&str>, text
         }
     }
     // An import may run past the cap: the opening takes what fits, and the importer archives the rest.
-    if matches!(writer, Writer::Bot(_) | Writer::Dream(_)) && used(conn, bot)? + tokens::estimate(text) > cap(bot) {
+    if matches!(writer, Writer::Bot(_) | Writer::Tidy(_)) && used(conn, bot)? + tokens::estimate(text) > cap(bot) {
         return Err(Refusal::Full.into());
     }
     Ok(())
@@ -230,7 +230,7 @@ pub fn activate(conn: &Connection, id: i64, now: i64, rev: i64) -> Result<Entry>
     set_state(conn, id, State::Active, None, now, rev)
 }
 
-/// The user brought an archived entry back: it is active again, and dreaming won't archive it again.
+/// The user brought an archived entry back: it is active again, and tidying won't archive it again.
 pub fn bring_back(conn: &Connection, id: i64, now: i64, rev: i64) -> Result<Entry> {
     let entry = activate(conn, id, now, rev)?;
     tombstone(conn, entry.bot.as_deref(), std::iter::once(kept(id)))?;
@@ -248,7 +248,7 @@ pub fn pin(conn: &Connection, id: i64, pinned: bool, now: i64, rev: i64) -> Resu
     get(conn, id)?.ok_or(Error::NotFound)
 }
 
-/// Deletes an entry and leaves a tombstone, so no bot or dream can write it again.
+/// Deletes an entry and leaves a tombstone, so no bot or tidy can write it again.
 pub fn forget(conn: &Connection, id: i64) -> Result<Entry> {
     let entry = get(conn, id)?.ok_or(Error::NotFound)?;
     bury(conn, &entry)?;
@@ -257,7 +257,7 @@ pub fn forget(conn: &Connection, id: i64) -> Result<Entry> {
 }
 
 /// Keeps `text`, and memory drawn from the `message` it came from, out of a layer (`None`: "yours") for bots and
-/// dreaming, as if it had been forgotten: the user declined it.
+/// tidying, as if it had been forgotten: the user declined it.
 pub fn forbid(conn: &Connection, bot: Option<&str>, text: &str, message: Option<&str>) -> Result<()> {
     tombstone(conn, bot, std::iter::once(fingerprint(text)).chain(message.map(cited)))
 }
@@ -272,7 +272,7 @@ pub fn forget_layer(conn: &Connection, bot: Option<&str>) -> Result<Vec<Entry>> 
     Ok(entries)
 }
 
-/// Removes what was kept for a deleted bot: its own layer and files, its tombstones and its dream log. What it
+/// Removes what was kept for a deleted bot: its own layer and files, its tombstones and its tidy-up log. What it
 /// wrote to "yours" stays, since the user may still want it.
 pub fn drop_bot(conn: &Connection, bot: &str) -> Result<()> {
     crate::files::forget_layer(conn, Some(bot))?;
@@ -326,10 +326,10 @@ pub fn used(conn: &Connection, bot: Option<&str>) -> Result<usize> {
 
 fn changeable(conn: &Connection, writer: Writer<'_>, id: i64) -> Result<Entry> {
     let entry = get(conn, id)?.ok_or(Error::NotFound)?;
-    if matches!(writer, Writer::Bot(_) | Writer::Dream(_)) && entry.author == Author::User {
+    if matches!(writer, Writer::Bot(_) | Writer::Tidy(_)) && entry.author == Author::User {
         return Err(Error::UsersOwn);
     }
-    if matches!(writer, Writer::Dream(_)) && marked(conn, entry.bot.as_deref(), &kept(id))? {
+    if matches!(writer, Writer::Tidy(_)) && marked(conn, entry.bot.as_deref(), &kept(id))? {
         return Err(Error::UsersOwn);
     }
     Ok(entry)
@@ -362,7 +362,8 @@ fn duplicate(conn: &Connection, bot: Option<&str>, text: &str) -> Result<bool> {
     Ok(false)
 }
 
-fn forgotten(conn: &Connection, bot: Option<&str>, text: &str) -> Result<bool> {
+/// Whether `text` (case, spacing and trailing punctuation aside) was forgotten or forbidden in a layer (`None`: "yours").
+pub fn forgotten(conn: &Connection, bot: Option<&str>, text: &str) -> Result<bool> {
     marked(conn, bot, &fingerprint(text))
 }
 
@@ -375,7 +376,7 @@ pub(crate) fn marked(conn: &Connection, bot: Option<&str>, mark: &str) -> Result
         .is_some())
 }
 
-/// A mark for an entry the user brought back, which dreaming leaves active.
+/// A mark for an entry the user brought back, which tidying leaves active.
 fn kept(id: i64) -> String {
     format!("kept:{id}")
 }
@@ -397,7 +398,7 @@ pub(crate) fn tombstone(conn: &Connection, bot: Option<&str>, marks: impl Iterat
     Ok(())
 }
 
-/// A tombstone for a message rather than a text: no bot or dream may draw memory for the layer from it again.
+/// A tombstone for a message rather than a text: no bot or tidy may draw memory for the layer from it again.
 fn cited(message: &str) -> String {
     format!("message:{message}")
 }
@@ -474,7 +475,7 @@ fn author_name(author: Author) -> &'static str {
     match author {
         Author::User => "user",
         Author::Bot => "bot",
-        Author::Dream => "dream",
+        Author::Tidy => "tidy",
         Author::Imported => "imported",
     }
 }
@@ -482,7 +483,7 @@ fn author_name(author: Author) -> &'static str {
 fn parse_author(name: &str) -> Author {
     match name {
         "bot" => Author::Bot,
-        "dream" => Author::Dream,
+        "tidy" | "dream" => Author::Tidy,
         "imported" => Author::Imported,
         _ => Author::User,
     }

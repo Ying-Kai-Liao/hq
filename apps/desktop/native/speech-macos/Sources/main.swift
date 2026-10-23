@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 import Speech
 
-// codync-speech: transcribes the microphone on device with SFSpeechRecognizer and prints one
+// kith-speech: transcribes the microphone on device with SFSpeechRecognizer and prints one
 // JSON event per line: {"type":"started"}, {"type":"partial"|"final","text":…},
 // {"type":"level","value":0…1}, {"type":"error","message":…}. It runs until stdin closes or
 // SIGTERM. `--locales` prints the languages it can transcribe (a JSON array) and exits. The desktop app (src/main/speech.ts) owns endpointing: it stops this process when
@@ -16,17 +16,20 @@ final class Recognizer {
     private var task: SFSpeechRecognitionTask?
     private var lastLevel = Date.distantPast
 
-    init(locale: String?) {
+    private let echoCancel: Bool
+
+    init(locale: String?, echoCancel: Bool) {
+        self.echoCancel = echoCancel
         recognizer = locale.map { SFSpeechRecognizer(locale: Locale(identifier: $0)) } ?? SFSpeechRecognizer()
     }
 
     func start() async {
         guard await AVCaptureDevice.requestAccess(for: .audio) else {
-            return fail("Allow the microphone for Codync in System Settings to talk to your bots.")
+            return fail("Allow the microphone for Kith in System Settings to talk to your bots.")
         }
         let status = await withCheckedContinuation { done in SFSpeechRecognizer.requestAuthorization { done.resume(returning: $0) } }
         guard status == .authorized else {
-            return fail("Allow Speech Recognition for Codync in System Settings to talk to your bots.")
+            return fail("Allow Speech Recognition for Kith in System Settings to talk to your bots.")
         }
         guard let recognizer, recognizer.isAvailable else {
             return fail("Speech recognition isn't available for this language right now.")
@@ -36,6 +39,16 @@ final class Recognizer {
         if recognizer.supportsOnDeviceRecognition { request.requiresOnDeviceRecognition = true }
         self.request = request
         let input = engine.inputNode
+        // Opt-in (--echo-cancel): the system's voice processing removes what the computer plays from the
+        // microphone, so a call can be talked over. It also ducks other audio, which we turn down.
+        if echoCancel {
+            do {
+                try input.setVoiceProcessingEnabled(true)
+                input.voiceProcessingOtherAudioDuckingConfiguration = .init(enableAdvancedDucking: false, duckingLevel: .min)
+            } catch {
+                FileHandle.standardError.write(Data("Echo cancellation isn't available: \(error.localizedDescription)\n".utf8))
+            }
+        }
         let format = input.outputFormat(forBus: 0)
         // No usable input (no microphone, a route change): a tap on a 0 Hz format raises an exception that ends the helper.
         guard format.sampleRate > 0, format.channelCount > 0 else {
@@ -112,7 +125,7 @@ let locale = arguments.firstIndex(of: "--locale").flatMap { arguments.indices.co
 
 signal(SIGTERM, SIG_IGN)
 let term = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
-let recognizer = MainActor.assumeIsolated { Recognizer(locale: locale) }
+let recognizer = MainActor.assumeIsolated { Recognizer(locale: locale, echoCancel: arguments.contains("--echo-cancel")) }
 term.setEventHandler {
     MainActor.assumeIsolated { recognizer.stop() }
     // Give the recognizer a moment to deliver the final result.

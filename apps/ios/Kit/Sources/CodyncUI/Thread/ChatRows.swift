@@ -31,6 +31,7 @@ struct ChatRow: View {
                 if chat?.isGroup == true, groupStart { AuthorLabel(botId: entry.data.author) }
                 AgentBubble(entry: entry, openTrace: openTrace, reply: reply)
                 Group {
+                    AnsweredByLabel(answeredBy: entry.data.answeredBy)
                     ReactionsRow(entry: entry)
                     threadChip
                 }
@@ -89,7 +90,7 @@ struct AuthorLabel: View {
             if let bot { CharacterAvatar(bot: bot, size: 26, animated: false) }
             Text(model.authorName(botId))
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(bot.map { AvatarPalette.color($0.avatarColor) } ?? Palette.secondary)
+                .foregroundStyle(Palette.text)
         }
     }
 }

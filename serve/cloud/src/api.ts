@@ -7,6 +7,7 @@ import type { Ctx } from "./routes/common";
 export { ApiError, type Ctx } from "./routes/common";
 export * from "./routes/account";
 export * from "./routes/host";
+export * from "./routes/invites";
 export * from "./routes/relay";
 export * from "./routes/webhooks";
 

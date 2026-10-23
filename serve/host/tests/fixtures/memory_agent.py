@@ -1,6 +1,6 @@
-"""Deterministic ACP replies for dreaming, without an LLM provider.
+"""Deterministic ACP replies for tidying, without an LLM provider.
 
-A dream run gets a plan with two additions: one quoting what the user typed, one quoting what they pasted. Only
+A tidy-up run gets a plan with two additions: one quoting what the user typed, one quoting what they pasted. Only
 the first may survive the host's audit. It also appends a note to a long-form file.
 """
 import json

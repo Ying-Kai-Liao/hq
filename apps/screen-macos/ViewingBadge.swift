@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// A small always-on-top pill while a phone is watching, so it's never a secret;
-/// its button disconnects every viewer. Black and white like the rest of Codync.
+/// its button disconnects every viewer. Black and white like the rest of Kith.
 @MainActor
 final class ViewingBadge {
     var onDisconnect: (() -> Void)?

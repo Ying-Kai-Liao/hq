@@ -10,7 +10,7 @@
 //!
 //! Context (from Grok Bot too): the bot's instructions and memory are a frozen
 //! snapshot per session and compaction epoch (`context`), finished turns feed
-//! its dreaming (`memory`), messages sent while it works are folded into
+//! its tidying (`memory`), messages sent while it works are folded into
 //! its next turn, and a turn cut off by a host restart is resumed.
 //!
 //! Lanes: besides its own chat, a bot talks in threads (each a session of its own,
@@ -19,6 +19,7 @@
 //! own-chat actor also runs its routines and the requests other bots send it.
 
 mod compaction;
+mod failover;
 mod fast_mode;
 mod files;
 mod hq;
@@ -143,13 +144,8 @@ pub struct BotHandle {
     pub task: tokio::task::JoinHandle<()>,
 }
 
-/// Starts the actor for `home`, one of the places the bot talks. All of a bot's actors share its `dreamer`.
-pub fn spawn(
-    hub: Arc<Hub>,
-    cfg: BotConfig,
-    home: Lane,
-    dreamer: mpsc::UnboundedSender<memory::DreamEvent>,
-) -> BotHandle {
+/// Starts the actor for `home`, one of the places the bot talks. All of a bot's actors share its `tidier`.
+pub fn spawn(hub: Arc<Hub>, cfg: BotConfig, home: Lane, tidier: mpsc::UnboundedSender<memory::TidyEvent>) -> BotHandle {
     let (tx, rx) = mpsc::unbounded_channel();
     let rt = actor_key(&cfg.id, &home);
     // The session of the actor's own lane: the bot's main one, or a group lane's. A thread's is found by its root.
@@ -187,7 +183,7 @@ pub fn spawn(
         handoff: None,
         compaction_notice: None,
         applied_system: HashMap::new(),
-        dreamer,
+        tidier,
         turn_text: None,
         turn_entries: Vec::new(),
         turn_memory_revision: String::new(),
@@ -206,6 +202,17 @@ pub fn spawn(
         cancel_deadline: None,
         exit_tail: None,
         conn_started_as: None,
+        serving: None,
+        conn_serving: None,
+        backup_sessions: HashMap::new(),
+        preface: None,
+        attempt_prompt: None,
+        reuse_prompt: false,
+        turn_prompt: None,
+        turn_tried: HashSet::new(),
+        limit_seen: None,
+        attempt_effects: false,
+        exhausted: None,
         tools_changed: false,
         fast_support,
         idle_checked: Instant::now(),
@@ -348,7 +355,7 @@ struct Actor {
     compaction_notice: Option<String>,
     /// Session -> the instructions this process last handed Claude as its system prompt.
     applied_system: HashMap<String, String>,
-    dreamer: mpsc::UnboundedSender<memory::DreamEvent>,
+    tidier: mpsc::UnboundedSender<memory::TidyEvent>,
     /// The user's words for this turn (None for a hidden turn or one not from the user); feeds memory.
     turn_text: Option<String>,
     /// The user messages this turn answers (none when it isn't the user's).
@@ -376,6 +383,28 @@ struct Actor {
     exit_tail: Option<String>,
     /// hq bots: the env and folder the agent process was started with.
     conn_started_as: Option<(Vec<(String, String)>, String)>,
+    /// hq bots with backup accounts (see `failover`): the chain entry whose login answers this actor's turns now
+    /// (`None`: the agent's own), and the entry the live process was started for.
+    serving: Option<String>,
+    conn_serving: Option<String>,
+    /// The sessions a backup entry holds for this actor, by (entry, thread root or empty). Kept in memory only: the
+    /// stored sessions are the agent's own, which come back when its limit lifts.
+    backup_sessions: HashMap<(String, String), String>,
+    /// Told first to a backup's new session: the conversation so far.
+    preface: Option<String>,
+    /// The prompt the first attempt of this turn composed, and whether the next attempt sends it again as it was.
+    attempt_prompt: Option<String>,
+    reuse_prompt: bool,
+    /// What started this turn (its text, whether it was hidden), kept for sending it to the next entry.
+    turn_prompt: Option<(String, bool)>,
+    /// Entries this turn already ran on and found out of usage.
+    turn_tried: HashSet<String>,
+    /// A `rejected` rate-limit update in this turn, with the reset time it carried.
+    limit_seen: Option<acp::Depleted>,
+    /// A tool call completed in this attempt of the turn: it did something that can't be run again.
+    attempt_effects: bool,
+    /// Set when the turn ended out of usage with nowhere left to go: what to tell the user.
+    exhausted: Option<String>,
     /// Connectors changed: restart the agent before the next turn so the
     /// session is resumed with the new MCP servers.
     tools_changed: bool,
@@ -440,6 +469,15 @@ impl Actor {
                     // Updates sent before the prompt response are already queued; apply them first.
                     while let Some(inc) = self.conn.as_mut().and_then(|c| c.rx.try_recv().ok()) {
                         self.on_incoming(Some(inc)).await;
+                    }
+                    // A turn that ran out of usage goes on, from the start, on the next account of the chain.
+                    if self.failover(&done, &done_tx).await {
+                        if self.turn.is_none() {
+                            self.permit = None;
+                            self.next_in_queue(&done_tx).await;
+                        }
+                        self.tend_room();
+                        continue;
                     }
                     let (session, routine) = (self.turn_session.clone(), self.active_routine.is_some());
                     let failed = done.as_ref().is_err_and(acp::may_end_session);
@@ -506,6 +544,9 @@ impl Actor {
     /// Adds an entry to the current lane, signed by this bot (a group shows who said it).
     fn add(&self, kind: EntryKind, turn: i64, mut data: Value) -> Option<Entry> {
         data["author"] = self.cfg.id.clone().into();
+        if kind == EntryKind::Agent && self.is_hq() {
+            data["answeredBy"] = self.serving.clone().into();
+        }
         self.hub.add_entry(&self.lane, kind, turn, &data)
     }
 

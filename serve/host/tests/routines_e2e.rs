@@ -11,6 +11,16 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
+/// Kills its child when the test ends any way, a failed assert included.
+struct Reap(Child);
+
+impl Drop for Reap {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
 struct Host {
     child: Child,
     home: PathBuf,
@@ -411,7 +421,7 @@ async fn recurring_work_continues_after_a_failed_run() {
 #[tokio::test]
 async fn only_one_host_can_own_a_data_directory_even_on_another_port() {
     let host = Host::start().await;
-    let mut other = Command::new(env!("CARGO_BIN_EXE_kith-serve"))
+    let other = Command::new(env!("CARGO_BIN_EXE_kith-serve"))
         .args(["serve", "--bind", "127.0.0.1", "--port", "0"])
         .env("KITH_SERVE_CLOUD", "off")
         .env("KITH_SERVE_HOME", &host.home)
@@ -419,6 +429,8 @@ async fn only_one_host_can_own_a_data_directory_even_on_another_port() {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
+    let mut other = Reap(other);
+    let other = &mut other.0;
     let status = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             if let Some(status) = other.try_wait().unwrap() {

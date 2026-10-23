@@ -90,7 +90,7 @@ private struct InstallPage: View {
                         Image(systemName: "laptopcomputer")
                             .font(.system(size: 150, weight: .ultraLight))
                             .foregroundStyle(Palette.tertiary)
-                        CharacterAvatar(shape: "blob", color: "blue", size: 52, mood: .working)
+                        CharacterAvatar(portrait: "crew-builder", size: 52, mood: .working)
                             .offset(y: -12)
                     }
                     .frame(maxWidth: .infinity)
@@ -212,7 +212,7 @@ private struct ScanPage: View {
                         .tracking(-0.5)
                         .foregroundStyle(Palette.text)
                     Text(os == .mac
-                         ? "On your Mac, click Codync in the menu bar, then Pair iPhone."
+                         ? "On your Mac, click Kith in the menu bar, then Pair iPhone."
                          : "On your computer, run this in a terminal:")
                         .font(.body)
                         .foregroundStyle(Palette.secondary)
@@ -239,7 +239,7 @@ private struct ScanPage: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(error).font(.footnote).foregroundStyle(Palette.danger)
                         // The usual cause: the phone has no road to the computer yet.
-                        Label("Check that this iPhone and the computer are on the same Wi-Fi or both on Tailscale, or that “Reach from anywhere” is on in Codync on the computer.",
+                        Label("Check that this iPhone and the computer are on the same Wi-Fi or both on Tailscale, or that “Reach from anywhere” is on in Kith on the computer.",
                               systemImage: "wifi.exclamationmark")
                             .font(.footnote)
                             .foregroundStyle(Palette.secondary)
@@ -255,7 +255,7 @@ private struct ScanPage: View {
                     Label("Connects on Wi-Fi, over Tailscale, or from anywhere through Cloudflare, on its own. End-to-end encrypted.",
                           systemImage: "lock.fill")
                     if tailscaleOn {
-                        Label("Tailscale is on: Codync connects over it directly.", systemImage: "checkmark.circle.fill")
+                        Label("Tailscale is on: Kith connects over it directly.", systemImage: "checkmark.circle.fill")
                     } else {
                         Button { openURL(Tailscale.downloadURL) } label: {
                             Label("Use Tailscale? Direct and faster away from home.", systemImage: "arrow.up.right")

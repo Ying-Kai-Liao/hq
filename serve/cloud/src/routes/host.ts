@@ -106,24 +106,26 @@ export async function hostState(c: Ctx) {
         .first<{ user_id: string; email: string | null }>()
     : null;
   const grants = await c.env.DB.prepare(
-    `SELECT g.id, d.sign_pub, d.name, d.platform, g.scopes FROM grants g
+    `SELECT g.id, d.sign_pub, d.name, d.platform, g.scopes, d.owner_user_id FROM grants g
      JOIN devices d ON d.id = g.device_id JOIN computers c ON c.id = g.computer_id
-     WHERE g.computer_id = ? AND g.status = 'active' AND d.revoked_at IS NULL AND d.owner_user_id = c.owner_user_id
+     WHERE g.computer_id = ? AND g.status = 'active' AND d.revoked_at IS NULL
+       AND (d.owner_user_id = c.owner_user_id OR EXISTS(SELECT 1 FROM memberships m WHERE m.computer_id = g.computer_id AND m.user_id = d.owner_user_id AND m.revoked_at IS NULL))
      ORDER BY g.created_at`,
   )
     .bind(comp.id)
-    .all<{ id: string; sign_pub: string; name: string; platform: string; scopes: string }>();
+    .all<{ id: string; sign_pub: string; name: string; platform: string; scopes: string; owner_user_id: string }>();
   const requests = await c.env.DB.prepare(
-    `SELECT r.id, d.sign_pub, d.name, d.platform, a.email, r.commit_hash, r.host_nonce, r.device_nonce, r.created_at, r.expires_at
+    `SELECT r.id, r.user_id, d.sign_pub, d.name, d.platform, a.email, r.commit_hash, r.host_nonce, r.device_nonce, r.created_at, r.expires_at
      FROM access_requests r JOIN devices d ON d.id = r.device_id JOIN accounts a ON a.user_id = r.user_id
      JOIN computers c ON c.id = r.computer_id
      WHERE r.computer_id = ? AND r.status = 'pending' AND r.expires_at > ? AND d.revoked_at IS NULL
-       AND r.user_id = c.owner_user_id
+       AND (r.user_id = c.owner_user_id OR EXISTS(SELECT 1 FROM memberships m WHERE m.computer_id = r.computer_id AND m.user_id = r.user_id AND m.revoked_at IS NULL))
      ORDER BY r.created_at`,
   )
     .bind(comp.id, c.now)
     .all<{
       id: string;
+      user_id: string;
       sign_pub: string;
       name: string;
       platform: string;
@@ -134,6 +136,12 @@ export async function hostState(c: Ctx) {
       created_at: number;
       expires_at: number;
     }>();
+  const members = await c.env.DB.prepare(
+    `SELECT m.membership_id, m.user_id, m.invite_id, a.email FROM memberships m JOIN accounts a ON a.user_id = m.user_id
+     WHERE m.computer_id = ? AND m.revoked_at IS NULL AND a.status = 'active' ORDER BY m.created_at`,
+  )
+    .bind(comp.id)
+    .all<{ membership_id: string; user_id: string; invite_id: string; email: string | null }>();
   return {
     owner: owner ? { userId: owner.user_id, email: owner.email } : null,
     grants: grants.results.map((g) => ({
@@ -142,9 +150,11 @@ export async function hostState(c: Ctx) {
       deviceName: g.name,
       platform: g.platform,
       scopes: JSON.parse(g.scopes) as string[],
+      userId: g.owner_user_id,
     })),
     requests: requests.results.map((r) => ({
       requestId: r.id,
+      userId: r.user_id,
       deviceKey: r.sign_pub,
       deviceName: r.name,
       platform: r.platform,
@@ -155,6 +165,7 @@ export async function hostState(c: Ctx) {
       createdAt: r.created_at,
       expiresAt: r.expires_at,
     })),
+    memberships: members.results.map((m) => ({ membershipId: m.membership_id, userId: m.user_id, inviteId: m.invite_id, email: m.email })),
   };
 }
 
@@ -199,13 +210,14 @@ export async function hostDecision(c: Ctx, [id]: string[]) {
     return { status: "denied" };
   }
   const g = randomId("grt_");
-  // The device must still be live and belong to the computer's owner at the moment of approval.
+  // The device must still be live and belong to the computer's owner or an active member at the moment of approval.
   const [approved, inserted] = await c.env.DB.batch([
     c.env.DB.prepare(
       `UPDATE access_requests SET status = 'approved', decided_at = ?1, grant_id = ?2
        WHERE id = ?3 AND computer_id = ?4 AND status = 'pending' AND expires_at > ?1 AND device_nonce IS NOT NULL
          AND EXISTS(SELECT 1 FROM devices d JOIN computers c ON c.id = ?4
-                    WHERE d.id = access_requests.device_id AND d.revoked_at IS NULL AND d.owner_user_id = c.owner_user_id)`,
+                    WHERE d.id = access_requests.device_id AND d.revoked_at IS NULL
+                      AND (d.owner_user_id = c.owner_user_id OR EXISTS(SELECT 1 FROM memberships m WHERE m.computer_id = ?4 AND m.user_id = d.owner_user_id AND m.revoked_at IS NULL)))`,
     ).bind(c.now, g, id, comp.id),
     c.env.DB.prepare(
       `INSERT INTO grants(id, computer_id, device_id, scopes, status, created_at)

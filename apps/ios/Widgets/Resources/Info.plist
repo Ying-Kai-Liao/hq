@@ -8,27 +8,11 @@
     <key>CodyncAPNSEnvironment</key><string>$(CODYNC_APNS_ENVIRONMENT)</string>
 	<key>CodyncKeychainGroup</key>
 	<string>$(AppIdentifierPrefix)$(CODYNC_KEYCHAIN_GROUP)</string>
-	<!-- The Dynamic Island's animated bot faces and thinking orb (tools/timer-fonts.py). -->
+	<!-- The Dynamic Island's animated hop (tools/make-kith-glyph-fonts.py). -->
 	<key>UIAppFonts</key>
 	<array>
-		<string>CodyncBot-blob-Ink.ttf</string>
-		<string>CodyncBot-blob-Tint.ttf</string>
-		<string>CodyncBot-cloud-Ink.ttf</string>
-		<string>CodyncBot-cloud-Tint.ttf</string>
-		<string>CodyncBot-hex-Ink.ttf</string>
-		<string>CodyncBot-hex-Tint.ttf</string>
-		<string>CodyncBot-pebble-Ink.ttf</string>
-		<string>CodyncBot-pebble-Tint.ttf</string>
-		<string>CodyncBot-squircle-Ink.ttf</string>
-		<string>CodyncBot-squircle-Tint.ttf</string>
-		<string>CodyncBot-tablet-Ink.ttf</string>
-		<string>CodyncBot-tablet-Tint.ttf</string>
-		<string>CodyncBot-teardrop-Ink.ttf</string>
-		<string>CodyncBot-teardrop-Tint.ttf</string>
-		<string>CodyncBot-wedge-Ink.ttf</string>
-		<string>CodyncBot-wedge-Tint.ttf</string>
-		<string>CodyncOrb-Dot.ttf</string>
-		<string>CodyncOrb-Ghost.ttf</string>
+		<string>KithHop-Dot.ttf</string>
+		<string>KithHop-Ghost.ttf</string>
 	</array>
 	<key>NSExtension</key>
 	<dict>

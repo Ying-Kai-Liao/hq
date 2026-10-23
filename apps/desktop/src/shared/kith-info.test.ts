@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import {
-  cronWords, formatUsd, isUnsupportedHost, lastRunText, lineOffset, packageNotes, parseKithInfo, parseKithInfoResult,
-  parseMemoryFile, parseSearchResult, rolePrompt, shortVersion, sortMemoryFiles, splitRoleSections, topModels,
+  cronWords, formatUsd, isUnsupportedHost, lastRunText, packageNotes, parseKithInfo, parseKithInfoResult,
+  parseSearchResult, rolePrompt, shortVersion, splitRoleSections, topModels,
 } from './kith-info.ts'
 
 // `kith house --info-json` as printed on a real Mac (role text and memory files trimmed).
@@ -87,28 +87,13 @@ test('package chip tooltip', () => {
   assert.deepEqual(packageNotes({ version: 'abc', remote: null, dirty: false, unpushed: false, pinned: null }), [])
 })
 
-test('memory files: MEMORY.md first, then newest', () => {
-  const files = [
-    { path: 'old.md', bytes: 1, modified: 1 },
-    { path: 'MEMORY.md', bytes: 1, modified: 0 },
-    { path: 'new.md', bytes: 1, modified: 9 },
-  ]
-  assert.deepEqual(sortMemoryFiles(files).map((f) => f.path), ['MEMORY.md', 'new.md', 'old.md'])
-})
-
-test('memory file and search answers', () => {
-  const file = parseMemoryFile({ path: 'a.md', text: 'hi', bytes: 600_000, modified: 1760000000000, truncated: true })
-  assert.equal(file.truncated, true)
-  assert.equal(file.bytes, 600_000)
+test('search answers', () => {
   const search = parseSearchResult({ hits: [{ path: 'a.md', line: 3, snippet: 's', openable: true }, { path: '/abs/skill.md', line: null, snippet: 'x', agent: 'house' }, 'bad'] })
   assert.equal(search.hits.length, 2)
   assert.equal(search.hits[0].openable, true)
   assert.equal(search.hits[1].openable, false)
   assert.equal(search.hits[1].agent, 'house')
   assert.equal(parseSearchResult({ hits: [], error: 'no kith' }).error, 'no kith')
-  assert.equal(lineOffset(3, 10), 2)
-  assert.equal(lineOffset(99, 10), 9)
-  assert.equal(lineOffset(null, 10), 0)
 })
 
 test('an older host is told apart from a failure', () => {

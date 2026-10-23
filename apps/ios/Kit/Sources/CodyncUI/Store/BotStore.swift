@@ -114,6 +114,11 @@ public final class BotStore {
         let speak: @MainActor (String) -> Void
         /// A notice from the computer (approval needed), as opposed to the bot's reply.
         let announce: @MainActor (String) -> Void
+        /// The growing text of a reply still being written, `final` once it's done. Set by an
+        /// engine that speaks replies as they stream in; those get no `speak` call.
+        var stream: (@MainActor (String, String, Bool) -> Void)?
+        /// The bot started or stopped working.
+        var working: (@MainActor (Bool) -> Void)?
         let end: @MainActor () -> Void
     }
     @ObservationIgnored var voiceCalls: [UUID: VoiceCall] = [:]

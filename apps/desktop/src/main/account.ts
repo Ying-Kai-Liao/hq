@@ -2,37 +2,25 @@ import { EventEmitter } from 'node:events'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { app, ipcMain, safeStorage, type BrowserWindow } from 'electron'
+import { providerName, providerStrategy, resolveAccountConfig, type AccountConfig, type SignInProvider } from '../shared/account-config'
 import type { AccountState } from '../shared/ipc'
 import { authenticate } from './auth'
 import { buildConfig, identity } from './environment'
 
 /**
- * The Codync account through Clerk's Frontend API, the way ClerkKit drives it on the native
+ * The Kith account through Clerk's Frontend API, the way ClerkKit drives it on the native
  * apps: a device token in the `Authorization` header (`_is_native=true`), OAuth in the system
- * browser returning to `com.pokai.Codync://callback`, the token kept encrypted with the OS
+ * browser returning to `kith://callback` (`kith-dev` in the dev build), the token kept encrypted with the OS
  * keychain. An account never grants access to a computer by itself (spec §4.2).
  */
 
-const SCHEME = identity.appId
+const SCHEME = identity.scheme
 const REDIRECT = `${SCHEME}://callback`
-
-interface Config {
-  clerkPublishableKey: string | null
-  cloudURL: string | null
-}
 
 export const isMainEnvironment = () => identity.releaseUpdates
 
-/** `CODYNC_CLERK_PUBLISHABLE_KEY` / `CODYNC_CLOUD_URL`, else the build's account config. */
-function loadConfig(): Config {
-  const file = buildConfig
-  const key = (process.env.CODYNC_CLERK_PUBLISHABLE_KEY ?? file.clerkPublishableKey ?? '').trim()
-  const cloud = (process.env.CODYNC_CLOUD_URL ?? file.cloudURL ?? '').trim()
-  return {
-    clerkPublishableKey: key.startsWith('pk_test_') || key.startsWith('pk_live_') ? key : null,
-    cloudURL: /^https:\/\//.test(cloud) ? cloud.replace(/\/$/, '') : null,
-  }
-}
+/** `KITH_CLERK_PUBLISHABLE_KEY` / `KITH_CLOUD_URL` (or the `CODYNC_*` names), else the build's account config. */
+const loadConfig = (): AccountConfig => resolveAccountConfig(process.env, buildConfig)
 
 /** The Frontend API host is the publishable key's payload: `pk_test_<base64("host$")>`. */
 function frontendAPI(key: string) {
@@ -103,7 +91,7 @@ export class AccountService extends EventEmitter {
 
   register(windows: () => BrowserWindow[]) {
     ipcMain.handle('account:state', () => this.state)
-    ipcMain.handle('account:signIn', (_e, provider: 'apple' | 'google') => this.signIn(provider))
+    ipcMain.handle('account:signIn', (_e, provider: SignInProvider) => this.signIn(provider))
     ipcMain.handle('account:signOut', () => this.signOut())
     ipcMain.handle('account:token', () => this.sessionToken())
     this.on('change', () => {
@@ -122,7 +110,11 @@ export class AccountService extends EventEmitter {
     if (!this.base) return
     try {
       const sealed = await fs.readFile(this.storePath)
-      this.deviceToken = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(sealed) : sealed.toString('utf8')
+      const text = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(sealed) : sealed.toString('utf8')
+      // A token from another Clerk application (an older Codync build, or a changed key) is no use here.
+      const saved = JSON.parse(text) as { key?: string; token?: string }
+      if (saved.key === this.config.clerkPublishableKey && saved.token) this.deviceToken = saved.token
+      else await fs.rm(this.storePath, { force: true })
     } catch {}
     try {
       if (this.deviceToken) await this.refreshClient()
@@ -135,7 +127,8 @@ export class AccountService extends EventEmitter {
   private async persist() {
     try {
       if (!this.deviceToken) return await fs.rm(this.storePath, { force: true })
-      const data = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(this.deviceToken) : Buffer.from(this.deviceToken)
+      const text = JSON.stringify({ key: this.config.clerkPublishableKey, token: this.deviceToken })
+      const data = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(text) : Buffer.from(text)
       await fs.mkdir(app.getPath('userData'), { recursive: true })
       await fs.writeFile(this.storePath, data, { mode: 0o600 })
     } catch {}
@@ -186,13 +179,13 @@ export class AccountService extends EventEmitter {
     this.applyClient(client)
   }
 
-  async signIn(provider: 'apple' | 'google') {
+  async signIn(provider: SignInProvider) {
     if (this.state.busy) return
     if (!this.base) return this.set({ error: "Sign-in setup isn't finished yet. You can continue using local pairing." })
-    const name = provider === 'apple' ? 'Apple' : 'Google'
+    const name = providerName(provider)
     this.set({ busy: true, error: null })
     try {
-      const strategy = `oauth_${provider}`
+      const strategy = providerStrategy(provider)
       const created = await this.request<SignInResource>('POST', '/v1/client/sign_ins', { strategy, redirect_url: REDIRECT })
       const prepared = await this.request<SignInResource>('POST', `/v1/client/sign_ins/${created.id}/prepare_first_factor`, { strategy, redirect_url: REDIRECT })
       const redirect = prepared.first_factor_verification?.external_verification_redirect_url
@@ -245,7 +238,7 @@ export class AccountService extends EventEmitter {
     this.applyClient(null)
   }
 
-  /** The signed-in session's JWT for the Codync cloud (cached for under a minute, like Clerk). */
+  /** The signed-in session's JWT for the Kith cloud (cached for under a minute, like Clerk). */
   async sessionToken(): Promise<string> {
     const session = this.activeSession
     if (!session) throw new Error('Sign in again to reach your account.')

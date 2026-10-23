@@ -7,7 +7,7 @@ import Foundation
 final class FrameSink: NSObject, SCStreamOutput, @unchecked Sendable {
     // @unchecked: every field is only touched on `queue` (SCStream's sample queue and the idle
     // timer both run there), and WebRTC's ObjC types carry no Sendable annotations.
-    let queue = DispatchQueue(label: "com.pokai.Codync.screen.frames", qos: .userInteractive)
+    let queue = DispatchQueue(label: "com.yingkailiao.kith.screen.frames", qos: .userInteractive)
     private let source: RTCVideoSource
     private let capturer: RTCVideoCapturer
     private var last: RTCVideoFrame?

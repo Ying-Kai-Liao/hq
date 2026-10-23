@@ -771,8 +771,11 @@ def cmd_handle(args):
 
 
 def bind(auth, pid, plat, uid):
-    if not re.fullmatch(r'-?\d+|[A-Z0-9]+', uid):
-        die(f'{plat} user ids are numbers (Telegram, Discord) or Slack ids like U0123ABC, not usernames', 2)
+    # `kith` is a Kith account: its id is the Clerk user id (user_2abc...), set by the host when a Mac is claimed
+    ok = re.fullmatch(r'user_[A-Za-z0-9]+', uid) if plat == 'kith' else re.fullmatch(r'-?\d+|[A-Z0-9]+', uid)
+    if not ok:
+        die(f'{plat} user ids are numbers (Telegram, Discord) or Slack ids like U0123ABC, not usernames'
+            + ('; kith ids are Kith account ids (user_...)' if plat == 'kith' else ''), 2)
     for other, p in auth['people'].items():
         if other != pid and p.get('handles', {}).get(plat) == uid:
             die(f'{plat} {uid} is already {other}')

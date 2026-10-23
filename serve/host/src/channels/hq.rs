@@ -106,7 +106,7 @@ pub struct Who {
 }
 
 impl Who {
-    fn parse(v: &Value) -> Self {
+    pub(crate) fn parse(v: &Value) -> Self {
         let text = |k: &str| v.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
         Self {
             person: text("person"),

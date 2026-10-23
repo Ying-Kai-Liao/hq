@@ -101,6 +101,9 @@ extension BotStore {
             onBotUpdated?(bot)
             onRosterChanged?()
             if bot.unread > 0 { acknowledgeVisibleConversations(bot.id) }
+            if let before, before.isWorking != bot.isWorking {
+                for call in Array(voiceCalls.values) where call.botId == bot.id { call.working?(bot.isWorking) }
+            }
             if bot.needsInput && !neededInput {
                 for call in Array(voiceCalls.values) where call.botId == bot.id {
                     call.announce("\(bot.name) needs your approval in the chat.")
@@ -126,8 +129,13 @@ extension BotStore {
             let calls = Array(voiceCalls.values).filter { $0.botId == e.botId && e.rev > $0.startRev }
             // The chat's replies and its tasks' are heard; other threads aren't.
             let heard = e.threadId.map { root in chat(e.botId).contains { $0.id == root && $0.isTask } } ?? true
-            if e.kind == "agent", heard, e.data.final == true, known?.data.final != true, let text = e.data.text {
-                calls.forEach { $0.speak(spokenReply(e, text)) }
+            if e.kind == "agent", heard, known?.data.final != true, let text = e.data.text, !text.isEmpty {
+                let final = e.data.final == true
+                for call in calls {
+                    // Replies already final when the call began never get here (`known` was final).
+                    if let stream = call.stream { stream(e.id, spokenReply(e, text), final) }
+                    else if final { call.speak(spokenReply(e, text)) }
+                }
             }
             // A group has no status of its own: its members' approvals arrive as cards.
             if e.kind == "permission", known == nil, e.data.status == "pending", bots[e.botId]?.isGroup == true {

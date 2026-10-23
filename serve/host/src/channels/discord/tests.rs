@@ -93,7 +93,13 @@ fn make_core(dir: &Path) -> Arc<Core> {
     };
     let paths = paths(dir);
     let gate = Gate::new(GateSettings::unlimited(), Box::new(memory::System));
-    Core::new(core::Deps { paths: paths.clone(), settings, gate, judge: Judge::fixed(None, paths) })
+    Core::new(core::Deps {
+        paths: paths.clone(),
+        settings,
+        gate,
+        backups: Arc::new(crate::agent::backups::Backups::new(paths.data.join("backups.json"))),
+        judge: Judge::fixed(None, paths),
+    })
 }
 
 impl Rig {

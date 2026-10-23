@@ -18,6 +18,11 @@ pub(crate) fn gone_key(bot: &str) -> String {
     format!("hq.gone.{bot}")
 }
 
+/// Kv key: the bot's `tasks: false`, which every hq bot was created with until 2.21, was turned on once.
+fn tasks_key(bot: &str) -> String {
+    format!("hq.tasks.{bot}")
+}
+
 /// What one sync did, by agent name.
 #[derive(Debug, Default, PartialEq)]
 pub struct Synced {
@@ -102,6 +107,11 @@ impl Hub {
             if row.config.cwd != agent.home {
                 patch.insert("cwd".into(), agent.home.clone().into());
             }
+            // Chats with hq bots auto-thread (a task per burst) like any bot's; older bots were created with it off.
+            if row.config.tasks == Some(false) && self.store.kv_get(&tasks_key(&row.config.id)).is_none() {
+                patch.insert("tasks".into(), true.into());
+                self.store.kv_set(&tasks_key(&row.config.id), "1")?;
+            }
             let came_back = row.config.hidden && self.store.kv_get(&gone_key(&row.config.id)).is_some();
             if came_back {
                 patch.insert("hidden".into(), false.into());
@@ -134,11 +144,11 @@ impl Hub {
 }
 
 /// An agent's first bot. Permission is Ask: the agent's requests become approval cards until the user says otherwise.
-/// One endless conversation (no task per message), like talking to the agent in a terminal.
+/// Its chat auto-threads: each burst of messages is a task in a thread of its own, as in any bot's chat.
 fn new_bot(agent: &HqAgent) -> BotConfig {
     serde_json::from_value(json!({
         "id": "", "name": agent.name, "description": agent.description, "backend": "claude", "cwd": agent.home,
-        "hqAgent": agent.name, "permission": "ask", "tasks": false, "connectors": [], "skills": [],
+        "hqAgent": agent.name, "permission": "ask", "connectors": [], "skills": [],
     }))
     .expect("a valid bot")
 }
@@ -201,6 +211,23 @@ mod tests {
         assert_eq!(kept.permission, crate::store::Permission::Auto);
         assert_eq!((kept.hq_agent.as_deref(), kept.backend.as_str()), (Some("house"), "claude"), "not editable");
         assert_eq!(kept.description, "keeps the house tidy", "hq's description");
+    }
+
+    #[tokio::test]
+    async fn hq_bots_auto_thread_and_an_older_one_is_turned_on_once() {
+        let (hub, dir) = hub();
+        let house = agent(&dir, "house", "");
+        hub.apply_hq_agents(std::slice::from_ref(&house)).unwrap();
+        let bot = bots(&hub).remove(0);
+        assert!(bot.uses_tasks(), "a new hq bot starts a task per burst");
+
+        // A bot made before 2.21 has tasks off; the first sync turns it on, and the user's choice after that stays.
+        hub.update_bot(&json!({"id": bot.id, "tasks": false})).unwrap();
+        hub.apply_hq_agents(std::slice::from_ref(&house)).unwrap();
+        assert!(bots(&hub)[0].uses_tasks());
+        hub.update_bot(&json!({"id": bot.id, "tasks": false})).unwrap();
+        hub.apply_hq_agents(std::slice::from_ref(&house)).unwrap();
+        assert!(!bots(&hub)[0].uses_tasks());
     }
 
     #[tokio::test]

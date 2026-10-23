@@ -1,4 +1,4 @@
-//! A bot's memory, as in the other apps: what it knows about you (shared by your bots) and on its own, its dream
+//! A bot's memory, as in the other apps: what it knows about you (shared by your bots) and on its own, its tidy
 //! log, and Claude Code's own memory where the user kept it on, driven from the keyboard.
 
 use super::super::app::{App, Confirm, ConfirmAct, Editor, Overlay};
@@ -13,20 +13,20 @@ pub enum Section {
     Bot,
     /// Both layers' long-form files.
     Notes,
-    Dreams,
+    TidyUps,
     /// Claude Code's own memory (its `MEMORY.md`), read-only, where the user kept it on.
     Harness,
 }
 
 impl Section {
-    const ALL: [Self; 5] = [Self::Yours, Self::Bot, Self::Notes, Self::Dreams, Self::Harness];
+    const ALL: [Self; 5] = [Self::Yours, Self::Bot, Self::Notes, Self::TidyUps, Self::Harness];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Yours => "About you",
             Self::Bot => "This bot",
             Self::Notes => "Notes",
-            Self::Dreams => "Dreams",
+            Self::TidyUps => "Tidy-ups",
             Self::Harness => "Claude Code",
         }
     }
@@ -36,7 +36,7 @@ impl Section {
         match self {
             Self::Yours => Some(true),
             Self::Bot => Some(false),
-            Self::Notes | Self::Dreams | Self::Harness => None,
+            Self::Notes | Self::TidyUps | Self::Harness => None,
         }
     }
 }
@@ -87,13 +87,13 @@ impl MemorySheet {
         }
     }
 
-    /// The current section's rows: entries, or dream runs.
+    /// The current section's rows: entries, or tidy-up runs.
     pub fn rows(&self) -> Vec<Value> {
         let Some(view) = &self.view else { return Vec::new() };
         let list = match self.section {
             Section::Yours => &view["yours"]["entries"],
             Section::Bot => &view["bot"]["entries"],
-            Section::Dreams => &view["dreams"],
+            Section::TidyUps => &view["tidyUps"],
             Section::Notes => {
                 // This bot's own first, then the shared ones; each row says which.
                 let mut rows = Vec::new();
@@ -266,12 +266,12 @@ impl App {
                 m.busy = true;
                 self.sheet(method, body, Reply::MemorySaved(m.bot.clone()));
             }
-            KeyCode::Char('u') if m.section == Section::Dreams && !m.busy => {
-                if let Some(dream) = selected.filter(|d| d["undone"] != true) {
+            KeyCode::Char('u') if m.section == Section::TidyUps && !m.busy => {
+                if let Some(tidy) = selected.filter(|d| d["undone"] != true) {
                     m.busy = true;
                     self.sheet(
-                        "undoDream",
-                        json!({"botId": m.bot, "id": dream["id"]}),
+                        "undoTidy",
+                        json!({"botId": m.bot, "id": tidy["id"]}),
                         Reply::MemorySaved(m.bot.clone()),
                     );
                 }

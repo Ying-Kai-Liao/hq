@@ -1,0 +1,965 @@
+{
+ "version": 1,
+ "status": "draft: measured by branding's make_layers.py from crew/*.png and logo/mark.png",
+ "units": "fractions of the square canvas (any size: 256, 512, 1024), origin top-left, y down",
+ "eye": {
+  "color": "#000000",
+  "shape": "filled ellipse, no rim",
+  "fields": "x,y = centre; w,h = full width/height; tilt = degrees clockwise from vertical"
+ },
+ "look": "max shift of BOTH eyes together from rest, per direction",
+ "anchor": "squash-and-stretch pivot: bottom centre of the visible body",
+ "tint": "true: tint.png (L = gradient position 0 = colors.a .. 255 = colors.b, A = body alpha) can recolour the body",
+ "palette": [
+  {
+   "id": "blue",
+   "a": "#6E8BFF",
+   "b": "#C9D2FF"
+  },
+  {
+   "id": "sky",
+   "a": "#6E8BFF",
+   "b": "#BFE3FF"
+  },
+  {
+   "id": "cyan",
+   "a": "#5ED3F3",
+   "b": "#8FB0FF"
+  },
+  {
+   "id": "teal",
+   "a": "#3FD0C0",
+   "b": "#B8F2E4"
+  },
+  {
+   "id": "mint",
+   "a": "#3FD0C0",
+   "b": "#7EE8C1"
+  },
+  {
+   "id": "green",
+   "a": "#7BE29A",
+   "b": "#C8F5D8"
+  },
+  {
+   "id": "sun",
+   "a": "#FFC56B",
+   "b": "#FFE7A6"
+  },
+  {
+   "id": "apricot",
+   "a": "#FFC56B",
+   "b": "#FDCEC0"
+  },
+  {
+   "id": "peach",
+   "a": "#FFB59A",
+   "b": "#FFB3C7"
+  },
+  {
+   "id": "coral",
+   "a": "#FF7E8E",
+   "b": "#FFD1BF"
+  },
+  {
+   "id": "rose",
+   "a": "#FF5F7A",
+   "b": "#FFC0C8"
+  },
+  {
+   "id": "pink",
+   "a": "#FF7EB0",
+   "b": "#FFC9DC"
+  },
+  {
+   "id": "violet",
+   "a": "#8A5CFF",
+   "b": "#D9C9FF"
+  },
+  {
+   "id": "orchid",
+   "a": "#A67EFC",
+   "b": "#F281F3"
+  },
+  {
+   "id": "dawn",
+   "a": "#8FC7FC",
+   "b": "#A67EFC"
+  }
+ ],
+ "bots": {
+  "branding": {
+   "kind": "crew",
+   "eyes": [
+    {
+     "x": 0.3105,
+     "y": 0.3924,
+     "w": 0.0653,
+     "h": 0.1284,
+     "tilt": -1.2
+    },
+    {
+     "x": 0.4377,
+     "y": 0.3777,
+     "w": 0.0665,
+     "h": 0.1301,
+     "tilt": -1.6
+    }
+   ],
+   "look": {
+    "left": 0.0605,
+    "right": 0.0605,
+    "up": 0.0605,
+    "down": 0.0605
+   },
+   "anchor": {
+    "x": 0.499,
+    "y": 0.8438
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#FCBF6B",
+    "b": "#FAF5D1"
+   }
+  },
+  "builder": {
+   "kind": "crew",
+   "eyes": [
+    {
+     "x": 0.5919,
+     "y": 0.3734,
+     "w": 0.0618,
+     "h": 0.1198,
+     "tilt": 27.3
+    },
+    {
+     "x": 0.6994,
+     "y": 0.4263,
+     "w": 0.0615,
+     "h": 0.119,
+     "tilt": 27.4
+    }
+   ],
+   "look": {
+    "left": 0.0566,
+    "right": 0.0566,
+    "up": 0.0566,
+    "down": 0.0488
+   },
+   "anchor": {
+    "x": 0.4995,
+    "y": 0.8428
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#5692FC",
+    "b": "#DFDEFB"
+   }
+  },
+  "coder": {
+   "kind": "crew",
+   "eyes": [
+    {
+     "x": 0.4295,
+     "y": 0.3816,
+     "w": 0.062,
+     "h": 0.1207,
+     "tilt": -6.5
+    },
+    {
+     "x": 0.5506,
+     "y": 0.3553,
+     "w": 0.0629,
+     "h": 0.1215,
+     "tilt": -7.6
+    }
+   ],
+   "look": {
+    "left": 0.0566,
+    "right": 0.0566,
+    "up": 0.0566,
+    "down": 0.0273
+   },
+   "anchor": {
+    "x": 0.4995,
+    "y": 0.835
+   },
+   "tint": true,
+   "detail": true,
+   "colors": {
+    "a": "#47BBF9",
+    "b": "#B6FCFE",
+    "detail": "#1C5DCD"
+   }
+  },
+  "designer": {
+   "kind": "crew",
+   "eyes": [
+    {
+     "x": 0.5716,
+     "y": 0.3762,
+     "w": 0.0557,
+     "h": 0.1066,
+     "tilt": 12.4
+    },
+    {
+     "x": 0.6833,
+     "y": 0.3615,
+     "w": 0.0552,
+     "h": 0.1079,
+     "tilt": 11.4
+    }
+   ],
+   "look": {
+    "left": 0.0508,
+    "right": 0.0508,
+    "up": 0.0488,
+    "down": 0.0508
+   },
+   "anchor": {
+    "x": 0.5005,
+    "y": 0.8398
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#FC70AB",
+    "b": "#FAC8CC"
+   }
+  },
+  "devops": {
+   "kind": "crew",
+   "eyes": [
+    {
+     "x": 0.4153,
+     "y": 0.475,
+     "w": 0.0724,
+     "h": 0.1372,
+     "tilt": -1.3
+    },
+    {
+     "x": 0.5534,
+     "y": 0.4636,
+     "w": 0.072,
+     "h": 0.14,
+     "tilt": -1.7
+    }
+   ],
+   "look": {
+    "left": 0.0664,
+    "right": 0.0664,
+    "up": 0.0664,
+    "down": 0.0664
+   },
+   "anchor": {
+    "x": 0.4995,
+    "y": 0.8662
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#57EDE1",
+    "b": "#BAFCBA"
+   }
+  },
+  "finance": {
+   "kind": "crew",
+   "eyes": [
+    {
+     "x": 0.4129,
+     "y": 0.5524,
+     "w": 0.0666,
+     "h": 0.1292,
+     "tilt": -0.1
+    },
+    {
+     "x": 0.544,
+     "y": 0.5394,
+     "w": 0.0677,
+     "h": 0.131,
+     "tilt": -0.5
+    }
+   ],
+   "look": {
+    "left": 0.0605,
+    "right": 0.0605,
+    "up": 0.0605,
+    "down": 0.0605
+   },
+   "anchor": {
+    "x": 0.499,
+    "y": 0.875
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#FAAD43",
+    "b": "#F9EEC4"
+   }
+  },
+  "house": {
+   "kind": "crew",
+   "eyes": [
+    {
+     "x": 0.4206,
+     "y": 0.5052,
+     "w": 0.0519,
+     "h": 0.1103,
+     "tilt": 10.9
+    },
+    {
+     "x": 0.5592,
+     "y": 0.5284,
+     "w": 0.0524,
+     "h": 0.1113,
+     "tilt": 11.0
+    }
+   ],
+   "look": {
+    "left": 0.0488,
+    "right": 0.0488,
+    "up": 0.0488,
+    "down": 0.0488
+   },
+   "anchor": {
+    "x": 0.4995,
+    "y": 0.835
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#FCC3B9",
+    "b": "#FBCB61"
+   }
+  },
+  "image": {
+   "kind": "crew",
+   "eyes": [
+    {
+     "x": 0.3519,
+     "y": 0.4413,
+     "w": 0.0613,
+     "h": 0.1189,
+     "tilt": -2.1
+    },
+    {
+     "x": 0.4716,
+     "y": 0.4241,
+     "w": 0.0613,
+     "h": 0.12,
+     "tilt": -2.8
+    }
+   ],
+   "look": {
+    "left": 0.0566,
+    "right": 0.0566,
+    "up": 0.0566,
+    "down": 0.0566
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.7646
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#FB7E9E",
+    "b": "#FADABE"
+   }
+  },
+  "lab": {
+   "kind": "crew",
+   "eyes": [
+    {
+     "x": 0.4329,
+     "y": 0.6361,
+     "w": 0.0633,
+     "h": 0.124,
+     "tilt": 9.8
+    },
+    {
+     "x": 0.5561,
+     "y": 0.6522,
+     "w": 0.0636,
+     "h": 0.124,
+     "tilt": 8.5
+    }
+   ],
+   "look": {
+    "left": 0.0586,
+    "right": 0.0586,
+    "up": 0.0586,
+    "down": 0.0586
+   },
+   "anchor": {
+    "x": 0.4995,
+    "y": 0.875
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#3FE6CB",
+    "b": "#B8F5FF"
+   }
+  },
+  "marketing": {
+   "kind": "crew",
+   "eyes": [
+    {
+     "x": 0.38,
+     "y": 0.4632,
+     "w": 0.0516,
+     "h": 0.101,
+     "tilt": -2.8
+    },
+    {
+     "x": 0.4817,
+     "y": 0.4386,
+     "w": 0.0533,
+     "h": 0.1054,
+     "tilt": -3.5
+    }
+   ],
+   "look": {
+    "left": 0.0488,
+    "right": 0.0488,
+    "up": 0.0488,
+    "down": 0.0488
+   },
+   "anchor": {
+    "x": 0.4995,
+    "y": 0.7783
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#F8547A",
+    "b": "#F5EBFA"
+   }
+  },
+  "modeler": {
+   "kind": "crew",
+   "eyes": [
+    {
+     "x": 0.4299,
+     "y": 0.5188,
+     "w": 0.051,
+     "h": 0.1035,
+     "tilt": 11.1
+    },
+    {
+     "x": 0.5278,
+     "y": 0.531,
+     "w": 0.054,
+     "h": 0.1051,
+     "tilt": 9.8
+    }
+   ],
+   "look": {
+    "left": 0.0488,
+    "right": 0.0488,
+    "up": 0.0488,
+    "down": 0.0488
+   },
+   "anchor": {
+    "x": 0.4995,
+    "y": 0.7559
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#A895FC",
+    "b": "#8BE0FF"
+   }
+  },
+  "pemo": {
+   "kind": "crew",
+   "eyes": [
+    {
+     "x": 0.4563,
+     "y": 0.3558,
+     "w": 0.0717,
+     "h": 0.1383,
+     "tilt": 10.3
+    },
+    {
+     "x": 0.5939,
+     "y": 0.3727,
+     "w": 0.0716,
+     "h": 0.1411,
+     "tilt": 9.5
+    }
+   ],
+   "look": {
+    "left": 0.0664,
+    "right": 0.0664,
+    "up": 0.0664,
+    "down": 0.0664
+   },
+   "anchor": {
+    "x": 0.4995,
+    "y": 0.875
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#FA839B",
+    "b": "#FCE0C0"
+   }
+  },
+  "personal": {
+   "kind": "crew",
+   "eyes": [
+    {
+     "x": 0.3572,
+     "y": 0.4417,
+     "w": 0.0612,
+     "h": 0.1188,
+     "tilt": 0.8
+    },
+    {
+     "x": 0.4791,
+     "y": 0.4279,
+     "w": 0.0625,
+     "h": 0.1225,
+     "tilt": 0.1
+    }
+   ],
+   "look": {
+    "left": 0.0566,
+    "right": 0.0566,
+    "up": 0.0566,
+    "down": 0.0566
+   },
+   "anchor": {
+    "x": 0.4995,
+    "y": 0.8604
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#007DFB",
+    "b": "#BAEFFD"
+   }
+  },
+  "resource-manager": {
+   "kind": "crew",
+   "eyes": [
+    {
+     "x": 0.431,
+     "y": 0.4731,
+     "w": 0.0671,
+     "h": 0.1276,
+     "tilt": 5.1
+    },
+    {
+     "x": 0.5628,
+     "y": 0.473,
+     "w": 0.0682,
+     "h": 0.1279,
+     "tilt": 5.5
+    }
+   ],
+   "look": {
+    "left": 0.0625,
+    "right": 0.0625,
+    "up": 0.0625,
+    "down": 0.0625
+   },
+   "anchor": {
+    "x": 0.499,
+    "y": 0.8672
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#00E2EC",
+    "b": "#9FFDCD"
+   }
+  },
+  "sound": {
+   "kind": "crew",
+   "eyes": [
+    {
+     "x": 0.4494,
+     "y": 0.3331,
+     "w": 0.0566,
+     "h": 0.111,
+     "tilt": 9.8
+    },
+    {
+     "x": 0.5489,
+     "y": 0.3357,
+     "w": 0.0569,
+     "h": 0.1106,
+     "tilt": 9.1
+    }
+   ],
+   "look": {
+    "left": 0.0527,
+    "right": 0.0527,
+    "up": 0.0273,
+    "down": 0.0156
+   },
+   "anchor": {
+    "x": 0.4995,
+    "y": 0.7783
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#A694FF",
+    "b": "#FF95F2"
+   }
+  },
+  "video": {
+   "kind": "crew",
+   "eyes": [
+    {
+     "x": 0.3789,
+     "y": 0.4385,
+     "w": 0.0571,
+     "h": 0.1115,
+     "tilt": -2.8
+    },
+    {
+     "x": 0.492,
+     "y": 0.4185,
+     "w": 0.0588,
+     "h": 0.113,
+     "tilt": -3.2
+    }
+   ],
+   "look": {
+    "left": 0.0527,
+    "right": 0.0527,
+    "up": 0.0527,
+    "down": 0.0527
+   },
+   "anchor": {
+    "x": 0.4995,
+    "y": 0.751
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#A96FFC",
+    "b": "#E5E4FD"
+   }
+  },
+  "calendar": {
+   "kind": "spare",
+   "eyes": [
+    {
+     "x": 0.4163,
+     "y": 0.5161,
+     "w": 0.0686,
+     "h": 0.1349,
+     "tilt": -0.8
+    },
+    {
+     "x": 0.5517,
+     "y": 0.5055,
+     "w": 0.07,
+     "h": 0.1372,
+     "tilt": -1.3
+    }
+   ],
+   "look": {
+    "left": 0.0625,
+    "right": 0.0625,
+    "up": 0.0625,
+    "down": 0.0625
+   },
+   "anchor": {
+    "x": 0.4985,
+    "y": 0.8613
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#FB69AD",
+    "b": "#F9EBE0"
+   }
+  },
+  "chart": {
+   "kind": "spare",
+   "eyes": [
+    {
+     "x": 0.4355,
+     "y": 0.5882,
+     "w": 0.0537,
+     "h": 0.1078,
+     "tilt": 0.7
+    },
+    {
+     "x": 0.5386,
+     "y": 0.5774,
+     "w": 0.0539,
+     "h": 0.1094,
+     "tilt": 0.4
+    }
+   ],
+   "look": {
+    "left": 0.0176,
+    "right": 0.0176,
+    "up": 0.0488,
+    "down": 0.0488
+   },
+   "anchor": {
+    "x": 0.4995,
+    "y": 0.8457
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#FC83D0",
+    "b": "#FBBCDE"
+   }
+  },
+  "cloud": {
+   "kind": "spare",
+   "eyes": [
+    {
+     "x": 0.4201,
+     "y": 0.5072,
+     "w": 0.0579,
+     "h": 0.1115,
+     "tilt": -2.3
+    },
+    {
+     "x": 0.5313,
+     "y": 0.4976,
+     "w": 0.059,
+     "h": 0.1141,
+     "tilt": -2.1
+    }
+   ],
+   "look": {
+    "left": 0.0527,
+    "right": 0.0527,
+    "up": 0.0527,
+    "down": 0.0527
+   },
+   "anchor": {
+    "x": 0.4995,
+    "y": 0.7373
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#FAB770",
+    "b": "#FAF1DE"
+   }
+  },
+  "globe": {
+   "kind": "spare",
+   "eyes": [
+    {
+     "x": 0.4298,
+     "y": 0.4225,
+     "w": 0.0673,
+     "h": 0.132,
+     "tilt": 2.5
+    },
+    {
+     "x": 0.5621,
+     "y": 0.4216,
+     "w": 0.0681,
+     "h": 0.1336,
+     "tilt": 1.7
+    }
+   ],
+   "look": {
+    "left": 0.041,
+    "right": 0.0488,
+    "up": 0.0625,
+    "down": 0.0625
+   },
+   "anchor": {
+    "x": 0.4995,
+    "y": 0.873
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#4A8BF9",
+    "b": "#9AFDF8"
+   }
+  },
+  "gradcap": {
+   "kind": "spare",
+   "eyes": [
+    {
+     "x": 0.4607,
+     "y": 0.4388,
+     "w": 0.0487,
+     "h": 0.0956,
+     "tilt": -0.7
+    },
+    {
+     "x": 0.557,
+     "y": 0.4258,
+     "w": 0.0493,
+     "h": 0.0991,
+     "tilt": -1.2
+    }
+   ],
+   "look": {
+    "left": 0.0449,
+    "right": 0.0449,
+    "up": 0.0449,
+    "down": 0.0449
+   },
+   "anchor": {
+    "x": 0.499,
+    "y": 0.7686
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#9968FB",
+    "b": "#FCD6FD"
+   }
+  },
+  "heart": {
+   "kind": "spare",
+   "eyes": [
+    {
+     "x": 0.324,
+     "y": 0.4074,
+     "w": 0.0633,
+     "h": 0.1196,
+     "tilt": -7.7
+    },
+    {
+     "x": 0.4444,
+     "y": 0.3775,
+     "w": 0.0635,
+     "h": 0.1223,
+     "tilt": -7.6
+    }
+   ],
+   "look": {
+    "left": 0.0586,
+    "right": 0.0586,
+    "up": 0.0586,
+    "down": 0.0586
+   },
+   "anchor": {
+    "x": 0.499,
+    "y": 0.8389
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#00D8E0",
+    "b": "#BAFFC3"
+   }
+  },
+  "laptop": {
+   "kind": "spare",
+   "eyes": [
+    {
+     "x": 0.3725,
+     "y": 0.4245,
+     "w": 0.0547,
+     "h": 0.1038,
+     "tilt": -9.1
+    },
+    {
+     "x": 0.4769,
+     "y": 0.397,
+     "w": 0.0553,
+     "h": 0.1075,
+     "tilt": -10.1
+    }
+   ],
+   "look": {
+    "left": 0.0508,
+    "right": 0.0508,
+    "up": 0.0508,
+    "down": 0.0508
+   },
+   "anchor": {
+    "x": 0.4995,
+    "y": 0.7832
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#9E6CFC",
+    "b": "#EED4FC"
+   }
+  },
+  "magnifier": {
+   "kind": "spare",
+   "eyes": [
+    {
+     "x": 0.3477,
+     "y": 0.4123,
+     "w": 0.0718,
+     "h": 0.138,
+     "tilt": -0.5
+    },
+    {
+     "x": 0.4894,
+     "y": 0.4007,
+     "w": 0.0738,
+     "h": 0.1418,
+     "tilt": -1.3
+    }
+   ],
+   "look": {
+    "left": 0.0664,
+    "right": 0.0664,
+    "up": 0.0664,
+    "down": 0.0664
+   },
+   "anchor": {
+    "x": 0.4995,
+    "y": 0.8516
+   },
+   "tint": true,
+   "detail": false,
+   "colors": {
+    "a": "#64A6FE",
+    "b": "#9CF9FC"
+   }
+  },
+  "kith": {
+   "kind": "logo",
+   "eyes": [
+    {
+     "x": 0.3421,
+     "y": 0.4987,
+     "w": 0.064,
+     "h": 0.1216,
+     "tilt": -0.2
+    },
+    {
+     "x": 0.4513,
+     "y": 0.518,
+     "w": 0.0668,
+     "h": 0.1228,
+     "tilt": -0.2
+    }
+   ],
+   "look": {
+    "left": 0.036,
+    "right": 0.036,
+    "up": 0.036,
+    "down": 0.036
+   },
+   "anchor": {
+    "x": 0.4995,
+    "y": 0.7979
+   },
+   "tint": false,
+   "detail": false,
+   "colors": null
+  }
+ }
+}

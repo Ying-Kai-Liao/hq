@@ -13,9 +13,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 
-/// A bot's actors and the dreamer they share.
+/// A bot's actors and the tidier they share.
 pub struct BotActors {
-    dreamer: mpsc::UnboundedSender<memory::DreamEvent>,
+    tidier: mpsc::UnboundedSender<memory::TidyEvent>,
     /// Actor key -> the place it serves, and its handle.
     places: HashMap<String, (Lane, BotHandle)>,
 }
@@ -24,19 +24,18 @@ impl Hub {
     /// Starts the bot's own chat, and any place where the previous host process cut off a turn so it resumes.
     pub(super) fn spawn_bot(self: &Arc<Self>, cfg: &BotConfig) {
         let id = cfg.id.clone();
-        // An hq agent keeps its own memory (in its folder): Kith's keeper never runs for it. Its sends go nowhere.
-        let dreamer =
-            if cfg.is_hq() { mpsc::unbounded_channel().0 } else { memory::spawn_dreamer(self.clone(), id.clone()) };
+        // An hq agent keeps its memory in files in its folder: its tidier writes those, through hqmem.
+        let tidier = memory::spawn_tidier(self.clone(), id.clone());
         let mut places = HashMap::new();
         let mut homes = vec![Lane::main(&id)];
         homes.extend(bot::interrupted_places(&self.store, &id));
         for home in homes {
             let key = actor_key(&id, &home);
             self.runtime.locked().insert(key.clone(), Runtime::default());
-            let handle = bot::spawn(self.clone(), cfg.clone(), home.clone(), dreamer.clone());
+            let handle = bot::spawn(self.clone(), cfg.clone(), home.clone(), tidier.clone());
             places.insert(key, (home, handle));
         }
-        self.bots.locked().insert(id, BotActors { dreamer, places });
+        self.bots.locked().insert(id, BotActors { tidier, places });
     }
 
     /// Stops every actor (and so every agent process), waiting briefly for them to exit.
@@ -256,18 +255,18 @@ impl Hub {
     /// The channel to the bot's actor for `home`, starting the actor on first use.
     fn actor_tx(&self, bot_id: &str, home: &Lane) -> Result<mpsc::UnboundedSender<Cmd>> {
         let key = actor_key(bot_id, home);
-        let dreamer = {
+        let tidier = {
             let bots = self.bots.locked();
             let actors = bots.get(bot_id).ok_or_else(|| anyhow!("unknown bot"))?;
             if let Some((_, h)) = actors.places.get(&key) {
                 return Ok(h.tx.clone());
             }
-            actors.dreamer.clone()
+            actors.tidier.clone()
         };
         let cfg = self.store.bot(bot_id)?.filter(|r| !r.deleted).ok_or_else(|| anyhow!("unknown bot"))?.config;
         let hub = self.me.upgrade().ok_or_else(|| anyhow!("the host is shutting down"))?;
         // Started outside the lock: an actor's first steps update its runtime, which emits the bot.
-        let handle = bot::spawn(hub, cfg, home.clone(), dreamer);
+        let handle = bot::spawn(hub, cfg, home.clone(), tidier);
         let mut bots = self.bots.locked();
         let Some(actors) = bots.get_mut(bot_id) else {
             let _ = handle.tx.send(Cmd::Shutdown);

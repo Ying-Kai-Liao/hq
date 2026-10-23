@@ -21,7 +21,7 @@ pub(super) fn claude_meta(cfg: &BotConfig, system: &str) -> Value {
     json!({"systemPrompt": {"append": system, "excludeDynamicSections": true}, "claudeCode": claude_options(cfg)})
 }
 
-/// Claude Code's own memory and its auto-dream stay off, so Kith's is the bot's one memory, unless the user kept
+/// Claude Code's own memory and its auto-tidy stay off, so Kith's is the bot's one memory, unless the user kept
 /// them on; then Claude Code sets both itself ([design](../../../../docs/design/bot-memory.md#claude-codes-own-memory)).
 fn claude_options(cfg: &BotConfig) -> Value {
     // The bot's replies and memory are Kith's own tools, which follow the bot's permission inside Kith: the

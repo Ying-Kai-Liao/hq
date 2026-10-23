@@ -4,6 +4,7 @@
 pub mod acp;
 pub mod auth;
 pub mod backends;
+pub mod backups;
 pub mod bot;
 pub mod config;
 pub mod folder;

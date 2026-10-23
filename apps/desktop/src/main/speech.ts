@@ -9,9 +9,9 @@ import type { SpeechEvent } from '../shared/ipc'
 
 function helperPath() {
   const candidates = [
-    app.isPackaged ? join(process.resourcesPath, 'codync-speech') : null,
-    join(__dirname, '../../native/speech-macos/.build/release/codync-speech'),
-    join(__dirname, '../../native/speech-macos/.build/debug/codync-speech'),
+    app.isPackaged ? join(process.resourcesPath, 'kith-speech') : null,
+    join(__dirname, '../../native/speech-macos/.build/release/kith-speech'),
+    join(__dirname, '../../native/speech-macos/.build/debug/kith-speech'),
   ]
   return candidates.find((c): c is string => !!c && existsSync(c)) ?? null
 }
@@ -25,12 +25,12 @@ function emit(event: SpeechEvent) {
   if (listener && !listener.isDestroyed()) listener.send('speech:event', event)
 }
 
-function start(sender: WebContents, locale: string | null) {
+function start(sender: WebContents, locale: string | null, options?: { echoCancel?: boolean }) {
   stop()
   listener = sender
   const path = helperPath()
   if (!path) return emit({ type: 'error', message: "On-device speech isn't available in this build." })
-  const proc = spawn(path, locale ? ['--locale', locale] : [], { stdio: 'pipe' })
+  const proc = spawn(path, [...(locale ? ['--locale', locale] : []), ...(options?.echoCancel ? ['--echo-cancel'] : [])], { stdio: 'pipe' })
   const mine = ++generation
   child = proc
   let buffer = ''
@@ -45,7 +45,9 @@ function start(sender: WebContents, locale: string | null) {
       } catch {}
     }
   })
-  proc.on('exit', () => {
+  proc.stderr.on('data', (chunk: Buffer) => console.error('speech helper:', chunk.toString('utf8').trim()))
+  proc.on('exit', (code, signal) => {
+    if (code || signal) console.error(`speech helper exited (${code ?? signal})`)
     if (child === proc) child = null
     if (generation === mine) emit({ type: 'stopped' })
   })
@@ -75,7 +77,7 @@ function locales() {
 export function registerSpeech() {
   ipcMain.on('speech:available', (e) => (e.returnValue = process.platform === 'darwin' && helperPath() !== null))
   ipcMain.on('speech:locales', (e) => (e.returnValue = locales()))
-  ipcMain.on('speech:start', (e, locale: string | null) => start(e.sender, locale))
+  ipcMain.on('speech:start', (e, locale: string | null, options?: { echoCancel?: boolean }) => start(e.sender, locale, options))
   ipcMain.on('speech:stop', () => stop())
   app.on('before-quit', stop)
 }
