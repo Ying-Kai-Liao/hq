@@ -634,20 +634,9 @@ struct BotLiveActivity: Widget {
         .init(status: context.state.status, activity: context.state.activity, isStale: context.isStale)
     }
 
-    /// While the bot works, the orb keeps orbiting (in step with the face); otherwise it holds
-    /// its state's mark.
-    @ViewBuilder
+    /// The state's mark; the bot beside it carries the working pose.
     private func indicator(_ context: ActivityViewContext<BotActivityAttributes>, state: BotActivityPresentation, size: CGFloat) -> some View {
-        ZStack {
-            if state.phase == .working {
-                WorkingOrb(since: context.state.startedAt ?? .now, color: state.tint, size: size)
-                    .transition(.opacity)
-            } else {
-                BotActivityIndicator(state: state, size: size).transition(.opacity)
-            }
-        }
-        .animation(Motion.activityPhase, value: state.phase)
-        .accessibilityLabel(state.title)
+        BotActivityIndicator(state: state, size: size)
     }
 
     /// The bot's body with its eyes posed for the phase: one frame, since a Live Activity cannot animate.
@@ -669,39 +658,5 @@ private struct SurfaceTint: ViewModifier {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(surface)
             .activityBackgroundTint(surface)
-    }
-}
-
-/// The thinking orb, orbiting in the Dynamic Island: its faint orbit trails and its moving
-/// dots, one frame a second.
-struct WorkingOrb: View {
-    let since: Date
-    let color: Color
-    let size: CGFloat
-
-    var body: some View {
-        ZStack {
-            TimerFrames(font: "CodyncOrb-Ghost", since: since, size: size).foregroundStyle(color.opacity(0.25))
-            TimerFrames(font: "CodyncOrb-Dot", since: since, size: size).foregroundStyle(color)
-        }
-    }
-}
-
-/// A timer drawn in one of the loop fonts: the font draws only the timer's last digit (every
-/// other character shapes to nothing), so the text is one face wide however the system lays out
-/// timer text.
-private struct TimerFrames: View {
-    let font: String
-    let since: Date
-    let size: CGFloat
-
-    var body: some View {
-        Text(since, style: .timer)
-            .font(.custom(font, fixedSize: size))
-            // Western digits whatever the region: the font only has those.
-            .environment(\.locale, Locale(identifier: "en_US_POSIX"))
-            .lineLimit(1)
-            .frame(width: size, height: size)
-            .clipped()
     }
 }

@@ -70,23 +70,6 @@ import Testing
     try data.write(to: URL(fileURLWithPath: path))
 }
 
-/// Writes the Dynamic Island's working loop (the thinking orb, 10 frames, in points of a 20 pt
-/// face) for tools/timer-fonts.py:
-/// `TEST_RUNNER_CODYNC_FRAMES_FILE=<file.json> xcodebuild test … -only-testing:'CodyncKitTests/exportBotFrames()'`.
-/// Each font is one layer: `Ghost` the orb's faint orbit trails, `Dot` its moving dots.
-@MainActor @Test func exportBotFrames() throws {
-    guard let file = ProcessInfo.processInfo.environment["CODYNC_FRAMES_FILE"] else { return }
-    func dots(_ list: [(x: Double, y: Double, r: Double)]) -> [[String: Double]] {
-        list.map { ["x": $0.x, "y": $0.y, "r": $0.r] }
-    }
-    var fonts: [String: [[[String: Double]]]] = [:]
-    let orb = ThinkingOrbGeometry.workingLoop(size: 20)
-    fonts["CodyncOrb-Ghost"] = orb.map { f in dots(f.dots.filter { $0.alpha < 1 }.map { ($0.x, $0.y, $0.radius) }) }
-    fonts["CodyncOrb-Dot"] = orb.map { f in dots(f.dots.filter { $0.alpha >= 1 }.map { ($0.x, $0.y, $0.radius) }) }
-    let data = try JSONSerialization.data(withJSONObject: ["size": 20, "fonts": fonts], options: [.sortedKeys])
-    try data.write(to: URL(fileURLWithPath: file))
-}
-
 /// A still frame of the bot carries its state: a working bot's eyes sit lower than an idle one's,
 /// an errored bot slumps and droops, and Reduce Motion centres the eyes whatever the state.
 @MainActor @Test func theStillBotPosesItsEyesPerState() throws {
