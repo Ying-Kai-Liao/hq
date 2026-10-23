@@ -4,9 +4,10 @@ import { BotAvatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { Text } from '../../components/Text'
 import { useModel } from '../../lib/observable'
-import { avatarColor, useReduceMotion } from '../../lib/theme'
+import { pairOf } from '../../components/kith/pair'
+import { useReduceMotion } from '../../lib/theme'
 import type { CaptionLine } from './transcript'
-import { errorMessage, providerName, type VoiceEngine } from './voice'
+import { errorMessage, providerName, VoiceSettings, type VoiceEngine } from './voice'
 
 interface OutputDevice {
   id: string
@@ -29,8 +30,10 @@ function useElapsed() {
  * and pulses while the bot talks, the call's state, the live transcript, and the controls.
  * The engine and its lifetime belong to `CallView`; this only draws and presses.
  */
-export function CallScreen({ bot, session, statusText, failure, notice, working, onSettings, onEnd }: {
+export function CallScreen({ bot, computer, session, statusText, failure, notice, working, onSettings, onEnd }: {
   bot: Bot | undefined
+  /** The computer's name, for the line on top. */
+  computer: string
   session: VoiceEngine | null
   statusText: string
   failure: string | null
@@ -45,53 +48,61 @@ export function CallScreen({ bot, session, statusText, failure, notice, working,
   const muted = session?.muted === true
   const warning = session?.warning ?? null
   const lines = session?.captions.lines ?? []
-  const color = bot ? avatarColor(bot.avatarColor) : null
+  const pair = bot ? pairOf(bot.avatarColor) : null
+  const engine = session?.provider ? providerName(session.provider) : VoiceSettings.isKith() ? 'Kith' : 'this device'
+  const mutedNotice = muted && !failure && !warning && !notice ? `Muted. ${bot?.name ?? 'The bot'} waits until you unmute or type in the chat.` : null
+  const line = warning ?? notice ?? mutedNotice
 
   return (
     <div className="call-screen" role="dialog" aria-label={`Voice call with ${bot?.name ?? 'bot'}`}>
+      <div className="call-screen-sky" aria-hidden />
       <div className="call-screen-drag" />
       <div className="call-screen-main">
+        <Text as="div" size="caption" tone="secondary" className="call-screen-via">
+          {`Voice by ${engine} · ${computer}`}
+        </Text>
         <button
-          className={`call-screen-avatar ${speaking ? 'speaking' : ''} ${working ? 'working' : ''}`}
+          className={`call-screen-avatar ${speaking ? 'speaking' : ''} ${working ? 'working' : ''} ${muted || !session || session.phase === 'starting' ? 'quiet' : ''}`}
           disabled={!speaking}
           aria-label={speaking ? 'Interrupt' : (bot?.name ?? '')}
-          title={speaking ? 'Tap to interrupt' : undefined}
+          title={speaking ? 'Click to interrupt' : undefined}
           onClick={() => session?.interrupt()}
         >
-          <LevelRing engine={session} color={color} />
-          {bot ? <BotAvatar bot={bot} size={132} /> : <span className="call-screen-avatar-empty" />}
+          <LevelRing engine={session} pair={pair} />
+          {bot ? <BotAvatar bot={bot} size={150} /> : <span className="call-screen-avatar-empty" />}
         </button>
-        <Text size="title" weight="semibold" tone="text" className="call-screen-name">{bot?.name ?? ''}</Text>
+        <div className="call-screen-name">{bot?.name ?? ''}</div>
         <Text as="div" size="body" tone={failure ? 'danger' : 'secondary'} className="call-screen-state" aria-live="polite">
           {failure ?? statusText}
         </Text>
-        <Text size="caption" tone="secondary" tabular>
-          {elapsed}
-          {session?.provider ? ` · Voice by ${providerName(session.provider)}` : ''}
-        </Text>
-        {!failure && (warning || notice) ? (
-          <Text as="div" key={warning ?? notice} size="caption" tone="secondary" className="call-line">
-            {warning ?? notice}
-          </Text>
+        <div className="call-screen-timer">{elapsed}</div>
+        {!failure && line ? (
+          <div key={line} className="call-line">
+            <Icon name="info.circle" size={14} weight="medium" scaled={false} />
+            <span>{line}</span>
+          </div>
         ) : null}
       </div>
-      <Transcript lines={lines} started={!!session && !failure} hasCaptions={!!session && session.provider === null} />
+      <Transcript lines={lines} name={bot?.name ?? 'Bot'} started={!!session && !failure} hasCaptions={!!session && session.provider === null} />
       <div className="call-screen-controls">
-        <button className="call-round big" title="Call settings" aria-label="Call settings" onClick={onSettings}>
-          <Icon name="gearshape" size={20} weight="medium" scaled={false} />
-        </button>
         <SpeakerButton engine={session} />
         <button
-          className={`call-round big ${muted ? 'on' : ''}`}
+          className={`call-ctl ${muted ? 'on' : ''}`}
           title={muted ? 'Unmute' : 'Mute'}
           aria-label={muted ? 'Unmute' : 'Mute'}
           aria-pressed={muted}
           onClick={() => session && (session.muted = !session.muted)}
         >
-          <Icon name={muted ? 'mic.slash' : 'mic'} size={20} weight="medium" scaled={false} />
+          <span className="call-round big"><Icon name={muted ? 'mic.slash' : 'mic'} size={22} weight="medium" scaled={false} /></span>
+          <span className="call-ctl-label">{muted ? 'Unmute' : 'Mute'}</span>
         </button>
-        <button className="call-round big end" title="End call" aria-label="End call" onClick={onEnd}>
-          <Icon name="phone.down.fill" size={20} weight="semibold" scaled={false} />
+        <button className="call-ctl" title="Call settings" aria-label="Call settings" onClick={onSettings}>
+          <span className="call-round big"><Icon name="slider.horizontal.3" size={22} weight="medium" scaled={false} /></span>
+          <span className="call-ctl-label">Settings</span>
+        </button>
+        <button className="call-ctl end" title="End call" aria-label="End call" onClick={onEnd}>
+          <span className="call-round big"><Icon name="phone.down.fill" size={22} weight="semibold" scaled={false} /></span>
+          <span className="call-ctl-label">End</span>
         </button>
       </div>
     </div>
@@ -99,7 +110,7 @@ export function CallScreen({ bot, session, statusText, failure, notice, working,
 }
 
 /** A halo around the avatar, sized by the microphone level every frame (no React renders). */
-function LevelRing({ engine, color }: { engine: VoiceEngine | null; color: string | null }) {
+function LevelRing({ engine, pair }: { engine: VoiceEngine | null; pair: { a: string; b: string } | null }) {
   const ring = useRef<HTMLSpanElement>(null)
   const reduce = useReduceMotion()
   const live = useRef(engine)
@@ -116,11 +127,11 @@ function LevelRing({ engine, color }: { engine: VoiceEngine | null; color: strin
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
   }, [reduce])
-  return <span ref={ring} aria-hidden className="call-screen-ring" style={color ? { ['--ring' as string]: color } : undefined} />
+  return <span ref={ring} aria-hidden className="call-screen-ring" style={pair ? { ['--ring-a' as string]: pair.a, ['--ring-b' as string]: pair.b } : undefined} />
 }
 
 /** What was said, newest at the bottom: your words as the recognizer hears them, the bot's as it speaks them. */
-function Transcript({ lines, started, hasCaptions }: { lines: CaptionLine[]; started: boolean; hasCaptions: boolean }) {
+function Transcript({ lines, name, started, hasCaptions }: { lines: CaptionLine[]; name: string; started: boolean; hasCaptions: boolean }) {
   const end = useRef<HTMLDivElement>(null)
   const text = lines.map((l) => l.text).join('\n')
   useEffect(() => {
@@ -133,10 +144,10 @@ function Transcript({ lines, started, hasCaptions }: { lines: CaptionLine[]; sta
           {hasCaptions ? 'What you say and what the bot says shows up here.' : 'Live captions are available with Kith voice and on-device voice.'}
         </Text>
       ) : null}
-      {lines.map((l) => (
-        <div key={l.id} className={`call-caption ${l.who} ${l.live ? 'live' : ''}`}>
-          <Text size="compactBody" tone={l.who === 'you' ? 'secondary' : 'text'}>{l.text}</Text>
-        </div>
+      {lines.map((l, i) => (
+        <p key={l.id} className={`call-caption ${l.who} ${i === lines.length - 1 ? 'now' : ''}`}>
+          <b>{l.who === 'you' ? 'You' : name}</b> {l.text}
+        </p>
       ))}
       <div ref={end} />
     </div>
@@ -176,19 +187,21 @@ function SpeakerButton({ engine }: { engine: VoiceEngine | null }) {
 
   return (
     <div className="call-speaker">
-      <button className={`call-round big ${chosen ? 'on' : ''}`} title={title} aria-label="Speaker" aria-haspopup="menu" aria-expanded={open} disabled={!can} onClick={() => void toggle()}>
-        <Icon name="speaker.wave.2.fill" size={20} weight="medium" scaled={false} />
+      <button className={`call-ctl ${chosen ? 'chosen' : ''}`} title={title} aria-label="Speaker" aria-haspopup="menu" aria-expanded={open} disabled={!can} onClick={() => void toggle()}>
+        <span className="call-round big"><Icon name="speaker.wave.2.fill" size={22} weight="medium" scaled={false} /></span>
+        <span className="call-ctl-label">Speaker</span>
       </button>
       {open ? (
         <div className="call-speaker-menu" role="menu" onMouseLeave={() => setOpen(false)}>
+          <div className="call-speaker-head">Output</div>
           <button role="menuitemradio" aria-checked={chosen === ''} className="call-speaker-item" onClick={() => void pick('')}>
+            <span className="call-speaker-check">{chosen === '' ? <Icon name="checkmark" size={12} weight="semibold" scaled={false} /> : null}</span>
             <Text size="compactBody">System default</Text>
-            {chosen === '' ? <Icon name="checkmark" size={12} weight="semibold" scaled={false} /> : null}
           </button>
           {devices.map((d) => (
             <button key={d.id} role="menuitemradio" aria-checked={chosen === d.id} className="call-speaker-item" onClick={() => void pick(d.id)}>
+              <span className="call-speaker-check">{chosen === d.id ? <Icon name="checkmark" size={12} weight="semibold" scaled={false} /> : null}</span>
               <Text size="compactBody" truncate>{d.label}</Text>
-              {chosen === d.id ? <Icon name="checkmark" size={12} weight="semibold" scaled={false} /> : null}
             </button>
           ))}
           {error ? <Text as="div" size="caption" tone="danger" className="call-speaker-error">{error}</Text> : null}

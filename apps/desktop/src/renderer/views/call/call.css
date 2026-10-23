@@ -1,4 +1,4 @@
-/* The call, full size over the conversation. It sits under the title chrome's drag band and over the composer. */
+/* The call, full size over the conversation (the sidebar stays). It sits under the title chrome's drag band and over the composer. */
 .call-screen {
   position: absolute;
   inset: 0;
@@ -6,10 +6,31 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 56px 24px 28px;
-  background: var(--background);
+  padding: 56px 24px 130px;
+  background: var(--kith-ground);
   -webkit-app-region: no-drag;
   animation: fade-in var(--fade) both;
+}
+/* The morning sky (night in dark), fading into the ground by 78% of the pane's height. */
+.call-screen-sky,
+.incoming-panel-sky {
+  position: absolute;
+  inset: 0;
+  background: url('../../assets/sky/sky-home-day.webp') top center / cover no-repeat;
+  pointer-events: none;
+}
+.call-screen-sky::after,
+.incoming-panel-sky::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 35%, var(--kith-ground) 78%);
+}
+@media (prefers-color-scheme: dark) {
+  .call-screen-sky,
+  .incoming-panel-sky {
+    background-image: url('../../assets/sky/sky-home-night.webp');
+  }
 }
 .call-screen-drag {
   position: absolute;
@@ -18,73 +39,106 @@
   -webkit-app-region: drag;
 }
 .call-screen-main {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   flex: none;
 }
+.call-screen-via {
+  font-family: var(--font-code);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--kith-muted-on-sky);
+  margin-bottom: 16px;
+}
 .call-screen-name {
-  margin-top: 14px;
+  margin-top: 6px;
+  font: 800 16px / 1.2 var(--font-agent);
+  color: var(--kith-ink);
 }
 .call-screen-state {
   min-height: 1.3em;
   text-align: center;
   max-width: 420px;
 }
+.call-screen-timer {
+  font: 500 13px / 1.3 var(--font-code);
+  color: var(--kith-ink);
+  margin-top: 1px;
+  font-variant-numeric: tabular-nums;
+}
 
-.call-screen-avatar {
+.call-screen-avatar,
+.incoming-panel-avatar {
   position: relative;
   display: grid;
   place-items: center;
-  width: 132px;
-  height: 132px;
+  width: 200px;
+  height: 200px;
   border-radius: 50%;
+  filter: drop-shadow(0 4px 10px rgba(20, 22, 27, 0.15));
 }
 .call-screen-avatar:disabled {
   cursor: default;
 }
-/* The halo: its size follows the microphone (--level, 0…1), and it pulses while the bot talks. */
+/* The ring: the agent's colour pair as a soft halo. Its size follows the microphone (--level, 0…1), and it pulses while the bot talks. */
 .call-screen-ring {
   --level: 0;
+  --ring-a: #5ed3f3;
+  --ring-b: #8fb0ff;
   position: absolute;
-  inset: -14px;
+  inset: -4px;
   border-radius: 50%;
-  border: 2px solid var(--ring, var(--accent-fill));
-  opacity: calc(0.18 + var(--level) * 0.7);
-  transform: scale(calc(0.94 + var(--level) * 0.14));
+  background: radial-gradient(
+    circle,
+    transparent 48%,
+    color-mix(in srgb, var(--ring-a) 36%, transparent) 55%,
+    color-mix(in srgb, var(--ring-b) 22%, transparent) 66%,
+    transparent 70%
+  );
+  opacity: calc(0.45 + var(--level) * 0.55);
+  transform: scale(calc(0.97 + var(--level) * 0.12));
   transition: opacity 90ms linear, transform 90ms linear;
   pointer-events: none;
 }
+/* No ring while connecting or muted. */
+.call-screen-avatar.quiet .call-screen-ring {
+  display: none;
+}
 .call-screen-avatar.speaking .call-screen-ring {
-  opacity: 0.6;
+  opacity: 0.9;
   animation: call-pulse 0.7s ease-in-out infinite alternate;
 }
 .call-screen-avatar.working:not(.speaking) .call-screen-ring {
   animation: call-pulse 1.6s ease-in-out infinite alternate;
-  opacity: 0.25;
+  opacity: 0.6;
 }
 @keyframes call-pulse {
   from {
     transform: scale(0.97);
   }
   to {
-    transform: scale(1.1);
+    transform: scale(1.08);
   }
 }
 
-/* What was said: you on the left, the bot on the right, the newest at the bottom. */
+/* What was said: plain lines, bold speaker, the newest in ink and older ones muted. */
 .call-captions {
+  position: relative;
   flex: 1;
   min-height: 0;
   width: 100%;
-  max-width: 520px;
-  margin: 18px 0 12px;
+  max-width: 480px;
+  margin: 22px 0 0;
   padding: 4px 2px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  font-size: 14px;
+  line-height: 1.45;
   mask-image: linear-gradient(transparent, #000 24px);
   -webkit-mask-image: linear-gradient(transparent, #000 24px);
 }
@@ -96,64 +150,86 @@
   text-align: center;
 }
 .call-caption {
-  max-width: 85%;
-  padding: 8px 12px;
-  border-radius: var(--radius-bubble, 14px);
+  margin: 0;
+  color: var(--kith-muted-on-sky);
   user-select: text;
-  transition: opacity var(--hover);
 }
-.call-caption.you {
-  align-self: flex-start;
-  background: var(--bubble-user);
+.call-caption b {
+  font-weight: 600;
 }
-.call-caption.bot {
-  align-self: flex-end;
-  background: var(--bubble-agent);
-}
-.call-caption.live {
-  opacity: 0.7;
+.call-caption.now,
+.call-caption.now b {
+  color: var(--kith-ink);
 }
 
+/* Controls centred 26 above the bottom, 26 apart. */
 .call-screen-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 26px;
   display: flex;
-  gap: 18px;
-  flex: none;
+  justify-content: center;
+  gap: 26px;
+}
+.call-ctl {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font: 500 11.5px / 1 var(--font-ui);
+  color: var(--kith-ink);
+}
+.call-ctl:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .call-speaker {
   position: relative;
 }
 .call-speaker-menu {
   position: absolute;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + 10px);
   left: 50%;
   transform: translateX(-50%);
-  min-width: 200px;
+  min-width: 220px;
   max-width: 280px;
-  padding: 4px;
-  border-radius: 12px;
+  padding: 5px;
+  border-radius: 10px;
   background: var(--frosted);
   backdrop-filter: blur(24px) saturate(1.8);
   -webkit-backdrop-filter: blur(24px) saturate(1.8);
   box-shadow: var(--shadow-l);
   animation: fade-in var(--fade) both;
 }
+.call-speaker-head {
+  padding: 5px 10px 3px;
+  font: 600 11px / 1.2 var(--font-ui);
+  color: var(--kith-muted);
+}
 .call-speaker-item {
   display: flex;
   width: 100%;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  padding: 7px 10px;
-  border-radius: 8px;
+  padding: 6px 10px;
+  border-radius: 7px;
   text-align: left;
 }
 .call-speaker-item:hover {
   background: var(--bubble-user);
 }
+.call-speaker-check {
+  display: inline-grid;
+  place-items: center;
+  width: 12px;
+  flex: none;
+}
 .call-speaker-error {
   padding: 6px 10px;
 }
 
+/* Round glass buttons. */
 .call-round {
   width: 40px;
   height: 40px;
@@ -161,39 +237,67 @@
   display: grid;
   place-items: center;
   flex: none;
-  background: var(--bubble-user);
-  color: var(--secondary);
+  background: var(--kith-glass-tint);
+  border: 1px solid var(--kith-glass-edge);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 2px 12px rgba(20, 22, 27, 0.08);
+  color: var(--kith-ink);
   transition: background-color var(--hover), color var(--hover), transform var(--press);
 }
 .call-round.big {
-  width: 52px;
-  height: 52px;
+  width: 62px;
+  height: 62px;
 }
 .call-round:disabled {
   opacity: 0.4;
   cursor: default;
 }
-.call-round.on {
-  background: var(--accent-fill);
-  color: var(--on-accent);
+/* Muted: the control fills ink (white in dark). */
+.call-ctl.on .call-round {
+  background: var(--kith-ink);
+  border-color: var(--kith-ink);
+  color: var(--kith-ground);
 }
+.call-ctl.chosen .call-round {
+  border-color: var(--kith-ink);
+}
+/* The stock red and green: the Phone app's colours, the only non-result colours here. */
+.call-ctl.end .call-round,
 .call-round.end {
-  background: var(--danger-fill);
-  color: var(--on-danger);
+  background: #ff3b30;
+  border-color: #ff3b30;
+  color: #fff;
 }
+.call-round.accept {
+  background: #34c759;
+  border-color: #34c759;
+  color: #fff;
+}
+.call-ctl:not(:disabled):active .call-round,
 .call-round:not(:disabled):active {
   transform: scale(0.98);
 }
 
-/* One line under the state: why the call fell back, or a voice downloading. */
+/* One soft block under the timer: muted, a fallback voice, a voice downloading. */
 .call-line {
-  margin-top: 6px;
-  text-align: center;
-  padding: 8px 12px;
-  border-radius: var(--radius-pill);
-  background: var(--bubble-user);
-  box-shadow: var(--shadow-s);
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  max-width: 440px;
+  margin-top: 16px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: var(--kith-panel);
+  color: var(--kith-ink);
+  font-size: 12.5px;
+  line-height: 1.4;
   animation: fade-in var(--fade) both;
+}
+.call-line svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--kith-muted);
 }
 @media (prefers-reduced-motion: reduce) {
   .call-screen-avatar.speaking .call-screen-ring,
@@ -212,11 +316,12 @@
   align-items: center;
   justify-content: space-between;
   padding: 96px 24px 72px;
-  background: var(--background);
+  background: var(--kith-ground);
   -webkit-app-region: no-drag;
   animation: fade-in var(--fade) both;
 }
 .incoming-call-main {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -235,18 +340,94 @@
   margin-top: 10px;
   padding: 10px 14px;
   border-radius: var(--radius-bubble, 14px);
-  background: var(--bubble-agent);
+  background: var(--kith-panel);
 }
 .incoming-call-controls {
+  position: relative;
   display: flex;
   gap: 72px;
 }
-.call-round.accept {
-  background: var(--added);
-  color: var(--on-accent);
-}
 @media (prefers-reduced-motion: reduce) {
   .incoming-call-avatar {
+    animation: none;
+  }
+}
+
+/* The floating panel (340×430): its own window, so the page is transparent around the rounded card. */
+html[data-window='incoming-call'],
+html[data-window='incoming-call'] body,
+html[data-window='incoming-call'] #root {
+  background: transparent;
+  height: 100%;
+  overflow: hidden;
+}
+.incoming-panel {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--kith-ground);
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.2);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+.incoming-panel-main {
+  position: absolute;
+  inset: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 24px 0;
+  text-align: center;
+}
+.incoming-panel-main .call-screen-via {
+  margin-bottom: 26px;
+}
+.incoming-panel-avatar {
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  position: relative;
+  filter: drop-shadow(0 4px 10px rgba(20, 22, 27, 0.15));
+}
+.incoming-panel-ring {
+  inset: -14px;
+  opacity: 1;
+  animation: call-pulse 1.1s ease-in-out infinite alternate;
+}
+.incoming-panel-state {
+  margin-top: 3px;
+  font-size: 14px;
+  color: var(--kith-muted-on-sky);
+}
+.incoming-panel-reason {
+  margin-top: 16px;
+  max-width: 280px;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--kith-ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.incoming-panel-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 26px;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 50px;
+}
+.incoming-panel .call-ctl {
+  -webkit-app-region: no-drag;
+}
+@media (prefers-reduced-motion: reduce) {
+  .incoming-panel-ring {
     animation: none;
   }
 }

@@ -73,6 +73,14 @@ const bridge: KithBridge = {
     onEvent: (cb) => listen('speech:event', cb),
   },
   ssh: sshBridge,
+  incomingCall: {
+    show: (call) => ipcRenderer.invoke('incomingCall:show', call),
+    close: (id) => ipcRenderer.send('incomingCall:close', id),
+    onAnswer: (cb) => listen('incomingCall:answer', cb),
+    current: () => ipcRenderer.invoke('incomingCall:current'),
+    onCall: (cb) => listen('incomingCall:call', cb),
+    respond: (id, answer) => ipcRenderer.send('incomingCall:respond', id, answer),
+  },
   island: {
     supported: ipcRenderer.sendSync('island:supported') as boolean,
     enabled: () => ipcRenderer.invoke('island:enabled'),

@@ -120,6 +120,15 @@ layer, `MEMORY.md`, `people/mum.md`; anything that isn't a Markdown memory file 
 | `kithMemoryRestore` | `shared`, `name`, `version` | `{ version, warnings }`: the file becomes that version's content, as a new version (cause `restore`) |
 | `kithMemoryTidyUps` | `limit?` (20, max 100) | `{ tidyUps: [tidyUp] }`, newest first |
 | `kithMemoryUndoTidy` | `id` | `{ restored: [label], refused: [{ file, reason }], undone }` |
+| `kithMemoryPromotions` | `status?` (`pending` default, `declined`, `approved`, `stale`), `limit?` | `{ promotions: [{ id, file, from, audience, room, projects, reason, asks, status, at, decidedAt }] }` |
+| `kithMemoryAnswerPromotion` | `id`, `answer` (`approve` or `keep`) | `{ status: approved/declined/stale, run? }` |
+
+Promotion: tidying may retag a note (frontmatter `audience`, `room`, `projects`; no file moves). A retag that keeps the
+readers the same or fewer is applied as a tidy-up (change kind `retagged`, undoable). One that adds readers is stored
+as a pending promotion and never applied by tidying; `asks` is the person who must answer (empty: the owner, shown as
+"Ask <person>" otherwise). This call answers for the owner only: `approve` of a question asked of another person is
+refused, `keep` (keep private) always works. An approval writes `approved_by` / `approved_change` into the note and
+a row the kernel checks (`kith_facets.py`); `run` is the tidy-up that wrote it.
 
 `version` = `{ id, at, author: "kai"|"agent"|"tidy"|"unknown", authorBot, cause: "edit"|"delete"|"restore"|"undo"|"tidy"|"baseline", deleted, bytes, lines }`;
 `unknown` is a change made outside the hook (an editor, a shell). `tidyUp` = `{ id, at, undone, files: [{ name, shared, version }], changes: [{ kind, file, shared, text, was }] }`;
@@ -131,3 +140,24 @@ files are all back. HTTP 400 when it can restore nothing. Calls that change a fi
 Deprecated names, kept for app builds that predate the "Tidy" rename: `kithMemoryDreams` (same as `kithMemoryTidyUps`, and its
 response also carries the list as `dreams`), `kithMemoryUndoDream` (= `kithMemoryUndoTidy`), `undoDream` (= `undoTidy`) and
 the `dreams` field of the `memory` response (= `tidyUps`). Old version rows say author/cause `dream`; they are read as `tidy`.
+
+## Thread summaries on rows, the "summary as the row" setting and citations
+
+The thread's prose summary (`docs/memory-context.md`, "Summary") reaches the apps on the thread's row, with no extra call.
+
+- **Row.** The root entry's `data.thread` gains `summary: { text, writtenAt }` once a summary exists (absent before, and for a
+  forgotten thread). It rides in the entries the apps already get (`history`, `thread`, live `entry` events), so a list is
+  one batch. `data.thread.summaryAudience` (`owner`, `person:<id>`, `room:<chat>` or `shared`) is sent to the owner only.
+  An invited person gets `summary` only when the audience is `person:<self>` or `shared`; terminal threads (`owner`) and
+  group threads (`room:`) are the owner's for now, since a room's members can't be resolved yet.
+- **Setting.** `rowShowsSummary` (bool, default `false`; `false` for bots stored without it) is on every bot the host sends.
+  Set it with `updateBot` `{ id, rowShowsSummary: true|false }` (owner only, like every bot setting). The host only stores it:
+  an app shows `summary.text` as the row when the setting is on and a summary exists, else the first message.
+- **Citation.** `resolveCitation` `{ citation: "kith://thread/<id>#entry=<seq>" }` (`<id>` is a thread's root entry id, or
+  `main:<bot id>` for a bot's own chat) returns `{ thread: { id, botId, rootId }, seq, at, entries }` (`at` is the id of the
+  entry with that `seq` when it is among `entries`; a thread's newest 500, or 40 around `seq` in a main chat). For anyone
+  outside the thread's audience, and for a thread that doesn't exist, was forgotten, or a malformed link, the answer is the
+  same `{ error: "not_shared" }`. An invited person may call it (it is on the member allow-list) and gets their own
+  threads only, while their agent is still granted. The owner can resolve a member's thread too, as with `history`.
+  `forgetThread` `{ thread }` (owner only, what `kith forget --thread` calls) forgets a thread and removes `summary` and
+  `summaryAudience` from its row (an `entry` event follows); a forgotten thread's row is served without them either way.

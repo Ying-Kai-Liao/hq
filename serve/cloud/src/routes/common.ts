@@ -279,6 +279,11 @@ export async function notify(env: Env, computerId: string, blocked: Blocked[] = 
 /** Removes a computer from its account: grants revoked, pending requests cancelled, sockets closed. */
 export async function unclaim(env: Env, id: string, actor: string, now: number): Promise<void> {
   const { stmts, blocks } = await revokeGrants(env, "g.computer_id = ?", [id], "unclaimed", now);
+  // A bot's access hangs off the Mac's owner like a member's, so it ends too: open invites and joined devices.
+  const { results: bots } = await env.DB.prepare("SELECT bot_device_id, sign_pub FROM bot_devices WHERE computer_id = ? AND revoked_at IS NULL")
+    .bind(id)
+    .all<{ bot_device_id: string; sign_pub: string }>();
+  const blocked = [...(blocks.get(id) ?? []), ...bots.map((d) => ({ dk: d.sign_pub, grantId: `bot:${d.bot_device_id}` }))];
   await env.DB.batch([
     ...stmts,
     env.DB.prepare("UPDATE computers SET owner_user_id = NULL, claimed_at = NULL, updated_at = ? WHERE id = ?").bind(now, id),
@@ -288,9 +293,11 @@ export async function unclaim(env: Env, id: string, actor: string, now: number):
     // Members and unused invites belong to the account that owned the computer, so they end with it.
     env.DB.prepare("UPDATE memberships SET revoked_at = ? WHERE computer_id = ? AND revoked_at IS NULL").bind(now, id),
     env.DB.prepare("UPDATE invites SET revoked_at = ? WHERE computer_id = ? AND accepted_by IS NULL AND revoked_at IS NULL").bind(now, id),
+    env.DB.prepare("UPDATE bot_invites SET revoked_at = ? WHERE computer_id = ? AND accepted_at IS NULL AND revoked_at IS NULL").bind(now, id),
+    env.DB.prepare("UPDATE bot_devices SET revoked_at = ? WHERE computer_id = ? AND revoked_at IS NULL").bind(now, id),
     audit(env, actor, "computer.unclaim", id, "ok", now),
   ]);
-  await notify(env, id, blocks.get(id));
+  await notify(env, id, blocked);
 }
 
 

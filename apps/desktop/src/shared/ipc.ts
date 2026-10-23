@@ -2,6 +2,7 @@ import type { SignInProvider } from './account-config'
 import type { SharedFile } from './models'
 import type { SSHBridge } from './ssh'
 import type { ScreenAgentState } from './computer-access'
+import type { CallAnswer, IncomingPanelCall } from './incoming-call'
 import type { IslandRect, IslandScreen, IslandSummary } from './island'
 import type { ErrorReport } from './error-report'
 import type { InviteLink } from './invite'
@@ -189,6 +190,22 @@ export interface KithBridge {
     openBot(ref: string): void
     newBot(): void
     openApp(): void
+  }
+  /**
+   * The floating incoming-call panel (main/incoming-call.ts). The chat window owns the call and asks for the panel; the
+   * panel window shows it and sends the answer back through the main process.
+   */
+  incomingCall: {
+    /** Shows `call` in the panel (or a system notification in full screen); false when neither could open, so the window shows it. */
+    show(call: IncomingPanelCall): Promise<boolean>
+    /** The call is over (answered elsewhere, declined, timed out): closes the panel if it shows this one. */
+    close(id: string): void
+    /** The chat window: the person answered in the panel or the notification. */
+    onAnswer(cb: (answer: { id: string; answer: CallAnswer }) => void): () => void
+    /** The panel window: what it shows now, and a newer call replacing it. */
+    current(): Promise<IncomingPanelCall | null>
+    onCall(cb: (call: IncomingPanelCall | null) => void): () => void
+    respond(id: string, answer: CallAnswer): void
   }
   /** The Kith cloud's `/v1` API with the signed-in session (and the device key for `signed`). */
   cloud: {

@@ -586,3 +586,172 @@ async fn a_thread_project_is_corrected_only_in_own_chats_and_to_shared_projects(
         .unwrap_err();
     assert!(format!("{e:#}").contains("unknown message"), "{e:#}");
 }
+
+fn recap(audience: &str) -> kith_mem::summary::Summary {
+    kith_mem::summary::Summary {
+        thread_id: "t".into(),
+        room: "r".into(),
+        agent: "house".into(),
+        audience: audience.into(),
+        projects: vec![],
+        text: "Planned the move.".into(),
+        links: vec![],
+        covered_seq: 1,
+        reason: kith_mem::summary::Reason::End,
+        written_at: 77,
+        cost_via: "summary".into(),
+    }
+}
+
+/// A thread root in `bot`'s chat whose row carries a summary for `audience`.
+fn root_with_summary(r: &Rig, bot: &str, audience: &str) -> crate::store::Entry {
+    use crate::store::{EntryKind, Lane};
+    let mut data = json!({"text": "hi", "thread": {"count": 1}});
+    crate::chat::memory::summary::set_row_summary(&mut data, &recap(audience));
+    r.hub.store.insert_entry(&Lane::main(bot), EntryKind::User, 1, &data).unwrap()
+}
+
+async fn chat_of(r: &Rig, caller: &Caller) -> String {
+    let started = call(r, caller, "startChat", json!({"agent": "house"})).await.unwrap();
+    started["bot"]["id"].as_str().unwrap().to_owned()
+}
+
+#[tokio::test]
+async fn a_thread_row_carries_its_summary_only_to_its_audience() {
+    let r = Rig::new().await;
+    let owner_house = r.owner_bot("house");
+    let (sam, _) = joined(&r, json!({"house": "member"})).await;
+    let theirs = chat_of(&r, &sam).await;
+    let mine = root_with_summary(&r, &theirs, "person:sam");
+    let shared = root_with_summary(&r, &theirs, "shared");
+    let other = root_with_summary(&r, &theirs, "person:eve");
+    let terminal = root_with_summary(&r, &theirs, "owner");
+
+    let seen = call(&r, &sam, "history", json!({"botId": theirs})).await.unwrap();
+    let row = |id: &str| {
+        let all = seen["entries"].as_array().unwrap();
+        all.iter().find(|e| e["id"] == id).unwrap()["data"]["thread"].clone()
+    };
+    assert_eq!(row(&mine.id)["summary"], json!({"text": "Planned the move.", "writtenAt": 77}));
+    assert!(!row(&shared.id)["summary"].is_null());
+    assert!(row(&other.id)["summary"].is_null(), "someone else's summary");
+    assert!(row(&terminal.id)["summary"].is_null(), "terminal and group summaries are the owner's");
+    assert!(!seen["entries"].to_string().contains("summaryAudience"), "the audience stays on the host");
+
+    // The owner sees the summary on the row, in the same batch that carries the list.
+    let all = root_with_summary(&r, &owner_house, "owner");
+    let owner_seen = call(&r, &Caller::Local, "history", json!({"botId": owner_house})).await.unwrap();
+    let got = owner_seen["entries"].as_array().unwrap().iter().find(|e| e["id"] == all.id).unwrap();
+    assert_eq!(got["data"]["thread"]["summary"]["text"], "Planned the move.");
+    assert!(!roles::may_see_summary(Some("sam"), "room:g1") && roles::may_see_summary(None, "room:g1"));
+    // A row with no summary has no key at all.
+    let plain = r.hub.store.insert_entry(
+        &crate::store::Lane::main(&theirs),
+        crate::store::EntryKind::User,
+        2,
+        &json!({"text": "x"}),
+    );
+    assert!(plain.unwrap().data["thread"].is_null());
+}
+
+#[tokio::test]
+async fn showing_the_summary_as_the_row_is_an_owner_setting_off_by_default() {
+    let r = Rig::new().await;
+    let bot = r.owner_bot("house");
+    let shows = |r: &Rig| {
+        let row = r.hub.store.bot(&bot).unwrap().unwrap();
+        r.hub.bot_json(&row)["rowShowsSummary"].clone()
+    };
+    assert_eq!(shows(&r), json!(false), "bots without the setting show the first message");
+    for on in [true, true, false, true, false] {
+        call(&r, &Caller::Local, "updateBot", json!({"id": bot, "rowShowsSummary": on})).await.unwrap();
+        assert_eq!(shows(&r), json!(on));
+    }
+    let (sam, _) = joined(&r, json!({"house": "member"})).await;
+    let e = call(&r, &sam, "updateBot", json!({"id": bot, "rowShowsSummary": true})).await.unwrap_err();
+    assert!(denied(&e), "{e:#}");
+}
+
+#[tokio::test]
+async fn a_citation_opens_for_its_audience_and_is_not_shared_for_anyone_else() {
+    let r = Rig::new().await;
+    let owner_house = r.owner_bot("house");
+    let (sam, _) = joined(&r, json!({"house": "member"})).await;
+    let theirs = chat_of(&r, &sam).await;
+    let mine = root_with_summary(&r, &theirs, "person:sam");
+    let owners = root_with_summary(&r, &owner_house, "owner");
+    let link = |id: &str| json!({"citation": format!("kith://thread/{id}#entry=1")});
+
+    let ok = call(&r, &sam, "resolveCitation", link(&mine.id)).await.unwrap();
+    assert_eq!(ok["thread"]["rootId"], mine.id.as_str());
+    assert!(ok.get("error").is_none());
+    let owner_ok = call(&r, &Caller::Local, "resolveCitation", link(&owners.id)).await.unwrap();
+    assert_eq!(owner_ok["thread"]["botId"], owner_house.as_str());
+
+    // Someone else's thread and a thread that doesn't exist look the same, whatever the client claims to be.
+    let stranger = call(&r, &sam, "resolveCitation", link(&owners.id)).await.unwrap();
+    let missing = call(&r, &sam, "resolveCitation", link("no-such-thread")).await.unwrap();
+    assert_eq!(stranger, json!({"error": "not_shared"}));
+    assert_eq!(missing, stranger);
+    let forged = json!({"citation": link(&owners.id)["citation"], "asPerson": null});
+    assert_eq!(call(&r, &sam, "resolveCitation", forged).await.unwrap(), stranger);
+    let malformed = call(&r, &sam, "resolveCitation", json!({"citation": "nonsense"})).await.unwrap();
+    assert_eq!(malformed, stranger);
+    assert_eq!(call(&r, &Caller::Local, "resolveCitation", link("no-such-thread")).await.unwrap(), stranger);
+
+    // A forgotten thread is not shared with its own audience either.
+    r.hub.store.with_db(|c| kith_mem::summary::forget(c, &mine.id, 1)).unwrap();
+    assert_eq!(call(&r, &sam, "resolveCitation", link(&mine.id)).await.unwrap(), stranger);
+}
+
+#[tokio::test]
+async fn resolving_a_main_chat_citation_hides_other_threads_summaries_from_a_member() {
+    let r = Rig::new().await;
+    r.owner_bot("house");
+    let (sam, _) = joined(&r, json!({"house": "member"})).await;
+    let theirs = chat_of(&r, &sam).await;
+    root_with_summary(&r, &theirs, "person:sam");
+    root_with_summary(&r, &theirs, "person:eve");
+    root_with_summary(&r, &theirs, "owner");
+    let link = json!({"citation": format!("kith://thread/main:{theirs}")});
+
+    let seen = call(&r, &sam, "resolveCitation", link.clone()).await.unwrap();
+    let rows: Vec<&Value> =
+        seen["entries"].as_array().unwrap().iter().filter(|e| e["data"]["thread"]["count"] == 1).collect();
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows.iter().filter(|e| !e["data"]["thread"]["summary"].is_null()).count(), 1, "only sam's own");
+    assert!(rows.iter().all(|e| e["data"]["thread"].get("summaryAudience").is_none()));
+    // The owner still sees all of them.
+    let owner = call(&r, &Caller::Local, "resolveCitation", link).await.unwrap();
+    let all = owner["entries"].as_array().unwrap().iter().filter(|e| !e["data"]["thread"]["summary"].is_null()).count();
+    assert_eq!(all, 3);
+}
+
+#[tokio::test]
+async fn forgetting_a_thread_takes_the_summary_off_its_row() {
+    let r = Rig::new().await;
+    r.owner_bot("house");
+    let (sam, _) = joined(&r, json!({"house": "member"})).await;
+    let theirs = chat_of(&r, &sam).await;
+    let mine = root_with_summary(&r, &theirs, "person:sam");
+    let older = root_with_summary(&r, &theirs, "person:sam");
+    let mut events = r.hub.events.subscribe();
+
+    // A member can't forget; the owner can, twice.
+    assert!(call(&r, &sam, "forgetThread", json!({"thread": mine.id})).await.is_err());
+    for _ in 0..2 {
+        call(&r, &Caller::Local, "forgetThread", json!({"thread": mine.id})).await.unwrap();
+    }
+    let row = r.hub.store.entry(&mine.id).unwrap();
+    assert!(row.data["thread"].get("summary").is_none() && row.data["thread"].get("summaryAudience").is_none());
+    assert_eq!(row.data["thread"]["count"], 1);
+    assert!(events.try_recv().is_ok_and(|e| e["type"] == "entry" && e["entry"]["id"] == mine.id.as_str()));
+
+    // A thread forgotten without its row cleaned (an older forget) is served without the summary.
+    r.hub.store.with_db(|c| kith_mem::summary::forget(c, &older.id, 1)).unwrap();
+    for who in [&sam, &Caller::Local] {
+        let seen = call(&r, who, "history", json!({"botId": theirs})).await.unwrap();
+        let row = seen["entries"].as_array().unwrap().iter().find(|e| e["id"] == older.id.as_str()).unwrap();
+        assert!(row["data"]["thread"].get("summary").is_none());
+    }
+}

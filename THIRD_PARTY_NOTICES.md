@@ -11,7 +11,7 @@ Local voice (kith-tts) uses Phonon, Gradium's on-device text to speech: the ptts
 model and voices (https://huggingface.co/gradium/phonon-31m-en and /gradium/phonon-voices, Apache-2.0,
 Copyright Gradium). The model files are downloaded on first use and are not part of this repository.
 
-Kith includes 595 third-party packages and vendored files under the licenses below.
+Kith includes 599 third-party packages and vendored files under the licenses below.
 
 ## 0BSD
 
@@ -2904,6 +2904,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - convert_case 0.10.0 (cargo)
   https://github.com/rutrum/convert-case
   Copyright (c) 2025 rutrum
+- core_detect 1.0.0 (cargo)
+  https://github.com/thomcc/core_detect
+  Copyright (c) 2017-2020 The Rust Project Developers
 - core-foundation-sys 0.8.7 (cargo)
   https://github.com/servo/core-foundation-rs
   Copyright (c) 2012-2013 Mozilla Foundation
@@ -3519,6 +3522,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - proc-macro2 1.0.107 (cargo)
   https://github.com/dtolnay/proc-macro2
   Copyright David Tolnay <dtolnay@gmail.com>, Alex Crichton <alex@alexcrichton.com>
+- proptest 1.12.0 (cargo)
+  https://github.com/proptest-rs/proptest
+  Copyright (c) 2016 FullContact, Inc
 - ptts 0.4.0 (cargo)
   https://github.com/gradium-ai/xn-ptts
 - pulp-wasm-simd-flag 0.1.1 (cargo)
@@ -3572,6 +3578,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
   https://github.com/rust-random/rngs
   Copyright (c) 2014-2017 Melissa O'Neill and PCG Project contributors
   Copyright 2018 Developers of the Rand project
+- rand_xorshift 0.5.0 (cargo)
+  https://github.com/rust-random/rngs
+  Copyright 2018 Developers of the Rand project
+  Copyright (c) 2014 The Rust Project Developers
 - rand 0.10.3 (cargo)
   https://github.com/rust-random/rand
   Copyright 2018 Developers of the Rand project
@@ -3911,6 +3921,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - uds_windows 1.2.1 (cargo)
   https://github.com/haraldh/rust_uds_windows
   Copyright (c) Microsoft Corporation. All rights reserved.
+- unarray 0.1.4 (cargo)
+  https://github.com/cameron1024/unarray
 - unicode_categories 0.1.1 (cargo)
   https://github.com/swgillespie/unicode-categories
   Copyright (c) 2015 The unicode-categories Developers
@@ -4944,6 +4956,30 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+~~~~~
+
+~~~~~
+MIT License
+
+Copyright (c) [year] [fullname]
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ~~~~~
 
 ~~~~~

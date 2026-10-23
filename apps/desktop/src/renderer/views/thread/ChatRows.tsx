@@ -19,22 +19,26 @@ import { ConnectionRequestCard } from '../marketplace/ConnectionRequestCard'
 import { HandoffNotice } from './HandoffNotice'
 import { AnsweredBy } from './AnsweredBy'
 import { contextLabel } from './context-hint'
+import { ThreadChip as KithThreadChip, pairOf, type Place } from '../../components/kith'
+import { avatarImage } from '@shared/crew'
 
 export function reactionPick(store: BotStore, entry: Entry): ReactionPick {
   return { emoji: QUICK_REACTIONS, chosen: entry.data.reactions ?? [], toggle: (e) => store.react(entry, e) }
 }
 
 /** One chat-visible entry in a chat or a thread, with what can be done to it. */
-export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrace, openThread }: {
+export const ChatRow = memo(function ChatRow({ entry, groupStart, chat, openTrace, openThread, openId = null }: {
   entry: Entry
   groupStart: boolean
   chat: Bot | null
   openTrace: () => void
   /** Main chat only: start (or open) the thread on this message. */
   openThread?: (e: Entry) => void
+  /** The thread open beside the chat: its chip tints in the agent's colours. */
+  openId?: string | null
 }) {
   const reply = openThread ? () => openThread(entry) : undefined
-  const chip = entry.data.thread && entry.data.thread.count > 0 && openThread ? <ThreadChip summary={entry.data.thread} open={() => openThread(entry)} /> : null
+  const chip = entry.data.thread && entry.data.thread.count > 0 && openThread ? <ThreadChip summary={entry.data.thread} open={() => openThread(entry)} isOpen={openId === entry.id} chat={chat} /> : null
   switch (entry.kind) {
     case 'user':
       return (
@@ -80,7 +84,7 @@ function ContextHint({ contextPercent }: { contextPercent: unknown }) {
 /** Follows the store: the card shows a spinner while its answer is on its way. */
 function LivePermission({ entry }: { entry: Entry }) {
   const store = useLiveStore()
-  return <PermissionCard entry={entry} hostName={store.hostName} answering={store.answering.get(entry.id) ?? null} respond={(o) => store.respond(entry, o)} waiting={waitingFor(entry, ownerNameFrom(store.bots.get(entry.botId)?.activity))} />
+  return <PermissionCard entry={entry} hostName={store.hostName} answering={store.answering.get(entry.id) ?? null} respond={(o) => store.respond(entry, o)} waiting={waitingFor(entry, ownerNameFrom(store.bots.get(entry.botId)?.activity))} pair={pairOf(store.bots.get(entry.data.author ?? entry.botId)?.avatarColor)} />
 }
 
 /** Who wrote a message in a group: their avatar and name in their color. */
@@ -95,35 +99,33 @@ export function AuthorLabel({ botId }: { botId?: string | null }) {
   )
 }
 
-/** Under a message with a thread (Slack's): who replied, how many, how recently. */
-export function ThreadChip({ summary, open }: { summary: ThreadSummary; open: () => void }) {
+/**
+ * Under a message with a thread: where it works (grey), then the pill with the agent's face, the reply count and
+ * when. While the thread is open beside the chat the pill tints in the agent's colours.
+ */
+export function ThreadChip({ summary, open, isOpen = false, chat }: { summary: ThreadSummary; open: () => void; isOpen?: boolean; chat: Bot | null }) {
   const store = useStore()
-  const authors = summary.authors.map((id) => store.bots.get(id)).filter((b): b is Bot => !!b).slice(0, 3)
-  const unread = summary.unread ?? 0
+  const author = summary.authors.map((id) => store.bots.get(id)).find((b): b is Bot => !!b) ?? (chat && !isGroup(chat) ? chat : null)
+  const folder = chat?.folder
+  const place: Place | undefined = folder && folder.kind !== 'workspace' && folder.name ? { kind: folder.kind === 'project' ? 'project' : 'folder', name: folder.name } : undefined
+  const image = author ? avatarImage(author) : null
   return (
-    <button
-      className="press thread-chip"
-      onClick={open}
-      title="View thread"
-      aria-label={`View thread, ${summary.count} ${summary.count === 1 ? 'reply' : 'replies'}${unread > 0 ? `, ${unread} new` : ''}`}
-    >
-      {authors.length ? (
-        <HStack as="span" align="stretch" className="thread-chip-authors">
-          {authors.map((b) => (
-            <span key={b.id}>
-              <BotAvatar bot={b} size={18} animated={false} />
-            </span>
-          ))}
-        </HStack>
-      ) : null}
-      <Text size="footnote" weight="semibold" tone="accent">{summary.count === 1 ? '1 reply' : `${summary.count} replies`}</Text>
-      {unread > 0 ? (
-        <Text size="footnote" weight="semibold" tone="text">{unread} new</Text>
-      ) : (
-        <Text size="footnote" tone="tertiary">{relativeTime.day(summary.lastAt)}</Text>
-      )}
-      <Icon name="chevron.right" size={10} color="var(--tertiary)" />
-    </button>
+    <div className={`thread-meta ${chat && isGroup(chat) ? 'start' : ''}`}>
+      <KithThreadChip
+        thread={{
+          replies: summary.count,
+          newCount: summary.unread ?? 0,
+          time: relativeTime.day(summary.lastAt),
+          open: isOpen,
+          // Without a face (a deleted bot) the chip still counts; the pill just has no picture.
+          agent: { face: image ?? 'group', color: author?.avatarColor, id: author?.id ?? 'unknown' },
+          pair: pairOf(author?.avatarColor),
+          place,
+          onToggle: open,
+          onOpen: open,
+        }}
+      />
+    </div>
   )
 }
 

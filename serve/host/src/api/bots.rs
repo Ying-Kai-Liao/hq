@@ -61,13 +61,17 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             let bot = str_arg(&b, "botId")?;
             let before = b["beforeSeq"].as_i64().unwrap_or(i64::MAX);
             let limit = b["limit"].as_i64().unwrap_or(100).clamp(1, 500);
-            json!({"entries": hub.store.history(bot, before, limit)?, "folder": hub.place_folder(bot, &Lane::main(bot)).await?})
+            let mut entries = hub.store.history(bot, before, limit)?;
+            crate::chat::memory::summary::hide_forgotten(&hub.store, &mut entries);
+            json!({"entries": entries, "folder": hub.place_folder(bot, &Lane::main(bot)).await?})
         }
         // A thread's replies (its newest 500); the root is in the main chat.
         "thread" => {
             let (bot, root) = (str_arg(&b, "botId")?, str_arg(&b, "rootId")?);
             let lane = Lane::in_thread(bot, root);
-            json!({"entries": hub.store.thread(bot, root, 500)?, "folder": hub.place_folder(bot, &lane).await?})
+            let mut entries = hub.store.thread(bot, root, 500)?;
+            crate::chat::memory::summary::hide_forgotten(&hub.store, &mut entries);
+            json!({"entries": entries, "folder": hub.place_folder(bot, &lane).await?})
         }
         // Notices between a bot and one peer (the newest 200), for the read-only bot conversation sheet.
         "botConversation" => {

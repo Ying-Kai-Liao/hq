@@ -24,6 +24,7 @@ import { PlaceFolderControl } from '../bots/PlaceFolderPicker'
 import { GroupEditorView } from '../bots/GroupEditorView'
 import { BotTemplateView } from '../bots/BotTemplateView'
 import { CallView } from '../call/CallView'
+import { START_CALL_EVENT } from '../../lib/call-event'
 import { callBlockedReason } from '../call/call-availability'
 import { MacChatButton } from './MacChatButton'
 import './thread.css'
@@ -66,6 +67,10 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
     setGreet(id)
     setCompactDetails(false)
     setCalling(true)
+  })
+  useEffect(() => {
+    window.addEventListener(START_CALL_EVENT, startCall)
+    return () => window.removeEventListener(START_CALL_EVENT, startCall)
   })
   const [routineId, setRoutineId] = useState<string | null>(null)
   const [routineRequest, setRoutineRequest] = useState(0)
@@ -141,6 +146,10 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
     if (!wide) setCompactDetails(true)
   }, [wide])
 
+  // An open thread adds its first message to the pill ("designer · App direction").
+  const threadRoot = openThread ? store.chat(botId).find((e) => e.id === openThread) : undefined
+  const threadTitle = threadRoot?.data.text ? threadRoot.data.text.replace(/\s+/g, ' ').slice(0, 40) : null
+
   const details = (
     <DetailsPanel
       key={routineRequest}
@@ -169,28 +178,29 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
           <TopFade />
           <div className="top-chrome-row">
             <Spacer />
-            {bot ? (
-              <MacChatButton
-                className="ringed"
-                title={callBlocked ?? 'Voice call'}
-                icon="phone.fill"
-                disabled={!!callBlocked || calling}
-                onClick={startCall}
-              />
-            ) : null}
-            {(!showSettings || openThread || !wide) && !compactDetails ? (
-              <MacChatButton className="ringed" title="Conversation details" icon="chevron.left.2" direction={[-1, 0]} onClick={toggleDetails} />
-            ) : null}
+            {/* One glass pair: call | more (the details toggle, also on the pill and with the details shortcut). */}
+            <div className="top-pair kith-glass">
+              {bot ? (
+                <button className="top-pair-button" title={callBlocked ?? 'Voice call'} aria-label={callBlocked ?? 'Voice call'} disabled={!!callBlocked || calling} onClick={startCall}>
+                  <Icon name="phone.fill" size={15} weight="medium" />
+                </button>
+              ) : null}
+              {(!showSettings || openThread || !wide) && !compactDetails ? (
+                <button className="top-pair-button" title="Conversation details" aria-label="Conversation details" onClick={toggleDetails}>
+                  <Icon name="ellipsis" size={15} weight="medium" />
+                </button>
+              ) : null}
+            </div>
           </div>
           {/* The call bar takes the pill's place; its frosted glass would show the name blurred. */}
           <div className="title-stack">
-          <button className={`title-pill ${calling ? 'hidden-by-call' : ''}`} inert={calling} onClick={toggleDetails} aria-label={`${bot?.name ?? 'Conversation'}, view details`} title="View conversation details">
+          <button className={`title-pill kith-glass ${calling ? 'hidden-by-call' : ''}`} inert={calling} onClick={toggleDetails} aria-label={`${bot?.name ?? 'Conversation'}, view details`} title="View conversation details">
             <HStack as="span" gap={7}>
-              {bot ? isGroup(bot) ? <GroupAvatar members={store.members(bot)} size={22} /> : <BotAvatar bot={bot} size={22} /> : null}
-              <Text size="body" weight="medium" tone="text" truncate>{bot?.name ?? ''}</Text>
-              {/* Grok Bot's hint on hover: the pill opens the details. */}
+              {bot ? isGroup(bot) ? <GroupAvatar members={store.members(bot)} size={26} /> : <BotAvatar bot={bot} size={26} /> : null}
+              <span className="title-pill-name">{bot?.name ?? ''}</span>
+              {threadTitle ? <span className="title-pill-thread">{`· ${threadTitle}`}</span> : null}
               <span className="title-pill-chevron">
-                <Icon name="chevron.right" size={10} weight="semibold" color="var(--secondary)" />
+                <Icon name="chevron.down" size={10} weight="semibold" color="var(--secondary)" />
               </span>
             </HStack>
             {store.shownConnection.kind !== 'online' || store.mismatch ? <ConnectionSubtitle /> : null}
@@ -202,7 +212,7 @@ export const ThreadView = memo(function ThreadView({ botId }: { botId: string })
           ) : null}
           </div>
         </div>
-        <Transcript botId={botId} openTrace={openTrace} openThread={openThreadOn} openRoutine={presentRoutine} openBotChat={setBotChat} />
+        <Transcript botId={botId} openId={openThread} openTrace={openTrace} openThread={openThreadOn} openRoutine={presentRoutine} openBotChat={setBotChat} />
         <div className="composer-dock" ref={dock}>
           <div className="composer-fade" />
           {store.mismatch ? (
@@ -288,7 +298,7 @@ function ConnectionSubtitle() {
 /** The messages: every loaded message, brought to the newest as it changes while the reader is at the bottom. */
 const PAGE = 40
 
-const Transcript = memo(function Transcript({ botId, openTrace, openThread, openRoutine, openBotChat }: { botId: string; openTrace: () => void; openThread: (e: { id: string }) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void }) {
+const Transcript = memo(function Transcript({ botId, openId, openTrace, openThread, openRoutine, openBotChat }: { botId: string; openId: string | null; openTrace: () => void; openThread: (e: { id: string }) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void }) {
   const store = useStore()
   const bot = store.bots.get(botId) ?? null
   const live = !!bot && isWorkingIn(bot, botId, null) && !store.isOffline
@@ -406,7 +416,7 @@ const Transcript = memo(function Transcript({ botId, openTrace, openThread, open
                   openThread={openThread}
                 />
               ) : (
-                <Row item={item} chat={bot} openTrace={openTrace} openThread={openThread} openRoutine={openRoutine} openBotChat={openBotChat} />
+                <Row item={item} chat={bot} openId={openId} openTrace={openTrace} openThread={openThread} openRoutine={openRoutine} openBotChat={openBotChat} />
               )}
             </div>
           ))}
@@ -450,7 +460,7 @@ function useTasks(chat: Entry[]) {
   return { newest: currentTask(chat)?.id ?? null, now, choices, choose }
 }
 
-function Row({ item, chat, openTrace, openThread, openRoutine, openBotChat }: { item: ChatItem; chat: Bot | null; openTrace: () => void; openThread: (e: { id: string }) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void }) {
+function Row({ item, chat, openId, openTrace, openThread, openRoutine, openBotChat }: { item: ChatItem; chat: Bot | null; openId: string | null; openTrace: () => void; openThread: (e: { id: string }) => void; openRoutine: (id: string | null) => void; openBotChat: (peerId: string) => void }) {
   if (item.kind === 'separator') {
     return <TimeSeparator date={item.date} />
   }
@@ -466,7 +476,7 @@ function Row({ item, chat, openTrace, openThread, openRoutine, openBotChat }: { 
       </button>
     )
   }
-  return <ChatRow entry={e} groupStart={item.groupStart} chat={chat} openTrace={openTrace} openThread={openThread} />
+  return <ChatRow entry={e} groupStart={item.groupStart} chat={chat} openTrace={openTrace} openThread={openThread} openId={openId} />
 }
 
 /** The start of an empty group chat: who's in it and how the room works. */

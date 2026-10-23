@@ -483,6 +483,8 @@ pub fn forget(conn: &Connection, text: &str) -> Result<()> {
 }
 
 #[cfg(test)]
+mod promote_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tidy_tests;

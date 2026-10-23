@@ -201,6 +201,7 @@ export function CallView({ botId, greet, onSpeaking, interrupt, onEnd }: {
     <>
       <CallScreen
         bot={bot}
+        computer={store.computer.name}
         session={session}
         statusText={statusText}
         failure={failure}

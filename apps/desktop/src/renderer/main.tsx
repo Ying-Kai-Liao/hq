@@ -5,6 +5,7 @@ import { PairingWindow } from './views/PairingWindow'
 import { SettingsWindow } from './views/settings/SettingsView'
 import { isSettingsPage } from '@shared/settings-pages'
 import { IslandWindow } from './views/island/IslandWindow'
+import { IncomingPanel } from './views/call/IncomingPanel'
 import { IslandModel } from './views/island/island-model'
 import { AppModel } from './store/app-model'
 import { AppContext } from './store/context'
@@ -32,6 +33,9 @@ if (page === 'island') {
   const island = new IslandModel()
   island.start()
   root.render(<IslandWindow model={island} />)
+} else if (page === 'incoming-call') {
+  // The floating call panel only draws the call the main process hands it: no host connection of its own.
+  root.render(<IncomingPanel />)
 } else {
   // The pairing window only needs this computer's host, not a mirror of its bots.
   const app = new AppModel(page !== 'pairing')

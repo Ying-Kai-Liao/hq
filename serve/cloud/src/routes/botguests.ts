@@ -11,6 +11,7 @@ const MAX_BOT_DEVICES = 50;
 const MAX_OPEN_INVITES = 100;
 const HEX64 = /^[0-9a-f]{64}$/;
 const INVITE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const CONTROL = /\p{Cc}/u;
 
 interface BotInviteRow {
   invite_id: string;
@@ -71,13 +72,14 @@ export async function hostRevokeBotInvite(c: Ctx, [inviteId]: string[]) {
   if (!row) throw new ApiError("notFound");
   if (row.accepted_at) throw new ApiError("conflict", "The invite was accepted; revoke the bot device instead");
   if (row.revoked_at) return { ok: true };
-  await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE bot_invites SET revoked_at = ? WHERE invite_id = ? AND accepted_at IS NULL AND revoked_at IS NULL").bind(
-      c.now,
-      inviteId,
-    ),
-    audit(c.env, `computer:${comp.id}`, "botinvite.revoke", inviteId!, "ok", c.now),
-  ]);
+  const updated = await c.env.DB.prepare(
+    "UPDATE bot_invites SET revoked_at = ? WHERE invite_id = ? AND accepted_at IS NULL AND revoked_at IS NULL",
+  )
+    .bind(c.now, inviteId)
+    .run();
+  // The bot accepted between the read and the write: the invite is no longer the thing to revoke (and nothing is audited).
+  if (updated.meta.changes === 0) throw new ApiError("conflict", "The invite was accepted; revoke the bot device instead");
+  await audit(c.env, `computer:${comp.id}`, "botinvite.revoke", inviteId!, "ok", c.now).run();
   return { ok: true };
 }
 
@@ -94,7 +96,11 @@ export async function hostRevokeBotDevice(c: Ctx, [botDeviceId]: string[]) {
       audit(c.env, `computer:${comp.id}`, "botdevice.revoke", botDeviceId!, "ok", c.now),
     ]);
   }
-  await notify(c.env, comp.id, [{ dk: row.sign_pub, grantId: `bot:${botDeviceId}` }]);
+  // A re-sent revoke for an old device must not block the key while a newer device (a rejoin with the same key) holds it.
+  const newer = await c.env.DB.prepare("SELECT 1 FROM bot_devices WHERE computer_id = ? AND sign_pub = ? AND revoked_at IS NULL")
+    .bind(comp.id, row.sign_pub)
+    .first();
+  await notify(c.env, comp.id, newer ? [] : [{ dk: row.sign_pub, grantId: `bot:${botDeviceId}` }]);
   return { ok: true };
 }
 
@@ -123,19 +129,22 @@ export async function activeBotDevices(c: Ctx, computerId: string) {
  * key to accept; the same key repeating it gets the same device, so a retry or a second `kith join` is safe.
  */
 export async function acceptBotInvite(c: Ctx, [inviteId]: string[]) {
-  const s = await signed(c);
+  // Before the signature check, so a flood of bad signatures can't skip the limit (each one costs a nonce row).
   if (c.env.BOT_JOIN_LIMITER) {
     const ip = c.req.headers.get("CF-Connecting-IP") ?? "unknown";
     if (!(await c.env.BOT_JOIN_LIMITER.limit({ key: ip })).success) throw new ApiError("rateLimited");
   }
+  const s = await signed(c);
   const b = body(c);
   const token = str(b, "token", 64);
   if (!HEX64.test(token)) throw new ApiError("badRequest", "Invalid token");
   const name = str(b, "name", 64);
   const provider = optStr(b, "provider", 32);
+  // The name is shown to the Mac's owner in a prompt and printed in logs.
+  if (CONTROL.test(name) || (provider !== null && CONTROL.test(provider))) throw new ApiError("badRequest", "Invalid name");
   const inv = await c.env.DB.prepare("SELECT * FROM bot_invites WHERE invite_id = ?").bind(inviteId).first<BotInviteRow>();
-  if (!inv) throw new ApiError("notFound", "This invite doesn't exist");
-  if (hex(await sha256(utf8(token))) !== inv.token_hash) throw new ApiError("forbidden", "This invite link isn't valid");
+  // An unknown invite and a wrong token answer alike, so invite ids can't be probed for existence.
+  if (!inv || hex(await sha256(utf8(token))) !== inv.token_hash) throw new ApiError("forbidden", "This invite link isn't valid");
   const comp = await c.env.DB.prepare("SELECT status FROM computers WHERE id = ?").bind(inv.computer_id).first<{ status: string }>();
   if (comp?.status !== "active") throw new ApiError("inviteRevoked", "This invite is no longer valid");
 

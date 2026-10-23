@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# kith-auth-props — generated-input properties of kith-auth's access rules (nobody gets more than their grant; bots
+# never more than their owner; removing a person or taking an agent away cuts access at the next resolve).
+# Needs uv; hypothesis is pinned and lives in uv's cache, nothing is installed globally.
+#
+#   kernel/tests/kith-auth-props     seconds; PROPS_EXAMPLES=500 for a longer run; exits 1 and prints a shrunk sequence on a break
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+exec uv run --quiet --no-project --python 3.12 --with hypothesis==6.169.2 python -I "$HERE/kith-auth-props.py"

@@ -23,6 +23,7 @@ import { RelayLink } from '../src/main/relay/link.ts'
 import { parseInviteLink } from '../src/shared/invite.ts'
 import { runJoin, type JoinState } from '../src/shared/invite-join.ts'
 import { relayJoinDeps, type RelayApi } from '../src/shared/relay-access.ts'
+import { botGuests } from './relay-e2e-bot.ts'
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 const CLOUD_DIR = join(ROOT, 'serve/cloud')
@@ -105,6 +106,7 @@ async function cloud(method: string, path: string, o: { token?: string; signer?:
 }
 
 let hostPort = 0
+let hostChild: ChildProcess | undefined
 async function loopback(method: string, body: unknown = {}): Promise<any> {
   const token = readFileSync(join(home, 'token'), 'utf8').trim()
   const res = await fetch(`http://127.0.0.1:${hostPort}/api/${method}`, {
@@ -142,7 +144,7 @@ async function main() {
 
   check(kithAuth('person', 'kai', 'owner').status === 0, 'owner person exists in the throwaway kith-auth')
   hostPort = await freePort()
-  run(HOST_BIN, ['serve', '--port', String(hostPort)], {
+  hostChild = run(HOST_BIN, ['serve', '--port', String(hostPort)], {
     KITH_SERVE_HOME: home,
     KITH_SERVE_CLOUD_URL: CLOUD,
     KITH_AUTH: authFile,
@@ -150,6 +152,8 @@ async function main() {
     STUB_HQ_HOME: join(tmp, 'agent'),
     KITH_STATE: join(tmp, 'state'),
     KITH_HOME: join(tmp, 'kith-home'),
+    // The bot-guest stage asks this agent; it answers "Echo: <prompt>".
+    KITH_SERVE_HQ_ACP_COMMAND: `python3 -X utf8 -u '${join(ROOT, 'serve/host/tests/fixtures/echo_agent.py')}' claude`,
   })
   await waitFor('host /health', () => fetch(`http://127.0.0.1:${hostPort}/health`).then((r) => r.ok).catch(() => false), 30_000)
   const computerId = ((await (await fetch(`http://127.0.0.1:${hostPort}/health`)).json()) as { computerId: string }).computerId
@@ -284,6 +288,18 @@ async function invitee(computerId: string, signKey: string) {
     refused = String((e as { message?: string }).message)
   }
   check(refused !== '', `an owner-only call is refused to the member (${refused})`)
+  // The real kith-guest binary, when the job built it (the bot-guests e2e); the owner's and this member's bots.
+  if (process.env.KITH_GUEST_BIN) {
+    await botGuests({
+      guestBin: process.env.KITH_GUEST_BIN,
+      cloud: CLOUD,
+      tmp,
+      loopback,
+      member: (method, body) => mac.call(method, body ?? {}, 30_000),
+      stopHost: () => stop(hostChild!),
+      check,
+    })
+  }
   for (const l of links.values()) l.close()
 }
 

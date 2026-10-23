@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
@@ -8,7 +9,12 @@ import { defineConfig, type Plugin } from 'vite'
 const alwaysDark: Plugin = {
   name: 'kith-demo-dark',
   enforce: 'pre',
-  transform: (code, id) => (id.endsWith('.css') ? code.replaceAll('@media (prefers-color-scheme: dark)', '@media all') : null),
+  // theme.css @imports tokens.css, which the bundler resolves after this runs, so it is inlined here to get the same rewrite.
+  transform: (code, id) => {
+    if (!id.endsWith('.css')) return null
+    const full = id.endsWith('styles/theme.css') ? code.replace("@import './tokens.css';", readFileSync(resolve('src/renderer/styles/tokens.css'), 'utf8')) : code
+    return full.replaceAll('@media (prefers-color-scheme: dark)', '@media all')
+  },
 }
 
 export default defineConfig({

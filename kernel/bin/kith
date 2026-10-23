@@ -396,6 +396,11 @@ if [[ $p_owner == 0 ]]; then
   perm_mode=$p_mode
   [[ $harness == claude ]] \
     || { echo "kith: $agent for ${KITH_PERSON}: runs for anyone but the owner need Claude Code (path rules), not $harness" >&2; exit $([[ -n $backup ]] && echo 4 || echo 3); }
+  # Their reads are an allowlist (permissions.blockReadsOutsideWorkingDirectories for the file tools, sandbox denyRead of
+  # the home folder for Bash), which Claude Code enforces from 2.1.257: an older or unreadable version is no run at all.
+  cv=$(claude --version 2>/dev/null | sed -n 's/^\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1)
+  [[ -n $cv && $(printf '%s\n2.1.257\n' "$cv" | sort -V | head -1) == 2.1.257 ]] \
+    || { echo "kith: runs for anyone but the owner need Claude Code 2.1.257 or newer (read limits); Claude Code is ${cv:+version $cv}${cv:-missing or gives no version}" >&2; exit $([[ -n $backup ]] && echo 4 || echo 3); }
   # They see this agent's own life only: every other agent's folder and the owner's user.md are denied by path
   # (logical and resolved), on top of the narrower directories below.
   for d in "$KITH_AGENTS"/*/; do
@@ -450,7 +455,7 @@ else
 fi
 [[ $p_owner == 1 ]] && writable="$home/memory"$'\n'"$home_real/memory" \
   || writable=$(printf '%s\n' "$mem" "$(real "$mem")" "$shared" "$(real "$shared")" "$files" "$(real "$files")")
-fill < "$pkg/settings.json" | API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post HOOK="\"$KITH/bin/kith-cost\" tag" SESSIONS_HOOK="\"$KITH/bin/kith-sessions\" record" WRITABLE="$writable
+fill < "$pkg/settings.json" | P_OWNER=$p_owner API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post HOOK="\"$KITH/bin/kith-cost\" tag" SESSIONS_HOOK="\"$KITH/bin/kith-sessions\" record" WRITABLE="$writable
 $src_pkg/skills/learned
 $(cd "$src_pkg" && pwd -P)/skills/learned
 $state_projects" python3 -c '
@@ -472,11 +477,13 @@ s.setdefault("permissions", {}).setdefault("deny", []).extend(
 # ~/.kith stays readable (projects/, state, logs), but not the credentials in it, for every run, owner or not: the
 # secrets folder, the kith serve token, device identity and databases, browser profiles (their logins) and the old
 # bridge folder. Both spellings of each root (it may be a link). These rules stop the Read/Edit tools of Claude Code
-# only: a Bash `cat` of the same file is not stopped by them (in auto mode the classifier, in default mode the prompt,
-# is the only guard there). The kernel CLIs run in Bash and are unaffected.
+# only: a Bash `cat` of the same file is not stopped by them. For anyone but the owner Bash is OS-sandboxed (below), so
+# the same files are unreadable there too; for the owner, in auto mode the classifier, in default mode the prompt,
+# is the only guard. The kernel CLIs run in Bash and are unaffected.
 roots = list(dict.fromkeys(r for k in ("KITH_STATE", "KITH_MACHINE") for r in (os.environ[k], os.path.realpath(os.environ[k]))))
 sensitive = ["secrets/**", "serve/token", "serve/identity.json", "serve/*.db", "serve/*.db-*", "browsers/**", "bridge/**",
-             "index/**"]   # the memory index holds every audience, not only yours: reached only through `kith recall`
+             "index/**",   # the memory index holds every audience, not only yours: reached only through `kith recall`
+             "memory.db*"]   # the history, and the promotion approvals kith_facets trusts: written by `kith memory` only
 for r in roots:
     for f in sensitive:
         for tool in ("Read", "Edit"):
@@ -484,6 +491,46 @@ for r in roots:
             if rule not in s["permissions"]["deny"]:
                 s["permissions"]["deny"].append(rule)
 s["permissions"]["deny"].extend(d for d in os.environ["DENY"].split("\n") if d)   # from the membership of the person the run is for
+# Anyone but the owner (an invited person, a bot): the OS sandbox of Claude Code (macOS seatbelt) around Bash and every
+# process it starts, so the files above are closed to a shell too and KITH_PERSON cannot be dodged by reading the
+# index or the serve token directly. Fails closed (failIfUnavailable), no escape hatch for the model, no excluded
+# commands, no network but the host socket the run asks for its recalls. The sandbox is inherited by children: a
+# nested `kith` started from that shell stays inside it. Read/Edit/Write keep following the permission rules.
+if os.environ["P_OWNER"] == "0":
+    def both(p):
+        return list(dict.fromkeys((p, os.path.realpath(p))))
+    machine = both(os.environ["KITH_MACHINE"])
+    deny_read = []
+    for r in dict.fromkeys(both(os.environ["KITH_STATE"]) + machine):
+        deny_read += ["%s/%s" % (r, f) for f in ("secrets", "serve", "browsers", "bridge", "index")]
+    for p in both(os.environ["KITH_SECRETS"]):   # the older layout keeps two files among the machine things
+        deny_read += [p + "/env", p + "/auth.json"] if p in machine else [p]
+    if os.environ.get("KITH_SERVE_HOME"):
+        deny_read += both(os.path.expanduser(os.environ["KITH_SERVE_HOME"]))
+    # The Read rules of the membership (other agents, the owner user.md, the memory of other people): Read(//abs/**) or Read(//abs).
+    for d in os.environ["DENY"].split("\n"):
+        if d.startswith("Read(/") and d.endswith(")"):
+            path = d[5:-1]
+            path = path[1:] if path.startswith("//") else path
+            keep = []   # a rule with a glob (dir/**, dir/*.md) denies its parent folder: over-approximating is fine for a deny
+            for part in path.split("/"):
+                if "*" in part:
+                    break
+                keep.append(part)
+            path = "/".join(keep)
+            if path.startswith("/") and len(path) > 1:
+                deny_read += both(path)
+    uv_cache = os.environ.get("UV_CACHE_DIR") or os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "uv")
+    allow_write = [d.strip() for d in os.environ["WRITABLE"].split("\n") if d.strip()] + [uv_cache]
+    # The host socket has a fixed place, so it is allowed whether or not the caller put KITH_RUN_SOCKET in this process
+    # (the host adds it to the run environment after the launch JSON is built); one that differs is allowed as well.
+    socks = [x for m in machine for x in both(m + "/run/host.sock")]
+    if os.environ.get("KITH_RUN_SOCKET"):
+        socks += both(os.environ["KITH_RUN_SOCKET"])
+    s["sandbox"] = {
+        "enabled": True, "failIfUnavailable": True, "allowUnsandboxedCommands": False, "autoAllowBashIfSandboxed": True,
+        "filesystem": {"denyRead": list(dict.fromkeys(deny_read)), "allowWrite": list(dict.fromkeys(allow_write))},
+        "network": {"allowUnixSockets": list(dict.fromkeys(socks))}}
 allow = s["permissions"].setdefault("allow", [])
 # A role rule for a kernel tool, Bash({{KITH}}/bin/tool...), names the path bare; the path may have a space, and then a
 # working call quotes it and only Bash("{{KITH}}/bin/tool"...) matches. Add that spelling next to each such rule.
@@ -545,6 +592,56 @@ if [[ $p_owner == 1 ]]; then
     [[ $seen == 1 ]] || dirs+=(--add-dir "$d")
   done
 fi
+# Anyone but the owner reads an allowlist, not a blocklist: nothing in the home folder (ssh keys, tokens of other tools,
+# other repos) except what the run was given. Claude Code applies the narrower path, so the denies above stay on top of
+# these. Bash gets it from the sandbox (denyRead of the home folder, allowRead of the add-dirs, the working directory and
+# what uv and python need to start); the file tools from blockReadsOutsideWorkingDirectories, which already limits them to
+# the working directory and the --add-dir folders.
+if [[ $p_owner == 0 && $harness == claude ]]; then
+  read_dirs=$PWD
+  for ((i = 1; i < ${#dirs[@]}; i += 2)); do read_dirs+=$'\n'"${dirs[i]}"; done
+  READ_DIRS=$read_dirs python3 -c '
+import json, os, sys
+f = sys.argv[1]
+s = json.load(open(f))
+def both(p):
+    return list(dict.fromkeys((p, os.path.realpath(p))))
+home = os.path.expanduser("~")
+allow = []
+for d in os.environ["READ_DIRS"].split("\n"):
+    if d:
+        allow += both(os.path.abspath(d))
+# what a kernel helper needs to start: uv, the pythons it manages, the kith program itself
+for d in (os.environ.get("UV_CACHE_DIR"), os.path.join(os.environ.get("XDG_CACHE_HOME") or home + "/.cache", "uv"),
+          home + "/Library/Caches/uv", home + "/.local/share/uv", home + "/.local/bin"):
+    if d:
+        allow += both(d)
+try:   # the developer shims of macOS look the toolchain up here, which can sit on another volume
+    import subprocess
+    dev = subprocess.run(["xcode-select", "-p"], capture_output=True, text=True, timeout=5).stdout.strip()
+    if ".app/" in dev:   # xcrun loads frameworks from the whole bundle
+        dev = dev[:dev.index(".app/") + 4]
+    if dev:
+        allow += both(dev)
+except (OSError, subprocess.SubprocessError):
+    pass
+# A link on the way to an allowed folder (~/kith, the state folder on another disk) is read as a link before it is followed:
+# allow the link itself. Seatbelt matches resolved paths, so this opens the link and nothing behind it.
+for a in list(allow):
+    d = os.path.dirname(a)
+    while d not in ("/", ""):
+        if os.path.islink(d):
+            allow.append(d)
+        d = os.path.dirname(d)
+fs = s["sandbox"]["filesystem"]
+fs["denyRead"] = list(dict.fromkeys(fs["denyRead"] + both(home)))
+fs["allowRead"] = [a for a in dict.fromkeys(allow)]
+s["permissions"]["blockReadsOutsideWorkingDirectories"] = True
+# The tool reads the owner global config (name, email, credential helpers), which sits in the closed home folder and
+# makes it fail outright when it cannot be read: point it at nothing instead.
+s.setdefault("env", {})["GIT_CONFIG_GLOBAL"] = "/dev/null"
+json.dump(s, open(f, "w"), indent=1)' "$runs/$$.settings.json"
+fi
 # The read-only kernel commands PROTOCOL tells agents to run, allowed without a prompt. Under every path the kernel
 # has (logical, resolved, ~/kith/kernel) and, since a path with a space gets quoted, with the program in quotes too.
 readonly_cmds=("project-id" "project-id --list" "project-id --info:*" "project-id --children:*" "kith-memory search:*" "kith-who:*" "hq-memory search:*" "hq-who:*")
@@ -586,7 +683,7 @@ emit_launch() {
   [[ $harness == claude ]] && settings=$(cat "$runs/$$.settings.json")
   grep -q '^global_skills: *true' "$pkg/capabilities.yaml" 2>/dev/null && no_slash=false || no_slash=true
   [[ $harness == claude ]] || allowed_tools=""
-  ENV_NAMES="$(python3 "$KITH/lib/kith_paths.py" --sh | sed -n 's/^export \([A-Z_]*\)=.*/\1/p' | paste -sd' ' -) KITH_ROOT KITH_AGENT KITH_AGENT_DIR KITH_AGENT_HOME KITH_AGENT_VERSION KITH_MODEL KITH_EFFORT KITH_PROJECT KITH_PERSON KITH_ROOM KITH_VIA KITH_PROVIDER KITH_ACCOUNT $backup_cfg_var $p_env_names HQ_ROOT HQ_AGENT HQ_AGENT_DIR HQ_AGENT_HOME HQ_AGENT_VERSION HQ_MODEL HQ_EFFORT HQ_PROJECT HQ_PERSON HQ_VIA" \
+  ENV_NAMES="$(python3 "$KITH/lib/kith_paths.py" --sh | sed -n 's/^export \([A-Z_]*\)=.*/\1/p' | paste -sd' ' -) KITH_ROOT KITH_AGENT KITH_AGENT_DIR KITH_AGENT_HOME KITH_AGENT_VERSION KITH_MODEL KITH_EFFORT KITH_PROJECT KITH_PERSON KITH_RUN_TOKEN KITH_RUN_SOCKET KITH_ROOM KITH_VIA KITH_PROVIDER KITH_ACCOUNT $backup_cfg_var $p_env_names HQ_ROOT HQ_AGENT HQ_AGENT_DIR HQ_AGENT_HOME HQ_AGENT_VERSION HQ_MODEL HQ_EFFORT HQ_PROJECT HQ_PERSON HQ_VIA" \
     ADD_DIRS=$add_dirs ALLOWED=$allowed_tools SETTINGS=$settings MCP=$(merged_mcp) PROMPT=$prompt PERM_MODE=$perm_mode NO_SLASH=$no_slash CALL_MODEL=$call_model \
     BACKUP=$backup HARNESS=$harness KITH_LIB=$KITH/lib \
     python3 -c '
