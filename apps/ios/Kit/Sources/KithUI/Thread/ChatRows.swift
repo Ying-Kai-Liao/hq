@@ -68,7 +68,7 @@ struct ChatRow: View {
 
     @ViewBuilder private var threadChip: some View {
         if let summary = entry.data.thread, summary.count > 0, let openThread {
-            ThreadChip(summary: summary) { openThread(entry) }
+            ThreadChip(summary: summary, yourTurn: ThreadFeed.hasQuestion(model.replies(entry.botId, root: entry.id))) { openThread(entry) }
         }
     }
 }
@@ -106,6 +106,7 @@ struct AuthorLabel: View {
 /// Under a message with a thread: the redesign's chip (who replied, how many, how recently). Tapping either part opens it.
 struct ThreadChip: View {
     let summary: ThreadSummary
+    var yourTurn = false
     let open: () -> Void
     @Environment(BotStore.self) private var model
 
@@ -113,12 +114,10 @@ struct ThreadChip: View {
         let author = summary.authors.lazy.compactMap { model.bots[$0] }.first
         let chip = ThreadFeed.chip(face: author.map(CrewFace.init(bot:)) ?? CrewFace(portrait: nil),
                                     tint: AgentTint.resolve(author?.avatarColor), count: summary.count, unread: summary.unread,
-                                    lastAt: summary.lastAt, place: nil, yourTurn: false)
-        ThreadChipView(chip, onToggle: open, onOpenThread: open)
-            .accessibilityLabel(
-                "View thread, \(summary.count) \(summary.count == 1 ? "reply" : "replies")"
-                    + ((summary.unread ?? 0) > 0 ? ", \(summary.unread ?? 0) new" : "")
-            )
+                                    lastAt: summary.lastAt, place: nil, yourTurn: yourTurn)
+        ThreadChipView(chip, openLabel: "View thread, \(summary.count) \(summary.count == 1 ? "reply" : "replies")"
+                           + ((summary.unread ?? 0) > 0 ? ", \(summary.unread ?? 0) new" : ""),
+                       onToggle: open, onOpenThread: open)
     }
 }
 

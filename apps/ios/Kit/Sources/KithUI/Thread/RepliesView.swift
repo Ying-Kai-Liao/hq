@@ -90,13 +90,15 @@ extension RepliesView {
                 .padding(.vertical, 12)
             })
         }
-        for reply in ThreadFeed.replies(replies) {
+        for reply in ThreadFeed.replies(replies, separators: true) {
             switch reply {
             case .entry(let e, let groupStart):
                 rows.append(ConversationRow(reply.id, isUserMessage: e.kind == "user") {
                     ChatRow(entry: e, groupStart: groupStart, chat: chat) { showTrace = true }
                         .equatable()
                 })
+            case .separator(let date, _):
+                rows.append(ConversationRow(reply.id) { TimeSeparator(date: date) })
             case .tool(let e):
                 rows.append(ConversationRow(reply.id) { ToolCallRow(ThreadFeed.toolRow(e)).padding(.top, 4) })
             case .earlier(let count, _):

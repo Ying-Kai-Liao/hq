@@ -109,9 +109,13 @@ public struct ThreadChipView: View {
     let isOpen: Bool
     let onToggle: () -> Void
     let onOpenThread: () -> Void
+    /// Replaces the spoken label of the chip's main button (the chevron keeps its own).
+    let openLabel: String?
 
-    public init(_ model: ThreadChipModel, isOpen: Bool = false, onToggle: @escaping () -> Void = {}, onOpenThread: @escaping () -> Void = {}) {
+    public init(_ model: ThreadChipModel, isOpen: Bool = false, openLabel: String? = nil,
+                onToggle: @escaping () -> Void = {}, onOpenThread: @escaping () -> Void = {}) {
         t = model
+        self.openLabel = openLabel
         self.isOpen = isOpen
         self.onToggle = onToggle
         self.onOpenThread = onOpenThread
@@ -147,6 +151,7 @@ public struct ThreadChipView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(openLabel.map { Text($0) } ?? Text(t.yourTurn ? "your turn" : t.repliesText))
                 Button(action: onToggle) {
                     Image(systemName: isOpen ? "chevron.up" : "chevron.down")
                         .font(.system(size: 12, weight: .semibold))

@@ -124,7 +124,8 @@ struct Composer: View {
                      if ChatCameraPicker.isAvailable { pickingCamera = true } else { model.lastError = "This device has no camera." }
                  },
                  onFiles: { pickingFiles = true },
-                 extraActions: extraActions, micListening: dictation.listening) {
+                 extraActions: extraActions, micListening: dictation.listening, micWithText: true, canSend: canSend,
+                 showsPlus: canAttach, focus: $focused) {
             accessory
         }
         .animation(Motion.layout, value: files.map(\.id))

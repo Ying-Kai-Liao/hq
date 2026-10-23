@@ -437,6 +437,7 @@ extension ThreadView {
                 .disabled(callBlock != nil || calling)
                 .opacity(callBlock != nil ? 0.4 : 1)
                 .accessibilityHint(callBlock ?? "")
+                .help(callBlock ?? "Call \(bot?.name ?? "")")
             TopGlassMenu("\(bot?.name ?? "Conversation") actions", systemImage: "ellipsis") { menuContent }
         }
         .padding(.horizontal, KithSpacing.gutter)

@@ -32,7 +32,7 @@ enum ThreadFeed {
     ]
 
     /// One tool entry as one row: "Edited kith-sessions.py  +6 -2". The sheet gets the command and what it printed.
-    static func toolRow(_ entry: Entry) -> ToolCallRowModel {
+    static func toolRow(_ entry: Entry, patches withPatches: Bool = true) -> ToolCallRowModel {
         let d = entry.data
         let verb = verbs[d.toolKind ?? ""] ?? "Used"
         let diffs = d.diffs ?? []
@@ -48,7 +48,7 @@ enum ThreadFeed {
         default: nil
         }
         let command = d.command?.nilIfEmpty ?? (d.toolKind == "execute" ? d.title?.nilIfEmpty : nil)
-        let patches = diffs.map(\.patch).joined(separator: "\n")
+        let patches = withPatches ? diffs.map(\.patch).joined(separator: "\n") : ""
         let output = [d.output?.nilIfEmpty, patches.nilIfEmpty].compactMap { $0 }.joined(separator: "\n\n").nilIfEmpty
         return ToolCallRowModel(verb: verb, object: object, result: result, command: command, output: output)
     }
@@ -59,19 +59,31 @@ enum ThreadFeed {
     enum Reply: Identifiable, Equatable {
         case entry(Entry, groupStart: Bool)
         case tool(Entry)
+        /// A gap of more than an hour (thread screen only).
+        case separator(Date, id: String)
         /// A run of tool calls longer than `visibleSteps`: the older ones fold into this line.
         case earlier(count: Int, id: String)
 
         var id: String {
             switch self {
-            case .entry(let e, _), .tool(let e): e.id
+            case .entry(let e, _): ThreadFeed.stableId(e)
+            case .tool(let e): e.id
+            case .separator(_, let id): id
             case .earlier(_, let id): id
             }
         }
     }
 
+    /// Your own message keeps its `user-<nonce>` id when the server confirms it, so the row doesn't redraw or jump
+    /// (the same rule as `ChatItem.build`).
+    static func stableId(_ e: Entry) -> String {
+        if e.kind == "user", let nonce = e.data.clientNonce, !nonce.isEmpty { return "user-\(nonce)" }
+        return e.id
+    }
+
     /// Chat-visible replies and tool calls. Thinking, plans and the like stay in "Full conversation".
-    static func replies(_ entries: [Entry]) -> [Reply] {
+    static func replies(_ entries: [Entry], separators: Bool = false) -> [Reply] {
+        var lastDate: Date?
         var out: [Reply] = []
         var run: [Entry] = []
         var lastAuthor: String?
@@ -92,6 +104,13 @@ enum ThreadFeed {
             }
             guard e.isChat else { continue }
             flush()
+            if separators {
+                if lastDate.map({ e.date.timeIntervalSince($0) > 3600 }) ?? true {
+                    out.append(.separator(e.date, id: "sep-\(stableId(e))"))
+                    lastAuthor = nil
+                }
+                lastDate = e.date
+            }
             let author = e.kind == "user" ? "user" : e.kind == "agent" ? "agent:\(e.data.author ?? "")" : e.kind
             out.append(.entry(e, groupStart: author != lastAuthor))
             lastAuthor = (author == "user" || e.kind == "agent") ? author : nil

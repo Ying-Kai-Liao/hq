@@ -57,3 +57,11 @@ private func tool(_ seq: Int64) -> Entry {
     #expect(ThreadFeed.place(PlaceFolder(kind: "project", project: "kith", name: "kith")) == .project("kith"))
     #expect(ThreadFeed.place(PlaceFolder(kind: "folder", path: "/x", name: "x")) == .folder("x"))
 }
+
+@Test func ownMessageKeepsItsNonceIdAndGapsGetSeparators() {
+    let mine = entry(1, "user") { $0.clientNonce = "n1"; $0.text = "hi" }
+    var later = entry(2, "agent") { $0.text = "ok"; $0.final = true }
+    later.createdAt = 2 * 3_600_000
+    let out = ThreadFeed.replies([mine, later], separators: true)
+    #expect(out.map(\.id) == ["sep-user-n1", "user-n1", "sep-e2", "e2"])
+}

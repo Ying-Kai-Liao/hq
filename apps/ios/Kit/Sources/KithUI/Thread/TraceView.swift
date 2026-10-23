@@ -72,7 +72,10 @@ private struct TraceRow: View {
             }
         case "tool":
             // One line, tap for the command and output: no terminal view.
-            ToolCallRow(ThreadFeed.toolRow(entry))
+            VStack(alignment: .leading, spacing: 8) {
+                ToolCallRow(ThreadFeed.toolRow(entry, patches: false))
+                ForEach(d.diffs ?? [], id: \.self) { DiffView(diff: $0) }
+            }
         case "plan":
             VStack(alignment: .leading, spacing: 6) {
                 Label("Plan", systemImage: "checklist").font(.subheadline.bold())
