@@ -74,10 +74,10 @@ export function ComputersView() {
         Right-click a computer: Voice chat, Backups, Disconnect.
       </Text>
 
-      <Sheet open={editing !== null} onClose={() => setEditing(null)} width={460}>
+      <Sheet className="settings-sheet" open={editing !== null} onClose={() => setEditing(null)} width={460}>
         {editing ? <SSHProfileEditor key={editing.profile.id} profile={editing.profile} isNew={editing.isNew} /> : null}
       </Sheet>
-      <Sheet open={panel !== null} onClose={() => setPanel(null)}>
+      <Sheet className="settings-sheet" open={panel !== null} onClose={() => setPanel(null)}>
         {panel ? (
           <StoreContext.Provider value={panel.store}>
             {panel.kind === 'voice' ? <VoiceChatSettingsView /> : <BackupsSheet store={panel.store} />}
@@ -266,7 +266,7 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
         ]}
       </CardSection>
 
-      <Sheet open={showDevices} onClose={() => setShowDevices(false)} width={460}>
+      <Sheet className="settings-sheet" open={showDevices} onClose={() => setShowDevices(false)} width={460}>
         <ModalHeader title={`Devices that can use ${name}`} />
         <div className="settings-devices-body">
           <CardSection>
@@ -300,7 +300,7 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
           </CardSection>
         </div>
       </Sheet>
-      <Sheet open={showPairing} onClose={() => setShowPairing(false)} width={340}>
+      <Sheet className="settings-sheet" open={showPairing} onClose={() => setShowPairing(false)} width={340}>
         <ModalHeader title={`Pair iPhone with ${name}`} />
         <PairingPanel store={store} />
       </Sheet>

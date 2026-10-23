@@ -53,6 +53,21 @@ export const PERMISSION_MODES: { id: string; label: string; detail: string }[] =
   { id: 'bypassPermissions', label: 'Bypass permissions', detail: 'No permission checks' },
 ]
 
+/** The Mode menu's wording (the same as the iPhone's), by mode id. A mode with no entry shows its PERMISSION_MODES text. */
+const PERMISSION_MENU_TEXT: Record<string, { label: string; detail: string }> = {
+  default: { label: 'Default', detail: 'Asks before edits and commands' },
+  acceptEdits: { label: 'Accept edits', detail: 'Edits files, asks before commands' },
+  plan: { label: 'Plan', detail: 'Reads and plans, changes nothing' },
+  auto: { label: 'Auto', detail: 'Decides itself, risky steps are checked' },
+  dontAsk: { label: "Don't ask", detail: 'Only pre-approved tools, denies the rest' },
+  bypassPermissions: { label: 'Bypass permissions', detail: 'Never asks. Only in a sandbox' },
+}
+
+/** The Mode menu's items: PERMISSION_MODES, so a mode that leaves it leaves the menu. */
+export function permissionMenu(): { id: string; label: string; detail: string; risky: boolean }[] {
+  return PERMISSION_MODES.map((m) => ({ ...m, ...PERMISSION_MENU_TEXT[m.id], risky: m.id === 'bypassPermissions' }))
+}
+
 /** A stored mode as the picker knows it: the old `ask` and `manual` are `default`. */
 export function permissionMode(mode: string | null | undefined): string {
   return mode === 'ask' || mode === 'manual' ? 'default' : (mode ?? 'auto')
