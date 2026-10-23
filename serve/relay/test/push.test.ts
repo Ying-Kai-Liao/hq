@@ -2,11 +2,11 @@
 import assert from "node:assert/strict";
 import worker, { alertAps, liveActivityAps, tokenIsGone, sealTicket, latestTicketIndices, pushBatch } from "../src/index.ts";
 
-const base = { alert: { title: "Codync", body: "Needs you" }, threadId: "b1", category: "needsInput" };
+const base = { alert: { title: "Kith", body: "Needs you" }, threadId: "b1", category: "needsInput" };
 assert.equal(alertAps({ ...base, mutableContent: true })["mutable-content"], 1);
 assert.equal("mutable-content" in alertAps(base), false);
 assert.equal("mutable-content" in alertAps({ ...base, mutableContent: false }), false);
-assert.deepEqual(alertAps(base).alert, { title: "Codync", body: "Needs you" });
+assert.deepEqual(alertAps(base).alert, { title: "Kith", body: "Needs you" });
 console.log("push tests ok");
 
 const state = { status: "working", activity: "", startedAt: 1 };

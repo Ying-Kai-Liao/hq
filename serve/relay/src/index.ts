@@ -144,7 +144,7 @@ export interface PushBody {
 /** The `aps` dictionary for an alert push. */
 export function alertAps(body: PushBody & { alert: NonNullable<PushBody["alert"]> }): Record<string, unknown> {
   const aps: Record<string, unknown> = {
-    alert: { title: (body.alert.title ?? "Codync").slice(0, 120), body: (body.alert.body ?? "").slice(0, 400) },
+    alert: { title: (body.alert.title ?? "Kith").slice(0, 120), body: (body.alert.body ?? "").slice(0, 400) },
     sound: "default",
     "thread-id": body.threadId,
     category: body.category,
