@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   dispatch:
-    if: ${{ github.event.label.name == 'ci:full' && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.event.label.name == 'ci:full' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
