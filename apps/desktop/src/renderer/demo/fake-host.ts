@@ -257,7 +257,7 @@ export class FakeHost {
       case 'memory':
         return {
           shared: true, yours: { entries: [], used: 0, cap: 400 }, bot: { entries: [], used: 0, cap: 1200 },
-          dreams: [], projectMemory: null, memoryRev: 0,
+          tidyUps: [], projectMemory: null, memoryRev: 0,
         }
       case 'routines':
         return { routines: [], runs: [] }
