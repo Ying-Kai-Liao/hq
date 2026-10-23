@@ -12,16 +12,17 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from kith_paths import paths  # noqa: E402
 import kith_facets  # noqa: E402
 
-VERSION = 1
+VERSION = 2
 MAX_FILE = 1_000_000
 MAX_PASSAGE = 1500
 SNIPPET = 200
+GROUP_VIAS = ('telegram', 'slack', 'discord', 'group')
 SCHEMA = """
 CREATE TABLE index_rows(id TEXT PRIMARY KEY, kind TEXT, agent TEXT, audience TEXT, room TEXT, projects_json TEXT,
-  thread_id TEXT, source_path TEXT, entry_id TEXT, text TEXT, updated_at REAL);
+  thread_id TEXT, source_path TEXT, entry_id TEXT, text TEXT, updated_at REAL, note_kind TEXT);
 CREATE INDEX rows_audience ON index_rows(audience, agent);
 CREATE INDEX rows_source ON index_rows(source_path);
-CREATE VIRTUAL TABLE fts USING fts5(text, tokenize='unicode61');
+CREATE VIRTUAL TABLE fts USING fts5(text, audience UNINDEXED, agent UNINDEXED, tokenize='unicode61');
 CREATE TABLE sources(path TEXT PRIMARY KEY, mtime_ns INTEGER, size INTEGER);
 """
 
@@ -44,27 +45,38 @@ def _private_dir():
 # ---- sources: the files that become rows. An explicit list: only memory/, user.md and people/ are read, so the
 # secrets folder, serve token and device identity are never indexed.
 
+def _under(path, root):
+    """Does path, links resolved, stay inside root (also resolved)?"""
+    real, base = os.path.realpath(path), os.path.realpath(root)
+    return real == base or real.startswith(base + os.sep)
+
+
 def sources():
-    """(path, agent, rel, kind) for every note file: agents' memory/**.md, then user.md and people/<id>.md."""
+    """(path, agent, rel, kind) for every note file: agents' memory/**.md, then user.md and people/<id>.md. A folder
+    that is a link is followed only when it resolves inside the Kith home or state folder (installs link ~/kith/agents),
+    and a file whose resolved path leaves its own folder is skipped, so a link in memory/ can't pull in other files."""
     p = paths()
     state = p['KITH_STATE']
+    allowed = (p['KITH_HOME'], state)
     homes = {}
     for root in (p['KITH_AGENTS'], state / 'agents'):
-        if root.is_dir() and not root.is_symlink():
+        if root.is_dir() and any(_under(root, a) for a in allowed):
             for d in sorted(root.iterdir()):
-                if d.is_dir() and kith_facets.ID.match(d.name):
+                if d.is_dir() and kith_facets.ID.match(d.name) and any(_under(d, a) for a in allowed):
                     homes.setdefault(d.name, d)
     for name, home in homes.items():
         mem = home / 'memory'
-        if mem.is_dir():
+        if mem.is_dir() and any(_under(mem, a) for a in allowed):
             for f in sorted(mem.rglob('*.md')):
-                yield f, name, f.relative_to(mem).as_posix(), 'agent'
-    if (state / 'user.md').is_file():
+                if _under(f, mem):
+                    yield f, name, f.relative_to(mem).as_posix(), 'agent'
+    if (state / 'user.md').is_file() and _under(state / 'user.md', state):
         yield state / 'user.md', '', 'user.md', 'user'
     people = state / 'people'
-    if people.is_dir():
+    if people.is_dir() and _under(people, state):
         for f in sorted(people.glob('*.md')):
-            yield f, '', f.name, 'person'
+            if _under(f, people):
+                yield f, '', f.name, 'person'
 
 
 def passages(text):
@@ -85,7 +97,7 @@ def passages(text):
 def rows_of(path, agent, rel, kind):
     """The index rows of one file, or [] when it can't be read or isn't a plain file."""
     try:
-        if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_FILE:
+        if not path.is_file() or path.stat().st_size > MAX_FILE:
             return []
         text = path.read_text(errors='replace')
     except OSError:
@@ -101,7 +113,7 @@ def rows_of(path, agent, rel, kind):
         for k in range(0, len(chunk), MAX_PASSAGE):
             rid = hashlib.sha1(('%s:%d:%d' % (path, line, k)).encode()).hexdigest()[:20]
             out.append((rid, 'note', agent, f['audience'], f['room'], json.dumps(f['projects']), f['thread'],
-                        str(path), str(line + skipped), chunk[k:k + MAX_PASSAGE]))
+                        str(path), str(line + skipped), chunk[k:k + MAX_PASSAGE], f['kind']))
     return out
 
 
@@ -115,8 +127,8 @@ def put(db, path, agent, rel, kind):
     drop(db, str(path))
     now = time.time()
     for r in rows_of(path, agent, rel, kind):
-        cur = db.execute('INSERT OR REPLACE INTO index_rows VALUES(?,?,?,?,?,?,?,?,?,?,?)', (*r, now))
-        db.execute('INSERT INTO fts(rowid, text) VALUES(?,?)', (cur.lastrowid, r[9]))
+        cur = db.execute('INSERT OR REPLACE INTO index_rows VALUES(?,?,?,?,?,?,?,?,?,?,?,?)', (*r[:10], now, r[10]))
+        db.execute('INSERT INTO fts(rowid, text, audience, agent) VALUES(?,?,?,?)', (cur.lastrowid, r[9], r[3], r[2]))
     with contextlib.suppress(OSError):
         st = path.stat()
         db.execute('INSERT OR REPLACE INTO sources VALUES(?,?,?)', (str(path), st.st_mtime_ns, st.st_size))
@@ -197,7 +209,7 @@ def open_index():
         except sqlite3.DatabaseError:
             if attempt:
                 raise
-            with contextlib.suppress(OSError):
+            with _lock(), contextlib.suppress(OSError):
                 db_path().unlink()
 
 
@@ -233,15 +245,19 @@ def bot_root(people, bot, depth=8):
 
 def caller():
     """The asker's visible set, cut down to what everyone in a group room may see when KITH_ROOM names one (the answer is
-    read by all of them). No member list is resolvable yet, so a group room gets `shared` + its own notes only: fail closed.
+    read by all of them). No member list is resolvable yet, so a group room gets `shared` only: fail closed.
     A 1:1 room (1:1:<agent>:<person>) has one reader, the asker, so it changes nothing."""
     who = _caller()
     room = os.environ.get('KITH_ROOM') or ''
-    if not room or room.startswith('1:1:') or who['audiences'] == []:
+    if who['audiences'] == []:
         return who
-    if not kith_facets.ID.match(room):
-        return {**who, 'audiences': []}
-    return {**who, 'audiences': ['shared', 'room:' + room]}
+    if room.startswith('1:1:'):
+        return who
+    # A group room, or a channel run the host has not named a room for yet: shared only, for everyone, owner too, until
+    # the room's members can be resolved (then the intersection of their sets, and room:<id> with it).
+    if room or (os.environ.get('KITH_VIA') or '') in GROUP_VIAS:
+        return {**who, 'audiences': ['shared']}
+    return who
 
 
 def _caller():
@@ -250,8 +266,8 @@ def _caller():
     agent = os.environ.get('KITH_AGENT') or ''
     person = os.environ.get('KITH_PERSON') or ''
     nobody = {'who': person or '-', 'agent': agent, 'audiences': []}
-    if not person:
-        return {'who': 'owner', 'agent': agent, 'audiences': None}
+    if not person:   # an owner run sets KITH_AGENT (kernel/bin/kith); neither set is not a known caller
+        return {'who': 'owner', 'agent': agent, 'audiences': None} if agent else nobody
     if re.fullmatch(r'bot-[0-9a-f]+', person):
         # guest level of the root owner: shared craft only, never the owner's or a person's. An older kith-auth has no
         # `people --json`: no answer, no access.
@@ -278,13 +294,18 @@ def recall(db, who, query, project='', room='', thread='', tier='2', limit=8):
     """Hits as dicts. The audience and agent conditions come first in the WHERE; the flags only add to it."""
     if who['audiences'] == []:
         return []
-    where, args = [], []
+    where, args, fwhere, fargs = [], [], [], []
     if who['audiences'] is not None:
-        where.append('r.audience IN (%s)' % ','.join('?' * len(who['audiences'])))
+        marks = ','.join('?' * len(who['audiences']))
+        where.append('r.audience IN (%s)' % marks)
         args += who['audiences']
+        fwhere.append('fts.audience IN (%s)' % marks)   # the FTS row carries it too, so a rowid mix-up can't cross
+        fargs += who['audiences']
     if who['agent']:
         where.append("r.agent IN (?, '')")
         args.append(who['agent'])
+        fwhere.append("fts.agent IN (?, '')")
+        fargs.append(who['agent'])
     kinds = {'2': ('note', 'summary'), '3': ('trajectory',), 'all': ('note', 'summary', 'trajectory')}[tier]
     where.append('r.kind IN (%s)' % ','.join('?' * len(kinds)))
     args += kinds
@@ -297,8 +318,8 @@ def recall(db, who, query, project='', room='', thread='', tier='2', limit=8):
     cols = 'r.kind, r.agent, r.audience, r.room, r.projects_json, r.source_path, r.entry_id, r.thread_id, r.text'
     try:
         rows = db.execute("SELECT %s, snippet(fts, 0, '', '', '...', 40) FROM index_rows r JOIN fts ON fts.rowid = r.rowid "
-                          'WHERE %s AND fts MATCH ? ORDER BY bm25(fts) LIMIT ?' % (cols, base),
-                          (*args, fts_query(query), limit)).fetchall()
+                          'WHERE %s AND fts MATCH ? ORDER BY bm25(fts) LIMIT ?' % (cols, ' AND '.join(where + fwhere)),
+                          (*args, *fargs, fts_query(query), limit)).fetchall()
     except sqlite3.OperationalError:   # FTS syntax the words broke
         rows = []
     if not rows:   # text FTS doesn't split into words (Chinese, say): plain substring, same conditions

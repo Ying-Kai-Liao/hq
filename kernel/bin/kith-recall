@@ -34,12 +34,15 @@ def main(argv):
     while i < len(argv):
         a = argv[i]
         if a == '--json': as_json = True; i += 1
-        elif a in opts and i + 1 < len(argv): opts[a] = argv[i + 1]; i += 2
+        elif a in opts:
+            if i + 1 >= len(argv):
+                print(USAGE, file=sys.stderr); return 2
+            opts[a] = argv[i + 1]; i += 2
         elif a.startswith('--'):
             print('kith recall: unknown option %s (who asks comes from the environment, not an argument)' % a, file=sys.stderr)
             return 2
         else: words.append(a); i += 1
-    if not words or opts['--tier'] not in ('2', '3', 'all') or not opts['-n'].isdigit():
+    if not ' '.join(words).strip() or opts['--tier'] not in ('2', '3', 'all') or not opts['-n'].isdigit():
         print(USAGE, file=sys.stderr); return 2
     who = kr.caller()
     db = kr.open_index()

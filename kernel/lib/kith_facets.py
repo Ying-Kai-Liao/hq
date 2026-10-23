@@ -46,7 +46,8 @@ def folder_defaults(rel, agent):
     if head == 'shared':
         f['audience'] = 'shared'
     elif head == 'people' and len(parts) > 2 and ID.match(parts[1]):
-        f.update(audience='person:' + parts[1], room='1:1:%s:%s' % (agent, parts[1]))
+        pid = parts[1].lower()   # kith-auth ids are lowercase; a folder named Sam is still sam's
+        f.update(audience='person:' + pid, room='1:1:%s:%s' % (agent, pid))
         if parts[2] == 'sessions':
             f.update(kind='project-detail', thread=Path(parts[-1]).stem)
     elif head == 'rooms' and len(parts) > 2 and ID.match(parts[1]):

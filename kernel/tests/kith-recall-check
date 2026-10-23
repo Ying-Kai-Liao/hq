@@ -22,6 +22,7 @@ echo 'eve private zebra' > "$M/people/eve/MEMORY.md"
 echo 'alpha zebra detail' > "$M/projects/alpha/notes.md"
 printf -- '---\naudience: owner\nprojects: [beta]\n---\nnarrowed zebra note\n' > "$M/people/sam/narrow.md"
 printf -- '---\naudience: shared\n---\nwiden attempt zebra\n' > "$M/MEMORY2.md"
+mkdir -p "$M/rooms/grp1"; echo 'grp1 room zebra' > "$M/rooms/grp1/MEMORY.md"
 echo 'session zebra log' > "$M/sessions/s1.md"
 echo 'other agent zebra' > "$KITH_HOME/agents/other/memory/MEMORY.md"
 echo 'about owner zebra' > "$KITH_STATE/user.md"
@@ -59,7 +60,7 @@ check "rebuild replaces the file in one step (new inode)" "[ \"\$(ls -i $DB | aw
 check "the secrets folder is never indexed" "! env KITH_AGENT=echo \"$R\" TOPSECRET | grep -q TOPSECRET"
 
 # owner
-check "owner sees owner, shared and person rows" "[ \"\$(aud KITH_AGENT=echo)\" = 'owner person:eve person:sam shared' ]"
+check "owner sees owner, shared and person rows" "[ \"\$(aud KITH_AGENT=echo)\" = 'owner person:eve person:sam room:grp1 shared' ]"
 check "owner: the other agent's notes stay out" "! env KITH_AGENT=echo \"$R\" zebra | grep -q 'agents/other'"
 check "owner: user.md is found" "env KITH_AGENT=echo \"$R\" 'about owner' | grep -q 'about owner'"
 check "frontmatter 'shared' in an owner file did not widen it" "[ \"\$(env KITH_AGENT=echo \"$R\" widen --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0][\"audience\"])')\" = owner ]"
@@ -74,10 +75,18 @@ check "unknown person gets nothing" "[ \"\$(env KITH_AGENT=echo KITH_PERSON=zed 
 check "an agent they are no member of: nothing" "[ \"\$(env KITH_AGENT=other KITH_PERSON=sam \"$R\" zebra --json)\" = '[]' ]"
 check "no KITH_AGENT, not the owner: nothing" "[ \"\$(env KITH_PERSON=sam \"$R\" zebra --json)\" = '[]' ]"
 
-# group room: the answer is read by everyone there, so only what all of them may see
-check "group room: the invitee loses person:sam" "[ \"\$(aud KITH_AGENT=echo KITH_PERSON=sam KITH_ROOM=grp1)\" = shared ]"
+# group room: the answer is read by everyone there, so only what all of them may see (members are not resolvable yet)
+check "group room: the invitee gets shared only" "[ \"\$(aud KITH_AGENT=echo KITH_PERSON=sam KITH_ROOM=grp1)\" = shared ]"
 check "group room: the owner is cut down too" "[ \"\$(aud KITH_AGENT=echo KITH_ROOM=grp1)\" = shared ]"
+check "group room notes are not recalled by room id, for grp1 or grp2, owner or invitee" "! env KITH_AGENT=echo KITH_ROOM=grp1 \"$R\" 'grp1 room' | grep -q 'grp1 room' && ! env KITH_AGENT=echo KITH_PERSON=sam KITH_ROOM=grp2 \"$R\" 'grp1 room' | grep -q 'grp1 room' && ! env KITH_AGENT=echo KITH_PERSON=sam KITH_ROOM=grp1 \"$R\" 'grp1 room' | grep -q 'grp1 room'"
+check "a channel run with no KITH_ROOM recalls shared only" "[ \"\$(aud KITH_AGENT=echo KITH_VIA=telegram)\" = shared ]"
 check "1:1 room changes nothing" "[ \"\$(aud KITH_AGENT=echo KITH_PERSON=sam KITH_ROOM=1:1:echo:sam)\" = 'person:sam shared' ]"
+check "no person and no agent is nobody, not the owner" "[ \"\$(env \"$R\" zebra --json)\" = '[]' ]"
+check "a blank query is refused" "! env KITH_AGENT=echo \"$R\" '  ' 2>/dev/null"
+check "-n without a value prints usage" "! env KITH_AGENT=echo \"$R\" zebra -n 2>/dev/null"
+check "launch-json passes KITH_ROOM on" "[ \"\$(KITH_ROOM=grp1 \"$KERNEL/bin/kith\" echo --launch-json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"env\"].get(\"KITH_ROOM\"))')\" = grp1 ]"
+check "a link out of memory/ is not followed" "ln -s $KITH_STATE/secrets/key.md $M/leak.md && ! env KITH_AGENT=echo \"$R\" TOPSECRET | grep -q TOPSECRET; rm -f $M/leak.md"
+check "frontmatter kind is stored" "[ \"\$(sqlite3 $DB \"select note_kind from index_rows where text like 'session zebra%'\" 2>/dev/null)\" = project-detail ] || python3 -c \"import sqlite3,sys; sys.exit(0 if sqlite3.connect('$DB').execute(\\\"select note_kind from index_rows where text like 'session zebra%'\\\").fetchone()[0]=='project-detail' else 1)\""
 
 # bots: this tree's kith-auth has no `people --json`, so a bot fails closed
 check "bot guest with no resolvable parent gets nothing" "[ \"\$(env KITH_AGENT=echo KITH_PERSON=bot-ab12 \"$R\" zebra --json)\" = '[]' ]"
