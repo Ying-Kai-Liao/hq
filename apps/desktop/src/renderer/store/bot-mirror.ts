@@ -254,6 +254,21 @@ export class BotMirror extends Observable {
     } catch {}
   }
 
+  /** Access to this Mac is gone: what was mirrored from it (chats, cache) goes too, and nothing writes it back. */
+  dropData() {
+    if (this.saveTimer) clearTimeout(this.saveTimer)
+    this.saveTimer = null
+    this.bots = new Map()
+    this.entries = new Map()
+    this.hello = null
+    this.rev = 0
+    this.retired = true
+    try {
+      localStorage.removeItem(this.cacheKey)
+    } catch {}
+    this.changed()
+  }
+
   protected scheduleSave() {
     if (this.retired) return
     if (this.saveTimer) clearTimeout(this.saveTimer)

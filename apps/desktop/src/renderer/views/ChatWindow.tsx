@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { GrantedAgentsChat } from './computers/GrantedAgentsChat'
 import { InviteJoinSheet } from './settings/InviteJoinSheet'
 import type { WindowCommand } from '@shared/ipc'
 import { isSSHConnecting, showsChat as shouldShowChat } from '@shared/ssh-startup'
@@ -256,9 +257,9 @@ function ChatSplitView() {
     { title: 'New group chat', icon: 'person.2', action: () => compose(true) },
   ]
 
-  const openMarketplace = () => setMarketplace((selectedStore ?? app.local ?? onlineStores[0])?.computer.id ?? null)
+  const openMarketplace = () => setMarketplace(([selectedStore, app.local, ...onlineStores].find((s) => s?.isOwner)?.computer.id) ?? null)
 
-  const botActions = (bot: Bot, store: BotStore): MenuItem[] => [
+  const botActions = (bot: Bot, store: BotStore): MenuItem[] => store.isOwner ? [
     { title: bot.pinned ? 'Unpin' : 'Pin', icon: 'pin', action: () => store.setPinned(bot, !bot.pinned) },
     { title: 'Mark as Read', icon: 'bell.badge', action: () => store.markAllRead(bot.id) },
     { title: 'Edit Profile…', icon: 'square.and.pencil', divider: true, action: () => setEditing({ id: crypto.randomUUID(), draft: draftOf(bot), store }) },
@@ -266,6 +267,10 @@ function ChatSplitView() {
     { title: 'New session', icon: 'arrow.counterclockwise', action: () => setNewSessionBot({ bot, store }) },
     { title: 'Hide from sidebar', icon: 'eye.slash', divider: true, action: () => store.setHidden(bot, true) },
     { title: 'Delete', icon: 'trash', destructive: true, action: () => setConfirmDelete({ bot, store }) },
+  ] : [
+    // Someone else's Mac: the chat is theirs to read and pin, not to edit or delete.
+    { title: bot.pinned ? 'Unpin' : 'Pin', icon: 'pin', action: () => store.setPinned(bot, !bot.pinned) },
+    { title: 'Mark as Read', icon: 'bell.badge', action: () => store.markAllRead(bot.id) },
   ]
 
   // ↑/↓ in the roster move the selection; Alt+↑/↓ moves the selected bot itself.
@@ -307,13 +312,17 @@ function ChatSplitView() {
           <ComputerPicker stores={onlineStores} value={composeStore.computer.id} onChange={setComposeComputer} />
         ) : null}
         <StoreContext.Provider value={composeStore}>
-          <NewChatView
-            group={composingGroup}
-            onClose={() => {
-              setComposing(false)
-              if (!app.selection) app.select(previousSelection.current)
-            }}
-          />
+          {composeStore.isOwner ? (
+            <NewChatView
+              group={composingGroup}
+              onClose={() => {
+                setComposing(false)
+                if (!app.selection) app.select(previousSelection.current)
+              }}
+            />
+          ) : (
+            <GrantedAgentsChat onClose={() => setComposing(false)} />
+          )}
         </StoreContext.Provider>
       </div>
     )

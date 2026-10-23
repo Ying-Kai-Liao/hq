@@ -46,6 +46,8 @@ const ownerOnly: SettingsPage[] = ['computers', 'people', 'access', 'voice', 'us
 export function useComputerRole(): ComputerRole {
   const app = useApp()
   const id = app.local?.computer.id
+  // Only this Mac's own role counts: being a member of another Mac never hides these pages.
+  if (app.local && !app.local.isOwner) return 'member'
   return app.cloud.computers.find((c) => c.computerId === id)?.role === 'member' ? 'member' : 'owner'
 }
 

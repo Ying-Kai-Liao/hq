@@ -12,7 +12,7 @@
 
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
 import { generateKeyPairSync } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -20,6 +20,9 @@ import { fileURLToPath } from 'node:url'
 import { requestAccess } from '../src/main/relay/access.ts'
 import { b64url, signatureHeader, signerFromSeed, unb64url, type Signer } from '../src/main/relay/crypto.ts'
 import { RelayLink } from '../src/main/relay/link.ts'
+import { parseInviteLink } from '../src/shared/invite.ts'
+import { runJoin, type JoinState } from '../src/shared/invite-join.ts'
+import { relayJoinDeps, type RelayApi } from '../src/shared/relay-access.ts'
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 const CLOUD_DIR = join(ROOT, 'serve/cloud')
@@ -126,13 +129,24 @@ async function main() {
   run(WRANGLER, ['dev', '--env', 'local', '--ip', '127.0.0.1', '--port', String(PORT), '--persist-to', persist, '--var', `CLERK_JWT_KEY:${jwtKey}`])
   await waitFor('cloud /v1/health', () => fetch(`${CLOUD}/v1/health`).then((r) => r.ok).catch(() => false), 90_000)
 
+  // The host's `kith` is a stand-in that lists one agent (`house`); kith-auth is the real one beside it.
+  const kbin = join(tmp, 'kbin')
+  mkdirSync(kbin, { recursive: true })
+  copyFileSync(join(ROOT, 'serve/host/tests/fixtures/stub_hq.py'), join(kbin, 'kith'))
+  chmodSync(join(kbin, 'kith'), 0o755)
+  symlinkSync(join(KERNEL_BIN, 'kith-auth'), join(kbin, 'kith-auth'))
+  mkdirSync(join(tmp, 'agent'), { recursive: true })
+
   check(kithAuth('person', 'kai', 'owner').status === 0, 'owner person exists in the throwaway kith-auth')
   hostPort = await freePort()
   run(HOST_BIN, ['serve', '--port', String(hostPort)], {
     KITH_SERVE_HOME: home,
     KITH_SERVE_CLOUD_URL: CLOUD,
     KITH_AUTH: authFile,
-    KITH_KERNEL_BIN: join(KERNEL_BIN, 'kith'),
+    KITH_KERNEL_BIN: join(kbin, 'kith'),
+    STUB_HQ_HOME: join(tmp, 'agent'),
+    KITH_STATE: join(tmp, 'state'),
+    KITH_HOME: join(tmp, 'kith-home'),
   })
   await waitFor('host /health', () => fetch(`http://127.0.0.1:${hostPort}/health`).then((r) => r.ok).catch(() => false), 30_000)
   const computerId = ((await (await fetch(`http://127.0.0.1:${hostPort}/health`)).json()) as { computerId: string }).computerId
@@ -182,7 +196,89 @@ async function main() {
   check(JSON.parse(lines[0]).type === 'hello', 'the event stream opened with the host hello')
   check(unb64url(row.signKey)?.length === 32, 'the key is the one the id was made from')
   link.close()
+  await invitee(computerId, row.signKey)
   console.log('\ndesktop relay e2e (real host) passed')
+}
+
+/** A second account joins as a member of `house` with the desktop's own join code (shared/relay-access + invite-join). */
+async function invitee(computerId: string, signKey: string) {
+  console.log('\ninvitee:')
+  const made = await loopback('createInvite', { name: 'Mia', agents: { house: 'member' } })
+  const link = parseInviteLink(made.link, ['kith'])
+  check(link && link.computerId === computerId, 'the owner made an invite for the real host')
+  if (!link) return
+
+  const token = await clerkToken('user_invitee_e2e')
+  const device = signerFromSeed(Buffer.alloc(32, 0x62)) // fake, low entropy
+  const req = (method: string, path: string, body: unknown, signed: boolean) =>
+    cloud(method, `/${path}`, { token, signer: signed ? device : undefined, body }).then((r) =>
+      r.status >= 200 && r.status < 300 ? ({ ok: true, value: r.body } as const) : ({ ok: false, error: { status: r.status, code: r.body?.error?.code ?? `http${r.status}`, message: r.body?.error?.message ?? null } } as const),
+    )
+  check((await req('POST', 'v1/devices', { name: 'Invitee e2e', platform: 'macos' }, true)).ok, 'the invitee registered its device key')
+  const links = new Map<string, RelayLink>()
+  const linkOf = (id: string, key: string) => {
+    if (!links.has(id)) links.set(id, new RelayLink({ cloudURL: CLOUD, computerId: id, hostSignKey: key, signer: device }))
+    return links.get(id)!
+  }
+  const api: RelayApi = {
+    computers: async () => (await req('GET', 'v1/computers', undefined, true)) as any,
+    requestAccess: (id, key) => requestAccess({ request: req, signer: device, computerId: id, signKey: key, cancelled: () => false, created: () => {}, pollMs: 300 }),
+    accessStatus: async (id) => {
+      const r = await req('GET', `v1/access-requests/${id}`, undefined, false)
+      return r.ok ? { ok: true, value: (r.value as any).status } : r
+    },
+    cancelAccess: async () => {},
+    state: async (id, key) => {
+      const l = linkOf(id, key)
+      l.start()
+      return l.state
+    },
+    call: (id, key, method, body, ms) => linkOf(id, key).call(method, body, ms),
+  }
+  // The Mac's owner approves what the invitee asks, as soon as it is there.
+  let approving = true
+  void (async () => {
+    while (approving) {
+      for (const r of (await loopback('accessRequests').catch(() => ({ requests: [] }))).requests) await loopback('decideAccessRequest', { requestId: r.requestId, approve: true }).catch(() => {})
+      await sleep(300)
+    }
+  })()
+  const order: string[] = []
+  const steps: JoinState[] = []
+  const deps = relayJoinDeps(api, {
+    signedIn: () => true,
+    waitForSignIn: async () => {},
+    accept: async (inviteId, h1) => {
+      const r = await req('POST', `v1/invites/${inviteId}/accept`, { token: h1 }, false)
+      if (!r.ok) throw r.error
+      return r.value as { computerId: string }
+    },
+    keepToken: async () => void order.push('kept'),
+  })
+  const end = await runJoin(link, deps, (st) => steps.push(st))
+  approving = false
+  check(end.step === 'done', `the join finished (${steps.map((x) => x.step).join(' > ')}${end.message ? `: ${end.message}` : ''})`)
+  check(order.length === 1, 'the invite token was kept on this device')
+
+  const mac = linkOf(computerId, signKey)
+  const hello = (await mac.call('hello', {}, 20_000)) as { grantedAgents?: { agent: string; role: string }[] }
+  check(JSON.stringify(hello.grantedAgents?.map((g) => [g.agent, g.role])) === JSON.stringify([['house', 'member']]), 'hello.grantedAgents names house as member')
+  const chat = await waitFor('startChat to work', async () => {
+    try {
+      return (await mac.call('startChat', { agent: 'house' }, 30_000)) as { bot?: { id: string; hqAgent?: string } }
+    } catch {
+      return undefined
+    }
+  }, 30_000)
+  check(chat.bot?.hqAgent === 'house', 'startChat made the invitee their own house chat')
+  let refused = ''
+  try {
+    await mac.call('devices', {}, 20_000)
+  } catch (e) {
+    refused = String((e as { message?: string }).message)
+  }
+  check(refused !== '', `an owner-only call is refused to the member (${refused})`)
+  for (const l of links.values()) l.close()
 }
 
 try {
