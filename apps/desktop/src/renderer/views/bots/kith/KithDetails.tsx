@@ -3,27 +3,45 @@ import {
   ago, cronWords, formatUsd, lastRunText, packageNotes, rolePrompt, shortVersion, topModels,
   type KithInfo, type KithMcp, type KithSchedule, type KithSkill,
 } from '@shared/kith-info'
-import { Button, Disclosure, IconButton, Pill, Spinner } from '../../../components/Controls'
+import { Button, Disclosure, DropdownMenu, IconButton, Pill, Spinner } from '../../../components/Controls'
+import { Icon } from '../../../components/Icon'
 import { AgentBackups } from './AgentBackups'
 import { MarkdownText } from '../../thread/Markdown'
 import type { KithInfoStore } from '../../../store/kith-info-store'
 import './kith.css'
 
-/** "kith · house" and the package chip, under the bot's name. */
+/** The package chip, under the bot's name: "kith · house 1.4" in mono, opening what the package's state is (changes, unpushed, pinned, version). */
 export function KithHeader({ agent, kith }: { agent: string; kith: KithInfoStore }) {
   if (kith.unsupported) return null
   const pkg = kith.info?.package
   const version = shortVersion(pkg?.version)
+  const notes = pkg ? packageNotes(pkg) : []
+  const label = `kith · ${agent}${pkg && version ? ` ${version}${pkg.dirty ? ' •' : ''}` : ''}`
   return (
-    <span className="kith-header">
-      <span>kith · {agent}</span>
-      {pkg && version ? <Pill outlined className="kith-chip"><span title={packageNotes(pkg).join('\n') || undefined}>v{version}{pkg.dirty ? ' •' : ''}</span></Pill> : null}
-    </span>
+    <DropdownMenu
+      className="kith-chip-button"
+      title={notes.join('\n') || undefined}
+      items={() => [
+        ...(version ? [{ title: `Version ${version}`, action: () => {} }] : []),
+        ...(notes.length ? notes.map((note) => ({ title: note, action: () => {} })) : [{ title: 'No local changes', action: () => {} }]),
+      ]}
+    >
+      <span>{label}</span>
+      <Icon name="chevron.up.chevron.down" size={8} weight="semibold" />
+    </DropdownMenu>
   )
 }
 
-/** The Kith sections of a bot's details, from `about` to skills; the bot editor's settings follow them. */
-export function KithDetails({ kith }: { kith: KithInfoStore }) {
+/**
+ * The Kith sections of a bot's details in the agent sheet's order: about (with the settings rows
+ * the parent hands in), cost, schedules and routines (one list: `routines` renders the card and
+ * gets kith's read-only schedules as its last rows), projects, harness, skills and tools.
+ */
+export function KithDetails({ kith, about, routines }: {
+  kith: KithInfoStore
+  about?: ReactNode
+  routines?: (extra: ReactNode) => ReactNode
+}) {
   if (kith.unsupported) return null
   const { info } = kith
   if (!info) {
@@ -32,20 +50,23 @@ export function KithDetails({ kith }: { kith: KithInfoStore }) {
     return <p className="kith-muted kith-loading" role="status"><Spinner size={12} /> Loading details…</p>
   }
   const unread = (key: string) => info.errors[key] !== undefined
+  const schedules = unread('schedules')
+    ? <Failed key="s" what="the schedules" />
+    : info.schedules.map((s) => <ScheduleRow key={s.id} schedule={s} />)
   return (
     <>
-      <div className="kith-refresh">
-        {kith.refreshError ? <span className="kith-muted kith-failed" role="alert">Refresh failed: {kith.refreshError}</span>
-          : <span className="kith-muted">{kith.fetchedAt ? `Read ${ago(kith.fetchedAt)}` : ''}</span>}
-        {kith.loading ? <Spinner size={12} /> : <IconButton title="Refresh details" icon="arrow.clockwise" onClick={() => void kith.load(true)} />}
-      </div>
-      <About info={info} failed={unread('role')} />
+      <About info={info} failed={unread('role')}>{about}</About>
       <Cost info={info} failed={unread('cost')} />
-      {info.errors.schedules !== undefined || info.schedules.length ? <Schedules schedules={info.schedules} failed={unread('schedules')} /> : null}
+      {routines ? routines(schedules) : null}
       {info.errors.projects !== undefined || info.projects.length ? <Projects info={info} failed={unread('projects')} /> : null}
       <ModelAndPermissions info={info} />
       <AgentBackups agent={info.agent} />
       <Lists info={info} />
+      <div className="sheet-footer kith-refresh">
+        {kith.refreshError ? <span className="kith-failed" role="alert">Refresh failed: {kith.refreshError}</span>
+          : <span>{kith.fetchedAt ? `Updated ${new Date(kith.fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}</span>}
+        {kith.loading ? <Spinner size={12} /> : <IconButton title="Refresh details" icon="arrow.clockwise" onClick={() => void kith.load(true)} />}
+      </div>
     </>
   )
 }
@@ -71,7 +92,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 const Failed = ({ what }: { what: string }) => <p className="kith-muted kith-failed">Couldn't read {what}</p>
 
 /** The description stays in view; the long role prompt (the agent's instructions) is one row, closed until opened. */
-function About({ info, failed }: { info: KithInfo; failed: boolean }) {
+function About({ info, failed, children }: { info: KithInfo; failed: boolean; children?: ReactNode }) {
   const [open, setOpen] = useState(false)
   const prompt = rolePrompt(info.role)
   return (
@@ -85,40 +106,40 @@ function About({ info, failed }: { info: KithInfo; failed: boolean }) {
             </Disclosure>
           ) : null}
         </>}
+        {children}
       </div>
     </Section>
   )
 }
 
+type Range = 'today' | 'week' | 'month' | 'all'
+
 function Cost({ info, failed }: { info: KithInfo; failed: boolean }) {
   const cost = info.cost
+  const [range, setRange] = useState<Range>('month')
+  const ranges: [Range, string][] = [['today', 'Today'], ['week', '7 d'], ['month', '30 d'], ['all', 'All']]
   return (
     <Section title="Cost">
       <div className="outlined-card kith-card">
         {failed ? <Failed what="the cost" /> : !cost ? <p className="kith-muted">No cost recorded yet</p> : <>
-          <div className="kith-stats">
-            {([['Today', cost.today], ['7 days', cost.week], ['30 days', cost.month], ['All', cost.all]] as const).map(([label, usd]) => (
-              <div key={label} className="kith-stat"><strong>{formatUsd(usd)}</strong><small>{label}</small></div>
+          <div className="sheet-range" role="tablist" aria-label="Cost range">
+            {ranges.map(([id, label]) => (
+              <button key={id} role="tab" aria-selected={range === id} className={range === id ? 'on' : ''} onClick={() => setRange(id)}>{label}</button>
             ))}
           </div>
-          <p className="kith-muted">{cost.requestsMonth} {cost.requestsMonth === 1 ? 'request' : 'requests'} in 30 days</p>
-          {topModels(cost).map((m) => (
-            <div key={m.model} className="kith-model">
-              <span className="kith-ellipsis" title={m.model}>{m.model}</span>
-              <span className="kith-muted">{formatUsd(m.usd)} · {Math.round(m.share * 100)}%</span>
+          <div className="sheet-amount-row">
+            <span className="sheet-amount">{formatUsd(cost[range])}</span>
+            {/* The host sends requests and the per-model split for 30 days only. */}
+            {range === 'month' ? <span className="kith-muted">{cost.requestsMonth} {cost.requestsMonth === 1 ? 'request' : 'requests'}</span> : null}
+          </div>
+          {range === 'month' ? topModels(cost).map((m) => (
+            <div key={m.model} className="sheet-bar" title={`${m.model} · ${Math.round(m.share * 100)}%`}>
+              <span className="kith-ellipsis">{m.model}</span>
+              <i style={{ width: `${Math.max(2, Math.round(m.share * 100))}%` }} />
+              <em>{formatUsd(m.usd)}</em>
             </div>
-          ))}
+          )) : null}
         </>}
-      </div>
-    </Section>
-  )
-}
-
-function Schedules({ schedules, failed }: { schedules: KithSchedule[]; failed: boolean }) {
-  return (
-    <Section title="Schedules">
-      <div className="outlined-card kith-card">
-        {failed ? <Failed what="the schedules" /> : schedules.map((s) => <ScheduleRow key={s.id} schedule={s} />)}
       </div>
     </Section>
   )
@@ -183,7 +204,7 @@ function Lists({ info }: { info: KithInfo }) {
     info.errors[key] !== undefined || count > 0 ? <Group key={key} title={title} count={info.errors[key] !== undefined ? null : count}>{info.errors[key] !== undefined ? <Failed what={title.toLowerCase()} /> : body}</Group> : null
   )
   return (
-    <Section title="Skills, tools & MCP">
+    <Section title="Skills, tools, plugins">
       <div className="outlined-card kith-card">
         {group('skills', 'Skills', info.skills.length, info.skills.map((s) => <SkillRow key={s.name} skill={s} />))}
         {group('tools', 'Tools', info.tools.length, info.tools.map((t) => <div key={t} className="kith-item kith-ellipsis" title={t}>{t}</div>))}

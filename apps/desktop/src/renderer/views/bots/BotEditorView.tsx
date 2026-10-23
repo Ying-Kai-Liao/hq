@@ -10,7 +10,7 @@ import { Icon } from '../../components/Icon'
 import { ModalHeader, Sheet, SheetPage, useDismiss } from '../../components/Overlay'
 import { HStack, IconSlot, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
-import { paletteColor, paletteValue } from '@shared/living-bots'
+import { paletteValue } from '@shared/living-bots'
 import { AVATAR_PALETTE } from '../../lib/theme'
 import { useStore } from '../../store/context'
 import { botSections } from '@shared/bot-sections'
@@ -19,7 +19,7 @@ import { AgentModelPicker } from './AgentModelPicker'
 import { errorText, fillDefaults, isValid, lastPathComponent, normalized, usePlugins, type Plugins } from './drafts'
 import { FormSheet } from '../marketplace/pieces'
 import { SkillSheet, type SkillRef } from '../marketplace/SkillSheet'
-import { AnchoredPanel, AutoTextArea, Field, SwitchRow } from './parts'
+import { AutoTextArea, Field, SwitchRow } from './parts'
 import { useKithInfo } from './kith/use-kith'
 import { HqSettings } from './kith/HqSettings'
 import './bots.css'
@@ -74,7 +74,7 @@ export function BotEditorView({ draft: initial }: { draft: BotDraft }) {
 export type FormPart = 'all' | 'often' | 'rarely'
 
 /** The desktop inspector next to a conversation: the same form, saved as you edit. */
-export function BotSettingsPanel({ botId, part }: { botId: string; part: FormPart }) {
+export function BotSettingsPanel({ botId, part, bare = false }: { botId: string; part: FormPart; /** The Details rows without their own card (the Kith About card holds them). */ bare?: boolean }) {
   const store = useStore()
   const plugins = usePlugins(store)
   const [draft, setDraft] = useState<BotDraft | null>(null)
@@ -100,16 +100,17 @@ export function BotSettingsPanel({ botId, part }: { botId: string; part: FormPar
     return () => clearTimeout(timer)
   }, [draft])
 
-  return draft ? <BotSettingsForm draft={draft} onChange={change} error={error} plugins={plugins} part={part} /> : null
+  return draft ? <BotSettingsForm draft={draft} onChange={change} error={error} plugins={plugins} part={part} bare={bare} /> : null
 }
 
 /** Bot settings, in sections in the Settings style (`CardSection`). */
-function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
+function BotSettingsForm({ draft, onChange, error, plugins, part = 'all', bare = false }: {
   draft: BotDraft
   onChange: (update: (d: BotDraft) => BotDraft) => void
   error: string | null
   plugins: Plugins | null
   part?: FormPart
+  bare?: boolean
 }) {
   const store = useStore()
   const [pickingAvatar, setPickingAvatar] = useState(false)
@@ -117,7 +118,6 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
   const image = avatarImage({ id: draft.id ?? '', name: draft.name, kind: store.bots.get(draft.id ?? '')?.kind ?? 'agent', avatarSource: draft.avatarSource })
   const [pickingFolder, setPickingFolder] = useState(false)
   const [viewingSkill, setViewingSkill] = useState<SkillRef | null>(null)
-  const avatarRef = useRef<HTMLButtonElement>(null)
   const set = <K extends keyof BotDraft>(key: K, value: BotDraft[K]) => onChange((d) => ({ ...d, [key]: value }))
   // Options belong to one model.
   const setModel = useCallback((model: string | null) => onChange((d) => (d.model === model ? d : { ...d, model, modelOptions: {} })), [onChange])
@@ -191,11 +191,18 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
     return (
       <div className="bot-form">
         <div className="bot-form-content">
-          {shown.instructions ? <CardSection title="Instructions">{instructions}</CardSection> : null}
-          <CardSection title="Agent">
-            {agent}
-            {model}
-          </CardSection>
+          {bare ? (
+            <>
+              {agent}
+              {model}
+            </>
+          ) : (
+            <CardSection title="About">
+              {shown.instructions ? instructions : null}
+              {agent}
+              {model}
+            </CardSection>
+          )}
           {error ? <Text size="footnote" tone="danger" className="fade-in">{error}</Text> : null}
         </div>
       </div>
@@ -206,22 +213,11 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
     <div className="bot-form">
       <div className="bot-form-content">
         <CardSection title="Profile">
-          <ValueRow label="Avatar">
-            <button ref={avatarRef} className="avatar-button small" title="Edit Bot avatar" aria-label="Edit Bot avatar" onClick={() => setPickingAvatar((p) => !p)}>
+          <ValueRow label="Look and colour">
+            <button className="avatar-button small look-row" title="Edit Bot avatar" aria-label="Edit Bot avatar" onClick={() => setPickingAvatar(true)}>
               <LiveBot face={image ?? 'group'} color={draft.avatarColor} size={24} id={draft.id ?? 'new'} animated={false} />
+              <Icon name="chevron.right" size={10} weight="semibold" color="var(--tertiary)" />
             </button>
-            <AnchoredPanel open={pickingAvatar} onClose={() => setPickingAvatar(false)} anchor={avatarRef}>
-              <div className="avatar-picker-panel">
-                <AvatarPicker
-                  source={draft.avatarSource ?? 'auto'}
-                  color={draft.avatarColor}
-                  isGroup={store.bots.get(draft.id ?? '')?.kind === 'group'}
-                  auto={avatarImage({ id: draft.id ?? '', name: draft.name, kind: 'agent', avatarSource: 'auto' })}
-                  onSource={(s) => set('avatarSource', s)}
-                  onColor={(c) => set('avatarColor', c)}
-                />
-              </div>
-            </AnchoredPanel>
           </ValueRow>
           {/* A new bot is named from its first conversations (Grok Bot's flow); rename it any time after. */}
           {draft.id ? (
@@ -298,7 +294,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
 
         <CardSection title="Activity">
           <SwitchRow title="Notifications" detail="Get notified when this bot finishes or needs you" on={draft.notify ?? true} onChange={(on) => set('notify', on)} />
-          {store.screen && part === 'all' ? (
+          {store.screen ? (
             <SwitchRow
               title="Use the computer"
               detail={
@@ -333,6 +329,17 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all' }: {
         />
         {error ? <Text size="footnote" tone="danger" className="fade-in">{error}</Text> : null}
       </div>
+      <Sheet open={pickingAvatar} onClose={() => setPickingAvatar(false)} width={380} height={620}>
+        <ColourSheet
+          draft={draft}
+          face={image}
+          isGroup={store.bots.get(draft.id ?? '')?.kind === 'group'}
+          auto={avatarImage({ id: draft.id ?? '', name: draft.name, kind: 'agent', avatarSource: 'auto' })}
+          onSource={(v) => set('avatarSource', v)}
+          onColor={(c) => set('avatarColor', c)}
+          close={() => setPickingAvatar(false)}
+        />
+      </Sheet>
       <FormSheet open={viewingSkill !== null} onClose={() => setViewingSkill(null)}>
         {viewingSkill ? <SkillSheet key={viewingSkill.name} skill={viewingSkill} /> : null}
       </FormSheet>
@@ -383,17 +390,25 @@ function PluginToggles({ title, empty, items, selection, onChange, onInfo }: {
   )
 }
 
-function AvatarPicker({ source, color, auto, isGroup, onSource, onColor }: {
-  source: string
-  /** The bot's avatarColor: a `kith:<palette id>` pick; anything else is its original colours. */
-  color: string
+/**
+ * The colour sheet: a live preview, the brand pairs as swatches, Reset to default, and the body
+ * picker (Automatic, Crew, Spares) so no choice is lost. Cancel puts back what it opened with.
+ */
+function ColourSheet({ draft, face, isGroup, auto, onSource, onColor, close }: {
+  draft: BotDraft
+  /** What the avatar shows now; null for a group. */
+  face: AvatarImage | null
+  /** A group always wears the kith cube, so there is no body to pick. */
+  isGroup: boolean
   /** What Automatic shows for this bot. */
   auto: AvatarImage | null
-  /** A group always wears the kith cube, so there is nothing to pick. */
-  isGroup: boolean
   onSource: (source: string) => void
   onColor: (c: string) => void
+  close: () => void
 }) {
+  const source = draft.avatarSource ?? 'auto'
+  const color = draft.avatarColor
+  const opened = useRef({ source, color })
   // Old data (`shape`, or an id this app doesn't know) is Automatic.
   const picked = /^(crew|spare):/.test(source)
   const current = picked ? source : 'auto'
@@ -406,33 +421,51 @@ function AvatarPicker({ source, color, auto, isGroup, onSource, onColor }: {
         </button>
       )
     })
-  if (isGroup) return <div className="swatch-label">A group wears the Kith cube.</div>
-  const original = picked ? { kind: source.split(':')[0] as AvatarImage['kind'], name: source.split(':')[1]! } : auto
-  const known = !!paletteColor(color)
   return (
-    <VStack gap={12}>
-      <div className="swatch-label">Automatic</div>
-      <div className="swatch-grid">
-        <button className={`swatch ${current === 'auto' ? 'on' : ''}`} aria-label="Automatic" aria-pressed={current === 'auto'} onClick={() => onSource('auto')}>
-          {auto ? <CrewPortrait image={auto} size={36} color={color} /> : null}
-        </button>
+    <SheetPage>
+      <div className="colour-header">
+        <button className="colour-text-button" onClick={() => {
+          onSource(opened.current.source)
+          onColor(opened.current.color)
+          close()
+        }}>Cancel</button>
+        <span className="colour-title">Colour</span>
+        <button className="colour-text-button done" onClick={close}>Done</button>
       </div>
-      <div className="swatch-label">Crew</div>
-      <div className="swatch-grid">{images('crew', CREW)}</div>
-      <div className="swatch-label">Spares</div>
-      <div className="swatch-grid">{images('spare', SPARES)}</div>
-      <div className="swatch-label">Colour</div>
-      <div className="swatch-grid">
-        <button className={`swatch ${known ? '' : 'on'}`} aria-label="Original colours" aria-pressed={!known} onClick={() => onColor('')}>
-          {original ? <CrewPortrait image={original} size={26} /> : null}
+      <div className="colour-body">
+        <div className="colour-preview">
+          <LiveBot face={face ?? 'group'} color={color} size={84} id={draft.id ?? 'new'} animated={false} />
+        </div>
+        <div className="colour-grid" role="group" aria-label="Colour">
+          {AVATAR_PALETTE.map((c) => {
+            const on = paletteValue(c.id) === color
+            return (
+              <button key={c.id} className={`colour-swatch ${on ? 'on' : ''}`} aria-label={c.id} aria-pressed={on} onClick={() => onColor(paletteValue(c.id))}>
+                <span style={{ background: `linear-gradient(135deg, ${c.a}, ${c.b})` }} />
+              </button>
+            )
+          })}
+        </div>
+        <button className="colour-reset" disabled={!color} onClick={() => onColor('')}>
+          <Icon name="arrow.counterclockwise" size={12} weight="medium" /> Reset to default
         </button>
-        {AVATAR_PALETTE.map((c) => (
-          <button key={c.id} className={`swatch ${paletteValue(c.id) === color ? 'on' : ''}`} aria-label={c.id} aria-pressed={paletteValue(c.id) === color} onClick={() => onColor(paletteValue(c.id))}>
-            <span className="swatch-color" style={{ background: `linear-gradient(135deg, ${c.a}, ${c.b})` }} />
-          </button>
-        ))}
+        <p className="colour-note">The eyes never change.</p>
+        {isGroup ? <div className="swatch-label">A group wears the Kith cube.</div> : (
+          <VStack gap={10}>
+            <div className="swatch-label">Automatic</div>
+            <div className="swatch-grid">
+              <button className={`swatch ${current === 'auto' ? 'on' : ''}`} aria-label="Automatic" aria-pressed={current === 'auto'} onClick={() => onSource('auto')}>
+                {auto ? <CrewPortrait image={auto} size={36} color={color} /> : null}
+              </button>
+            </div>
+            <div className="swatch-label">Crew</div>
+            <div className="swatch-grid">{images('crew', CREW)}</div>
+            <div className="swatch-label">Spares</div>
+            <div className="swatch-grid">{images('spare', SPARES)}</div>
+          </VStack>
+        )}
       </div>
-    </VStack>
+    </SheetPage>
   )
 }
 

@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { IconButton, Switch } from '../../components/Controls'
 import { Sheet } from '../../components/Overlay'
-import { HStack, Spacer, VStack } from '../../components/Stack'
+import { HStack, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
 import { useStore } from '../../store/context'
 import { errorText, isActiveRun, type Routine, type RoutineListing, type RoutineRun } from './routine'
@@ -34,7 +34,13 @@ function runLabel(run: RoutineRun) {
 }
 
 /** The routine list in the details panel (and the routines sheet); a row opens its editor. */
-export function RoutinesView({ botId, initialId, onClose }: { botId: string; initialId: string | null; onClose?: () => void }) {
+export function RoutinesView({ botId, initialId, onClose, extra }: {
+  botId: string
+  initialId: string | null
+  onClose?: () => void
+  /** Rows after the routines in the same card (kith's own schedules, read-only). */
+  extra?: ReactNode
+}) {
   const store = useStore()
   const [routines, setRoutines] = useState<Routine[]>([])
   const [runs, setRuns] = useState<RoutineRun[]>([])
@@ -119,39 +125,43 @@ export function RoutinesView({ botId, initialId, onClose }: { botId: string; ini
   }
 
   const editingRoutine = routines.find((r) => r.id === editing?.routineId) ?? null
+  const botName = store.bots.get(botId)?.name ?? 'the bot'
   return (
-    <VStack gap={onClose ? 16 : 10} className="routines">
-      <HStack>
-        <Text size="body" weight="semibold" className="routines-title">Routines</Text>
-        <Spacer />
-        <IconButton title="Ask the bot for a routine" icon="text.bubble" disabled={store.isOffline} onClick={() => {
+    <VStack gap={6} className="routines">
+      <div className="sheet-label-row">
+        <span className="sheet-label">Schedules &amp; routines</span>
+        <HStack gap={2}>
+          {onClose ? <IconButton title="Close routines" icon="xmark" onClick={onClose} /> : null}
+          <IconButton title="Set up a routine" icon="plus" disabled={store.isOffline} onClick={() => open(null)} />
+        </HStack>
+      </div>
+      {loadError ? <Text size="caption" tone="danger">{loadError} <button className="sheet-retry" onClick={() => void load()}>Retry</button></Text> : null}
+      {error ? <Text size="caption" tone="danger" className="routines-error">{error}</Text> : null}
+      <div className="outlined-card routines-card">
+        {routines.length === 0 && !extra ? (
+          <Text as="div" size="callout" tone="secondary" className="routines-empty">
+            {loaded ? 'No routines yet. Ask the bot for one, or set it up yourself with +.' : 'Loading routines…'}
+          </Text>
+        ) : null}
+        {routines.map((routine) => (
+          <HStack key={routine.id} gap={12} className="routines-item">
+            <button className="routine-row" onClick={() => open(routine.id)}>
+              <Text tone="text">{routine.name}</Text>
+              <Text size="caption" tone={routine.lastError ? 'danger' : 'secondary'}>{summary(routine)}</Text>
+            </button>
+            <HStack as="span" align="stretch" aria-label={routine.name}>
+              <Switch on={routine.enabled} disabled={busy || store.isOffline} onChange={(on) => void action('setRoutineEnabled', routine, on)} />
+            </HStack>
+          </HStack>
+        ))}
+        {extra}
+        <button className="routines-item routine-ask" disabled={store.isOffline} onClick={() => {
           store.setRoutineDraft(botId, 'I want a routine that ')
           onClose?.()
-        }} />
-        <IconButton title="Set up a routine" icon="plus" disabled={store.isOffline} onClick={() => open(null)} />
-        {onClose ? <IconButton title="Close routines" icon="xmark" onClick={onClose} /> : null}
-      </HStack>
-      {loadError ? <Text size="caption" tone="danger">{loadError}</Text> : null}
-      {error ? <Text size="caption" tone="danger" className="routines-error">{error}</Text> : null}
-      {routines.length === 0 ? (
-        <Text as="div" size="callout" tone="secondary" className="outlined-card routines-empty">
-          {loaded ? 'No routines yet. Ask the bot for one, or set it up yourself with +.' : 'Loading routines…'}
-        </Text>
-      ) : (
-        <VStack gap={8}>
-          {routines.map((routine) => (
-            <HStack key={routine.id} gap={12} className="outlined-card routines-card">
-              <button className="routine-row" onClick={() => open(routine.id)}>
-                <Text tone="text">{routine.name}</Text>
-                <Text size="caption" tone={routine.lastError ? 'danger' : 'secondary'}>{summary(routine)}</Text>
-              </button>
-              <HStack as="span" align="stretch" aria-label={routine.name}>
-                <Switch on={routine.enabled} disabled={busy || store.isOffline} onChange={(on) => void action('setRoutineEnabled', routine, on)} />
-              </HStack>
-            </HStack>
-          ))}
-        </VStack>
-      )}
+        }}>
+          Ask {botName} for a routine
+        </button>
+      </div>
       {/* A routine opened before the list arrived waits for it. */}
       <Sheet open={editing !== null && (editing.routineId === null || editingRoutine !== null)} onClose={() => setEditing(null)} width={540}>
         {editing ? (
