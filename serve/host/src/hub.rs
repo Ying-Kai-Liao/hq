@@ -534,12 +534,37 @@ impl Hub {
         }
     }
 
+    /// Says how the task rooted at `lane`'s thread stands (`data.thread.status`), for clients to show. Threads that
+    /// aren't host-driven tasks (a terminal's, a bot guest's) are left alone: clients derive their status.
+    pub(crate) fn set_task_status(&self, lane: &Lane, state: crate::chat::tasks::TaskState) {
+        let Some(root) = &lane.thread else { return };
+        let Some(mut root_entry) = self.store.entry(root) else { return };
+        if !crate::chat::tasks::is_task(&root_entry) || root_entry.data["thread"]["origin"] == "terminal" {
+            return;
+        }
+        match self.store.thread_summary(&lane.chat, root) {
+            Ok(mut summary) => {
+                crate::terminal::carry_over(&root_entry.data["thread"], &mut summary);
+                summary["status"] = json!(state);
+                if root_entry.data["thread"] != summary {
+                    root_entry.data["thread"] = summary;
+                    self.set_entry(root, &root_entry.data);
+                }
+            }
+            Err(error) => tracing::warn!(error = format!("{error:#}"), root, "couldn't set the task status"),
+        }
+    }
+
     pub(crate) fn refresh_thread_summary(&self, chat: &str, root: &str) {
         let Some(mut root_entry) = self.store.entry(root) else { return };
         match self.store.thread_summary(chat, root) {
             Ok(mut summary) => {
                 // What the terminal says about the thread (see `terminal`) isn't counted from entries.
                 crate::terminal::carry_over(&root_entry.data["thread"], &mut summary);
+                // The host's say on how the task stands (see `chat::tasks::TaskState`) isn't counted from entries either.
+                if !root_entry.data["thread"]["status"].is_null() {
+                    summary["status"] = root_entry.data["thread"]["status"].clone();
+                }
                 if root_entry.data["thread"] != summary {
                     root_entry.data["thread"] = summary;
                     self.set_entry(root, &root_entry.data);

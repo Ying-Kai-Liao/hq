@@ -211,7 +211,7 @@ public struct BoardModel: Equatable, Sendable {
                         doneToday.append(BoardWork(id: "\(computer.id)/\(task.id)", target: target, hostName: computer.hostName, bot: bot,
                                                    title: Tasks.title(task), detail: said.map(MessagePreview.text) ?? bot.name,
                                                    at: lastAt, trouble: computer.trouble))
-                    case .stopped:
+                    case .stopped, .failed:
                         break
                     }
                 }

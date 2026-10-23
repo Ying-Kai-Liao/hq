@@ -6,6 +6,31 @@
 use crate::hub::Hub;
 use crate::store::{BotConfig, Entry, EntryKind, Lane};
 
+/// Where a task stands, as the host says it (`data.thread.status` on the task's root). Clients that find none (an
+/// older host, a terminal's thread) work it out from the thread's entries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TaskState {
+    Working,
+    NeedsYou,
+    Stopped,
+    Failed,
+    Done,
+}
+
+impl TaskState {
+    /// How a finished turn leaves its task: a stop, an error or a limit (anything but a normal end) is not done.
+    pub fn after_turn(stopped: bool, failed: bool, stop_reason: &str) -> Self {
+        if stopped {
+            Self::Stopped
+        } else if failed || stop_reason != "end_turn" {
+            Self::Failed
+        } else {
+            Self::Done
+        }
+    }
+}
+
 /// A task idle this long is over: the next message starts a new one.
 const IDLE_MS: i64 = 10 * 60 * 1000;
 
@@ -77,6 +102,42 @@ mod tests {
             created_at,
             updated_at: created_at,
         }
+    }
+
+    #[tokio::test]
+    async fn the_host_says_failed_for_a_failed_turn_and_done_for_a_normal_one() {
+        use crate::store::{EntryKind, Store};
+        let dir = std::env::temp_dir().join(format!("kith-tasks-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open(std::path::Path::new(":memory:")).unwrap();
+        let identity = crate::remote::identity::Identity::load_or_create(&dir).unwrap();
+        let hub = Hub::new(store, "tasks-test".into(), identity, "t".into(), 0);
+        let status = |root: &str| hub.store.entry(root).unwrap().data["thread"]["status"].clone();
+        for (state, want) in [
+            (TaskState::after_turn(false, true, "error"), "failed"),
+            (TaskState::after_turn(false, false, "end_turn"), "done"),
+        ] {
+            let root = hub.add_entry(&Lane::main("b"), EntryKind::User, 1, &json!({"text": "go", "task": true})).unwrap();
+            let lane = Lane::in_thread("b", &root.id);
+            hub.set_task_status(&lane, TaskState::Working);
+            assert_eq!(status(&root.id), "working");
+            hub.add_entry(&lane, EntryKind::Agent, 1, &json!({"text": "hi", "final": true})).unwrap();
+            assert_eq!(status(&root.id), "working", "a reply's refresh keeps the status");
+            hub.set_task_status(&lane, state);
+            assert_eq!(status(&root.id), want);
+            // A retried turn goes back to working.
+            hub.set_task_status(&lane, TaskState::Working);
+            assert_eq!(status(&root.id), "working");
+        }
+    }
+
+    #[test]
+    fn a_turn_that_fails_or_hits_a_limit_leaves_its_task_failed() {
+        assert_eq!(TaskState::after_turn(false, false, "end_turn"), TaskState::Done);
+        assert_eq!(TaskState::after_turn(false, true, "error"), TaskState::Failed);
+        assert_eq!(TaskState::after_turn(false, false, "max_tokens"), TaskState::Failed);
+        assert_eq!(TaskState::after_turn(true, false, "cancelled"), TaskState::Stopped);
+        assert_eq!(serde_json::json!(TaskState::NeedsYou), "needsYou");
     }
 
     #[test]
