@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # kith-serve — run Kith's host (serve/host, binary kith-serve) on this Mac as a launchd job.
 #
-#   kith serve start [--no-build]   build the host (cargo skips what is fresh), install it to ~/.kith/serve/bin, load launchd job dev.kith.serve
+#   kith serve start [--no-build]   build the host (cargo skips what is fresh), install it to ~/.kith/serve/bin, load launchd job dev.kith.serve.
+#                                   The live host builds only from its own checkout, ~/.kith/hq-serve: from any other repo checkout
+#                                   this hands over to ~/.kith/hq-serve/kernel/bin/kith-serve, or refuses when that is missing.
+#   kith serve start --dev          build from THIS checkout anyway (dev only; same as KITH_SERVE_DEV=1). restart takes --dev too.
 #   kith serve stop                 stop the job (keeps data and the job file)
 #   kith serve restart              stop, then start --no-build
 #   kith serve status               the host's own status, and the relay in use
@@ -22,7 +25,7 @@ PORT=19224
 # The build runs inside serve/host, so a relative target dir is fixed against the caller's folder first.
 case ${CARGO_TARGET_DIR:-/} in /*) ;; *) export CARGO_TARGET_DIR=$PWD/$CARGO_TARGET_DIR ;; esac
 
-usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
 
 find_cargo() {
   command -v cargo 2>/dev/null && return 0
@@ -84,8 +87,25 @@ install_tts() {
 }
 
 cmd_start() {
-  local build=1 a
-  for a in "$@"; do case $a in --no-build) build=0 ;; *) echo "kith serve start: unknown option $a" >&2; exit 2 ;; esac; done
+  local build=1 dev=0 a
+  [ "${KITH_SERVE_DEV:-}" = 1 ] && dev=1
+  for a in "$@"; do case $a in --no-build) build=0 ;; --dev) dev=1 ;; *) echo "kith serve start: unknown option $a" >&2; exit 2 ;; esac; done
+  # The live host must never be built from whichever checkout the caller happens to be in (~/kith resolves to the
+  # dev repo). Only ~/.kith/hq-serve builds it; another checkout hands over to that one, or refuses. Compared by
+  # resolved path, so hq-serve's own script never hands over to itself.
+  if [ $PACKAGED = 0 ] && [ $dev = 0 ]; then
+    local live=$HOME/.kith/hq-serve here live_real
+    here=$(cd "$REPO" && pwd -P); live_real=$(cd "$live" 2>/dev/null && pwd -P || true)
+    if [ "$here" != "$live_real" ]; then
+      if [ -x "$live/kernel/bin/kith-serve" ]; then
+        echo "kith serve: $here is not the live checkout; using $live"
+        exec "$live/kernel/bin/kith-serve" start "$@"
+      fi
+      echo "kith serve: the live host builds only from $live (a checkout of main), and it is missing; this checkout ($here) is not it." >&2
+      echo "  To build from this checkout anyway (dev only): kith serve start --dev  (or KITH_SERVE_DEV=1)" >&2
+      exit 1
+    fi
+  fi
   local built; built=$(built_bin)
   [ $PACKAGED = 1 ] && build=0
   # Always ask cargo: its target dir may be shared across checkouts, so file times can't say what this tree built.
@@ -179,7 +199,7 @@ cmd_status() {
 case ${1:-help} in
   start)   shift; cmd_start "$@" ;;
   stop)    [ -x "$BIN" ] || { echo "kith serve: not installed" >&2; exit 1; }; "$BIN" stop ;;
-  restart) "$SELF" stop; cmd_start --no-build ;;
+  restart) shift; "$SELF" stop; cmd_start --no-build "$@" ;;
   status)  cmd_status ;;
   relay)   shift; cmd_relay "$@" ;;
   # Where this install's host lives, for kith-sessions: one rule, the one above.

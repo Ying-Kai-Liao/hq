@@ -137,7 +137,7 @@ Message Content intent. For tests, `KITH_DISCORD_API_BASE` and `KITH_DISCORD_GAT
 
 ## Updates
 
-This build never fetches releases; rebuild with `kith serve start`.
+This build never fetches releases; rebuild with `kith serve start` (from `~/.kith/hq-serve`; from a dev checkout add `--dev`).
 
 ## Analytics (optional)
 
