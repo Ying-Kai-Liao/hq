@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { expireCalls, parseCall, reduceCalls } from './incoming-call.ts'
+import { expireCalls, isCallAnswer, parseCall, parsePanelCall, reduceCalls } from './incoming-call.ts'
 
 const event = (state: string, id = 'c1', extra: Record<string, unknown> = {}) =>
   parseCall({ type: 'call', call: { id, botId: 'b1', name: 'House', reason: 'the bill', state, remainingMs: 30_000, ...extra } }, 1_000)!
@@ -31,4 +31,16 @@ test('a call whose ring is over leaves by itself, the others stay', () => {
   assert.equal(expireCalls(calls, 5_000), calls, 'nothing over: the same list')
   assert.deepEqual(expireCalls(calls, 6_000).map((c) => c.id), ['c1'])
   assert.deepEqual(expireCalls(calls, 31_000), [])
+})
+
+test('the panel only takes a well-formed call, and trims what it shows', () => {
+  assert.equal(parsePanelCall(null), null)
+  assert.equal(parsePanelCall({ id: '', name: 'House', deadline: 1 }), null)
+  assert.equal(parsePanelCall({ id: 'c1', name: 'House' }), null)
+  const call = parsePanelCall({ id: 'c1', name: 'House', reason: 'x'.repeat(900), bot: { nope: 1 }, deadline: 5 })!
+  assert.equal(call.reason.length, 400)
+  assert.equal(call.bot, null, 'a bot without an id is no bot')
+  assert.equal(parsePanelCall({ id: 'c1', name: 'House', bot: { id: 'b1' }, deadline: 5 })?.bot?.id, 'b1')
+  assert.equal(isCallAnswer('accept') && isCallAnswer('decline'), true)
+  assert.equal(isCallAnswer('remind'), false)
 })

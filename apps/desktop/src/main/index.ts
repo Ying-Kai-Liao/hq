@@ -21,6 +21,7 @@ import { registerRelay } from './relay/manager'
 import { registerSSH } from './ssh'
 import { QuitLifecycle } from './quit-lifecycle'
 import { Island } from './island'
+import { registerIncomingCall } from './incoming-call'
 import { registerErrorReports } from './error-reports'
 import { openSettingsWindow, registerProfileMenu } from './settings-window'
 import type { SettingsPage } from '../shared/settings-pages'
@@ -110,6 +111,12 @@ function openPairing() {
   void pairing.loadURL(rendererURL('pairing'))
 }
 
+/** The chat window in front of other apps (an incoming call was accepted or rings with no panel). */
+function raiseChat() {
+  openChat()
+  if (process.platform === 'darwin') app.focus({ steal: true })
+}
+
 const openSettings = (page?: SettingsPage | null) => openSettingsWindow(rendererURL, page)
 
 export function send(command: WindowCommand, show = true) {
@@ -153,10 +160,7 @@ function menu() {
 
 function registerIPC(tray: Tray) {
   registerHostProxy()
-  ipcMain.on('app:raiseWindow', () => {
-    openChat()
-    if (process.platform === 'darwin') app.focus({ steal: true })
-  })
+  ipcMain.on('app:raiseWindow', raiseChat)
   ipcMain.on('app:hostPort', (e) => (e.returnValue = identity.port))
   ipcMain.on('app:name', (e) => (e.returnValue = app.getName()))
   ipcMain.on('app:scheme', (e) => (e.returnValue = identity.scheme))
@@ -247,6 +251,12 @@ if (!app.requestSingleInstanceLock()) {
     const tray = new Tray({ openChat, openPairing, send, host, updates, island })
     updates.on('change', () => tray.hostChanged())
     registerIPC(tray)
+    registerIncomingCall({
+      url: rendererURL('incoming-call'),
+      preload: join(__dirname, '../preload/index.js'),
+      chatWindow: () => chat,
+      openChat: raiseChat,
+    })
     registerProfileMenu(openSettings)
     island.register()
     registerAuthIPC()

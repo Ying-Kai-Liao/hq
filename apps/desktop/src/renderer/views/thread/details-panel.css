@@ -50,6 +50,10 @@
   opacity: 0.4;
   cursor: default;
 }
+/* The call button when a call can't start: the reason is its tooltip (D-113). */
+.mac-chat-button.ringed:disabled {
+  opacity: 0.35;
+}
 .details-name {
   margin-top: 14px;
   font-size: calc(16px * var(--scale));
