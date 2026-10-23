@@ -1,4 +1,4 @@
-import { isGroup, needsInput } from '@shared/models'
+import { isGroup, isWorking, needsInput } from '@shared/models'
 import { chatAndTasks } from '@shared/tasks'
 import type { BotStore } from '../../store/bot-store'
 
@@ -7,7 +7,15 @@ import type { BotStore } from '../../store/bot-store'
  * announces when the bot starts waiting for an approval (kit BotStore `beginVoiceCall`). Only
  * entries newer (by rev) than the call's start count. Returns the function that stops it.
  */
-export function watchVoiceCall(store: BotStore, botId: string, handlers: { speak: (text: string) => void; announce: (text: string) => void }) {
+export function watchVoiceCall(store: BotStore, botId: string, handlers: {
+    speak: (text: string) => void
+    announce: (text: string) => void
+    /** Growing text of a reply still being written (with `final` set once it's done); without it replies are only `speak`n when final. */
+    stream?: (id: string, text: string, final: boolean) => void
+    /** The bot started or stopped working. */
+    working?: (working: boolean) => void
+  },
+) {
   let startRev = 0
   for (const b of store.bots.values()) startRev = Math.max(startRev, b.rev)
   for (const list of store.entries.values()) for (const e of list) startRev = Math.max(startRev, e.rev)
@@ -20,6 +28,12 @@ export function watchVoiceCall(store: BotStore, botId: string, handlers: { speak
 
   // A group has no status of its own: its members' approvals arrive as cards.
   const cards = new Set(store.allEntries(botId).filter((e) => e.kind === 'permission').map((e) => e.id))
+  // What `stream` was last given per entry: the host updates a streaming entry about every 300 ms.
+  const streamed = new Map<string, string>()
+  let working = (() => {
+    const bot = store.bots.get(botId)
+    return bot ? isWorking(bot) : false
+  })()
   const nameOf = (author?: string) => (author ? store.bots.get(author)?.name : undefined)
 
   return store.subscribe(() => {
@@ -30,6 +44,21 @@ export function watchVoiceCall(store: BotStore, botId: string, handlers: { speak
       if (inGroup && e.kind === 'permission' && !cards.has(e.id)) {
         cards.add(e.id)
         if (e.data.status === 'pending' && e.rev > startRev) handlers.announce(`${nameOf(e.data.author) ?? 'A bot'} needs your approval in the chat.`)
+      }
+      if (handlers.stream && e.kind === 'agent' && !finals.has(e.id) && heard.has(e.id) && e.rev > startRev && e.data.text) {
+        // In a group, a reply is said with its speaker's name.
+        const speaker = inGroup ? nameOf(e.data.author) : undefined
+        const text = speaker ? `${speaker}: ${e.data.text}` : e.data.text
+        const final = !!e.data.final
+        if (streamed.get(e.id) !== `${final}${text}`) {
+          streamed.set(e.id, `${final}${text}`)
+          handlers.stream(e.id, text, final)
+        }
+        if (final) {
+          finals.add(e.id)
+          streamed.delete(e.id)
+        }
+        continue
       }
       if (!e.data.final || finals.has(e.id)) continue
       finals.add(e.id)
@@ -42,5 +71,10 @@ export function watchVoiceCall(store: BotStore, botId: string, handlers: { speak
     const now = bot ? needsInput(bot) : false
     if (bot && now && !waiting) handlers.announce(`${bot.name} needs your approval in the chat.`)
     waiting = now
+    const busy = bot ? isWorking(bot) : false
+    if (busy !== working) {
+      working = busy
+      handlers.working?.(busy)
+    }
   })
 }

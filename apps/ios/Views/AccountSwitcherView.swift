@@ -189,6 +189,29 @@ struct GoogleSignInButton: View {
     }
 }
 
+/// GitHub's mark; the tint follows the button style.
+struct GitHubSignInButton: View {
+    @Environment(AccountSession.self) private var account
+
+    var body: some View {
+        Button { Task { await account.signIn(provider: .github) } } label: {
+            ZStack {
+                HStack(spacing: 10) {
+                    Image("github").resizable().renderingMode(.template).frame(width: 20, height: 20)
+                    Text("Continue with GitHub")
+                }
+                .opacity(account.isBusy ? 0 : 1)
+                if account.isBusy { Spinner(size: 18) }
+            }
+            .font(.headline)
+            .frame(maxWidth: .infinity, minHeight: 50)
+        }
+        .buttonStyle(.secondary)
+        .disabled(account.isBusy)
+        .animation(Motion.fade, value: account.isBusy)
+    }
+}
+
 /// An icon and a short name, with a chevron when it leads somewhere.
 private struct RowLabel: View {
     let title: String

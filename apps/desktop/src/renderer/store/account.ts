@@ -1,6 +1,7 @@
+import type { SignInProvider } from '../../shared/account-config'
 import { Observable, useModel } from '../lib/observable'
 
-export type SignInProvider = 'apple' | 'google'
+export type { SignInProvider }
 
 export interface AccountInfo {
   userId: string
@@ -9,7 +10,7 @@ export interface AccountInfo {
 }
 
 /**
- * The Codync account (Clerk, through the main process). An account never grants access to a
+ * The Kith account (Clerk, through the main process). An account never grants access to a
  * computer by itself: each one still approves this device (spec §4.2).
  */
 export class AccountSession extends Observable {

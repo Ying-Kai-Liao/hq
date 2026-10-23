@@ -2,7 +2,7 @@ import CodyncKit
 import CodyncUI
 import SwiftUI
 
-/// Equal access to both account providers at every sign-in entry point.
+/// Equal access to every account provider at every sign-in entry point.
 struct SignInButtons: View {
     @Environment(AccountSession.self) private var account
 
@@ -24,6 +24,7 @@ struct SignInButtons: View {
             .disabled(account.isBusy)
             .animation(Motion.fade, value: account.isBusy)
             GoogleSignInButton()
+            GitHubSignInButton()
         }
     }
 }

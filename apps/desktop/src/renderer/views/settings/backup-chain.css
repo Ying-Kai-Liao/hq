@@ -1,0 +1,15 @@
+/* Backups: the order Kith moves a bot's turns to when its own account runs out (settings and a bot's details). */
+.backups { display: flex; flex-direction: column; gap: 10px; margin-top: 24px; }
+.backups-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-l); }
+.backups-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; }
+.backups-row + .backups-row { border-top: 1px solid var(--border); }
+.backups-entry { min-width: 0; }
+.backups-id { font-weight: 500; }
+.backups-state { color: var(--secondary); }
+.backups-state.ok { color: var(--accent); }
+.backups-state.out { color: var(--danger); }
+.backups-actions { flex: none; }
+.backups-fix { flex-wrap: wrap; }
+.backups-code { font-family: var(--mono); font-size: var(--text-caption); padding: 1px 6px; border-radius: var(--radius-s); border: 1px solid var(--border); user-select: all; overflow-wrap: anywhere; }
+.backups-note { line-height: 1.45; }
+.backups-choice { display: flex; flex-direction: column; gap: 10px; }
