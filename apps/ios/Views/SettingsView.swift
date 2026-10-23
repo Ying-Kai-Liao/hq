@@ -134,6 +134,7 @@ struct SettingsView: View {
                         .accessibilityLabel("Share usage analytics")
                 }
             }
+            }
 
             if showsSettings, !hiddenBots.isEmpty {
                 CardSection("Hidden bots") {
