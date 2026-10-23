@@ -464,6 +464,17 @@ if [[ $p_owner == 0 ]]; then
   [[ $kith_real != "$KITH" ]] && dirs+=(--add-dir "$kith_real")
   [[ -n $project && -d $KITH_STATE/projects/$project ]] && dirs+=(--add-dir "$KITH_STATE/projects/$project")
 fi
+# The agent's own folder under every path it is reachable by. Claude Code compares the path as typed with the working
+# directory, so ~/kith/agents/<name> (a symlink) counts as outside a run whose cwd is the resolved folder and asks
+# every time. Spellings: the logical one, the resolved one, and the same folder through the usual home links.
+# A missing or dangling link is skipped; one that points elsewhere is not the same folder.
+if [[ $p_owner == 1 ]]; then
+  for d in "$home" "$home_real" "$HOME/kith/agents/$agent" "$HOME/hq/agents/$agent"; do
+    [[ -d $d && $d != "$PWD" && $(cd "$d" && pwd -P) == "$home_real" ]] || continue
+    seen=0; for ((i = 1; i < ${#dirs[@]}; i += 2)); do [[ ${dirs[i]} == "$d" ]] && seen=1; done
+    [[ $seen == 1 ]] || dirs+=(--add-dir "$d")
+  done
+fi
 # The read-only kernel commands PROTOCOL tells agents to run, allowed without a prompt. Under every path the kernel
 # has (logical, resolved, ~/kith/kernel) and, since a path with a space gets quoted, with the program in quotes too.
 readonly_cmds=("project-id" "project-id --list" "project-id --info:*" "project-id --children:*" "kith-memory search:*" "kith-who:*" "hq-memory search:*" "hq-who:*")
