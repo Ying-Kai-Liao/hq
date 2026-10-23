@@ -358,48 +358,13 @@ struct UsageWidget: Widget {
     }
 }
 
-/// The tightest limit is the headline (after CodexBar); the rest are thin grey bars
-/// that only take color near the limit.
+/// The highest limit is the headline (after CodexBar); the medium widget lists every window
+/// with its bar.
 struct UsageWidgetView: View {
     let entry: UsageEntry
     @Environment(\.widgetFamily) private var family
 
-    private var windows: [(provider: String, window: UsageWindow)] {
-        entry.usage.providers.flatMap { p in p.windows.map { (p.name, $0) } }
-    }
-
-    private var tightest: (provider: String, window: UsageWindow)? { windows.max { $0.window.percent < $1.window.percent } }
-    private var rest: [(provider: String, window: UsageWindow)] {
-        windows.filter { $0.window.id != tightest?.window.id || $0.provider != tightest?.provider }
-    }
-
-    var body: some View {
-        if let top = tightest {
-            switch family {
-            case .accessoryInline:
-                AccessoryWidgetCard(kind: .usage, family: .inline, usage: entry.usage).widgetAccentable()
-            case .accessoryCircular:
-                AccessoryWidgetCard(kind: .usage, family: .circular, usage: entry.usage).widgetAccentable()
-            case .accessoryRectangular:
-                AccessoryWidgetCard(kind: .usage, family: .rectangular, usage: entry.usage).widgetAccentable()
-            case .systemMedium:
-                HStack(alignment: .top, spacing: 18) {
-                    hero(top, medium: true).frame(width: 118, alignment: .leading)
-                    VStack(alignment: .leading, spacing: 9) {
-                        ForEach(Array(windows.prefix(4).enumerated()), id: \.offset) { _, item in bar(item) }
-                        Spacer(minLength: 0)
-                    }
-                }
-            default:
-                hero(top, medium: false)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            }
-        } else if family == .accessoryInline || family == .accessoryCircular || family == .accessoryRectangular {
-            Text("No usage yet")
-        } else {
-            EmptyWidget(text: SharedStore.activeContext.computers.isEmpty ? "Open Kith to pair with your computer." : "No usage reported yet.")
-        }
-    }
+    private var hasUsage: Bool { entry.usage.providers.contains { !$0.windows.isEmpty } }
 
     /// The computer the usage comes from: the last one the app used.
     private var computerName: String? {
@@ -407,55 +372,22 @@ struct UsageWidgetView: View {
         return storage.lastComputerId.flatMap { id in storage.computers.first { $0.id == id }?.name }
     }
 
-    /// The highest limit: a mono percent, its name and, on the small widget, its bar and reset.
-    private func hero(_ item: (provider: String, window: UsageWindow), medium: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Usage limits").font(WidgetStyle.label(13, .semibold)).foregroundStyle(Palette.ink).lineLimit(1)
-                Spacer(minLength: 4)
-                if !medium, let computerName {
-                    Text(computerName).font(WidgetStyle.label(10)).foregroundStyle(Palette.muted).lineLimit(1)
-                }
+    var body: some View {
+        if hasUsage {
+            switch family {
+            case .accessoryInline:
+                AccessoryWidgetCard(kind: .usage, family: .inline, usage: entry.usage).widgetAccentable()
+            case .accessoryCircular:
+                AccessoryWidgetCard(kind: .usage, family: .circular, usage: entry.usage).widgetAccentable()
+            case .accessoryRectangular:
+                AccessoryWidgetCard(kind: .usage, family: .rectangular, usage: entry.usage).widgetAccentable()
+            default:
+                UsageLimitsCard(usage: entry.usage, medium: family == .systemMedium, computer: computerName, date: entry.date)
             }
-            Spacer(minLength: 0)
-            HStack(alignment: .firstTextBaseline, spacing: 1) {
-                Text("\(Int(item.window.percent.rounded()))").font(WidgetStyle.mono(34))
-                Text("%").font(WidgetStyle.mono(16)).foregroundStyle(Palette.muted)
-            }
-            .foregroundStyle(Palette.ink)
-            .minimumScaleFactor(0.7)
-            Text(medium ? "\(item.window.label) · highest" : "\(item.provider) · \(item.window.label)")
-                .font(WidgetStyle.label(11)).foregroundStyle(Palette.muted).lineLimit(1)
-            if !medium {
-                UsageBar(percent: item.window.percent).padding(.top, 6)
-            }
-            resetLine(item.window).font(WidgetStyle.label(10)).foregroundStyle(Palette.muted).lineLimit(1)
-                .padding(.top, medium ? 4 : 2)
-        }
-        .widgetAccentable()
-    }
-
-    private func bar(_ item: (provider: String, window: UsageWindow)) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("\(item.provider) \(item.window.label)").font(WidgetStyle.label(11)).foregroundStyle(Palette.muted).lineLimit(1)
-                Spacer(minLength: 4)
-                Text(percent(item.window)).font(WidgetStyle.mono(11)).foregroundStyle(Palette.ink)
-            }
-            UsageBar(percent: item.window.percent)
-        }
-    }
-
-    private func percent(_ w: UsageWindow) -> String { "\(Int(w.percent.rounded()))%" }
-
-    /// "resets Mon 9:00"
-    @ViewBuilder private func resetLine(_ w: UsageWindow) -> some View {
-        if let date = w.resetDate, date > entry.date {
-            Text("resets \(date.formatted(.dateTime.weekday(.abbreviated).hour().minute()))")
-        } else if let text = w.resetDescription {
-            Text(text)
+        } else if family == .accessoryInline || family == .accessoryCircular || family == .accessoryRectangular {
+            Text("No usage yet")
         } else {
-            Text(" ")
+            EmptyWidget(text: SharedStore.activeContext.computers.isEmpty ? "Open Kith to pair with your computer." : "No usage reported yet.")
         }
     }
 }

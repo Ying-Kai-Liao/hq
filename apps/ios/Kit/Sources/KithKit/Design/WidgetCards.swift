@@ -208,6 +208,94 @@ public struct UsageTicks: View {
     }
 }
 
+
+/// Usage limits: the highest limit as a mono percent with its bar and reset; the medium widget adds
+/// a row with a bar for each provider window. Shared by the widget and the gallery.
+public struct UsageLimitsCard: View {
+    let usage: Usage
+    let medium: Bool
+    let computer: String?
+    let date: Date
+
+    public init(usage: Usage, medium: Bool, computer: String? = nil, date: Date = .now) {
+        self.usage = usage; self.medium = medium; self.computer = computer; self.date = date
+    }
+
+    private var windows: [(provider: String, window: UsageWindow)] {
+        usage.providers.flatMap { p in p.windows.map { (p.name, $0) } }
+    }
+    private var top: (provider: String, window: UsageWindow)? { windows.max { $0.window.percent < $1.window.percent } }
+
+    public var body: some View {
+        if let top {
+            Group {
+                if medium {
+                    HStack(alignment: .top, spacing: 18) {
+                        hero(top).frame(width: 118, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 9) {
+                            ForEach(Array(windows.prefix(4).enumerated()), id: \.offset) { _, item in bar(item) }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                } else {
+                    hero(top).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
+            }
+            .animation(Motion.activityPhase, value: usage)
+        }
+    }
+
+    /// The highest limit: a mono percent, its name and, on the small widget, its bar and reset.
+    private func hero(_ item: (provider: String, window: UsageWindow)) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Usage limits").font(WidgetStyle.label(13, .semibold)).foregroundStyle(Palette.ink).lineLimit(1)
+                Spacer(minLength: 4)
+                if !medium, let computer {
+                    Text(computer).font(WidgetStyle.label(10)).foregroundStyle(Palette.muted).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+            HStack(alignment: .firstTextBaseline, spacing: 1) {
+                Text("\(Int(item.window.percent.rounded()))").font(WidgetStyle.mono(34))
+                    .contentTransition(.numericText(value: item.window.percent))
+                Text("%").font(WidgetStyle.mono(16)).foregroundStyle(Palette.muted)
+            }
+            .foregroundStyle(Palette.ink)
+            .minimumScaleFactor(0.7)
+            Text(medium ? "\(item.window.label) · highest" : "\(item.provider) · \(item.window.label)")
+                .font(WidgetStyle.label(11)).foregroundStyle(Palette.muted).lineLimit(1)
+            if !medium {
+                UsageBar(percent: item.window.percent).padding(.top, 6)
+            }
+            resetLine(item.window).font(WidgetStyle.label(10)).foregroundStyle(Palette.muted).lineLimit(1)
+                .padding(.top, medium ? 4 : 2)
+        }
+        .widgetAccentable()
+    }
+
+    private func bar(_ item: (provider: String, window: UsageWindow)) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("\(item.provider) \(item.window.label)").font(WidgetStyle.label(11)).foregroundStyle(Palette.muted).lineLimit(1)
+                Spacer(minLength: 4)
+                Text("\(Int(item.window.percent.rounded()))%").font(WidgetStyle.mono(11)).foregroundStyle(Palette.ink)
+            }
+            UsageBar(percent: item.window.percent)
+        }
+    }
+
+    /// "resets Mon 9:00"
+    @ViewBuilder private func resetLine(_ w: UsageWindow) -> some View {
+        if let reset = w.resetDate, reset > date {
+            Text("resets \(reset.formatted(.dateTime.weekday(.abbreviated).hour().minute()))")
+        } else if let text = w.resetDescription {
+            Text(text)
+        } else {
+            Text(" ")
+        }
+    }
+}
 public extension UsageProvider {
     var widgetTint: Color { id == "codex" ? Color(light: 0x326FAD, dark: 0x70ACDC) : tint }
 }
