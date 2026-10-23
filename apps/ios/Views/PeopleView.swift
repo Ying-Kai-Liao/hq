@@ -64,10 +64,15 @@ struct PeopleView: View {
                 ForEach(people.people) { person in
                     Button { editing = person } label: { PersonRow(person: person) }
                         .buttonStyle(.plain)
+                    // kith-bot-guests: that person's bot guests go here as rows under them. The empty list keeps
+                    // the hook in the row stream without adding a row.
+                    ForEach(botGuestRows(of: person)) { guest in
+                        BotGuestRow(guest: guest)
+                    }
                 }
                 Button { inviting = true } label: {
-                    Label("Invite someone", systemImage: "person.badge.plus")
-                        .foregroundStyle(Palette.text)
+                    Label("Invite a person", systemImage: "plus")
+                        .foregroundStyle(Palette.accent)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                 }
@@ -102,22 +107,47 @@ struct PeopleView: View {
     }
 }
 
+/// A bot guest listed under the person who brought it. Placeholder shape for kith-bot-guests to fill in.
+struct BotGuestRowItem: Identifiable {
+    let id: String
+    let name: String
+}
+
+/// The bot guests under one person. Empty until kith-bot-guests wires the host's list in.
+private func botGuestRows(of person: HostPerson) -> [BotGuestRowItem] { [] }
+
+private struct BotGuestRow: View {
+    let guest: BotGuestRowItem
+
+    var body: some View {
+        HStack(spacing: 12) {
+            SkyPatch(id: guest.id, size: 26)
+            Text(guest.name).kithText(.body)
+        }
+        .padding(.leading, 20)
+    }
+}
+
 private struct PersonRow: View {
     let person: HostPerson
 
     var body: some View {
         LinkRow {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(person.name).font(.body.weight(.semibold))
-                Text(agentsLine).font(.subheadline).foregroundStyle(Palette.secondary).lineLimit(2)
-                Text(deviceLine).font(.caption).foregroundStyle(Palette.tertiary).lineLimit(1)
+            HStack(spacing: 12) {
+                SkyPatch(id: person.personId, size: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(person.name).font(.body.weight(.semibold))
+                    Text(roomsLine).font(.subheadline).foregroundStyle(Palette.secondary).lineLimit(1)
+                    Text(deviceLine).font(.caption).foregroundStyle(Palette.tertiary).lineLimit(1)
+                }
             }
         }
     }
 
-    private var agentsLine: String {
-        person.agents.isEmpty ? "No agents"
-            : person.agents.sorted { $0.key < $1.key }.map { "\($0.key), \($0.value.rawValue)" }.joined(separator: " · ")
+    /// "teammate · Launch, Ship room": their role, then the rooms shared with them.
+    private var roomsLine: String {
+        let role = person.agents.values.contains(.member) ? "teammate" : "guest"
+        return person.projects.isEmpty ? role : "\(role) · \(person.projects.joined(separator: ", "))"
     }
 
     private var deviceLine: String {
@@ -335,12 +365,19 @@ private struct EditPersonSheet: View {
                 }
             }
             if !people.projects.isEmpty || !projects.isEmpty {
-                CardSection("Projects", footer: "Only the projects you tick are shared with \(person.name).") {
+                CardSection("Shared rooms", footer: "Only the rooms you tick are shared with \(person.name).") {
                     ForEach(projectChoices, id: \.id) { project in
                         Toggle(project.id, isOn: Binding(get: { projects.contains(project.id) },
                                                            set: { if $0 { projects.insert(project.id) } else { projects.remove(project.id) } }))
                             .toggleStyle(.kith)
                     }
+                }
+            }
+            // kith-bot-guests: the bots this person brought. Empty until the host lists them, and then no section.
+            let guests = botGuestRows(of: person)
+            if !guests.isEmpty {
+                CardSection("\(person.name)'s bots", footer: "Removing \(person.name) removes these too.") {
+                    ForEach(guests) { guest in BotGuestRow(guest: guest) }
                 }
             }
             if let error = people.error {

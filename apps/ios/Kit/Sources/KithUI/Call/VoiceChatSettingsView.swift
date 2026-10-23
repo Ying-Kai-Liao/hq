@@ -2,53 +2,138 @@ import AVFoundation
 import KithKit
 import SwiftUI
 
-/// Voice chat settings: which voice carries calls (Apple's on this device, or OpenAI / Gemini on the
-/// user's own key kept by the computer), the mode, models and voice. Opened from a call's gear and
-/// from the computer's row in settings; the computer is the `BotStore` in the environment.
+/// Voice chat settings: which voice carries calls (Apple's on this device, Kith's on the computer, or OpenAI /
+/// Gemini on the user's own key kept by the computer), the voice and the keys. Opened from a call's gear
+/// (a sheet) and from a computer's page in settings (pushed); the computer is the `BotStore` in the environment,
+/// and a segmented control picks another when the account has two or more.
 public struct VoiceChatSettingsView: View {
+    var pushed = false
+    @Environment(BotStore.self) private var store
+    @Environment(AccountStore.self) private var accounts
+    @Environment(\.dismiss) private var pop
+    @State private var chosen: ComputerID?
+
+    public init(pushed: Bool = false) { self.pushed = pushed }
+
+    /// Computers whose keys and voice this person can change: their own, and online to be asked.
+    private var choices: [BotStore] {
+        accounts.ownedComputers.compactMap { accounts.store(for: $0.id) }.filter { $0.connection == .online || $0.computer.id == store.computer.id }
+    }
+
+    private var active: BotStore {
+        chosen.flatMap { id in choices.first { $0.computer.id == id } } ?? store
+    }
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            if pushed {
+                ScreenHeader {
+                    BackButton { pop() }
+                } title: {
+                    Text("Voice chat").font(.body.weight(.semibold)).foregroundStyle(Palette.text).lineLimit(1)
+                } trailing: {
+                    EmptyView()
+                }
+            } else {
+                ModalHeader("Voice chat")
+            }
+            CardForm {
+                if choices.count > 1 {
+                    SegmentedChoice(selection: Binding(get: { active.computer.id }, set: { chosen = $0 }),
+                                    options: choices.map { (id: $0.computer.id, label: $0.hostName) })
+                }
+                VoiceChatSettingsBody(store: active)
+                    .environment(active)
+                    .id(active.computer.id)
+            }
+        }
+        .background(Palette.background)
+        .modifier(HidesNavigationBarWhenPushed(pushed: pushed))
+    }
+}
+
+private struct HidesNavigationBarWhenPushed: ViewModifier {
+    let pushed: Bool
+
+    func body(content: Content) -> some View {
+        if pushed { content.hidesSystemNavigationBar() } else { content }
+    }
+}
+
+/// One computer's voice settings: engine, voice, keys.
+private struct VoiceChatSettingsBody: View {
     @AppStorage(VoiceSettings.engineKey) private var engine = "device"
     @AppStorage(OnDeviceEngine.rateKey) private var rate = Double(AVSpeechUtteranceDefaultSpeechRate)
     @AppStorage(OnDeviceEngine.languageKey) private var language = ""
     @State private var languages = OnDeviceEngine.languageOptions
+    @Environment(BotStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var keys: [VoiceKeyModel]
 
-    public init() {}
+    init(store: BotStore) {
+        _keys = State(initialValue: VoiceProvider.allCases.map { VoiceKeyModel(provider: $0, store: store) })
+    }
 
-    public var body: some View {
-        VStack(spacing: 0) {
-            ModalHeader("Voice chat")
-            CardForm {
-                CardSection("Voice", footer: engineFooter) {
-                    ValueRow("Engine") {
-                        ChoicePicker(selection: $engine.animation(Motion.reduced(Motion.layout, reduceMotion)),
-                                     options: [("device", "On device"), (VoiceSettings.kithEngine, "Kith voice (on your computer, free)")] + VoiceProvider.allCases.map { ($0.rawValue, $0.name) })
-                    }
-                    if let provider = VoiceProvider(rawValue: engine) {
-                        ModeRows(provider: provider).id(provider)
-                    } else if engine == VoiceSettings.kithEngine {
-                        languageRow
-                        PauseRow()
-                    } else {
-                        ValueRow("Language", detail: "The language you speak in calls.") {
-                            ChoicePicker(selection: $language, options: languages)
+    var body: some View {
+        Group {
+            CardSection("Engine", footer: engineFooter) {
+                ForEach(engines, id: \.id) { option in
+                    Button { withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { engine = option.id } } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "checkmark")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(Palette.text)
+                                .opacity(engine == option.id ? 1 : 0)
+                                .frame(width: 16)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(option.title).foregroundStyle(Palette.text)
+                                Text(option.detail).font(.caption).foregroundStyle(Palette.secondary)
+                            }
+                            Spacer(minLength: 0)
                         }
-                        ValueRow("Reading speed") {
-                            ChoicePicker(selection: $rate, options: [
-                                (0.42, "Slower"), (Double(AVSpeechUtteranceDefaultSpeechRate), "Normal"), (0.56, "Faster"),
-                            ])
-                        }
-                        PauseRow()
+                        .contentShape(Rectangle())
                     }
-                }
-                if engine == VoiceSettings.kithEngine {
-                    KithVoiceSettings()
-                }
-                if let provider = VoiceProvider(rawValue: engine) {
-                    ProviderVoiceSettings(provider: provider).id(provider)
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(engine == option.id ? .isSelected : [])
                 }
             }
+
+            CardSection("Voice") {
+                if let provider = VoiceProvider(rawValue: engine) {
+                    ModeRows(provider: provider).id(provider)
+                } else if engine == VoiceSettings.kithEngine {
+                    languageRow
+                    PauseRow()
+                } else {
+                    ValueRow("Language", detail: "The language you speak in calls.") {
+                        ChoicePicker(selection: $language, options: languages)
+                    }
+                    ValueRow("Reading speed") {
+                        ChoicePicker(selection: $rate, options: [
+                            (0.42, "Slower"), (Double(AVSpeechUtteranceDefaultSpeechRate), "Normal"), (0.56, "Faster"),
+                        ])
+                    }
+                    PauseRow()
+                }
+            }
+            if engine == VoiceSettings.kithEngine {
+                KithVoiceSettings()
+            }
+            if let provider = VoiceProvider(rawValue: engine), let key = keys.first(where: { $0.provider == provider }) {
+                ProviderVoiceSettings(provider: provider, key: key).id(provider)
+            }
+
+            ApiKeysSection(keys: keys)
         }
-        .background(Palette.background)
+    }
+
+    private var engines: [(id: String, title: String, detail: String)] {
+        [
+            ("device", "On device", "private, works offline, simpler voice"),
+            (VoiceSettings.kithEngine, "Kith voice", "runs on \(store.hostName) · live captions"),
+            (VoiceProvider.openAI.rawValue, "OpenAI Realtime", "needs an API key"),
+            (VoiceProvider.gemini.rawValue, "Gemini Live", "needs an API key"),
+        ]
     }
 
     private var languageRow: some View {
@@ -80,7 +165,7 @@ private struct KithVoiceSettings: View {
     private var downloading: Bool { status?.state == .downloading }
 
     var body: some View {
-        CardSection("Kith voice", footer: hint ?? "About 65 MB, downloaded once.") {
+        CardSection("Kith voice model", footer: hint ?? "About 65 MB, downloaded once.") {
             ValueRow("Voice model", detail: stateText) {
                 if downloading {
                     ProgressView(value: status?.progress ?? 0)
@@ -171,163 +256,47 @@ private struct PauseRow: View {
     }
 }
 
-/// One provider: mode, the key the computer keeps, models, voice and this month's minutes.
-private struct ProviderVoiceSettings: View {
+/// One provider's key on the computer: whether it's saved, a test, and the replace and remove that need a place to type.
+/// Shared by the key row, its page and the provider's model settings, so each sees the others' changes.
+@MainActor
+@Observable
+private final class VoiceKeyModel {
     let provider: VoiceProvider
-    @Environment(BotStore.self) private var store
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage private var mode: String
+    let store: BotStore
     /// nil while the computer hasn't answered yet.
-    @State private var saved: Bool?
-    @State private var replacing = false
-    @State private var key = ""
-    @State private var busy = false
-    @State private var result: (ok: Bool, text: String)?
-    @State private var voice = ""
-    @State private var model = ""
-    @State private var transcribeModel = ""
-    @State private var speechModel = ""
-    @State private var models = VoiceModels(models: [], transcribe: [], speech: [])
-
-    init(provider: VoiceProvider) {
-        self.provider = provider
-        _mode = AppStorage(wrappedValue: "realtime", VoiceSettings.modeKey(provider))
-    }
-
-    private var speechMode: Bool { mode == "speech" }
-    private var hasKey: Bool { saved == true }
-
-    var body: some View {
-        CardSection(provider.name, footer: hasKey ? nil : "Add a key to choose from \(provider.name)'s models.") {
-            VStack(alignment: .leading, spacing: 8) {
-                if hasKey && !replacing {
-                    savedKeyRow
-                } else if Self.canEditKey {
-                    keyEntry
-                } else if saved == false {
-                    missingKeyRow
-                }
-                if let result {
-                    Label(result.text, systemImage: result.ok ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(result.ok ? Palette.secondary : Palette.danger)
-                        .transition(.opacity)
-                }
-            }
-            Group {
-                if speechMode {
-                    ValueRow("Speech to text") { picker($transcribeModel, models.transcribe) }
-                    ValueRow("Text to speech") { picker($speechModel, models.speech) }
-                } else {
-                    ValueRow("Model") { picker($model, models.models) }
-                }
-                ValueRow("Voice") { ChoicePicker(selection: $voice, options: provider.voices.map { ($0, $0) }) }
-                ValueRow("This month", value: "≈ \(VoiceUsage.minutes(for: provider)) min")
-            }
-            .disabled(!hasKey)
-            .opacity(hasKey ? 1 : 0.55)
-        }
-        .animation(Motion.reduced(Motion.layout, reduceMotion), value: replacing)
-        .animation(Motion.reduced(Motion.fade, reduceMotion), value: result?.text)
-
-        Color.clear.frame(height: 0)
-            .task { await load() }
-            .onChange(of: voice) { _, v in UserDefaults.standard.set(v, forKey: VoiceSettings.voiceKey(provider)) }
-            .onChange(of: model) { _, m in VoiceSettings.save(m, default: VoiceSettings.defaults(provider).realtime, forKey: VoiceSettings.modelKey(provider)) }
-            .onChange(of: transcribeModel) { _, m in
-                VoiceSettings.save(m, default: VoiceSettings.defaults(provider).transcribe, forKey: VoiceSettings.transcribeKey(provider))
-            }
-            .onChange(of: speechModel) { _, m in
-                VoiceSettings.save(m, default: VoiceSettings.defaults(provider).speech, forKey: VoiceSettings.speechKey(provider))
-            }
-    }
-
-    /// The key is on the computer: say so, and offer test / replace / remove.
-    private var savedKeyRow: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "key.fill")
-                .foregroundStyle(Palette.secondary)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Key saved").foregroundStyle(Palette.text).lineLimit(1)
-                Text("Stays on \(store.hostName)").font(.caption).foregroundStyle(Palette.tertiary).lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            if busy {
-                Spinner()
-            } else {
-                IconButton("Test key", systemImage: "checkmark.seal", action: test)
-                if Self.canEditKey {
-                    IconButton("Replace key", systemImage: "pencil") { replacing = true; result = nil }
-                    IconButton("Remove key", systemImage: "trash", action: remove)
-                }
-            }
-        }
-    }
+    var saved: Bool?
+    var busy = false
+    var replacing = false
+    var key = ""
+    var result: (ok: Bool, text: String)?
+    private var testedAt: Date?
 
     /// Keys are entered on the computer itself (the host takes `setVoiceKey` from loopback only).
-        private static let canEditKey = false
+    static let canEditKey = false
 
-    /// On the phone: where to add the key.
-    private var missingKeyRow: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "key")
-                .foregroundStyle(Palette.tertiary)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("No \(provider.name) key on \(store.hostName)").foregroundStyle(Palette.text)
-                Text("Add it in Kith on that computer: Computers & devices, then Voice chat.")
-                    .font(.caption)
-                    .foregroundStyle(Palette.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+    init(provider: VoiceProvider, store: BotStore) {
+        self.provider = provider
+        self.store = store
+        let stamp = UserDefaults.standard.double(forKey: testedKey)
+        testedAt = stamp > 0 ? Date(timeIntervalSince1970: stamp) : nil
+    }
+
+    var hasKey: Bool { saved == true }
+    private var testedKey: String { "voiceKeyTested.\(store.computer.id).\(provider.rawValue)" }
+
+    /// "Saved on Mac mini · tested today", or why there's no key.
+    var detail: String {
+        switch saved {
+        case nil: return "Checking…"
+        case false: return "not set"
+        case true:
+            guard let testedAt else { return "Saved on \(store.hostName)" }
+            let when = Calendar.current.isDateInToday(testedAt) ? "today" : "\(RelativeTime.short(testedAt)) ago"
+            return "Saved on \(store.hostName) · tested \(when)"
         }
     }
 
-    /// Paste a key; the computer checks it with the provider before keeping it.
-    private var keyEntry: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                SecureField("API key", text: $key, prompt: Text(provider.keyPrompt))
-                    .plainTextInput()
-                    .textFieldStyle(.plain)
-                    .onSubmit(test)
-                if busy {
-                    Spinner()
-                } else {
-                    Button("Save", action: test)
-                        .buttonStyle(.primary)
-                        .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-            HStack {
-                WebLink("Get a key from \(provider.name)", url: provider.keyPage).font(.footnote)
-                Spacer()
-                if replacing {
-                    Button("Cancel") { replacing = false; key = ""; result = nil }
-                        .buttonStyle(.plain)
-                        .font(.footnote)
-                        .foregroundStyle(Palette.secondary)
-                }
-            }
-        }
-    }
-
-    private func picker(_ selection: Binding<String>, _ list: [String]) -> some View {
-        // The current choice stays listed before the provider's list arrives.
-        let options = list.contains(selection.wrappedValue) ? list : [selection.wrappedValue] + list
-        return ChoicePicker(selection: selection, options: options.map { ($0, $0) })
-    }
-
-    private func load() async {
-        voice = VoiceSettings.voice(provider)
-        model = VoiceSettings.model(provider)
-        transcribeModel = VoiceSettings.transcribeModel(provider)
-        speechModel = VoiceSettings.speechModel(provider)
-        if let data = UserDefaults.standard.data(forKey: VoiceSettings.modelsKey(provider)),
-           let cached = try? JSONDecoder().decode(VoiceModels.self, from: data) {
-            models = cached
-        }
+    func load() async {
         guard let client = store.client else {
             saved = false
             result = (false, "Not connected to \(store.hostName).")
@@ -340,33 +309,21 @@ private struct ProviderVoiceSettings: View {
         } catch {
             saved = false
             result = (false, error.localizedDescription)
-            return
         }
-        if hasKey { await loadModels(client) }
-    }
-
-    private func loadModels(_ client: HostClient) async {
-        guard let list = try? await client.voiceModels(provider) else { return }
-        models = list
-        // A newer default moves every choice the user hasn't made themselves.
-        VoiceSettings.remember(list.defaults, for: provider)
-        model = VoiceSettings.model(provider)
-        transcribeModel = VoiceSettings.transcribeModel(provider)
-        speechModel = VoiceSettings.speechModel(provider)
-        UserDefaults.standard.set(try? JSONEncoder().encode(list), forKey: VoiceSettings.modelsKey(provider))
     }
 
     /// A pasted key is checked with the provider by the computer before it's kept. With a key
     /// saved, Test starts a call credential with the chosen model and voice.
-    private func test() {
+    func test() {
         let typed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typed.isEmpty || hasKey else { return }
-        run { client in
+        run { [self] client in
             if typed.isEmpty || !replacing && hasKey {
-                if speechMode {
-                    _ = try await client.voiceSpeak(provider, model: speechModel, voice: voice, text: "OK")
+                let voice = VoiceSettings.voice(provider)
+                if UserDefaults.standard.string(forKey: VoiceSettings.modeKey(provider)) == "speech" {
+                    _ = try await client.voiceSpeak(provider, model: VoiceSettings.speechModel(provider), voice: voice, text: "OK")
                 } else {
-                    _ = try await client.voiceSession(provider, model: model, voice: voice)
+                    _ = try await client.voiceSession(provider, model: VoiceSettings.model(provider), voice: voice)
                 }
                 result = (true, "Key works")
             } else {
@@ -375,14 +332,18 @@ private struct ProviderVoiceSettings: View {
                 replacing = false
                 result = (true, "Key works and is saved on \(store.hostName)")
             }
-            await loadModels(client)
+            let now = Date()
+            testedAt = now
+            UserDefaults.standard.set(now.timeIntervalSince1970, forKey: testedKey)
         }
     }
 
-    private func remove() {
-        run { client in
+    func remove() {
+        run { [self] client in
             saved = try await client.setVoiceKey("", for: provider).configured(provider)
             result = nil
+            testedAt = nil
+            UserDefaults.standard.removeObject(forKey: testedKey)
         }
     }
 
@@ -402,5 +363,223 @@ private struct ProviderVoiceSettings: View {
             }
             busy = false
         }
+    }
+}
+
+/// API keys: one row per provider; a row opens that key's page.
+private struct ApiKeysSection: View {
+    let keys: [VoiceKeyModel]
+    @State private var open: VoiceProvider?
+
+    var body: some View {
+        CardSection("API keys", footer: "Keys are saved on the computer, never on this iPhone.") {
+            ForEach(keys, id: \.provider) { key in
+                Button { open = key.provider } label: { ApiKeyRow(key: key) }
+                    .buttonStyle(.plain)
+            }
+        }
+        .task { for key in keys { await key.load() } }
+        .navigationDestination(item: $open) { provider in
+            if let key = keys.first(where: { $0.provider == provider }) { ApiKeyPage(key: key) }
+        }
+    }
+}
+
+private struct ApiKeyRow: View {
+    let key: VoiceKeyModel
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "lock")
+                .foregroundStyle(Palette.tertiary)
+                .frame(width: 20)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(key.provider.name).foregroundStyle(Palette.text)
+                Text(key.detail).font(.caption).foregroundStyle(Palette.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if VoiceKeyModel.canEditKey {
+                Text(key.hasKey ? "Replace" : "Add").foregroundStyle(Palette.accent)
+            } else {
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Palette.tertiary)
+            }
+        }
+        .contentShape(Rectangle())
+    }
+}
+
+/// One key's page: Test, and where the key is replaced or removed.
+private struct ApiKeyPage: View {
+    @Bindable var key: VoiceKeyModel
+    @Environment(\.dismiss) private var pop
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScreenHeader {
+                BackButton { pop() }
+            } title: {
+                Text("\(key.provider.name) key").font(.body.weight(.semibold)).foregroundStyle(Palette.text).lineLimit(1)
+            } trailing: {
+                EmptyView()
+            }
+            CardForm {
+                CardSection(footer: footer) {
+                    if key.hasKey && !key.replacing {
+                        HStack(spacing: 10) {
+                            Image(systemName: "key.fill").foregroundStyle(Palette.secondary).accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("Key saved").foregroundStyle(Palette.text).lineLimit(1)
+                                Text("Stays on \(key.store.hostName)").font(.caption).foregroundStyle(Palette.tertiary).lineLimit(1)
+                            }
+                            Spacer(minLength: 8)
+                            if key.busy { Spinner() }
+                        }
+                        Button(action: key.test) { Label("Test key", systemImage: "checkmark.seal").frame(maxWidth: .infinity, alignment: .leading) }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Palette.accent)
+                            .disabled(key.busy)
+                        if VoiceKeyModel.canEditKey {
+                            Button { key.replacing = true; key.result = nil } label: {
+                                Label("Replace key", systemImage: "pencil").frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Palette.accent)
+                            Button(role: .destructive, action: key.remove) {
+                                Label("Remove key", systemImage: "trash").frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Palette.danger)
+                            .disabled(key.busy)
+                        }
+                    } else if VoiceKeyModel.canEditKey {
+                        keyEntry
+                    } else if key.saved == false {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("No \(key.provider.name) key on \(key.store.hostName)").foregroundStyle(Palette.text)
+                            Text("Add it in Kith on that computer: Computers & devices, then Voice chat.")
+                                .font(.caption)
+                                .foregroundStyle(Palette.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    if let result = key.result {
+                        Label(result.text, systemImage: result.ok ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(result.ok ? Palette.secondary : Palette.danger)
+                            .transition(.opacity)
+                    }
+                }
+            }
+            .animation(Motion.reduced(Motion.layout, reduceMotion), value: key.replacing)
+            .animation(Motion.reduced(Motion.fade, reduceMotion), value: key.result?.text)
+        }
+        .background(Palette.background)
+        .hidesSystemNavigationBar()
+    }
+
+    private var footer: String { "Keys are saved on the computer, never on this iPhone." }
+
+    /// Paste a key; the computer checks it with the provider before keeping it.
+    private var keyEntry: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                SecureField("API key", text: $key.key, prompt: Text(key.provider.keyPrompt))
+                    .plainTextInput()
+                    .textFieldStyle(.plain)
+                    .onSubmit(key.test)
+                if key.busy {
+                    Spinner()
+                } else {
+                    Button("Save", action: key.test)
+                        .buttonStyle(.primary)
+                        .disabled(key.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            HStack {
+                WebLink("Get a key from \(key.provider.name)", url: key.provider.keyPage).font(.footnote)
+                Spacer()
+                if key.replacing {
+                    Button("Cancel") { key.replacing = false; key.key = ""; key.result = nil }
+                        .buttonStyle(.plain)
+                        .font(.footnote)
+                        .foregroundStyle(Palette.secondary)
+                }
+            }
+        }
+    }
+}
+
+/// One provider's models, voice and this month's minutes. Only usable once its key is saved.
+private struct ProviderVoiceSettings: View {
+    let provider: VoiceProvider
+    let key: VoiceKeyModel
+    @Environment(BotStore.self) private var store
+    @AppStorage private var mode: String
+    @State private var voice = ""
+    @State private var model = ""
+    @State private var transcribeModel = ""
+    @State private var speechModel = ""
+    @State private var models = VoiceModels(models: [], transcribe: [], speech: [])
+
+    init(provider: VoiceProvider, key: VoiceKeyModel) {
+        self.provider = provider
+        self.key = key
+        _mode = AppStorage(wrappedValue: "realtime", VoiceSettings.modeKey(provider))
+    }
+
+    private var speechMode: Bool { mode == "speech" }
+    private var hasKey: Bool { key.hasKey }
+
+    var body: some View {
+        CardSection("\(provider.name) models", footer: hasKey ? nil : "Add a key to choose from \(provider.name)'s models.") {
+            Group {
+                if speechMode {
+                    ValueRow("Speech to text") { picker($transcribeModel, models.transcribe) }
+                    ValueRow("Text to speech") { picker($speechModel, models.speech) }
+                } else {
+                    ValueRow("Model") { picker($model, models.models) }
+                }
+                ValueRow("Voice") { ChoicePicker(selection: $voice, options: provider.voices.map { ($0, $0) }) }
+                ValueRow("This month", value: "≈ \(VoiceUsage.minutes(for: provider)) min")
+            }
+            .disabled(!hasKey)
+            .opacity(hasKey ? 1 : 0.55)
+        }
+        .task(id: hasKey) { await load() }
+        .onChange(of: voice) { _, v in UserDefaults.standard.set(v, forKey: VoiceSettings.voiceKey(provider)) }
+        .onChange(of: model) { _, m in VoiceSettings.save(m, default: VoiceSettings.defaults(provider).realtime, forKey: VoiceSettings.modelKey(provider)) }
+        .onChange(of: transcribeModel) { _, m in
+            VoiceSettings.save(m, default: VoiceSettings.defaults(provider).transcribe, forKey: VoiceSettings.transcribeKey(provider))
+        }
+        .onChange(of: speechModel) { _, m in
+            VoiceSettings.save(m, default: VoiceSettings.defaults(provider).speech, forKey: VoiceSettings.speechKey(provider))
+        }
+    }
+
+    private func picker(_ selection: Binding<String>, _ list: [String]) -> some View {
+        // The current choice stays listed before the provider's list arrives.
+        let options = list.contains(selection.wrappedValue) ? list : [selection.wrappedValue] + list
+        return ChoicePicker(selection: selection, options: options.map { ($0, $0) })
+    }
+
+    private func load() async {
+        voice = VoiceSettings.voice(provider)
+        model = VoiceSettings.model(provider)
+        transcribeModel = VoiceSettings.transcribeModel(provider)
+        speechModel = VoiceSettings.speechModel(provider)
+        if let data = UserDefaults.standard.data(forKey: VoiceSettings.modelsKey(provider)),
+           let cached = try? JSONDecoder().decode(VoiceModels.self, from: data) {
+            models = cached
+        }
+        guard hasKey, let client = store.client, let list = try? await client.voiceModels(provider) else { return }
+        models = list
+        // A newer default moves every choice the user hasn't made themselves.
+        VoiceSettings.remember(list.defaults, for: provider)
+        model = VoiceSettings.model(provider)
+        transcribeModel = VoiceSettings.transcribeModel(provider)
+        speechModel = VoiceSettings.speechModel(provider)
+        UserDefaults.standard.set(try? JSONEncoder().encode(list), forKey: VoiceSettings.modelsKey(provider))
     }
 }

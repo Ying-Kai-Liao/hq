@@ -42,6 +42,7 @@ modes=(
   "demo-board|-kithDemoScreens board"
   "demo-chat|-kithDemoScreens chat"
   "demo-settings|-kithDemoScreens settings"
+  "demo-computers|-kithDemoScreens computers"
   "demo-widgets|-kithDemoScreens widgets"
 )
 
