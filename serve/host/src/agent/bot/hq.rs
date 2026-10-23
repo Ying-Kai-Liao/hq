@@ -6,9 +6,54 @@ use super::fast_mode::Listing;
 use super::launch::{launch_commands, start_agent};
 use super::{Actor, NoticeStyle};
 use crate::agent::acp::Incoming;
+use crate::agent::backups::{Backups, ChainEntry, NoAccount, Pick};
 use crate::agent::{folder, hq};
+use crate::hub::Hub;
 use anyhow::{Result, anyhow, bail};
+use serde_json::{Value, json};
+use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+/// Asks hq for `agent`'s chain now and remembers the answer; a failure is logged and leaves what was known.
+pub(super) async fn fetch_chain(hub: &Hub, agent: &str) -> Vec<ChainEntry> {
+    let got = match tokio::task::spawn_blocking(hq::bin).await {
+        Ok(Some(bin)) => hq::backups(&bin, agent)
+            .await
+            .inspect_err(|error| tracing::warn!(agent, error = format!("{error:#}"), "couldn't read the backup chain"))
+            .ok(),
+        _ => None,
+    };
+    hub.backups.end_refresh(agent, got);
+    hub.backups.known_chain(agent).unwrap_or_default()
+}
+
+/// [`fetch_chain`] in the background, one at a time per agent.
+fn refresh_chain_later(hub: &Arc<Hub>, agent: &str) {
+    if hub.backups.begin_refresh(agent) {
+        let (hub, agent) = (hub.clone(), agent.to_owned());
+        tokio::spawn(async move { drop(fetch_chain(&hub, &agent).await) });
+    }
+}
+
+/// What a Codex backup's `permission_mode` (the agent's, in Claude's words) means to codex-acp's session modes.
+fn codex_mode(permission: &str) -> Option<&'static str> {
+    match permission {
+        "plan" | "default" => Some("read-only"),
+        "acceptEdits" | "auto" => Some("auto"),
+        "bypassPermissions" => Some("full-access"),
+        _ => None,
+    }
+}
+
+/// The environment of the agent process. The keys the host holds for Claude are the primary's login and win over
+/// `CLAUDE_CONFIG_DIR` and `apiKeyHelper`, so a backup that has a login of its own gets none of them.
+fn process_env(saved: Vec<(String, String)>, launch: &hq::Launch, backup: bool) -> Vec<(String, String)> {
+    let own_login = backup && (!launch.is_codex() || launch.env.get("KITH_ACCOUNT").is_some_and(|a| !a.is_empty()));
+    let mut env = if own_login { Vec::new() } else { saved };
+    env.extend(launch.env());
+    env
+}
 
 impl Actor {
     pub(super) fn is_hq(&self) -> bool {
@@ -19,61 +64,193 @@ impl Actor {
     /// conversation's handoff, where a thread branches off). Nothing about Kith.
     pub(super) fn compose_hq(&mut self, text: &str) -> String {
         self.session_fresh = false;
-        let mut prompt = text.to_owned();
-        if let Some(handoff) = self.handoff.take() {
-            prompt = format!("{handoff}\n\n{prompt}");
-        }
-        if let Some(intro) = self.thread_intro.take() {
-            prompt = format!("{intro}\n\n{prompt}");
+        // The turn goes to the next account as the first one got it, handoff and thread notes included.
+        let mut prompt = if self.reuse_prompt {
+            self.thread_intro = None;
+            self.attempt_prompt.clone().unwrap_or_else(|| text.to_owned())
+        } else {
+            let mut prompt = text.to_owned();
+            if let Some(handoff) = self.handoff.take() {
+                prompt = format!("{handoff}\n\n{prompt}");
+            }
+            if let Some(intro) = self.thread_intro.take() {
+                prompt = format!("{intro}\n\n{prompt}");
+            }
+            self.attempt_prompt = Some(prompt.clone());
+            prompt
+        };
+        if let Some(preface) = self.preface.take() {
+            prompt = format!("{preface}\n\n{prompt}");
         }
         prompt
     }
 
+    /// The session `slot` has on the account that answers now: the agent's stored one, or the one a backup entry
+    /// opened in this process.
+    fn hq_session(&mut self, slot: Option<&str>) -> Option<String> {
+        match self.serving.clone() {
+            None => self.session_for(slot),
+            Some(entry) => self.backup_sessions.get(&(entry, slot.unwrap_or_default().to_owned())).cloned(),
+        }
+    }
+
+    fn hq_set_session(&mut self, slot: Option<&str>, sid: &str) {
+        match self.serving.clone() {
+            None => self.set_session(slot, Some(sid)),
+            Some(entry) => {
+                self.backup_sessions.insert((entry, slot.unwrap_or_default().to_owned()), sid.to_owned());
+            }
+        }
+    }
+
+    /// The agent's backup chain as last known. Never makes a turn wait for hq: a chain gone stale is fetched again in
+    /// the background, and one never fetched is too, unless backups are in use (something is out), when this turn
+    /// needs it to pick. No chain, or any failure, is an empty chain.
+    async fn hq_chain(&self, agent: &str) -> Vec<ChainEntry> {
+        match self.hub.backups.chain_state(agent) {
+            Some((age, chain)) => {
+                if Backups::chain_stale(age, &chain) {
+                    refresh_chain_later(&self.hub, agent);
+                }
+                chain
+            }
+            None if self.hub.backups.any_out() => fetch_chain(&self.hub, agent).await,
+            None => {
+                refresh_chain_later(&self.hub, agent);
+                Vec::new()
+            }
+        }
+    }
+
+    /// A Codex backup's new session starts in the mode that matches the agent's permission mode, when the adapter lists
+    /// it. Left as it is when it doesn't, or when the call fails.
+    async fn set_codex_mode(&mut self, sid: &str, res: &Value, permission: Option<&str>) {
+        let Some(mode) = permission.and_then(codex_mode) else { return };
+        let listed = res["modes"]["availableModes"].as_array();
+        if listed.is_some_and(|modes| !modes.iter().any(|m| m["id"] == mode)) {
+            return;
+        }
+        if let Err(error) = self.session_request("session/set_mode", json!({"sessionId": sid, "modeId": mode})).await {
+            tracing::warn!(mode, error = format!("{error:#}"), "couldn't set the backup's permission mode");
+        }
+    }
+
+    /// `session/new` and `session/load` for `launch`: Claude's `_meta` for Claude, ACP's own parameters for a Codex
+    /// backup (its servers as a list, the instructions as `systemPrompt` when it takes them).
+    fn hq_params(&self, launch: &hq::Launch, session: Option<&str>) -> Value {
+        if !launch.is_codex() {
+            return launch.session_params(&self.cfg, session);
+        }
+        let servers: Vec<Value> = launch
+            .mcp_servers
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(name, s)| {
+                let env: Vec<Value> =
+                    s["env"].as_object().into_iter().flatten().map(|(k, v)| json!({"name": k, "value": v})).collect();
+                json!({"name": name, "command": s["command"], "args": s["args"], "env": env})
+            })
+            .collect();
+        let mut params = json!({"cwd": launch.cwd(&self.cfg), "mcpServers": servers});
+        if let Some(sid) = session {
+            params["sessionId"] = sid.into();
+        }
+        let caps = self.conn.as_ref().map(|c| c.sessions);
+        if caps.is_some_and(|c| c.additional_directories) && !launch.add_dirs.is_empty() {
+            params["additionalDirectories"] = json!(launch.add_dirs);
+        }
+        if caps.is_some_and(|c| c.system_prompt) && !launch.system_prompt.is_empty() {
+            params["systemPrompt"] = super::system_prompt(&launch.system_prompt);
+        }
+        params
+    }
+
     /// [`Actor::ensure_session`] for an hq agent. Whenever a session has to be created or loaded (a first message, a
     /// restart, an idle release, a new session) hq is asked again how to start the agent, so it runs as hq says now.
+    ///
+    /// Which account answers is decided here, once per turn (see `agent::backups`): the first entry of the agent's
+    /// chain that is ready and not out of usage. A turn already running is never moved.
     pub(super) async fn ensure_hq_session(&mut self, slot: Option<&str>) -> Result<()> {
-        let current = self.session_for(slot);
-        if let (Some(sid), Some(conn)) = (&current, &self.conn)
-            && conn.loaded.contains_key(sid)
-        {
-            self.turn_session = current;
-            return Ok(());
-        }
-        if self.hub.store.kv_read(&format!("agent-env:{}", self.cfg.backend))?.is_some() {
-            crate::market::vault::unlock(self.hub.clone()).await?;
-        }
-        self.hub.set_runtime(&self.rt, |r| r.activity = "Starting agent…".into());
         let agent = self.cfg.hq_agent.clone().ok_or_else(|| anyhow!("not an hq agent"))?;
-        let Some(bin) = tokio::task::spawn_blocking(hq::bin).await? else {
-            bail!("kith isn't installed on this computer (set KITH_KERNEL_BIN, or put `kith` on PATH)");
+        let chain = self.hq_chain(&agent).await;
+        let mut skip: HashSet<String> = self.turn_tried.clone();
+        let mut prepared = None;
+        let (mut launch, backup) = loop {
+            let backup = match self.hub.backups.pick(&agent, &chain, &skip) {
+                Pick::Primary => None,
+                Pick::Backup(entry) => Some(entry.id),
+                Pick::AllOut(outs) => return Err(NoAccount(self.hub.backups.all_out_text(&outs)).into()),
+            };
+            self.serving.clone_from(&backup);
+            let current = self.hq_session(slot);
+            if let (Some(sid), Some(conn)) = (&current, &self.conn)
+                && conn.loaded.contains_key(sid)
+                && self.conn_serving == self.serving
+            {
+                self.turn_session = current;
+                return Ok(());
+            }
+            if prepared.is_none() {
+                if self.hub.store.kv_read(&format!("agent-env:{}", self.cfg.backend))?.is_some() {
+                    crate::market::vault::unlock(self.hub.clone()).await?;
+                }
+                self.hub.set_runtime(&self.rt, |r| r.activity = "Starting agent…".into());
+                let Some(bin) = tokio::task::spawn_blocking(hq::bin).await? else {
+                    bail!("kith isn't installed on this computer (set KITH_KERNEL_BIN, or put `kith` on PATH)");
+                };
+                // The place's own folder or project, else the bot's default; hq runs in it so the kernel finds the project.
+                let target = folder::resolve(&self.hub.store, &self.cfg, &self.lane_of(slot)).await;
+                if let Some(notice) = &target.notice {
+                    self.notice(notice, NoticeStyle::Divider);
+                }
+                prepared = Some((bin, target));
+            }
+            let Some((bin, target)) = &prepared else { unreachable!("prepared above") };
+            match hq::launch(bin, &agent, &target.cwd, &self.cfg, target.project.as_deref(), backup.as_deref()).await {
+                Ok(mut launch) => {
+                    if target.explicit {
+                        launch.cwd.clone_from(&target.cwd);
+                    }
+                    break (launch, backup);
+                }
+                // hq won't run this entry (not signed in, not allowed for this person): the next one answers.
+                Err(error) if backup.is_some() => {
+                    let id = backup.unwrap_or_default();
+                    tracing::info!(entry = %id, error = format!("{error:#}"), "backup account skipped");
+                    self.hub.backups.note_unavailable(&agent, &id);
+                    skip.insert(id);
+                }
+                Err(error) => return Err(error),
+            }
         };
-        // The place's own folder or project, else the bot's default; hq runs in it so the kernel finds the project.
-        let target = folder::resolve(&self.hub.store, &self.cfg, &self.lane_of(slot)).await;
-        if let Some(notice) = &target.notice {
-            self.notice(notice, NoticeStyle::Divider);
-        }
-        let mut launch = hq::launch(&bin, &agent, &target.cwd, &self.cfg, target.project.as_deref()).await?;
-        if target.explicit {
-            launch.cwd.clone_from(&target.cwd);
-        }
+        // A backup has no session of the agent's to load: it starts one and is told the conversation.
+        let current = self.hq_session(slot).filter(|_| backup.is_none());
         // The process carries kith's env (KITH_PROJECT, the cost tag) and its folder: a place that needs others gets a
         // process of its own, started again here (the sessions it held load again on their next turn).
         let started_as = (launch.env(), launch.cwd(&self.cfg).to_owned());
         if self.conn.is_some()
-            && self.conn_started_as.as_ref() != Some(&started_as)
+            && (self.conn_started_as.as_ref() != Some(&started_as) || self.conn_serving != self.serving)
             && let Some(c) = self.conn.take()
         {
             c.acp.kill().await;
         }
         if self.conn.is_none() {
             self.conn_started_as = Some(started_as);
-            let mut env = crate::agent::auth::env(&self.hub.store, &self.cfg.backend)?;
-            env.extend(launch.env());
+            self.conn_serving.clone_from(&self.serving);
+            let provider = if launch.is_codex() { "codex" } else { self.cfg.backend.as_str() };
+            let env = process_env(crate::agent::auth::env(&self.hub.store, provider)?, &launch, backup.is_some());
             let candidates = match std::env::var(hq::ACP_COMMAND_ENV) {
                 Ok(command) if !command.is_empty() => vec![command],
                 _ => {
                     let (hub, rt) = (self.hub.clone(), self.rt.clone());
-                    launch_commands(&self.cfg, move |msg: &str| {
+                    // A Codex backup starts Codex's adapter, not the bot's own.
+                    let mut cfg = self.cfg.clone();
+                    if launch.is_codex() {
+                        cfg.backend = "codex".into();
+                        cfg.command = None;
+                    }
+                    launch_commands(&cfg, move |msg: &str| {
                         let msg = msg.to_owned();
                         hub.set_runtime(&rt, |r| r.activity = msg);
                     })
@@ -102,7 +279,8 @@ impl Actor {
         if let Some(sid) = current {
             if self.conn.as_ref().is_some_and(|c| c.sessions.load) {
                 self.hub.set_runtime(&self.rt, |r| r.activity = "Resuming session…".into());
-                let res = self.session_request("session/load", launch.session_params(&self.cfg, Some(&sid))).await;
+                let params = self.hq_params(&launch, Some(&sid));
+                let res = self.session_request("session/load", params).await;
                 let Some(conn) = self.conn.as_mut() else { return res.map(drop) };
                 // The agent replays history as session/update before answering; drop it.
                 while let Ok(inc) = conn.rx.try_recv() {
@@ -115,6 +293,8 @@ impl Actor {
                         conn.loaded.insert(sid.clone(), Instant::now());
                         self.note_options(&sid, &res, Listing::Session);
                         self.turn_session = Some(sid);
+                        // The agent's own account came back to a session that missed what a backup answered.
+                        self.preface = self.recovery_preface();
                         return Ok(());
                     }
                     Err(e) => {
@@ -133,18 +313,86 @@ impl Actor {
                 self.set_session(slot, None);
             }
         }
-        let res = self.session_request("session/new", launch.session_params(&self.cfg, None)).await?;
+        let params = self.hq_params(&launch, None);
+        let res = self.session_request("session/new", params).await?;
         let Some(conn) = self.conn.as_mut() else { bail!("agent not running") };
         let sid = res["sessionId"].as_str().ok_or_else(|| anyhow!("agent returned no sessionId"))?.to_owned();
         conn.loaded.insert(sid.clone(), Instant::now());
         // The model was chosen by hq (`-m`), so the host doesn't set it again.
         self.note_options(&sid, &res, Listing::Session);
-        self.set_session(slot, Some(&sid));
+        self.hq_set_session(slot, &sid);
+        if launch.is_codex() {
+            self.set_codex_mode(&sid, &res, launch.permission_mode.as_deref()).await;
+        }
         self.session_fresh = true;
         self.turn_session = Some(sid);
+        if backup.is_some() {
+            self.preface = self.backup_preface();
+            // Codex takes the agent's instructions as ACP's `systemPrompt`; one that can't gets them first.
+            if launch.is_codex()
+                && !self.conn.as_ref().is_some_and(|c| c.sessions.system_prompt)
+                && !launch.system_prompt.is_empty()
+            {
+                let prompt = std::mem::take(&mut launch.system_prompt);
+                let profile = format!("<agent-profile>\n{prompt}\n</agent-profile>");
+                self.preface = Some(match self.preface.take() {
+                    Some(preface) => format!("{profile}\n\n{preface}"),
+                    None => profile,
+                });
+            }
+        } else {
+            self.preface = self.recovery_preface();
+        }
         if let Some(root) = slot {
             self.thread_intro = self.thread_intro(root, false);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn launch(provider: &str, account: &str) -> hq::Launch {
+        serde_json::from_value(json!({"harness": provider, "env": {"KITH_ACCOUNT": account}})).unwrap()
+    }
+
+    fn keys() -> Vec<(String, String)> {
+        vec![("ANTHROPIC_API_KEY".into(), "k".into()), ("CLAUDE_CODE_OAUTH_TOKEN".into(), "t".into())]
+    }
+
+    fn names(env: &[(String, String)]) -> Vec<&str> {
+        env.iter().map(|(k, _)| k.as_str()).collect()
+    }
+
+    #[test]
+    fn a_backup_never_runs_on_the_primarys_saved_keys() {
+        let primary = process_env(keys(), &launch("claude", ""), false);
+        assert!(names(&primary).contains(&"ANTHROPIC_API_KEY"), "the agent's own login keeps its keys");
+        for (harness, account) in [("claude", "work"), ("claude", ""), ("codex", "work")] {
+            let env = process_env(keys(), &launch(harness, account), true);
+            assert!(
+                !names(&env).iter().any(|k| ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"].contains(k)),
+                "{harness}:{account} kept a host key: {:?}",
+                names(&env)
+            );
+            assert!(names(&env).contains(&"KITH_ACCOUNT"), "kith's own env still goes");
+        }
+        // The ambient Codex login uses the keys saved for Codex.
+        assert!(
+            names(&process_env(vec![("OPENAI_API_KEY".into(), "k".into())], &launch("codex", ""), true))
+                .contains(&"OPENAI_API_KEY")
+        );
+    }
+
+    #[test]
+    fn claudes_permission_modes_map_to_codexs() {
+        assert_eq!(codex_mode("default"), Some("read-only"));
+        assert_eq!(codex_mode("plan"), Some("read-only"));
+        assert_eq!(codex_mode("acceptEdits"), Some("auto"));
+        assert_eq!(codex_mode("auto"), Some("auto"));
+        assert_eq!(codex_mode("bypassPermissions"), Some("full-access"));
+        assert_eq!(codex_mode("surprise"), None);
     }
 }
