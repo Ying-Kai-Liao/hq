@@ -1,10 +1,13 @@
 import KithKit
 import KithUI
+import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
-/// The roster: every bot on every computer is a person you can message (Grok Bot sidebar, phone-sized).
-/// A `List` with its styling taken away, for the system's reordering: touch and hold opens a bot's
-/// menu, and dragging it (before or after the menu shows) moves it.
+/// Crew, the home screen: every room on every computer as one list under the morning sky, a top bar (your picture,
+/// the Crew switch, new chat) and the dock at the bottom, where typing filters the list in place.
+/// A `List` with its styling taken away, for the system's reordering: touch and hold opens a room's menu, and
+/// dragging it (before or after the menu shows) moves it, where the order setting allows.
 struct BotListView: View {
     @Environment(AppStore.self) private var app
     @Environment(AccountStore.self) private var accounts
@@ -12,7 +15,8 @@ struct BotListView: View {
     @State private var editingGroup: GroupTarget?
     @State private var confirmDelete: RosterItem?
     @State private var newChat: ChatTarget?
-    private struct ChatTarget: Identifiable {
+    @State private var inviting: ChatTarget?
+    fileprivate struct ChatTarget: Identifiable {
         let store: BotStore
         let id: ComputerID
         @MainActor init(store: BotStore) {
@@ -20,21 +24,41 @@ struct BotListView: View {
             id = store.computer.id
         }
     }
-    /// The bot whose row is lifted, to drag or for its menu.
+    /// The room whose row is lifted, to drag or for its menu.
     @State private var lifted: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Computers left out of the list on this device, comma-separated IDs.
     @AppStorage("hiddenComputers") private var hiddenComputers = ""
-    /// Computers whose bots are folded away on this device, comma-separated IDs.
-    @AppStorage("collapsedComputers") private var collapsedComputers = ""
+    @AppStorage(CrewOrderMode.storageKey) private var orderStored = CrewOrderMode.automatic.rawValue
 
-    private var collapsedIDs: Set<ComputerID> { Set(collapsedComputers.split(separator: ",").map(String.init)) }
+    // The dock.
+    @State private var query = ""
+    @State private var files: [OutgoingFile] = []
+    @State private var pickingPhotos = false
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var pickingFiles = false
+    @State private var pickingCamera = false
+    @State private var picking: AgentPick?
+    @State private var calling: CallTarget?
+    @State private var dictation = HomeDictation()
 
-    private func toggleCollapsed(_ id: ComputerID) {
-        var ids = collapsedIDs
-        if ids.remove(id) == nil { ids.insert(id) }
-        withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { collapsedComputers = ids.sorted().joined(separator: ",") }
+    // Never re-sort while a finger is on the list.
+    @GestureState private var touching = false
+    @State private var scrolling = false
+    @State private var hold = CrewOrderHold()
+
+    fileprivate struct CallTarget: Identifiable {
+        let store: BotStore
+        let botId: String
+        let id: String
+        @MainActor init(store: BotStore, botId: String) {
+            self.store = store
+            self.botId = botId
+            id = "\(store.computer.id)/\(botId)"
+        }
     }
+
+    private var mode: CrewOrderMode { CrewOrderMode(stored: orderStored) }
 
     private var shownIDs: Set<ComputerID> {
         Set(ComputerSelection(all: accounts.computers.map(\.id), hidden: hiddenComputers).shown)
@@ -42,16 +66,6 @@ struct BotListView: View {
 
     private var shownStores: [BotStore] {
         accounts.computers.filter { shownIDs.contains($0.id) }.compactMap { accounts.store(for: $0.id) }
-    }
-
-    /// One computer shows a flat list; more get a heading each.
-    private var grouped: Bool { shownStores.count > 1 }
-
-    /// Moves a computer one place up (-1) or down (+1) among the shown ones.
-    private func move(_ id: ComputerID, _ offset: Int) {
-        let ids = shownStores.map(\.computer.id)
-        guard let i = ids.firstIndex(of: id), ids.indices.contains(i + offset) else { return }
-        withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { accounts.move(id, to: ids[i + offset]) }
     }
 
     /// Computers that can take a new bot right now.
@@ -70,221 +84,196 @@ struct BotListView: View {
             .compactMap { accounts.store(for: $0.id) }.filter { $0.connection == .online }
     }
 
-    /// The rows the user can drag: each shown computer's heading (with several computers), in the
-    /// order they were dragged into, followed by its bots unless it's folded away.
-    private var lines: [RosterLine] {
-        shownStores.flatMap { store -> [RosterLine] in
-            let id = store.computer.id
-            let bots = grouped && collapsedIDs.contains(id)
-                ? [] : accounts.roster.filter { $0.ref.computerId == id }.map { RosterLine.bot($0, store) }
-            return grouped ? [.computer(id, store)] + bots : bots
+    // MARK: rooms
+
+    private struct Room: Identifiable {
+        let item: RosterItem
+        let store: BotStore
+        let team: Bool
+        var id: String { CrewRows.rowId(item) }
+    }
+
+    /// Every shown computer's rooms, together as one crew.
+    private var rooms: [Room] {
+        accounts.roster.filter { shownIDs.contains($0.ref.computerId) }.compactMap { item in
+            accounts.store(for: item.ref.computerId).map {
+                Room(item: item, store: $0, team: accounts.role(for: item.ref.computerId) == .member)
+            }
         }
     }
+
+    private var frozen: Bool { touching || scrolling || lifted != nil }
+
+    private var computedOrder: [String] { CrewOrder.sorted(rooms.map { CrewRows.orderItem($0.item) }, mode: mode) }
+
+    private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var searching: Bool { !trimmedQuery.isEmpty }
+
+    /// The rooms as shown: the crew's order, or the dock's ranking while something is typed.
+    private func displayed(_ all: [Room]) -> [Room] {
+        let byId = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let ordered = hold.resolved(computed: computedOrder, frozen: frozen).compactMap { byId[$0] }
+        guard searching else { return ordered }
+        let entries = ordered.map { CrewRows.searchEntry($0.item, store: $0.store, team: $0.team) }
+        return CrewSearch.rank(entries, query: trimmedQuery).compactMap { byId[$0] }
+    }
+
+    // MARK: body
 
     var body: some View {
-        let roster = accounts.roster.filter { shownIDs.contains($0.ref.computerId) }
-        List {
-            Group {
-                if !grouped {
-                    // One computer: its update notice leads the list.
-                    ForEach(shownStores, id: \.computer.id) { updateCard($0) }
-                }
-                // A computer waiting for an update has its card instead; its bots aren't known yet.
-                if roster.isEmpty && shownStores.allSatisfy({ $0.mismatch == nil }) {
-                    EmptyRoster(canCreate: allStores.contains { $0.mismatch == nil }, hasComputer: !accounts.computers.isEmpty,
-                                create: newBot, showComputers: { app.showComputers = true })
-                }
-                needsYourOK
-                ForEach(lines) { line in
-                    switch line {
-                    case let .computer(_, store): computerHeading(store, roster: roster)
-                    case let .bot(item, store): row(item, store: store)
+        let all = rooms
+        let shown = displayed(all)
+        let pinned = searching ? [] : shown.filter { $0.item.bot.pinned }
+        let rest = searching ? shown : shown.filter { !$0.item.bot.pinned }
+        ZStack(alignment: .top) {
+            SkyBackground(.home)
+            List {
+                Group {
+                    if !searching {
+                        ForEach(shownStores, id: \.computer.id) { updateCard($0) }
+                        machineChips
+                        // A computer waiting for an update has its card instead; its bots aren't known yet.
+                        if all.isEmpty && shownStores.allSatisfy({ $0.mismatch == nil }) {
+                            EmptyRoster(canCreate: allStores.contains { $0.mismatch == nil }, hasComputer: !accounts.computers.isEmpty,
+                                        create: newBot, showComputers: { app.showComputers = true })
+                        }
+                        needsYourOK
                     }
+                    if searching && shown.isEmpty {
+                        Text("No match. Send starts a new session with an agent you pick.")
+                            .kithText(.body).foregroundStyle(Palette.muted)
+                            .padding(.horizontal, KithSpacing.gutter).padding(.vertical, 18)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    ForEach(pinned) { row($0, in: pinned) }
+                        .onMove(perform: movePinned(pinned))
+                    ForEach(rest) { row($0, in: rest) }
+                        .onMove(perform: searching || mode == .automatic ? nil : moveRest(pinned: pinned, rest: rest))
                 }
-                .onMove(perform: moveLines)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             }
-            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .environment(\.defaultMinListRowHeight, 0)
-        .background(Palette.background)
-        .navigationTitle("Bots")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                AccountSwitcherButton()
-            }
-            ToolbarItem(placement: .principal) {
-                ComputerFilterHeader(accounts: accounts, hidden: $hiddenComputers) { app.showComputers = true }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                // A native menu: the bar hosts toolbar buttons outside SwiftUI's layout,
-                // so an anchored Kith menu can't find where the button is.
-                Menu("New", systemImage: "plus") {
-                    Button("New bot", systemImage: "plus", action: newBot)
-                    Button("New group chat", systemImage: "person.2", action: newGroup)
-                        .disabled(onlineStores.isEmpty)
-                    ForEach(memberStores, id: \.computer.id) { store in
-                        Button("New chat on \(store.hostName)", systemImage: "square.and.pencil") { newChat = ChatTarget(store: store) }
-                    }
-                }
-                // A computer that needs an update can't take a new bot.
-                .disabled(!allStores.contains { $0.mismatch == nil } && memberStores.isEmpty)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, 0)
+            .scrollDismissesKeyboard(.immediately)
+            .onScrollPhaseChange { _, phase in scrolling = phase != .idle }
+            .simultaneousGesture(DragGesture(minimumDistance: 0).updating($touching) { _, state, _ in state = true })
+            .refreshable {
+                for computer in accounts.computers { accounts.store(for: computer.id)?.restartStream() }
+                await accounts.refreshCloud()
             }
         }
-        .refreshable {
-            for computer in accounts.computers { accounts.store(for: computer.id)?.restartStream() }
-            await accounts.refreshCloud()
-        }
-        .kithSheet(item: $editing) { target in
-            // A new bot can move to another computer until it's created.
-            let computerId = editing?.computerId ?? target.computerId
-            if let store = accounts.store(for: computerId) {
-                BotEditorView(draft: target.draft,
-                              computers: allStores.map {
-                                  ($0.computer.id, $0.connection == .online ? $0.hostName : "\($0.hostName) (offline)")
-                              },
-                              computer: target.draft.id == nil
-                                  ? Binding(get: { computerId }, set: { editing?.computerId = $0 })
-                                  : nil)
-                    .environment(store)
-                    .onChange(of: store.selection) { _, botId in
-                        // A new bot opens its chat, on the computer it was created on.
-                        guard let botId else { return }
-                        store.selection = nil
-                        accounts.selection = BotReference(accountId: accounts.accountId, computerId: computerId, botId: botId)
-                    }
+        .safeAreaInset(edge: .top, spacing: 0) { topBar }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 8) {
+                AccessBanners()
+                dock(matches: shown)
             }
+            .padding(.bottom, 4)
         }
-        .kithSheet(item: $newChat) { target in
-            NewChatSheet(store: target.store).environment(accounts)
-        }
-        .kithSheet(item: $editingGroup) { target in
-            if let store = accounts.store(for: target.computerId) {
-                GroupEditorView(group: target.group)
-                    .environment(store)
-                    .onChange(of: store.selection) { _, botId in
-                        guard let botId else { return }
-                        store.selection = nil
-                        accounts.selection = BotReference(accountId: accounts.accountId, computerId: target.computerId, botId: botId)
-                    }
-            }
-        }
-        .kithDialog("Delete \(confirmDelete?.bot.name ?? "bot")?",
-                      isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
-                      message: confirmDelete?.bot.isGroup == true ? "Its bots and their own chats stay." : "Files it changed on your computer stay as they are.") {
-            let item = confirmDelete
-            return [DialogAction(item?.bot.isGroup == true ? "Delete group chat" : "Delete bot and its conversation", destructive: true) {
-                if let item { accounts.store(for: item.ref.computerId)?.delete(item.bot) }
-            }]
-        }
+        .toolbar(.hidden, for: .navigationBar)
+        .onChange(of: computedOrder, initial: true) { _, _ in syncOrder() }
+        .onChange(of: frozen) { _, _ in syncOrder() }
+        .modifier(HomeSheets(
+            editing: $editing, editingGroup: $editingGroup, confirmDelete: $confirmDelete, newChat: $newChat,
+            inviting: $inviting, allStores: allStores, query: $query, files: $files, picking: $picking, calling: $calling,
+            pickingPhotos: $pickingPhotos, photoItems: $photoItems, pickingFiles: $pickingFiles, pickingCamera: $pickingCamera,
+            pickChoices: pickChoices(for:), addPhotos: addPhotos, addFiles: addFiles, addCamera: { append(HomeAttachments.photos([$0])) }))
     }
 
-    /// A row the system's reordering dropped. A heading moves its computer (an order kept on this
-    /// device); a bot moves among its computer's bots, an order the host syncs to every device.
-    /// A bot dropped among another computer's bots goes back.
-    private func moveLines(from source: IndexSet, to destination: Int) {
-        let before = lines
-        guard let from = source.first, before.indices.contains(from) else { return }
-        var after = before
-        after.move(fromOffsets: source, toOffset: destination)
-        switch before[from] {
-        case let .computer(id, _):
-            let old = before.compactMap(\.computerId), new = after.compactMap(\.computerId)
-            guard let to = new.firstIndex(of: id), old[to] != id else { return }
-            withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { accounts.move(id, to: old[to]) }
-        case let .bot(item, store):
-            let computerId = item.ref.computerId
-            let at = after.firstIndex { $0.id == before[from].id } ?? 0
-            if grouped, after[..<at].last(where: { $0.computerId != nil })?.computerId != computerId { return }
-            store.reorder(after.compactMap { $0.botId(on: computerId) })
-        }
+    private func syncOrder() {
+        withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { hold.update(computed: computedOrder, frozen: frozen) }
     }
 
-    @ViewBuilder private func updateCard(_ store: BotStore) -> some View {
-        if let mismatch = store.mismatch {
-            UpdateNeededCard(store: store, mismatch: mismatch)
-                .padding(.vertical, 8)
-                .transition(.opacity)
-        }
-    }
+    // MARK: top bar
 
-    /// A light heading per computer, with its update notice. Dragging it moves the computer; its
-    /// bots follow when it's dropped.
-    private func computerHeading(_ store: BotStore, roster: [RosterItem]) -> some View {
-        let id = store.computer.id
-        return VStack(spacing: 0) {
-            // Not synced while it needs an update: "No bots yet" wouldn't be true.
-            ComputerSection(store: store, access: accounts.access(for: id), empty: store.mismatch == nil && !roster.contains { $0.ref.computerId == id },
-                            collapsed: collapsedIDs.contains(id), toggle: { toggleCollapsed(id) }, move: move)
-                .contentShape(Rectangle())
-                .onTapGesture { toggleCollapsed(id) }
-            updateCard(store)
-        }
-    }
-
-    /// Guests' requests waiting for this account's answer, on the shown computers it owns, ahead of the bots.
-    @ViewBuilder private var needsYourOK: some View {
-        let waiting = shownStores.flatMap { store in
-            accounts.guestPrompts(for: store.computer.id).map { (store, $0) }
-        }
-        if !waiting.isEmpty {
-            Text("Needs your OK")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Palette.secondary)
-                .padding(.top, 14)
-                .padding(.bottom, 4)
-                .accessibilityAddTraits(.isHeader)
-            ForEach(waiting, id: \.1.id) { store, prompt in
-                VStack(alignment: .leading, spacing: 4) {
-                    if grouped {
-                        Text(store.hostName).font(.caption).foregroundStyle(Palette.tertiary)
-                    }
-                    GuestPromptCard(prompt: prompt, answering: store.answering[prompt.entry.id]) {
-                        store.respond(prompt.entry, option: $0)
-                    }
+    private var topBar: some View {
+        HStack {
+            ProfileMenu()
+            Spacer(minLength: 8)
+            // Board is the next screen; until it exists Crew shows alone rather than a segment that does nothing.
+            CrewOnlyPill()
+            Spacer(minLength: 8)
+            TopGlassMenu("New chat") {
+                Button("New bot", systemImage: "plus.square", action: newBot)
+                    .disabled(!allStores.contains { $0.mismatch == nil })
+                Button("Invite a person", systemImage: "person.badge.plus") {
+                    if let store = onlineStores.first { inviting = ChatTarget(store: store) }
                 }
-                .padding(.vertical, 4)
-                .transition(.opacity)
+                .disabled(onlineStores.isEmpty)
+                Button("New group chat", systemImage: "person.2", action: newGroup)
+                    .disabled(onlineStores.isEmpty)
+                ForEach(memberStores, id: \.computer.id) { store in
+                    Button("New chat on \(store.hostName)", systemImage: "square.and.pencil") { newChat = ChatTarget(store: store) }
+                }
             }
+            // A computer that needs an update can't take a new bot.
+            .disabled(!allStores.contains { $0.mismatch == nil } && memberStores.isEmpty)
         }
+        .padding(.horizontal, KithSpacing.gutter)
+        .padding(.top, 4)
     }
 
-    private func row(_ item: RosterItem, store: BotStore) -> some View {
-        let bot = item.bot
+    // MARK: rows
+
+    private func row(_ room: Room, in section: [Room]) -> some View {
+        let item = room.item, store = room.store, bot = item.bot
+        let reorderable = !searching && CrewOrder.canReorder(pinned: bot.pinned, mode: mode)
         let card = RoundedRectangle(cornerRadius: 16, style: .continuous)
         // A plain button instead of a NavigationLink: same push, no chevron.
-        return Button { accounts.selection = item.ref } label: {
-            BotRow(bot: bot)
-                .environment(store)
+        return Button { open(item.ref) } label: {
+            CrewRow(CrewRows.model(for: item, store: store, team: room.team))
         }
         .buttonStyle(.plain)
-        // Lifted, it's a rounded card with room around the avatar.
-        .padding(.horizontal, 8)
-        .background(lifted == bot.id ? Palette.surface : .clear, in: card)
+        .background(lifted == room.id ? Palette.surface : .clear, in: card)
         .contentShape([.dragPreview, .contextMenuPreview], card)
-        .padding(.horizontal, -8)
-        .itemProvider { lift(bot.id) }
-        .accessibilityLabel(accounts.computers.count > 1 ? "\(bot.name), on \(store.hostName)" : bot.name)
+        .modifier(LiftIfReorderable(reorderable: reorderable) { lift(room.id) })
+        .alignmentGuide(.listRowSeparatorLeading) { _ in KithSpacing.gutter + KithSize.botAvatar + 14 }
+        .listRowSeparator(.visible)
+        .listRowSeparatorTint(Palette.ink.opacity(0.08))
+        .accessibilityLabel(accessibilityName(room))
         .accessibilityActions {
-            Button("Move up") { withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { store.move(bot.id, by: -1) } }
-            Button("Move down") { withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { store.move(bot.id, by: 1) } }
+            if reorderable {
+                Button("Move up") { shift(room, by: -1, in: section) }
+                Button("Move down") { shift(room, by: 1, in: section) }
+            }
         }
-        .contextActions {
-            [
-                MenuItem(bot.pinned ? "Unpin" : "Pin", icon: bot.pinned ? "pin.slash" : "pin") { store.setPinned(bot, !bot.pinned) },
-                bot.isGroup
-                    ? MenuItem("Edit group", icon: "person.2") { editingGroup = GroupTarget(computerId: item.ref.computerId, group: bot) }
-                    : MenuItem("Edit profile", icon: "pencil") { editing = EditTarget(computerId: item.ref.computerId, draft: BotDraft(bot)) },
-                MenuItem("Mark as read", icon: "checkmark.message") { store.markAllRead(bot.id) },
-                MenuItem("Hide from list", icon: "eye.slash") { store.setHidden(bot, true) },
-                MenuItem("Delete", icon: "trash", destructive: true, divider: true) { confirmDelete = item },
-            ]
+        .contextMenu { menu(item, store: store) }
+    }
+
+    private func accessibilityName(_ room: Room) -> String {
+        accounts.computers.count > 1 ? "\(room.item.bot.name), on \(room.store.hostName)" : room.item.bot.name
+    }
+
+    @ViewBuilder private func menu(_ item: RosterItem, store: BotStore) -> some View {
+        let bot = item.bot
+        Button(bot.pinned ? "Unpin" : "Pin", systemImage: bot.pinned ? "pin.slash" : "pin") { store.setPinned(bot, !bot.pinned) }
+        Menu("Colour", systemImage: "paintpalette") {
+            ForEach(AvatarPalette.colors) { swatch in
+                Button { store.setAvatarColor(bot, swatch.stored) } label: {
+                    Label(swatch.label, systemImage: AvatarPalette.pick(bot.avatarColor) == swatch.id ? "checkmark" : "circle.fill")
+                }
+            }
         }
+        if bot.isGroup {
+            Button("Edit group", systemImage: "person.2") { editingGroup = GroupTarget(computerId: item.ref.computerId, group: bot) }
+        } else {
+            Button("Edit profile", systemImage: "pencil") { editing = EditTarget(computerId: item.ref.computerId, draft: BotDraft(bot)) }
+        }
+        if accounts.role(for: item.ref.computerId) == .owner, store.connection == .online {
+            Button("Share", systemImage: "person.badge.plus") { inviting = ChatTarget(store: store) }
+        }
+        Button("Mark as read", systemImage: "checkmark.message") { store.markAllRead(bot.id) }
+        Button("Hide from list", systemImage: "eye.slash") { store.setHidden(bot, true) }
+        Divider()
+        Button("Delete", systemImage: "trash", role: .destructive) { confirmDelete = item }
+    }
+
+    private func open(_ ref: BotReference) {
+        query = ""
+        accounts.selection = ref
     }
 
     /// The system asks for a row's item as it lifts; the row shows as lifted until it lets go.
@@ -292,6 +281,212 @@ struct BotListView: View {
         lifted = id
         return LiftItem { Task { @MainActor in if lifted == id { lifted = nil } } }
     }
+
+    // MARK: order
+
+    /// Writes a dragged order to each computer as before: its own bots, in an order the host syncs to every device.
+    /// `unpinned` is nil when only the pinned rooms moved, so Automatic never overwrites the stored manual order.
+    private func writeOrder(pinned: [Room], unpinned: [Room]?) {
+        for store in shownStores {
+            let id = store.computer.id
+            let base = store.roster
+            let basePinned = base.filter(\.pinned).map(\.id)
+            let newPinned = pinned.filter { $0.item.ref.computerId == id }.map { $0.item.bot.id }
+            let rest = unpinned?.filter { $0.item.ref.computerId == id }.map { $0.item.bot.id } ?? base.filter { !$0.pinned }.map(\.id)
+            let ids = (newPinned.isEmpty ? basePinned : newPinned) + rest
+            if ids != base.map(\.id) { store.reorder(ids) }
+        }
+    }
+
+    private func movePinned(_ pinned: [Room]) -> ((IndexSet, Int) -> Void)? {
+        { source, destination in
+            var after = pinned
+            after.move(fromOffsets: source, toOffset: destination)
+            writeOrder(pinned: after, unpinned: nil)
+        }
+    }
+
+    private func moveRest(pinned: [Room], rest: [Room]) -> (IndexSet, Int) -> Void {
+        { source, destination in
+            var after = rest
+            after.move(fromOffsets: source, toOffset: destination)
+            writeOrder(pinned: pinned, unpinned: after)
+        }
+    }
+
+    /// VoiceOver's Move up / Move down.
+    private func shift(_ room: Room, by offset: Int, in section: [Room]) {
+        guard let i = section.firstIndex(where: { $0.id == room.id }), section.indices.contains(i + offset) else { return }
+        var after = section
+        after.swapAt(i, i + offset)
+        withAnimation(Motion.reduced(Motion.layout, reduceMotion)) {
+            if room.item.bot.pinned {
+                writeOrder(pinned: after, unpinned: nil)
+            } else {
+                writeOrder(pinned: rooms.filter { $0.item.bot.pinned }, unpinned: after)
+            }
+        }
+    }
+
+    // MARK: top of the list
+
+    @ViewBuilder private func updateCard(_ store: BotStore) -> some View {
+        if let mismatch = store.mismatch {
+            UpdateNeededCard(store: store, mismatch: mismatch)
+                .padding(.horizontal, KithSpacing.gutter)
+                .padding(.vertical, 8)
+                .transition(.opacity)
+        }
+    }
+
+    /// Machines show only when something is wrong with one: a chip that opens Computers.
+    @ViewBuilder private var machineChips: some View {
+        let trouble = shownStores.filter { $0.mismatch == nil && ($0.isOffline || $0.shownConnection == .connecting) }
+        if !trouble.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(trouble, id: \.computer.id) { store in
+                        Button { app.showComputers = true } label: {
+                            HStack(spacing: 6) {
+                                Text(store.hostName).kithText(.secondary).foregroundStyle(Palette.ink).lineLimit(1)
+                                StatusChip(store.isOffline ? .macUnreachable : .catchingUp)
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .kithGlass(in: Capsule(), interactive: true)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(store.hostName), \(store.connectionLabel). Opens Computers")
+                    }
+                }
+                .padding(.horizontal, KithSpacing.gutter)
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    /// Guests' requests waiting for this account's answer, on the shown computers it owns, ahead of the rooms.
+    @ViewBuilder private var needsYourOK: some View {
+        let waiting = shownStores.flatMap { store in
+            accounts.guestPrompts(for: store.computer.id).map { (store, $0) }
+        }
+        if !waiting.isEmpty {
+            Text("Needs your OK")
+                .kithText(.secondary).fontWeight(.semibold)
+                .foregroundStyle(Palette.muted)
+                .padding(.horizontal, KithSpacing.gutter)
+                .padding(.top, 10)
+                .padding(.bottom, 4)
+                .accessibilityAddTraits(.isHeader)
+            ForEach(waiting, id: \.1.id) { store, prompt in
+                VStack(alignment: .leading, spacing: 4) {
+                    if accounts.computers.count > 1 {
+                        Text(store.hostName).kithText(.secondary).foregroundStyle(Palette.muted)
+                    }
+                    DecisionCard(DecisionCardModel(guest: prompt), answering: store.answering[prompt.entry.id]) {
+                        store.respond(prompt.entry, option: $0)
+                    }
+                }
+                .padding(.horizontal, KithSpacing.gutter)
+                .padding(.vertical, 4)
+                .transition(.opacity)
+            }
+        }
+    }
+
+    // MARK: dock
+
+    /// Typing leads somewhere when it matches a room and nothing is attached.
+    private func leads(_ matches: [Room]) -> Bool { searching && files.isEmpty && !matches.isEmpty }
+
+    private func dock(matches: [Room]) -> some View {
+        ChatDock(text: dockText(matches), placeholder: "Find or ask…",
+                 hasAttachment: !files.isEmpty,
+                 onSend: { submit(matches) },
+                 onMic: { dictation.toggle(current: query) { query = $0 } },
+                 onCall: { call() },
+                 onPhotos: { pickingPhotos = true },
+                 onCamera: { if CameraPicker.isAvailable { pickingCamera = true } else { accounts.lastError = "This device has no camera." } },
+                 onFiles: { pickingFiles = true },
+                 sendStyle: leads(matches) ? .muted : .word) {
+            if !files.isEmpty {
+                HomeAttachmentChips(files: files) { file in
+                    withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { files.removeAll { $0.id == file.id } }
+                }
+            }
+        }
+    }
+
+    /// Return at the end of the text submits it; the box is otherwise a plain field.
+    private func dockText(_ matches: [Room]) -> Binding<String> {
+        Binding(get: { query }, set: { new in
+            if new.hasSuffix("\n"), String(new.dropLast()) == query { submit(matches) } else { query = new }
+        })
+    }
+
+    /// Return and the send arrow: open the top match, or, with nothing to open, pick an agent for a new session.
+    private func submit(_ matches: [Room]) {
+        dictation.stop()
+        if leads(matches), let top = matches.first {
+            open(top.item.ref)
+        } else if searching || !files.isEmpty {
+            picking = .send
+        }
+    }
+
+    /// One agent is called straight away; with several, the person picks.
+    private func call() {
+        let agents = rooms.filter { !$0.item.bot.isGroup }
+        if agents.count == 1, let only = agents.first { startCall(only.store, only.item.bot.id) } else { picking = .call }
+    }
+
+    private func startCall(_ store: BotStore, _ botId: String) {
+        if let block = HomeCallCover.block(store: store, botId: botId) {
+            store.lastError = block
+        } else {
+            calling = CallTarget(store: store, botId: botId)
+        }
+    }
+
+    /// The agents to pick from, for a new session or a call.
+    private func pickChoices(for pick: AgentPick) -> [PickAgentSheet.Choice] {
+        displayedAgents.map { room in
+            PickAgentSheet.Choice(model: CrewRows.model(for: room.item, store: room.store, team: room.team)) {
+                switch pick {
+                case .call: startCall(room.store, room.item.bot.id)
+                case .send: startSession(with: room)
+                }
+            }
+        }
+    }
+
+    private var displayedAgents: [Room] { displayed(rooms).filter { !$0.item.bot.isGroup } }
+
+    /// A new session with the agent: what was typed and attached goes out as its first message, then its chat opens.
+    private func startSession(with room: Room) {
+        let text = trimmedQuery
+        room.store.send(text, to: room.item.bot.id, files: files, newTask: true)
+        query = ""
+        files = []
+        accounts.selection = room.item.ref
+    }
+
+    private func append(_ new: [OutgoingFile]) {
+        let result = HomeAttachments.accepted(new)
+        if let error = result.error { accounts.lastError = error }
+        withAnimation(Motion.reduced(Motion.layout, reduceMotion)) { files += result.files }
+    }
+
+    private func addPhotos(_ items: [PhotosPickerItem]) {
+        Task {
+            var images: [Data] = []
+            for item in items { if let data = try? await item.loadTransferable(type: Data.self) { images.append(data) } }
+            append(HomeAttachments.photos(images))
+        }
+    }
+
+    private func addFiles(_ urls: [URL]) { append(HomeAttachments.files(from: urls)) }
+
+    // MARK: new things
 
     /// A group chat gathers bots of one computer (the first one online; more computers are future work).
     private func newGroup() {
@@ -310,8 +505,123 @@ struct BotListView: View {
     }
 }
 
-/// One row the user can drag in the roster: a computer's heading or a bot.
-/// The item a lifted bot row carries (nothing): the system lets go of it when the drag or the
+/// Everything Crew presents: the editors, dialogs and the dock's pickers.
+private struct HomeSheets: ViewModifier {
+    @Environment(AccountStore.self) private var accounts
+    @Binding var editing: EditTarget?
+    @Binding var editingGroup: GroupTarget?
+    @Binding var confirmDelete: RosterItem?
+    @Binding var newChat: BotListView.ChatTarget?
+    @Binding var inviting: BotListView.ChatTarget?
+    let allStores: [BotStore]
+    @Binding var query: String
+    @Binding var files: [OutgoingFile]
+    @Binding var picking: AgentPick?
+    @Binding var calling: BotListView.CallTarget?
+    @Binding var pickingPhotos: Bool
+    @Binding var photoItems: [PhotosPickerItem]
+    @Binding var pickingFiles: Bool
+    @Binding var pickingCamera: Bool
+    let pickChoices: (AgentPick) -> [PickAgentSheet.Choice]
+    let addPhotos: ([PhotosPickerItem]) -> Void
+    let addFiles: ([URL]) -> Void
+    let addCamera: (Data) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .kithSheet(item: $editing) { target in
+                // A new bot can move to another computer until it's created.
+                let computerId = editing?.computerId ?? target.computerId
+                if let store = accounts.store(for: computerId) {
+                    BotEditorView(draft: target.draft,
+                                  computers: allStores.map {
+                                      ($0.computer.id, $0.connection == .online ? $0.hostName : "\($0.hostName) (offline)")
+                                  },
+                                  computer: target.draft.id == nil
+                                      ? Binding(get: { computerId }, set: { editing?.computerId = $0 })
+                                      : nil)
+                        .environment(store)
+                        .onChange(of: store.selection) { _, botId in
+                            // A new bot opens its chat, on the computer it was created on.
+                            guard let botId else { return }
+                            store.selection = nil
+                            accounts.selection = BotReference(accountId: accounts.accountId, computerId: computerId, botId: botId)
+                        }
+                }
+            }
+            .kithSheet(item: $newChat) { target in
+                NewChatSheet(store: target.store).environment(accounts)
+            }
+            .kithSheet(item: $inviting) { target in
+                InvitePeopleSheet(store: target.store)
+            }
+            .kithSheet(item: $editingGroup) { target in
+                if let store = accounts.store(for: target.computerId) {
+                    GroupEditorView(group: target.group)
+                        .environment(store)
+                        .onChange(of: store.selection) { _, botId in
+                            guard let botId else { return }
+                            store.selection = nil
+                            accounts.selection = BotReference(accountId: accounts.accountId, computerId: target.computerId, botId: botId)
+                        }
+                }
+            }
+            .kithSheet(item: $picking) { pick in
+                PickAgentSheet(title: pick.title, choices: pickChoices(pick))
+            }
+            .fullScreenCover(item: $calling) { target in
+                HomeCallCover(store: target.store, botId: target.botId) { calling = nil }
+            }
+            .kithDialog("Delete \(confirmDelete?.bot.name ?? "bot")?",
+                          isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
+                          message: confirmDelete?.bot.isGroup == true ? "Its bots and their own chats stay." : "Files it changed on your computer stay as they are.") {
+                let item = confirmDelete
+                return [DialogAction(item?.bot.isGroup == true ? "Delete group chat" : "Delete bot and its conversation", destructive: true) {
+                    if let item { accounts.store(for: item.ref.computerId)?.delete(item.bot) }
+                }]
+            }
+            .photosPicker(isPresented: $pickingPhotos, selection: $photoItems, maxSelectionCount: 10, matching: .images)
+            .onChange(of: photoItems) { _, items in
+                guard !items.isEmpty else { return }
+                photoItems = []
+                addPhotos(items)
+            }
+            .fileImporter(isPresented: $pickingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+                if case .success(let urls) = result { addFiles(urls) }
+            }
+            .fullScreenCover(isPresented: $pickingCamera) {
+                CameraPicker(picked: addCamera).ignoresSafeArea()
+            }
+    }
+}
+
+/// People on a computer, from the new-chat menu and a row's Share: who is invited, and the way to invite someone.
+private struct InvitePeopleSheet: View {
+    let store: BotStore
+    @State private var people: PeopleStore
+
+    init(store: BotStore) {
+        self.store = store
+        _people = State(initialValue: PeopleStore(store: store))
+    }
+
+    var body: some View {
+        PeopleView(people: people, store: store)
+            .task { await people.load() }
+    }
+}
+
+/// Makes a row draggable (and shows it lifted) only where the order setting allows.
+private struct LiftIfReorderable: ViewModifier {
+    let reorderable: Bool
+    let provider: () -> NSItemProvider
+
+    func body(content: Content) -> some View {
+        if reorderable { content.itemProvider(provider) } else { content }
+    }
+}
+
+/// The item a lifted room row carries (nothing): the system lets go of it when the drag or the
 /// menu ends.
 private final class LiftItem: NSItemProvider {
     private let ended: @Sendable () -> Void
@@ -322,96 +632,6 @@ private final class LiftItem: NSItemProvider {
     }
 
     deinit { ended() }
-}
-
-private enum RosterLine: Identifiable {
-    case computer(ComputerID, BotStore)
-    case bot(RosterItem, BotStore)
-
-    var id: String {
-        switch self {
-        case let .computer(id, _): "computer:\(id)"
-        case let .bot(item, _): "bot:\(item.ref.computerId):\(item.bot.id)"
-        }
-    }
-
-    /// The computer a heading stands for.
-    var computerId: ComputerID? {
-        if case let .computer(id, _) = self { id } else { nil }
-    }
-
-    func botId(on computerId: ComputerID) -> String? {
-        if case let .bot(item, _) = self, item.ref.computerId == computerId { item.bot.id } else { nil }
-    }
-}
-
-/// A computer's heading above its bots: badge, name and connection. Tap folds its bots away;
-/// touch and hold, then drag, moves the computer (on this device).
-private struct ComputerSection: View {
-    let store: BotStore
-    let access: AccessLevel
-    let empty: Bool
-    let collapsed: Bool
-    let toggle: () -> Void
-    let move: (ComputerID, Int) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            heading
-            if empty && !collapsed {
-                Text("No bots yet")
-                    .font(.footnote)
-                    .foregroundStyle(Palette.tertiary)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 4)
-                    .transition(.opacity)
-            }
-        }
-        .padding(.top, 14)
-        .padding(.bottom, 2)
-        .padding(.horizontal, -8)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits([.isHeader, .isButton])
-        .accessibilityLabel("\(store.hostName), \(access.title), \(store.statusText)")
-        .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
-        .accessibilityHint("Double-tap to fold or expand. Touch and hold, then drag to reorder on this device.")
-        .accessibilityAction(named: collapsed ? "Expand" : "Collapse", toggle)
-        .accessibilityAction(.default) { toggle() }
-        .accessibilityActions {
-            Button("Move up") { move(store.computer.id, -1) }
-            Button("Move down") { move(store.computer.id, 1) }
-        }
-    }
-
-    private var heading: some View {
-        HStack(spacing: 6) {
-            ComputerBadge(store.computer, size: 18)
-            Text(store.hostName)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Palette.secondary)
-                .lineLimit(1)
-            Text(access.title)
-                .font(.footnote)
-                .foregroundStyle(Palette.tertiary)
-            Text(store.statusText)
-                .font(.footnote)
-                .foregroundStyle(store.isOffline ? Palette.warning : Palette.tertiary)
-                .lineLimit(1)
-                .contentTransition(.opacity)
-            if store.connection == .online {
-                RouteIcon(route: store.hostRoute).font(.caption2).foregroundStyle(Palette.tertiary)
-            }
-            Spacer(minLength: 8)
-            Image(systemName: "chevron.down")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Palette.tertiary)
-                .rotationEffect(.degrees(collapsed ? -90 : 0))
-                .accessibilityHidden(true)
-        }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 8)
-        .contentShape(Rectangle())
-    }
 }
 
 private struct GroupTarget: Identifiable {
@@ -426,6 +646,7 @@ private struct EditTarget: Identifiable {
     let draft: BotDraft
 }
 
+/// The crew before there is one: on the sky, in the new type.
 private struct EmptyRoster: View {
     let canCreate: Bool
     let hasComputer: Bool
@@ -435,12 +656,12 @@ private struct EmptyRoster: View {
     var body: some View {
         VStack(spacing: 14) {
             CharacterAvatar(portrait: "spare-cloud", size: 72)
-            Text("No bots yet").font(.title3.weight(.semibold)).foregroundStyle(Palette.text)
+            Text("No bots yet").kithText(.agentName).foregroundStyle(Palette.ink)
             Text(hasComputer
                  ? "Create a bot for each kind of work — a reviewer, a fixer, a docs writer — and point it at a project."
                  : "Ask one of your account's computers for access, or pair one with its code.")
-                .font(.subheadline)
-                .foregroundStyle(Palette.secondary)
+                .kithText(.body)
+                .foregroundStyle(Palette.muted)
                 .multilineTextAlignment(.center)
             if canCreate {
                 Button("Create your first bot", action: create)
@@ -451,6 +672,7 @@ private struct EmptyRoster: View {
             }
         }
         .frame(maxWidth: .infinity)
+        .padding(.horizontal, 32)
         .padding(.vertical, 40)
     }
 }
