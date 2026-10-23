@@ -627,10 +627,13 @@ fn guard_lets_a_granted_member_use_their_own_chat() {
             BotSpec { owner: 1, deleted: false, agent: 2 },
             BotSpec { owner: 2, deleted: false, agent: 1 },
             BotSpec { owner: 0, deleted: false, agent: 1 },
+            BotSpec { owner: 1, deleted: true, agent: 1 },
         ],
         entries: vec![
             EntrySpec { bot: 0, permission: true, author: 1 },
             EntrySpec { bot: 1, permission: true, author: 0 },
+            EntrySpec { bot: 0, permission: false, author: 1 },
+            EntrySpec { bot: 0, permission: true, author: 2 },
         ],
     };
     let ids = w.load(&sc);
@@ -644,6 +647,19 @@ fn guard_lets_a_granted_member_use_their_own_chat() {
     assert!(go("send", json!({"botId": ids.bots[0], "project": "pr2"})).is_err());
     assert!(go("send", json!({"botId": ids.bots[0], "folder": "/x"})).is_err());
     assert!(go("send", json!({"botId": ids.bots[0], "clear": true})).is_err());
+    // Not a prompt of their run: a card of another kind, and a card another bot raised.
+    assert!(go("respondPermission", json!({"entryId": ids.entries[2]})).is_err(), "a notice is not a prompt");
+    assert!(go("respondPermission", json!({"entryId": ids.entries[3]})).is_err(), "another bot's prompt");
+    assert!(go("send", json!({"botId": ids.bots[4]})).is_err(), "a deleted chat");
+    // Every method off the member list is refused, one by one (a random draw hits a single method too rarely).
+    for m in router_methods().iter().filter(|m| !MEMBER_METHODS.contains(&m.as_str())) {
+        let body = json!({"botId": ids.bots[0], "entryId": ids.entries[0]});
+        assert!(go(m, body).is_err(), "{m} is not on MEMBER_METHODS but guard let a member through");
+    }
+    // The grant taken away: the same calls are refused the next time.
+    w.write_grants(&[[Ans::Denied(false), Ans::Denied(false)], [Ans::Denied(false), Ans::Denied(false)]]);
+    assert!(go("send", json!({"botId": ids.bots[0]})).is_err(), "a revoked grant still sends");
+    assert!(go("history", json!({"botId": ids.bots[1]})).is_err(), "a revoked grant still reads");
 }
 
 /// (7) kith-auth's answer, every kind: only a grant counts, anything unreadable is a no, a member alone approves.
