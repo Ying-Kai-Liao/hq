@@ -9,14 +9,23 @@ One workflow, `.github/workflows/ci.yml`. The single required check is the umbre
 | `changes` | linux | Path filters (below). |
 | `host` | linux | `cargo fmt --check` and clippy on the whole host workspace. |
 | `host-build` | linux | Builds all host test binaries once as a cargo-nextest archive (uploaded as an artifact). |
-| `host-test` (unit, e2e-1..3) | linux | Runs the archive: unit tests, then `tests/*.rs` split into three `--partition` shards. Config: `serve/host/.config/nextest.toml`, profile `ci`. |
+| `host-test` | linux | Runs the archive's unit tests. Config: `serve/host/.config/nextest.toml`, profile `ci`. |
+| `host-e2e` (1..3) | linux | The archive's `tests/*.rs` integration tests, in three `--partition` shards. Heavy tier. |
 | `host-crates` | linux | Tests and doctests of guest, tts, wire and memory (nextest does not run doctests). |
-| `guest-linux` | linux x86_64 and arm64 | Static kith-guest build, installer and smoke test. |
+| `guest-linux` (heavy) | linux x86_64 and arm64 | Static kith-guest build, installer and smoke test. |
 | `cloud`, `relay`, `licenses`, `kernel`, `thread-writers` | linux | As named. |
-| `desktop-js`, `desktop-relay-e2e` | linux | Desktop typecheck and unit tests; the relay e2e against a real kith-serve. |
-| `ios`, `desktop` | macos-26 | Only what needs macOS: the iOS build and the unsigned Mac app build. |
+| `desktop-js`, `desktop-relay-e2e` (heavy) | linux | Desktop typecheck and unit tests; the relay e2e against a real kith-serve. |
+| `ios`, `desktop` (heavy) | macos-26 | Only what needs macOS: the iOS build and the unsigned Mac app build. |
 
 No paid, larger or self-hosted runners. Rust caches come from Swatinem/rust-cache and are saved only on main (PR and queue refs cannot share caches and would evict main's). npm and SwiftPM caches are kept per job.
+
+## Tiers
+
+- Cheap tier, every pull request: fmt, clippy, host unit tests, kernel, cloud and relay (typecheck, vitest), licenses, thread-writers, desktop typecheck and tests. All path-filtered.
+- Heavy tier: the macOS builds (`ios`, `desktop`), every e2e (`host-e2e`, `desktop-relay-e2e`, cloud's bot guests e2e step) and `guest-linux`. They run on merge_group, push to main and workflow_dispatch, never skipped there.
+- A pull request gets the heavy tier too when it carries the `ci:full` label (add it with `gh pr edit <n> --add-label ci:full`). A draft pull request gets the cheap tier only, even with the label; mark it ready to run the heavy tier.
+
+Jobs skipped by the tier count as passed in `ci`, so a green PR means "cheap tier green"; the queue runs the rest before anything lands on main.
 
 ## Path filters
 
