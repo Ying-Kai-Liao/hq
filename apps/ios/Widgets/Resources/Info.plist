@@ -8,6 +8,12 @@
     <key>CodyncAPNSEnvironment</key><string>$(CODYNC_APNS_ENVIRONMENT)</string>
 	<key>CodyncKeychainGroup</key>
 	<string>$(AppIdentifierPrefix)$(CODYNC_KEYCHAIN_GROUP)</string>
+	<!-- The Dynamic Island's animated hop (tools/make-kith-glyph-fonts.py). -->
+	<key>UIAppFonts</key>
+	<array>
+		<string>KithHop-Dot.ttf</string>
+		<string>KithHop-Ghost.ttf</string>
+	</array>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>

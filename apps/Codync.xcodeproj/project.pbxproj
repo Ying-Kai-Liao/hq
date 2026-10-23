@@ -52,6 +52,8 @@
 		F6A380E8A026CA849620F2F7 /* Driver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D16AD9979C77D976BC832D1 /* Driver.swift */; };
 		F842AE1C5ED96AF9A7F5D16C /* Widgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6D734BEE7CD3F84677B0218B /* Widgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F97C489DDB806224CEFCEB57 /* ScreenHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B2CB561A43ED9F2F1A4391 /* ScreenHelper.swift */; };
+		6F2B8D1E4CA05B7392D1E8F1 /* KithHop-Dot.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 5E1A7C0D3B9F4A6281C0D7E1 /* KithHop-Dot.ttf */; };
+		6F2B8D1E4CA05B7392D1E8F2 /* KithHop-Ghost.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 5E1A7C0D3B9F4A6281C0D7E2 /* KithHop-Ghost.ttf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -135,6 +137,8 @@
 		F6932F782C1B87C9608359A6 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		F99C11684BFBEB49006600A9 /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
 		FAB9BDB52C3A9F7B2568A750 /* CodyncWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodyncWidgets.swift; sourceTree = "<group>"; };
+		5E1A7C0D3B9F4A6281C0D7E1 /* KithHop-Dot.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "KithHop-Dot.ttf"; sourceTree = "<group>"; };
+		5E1A7C0D3B9F4A6281C0D7E2 /* KithHop-Ghost.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "KithHop-Ghost.ttf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -177,12 +181,22 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		7A3C9E2F5DB16C84A3E2F9A1 /* Fonts */ = {
+			isa = PBXGroup;
+			children = (
+				5E1A7C0D3B9F4A6281C0D7E1 /* KithHop-Dot.ttf */,
+				5E1A7C0D3B9F4A6281C0D7E2 /* KithHop-Ghost.ttf */,
+			);
+			path = Fonts;
+			sourceTree = "<group>";
+		};
 		39BD6D06FC3DE74E5AA24856 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
 				1318104275E5BEC47B7088AD /* Info.plist */,
 				AD18A04CD014230F1B7B0535 /* PrivacyInfo.xcprivacy */,
 				0829A4FCADAC108E8C2DB2F1 /* Widgets.entitlements */,
+				7A3C9E2F5DB16C84A3E2F9A1 /* Fonts */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -500,6 +514,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6F2B8D1E4CA05B7392D1E8F1 /* KithHop-Dot.ttf in Resources */,
+				6F2B8D1E4CA05B7392D1E8F2 /* KithHop-Ghost.ttf in Resources */,
 				674BCFBAC7022359FB673FDB /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

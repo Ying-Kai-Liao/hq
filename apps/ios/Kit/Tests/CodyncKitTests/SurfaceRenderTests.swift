@@ -92,3 +92,62 @@ import Testing
     #expect(try frame(.working, reduced: true) == idle)
     #expect(try frame(.error, reduced: true) == idle)
 }
+
+// MARK: - The hop glyph fonts
+
+/// Registers the committed KithHop fonts, as the widget extension's UIAppFonts does.
+private func registerHopFonts() {
+    let fonts = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Widgets/Resources/Fonts")
+    for name in ["KithHop-Dot", "KithHop-Ghost"] {
+        CTFontManagerRegisterFontsForURL(fonts.appendingPathComponent("\(name).ttf") as CFURL, .process, nil)
+    }
+}
+
+@MainActor private func hopPixels(_ content: Text, size: CGFloat = 64) throws -> [UInt8] {
+    let view = HopFrames(content, color: .white, size: size).background(Color.black).environment(\.colorScheme, .dark)
+    let renderer = ImageRenderer(content: view)
+    renderer.scale = 1
+    let cg = try #require(renderer.cgImage)
+    var px = [UInt8](repeating: 0, count: cg.width * cg.height * 4)
+    px.withUnsafeMutableBytes { buf in
+        let ctx = CGContext(data: buf.baseAddress, width: cg.width, height: cg.height, bitsPerComponent: 8, bytesPerRow: cg.width * 4,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+    }
+    return px
+}
+
+/// The fonts map each digit to a pose and draw only the timer's last digit, so a timer steps
+/// through the hop one pose a second whatever its length.
+@MainActor @Test func theHopFontsDrawOneStepPerSecond() throws {
+    registerHopFonts()
+    let poses = try (0...9).map { try hopPixels(Text("\($0)")) }
+    // Every digit draws a lit body on the black ground, and no two poses are the same picture.
+    for pose in poses { #expect(pose.enumerated().filter { $0.offset % 4 == 0 && $0.element > 200 }.count > 200) }
+    #expect(Set(poses).count >= 8)  // rest and settle frames can coincide at this size
+    // Only the last character shows: "10:07" is the pose of "7".
+    #expect(try hopPixels(Text("10:07")) == poses[7])
+    #expect(try hopPixels(Text("0:59")) == poses[9])
+}
+
+/// Writes the hop's ten poses on the Dynamic Island's black, for design review:
+/// `TEST_RUNNER_CODYNC_RENDER_DIR=<dir> xcodebuild test … -only-testing:CodyncKitTests/renderHop`.
+@MainActor @Test func renderHop() throws {
+    guard let dir = ProcessInfo.processInfo.environment["CODYNC_RENDER_DIR"] else { return }
+    registerHopFonts()
+    let blue = Color(red: 0.36, green: 0.55, blue: 1)
+    let sheet = HStack(spacing: 18) {
+        ForEach(0..<10, id: \.self) { digit in
+            VStack(spacing: 8) {
+                HopFrames(Text("\(digit)"), color: blue, size: 56)
+                HopFrames(Text("\(digit)"), color: blue, size: 20)
+            }
+        }
+    }
+    .padding(24).background(Color.black)
+    let renderer = ImageRenderer(content: sheet)
+    renderer.scale = 2
+    try #require(renderer.uiImage?.pngData()).write(to: URL(fileURLWithPath: "\(dir)/hop-poses.png"))
+}

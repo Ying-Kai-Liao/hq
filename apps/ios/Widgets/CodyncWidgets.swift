@@ -634,15 +634,38 @@ struct BotLiveActivity: Widget {
         .init(status: context.state.status, activity: context.state.activity, isStale: context.isStale)
     }
 
-    /// The state's mark; the bot beside it carries the working pose.
+    /// While the bot works, the mark is Kith's hop (one pose a second); otherwise it holds its
+    /// state's mark. With Reduce Motion the hop rests.
+    @ViewBuilder
     private func indicator(_ context: ActivityViewContext<BotActivityAttributes>, state: BotActivityPresentation, size: CGFloat) -> some View {
-        BotActivityIndicator(state: state, size: size)
+        ZStack {
+            if state.phase == .working {
+                WorkingHop(since: context.state.startedAt ?? .now, color: state.tint, size: size)
+                    .transition(.opacity)
+            } else {
+                BotActivityIndicator(state: state, size: size).transition(.opacity)
+            }
+        }
+        .animation(Motion.activityPhase, value: state.phase)
+        .accessibilityLabel(state.title)
     }
 
     /// The bot's body with its eyes posed for the phase: one frame, since a Live Activity cannot animate.
     private func avatar(_ context: ActivityViewContext<BotActivityAttributes>, state: BotActivityPresentation, size: CGFloat) -> some View {
         ActivityAvatar(color: context.attributes.avatarColor, portrait: context.attributes.avatarPortrait, state: state, size: size)
             .animation(Motion.activityPhase, value: state.phase)
+    }
+}
+
+/// Kith's hop: the timer drawn in the KithHop fonts, resting under Reduce Motion.
+struct WorkingHop: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let since: Date
+    let color: Color
+    let size: CGFloat
+
+    var body: some View {
+        HopFrames(reduceMotion ? Text("0") : Text(since, style: .timer), color: color, size: size)
     }
 }
 
