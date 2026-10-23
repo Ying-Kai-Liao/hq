@@ -1,0 +1,45 @@
+# variant	kind	property	expected
+# --- the code as it is today -------------------------------------------------
+code	INVARIANT	TypeOK	pass
+code	PROPERTY	ResumeRefusedWhileTurnRuns	pass
+code	PROPERTY	ResumeRefusedWhileOpen	pass
+code	PROPERTY	SendRefusedWhenHostSeesTerminal	pass
+# --- findings: the code breaks these (see SKILL.md, Findings) ----------------
+code	INVARIANT	OneWriter	fail
+code	PROPERTY	TakeoverOnlyWhenIdle	fail
+code	INVARIANT	NoForeignSignal	fail
+atomic-takeover	PROPERTY	TakeoverOnlyWhenIdle	pass
+atomic-takeover	INVARIANT	NoForeignSignal	pass
+code	PROPERTY	ResumeNeverWhileSendPending	fail
+code	PROPERTY	ResumeNeverWhileOtherTerminal	fail
+code	PROPERTY	SendNeverWhileTerminalClaims	fail
+code-instant	PROPERTY	SendNeverWhileTerminalClaims	fail
+code	PROPERTY	ContinuesLastSession	fail
+# --- design (bot guests, not wired in code yet) ------------------------------
+design-bot-field	PROPERTY	BotRefusedWhileHeld	fail
+design-bot-live	PROPERTY	BotRefusedWhileHeld	fail
+# --- what-if: the fixes the findings point at --------------------------------
+whatif-fixes	INVARIANT	OneWriter	pass
+whatif-fixes	PROPERTY	TakeoverOnlyWhenIdle	pass
+whatif-fixes	PROPERTY	ResumeNeverWhileSendPending	pass
+whatif-fixes	PROPERTY	ResumeNeverWhileOtherTerminal	pass
+whatif-fixes	PROPERTY	SendNeverWhileTerminalClaims	pass
+whatif-fixes	PROPERTY	ContinuesLastSession	pass
+whatif-fixes-bot	PROPERTY	BotRefusedWhileHeld	pass
+# the what-if is not vacuous: a host turn, a bot turn, a busy terminal, a take-over and a host turn after a terminal all happen in it
+whatif-fixes	INVARIANT	NeverHostRuns	fail
+whatif-fixes	INVARIANT	NeverTerminalBusy	fail
+whatif-fixes	INVARIANT	NeverTookOver	fail
+whatif-fixes	INVARIANT	NeverHostRunsAfterTerminalHeld	fail
+whatif-fixes-bot	INVARIANT	NeverBotRuns	fail
+# --- broken variants: each property must fail when its check is removed ------
+broken-no-send-gate	PROPERTY	SendRefusedWhenHostSeesTerminal	fail
+broken-no-taking-block	PROPERTY	SendRefusedWhenHostSeesTerminal	fail
+broken-resume-ignores-host	PROPERTY	ResumeRefusedWhileTurnRuns	fail
+broken-resume-ignores-open	PROPERTY	ResumeRefusedWhileOpen	fail
+code	PROPERTY	CacheNeverStale	fail
+whatif-no-import-forget	PROPERTY	CacheNeverStale	fail
+whatif-fixes	PROPERTY	CacheNeverStale	pass
+broken-no-forget	PROPERTY	CacheNeverStale	fail
+broken-takeover-busy	PROPERTY	TakeoverOnlyWhenIdle	fail
+broken-no-procstart	INVARIANT	NoForeignSignal	fail

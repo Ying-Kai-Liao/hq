@@ -1,0 +1,20 @@
+\* The code as it is today (see Threads.tla for what each switch means). A variant's .set file overrides lines here.
+Terminals = {"t1","t2"}
+MaxSends = 2
+StartTerminalBorn = TRUE
+SendChecksLive = TRUE
+TakingBlocksSend = TRUE
+GateNeedsInfo = TRUE
+ResumeChecksHostBusy = TRUE
+ResumeChecksOpen = TRUE
+TakeoverRefusesBusy = TRUE
+TakeoverRechecks = TRUE
+ProcStartCheck = TRUE
+ForgetsCache = TRUE
+LaunchIsInstant = FALSE
+BotEnabled = FALSE
+BotGate = "field"
+ClaimOnResolve = FALSE
+TakeoverAtomic = FALSE
+SyncLaneAtStart = FALSE
+ForgetOnImport = FALSE
