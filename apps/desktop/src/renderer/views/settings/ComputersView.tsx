@@ -4,64 +4,142 @@ import type { AccountApproval, AuthorizedDevice, PairingInfo } from '@shared/mod
 import { newSSHProfile, type SSHProfile } from '@shared/ssh'
 import { Button, CardSection, IconButton, Spinner, Switch } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
-import { Dialog, ModalHeader, Sheet, useDismiss } from '../../components/Overlay'
+import { AnchoredMenu, Dialog, ModalHeader, Sheet, useContextMenu, useDismiss, type MenuItem } from '../../components/Overlay'
 import { HStack, IconSlot, Spacer, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
 import { useModel } from '../../lib/observable'
+import { prefs, usePref } from '../../lib/prefs'
 import { useAccount } from '../../store/account'
 import type { BotStore } from '../../store/bot-store'
 import { StoreContext, useApp } from '../../store/context'
+import { macRows, spaced, type MacRow } from '../../store/mac-list'
 import { ComputerBadge } from '../ComputerBadge'
-import { deviceIcon, errorText, liveClient, relativeDay, Reveal, SectionHeader, statusText, thisMac } from './parts'
+import { computerSelection } from '../ComputerFilterHeader'
+import { deviceIcon, errorText, liveClient, relativeDay, Reveal, thisMac } from './parts'
 import { useSSH } from './ssh-model'
 import { SSHRow } from './SSHRow'
-import { MacList } from '../computers/MacList'
+import { BackupChains } from './BackupChain'
 import { VoiceChatSettingsView } from './VoiceChatSettingsView'
 import '../pairing-window.css'
 
 /**
- * Computers this app manages (itself and SSH), with their account, relay and authorized devices;
- * SSH profiles; and the account's other computers.
+ * Settings > Computers: every computer this account can use with its Show in Crew switch, then what this Mac
+ * offers (reach from anywhere, pairing, devices), SSH computers, and the account's other Macs (ask for access).
  */
 export function ComputersView() {
   const app = useApp()
   const account = useAccount()
   const sshState = useSSH()
+  const macs = useModel(app.relayMacs)
+  useEffect(() => void macs.refresh(), [macs, account.user?.userId])
   const [editing, setEditing] = useState<{ profile: SSHProfile; isNew: boolean } | null>(null)
-  const managed = app.managedStores
+  const [panel, setPanel] = useState<{ kind: 'voice' | 'backups'; store: BotStore } | null>(null)
+  const [hidden, setHidden] = usePref(prefs.hiddenComputers)
+  const rows = macRows(app, (id) => sshState.isSSH(id))
+  const selection = computerSelection(app.computers.map((c) => c.id), hidden)
 
   return (
-    <div className="settings-computers">
-      <VStack gap={26} className="settings-computers-content">
-        {managed.map((store) => (
-          <ManagedComputerCard key={store.computer.id} store={store} ssh={sshState.isSSH(store.computer.id)} />
-        ))}
+    <>
+      <CardSection title="Computers" accessory={<span className="settings-section-note">Show in Crew</span>}>
+        {rows.length === 0
+          ? [<Text key="none" tone="secondary">{account.isSignedIn ? (macs.loaded ? 'No computers yet.' : 'Looking for your computers…') : 'Sign in to reach your other Macs.'}</Text>]
+          : rows.map((row) => (
+              <ComputerRow
+                key={row.id}
+                row={row}
+                shown={selection.shown.includes(row.id)}
+                onShow={() => setHidden(selection.toggling(row.id))}
+                openPanel={(kind, store) => setPanel({ kind, store })}
+              />
+            ))}
+      </CardSection>
+      {macs.error ? <Text as="div" size="caption" tone="attention">{macs.error}</Text> : null}
 
-        <div>
-          <SectionHeader title="Over SSH">
-            <IconButton title="Add SSH computer" icon="plus" onClick={() => setEditing({ profile: newSSHProfile(window.kith.hostPort), isNew: true })} />
-          </SectionHeader>
-          <Reveal show={sshState.state.profiles.length === 0}>
-            <Text as="div" size="callout" tone="secondary">
-              Run bots on another computer you reach with SSH. It needs kith-serve installed; your SSH keys stay on {thisMac}.
-            </Text>
-          </Reveal>
-          {sshState.state.profiles.map((profile) => (
-            <SSHRow key={profile.id} profile={profile} status={sshState.status(profile.id)} edit={() => setEditing({ profile, isNew: false })} />
-          ))}
-        </div>
+      {app.managedStores.map((store) => (
+        <ManagedComputerCard key={store.computer.id} store={store} ssh={sshState.isSSH(store.computer.id)} />
+      ))}
 
-        <div>
-          <SectionHeader title="In your account">
-            {account.isSignedIn ? <IconButton title="Refresh" icon="arrow.clockwise" onClick={() => void app.relayMacs.refresh()} /> : null}
-          </SectionHeader>
-          <MacList />
-        </div>
-      </VStack>
+      <CardSection
+        title="Over SSH"
+        accessory={<IconButton title="Add SSH computer" icon="plus" onClick={() => setEditing({ profile: newSSHProfile(window.kith.hostPort), isNew: true })} />}
+        footer={`Run bots on another computer you reach with SSH. It needs kith-serve installed; your SSH keys stay on ${thisMac}.`}
+      >
+        {sshState.state.profiles.length === 0
+          ? [<Text key="none" tone="secondary">No SSH computers.</Text>]
+          : sshState.state.profiles.map((profile) => (
+              <SSHRow key={profile.id} profile={profile} status={sshState.status(profile.id)} edit={() => setEditing({ profile, isNew: false })} />
+            ))}
+      </CardSection>
+      <Text as="div" size="caption" tone="secondary" className="settings-hint">
+        Right-click a computer: Voice chat, Backups, Disconnect.
+      </Text>
 
       <Sheet open={editing !== null} onClose={() => setEditing(null)} width={460}>
         {editing ? <SSHProfileEditor key={editing.profile.id} profile={editing.profile} isNew={editing.isNew} /> : null}
       </Sheet>
+      <Sheet open={panel !== null} onClose={() => setPanel(null)}>
+        {panel ? (
+          <StoreContext.Provider value={panel.store}>
+            {panel.kind === 'voice' ? <VoiceChatSettingsView /> : <BackupsSheet store={panel.store} />}
+          </StoreContext.Provider>
+        ) : null}
+      </Sheet>
+    </>
+  )
+}
+
+function BackupsSheet({ store }: { store: BotStore }) {
+  return (
+    <div className="settings-sheet-body">
+      <ModalHeader title={`Backups on ${store.hostName}`} />
+      <div className="settings-devices-body">
+        <BackupChains only={store.computer.id} />
+      </div>
+    </div>
+  )
+}
+
+/** One computer: its badge, route and bots, the Show in Crew switch (or the way to ask for access), and its right-click menu. */
+function ComputerRow({ row, shown, onShow, openPanel }: {
+  row: MacRow
+  shown: boolean
+  onShow: () => void
+  openPanel: (kind: 'voice' | 'backups', store: BotStore) => void
+}) {
+  const app = useApp()
+  const macs = app.relayMacs
+  const store = app.store(row.id)
+  useModel(store ?? null)
+  const menu = useContextMenu()
+  const route = row.kind === 'relay' ? 'Cloudflare' : row.kind === 'ssh' ? 'SSH' : store?.cloud?.enabled && store.cloud.connected ? 'Wi-Fi · reach from anywhere on' : 'Wi-Fi'
+  const bots = store ? `${store.roster.length} bot${store.roster.length === 1 ? '' : 's'} · ` : ''
+  const sub = row.kind === 'relay' && !store ? `in your account · ${row.status.toLowerCase()}` : `${bots}${route}${row.online ? '' : ` · ${row.status.toLowerCase()}`}`
+  const items = (): MenuItem[] => [
+    ...(store && row.online
+      ? [
+          { title: 'Voice chat', icon: 'waveform', action: () => openPanel('voice', store) },
+          { title: 'Backups', icon: 'arrow.triangle.2.circlepath', action: () => openPanel('backups', store) },
+        ]
+      : []),
+    ...(row.kind === 'relay' && (row.action === 'disconnect' || row.action === 'forget')
+      ? [{ title: row.action === 'forget' ? 'Forget' : 'Disconnect', icon: 'xmark.circle', destructive: true, divider: !!store && row.online, action: () => void macs.disconnect(row.id) }]
+      : []),
+  ]
+  const hasMenu = items().length > 0
+  const hasSwitch = store !== undefined && row.action !== 'forget'
+  return (
+    <div className="settings-computer" onContextMenu={hasMenu ? menu.onContextMenu : undefined}>
+      <ComputerBadge computer={row.computer} size={28} />
+      <VStack grow className="settings-stack">
+        <Text tone="text" truncate>{row.name}{row.kind === 'this' ? ` · ${thisMac}` : ''}</Text>
+        <Text size="caption" tone="secondary" truncate>{sub}</Text>
+      </VStack>
+      {row.code ? <Text size="headline" mono aria-label={`Digits to check: ${row.code}`}>{spaced(row.code)}</Text> : null}
+      {row.action === 'connect' ? <Button kind="secondary" onClick={() => void macs.connect(row.id)}>Ask for access</Button> : null}
+      {row.action === 'cancel' ? <Button kind="secondary" onClick={() => macs.cancel(row.id)}>Cancel</Button> : null}
+      {row.action === 'forget' ? <Button kind="secondary" onClick={() => void macs.disconnect(row.id)}>Forget</Button> : null}
+      {hasSwitch ? <Switch className="bare" on={shown} onChange={onShow} label={`Show ${row.name} in Crew`} /> : null}
+      <AnchoredMenu open={menu.open} onClose={menu.close} point={menu.point} items={items} />
     </div>
   )
 }
@@ -76,7 +154,7 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
   const [devices, setDevices] = useState<AuthorizedDevice[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [showPairing, setShowPairing] = useState(false)
-  const [showVoice, setShowVoice] = useState(false)
+  const [showDevices, setShowDevices] = useState(false)
   const [confirmRevoke, setConfirmRevoke] = useState<AuthorizedDevice | null>(null)
   const [confirmUnclaim, setConfirmUnclaim] = useState(false)
   const [confirmAutoApproval, setConfirmAutoApproval] = useState(false)
@@ -84,6 +162,7 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
   const autoApproval = cloud?.approval === 'auto'
   const online = store.connection.kind === 'online'
   const name = store.hostName
+  const requests = store.accessRequests.length
 
   const run = (work: () => Promise<void>) => {
     setBusy(true)
@@ -111,7 +190,7 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
 
   const cloudLine = !cloud?.enabled
     ? 'Off: only Wi-Fi and Tailscale reach it, nothing goes through Cloudflare.'
-    : (cloud.lastError ?? (cloud.connected ? 'Reachable from anywhere through Cloudflare (encrypted).' : 'Connecting to Cloudflare…'))
+    : (cloud.lastError ?? (cloud.connected ? 'Relay connected: reachable from anywhere through Cloudflare (encrypted).' : 'Connecting to Cloudflare…'))
 
   const owner = cloud?.owner ?? null
   const accountLine = (
@@ -138,30 +217,34 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
     </HStack>
   )
 
+  const deviceNames = devices?.map((d) => d.name).join(', ')
   return (
-    <VStack gap={28}>
-      <CardSection>
+    <>
+      <CardSection title={overSSH ? `${name} · over SSH` : isMacLabel}>
         {[
-          <div key="header" className="settings-row">
-            <ComputerBadge computer={store.computer} size={26} />
-            <VStack grow className="settings-stack">
-              <Text size="headline">{name}</Text>
-              <Text size="caption" tone="secondary">
-                {overSSH ? 'Over SSH' : isMacLabel} · {statusText(store)}
-              </Text>
-            </VStack>
-            {overSSH ? (
-              // This computer's voice settings are their own Settings page.
-              <IconButton title="Voice chat" icon="waveform" selected={showVoice} disabled={!online} onClick={() => setShowVoice((s) => !s)} />
-            ) : null}
-            <IconButton title="Pair iPhone" icon="qrcode" selected={showPairing} disabled={!online} onClick={() => setShowPairing((s) => !s)} />
-          </div>,
           <Switch key="cloud" on={cloud?.enabled ?? false} disabled={busy || !online} onChange={(on) => run(() => app.cloud.setCloud(store, on))}>
             <span className="settings-stack">
               <span>Reach from anywhere</span>
               <Text size="caption" tone={cloud?.lastError ? 'attention' : 'secondary'}>{cloudLine}</Text>
             </span>
           </Switch>,
+          <div key="pair" className="settings-row">
+            <VStack grow className="settings-stack">
+              <span>Pair iPhone</span>
+              <Text size="caption" tone="secondary">show a one-time code</Text>
+            </VStack>
+            <Button kind="secondary" disabled={!online} onClick={() => setShowPairing(true)}>Show code</Button>
+          </div>,
+          <button key="devices" className="settings-row settings-nav-row" onClick={() => setShowDevices(true)}>
+            <VStack grow className="settings-stack">
+              <span>Devices that can use {name}</span>
+              <Text size="caption" tone="secondary" truncate>
+                {devices === null ? 'Loading…' : `${deviceNames || 'None yet'}${requests > 0 ? ` · ${requests} request${requests === 1 ? '' : 's'}` : ''}`}
+              </Text>
+            </VStack>
+            {requests > 0 ? <span className="settings-count">{requests}</span> : null}
+            <Icon name="chevron.right" size={11} color="var(--secondary)" />
+          </button>,
           accountLine,
           ...(owner
             ? [
@@ -183,32 +266,39 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
         ]}
       </CardSection>
 
-      <CardSection title={`Devices that can use ${name}`}>
-        {devices === null
-          ? [<Spinner key="loading" />]
-          : [
-              ...(devices.length === 0
-                ? [<Text key="none" tone="secondary">None yet. Pair an iPhone, or approve one from your account.</Text>]
-                : []),
-              ...devices.map((device) => (
-                <HStack key={device.key} gap={8} className="settings-row settings-appear">
-                  <IconSlot width={18} tone="secondary">
-                    <Icon name={deviceIcon(device.platform)} size={13} />
-                  </IconSlot>
-                  <VStack grow className="settings-stack">
-                    <span>{device.name}</span>
-                    <Text size="caption" tone="tertiary">{deviceDetail(device)}</Text>
-                  </VStack>
-                  <IconButton title="Revoke access" icon="xmark.circle" onClick={() => setConfirmRevoke(device)} />
-                </HStack>
-              )),
-            ]}
-      </CardSection>
-
-      <Sheet open={showVoice} onClose={() => setShowVoice(false)}>
-        <StoreContext.Provider value={store}>
-          <VoiceChatSettingsView />
-        </StoreContext.Provider>
+      <Sheet open={showDevices} onClose={() => setShowDevices(false)} width={460}>
+        <ModalHeader title={`Devices that can use ${name}`} />
+        <div className="settings-devices-body">
+          <CardSection>
+            {devices === null
+              ? [<Spinner key="loading" />]
+              : [
+                  ...(requests > 0
+                    ? [
+                        <div key="requests" className="settings-row">
+                          <Text grow>{requests} access request{requests === 1 ? '' : 's'} waiting</Text>
+                          <Button onClick={() => { app.reviewApprovals(); setShowDevices(false) }}>Review</Button>
+                        </div>,
+                      ]
+                    : []),
+                  ...(devices.length === 0
+                    ? [<Text key="none" tone="secondary">None yet. Pair an iPhone, or approve one from your account.</Text>]
+                    : []),
+                  ...devices.map((device) => (
+                    <HStack key={device.key} gap={8} className="settings-row settings-appear">
+                      <IconSlot width={18} tone="secondary">
+                        <Icon name={deviceIcon(device.platform)} size={13} />
+                      </IconSlot>
+                      <VStack grow className="settings-stack">
+                        <span>{device.name}</span>
+                        <Text size="caption" tone="tertiary">{deviceDetail(device)}</Text>
+                      </VStack>
+                      <Button kind="secondary" onClick={() => setConfirmRevoke(device)}>Revoke</Button>
+                    </HStack>
+                  )),
+                ]}
+          </CardSection>
+        </div>
       </Sheet>
       <Sheet open={showPairing} onClose={() => setShowPairing(false)} width={340}>
         <ModalHeader title={`Pair iPhone with ${name}`} />
@@ -251,7 +341,7 @@ function ManagedComputerCard({ store, ssh: overSSH }: { store: BotStore; ssh: bo
         actions={[{ title: 'Remove from account', destructive: true, action: () => run(() => app.cloud.unclaim(store)) }]}
         onClose={() => setConfirmUnclaim(false)}
       />
-    </VStack>
+    </>
   )
 }
 
