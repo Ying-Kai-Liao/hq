@@ -710,8 +710,8 @@ async fn racing_takers_of_a_stale_claim_leave_exactly_one_owner() {
     assert_eq!(pids.iter().zip(&wins).find(|(_, w)| **w).map(|(p, _)| *p), Some(owner));
 }
 
-#[test]
-fn a_host_turns_own_claim_does_not_stop_the_hosts_sends() {
+#[tokio::test]
+async fn a_host_turns_own_claim_does_not_stop_the_hosts_sends() {
     let r = Rig::new();
     let me = r.sleeper();
     assert!(claim::take(&r.state(), "s1", Kind::App, me, false).unwrap().is_ok());
