@@ -12,7 +12,7 @@ use crate::channels::hq::TEST_ENV;
 use crate::hub::Hub;
 use crate::remote::account::{ONE_AT_A_TIME, TEST_BIN};
 use crate::remote::identity::Identity;
-use crate::store::{BotConfig, EntryKind, Lane, Store};
+use crate::store::{BotConfig, BotGuest, BotState, EntryKind, Lane, Store};
 use proptest::prelude::*;
 use proptest::test_runner::{Config, TestCaseError, TestRunner};
 use serde_json::{Value, json};
@@ -106,13 +106,14 @@ fn ans() -> impl Strategy<Value = Ans> {
 
 #[derive(Clone, Debug)]
 struct PersonSpec {
-    agents: [bool; 2],
+    /// 0 not held, 1 member, 2 guest (what the host keeps in the person row).
+    agents: [u8; 2],
     projects: [bool; 2],
 }
 
 #[derive(Clone, Debug)]
 struct BotSpec {
-    /// 0 the owner's, 1 and 2 the people.
+    /// 0 the owner's, 1 and 2 the people, 3 a bot guest (see `Scenario::bot_owner`).
     owner: usize,
     deleted: bool,
     /// 0 none, 1 and 2 the agents.
@@ -132,6 +133,8 @@ const BOTS: usize = 4;
 
 #[derive(Clone, Debug)]
 struct Scenario {
+    /// Who owns the bot guests: 0 the Mac owner, 1 and 2 the people.
+    bot_owner: usize,
     grants: [[Ans; 2]; 2],
     people: [Option<PersonSpec>; 2],
     bots: Vec<BotSpec>,
@@ -141,9 +144,10 @@ struct Scenario {
 fn scenario() -> impl Strategy<Value = Scenario> {
     let person = proptest::option::weighted(
         0.85,
-        (any::<[bool; 2]>(), any::<[bool; 2]>()).prop_map(|(agents, projects)| PersonSpec { agents, projects }),
+        (proptest::array::uniform2(0..3u8), any::<[bool; 2]>())
+            .prop_map(|(agents, projects)| PersonSpec { agents, projects }),
     );
-    let bot = (0..3usize, proptest::bool::weighted(0.2), 0..3usize).prop_map(|(owner, deleted, agent)| BotSpec {
+    let bot = (0..4usize, proptest::bool::weighted(0.2), 0..3usize).prop_map(|(owner, deleted, agent)| BotSpec {
         owner,
         deleted,
         agent,
@@ -154,12 +158,19 @@ fn scenario() -> impl Strategy<Value = Scenario> {
         author,
     });
     (
+        0..3usize,
         [[ans(), ans()], [ans(), ans()]],
         [person.clone(), person],
         proptest::collection::vec(bot, BOTS),
         proptest::collection::vec(entry, 0..4),
     )
-        .prop_map(|(grants, people, bots, entries)| Scenario { grants, people, bots, entries })
+        .prop_map(|(bot_owner, grants, people, bots, entries)| Scenario {
+            bot_owner,
+            grants,
+            people,
+            bots,
+            entries,
+        })
 }
 
 struct World {
@@ -232,8 +243,8 @@ impl World {
                 let agents = AGENTS
                     .iter()
                     .zip(spec.agents)
-                    .filter(|(_, on)| *on)
-                    .map(|(a, _)| ((*a).to_owned(), "member".to_owned()));
+                    .filter(|(_, role)| *role != 0)
+                    .map(|(a, role)| ((*a).to_owned(), ["", "member", "guest"][usize::from(role)].to_owned()));
                 store.set_person_agents(p, &agents.collect()).unwrap();
                 let projects: Vec<String> =
                     PROJECTS.iter().zip(spec.projects).filter(|(_, on)| *on).map(|(p, _)| (*p).to_owned()).collect();
@@ -241,8 +252,17 @@ impl World {
             }
         }
         let bots: Vec<String> = (0..sc.bots.len()).map(|i| format!("c{n}b{i}")).collect();
-        for (id, b) in bots.iter().zip(&sc.bots) {
-            let person = (b.owner > 0).then(|| PEOPLE[b.owner - 1]);
+        for (i, (id, b)) in bots.iter().zip(&sc.bots).enumerate() {
+            let bot_person = format!("bot-c{n}g{i}");
+            let person = match b.owner {
+                0 => None,
+                3 => Some(bot_person.as_str()),
+                o => Some(PEOPLE[o - 1]),
+            };
+            if b.owner == 3 {
+                let owner_person = (sc.bot_owner > 0).then(|| PEOPLE[sc.bot_owner - 1].to_owned());
+                store.put_bot_guest(&bot_guest(&format!("c{n}bg{i}"), &bot_person, owner_person)).unwrap();
+            }
             let agent = (b.agent > 0).then(|| AGENTS[b.agent - 1]);
             store.save_bot(&Self::bot_config(id, person, agent, &format!("/Users/secret-{id}"))).unwrap();
         }
@@ -281,6 +301,29 @@ impl Drop for World {
     }
 }
 
+fn bot_guest(bot_id: &str, person_id: &str, owner_person: Option<String>) -> BotGuest {
+    BotGuest {
+        bot_id: bot_id.to_owned(),
+        person_id: person_id.to_owned(),
+        owner_person,
+        name: "Rex".into(),
+        provider: "grok".into(),
+        agents: vec![],
+        state: BotState::Active,
+        device_key: None,
+        cloud_device: None,
+        rate_per_hour: 0,
+        concurrent: 0,
+        created_at: 0,
+        joined_at: None,
+        decided_at: None,
+        decided_by: None,
+        last_seen_at: None,
+        revoked_at: None,
+        revoked_why: None,
+    }
+}
+
 fn agent_index(name: &str) -> Option<usize> {
     AGENTS.iter().position(|a| *a == name)
 }
@@ -298,6 +341,8 @@ fn router_methods() -> Vec<String> {
         include_str!("marketplace.rs"),
         include_str!("remote.rs"),
         include_str!("people.rs"),
+        include_str!("botguests.rs"),
+        include_str!("threads.rs"),
     ];
     let mut out = std::collections::BTreeSet::new();
     for src in sources {
@@ -418,7 +463,18 @@ fn by_entry(m: &str) -> bool {
 }
 
 fn nothing_to_check(m: &str) -> bool {
-    matches!(m, "hello" | "projects" | "linkCode" | "startChat")
+    matches!(
+        m,
+        "hello"
+            | "projects"
+            | "linkCode"
+            | "startChat"
+            | "createBotInvite"
+            | "revokeBotInvite"
+            | "revokeBot"
+            | "myBots"
+            | "setBotLimits"
+    )
 }
 
 fn fail(msg: impl Into<String>) -> TestCaseError {
@@ -462,7 +518,22 @@ fn check_guard_ok(world: &World, sc: &Scenario, call: &CallSpec, ids: &Ids, body
         return Err(fail("guard let through a deleted chat"));
     }
     if row.config.person.as_deref() != Some(me) {
-        return Err(fail(format!("guard let {me} into a chat of {:?}", row.config.person)));
+        // The one way into a chat that is not theirs: answering the permission prompt of a bot guest of theirs, as a
+        // member of the agent that bot runs.
+        let theirs = row
+            .config
+            .person
+            .as_deref()
+            .and_then(|bot| world.hub.store.bot_guest_of_person(bot))
+            .is_some_and(|g| g.owner_person.as_deref() == Some(me));
+        let agent = row.config.hq_agent.as_deref().and_then(agent_index);
+        let prompt =
+            world.hub.store.entry(body["entryId"].as_str().unwrap_or_default()).is_some_and(|e| e.kind == "permission");
+        let member = agent.is_some_and(|a| sc.grants[call.person][a].member());
+        if method == "respondPermission" && theirs && prompt && member {
+            return Ok(());
+        }
+        return Err(fail(format!("guard let {me} into a chat of {:?} ({method})", row.config.person)));
     }
     let Some(agent) = row.config.hq_agent.as_deref().and_then(agent_index) else {
         return Err(fail("guard let through a chat with no (known) agent"));
@@ -544,8 +615,9 @@ fn guard_never_lets_a_person_past_their_grant() {
 fn guard_lets_a_granted_member_use_their_own_chat() {
     let w = World::new();
     let sc = Scenario {
+        bot_owner: 0,
         grants: [[Ans::Member, Ans::Guest], [Ans::Denied(false), Ans::Denied(false)]],
-        people: [Some(PersonSpec { agents: [true, true], projects: [true, false] }), None],
+        people: [Some(PersonSpec { agents: [1, 1], projects: [true, false] }), None],
         bots: vec![
             BotSpec { owner: 1, deleted: false, agent: 1 },
             BotSpec { owner: 1, deleted: false, agent: 2 },
@@ -589,6 +661,7 @@ fn kith_auth_answers_fail_closed() {
         assert!(!w.rt.block_on(roles::may_use("nobody", "a1")));
         // And the agents list never offers more than kith-auth allows, nor calls a non-member a member.
         let case = Scenario {
+            bot_owner: 0,
             grants: [[a.clone(), Ans::Fail], [Ans::Fail, Ans::Fail]],
             people: [None, None],
             bots: vec![BotSpec { owner: 0, deleted: false, agent: 1 }, BotSpec { owner: 0, deleted: false, agent: 2 }],
@@ -615,7 +688,8 @@ struct EventSpec {
     who: usize,
 }
 
-const EVENT_TYPES: [&str; 9] = ["bot", "entry", "usage", "screens", "cloud", "resync", "terminal", "", "zzz"];
+const EVENT_TYPES: [&str; 10] =
+    ["bot", "entry", "usage", "screens", "cloud", "resync", "terminal", "", "zzz", "botUpdated"];
 
 fn event_spec() -> impl Strategy<Value = EventSpec> {
     (0..EVENT_TYPES.len(), 0..=BOTS, 0..3usize, 0..2usize, 0..3usize)
@@ -652,6 +726,10 @@ fn event_value(e: &EventSpec, ids: &Ids, hub: &Hub) -> Value {
             }
             json!({"type": "entry", "entry": entry})
         }
+        "botUpdated" => {
+            let owner = [json!("p1"), json!("p2"), json!(7)][e.key].clone();
+            json!({"type": "botUpdated", "bot": {"id": chat, "ownerPerson": owner}})
+        }
         t => json!({"type": t, "rev": 1}),
     }
 }
@@ -673,15 +751,34 @@ fn events_reach_only_the_person_they_are_about() {
             match (who, out) {
                 (Some(p), Some(v)) => {
                     // (5) A person's event is about their own chat, of an agent the host still lists for them.
-                    prop_assert!(["bot", "entry", "resync"].contains(&ty), "{ty} reached {p}");
-                    if ty != "resync" {
+                    prop_assert!(["bot", "entry", "resync", "botUpdated"].contains(&ty), "{ty} reached {p}");
+                    if ty == "botUpdated" {
+                        prop_assert_eq!(v["bot"]["ownerPerson"].as_str(), Some(p), "a bot's update reached a stranger");
+                    } else if ty != "resync" {
                         let row = row.ok_or_else(|| fail("event about an unknown chat reached a person"))?;
-                        prop_assert_eq!(row.config.person.as_deref(), Some(p));
                         let i = PEOPLE.iter().position(|x| *x == p).unwrap();
-                        let listed = sc.people[i].as_ref().is_some_and(|s| {
-                            row.config.hq_agent.as_deref().and_then(agent_index).is_some_and(|a| s.agents[a])
-                        });
-                        prop_assert!(listed, "event about a chat whose agent is not granted reached {p}");
+                        let role = |a: usize| sc.people[i].as_ref().map_or(0, |s| s.agents[a]);
+                        let agent = row.config.hq_agent.as_deref().and_then(agent_index);
+                        if row.config.person.as_deref() == Some(p) {
+                            // Their own chat, of an agent the host still lists for them.
+                            let listed = agent.is_some_and(|a| role(a) != 0);
+                            prop_assert!(listed, "event about a chat whose agent is not granted reached {p}");
+                        } else {
+                            // Not theirs: only the permission prompt of a bot guest of theirs, as a member of its agent.
+                            let theirs = row
+                                .config
+                                .person
+                                .as_deref()
+                                .and_then(|b| w.hub.store.bot_guest_of_person(b))
+                                .is_some_and(|g| g.owner_person.as_deref() == Some(p));
+                            let prompt = ty == "entry" && v["entry"]["kind"] == "permission";
+                            let member = agent.is_some_and(|a| role(a) == 1);
+                            prop_assert!(
+                                theirs && prompt && member,
+                                "an event about {:?}'s chat reached {p}",
+                                row.config.person
+                            );
+                        }
                         // (6) and nothing of where the agent works.
                         prop_assert!(!v.to_string().contains(SECRET), "{v}");
                         prop_assert!(!v.to_string().contains("/Users/secret-"), "{v}");
@@ -738,8 +835,9 @@ fn with_secrets(v: Value, keys: &[&str]) -> Value {
 fn what_a_person_is_shown_has_no_paths_folders_or_error_text() {
     let w = World::new();
     let sc = Scenario {
+        bot_owner: 0,
         grants: [[Ans::Fail, Ans::Fail], [Ans::Fail, Ans::Fail]],
-        people: [Some(PersonSpec { agents: [false, false], projects: [true, false] }), None],
+        people: [Some(PersonSpec { agents: [0, 0], projects: [true, false] }), None],
         bots: vec![],
         entries: vec![],
     };
@@ -806,8 +904,9 @@ fn what_a_person_is_shown_has_no_paths_folders_or_error_text() {
 fn a_real_bot_json_loses_where_it_works() {
     let w = World::new();
     let sc = Scenario {
+        bot_owner: 0,
         grants: [[Ans::Member, Ans::Fail], [Ans::Fail, Ans::Fail]],
-        people: [Some(PersonSpec { agents: [true, false], projects: [false, false] }), None],
+        people: [Some(PersonSpec { agents: [1, 0], projects: [false, false] }), None],
         bots: vec![BotSpec { owner: 1, deleted: false, agent: 1 }],
         entries: vec![],
     };
@@ -817,4 +916,114 @@ fn a_real_bot_json_loses_where_it_works() {
     assert!(ev.to_string().contains("/Users/secret-"), "the fixture must carry a path or this checks nothing");
     let seen = roles::event_for(&w.hub.store, Some("p1"), ev).expect("their own chat reaches them");
     assert!(!seen.to_string().contains("/Users/secret-"), "{seen}");
+}
+
+// ---- bot guests ----
+
+/// A bot guest gets a short list and nothing a member's chat, file or project call would give it.
+#[test]
+fn a_bot_guest_may_call_only_its_short_list() {
+    let routed = router_methods();
+    for m in roles::BOT_METHODS {
+        assert!(routed.iter().any(|r| r == m), "{m} is on BOT_METHODS but the router has no such method");
+        assert!(*m == "hello" || !roles::member_may(m), "{m} is on both lists: a bot would hold a member's call");
+    }
+    for m in roles::BOT_PENDING_METHODS {
+        assert!(roles::BOT_METHODS.contains(m), "{m}: a bot that is not allowed in yet holds more than an allowed one");
+    }
+    for m in [
+        "respondPermission",
+        "startChat",
+        "send",
+        "thread",
+        "history",
+        "upload",
+        "readUpload",
+        "projects",
+        "linkCode",
+        "createBotInvite",
+        "revokeBot",
+        "myBots",
+        "setBotLimits",
+        "createBot",
+        "updateBot",
+        "deleteBot",
+        "createInvite",
+        "people",
+    ] {
+        assert!(!roles::bot_may(m), "{m} must not be a bot's");
+    }
+    runner()
+        .run(&proptest::sample::select(routed), |m| {
+            prop_assert_eq!(roles::bot_may(&m), roles::BOT_METHODS.contains(&m.as_str()));
+            Ok(())
+        })
+        .unwrap();
+    runner()
+        .run(&"[a-zA-Z]{0,10}", |m| {
+            prop_assert_eq!(roles::bot_may(&m), roles::BOT_METHODS.contains(&m.as_str()));
+            Ok(())
+        })
+        .unwrap();
+}
+
+fn entry_json() -> impl Strategy<Value = Value> {
+    let kind = proptest::sample::select(vec!["user", "agent", "thought", "tool", "plan", "permission", "notice", "x"]);
+    let data = (
+        "[a-z ]{0,8}",
+        proptest::sample::select(vec!["pending", "done", "error", "info"]),
+        any::<bool>(),
+        any::<bool>(),
+    )
+        .prop_map(|(text, state, sender, extra)| {
+            let mut d = json!({
+                "text": text, "status": state, "style": state, "final": extra,
+                // What a bot must never see, under every key an entry may carry it in.
+                "tool": SECRET, "args": SECRET, "title": SECRET, "attachments": [SECRET], "options": [SECRET],
+                "input": {"command": SECRET}, "path": SECRET, "cwd": SECRET, "author": SECRET,
+            });
+            if sender {
+                d["sender"] = json!({"botId": "b", "name": "Rex", "speaker": "bot", "path": SECRET, "cwd": SECRET});
+            }
+            d
+        });
+    (kind, data).prop_map(|(kind, data)| {
+        json!({"id": "e1", "seq": 3, "turn": 1, "createdAt": 5, "kind": kind, "data": data, "botId": SECRET, "threadId": SECRET})
+    })
+}
+
+/// What a bot guest is shown of a transcript: words and a bare "waiting", never a tool, its arguments, a path or a card.
+#[test]
+fn a_bot_guest_is_shown_words_only() {
+    runner()
+        .run(&entry_json(), |e| {
+            let out = roles::bot_entry(&e, "conv1", "Sam");
+            let kind = e["kind"].as_str().unwrap_or_default();
+            let Some(out) = out else {
+                prop_assert!(!matches!(kind, "user" | "agent"), "{kind} entry dropped");
+                return Ok(());
+            };
+            prop_assert!(!out.to_string().contains(SECRET), "{out}");
+            prop_assert!(
+                out.as_object().unwrap().keys().all(|k| {
+                    ["id", "seq", "turn", "at", "conversation", "kind", "text", "sender", "final"].contains(&k.as_str())
+                }),
+                "{out}"
+            );
+            prop_assert!(["user", "agent", "notice", "waiting"].contains(&out["kind"].as_str().unwrap()), "{out}");
+            if out["kind"] == "waiting" {
+                prop_assert_eq!(out["text"].as_str(), Some("Waiting for Sam to approve a step"));
+                prop_assert!(kind == "permission" && e["data"]["status"] == "pending");
+            }
+            if out["kind"] == "notice" {
+                prop_assert!(kind == "notice" && e["data"]["style"] == "error");
+            }
+            if let Some(sender) = out.get("sender") {
+                prop_assert!(
+                    sender.as_object().unwrap().keys().all(|k| ["botId", "name", "speaker"].contains(&k.as_str()))
+                );
+            }
+            Ok(())
+        })
+        .unwrap();
 }
