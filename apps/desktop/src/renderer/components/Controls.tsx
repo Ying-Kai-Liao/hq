@@ -1,4 +1,4 @@
-import { Children, Fragment, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import { Children, Fragment, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { Icon } from './Icon'
 import { AnchoredMenu, IconButtonBase, type MenuItem } from './Overlay'
 import { HStack, Spacer, VStack } from './Stack'
@@ -51,9 +51,10 @@ export function Switch({ on, onChange, children, label, disabled, className }: {
 }
 
 /** A button that opens a Kith menu. */
-export function DropdownMenu({ items, children, className, style, title }: { items: () => MenuItem[]; children: ReactNode; className?: string; style?: CSSProperties; title?: string }) {
+export function DropdownMenu({ items, children, className, style, title, buttonRef }: { items: () => MenuItem[]; children: ReactNode; className?: string; style?: CSSProperties; title?: string; /** The button, for opening the menu some other way (a right-click). */ buttonRef?: RefObject<HTMLButtonElement | null> }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLButtonElement>(null)
+  const own = useRef<HTMLButtonElement>(null)
+  const ref = buttonRef ?? own
   return (
     <>
       <button ref={ref} className={className} style={style} title={title} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>

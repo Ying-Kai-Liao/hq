@@ -56,7 +56,7 @@ export const prefs = {
   textSize: pref('conversationFontSize', DEFAULT_TEXT_SIZE),
   sidebarCompact: pref('sidebarCompact', false),
   sidebarWidth: pref('desktopSidebarWidth', 266),
-  detailsPanelWidth: pref('detailsPanelWidth', 292),
+  detailsPanelWidth: pref('detailsPanelWidth', 310),
   repliesPanelWidth: pref('repliesPanelWidth', 420),
   hiddenComputers: pref('hiddenComputers', ''),
   computerOrder: pref<string[]>('computerOrder', []),
