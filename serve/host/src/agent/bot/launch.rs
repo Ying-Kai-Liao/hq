@@ -53,17 +53,19 @@ pub(crate) async fn launch_commands(cfg: &BotConfig, progress: impl Fn(&str)) ->
 pub(crate) async fn select_model(acp: &Acp, res: &Value, sid: &str, cfg: &BotConfig) -> Result<Value> {
     let Some(model) = cfg.model.as_deref().filter(|m| !m.is_empty()) else { return Ok(res.clone()) };
     let Some(config_id) = crate::agent::auth::model_config(res).and_then(|c| c["id"].as_str()) else {
-        let r = acp.request("session/set_model", json!({"sessionId": sid, "modelId": model})).await;
-        return r.map(|_| res.clone()).map_err(|e| model_error(model, &e));
+        let r =
+            timed_request(acp, "session/set_model", json!({"sessionId": sid, "modelId": model}), REQUEST_TIMEOUT).await;
+        return r.map(|_| res.clone()).map_err(|e| model_error(model, e));
     };
     let (model, mut options) = split_variant(res, model);
     options.extend(cfg.model_options.iter().map(|(k, v)| (k.as_str(), v.as_str())));
     let set = |id: &str, value: &str| {
-        acp.request("session/set_config_option", json!({"sessionId": sid, "configId": id, "value": value}))
+        let params = json!({"sessionId": sid, "configId": id, "value": value});
+        timed_request(acp, "session/set_config_option", params, REQUEST_TIMEOUT)
     };
-    let mut current = set(config_id, model).await.map_err(|e| model_error(model, &e))?;
+    let mut current = set(config_id, model).await.map_err(|e| model_error(model, e))?;
     for (id, value) in options {
-        let answer = set(id, value).await.map_err(|e| model_error(&format!("{model} with {id}={value}"), &e))?;
+        let answer = set(id, value).await.map_err(|e| model_error(&format!("{model} with {id}={value}"), e))?;
         if answer["configOptions"].is_array() {
             current = answer;
         }
@@ -71,8 +73,32 @@ pub(crate) async fn select_model(acp: &Acp, res: &Value, sid: &str, cfg: &BotCon
     Ok(if current["configOptions"].is_array() { current } else { res.clone() })
 }
 
-fn model_error(model: &str, e: &anyhow::Error) -> anyhow::Error {
+/// How long the agent may take to answer a request that switches the model. As generous as `session/new`: it only
+/// recovers an adapter that went silent, it never limits one that is slow but working.
+pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// A request the agent must answer within `limit`. A silent agent is stopped (a hung one would hold the bot, and its
+/// Stop, forever) and the failure is a [`acp::FailureKind::Timeout`], which callers use to drop the dead process.
+pub(crate) async fn timed_request(acp: &Acp, method: &str, params: Value, limit: Duration) -> Result<Value> {
+    if let Ok(result) = tokio::time::timeout(limit, acp.request(method, params)).await {
+        return result;
+    }
+    acp.kill().await;
+    let message = format!("the agent didn't answer {method} within {}s", limit.as_secs());
+    Err(acp::Failure::error(acp::FailureKind::Timeout, message))
+}
+
+/// Whether `e` is an agent that stopped answering (see [`timed_request`]): its process is gone.
+pub(crate) fn timed_out(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<acp::Failure>().is_some_and(|f| f.kind == acp::FailureKind::Timeout)
+}
+
+fn model_error(model: &str, e: anyhow::Error) -> anyhow::Error {
     tracing::warn!(model, error = format!("{e:#}"), "couldn't set model");
+    if timed_out(&e) {
+        // Kept as it is, so the caller can tell the agent is gone.
+        return e.context(format!("Couldn't select model {model}"));
+    }
     anyhow!("Couldn't select model {model}: {e:#}")
 }
 
@@ -205,5 +231,16 @@ mod tests {
             kept.get("autoMemoryEnabled").is_none() && kept.get("autoDreamEnabled").is_none(),
             "Claude Code decides"
         );
+    }
+
+    #[tokio::test]
+    async fn an_agent_that_never_answers_a_model_switch_is_stopped_not_waited_for() {
+        let (acp, _rx) = Acp::spawn("sleep 30", ".", &[]).unwrap();
+        let error = timed_request(&acp, "session/set_model", json!({}), Duration::from_millis(100)).await.unwrap_err();
+        assert!(timed_out(&error));
+        let wrapped = model_error("opus", error);
+        assert!(timed_out(&wrapped), "the caller still sees that the agent is gone");
+        assert!(format!("{wrapped:#}").contains("Couldn't select model opus"));
+        assert!(!timed_out(&anyhow!("Method not found")));
     }
 }

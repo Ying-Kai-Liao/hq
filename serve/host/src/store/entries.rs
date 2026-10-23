@@ -204,13 +204,19 @@ impl Store {
         Ok(rows)
     }
 
-    /// Messages in all of `bot_id`'s own lanes (its chat and threads) after `after_seq`, oldest first: the
-    /// user's, and final replies. Tidying reads these.
-    pub fn conversation_since(&self, bot_id: &str, after_seq: i64, limit: i64) -> Result<Vec<Entry>> {
+    /// Messages in all of `bot_id`'s own lanes (its chat and threads) after `after_seq`, oldest first, narrowed to
+    /// the owner's own words, which tidying reads: a user message with no `sender` (a bot
+    /// guest) and no `person` (an invited person), and a final reply only when every user message of its turn is
+    /// the owner's. Tidying learns from these; whoever wrote the rest is not the owner.
+    pub fn owner_conversation_since(&self, bot_id: &str, after_seq: i64, limit: i64) -> Result<Vec<Entry>> {
         let c = self.db.locked();
         let mut st = c.prepare(&format!(
-            "SELECT {ENTRY_COLS} FROM entries WHERE bot_id = ?1 AND seq > ?2 AND
-               (kind = 'user' OR (kind = 'agent' AND json_extract(data, '$.final') = 1))
+            "SELECT {ENTRY_COLS} FROM entries e WHERE bot_id = ?1 AND seq > ?2 AND (
+               (kind = 'user' AND json_type(data, '$.sender') IS NULL AND json_type(data, '$.person') IS NULL)
+               OR (kind = 'agent' AND json_extract(data, '$.final') = 1 AND NOT EXISTS (
+                 SELECT 1 FROM entries u WHERE u.bot_id = e.bot_id AND u.thread_id IS e.thread_id
+                   AND u.turn = e.turn AND u.kind = 'user'
+                   AND (json_type(u.data, '$.sender') IS NOT NULL OR json_type(u.data, '$.person') IS NOT NULL))))
              ORDER BY seq LIMIT ?3"
         ))?;
         Ok(st.query_map(params![bot_id, after_seq, limit], row_entry)?.collect::<rusqlite::Result<_>>()?)
@@ -327,6 +333,27 @@ mod tests {
     use super::*;
     use crate::store::tests::temp_store;
     use serde_json::json;
+
+    #[test]
+    fn the_owner_conversation_leaves_out_guests_and_people() {
+        let s = temp_store();
+        let main = Lane::main("b1");
+        s.insert_entry(&main, EntryKind::User, 1, &json!({"text": "owner"})).unwrap();
+        s.insert_entry(&main, EntryKind::Agent, 1, &json!({"text": "to owner", "final": true})).unwrap();
+        s.insert_entry(&main, EntryKind::User, 2, &json!({"text": "guest", "sender": {"botId": "g"}})).unwrap();
+        s.insert_entry(&main, EntryKind::Agent, 2, &json!({"text": "to guest", "final": true})).unwrap();
+        s.insert_entry(&main, EntryKind::User, 3, &json!({"text": "sam", "person": "sam"})).unwrap();
+        s.insert_entry(&main, EntryKind::Agent, 3, &json!({"text": "to sam", "final": true})).unwrap();
+        s.insert_entry(&main, EntryKind::User, 4, &json!({"text": "owner again"})).unwrap();
+        s.insert_entry(&main, EntryKind::Agent, 4, &json!({"text": "narration", "final": false})).unwrap();
+        let texts: Vec<String> = s
+            .owner_conversation_since("b1", 0, 50)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.data["text"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(texts, ["owner", "to owner", "owner again"]);
+    }
 
     #[test]
     fn history_search_matches_every_term_in_chat_messages() {

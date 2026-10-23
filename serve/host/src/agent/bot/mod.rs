@@ -209,6 +209,8 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig, home: Lane, tidier: mpsc::UnboundedS
         files: files::FileShares::default(),
         perms: HashMap::new(),
         parked_prompts: HashMap::new(),
+        cmd_rx: None,
+        deferred: VecDeque::new(),
         stop_requested: false,
         cancel_deadline: None,
         exit_tail: None,
@@ -411,6 +413,10 @@ struct Actor {
     perms: HashMap<String, Value>,
     /// permission entry id -> the gate slot given up while the owner decides (an invited person's guest prompt)
     parked_prompts: HashMap<String, crate::agent::gate::Parked>,
+    /// The command channel, held here so a turn's start phase (minutes on an install) can listen for Stop.
+    cmd_rx: Option<mpsc::UnboundedReceiver<Cmd>>,
+    /// Commands that arrived during a start phase, handled in order once it ends.
+    deferred: VecDeque<Cmd>,
     stop_requested: bool,
     /// A cancelled turn still running past this stops its agent process.
     cancel_deadline: Option<Instant>,
@@ -473,7 +479,8 @@ type Done = Result<Value>;
 impl Actor {
     /// `interrupted`: the previous host process stopped a turn in this lane (the bot's
     /// chat or one of its threads); resume it first.
-    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Cmd>, interrupted: Option<Lane>) {
+    async fn run(mut self, rx: mpsc::UnboundedReceiver<Cmd>, interrupted: Option<Lane>) {
+        self.cmd_rx = Some(rx);
         let (done_tx, mut done_rx) = mpsc::unbounded_channel::<Done>();
         let mut flush_tick = tokio::time::interval(Duration::from_millis(300));
         // Routines run in the bot's own chat actor.
@@ -495,7 +502,7 @@ impl Actor {
         }
         loop {
             tokio::select! {
-                cmd = rx.recv() => {
+                cmd = next_cmd(&mut self.deferred, &mut self.cmd_rx) => {
                     let Some(cmd) = cmd else { break };
                     if !self.on_cmd(cmd, &done_tx).await { break }
                 }
@@ -607,6 +614,14 @@ const RESUME_PROMPT: &str = "[Kith restarted on this computer and interrupted yo
 
 /// How long a cancelled turn may take to wind down before its agent process is stopped.
 const CANCEL_GRACE: Duration = Duration::from_secs(15);
+
+/// The next command: those set aside during a start phase first, then the channel. Cancel safe.
+async fn next_cmd(deferred: &mut VecDeque<Cmd>, rx: &mut Option<mpsc::UnboundedReceiver<Cmd>>) -> Option<Cmd> {
+    if let Some(cmd) = deferred.pop_front() {
+        return Some(cmd);
+    }
+    rx.as_mut()?.recv().await
+}
 
 async fn recv_incoming(conn: &mut Option<Conn>) -> Option<Incoming> {
     match conn {

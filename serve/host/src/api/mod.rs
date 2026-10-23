@@ -88,10 +88,16 @@ fn actor_arg<'a>(b: &'a Value, bot: &'a str) -> &'a str {
 }
 
 /// Runs one API method for `caller` (permissions per spec §6.6).
-pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, b: Value) -> Result<Value> {
+pub async fn dispatch(hub: &Arc<Hub>, caller: &Caller, method: &str, mut b: Value) -> Result<Value> {
     let permitted = devices::permit(caller, method);
     match devices::principal(&hub.store, caller) {
-        Principal::Owner => permitted?,
+        Principal::Owner => {
+            permitted?;
+            // Never taken from a client: only `member_call` says who is a guest.
+            if let Some(o) = b.as_object_mut() {
+                o.remove("asMember");
+            }
+        }
         Principal::Nobody => return Err(Forbidden.into()),
         Principal::Member(person) => return member_call(hub, caller, &person, true, method, b, permitted).await,
         Principal::Unproven(person) => return member_call(hub, caller, &person, false, method, b, permitted).await,
@@ -187,6 +193,12 @@ async fn member_call(
     // Who is asking, set here so a client can't claim to be someone else (see `threads::resolve_citation`).
     if method == "resolveCitation" {
         b["asPerson"] = person.into();
+    }
+    if let Some(o) = b.as_object_mut() {
+        o.remove("asMember");
+    }
+    if method == "upload" {
+        b["asMember"] = person.into();
     }
     let verdict = match permitted {
         Ok(()) => roles::guard(hub, person, proven, method, &b).await,

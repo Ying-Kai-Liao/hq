@@ -246,17 +246,26 @@ def _auth(*args):
         return None
 
 
-def bot_root(people, bot, depth=8):
-    """The root owner of a bot guest from `kith-auth people --json` ({id: {bot_of, ...}}, or under "people"), or None
-    when the chain is broken: a bot whose parent is missing has no access."""
-    if isinstance(people, dict) and isinstance(people.get('people'), dict):
+def _rows(people):
+    """`kith-auth people --json` rows by id: it prints a list of rows (an older shape was a dict keyed by id, also
+    under "people")."""
+    if isinstance(people, dict) and isinstance(people.get('people'), (dict, list)):
         people = people['people']
-    if not isinstance(people, dict):
-        return None
+    if isinstance(people, dict):
+        return {k: v for k, v in people.items() if isinstance(v, dict)}
+    if isinstance(people, list):
+        return {r['id']: r for r in people if isinstance(r, dict) and isinstance(r.get('id'), str)}
+    return {}
+
+
+def bot_root(people, bot, depth=8):
+    """The root owner of a bot guest from `kith-auth people --json`, or None when the chain is broken: a bot whose
+    parent is missing has no access."""
+    people = _rows(people)
     cur = bot
     for _ in range(depth):
         row = people.get(cur)
-        if not isinstance(row, dict):
+        if row is None:
             return None
         parent = row.get('bot_of')
         if not parent:
@@ -278,8 +287,23 @@ def caller():
     # A group room, or a channel run the host has not named a room for yet: shared only, for everyone, owner too, until
     # the room's members can be resolved (then the intersection of their sets, and room:<id> with it).
     if room or (os.environ.get('KITH_VIA') or '') in GROUP_VIAS:
-        return {**who, 'audiences': ['shared']}
+        members = [m.strip().lower() for m in (os.environ.get('KITH_ROOM_MEMBERS') or '').split(',')]
+        members = [m for m in members if kith_facets.ID.match(m)]
+        if not members or not room or who['audiences'] is None:
+            return {**who, 'audiences': ['shared']}
+        # everyone present reads the answer: the asker's set cut to what every member may also see
+        sets = [_member_audiences(m, who['agent']) for m in members]
+        return {**who, 'audiences': sorted(set(who['audiences']).intersection(*sets))}
     return who
+
+
+def _member_audiences(pid, agent):
+    """What a room member may see of this agent's memory; empty when kith-auth does not know them."""
+    r = _auth('resolve', agent or '-', '--person', pid)
+    if not r or not r.get('allowed'):
+        return set()
+    rooms = [x for x in r.get('rooms', []) if isinstance(x, str) and kith_facets.ID.match(x)]
+    return {'shared', 'person:' + pid, *('room:' + x for x in rooms)}
 
 
 def _caller():
@@ -290,10 +314,13 @@ def _caller():
     nobody = {'who': person or '-', 'agent': agent, 'audiences': []}
     if not person:   # an owner run sets KITH_AGENT (kernel/bin/kith); neither set is not a known caller
         return {'who': 'owner', 'agent': agent, 'audiences': None} if agent else nobody
-    if re.fullmatch(r'bot-[0-9a-f]+', person):
-        # guest level of the root owner: shared craft only, never the owner's or a person's. An older kith-auth has no
-        # `people --json`: no answer, no access.
-        return {**nobody, 'audiences': ['shared']} if agent and bot_root(_auth('people', '--json'), person) else nobody
+    rows = _rows(_auth('people', '--json'))
+    if rows.get(person, {}).get('bot_of'):
+        # guest level of the root owner: shared craft only, never the owner's or a person's, and only for an agent
+        # bot_may lets the bot use (resolve runs it). No answer from kith-auth, no access.
+        r = _auth('resolve', agent or '-', '--person', person) if agent else None
+        ok = bool(r and r.get('allowed')) and bot_root(rows, person)
+        return {**nobody, 'audiences': ['shared']} if ok else nobody
     r = _auth('resolve', agent or '-', '--person', person)
     pid = (r or {}).get('person') or ''
     if not r or not r.get('allowed') or not agent or not re.fullmatch(r'[a-z][a-z0-9-]*', pid):
