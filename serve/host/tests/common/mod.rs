@@ -52,12 +52,7 @@ pub async fn serve_env(home: &Path, env: &[(&str, &str)]) -> (Child, String) {
                 .expect("start the host"),
         ));
         while child.0.as_mut().unwrap().try_wait().expect("host state").is_none() {
-            // `/health` answering is not proof it is this child: another test's host may have taken the
-            // port between the pick and our bind, so ours exits while theirs answers. Ours writes its token
-            // file before it listens, so a token in `home` means the answer is ours; without one, keep
-            // looping until the child shows its exit and the outer loop picks another port.
-            let token_ready = std::fs::read_to_string(home.join("token")).is_ok_and(|t| !t.trim().is_empty());
-            if token_ready && reqwest::get(format!("{base}/health")).await.is_ok() {
+            if answered_by(home, &base).await {
                 // A temporary home never runs the real bots' channels (unless a test opts in).
                 if !env.iter().any(|(k, _)| *k == "KITH_SERVE_CHANNELS") {
                     assert_channels_off(&base).await;
@@ -68,6 +63,24 @@ pub async fn serve_env(home: &Path, env: &[(&str, &str)]) -> (Child, String) {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         assert!(Instant::now() < deadline, "host didn't start");
+    }
+}
+
+/// Whether the host answering at `base` is the one for `home`. `/health` alone is not proof: another
+/// test's host may have taken the port between the pick and our bind, so ours exits while theirs
+/// answers. Theirs has another token, so a call with this home's token gets a 401 from it. Ours
+/// writes the token file before it listens, so no file yet means no answer from ours either, on
+/// first start and on a restart (whose old file holds the same token) alike.
+async fn answered_by(home: &Path, base: &str) -> bool {
+    let Ok(token) = std::fs::read_to_string(home.join("token")) else { return false };
+    let token = token.trim();
+    if token.is_empty() {
+        return false;
+    }
+    // An unknown method is rejected after the token check and does nothing else.
+    match reqwest::Client::new().post(format!("{base}/api/probe-whose-host")).bearer_auth(token).send().await {
+        Ok(res) => res.status() != reqwest::StatusCode::UNAUTHORIZED,
+        Err(_) => false,
     }
 }
 
