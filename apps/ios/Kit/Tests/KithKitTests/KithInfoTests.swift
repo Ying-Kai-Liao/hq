@@ -145,6 +145,7 @@ private func houseInfo() throws -> KithInfo {
     info.callModel = "haiku"
     #expect(HqSetting.rows(info)[1].value == "haiku")
     #expect(HqSetting.callModelLabel("default") == "Default (sonnet)")
+    #expect(HqSetting.callModelLabel("default", defaultIs: "opus") == "Default (opus)")
     #expect(HqSetting.callModelLabel("own") == "Agent's own model")
     #expect(HqSetting.callModelLabel("gpt-x") == "gpt-x")
     #expect(HqSetting.rows(nil)[1].editable == false)

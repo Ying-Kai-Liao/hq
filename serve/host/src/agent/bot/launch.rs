@@ -6,7 +6,7 @@ use crate::agent::acp::{self, Acp};
 use crate::store::BotConfig;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 /// ACP's `systemPrompt`: the bot's instructions added to the agent's own.
@@ -144,6 +144,8 @@ pub(crate) async fn start_agent(command: &str, cwd: &str, env: &[(String, String
         reports_compaction: false,
         usage: HashMap::new(),
         call_sessions: HashMap::new(),
+        model_options: HashMap::new(),
+        call_refused: HashSet::new(),
     })
 }
 

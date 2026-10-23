@@ -55,13 +55,20 @@ public struct HqSetting: Equatable, Sendable {
         permissionModes.first { $0.id == mode }?.label ?? mode
     }
 
-    /// What a voice call can run on (`kith <agent> set call-model`): kith's default is sonnet, `own` the agent's own model.
-    public static let callModels: [(id: String, label: String)] = [
-        ("default", "Default (sonnet)"), ("sonnet", "Sonnet"), ("haiku", "Haiku"), ("opus", "Opus"), ("own", "Agent's own model"),
+    private static let callModelNames: [(id: String, label: String)] = [
+        ("sonnet", "Sonnet"), ("haiku", "Haiku"), ("opus", "Opus"), ("own", "Agent's own model"),
     ]
 
-    public static func callModelLabel(_ id: String) -> String {
-        callModels.first { $0.id == id }?.label ?? id
+    /// What a voice call can run on (`kith <agent> set call-model`). `default` follows this Mac's global call model
+    /// (`defaultIs`, sonnet unless changed); `own` is the agent's own model.
+    public static func callModels(defaultIs: String? = nil) -> [(id: String, label: String)] {
+        let name = defaultIs ?? "sonnet"
+        let shown = callModelNames.first { $0.id == name }?.label.lowercased() ?? name
+        return [(id: "default", label: "Default (\(shown))")] + callModelNames
+    }
+
+    public static func callModelLabel(_ id: String, defaultIs: String? = nil) -> String {
+        callModels(defaultIs: defaultIs).first { $0.id == id }?.label ?? id
     }
 
     /// `info` is nil while kith's answer loads or failed: nothing is editable then.

@@ -439,6 +439,19 @@ pub async fn info(agent: &str, fresh: bool) -> InfoRun {
     }
 }
 
+/// The call model that applies to `agent` (`call_model_effective` of its last info; `""` is the agent's own), without
+/// waiting for kith: `None` while nothing has been fetched. A stale answer is refreshed in the background, so a change
+/// made elsewhere reaches the call turns after it.
+pub fn cached_call_model(agent: &str) -> Option<String> {
+    let last = slot(agent).last.locked().clone();
+    if last.as_ref().is_none_or(|l| !l.fresh()) {
+        let agent = agent.to_owned();
+        tokio::spawn(async move { drop(refill(&agent, false).await) });
+    }
+    let info = last?.info.ok()?;
+    info["call_model_effective"].as_str().map(str::to_owned)
+}
+
 /// `kith memory search <query> --agent <agent> --json -n <limit>`: the `hits` list as kith printed it.
 pub async fn memory_search(agent: &str, query: &str, limit: usize) -> Result<Vec<Value>> {
     let Some(bin) = tokio::task::spawn_blocking(bin).await? else {

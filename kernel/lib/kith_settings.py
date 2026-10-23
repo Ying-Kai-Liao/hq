@@ -33,7 +33,7 @@ unattended Mac may do is decided per Mac. Without the file, or for a key it leav
 
   kith_settings.py backups [AGENT]   the chain that applies, one id per line
 """
-import json, os, sys
+import json, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from kith_paths import paths  # noqa: E402  the one place that knows where kith's folders are
@@ -76,6 +76,17 @@ def get(key, agent=None):
     return read()[0].get(key, DEFAULTS[key])
 
 
+def valid_call_model(value):
+    """A model Claude Code takes: an alias (optionally with its 1M window), a full claude-* id, or kith's own words."""
+    return bool(re.fullmatch(r'(default|own|(sonnet|haiku|opus)(\[1m\])?|claude-[a-z0-9.\-]+(\[1m\])?)', value))
+
+
+def global_call_model():
+    """The model every agent's calls use unless it chose its own ('own' = the agent's own model)."""
+    v = read()[0].get('call_model', DEFAULTS['call_model'])
+    return v if isinstance(v, str) and v else DEFAULTS['call_model']
+
+
 def call_model(agent=None):
     """The model a voice-call turn runs on for the agent ('' when it keeps its own model): the agent's choice, else the
     global one, else the default. 'own' is the explicit way to say "the agent's own model"."""
@@ -92,6 +103,8 @@ def choose_global(key, value):
     s, why = read()
     if why:
         raise ValueError(why)
+    if key == 'call_model' and value and not valid_call_model(value):
+        raise ValueError(f'call model {value!r} is not sonnet, haiku, opus, a claude-* model id, own or default')
     if value in ('', 'default'):
         s.pop(key, None)
     else:
@@ -109,6 +122,8 @@ def choose(agent, key, value):
     agents = s.setdefault('agents', {})
     if key == 'call_model' and value == 'default':
         value = ''
+    if key == 'call_model' and value and not valid_call_model(value):
+        raise ValueError(f'call model {value!r} is not sonnet, haiku, opus, a claude-* model id, own or default')
     if value == '':   # forgetting the choice: the agent's own suggestion and kith's default apply again
         agents.get(agent, {}).pop(key, None)
     else:

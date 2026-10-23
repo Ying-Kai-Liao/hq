@@ -77,6 +77,8 @@ public struct KithInfo: Decodable, Sendable {
     public var permissionMode: String?
     /// The model a voice call runs on, as this Mac chose it: a model name, `own`, or `default` (sonnet).
     public var callModel: String?
+    /// What `default` means on this Mac: the global call model (`own` is the agent's own).
+    public var callModelDefault: String?
     public var home: String?
     public var role: KithRole?
     public var package: KithPackage?
@@ -95,6 +97,7 @@ public struct KithInfo: Decodable, Sendable {
         case version, agent, description, harness, model, effort, home, role, package, skills, tools, plugins, projects, schedules, cost, memory, errors
         case permissionMode = "permission_mode"
         case callModel = "call_model"
+        case callModelDefault = "call_model_default"
         case mcpServers = "mcp_servers"
     }
 
@@ -108,6 +111,7 @@ public struct KithInfo: Decodable, Sendable {
         effort = c.value(.effort)
         permissionMode = c.value(.permissionMode)
         callModel = c.value(.callModel)
+        callModelDefault = c.value(.callModelDefault)
         home = c.value(.home)
         role = c.value(.role)
         package = c.value(.package)

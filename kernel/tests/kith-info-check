@@ -132,6 +132,8 @@ check "call model: default shows 'default' and resolves to sonnet" "is \"(d['cal
 "$KITH" echo set call-model haiku 2>"$T/err"; rc=$?
 OUT=$("$KITH" echo --info-json 2>/dev/null)
 check "set call-model: info reads it back" "[ $rc = 0 ] && is \"(d['call_model'], d['call_model_effective'])\" \"('haiku', 'haiku')\""
+"$KITH" echo set call-model nonsense 2>"$T/err"; rc=$?
+check "set call-model: an unknown model is refused and changes nothing" "[ $rc = 1 ] && grep -q 'is not sonnet' $T/err && is \"d['call_model']\" haiku"
 "$KITH" echo set call-model own 2>/dev/null
 OUT=$("$KITH" echo --info-json 2>/dev/null)
 check "set call-model own: the agent's own model (no call model)" "is \"(d['call_model'], repr(d['call_model_effective']))\" \"('own', \\\"''\\\")\""

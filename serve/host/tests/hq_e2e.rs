@@ -556,14 +556,15 @@ async fn a_call_turn_gets_the_voice_note_and_the_call_model() {
         s.requests("session/prompt").iter().map(|r| r["params"]["prompt"][0]["text"].as_str().unwrap().to_owned()).collect()
     };
     let models = |s: &Setup| -> Vec<String> {
-        s.requests("session/set_model").iter().map(|r| r["params"]["modelId"].as_str().unwrap().to_owned()).collect()
+        s.requests("session/set_config_option").iter().filter(|r| r["params"]["configId"] == "model").map(|r| r["params"]["value"].as_str().unwrap().to_owned()).collect()
     };
     assert!(models(&s).is_empty(), "a typed turn runs on the launch model: {:?}", models(&s));
 
     let entries = say("what is on today", Some("call")).await;
     let sent = prompts(&s);
     assert!(sent[1].starts_with("what is on today\n\n[Kith: You are on a live voice call"), "{}", sent[1]);
-    assert_eq!(models(&s), ["sonnet"], "the call turn runs on the default call model");
+    assert_eq!(models(&s), ["sonnet"], "the call turn runs on the default call model, via the model config option");
+    assert!(s.requests("session/set_model").is_empty(), "the adapter has no session/set_model");
     let user = entries.as_array().unwrap().iter().find(|e| e["data"]["text"] == "what is on today").unwrap();
     assert_eq!(user["data"]["text"], "what is on today", "the chat keeps only what was said");
 

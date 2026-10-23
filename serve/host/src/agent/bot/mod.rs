@@ -297,6 +297,11 @@ pub(crate) struct Conn {
     /// Sessions switched to the call model by `sync_call_model`, and which one. A session loaded or created again
     /// is back on the launch model, so those drop out of here.
     call_sessions: HashMap<String, String>,
+    /// Each session's model option as `session/new` or `session/load` listed it: its config id and the model it
+    /// started on, which is what a typed turn goes back to after a call.
+    model_options: HashMap<String, (String, String)>,
+    /// Sessions whose switch to the call model the agent refused: not asked again.
+    call_refused: HashSet<String>,
 }
 
 impl Conn {

@@ -1,8 +1,8 @@
 import KithKit
 import SwiftUI
 
-/// An hq bot's permission, model, effort and Fast mode, once. hq holds them: the permission is written through to hq
-/// and shown as hq reports it; the others hq has no setting for, so they are read-only and say "Set in Kith".
+/// An hq bot's permission, call model, model, effort and Fast mode, once. hq holds them: the permission and the call model
+/// are written through to hq and shown as hq reports them; the others hq has no setting for, so they are read-only and say "Set in Kith".
 struct HqSettingsRows: View {
     let store: KithInfoStore
 
@@ -34,7 +34,7 @@ struct HqSettingsRows: View {
     }
 
     private func callModels(including current: String) -> [(id: String, label: String)] {
-        let known = HqSetting.callModels
+        let known = HqSetting.callModels(defaultIs: store.info?.callModelDefault)
         return known.contains { $0.id == current } ? known : known + [(id: current, label: HqSetting.callModelLabel(current))]
     }
 

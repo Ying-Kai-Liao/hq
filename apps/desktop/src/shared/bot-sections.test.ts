@@ -51,6 +51,8 @@ test('hq settings: the call model is written through to hq, and shows hq\'s choi
   const row = hqSettings({ permissionMode: null, callModel: 'haiku', model: null, effort: null })[1]
   assert.deepEqual([row.key, row.value, row.editable], ['callModel', 'haiku', true])
   assert.equal(callModelLabel('default'), 'Default (sonnet)')
+  assert.equal(callModelLabel('default', 'opus'), 'Default (opus)')
+  assert.equal(callModelLabel('default', 'own'), "Default (agent's own model)")
   assert.equal(callModelLabel('own'), "Agent's own model")
   assert.equal(callModelLabel('gpt-x'), 'gpt-x')
 })

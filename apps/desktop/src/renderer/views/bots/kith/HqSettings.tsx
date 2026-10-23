@@ -1,12 +1,18 @@
-import { CALL_MODELS, callModelLabel, hqSettings, PERMISSION_MODES, permissionLabel } from '@shared/bot-sections'
+import { callModelLabel, callModels, hqSettings, PERMISSION_MODES, permissionLabel } from '@shared/bot-sections'
 import { ChoicePicker, ValueRow } from '../../../components/Controls'
 import { Text } from '../../../components/Text'
 import type { KithInfoStore } from '../../../store/kith-info-store'
 
 /**
- * An hq bot's permission, model, effort and Fast mode, once. hq holds them: the permission is written through to hq and
+ * An hq bot's permission, call model, model, effort and Fast mode, once. hq holds them: the permission is written through to hq and
  * shown as hq reports it, the others hq has no setting for, so they are read-only and say "Set in Kith".
  */
+/** The call-model choices, plus the current one when this app doesn't know it. */
+function callOptions(kith: KithInfoStore, current: string) {
+  const known = callModels(kith.info?.callModelDefault ?? null)
+  return known.some((m) => m.id === current) ? known : [...known, { id: current, label: callModelLabel(current) }]
+}
+
 export function HqSettings({ kith }: { kith: KithInfoStore }) {
   const rows = hqSettings(kith.info)
   return (
@@ -16,7 +22,7 @@ export function HqSettings({ kith }: { kith: KithInfoStore }) {
           {row.editable && row.key === 'callModel' ? (
             <ChoicePicker
               selection={row.value}
-              options={CALL_MODELS.some((m) => m.id === row.value) ? CALL_MODELS : [...CALL_MODELS, { id: row.value, label: callModelLabel(row.value) }]}
+              options={callOptions(kith, row.value)}
               onChange={(model) => { if (!kith.callModelSaving && model !== row.value) void kith.setCallModel(model) }}
             />
           ) : row.editable ? (

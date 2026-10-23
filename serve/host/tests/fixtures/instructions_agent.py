@@ -13,6 +13,12 @@ import sys
 mode = sys.argv[1] if len(sys.argv) > 1 else "reporting"
 sessions = 0
 compactions = 0
+models = {}   # `claude` mode: each session's model, as the real adapter's `model` config option holds it
+
+
+def model_option(session):
+    return {"id": "model", "category": "model", "type": "select", "currentValue": models[session],
+            "options": [{"value": v, "name": v} for v in ("default", "sonnet", "haiku", "opus")]}
 
 
 def send(value):
@@ -53,8 +59,21 @@ for line in sys.stdin:
     elif method == "session/new":
         sessions += 1
         result = {"sessionId": f"s{sessions}"}
+        if mode == "claude":
+            models[result["sessionId"]] = params.get("_meta", {}).get("claudeCode", {}).get("options", {}).get("model", "default")
+            result["configOptions"] = [model_option(result["sessionId"])]
     elif method == "session/load":
         result = {}
+        if mode == "claude":
+            models.setdefault(params["sessionId"], "default")
+            result["configOptions"] = [model_option(params["sessionId"])]
+    elif method == "session/set_model" and mode == "claude":
+        # The real claude-agent-acp has no such handler: only `session/set_config_option` switches the model.
+        send({"id": request["id"], "error": {"code": -32601, "message": "Method not found"}})
+        continue
+    elif method == "session/set_config_option" and mode == "claude" and params.get("configId") == "model":
+        models[params["sessionId"]] = params["value"]
+        result = {"configOptions": [model_option(params["sessionId"])]}
     elif method == "session/prompt":
         session = params["sessionId"]
         text = params["prompt"][0]["text"]
