@@ -27,6 +27,8 @@ const STATUS: Record<string, number> = {
   conflict: 409,
   claimExpired: 410,
   requestExpired: 410,
+  inviteExpired: 410,
+  inviteRevoked: 410,
   upgradeRequired: 426,
   tooLarge: 413,
   rateLimited: 429,
@@ -172,10 +174,23 @@ export async function ownedComputer(c: Ctx, id: string, userId: string): Promise
   return row;
 }
 
+/** The computer for its owner, or for an account with an active membership on it (members may ask for device access). */
+export async function memberComputer(c: Ctx, id: string, userId: string): Promise<ComputerRow> {
+  const row = await c.env.DB.prepare(
+    `SELECT c.* FROM computers c WHERE c.id = ?1 AND (c.owner_user_id = ?2 OR (c.owner_user_id IS NOT NULL AND EXISTS(
+       SELECT 1 FROM memberships m WHERE m.computer_id = c.id AND m.user_id = ?2 AND m.revoked_at IS NULL)))`,
+  )
+    .bind(id, userId)
+    .first<ComputerRow>();
+  if (!row) throw new ApiError("notFound");
+  return row;
+}
+
 // ---- shared pieces ----
 
-export function computerView(r: ComputerRow & { access?: string | null }) {
+export function computerView(r: ComputerRow & { access?: string | null; role?: "owner" | "member" }) {
   return {
+    role: r.role ?? "owner",
     computerId: r.id,
     name: r.name,
     platform: r.platform,
@@ -228,6 +243,24 @@ export async function revokeGrants(
   return { stmts, blocks };
 }
 
+/** Ends one account's membership of a computer: its devices' grants and pending requests go with it. */
+export async function revokeMembership(env: Env, computerId: string, userId: string, actor: string, target: string, now: number) {
+  const { stmts, blocks } = await revokeGrants(env, "g.computer_id = ? AND d.owner_user_id = ?", [computerId, userId], "membershipRevoked", now);
+  await env.DB.batch([
+    ...stmts,
+    env.DB.prepare("UPDATE memberships SET revoked_at = ? WHERE computer_id = ? AND user_id = ? AND revoked_at IS NULL").bind(
+      now,
+      computerId,
+      userId,
+    ),
+    env.DB.prepare(
+      "UPDATE access_requests SET status = 'cancelled', decided_at = ? WHERE computer_id = ? AND user_id = ? AND status = 'pending'",
+    ).bind(now, computerId, userId),
+    audit(env, actor, "membership.revoke", target, "ok", now),
+  ]);
+  await notify(env, computerId, blocks.get(computerId));
+}
+
 /** Tells a computer's DO: block these devices (closing their sockets), then `cloud.changed` to the host. */
 export async function notify(env: Env, computerId: string, blocked: Blocked[] = []): Promise<void> {
   const path = blocked.length ? "/internal/block" : "/internal/changed";
@@ -252,6 +285,9 @@ export async function unclaim(env: Env, id: string, actor: string, now: number):
     env.DB.prepare(
       "UPDATE access_requests SET status = 'cancelled', decided_at = ? WHERE computer_id = ? AND status = 'pending'",
     ).bind(now, id),
+    // Members and unused invites belong to the account that owned the computer, so they end with it.
+    env.DB.prepare("UPDATE memberships SET revoked_at = ? WHERE computer_id = ? AND revoked_at IS NULL").bind(now, id),
+    env.DB.prepare("UPDATE invites SET revoked_at = ? WHERE computer_id = ? AND accepted_by IS NULL AND revoked_at IS NULL").bind(now, id),
     audit(env, actor, "computer.unclaim", id, "ok", now),
   ]);
   await notify(env, id, blocks.get(id));

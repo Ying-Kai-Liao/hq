@@ -114,6 +114,34 @@ New computers are limited to 10 per IP per minute with the Workers Rate Limiting
 Public routine webhook deliveries are limited to 60 per sender IP and hook per minute with
 `HOOK_LIMITER` (same binding kind, its own `namespace_id` per environment).
 
+## Invites and memberships
+
+The Mac invites a friend; the cloud only records who accepted, and can only remove access. The Mac binds the account
+to a kith-auth person and decides the role. Link: `kith://invite?c=<computerId>&i=<inviteId>&t=<token>` (token = 32 random
+bytes, base64url; the cloud sees only its sha256 hex). D1: `invites` and `memberships` (`migrations/0005_invites.sql`), at
+most one active membership per (computer, account).
+
+Host-signed (`Kith-Sig`, like the other `/v1/host/*` routes; each writes an `audit_events` row):
+
+- `POST /v1/host/invites` `{inviteId, tokenHash, expiresAt}` (ms, at most 48 h ahead): stores the invite. Re-posting the same
+  id and hash is a no-op; the same id with another hash is 409. The computer must be claimed.
+- `POST /v1/host/invites/:inviteId/revoke`: marks an unaccepted invite revoked (409 once accepted; use the membership).
+- `POST /v1/host/memberships/:membershipId/revoke`: ends the membership and revokes that account's grants on the computer.
+- `GET /v1/host/state` adds `memberships: [{membershipId, userId, inviteId, email}]` (active only), `userId` on each grant (the
+  account owning the device) and on each access request.
+
+Account (Clerk):
+
+- `POST /v1/invites/:inviteId/accept` `{token}`: creates the membership and returns `{computerId, membershipId}`. The same
+  account repeating it gets the same membership. 403 wrong token or the computer's owner, 404 unknown invite, 409 used by
+  another account (or already a member), 410 expired (`inviteExpired`) or revoked (`inviteRevoked`). Races have one winner.
+- `GET /v1/computers` also lists computers where the account is a member; each row has `role: "owner" | "member"`.
+- `POST /v1/computers/:id/access-requests` is open to a member as well as the owner. The host approves it; the cloud never
+  does. Members cannot rename, remove or list grants of the computer.
+
+Unclaiming a computer and the Clerk `user.deleted` webhook revoke the affected memberships and unused invites.
+`npm run e2e:invite` runs the flow against `wrangler dev` with a fake host.
+
 ## Remote screen relay
 
 `POST /v1/host/screen-ice` issues one-hour Cloudflare Realtime TURN credentials to a
