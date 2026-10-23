@@ -14,14 +14,17 @@ import UIKit
 
 /// On/off switch: label on the left, a flat capsule track on the right.
 public struct KithSwitch: ToggleStyle {
-    public init() {}
+    /// Track colour when on; nil keeps the accent. Settings uses iOS green.
+    let onTint: Color?
+    public init(onTint: Color? = nil) { self.onTint = onTint }
 
     public func makeBody(configuration: Configuration) -> some View {
-        SwitchBody(configuration: configuration)
+        SwitchBody(configuration: configuration, onTint: onTint)
     }
 
     private struct SwitchBody: View {
         let configuration: Configuration
+        let onTint: Color?
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
         @Environment(\.isEnabled) private var isEnabled
 
@@ -33,11 +36,11 @@ public struct KithSwitch: ToggleStyle {
                     configuration.label
                     Spacer(minLength: 0)
                     Capsule()
-                        .fill(configuration.isOn ? Palette.accentFill : Palette.bubbleUser)
+                        .fill(configuration.isOn ? (onTint ?? Palette.accentFill) : Palette.bubbleUser)
                         .frame(width: 34, height: 20)
                         .overlay(alignment: configuration.isOn ? .trailing : .leading) {
                             // Black and white: the knob takes the opposite ink of an on track.
-                            Circle().fill(configuration.isOn ? Palette.onAccent : .white).padding(2)
+                            Circle().fill(configuration.isOn && onTint == nil ? Palette.onAccent : .white).padding(2)
                         }
                 }
                 .contentShape(Rectangle())
@@ -51,6 +54,8 @@ public struct KithSwitch: ToggleStyle {
 
 public extension ToggleStyle where Self == KithSwitch {
     static var kith: KithSwitch { KithSwitch() }
+    /// iOS-green on track, for Settings and Computers.
+    static var kithGreen: KithSwitch { KithSwitch(onTint: Color(red: 0.204, green: 0.78, blue: 0.349)) }
 }
 
 // MARK: - Buttons

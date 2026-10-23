@@ -109,7 +109,7 @@ struct ComputerPage: View {
                                      set: { _ in withAnimation(Motion.layout) { hiddenComputers = selection.toggling(id) } })) {
                     Text("Show in Crew")
                 }
-                .toggleStyle(.kith)
+                .toggleStyle(.kithGreen)
                 if let index, accounts.computers.count > 1 {
                     ValueRow("Order", detail: "Position in the list of computers on this iPhone.") {
                         HStack(spacing: 4) {

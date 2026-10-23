@@ -81,10 +81,10 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
             } accessory: {
-                if accounts.computers.count > 1 {
+                if !accounts.computers.isEmpty {
                     Text("Show in Crew")
                         .font(.footnote.weight(.medium))
-                        .foregroundStyle(Palette.secondary)
+                        .foregroundStyle(Palette.muted)
                 }
             }
             }
@@ -129,7 +129,7 @@ struct SettingsView: View {
 
             CardSection("Notifications, display", footer: "Get a result summary, a request for input, or a failure notice. Default text size follows iOS Settings; Small, Large and Extra large replace it inside Kith.") {
                 Toggle("Push notifications", isOn: $notificationsEnabled)
-                    .toggleStyle(.kith)
+                    .toggleStyle(.kithGreen)
                     .onChange(of: notificationsEnabled) { PushRegistrar.shared.resync() }
                 notificationsRow
                 MenuRow("Text size", systemImage: "textformat.size", selection: $textSize,
@@ -141,7 +141,7 @@ struct SettingsView: View {
                     Text("Share usage analytics").lineLimit(1).layoutPriority(1)
                     IconButton("About usage analytics", systemImage: "info.circle") { aboutAnalytics = true }
                     Toggle(isOn: Binding(get: { analyticsEnabled }, set: { Analytics.shared.setEnabled($0) })) { EmptyView() }
-                        .toggleStyle(.kith)
+                        .toggleStyle(.kithGreen)
                         .accessibilityLabel("Share usage analytics")
                 }
             }
@@ -378,7 +378,7 @@ struct ShowInCrewSwitch: View {
 
     var body: some View {
         Toggle(isOn: $isOn) { EmptyView() }
-            .toggleStyle(.kith)
+            .toggleStyle(.kithGreen)
             .labelsHidden()
             .accessibilityLabel("Show \(name) in Crew")
     }
