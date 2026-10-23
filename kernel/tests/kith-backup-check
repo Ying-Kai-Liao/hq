@@ -24,6 +24,10 @@ case "$1 $2" in
   "plugin list") echo '[]' ;;
   "auth status") [ -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.fake-login" ] && { echo '{"loggedIn":true}'; exit 0; }; echo '{"loggedIn":false}'; exit 1 ;;
   "auth login") mkdir -p "$CLAUDE_CONFIG_DIR" && touch "$CLAUDE_CONFIG_DIR/.fake-login"; echo "fake claude login in $CLAUDE_CONFIG_DIR" ;;
+  *) # a real run: say which login it is on, and whether its settings carry an apiKeyHelper
+     helper=none; prev=
+     for a in "$@"; do [ "$prev" = --settings ] && [ -f "$a" ] && grep -q apiKeyHelper "$a" && helper=set; prev=$a; done
+     echo "claude-run config=${CLAUDE_CONFIG_DIR:-} provider=$KITH_PROVIDER account=$KITH_ACCOUNT helper=$helper" ;;
 esac
 EOF
 cat > "$T/bin/codex" <<'EOF'
@@ -31,6 +35,13 @@ cat > "$T/bin/codex" <<'EOF'
 case "$1 $2" in
   "login status") [ -f "${CODEX_HOME:-$HOME/.codex}/.fake-login" ] && exit 0; echo "Not logged in"; exit 1 ;;
   "login --device-auth") mkdir -p "$CODEX_HOME" && touch "$CODEX_HOME/.fake-login"; echo "fake codex login in $CODEX_HOME" ;;
+  exec*) # codex exec --json: a spent plan when FAKE_LIMIT is set (the error message is JSON, as codex prints it)
+     echo '{"type":"thread.started","thread_id":"t1"}'
+     if [ -n "${FAKE_LIMIT:-}" ]; then
+       echo '{"type":"turn.failed","error":{"message":"{\"type\":\"error\",\"status\":429,\"error\":{\"type\":\"usage_limit_reached\",\"resets_at\":1900000000}}"}}'
+       exit 1
+     fi
+     echo "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"codex-run home=${CODEX_HOME:-} provider=$KITH_PROVIDER account=$KITH_ACCOUNT\"}}" ;;
 esac
 EOF
 chmod +x "$T/bin/claude" "$T/bin/codex"
@@ -183,6 +194,32 @@ printf '{"session_id":"s2"}' | KITH_AGENT=echo KITH_STATE=$M "$KERNEL/bin/kith-c
 printf '{"id":"r1","session":"s3","model":"codex","input":1,"output":1}' | KITH_AGENT=echo KITH_PROVIDER=codex KITH_ACCOUNT=deep KITH_STATE=$M "$KERNEL/bin/kith-cost" record
 rows=$(python3 -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(sorted(c.execute("select session, provider, account from runs")))' "$M/cost.db")
 check "old DB gets the columns; old rows stay null; new rows carry provider/account (tag and record)" "[ \"\$rows\" = \"[('old1', None, None), ('s1', 'claude', 'work'), ('s2', None, None), ('s3', 'codex', 'deep')]\" ]"
+
+# --- a normal run (not launch-json) on a backup: what the channels of kith serve use -----------------------------------------
+OUT=$("$KITH" echo --backup claude:work "hi" 2>/dev/null); rc=$?
+check "run --backup claude:<name>: Claude Code with that CLAUDE_CONFIG_DIR, ledger provider/account set" "[ $rc = 0 ] && echo \"\$OUT\" | grep -q 'claude-run config=$M/accounts/claude/work provider=claude account=work helper=none'"
+OUT=$("$KITH" echo --backup claude:work 2>&1 </dev/null); rc=$?
+check "run --backup without a task and without a terminal asks for one, as a plain run does" "[ $rc = 1 ] && echo \"\$OUT\" | grep -q 'no terminal'"
+OUT=$("$KITH" echo --backup codex "hi" 2>/dev/null); rc=$?
+check "run --backup codex: through the Codex adapter, no CODEX_HOME for the ambient login" "[ $rc = 0 ] && echo \"\$OUT\" | grep -q 'codex-run home= provider=codex account='"
+OUT=$("$KITH" echo --backup codex:deep "hi" 2>/dev/null)
+check "run --backup codex:<name>: that CODEX_HOME and account" "echo \"\$OUT\" | grep -q 'codex-run home=$M/accounts/codex/deep provider=codex account=deep'"
+OUT=$(KITH_OUTPUT=json KITH_RESUME=sess-of-claude "$KITH" echo --backup codex "hi" 2>"$T/err")
+check "run --backup codex, json: the result object; another harness's session is not resumed" "is \"(d['is_error'], d['session_id'], 'usage_limit' in d)\" \"(False, 'codex:t1', False)\" && grep -q 'starting a new one' $T/err"
+OUT=$(FAKE_LIMIT=1 KITH_OUTPUT=json "$KITH" echo --backup codex "hi" 2>/dev/null); rc=$?
+check "run --backup codex on a spent plan: is_error and usage_limit.resets_at in the json, exit 1" "[ $rc = 1 ] && is \"(d['is_error'], d['usage_limit'])\" \"(True, {'resets_at': 1900000000})\""
+rm "$M/accounts/claude/work/.fake-login"
+"$KITH" echo --backup claude:work "hi" >/dev/null 2>"$T/err"; rc=$?
+check "run --backup on an entry not logged in: exit 4, nothing started" "[ $rc = 4 ] && grep -q 'kith account add claude work' $T/err"
+touch "$M/accounts/claude/work/.fake-login"
+"$KITH" echo --backup nobody:x "hi" >/dev/null 2>&1; rc=$?
+check "run --backup with an entry that isn't there: exit 4" "[ $rc = 4 ]"
+KITH_PERSON=guest "$KITH" echo --backup codex "hi" >/dev/null 2>"$T/err"; rc=$?
+check "a person's run on a codex backup: exit 4" "[ $rc = 4 ]"
+OUT=$(KITH_PERSON=guest "$KITH" echo --backup claude:work "hi" 2>/dev/null)
+check "a person's run on claude:<name> works" "echo \"\$OUT\" | grep -q 'claude-run config=$M/accounts/claude/work'"
+OUT=$("$KITH" echo "hi" 2>/dev/null)
+check "a plain run is unchanged: no config dir, claude as provider" "echo \"\$OUT\" | grep -q 'claude-run config= provider=claude account= helper=none'"
 
 echo
 if [ $fails = 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi

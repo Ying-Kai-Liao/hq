@@ -95,7 +95,7 @@ async fn run(hub: Arc<Hub>) {
         }
     };
     let judge = judge::Judge::from_hub(hub.clone(), paths.clone());
-    let core = Core::new(core::Deps { paths, settings, gate: hub.gate.clone(), judge });
+    let core = Core::new(core::Deps { paths, settings, gate: hub.gate.clone(), judge, backups: hub.backups.clone() });
     manager::Manager::new(core, Registry::builtin(), manager::Backoff::default()).run().await;
 }
 

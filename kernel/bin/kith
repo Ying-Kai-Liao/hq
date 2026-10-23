@@ -18,6 +18,8 @@
 #                                 claude_args to give claude as-is). Claude and Codex (Codex: settings and claude_args null); ignores
 #                                 KITH_CLAUDE_ARGS/KITH_OUTPUT/KITH_RESUME. --backup ID launches that backup chain entry instead (exit 4 when it
 #                                 can't run); "backup", "provider" and "account" say which login the run is on.
+#   kith <agent> --backup ID [task]  a normal run (interactive or one-shot) on that backup chain entry: claude:<name> and claude-api:<profile>
+#                                 on Claude Code, codex[:<name>] on Codex; exit 4 when it can't run. KITH_PROVIDER/KITH_ACCOUNT say which.
 #   kith <agent> --backups-json     for a program: the agent's backup chain as one JSON object, each entry with whether it is ready
 #                                 Nothing in it points at a temp file. The pinned snapshot (KITH_AGENT_DIR) is kept while --hold's
 #                                 pid (default: the caller) lives; pass the long-lived process's pid. KITH_VIA=<name> tags the cost ledger.
@@ -280,9 +282,9 @@ elif [[ $pkg == "$src_pkg" ]]; then runs=$(mktemp -d); else runs=$pkg/.runs; mkd
 field() { awk -v k="$1" 'NR==1 && /^---$/ {fm=1; next} fm && /^---$/ {exit} fm && $1 == k":" {sub(/^[^:]*:[ \t]*/, ""); print; exit}' "$pkg/agent.md" 2>/dev/null || true; }
 own=$(field harness); own=${own:-claude}; [[ $own == claude-code ]] && own=claude
 harness=${KITH_HARNESS:-$own}; [[ $harness == claude-code ]] && harness=claude
-# A backup chain entry (--launch-json --backup ID) replaces the harness and login; the agent's own stays the primary.
+# A backup chain entry (--backup ID, with --launch-json or for a normal run) replaces the harness and login; the agent's
+# own stays the primary.
 if [[ -n $backup ]]; then
-  [[ $launch -eq 1 ]] || { echo "kith: --backup goes with --launch-json" >&2; exit 2; }
   be=$(python3 "$KITH/lib/kith_accounts.py" launch-env "$agent" "$backup") || exit 4
   eval "$be"
   harness=$backup_harness acct=$backup_account

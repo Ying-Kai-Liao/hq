@@ -9,9 +9,13 @@ use super::core::Core;
 use super::queue::kill;
 use super::text::{context_pct, short};
 use crate::LockExt;
+use crate::agent::acp::{self, Depleted};
+use crate::agent::backups::{Backups, ChainEntry, MAX_MOVES, Pick, RATE_LIMIT};
 use crate::agent::gate::Permit;
 use anyhow::{Context, Result};
 use serde_json::Value;
+use std::collections::HashSet;
+use std::fmt::Write as _;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -52,6 +56,67 @@ fn tail(bytes: &[u8], n: usize) -> String {
     text.chars().skip(skip).collect()
 }
 
+/// What one process of the agent left.
+struct Ran {
+    out: Vec<u8>,
+    err: Vec<u8>,
+    /// Its exit code; None when a signal ended it or it never finished.
+    code: Option<i32>,
+    /// How many `kith-send` posts it made to the thread while it ran.
+    posted: usize,
+}
+
+enum Attempt {
+    Ran(Ran),
+    /// Stop was pressed or the work was interrupted.
+    Stopped(Ended),
+    /// The process could not start; the thread was told.
+    NotStarted,
+}
+
+/// `kith <agent> --backups-json` now, remembered in `backups` (a failure keeps what was known before).
+async fn fetch_chain(backups: &Backups, bin: &Path, agent: &str) -> Vec<ChainEntry> {
+    let got = crate::agent::hq::backups(bin, agent)
+        .await
+        .inspect_err(|error| tracing::warn!(agent, error = format!("{error:#}"), "couldn't read the backup chain"))
+        .ok();
+    backups.end_refresh(agent, got);
+    backups.known_chain(agent).unwrap_or_default()
+}
+
+/// Whether the run ended on a usage limit, and when it lifts if the account said. From the structure of what the
+/// harness printed: Claude Code's `is_error` result with the API's 429 status, kith's own `usage_limit` for Codex
+/// (parsed from Codex's `usage_limit_reached` error). The one reading of words is Claude Code's own limit message, for
+/// versions that print no status; it needs `is_error` as well and Claude's wording ("hit your limit", "usage limit
+/// reached", "credit balance is too low"), so an answer that talks about limits is never taken for one.
+fn depleted(res: &Value) -> Option<Depleted> {
+    if !res.get("is_error").and_then(Value::as_bool).unwrap_or(false) {
+        return None;
+    }
+    let text = res.get("result").and_then(Value::as_str).unwrap_or("");
+    // Claude Code's older limit message ends in "|<epoch>".
+    let epoch = text.rsplit_once('|').and_then(|(_, t)| t.trim().parse::<i64>().ok()).map(acp::epoch_secs);
+    if let Some(limit) = res.get("usage_limit") {
+        return Some(Depleted { resets_at: limit.get("resets_at").and_then(Value::as_i64).map(acp::epoch_secs) });
+    }
+    let lower = text.to_lowercase();
+    let worded = ["hit your limit", "hit your usage limit", "usage limit reached", "credit balance is too low"]
+        .iter()
+        .any(|p| lower.contains(p));
+    (res.get("api_error_status").and_then(Value::as_i64) == Some(429) || worded)
+        .then_some(Depleted { resets_at: epoch })
+}
+
+/// "15:00" for a time today, "Sat 15:00" for one further away.
+fn clock_time(at: i64, now: i64) -> String {
+    use chrono::TimeZone as _;
+    let Some(time) = chrono::Local.timestamp_opt(at, 0).single() else { return String::new() };
+    let soon = at - now < 18 * 3600
+        && time.date_naive()
+            == chrono::Local.timestamp_opt(now, 0).single().map_or(time.date_naive(), |n| n.date_naive());
+    time.format(if soon { "%H:%M" } else { "%a %H:%M" }).to_string()
+}
+
 impl Core {
     /// Waits for the gate's permit, with the working line saying why it waits. None: stopped while waiting.
     pub(super) async fn admit(&self, ad: &Arc<dyn Adapter>, wk: &str, cancel: &tokio::sync::Notify) -> Option<Permit> {
@@ -76,6 +141,10 @@ impl Core {
     }
 
     /// One agent turn in this thread. The permit is held until it ends.
+    ///
+    /// An agent with a backup chain (see `agent::backups`) starts on the first account that is not out of usage. A run
+    /// that ends on a usage limit marks its account out and, when it has done nothing yet that can't be done twice
+    /// (nothing was posted to the thread), starts again on the next one, at most once per entry.
     pub(super) async fn run(
         &self,
         ad: &Arc<dyn Adapter>,
@@ -85,49 +154,160 @@ impl Core {
         task: &str,
         _permit: Permit,
     ) -> Result<Ended> {
-        let (conv, person, session) = self.with(|i| {
-            let th = i.st.threads.get(key);
-            let get = |k: &str| th.and_then(|t| t.get(k));
-            (
-                get("conv").cloned().unwrap_or(Value::Null),
-                get("person").and_then(Value::as_str).unwrap_or("").to_owned(),
-                get("sessions").and_then(|s| s.get(agent)).and_then(Value::as_str).map(str::to_owned),
-            )
+        let conv = self.with(|i| i.st.threads.get(key).and_then(|t| t.get("conv").cloned()).unwrap_or(Value::Null));
+        let outbox = self.paths.data.join("outbox").join(short(&format!("{wk}{}", super::core::now())));
+        std::fs::create_dir_all(&outbox).with_context(|| format!("creating {}", outbox.display()))?;
+        let ended = self.turn(ad, key, agent, wk, task, &conv, &outbox).await;
+        let _ = std::fs::remove_dir(&outbox);
+        ended
+    }
+
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)] // one turn: its inputs, and the account loop
+    async fn turn(
+        &self,
+        ad: &Arc<dyn Adapter>,
+        key: &str,
+        agent: &str,
+        wk: &str,
+        task: &str,
+        conv: &Value,
+        outbox: &Path,
+    ) -> Result<Ended> {
+        let person = self.with(|i| {
+            i.st.threads.get(key).and_then(|t| t.get("person")).and_then(Value::as_str).unwrap_or("").to_owned()
         });
         let owner = if person.is_empty() { true } else { super::hq::resolve(&self.paths, &person, agent).await.owner };
         let mut env: Vec<(std::ffi::OsString, std::ffi::OsString)> =
             std::env::vars_os().filter(|(k, _)| k.to_str().is_some_and(inherited)).collect();
         // Both spellings of a kernel setting: the kernel reads KITH_<X>, role repos written before the rename HQ_<X>.
-        let mut set = |name: &str, v: &str| {
+        let set = |env: &mut Vec<(std::ffi::OsString, std::ffi::OsString)>, name: &str, v: &str| {
             for (k, v) in crate::kernel::both(name, v) {
                 env.push((k.into(), v.into()));
             }
         };
-        set("VIA", ad.platform());
-        set("OUTPUT", "json");
+        set(&mut env, "VIA", ad.platform());
+        set(&mut env, "OUTPUT", "json");
         if let Some(mode) = &self.settings.permission_mode {
-            set("PERMISSION_MODE", mode); // unset: the agent's mode, else hq's default
+            set(&mut env, "PERMISSION_MODE", mode); // unset: the agent's mode, else hq's default
         }
         if !owner {
-            set("PERSON", &person); // bin/hq checks the membership again and sets their mode
+            set(&mut env, "PERSON", &person); // bin/hq checks the membership again and sets their mode
         }
-        if let Some(session) = &session {
-            set("RESUME", session); // any harness: bin/hq starts a new session when this one is another harness's
-        }
-        let outbox = self.paths.data.join("outbox").join(short(&format!("{wk}{}", super::core::now())));
-        std::fs::create_dir_all(&outbox).with_context(|| format!("creating {}", outbox.display()))?;
-        set("BRIDGE_OUTBOX", &outbox.to_string_lossy());
-        for (k, v) in ad.env(&conv, agent) {
+        set(&mut env, "BRIDGE_OUTBOX", &outbox.to_string_lossy());
+        for (k, v) in ad.env(conv, agent) {
             env.push((k.into(), v.into())); // already under both spellings
         }
-        if let Some(ended) = self.with(|i| i.busy.get(wk).and_then(|b| b.ended)) {
-            let _ = std::fs::remove_dir(&outbox);
-            return Ok(ended); // stopped before the process existed
-        }
 
+        let mut chain = self.chain(agent).await;
+        let mut tried: HashSet<String> = HashSet::new();
+        let mut posted = 0;
+        loop {
+            // None: the agent's own account. A chain of one entry (or none) never changes anything.
+            let (backup, serving) = match self.backups.pick(agent, &chain, &tried) {
+                Pick::Primary => (None, chain.first().map(|e| e.id.clone()).unwrap_or_default()),
+                Pick::Backup(entry) => (Some(entry.id.clone()), entry.id),
+                Pick::AllOut(outs) => {
+                    let text = format!("⚠️ {}", self.backups.all_out_text(&outs));
+                    self.say(ad, conv, agent, &text, None).await;
+                    return Ok(Ended::Done);
+                }
+            };
+            tried.insert(serving.clone());
+            // A session is one harness's: the backup's own is kept apart, so the agent's resumes once it is back.
+            let session = self.with(|i| {
+                let th = i.st.threads.get(key)?;
+                let sid = match &backup {
+                    None => th.get("sessions")?.get(agent),
+                    Some(id) => th.get("backup_sessions")?.get(agent)?.get(id),
+                };
+                sid.and_then(Value::as_str).map(str::to_owned)
+            });
+            let fresh_backup = backup.is_some() && session.is_none();
+            let mut run_env = env.clone();
+            if let Some(session) = &session {
+                set(&mut run_env, "RESUME", session); // any harness: bin/hq starts a new session when this one is another harness's
+            }
+            let attempt = match self
+                .attempt(ad, agent, wk, task, conv, outbox, run_env, backup.as_deref(), fresh_backup)
+                .await?
+            {
+                Attempt::Stopped(ended) => return Ok(ended),
+                Attempt::NotStarted => return Ok(Ended::Done),
+                Attempt::Ran(attempt) => attempt,
+            };
+            posted += attempt.posted;
+            if let Some(id) = &backup
+                && attempt.code == Some(4)
+            {
+                // kith can't run this entry (not signed in, not allowed for this person): the next one answers.
+                tracing::info!(agent, entry = %id, "backup account skipped");
+                self.backups.note_unavailable(agent, id);
+                continue;
+            }
+            let res = serde_json::from_slice::<Value>(&attempt.out).ok();
+            let limit = res.as_ref().and_then(depleted);
+            if let Some(limit) = limit {
+                if chain.len() < 2 && self.backups.known_chain(agent).is_none() {
+                    // The first run to need the chain: it is only fetched in the background otherwise.
+                    chain = fetch_chain(&self.backups, &self.paths.hq_bin, agent).await;
+                }
+                if chain.len() >= 2 {
+                    self.backups.mark_out(&serving, limit.resets_at, RATE_LIMIT);
+                    // Nothing posted yet and not past its first turn (no tools ran): the whole run can start again.
+                    let started_work = res.as_ref().and_then(|r| r.get("num_turns")).and_then(Value::as_i64) > Some(1);
+                    if posted == 0 && !started_work && tried.len() <= MAX_MOVES {
+                        tracing::info!(agent, entry = %serving, "run ran out of usage; moving to the next account");
+                        continue;
+                    }
+                }
+            }
+            return Ok(self
+                .finish(
+                    ad,
+                    key,
+                    agent,
+                    conv,
+                    attempt,
+                    res,
+                    backup.as_deref(),
+                    &chain,
+                    limit.is_some() && chain.len() >= 2,
+                )
+                .await);
+        }
+    }
+
+    /// One process of the agent, on `backup` or its own account, until it ends. Posts what its `kith-send` calls leave
+    /// in the outbox while it runs.
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)] // the process and everything it is watched with
+    async fn attempt(
+        &self,
+        ad: &Arc<dyn Adapter>,
+        agent: &str,
+        wk: &str,
+        task: &str,
+        conv: &Value,
+        outbox: &Path,
+        env: Vec<(std::ffi::OsString, std::ffi::OsString)>,
+        backup: Option<&str>,
+        fresh_backup: bool,
+    ) -> Result<Attempt> {
+        if let Some(ended) = self.with(|i| i.busy.get(wk).and_then(|b| b.ended)) {
+            return Ok(Attempt::Stopped(ended)); // stopped before the process existed
+        }
+        // A backup's new session knows nothing of the thread: it is told so, rather than left to guess.
+        let preface = if fresh_backup {
+            "[Kith] You are answering on a backup account: the usual one is out of usage. Earlier messages in this \
+             thread were answered in another session you cannot see; ask if you need what was said.\n\n"
+        } else {
+            ""
+        };
         let mut cmd = tokio::process::Command::new(&self.paths.hq_bin);
-        cmd.arg(agent)
-            .arg(format!("{task}{}", ad.footer()))
+        cmd.arg(agent);
+        if let Some(id) = backup {
+            cmd.arg("--backup").arg(id);
+        }
+        cmd.arg(format!("{preface}{task}{}", ad.footer()))
             .env_clear()
             .envs(env)
             .stdin(Stdio::null())
@@ -141,16 +321,16 @@ impl Core {
         let mut child = match cmd.spawn() {
             Ok(child) => child,
             Err(e) => {
-                let _ = std::fs::remove_dir(&outbox);
                 let text = format!("⚠️ {agent} failed:\n```\n{e}\n```");
-                self.say(ad, &conv, agent, &text, None).await;
-                return Ok(Ended::Done);
+                self.say(ad, conv, agent, &text, None).await;
+                return Ok(Attempt::NotStarted);
             }
         };
         let pid = child.id();
         let stop_now = self.with(|i| {
             let b = i.busy.get_mut(wk)?;
             b.pid = pid;
+            b.exited = false;
             b.ended.is_some().then_some(())
         });
         if stop_now.is_some()
@@ -162,7 +342,6 @@ impl Core {
             if let Some(pid) = pid {
                 kill(pid);
             }
-            let _ = std::fs::remove_dir(&outbox);
             anyhow::bail!("no pipes on the agent process");
         };
         let (out, err) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(Vec::new())));
@@ -170,12 +349,13 @@ impl Core {
         let stop_pump = Arc::new(tokio::sync::Notify::new());
         let pump = {
             let (poll, ad, conv, outbox, stop) =
-                (self.settings.poll, ad.clone(), conv.clone(), outbox.clone(), stop_pump.clone());
+                (self.settings.poll, ad.clone(), conv.clone(), outbox.to_path_buf(), stop_pump.clone());
             tokio::spawn(async move {
+                let mut posted = 0;
                 loop {
                     tokio::select! {
-                        () = tokio::time::sleep(poll) => flush(&ad, &conv, &outbox).await,
-                        () = stop.notified() => break,
+                        () = tokio::time::sleep(poll) => posted += flush(&ad, &conv, &outbox).await,
+                        () = stop.notified() => break posted,
                     }
                 }
             })
@@ -184,38 +364,56 @@ impl Core {
         // pipes open can't hang the turn.
         let grace = self.settings.reader_grace;
         let finished = async {
-            let _ = child.wait().await;
+            let status = child.wait().await.ok();
             self.with(|i| i.busy.get_mut(wk).map(|b| b.exited = true));
             let [out_reader, err_reader] = readers;
-            tokio::time::timeout(grace, async {
+            let closed = tokio::time::timeout(grace, async {
                 let _ = tokio::join!(out_reader, err_reader);
             })
             .await
-            .is_ok()
+            .is_ok();
+            (closed, status.and_then(|s| s.code()))
         };
         let outcome = tokio::time::timeout(self.settings.run_timeout, finished).await;
         let timed_out = outcome.is_err();
-        if timed_out || matches!(outcome, Ok(false)) {
+        if timed_out || matches!(outcome, Ok((false, _))) {
             // Out of time, or output still open after the process left: whatever is left of its group goes too.
             if let Some(pid) = pid {
                 kill(pid);
             }
             self.with(|i| i.busy.get_mut(wk).map(|b| b.exited = true));
         }
+        let code = outcome.ok().and_then(|(_, code)| code);
         stop_pump.notify_one();
-        let _ = pump.await; // a post in flight finishes before the last flush
-        flush(ad, &conv, &outbox).await;
-        let _ = std::fs::remove_dir(&outbox);
+        let mut posted = pump.await.unwrap_or(0); // a post in flight finishes before the last flush
+        posted += flush(ad, conv, outbox).await;
         if let Some(ended) = self.with(|i| i.busy.get(wk).and_then(|b| b.ended)) {
-            return Ok(ended);
+            return Ok(Attempt::Stopped(ended));
         }
         let (out, err) = if timed_out {
             (Vec::new(), b"timed out after 60 min".to_vec())
         } else {
             (out.locked().clone(), err.locked().clone())
         };
+        Ok(Attempt::Ran(Ran { out, err, code, posted }))
+    }
 
-        let (text, sid, pct) = if let Ok(res) = serde_json::from_slice::<Value>(&out) {
+    /// Posts what the run ended with: the answer (and, from a backup, the line saying so), or its error. Remembers the
+    /// session for the next message.
+    #[allow(clippy::too_many_arguments)] // what the turn knows once it has its output
+    async fn finish(
+        &self,
+        ad: &Arc<dyn Adapter>,
+        key: &str,
+        agent: &str,
+        conv: &Value,
+        ran: Ran,
+        res: Option<Value>,
+        backup: Option<&str>,
+        chain: &[ChainEntry],
+        limit_hit: bool,
+    ) -> Ended {
+        let (mut text, sid, pct) = if let Some(res) = res {
             let mut text = res.get("result").and_then(Value::as_str).unwrap_or("").to_owned();
             if res.get("is_error").and_then(Value::as_bool).unwrap_or(false) {
                 let why = if text.is_empty() {
@@ -228,20 +426,69 @@ impl Core {
             let sid = res.get("session_id").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
             (text, sid, context_pct(&res))
         } else {
-            let shown = tail(if err.is_empty() { &out } else { &err }, 1500);
+            let shown = tail(if ran.err.is_empty() { &ran.out } else { &ran.err }, 1500);
             (format!("⚠️ {agent} failed:\n```\n{shown}\n```"), None, None)
         };
-        if let Some(sid) = sid {
+        // A session that ended on the limit has nothing to resume.
+        if let Some(sid) = sid.filter(|_| !limit_hit) {
             self.with(|i| {
                 if let Some(th) = i.st.threads.get_mut(key) {
-                    th["sessions"][agent] = Value::String(sid);
+                    match backup {
+                        None => th["sessions"][agent] = Value::String(sid),
+                        Some(id) => th["backup_sessions"][agent][id] = Value::String(sid),
+                    }
                     i.save();
                 }
             });
         }
+        if let Some(id) = backup
+            && !text.starts_with('⚠')
+        {
+            let note = self.answered_by(ad, id, chain);
+            text = format!("{text}\n\n{note}");
+        }
         let show = pct.filter(|p| self.settings.context_show.is_some_and(|min| *p >= min));
-        self.say(ad, &conv, agent, &text, show).await;
-        Ok(Ended::Done)
+        self.say(ad, conv, agent, &text, show).await;
+        Ended::Done
+    }
+
+    /// "answered by codex · Claude back at 15:00": which account answered, and when the agent's own is back if that
+    /// is known. Times are the host's local time.
+    fn answered_by(&self, ad: &Arc<dyn Adapter>, id: &str, chain: &[ChainEntry]) -> String {
+        let mut line = format!("answered by {id}");
+        if let Some(primary) = chain.first()
+            && let Some(out) = self.backups.out().get(&primary.id)
+        {
+            let name = primary.id.split_once(':').map_or(primary.id.as_str(), |(h, _)| h);
+            let name = name[..1].to_uppercase() + &name[1..];
+            let _ = write!(line, " · {name} back at {}", clock_time(out.out_until, self.backups.now()));
+        }
+        ad.note_line(&line)
+    }
+
+    /// The agent's backup chain as last known. A run never waits for hq: a chain gone stale is fetched again in the
+    /// background, and one never fetched is too, unless backups are in use (something is out), when this run needs it
+    /// to pick. No chain, or any failure, is an empty chain: nothing changes.
+    async fn chain(&self, agent: &str) -> Vec<ChainEntry> {
+        let later = || {
+            if self.backups.begin_refresh(agent) {
+                let (backups, bin, agent) = (self.backups.clone(), self.paths.hq_bin.clone(), agent.to_owned());
+                tokio::spawn(async move { drop(fetch_chain(&backups, &bin, &agent).await) });
+            }
+        };
+        match self.backups.chain_state(agent) {
+            Some((age, chain)) => {
+                if Backups::chain_stale(age, &chain) {
+                    later();
+                }
+                chain
+            }
+            None if self.backups.any_out() => fetch_chain(&self.backups, &self.paths.hq_bin, agent).await,
+            None => {
+                later();
+                Vec::new()
+            }
+        }
     }
 
     async fn say(&self, ad: &Arc<dyn Adapter>, conv: &Value, agent: &str, text: &str, ctx: Option<f64>) {
@@ -252,9 +499,11 @@ impl Core {
 }
 
 /// Posts what the run's hq-send calls left in its outbox, oldest first.
-pub(super) async fn flush(ad: &Arc<dyn Adapter>, conv: &Value, outbox: &Path) {
+/// How many it took.
+pub(super) async fn flush(ad: &Arc<dyn Adapter>, conv: &Value, outbox: &Path) -> usize {
+    let mut taken = 0;
     {
-        let Ok(entries) = std::fs::read_dir(outbox) else { return };
+        let Ok(entries) = std::fs::read_dir(outbox) else { return 0 };
         let mut files: Vec<_> =
             entries.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "json")).collect();
         files.sort();
@@ -265,6 +514,7 @@ pub(super) async fn flush(ad: &Arc<dyn Adapter>, conv: &Value, outbox: &Path) {
             if std::fs::remove_file(&f).is_err() {
                 continue;
             }
+            taken += 1;
             let who = item.get("as").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("kith");
             let files: Vec<String> = item
                 .get("files")
@@ -282,11 +532,40 @@ pub(super) async fn flush(ad: &Arc<dyn Adapter>, conv: &Value, outbox: &Path) {
             }
         }
     }
+    taken
 }
 
 #[cfg(test)]
 mod tests {
-    use super::inherited;
+    use super::{depleted, inherited};
+    use serde_json::json;
+
+    #[test]
+    fn a_usage_limit_is_read_from_the_structure_of_the_result() {
+        // Claude Code: the API's status, with or without the epoch its older message ends in.
+        let status = json!({"is_error": true, "api_error_status": 429, "result": "anything"});
+        assert_eq!(depleted(&status).map(|d| d.resets_at), Some(None));
+        let epoch = json!({"is_error": true, "result": "Claude AI usage limit reached|1900000000"});
+        assert_eq!(depleted(&epoch).and_then(|d| d.resets_at), Some(1_900_000_000));
+        // Codex through kith: its own usage_limit object, resets_at in seconds or milliseconds.
+        let codex = json!({"is_error": true, "result": "x", "usage_limit": {"resets_at": 1_900_000_000_000_i64}});
+        assert_eq!(depleted(&codex).and_then(|d| d.resets_at), Some(1_900_000_000));
+        let codex_unknown = json!({"is_error": true, "result": "x", "usage_limit": {"resets_at": null}});
+        assert_eq!(depleted(&codex_unknown).map(|d| d.resets_at), Some(None));
+        let worded = json!({"is_error": true, "result": "You've hit your limit - resets 3pm"});
+        assert!(depleted(&worded).is_some());
+    }
+
+    #[test]
+    fn an_answer_that_talks_about_limits_is_not_one() {
+        let talk = json!({"is_error": false, "result": "You've hit your limit, he said; usage limit reached"});
+        assert!(depleted(&talk).is_none());
+        let other_error = json!({"is_error": true, "api_error_status": 500, "result": "boom"});
+        assert!(depleted(&other_error).is_none());
+        let overloaded = json!({"is_error": true, "result": "Overloaded"});
+        assert!(depleted(&overloaded).is_none());
+        assert!(depleted(&json!({"result": "hi"})).is_none());
+    }
 
     #[test]
     fn runs_get_the_login_basics_and_hq_settings_only() {

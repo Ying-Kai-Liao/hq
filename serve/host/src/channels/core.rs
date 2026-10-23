@@ -13,6 +13,7 @@ use super::settings::Settings;
 use super::state::{Imported, State};
 use super::text::{self, short};
 use crate::LockExt;
+use crate::agent::backups::Backups;
 use crate::agent::gate::Gate;
 use anyhow::Result;
 use serde_json::{Value, json};
@@ -36,6 +37,8 @@ pub struct Deps {
     pub settings: Settings,
     pub gate: Arc<Gate>,
     pub judge: Judge,
+    /// The host's record of which backup accounts are out of usage (the one the bots' turns use).
+    pub backups: Arc<Backups>,
 }
 
 /// The turn a thread's agent is running (or about to run, or between turns).
@@ -100,6 +103,7 @@ pub struct Core {
     pub(super) agents: Agents,
     pub(super) gate: Arc<Gate>,
     pub(super) judge: Judge,
+    pub(super) backups: Arc<Backups>,
     pub(super) inner: Mutex<Inner>,
     /// Connections whose live-agent outboxes are being posted.
     pub(super) pumps: Mutex<HashMap<String, JoinHandle<()>>>,
@@ -116,6 +120,7 @@ impl Core {
             settings: deps.settings,
             gate: deps.gate,
             judge: deps.judge,
+            backups: deps.backups,
             inner: Mutex::new(Inner { st, path, busy: HashMap::new(), history: HashMap::new(), works: HashMap::new() }),
             pumps: Mutex::new(HashMap::new()),
             hinted: Mutex::new(HashSet::new()),

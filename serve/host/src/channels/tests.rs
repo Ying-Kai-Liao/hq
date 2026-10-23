@@ -18,6 +18,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+mod backup;
+
 const STUB: &str = include_str!("../../tests/fixtures/channels_stub.py");
 
 /// The stub script, written once so that no test writes an executable that another is about to start.
@@ -74,6 +76,7 @@ struct Rig {
     core: Arc<Core>,
     fake: Arc<Fake>,
     ad: Arc<dyn Adapter>,
+    backups: Arc<crate::agent::backups::Backups>,
     /// Keeps the gate's task alive, when a test needs slots handed on.
     _hub: Option<Arc<crate::hub::Hub>>,
 }
@@ -155,15 +158,18 @@ impl Rig {
             tokio::spawn(crate::agent::gate::run(gate.clone(), Arc::downgrade(&hub)));
             hub
         });
+        std::fs::create_dir_all(dir.join("data")).unwrap();
+        let backups = Arc::new(crate::agent::backups::Backups::new(dir.join("data/backups.json")));
         let core = Core::new(core::Deps {
             paths: paths.clone(),
             settings: opts.settings,
             gate,
             judge: Judge::fixed(opts.jev, paths),
+            backups: backups.clone(),
         });
         let fake = Arc::new(Fake::new("fake/x"));
         let ad: Arc<dyn Adapter> = fake.clone();
-        Self { dir, core, fake, ad, _hub: hub }
+        Self { dir, core, fake, ad, backups, _hub: hub }
     }
 
     fn put(&self, name: &str, v: &Value) {
