@@ -375,7 +375,7 @@ impl Drop for Parked {
 /// agents when memory is what holds the line, and keeps the waiting bots' status line current.
 pub async fn run(gate: Arc<Gate>, hub: Weak<Hub>) {
     let mut trigger = reclaim::Trigger::default();
-    let (done_tx, mut done_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let (done_tx, mut done_rx) = tokio::sync::mpsc::unbounded_channel::<Option<usize>>();
     // Where res.py is: looked up on first use; `Some(None)` once it is known to be missing.
     let mut script: Option<Option<std::path::PathBuf>> = None;
     loop {
@@ -384,8 +384,8 @@ pub async fn run(gate: Arc<Gate>, hub: Weak<Hub>) {
             () = tokio::time::sleep(RECHECK) => {}
         }
         let Some(hub) = hub.upgrade() else { return };
-        while done_rx.try_recv().is_ok() {
-            trigger.finished();
+        while let Ok(closed) = done_rx.try_recv() {
+            trigger.finished(closed);
         }
         gate.pump();
         while gate.memory_blocked() && hub.reclaim_idle_agent().await {
@@ -401,21 +401,23 @@ pub async fn run(gate: Arc<Gate>, hub: Weak<Hub>) {
                 {
                     let (gate, done) = (gate.clone(), done_tx.clone());
                     tokio::spawn(async move {
-                        match reclaim::run_script(&path, &gate.settings).await {
+                        let result = reclaim::run_script(&path, &gate.settings).await;
+                        let closed = result.as_ref().ok().copied();
+                        match result {
                             Ok(closed) => {
                                 tracing::info!(closed, "memory held the line; reclaimed idle sessions");
                                 gate.state.locked().last_reclaim = Some((std::time::SystemTime::now(), closed));
                             }
                             Err(error) => tracing::warn!(error, "session reclaim failed"),
                         }
-                        let _ = done.send(());
+                        let _ = done.send(closed);
                         // Waiting turns start as soon as memory is back.
                         gate.wake.notify_one();
                     });
                 }
             } else {
                 tracing::warn!("resource-manager's res.py not found; not reclaiming idle sessions");
-                trigger.finished();
+                trigger.finished(None);
             }
         }
         for (rt, text) in gate.waiting_lines() {

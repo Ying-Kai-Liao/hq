@@ -21,6 +21,9 @@ pub struct Trigger {
     last_run: Option<Instant>,
     /// The current stretch of blocking already had its run.
     ran_this_stretch: bool,
+    /// The last run failed, was busy or closed nothing. Memory flapping must not repeat it (and its Telegram
+    /// line) every threshold; only a run that closed something lets a later stretch ask again at once.
+    fruitless: bool,
     running: bool,
 }
 
@@ -37,7 +40,8 @@ impl Trigger {
         if settings.reclaim_after.is_zero() || self.running || now.duration_since(since) < settings.reclaim_after {
             return false;
         }
-        if self.ran_this_stretch && self.last_run.is_some_and(|t| now.duration_since(t) < COOLDOWN) {
+        if (self.ran_this_stretch || self.fruitless) && self.last_run.is_some_and(|t| now.duration_since(t) < COOLDOWN)
+        {
             return false;
         }
         self.running = true;
@@ -46,8 +50,10 @@ impl Trigger {
         true
     }
 
-    pub fn finished(&mut self) {
+    /// `closed` is how many sessions the run closed; `None` when it failed or another run held the lock.
+    pub fn finished(&mut self, closed: Option<usize>) {
         self.running = false;
+        self.fruitless = closed.is_none_or(|n| n == 0);
     }
 }
 

@@ -212,7 +212,7 @@ mod reclaim_trigger {
         assert!(!t.due(t0, true, &s));
         assert!(!t.due(at(t0, 119), true, &s), "not yet");
         assert!(t.due(at(t0, 120), true, &s));
-        t.finished();
+        t.finished(Some(1));
         assert!(!t.due(at(t0, 125), true, &s), "once per stretch");
         assert!(!t.due(at(t0, 120 + COOLDOWN.as_secs() - 1), true, &s));
         assert!(t.due(at(t0, 120 + COOLDOWN.as_secs()), true, &s), "again after the cooldown");
@@ -224,7 +224,7 @@ mod reclaim_trigger {
         assert!(!t.due(t0, true, &s));
         assert!(t.due(at(t0, 200), true, &s));
         assert!(!t.due(at(t0, 200 + COOLDOWN.as_secs() + 5), true, &s));
-        t.finished();
+        t.finished(Some(1));
         assert!(t.due(at(t0, 200 + COOLDOWN.as_secs() + 10), true, &s));
     }
 
@@ -233,10 +233,37 @@ mod reclaim_trigger {
         let (s, t0, mut t) = (Settings::default(), Instant::now(), Trigger::default());
         assert!(!t.due(t0, true, &s));
         assert!(t.due(at(t0, 130), true, &s));
-        t.finished();
+        t.finished(Some(1));
         assert!(!t.due(at(t0, 140), false, &s));
         assert!(!t.due(at(t0, 150), true, &s), "the clock starts over");
         assert!(!t.due(at(t0, 269), true, &s));
+        assert!(t.due(at(t0, 270), true, &s));
+    }
+
+    #[test]
+    fn flapping_after_a_run_that_closed_nothing_waits_out_the_cooldown() {
+        let (s, t0, mut t) = (Settings::default(), Instant::now(), Trigger::default());
+        assert!(!t.due(t0, true, &s));
+        assert!(t.due(at(t0, 130), true, &s));
+        t.finished(Some(0));
+        assert!(!t.due(at(t0, 140), false, &s));
+        assert!(!t.due(at(t0, 150), true, &s));
+        assert!(!t.due(at(t0, 300), true, &s), "new stretch, threshold passed, still in the cooldown");
+        assert!(t.due(at(t0, 130 + COOLDOWN.as_secs()), true, &s));
+        t.finished(None);
+        assert!(!t.due(at(t0, 140 + COOLDOWN.as_secs()), false, &s));
+        assert!(!t.due(at(t0, 150 + COOLDOWN.as_secs()), true, &s));
+        assert!(!t.due(at(t0, 400 + COOLDOWN.as_secs()), true, &s), "a failed run counts the same");
+    }
+
+    #[test]
+    fn a_new_stretch_after_a_run_that_closed_something_runs_again() {
+        let (s, t0, mut t) = (Settings::default(), Instant::now(), Trigger::default());
+        assert!(!t.due(t0, true, &s));
+        assert!(t.due(at(t0, 130), true, &s));
+        t.finished(Some(2));
+        assert!(!t.due(at(t0, 140), false, &s));
+        assert!(!t.due(at(t0, 150), true, &s));
         assert!(t.due(at(t0, 270), true, &s));
     }
 
