@@ -6,6 +6,10 @@
   kith-sessions resolve AGENT THREAD PID   for `kith AGENT --resume THREAD`: prints shell assignments (r_sid, r_cwd, r_from); the host
                                            names the session (POST /api/resolveThread), else a raw Claude session id found on disk.
                                            Takes the session's writer claim for PID (the launcher's shell, which then execs `run`)
+  kith-sessions pick AGENT                 for `kith AGENT -r`: the agent's recent sessions (cost ledger runs with a transcript),
+                                           numbered on stderr; reads a number on stdin and prints that session id
+  kith-sessions latest AGENT DIR           for `kith AGENT -c`: the id of the agent's newest session begun in DIR
+                                           (both only name a session: `resolve` still claims and checks it)
   kith-sessions run AGENT -- CMD...        run CMD (claude) as a child: signals and exit code pass through; afterwards gives back the
                                            claims of this process and, if the host took the session over while it ran, says how to get it back
 
@@ -218,22 +222,108 @@ def live_pid(entry):
         return None
 
 
+def cwd_in(transcript):
+    """The folder a transcript's session ran in; '' when it names none."""
+    try:
+        with open(transcript) as f:
+            for _, line in zip(range(60), f):
+                try:
+                    c = json.loads(line).get('cwd')
+                except ValueError:
+                    continue
+                if c:
+                    return c
+    except OSError:
+        pass
+    return ''
+
+
 def transcript_cwd(sid):
     """The folder a Claude session ran in, from its transcript; None when there is no such session, '' when it names no folder."""
     for t in (claude_dir() / 'projects').glob(f'*/{sid}.jsonl'):
-        try:
-            with open(t) as f:
-                for _, line in zip(range(60), f):
-                    try:
-                        c = json.loads(line).get('cwd')
-                    except ValueError:
-                        continue
-                    if c:
-                        return c
-        except OSError:
-            pass
-        return ''
+        return cwd_in(t)
     return None
+
+
+def first_text(transcript, width=70):
+    """The first thing the person typed in a transcript, on one line and cut to width; '' when there is none."""
+    try:
+        with open(transcript) as f:
+            for _, line in zip(range(400), f):
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if d.get('type') != 'user' or d.get('isMeta') or d.get('isSidechain'):
+                    continue
+                c = (d.get('message') or {}).get('content')
+                for t in [c] if isinstance(c, str) else [b.get('text') or '' for b in c or [] if isinstance(b, dict) and b.get('type') == 'text']:
+                    t = ' '.join(t.split())
+                    if t and not t.startswith('<'):   # command echoes, hook output and reminders come as tags
+                        return t if len(t) <= width else t[:width - 1] + '…'
+    except OSError:
+        pass
+    return ''
+
+
+def recent(agent, limit=15, where=None):
+    """The owner's past Claude sessions of AGENT that still have a transcript, newest first (only those begun in WHERE when
+    given): [(session, started, via, project, first text)]. From the cost ledger's runs, which every kith run is tagged in."""
+    import sqlite3
+    machine = os.environ.get('KITH_MACHINE')
+    if not machine:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'lib'))
+        from kith_paths import paths
+        machine = paths()['KITH_MACHINE']
+    db = Path(machine) / 'cost.db'
+    if not db.is_file():
+        return []
+    c = sqlite3.connect(db.as_uri() + '?mode=ro', uri=True)
+    try:
+        rows = c.execute("select session, started, via, project from runs where agent = ? and coalesce(person, '') = '' "
+                         "and session not like '%:%' order by started desc", (agent,)).fetchall()   # 'codex:…': not Claude's
+    finally:
+        c.close()
+    on_disk = {}
+    for t in (claude_dir() / 'projects').glob('*/*.jsonl'):
+        on_disk.setdefault(t.stem, t)
+    here, out = where and os.path.realpath(where), []
+    for sid, started, via, project in rows:
+        t = on_disk.get(sid)
+        if not t or (here and os.path.realpath(cwd_in(t) or '/nowhere') != here):
+            continue
+        out.append((sid, started, via, project, first_text(t)))
+        if len(out) == limit:
+            break
+    return out
+
+
+def pick(agent):
+    """For `kith AGENT -r`: list the agent's recent sessions on stderr, read a number, print that session's id."""
+    rows = recent(agent)
+    if not rows:
+        sys.exit(f'kith: no {agent} sessions to resume (none in the cost ledger with a transcript on this Mac)')
+    for i, (_, started, via, project, text) in enumerate(rows, 1):
+        try:
+            when = dt.datetime.fromisoformat(started).replace(tzinfo=dt.timezone.utc).astimezone().strftime('%m-%d %H:%M')
+        except (TypeError, ValueError):
+            when = '?'.ljust(11)
+        print(f'{i:>3}  {when}  {via or "?":<9} {project or "-":<12} {text}', file=sys.stderr)
+    print('resume which? (number, Enter to cancel) ', end='', file=sys.stderr, flush=True)
+    a = sys.stdin.readline().strip()
+    if not a:
+        sys.exit(1)
+    if not a.isdigit() or not 1 <= int(a) <= len(rows):
+        sys.exit(f'kith: no session {a} in the list')
+    print(rows[int(a) - 1][0])
+
+
+def latest(agent, where):
+    """For `kith AGENT -c`: print the id of the agent's newest session begun in WHERE."""
+    rows = recent(agent, 1, where)
+    if not rows:
+        sys.exit(f'kith: no {agent} session started in {where} to continue (kith {agent} -r lists them all)')
+    print(rows[0][0])
 
 
 def resolve(agent, thread, claimer=None):
@@ -367,6 +457,10 @@ if __name__ == '__main__':
         record()
     elif a[:1] == ['resolve'] and len(a) in (3, 4):
         resolve(a[1], a[2], int(a[3]) if len(a) == 4 else None)
+    elif a[:1] == ['pick'] and len(a) == 2:
+        pick(a[1])
+    elif a[:1] == ['latest'] and len(a) == 3:
+        latest(a[1], a[2])
     elif a[:1] == ['run'] and len(a) > 3 and a[2] == '--':
         rc = run(a[1], a[3:])
         sys.exit(128 - rc if rc < 0 else rc)

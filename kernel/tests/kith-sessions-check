@@ -213,6 +213,28 @@ printf '{"cwd":"%s","type":"user"}\n' "$T/work/b" > "$CLAUDE_CONFIG_DIR/projects
 err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume cs-2 2>&1 >/dev/null); rc=$?
 [[ $rc != 0 && $err == *"open in another writer (pid $C2"* ]] && ok "--resume: a claimed session is refused (second terminal)" || bad "claimed" "$rc $err"
 [[ ! -e $REG/cs-2.json ]] && ok "refused: claude never started" || bad "claude started"
+# -r <id>, -r (picked) and -c reach the same claim: a claimed session is refused and claude never starts. The names come from the
+# cost ledger (a run with a transcript); the later started time makes the session the newest begun here.
+export KITH_MACHINE=$(python3 "$KERNEL/lib/kith_paths.py" --json | python3 -c 'import json, sys; print(json.load(sys.stdin)["KITH_MACHINE"])')
+mkdir -p "$KITH_MACHINE"
+sqlite3 "$KITH_MACHINE/cost.db" "create table if not exists runs (session text primary key, agent text, version text, model text, effort text, via text, project text, started text, person text, provider text, account text);
+  insert into runs (session, agent, via, project, started) values ('cs-2', 'designer', 'terminal', 'p', '2026-10-23T12:00:00');"
+rm -f "$T/stub.out"; (cd "$T/work/b" && tty "$KERNEL/bin/kith" designer -r cs-2); err=$(cat "$T/tty.out")
+[[ ! -e $T/stub.out && $err == *"open in another writer"* ]] && ok "-r <id>: a claimed session is refused, claude never started" || bad "-r id claimed" "$err"
+rm -f "$T/stub.out"; (cd "$T/work/b" && tty "$KERNEL/bin/kith" designer -c); err=$(cat "$T/tty.out")
+[[ ! -e $T/stub.out && $err == *"open in another writer"* ]] && ok "-c: the latest session, claimed elsewhere, is refused; claude never started" || bad "-c claimed" "$err"
+(cd "$T/work/b" && "$KERNEL/bin/kith" designer -c >/dev/null 2>&1); rc=$?
+is "-c: refusal exits 1" "$rc" 1
+# the picker with nothing chosen (stdin at EOF) is an exit, never a fresh claude
+rm -f "$T/stub.out"; (cd "$T/work/b" && "$KERNEL/bin/kith" designer -r </dev/null >/dev/null 2>&1); rc=$?
+[[ ! -e $T/stub.out && $rc == 1 ]] && ok "-r picker, nothing chosen: exit 1, no claude" || bad "empty pick" "rc=$rc"
+# an app-lane session (via=serve): a new host resolves it, and refuses while busy; an old host does not know it
+printf '{"cwd":"%s","type":"user"}\n' "$T/work/b" > "$CLAUDE_CONFIG_DIR/projects/p/busy-sid.jsonl"
+sqlite3 "$KITH_MACHINE/cost.db" "insert into runs (session, agent, via, project, started) values ('busy-sid', 'designer', 'serve', 'p', '2026-10-23T13:00:00')"
+rm -f "$T/stub.out"; (cd "$T/work/b" && tty "$KERNEL/bin/kith" designer -c); err=$(cat "$T/tty.out")
+[[ ! -e $T/stub.out && $err == *"answering in that thread"* ]] && ok "-c on an app session: refused while the app is replying" || bad "-c app busy" "$err"
+rm -f "$T/stub.out"; (cd "$T/work/b" && tty "$KERNEL/bin/kith" designer -r busy-sid); err=$(cat "$T/tty.out")
+[[ ! -e $T/stub.out && $err == *"answering in that thread"* ]] && ok "-r <id> on an app session: refused while the app is replying" || bad "-r app busy" "$err"
 # the host ending a terminal holds <sid>.takeover.claim: a resume waits
 python3 - "$REG/cs-2.takeover.claim" "$C2" <<'PY'
 import json, subprocess, sys
@@ -231,6 +253,8 @@ sleep 0.5
 err=$(cd "$T/work/a" && KITH_SERVE_PORT=$((PORT + 1)) "$KERNEL/bin/kith" designer --resume th-1 2>&1 >/dev/null); rc=$?
 [[ $rc != 0 && $err == *"update kith serve"* ]] && ok "old host: a thread/app session is refused with the reason" || bad "old host refusal" "$rc $err"
 [[ $(ls $REG | grep -c '\.claim$') == 0 ]] && ok "old host refusal: no claim left" || bad "old host claim left"
+err=$(cd "$T/work/b" && KITH_SERVE_PORT=$((PORT + 1)) "$KERNEL/bin/kith" designer -c 2>&1 >/dev/null); rc=$?
+[[ $rc != 0 && $err == *"update kith serve"* ]] && ok "old host: -c on an app session is refused" || bad "old host -c" "$rc $err"
 cat > "$REG/term-sid.json" <<JSON
 {"v":1,"sessionId":"term-sid","agent":"designer","cwd":"$T/work/b","transcriptPath":"$CLAUDE_CONFIG_DIR/projects/p/term-sid.jsonl","pid":$$,"startedAt":"2026-01-01T00:00:00Z"}
 JSON

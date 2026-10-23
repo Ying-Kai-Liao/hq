@@ -9,7 +9,7 @@
 #   kith ls [--json]                list agents (--json: name, description, home, model, effort, harness, for programs)
 #   kith who <words>                which agent owns this work: skills, tools, "Not yours" lines searched (kith-who)
 #   kith <agent> [-p ID] [-m MODEL] [-e EFFORT] [-H HARNESS] [--permission-mode MODE|--bypass] [task...]  interactive without a task, one-shot with one
-#   kith <agent> --resume THREAD    pick up in this terminal a thread started in the app, or a Claude session id (kith-sessions)
+#   kith <agent> --resume|-r THREAD   pick up in this terminal a thread started in the app, or a Claude session id; -r alone: pick from the recent ones; -c: the latest begun here (kith-sessions)
 #   kith <agent> --print [...]      show the assembled system prompt, don't run
 #   kith <agent> --inspect          start one run and report what it loads (tools, MCP servers, skills, plugins)
 #   kith <agent> --info-json        for a program (the bot detail page): one JSON object, the agent's role, package, skills, tools,
@@ -189,7 +189,7 @@ if [[ $src_pkg == */role ]]; then home=${src_pkg%/role}; else home="$KITH_STATE/
 # Who the run is for: KITH_PERSON, set by the entry point (the bridge, a schedule) and inherited by every helper, so
 # access follows the person who asked however deep the calls go. Unset is the owner and changes nothing. A helper is
 # checked as one (--via the agent that called it). Fails closed: no answer from kith-auth, no run.
-caller=${KITH_AGENT:-}; [[ $caller == "$agent" ]] && caller=""; p_owner=1 p_mode="" p_model="" p_deny="" p_line="" p_env_names=""
+caller=${KITH_AGENT:-}; [[ $caller == "$agent" ]] && caller=""; p_owner=1 p_mode="" p_model="" p_deny="" p_line="" p_env_names="" p_rooms=""
 if [[ -n ${KITH_PERSON:-} ]]; then
   res=$("$KITH/bin/kith-auth" resolve "$agent" ${caller:+--via "$caller"}) \
     || { echo "kith: can't check whether ${KITH_PERSON} may use $agent (kith-auth resolve failed)" >&2; exit 1; }
@@ -202,6 +202,7 @@ print("p_mode=%s p_model=%s p_deny=%s" % (q(r.get("mode", "")), q(r.get("model",
 attrs = " ".join("%s=\"%s\"" % (k, str(r[k]).replace("\"", "")) for k in ("person", "name", "lang", "tz") if r.get(k))
 print("p_line=%s" % q(" " + attrs))
 print("p_budget=%s p_budget_agent=%s p_was=%s" % (q(r.get("budget", "")), q(r.get("budget_agent") or ""), q(",".join(r.get("was", [])))))
+print("p_rooms=%s" % q(" ".join(x for x in r.get("rooms", []) if isinstance(x, str))))
 for k, v in r.get("env", {}).items():
     print("export %s=%s" % (k, q(v)))
 print("p_env_names=%s" % q(" ".join(r.get("env", {}))))')"
@@ -269,13 +270,15 @@ sys.exit("kith: MCP servers not connected: %s" % bad if bad else 0)'
   exit $?
 fi
 
-print=0 project="" launch=0 hold="" resume_thread="" backup="" acct="" backup_cfg_var="" backup_cfg_dir="" backup_api_helper=""
+print=0 project="" launch=0 hold="" resume_thread="" resume_pick="" backup="" acct="" backup_cfg_var="" backup_cfg_dir="" backup_api_helper=""
 while [[ $# -gt 0 ]]; do
   case $1 in
     --print)      print=1; shift ;;
     --launch-json) launch=1; shift ;;
     --hold)       hold=$2; shift 2 ;;
     --resume)     resume_thread=${2:?kith: --resume needs a thread id or a Claude session id}; shift 2 ;;
+    -r)           if [[ -n ${2:-} && $2 != -* ]]; then resume_thread=$2; shift 2; else resume_pick=pick; shift; fi ;;
+    -c|--continue) resume_pick=latest; shift ;;
     --backup)     backup=${2:?kith: --backup needs a chain entry id}; shift 2 ;;
     -p|--project) project=$2; shift 2 ;;
     -m|--model)   KITH_MODEL=$2; shift 2 ;;
@@ -284,6 +287,8 @@ while [[ $# -gt 0 ]]; do
     --permission-mode) KITH_PERMISSION_MODE=$2; shift 2 ;;
     --bypass)     KITH_PERMISSION_MODE=bypassPermissions; shift ;;
     --)           shift; break ;;
+    -*[[:space:]]*) break ;;   # a task that starts with a dash ("- one thing ...")
+    -*)           echo "kith: unknown flag '$1' (kith --help lists them)" >&2; exit 1 ;;
     *)            break ;;
   esac
 done
@@ -291,10 +296,15 @@ done
 # (bin/kith-sessions), and the run starts in the folder it ran in. Only the owner's own claude sessions are listed.
 # resolve takes the session's writer claim for this shell ($$): it execs into `kith-sessions run` below, so the pid is the
 # same until claude has exited, and run gives the claim back.
+# -r alone picks the session from the agent's recent ones, -c takes the latest begun in this folder; then the same.
 r_sid="" r_cwd="" r_from=""
-if [[ -n $resume_thread ]]; then
+if [[ -n $resume_thread || -n $resume_pick ]]; then
   [[ $launch -eq 0 && $print -eq 0 ]] || { echo "kith: --resume is for a run in this terminal, not --launch-json or --print" >&2; exit 1; }
   [[ $p_owner == 1 ]] || { echo "kith: --resume is for the owner's own sessions" >&2; exit 1; }
+  if [[ -z $resume_thread && $resume_pick == pick ]]; then resume_thread=$(python3 "$KITH/bin/kith-sessions" pick "$agent") || exit 1
+  elif [[ -z $resume_thread ]]; then resume_thread=$(python3 "$KITH/bin/kith-sessions" latest "$agent" "$PWD") || exit 1; fi
+  [[ -n $resume_thread ]] || exit 1   # a pick that named nothing must not fall through to a fresh claude
+  # Whatever named the session (--resume, -r ID, the picker, -c), it is claimed and checked here and nowhere else.
   # Not `eval "$(…)" || exit 1`: a refusal prints nothing, eval of nothing succeeds, and claude would start anyway.
   resolved=$(python3 "$KITH/bin/kith-sessions" resolve "$agent" "$resume_thread" "$$") || exit 1
   eval "$resolved"
@@ -316,16 +326,18 @@ info=$([[ -n $project ]] && "$KITH/bin/project-id" --info "$project" || true)
 parents=$(printf '%s\n' "$info" | tail -n +2 | cut -f1 | paste -sd' ' -)
 held=$([[ -n $project ]] && "$KITH/bin/project-id" --children "$project" --all || true)
 
-# Body without frontmatter, then long-term memory.
-# The owner's run: the agent's memory, then the shared part when there is one. Anyone else's: the shared part and
-# their own.
-memory_tag() { printf '<long-term-memory path="%s"%s>\n%s\n</long-term-memory>' "$1" "$2" "$(cat "$1" 2>/dev/null)"; }
-if [[ $p_owner == 1 ]]; then mems=$(memory_tag "$mem/MEMORY.md" "")
-else mems=$(memory_tag "$shared/MEMORY.md" ' scope="shared"')$'\n'$(memory_tag "$mem/MEMORY.md" " scope=\"$p_id\""); fi
-[[ $p_owner == 1 && -s $shared/MEMORY.md ]] && mems+=$'\n'$(memory_tag "$shared/MEMORY.md" ' scope="shared"')
+# Body without frontmatter, then long-term memory: the load filter of docs/memory-context.md (lib/kith_facets.py, the
+# same one the host's runs get through KITH_ROOM). The owner's run: about them, the agent's memory, then the shared part
+# when there is one. Anyone else's: about them, the shared part and their own. In a group room only what everyone there
+# may see; a bot guest (bot-<hex>) is shared craft and its own room's notes.
+load_kind=person; [[ $p_owner == 1 ]] && load_kind=owner; [[ ${p_id:-} == bot-* ]] && load_kind=guest
+load_out=$(python3 "$KITH/lib/kith_facets.py" load --agent "$agent" --home "$home" --person-file "$person_file" \
+  --kind "$load_kind" --person "${p_id:-}" --rooms "$p_rooms" --room "${KITH_ROOM:-}" --project "$project" \
+  --agent-md "$src_pkg/agent.md") || { echo "kith: couldn't load memory" >&2; exit 1; }
+eval "$load_out"
 prompt="$(template | fill)
 $mems
-<session project=\"${project:-none}\"${parents:+ parents=\"$parents\"}${held:+ holds=\"$(printf '%s\n' "$held" | cut -f1 | paste -sd' ' -)\"} cwd=\"$PWD\" date=\"$(date +%F)\"$p_line/>"
+<session project=\"${project:-none}\"$load_attrs${parents:+ parents=\"$parents\"}${held:+ holds=\"$(printf '%s\n' "$held" | cut -f1 | paste -sd' ' -)\"} cwd=\"$PWD\" date=\"$(date +%F)\"$p_line/>"
 
 if [[ $print -eq 1 ]]; then printf '%s\n' "$prompt"; [[ $# -gt 0 ]] && printf '\n[task] %s\n' "$*"; exit 0; fi
 
@@ -447,8 +459,9 @@ if [[ $p_owner == 1 ]]; then
 fi
 fill < "$pkg/settings.json" | OWN_DIRS=$own_dirs ROLE_DIR=$pkg API_HELPER=$backup_api_helper DENY=$p_deny PLUGINS=$plugins PERM_MODE=$perm_mode MEM_PRE=$mem_pre MEM_POST=$mem_post HOOK="\"$KITH/bin/kith-cost\" tag" SESSIONS_HOOK="\"$KITH/bin/kith-sessions\" record" WRITABLE="$writable
 $src_pkg/skills/learned
+$(cd "$src_pkg" && pwd -P)/skills/learned
 $state_projects" python3 -c '
-import json, os, sys
+import json, os, re, sys
 s = json.load(sys.stdin)
 s.setdefault("hooks", {}).setdefault("SessionStart", []).append(
     {"hooks": [{"type": "command", "command": os.environ["HOOK"], "timeout": 10}]})
@@ -479,6 +492,15 @@ for r in roots:
                 s["permissions"]["deny"].append(rule)
 s["permissions"]["deny"].extend(d for d in os.environ["DENY"].split("\n") if d)   # from the membership of the person the run is for
 allow = s["permissions"].setdefault("allow", [])
+# A role rule for a kernel tool, Bash({{KITH}}/bin/tool...), names the path bare; the path may have a space, and then a
+# working call quotes it and only Bash("{{KITH}}/bin/tool"...) matches. Add that spelling next to each such rule.
+kbin = "Bash(%s/bin/" % os.environ["KITH_ROOT"]
+for rules in (allow, s["permissions"]["deny"]):
+    for r in [r for r in rules if r.startswith(kbin)]:
+        name = re.match(r"[^ :)]*", r[len(kbin):]).group()
+        q = "Bash(\"%s%s\"%s" % (kbin[5:], name, r[len(kbin) + len(name):])
+        if q not in rules:
+            rules.insert(rules.index(r) + 1, q)
 allow.extend(r for r in dict.fromkeys("Edit(/%s/**)" % d for d in os.environ["WRITABLE"].split("\n") if d.strip()) if r not in allow)
 sys.path.insert(0, os.environ["KITH_ROOT"] + "/lib")
 import kith_caps

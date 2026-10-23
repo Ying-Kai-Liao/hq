@@ -1,0 +1,171 @@
+import KithKit
+import SwiftUI
+
+/// Pure mapping from the store's entries onto the redesign's components: the thread chip, tool rows and the order
+/// of an open thread. No views here, so it is tested.
+enum ThreadFeed {
+    /// Tool calls in a row beyond this many fold into "N earlier steps" (a long task can run hundreds).
+    static let visibleSteps = 4
+
+    // MARK: place
+
+    static func place(_ folder: PlaceFolder?) -> ThreadChipModel.Place? {
+        guard let folder, !folder.name.isEmpty else { return nil }
+        return folder.kind == "project" ? .project(folder.name) : .folder(folder.name)
+    }
+
+    // MARK: chip
+
+    /// What hangs under a task's first message. `yourTurn`: a question waits for the reader.
+    static func chip(face: CrewFace, tint: AgentTint, count: Int, unread: Int?, lastAt: Int64, place: PlaceFolder?,
+                     yourTurn: Bool, summary: ThreadSummary? = nil, mac: String? = nil, now: Date = .now) -> ThreadChipModel {
+        ThreadChipModel(face: face, replies: count, newReplies: max(0, unread ?? 0),
+                        time: RelativeTime.day(Date(milliseconds: lastAt), now: now), place: self.place(place),
+                        yourTurn: yourTurn, tint: tint, origin: origin(summary), writer: writerChip(summary, mac: mac))
+    }
+
+    // MARK: terminal threads (continue anywhere)
+
+    /// The origin tag for a thread started outside the app; nil for the app, a bot, or a word we don't know.
+    static func origin(_ summary: ThreadSummary?) -> OriginTag.Origin? {
+        switch summary?.threadOrigin {
+        case .terminal: .terminal
+        case .discord: .discord
+        case .telegram: .telegram
+        case .slack: .slack
+        default: nil
+        }
+    }
+
+    /// The chip while somebody else holds the thread: "In terminal · Mac mini", or working.
+    static func writerChip(_ summary: ThreadSummary?, mac: String?) -> StatusChip.Kind? {
+        guard let summary, summary.isHeldElsewhere else { return nil }
+        return .writer(working: summary.liveBusy == true, mac: mac)
+    }
+
+    /// What the dock's place shows for a held thread; nil when the app may write.
+    /// `unreachable`: the computer is offline, so what the terminal is doing is unknown.
+    static func writerPhase(_ summary: ThreadSummary?, taking: Bool, failed: Bool, unreachable: Bool) -> WriterPhase? {
+        guard let summary, summary.isHeldElsewhere else { return nil }
+        if taking { return .taking }
+        if unreachable { return .unreachable }
+        if failed { return .failed }
+        return summary.liveBusy == true ? .working : .idle
+    }
+
+    /// The divider words of a writer-change notice; nil for any other notice (including a change we don't know).
+    static func writerDivider(_ entry: Entry, mac: String) -> WriterDivider.Kind? {
+        switch entry.data.writerChangeKind {
+        case .startedInTerminal: .startedInTerminal(mac: mac)
+        case .openedInTerminal: .openedInTerminal(mac: mac)
+        case .tookOver: .tookOver
+        case .terminalClosed: .terminalClosed
+        case .other, nil: nil
+        }
+    }
+
+    // MARK: tool rows
+
+    private static let verbs = [
+        "read": "Read", "edit": "Edited", "delete": "Deleted", "move": "Moved", "search": "Searched",
+        "execute": "Ran", "think": "Thought", "fetch": "Fetched",
+    ]
+
+    /// One tool entry as one row: "Edited kith-sessions.py  +6 -2". The sheet gets the command and what it printed.
+    static func toolRow(_ entry: Entry, patches withPatches: Bool = true) -> ToolCallRowModel {
+        let d = entry.data
+        let verb = verbs[d.toolKind ?? ""] ?? "Used"
+        let diffs = d.diffs ?? []
+        let object: String
+        if let first = diffs.first {
+            object = (first.path as NSString).lastPathComponent + (diffs.count > 1 ? " +\(diffs.count - 1)" : "")
+        } else {
+            object = (d.title ?? "").split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        }
+        let result: ToolCallRowModel.Result? = switch d.status {
+        case "completed": .text(diffs.isEmpty ? "done" : "+\(diffs.map(\.added).reduce(0, +)) -\(diffs.map(\.removed).reduce(0, +))")
+        case "failed": .error("failed")
+        default: nil
+        }
+        let command = d.command?.nilIfEmpty ?? (d.toolKind == "execute" ? d.title?.nilIfEmpty : nil)
+        let patches = withPatches ? diffs.map(\.patch).joined(separator: "\n") : ""
+        let output = [d.output?.nilIfEmpty, patches.nilIfEmpty].compactMap { $0 }.joined(separator: "\n\n").nilIfEmpty
+        return ToolCallRowModel(verb: verb, object: object, result: result, command: command, output: output)
+    }
+
+    // MARK: open thread
+
+    /// What an open thread shows under its first message, in order.
+    enum Reply: Identifiable, Equatable {
+        case entry(Entry, groupStart: Bool)
+        case tool(Entry)
+        /// A gap of more than an hour (thread screen only).
+        case separator(Date, id: String)
+        /// A run of tool calls longer than `visibleSteps`: the older ones fold into this line.
+        case earlier(count: Int, id: String)
+
+        var id: String {
+            switch self {
+            case .entry(let e, _): ThreadFeed.stableId(e)
+            case .tool(let e): e.id
+            case .separator(_, let id): id
+            case .earlier(_, let id): id
+            }
+        }
+    }
+
+    /// Your own message keeps its `user-<nonce>` id when the server confirms it, so the row doesn't redraw or jump
+    /// (the same rule as `ChatItem.build`).
+    static func stableId(_ e: Entry) -> String {
+        if e.kind == "user", let nonce = e.data.clientNonce, !nonce.isEmpty { return "user-\(nonce)" }
+        return e.id
+    }
+
+    /// Chat-visible replies and tool calls. Thinking, plans and the like stay in "Full conversation".
+    static func replies(_ entries: [Entry], separators: Bool = false) -> [Reply] {
+        var lastDate: Date?
+        var out: [Reply] = []
+        var run: [Entry] = []
+        var lastAuthor: String?
+        func flush() {
+            guard !run.isEmpty else { return }
+            if run.count > visibleSteps, let first = run.first {
+                out.append(.earlier(count: run.count - visibleSteps, id: "earlier-\(first.id)"))
+                run.suffix(visibleSteps).forEach { out.append(.tool($0)) }
+            } else {
+                run.forEach { out.append(.tool($0)) }
+            }
+            run = []
+        }
+        for e in entries {
+            if e.kind == "tool" {
+                run.append(e)
+                continue
+            }
+            guard e.isChat else { continue }
+            flush()
+            if separators {
+                if lastDate.map({ e.date.timeIntervalSince($0) > 3600 }) ?? true {
+                    out.append(.separator(e.date, id: "sep-\(stableId(e))"))
+                    lastAuthor = nil
+                }
+                lastDate = e.date
+            }
+            let author = e.kind == "user" ? "user" : e.kind == "agent" ? "agent:\(e.data.author ?? "")" : e.kind
+            out.append(.entry(e, groupStart: author != lastAuthor))
+            lastAuthor = (author == "user" || e.kind == "agent") ? author : nil
+        }
+        flush()
+        return out
+    }
+
+    /// A question waits on the reader: a permission card still pending. In a thread another writer holds it is
+    /// theirs to answer, not the reader's.
+    static func hasQuestion(_ replies: [Entry], held: Bool = false) -> Bool {
+        !held && replies.contains { $0.kind == "permission" && $0.data.status == "pending" }
+    }
+}
+
+fileprivate extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}

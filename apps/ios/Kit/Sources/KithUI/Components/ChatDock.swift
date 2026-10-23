@@ -20,6 +20,21 @@ public enum ChatDockLayout {
     }
 }
 
+/// One more item for the `+` menu, after Photos / Camera / Files (the chat adds Paste and New task).
+public struct ChatDockAction: Identifiable {
+    public let id: String
+    public let title: String
+    public let systemImage: String
+    public let action: () -> Void
+
+    public init(_ title: String, systemImage: String, action: @escaping () -> Void) {
+        id = title
+        self.title = title
+        self.systemImage = systemImage
+        self.action = action
+    }
+}
+
 /// How the send button looks. Additive: Crew home greys the arrow while the typed words lead to a room and spells
 /// out "Send" when nothing matches; chats keep `.ink`.
 public enum ChatDockSendStyle: Sendable {
@@ -43,13 +58,24 @@ public struct ChatDock<Accessory: View>: View {
     let onCamera: () -> Void
     let onFiles: () -> Void
     let sendStyle: ChatDockSendStyle
+    let extraActions: [ChatDockAction]
+    /// Dictation is running: the mic shows filled and red, and a tap stops it.
+    let micListening: Bool
+    /// The chat keeps the mic beside Send while there is text, so dictation can add to a draft.
+    let micWithText: Bool
+    /// False greys Send (offline and the message can't wait in the relay).
+    let canSend: Bool
+    let showsPlus: Bool
+    let focus: FocusState<Bool>.Binding?
     let accessory: Accessory
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(text: Binding<String>, placeholder: String, showsCall: Bool = true, hasAttachment: Bool = false,
                 onSend: @escaping () -> Void = {}, onMic: @escaping () -> Void = {}, onCall: @escaping () -> Void = {},
                 onPhotos: @escaping () -> Void = {}, onCamera: @escaping () -> Void = {}, onFiles: @escaping () -> Void = {},
-                sendStyle: ChatDockSendStyle = .ink, @ViewBuilder accessory: () -> Accessory) {
+                sendStyle: ChatDockSendStyle = .ink, extraActions: [ChatDockAction] = [], micListening: Bool = false,
+                micWithText: Bool = false, canSend: Bool = true, showsPlus: Bool = true,
+                focus: FocusState<Bool>.Binding? = nil, @ViewBuilder accessory: () -> Accessory) {
         _text = text
         self.placeholder = placeholder
         self.showsCall = showsCall
@@ -61,6 +87,12 @@ public struct ChatDock<Accessory: View>: View {
         self.onCamera = onCamera
         self.onFiles = onFiles
         self.sendStyle = sendStyle
+        self.extraActions = extraActions
+        self.micListening = micListening
+        self.micWithText = micWithText
+        self.canSend = canSend
+        self.showsPlus = showsPlus
+        self.focus = focus
         self.accessory = accessory()
     }
 
@@ -71,12 +103,14 @@ public struct ChatDock<Accessory: View>: View {
             VStack(spacing: 0) {
                 accessory
                 HStack(spacing: 4) {
-                    plusMenu
+                    if showsPlus { plusMenu }
                     TextField(placeholder, text: $text, axis: .vertical)
                         .kithText(.body)
                         .foregroundStyle(Palette.ink)
                         .lineLimit(1...5)
                         .padding(.vertical, 8)
+                        .modifier(OptionalFocus(binding: focus))
+                    if micWithText, ChatDockLayout.showsSend(text: text, hasAttachment: hasAttachment) { micButton }
                     trailingButton
                 }
                 .padding(.horizontal, 5)
@@ -103,6 +137,9 @@ public struct ChatDock<Accessory: View>: View {
             Button(action: onPhotos) { Label("Photos", systemImage: "photo") }
             Button(action: onCamera) { Label("Camera", systemImage: "camera") }
             Button(action: onFiles) { Label("Files", systemImage: "folder") }
+            ForEach(extraActions) { extra in
+                Button(action: extra.action) { Label(extra.title, systemImage: extra.systemImage) }
+            }
         } label: {
             Image(systemName: "plus").font(.system(size: 18, weight: .medium)).foregroundStyle(Palette.ink)
                 .frame(width: 44, height: 44)
@@ -129,16 +166,31 @@ public struct ChatDock<Accessory: View>: View {
                 }
             }
             .buttonStyle(.plain)
+            .disabled(!canSend)
+            .opacity(canSend ? 1 : 0.4)
             .accessibilityLabel(Text("Send"))
         } else {
+            micButton
+        }
+    }
+
+    private var micButton: some View {
             Button(action: onMic) {
-                Image(systemName: "mic").font(.system(size: 18)).foregroundStyle(Palette.muted)
+                Image(systemName: micListening ? "mic.fill" : "mic").font(.system(size: 18))
+                    .foregroundStyle(micListening ? Palette.negative : Palette.muted)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(Text("Dictate"))
-        }
+            .accessibilityLabel(Text(micListening ? "Stop dictating" : "Dictate"))
+    }
+}
+
+private struct OptionalFocus: ViewModifier {
+    let binding: FocusState<Bool>.Binding?
+
+    func body(content: Content) -> some View {
+        if let binding { content.focused(binding) } else { content }
     }
 }
 
@@ -146,10 +198,12 @@ public extension ChatDock where Accessory == EmptyView {
     init(text: Binding<String>, placeholder: String, showsCall: Bool = true, hasAttachment: Bool = false,
          onSend: @escaping () -> Void = {}, onMic: @escaping () -> Void = {}, onCall: @escaping () -> Void = {},
          onPhotos: @escaping () -> Void = {}, onCamera: @escaping () -> Void = {}, onFiles: @escaping () -> Void = {},
-         sendStyle: ChatDockSendStyle = .ink) {
+         sendStyle: ChatDockSendStyle = .ink, extraActions: [ChatDockAction] = [], micListening: Bool = false,
+         micWithText: Bool = false, canSend: Bool = true, showsPlus: Bool = true,
+         focus: FocusState<Bool>.Binding? = nil) {
         self.init(text: text, placeholder: placeholder, showsCall: showsCall, hasAttachment: hasAttachment, onSend: onSend,
                   onMic: onMic, onCall: onCall, onPhotos: onPhotos, onCamera: onCamera, onFiles: onFiles,
-                  sendStyle: sendStyle) { EmptyView() }
+                  sendStyle: sendStyle, extraActions: extraActions, micListening: micListening, micWithText: micWithText, canSend: canSend, showsPlus: showsPlus, focus: focus) { EmptyView() }
     }
 }
 
