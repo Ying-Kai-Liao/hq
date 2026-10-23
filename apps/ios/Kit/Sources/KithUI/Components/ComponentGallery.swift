@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Every redesign component and state on one screen, for the designer and for screenshots. Debug builds open it
 /// with the launch argument `-kithComponentGallery`; add `-kithGallerySection <name>` (avatars, rows, thread,
-/// cards, dock, bar) to show one section at the top.
+/// cards, dock, bar, terminal) to show one section at the top.
 public struct KithComponentGallery: View {
     @State private var tab = CrewBoardTab.crew
     @State private var open = true
@@ -31,6 +31,7 @@ public struct KithComponentGallery: View {
                     if section == nil || section == "thread" { thread }
                     if section == nil || section == "cards" { cards }
                     if section == nil || section == "dock" { dock }
+                    if section == nil || section == "terminal" { terminal }
                 }
                 .padding(.top, 54).padding(.bottom, 40)
             }
@@ -121,6 +122,30 @@ public struct KithComponentGallery: View {
                 DecisionCard(.init(question: "Which direction for the app?", options: [.init(id: "a", title: "Sky", role: .primary), .init(id: "b", title: "Paper"), .init(id: "c", title: "Night")]), tint: AgentTint.resolve(designer.color)) { _ in }
                 DecisionCard(.permission(request: "Run a shell command?", detail: "swift test --filter KithUITests"), tint: AgentTint.resolve(coder.color)) { _ in }
                 DecisionCard(.init(question: "Open a PR now, or batch it?", options: [.init(id: "a", title: "Open a PR now", role: .primary), .init(id: "b", title: "Batch it with the relay fix and wait for review of the whole thing")]), tint: AgentTint.resolve("kith:mint")) { _ in }
+            }.padding(.horizontal, 16)
+        }
+    }
+
+    private var terminal: some View {
+        let tint = AgentTint.resolve(coder.color)
+        return block("Terminal: banner states, long Mac name, chips, origin tags, dividers") {
+            VStack(alignment: .leading, spacing: 10) {
+                WriterBanner(phase: .idle, mac: "Mac mini", tint: tint)
+                WriterBanner(phase: .working, mac: "Mac mini", tint: tint)
+                WriterBanner(phase: .taking, mac: "Mac mini", tint: tint, pending: true)
+                WriterBanner(phase: .failed, mac: "Mac mini", tint: tint)
+                WriterBanner(phase: .unreachable, mac: "Mac mini", tint: tint)
+                WriterBanner(phase: .idle, mac: "Kai's MacBook Pro in the upstairs office with a very long name", tint: tint)
+                WriterBanner(phase: .idle, mac: "Mia's MacBook", mine: false, person: "Mia", tint: tint)
+                HStack {
+                    StatusChip(.writer(working: false, mac: "Mac mini"), tint: tint)
+                    StatusChip(.writer(working: true, mac: nil), tint: tint)
+                }
+                HStack(spacing: 14) { ForEach(OriginTag.Origin.allCases, id: \.self) { OriginTag($0) } }
+                WriterDivider(.startedInTerminal(mac: "Mac mini"), time: "9:40")
+                WriterDivider(.openedInTerminal(mac: "Mac mini"), time: "10:31")
+                WriterDivider(.tookOver, time: "10:02")
+                WriterDivider(.terminalClosed, time: "10:48")
             }.padding(.horizontal, 16)
         }
     }
