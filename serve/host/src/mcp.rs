@@ -138,7 +138,9 @@ async fn call(port: u16, token: &str, actor: &str, params: &Value, server: Serve
         Server::Connectors => ("connectorCall", Duration::from_secs(90)),
         Server::Routines => ("routineCall", Duration::from_secs(30)),
         Server::Computer => ("computerCall", Duration::from_secs(60)),
-        Server::Chat | Server::Files => ("chatCall", Duration::from_secs(if params["name"] == "send_file" { 70 } else { 30 })),
+        Server::Chat | Server::Files => {
+            ("chatCall", Duration::from_secs(if params["name"] == "send_file" { 70 } else { 30 }))
+        }
         Server::Team => ("teamCall", crate::chat::team::ASK_TIMEOUT + Duration::from_secs(30)),
         Server::Memory => ("memoryCall", Duration::from_secs(120)),
         Server::Composio => ("composioCall", Duration::from_secs(120)),
@@ -158,7 +160,12 @@ async fn call(port: u16, token: &str, actor: &str, params: &Value, server: Serve
                     return match server {
                         Server::Computer if v["isError"] == true => json!({"content": v["content"], "isError": true}),
                         Server::Computer => json!({"content": v["content"]}),
-                        Server::Chat | Server::Files | Server::Team | Server::Memory | Server::Routines | Server::Connectors => {
+                        Server::Chat
+                        | Server::Files
+                        | Server::Team
+                        | Server::Memory
+                        | Server::Routines
+                        | Server::Connectors => {
                             json!({"content": [{"type": "text", "text": v.to_string()}]})
                         }
                         Server::Composio => json!({"content": [{"type": "text", "text": v["result"].to_string()}]}),
