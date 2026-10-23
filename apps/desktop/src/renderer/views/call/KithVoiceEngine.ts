@@ -27,8 +27,8 @@ const CLIP_CHARS = 160
  * stops it at once; the turn goes on and what was said is sent as the next message.
  *
  * Talk-over is two signals. Energy on the echo-cancelled microphone (`BargeInDetector`) ducks the
- * voice after ~100 ms and cuts it after ~220 ms of speech-level sound; two recognized words that
- * aren't the bot's own text also cut it. A duck that isn't followed by more sound (a cough) is
+ * voice after ~100 ms of speech-level sound; two recognized words that
+ * aren't the bot's own text also cut it, and so does ~400 ms of sustained energy. A duck that isn't followed by more sound (a cough) is
  * undone after ~300 ms of quiet.
  */
 export class KithVoiceEngine extends OnDeviceEngine {
@@ -67,6 +67,7 @@ export class KithVoiceEngine extends OnDeviceEngine {
     })
     this.talkOverEnabled = true
     this.queue = new ClipQueue((text) => this.fetchClip(text))
+    this.player.onSinkLost = (e) => this.setWarning(`Couldn't use that speaker (${errorMessage(e)}); using the default.`)
     this.player.onDrained = () => {
       this.finishedSpeaking()
     }
@@ -114,7 +115,9 @@ export class KithVoiceEngine extends OnDeviceEngine {
   protected override micLevel(level: number) {
     const now = performance.now()
     // Reports come ~20 a second, each the loudness of one short buffer: it stands for the time since the last.
-    const seconds = this.lastLevelAt ? Math.min(0.1, (now - this.lastLevelAt) / 1000) : 0.05
+    // The first report after a gap stands for one buffer, not the whole silence.
+    const gap = (now - this.lastLevelAt) / 1000
+    const seconds = this.lastLevelAt && gap < 0.25 ? Math.min(0.1, gap) : 0.05
     this.lastLevelAt = now
     const armed = this.phase === 'speaking' && !this.player.idle
     const event = this.bargeIn.feed(levelToDb(level), seconds, now, armed)
@@ -245,13 +248,19 @@ export class KithVoiceEngine extends OnDeviceEngine {
   }
 
   private async play(audio: Uint8Array) {
-    const ok = await this.player.add(audio, () => {
-      if (this.firstEnqueuedAt !== null) {
-        console.info(`kith voice: first clip playing ${Math.round(performance.now() - this.firstEnqueuedAt)} ms after its text was ready`)
-        this.firstEnqueuedAt = null
-      }
-    })
-    if (!ok) console.error('kith voice: unreadable clip')
+    // A clip that can't be played is skipped; the pump goes on.
+    try {
+      const ok = await this.player.add(audio, () => {
+        if (this.firstEnqueuedAt !== null) {
+          console.info(`kith voice: first clip playing ${Math.round(performance.now() - this.firstEnqueuedAt)} ms after its text was ready`)
+          this.firstEnqueuedAt = null
+        }
+      })
+      if (!ok) console.error('kith voice: unreadable clip')
+    } catch (e) {
+      console.error('kith voice: playback failed:', errorMessage(e))
+      this.setWarning(`Couldn't play the reply (${errorMessage(e)}).`)
+    }
   }
 
   /** Stops the voice, drops queued clips, and gives up what's still being written of the replies on air. */

@@ -21,6 +21,7 @@ final class ClipPlayer {
     private let node = AVAudioPlayerNode()
     /// Makes sure the engine is running (the owner knows about voice processing and the tap).
     private let startEngine: () throws -> Void
+    private var ramp: Task<Void, Never>?
     private var attached = false
     private var ledger = PlaybackLedger()
     /// Every queued clip has played out.
@@ -40,8 +41,8 @@ final class ClipPlayer {
             return false
         }
         do {
-            try startEngine()
-            try attachIfNeeded()
+            try startEngine() // builds the graph (`prepareGraph`) before the engine's first start
+            prepareGraph()
         } catch {
             log.error("player: \(error.localizedDescription, privacy: .public)")
             return false
@@ -51,25 +52,50 @@ final class ClipPlayer {
             Task { @MainActor in self?.completed(token) }
         }
         if !node.isPlaying {
-            node.volume = 1
+            ramp?.cancel()
+            node.volume = ducked ? Self.duckedVolume : 1
             node.play()
             started()
         }
         return true
     }
 
-    func duck(_ on: Bool) { node.volume = on ? Self.duckedVolume : 1 }
+    private var ducked = false
+
+    /// A ~10 ms ramp, not a step, so ducking doesn't click.
+    func duck(_ on: Bool) {
+        ducked = on
+        let target = on ? Self.duckedVolume : 1
+        ramp?.cancel()
+        let from = node.volume
+        ramp = Task { @MainActor [weak self] in
+            for step in 1...4 {
+                try? await Task.sleep(for: .milliseconds(3))
+                guard !Task.isCancelled, let self else { return }
+                self.node.volume = from + (target - from) * Float(step) / 4
+            }
+        }
+    }
 
     /// Drops what's queued and stops at once.
     func stop() {
         ledger.cut()
+        ramp?.cancel()
+        ducked = false
         guard attached else { return }
         node.stop()
         node.volume = 1
     }
 
-    /// The engine was rebuilt under us (route change): what was queued is gone.
+    /// The engine was rebuilt under us (route change, interruption): what was queued is gone.
     func reset() { stop() }
+
+    /// After a route change the output's format can differ (AirPods): join mixer and output again on it.
+    func reconnect() {
+        guard attached else { return }
+        engine.connect(node, to: engine.mainMixerNode, format: Self.format)
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: engine.outputNode.outputFormat(forBus: 0))
+    }
 
     private func completed(_ token: Int) {
         if ledger.completed(token) {
@@ -79,7 +105,9 @@ final class ClipPlayer {
         }
     }
 
-    private func attachIfNeeded() throws {
+    /// Player → mixer → output, built before the engine first starts (the owner calls it ahead of
+    /// `prepare`), not spliced into a running graph.
+    func prepareGraph() {
         guard !attached else { return }
         engine.attach(node)
         engine.connect(node, to: engine.mainMixerNode, format: Self.format)

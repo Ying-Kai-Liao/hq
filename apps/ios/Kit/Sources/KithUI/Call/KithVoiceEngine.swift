@@ -14,8 +14,8 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Kith", cate
 /// stops it at once; the turn goes on and what was said is sent as the next message.
 ///
 /// Talk-over is two signals. Energy on the echo-cancelled microphone (`BargeInDetector`) ducks the
-/// voice after ~100 ms and cuts it after ~220 ms of speech-level sound; two recognized words that
-/// aren't the bot's own text also cut it. A duck that isn't followed by more sound (a cough)
+/// voice after ~100 ms of speech-level sound; two recognized words that aren't the bot's own text
+/// cut it, and so does ~400 ms of sustained energy (conservative until tuned on a real phone). A duck that isn't followed by more sound (a cough)
 /// is undone after ~300 ms of quiet.
 @MainActor
 final class KithVoiceEngine: OnDeviceEngine {
@@ -69,6 +69,7 @@ final class KithVoiceEngine: OnDeviceEngine {
         talkOverEnabled = true
         queue = ClipQueue { [weak self] text in await self?.fetchClip(text) }
         player = ClipPlayer(engine: engine) { [unowned self] in try self.ensureEngineRunning() }
+        prepareGraph = { [unowned self] in self.player.prepareGraph() }
         player.onDrained = { [weak self] in
             self?.bargeIn.setArmed(false)
             self?.finishedSpeaking()
@@ -85,9 +86,22 @@ final class KithVoiceEngine: OnDeviceEngine {
     /// The route changed under the engine: what was queued on it is gone, so the voice moves on to what comes next.
     override func engineConfigurationChanged() {
         player.reset()
+        player.reconnect()
         bargeIn.setArmed(false)
         super.engineConfigurationChanged()
         finishedSpeaking()
+    }
+
+    override func interruptionBegan() {
+        player.reset()
+        bargeIn.setArmed(false)
+        finishedSpeaking()
+    }
+
+    /// The speaker echoes into the microphone far more than an earpiece does: it needs a louder voice to count.
+    override func setSpeaker(_ on: Bool) {
+        super.setSpeaker(on)
+        bargeIn.setSpeaker(on)
     }
 
     /// Energy on the microphone while the voice plays (see `BargeInDetector`).

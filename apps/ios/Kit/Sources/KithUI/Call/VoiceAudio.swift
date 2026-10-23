@@ -91,12 +91,14 @@ struct PlaybackLedger {
 /// with their loudness in dBFS and duration.
 ///
 ///  - duck: speech-level energy for `duckSeconds` (lowers the voice at once; costs nothing if wrong)
-///  - stop: the same energy for `stopSeconds` in total (the voice is cut; the words that follow go
-///    out as the next message)
+///  - stop: the same energy for `stopSeconds` in total (the voice is cut; the words that follow go out as the
+///    next message). Long on purpose: the loudspeaker's echo comes in syllable bursts and shouldn't add up to it.
 ///  - resume: after a duck, `resumeQuietSeconds` of quiet means it was a cough or a click
 ///
 /// "Speech-level" is `marginDb` above a noise floor learned from the quiet frames (rises slowly,
-/// falls quickly), never below `minDb`. Short gaps between words don't reset the count.
+/// falls quickly), never below `minDb`. The count is windowed: quiet frames take away twice their
+/// length, so speech (mostly loud, short gaps) keeps climbing while echo bursts (loud about half
+/// the time) don't.
 struct BargeInDetector {
     enum Event: Equatable { case duck, stop, resume }
 
@@ -104,7 +106,7 @@ struct BargeInDetector {
         var marginDb = 14.0
         var minDb = -45.0
         var duckSeconds = 0.10
-        var stopSeconds = 0.22
+        var stopSeconds = 0.40
         var resumeQuietSeconds = 0.30
     }
 
@@ -147,8 +149,8 @@ struct BargeInDetector {
             return nil
         }
         quietFor += seconds
+        loudFor = max(0, loudFor - 2 * seconds)
         guard quietFor + Self.eps >= config.resumeQuietSeconds, !stopped else { return nil }
-        loudFor = 0
         onsetAt = nil
         if ducked {
             ducked = false
@@ -179,6 +181,12 @@ final class BargeInGate: @unchecked Sendable {
     private var armed = false
 
     init(config: BargeInDetector.Config = .init()) { detector = BargeInDetector(config: config) }
+
+    /// Earpiece/headphones hear little of the voice; the loudspeaker a lot.
+    func setSpeaker(_ on: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        detector.config.minDb = on ? BargeInDetector.Config().minDb + 7 : BargeInDetector.Config().minDb
+    }
 
     func setArmed(_ on: Bool) {
         lock.lock(); defer { lock.unlock() }

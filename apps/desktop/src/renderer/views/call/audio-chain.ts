@@ -111,17 +111,19 @@ export interface BargeConfig {
   resumeQuietSeconds: number
 }
 
-export const BARGE_DEFAULTS: BargeConfig = { marginDb: 14, minDb: -45, duckSeconds: 0.1, stopSeconds: 0.22, resumeQuietSeconds: 0.3 }
+export const BARGE_DEFAULTS: BargeConfig = { marginDb: 14, minDb: -40, duckSeconds: 0.1, stopSeconds: 0.4, resumeQuietSeconds: 0.3 }
 
 /**
  * Energy-based talk-over detector over the echo-cancelled microphone (kit `BargeInDetector`).
  *
  *  - duck: speech-level energy for `duckSeconds` (lowers the voice at once; costs nothing if wrong)
- *  - stop: the same energy for `stopSeconds` in total (the voice is cut; the words that follow go out as the next message)
+ * - stop: the same energy for `stopSeconds` (the voice is cut; the words that follow go out as the next message).
+ *   Long on purpose: the loudspeaker's echo comes in syllable bursts and shouldn't add up to it.
  *  - resume: after a duck, `resumeQuietSeconds` of quiet means it was a cough or a click
  *
  * "Speech-level" is `marginDb` above a noise floor learned from the quiet frames (rises slowly,
- * falls quickly), never below `minDb`. Short gaps between words don't reset the count.
+ * falls quickly), never below `minDb`. The count is windowed: quiet frames take away twice their
+ * length, so speech (mostly loud, short gaps) keeps climbing while echo bursts (loud about half the time) don't.
  */
 export class BargeInDetector {
   floorDb = -60
@@ -173,8 +175,8 @@ export class BargeInDetector {
       return null
     }
     this.quietFor += seconds
+    this.loudFor = Math.max(0, this.loudFor - 2 * seconds)
     if (this.quietFor + eps < resumeQuietSeconds || this.stopped) return null
-    this.loudFor = 0
     this.onsetAt = null
     if (this.ducked) {
       this.ducked = false

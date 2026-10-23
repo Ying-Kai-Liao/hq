@@ -101,11 +101,11 @@ private func run(_ d: inout BargeInDetector, db: Double, ms: Int, from start: In
 @Test func speechOverTheVoiceDucksThenStops() {
     var d = BargeInDetector()
     _ = run(&d, db: -62, ms: 500) // quiet room teaches the floor
-    let events = run(&d, db: -30, ms: 400, from: 500)
+    let events = run(&d, db: -30, ms: 500, from: 500)
     #expect(events.map(\.0) == [.duck, .stop])
-    // Expected stop latency from the first loud frame in the harness: duck at 100 ms, stop at 220 ms.
+    // Expected latency from the first loud frame in the harness: duck at 100 ms, stop at 400 ms.
     #expect(events[0].1 - 510 == 90)
-    #expect(events[1].1 - 510 == 210)
+    #expect(events[1].1 - 510 == 390)
     #expect(d.onsetAt == 0.51)
 }
 
@@ -117,13 +117,26 @@ private func run(_ d: inout BargeInDetector, db: Double, ms: Int, from start: In
     #expect(events.map(\.0) == [.duck, .resume])
 }
 
-@Test func shortGapsBetweenWordsDontResetTheCount() {
+@Test func shortGapsBetweenWordsOnlySlowTheCount() {
     var d = BargeInDetector()
     _ = run(&d, db: -62, ms: 500)
-    var events = run(&d, db: -30, ms: 150, from: 500)
-    events += run(&d, db: -62, ms: 100, from: 650) // a pause between words
-    events += run(&d, db: -30, ms: 100, from: 750)
+    var events = run(&d, db: -30, ms: 300, from: 500)
+    events += run(&d, db: -62, ms: 50, from: 800) // a pause between words
+    events += run(&d, db: -30, ms: 250, from: 850)
     #expect(events.map(\.0) == [.duck, .stop])
+}
+
+@Test func loudspeakerEchoInSyllableBurstsNeverAddsUpToAStop() {
+    var d = BargeInDetector()
+    _ = run(&d, db: -62, ms: 500)
+    var events: [(BargeInDetector.Event, Int)] = []
+    var t = 500
+    for _ in 0..<10 { // 100 ms loud, 100 ms quiet, for two seconds
+        events += run(&d, db: -30, ms: 100, from: t)
+        events += run(&d, db: -62, ms: 100, from: t + 100)
+        t += 200
+    }
+    #expect(!events.map(\.0).contains(.stop))
 }
 
 @Test func aBlipTooShortToDuckDoesNothing() {
@@ -153,10 +166,10 @@ private func run(_ d: inout BargeInDetector, db: Double, ms: Int, from start: In
 @Test func theNextTalkOverStartsFresh() {
     var d = BargeInDetector()
     _ = run(&d, db: -62, ms: 500)
-    let first = run(&d, db: -30, ms: 300, from: 500)
+    let first = run(&d, db: -30, ms: 500, from: 500)
     #expect(first.map(\.0) == [.duck, .stop])
-    _ = run(&d, db: -62, ms: 100, from: 800, armed: false) // the voice was cut
-    let second = run(&d, db: -30, ms: 300, from: 900)
+    _ = run(&d, db: -62, ms: 100, from: 1000, armed: false) // the voice was cut
+    let second = run(&d, db: -30, ms: 500, from: 1100)
     #expect(second.map(\.0) == [.duck, .stop])
 }
 

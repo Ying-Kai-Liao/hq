@@ -110,11 +110,11 @@ const kinds = (events: [BargeEvent, number][]) => events.map((e) => e[0])
 test('speech over the voice ducks, then stops', () => {
   const d = new BargeInDetector()
   run(d, -62, 500) // a quiet room teaches the floor
-  const events = run(d, -30, 400, 500)
+  const events = run(d, -30, 500, 500)
   assert.deepEqual(kinds(events), ['duck', 'stop'])
-  // Expected latency from the first loud frame in the harness: duck at 100 ms, stop at 220 ms.
+  // Expected latency from the first loud frame in the harness: duck at 100 ms, stop at 400 ms.
   assert.equal(events[0]![1] - 510, 90)
-  assert.equal(events[1]![1] - 510, 210)
+  assert.equal(events[1]![1] - 510, 390)
   assert.equal(d.onsetAt, 0.51)
 })
 
@@ -125,11 +125,19 @@ test('a cough ducks, then the voice comes back', () => {
   assert.deepEqual(kinds(events), ['duck', 'resume'])
 })
 
-test('short gaps between words do not reset the count', () => {
+test('short gaps between words only slow the count', () => {
   const d = new BargeInDetector()
   run(d, -62, 500)
-  const events = [...run(d, -30, 150, 500), ...run(d, -62, 100, 650), ...run(d, -30, 100, 750)]
+  const events = [...run(d, -30, 300, 500), ...run(d, -62, 50, 800), ...run(d, -30, 250, 850)]
   assert.deepEqual(kinds(events), ['duck', 'stop'])
+})
+
+test('loudspeaker echo in syllable bursts never adds up to a stop', () => {
+  const d = new BargeInDetector()
+  run(d, -62, 500)
+  const events: [BargeEvent, number][] = []
+  for (let t = 500; t < 2500; t += 200) events.push(...run(d, -30, 100, t), ...run(d, -62, 100, t + 100))
+  assert.ok(!kinds(events).includes('stop'))
 })
 
 test('a blip too short to duck does nothing', () => {
@@ -153,9 +161,9 @@ test('steady room noise lifts the floor instead of triggering', () => {
 test('the next talk-over starts fresh', () => {
   const d = new BargeInDetector()
   run(d, -62, 500)
-  assert.deepEqual(kinds(run(d, -30, 300, 500)), ['duck', 'stop'])
-  run(d, -62, 100, 800, false) // the voice was cut
-  assert.deepEqual(kinds(run(d, -30, 300, 900)), ['duck', 'stop'])
+  assert.deepEqual(kinds(run(d, -30, 500, 500)), ['duck', 'stop'])
+  run(d, -62, 100, 1000, false) // the voice was cut
+  assert.deepEqual(kinds(run(d, -30, 500, 1100)), ['duck', 'stop'])
 })
 
 test('the helper level maps back to dBFS', () => {

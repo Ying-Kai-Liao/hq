@@ -55,6 +55,9 @@ class OnDeviceEngine: VoiceEngine {
     @ObservationIgnored private var configObserver: (any NSObjectProtocol)?
     /// The engine keeps running when listening stops (something is playing through it).
     var holdsEngine: Bool { false }
+    /// Joins the player to the graph; runs before the engine starts.
+    var prepareGraph: (() -> Void)?
+    @ObservationIgnored private var interruptionObserver: (any NSObjectProtocol)?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     /// Bumped per utterance so late callbacks from a cancelled recognition are dropped.
@@ -109,6 +112,12 @@ class OnDeviceEngine: VoiceEngine {
             configObserver = NotificationCenter.default.addObserver(
                 forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
             ) { [weak self] _ in Task { @MainActor in self?.engineConfigurationChanged() } }
+            interruptionObserver = NotificationCenter.default.addObserver(
+                forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
+            ) { [weak self] note in
+                let began = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue
+                Task { @MainActor in self?.interruption(began: began) }
+            }
             routeObserver = NotificationCenter.default.addObserver(
                 forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
             ) { [weak self] _ in Task { @MainActor in self?.applyRoute() } }
@@ -138,6 +147,8 @@ class OnDeviceEngine: VoiceEngine {
         routeObserver = nil
         if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
         configObserver = nil
+        if let interruptionObserver { NotificationCenter.default.removeObserver(interruptionObserver) }
+        interruptionObserver = nil
         onActivityChanged?(false)
         stopListening()
         if engine.isRunning { engine.stop() }
@@ -152,10 +163,24 @@ class OnDeviceEngine: VoiceEngine {
         if micOn { restartListening() }
     }
 
+    /// A phone call, Siri or an alarm took the audio: what was playing is gone. When it ends the call picks up again.
+    func interruption(began: Bool) {
+        guard !ended else { return }
+        log.info("audio interruption \(began ? "began" : "ended")")
+        if began { return interruptionBegan() }
+        try? AVAudioSession.sharedInstance().setActive(true)
+        applyRoute()
+        if micOn { restartListening() }
+    }
+
+    /// The system stopped the engine; a subclass drops what it had queued on it.
+    func interruptionBegan() {}
+
     /// Runs the engine (voice processing first when talk-over needs it) if it isn't running.
     func ensureEngineRunning() throws {
         guard !engine.isRunning else { return }
         if talkOverEnabled, !engine.inputNode.isVoiceProcessingEnabled { try engine.inputNode.setVoiceProcessingEnabled(true) }
+        prepareGraph?()
         engine.prepare()
         try engine.start()
     }
@@ -231,7 +256,8 @@ class OnDeviceEngine: VoiceEngine {
         task = nil
         request?.endAudio()
         request = nil
-        if engine.isRunning, !holdsEngine { engine.stop() }
+        // In talk-over mode the engine keeps running between utterances: restarting it would make the echo canceller start over.
+        if engine.isRunning, !holdsEngine, !talkOverEnabled { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
         level = 0
     }
@@ -293,6 +319,7 @@ class OnDeviceEngine: VoiceEngine {
 
     func fail(_ message: String) {
         stopListening()
+        if engine.isRunning { engine.stop() }
         phase = .failed(message)
     }
 

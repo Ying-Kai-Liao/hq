@@ -17,6 +17,8 @@ export class ClipPlayer {
   private sinkId = ''
   /** Bumped by every cut: a clip that was being set up across one is dropped. */
   private cuts = 0
+  /** The chosen speaker couldn't be used and the default took over. */
+  onSinkLost: ((error: unknown) => void) | null = null
   /** Every queued clip has played out. */
   onDrained: (() => void) | null = null
 
@@ -36,8 +38,10 @@ export class ClipPlayer {
     if (!clip || clip.samples.length === 0) return false
     fadeEdges(clip.samples, clip.sampleRate)
     const cuts = this.cuts
-    const { ctx, gain } = await this.context()
-    if (cuts !== this.cuts) return true
+    const live = await this.context()
+    // Cut (or the call ended) while the context was being set up: nothing to play.
+    if (!live || cuts !== this.cuts) return true
+    const { ctx, gain } = live
     const buffer = ctx.createBuffer(1, clip.samples.length, clip.sampleRate)
     buffer.getChannelData(0).set(clip.samples)
     // The context resamples the clip's rate to the device's.
@@ -54,14 +58,14 @@ export class ClipPlayer {
     }
     source.start(at)
     if (wasIdle) {
-      gain.gain.value = 1
       started?.()
     }
     return true
   }
 
+  /** A ~10 ms ramp, not a step, so ducking doesn't click. */
   duck(on: boolean) {
-    if (this.gain) this.gain.gain.value = on ? DUCKED_GAIN : 1
+    if (this.ctx && this.gain) this.gain.gain.setTargetAtTime(on ? DUCKED_GAIN : 1, this.ctx.currentTime, 0.01)
   }
 
   /** Drops what's queued and stops at once. */
@@ -78,7 +82,8 @@ export class ClipPlayer {
       source.disconnect()
     }
     this.sources.clear()
-    this.duck(false)
+    if (this.gain) this.gain.gain.cancelScheduledValues(0)
+    if (this.gain) this.gain.gain.value = 1
   }
 
   close() {
@@ -95,10 +100,19 @@ export class ClipPlayer {
       gain.connect(ctx.destination)
       this.ctx = ctx
       this.gain = gain
-      if (this.sinkId) await this.applySink(ctx)
+      if (this.sinkId) {
+        try {
+          await this.applySink(ctx)
+        } catch (e) {
+          // A speaker that was unplugged: the default output beats a dead voice.
+          this.sinkId = ''
+          this.onSinkLost?.(e)
+        }
+      }
     }
+    if (!this.ctx) return null
     if (this.ctx.state === 'suspended') await this.ctx.resume()
-    return { ctx: this.ctx, gain: this.gain }
+    return this.ctx && this.gain ? { ctx: this.ctx, gain: this.gain } : null
   }
 
   private async applySink(ctx: AudioContext) {
