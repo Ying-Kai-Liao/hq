@@ -165,6 +165,10 @@ jobs:
         run: kernel/tests/kith-call-check
       - name: Trajectory check
         run: kernel/tests/kith-trajectory-check
+      - name: Recall check
+        run: kernel/tests/kith-recall-check
+      - name: Guest sandbox check
+        run: kernel/tests/kith-guest-sandbox-check
       - name: Load check
         run: kernel/tests/kith-load-check
 
