@@ -31,7 +31,7 @@ impl Host {
         std::fs::create_dir_all(&home).unwrap();
         let (child, base) = common::serve(&home).await;
         let mut host = Self { child, home, base, token: String::new() };
-        std::fs::read_to_string(host.home.join("token")).unwrap().trim().clone_into(&mut host.token);
+        common::read_token(&host.home).trim().clone_into(&mut host.token);
         host
     }
 

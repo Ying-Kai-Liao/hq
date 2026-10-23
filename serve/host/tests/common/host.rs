@@ -40,7 +40,7 @@ impl Host {
     pub async fn start_env(env: &[(&str, &str)]) -> Self {
         let home = std::env::temp_dir().join(format!("kith-memory-e2e-{}", uuid::Uuid::new_v4()));
         let (child, base) = super::serve_env(&home, env).await;
-        let token = std::fs::read_to_string(home.join("token")).unwrap().trim().to_owned();
+        let token = super::read_token(&home).trim().to_owned();
         let env = env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
         Self { child, home, base, token, env }
     }

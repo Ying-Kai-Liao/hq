@@ -47,6 +47,23 @@ pub async fn serve_env(home: &Path, env: &[(&str, &str)]) -> (Child, String) {
     }
 }
 
+/// The host's token file, once it is there: the host writes it independently of answering
+/// `/health`, and `std::fs::write` truncates first, so a read can see no file or an empty one.
+#[allow(dead_code)]
+pub fn read_token(home: &Path) -> String {
+    let path = home.join("token");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        if let Ok(t) = std::fs::read_to_string(&path) {
+            if !t.trim().is_empty() {
+                return t;
+            }
+        }
+        assert!(Instant::now() < deadline, "the host never wrote its token file {}", path.display());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// Stops a test host the way launchd does (SIGTERM), so it shuts down its own
 /// children: a SIGKILL would orphan whatever it had running, such as a harness
 /// sign-in check (`cursor-agent status` then spins forever). Kills it after 5 s.

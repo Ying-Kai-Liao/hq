@@ -314,13 +314,16 @@ fn rotate_token(store: &store::Store) -> Result<String> {
 
 fn write_token_file(token: &str) -> Result<()> {
     let path = service::data_dir().join("token");
-    std::fs::write(&path, token).with_context(|| format!("writing {}", path.display()))?;
+    // Written aside and renamed, so a reader never sees the file empty or half-written.
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, token).with_context(|| format!("writing {}", tmp.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-            .with_context(|| format!("restricting {}", path.display()))?;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("restricting {}", tmp.display()))?;
     }
+    std::fs::rename(&tmp, &path).with_context(|| format!("replacing {}", path.display()))?;
     Ok(())
 }
 
