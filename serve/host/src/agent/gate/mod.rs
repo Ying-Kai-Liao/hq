@@ -397,8 +397,8 @@ pub async fn run(gate: Arc<Gate>, hub: Weak<Hub>) {
             if script.is_none() {
                 script = Some(find_reclaim_script().await);
             }
-            match script.clone().flatten() {
-                Some(path) => {
+            if let Some(path) = script.clone().flatten() {
+                {
                     let (gate, done) = (gate.clone(), done_tx.clone());
                     tokio::spawn(async move {
                         match reclaim::run_script(&path, &gate.settings).await {
@@ -413,10 +413,9 @@ pub async fn run(gate: Arc<Gate>, hub: Weak<Hub>) {
                         gate.wake.notify_one();
                     });
                 }
-                None => {
-                    tracing::warn!("resource-manager's res.py not found; not reclaiming idle sessions");
-                    trigger.finished();
-                }
+            } else {
+                tracing::warn!("resource-manager's res.py not found; not reclaiming idle sessions");
+                trigger.finished();
             }
         }
         for (rt, text) in gate.waiting_lines() {

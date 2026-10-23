@@ -250,9 +250,12 @@ mod reclaim_trigger {
 
     #[test]
     fn status_shows_the_reclaim_settings() {
-        let (gate, _) = super::gate(2);
+        let (gate, _) = gate(2);
         let st = gate.status();
-        assert_eq!((st["reclaimSessionsAfterSeconds"].clone(), st["reclaimIdleHours"].clone()), (json!(120), json!(3.0)));
+        assert_eq!(
+            (st["reclaimSessionsAfterSeconds"].clone(), st["reclaimIdleHours"].clone()),
+            (json!(120), json!(3.0))
+        );
         assert!(st["lastReclaim"].is_null());
     }
 }

@@ -57,7 +57,13 @@ impl Settings {
 
     /// No limit and no memory check, for unit tests that run bots without caring about the gate.
     pub fn unlimited() -> Self {
-        Self { max_running: 1024, min_free_percent: 0.0, max_swap_gb: 0.0, reclaim_after: Duration::ZERO, ..Self::default() }
+        Self {
+            max_running: 1024,
+            min_free_percent: 0.0,
+            max_swap_gb: 0.0,
+            reclaim_after: Duration::ZERO,
+            ..Self::default()
+        }
     }
 
     /// `file`: the parsed config.json, if any. `env`: looks up an environment variable.
@@ -83,7 +89,8 @@ impl Settings {
         let min_free = pick("min_free_memory_percent", &|n| (0.0..=100.0).contains(&n));
         let max_swap = pick("max_swap_used_gb", &|n| n.is_finite() && n >= 0.0);
         let idle = pick("idle_shutdown_minutes", &whole);
-        let reclaim_after = pick("reclaim_sessions_after_seconds", &|n| n.fract() == 0.0 && (0.0..=86_400.0).contains(&n));
+        let reclaim_after =
+            pick("reclaim_sessions_after_seconds", &|n| n.fract() == 0.0 && (0.0..=86_400.0).contains(&n));
         let reclaim_hours = pick("reclaim_idle_hours", &|n| n.is_finite() && n > 0.0 && n <= 8760.0);
         let d = Self::default();
         // Validated whole numbers within 1..=100_000, so the casts lose nothing.
