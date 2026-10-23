@@ -98,15 +98,15 @@ components:
     rounded: "{rounded.chip}"
 ---
 
-> Source: `~/Workspace/design/kith/app-style/DESIGN.md` (the designer's folder), copied 2026-10-23. The designer owns this spec: do not edit it here, changes come from the designer and are re-copied.
+> Source: `~/Workspace/design/kith/app-style/DESIGN.md` (the designer's folder), draft v2, copied 2026-10-23. The designer owns this spec: do not edit it here, changes come from the designer and are re-copied.
 > Only change from the source: image names point at `docs/design/mocks/...` (`search.png` ships as `search.jpg`, downscaled to keep the repo light).
-> Boards named below but not copied (`home-v4.png`, `threads.png`, `home-v3.png`, `context.png`) are superseded by the copied set. The `sky/*.png` assets stay in the designer folder; the tokens PR adds them to the app assets.
+> Boards named below but not copied (`home-v4.png`, `threads.png`, `home-v3.png`, `context.png`) are superseded by the copied set. The sky images are in the apps (iOS `Sky.xcassets`, desktop `renderer/assets/sky`).
 > The text below is verbatim, including its mentions of the previous design by its old name.
 > Feature mapping and build order: `feature-inventory.md`.
 
 # Design System: Kith app
 
-status: draft v1, 2026-10-23, from Kai's decisions in this session (decisions.md, designer lines of 2026-10-23).
+status: draft v2, 2026-10-23 (v2 adds homes for the 14 unplaced features, Mac layout, dark roles), from Kai's decisions (decisions.md, designer lines of 2026-10-23).
 Boards: `home-v4.png` (home), `threads.png` (agent chat), `home-v3.png` (routing, call, colour sheet), `docs/design/mocks/system.png` (components).
 Brand source: branding's `brand/` (BRAND.md, brand.tokens.json, living-bots/LAYERS.md). Brand wins where they disagree.
 
@@ -130,7 +130,11 @@ Four ideas carry it:
 - Bot colours: each bot has a default pair; the user picks from **presets** (branding's palette), as **gradient or
   plain**. No free colour wheel. The bot body is recoloured through its tint layer; eyes never change. A tinted
   surface (decision card) uses the bot's pair at low strength.
-- Dark mode: night `#14161B` ground; the home sky and the chat strip become the same clouds at night (`sky/night-1.png` or `night-2.png` with faint stars; chat strip `sky/header-night.png`, day `sky/header-day.png`). Bubbles #2C303A (you) / #1E2129 (agent), glass dark. Board: `docs/design/mocks/dark.png`.
+- Dark mode: night `#14161B` ground; the home sky and the chat strip become the same clouds at night (`sky/night-1.png` or `night-2.png` with faint stars; chat strip `sky/header-night.png`, day `sky/header-day.png`). Bubbles #2C303A (you) / #1E2129 (agent), glass dark. Board: `docs/design/mocks/dark.png` (stale: it still shows the cube, the YOU pill, violet and no call button; the rules in this file win).
+  Dark roles come from branding's `brand.dark.tokens.json`: bg night `#14161B`, panel coal `#1E2129`, ink white, muted
+  `#B4BAC4`, line slate `#2C303A`, accent `#B49CFF`, positive `#4CC38A`, negative `#FF7A8E`. The needs-you count badge
+  inverts (white, night figures). Glass dark = coal at 60% with blur and a 1 px white edge at 8%. Night sky asset
+  (night-1 or night-2) is Kai's pick; build with night-1, swapping is an asset change.
 
 ## Typography
 - Agent names: Nunito 800, 16. The only place Nunito appears in the app UI.
@@ -148,8 +152,17 @@ Four ideas carry it:
   (working dots keep lower-right). Group row = two bots on the diagonal + one sky patch, name in Inter 600 so it never
   reads as an agent. A teammate sees an agent's row only when they're a member of it. Long-press: pin, colour, sleep,
   share. Board: `docs/design/mocks/crewteams.png` (A).
+- **Crew order**: pinned rooms sit on top in your own drag order (as in Messages), always. Below them the order is
+  **Automatic** by default: needs-you, working, recent; inside a group the stored manual order breaks ties. Settings >
+  Crew order: Automatic | Manual. Manual keeps today's behaviour exactly (your drag order for everything, synced to the
+  host); needs-you still shows by the count badge. Drag and Move up / Move down work on pinned rooms always and on all
+  rooms in Manual; in Automatic, dragging an unpinned row onto the pinned area pins it. Never re-sort while a finger or
+  pointer is on the list; apply the new order when it is released or the list reappears.
 - **Board**: projects, decisions, where-we-left-off cards, and Waits as a section. Swipe sideways from Crew.
 - **Agent chat**: the home sky shows behind the top bar and fades out by ~170 pt (day: sky-3; night: the night sky). Top = back, bot + name, phone + ••• pair. Feed of threads. Bottom = the chat box ("Tell coder…").
+  The old connection subtitle becomes a status chip under the name when not Live. While the agent uses the computer,
+  the subtitle reads "using the computer" with a `display` symbol; tapping it opens the screen view. ••• always has
+  "Show the computer" when the agent has computer use.
 - Gutter 16, row padding 9 vertical, thumb-zone actions in the bottom half, 44 pt minimum targets.
 
 ## Elevation & Depth
@@ -175,7 +188,10 @@ new session" with two alternatives before sending; `@name` skips routing; `/` op
 **new session**. + at its left attaches files or images (Photos, Camera, Files). The call button beside
 the box (home and Board) calls the agent **directly**: the agent the box would route to, or pick one. In an agent chat the phone stays at the top right.
 ### Top controls
-- Profile picture: same default for teammates in threads (agents have faces, people have sky). Menu with account, Computers (each Mac and its health), Settings.
+- Profile picture: same default for teammates in threads (agents have faces, people have sky). Stock menu: account
+  row, Computers (each Mac and its health; pair, filter and order Macs; Show screen per Mac), Extensions (marketplace +
+  Credentials, the sheet keeps its own computer switcher; `kith://plugins`), Usage (`kith://usage`), Settings
+  (includes "Widgets & Live Activities", the old State tab galleries, unchanged inside). Desktop adds Support.
 - Crew | Board: segmented glass switch.
 - New chat (square.and.pencil, as in Messages): native menu: New bot (template or crew), Invite a person, New group chat.
 ### Thread (agent chat)
@@ -211,8 +227,49 @@ Word + colour, never colour alone: Live, Catching up, Needs you, Mac unreachable
 one chip ("Mac mini busy, 1 queued"), one tap from Computers.
 ### Colour sheet
 Preview of the bot, Gradient | Plain switch, preset swatches, Reset to default.
+### Reactions
+User content, so emoji are allowed here (the no-emoji rule is about icons). Chips under the message: panel pill,
+emoji + count (Inter 13, tabular). Yours carries a 1 px ink outline, not the accent. The add-reaction control is an
+SF Symbol (`face.smiling`). Quick set unchanged. Long-press (iOS), right-click and hover (Mac) as today.
+### Call screen
+Keep today's layout and behaviour; restyle only. Full-bleed sky (morning by day, night sky in dark mode), the
+agent's bot large (160, no tile) with the mic-level ring in its colour pair, name in Nunito, state in Inter, timer and
+"Voice by …" in mono 12, captions as plain You / agent lines (not bubbles), notice line in muted. Controls are round
+glass buttons with SF Symbols; End is the stock red `phone.down.fill` (the one red that is not a result).
+### Computer screen
+The remote screen view keeps all controls; they become glass pills over the screen, which stays edge to edge on
+black. Entries: the chat subtitle while in use, ••• "Show the computer", Profile > Computers > a Mac, `kith://screen`.
+### First run
+Welcome, pairing and the restoring splash sit on the morning sky with the living crew as the hero. Copy, demo, sign-in
+buttons and pairing steps unchanged. The welcome line is the one place text goes above body: Inter 600, 20, a
+sentence, centred under the crew. Buttons: primary ink, secondary white. The restoring splash is the same scene as
+the Crew loading state.
+### Star prompt (Mac)
+Today's behaviour (after setup, once more a week later, at most two asks) in a stock sheet: cube mark, one line,
+Not now (secondary) / Star on GitHub (primary). Not added to iOS.
 ### Icons
 SF Symbols in the app (phone.fill, square.and.pencil, plus, mic.fill, chevron.down/up, ellipsis, gearshape). Never emoji.
+
+## Mac
+- **Each column is the phone screen it replaces.** Sidebar = Crew or Board; conversation pane = agent chat; inspector
+  = agent sheet. Same components, same rules.
+- **Sidebar** (resizable 260–420, collapses to the rail under 180): top = profile picture (left, under the traffic
+  lights), Crew | Board switch, new-chat. A short morning sky at its top fading to white. List = rooms (Crew) or
+  Board sections. Bottom = the dock at sidebar width: "Find or ask…" box + call, filtering the list in place as on the
+  phone. Cmd+F focuses it; Cmd+1..9 open results; the old palette survives only for the collapsed rail.
+- **Conversation pane**: agent chat exactly as on the phone (sky strip behind the top bar, picture + name opens the
+  agent sheet, phone + ••• right, threads, "Tell coder…" box at the bottom). No selection = the living crew empty
+  state.
+- **Inspector**: the agent sheet as the right panel (wide) or sheet (narrow), as today's Details panel.
+- **Board** opens a thread in the conversation pane. Crew/Board also from View menu (⌥⌘1 / ⌥⌘2) and a two-finger swipe
+  on the sidebar.
+- **Rail**: bots only (no tiles), profile picture at the top, new-chat, Extensions, update badge.
+- Tray, native menus, Pair iPhone window: unchanged except labels.
+- **Notch island**: keep every mode, shortcut and placement. It stays black (it extends the notch). Bots lose their
+  tiles; the amber approval card becomes the decision card on dark (agent pair at low strength, Allow / Deny / Always);
+  "Needs you" uses the inverted count badge. Done / stopped notices keep green / red, always with the word.
+- **Website demo** (`/demo/desktop/`) follows the redesign: it is the same renderer, so it changes with each Mac PR;
+  check it in each. It stays always-dark until Mac dark mode lands.
 
 ## Do's and Don'ts
 ### Do:
@@ -230,7 +287,9 @@ SF Symbols in the app (phone.fill, square.and.pencil, plus, mic.fill, chevron.do
 - Framing Kith against Codync: keep what works.
 
 ## Open
-- Thread context (what an agent loaded and wrote for a thread): context.png chip and context2.png agent-sheet card both rejected by Kai (2026-10-23); new direction needed. Places are named by project (briefcase icon), folder only outside a project.
+- Bot-to-bot conversation view: unchanged until group and team modes (threads3) settle.
+- Home router ("Goes to"), "Search the crew's memory" and Correct need backend first; the box filtering the list in
+  place does not and ships with Crew home.
+- Thread context (what an agent loaded and wrote for a thread): context.png chip and docs/design/mocks/context2.png agent-sheet card both rejected by Kai (2026-10-23); new direction needed. Places are named by project (briefcase icon), folder only outside a project.
 - Any room member may join a thread someone else started (Kai, 2026-10-23); the backend still refuses non-owners.
 - Branding: confirm the preset palette for user colours (gradient + plain versions of the 15 pairs).
-- Board layout in this style (only sketched in phone-app v1).

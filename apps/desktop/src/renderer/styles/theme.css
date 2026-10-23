@@ -1,5 +1,7 @@
 /* The Kith brand tokens (brand.tokens.json, brand.dark.tokens.json): white or night ground, violet
    accent, cool greys; amber marks "needs you" and red marks errors. (kit Palette) */
+@import './tokens.css';
+
 :root {
   color-scheme: light dark;
   --background: #ffffff;

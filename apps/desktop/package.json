@@ -14,6 +14,7 @@
     "dev": "node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/dev.mjs",
     "build": "electron-vite build",
     "build:demo": "vite build --config vite.demo.config.ts && mv ../../web/public/demo/desktop/index.html ../../web/public/demo/desktop.html",
+    "tokens": "vite --config vite.tokens.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --test --experimental-strip-types src/shared/*.test.ts src/main/relay/*.test.ts src/renderer/lib/*.test.ts src/renderer/views/thread/*.test.ts src/renderer/views/call/*.test.ts",
     "e2e:relay": "node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tools/relay-e2e.ts",
