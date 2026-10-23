@@ -660,3 +660,8 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
+
+// Property tests (method in the file); a child of this module so they reach `with_ancestry`.
+#[cfg(test)]
+#[path = "runauth_props.rs"]
+mod runauth_props;
