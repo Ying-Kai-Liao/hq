@@ -38,6 +38,7 @@ fn tool_result(ts: &str, id: &str, out: &str) -> String {
 }
 
 struct Rig {
+    children: std::cell::RefCell<Vec<std::process::Child>>,
     dir: PathBuf,
     hub: Arc<Hub>,
     bot: String,
@@ -58,7 +59,15 @@ impl Rig {
         }))
         .unwrap();
         let bot = hub.create_bot(cfg).unwrap()["id"].as_str().unwrap().to_owned();
-        Self { dir, hub, bot }
+        Self { children: std::cell::RefCell::default(), dir, hub, bot }
+    }
+
+    /// The pid of a process that lives for the test: a registry can't name the test's own.
+    fn sleeper(&self) -> u32 {
+        let child = std::process::Command::new("sleep").arg("300").spawn().unwrap();
+        let pid = child.id();
+        self.children.borrow_mut().push(child);
+        pid
     }
 
     fn transcript(&self, sid: &str) -> PathBuf {
@@ -194,7 +203,7 @@ fn a_registry_file_is_only_read_when_it_is_a_listable_sessions() {
 #[tokio::test]
 async fn live_needs_the_process_and_a_session_file_that_names_the_session() {
     let r = Rig::new();
-    let me = std::process::id();
+    let me = r.sleeper();
     r.register("sess-1", "builder", me, None);
     let reg = registry::read_all(&r.dir.join("state")).pop().unwrap();
     let sessions = Some(r.dir.join("sessions"));
@@ -272,7 +281,7 @@ async fn a_session_of_an_agent_without_an_owner_bot_is_skipped() {
 #[tokio::test]
 async fn new_lines_are_imported_once_and_the_terminal_writes_while_it_lives() {
     let r = Rig::new();
-    let me = std::process::id();
+    let me = r.sleeper();
     r.append("s1", &user("2026-10-23T01:00:01Z", "first"));
     r.append("s1", &agent("2026-10-23T01:00:02Z", "one"));
     r.register("s1", "builder", me, None);
@@ -361,7 +370,7 @@ async fn a_thread_resumed_in_the_terminal_is_that_thread_not_a_new_one() {
     r.append("s9", &user("2020-01-01T00:00:00Z", "from the app"));
     r.append("s9", &agent("2020-01-01T00:00:01Z", "app reply"));
     r.append("s9", &user("2099-01-01T00:00:00Z", "typed in the terminal"));
-    let me = std::process::id();
+    let me = r.sleeper();
     r.register("s9", "builder", me, Some("s9"));
     r.session_file(me, "s9", "idle");
     r.scan();
@@ -412,13 +421,13 @@ async fn a_forked_resume_maps_to_the_thread_it_came_from() {
 #[tokio::test]
 async fn nothing_is_sent_while_the_terminal_lives() {
     let r = Rig::new();
-    let me = std::process::id();
+    let me = r.sleeper();
     r.append("s1", &user("2026-10-23T01:00:01Z", "first"));
     r.register("s1", "builder", me, None);
     r.session_file(me, "s1", "idle");
     r.scan();
     let root = r.roots()[0].id.clone();
-    let e = sync::before_send(&r.hub, &r.bot, &root).unwrap_err();
+    let e = sync::before_send(&r.hub, &r.bot, &root).await.unwrap_err();
     assert_eq!(e.downcast_ref::<HeldByWriter>().unwrap().code, "liveInTerminal");
     assert!(e.to_string().starts_with("liveInTerminal"));
     // An ordinary thread is not held.
@@ -426,18 +435,18 @@ async fn nothing_is_sent_while_the_terminal_lives() {
         .hub
         .add_entry(&Lane::main(&r.bot), crate::store::EntryKind::User, 2, &json!({"text": "x", "task": true}))
         .unwrap();
-    sync::before_send(&r.hub, &r.bot, &other.id).unwrap();
+    sync::before_send(&r.hub, &r.bot, &other.id).await.unwrap();
     // Closed: the terminal's last lines are caught up and the send goes on.
     std::fs::remove_file(r.dir.join("sessions").join(format!("{me}.json"))).unwrap();
     r.append("s1", &agent("2026-10-23T01:00:09Z", "last words"));
-    sync::before_send(&r.hub, &r.bot, &root).unwrap();
+    sync::before_send(&r.hub, &r.bot, &root).await.unwrap();
     assert!(r.texts(&root).contains(&"last words".to_owned()));
 }
 
 #[tokio::test]
 async fn take_over_is_refused_while_busy_and_a_no_op_once_closed() {
     let r = Rig::new();
-    let me = std::process::id();
+    let me = r.sleeper();
     r.append("s1", &user("2026-10-23T01:00:01Z", "first"));
     r.register("s1", "builder", me, None);
     r.session_file(me, "s1", "busy");
@@ -477,7 +486,7 @@ async fn take_over_ends_an_idle_terminal_and_the_host_writes_next() {
     assert_eq!(changes, ["startedInTerminal", "tookOver"]);
     r.scan();
     assert_eq!(r.summary(&root)["liveWriter"], Value::Null);
-    sync::before_send(&r.hub, &r.bot, &root).unwrap();
+    sync::before_send(&r.hub, &r.bot, &root).await.unwrap();
 }
 
 #[test]
@@ -488,4 +497,113 @@ fn unknown_writer_values_pass_through_the_summary() {
     assert_eq!(summary["origin"], "discord");
     assert_eq!(summary["originBot"]["extra"], 1);
     let _ = (Terminal::default(), Path::new(""));
+}
+
+impl Drop for Rig {
+    fn drop(&mut self) {
+        for child in self.children.borrow_mut().iter_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_pid_started_at_another_time_is_not_the_session() {
+    let r = Rig::new();
+    let me = r.sleeper();
+    r.append("s1", &user("2026-10-23T01:00:01Z", "hi"));
+    r.register("s1", "builder", me, None);
+    let reg = registry::read_all(&r.dir.join("state")).pop().unwrap();
+    let sessions = Some(r.dir.join("sessions"));
+    let write = |proc_start: &str| {
+        let v = json!({"pid": me, "sessionId": "s1", "status": "idle", "procStart": proc_start});
+        std::fs::write(r.dir.join("sessions").join(format!("{me}.json")), v.to_string()).unwrap();
+    };
+    let actual = registry::proc_start(me).expect("ps knows the process");
+    write(&actual);
+    assert_eq!(registry::liveness(&reg, sessions.as_deref()), Live::Idle);
+    write("Mon Jan  1 00:00:00 2001");
+    assert_eq!(registry::liveness(&reg, sessions.as_deref()), Live::Closed, "a reused pid started at another time");
+}
+
+#[test]
+fn pids_that_cannot_be_a_terminal_are_refused() {
+    let base = |pid: u32| {
+        json!({
+            "v": 1, "sessionId": "abc-1", "agent": "builder", "cwd": "/w", "transcriptPath": "/p/abc-1.jsonl",
+            "pid": pid, "startedAt": "2026-10-23T01:00:00Z",
+        })
+        .to_string()
+    };
+    assert!(registry::parse(&base(4242)).is_some());
+    assert!(registry::parse(&base(0)).is_none());
+    assert!(registry::parse(&base(1)).is_none());
+    assert!(registry::parse(&base(std::process::id())).is_none(), "never the host itself");
+}
+
+#[tokio::test]
+async fn racing_passes_import_once_and_say_a_close_once() {
+    let r = Rig::new();
+    let me = r.sleeper();
+    r.append("s1", &user("2026-10-23T01:00:01Z", "first"));
+    r.register("s1", "builder", me, None);
+    r.session_file(me, "s1", "idle");
+    r.scan();
+    let root = r.roots()[0].id.clone();
+    for i in 0..5 {
+        r.append("s1", &agent(&format!("2026-10-23T02:00:0{i}Z"), &format!("line {i}")));
+    }
+    std::fs::remove_file(r.dir.join("sessions").join(format!("{me}.json"))).unwrap();
+    let handles: Vec<_> = (0..4)
+        .map(|_| {
+            let hub = r.hub.clone();
+            std::thread::spawn(move || sync::scan(&hub))
+        })
+        .collect();
+    for h in handles {
+        h.join().unwrap();
+    }
+    for i in 0..5 {
+        assert_eq!(r.texts(&root).iter().filter(|t| **t == format!("line {i}")).count(), 1, "line {i}");
+    }
+    let changes: Vec<String> =
+        r.thread(&root).iter().filter_map(|e| e.data["writerChange"].as_str().map(str::to_owned)).collect();
+    assert_eq!(changes, ["startedInTerminal", "terminalClosed"]);
+}
+
+#[tokio::test]
+async fn a_replaced_or_shortened_transcript_does_not_repeat_what_was_imported() {
+    let r = Rig::new();
+    r.append("s1", &user("2026-10-23T01:00:01Z", "first"));
+    r.append("s1", &agent("2026-10-23T01:00:02Z", "kept once"));
+    r.register("s1", "builder", DEAD, None);
+    r.scan();
+    let root = r.roots()[0].id.clone();
+    // The file is written again from the start (shorter, new inode) with a new line at the end.
+    std::fs::remove_file(r.transcript("s1")).unwrap();
+    r.append("s1", &user("2026-10-23T01:00:01Z", "first"));
+    r.append("s1", &agent("2026-10-23T01:00:02Z", "kept once"));
+    r.append("s1", &agent("2099-01-01T00:00:00Z", "new after"));
+    r.scan();
+    assert_eq!(r.texts(&root).iter().filter(|t| *t == "kept once").count(), 1);
+    assert_eq!(r.texts(&root).iter().filter(|t| *t == "new after").count(), 1);
+}
+
+#[tokio::test]
+async fn a_terminal_that_wrote_makes_the_actor_load_the_session_again_once() {
+    let r = Rig::new();
+    let me = r.sleeper();
+    r.append("s1", &user("2026-10-23T01:00:01Z", "first"));
+    r.register("s1", "builder", me, None);
+    r.session_file(me, "s1", "idle");
+    r.scan();
+    let root = r.roots()[0].id.clone();
+    let stale = format!("terminal.stale.{}/{root}", r.bot);
+    assert_eq!(r.hub.store.kv_get(&stale).as_deref(), Some("1"), "live: the actor's copy of the session is stale");
+    std::fs::remove_file(r.dir.join("sessions").join(format!("{me}.json"))).unwrap();
+    sync::before_send(&r.hub, &r.bot, &root).await.unwrap();
+    assert!(r.hub.store.kv_get(&stale).is_none(), "the send told the actor to forget it, once");
+    sync::before_send(&r.hub, &r.bot, &root).await.unwrap();
+    assert!(r.hub.store.kv_get(&stale).is_none(), "a send with nothing new in the terminal loads nothing again");
 }

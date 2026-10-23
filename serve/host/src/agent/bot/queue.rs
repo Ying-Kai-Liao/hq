@@ -142,6 +142,7 @@ impl Actor {
                 }
             }
             Cmd::ResetPlace { lane } => self.reset_place(&lane).await,
+            Cmd::ForgetLoaded { lane } => self.forget_loaded(&lane),
             Cmd::Shutdown => return false,
         }
         true

@@ -196,7 +196,7 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             };
             // A terminal thread belongs to the terminal while it lives there; nothing is saved then.
             if let Some(root) = &thread {
-                crate::terminal::before_send(hub, bot, root)?;
+                crate::terminal::before_send(hub, bot, root).await?;
             }
             let starts_task = thread.is_none() && row.config.uses_tasks();
             let lane = Lane { chat: bot.to_owned(), thread };

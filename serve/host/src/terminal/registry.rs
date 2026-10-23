@@ -70,7 +70,8 @@ pub fn parse(raw: &str) -> Option<Registry> {
         && Path::new(&reg.cwd).is_absolute()
         && reg.transcript().is_absolute()
         && reg.transcript().file_name().is_some_and(|n| n.to_string_lossy() == format!("{}.jsonl", reg.session_id))
-        && reg.pid > 0;
+        && reg.pid > 1
+        && reg.pid != std::process::id();
     sane.then_some(reg)
 }
 
@@ -126,12 +127,34 @@ pub fn liveness(reg: &Registry, sessions: Option<&Path>) -> Live {
     for dir in candidates.into_iter().flatten() {
         let Ok(raw) = std::fs::read_to_string(dir.join(format!("{}.json", reg.pid))) else { continue };
         let Ok(file) = serde_json::from_str::<Value>(&raw) else { continue };
-        if file["sessionId"] != reg.session_id.as_str() {
+        if file["sessionId"] != reg.session_id.as_str() || !started_as(reg.pid, file["procStart"].as_str()) {
             continue;
         }
         return if file["status"] == "idle" { Live::Idle } else { Live::Busy };
     }
     Live::Closed
+}
+
+/// Whether the process `pid` started when the session file says (`procStart`, as `ps -o lstart` prints it). A pid
+/// reused after a crash starts at another time. When either side can't be read the file is believed.
+fn started_as(pid: u32, claimed: Option<&str>) -> bool {
+    let Some(claimed) = claimed else { return true };
+    match proc_start(pid) {
+        Some(actual) => normalized(claimed) == actual,
+        None => true,
+    }
+}
+
+fn normalized(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The start time of `pid` as `ps` prints it.
+pub fn proc_start(pid: u32) -> Option<String> {
+    let out = std::process::Command::new("ps").args(["-o", "lstart=", "-p", &pid.to_string()]).output().ok()?;
+    let text = String::from_utf8(out.stdout).ok()?;
+    let text = normalized(&text);
+    (!text.is_empty()).then_some(text)
 }
 
 /// Whether the process `pid` exists (one we may not signal still does).

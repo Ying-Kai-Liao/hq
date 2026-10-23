@@ -48,6 +48,8 @@ pub struct Terminal {
     env: Mutex<Option<Env>>,
     /// Threads being taken over right now: nothing is sent to them.
     taking: Mutex<HashSet<String>>,
+    /// One lock per thread: imports, state changes and cursor moves of a thread take turns.
+    locks: Mutex<std::collections::HashMap<String, std::sync::Arc<Mutex<()>>>>,
     /// Sessions without a real user message yet, and the transcript size they were last checked at.
     empty: Mutex<std::collections::HashMap<String, u64>>,
 }
@@ -56,6 +58,11 @@ impl Terminal {
     pub fn env(&self) -> Env {
         use crate::LockExt;
         self.env.locked().clone().unwrap_or_default()
+    }
+
+    pub(crate) fn thread_lock(&self, key: &str) -> std::sync::Arc<Mutex<()>> {
+        use crate::LockExt;
+        self.locks.locked().entry(key.to_owned()).or_default().clone()
     }
 
     /// Points the host at another state folder (tests, scratch hosts).

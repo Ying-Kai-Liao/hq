@@ -4,6 +4,7 @@ use super::jsonl::{self, Item};
 use super::registry::{self, Live, Registry};
 use super::{Env, HeldByWriter, TerminalBusy};
 use crate::LockExt;
+use crate::agent::bot::Cmd;
 use crate::agent::folder::Pick;
 use crate::hub::Hub;
 use crate::store::{BotConfig, EntryKind, Lane, ReadScope, lane_key, now_ms};
@@ -73,6 +74,44 @@ fn final_key(t: &Thread) -> String {
 fn live_key(t: &Thread) -> String {
     format!("terminal.live.{}", t.key())
 }
+/// Set while a terminal has written to the session since the host last loaded it.
+fn stale_key(t: &Thread) -> String {
+    format!("terminal.stale.{}", t.key())
+}
+
+/// How far the transcript is imported, and which file that was (a replaced file starts over).
+struct Cursor {
+    offset: u64,
+    dev: u64,
+    ino: u64,
+}
+
+#[cfg(unix)]
+fn file_id(path: &Path) -> (u64, u64) {
+    use std::os::unix::fs::MetadataExt as _;
+    std::fs::metadata(path).map_or((0, 0), |m| (m.dev(), m.ino()))
+}
+
+#[cfg(not(unix))]
+fn file_id(_path: &Path) -> (u64, u64) {
+    (0, 0)
+}
+
+fn load_cursor(hub: &Hub, t: &Thread) -> Option<Cursor> {
+    let raw = hub.store.kv_get(&cursor_key(t))?;
+    let mut parts = raw.split(':');
+    let offset = parts.next()?.parse().ok()?;
+    let mut next = || parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+    let (dev, ino) = (next(), next());
+    Some(Cursor { offset, dev, ino })
+}
+
+fn save_cursor(hub: &Hub, t: &Thread, offset: u64, path: &Path) {
+    let (dev, ino) = file_id(path);
+    if let Err(error) = hub.store.kv_set(&cursor_key(t), &format!("{offset}:{dev}:{ino}")) {
+        tracing::warn!(%error, "couldn't keep a terminal thread's cursor");
+    }
+}
 
 /// Looks at the registry now and then, for as long as the host lives.
 pub fn start(hub: &Arc<Hub>) {
@@ -95,46 +134,72 @@ pub fn start(hub: &Arc<Hub>) {
 /// One pass over the registry. Idempotent: a session is a thread once, and only new transcript lines are imported.
 pub fn scan(hub: &Hub) {
     let env = hub.terminal.env();
+    let regs = registry::read_all(&env.state);
     let mut seen = Vec::new();
-    for reg in registry::read_all(&env.state) {
-        match sync_session(hub, &env, &reg) {
+    for reg in &regs {
+        match sync_session(hub, &env, reg) {
             Ok(Some(thread)) => seen.push(thread),
             Ok(None) => {}
             Err(error) => tracing::warn!(error = format!("{error:#}"), "couldn't sync a terminal session"),
         }
     }
-    // Threads whose registry file went away are closed.
-    for key in hub.store.kv_prefix("terminal.info.") {
-        let Some(thread) = Thread::parse(&key["terminal.info.".len()..]) else { continue };
-        if !seen.contains(&thread) {
+    hub.terminal.empty.locked().retain(|sid, _| regs.iter().any(|r| r.session_id == *sid));
+    // A thread whose terminal was live but whose registry file went away (or aged out) is closed. Closed threads
+    // are not looked at again.
+    for key in hub.store.kv_prefix("terminal.live.") {
+        let Some(thread) = Thread::parse(&key["terminal.live.".len()..]) else { continue };
+        if !seen.contains(&thread) && hub.store.kv_get(&key).as_deref() == Some("1") {
             update_state(hub, &env, &thread, None);
         }
     }
 }
 
 fn sync_session(hub: &Hub, env: &Env, reg: &Registry) -> Result<Option<Thread>> {
-    let now = now_ms();
+    // A deleted transcript leaves its thread as it is.
+    let Some(size) = transcript_size(reg) else { return Ok(None) };
+    let age = now_ms() - reg.started_ms().max(modified_ms(reg));
+    if age > registry::MAX_AGE_MS && !registry::liveness(reg, env.sessions.as_deref()).is_live() {
+        return Ok(None);
+    }
+    if hub.terminal.empty.locked().get(&reg.session_id) == Some(&size) {
+        return Ok(None);
+    }
     let (thread, created) = if let Some(t) = mapped(hub, reg) {
         (t, false)
     } else {
         let Some(bot) = owner_bot(hub, &reg.agent) else { return Ok(None) };
-        let Some(size) = transcript_size(reg) else { return Ok(None) };
-        let age = now - reg.started_ms().max(modified_ms(reg));
-        if age > registry::MAX_AGE_MS || hub.terminal.empty.locked().get(&reg.session_id) == Some(&size) {
-            return Ok(None);
-        }
         let Some(t) = create_thread(hub, env, reg, &bot)? else {
             hub.terminal.empty.locked().insert(reg.session_id.clone(), size);
             return Ok(None);
         };
         (t, true)
     };
-    hub.store.kv_set(&info_key(&thread), &serde_json::to_string(reg)?)?;
-    if !created && !host_writing(hub, &thread) {
-        import(hub, &thread, reg)?;
+    let stored = serde_json::to_string(reg)?;
+    if hub.store.kv_get(&info_key(&thread)).as_deref() != Some(stored.as_str()) {
+        hub.store.kv_set(&info_key(&thread), &stored)?;
+    }
+    if !created {
+        repair_lane(hub, &thread, reg);
+        if !host_writing(hub, &thread) {
+            import(hub, &thread, reg)?;
+        }
     }
     update_state(hub, env, &thread, Some(reg));
     Ok(Some(thread))
+}
+
+/// A terminal thread whose session or folder didn't get saved when it was made gets them now.
+fn repair_lane(hub: &Hub, t: &Thread, reg: &Registry) {
+    if hub.store.entry(&t.root).is_none_or(|r| r.data["thread"]["origin"] != "terminal") {
+        return;
+    }
+    let key = lane_key("session", &t.bot, &t.lane());
+    if hub.store.kv_get(&key).is_none_or(|s| s.is_empty()) {
+        let _ = hub.store.kv_set(&key, &reg.session_id);
+    }
+    if Pick::load(&hub.store, &t.bot, &t.lane()).is_none() {
+        let _ = Pick::save(&hub.store, &t.bot, &t.lane(), Some(&Pick::Folder(reg.cwd.clone())));
+    }
 }
 
 fn transcript_size(reg: &Registry) -> Option<u64> {
@@ -224,6 +289,8 @@ fn adopt(hub: &Hub, t: &Thread, reg: &Registry, forked: bool) {
             // The fork starts as a copy of what the thread already has.
             hub.store.kv_delete(&cursor_key(t))?;
         }
+        hub.store.kv_set(&stale_key(t), "1")?;
+        forget_loaded(hub, t);
         Ok(())
     })();
     if let Err(error) = result {
@@ -291,12 +358,29 @@ fn create_thread(hub: &Hub, env: &Env, reg: &Registry, bot: &BotConfig) -> Resul
     let root = hub
         .add_entry_at(&Lane::main(&bot.id), EntryKind::User, turn, &data, at)
         .ok_or_else(|| anyhow!("couldn't save the thread"))?;
-    let thread = Thread { bot: bot.id.clone(), root: root.id };
-    hub.store.kv_set(&sid_key(&reg.session_id), &thread.key())?;
-    hub.store.kv_set(&lane_key("session", &thread.bot, &thread.lane()), &reg.session_id)?;
-    Pick::save(&hub.store, &thread.bot, &thread.lane(), Some(&Pick::Folder(reg.cwd.clone())))?;
+    let thread = Thread { bot: bot.id.clone(), root: root.id.clone() };
+    // The session's claim on the thread first: without it the next scan would make a second thread. If it can't be
+    // kept, this one is withdrawn.
+    if let Err(error) = (0..3).try_for_each(|_| hub.store.kv_set(&sid_key(&reg.session_id), &thread.key())) {
+        let mut withdrawn = root.data.clone();
+        withdrawn["status"] = "cancelled".into();
+        withdrawn["task"] = false.into();
+        hub.set_entry(&root.id, &withdrawn);
+        return Err(error);
+    }
+    // The rest is repaired by a later scan if it fails (see `repair_lane`).
+    let saved = hub
+        .store
+        .kv_set(&lane_key("session", &thread.bot, &thread.lane()), &reg.session_id)
+        .and_then(|()| Pick::save(&hub.store, &thread.bot, &thread.lane(), Some(&Pick::Folder(reg.cwd.clone()))));
+    if let Err(error) = saved {
+        tracing::warn!(error = format!("{error:#}"), "couldn't save a terminal thread's session");
+    }
     hub.store.kv_set(&info_key(&thread), &serde_json::to_string(reg)?)?;
     hub.store.kv_set(&live_key(&thread), if live { "1" } else { "0" })?;
+    if live {
+        hub.store.kv_set(&stale_key(&thread), "1")?;
+    }
     writer_notice(hub, &thread, "startedInTerminal", "Started in the terminal", at);
     let mut items = read.items;
     let mut dropped = read.dropped > 0;
@@ -309,7 +393,7 @@ fn create_thread(hub: &Hub, env: &Env, reg: &Registry, bot: &BotConfig) -> Resul
         notice(hub, &thread, "Earlier messages are in the terminal transcript.", at);
     }
     apply(hub, &thread, &items, live);
-    hub.store.kv_set(&cursor_key(&thread), &read.end.to_string())?;
+    save_cursor(hub, &thread, read.end, reg.transcript());
     done_importing(hub, &thread);
     Ok(Some(thread))
 }
@@ -326,26 +410,28 @@ fn thread_value(reg: &Registry, origin: &str, live: bool, busy: bool) -> Value {
 }
 
 /// Imports what the transcript gained since the cursor. A thread that has none yet (an app thread a terminal
-/// resumed) reads the lines newer than the thread's own newest entry.
-fn import(hub: &Hub, t: &Thread, reg: &Registry) -> Result<()> {
+/// resumed), or whose file was replaced or cut short, reads the lines newer than the thread's own newest entry.
+/// One import of a thread at a time: the scan, a send and a take-over all come here.
+pub(super) fn import(hub: &Hub, t: &Thread, reg: &Registry) -> Result<()> {
+    let lock = hub.terminal.thread_lock(&t.key());
+    let _one = lock.locked();
     let Some(size) = transcript_size(reg) else { return Ok(()) };
     let live = registry::liveness(reg, hub.terminal.env().sessions.as_deref()).is_live();
-    let (from, since, keep) = match hub.store.kv_get(&cursor_key(t)).and_then(|c| c.parse::<u64>().ok()) {
-        Some(c) if c > size => {
-            hub.store.kv_set(&cursor_key(t), &size.to_string())?;
-            return Ok(());
+    let (dev, ino) = file_id(reg.transcript());
+    let (from, since, keep) = match load_cursor(hub, t) {
+        Some(c) if (c.dev != 0 && (c.dev, c.ino) != (dev, ino)) || c.offset > size => {
+            (0, newest_at(hub, t), FIRST_IMPORT)
         }
-        Some(c) if c == size => return Ok(()),
-        Some(c) => (c, 0, LATER_IMPORT),
+        Some(c) if c.offset == size => return Ok(()),
+        Some(c) => (c.offset, 0, LATER_IMPORT),
         None => (0, newest_at(hub, t), FIRST_IMPORT),
     };
-    let first = from == 0 && since > 0;
     let read = read_items(reg.transcript(), from, since, keep)?;
-    if first && read.dropped > 0 {
+    if read.dropped > 0 {
         notice(hub, t, "Earlier messages are in the terminal transcript.", now_ms());
     }
     apply(hub, t, &read.items, live);
-    hub.store.kv_set(&cursor_key(t), &read.end.to_string())?;
+    save_cursor(hub, t, read.end, reg.transcript());
     done_importing(hub, t);
     Ok(())
 }
@@ -450,8 +536,14 @@ fn tool_entries(hub: &Hub, t: &Thread) -> HashMap<String, String> {
 }
 
 /// Brings the root's writer fields and the writer-change notices in line with the terminal. `reg` None: the
-/// session's registry file is gone.
+/// session's registry file is gone. The live flag changes under the thread's lock, so one pass alone says so.
 fn update_state(hub: &Hub, env: &Env, t: &Thread, reg: Option<&Registry>) {
+    // A take-over says what happened itself.
+    if hub.terminal.taking.locked().contains(&t.key()) {
+        return;
+    }
+    let lock = hub.terminal.thread_lock(&t.key());
+    let _one = lock.locked();
     let reg = reg.cloned().or_else(|| info(hub, t));
     let live = reg.as_ref().map_or(Live::Closed, |r| registry::liveness(r, env.sessions.as_deref()));
     let was_live = hub.store.kv_get(&live_key(t)).as_deref() == Some("1");
@@ -466,7 +558,20 @@ fn update_state(hub: &Hub, env: &Env, t: &Thread, reg: Option<&Registry>) {
         }
         hub.refresh_thread_summary(&t.bot, &t.root);
     }
+    if live.is_live() && hub.store.kv_get(&stale_key(t)).is_none() {
+        // The terminal now writes to the session: what the host's actor holds of it will be out of date.
+        if hub.store.kv_set(&stale_key(t), "1").is_ok() {
+            forget_loaded(hub, t);
+        }
+    }
     set_writer(hub, t, reg.as_ref(), live, host_writing(hub, t));
+}
+
+/// Tells the thread's actor to load its session again on the next turn.
+fn forget_loaded(hub: &Hub, t: &Thread) {
+    if let Err(error) = hub.send_cmd(&t.bot, Cmd::ForgetLoaded { lane: t.lane() }) {
+        tracing::debug!(%error, "no actor to forget a terminal thread's session");
+    }
 }
 
 fn info(hub: &Hub, t: &Thread) -> Option<Registry> {
@@ -503,24 +608,34 @@ pub fn host_turn_ended(hub: &Hub, lane: &Lane) {
     let Some(root) = &lane.thread else { return };
     let t = Thread { bot: lane.chat.clone(), root: root.clone() };
     let Some(reg) = info(hub, &t) else { return };
-    if let Some(size) = transcript_size(&reg)
-        && let Err(error) = hub.store.kv_set(&cursor_key(&t), &size.to_string())
-    {
-        tracing::warn!(%error, "couldn't move a terminal thread's cursor");
+    let lock = hub.terminal.thread_lock(&t.key());
+    let _one = lock.locked();
+    if let Some(size) = transcript_size(&reg) {
+        save_cursor(hub, &t, size, reg.transcript());
     }
 }
 
-/// The thread of a message (`threadId`) when it is a terminal thread, refused while another writer holds it. A
-/// closed terminal's last lines are imported first, so the host carries on from the whole conversation.
-pub fn before_send(hub: &Hub, bot: &str, root: &str) -> Result<()> {
+/// A message to the thread `root` when it is a terminal thread: refused while another writer holds it. A closed
+/// terminal's last lines are imported first, and the thread's actor loads the session again if the terminal wrote
+/// to it, so the host carries on from the whole conversation.
+pub async fn before_send(hub: &Arc<Hub>, bot: &str, root: &str) -> Result<()> {
     let t = Thread { bot: bot.to_owned(), root: root.to_owned() };
-    let Some(reg) = info(hub, &t) else { return Ok(()) };
+    let hub = hub.clone();
+    // File and process reads: off the runtime.
+    tokio::task::spawn_blocking(move || before_send_blocking(&hub, &t)).await?
+}
+
+fn before_send_blocking(hub: &Hub, t: &Thread) -> Result<()> {
+    let Some(reg) = info(hub, t) else { return Ok(()) };
     let env = hub.terminal.env();
     if hub.terminal.taking.locked().contains(&t.key()) || registry::liveness(&reg, env.sessions.as_deref()).is_live() {
         return Err(HeldByWriter { code: "liveInTerminal" }.into());
     }
-    if let Err(error) = import(hub, &t, &reg) {
+    if let Err(error) = import(hub, t, &reg) {
         tracing::warn!(error = format!("{error:#}"), "couldn't catch up a terminal thread before a send");
+    }
+    if hub.store.kv_get(&stale_key(t)).is_some() && hub.store.kv_delete(&stale_key(t)).is_ok() {
+        forget_loaded(hub, t);
     }
     Ok(())
 }
@@ -588,11 +703,13 @@ async fn take_over_inner(hub: &Arc<Hub>, t: &Thread) -> Result<Value> {
     write_private(&taken, &chrono::Utc::now().to_rfc3339())?;
     // Re-checked just before the signal: the pid may have changed hands.
     if registry::liveness(&reg, env.sessions.as_deref()) != Live::Idle || !registry::terminate(reg.pid) {
+        let _ = std::fs::remove_file(&taken);
         return Err(TerminalBusy("terminalBusy: The terminal changed while taking over. Try again.").into());
     }
     let deadline = tokio::time::Instant::now() + EXIT_WAIT;
     while registry::pid_runs(reg.pid) {
         if tokio::time::Instant::now() >= deadline {
+            let _ = std::fs::remove_file(&taken);
             return Err(TerminalBusy("terminalBusy: The terminal didn't close. Close it yourself.").into());
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -603,9 +720,16 @@ async fn take_over_inner(hub: &Arc<Hub>, t: &Thread) -> Result<Value> {
         if let Err(error) = import(&h, &thread, &r) {
             tracing::warn!(error = format!("{error:#}"), "couldn't import a terminal's last lines");
         }
-        // Said here, so the scan doesn't also say the terminal closed.
-        if h.store.kv_set(&live_key(&thread), "0").is_ok() {
+        // Said here, so the scan doesn't also say the terminal closed; only the pass that flips the flag says it.
+        let lock = h.terminal.thread_lock(&thread.key());
+        let _one = lock.locked();
+        if h.store.kv_get(&live_key(&thread)).as_deref() == Some("1") && h.store.kv_set(&live_key(&thread), "0").is_ok()
+        {
             writer_notice(&h, &thread, "tookOver", "Taken over in the app", now_ms());
+        }
+        // The terminal wrote to the session: the actor loads it again.
+        if h.store.kv_delete(&stale_key(&thread)).is_ok() {
+            forget_loaded(&h, &thread);
         }
         set_writer(&h, &thread, Some(&r), Live::Closed, false);
     })
