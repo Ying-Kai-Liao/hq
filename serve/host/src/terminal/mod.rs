@@ -14,6 +14,7 @@
 //! Privacy: threads live in the owner's bot only, so invitees never reach them (see `api::roles`). What a
 //! transcript says is never logged.
 
+pub mod claim;
 mod jsonl;
 mod registry;
 mod sync;
@@ -22,7 +23,7 @@ mod tests;
 
 #[cfg(test)]
 pub use sync::scan;
-pub use sync::{before_send, carry_over, host_turn_ended, resolve, start, take_over};
+pub use sync::{before_send, carry_over, host_turn_ended, resolve, start, start_gate, take_over};
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -52,6 +53,9 @@ pub struct Terminal {
     locks: Mutex<std::collections::HashMap<String, std::sync::Arc<Mutex<()>>>>,
     /// Sessions without a real user message yet, and the transcript size they were last checked at.
     empty: Mutex<std::collections::HashMap<String, u64>>,
+    /// Threads whose actor was told to forget its cached session (tests look here; no actor runs in them).
+    #[cfg(test)]
+    forgets: Mutex<Vec<String>>,
 }
 
 impl Terminal {

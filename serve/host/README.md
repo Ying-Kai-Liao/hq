@@ -166,6 +166,28 @@ entries with `data.writerChange` (`startedInTerminal`, `openedInTerminal`, `took
   5 s); a busy one is refused with `terminalBusy`; a closed one is a no-op.
 - Both are owner only. Nothing here is logged beyond ids.
 
+### One writer: the claim
+
+A thread is one Claude session and two writers corrupt it, so a check alone is not enough: the writer takes a claim first
+(`src/terminal/claim.rs`; the kernel's `bin/kith-sessions` writes the same file). `<state>/live/terminal/<session>.claim` is
+made whole in a temp file and linked into place (exclusive, 0600): `{"pid", "procStart", "at", "kind": terminal|app|bot,
+"takeover"}`. A claim whose pid is dead, or started at another time, is stale and is taken over by rename. It works with
+the host down.
+
+- `kith <agent> --resume` claims the session for the launcher's shell, THEN asks `resolveThread`; `hostBusy` counts a
+  running turn and a queued send, read under the thread's lock. A busy answer releases the claim and refuses. The run
+  gives the claim back when claude exits. A fresh run claims nothing: its session id is new until the hook writes the
+  registry file.
+- The host refuses a send (`liveInTerminal`) for a claim, a live registry file of the lane's session read from disk (not
+  the 3 s copy), or a live process. A queued turn checks the same under the same lock when it starts, and is marked running
+  in that step; blocked, it fails with a notice.
+- A take-over holds `<session>.takeover.claim` (host pid) until the terminal is ended and imported. It re-reads the
+  session's status and start time right before SIGTERM; the microseconds between that read and `kill(2)` remain.
+- A bot guest (`kith ask --thread`, kith-bot-guests) is a third writer: before running a turn it calls
+  `claim::take(state, sid, Kind::Bot, std::process::id(), false)` for the thread's lane session (an `Err(Held)` is a
+  `heldByOtherWriter` refusal), checks `hostBusy`/the registry AFTER it holds the claim, and `claim::release`s it when
+  the turn ends. Never decide from `liveWriter` or `before_send` alone: both lag a scan behind.
+
 ## Updates
 
 This build never fetches releases; rebuild with `kith serve start` (from `~/.kith/hq-serve`; from a dev checkout add `--dev`).

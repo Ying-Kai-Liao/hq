@@ -122,9 +122,12 @@ cat > "$T/host.py" <<'PY'
 import json, sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 ANSWERS = json.load(open(sys.argv[2]))
+OLD = len(sys.argv) > 3 and sys.argv[3] == "old"   # a host from before continue-anywhere: no resolveThread
 class H(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        if OLD:
+            self.send_response(404); self.end_headers(); self.wfile.write(b'{"error":"unknown method"}'); return
         ok = self.headers.get("Authorization") == "Bearer tok" and self.path == "/api/resolveThread"
         a = ANSWERS.get(body["thread"], {"error": "unknown thread"}) if ok else {"error": "no"}
         self.send_response(200 if ok and "error" not in a else 400); self.end_headers(); self.wfile.write(json.dumps(a).encode())
@@ -157,6 +160,62 @@ err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume 2>&1 >/dev/null); r
 [[ $rc != 0 && $err == *"--resume needs"* ]] && ok "--resume without a value" || bad "no value" "$rc $err"
 err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume nope 2>&1 >/dev/null); rc=$?
 [[ $rc != 0 && $err == *"unknown thread"* ]] && ok "--resume: unknown thread" || bad "unknown" "$rc $err"
+# the claim: a finished run gives it back, a refusal because the app is busy gives it back, a second writer is refused
+is "--resume: claim given back when claude exits" "$(ls $REG | grep -c '\.claim$')" 0
+is "--resume refused (host busy): no claim left" "$(ls $REG | grep -c '\.claim$')" 0
+claimcli() {   # claimcli <fn> <args...> — a kith-sessions function, called from python
+  python3 - "$SK" "$@" <<'PY'
+import importlib.machinery, importlib.util, json, os, sys
+l = importlib.machinery.SourceFileLoader('ks', sys.argv[1]); m = importlib.util.module_from_spec(importlib.util.spec_from_loader('ks', l)); l.exec_module(m)
+fn, args = sys.argv[2], sys.argv[3:]
+if fn == 'take':      # take SID PID -> "taken" or "held <pid>"
+    h = m.take_claim(args[0], int(args[1])); print('taken' if h is None else f'held {h["pid"]}')
+elif fn == 'mode':
+    print(oct(os.stat(m.claim_path(args[0])).st_mode & 0o777))
+PY
+}
+sleep 300 & C1=$!; sleep 300 & C2=$!
+is "claim: first taker wins" "$(claimcli take cs-1 $C1)" taken
+is "claim: second taker refused, names the holder" "$(claimcli take cs-1 $C2)" "held $C1"
+is "claim file mode 0600" "$(claimcli mode cs-1)" 0o600
+is "claim holds the claimer's pid" "$(field $REG/cs-1.claim pid)" "$C1"
+[[ -n $(field $REG/cs-1.claim procStart) ]] && ok "claim has procStart" || bad "claim procStart"
+[[ -n $(field $REG/cs-1.claim at) ]] && ok "claim has at" || bad "claim at"
+is "no claim temp files left" "$(ls -A $REG | grep -c 'tmp$\|stale')" 0
+kill $C1 2>/dev/null; wait $C1 2>/dev/null
+is "claim of a dead claimer is stale: taken over" "$(claimcli take cs-1 $C2)" taken
+is "the new claimer owns it" "$(field $REG/cs-1.claim pid)" "$C2"
+python3 - "$REG/cs-1.claim" "$C2" <<'PY'
+import json, sys
+json.dump({"pid": int(sys.argv[2]), "procStart": "Mon Jan  1 00:00:00 2001", "at": "x"}, open(sys.argv[1], "w"))
+PY
+is "claim of a reused pid (other procStart) is stale" "$(claimcli take cs-1 $C2)" taken
+# a second terminal --resume on a claimed session is refused, before anything starts
+python3 - "$REG/cs-2.claim" "$C2" <<'PY'
+import json, subprocess, sys
+ps = ' '.join(subprocess.run(['ps', '-o', 'lstart=', '-p', sys.argv[2]], capture_output=True, text=True).stdout.split())
+json.dump({"pid": int(sys.argv[2]), "procStart": ps, "at": "x", "kind": "terminal"}, open(sys.argv[1], "w"))
+PY
+printf '{"cwd":"%s","type":"user"}\n' "$T/work/b" > "$CLAUDE_CONFIG_DIR/projects/p/cs-2.jsonl"
+err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume cs-2 2>&1 >/dev/null); rc=$?
+[[ $rc != 0 && $err == *"open in another writer (pid $C2"* ]] && ok "--resume: a claimed session is refused (second terminal)" || bad "claimed" "$rc $err"
+[[ ! -e $REG/cs-2.json ]] && ok "refused: claude never started" || bad "claude started"
+kill $C2 2>/dev/null; wait $C2 2>/dev/null
+rm -f $REG/cs-*.claim
+# a session an old host cannot vouch for: a host from before continue-anywhere answers 404 to resolveThread
+python3 "$T/host.py" "$((PORT + 1))" "$T/answers.json" old & OLDPID=$!
+sleep 0.5
+err=$(cd "$T/work/a" && KITH_SERVE_PORT=$((PORT + 1)) "$KERNEL/bin/kith" designer --resume th-1 2>&1 >/dev/null); rc=$?
+[[ $rc != 0 && $err == *"update kith serve"* ]] && ok "old host: a thread/app session is refused with the reason" || bad "old host refusal" "$rc $err"
+[[ $(ls $REG | grep -c '\.claim$') == 0 ]] && ok "old host refusal: no claim left" || bad "old host claim left"
+cat > "$REG/term-sid.json" <<JSON
+{"v":1,"sessionId":"term-sid","agent":"designer","cwd":"$T/work/b","transcriptPath":"$CLAUDE_CONFIG_DIR/projects/p/term-sid.jsonl","pid":$$,"startedAt":"2026-01-01T00:00:00Z"}
+JSON
+(cd "$T/work/a" && KITH_SERVE_PORT=$((PORT + 1)) STUB_SID=term-sid tty "$KERNEL/bin/kith" designer --resume term-sid); rc=$?
+is "old host: a session a terminal started (in the registry) resumes" "$rc" 0
+is "old host: runs in the registry's cwd" "$(sed -n 1p $T/stub.out)" "$T/work/b"
+kill $OLDPID 2>/dev/null; wait $OLDPID 2>/dev/null
+
 # a session that is live in another terminal is refused (liveness: the pid runs and its sessions file names the session)
 sleep 300 & LIVE=$!
 printf '{"pid":%s,"sessionId":"app-sid"}' "$LIVE" > "$CLAUDE_CONFIG_DIR/sessions/$LIVE.json"
@@ -174,6 +233,15 @@ printf '{"cwd":"%s","type":"user"}\n' "$T/work/b" > "$CLAUDE_CONFIG_DIR/projects
 (cd "$T/work/a" && STUB_SID=raw-sid tty "$KERNEL/bin/kith" designer --resume raw-sid); rc=$?
 is "host down: raw session id resumes" "$rc" 0
 is "host down: in the transcript's cwd" "$(sed -n 1p $T/stub.out)" "$T/work/b"
+sleep 300 & HC=$!
+python3 - "$REG/raw-sid.claim" "$HC" <<'PY'
+import json, subprocess, sys
+ps = ' '.join(subprocess.run(['ps', '-o', 'lstart=', '-p', sys.argv[2]], capture_output=True, text=True).stdout.split())
+json.dump({"pid": int(sys.argv[2]), "procStart": ps, "at": "x"}, open(sys.argv[1], "w"))
+PY
+err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume raw-sid 2>&1 >/dev/null); rc=$?
+[[ $rc != 0 && $err == *"another writer"* ]] && ok "host down: the claim file alone refuses a second terminal" || bad "host down claim" "$rc $err"
+kill $HC 2>/dev/null; wait $HC 2>/dev/null; rm -f $REG/raw-sid.claim
 err=$(cd "$T/work/a" && "$KERNEL/bin/kith" designer --resume th-1 2>&1 >/dev/null); rc=$?
 [[ $rc != 0 && $err == *"host is not running"* ]] && ok "host down: a thread id errors clearly" || bad "host down thread" "$rc $err"
 # KITH_RESUME / KITH_CLAUDE_ARGS still work on their own

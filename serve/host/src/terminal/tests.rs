@@ -607,3 +607,172 @@ async fn a_terminal_that_wrote_makes_the_actor_load_the_session_again_once() {
     sync::before_send(&r.hub, &r.bot, &root).await.unwrap();
     assert!(r.hub.store.kv_get(&stale).is_none(), "a send with nothing new in the terminal loads nothing again");
 }
+
+// --- the writer claim and the checks that read it ---------------------------------------------------------------------
+
+use super::claim::{self, Kind};
+
+impl Rig {
+    fn state(&self) -> PathBuf {
+        self.dir.join("state")
+    }
+
+    /// An app thread (root + a reply) whose lane runs session `sid`, with no terminal known to the host.
+    fn app_thread(&self, sid: &str) -> String {
+        let root = self
+            .hub
+            .add_entry(
+                &Lane::main(&self.bot),
+                crate::store::EntryKind::User,
+                1,
+                &json!({"text": "from the app", "task": true}),
+            )
+            .unwrap();
+        let tl = Lane::in_thread(&self.bot, &root.id);
+        self.hub
+            .add_entry(&tl, crate::store::EntryKind::Agent, 1, &json!({"text": "app reply", "final": true}))
+            .unwrap();
+        self.hub.store.kv_set(&lane_key("session", &self.bot, &tl), sid).unwrap();
+        root.id
+    }
+
+    fn forgets(&self) -> usize {
+        use crate::LockExt as _;
+        self.hub.terminal.forgets.locked().len()
+    }
+}
+
+#[tokio::test]
+async fn a_second_claim_on_a_session_is_refused_and_the_first_is_kept() {
+    let r = Rig::new();
+    let (a, b) = (r.sleeper(), r.sleeper());
+    assert!(claim::take(&r.state(), "s1", Kind::Terminal, a, false).unwrap().is_ok());
+    let held = claim::take(&r.state(), "s1", Kind::Bot, b, false).unwrap().unwrap_err();
+    assert_eq!((held.0.pid, held.0.kind), (a, Kind::Terminal));
+    assert_eq!(claim::holder(&r.state(), "s1").unwrap().pid, a);
+    // Only the claimer gives it back.
+    claim::release(&r.state(), "s1", b, false);
+    assert!(claim::holder(&r.state(), "s1").is_some());
+    claim::release(&r.state(), "s1", a, false);
+    assert!(claim::holder(&r.state(), "s1").is_none());
+    assert!(claim::take(&r.state(), "s1", Kind::Bot, b, false).unwrap().is_ok());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = std::fs::metadata(claim::path(&r.state(), "s1", false)).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+}
+
+#[tokio::test]
+async fn a_claim_of_a_dead_or_reused_pid_is_taken_over() {
+    let r = Rig::new();
+    let me = r.sleeper();
+    let path = claim::path(&r.state(), "s1", false);
+    std::fs::write(&path, json!({"pid": DEAD, "procStart": "x", "at": "t"}).to_string()).unwrap();
+    assert!(claim::holder(&r.state(), "s1").is_none(), "a dead claimer holds nothing");
+    assert!(claim::take(&r.state(), "s1", Kind::Terminal, me, false).unwrap().is_ok());
+    assert_eq!(claim::read(&path).unwrap().pid, me);
+    // A live pid that started at another time is a reused pid.
+    let other = r.sleeper();
+    std::fs::write(&path, json!({"pid": other, "procStart": "Mon Jan  1 00:00:00 2001", "at": "t"}).to_string())
+        .unwrap();
+    assert!(claim::holder(&r.state(), "s1").is_none());
+    assert!(claim::take(&r.state(), "s1", Kind::Terminal, me, false).unwrap().is_ok());
+    // No temp files are left behind.
+    let left = std::fs::read_dir(registry::dir(&r.state())).unwrap().filter_map(Result::ok).count();
+    assert_eq!(left, 1);
+}
+
+#[tokio::test]
+async fn resolve_counts_a_queued_send_as_busy() {
+    let r = Rig::new();
+    let root = r.app_thread("s9");
+    assert_eq!(sync::resolve(&r.hub, &root).await["hostBusy"], false);
+    let tl = Lane::in_thread(&r.bot, &root);
+    let queued = r
+        .hub
+        .add_entry(&tl, crate::store::EntryKind::User, 2, &json!({"text": "hi", "status": "queued", "attachments": []}))
+        .unwrap();
+    assert_eq!(sync::resolve(&r.hub, &root).await["hostBusy"], true, "queued, not running yet");
+    let mut sent = queued.data.clone();
+    sent["status"] = "cancelled".into();
+    r.hub.set_entry(&queued.id, &sent);
+    assert_eq!(sync::resolve(&r.hub, &root).await["hostBusy"], false);
+}
+
+#[tokio::test]
+async fn a_send_is_refused_for_a_live_registry_or_claim_the_host_has_not_scanned_yet() {
+    let r = Rig::new();
+    let root = r.app_thread("s9");
+    // The host knows no terminal (no scan): the registry file of the lane's session is read from disk.
+    sync::before_send(&r.hub, &r.bot, &root).await.unwrap();
+    let me = r.sleeper();
+    r.append("s9", &user("2026-10-23T01:00:01Z", "x"));
+    r.register("s9", "builder", me, Some("s9"));
+    r.session_file(me, "s9", "idle");
+    let e = sync::before_send(&r.hub, &r.bot, &root).await.unwrap_err();
+    assert_eq!(e.downcast_ref::<HeldByWriter>().unwrap().code, "liveInTerminal");
+    // The terminal closed; only a claim (a resume under way, no registry yet) is left.
+    std::fs::remove_file(r.dir.join("sessions").join(format!("{me}.json"))).unwrap();
+    sync::before_send(&r.hub, &r.bot, &root).await.unwrap();
+    assert!(claim::take(&r.state(), "s9", Kind::Terminal, me, false).unwrap().is_ok());
+    let e = sync::before_send(&r.hub, &r.bot, &root).await.unwrap_err();
+    assert_eq!(e.downcast_ref::<HeldByWriter>().unwrap().code, "liveInTerminal");
+    claim::release(&r.state(), "s9", me, false);
+    sync::before_send(&r.hub, &r.bot, &root).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_queued_turn_does_not_start_while_a_claim_holds_the_thread() {
+    let r = Rig::new();
+    let root = r.app_thread("s9");
+    let lane = Lane::in_thread(&r.bot, &root);
+    let me = r.sleeper();
+    assert!(claim::take(&r.state(), "s9", Kind::Terminal, me, false).unwrap().is_ok());
+    let mut began = false;
+    let refused = sync::start_gate(&r.hub, &lane, || began = true).unwrap_err();
+    assert_eq!(refused.code, "liveInTerminal");
+    assert!(!began, "the turn is not marked running");
+    claim::release(&r.state(), "s9", me, false);
+    sync::start_gate(&r.hub, &lane, || began = true).unwrap();
+    assert!(began);
+    // A turn outside any thread is not looked at.
+    let mut main = false;
+    sync::start_gate(&r.hub, &Lane::main(&r.bot), || main = true).unwrap();
+    assert!(main);
+}
+
+#[tokio::test]
+async fn lines_a_closed_terminal_wrote_make_the_actor_forget_the_session() {
+    let r = Rig::new();
+    let root = r.app_thread("s9");
+    r.append("s9", &user("2020-01-01T00:00:00Z", "from the app"));
+    r.append("s9", &user("2099-01-01T00:00:00Z", "typed in the terminal, then closed"));
+    r.register("s9", "builder", DEAD, Some("s9"));
+    let thread = sync::Thread { bot: r.bot.clone(), root: root.clone() };
+    let reg = registry::read_one(&r.state(), "s9").unwrap();
+    // Never seen live (no scan saw it): the import alone must make the actor forget.
+    let before = r.forgets();
+    sync::import(&r.hub, &thread, &reg).unwrap();
+    assert!(r.forgets() > before);
+    let again = r.forgets();
+    sync::import(&r.hub, &thread, &reg).unwrap();
+    assert_eq!(r.forgets(), again, "nothing new: nothing forgotten");
+}
+
+#[tokio::test]
+async fn a_second_take_over_while_one_holds_its_claim_does_nothing() {
+    let r = Rig::new();
+    let me = r.sleeper();
+    r.append("s1", &user("2026-10-23T01:00:01Z", "first"));
+    r.register("s1", "builder", me, None);
+    r.session_file(me, "s1", "idle");
+    r.scan();
+    let root = r.roots()[0].id.clone();
+    assert!(claim::take(&r.state(), "s1", Kind::App, me, true).unwrap().is_ok());
+    let v = sync::take_over(&r.hub, &r.bot, &root).await.unwrap();
+    assert_eq!(v["tookOver"], false);
+    assert!(!registry::dir(&r.state()).join("s1.taken").exists(), "the terminal was not signalled");
+    assert!(registry::pid_runs(me));
+}

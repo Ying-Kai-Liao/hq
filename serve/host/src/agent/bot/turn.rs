@@ -77,6 +77,27 @@ impl Actor {
         hidden: bool,
         done_tx: &mpsc::UnboundedSender<Done>,
     ) -> Result<()> {
+        // A terminal may have taken the thread since the message was accepted. Checked under the thread's lock, which
+        // is also where the turn is marked running: `resolveThread` then either sees this turn or the terminal's
+        // claim stops it. A refused message fails with a notice and the queue goes on.
+        let (hub, rt) = (self.hub.clone(), self.rt.clone());
+        let begin = || {
+            hub.set_runtime(&rt, |r| {
+                r.status = BotStatus::Working;
+                r.lane = Some(lane.clone());
+            });
+        };
+        if let Err(held) = crate::terminal::start_gate(&self.hub, &lane, begin) {
+            for id in entry_ids {
+                if let Some(mut e) = self.hub.store.entry(id).filter(|e| e.kind == EntryKind::User.as_str()) {
+                    e.data["status"] = json!(crate::chat::team::RequestStatus::Failed);
+                    self.hub.set_entry(id, &e.data);
+                }
+            }
+            let turn = self.hub.store.max_turn(&lane.chat);
+            self.hub.add_entry(&lane, EntryKind::Notice, turn, &json!({"text": held.to_string(), "style": "error"}));
+            return Ok(());
+        }
         let turn = entry_ids.last().and_then(|id| self.hub.store.entry(id)).map_or_else(
             || {
                 self.hub.store.max_turn(&lane.chat)

@@ -3,13 +3,19 @@
 
   kith-sessions record                     SessionStart hook (stdin: the hook's JSON): writes $KITH_STATE/live/terminal/<sid>.json
                                            for a listable session, nothing otherwise. Never fails the session.
-  kith-sessions resolve AGENT THREAD       for `kith AGENT --resume THREAD`: prints shell assignments (r_sid, r_cwd, r_from); the host
-                                           names the session (POST /api/resolveThread), else a raw Claude session id found on disk
-  kith-sessions run AGENT -- CMD...        run CMD (claude) as a child: signals and exit code pass through; afterwards, if the host
-                                           took the session over while it ran, say how to get it back
+  kith-sessions resolve AGENT THREAD PID   for `kith AGENT --resume THREAD`: prints shell assignments (r_sid, r_cwd, r_from); the host
+                                           names the session (POST /api/resolveThread), else a raw Claude session id found on disk.
+                                           Takes the session's writer claim for PID (the launcher's shell, which then execs `run`)
+  kith-sessions run AGENT -- CMD...        run CMD (claude) as a child: signals and exit code pass through; afterwards gives back the
+                                           claims of this process and, if the host took the session over while it ran, says how to get it back
 
 Registry file (contract with the host, serve/): dir 0700, file 0600, written by tmp + rename:
   {"v":1,"sessionId","agent","cwd","transcriptPath","pid" (the claude process),"project","source","resumedFrom","startedAt"}
+Writer claim (contract with the host, serve/host/src/terminal/claim.rs): $KITH_STATE/live/terminal/<sid>.claim, made whole in a
+temp file and linked into place (exclusive), 0600: {"pid","procStart","at","kind"}. Whoever holds it is the one writer of the
+session, before the registry file exists and with the host down. Stale (pid gone, or started at another time) = free, taken over by rename.
+`--resume` claims BEFORE it asks whether the host is busy; a fresh run needs no claim: its session id is new, nobody else can name it
+until the SessionStart hook has written the registry file.
 Live = the pid runs and ~/.claude/sessions/<pid>.json names the same sessionId (the host decides; resolve reuses it).
 Listable = interactive, the owner's, started in a terminal by `kith <agent>`: the launcher sets KITH_TERMINAL_SESSION=1 for
 exactly that run, so -p one-shots and helpers inherit nothing.
@@ -112,12 +118,126 @@ def host_call(method, body):
         with urllib.request.urlopen(req, timeout=4) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:   # a refusal with a body is an answer ("unknown thread"); a 404 is an older host
+        if e.code == 404:
+            return {'error': 'unknown method', 'unknownMethod': True}
         try:
             return json.load(e)
         except ValueError:
             return None
     except Exception:  # noqa: BLE001
         return None
+
+
+def proc_start(pid):
+    """The start time of pid as `ps` prints it, whitespace squeezed; None when it can't be read."""
+    try:
+        out = subprocess.run(['ps', '-o', 'lstart=', '-p', str(pid)], capture_output=True, text=True, timeout=3).stdout
+    except Exception:  # noqa: BLE001
+        return None
+    return ' '.join(out.split()) or None
+
+
+def pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except PermissionError:
+        return True
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def claim_path(sid, takeover=False):
+    d = reg_dir()
+    return d / f'{sid}.{"takeover." if takeover else ""}claim' if d else None
+
+
+def read_claim(path):
+    try:
+        c = json.loads(path.read_text())
+        return c if isinstance(c, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def claim_live(c):
+    if not c or not pid_alive(c.get('pid')):
+        return False
+    claimed, actual = c.get('procStart'), proc_start(c['pid'])
+    return not (claimed and actual) or ' '.join(claimed.split()) == actual
+
+
+def claim_holder(sid):
+    """The live claim on sid (the terminal's or the host's take-over), or None."""
+    for takeover in (False, True):
+        p = claim_path(sid, takeover)
+        c = p and read_claim(p)
+        if claim_live(c):
+            return c
+    return None
+
+
+def take_claim(sid, pid, kind='terminal'):
+    """Take the writer claim on sid for pid. Returns None when taken, else the live claim that holds it."""
+    dest = claim_path(sid)
+    if dest is None:
+        return None
+    dest.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    mine = {'pid': pid, 'procStart': proc_start(pid), 'at': now(), 'kind': kind}
+    tmp = dest.with_name(f'.{sid}.claim.{os.getpid()}.tmp')
+    tmp.unlink(missing_ok=True)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, 'w') as f:
+        json.dump(mine, f)
+    try:
+        for _ in range(4):
+            try:
+                os.link(tmp, dest)   # exclusive: fails when a claim is there
+                return None
+            except FileExistsError:
+                pass
+            seen = read_claim(dest)
+            if claim_live(seen):
+                return seen
+            # stale (or garbage): rename it away; of two takers one wins the rename. If what we moved is not what we read
+            # (a live claim replaced it in between), put it back.
+            aside = dest.with_name(f'.{sid}.claim.stale.{os.getpid()}')
+            try:
+                os.rename(dest, aside)
+            except OSError:
+                continue
+            moved = read_claim(aside)
+            aside.unlink(missing_ok=True)
+            if moved != seen and claim_live(moved):
+                try:
+                    write_atomic_new(dest, moved)
+                except OSError:
+                    pass
+                return moved
+        return read_claim(dest) or mine
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def write_atomic_new(dest, data):
+    tmp = dest.with_name(f'.{dest.name}.back.{os.getpid()}.tmp')
+    tmp.unlink(missing_ok=True)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, 'w') as f:
+        json.dump(data, f)
+    try:
+        os.link(tmp, dest)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def release_claims(pid):
+    """Give back every claim pid holds (the terminal's own run ended)."""
+    d = reg_dir()
+    for f in (d.glob('*.claim') if d and d.is_dir() else ()):
+        c = read_claim(f)
+        if c and c.get('pid') == pid:
+            f.unlink(missing_ok=True)
 
 
 def live_pid(entry):
@@ -147,24 +267,59 @@ def transcript_cwd(sid):
     return None
 
 
-def resolve(agent, thread):
-    die = lambda m: sys.exit(f'kith: {m}')
+def resolve(agent, thread, claimer=None):
+    """Name the session to resume and take its writer claim for `claimer` (default: our parent, the launcher's shell, which
+    execs `run` and so keeps the pid until claude has exited). The claim comes BEFORE the host is asked whether it is busy: a
+    send that is accepted after the claim cannot start, one accepted before it is counted by the host."""
+    claimer = claimer or os.getppid()
+    d = reg_dir()
+    claimed = []
+
+    def die(m):
+        if claimed:
+            release_claims(claimer)
+        sys.exit(f'kith: {m}')
+
+    def claim(sid):
+        held = take_claim(sid, claimer)
+        if held:
+            what = 'being taken over in the app' if held.get('takeover') else f'open in another writer (pid {held.get("pid")}, {held.get("kind", "terminal")})'
+            die(f'that session is {what}; close it first')
+        claimed.append(sid)
+
+    def registry_entry(sid):
+        try:
+            return json.loads((d / f'{sid}.json').read_text()) if d else {}
+        except (OSError, ValueError):
+            return {}
+
     r = host_call('resolveThread', {'thread': thread})
     if r and not r.get('error') and r.get('sessionId'):
         if r.get('agent') != agent:
             die(f'that thread belongs to {r.get("agent")}, not {agent}: kith {r.get("agent")} --resume {thread}')
+        sid, cwd = r['sessionId'], r.get('cwd') or ''
+        claim(sid)
+        # Asked again with the claim held: this answer is the one that counts (the first only named the session).
+        again = host_call('resolveThread', {'thread': sid})
+        if again and not again.get('error') and again.get('sessionId'):
+            r = again
         if r.get('hostBusy'):
             die('the app is answering in that thread right now; try again when it has finished')
-        sid, cwd = r['sessionId'], r.get('cwd') or ''
-    else:   # host not running, an older host, or not one of its threads: a raw Claude session id will do
+    elif r and r.get('unknownMethod'):
+        # A host older than continue-anywhere cannot say whether it is writing: only a session a terminal started (it is in
+        # the registry) is safe; app threads are never there.
+        sid = thread
+        if not registry_entry(sid):
+            die('this Kith host is too old to continue app threads in the terminal (update kith serve to do that); '
+                'only sessions started in a terminal can be resumed until then')
+        cwd = ''
+        claim(sid)
+    else:   # host not running, or not one of its threads: a raw Claude session id will do
         sid, cwd = thread, transcript_cwd(thread)
         if cwd is None:
             die(f'unknown thread "{thread}"' + ('' if r is not None else ' (the Kith host is not running, so only a Claude session id can be resumed)'))
-    d = reg_dir()
-    try:
-        e = json.loads((d / f'{sid}.json').read_text()) if d else {}
-    except (OSError, ValueError):
-        e = {}
+        claim(sid)
+    e = registry_entry(sid)
     if e and live_pid(e):
         die(f'that session is open in another terminal (pid {live_pid(e)}); close it first')
     if e and e.get('agent') not in (None, agent):
@@ -201,6 +356,7 @@ def run(agent, cmd):
         except ChildProcessError:
             break
     try:
+        release_claims(os.getpid())
         taken_note(agent, child)
     except Exception as e:  # noqa: BLE001
         print(f'kith-sessions: {e}', file=sys.stderr)
@@ -232,8 +388,8 @@ if __name__ == '__main__':
     a = sys.argv[1:]
     if a[:1] == ['record']:
         record()
-    elif a[:1] == ['resolve'] and len(a) == 3:
-        resolve(a[1], a[2])
+    elif a[:1] == ['resolve'] and len(a) in (3, 4):
+        resolve(a[1], a[2], int(a[3]) if len(a) == 4 else None)
     elif a[:1] == ['run'] and len(a) > 3 and a[2] == '--':
         rc = run(a[1], a[3:])
         sys.exit(128 - rc if rc < 0 else rc)

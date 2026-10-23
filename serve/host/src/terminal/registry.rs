@@ -75,6 +75,15 @@ pub fn parse(raw: &str) -> Option<Registry> {
     sane.then_some(reg)
 }
 
+/// The registry file of one session, read now (not the host's copy).
+pub fn read_one(state: &Path, sid: &str) -> Option<Registry> {
+    let path = dir(state).join(format!("{sid}.json"));
+    if std::fs::metadata(&path).ok()?.len() > 64 * 1024 {
+        return None;
+    }
+    parse(&std::fs::read_to_string(path).ok()?)
+}
+
 /// Every readable registry file in `state`.
 pub fn read_all(state: &Path) -> Vec<Registry> {
     let Ok(read) = std::fs::read_dir(dir(state)) else { return Vec::new() };
