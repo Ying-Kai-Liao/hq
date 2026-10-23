@@ -54,10 +54,10 @@ pub fn read_token(home: &Path) -> String {
     let path = home.join("token");
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
-        if let Ok(t) = std::fs::read_to_string(&path) {
-            if !t.trim().is_empty() {
-                return t;
-            }
+        if let Ok(t) = std::fs::read_to_string(&path)
+            && !t.trim().is_empty()
+        {
+            return t;
         }
         assert!(Instant::now() < deadline, "the host never wrote its token file {}", path.display());
         std::thread::sleep(Duration::from_millis(50));
