@@ -16,19 +16,42 @@ struct HqMemoryCard: View {
     let kith: KithInfoStore?
     @Environment(BotStore.self) private var host
     @State private var store: HqMemoryStore?
-    @State private var section: Section = .agent
     @State private var target: HqMemoryTarget?
     @State private var undoing: HqTidyUp?
 
-    enum Section: Hashable { case you, agent, tidyUps }
-
     var body: some View {
-        VStack(spacing: 10) {
-            TabChoice(selection: Binding(get: { section }, set: { value in
-                withAnimation(Motion.layout) { section = value }
-            }), options: [(Section.you, "About you"), (.agent, "This agent"), (.tidyUps, "Tidy-ups")])
-            CardSection {
-                if let store { contents(store) } else { Text("Loading memory…").foregroundStyle(Palette.secondary) }
+        // One page, as the mock draws it: search, Files, About you, then History.
+        ScrollViewReader { proxy in
+            VStack(alignment: .leading, spacing: 24) {
+                if let store {
+                    if let error = store.writeError {
+                        SheetNote(text: error, danger: true)
+                    }
+                    if let kith {
+                        KithMemorySection(store: kith) { path, line in
+                            // Only Markdown memory files open in the editor.
+                            guard path.lowercased().hasSuffix(".md") else { return }
+                            withAnimation(Motion.layout) { target = HqMemoryTarget(shared: false, name: path, line: line) }
+                        }
+                    }
+                    CardSection("Files", footer: "What this agent keeps in its own memory folder, starting with MEMORY.md.") {
+                        fileRows(store, shared: false)
+                    } accessory: {
+                        Button("History") { withAnimation(Motion.layout) { proxy.scrollTo("memory-history", anchor: .top) } }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Palette.accent)
+                    }
+                    CardSection("About you", footer: "What you've told your agents about you: your profile, people and projects. Every agent reads it.") {
+                        fileRows(store, shared: true)
+                    }
+                    CardSection("History", footer: "Once you've chatted and the agent has been idle for a few minutes, it tidies its notes. Each tidy can be undone.") {
+                        tidyRows(store)
+                    }
+                    .id("memory-history")
+                } else {
+                    CardSection { SheetNote(text: "Loading memory…") }
+                }
             }
         }
         // Memory changes anywhere (the agent, a tidy-up, another device) move the bot's `memoryRev`: read again.
@@ -48,59 +71,26 @@ struct HqMemoryCard: View {
         }
     }
 
-    @ViewBuilder private func contents(_ store: HqMemoryStore) -> some View {
-        if let error = store.writeError {
-            Text(error).foregroundStyle(Palette.danger).textSelection(.enabled)
-        }
-        switch section {
-        case .you: files(store, shared: true)
-        case .agent: agent(store)
-        case .tidyUps: tidyUps(store)
-        }
-    }
-
     // MARK: files
 
-    @ViewBuilder private func files(_ store: HqMemoryStore, shared: Bool) -> some View {
-        Text(shared
-             ? "What you've told your agents about you: your profile, people and projects. Every agent reads it."
-             : "What this agent keeps in its own memory folder, starting with MEMORY.md.")
-            .font(.footnote).foregroundStyle(Palette.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
+    @ViewBuilder private func fileRows(_ store: HqMemoryStore, shared: Bool) -> some View {
         if let error = store.listError {
-            Text(error).foregroundStyle(Palette.danger).textSelection(.enabled)
+            SheetNote(text: error, danger: true)
         }
         if let list = store.list {
             let entries = shared ? list.shared : list.agent
             if entries.isEmpty {
-                empty("brain", shared ? "Nothing shared yet." : "No memory files yet. They appear as this agent learns.")
+                SheetNote(text: shared ? "Nothing shared yet." : "No memory files yet. They appear as this agent learns.")
             }
             ForEach(entries) { file in
                 Button { withAnimation(Motion.layout) { target = HqMemoryTarget(shared: file.shared, name: file.name) } } label: {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Label(file.name, systemImage: "doc.text").foregroundStyle(Palette.text).lineLimit(1).truncationMode(.middle)
-                        Text(caption(file)).font(.caption).foregroundStyle(Palette.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                    SheetRow(icon: "doc.text", title: file.name, detail: caption(file), chevron: true)
                 }
                 .buttonStyle(.plain)
-                .padding(.vertical, 6)
             }
         } else if store.listError == nil {
-            Text("Loading memory…").foregroundStyle(Palette.secondary)
+            SheetNote(text: "Loading memory…")
         }
-    }
-
-    @ViewBuilder private func agent(_ store: HqMemoryStore) -> some View {
-        if let kith {
-            KithMemorySection(store: kith) { path, line in
-                // Only Markdown memory files open in the editor.
-                guard path.lowercased().hasSuffix(".md") else { return }
-                withAnimation(Motion.layout) { target = HqMemoryTarget(shared: false, name: path, line: line) }
-            }
-        }
-        files(store, shared: false)
     }
 
     private func caption(_ file: HqMemoryFileEntry) -> String {
@@ -111,22 +101,20 @@ struct HqMemoryCard: View {
 
     // MARK: tidy-ups
 
-    @ViewBuilder private func tidyUps(_ store: HqMemoryStore) -> some View {
-        Text("Once you've chatted and the agent has been idle for a few minutes, it tidies its notes. Each tidy can be undone.")
-            .font(.footnote).foregroundStyle(Palette.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
+    @ViewBuilder private func tidyRows(_ store: HqMemoryStore) -> some View {
         if let error = store.tidyError {
-            Text(error).foregroundStyle(Palette.danger).textSelection(.enabled)
+            SheetNote(text: error, danger: true)
         }
         if let runs = store.tidyUps {
             if runs.isEmpty {
-                empty("sparkles", "Tidy-ups appear after you chat with this agent and it has been idle for a few minutes.")
+                SheetNote(text: "Tidy-ups appear after you chat with this agent and it has been idle for a few minutes.")
             }
             ForEach(runs) { run in
                 HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "wand.and.stars").font(.system(size: 13)).foregroundStyle(Palette.muted).frame(width: 18)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("\(Date(milliseconds: run.at).formatted(.relative(presentation: .named)))\(run.undone ? " · undone" : "")")
-                            .fontWeight(.semibold)
+                        Text("Tidy · \(Date(milliseconds: run.at).formatted(.relative(presentation: .named)))\(run.undone ? " · undone" : "")")
+                            .font(.system(size: 13.5, weight: .medium)).foregroundStyle(Palette.ink)
                         ForEach(Array(run.changes.enumerated()), id: \.offset) { _, change in changeRow(change) }
                         ForEach(store.refusals[run.id] ?? [], id: \.file) { refusal in
                             Text("Left alone: \(refusal.file). \(refusal.reason)")
@@ -135,14 +123,16 @@ struct HqMemoryCard: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     if !run.undone {
-                        IconButton("Undo this tidy", systemImage: "arrow.uturn.backward") { undoing = run }
+                        Button("Undo") { undoing = run }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(Palette.accent)
                             .disabled(store.busy)
                     }
                 }
-                .padding(.vertical, 6)
             }
         } else if store.tidyError == nil {
-            Text("Loading memory…").foregroundStyle(Palette.secondary)
+            SheetNote(text: "Loading memory…")
         }
     }
 
@@ -164,15 +154,6 @@ struct HqMemoryCard: View {
         case "indexed": "Indexed"
         default: "Changed"
         }
-    }
-
-    private func empty(_ icon: String, _ text: String) -> some View {
-        VStack(spacing: 8) {
-            Image(systemName: icon).font(.title3).foregroundStyle(Palette.tertiary)
-            Text(text).multilineTextAlignment(.center).foregroundStyle(Palette.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 18)
     }
 }
 
