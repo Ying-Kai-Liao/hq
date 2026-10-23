@@ -9,7 +9,7 @@ mod common;
 
 use common::host::Host;
 use serde_json::{Value, json};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// A host over the `house` stub agent, whose launch-json reports `permission` as its permission mode.
@@ -42,7 +42,7 @@ async fn house(host: &Host) -> String {
 }
 
 /// The ACP agent's requests so far, once it has answered a prompt (so the session exists and its mode is settled).
-async fn requests_after_a_turn(home: &PathBuf) -> Vec<Value> {
+async fn requests_after_a_turn(home: &Path) -> Vec<Value> {
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let text = std::fs::read_to_string(home.join("requests.jsonl")).unwrap_or_default();
