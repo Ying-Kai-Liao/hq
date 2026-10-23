@@ -32,7 +32,7 @@ struct BotListView: View {
     @AppStorage(CrewOrderMode.storageKey) private var orderStored = CrewOrderMode.automatic.rawValue
 
     // The dock.
-    @State private var query = ""
+    @State private var query = DemoScreens.query
     @State private var files: [OutgoingFile] = []
     @State private var pickingPhotos = false
     @State private var photoItems: [PhotosPickerItem] = []

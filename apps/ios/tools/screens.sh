@@ -38,6 +38,7 @@ modes=(
   "components-cards|-kithComponentGallery -kithGallerySection cards"
   "components-dock|-kithComponentGallery -kithGallerySection dock"
   "demo-crew|-kithDemoScreens crew"
+  "demo-crew-typing|-kithDemoScreens crew-typing"
   "demo-settings|-kithDemoScreens settings"
   "demo-widgets|-kithDemoScreens widgets"
 )

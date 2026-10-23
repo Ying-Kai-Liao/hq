@@ -13,9 +13,12 @@ public enum DemoScreens {
         return args[i + 1]
     }()
     public static var active: Bool { name != nil }
+    /// What the Crew dock starts with: `crew-typing` shows it mid-search.
+    public static var query: String { name == "crew-typing" ? "co" : "" }
     #else
     public static var active: Bool { false }
     public static var name: String? { nil }
+    public static var query: String { "" }
     #endif
 }
 
