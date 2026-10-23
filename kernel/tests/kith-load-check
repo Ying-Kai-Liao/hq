@@ -23,6 +23,7 @@ echo 'alpha extra note' > "$M/projects/alpha/extra.md"
 echo 'beta only note' > "$M/projects/beta/README.md"
 printf -- '---\nkind: project-detail\n---\nalpha detail log\n' > "$M/projects/alpha/detail.md"
 echo 'session log' > "$M/sessions/s1.md"
+echo 'gamma flat note' > "$M/projects/gamma.md"
 echo 'grp1 room note' > "$M/rooms/grp1/MEMORY.md"
 echo 'about the owner' > "$KITH_STATE/user.md"
 echo 'about sam' > "$KITH_STATE/people/sam.md"
@@ -45,6 +46,16 @@ mkdir -p "$T/alpha"; "$KERNEL/bin/project-id" --register alpha "$T/alpha" >/dev/
 PR=$(env "$K" echo -p alpha --print 2>&1)
 check "project: its index first, other notes after; project-detail never" \
   "[ \"\$(grep -n -o 'alpha index note\|alpha extra note' <<<\"\$PR\" | cut -d: -f2 | paste -sd, -)\" = 'alpha index note,alpha extra note' ] && ! grep -q 'alpha detail log\|beta only' <<<\"\$PR\""
+
+mkdir -p "$T/gamma"; "$KERNEL/bin/project-id" --register gamma "$T/gamma" >/dev/null 2>&1
+PG=$(env "$K" echo -p gamma --print 2>&1)
+check "project flat layout: projects/<ID>.md loads for its project, once, not for another" \
+  "[ \"\$(grep -c 'gamma flat note' <<<\"\$PG\")\" = 1 ] && ! grep -q 'gamma flat note' <<<\"\$PR\""
+mkdir -p "$M/projects/gamma"; echo 'gamma folder note' > "$M/projects/gamma/README.md"
+PG2=$(env "$K" echo -p gamma --print 2>&1)
+check "project in both layouts: both load, no duplicates" \
+  "[ \"\$(grep -c 'gamma flat note' <<<\"\$PG2\")\" = 1 ] && [ \"\$(grep -c 'gamma folder note' <<<\"\$PG2\")\" = 1 ]"
+check "owner output without that project is unchanged" "[ \"\$(P)\" = \"\$OWN\" ]"
 
 SAM=$(P KITH_PERSON=sam)
 check "invitee 1:1: shared then their own memory, and about them" \
@@ -71,6 +82,13 @@ check "a 1:1 naming another person stays closed" "! grep -q 'owner memory zebra'
 check "group runs say so on the session line" "grep -qE 'loaded=\"[0-9]+\" room=\"group\"' <<<\"\$GO\" && ! grep -qE 'loaded=\"[0-9]+\" room=\"group\"' <<<\"\$OWN\""
 check "a channel group chat with no KITH_ROOM is a group (like recall)" \
   "! grep -q 'owner memory zebra' <<<\"\$(P KITH_VIA=telegram)\" && grep -qE 'loaded=\"[0-9]+\" room=\"group\"' <<<\"\$(P KITH_VIA=telegram)\""
+
+# KITH_ROOM_MEMBERS: the members of a group room, from the environment (kith_facets.py load)
+LM() { env "$@" python3 "$KERNEL/lib/kith_facets.py" load --agent echo --home "$KITH_HOME/agents/echo" \
+  --person-file "$KITH_STATE/people/sam.md" --kind person --person sam --rooms "${RM-grp1}" --room grp1; }
+check "room members: a member of the room loads the room note" "LM KITH_ROOM_MEMBERS=sam | grep -q 'grp1 room note'"
+check "room members: a reader outside the room (a stranger) gets shared only" "! RM= LM KITH_ROOM_MEMBERS=sam | grep -q 'grp1 room note'"
+check "room members: none given stays shared only" "! LM KITH_ROOM_MEMBERS= | grep -q 'grp1 room note'"
 
 # the filter itself: members known, caps, ordering, guests
 export OWNER='{"kind":"owner"}' SAMR='{"kind":"person","id":"sam","rooms":["grp1"]}' GUEST='{"kind":"guest","id":"bot-ab12","rooms":["grp1"]}' STRAY='{"kind":"guest","id":"bot-ab12"}' EVE='{"kind":"person","id":"eve"}'
