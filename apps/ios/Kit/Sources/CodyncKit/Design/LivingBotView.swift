@@ -226,9 +226,21 @@ final class LivingBotUIView: UIView {
                 gazeLayer.add(a, forKey: "m.pose" + path)
             }
         }
+        func glance(_ g: BotGeometry, nowMs: Double) {
+            let x = g.gazeOffset(BotGlance.reach * BotGlance.side(seed), 0).width
+            let a = CAKeyframeAnimation(keyPath: "transform.translation.x")
+            a.values = BotGlance.keys.map { Double(x) * $0.x }
+            a.keyTimes = BotGlance.keys.map { NSNumber(value: $0.t) }
+            a.timingFunctions = BotGlance.keys.dropFirst().map { _ in timing("saccade") }
+            a.duration = BotGlance.period
+            a.beginTime = gazeLayer.convertTime(now(), from: nil) + delay
+            a.repeatCount = .infinity
+            a.timeOffset = LivingSeed.phase(f: seed.fLook, length: BotGlance.period * 1000, nowMs: nowMs) / 1000
+            gazeLayer.add(a, forKey: "m.glance")
+        }
         switch spec.mood {
         case .idle:
-            if tier == .full { loop("body-idle", f: seed.fBody); loop("look-idle-\(seed.lookTrack)", f: seed.fLook) }
+            if tier == .full { loop("body-idle", f: seed.fBody); loop("look-idle-\(seed.lookTrack)", f: seed.fLook) } else { glance(g, nowMs: nowMs) }
         case .working:
             if tier == .full { loop("body-working", f: seed.fBody); loop("look-working", f: seed.fLook) } else { pose(.working) }
         case .needsInput:

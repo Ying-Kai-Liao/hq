@@ -6,6 +6,8 @@ import {
   doneDue,
   gradientTable,
   glyphColor,
+  glanceSide,
+  GLANCE_MS,
   loopsOf,
   LOOK_IDLE_MS,
   MAX_FULL,
@@ -39,6 +41,15 @@ test('builder at mount time 0 starts 1178.8 ms into look-idle-0', () => {
   const { fLook } = loopsOf('builder')
   assert.equal(Math.round(phaseMs(LOOK_IDLE_MS[0]!, fLook, 0) * 10) / 10, 1178.8)
   assert.equal(phaseMs(1000, 0.5, 700), 200)
+})
+
+test('the list-size glance: a stable side per bot, both sides in use, a 30 px face is in the blink tier', () => {
+  const sides = Array.from({ length: 40 }, (_, i) => glanceSide(`bot-${i}`))
+  assert.ok(sides.includes(-1) && sides.includes(1))
+  assert.equal(glanceSide('bot-3'), glanceSide('bot-3'))
+  assert.equal(GLANCE_MS, 9000)
+  assert.equal(sizeTier(30), 'blink')
+  assert.equal(sizeTier(46), 'full')
 })
 
 test('size tiers: full from 40, blink 16 to 39.99, static below', () => {
