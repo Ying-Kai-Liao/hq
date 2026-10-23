@@ -14,17 +14,23 @@ unset KITH_STATE HQ_STATE KITH_AGENT
 mkdir -p "$HOME" "$KITH_HOME/state" "$KITH_HOME/agents/designer/role"
 printf -- '---\nname: designer\ndescription: t\n---\nbody\n' > "$KITH_HOME/agents/designer/role/agent.md"
 
-# the first <n> scandir calls fail with EINTR, then it works; prints the installed agents
+# the first <n> scandir/listdir calls fail with EINTR, then it works; prints the installed agents
 harness() {
   python3 - "$1" <<'P'
 import errno, importlib.machinery, importlib.util, os, sys
-left = [int(sys.argv[1])]; real = os.scandir
+left = [int(sys.argv[1])]; real = os.scandir; real_ls = os.listdir
 def flaky(*a, **k):
     if left[0] > 0:
         left[0] -= 1
         raise InterruptedError(errno.EINTR, 'Interrupted system call', str(a[0]) if a else '')
     return real(*a, **k)
+def flaky_ls(*a, **k):
+    if left[0] > 0:
+        left[0] -= 1
+        raise InterruptedError(errno.EINTR, 'Interrupted system call', str(a[0]) if a else '')
+    return real_ls(a[-1], **k)
 os.scandir = flaky
+os.listdir = flaky_ls   # pathlib uses listdir on python 3.9, scandir later
 sys.argv = ['kith-pkg']
 l = importlib.machinery.SourceFileLoader('kith_pkg', os.environ['KERNEL'] + '/bin/kith-pkg')
 m = importlib.util.module_from_spec(importlib.util.spec_from_loader('kith_pkg', l)); l.exec_module(m)

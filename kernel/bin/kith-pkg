@@ -114,13 +114,15 @@ def retry_eintr(fn, what):
 
 def installed():
     """{name: package folder}: the agents folder first, then the repo's own agents/ (older installs)."""
-    out = {}
-    for root in (AGENTS, KITH / 'agents'):
-        for d in retry_eintr(lambda: sorted(root.iterdir()) if root.is_dir() else [], root):
-            pkg = d / 'role' if (d / 'role' / 'agent.md').is_file() else d   # role/ next to the agent's life
-            if not d.name.startswith('.') and (pkg / 'agent.md').is_file():
-                out.setdefault(d.name, pkg)
-    return out
+    def scan():
+        out = {}
+        for root in (AGENTS, KITH / 'agents'):
+            for d in sorted(root.iterdir()) if root.is_dir() else []:
+                pkg = d / 'role' if (d / 'role' / 'agent.md').is_file() else d   # role/ next to the agent's life
+                if not d.name.startswith('.') and (pkg / 'agent.md').is_file():
+                    out.setdefault(d.name, pkg)
+        return out
+    return retry_eintr(scan, AGENTS)   # the whole walk: is_dir/is_file can get EINTR as well
 
 
 def life(agent):
