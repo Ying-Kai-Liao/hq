@@ -104,3 +104,19 @@ private func summary(origin: String? = nil, writer: String? = nil, busy: Bool? =
     #expect(ThreadFeed.hasQuestion([pending]))
     #expect(!ThreadFeed.hasQuestion([pending], held: true))
 }
+
+@Test func toolRowsDoNotHideAMissingReply() {
+    let summary = ThreadSummary(count: 3, lastAt: 0, authors: [])
+    // Two chat entries loaded plus three tool rows: five entries, but one reply is still missing.
+    let loaded = [entry(1, "user"), tool(2), tool(3), tool(4), entry(5, "agent") { $0.final = true }]
+    #expect(ThreadFeed.isMissingReplies(loaded, summary: summary))
+    #expect(!ThreadFeed.isMissingReplies(loaded + [entry(6, "agent") { $0.final = true }], summary: summary))
+}
+
+@Test func aCompleteOrSummarylessThreadDoesNotReload() {
+    let loaded = [entry(1, "user"), tool(2), entry(3, "agent") { $0.final = true }, entry(4, "agent") { $0.text = "partial" }]
+    #expect(!ThreadFeed.isMissingReplies(loaded, summary: ThreadSummary(count: 2, lastAt: 0, authors: [])))
+    #expect(!ThreadFeed.isMissingReplies([], summary: nil))
+    // The backfill turns an older reply final: the summary count rises, so the loaded thread reloads.
+    #expect(ThreadFeed.isMissingReplies(loaded, summary: ThreadSummary(count: 3, lastAt: 0, authors: [])))
+}
