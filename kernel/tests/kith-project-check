@@ -53,5 +53,15 @@ check "launch-json resolves the project from the cwd" "is \"d['project']\" beta"
 "$KITH" echo --launch-json -p nope >/dev/null 2>"$T/err"; rc=$?
 check "launch-json -p with an unknown id fails with a message" "[ $rc != 0 ] && grep -q \"unknown project 'nope'\" $T/err"
 
+# `kith project notes`: the tier-1 notes of a project the chat moved to, as the run may see them
+mkdir -p "$KITH_HOME/agents/echo/memory/projects/alpha" "$KITH_HOME/agents/echo/memory/projects/beta"
+echo 'alpha index note' > "$KITH_HOME/agents/echo/memory/projects/alpha/README.md"
+echo 'beta index note' > "$KITH_HOME/agents/echo/memory/projects/beta/README.md"
+printf -- '---\naudience: person:sam\n---\nsam only alpha note\n' > "$KITH_HOME/agents/echo/memory/projects/alpha/sam.md"
+OUT=$(KITH_AGENT=echo KITH_ROOM=1:1:echo:owner "$KITH" project notes alpha 2>&1)
+check "notes: the owner gets the project's notes" "echo \"\$OUT\" | grep -q 'alpha index note'"
+check "notes: only the asked project" "! echo \"\$OUT\" | grep -q 'beta index note'"
+check "notes: no caller, no notes" "[ -z \"\$(env -u KITH_AGENT \"$KITH\" project notes alpha 2>&1)\" ]"
+
 echo
 if [ $fails = 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi

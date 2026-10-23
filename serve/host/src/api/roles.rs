@@ -38,6 +38,9 @@ pub const MEMBER_METHODS: &[&str] = &[
     "keepConversation",
     // Only the project folders the owner shared with them.
     "projects",
+    // The project of their own chat's thread: read it, or correct it (to projects shared with them; see `guard`).
+    "threadProjects",
+    "setThreadProjects",
     // The code that links their own Telegram, Discord or Slack account to their person.
     "linkCode",
 ];
@@ -164,6 +167,13 @@ pub async fn guard(hub: &Arc<Hub>, person: &str, proven: bool, method: &str, b: 
             }
         }
         _ => own_bot(hub, person, b["botId"].as_str().unwrap_or_default()).await?,
+    }
+    if method == "setThreadProjects" {
+        let shared = hub.store.person(person).map(|p| p.projects).unwrap_or_default();
+        let ids = b["projects"].as_array().into_iter().flatten().filter_map(Value::as_str);
+        if ids.into_iter().any(|id| !shared.iter().any(|s| s == id)) {
+            return Err(denied("That project isn't shared with you."));
+        }
     }
     if method == "send" {
         // A folder on this Mac is the owner's to pick; a project must be one shared with them.
