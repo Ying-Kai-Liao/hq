@@ -68,7 +68,7 @@ export function DropdownMenu({ items, children, className, style, title }: { ite
 export function ChoicePicker<T extends string | number>({ selection, options, onChange, fill, fits = false }: {
   selection: T
   /** `leading`: a picture before the label, in the menu and on the picker (an agent's logo). */
-  options: { id: T; label: string; leading?: ReactNode }[]
+  options: { id: T; label: string; leading?: ReactNode; detail?: string }[]
   onChange: (id: T) => void
   fill?: string
   fits?: boolean
@@ -80,7 +80,7 @@ export function ChoicePicker<T extends string | number>({ selection, options, on
       title={label}
       className={`choice-picker${fill ? '' : ' outlined'}${fits ? ' fits' : ''}`}
       style={{ background: fill }}
-      items={() => options.map((o) => ({ title: o.label, leading: o.leading, selected: o.id === selection, action: () => onChange(o.id) }))}
+      items={() => options.map((o) => ({ title: o.label, detail: o.detail, leading: o.leading, selected: o.id === selection, action: () => onChange(o.id) }))}
     >
       {chosen?.leading}
       <span className="choice-label">{label}</span>

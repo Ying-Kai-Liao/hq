@@ -16,7 +16,7 @@ export function HqSettings({ kith }: { kith: KithInfoStore }) {
           {row.editable ? (
             <ChoicePicker
               selection={row.value}
-              options={PERMISSION_MODES.some((m) => m.id === row.value) ? PERMISSION_MODES : [...PERMISSION_MODES, { id: row.value, label: permissionLabel(row.value) }]}
+              options={PERMISSION_MODES.some((m) => m.id === row.value) ? PERMISSION_MODES : [...PERMISSION_MODES, { id: row.value, label: permissionLabel(row.value), detail: '' }]}
               onChange={(mode) => { if (!kith.permissionSaving && mode !== row.value) void kith.setPermission(mode) }}
             />
           ) : (
