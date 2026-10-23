@@ -54,8 +54,25 @@ export const PERMISSION_MODES: { id: string; label: string; detail: string }[] =
   { id: 'bypassPermissions', label: 'Bypass permissions', detail: 'Everything allowed, no prompts' },
 ]
 
+/** What a voice call can run on (`kith <agent> set call-model`); `default` follows this Mac's global call model (sonnet unless changed), `own` is the agent's own model. */
+const CALL_MODEL_NAMES: { id: string; label: string }[] = [
+  { id: 'sonnet', label: 'Sonnet' },
+  { id: 'haiku', label: 'Haiku' },
+  { id: 'opus', label: 'Opus' },
+  { id: 'own', label: "Agent's own model" },
+]
+
+/** The picker's choices; `defaultIs` is the global call model `default` stands for. */
+export function callModels(defaultIs: string | null): { id: string; label: string }[] {
+  return [{ id: 'default', label: `Default (${callModelName(defaultIs ?? 'sonnet')})` }, ...CALL_MODEL_NAMES]
+}
+
+function callModelName(id: string): string {
+  return CALL_MODEL_NAMES.find((m) => m.id === id)?.label.toLowerCase() ?? id
+}
+
 export interface HqSetting {
-  key: 'permission' | 'model' | 'effort' | 'fastMode'
+  key: 'permission' | 'callModel' | 'model' | 'effort' | 'fastMode'
   label: string
   /** What hq reports, or plain words when it has nothing. */
   value: string
@@ -68,20 +85,30 @@ export const SET_IN_KITH = 'Set in Kith'
 
 /**
  * The settings of an hq bot, once, read from hq (`info` is `kith <agent> --info-json`; null while it loads or failed).
- * Only the permission mode has an hq setting to write to (`kith <agent> set permission`); the model and effort are the
- * agent package's own, and hq has no Fast mode.
+ * The permission mode and the call model have hq settings to write to (`kith <agent> set permission|call-model`); the
+ * model and effort are the agent package's own, and hq has no Fast mode.
  */
-export function hqSettings(info: Pick<KithInfo, 'permissionMode' | 'model' | 'effort'> | null): HqSetting[] {
+export function hqSettings(info: Pick<KithInfo, 'permissionMode' | 'callModel' | 'model' | 'effort'> & { callModelDefault?: string | null } | null): HqSetting[] {
   return [
     {
       key: 'permission', label: 'Permissions', editable: info !== null,
       value: info ? (info.permissionMode ?? 'auto') : '…',
       hint: 'Kept by Kith on this computer. Every chat of this agent uses it from its next turn.',
     },
+    {
+      key: 'callModel', label: 'Call model', editable: info !== null,
+      value: info ? (info.callModel ?? 'default') : '…',
+      hint: 'The model that answers when you talk to this agent in a voice call. Typed messages use the agent\'s own model.',
+    },
     { key: 'model', label: 'Model', editable: false, value: info?.model ?? "Agent's default", hint: `${SET_IN_KITH}: the agent's package picks it.` },
     { key: 'effort', label: 'Effort', editable: false, value: info?.effort ?? "Agent's default", hint: `${SET_IN_KITH}: the agent's package picks it.` },
     { key: 'fastMode', label: 'Fast mode', editable: false, value: 'Off', hint: `${SET_IN_KITH}: hq has no Fast mode.` },
   ]
+}
+
+/** The picker's label for a call model id; one this app doesn't know shows as it is. */
+export function callModelLabel(id: string, defaultIs: string | null = null): string {
+  return callModels(defaultIs).find((m) => m.id === id)?.label ?? id
 }
 
 /** The picker's label for a mode id; an id this app doesn't know shows as it is. */

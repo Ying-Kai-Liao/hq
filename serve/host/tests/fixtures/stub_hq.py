@@ -15,6 +15,13 @@ args = sys.argv[1:]
 with open(os.path.join(home, "calls.jsonl"), "a", encoding="utf-8") as log:
     log.write(json.dumps({"args": args, "via": os.environ.get("KITH_VIA") or os.environ.get("HQ_VIA"), "cwd": os.getcwd()}) + "\n")
 
+def call_model():
+    """`set call-model` keeps the choice in `call_model`; like kith, default (or none) is sonnet and `own` is the agent's own."""
+    path = os.path.join(home, "call_model")
+    chosen = open(path, encoding="utf-8").read().strip() if os.path.exists(path) else ""
+    return chosen or "sonnet", ("" if chosen == "own" else chosen or "sonnet")
+
+
 def permission(default):
     path = os.path.join(home, "permission")
     return open(path, encoding="utf-8").read().strip() if os.path.exists(path) else default
@@ -44,6 +51,13 @@ elif args[:3] == ["house", "set", "permission"] and len(args) == 4:
         open(path, "w", encoding="utf-8").write(args[3])
     elif os.path.exists(path):
         os.remove(path)
+elif args[:3] == ["house", "set", "call-model"] and len(args) == 4:
+    path = os.path.join(home, "call_model")
+    if args[3] == "default":
+        if os.path.exists(path):
+            os.remove(path)
+    else:
+        open(path, "w", encoding="utf-8").write(args[3])
 elif args[:2] in (["backup", "list"], ["account", "list"]) or args[:3] in (["account", "backup", "set"], ["account", "backup", "reset"]):
     # The chain settings (`chain_settings.json`: {"backups": [...], "agents": {name: [...]}}) and the extra accounts
     # (`accounts.json`: [{"id", "logged_in", "why"?}]). An id listed in `not_ready.json` ({id: why}) is not ready.
@@ -86,6 +100,7 @@ elif args == ["house", "--info-json"]:
     print(json.dumps({
         "version": 1, "agent": "house", "description": "Keeps the house", "harness": "claude", "model": None,
         "effort": None, "permission_mode": permission("auto"), "home": home,
+        "call_model": call_model()[0], "call_model_effective": call_model()[1],
         "role": {"path": home + "/role", "intro": "Keeps the house.", "sections": [{"title": "Not yours", "text": "Money."}]},
         "package": {"version": None, "remote": None, "dirty": False, "unpushed": 0, "pinned": None},
         "skills": [], "tools": [], "mcp_servers": [], "plugins": [], "projects": [], "schedules": [], "cost": None,
@@ -132,7 +147,7 @@ elif args[:2] == ["house", "--launch-json"]:
         "settings": {"hooks": {"SessionStart": []}},
         "mcp_servers": {"pantry": {"command": "pantry-mcp", "args": [], "env": {}}},
         "add_dirs": [home + "/data"], "allowed_tools": ["Read"], "disable_slash_commands": True,
-        "model": model, "effort": None, "permission_mode": permission("default"), "cost_tag": {}, "claude_args": [],
+        "model": model, "effort": None, "call_model": call_model()[1] or None, "permission_mode": permission("default"), "cost_tag": {}, "claude_args": [],
     }))
 else:
     print("unknown agent", file=sys.stderr)

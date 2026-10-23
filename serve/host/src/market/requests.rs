@@ -95,7 +95,8 @@ pub fn agent_signed_in(hub: &Hub, backend: &str) -> Result<()> {
         for mut entry in ids.iter().filter_map(Value::as_str).filter_map(|id| hub.store.entry(id)) {
             let attachments = entry.data["attachments"].as_array().cloned().unwrap_or_default();
             let text = entry.data["text"].as_str().unwrap_or_default();
-            let prompt = crate::chat::prompt::of_message(&hub.store, &bot.config, text, &attachments);
+            let call = entry.data["via"] == "call";
+            let prompt = crate::chat::prompt::of_message(&hub.store, &bot.config, text, &attachments, call);
             entry.data["status"] = "queued".into();
             hub.set_entry(&entry.id, &entry.data);
             let lane = Lane { chat: entry.bot_id.clone(), thread: entry.thread_id.clone() };
