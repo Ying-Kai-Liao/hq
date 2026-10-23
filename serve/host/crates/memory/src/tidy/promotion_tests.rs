@@ -82,7 +82,7 @@ fn audit_keeps_allowed_and_widening_but_drops_the_rest() {
     // Memory without facets keeps none.
     let bare = Snapshot::from_parts("a", false, vec![], vec![], false, "2026-10-17");
     let (kept, _) = audit(&bare, &[], Plan { promote: vec![retag("a.md", Some("owner"))], ..Plan::default() });
-    assert!(kept.promote.is_empty());
+    assert_eq!(kept.promote, vec![]);
 }
 
 #[test]
