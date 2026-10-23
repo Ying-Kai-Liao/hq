@@ -19,7 +19,7 @@ const CLOUD_DIR = fileURLToPath(new URL("../..", import.meta.url));
 const ROOT = join(CLOUD_DIR, "..");
 const KERNEL_BIN = join(ROOT, "..", "kernel/bin");
 const HOST_BIN = process.env.KITH_SERVE_HOST_BIN ?? join(resolve(join(ROOT, "host"), process.env.CARGO_TARGET_DIR ?? "target"), "debug/kith-serve");
-const CLOUD_PORT = Number(process.env.CODYNC_E2E_CLOUD_PORT ?? 8787);
+const CLOUD_PORT = Number(process.env.KITH_E2E_CLOUD_PORT ?? 8787);
 const CLOUD = `http://127.0.0.1:${CLOUD_PORT}`;
 const ISSUER = "https://clerk.test.local"; // [env.local] CLERK_ISSUER
 const WRANGLER = join(CLOUD_DIR, "node_modules/.bin/wrangler");
@@ -98,7 +98,7 @@ async function loopback(method: string, body: unknown = {}): Promise<Json> {
 }
 
 async function main() {
-  const migrate = spawnSync(WRANGLER, ["d1", "migrations", "apply", "codync-local", "--local", "--env", "local", "--persist-to", persist], {
+  const migrate = spawnSync(WRANGLER, ["d1", "migrations", "apply", "kith-local", "--local", "--env", "local", "--persist-to", persist], {
     cwd: CLOUD_DIR,
     encoding: "utf8",
     env: { ...process.env, CI: "1" },

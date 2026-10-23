@@ -438,7 +438,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn no_codync_key_or_host_is_compiled_in() {
+    fn no_upstream_key_or_host_is_compiled_in() {
         // Assembled at run time so this test doesn't trip over itself.
         let old_host = ["cod", "ync.dev"].concat();
         let old_key = ["phc_rQHv", "xdSF"].concat();

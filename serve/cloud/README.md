@@ -1,16 +1,16 @@
-# Codync cloud
+# Kith cloud
 
 Cloudflare Worker for accounts and the off-LAN relay (spec: [docs/reference/remote-relay.md](../docs/reference/remote-relay.md)).
 
 - **`/v1` API** (`src/api.ts`, route groups in `src/routes/`): Clerk-authenticated account routes (devices, claims, computers, access
-  requests, grants), `Kith-Sig`-authenticated host routes (the pre-rename `Codync-Sig` is still accepted) (`/v1/host/*`), the Clerk webhook, and a
+  requests, grants), `Kith-Sig`-authenticated host routes (`/v1/host/*`), the Clerk webhook, and a
   15-minute cron that expires requests and prunes nonces, and the public routine webhook route
   `POST /v1/hooks/:computerId/:routineId` (spec §7.8). D1 schema: `migrations/` (later files rebuild some tables).
 - **`ComputerRelay`** (`src/relay.ts`): one Durable Object per computer (SQLite storage, WebSocket
   Hibernation). It admits device sockets against the host-signed ACL, forwards channel frames it can't
   read, reports presence, holds the offline mailbox, and queues routine webhook deliveries (`hookbox`,
   checked against the keys the host registers; `src/hooks.ts`). It is reachable only through requests the Worker
-  builds itself (`X-Codync-Internal: 1`); `/internal/*` has no public route.
+  builds itself (`X-Kith-Internal: 1`); `/internal/*` has no public route.
 - **Auth** (`src/auth.ts`): Clerk session JWTs via `@clerk/backend` (`CLERK_SECRET_KEY` → JWKS fetched and
   cached per isolate; `CLERK_JWT_KEY` → networkless, dev/e2e only) and Ed25519 request signatures
   (WebCrypto).
@@ -39,21 +39,12 @@ date to the newest one it supports. `wrangler.toml` keeps the deploy date.
 npm run e2e       # local D1 + wrangler dev + real kith-serve + test/e2e/phone.ts
 ```
 
-Env: `KITH_SERVE_HOST_BIN` (default `$CARGO_TARGET_DIR/debug/kith-serve`, else `../host/target/debug/kith-serve`), `CODYNC_E2E_CLOUD_PORT` (default
+Env: `KITH_SERVE_HOST_BIN` (default `$CARGO_TARGET_DIR/debug/kith-serve`, else `../host/target/debug/kith-serve`), `KITH_E2E_CLOUD_PORT` (default
 8787), `E2E_VERBOSE=1` to stream wrangler and host logs. Needs `python3` for the fake agent.
 
 ## Deploy
 
-Development deployment (see [environment readiness](../docs/guides/environments-and-deployment.md); these commands change remote resources):
-
-```bash
-# Only if the database does not exist: npx wrangler d1 create codync-dev
-# Confirm its database_id in [env.dev] before applying migrations.
-npx wrangler d1 migrations apply codync-dev --env dev --remote
-npx wrangler secret put CLERK_SECRET_KEY --env dev
-npx wrangler secret put CLERK_WEBHOOK_SECRET --env dev
-npx wrangler deploy --env dev               # → https://dev-api.codync.dev
-```
+Deploys go through the `kith-dev` and `kith` environments (see Kith below). The top level of `wrangler.toml` is only what the tests and `wrangler dev` run on (a local D1, no routes, no Clerk instance), so always pass `--env`; `--env local` is for `wrangler dev` and the e2e harness.
 
 | Name | Kind | Purpose |
 |---|---|---|
@@ -66,8 +57,8 @@ npx wrangler deploy --env dev               # → https://dev-api.codync.dev
 ### Kith
 
 Kith runs its own copy on its own Cloudflare account, at workers.dev, without accounts: no Clerk secrets are set,
-so only QR pairing admits devices (the account routes answer 401). `kith-dev` serves every local build; builds
-made with `CODYNC_ENV=main` will need their own environment when we make them.
+so only QR pairing admits devices (the account routes answer 401). `kith-dev` serves every local build; release
+builds use the `kith` environment (below).
 
 ```bash
 npx wrangler login                                   # once, in a browser
@@ -77,8 +68,8 @@ npx wrangler deploy --env kith-dev                   # → https://kith-cloud-de
 curl https://kith-cloud-dev.<account>.workers.dev/v1/health
 ```
 
-The host's default for each build is in `host/src/environment.rs` (`cloud_url`); `CODYNC_CLOUD_URL` overrides it
-for one host, `CODYNC_CLOUD=off` turns the cloud off. The phone learns the URL from the QR code.
+The host's default for each build is in `host/src/environment.rs` (`cloud_url`); `KITH_SERVE_CLOUD_URL` overrides it
+for one host, `KITH_SERVE_CLOUD=off` turns the cloud off. The phone learns the URL from the QR code.
 
 ### Kith accounts (the `kith` environment)
 
