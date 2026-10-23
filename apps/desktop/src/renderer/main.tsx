@@ -2,6 +2,8 @@ import { createRoot } from 'react-dom/client'
 import './styles/theme.css'
 import { ChatWindow } from './views/ChatWindow'
 import { PairingWindow } from './views/PairingWindow'
+import { SettingsWindow } from './views/settings/SettingsView'
+import { isSettingsPage } from '@shared/settings-pages'
 import { IslandWindow } from './views/island/IslandWindow'
 import { IslandModel } from './views/island/island-model'
 import { AppModel } from './store/app-model'
@@ -35,5 +37,10 @@ if (page === 'island') {
   const app = new AppModel(page !== 'pairing')
   void app.start()
   if (page !== 'pairing') void account.start()
-  root.render(<AppContext.Provider value={app}>{page === 'pairing' ? <PairingWindow /> : <ChatWindow />}</AppContext.Provider>)
+  const first = new URLSearchParams(location.search).get('page')
+  root.render(
+    <AppContext.Provider value={app}>
+      {page === 'pairing' ? <PairingWindow /> : page === 'settings' ? <SettingsWindow initial={isSettingsPage(first) ? first : 'account'} /> : <ChatWindow />}
+    </AppContext.Provider>,
+  )
 }

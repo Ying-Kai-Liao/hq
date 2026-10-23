@@ -22,6 +22,8 @@ import { registerSSH } from './ssh'
 import { QuitLifecycle } from './quit-lifecycle'
 import { Island } from './island'
 import { registerErrorReports } from './error-reports'
+import { openSettingsWindow, registerProfileMenu } from './settings-window'
+import type { SettingsPage } from '../shared/settings-pages'
 
 /** macOS's user-facing computer name, else the host name. */
 function computerName() {
@@ -108,6 +110,8 @@ function openPairing() {
   void pairing.loadURL(rendererURL('pairing'))
 }
 
+const openSettings = (page?: SettingsPage | null) => openSettingsWindow(rendererURL, page)
+
 export function send(command: WindowCommand, show = true) {
   const window = show ? openChat() : chat
   if (show && isMac) app.focus({ steal: true })
@@ -117,7 +121,14 @@ export function send(command: WindowCommand, show = true) {
 function menu() {
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(isMac ? [{ role: 'appMenu' as const }] : []),
-    { role: 'fileMenu' },
+    {
+      label: 'File',
+      submenu: [
+        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => openSettings() },
+        { type: 'separator' },
+        isMac ? { role: 'close' } : { role: 'quit' },
+      ],
+    },
     { role: 'editMenu' },
     {
       label: 'View',
@@ -236,6 +247,7 @@ if (!app.requestSingleInstanceLock()) {
     const tray = new Tray({ openChat, openPairing, send, host, updates, island })
     updates.on('change', () => tray.hostChanged())
     registerIPC(tray)
+    registerProfileMenu(openSettings)
     island.register()
     registerAuthIPC()
     registerInviteIPC()

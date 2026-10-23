@@ -23,7 +23,8 @@ import { ThreadView } from './thread/ThreadView'
 import { NewChatView } from './bots/NewChatView'
 import { BotEditorView } from './bots/BotEditorView'
 import { MarketplaceView } from './marketplace/MarketplaceView'
-import { SettingsView, type SettingsPage } from './settings/SettingsView'
+import type { SettingsPage } from '@shared/settings-pages'
+import { openSettingsWindow } from './settings/profile-menu'
 import { ApprovalSheet } from './settings/ApprovalSheet'
 import { SearchPalette } from './SearchPalette'
 import { AccountWelcomeView } from './AccountWelcomeView'
@@ -179,8 +180,9 @@ function ChatSplitView() {
   const [confirmDelete, setConfirmDelete] = useState<BotTarget | null>(null)
   const [newSessionBot, setNewSessionBot] = useState<BotTarget | null>(null)
   const [marketplace, setMarketplace] = useState<string | null>(null)
-  const [settings, setSettings] = useState<SettingsPage | null>(null)
-  const openVoiceSettings = useCallback(() => setSettings('voice'), [])
+  // Settings is its own window: every old entry point opens it on the page it wants.
+  const setSettings = useCallback((page: SettingsPage) => openSettingsWindow(page), [])
+  const openVoiceSettings = useCallback(() => setSettings('voice'), [setSettings])
   const [showAccount, setShowAccount] = useState(false)
   const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight })
   const newButton = useRef<HTMLButtonElement>(null)
@@ -414,7 +416,7 @@ function ChatSplitView() {
           }}
           onSettings={() => {
             setShowAccount(false)
-            setSettings('general')
+            setSettings('account')
           }}
         />
       ) : null}
@@ -442,9 +444,6 @@ function ChatSplitView() {
             <MarketplaceView appsFirst key={marketplace} computers={onlineStores.map((s) => ({ id: s.computer.id, name: s.hostName }))} computer={marketplace} onComputer={setMarketplace} />
           </StoreContext.Provider>
         ) : null}
-      </Sheet>
-      <Sheet open={settings !== null} onClose={() => setSettings(null)} width={Math.min(800, windowSize.width - 80)} height={Math.min(620, sheetHeight)}>
-        {settings ? <SettingsView page={settings} /> : null}
       </Sheet>
       <Dialog
         open={newSessionBot !== null}

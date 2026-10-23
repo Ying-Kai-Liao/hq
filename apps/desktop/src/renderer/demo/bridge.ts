@@ -125,6 +125,8 @@ const bridge: KithBridge = {
     setShowInDock: async () => true,
     launchAtLogin: async () => false,
     openSettings() {},
+    openSettingsWindow() {},
+    profileMenu: async () => null,
     authenticate: unavailable,
     screenAgentState: async () => ({ available: false, needsApproval: false, registered: false }),
     setScreenAgent: unavailable,
