@@ -382,7 +382,7 @@ if [[ $p_owner == 0 ]]; then
   # the home folder for Bash), which Claude Code enforces from 2.1.257: an older or unreadable version is no run at all.
   cv=$(claude --version 2>/dev/null | sed -n 's/^\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1)
   [[ -n $cv && $(printf '%s\n2.1.257\n' "$cv" | sort -V | head -1) == 2.1.257 ]] \
-    || { echo "kith: runs for anyone but the owner need Claude Code 2.1.257 or newer (read limits); found '${cv:-none}'" >&2; exit $([[ -n $backup ]] && echo 4 || echo 3); }
+    || { echo "kith: runs for anyone but the owner need Claude Code 2.1.257 or newer (read limits); Claude Code is ${cv:+version $cv}${cv:-missing or gives no version}" >&2; exit $([[ -n $backup ]] && echo 4 || echo 3); }
   # They see this agent's own life only: every other agent's folder and the owner's user.md are denied by path
   # (logical and resolved), on top of the narrower directories below.
   for d in "$KITH_AGENTS"/*/; do
