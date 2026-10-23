@@ -19,6 +19,7 @@ import { VoiceChatSettingsView } from './VoiceChatSettingsView'
 import { ComputerAccessView } from '../computer-access/ComputerAccessView'
 import { FormSheet } from '../marketplace/pieces'
 import { AnalyticsSheet } from './AnalyticsSheet'
+import { LicensesSheet } from './LicensesSheet'
 
 /** The chat window's Settings: pages in a sidebar, ChatGPT's settings layout. */
 export type SettingsPage = 'general' | 'computers' | 'access' | 'voice' | 'usage' | 'updates'
@@ -224,12 +225,13 @@ function UsageLimitsList() {
 /** The app's update check and preferences, the same as the menu bar's Updates menu. */
 function UpdateSettings() {
   const updates = useUpdates()
+  const [licenses, setLicenses] = useState(false)
   if (!updates) return null
   const footer = (
     <>
       {updates.supported ? null : 'Automatic updates are off until Kith publishes its own releases. '}
-      <button className="settings-link" onClick={() => window.codync.app.openExternal('https://github.com/leepokai/Codync')}>
-        Built on Codync (Apache-2.0)
+      <button className="settings-link" onClick={() => setLicenses(true)}>
+        Open-source licenses
       </button>
     </>
   )
@@ -237,6 +239,7 @@ function UpdateSettings() {
     ? `Last checked ${new Date(updates.lastCheck).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`
     : null
   return (
+    <>
     <CardForm>
       <CardSection title="Kith" footer={footer}>
         {[
@@ -272,5 +275,9 @@ function UpdateSettings() {
         ]}
       </CardSection>
     </CardForm>
+    <FormSheet open={licenses} onClose={() => setLicenses(false)}>
+      <LicensesSheet />
+    </FormSheet>
+    </>
   )
 }

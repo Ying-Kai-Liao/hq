@@ -23,6 +23,7 @@ struct SettingsView: View {
     @State private var confirmRemoveCopy: CloudComputer?
     @State private var voice: VoiceTarget?
     @State private var aboutAnalytics = false
+    @State private var showLicenses = false
 
     var body: some View {
         CardForm {
@@ -85,7 +86,7 @@ struct SettingsView: View {
                 SegmentedChoice(selection: $textSize, options: TextSizePreference.allCases.map { ($0.rawValue, $0.label) })
             }
 
-            CardSection(footer: "Which features you use, never your messages, code or files. Helps us spot bugs sooner and make Codync better for you.") {
+            CardSection(footer: "Which features you use, never your messages, code or files. Helps us spot bugs sooner and make Kith better for you.") {
                 HStack(spacing: 4) {
                     Text("Share usage analytics").lineLimit(1).layoutPriority(1)
                     IconButton("About usage analytics", systemImage: "info.circle") { aboutAnalytics = true }
@@ -119,7 +120,7 @@ struct SettingsView: View {
                 Button("Source code") { openURL(URL(string: "https://github.com/Ying-Kai-Liao/kith")!) }
                     .buttonStyle(.plain)
                     .foregroundStyle(Palette.text)
-                Button("Built on Codync (Apache-2.0)") { openURL(URL(string: "https://github.com/leepokai/Codync")!) }
+                Button("Open-source licenses") { showLicenses = true }
                     .buttonStyle(.plain)
                     .foregroundStyle(Palette.text)
             }
@@ -152,6 +153,7 @@ struct SettingsView: View {
         }
         .codyncSheet(item: $voice) { target in VoiceChatSettingsView().environment(target.store) }
         .codyncSheet(isPresented: $aboutAnalytics) { AnalyticsSheet() }
+        .codyncSheet(isPresented: $showLicenses) { LicensesSheet() }
         .codyncSheet(item: $access) { target in
             AccessRequestView(computer: target.computer, pending: accounts.pendingAccess[target.id] != nil)
         }
@@ -378,7 +380,7 @@ private struct AccountComputerRow: View {
         let online = computer.isOnline ? "Online" : "Offline"
         if let ticket { return "Waiting for your OK on the computer · \(ticket.code)" }
         return switch computer.access {
-        case "granted": "Approved for an earlier install of Codync. Revoke it, then ask again."
+        case "granted": "Approved for an earlier install of Kith. Revoke it, then ask again."
         case "pending": "\(online) · A request is waiting"
         default: "\(online) · In your account"
         }
