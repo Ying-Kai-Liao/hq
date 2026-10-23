@@ -43,7 +43,7 @@ export function updaterFixture(options: { packaged?: boolean; main?: boolean; pr
   const app = Object.assign(new EventEmitter(), {
     isPackaged: options.packaged ?? true,
     quit: () => { calls.quit++ },
-    getPath: () => '/Applications/Codync.app/Contents/MacOS/Codync',
+    getPath: () => '/Applications/Kith.app/Contents/MacOS/Kith',
   })
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   const ipc = Object.assign(new EventEmitter(), {
@@ -69,14 +69,14 @@ export function updaterFixture(options: { packaged?: boolean; main?: boolean; pr
   const { Updates } = loadMainModule<{ Updates: new (host: unknown) => UpdatesInstance }>('updates', {
     'node:child_process': { execFile: launchctl },
     'node:events': { EventEmitter },
-    'node:fs': { rmSync: (dir: string) => { removed.push(dir) }, existsSync: (file: string) => shipIt.request && file === '/Users/me/Library/Caches/com.pokai.Codync.ShipIt/ShipItState.plist' },
+    'node:fs': { rmSync: (dir: string) => { removed.push(dir) }, existsSync: (file: string) => shipIt.request && file === '/Users/me/Library/Caches/com.yingkailiao.kith.ShipIt/ShipItState.plist' },
     'node:os': { homedir: () => '/Users/me' },
     'node:path': path,
     electron: { app, ipcMain: ipc, shell: { openPath: async (target: string) => { opened.push(target); return '' } }, BrowserWindow: { getFocusedWindow: () => behavior.focused }, powerMonitor: { getSystemIdleTime: () => behavior.idleSeconds } },
     'electron-updater': { autoUpdater: updater },
     '../shared/update-feed': { UPDATE_FEED: options.feed === undefined ? 'https://example.test/kith' : options.feed },
     './account': { isMainEnvironment: () => options.main ?? true },
-    './environment': { identity: { appId: 'com.pokai.Codync' } },
+    './environment': { identity: { appId: 'com.yingkailiao.kith' } },
     './host-controller': { prefs: { get: (key: string) => preferences.get(key), set: (key: string, value: unknown) => preferences.set(key, value) } },
   }, {
     Date: class extends Date { static override now() { return now } },

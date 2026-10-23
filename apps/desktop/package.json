@@ -1,8 +1,8 @@
 {
-  "name": "codync-desktop",
-  "productName": "Codync",
+  "name": "kith-desktop",
+  "productName": "Kith",
   "version": "2.19.1",
-  "description": "Codync for macOS, Linux and Windows: your coding agents as teammates.",
+  "description": "Kith for macOS, Linux and Windows: your coding agents as teammates.",
   "author": {
     "name": "Ying-Kai Liao"
   },

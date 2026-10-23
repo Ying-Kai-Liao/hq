@@ -9,9 +9,9 @@ import type { SpeechEvent } from '../shared/ipc'
 
 function helperPath() {
   const candidates = [
-    app.isPackaged ? join(process.resourcesPath, 'codync-speech') : null,
-    join(__dirname, '../../native/speech-macos/.build/release/codync-speech'),
-    join(__dirname, '../../native/speech-macos/.build/debug/codync-speech'),
+    app.isPackaged ? join(process.resourcesPath, 'kith-speech') : null,
+    join(__dirname, '../../native/speech-macos/.build/release/kith-speech'),
+    join(__dirname, '../../native/speech-macos/.build/debug/kith-speech'),
   ]
   return candidates.find((c): c is string => !!c && existsSync(c)) ?? null
 }
