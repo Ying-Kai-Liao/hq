@@ -127,7 +127,8 @@ pub async fn caller_person(hub: &Hub, bin: &Path, caller: &Caller) -> Result<Str
 pub async fn person_of(bin: &Path, who: &Principal) -> Result<String> {
     match who {
         Principal::Member(person) => Ok(person.clone()),
-        Principal::Unproven(_) => bail!("this device hasn't shown its invite yet"),
+        Principal::Unproven(_) | Principal::BotPending(_) => bail!("this device hasn't shown its invite yet"),
+        Principal::Bot { person, .. } => Ok(person.clone()),
         Principal::Owner => who_owner(bin).await,
         Principal::Nobody => bail!("this device isn't allowed on this computer"),
     }

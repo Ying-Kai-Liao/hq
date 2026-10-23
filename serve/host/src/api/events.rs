@@ -5,6 +5,7 @@ use super::roles;
 use crate::LockExt;
 use crate::hub::Hub;
 use anyhow::Result;
+use futures::future::Either;
 use futures::{Stream, StreamExt, stream};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -45,6 +46,35 @@ impl Drop for PhoneClientGuard {
     }
 }
 
+/// A bot guest's stream: the entries of its own conversations (shaped to what a bot may see) after `since`, then live
+/// ones. Nothing else, so a bot learns nothing of the computer's other chats.
+fn bot_events(hub: &Arc<Hub>, since: i64, bot_id: &str) -> impl Stream<Item = Value> + Send + use<> {
+    let live = BroadcastStream::new(hub.events.subscribe());
+    let mut catch_up: Vec<Value> = vec![];
+    for e in hub.store.entries_since(since, CATCH_UP_PER_BOT).unwrap_or_default() {
+        catch_up.push(json!({"type": "entry", "rev": e.rev, "entry": e}));
+    }
+    let mut catch_up: Vec<Value> =
+        catch_up.into_iter().filter_map(|v| roles::event_for_bot(&hub.store, bot_id, v)).collect();
+    catch_up.sort_by_key(|v| v["rev"].as_i64().unwrap_or(0));
+    catch_up.insert(0, roles::hello_for(&json!({
+        "hostId": hub.host_id,
+        "computerId": hub.identity.computer_id(),
+        "rev": hub.store.current_rev(),
+    })));
+    let (hub, bot) = (hub.clone(), bot_id.to_owned());
+    let tail = live.filter_map(move |msg| {
+        let (hub, bot) = (hub.clone(), bot.clone());
+        async move {
+            match msg {
+                Ok(v) => roles::event_for_bot(&hub.store, &bot, v),
+                Err(_) => Some(json!({"type": "resync"})),
+            }
+        }
+    });
+    stream::iter(catch_up).chain(tail)
+}
+
 /// Event types only this computer's own apps receive.
 const LOCAL_EVENTS: &[&str] = &["accessRequests", "cloud"];
 
@@ -64,7 +94,10 @@ pub fn events_stream(
     let who: Option<String> = match principal(&hub.store, caller) {
         Principal::Owner => None,
         Principal::Member(p) => Some(p),
-        Principal::Nobody | Principal::Unproven(_) => anyhow::bail!("this device isn't allowed on this computer"),
+        Principal::Bot { bot_id, .. } => return Ok(Either::Left(bot_events(hub, since, &bot_id))),
+        Principal::Nobody | Principal::Unproven(_) | Principal::BotPending(_) => {
+            anyhow::bail!("this device isn't allowed on this computer")
+        }
     };
     let mut catch_up: Vec<Value> = vec![];
     for bot in hub.bots_json(since)? {
@@ -101,5 +134,5 @@ pub fn events_stream(
             }
         }
     });
-    Ok(stream::iter(catch_up).chain(tail))
+    Ok(Either::Right(stream::iter(catch_up).chain(tail)))
 }
