@@ -59,6 +59,11 @@
 		F97C489DDB806224CEFCEB57 /* ScreenHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B2CB561A43ED9F2F1A4391 /* ScreenHelper.swift */; };
 		6F2B8D1E4CA05B7392D1E8F1 /* KithHop-Dot.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 5E1A7C0D3B9F4A6281C0D7E1 /* KithHop-Dot.ttf */; };
 		6F2B8D1E4CA05B7392D1E8F2 /* KithHop-Ghost.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 5E1A7C0D3B9F4A6281C0D7E2 /* KithHop-Ghost.ttf */; };
+		6F2B8D1E4CA05B7392D1E8F3 /* Inter-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 5E1A7C0D3B9F4A6281C0D7F0 /* Inter-Regular.ttf */; };
+		6F2B8D1E4CA05B7392D1E8F4 /* Inter-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 5E1A7C0D3B9F4A6281C0D7F1 /* Inter-SemiBold.ttf */; };
+		6F2B8D1E4CA05B7392D1E8F5 /* Inter-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 5E1A7C0D3B9F4A6281C0D7F2 /* Inter-Bold.ttf */; };
+		6F2B8D1E4CA05B7392D1E8F6 /* JetBrainsMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 5E1A7C0D3B9F4A6281C0D7F3 /* JetBrainsMono-Regular.ttf */; };
+		6F2B8D1E4CA05B7392D1E8F7 /* Nunito-Variable.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 5E1A7C0D3B9F4A6281C0D7F4 /* Nunito-Variable.ttf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -149,6 +154,11 @@
 		FAB9BDB52C3A9F7B2568A750 /* KithWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KithWidgets.swift; sourceTree = "<group>"; };
 		5E1A7C0D3B9F4A6281C0D7E1 /* KithHop-Dot.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "KithHop-Dot.ttf"; sourceTree = "<group>"; };
 		5E1A7C0D3B9F4A6281C0D7E2 /* KithHop-Ghost.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "KithHop-Ghost.ttf"; sourceTree = "<group>"; };
+		5E1A7C0D3B9F4A6281C0D7F0 /* Inter-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Inter-Regular.ttf"; sourceTree = "<group>"; };
+		5E1A7C0D3B9F4A6281C0D7F1 /* Inter-SemiBold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Inter-SemiBold.ttf"; sourceTree = "<group>"; };
+		5E1A7C0D3B9F4A6281C0D7F2 /* Inter-Bold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Inter-Bold.ttf"; sourceTree = "<group>"; };
+		5E1A7C0D3B9F4A6281C0D7F3 /* JetBrainsMono-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "JetBrainsMono-Regular.ttf"; sourceTree = "<group>"; };
+		5E1A7C0D3B9F4A6281C0D7F4 /* Nunito-Variable.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Nunito-Variable.ttf"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -196,6 +206,11 @@
 			children = (
 				5E1A7C0D3B9F4A6281C0D7E1 /* KithHop-Dot.ttf */,
 				5E1A7C0D3B9F4A6281C0D7E2 /* KithHop-Ghost.ttf */,
+				5E1A7C0D3B9F4A6281C0D7F0 /* Inter-Regular.ttf */,
+				5E1A7C0D3B9F4A6281C0D7F1 /* Inter-SemiBold.ttf */,
+				5E1A7C0D3B9F4A6281C0D7F2 /* Inter-Bold.ttf */,
+				5E1A7C0D3B9F4A6281C0D7F3 /* JetBrainsMono-Regular.ttf */,
+				5E1A7C0D3B9F4A6281C0D7F4 /* Nunito-Variable.ttf */,
 			);
 			path = Fonts;
 			sourceTree = "<group>";
@@ -531,6 +546,11 @@
 			files = (
 				6F2B8D1E4CA05B7392D1E8F1 /* KithHop-Dot.ttf in Resources */,
 				6F2B8D1E4CA05B7392D1E8F2 /* KithHop-Ghost.ttf in Resources */,
+				6F2B8D1E4CA05B7392D1E8F3 /* Inter-Regular.ttf in Resources */,
+				6F2B8D1E4CA05B7392D1E8F4 /* Inter-SemiBold.ttf in Resources */,
+				6F2B8D1E4CA05B7392D1E8F5 /* Inter-Bold.ttf in Resources */,
+				6F2B8D1E4CA05B7392D1E8F6 /* JetBrainsMono-Regular.ttf in Resources */,
+				6F2B8D1E4CA05B7392D1E8F7 /* Nunito-Variable.ttf in Resources */,
 				674BCFBAC7022359FB673FDB /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
