@@ -1,0 +1,46 @@
+# Renders the voice A/B (Phonon as shipped and fixed, Phonon f32 and temperature, Kokoro, Piper, macOS say) on an
+# Apple-silicon runner and uploads the WAVs plus index.md as an artifact. Manual only. Evaluation only: Piper's runtime and Kokoro's espeak-ng phonemiser are GPL and never ship in Kith.
+name: Voice samples
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        working-directory: serve
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: serve/host
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build the sample renderer
+        working-directory: serve/host
+        run: cargo build --release -p kith-tts --example samples
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the comparison engines
+        run: pip install kokoro-onnx==0.6.1 piper-tts==1.8.0 numpy soundfile
+      - name: Download models
+        run: sh scripts/voice-samples/fetch-models.sh "$RUNNER_TEMP/models"
+      - name: Render, level-match, measure
+        env:
+          SAMPLES: ${{ github.workspace }}/serve/host/target/release/examples/samples
+        run: sh scripts/voice-samples/run.sh "$RUNNER_TEMP/models" "$RUNNER_TEMP/out"
+      - name: Index
+        run: cat "$RUNNER_TEMP/out/index.md" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voice-samples
+          path: |
+            ${{ runner.temp }}/out/files
+            ${{ runner.temp }}/out/index.md
+            ${{ runner.temp }}/out/log

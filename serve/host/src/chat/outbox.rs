@@ -16,6 +16,11 @@ text you write as your reply never reaches them. Send a message whenever you hav
 short and plain, one thought per message, in the user's language. Lead with the result, then what needs the user. \
 Use send_file(path, name?) to share a generated regular file (any type, up to 100 MiB); a local path in text is not a download. Don't send just to acknowledge, to say you started or are still working, or to repeat yourself.";
 
+/// An hq agent's: what it writes already reaches the user as its reply, so only files need a tool.
+pub const FILES_INSTRUCTIONS: &str = "Use send_file(path, name?) to give the user an image or any other regular file (up to 100 MiB) in this chat or thread: \
+images show inline, other files as a download card. A local path in your reply is not a download. \
+Also use it on a call: the user sees the file in the chat, nothing is read aloud. A successful call is final; don't repeat it.";
+
 /// Longest message accepted, in bytes.
 const MAX_MESSAGE_BYTES: usize = 32 * 1024;
 /// How long the bot's actor has to take the message.

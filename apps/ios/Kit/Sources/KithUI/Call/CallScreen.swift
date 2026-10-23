@@ -112,7 +112,7 @@ struct CallScreen: View {
             engine = CloudSpeechEngine(provider: provider, speech: .init(
                 transcribe: { try await VoiceSettings.inReadersScript(client().voiceTranscribe(provider, model: transcribe, wav: $0)) },
                 speak: { try await client().voiceSpeak(provider, model: speechModel, voice: voice, text: $0) },
-                send: { [model, botId] in model.send($0, to: botId) }
+                send: { [model, botId] in model.sendSpoken($0, to: botId) }
             ))
             cloudStartedAt = .now
         } else if let provider {
@@ -138,9 +138,9 @@ struct CallScreen: View {
                 prepare: { try await client().voiceLocalPrepare() },
                 speak: { try await client().voiceLocalSpeak($0, voice: $1) },
                 voice: { VoiceSettings.kithVoice(in: $0) }
-            )) { [model, botId] in model.send($0, to: botId) }
+            )) { [model, botId] in model.sendSpoken($0, to: botId) }
         } else {
-            engine = OnDeviceEngine { [model, botId] in model.send($0, to: botId) }
+            engine = OnDeviceEngine { [model, botId] in model.sendSpoken($0, to: botId) }
         }
         let streams = engine.streamsReplies
         engine.onActivityChanged = { [weak engine, model, botId, callID] (active: Bool) in

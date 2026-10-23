@@ -111,6 +111,29 @@ final class KithInfoStore {
         }
     }
 
+    /// Why the last call-model change failed; the old value stays shown.
+    private(set) var callModelError: String?
+    private(set) var savingCallModel = false
+
+    /// Writes the call model through to hq; what shows afterwards is hq's answer, read back.
+    func setCallModel(_ model: String) async {
+        guard !savingCallModel else { return }
+        savingCallModel = true
+        callModelError = nil
+        defer { savingCallModel = false }
+        do {
+            let response = try await client().kithSetCallModel(botId: botId, model: model)
+            if response.info != nil {
+                refreshError = nil
+                phase = .loaded(response)
+            } else {
+                callModelError = response.error ?? "kith has no answer"
+            }
+        } catch {
+            callModelError = error.localizedDescription
+        }
+    }
+
     func search(_ query: String) async throws -> KithSearchResult {
         try await client().kithMemorySearch(botId: botId, query: query, limit: 30)
     }

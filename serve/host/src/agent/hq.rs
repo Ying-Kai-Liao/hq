@@ -86,6 +86,9 @@ pub struct Launch {
     pub effort: Option<String>,
     #[serde(default)]
     pub permission_mode: Option<String>,
+    /// The model a turn spoken in a voice call runs on (see `bot::call_model`); none keeps the agent's own.
+    #[serde(default)]
+    pub call_model: Option<String>,
     /// An invited person's run (see [`Launch::confine_to`]): bypass mode is switched off for the whole session.
     #[serde(skip)]
     pub confined: bool,
@@ -379,6 +382,16 @@ pub async fn set_permission(agent: &str, mode: &str) -> Result<InfoRun> {
     Ok(refill(agent, true).await)
 }
 
+/// `kith <agent> set call-model <model>`: the model its voice-call turns run on (`default` forgets the choice, `own`
+/// keeps the agent's own model). Returns the info read back from hq.
+pub async fn set_call_model(agent: &str, model: &str) -> Result<InfoRun> {
+    let Some(bin) = tokio::task::spawn_blocking(bin).await? else {
+        bail!("kith isn't installed on this computer (set KITH_KERNEL_BIN, or put `kith` on PATH)");
+    };
+    run(&bin, &[agent, "set", "call-model", model], None, LIST_TIMEOUT).await?;
+    Ok(refill(agent, true).await)
+}
+
 /// Runs kith for `agent`. A caller that finds a run in flight waits for it and takes its answer, `force` or not
 /// (a refresh asked for while one is running would only repeat it); otherwise a still-fresh answer is reused
 /// unless `force`.
@@ -424,6 +437,19 @@ pub async fn info(agent: &str, fresh: bool) -> InfoRun {
         Some(last) if !fresh && last.fresh() => last,
         _ => refill(agent, fresh).await,
     }
+}
+
+/// The call model that applies to `agent` (`call_model_effective` of its last info; `""` is the agent's own), without
+/// waiting for kith: `None` while nothing has been fetched. A stale answer is refreshed in the background, so a change
+/// made elsewhere reaches the call turns after it.
+pub fn cached_call_model(agent: &str) -> Option<String> {
+    let last = slot(agent).last.locked().clone();
+    if last.as_ref().is_none_or(|l| !l.fresh()) {
+        let agent = agent.to_owned();
+        tokio::spawn(async move { drop(refill(&agent, false).await) });
+    }
+    let info = last?.info.ok()?;
+    info["call_model_effective"].as_str().map(str::to_owned)
 }
 
 /// `kith memory search <query> --agent <agent> --json -n <limit>`: the `hits` list as kith printed it.
@@ -503,6 +529,9 @@ pub async fn backups(bin: &Path, agent: &str) -> Result<Vec<crate::agent::backup
     Ok(doc.entries())
 }
 
+/// The name of the host's file-sharing server in an hq agent's launch.
+pub const FILES_SERVER: &str = "kith-files";
+
 impl Launch {
     /// Where the agent works: hq's choice, else the bot's folder.
     pub fn cwd<'a>(&'a self, cfg: &'a BotConfig) -> &'a str {
@@ -563,6 +592,21 @@ impl Launch {
             options.insert("effort".into(), effort.into());
         }
         json!({"systemPrompt": {"append": self.system_prompt}, "claudeCode": {"options": options}})
+    }
+
+    /// Adds the host's `kith-files` server (`send_file`) to the agent's own: an hq agent's launch carries none of the
+    /// host's tools, so without this it had no way to give the user an image or a file in an app chat. Named so it
+    /// can't replace a server of the agent's; `rt` is the actor key, so a file lands in the place the call came from.
+    pub fn with_files_server(&mut self, exe: &str, port: u16, rt: &str) {
+        if !self.mcp_servers.is_object() {
+            self.mcp_servers = json!({});
+        }
+        self.mcp_servers[FILES_SERVER] =
+            json!({"command": exe, "args": ["mcp", "files", "--bot", rt, "--port", port.to_string()], "env": {}});
+        let allow = format!("mcp__{FILES_SERVER}");
+        if !self.allowed_tools.contains(&allow) {
+            self.allowed_tools.push(allow);
+        }
     }
 
     /// `session/new` (or, with `session`, `session/load`) for this launch. No ACP `mcpServers` of the host's own:
