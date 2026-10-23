@@ -34,3 +34,4 @@
 .memory-diff-del { color: var(--danger); }
 .memory-diff-gap { color: var(--tertiary); }
 .memory-stack { display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 0; }
+.memory-version-actions { flex-wrap: wrap; align-items: center; gap: 6px; }

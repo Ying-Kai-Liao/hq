@@ -48,12 +48,12 @@ export function HqMemory({ botId }: { botId: string }) {
         {!store.list && !store.error && <p className="memory-muted" role="status">Loading memory…</p>}
         {store.list && section === 'yours' && <>
           <p className="memory-muted">Your name, people and projects, shared by your agents. Plain files you can edit.</p>
-          {rows.map((f) => <FileRow key={f.name} file={f} shared open={() => setTarget({ shared: true, name: f.name })} />)}
+          {rows.map((f) => <FileRow key={f.name} file={f} open={() => setTarget({ shared: true, name: f.name })} />)}
         </>}
         {store.list && section === 'agent' && <>
           <p className="memory-muted">What this agent keeps in its own files. Plain files you can edit.</p>
-          <AgentMemorySearch botId={botId} open={(path) => setTarget({ shared: false, name: path })}>
-            {rows.map((f) => <FileRow key={f.name} file={f} shared={false} open={() => setTarget({ shared: false, name: f.name })} />)}
+          <AgentMemorySearch botId={botId} target={(hit) => searchTarget(hit.path, store.list?.shared ?? [])} open={setTarget}>
+            {rows.map((f) => <FileRow key={f.name} file={f} open={() => setTarget({ shared: false, name: f.name })} />)}
           </AgentMemorySearch>
         </>}
         {store.list && section === 'tidy' && <TidyUps store={store} />}
@@ -66,10 +66,17 @@ export function HqMemory({ botId }: { botId: string }) {
   </>
 }
 
-function FileRow({ file, shared, open }: { file: HqMemoryFile; shared: boolean; open: () => void }) {
+/** What a search hit opens: a shared file (the host gives its absolute path), or a Markdown file of the agent's folder. */
+function searchTarget(path: string, shared: HqMemoryFile[]): Target | null {
+  const user = shared.find((f) => f.path === path)
+  if (user) return { shared: true, name: user.name }
+  return /\.md$/i.test(path) && !path.startsWith('/') ? { shared: false, name: path } : null
+}
+
+function FileRow({ file, open }: { file: HqMemoryFile; open: () => void }) {
   const made = file.modified !== null || file.size > 0
   return <button className="press memory-content fade-in" onClick={open}>
-    <strong><Icon name="doc.text" size={11} />{shared ? `${file.name}` : file.name}</strong>
+    <strong><Icon name="doc.text" size={11} />{file.name}</strong>
     <small>{made ? `${formatBytes(file.size)}${file.modified ? ` · ${relativeTime.day(file.modified)}` : ''}` : 'Not made yet'}</small>
   </button>
 }
@@ -79,6 +86,7 @@ function TidyUps({ store }: { store: HqMemoryStore }) {
   return <>
     <p className="memory-muted">Between chats the agent tidies its memory from your own words. Each run can be undone.</p>
     {store.undoError && <p role="alert" className="memory-error">{store.undoError}</p>}
+    {store.tidyError && <p role="alert" className="memory-error">Couldn't read the tidy-ups: {store.tidyError}</p>}
     {store.tidyLoaded && !store.tidyUps.length && <div className="memory-empty">
       <Icon name="sparkles" size={20} color="var(--tertiary)" />
       <span>Tidy-ups appear after you chat with this agent and it has been idle for a few minutes.</span>
@@ -109,8 +117,11 @@ function FileSheet({ botId, store, target, guard, onClose }: { botId: string; st
   const editor = useModel(useMemo(() => new HqFileEditor(botId, target.shared, target.name, () => host.ready()), [botId, host, target]))
   const [tab, setTab] = useState<'edit' | 'history'>('edit')
   const [discard, setDiscard] = useState(false)
-  const [restore, setRestore] = useState<number | null>(null)
+  // `undo`: put back the file as it was before this version's change (the next older one).
+  const [restore, setRestore] = useState<{ id: number; undo: boolean } | null>(null)
   useEffect(() => { void editor.open() }, [editor])
+  // Leaving the tab or switching bot with an edit open keeps it for when the file is opened again.
+  useEffect(() => () => editor.stash(), [editor])
 
   // Leaving with an unsaved edit asks first.
   const close = () => { if (editor.dirty) setDiscard(true); else onClose() }
@@ -127,6 +138,7 @@ function FileSheet({ botId, store, target, guard, onClose }: { botId: string; st
       <TabChoice label="File" selection={tab} options={[{ id: 'edit', label: 'Edit' }, { id: 'history', label: 'History' }]} onChange={setTab} />
       {editor.error && <p role="alert" className="memory-error">{editor.error}</p>}
       {editor.loading && !read && <p className="memory-muted" role="status"><Spinner size={12} /> Loading…</p>}
+      {editor.restored && <p className="memory-attention" role="status">Your unsaved edit from before is back.</p>}
       {editor.warnings.map((w) => <p key={w} className="memory-attention" role="status">{w}</p>)}
       {editor.conflict && <div className="memory-conflict" role="alert">
         <p>This file changed since you opened it. Saving now would replace that change.</p>
@@ -153,8 +165,12 @@ function FileSheet({ botId, store, target, guard, onClose }: { botId: string; st
                 <small>{v.at ? relativeTime.day(v.at) : ''}{v.deleted ? ' · deleted' : ` · ${v.lines} ${v.lines === 1 ? 'line' : 'lines'}`}{i === 0 ? ' · newest' : ''}</small>
               </div>
               {older && <Button kind="secondary" onClick={() => (diff ? editor.hideDiff(v.id) : void editor.showDiff(i))}>{diff ? 'Hide changes' : 'Show changes'}</Button>}
-              {i > 0 && !v.deleted && <Button kind="secondary" disabled={editor.busy} onClick={() => setRestore(v.id)}>Restore</Button>}
             </div>
+            {(i > 0 && !v.deleted) || (older && !older.deleted) ? <div className="memory-item memory-version-actions">
+              {i > 0 && !v.deleted && <Button kind="secondary" disabled={editor.busy} onClick={() => setRestore({ id: v.id, undo: false })}>Restore this version</Button>}
+              {older && !older.deleted && <Button kind="secondary" disabled={editor.busy} onClick={() => setRestore({ id: older.id, undo: true })}>Undo this change</Button>}
+              <small className="memory-muted">Restore: the file as it was after this change. Undo: as it was before.</small>
+            </div> : null}
             {diff === 'loading' && <p className="memory-muted" role="status"><Spinner size={12} /> Loading…</p>}
             {diff && diff !== 'loading' && ('error' in diff
               ? <p role="alert" className="memory-error">{diff.error}</p>
@@ -167,9 +183,9 @@ function FileSheet({ botId, store, target, guard, onClose }: { botId: string; st
     </div>
     <Dialog open={discard} title="Discard your changes?" message="You have edits that are not saved."
       actions={[{ title: 'Discard', destructive: true, action: onClose }]} onClose={() => setDiscard(false)} />
-    <Dialog open={restore !== null} title="Bring back this version?"
-      message={`${target.name} becomes that version, kept as a new version.${editor.dirty ? ' Your unsaved edit is lost.' : ''}`}
-      actions={[{ title: 'Restore', action: () => { if (restore !== null) void editor.restore(restore).then(refreshList) } }]}
+    <Dialog open={restore !== null} title={restore?.undo ? 'Undo this change?' : 'Restore this version?'}
+      message={`${restore?.undo ? `${target.name} goes back to how it was before this change.` : `${target.name} becomes the file as it was after this change.`} It is kept as a new version.${editor.dirty ? ' Your unsaved edit is lost.' : ''}`}
+      actions={[{ title: restore?.undo ? 'Undo this change' : 'Restore this version', action: () => { if (restore) void editor.restore(restore.id).then(refreshList) } }]}
       onClose={() => setRestore(null)} />
   </div>
 }

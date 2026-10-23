@@ -1,5 +1,5 @@
 // A Kith bot's detail page: what `kith <agent> --info-json` prints, as the host's `kithInfo`,
-// `kithMemoryFile` and `kithMemorySearch` pass it on (serve/docs/bot-info.md). Lenient on purpose:
+// and `kithMemorySearch` pass it on (serve/docs/bot-info.md). Lenient on purpose:
 // a kith a little newer or older than the app still draws what it can.
 
 export interface KithRoleSection { title: string; text: string }
@@ -58,7 +58,6 @@ export interface KithInfo {
 /** The host's `kithInfo` answer. */
 export interface KithInfoResult { info: KithInfo | null; error: string | null; fetchedAt: number | null }
 
-export interface KithMemoryFile { path: string; text: string; bytes: number; modified: number | null; truncated: boolean }
 export interface KithMemoryHit { path: string; line: number | null; snippet: string; openable: boolean; agent: string | null }
 export interface KithSearchResult { hits: KithMemoryHit[]; error: string | null }
 
@@ -142,12 +141,6 @@ export function parseKithInfoResult(raw: unknown): KithInfoResult {
   return { info: parseKithInfo(r.info), error: str(r.error), fetchedAt: num(r.fetchedAt) }
 }
 
-export function parseMemoryFile(raw: unknown): KithMemoryFile {
-  const r = isObject(raw) ? raw : {}
-  const text = str(r.text) ?? ''
-  return { path: str(r.path) ?? '', text, bytes: num(r.bytes) ?? text.length, modified: toMillis(r.modified), truncated: r.truncated === true }
-}
-
 export function parseSearchResult(raw: unknown): KithSearchResult {
   const r = isObject(raw) ? raw : {}
   const hits = objects(r.hits).flatMap((h) => (str(h.path) ? [{
@@ -226,12 +219,6 @@ export function lastRunText(s: KithSchedule, now = Date.now()): string | null {
   return s.lastRun !== null ? ago(s.lastRun, now) : null
 }
 
-/** MEMORY.md first, then the newest. */
-export function sortMemoryFiles(files: KithMemoryEntry[]): KithMemoryEntry[] {
-  const isIndex = (f: KithMemoryEntry) => f.path === 'MEMORY.md'
-  return [...files].sort((a, b) => Number(isIndex(b)) - Number(isIndex(a)) || (b.modified ?? 0) - (a.modified ?? 0))
-}
-
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`
@@ -255,9 +242,4 @@ export function rolePrompt(role: { intro: string; sections: KithRoleSection[] } 
 export function isUnsupportedHost(error: unknown): boolean {
   const e = error as { status?: number; message?: string } | null
   return e?.status === 404 || /unknown method/i.test(e?.message ?? '')
-}
-
-/** The 0-based line a viewer scrolls to for a hit's 1-based `line`, clamped to the file. */
-export function lineOffset(line: number | null, total: number): number {
-  return line === null ? 0 : Math.min(Math.max(line - 1, 0), Math.max(total - 1, 0))
 }

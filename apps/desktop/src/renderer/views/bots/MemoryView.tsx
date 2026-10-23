@@ -17,8 +17,10 @@ type Section = 'yours' | 'bot' | 'tidy' | 'harness'
 
 /** A bot's memory. An hq agent has one memory, its plain files (`HqMemory`); any other bot has what all your bots know about you, what this one knows, its tidy-ups, and its harness's own notes when the user kept them on. */
 export function MemoryCard({ botId }: { botId: string }) {
-  const hq = !!useStore().bots.get(botId)?.hqAgent
-  return hq ? <HqMemory botId={botId} /> : <BotMemory botId={botId} />
+  const bot = useStore().bots.get(botId)
+  // Until the bot is known, neither memory shows: no flicker from one to the other.
+  if (!bot) return null
+  return bot.hqAgent ? <HqMemory botId={botId} /> : <BotMemory botId={botId} />
 }
 
 function BotMemory({ botId }: { botId: string }) {
@@ -96,7 +98,7 @@ function BotMemory({ botId }: { botId: string }) {
               {run.archived.map((c) => <span key={`r${c.id}`} className="memory-archived">− {c.text}</span>)}
               {(run.files ?? []).map((f) => <span key={`f${f.version}`} className="memory-muted">Added to {f.name}</span>)}
             </div>
-            {!run.undone && <IconButton title="Undo this tidy" icon="arrow.uturn.backward" disabled={memory.busy} onClick={() => void memory.mutate('undoTidy', { id: run.id })} />}
+            {!run.undone && <IconButton title="Undo this tidy" icon="arrow.uturn.backward" disabled={memory.busy} onClick={() => void memory.mutate('undoTidy', { id: run.id }, 'undoDream')} />}
           </div>),
         ]}
         {view?.projectMemory && section === 'harness' && <div className="memory-content">

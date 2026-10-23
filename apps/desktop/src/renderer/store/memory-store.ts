@@ -133,13 +133,16 @@ export class MemoryStore extends Observable {
   }
 
   /** A memory method for this bot; reloads after it. */
-  async mutate(method: string, body: object = {}) {
+  async mutate(method: string, body: object = {}, old?: string) {
     if (this.busy) return false
     this.busy = true
     this.error = null
     this.changed()
     try {
-      await (await this.client()).call(method, { botId: this.botId, ...body })
+      const client = await this.client()
+      const args = { botId: this.botId, ...body }
+      // `old`: the name a host from before the tidy rename knows.
+      await (old ? client.callRenamed(method, old, args) : client.call(method, args))
       await this.load()
       return true
     } catch (error) {

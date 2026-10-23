@@ -3,7 +3,7 @@ import {
   parseDiff, parseHistory, parseMemoryList, parseRead, parseSave, parseTidyUps, parseUndo,
   type HqMemoryDiff, type HqMemoryList, type HqMemoryRead, type HqMemoryVersion, type HqSaveResult, type HqTidyUp, type HqUndoResult,
 } from '@shared/hq-memory'
-import { parseKithInfoResult, parseMemoryFile, parseSearchResult, type KithInfoResult, type KithMemoryFile, type KithSearchResult } from '@shared/kith-info'
+import { isUnsupportedHost, parseKithInfoResult, parseSearchResult, type KithInfoResult, type KithSearchResult } from '@shared/kith-info'
 import type { PlaceFolder, PlaceSelection, ProjectInfo, RecentFolder, StartingFolder } from '@shared/place-folders'
 import {
   normalizeBot,
@@ -136,6 +136,16 @@ export class HostClient {
     return this.transport.call(method, body, timeoutMs) as Promise<T>
   }
 
+  /** A method renamed with tidy-ups: a host from before the rename answers "unknown method" to the new name, so try `old` once. */
+  async callRenamed<T>(method: string, old: string, body: unknown = {}, timeoutMs = 20_000): Promise<T> {
+    try {
+      return await this.call<T>(method, body, timeoutMs)
+    } catch (error) {
+      if (!isUnsupportedHost(error)) throw error
+      return this.call<T>(old, body, timeoutMs)
+    }
+  }
+
   /** Catch-up since `since`, then live updates. */
   events(since: number, client: string, onEvent: (e: HostEvent) => void, onEnd: (error: HostError | null) => void) {
     const query = new URLSearchParams({ since: String(since), client })
@@ -177,11 +187,6 @@ export class HostClient {
     return parseKithInfoResult(await this.call('kithInfo', { botId, ...(refresh ? { refresh: true } : {}) }, 60_000))
   }
 
-  /** One file of the agent's memory folder (`path` relative to it); the host reads the first 512 KB. */
-  async kithMemoryFile(botId: string, path: string): Promise<KithMemoryFile> {
-    return parseMemoryFile(await this.call('kithMemoryFile', { botId, path }, 30_000))
-  }
-
   async kithMemorySearch(botId: string, query: string, limit = 30): Promise<KithSearchResult> {
     return parseSearchResult(await this.call('kithMemorySearch', { botId, query, limit }, 30_000))
   }
@@ -212,11 +217,11 @@ export class HostClient {
   }
 
   async hqTidyUps(botId: string, limit = 20): Promise<HqTidyUp[]> {
-    return parseTidyUps(await this.call('kithMemoryTidyUps', { botId, limit }, 30_000))
+    return parseTidyUps(await this.callRenamed('kithMemoryTidyUps', 'kithMemoryDreams', { botId, limit }, 30_000))
   }
 
   async hqUndoTidy(botId: string, id: number): Promise<HqUndoResult> {
-    return parseUndo(await this.call('kithMemoryUndoTidy', { botId, id }, 30_000))
+    return parseUndo(await this.callRenamed('kithMemoryUndoTidy', 'kithMemoryUndoDream', { botId, id }, 30_000))
   }
 
   async recentFolders() {

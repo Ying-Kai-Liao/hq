@@ -5,6 +5,9 @@ import {
 } from '@shared/hq-memory'
 import { isUnsupportedHost } from '@shared/kith-info'
 
+/** Edits left open when the sheet went away (another bot, another tab), by file, with the text they were made over. */
+const unsaved = new Map<string, { base: string; draft: string }>()
+
 const OLDER_HOST = "Update Kith on your computer to see this agent's memory."
 
 /** An hq agent's memory: its files, the shared user files and its tidy-ups (`kithMemory*`). */
@@ -12,6 +15,8 @@ export class HqMemoryStore extends Observable {
   list: HqMemoryList | null = null
   tidyUps: HqTidyUp[] = []
   tidyLoaded = false
+  /** Why the tidy-ups couldn't be read; the files still show. */
+  tidyError: string | null = null
   /** Why the memory can't be shown (an older host, the agent's folder gone); null while it can. */
   error: string | null = null
   busy = false
@@ -29,12 +34,13 @@ export class HqMemoryStore extends Observable {
       const [list, tidyUps] = await Promise.all([
         c.hqMemoryList(this.botId),
         // Tidy-ups are a side panel: their failure must not hide the files.
-        c.hqTidyUps(this.botId).then((runs) => ({ runs }), () => null),
+        c.hqTidyUps(this.botId).then((runs) => ({ runs }), (error) => ({ error: message(error) })),
       ])
       if (request !== this.request) return
       this.list = list
       this.error = null
-      if (tidyUps) { this.tidyUps = tidyUps.runs; this.tidyLoaded = true }
+      if ('runs' in tidyUps) { this.tidyUps = tidyUps.runs; this.tidyLoaded = true; this.tidyError = null }
+      else this.tidyError = tidyUps.error
     } catch (error) {
       if (request === this.request) this.error = isUnsupportedHost(error) ? OLDER_HOST : message(error)
     }
@@ -73,10 +79,19 @@ export class HqFileEditor extends Observable {
   error: string | null = null
   loading = true
   busy = false
+  /** The draft is an unsaved edit brought back from before. */
+  restored = false
   diffs = new Map<number, { diff: string } | { error: string } | 'loading'>()
   private request = 0
 
   constructor(readonly botId: string, readonly shared: boolean, readonly name: string, private readonly client: () => Promise<HostClient>) { super() }
+
+  private get key() { return `${this.botId}:${this.shared}:${this.name}` }
+
+  /** Keeps an unsaved edit for the next time the file is opened. */
+  stash() {
+    if (this.read && this.dirty && !this.readOnly) unsaved.set(this.key, { base: this.read.text, draft: this.draft })
+  }
 
   get dirty() { return this.read !== null && this.draft !== this.read.text }
   /** Over 512 KB the host sends a cut-off text, so saving it back would lose the rest. */
@@ -91,10 +106,16 @@ export class HqFileEditor extends Observable {
     this.changed()
     try {
       const c = await this.client()
-      const [read, versions] = await Promise.all([c.hqMemoryRead(this.botId, this.shared, this.name), c.hqMemoryHistory(this.botId, this.shared, this.name)])
+      // History first: a write between the two calls then leaves `openedNewest` older than the text, which only
+      // makes a later save warn, never overwrite silently.
+      const versions = await c.hqMemoryHistory(this.botId, this.shared, this.name)
+      const read = await c.hqMemoryRead(this.botId, this.shared, this.name)
       if (request !== this.request) return
+      const kept = unsaved.get(this.key)
+      unsaved.delete(this.key)
+      this.restored = !!kept && kept.base === read.text && kept.draft !== read.text && this.read === null
       this.read = read
-      this.draft = read.text
+      this.draft = this.restored ? kept!.draft : read.text
       this.versions = versions
       this.openedNewest = versions[0]?.id ?? null
       this.diffs.clear()
