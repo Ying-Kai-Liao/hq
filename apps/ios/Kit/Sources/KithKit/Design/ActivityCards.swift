@@ -108,6 +108,8 @@ public struct ActivityReviewButton: View {
         Text("Review")
             .font(WidgetStyle.label(12, .semibold))
             .foregroundStyle(onBlack ? Color.black : Palette.onAccent)
+            .lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, 14)
             .frame(height: 30)
             .background(onBlack ? Color.white : Palette.ink, in: Capsule())
@@ -220,8 +222,9 @@ public struct BotActivityIndicator: View {
         // The orb and the end symbols cross-fade; the bot beside it carries the motion.
         ZStack {
             Group {
-                if let orb = state.orbState {
-                    ThinkingOrb(state: orb, size: size, color: state.tint, animated: false)
+                if state.orbState != nil {
+                    // A frame cannot animate the orb: three still hop dots stand for "working".
+                    WidgetHopDots()
                 } else {
                     Image(systemName: state.symbol).font(.system(size: size * 0.6, weight: .semibold))
                 }
