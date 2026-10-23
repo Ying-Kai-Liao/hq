@@ -1,4 +1,4 @@
-//! Background jobs on the bot's own harness (dreaming, automatic naming): one prompt to a throwaway agent.
+//! Background jobs on the bot's own harness (tidying, automatic naming): one prompt to a throwaway agent.
 
 use crate::agent::acp::{self, Acp, Incoming};
 use crate::agent::bot::{Adapter, Instructions};
@@ -53,7 +53,7 @@ pub async fn one_shot(hub: &Arc<Hub>, cfg: &BotConfig, system: &str, user: &str)
     Ok(run(hub, cfg, system, user, false).await?.text)
 }
 
-/// [`one_shot`] for an hq agent's dreaming. The agent itself is not launched (no `--launch-json`, tools, servers or
+/// [`one_shot`] for an hq agent's tidying. The agent itself is not launched (no `--launch-json`, tools, servers or
 /// settings of its own), so the job takes no agent slot: it is plain Claude with model haiku, whatever the agent's
 /// own model. A test host names the ACP command in `KITH_SERVE_HQ_ACP_COMMAND`, as it does for the agents.
 pub async fn one_shot_plain(hub: &Arc<Hub>, system: &str, user: &str) -> Result<Reply> {

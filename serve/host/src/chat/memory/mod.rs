@@ -1,26 +1,26 @@
 //! Bot memory ([design](../../../../docs/design/bot-memory.md)): it records the person, not the work. The rules
-//! (store, checks, opening, dreaming) live in the `kith_mem` crate; this module runs them in the host: the
+//! (store, checks, opening, tidying) live in the `kith_mem` crate; this module runs them in the host: the
 //! session opening, the bot's memory tools, the client API, the chat lines that show and undo a bot's writes,
-//! dreaming, and the one-time move from the old Engram memory.
+//! tidying, and the one-time move from the old Engram memory.
 
 mod api;
 mod dates;
-mod dream;
 mod file_api;
 mod file_notices;
 mod file_tools;
 pub mod files;
 mod hq_api;
-mod hq_dream;
+mod hq_tidy;
 mod import;
 mod notices;
+mod tidy;
 mod tools;
 
 pub use api::call;
 pub use dates::ymd;
-pub use dream::{DreamEvent, spawn_dreamer};
 pub use hq_api::{METHODS as HQ_METHODS, call as hq_call};
 pub use import::import_old_memory;
+pub use tidy::{TidyEvent, spawn_tidier};
 pub use tools::{INSTRUCTIONS, call as tool_call, tools};
 
 use crate::hub::Hub;

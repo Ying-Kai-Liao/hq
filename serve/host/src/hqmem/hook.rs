@@ -30,7 +30,7 @@ pub enum Phase {
 
 /// Runs one hook call on the JSON Claude Code gave on stdin. Memory trouble (no database, a locked file) never blocks
 /// a write: the hook reports it and lets the tool run, because only a refusal is a reason to stop one.
-pub fn run(phase: Phase, input: &str, layout: &Layout, agent: &str, dream: bool) -> Outcome {
+pub fn run(phase: Phase, input: &str, layout: &Layout, agent: &str, tidy: bool) -> Outcome {
     let Ok(event) = serde_json::from_str::<Value>(input) else { return Outcome::default() };
     let tool = event["tool_name"].as_str().unwrap_or_default();
     if !matches!(tool, "Write" | "Edit" | "MultiEdit") {
@@ -39,7 +39,7 @@ pub fn run(phase: Phase, input: &str, layout: &Layout, agent: &str, dream: bool)
     let Some(file) = event["tool_input"]["file_path"].as_str() else { return Outcome::default() };
     let cwd = event["cwd"].as_str().map_or_else(|| std::env::current_dir().unwrap_or_default(), PathBuf::from);
     let Some(target) = layout.locate(Path::new(file), &cwd) else { return Outcome::default() };
-    let who = if dream { Who::Dream(agent) } else { Who::Agent(agent) };
+    let who = if tidy { Who::Tidy(agent) } else { Who::Agent(agent) };
     // The content checks need no history, so a broken or locked memory.db never lets a bad write through.
     let pre = (phase == Phase::Pre).then(|| {
         let old = read(&target.path);

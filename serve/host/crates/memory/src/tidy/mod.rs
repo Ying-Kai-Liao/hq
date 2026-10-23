@@ -1,4 +1,4 @@
-//! Dreaming: between turns a model reads the latest conversations and proposes changes; deterministic rules
+//! Tidying: between turns a model reads the latest conversations and proposes changes; deterministic rules
 //! decide which survive. It only adds and archives (never rewrites or deletes), each change cites the user's
 //! own words, and every run is logged and can be undone.
 //!
@@ -8,7 +8,7 @@
 
 mod log;
 mod notes;
-pub use log::{Change, Dream, FileChange, discard_if_empty, get, recent, record_file, undo};
+pub use log::{Change, FileChange, TidyUp, discard_if_empty, get, recent, record_file, undo};
 pub use notes::{Append, MoveOut, NOTE_CAP, Note, notes};
 
 use rusqlite::{Connection, params};
@@ -349,7 +349,7 @@ fn cite<'a>(messages: &'a [Message], quote: &str, label: &str) -> Result<&'a Mes
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
-    Changed(Dream),
+    Changed(TidyUp),
     /// Nothing survived, or nothing was proposed.
     Unchanged,
     /// Memory changed while the model worked (the user edited it): nothing was written.
@@ -372,12 +372,12 @@ pub fn apply(
         return Ok(Outcome::Unchanged);
     }
     conn.execute("INSERT INTO memory_dreams (bot, at) VALUES (?1, ?2)", params![snapshot.bot, now])?;
-    let dream = conn.last_insert_rowid();
-    let writer = Writer::Dream(&snapshot.bot);
+    let tidy = conn.last_insert_rowid();
+    let writer = Writer::Tidy(&snapshot.bot);
     let record = |entry: i64, change: &str| {
         conn.execute(
             "INSERT INTO memory_dream_changes (dream, entry, change) VALUES (?1, ?2, ?3)",
-            params![dream, entry, change],
+            params![tidy, entry, change],
         )
     };
     let skip = |result: store::Result<Entry>| match result {
@@ -438,13 +438,13 @@ pub fn apply(
             }
         }
     }
-    match get(conn, dream)? {
+    match get(conn, tidy)? {
         // File notes are the caller's to write, after this.
-        Some(dream) if !dream.added.is_empty() || !dream.archived.is_empty() || !plan.append.is_empty() => {
-            Ok(Outcome::Changed(dream))
+        Some(tidy) if !tidy.added.is_empty() || !tidy.archived.is_empty() || !plan.append.is_empty() => {
+            Ok(Outcome::Changed(tidy))
         }
         _ => {
-            conn.execute("DELETE FROM memory_dreams WHERE id = ?1", [dream])?;
+            conn.execute("DELETE FROM memory_dreams WHERE id = ?1", [tidy])?;
             Ok(Outcome::Unchanged)
         }
     }

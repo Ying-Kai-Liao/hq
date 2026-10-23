@@ -67,6 +67,10 @@ printf -- '- lives in osaka\n' | "$KITH" memory check "$MEM" >/dev/null 2>"$T/er
 check "forget: the fact is refused afterwards" "[ $rc = 1 ] && grep -q 'deleted this memory' $T/err"
 KITH_AGENT=echo "$KITH" memory ls --agent echo >/dev/null; rc=$?
 check "ls keeps working" "[ $rc = 0 ]"
+OUT=$("$KITH" memory tidy echo --json 2>"$T/err"); cat "$T/err" >&2
+check "tidy: lists no tidy-ups for a fresh agent" "is \"d['tidyUps']\" '[]'"
+"$KITH" memory tidy undo echo 99 >/dev/null 2>&1; rc=$?
+check "tidy undo: an unknown id is refused" "[ $rc != 0 ]"
 
 echo
 if [ $fails = 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi

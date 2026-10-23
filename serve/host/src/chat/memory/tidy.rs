@@ -1,22 +1,22 @@
-//! Dreaming in the host: when a bot's run starts, what it reads, and running its model on the bot's own harness.
-//! What a run may change is the crate's decision (`kith_mem::dream`).
+//! Tidying in the host: when a bot's run starts, what it reads, and running its model on the bot's own harness.
+//! What a run may change is the crate's decision (`kith_mem::tidy`).
 
 use crate::LockExt;
 use crate::chat::{naming, oneshot};
 use crate::hub::Hub;
 use crate::store::{BotConfig, Entry, EntryKind, Store};
 use anyhow::{Result, anyhow};
-use kith_mem::dream::{self, Message, Outcome};
+use kith_mem::tidy::{self, Message, Outcome};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
-/// Quiet time after the last turn before a run. A test host shortens it with `KITH_SERVE_DREAM_IDLE_MS`.
+/// Quiet time after the last turn before a run. A test host shortens it with `KITH_SERVE_TIDY_IDLE_MS`.
 fn quiet_time() -> Duration {
     static IDLE: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
     *IDLE.get_or_init(|| {
-        std::env::var("KITH_SERVE_DREAM_IDLE_MS")
+        std::env::var("KITH_SERVE_TIDY_IDLE_MS")
             .ok()
             .and_then(|ms| ms.parse().ok())
             .map_or(Duration::from_secs(5 * 60), Duration::from_millis)
@@ -27,12 +27,12 @@ const BATCH: usize = 8;
 /// Entries (the user's messages and final replies) one run looks at.
 const READ_LIMIT: i64 = 40;
 const MESSAGE_CHARS: usize = 4_000;
-/// Usage of the bot's plan above which runs wait, so dreaming never spends the user's last headroom.
+/// Usage of the bot's plan above which runs wait, so tidying never spends the user's last headroom.
 const HEADROOM_PERCENT: f64 = 75.0;
 /// How often an idle bot checks whether its daily time review is due.
 const REVIEW_CHECK: Duration = Duration::from_secs(60 * 60);
 
-pub enum DreamEvent {
+pub enum TidyEvent {
     /// A turn the user started has finished.
     Turn(naming::Turn),
     /// Run soon: a new session started or the context was compacted.
@@ -47,32 +47,38 @@ enum Ran {
 }
 
 fn bookmark_key(bot: &str) -> String {
-    format!("memory.dream.{bot}")
+    format!("memory.tidy.{bot}")
 }
 
 fn reviewed_key(bot: &str) -> String {
-    format!("memory.dream.reviewed.{bot}")
+    format!("memory.tidy.reviewed.{bot}")
 }
 
-/// Dreaming starts reading after `seq`.
+// Keys written before the rename live under `memory.dream.`; they are read when the new key isn't there yet, and
+// the next write moves them to the new one.
+fn kv_get_or_old(store: &Store, key: &str) -> Option<String> {
+    store.kv_get(key).or_else(|| store.kv_get(&key.replacen("memory.tidy.", "memory.dream.", 1)))
+}
+
+/// Tidying starts reading after `seq`.
 pub(super) fn set_bookmark(store: &Store, bot: &str, seq: i64) -> Result<()> {
     store.kv_set(&bookmark_key(bot), &seq.to_string())
 }
 
 fn bookmark(store: &Store, bot: &str) -> i64 {
-    store.kv_get(&bookmark_key(bot)).and_then(|v| v.parse().ok()).unwrap_or(0)
+    kv_get_or_old(store, &bookmark_key(bot)).and_then(|v| v.parse().ok()).unwrap_or(0)
 }
 
-/// Starts the bot's dreamer. It runs once the bot has been quiet for [`quiet_time`] after the user's turns, or right
+/// Starts the bot's tidier. It runs once the bot has been quiet for [`quiet_time`] after the user's turns, or right
 /// away when [`BATCH`] of them are waiting, and once a day for the time review. It also names an unnamed bot. It
 /// stops when the bot actor drops the sender; what it hasn't read waits for the next one.
-pub fn spawn_dreamer(hub: Arc<Hub>, bot_id: String) -> mpsc::UnboundedSender<DreamEvent> {
-    let (tx, mut rx) = mpsc::unbounded_channel::<DreamEvent>();
+pub fn spawn_tidier(hub: Arc<Hub>, bot_id: String) -> mpsc::UnboundedSender<TidyEvent> {
+    let (tx, mut rx) = mpsc::unbounded_channel::<TidyEvent>();
     let hq = hub.store.bot(&bot_id).ok().flatten().is_some_and(|b| b.config.is_hq());
-    if hq && hub.store.kv_get(&bookmark_key(&bot_id)).is_none() {
-        // An hq bot's months of earlier chat were never dreamed over: the first run starts from now, not from them.
+    if hq && kv_get_or_old(&hub.store, &bookmark_key(&bot_id)).is_none() {
+        // An hq bot's months of earlier chat were never tidied over: the first run starts from now, not from them.
         if let Err(e) = set_bookmark(&hub.store, &bot_id, hub.store.last_seq(&bot_id)) {
-            tracing::warn!(bot = %bot_id, error = format!("{e:#}"), "couldn't start the dream bookmark");
+            tracing::warn!(bot = %bot_id, error = format!("{e:#}"), "couldn't start the tidy-up bookmark");
         }
     }
     tokio::spawn(async move {
@@ -90,7 +96,7 @@ pub fn spawn_dreamer(hub: Arc<Hub>, bot_id: String) -> mpsc::UnboundedSender<Dre
             let run = tokio::select! {
                 event = rx.recv() => match event {
                     None => break,
-                    Some(DreamEvent::Turn(turn)) => {
+                    Some(TidyEvent::Turn(turn)) => {
                         // An hq agent keeps its name.
                         if !hq && let Err(e) = naming::observe(&hub, &bot_id, turn).await {
                             tracing::warn!(bot = %bot_id, error = format!("{e:#}"), "naming the bot failed");
@@ -99,7 +105,7 @@ pub fn spawn_dreamer(hub: Arc<Hub>, bot_id: String) -> mpsc::UnboundedSender<Dre
                         idle.as_mut().reset(quiet_until(retry_at));
                         waiting >= BATCH && retry_at.is_none()
                     }
-                    Some(DreamEvent::Flush) => {
+                    Some(TidyEvent::Flush) => {
                         idle.as_mut().reset(retry_at.unwrap_or_else(Instant::now));
                         false
                     }
@@ -121,7 +127,7 @@ pub fn spawn_dreamer(hub: Arc<Hub>, bot_id: String) -> mpsc::UnboundedSender<Dre
                 Err(e) => {
                     failures += 1;
                     retry_at = Some(Instant::now() + quiet_time() * 2u32.pow(failures.min(5)));
-                    tracing::warn!(bot = %bot_id, failures, error = format!("{e:#}"), "dreaming failed; it retries later");
+                    tracing::warn!(bot = %bot_id, failures, error = format!("{e:#}"), "tidying failed; it retries later");
                     quiet_until(retry_at)
                 }
             };
@@ -146,11 +152,11 @@ async fn review_due_blocking(hub: &Arc<Hub>, bot: &str) -> bool {
 
 /// Once a day, when the bot's memory holds a dated entry it may rewrite (the time review).
 fn review_due(store: &Store, bot: &str) -> bool {
-    if store.kv_get(&reviewed_key(bot)).as_deref() == Some(today().as_str()) {
+    if kv_get_or_old(store, &reviewed_key(bot)).as_deref() == Some(today().as_str()) {
         return false;
     }
     if let Some(agent) = store.bot(bot).ok().flatten().and_then(|b| b.config.hq_agent) {
-        return super::hq_dream::review_due(&agent);
+        return super::hq_tidy::review_due(&agent);
     }
     store.memory_read(|c| kith_mem::store::layer(c, Some(bot))).is_ok_and(|entries| {
         entries.iter().any(|e| {
@@ -198,9 +204,9 @@ async fn run(hub: &Arc<Hub>, bot_id: &str) -> Result<Ran> {
     }
 
     let later = if cfg.is_hq() {
-        super::hq_dream::dream(hub, &cfg, &messages, &today).await?
+        super::hq_tidy::tidy(hub, &cfg, &messages, &today).await?
     } else {
-        dream_entries(hub, bot_id, &cfg, &messages, &today).await?
+        tidy_entries(hub, bot_id, &cfg, &messages, &today).await?
     };
     if later {
         return Ok(Ran::Later);
@@ -213,7 +219,7 @@ async fn run(hub: &Arc<Hub>, bot_id: &str) -> Result<Ran> {
 }
 
 /// A run over the bot's entries (kith-mem's store). True when it should try again later: memory changed meanwhile.
-async fn dream_entries(
+async fn tidy_entries(
     hub: &Arc<Hub>,
     bot_id: &str,
     cfg: &BotConfig,
@@ -221,23 +227,23 @@ async fn dream_entries(
     today: &str,
 ) -> Result<bool> {
     let shared = super::shared(cfg);
-    let snapshot = hub.store.memory_read(|c| dream::snapshot(c, bot_id, shared, today))?;
-    let (system, material) = dream::prompt(&snapshot, messages);
+    let snapshot = hub.store.memory_read(|c| tidy::snapshot(c, bot_id, shared, today))?;
+    let (system, material) = tidy::prompt(&snapshot, messages);
     let raw = oneshot::one_shot(hub, cfg, &system, &material).await?;
-    let plan = dream::parse(&raw).ok_or_else(|| anyhow!("dreaming answered without a plan"))?;
-    let (kept, rejected) = dream::audit(&snapshot, messages, plan);
+    let plan = tidy::parse(&raw).ok_or_else(|| anyhow!("tidying answered without a plan"))?;
+    let (kept, rejected) = tidy::audit(&snapshot, messages, plan);
     if !rejected.is_empty() {
-        tracing::info!(bot = %bot_id, dropped = rejected.len(), reasons = ?rejected, "dreaming dropped changes");
+        tracing::info!(bot = %bot_id, dropped = rejected.len(), reasons = ?rejected, "tidying dropped changes");
     }
-    let outcome = hub.store.memory_write(|c, now, rev| dream::apply(c, &snapshot, &kept, messages, now, rev))?;
+    let outcome = hub.store.memory_write(|c, now, rev| tidy::apply(c, &snapshot, &kept, messages, now, rev))?;
     match outcome {
         Outcome::Stale => return Ok(true),
-        Outcome::Changed(dream) => {
-            let notes = dream::notes(&snapshot, &kept);
+        Outcome::Changed(tidy) => {
+            let notes = tidy::notes(&snapshot, &kept);
             tracing::info!(
-                bot = %bot_id, added = dream.added.len(), archived = dream.archived.len(), notes = notes.len(), "memory dreamed"
+                bot = %bot_id, added = tidy.added.len(), archived = tidy.archived.len(), notes = notes.len(), "memory tidied"
             );
-            let (h, c, id) = (hub.clone(), cfg.clone(), dream.id);
+            let (h, c, id) = (hub.clone(), cfg.clone(), tidy.id);
             tokio::task::spawn_blocking(move || super::files::write_notes(&h, &c, id, &notes)).await?;
             let layer = if kept.add.iter().any(|a| a.shared) { None } else { Some(bot_id) };
             super::changed(hub, layer);

@@ -57,7 +57,7 @@ impl std::fmt::Display for Refusal {
 
 impl std::error::Error for Refusal {}
 
-/// Checks the text of a memory a bot or dreaming wants to write.
+/// Checks the text of a memory a bot or tidying wants to write.
 pub fn text(text: &str) -> Result<(), Refusal> {
     let text = text.trim();
     if text.is_empty() {
