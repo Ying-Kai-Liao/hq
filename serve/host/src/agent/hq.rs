@@ -18,11 +18,27 @@ const LAUNCH_TIMEOUT: Duration = Duration::from_secs(60);
 /// Test hosts name the ACP command that stands in for claude-agent-acp.
 pub const ACP_COMMAND_ENV: &str = "KITH_SERVE_HQ_ACP_COMMAND";
 
+/// The kernel entry a test wants `bin()` to find; none by default. Held under the rig's `ONE_AT_A_TIME`, like `TEST_BIN`.
+#[cfg(test)]
+pub(crate) static TEST_KERNEL_BIN: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
 /// The `kith` to run: `KITH_KERNEL_BIN` (the old `HQ_BIN`) when set (an empty value turns it off), else `kith` on PATH,
 /// else `hq` on PATH (installed before the rename), else `~/.local/bin/kith` or `~/.local/bin/hq`, else the entry of
 /// the kernel packaged with this binary (the Mac app, a release install).
 /// Blocking: looking on PATH may ask the login shell.
 pub fn bin() -> Option<PathBuf> {
+    // A unit test never reaches the developer's own kernel (`which kith`, ~/.local/bin, the packaged one): running it
+    // would start real agents. Only a kernel the test names through `TEST_KERNEL_BIN` is found.
+    #[cfg(test)]
+    {
+        TEST_KERNEL_BIN.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+    #[cfg(not(test))]
+    found()
+}
+
+#[cfg(not(test))]
+fn found() -> Option<PathBuf> {
     if let Some(set) = ["KITH_KERNEL_BIN", "HQ_BIN"].iter().find_map(std::env::var_os) {
         return (!set.is_empty()).then(|| PathBuf::from(set));
     }
