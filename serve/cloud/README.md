@@ -80,6 +80,35 @@ curl https://kith-cloud-dev.<account>.workers.dev/v1/health
 The host's default for each build is in `host/src/environment.rs` (`cloud_url`); `CODYNC_CLOUD_URL` overrides it
 for one host, `CODYNC_CLOUD=off` turns the cloud off. The phone learns the URL from the QR code.
 
+### Kith accounts (the `kith` environment)
+
+Sign-in with Google, Apple and GitHub, claiming a Mac to an account, and the account becoming the owner person's
+`kith` handle in kith-auth (`kith-auth who kith <clerk user id>`). Steps marked **[Kai]** need your Clerk, Apple or
+Cloudflare login; the rest are one-line commands. Nothing secret goes in the repo.
+
+1. **[Kai]** Clerk dashboard (https://dashboard.clerk.com) > Create application > name it `Kith` > turn on Google, Apple and GitHub > Create.
+   (Apple needs your Apple Developer Services ID, team id and key: Clerk's SSO connections page walks through it.
+   Google and GitHub work with Clerk's development credentials until you want your own.)
+2. **[Kai]** Clerk > API keys: copy the **Publishable key** (`pk_...`) and the **Frontend API URL** (the issuer, `https://<name>.clerk.accounts.dev`, or your own domain). Copy the **Secret key** (`sk_...`) too, for step 6.
+3. Put the issuer in `wrangler.toml`: `[env.kith]` > `vars` > `CLERK_ISSUER` (replace `https://clerk.invalid`).
+4. `npx wrangler login` (once, in a browser) **[Kai]**
+5. `npx wrangler d1 create kith`, then put the `database_id` it prints into `[env.kith]` > `d1_databases` (replace the `0000...` placeholder).
+6. `npx wrangler secret put CLERK_SECRET_KEY --env kith` (paste the `sk_...` key when asked) **[Kai]**
+7. **[Kai]** Clerk > Webhooks > Add endpoint: `https://kith-cloud.<your-account>.workers.dev/v1/webhooks/clerk`, event `user.deleted`. Copy the **Signing secret** (`whsec_...`), then `npx wrangler secret put CLERK_WEBHOOK_SECRET --env kith`. (Deploy once first, step 9, to learn the URL; set the webhook and this secret after.)
+8. `npx wrangler d1 migrations apply kith --env kith --remote`
+9. `npx wrangler deploy --env kith`, then `curl https://kith-cloud.<your-account>.workers.dev/v1/health`
+10. App builds: set `KITH_CLERK_PUBLISHABLE_KEY=pk_...` and `KITH_CLOUD_URL=https://kith-cloud.<your-account>.workers.dev` in the environment when you build the desktop and iOS apps (the apps pick them up at build time; see `apps/README.md`).
+11. On each Mac, keep a kith-auth owner person (`kith-auth person <you> owner`). When the Mac is claimed, the host binds `kith <clerk user id>` to that person; leaving the account removes it. The Settings "Link Telegram" button asks the host for `linkCode`.
+
+The rule from Codync stays: the cloud can only shorten a device's access, never grant it; the host decides.
+
+Local end-to-end of the account path (no Clerk account needed, a self-signed test key):
+
+```bash
+(cd ../host && cargo build --bin kith-serve)
+npm run e2e:account   # local D1 + wrangler dev + real kith-serve in a temp home + a throwaway kith-auth
+```
+
 New computers are limited to 10 per IP per minute with the Workers Rate Limiting binding
 `REGISTER_LIMITER` (`[[ratelimits]]`; each environment needs its own `namespace_id`).
 Public routine webhook deliveries are limited to 60 per sender IP and hook per minute with
