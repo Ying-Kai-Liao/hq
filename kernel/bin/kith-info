@@ -385,6 +385,8 @@ def main(argv):
     rp = part('role', role_parts, body)
     info = {'version': 1, 'agent': name, 'description': field(fm, 'description') or '', 'harness': harness,
             'model': field(fm, 'model'), 'effort': field(fm, 'effort'),
+            'call_model': kith_settings.get('call_model', name) or 'default', 'call_model_effective': kith_settings.call_model(name),
+            'call_model_default': kith_settings.global_call_model(),
             'permission_mode': part('permission_mode', permission_mode, name, role, harness), 'home': str(home),
             'role': {'path': str(role / 'agent.md'), 'intro': rp[0], 'sections': rp[1]} if rp else None,
             'package': part('package', package, name, role), 'skills': part('skills', skills, role, home),

@@ -167,9 +167,13 @@ agent=$1; shift
 [[ ${1:-} == --info-json ]] && exec "$KITH/bin/kith-info" "$agent"
 # kith AGENT set permission MODE: this Mac's permission mode for the agent (what kith install asks, what apps change).
 # MODE '' forgets it. Applies to the agent's next run from any entry point.
+# kith AGENT set call-model MODEL: the model its voice-call turns run on ('default' forgets the choice, 'own' keeps the
+# agent's own model).
 if [[ ${1:-} == set ]]; then
   [[ -n $(agent_dir "$agent") ]] || { echo "kith: no agent '$agent' (try: kith ls)" >&2; exit 1; }
-  [[ ${2:-} == permission && $# -eq 3 ]] || { echo "usage: kith $agent set permission MODE   (MODE '' forgets this Mac's choice)" >&2; exit 2; }
+  if [[ ${2:-} == call-model && $# -eq 3 ]]; then exec python3 "$KITH/lib/kith_settings.py" set call_model "$agent" "$3"; fi
+  [[ ${2:-} == permission && $# -eq 3 ]] || { echo "usage: kith $agent set permission MODE   (MODE '' forgets this Mac's choice)
+       kith $agent set call-model MODEL   (MODEL: sonnet, haiku, opus, own for the agent's own model, default to forget)" >&2; exit 2; }
   exec python3 "$KITH/lib/kith_settings.py" set permission_mode "$agent" "$3"
 fi
 src_pkg=$(agent_dir "$agent")
@@ -557,6 +561,9 @@ print(json.dumps({"mcpServers": servers}))' "${f[@]}"
 # The launch JSON for kith serve, from the lists built above: dirs[] holds --add-dir pairs; the arguments are the argv to give
 # claude (none for Codex, which the host builds itself: settings and claude_args are then null).
 emit_launch() {
+  # Only a Claude run on the agent's own model: a person's membership picks their model, and another harness names its own.
+  local call_model=""
+  [[ $harness == claude && -z $p_model ]] && call_model=$(python3 "$KITH/lib/kith_settings.py" call_model "$agent")
   local add_dirs allowed_tools no_slash settings=null
   add_dirs=$(for ((i = 1; i < ${#dirs[@]}; i += 2)); do printf '%s\n' "${dirs[i]}"; done)
   allowed_tools=$(printf '%s\n' "${allowed[@]}")
@@ -564,7 +571,7 @@ emit_launch() {
   grep -q '^global_skills: *true' "$pkg/capabilities.yaml" 2>/dev/null && no_slash=false || no_slash=true
   [[ $harness == claude ]] || allowed_tools=""
   ENV_NAMES="$(python3 "$KITH/lib/kith_paths.py" --sh | sed -n 's/^export \([A-Z_]*\)=.*/\1/p' | paste -sd' ' -) KITH_ROOT KITH_AGENT KITH_AGENT_DIR KITH_AGENT_HOME KITH_AGENT_VERSION KITH_MODEL KITH_EFFORT KITH_PROJECT KITH_PERSON KITH_ROOM KITH_VIA KITH_PROVIDER KITH_ACCOUNT $backup_cfg_var $p_env_names HQ_ROOT HQ_AGENT HQ_AGENT_DIR HQ_AGENT_HOME HQ_AGENT_VERSION HQ_MODEL HQ_EFFORT HQ_PROJECT HQ_PERSON HQ_VIA" \
-    ADD_DIRS=$add_dirs ALLOWED=$allowed_tools SETTINGS=$settings MCP=$(merged_mcp) PROMPT=$prompt PERM_MODE=$perm_mode NO_SLASH=$no_slash \
+    ADD_DIRS=$add_dirs ALLOWED=$allowed_tools SETTINGS=$settings MCP=$(merged_mcp) PROMPT=$prompt PERM_MODE=$perm_mode NO_SLASH=$no_slash CALL_MODEL=$call_model \
     BACKUP=$backup HARNESS=$harness KITH_LIB=$KITH/lib \
     python3 -c '
 import json, os
@@ -581,7 +588,7 @@ print(json.dumps({
     "env": env, "system_prompt": e("PROMPT"), "settings": settings, "mcp_servers": json.loads(e("MCP"))["mcpServers"],
     "add_dirs": [d for d in e("ADD_DIRS").split("\n") if d], "allowed_tools": [a for a in e("ALLOWED").split("\n") if a],
     "disable_slash_commands": e("NO_SLASH") == "true", "model": nz("KITH_MODEL"), "effort": nz("KITH_EFFORT"),
-    "project": nz("KITH_PROJECT"),
+    "project": nz("KITH_PROJECT"), "call_model": nz("CALL_MODEL"),
     "permission_mode": e("PERM_MODE") or (settings or {}).get("permissions", {}).get("defaultMode") or (None if claude else get("permission_mode")),
     "cost_tag": {"agent": e("KITH_AGENT"), "version": e("KITH_AGENT_VERSION"), "model": nz("KITH_MODEL"), "effort": nz("KITH_EFFORT"),
                  "via": e("KITH_VIA"), "project": nz("KITH_PROJECT"), "person": nz("KITH_PERSON")},

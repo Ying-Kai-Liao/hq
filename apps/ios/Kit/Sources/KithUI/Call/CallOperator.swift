@@ -69,7 +69,7 @@ struct CallOperator {
     private func send(_ text: String) -> [String: Any] {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return ["error": "Nothing to send."] }
-        model.send(text, to: botId)
+        model.sendSpoken(text, to: botId)
         return ["sent": true, "note": "The bot's reply will arrive as a separate message."]
     }
 

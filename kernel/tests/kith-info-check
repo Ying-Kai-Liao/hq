@@ -126,6 +126,24 @@ check "set: only permission is settable" "[ $rc = 2 ]"
 OUT=$("$KITH" echo --info-json 2>/dev/null)
 check "set permission '': forgets the choice, kith's default applies again" "[ $rc = 0 ] && is \"d['permission_mode']\" auto"
 
+# kith AGENT set call-model MODEL: the model a voice call runs on; sonnet unless chosen, 'own' = the agent's own model
+OUT=$("$KITH" echo --info-json 2>/dev/null)
+check "call model: default shows 'default' and resolves to sonnet" "is \"(d['call_model'], d['call_model_effective'])\" \"('default', 'sonnet')\""
+"$KITH" echo set call-model haiku 2>"$T/err"; rc=$?
+OUT=$("$KITH" echo --info-json 2>/dev/null)
+check "set call-model: info reads it back" "[ $rc = 0 ] && is \"(d['call_model'], d['call_model_effective'])\" \"('haiku', 'haiku')\""
+"$KITH" echo set call-model nonsense 2>"$T/err"; rc=$?
+check "set call-model: an unknown model is refused and changes nothing" "[ $rc = 1 ] && grep -q 'is not sonnet' $T/err && is \"d['call_model']\" haiku"
+"$KITH" echo set call-model own 2>/dev/null
+OUT=$("$KITH" echo --info-json 2>/dev/null)
+check "set call-model own: the agent's own model (no call model)" "is \"(d['call_model'], repr(d['call_model_effective']))\" \"('own', \\\"''\\\")\""
+KITH_STATE=$KITH_MACHINE python3 "$KERNEL/lib/kith_settings.py" set call_model opus
+check "global call_model applies to an agent with its own choice only when it has none" "[ \"\$(KITH_STATE=$KITH_MACHINE python3 \"$KERNEL/lib/kith_settings.py\" call_model echo)\" = '' ] && [ \"\$(KITH_STATE=$KITH_MACHINE python3 \"$KERNEL/lib/kith_settings.py\" call_model other)\" = opus ]"
+"$KITH" echo set call-model default 2>/dev/null; rc=$?
+check "set call-model default: forgets the agent's choice, the global one applies" "[ $rc = 0 ] && [ \"\$(KITH_STATE=$KITH_MACHINE python3 \"$KERNEL/lib/kith_settings.py\" call_model echo)\" = opus ]"
+KITH_STATE=$KITH_MACHINE python3 "$KERNEL/lib/kith_settings.py" set call_model default
+check "global call_model default: back to sonnet" "[ \"\$(KITH_STATE=$KITH_MACHINE python3 \"$KERNEL/lib/kith_settings.py\" call_model echo)\" = sonnet ]"
+
 # memory --json
 OUT=$("$KITH" memory ls --agent echo --json)
 check "memory ls --json" "is \"(d['dir'] == '$A/memory', sorted(f['path'] for f in d['files']), sorted(d['files'][0]))\" \"(True, ['MEMORY.md', 'projects/alpha/plan.md'], ['bytes', 'modified', 'path'])\""

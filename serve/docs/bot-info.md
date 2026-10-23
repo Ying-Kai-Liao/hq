@@ -85,6 +85,20 @@ Every entry point of that agent (this app, Discord, Telegram) uses it from its n
 mode. kith's refusal (a mode it doesn't know) is HTTP 400 with its text, and hq keeps what it had. A paired phone with
 the Control scope may call it, as it may `updateBot`. Same 400 for an unknown or non-kith bot as above.
 
+## `kithSetCallModel { botId, model }`
+
+Same answer and errors as `kithSetPermission`. Runs `kith <agent> set call-model <model>`: the model that answers a
+turn spoken in a voice call (`sonnet`, `haiku`, `opus`, `own` for the agent's own model, `default` to forget this
+Mac's choice; kith's default is `sonnet`). `info.call_model` is the choice (`default` when none),
+`info.call_model_effective` what applies (`""` is the agent's own).
+
+Calls: an app sends `send { ..., via: "call" }` for a message spoken in a call (an older host ignores it, an older
+app never sends it). The host adds a short voice note to that turn's prompt (spoken sentences, no markdown, send files
+to the chat; the chat keeps only the spoken words) and, for a kith bot on its own Claude account, switches the live
+session to the call model with `session/set_model` before the prompt, back to the agent's own model on the next typed
+turn. Same session and process, so nothing relaunches; a failed switch leaves the turn on the model it had. Schedules,
+channels, invited people and backup accounts never switch. A change reaches the next call turn at once.
+
 For a kith bot the host never stores or passes its own model, effort, Fast mode or permission (`updateBot` leaves them
 as they were, `kith <agent> --launch-json` is called without `-m`, `-e` or `--permission-mode`): hq is the source.
 Old bots may still carry a stale copy in the host's config; it is ignored, not cleared.
