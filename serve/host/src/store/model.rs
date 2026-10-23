@@ -300,7 +300,11 @@ mod tests {
         assert_eq!(p, Permission::Auto);
         assert_eq!(serde_json::to_string(&Permission::Ask).unwrap(), "\"default\"");
         assert_eq!(serde_json::from_str::<Permission>("\"ask\"").unwrap(), Permission::Ask, "old bots read as default");
-        assert_eq!(serde_json::from_str::<Permission>("\"dontAsk\"").unwrap(), Permission::Auto, "a stored dontAsk reads as auto");
+        assert_eq!(
+            serde_json::from_str::<Permission>("\"dontAsk\"").unwrap(),
+            Permission::Auto,
+            "a stored dontAsk reads as auto"
+        );
         for mode in ["default", "acceptEdits", "plan", "auto", "bypassPermissions"] {
             let p: Permission = serde_json::from_str(&format!("\"{mode}\"")).unwrap();
             assert_eq!(p.mode_id(), mode);
