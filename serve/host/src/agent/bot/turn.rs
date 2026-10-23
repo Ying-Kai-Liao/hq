@@ -274,7 +274,7 @@ impl Actor {
             Ok(Err(held)) if held.0.pid == pid => self.turn_claim = Some((sid.to_owned(), pid)),
             Ok(Err(_)) => {
                 let held = crate::terminal::HeldByWriter { code: "liveInTerminal" };
-                self.notice(&held.to_string(), super::NoticeStyle::Error);
+                self.notice(&held.to_string(), NoticeStyle::Error);
                 return Err(held.into());
             }
             Err(error) => tracing::warn!(%error, "couldn't claim a session for a turn"),

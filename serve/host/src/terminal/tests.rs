@@ -683,7 +683,7 @@ async fn a_claim_of_a_dead_or_reused_pid_is_taken_over() {
     let left: Vec<String> = std::fs::read_dir(registry::dir(&r.state()))
         .unwrap()
         .filter_map(|e| e.ok()?.file_name().into_string().ok())
-        .filter(|n| !n.ends_with(".lock"))
+        .filter(|n| Path::new(n).extension().is_none_or(|x| x != "lock"))
         .collect();
     assert_eq!(left, ["s1.claim"]);
 }
