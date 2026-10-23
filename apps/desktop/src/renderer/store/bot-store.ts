@@ -13,6 +13,7 @@ import {
   type Usage,
 } from '@shared/models'
 import { normalizeFolder, type PlaceFolder, type PlaceSelection, type StartingFolder } from '@shared/place-folders'
+import { partialUpdate } from '@shared/optimistic'
 import { expireCalls, type IncomingCall } from '@shared/incoming-call'
 import { FileDownloads } from './file-downloads'
 import { BotSync, sleep } from './bot-sync'
@@ -250,10 +251,18 @@ export class BotStore extends BotSync {
     next[i] = { ...next[i]!, data: { ...next[i]!.data, reactions } }
     this.entries.set(entry.botId, next)
     this.changed()
+    const previous = list[i]!.data.reactions
     this.perform(async (c) => {
       const res = await c.call<{ entry: Entry }>('react', { entryId: entry.id, emoji })
       this.upsert(res.entry)
       this.changed()
+    }, false, () => {
+      const now = this.entries.get(entry.botId)
+      const at = now?.findIndex((e) => e.id === entry.id) ?? -1
+      if (!now || at < 0) return
+      const back = [...now]
+      back[at] = { ...back[at]!, data: { ...back[at]!.data, reactions: previous } }
+      this.entries.set(entry.botId, back)
     })
   }
 
@@ -315,7 +324,14 @@ export class BotStore extends BotSync {
     const current = this.bots.get(bot.id)
     if (current) this.bots.set(bot.id, { ...current, ...change } as Bot)
     this.changed()
-    this.perform((c) => c.call('updateBot', { ...updatePayload(bot), ...change }), true)
+    // Only the changed key goes out (the host merges), so a stale local copy can't revert other edits.
+    this.perform((c) => c.call('updateBot', partialUpdate(bot.id, change)), true, () => {
+      const now = this.bots.get(bot.id)
+      if (!now) return
+      const back: Record<string, unknown> = {}
+      for (const key of Object.keys(change)) back[key] = (bot as unknown as Record<string, unknown>)[key]
+      this.bots.set(bot.id, { ...now, ...back } as Bot)
+    })
   }
 
   setPinned(bot: Bot, pinned: boolean) {
@@ -347,21 +363,34 @@ export class BotStore extends BotSync {
 
   /** The roster as the user dragged it, top first: shown at once, then saved on the host. */
   reorder(ids: string[]) {
+    const before = new Map<string, number>()
     ids.forEach((id, position) => {
       const bot = this.bots.get(id)
-      if (bot) this.bots.set(id, { ...bot, position })
+      if (!bot) return
+      before.set(id, bot.position)
+      this.bots.set(id, { ...bot, position })
     })
     this.changed()
-    this.perform((c) => c.call('reorderBots', { ids }), true)
+    this.perform((c) => c.call('reorderBots', { ids }), true, () => {
+      for (const [id, position] of before) {
+        const bot = this.bots.get(id)
+        if (bot) this.bots.set(id, { ...bot, position })
+      }
+    })
   }
 
   delete(bot: Bot) {
+    const kept = this.entries.get(bot.id)
     this.composerDrafts.removeBot(bot.id)
     this.bots.delete(bot.id)
     this.entries.delete(bot.id)
     this.onRosterChanged?.()
     this.changed()
-    this.perform((c) => c.call('deleteBot', { botId: bot.id }), true)
+    this.perform((c) => c.call('deleteBot', { botId: bot.id }), true, () => {
+      this.bots.set(bot.id, bot)
+      if (kept) this.entries.set(bot.id, kept)
+      this.onRosterChanged?.()
+    })
   }
 
   /** Creates a group chat (or opens the one these bots already share) and selects it. */
@@ -389,7 +418,9 @@ export class BotStore extends BotSync {
     this.bots.set(group.id, { ...group, name, members })
     this.changed()
     const draft: GroupDraft = { id: group.id, kind: 'group', name, description: group.description, members, pinned: group.pinned }
-    this.perform((c) => c.call('updateBot', draft), true)
+    this.perform((c) => c.call('updateBot', draft), true, () => {
+      if (this.bots.has(group.id)) this.bots.set(group.id, group)
+    })
   }
 
   async loadThread(botId: string, root: string) {
@@ -399,7 +430,14 @@ export class BotStore extends BotSync {
       for (const e of res.entries) this.upsert(e)
       this.threadFolders.set(`${botId}:${root}`, normalizeFolder(res.folder))
       this.changed()
-    } catch {}
+    } catch (error) {
+      this.reportFailure('load the thread', error)
+    }
+  }
+
+  private reportFailure(what: string, error: unknown) {
+    console.warn(`Couldn't ${what}`, error)
+    this.setError(`Couldn't ${what}: ${error instanceof Error ? error.message : String(error)}`)
   }
 
   /** The history between a bot and one peer. Never upserted: old notices would break `loadOlder`'s paging. */
@@ -461,7 +499,9 @@ export class BotStore extends BotSync {
     try {
       this.usage = await this.client.call<Usage>('usage', { refresh: true })
       this.changed()
-    } catch {}
+    } catch (error) {
+      this.reportFailure('refresh usage', error)
+    }
   }
 
   async loadOlder(botId: string) {
@@ -472,7 +512,9 @@ export class BotStore extends BotSync {
       if (older.length < 100) this.historyComplete.add(botId)
       for (const e of older) this.upsert(e)
       this.changed()
-    } catch {}
+    } catch (error) {
+      this.reportFailure('load older messages', error)
+    }
   }
 
   /** An invited person's own chat with a granted agent; opens it. */
@@ -506,16 +548,6 @@ export class BotStore extends BotSync {
   setRoutineDraft(botId: string, text: string) {
     this.routineDrafts.set(botId, text)
     this.changed()
-  }
-}
-
-/** A full editor update must explicitly clear a previous model override. */
-function updatePayload(bot: Bot): BotDraft {
-  return {
-    id: bot.id, name: bot.name, description: bot.description, avatarColor: bot.avatarColor, avatarShape: bot.avatarShape, avatarSource: bot.avatarSource,
-    backend: bot.backend, command: bot.command ?? null, cwd: bot.managedWorkspace ? '' : bot.cwd, project: bot.project, permission: bot.permission,
-    model: bot.model ?? null, pinned: bot.pinned, hidden: bot.hidden, notify: bot.notify ?? null,
-    connectors: bot.connectors, skills: bot.skills, computer: bot.computer, fastMode: bot.fastMode,
   }
 }
 

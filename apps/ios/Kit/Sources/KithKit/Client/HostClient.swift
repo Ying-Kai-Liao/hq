@@ -52,6 +52,35 @@ struct BotUpdate: Encodable {
     }
 }
 
+/// One setting of a bot. The host merges the keys it gets, so a toggle sends only its own key and
+/// can't revert changes made elsewhere from this device's possibly stale copy of the bot.
+struct BotSetting<Value: Encodable & Sendable>: Encodable {
+    let id: String
+    let key: String
+    let value: Value
+
+    private struct Key: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init(_ name: String) { stringValue = name }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: Key.self)
+        try container.encode(id, forKey: Key("id"))
+        try container.encode(value, forKey: Key(key))
+    }
+}
+
+extension Error {
+    /// The task was cancelled (a view went away), which is no failure to show.
+    public var isCancellation: Bool {
+        self is CancellationError || (self as? URLError)?.code == .cancelled
+    }
+}
+
 public struct HostClient: Sendable {
     public let transport: any HostTransport
 
@@ -193,6 +222,10 @@ public extension HostClient {
         struct Res: Decodable { var bot: Bot }
         let res: Res = try await call("updateBot", BotUpdate(draft: draft))
         return res.bot
+    }
+
+    func updateBotSetting<Value: Encodable & Sendable>(_ id: String, _ key: String, _ value: Value) async throws {
+        let _: Empty = try await call("updateBot", BotSetting(id: id, key: key, value: value))
     }
 
     func deleteBot(_ id: String) async throws {
