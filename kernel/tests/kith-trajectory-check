@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# kith-trajectory-check — thread summaries (tier 2) and trajectory (tier 3) in `kith recall`, from a throwaway host store
+# (serve.db fixture), cost ledger and Claude logs, in a throwaway HOME (the real ~/.kith is never read or written).
+#
+#   kernel/tests/kith-trajectory-check     a few seconds; prints each check, exits 1 when one fails
+set -uo pipefail
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-trajectory-check.XXXXXX")
+T=$(cd "$T" && pwd -P)
+trap 'rm -rf "$T"' EXIT
+export HOME=$T/home KITH_HOME=$T/kith KITH_STATE=$T/dot KITH_AUTH=$T/dot/auth.json KITH_SERVE_DB=$T/serve.db
+unset KITH_AGENT KITH_PERSON KITH_ROOM HQ_STATE HQ_HOME KITH_PROJECT KITH_VIA CLAUDE_CONFIG_DIR
+mkdir -p "$HOME" "$KITH_STATE" "$KITH_HOME/agents/echo/memory" "$KITH_HOME/agents/echo/role"
+printf -- '---\nname: echo\ndescription: test agent\n---\nYou test.\n' > "$KITH_HOME/agents/echo/role/agent.md"
+R=$KERNEL/bin/kith-recall KA=$KERNEL/bin/kith-auth
+python3 "$KA" person kai owner >/dev/null; python3 "$KA" person sam >/dev/null; python3 "$KA" person eve >/dev/null
+python3 "$KA" member echo sam >/dev/null; python3 "$KA" member echo eve >/dev/null
+fails=0
+check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; fails=$((fails + 1)); fi; }
+count() { python3 -c 'import json,sys; print(len(json.load(sys.stdin)))'; }
+# "kind:audience ..." of the hits for a query, as the env given after the query
+seen() { local q=$1; shift; env "$@" "$R" "$q" --tier all -n 50 --json | python3 -c 'import json,sys; print(" ".join(sorted(h["kind"]+":"+h["audience"] for h in json.load(sys.stdin))))'; }
+SQL() { python3 - "$KITH_SERVE_DB" "$@" <<'PY'
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1]); db.execute('PRAGMA journal_mode=WAL')
+for q in sys.argv[2:]:
+    for r in db.execute(q): print(*r)
+db.commit()
+PY
+}
+
+# the host store as the host makes it (store/schema.rs, crates/memory/src/schema.rs 4): chats, entries, summaries
+python3 - "$KITH_SERVE_DB" <<'PY'
+import json, sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.executescript('''
+CREATE TABLE kv(k TEXT PRIMARY KEY, v TEXT NOT NULL);
+CREATE TABLE bots(id TEXT PRIMARY KEY, rev INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, config TEXT NOT NULL, session_id TEXT, read_rev INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE entries(seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, bot_id TEXT NOT NULL, rev INTEGER NOT NULL, kind TEXT NOT NULL,
+  turn INTEGER NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, thread_id TEXT);
+CREATE TABLE thread_summaries (thread_id TEXT PRIMARY KEY, room TEXT, agent TEXT NOT NULL, audience TEXT NOT NULL, projects TEXT NOT NULL DEFAULT '[]',
+  text TEXT NOT NULL, links TEXT NOT NULL DEFAULT '[]', covered_seq INTEGER NOT NULL, reason TEXT NOT NULL, written_at INTEGER NOT NULL, cost_via TEXT NOT NULL DEFAULT '');
+''')
+def bot(i, **c):
+    db.execute('INSERT INTO bots(id, rev, deleted, config) VALUES(?,?,?,?)', (i, 1, c.pop('deleted', 0), json.dumps({'id': i, 'name': i, **c})))
+bot('own', hqAgent='echo', project='alpha')              # the owner's bot for echo
+bot('samchat', hqAgent='echo', person='sam')             # sam's chat with echo
+bot('evechat', hqAgent='echo', person='eve')
+bot('grp', kind='group')
+bot('gone', hqAgent='echo', deleted=1)
+n = [0]
+def entry(i, bot_id, kind, data, thread=None):
+    n[0] += 1
+    db.execute('INSERT INTO entries(id, bot_id, rev, kind, turn, data, created_at, updated_at, thread_id) VALUES(?,?,?,?,?,?,?,?,?)',
+               (i, bot_id, n[0], kind, 1, json.dumps(data), 1_700_000_000_000 + n[0], 0, thread))
+entry('own-main', 'own', 'user', {'text': 'ownermain walrus plan'})
+entry('t-term', 'own', 'user', {'text': 'terminal walrus start', 'thread': {'origin': 'terminal', 'terminal': {'sessionId': 'tsess'}}})
+entry('t-term-1', 'own', 'tool', {'title': 'Bash cat .env', 'output': 'DATABASE_URL=x\nAPI_KEY=hunter2value\nwalrus tool output sk-abcdefghijklmnop1234 and Bearer abcdefghijklmnopqrstuv'}, 't-term')
+entry('t-term-2', 'own', 'tool', {'title': 'Bash key', 'output': '-----BEGIN RSA PRIVATE KEY-----\nMIIEwalrusSECRETBODY\n-----END RSA PRIVATE KEY-----\nafter walrus'}, 't-term')
+entry('t-own', 'own', 'user', {'text': 'owner thread walrus'})
+entry('t-own-1', 'own', 'agent', {'text': 'owner thread answer walrus', 'final': True}, 't-own')
+entry('t-sam', 'samchat', 'user', {'text': 'sam thread walrus'})
+entry('t-sam-1', 'samchat', 'agent', {'text': 'sam answer walrus', 'final': True}, 't-sam')
+entry('t-sam-term', 'samchat', 'user', {'text': "sam's chat but a terminal walrus", 'thread': {'origin': 'terminal'}})
+entry('t-sam-term-1', 'samchat', 'agent', {'text': 'terminal answer walrus', 'final': True}, 't-sam-term')
+entry('t-eve', 'evechat', 'user', {'text': 'eve thread walrus'})
+entry('t-grp', 'grp', 'user', {'text': 'group thread walrus'})
+entry('t-gone', 'gone', 'user', {'text': 'deleted chat walrus'})
+entry('t-note', 'own', 'notice', {'text': 'a notice walrus'})
+def summary(key, audience, text, links):
+    db.execute('INSERT INTO thread_summaries VALUES(?,?,?,?,?,?,?,?,?,?,?)', (key, '', 'echo', audience, '[]', text, json.dumps(links), 9, 'end', 1_700_000_000_000, 'summary'))
+summary('t-own', 'owner', 'Owner asked about walrus; decided to keep it; left open: naming.', [2])
+summary('t-sam', 'owner', 'Sam walrus summary (the stored audience is not trusted).', [7])
+summary('t-term', 'person:sam', 'Terminal walrus summary.', [2])
+summary('t-eve', 'person:eve', 'Eve walrus summary.', [11])
+db.commit()
+PY
+SEQ_OWN=$(SQL "select seq from entries where id='t-own-1'")
+
+# --- who sees what
+check "owner: summaries and trajectory of every live chat, group room by its id" "[ \"\$(seen walrus KITH_AGENT=echo)\" = 'summary:owner summary:owner summary:person:eve summary:person:sam trajectory:owner trajectory:owner trajectory:owner trajectory:owner trajectory:owner trajectory:owner trajectory:owner trajectory:owner trajectory:person:eve trajectory:person:sam trajectory:person:sam trajectory:room:grp' ]"
+check "the owner's stored summary audience is not trusted: a terminal thread's summary reads owner" "[ \"\$(env KITH_AGENT=echo \"$R\" 'Terminal walrus summary' --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0][\"audience\"])')\" = owner ]"
+check "invitee: only their own chat's rows (summary and trajectory)" "[ \"\$(seen walrus KITH_AGENT=echo KITH_PERSON=sam)\" = 'summary:person:sam trajectory:person:sam trajectory:person:sam' ]"
+check "invitee never sees terminal / owner trajectory, even of their own chat's bot" "! env KITH_AGENT=echo KITH_PERSON=sam \"$R\" walrus --tier all | grep -qE 'terminal walrus|ownermain|owner thread|Terminal walrus summary'"
+check "invitee does not see another person's rows" "! env KITH_AGENT=echo KITH_PERSON=sam \"$R\" walrus --tier all | grep -qi 'eve '"
+check "invitee --thread of the owner's thread: nothing" "[ \"\$(env KITH_AGENT=echo KITH_PERSON=sam \"$R\" walrus --tier all --thread t-term --json)\" = '[]' ]"
+check "bot guest and group-room callers see no trajectory" "[ \"\$(env KITH_AGENT=echo KITH_PERSON=bot-ab12 \"$R\" walrus --tier all --json)\" = '[]' ] && [ \"\$(env KITH_AGENT=echo KITH_PERSON=sam KITH_ROOM=grp1 \"$R\" walrus --tier all --json)\" = '[]' ]"
+check "unknown person: nothing" "[ \"\$(env KITH_AGENT=echo KITH_PERSON=zed \"$R\" walrus --tier all --json)\" = '[]' ]"
+check "a notice is not trajectory; a deleted chat's rows are not indexed" "! env KITH_AGENT=echo \"$R\" walrus --tier all | grep -qE 'a notice|deleted chat'"
+
+# --- tiers, links, narrowing
+check "tier 3 is trajectory only, with links into the thread" "env KITH_AGENT=echo \"$R\" 'owner thread answer' --tier 3 --json | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if len(d)==1 and d[0][\"kind\"]==\"trajectory\" and d[0][\"tier\"]==3 and d[0][\"link\"]==\"kith://thread/t-own#entry=$SEQ_OWN\" else 1)'"
+check "tier 2 (default) is summaries, not trajectory" "[ \"\$(env KITH_AGENT=echo \"$R\" walrus --json | python3 -c 'import json,sys; print(sorted(set(h[\"kind\"] for h in json.load(sys.stdin))))')\" = \"['summary']\" ]"
+check "tier all has both" "[ \"\$(env KITH_AGENT=echo \"$R\" walrus --tier all -n 50 --json | python3 -c 'import json,sys; print(sorted(set(h[\"kind\"] for h in json.load(sys.stdin))))')\" = \"['summary', 'trajectory']\" ]"
+check "a summary links into its thread" "env KITH_AGENT=echo \"$R\" 'Owner asked' --json | grep -q 'kith://thread/t-own#entry=2'"
+check "--thread narrows" "[ \"\$(env KITH_AGENT=echo \"$R\" walrus --tier all --thread t-own --json | python3 -c 'import json,sys; print(sorted(set(h[\"link\"].split(\"#\")[0] for h in json.load(sys.stdin))))')\" = \"['kith://thread/t-own']\" ]"
+check "the main chat is a thread named main:<bot>" "env KITH_AGENT=echo \"$R\" ownermain --tier 3 --json | grep -q 'kith://thread/main:own#entry='"
+check "--project finds the pinned project's chats" "[ \"\$(env KITH_AGENT=echo \"$R\" walrus --tier 3 --project alpha -n 50 --json | count)\" = 6 ]"
+check "text output frames trajectory as data" "env KITH_AGENT=echo \"$R\" 'owner thread answer' --tier 3 | grep -q '^<recalled source=\"trajectory\" tier=\"3\"'"
+
+# --- redaction (indexed text only)
+env KITH_AGENT=echo "$R" walrus --tier 3 -n 50 --json > "$T/out.json"
+check "tool results: keys, tokens, KEY=value and PEM blocks are redacted" "! cat $T/out.json | grep -qE 'hunter2value|sk-abcdef|abcdefghijklmnopqrstuv|MIIEwalrusSECRETBODY|BEGIN RSA'"
+check "redaction keeps the rest of the result searchable" "cat $T/out.json | grep -q 'walrus tool output' && cat $T/out.json | grep -q 'after walrus' && cat $T/out.json | grep -q 'redacted'"
+check "the stored entry is unchanged" "[ \"\$(SQL \"select count(*) from entries where data like '%hunter2value%' and id='t-term-1'\")\" = 1 ]"
+check "redact(): card numbers, ids, secret names" "python3 -c \"
+import sys; sys.path.insert(0,'$KERNEL/lib'); import kith_trajectory as k
+r = k.redact('card 4111 1111 1111 1111 id A123456789 x password: s3cret token=abc123 author: Kai')
+assert '4111' not in r and 'A123456789' not in r and 's3cret' not in r and 'abc123' not in r and 'author: Kai' in r, r\""
+
+# --- incremental by rev: new entries, updated entries
+SQL "insert into entries(id, bot_id, rev, kind, turn, data, created_at, updated_at, thread_id) values('t-own-2','own',100,'agent',1,'{\"text\":\"fresh narwhal reply\",\"final\":true}',1,0,'t-own')" >/dev/null
+check "a new entry is indexed on the next recall" "env KITH_AGENT=echo \"$R\" narwhal --tier 3 | grep -q narwhal"
+SQL "update entries set rev=101, data='{\"text\":\"streamed dolphin reply\",\"final\":true}' where id='t-own-2'" >/dev/null
+check "an updated entry replaces its row (same entry, one row)" "env KITH_AGENT=echo \"$R\" dolphin --tier 3 | grep -q dolphin && ! env KITH_AGENT=echo \"$R\" narwhal --tier 3 | grep -q narwhal"
+
+# --- forget
+check "forget is the owner's: a person is refused" "! env KITH_AGENT=echo KITH_PERSON=sam \"$KERNEL/bin/kith-recall\" forget --thread t-sam 2>/dev/null && [ \"\$(env KITH_AGENT=echo KITH_PERSON=sam \"$R\" 'sam answer' --tier 3 --json | count)\" = 1 ]"
+check "forget needs a thread id" "! env KITH_AGENT=echo \"$R\" forget 2>/dev/null && ! env KITH_AGENT=echo \"$R\" forget --thread '../x' 2>/dev/null"
+env KITH_AGENT=echo "$R" forget --thread t-own >/dev/null
+check "forget removes the thread's summary and trajectory rows from recall" "[ \"\$(env KITH_AGENT=echo \"$R\" 'owner thread' --tier all --json)\" = '[]' ]"
+check "forget keeps the entries and drops the stored summary" "[ \"\$(SQL \"select count(*) from entries where thread_id='t-own'\")\" = 2 ] && [ \"\$(SQL \"select count(*) from thread_summaries where thread_id='t-own'\")\" = 0 ] && [ \"\$(SQL \"select count(*) from thread_forgotten\")\" = 1 ]"
+SQL "insert into entries(id, bot_id, rev, kind, turn, data, created_at, updated_at, thread_id) values('t-own-3','own',200,'agent',1,'{\"text\":\"later walrus after forget\"}',1,0,'t-own')" >/dev/null
+env KITH_AGENT=echo "$R" index rebuild >/dev/null
+check "a forgotten thread is never indexed again, even after a rebuild or new entries" "! env KITH_AGENT=echo \"$R\" 'after forget' --tier all | grep -q 'after forget'"
+check "other threads are untouched" "env KITH_AGENT=echo \"$R\" 'terminal walrus start' --tier 3 | grep -q 'terminal walrus start'"
+
+# --- harness logs: only when the cost ledger attributes the session
+P=$HOME/.claude/projects/-work; mkdir -p "$P"
+log() { printf '%s\n' '{"type":"user","message":{"role":"user","content":"harness walrus question"}}' \
+  '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"harness walrus answer"},{"type":"tool_use","name":"Read","input":{"file_path":"/work/harness.txt"}}]}}' \
+  '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"result walrus TOKEN=abc999secret"}]}}' > "$P/$1.jsonl"; }
+log own1; log sam1; log lost1; log term1
+python3 - "$KITH_STATE/cost.db" <<'PY'
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.execute('create table runs (session text primary key, agent text, version text, model text, effort text, via text, project text, started text, person text, provider text, account text)')
+db.executemany('insert into runs(session, agent, via, person) values (?,?,?,?)',
+               [('own1', 'echo', 'terminal', None), ('sam1', 'echo', 'app', 'sam'), ('term1', 'echo', 'terminal', None)])
+db.commit()
+PY
+mkdir -p "$KITH_STATE/live/terminal"; echo '{}' > "$KITH_STATE/live/terminal/term1.json"
+env KITH_AGENT=echo "$R" 'harness walrus' --tier 3 -n 50 --json > "$T/harness.json"
+check "an attributed owner log is indexed as owner trajectory" "cat $T/harness.json | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if any(h[\"link\"].startswith(\"kith://thread/own1#entry=\") and h[\"audience\"]==\"owner\" for h in d) else 1)'"
+check "an unattributed log is skipped, and so is a terminal session the host imports" "! cat $T/harness.json | grep -qE 'thread/(lost1|term1)'"
+check "a person's log is theirs alone" "cat $T/harness.json | grep -q 'thread/sam1' && [ \"\$(env KITH_AGENT=echo KITH_PERSON=sam \"$R\" 'harness walrus' --tier 3 -n 50 --json | python3 -c 'import json,sys; print(sorted(set(h[\"link\"].split(\"#\")[0] for h in json.load(sys.stdin))))')\" = \"['kith://thread/sam1']\" ]"
+for w in walrus Read; do env KITH_AGENT=echo "$R" $w --tier 3 --thread own1 -n 50 --json; done > "$T/harness2.json"
+check "harness tool calls are chunks, results are redacted" "! cat $T/harness2.json | grep -q abc999secret && cat $T/harness2.json | grep -q 'Read /work/harness.txt' && cat $T/harness2.json | grep -q 'redacted'"
+
+# --- index housekeeping
+DB=$KITH_STATE/index/memory.db
+check "index is still private (0700 / 0600)" "[ \"\$(stat -f %Lp $KITH_STATE/index 2>/dev/null || stat -c %a $KITH_STATE/index)\" = 700 ] && [ \"\$(stat -f %Lp $DB 2>/dev/null || stat -c %a $DB)\" = 600 ]"
+check "no host store: notes still recalled, no error" "echo 'plain note zebra' > $KITH_HOME/agents/echo/memory/MEMORY.md; mv $KITH_SERVE_DB $KITH_SERVE_DB.off; rm -f $KITH_SERVE_DB-wal $KITH_SERVE_DB-shm; env KITH_AGENT=echo \"$R\" index rebuild >/dev/null && env KITH_AGENT=echo \"$R\" zebra | grep -q 'plain note'"
+
+echo
+if [ $fails = 0 ]; then echo "all passed"; else echo "$fails failed"; exit 1; fi

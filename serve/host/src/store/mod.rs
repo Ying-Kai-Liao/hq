@@ -12,6 +12,7 @@ mod memory;
 mod model;
 mod people;
 mod schema;
+mod threads;
 
 pub use devices::{Device, DeviceSource, Scope};
 pub use model::{BotConfig, BotKind, BotRow, Entry, EntryKind, Lane, Permission, ReadScope, lane_key};

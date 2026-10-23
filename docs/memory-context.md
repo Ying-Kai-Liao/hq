@@ -463,6 +463,24 @@ Split:
 - Tests: summary written twice replaces; terminal thread indexes owner-only; redaction covers the secret shapes;
   rollover keeps the old trajectory. Depends on 1b.
 
+Built (2026-10-23), where it differs from the plan above:
+
+- The prose summary is `kith_mem::summary` (table `thread_summaries` in the host database, migration 4); the host's
+  `thread_summary` in `entries.rs` stays the thread-row metadata. The thread id is the root entry id, or `main:<bot id>`
+  for a bot's own chat (its endless conversation is one thread). A thread's root entry sits in the chat but belongs to the
+  thread. `links` are entry `seq` numbers (`kith://thread/<id>#entry=<seq>`), the user's messages evenly picked.
+- A thread has ended when it has had no chat message for 30 minutes (a sweep every 5 minutes per bot, two summaries at
+  most per sweep), or when its conversation rolled over (the handoff was sent). The apps have no explicit close. A
+  compaction (any harness, hq agents included) writes one too. Threads quiet before the sweep first ran are not
+  backfilled: they get a summary when a message arrives in them, or on `kith summarise --thread <id>` (owner only, through
+  the host API `summariseThread`). A summary that fails the memory checks is logged and not stored, and the thread is not
+  tried again until it has new messages.
+- The index reads the host database read-only (no host process needed) and the cost ledger/Claude logs for harness-only
+  runs. Trajectory is incremental by the entry `rev` cursor (a streamed reply is one entry updated in place). `kith forget
+  --thread <id>` writes `thread_forgotten` in the host database and removes the stored summary; the entries stay.
+- Cost: summary runs are recorded with `KITH_VIA=summary`, `KITH_PERSON` and `KITH_PROJECT` of the chat; the room is the
+  agent and person (`1:1:<agent>:<person>`).
+
 ### 3. Load filter at thread start
 
 - Replace the memory section with the facet filter, the fixed order and the size budget.
