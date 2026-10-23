@@ -52,9 +52,14 @@ struct RootView: View {
             }
         }
         .kithSheet(isPresented: Bindable(app).showComputers) {
-            // Holds the pushes inside the sheet (Widgets, Live Activity); no bar shows.
-            NavigationStack { SettingsView() }
+            // Holds the pushes inside the sheet; no bar shows.
+            NavigationStack { SettingsView(mode: .computers) }
         }
+        .kithSheet(isPresented: Bindable(app).showSettings) {
+            // Holds the pushes inside the sheet (Widgets & Live Activities); no bar shows.
+            NavigationStack { SettingsView(mode: .settings) }
+        }
+        .kithSheet(isPresented: Bindable(app).showUsage) { UsageSheet() }
         .kithSheet(item: Binding(get: { app.guestPrompt.map(GuestPromptTarget.init) }, set: { app.guestPrompt = $0?.ref })) { target in
             let ref = target.ref
             if let store = accounts.store(for: ref.computerId) {
@@ -78,29 +83,16 @@ struct RootView: View {
         }
     }
 
-    /// The system tab bar; both tabs stay alive (scroll position, open thread) and the bar hides while a
-    /// thread is open.
+    /// Home is one stack: Crew, with a chat pushed over it. Usage, Extensions, Computers and Settings are sheets from
+    /// the profile menu; opening a bot (notification, widget, link) pushes its chat.
     private var tabs: some View {
-        TabView(selection: Bindable(app).tab) {
-            Tab("Bots", systemImage: "bubble.left.and.bubble.right.fill", value: AppTab.bots) {
-                NavigationStack(path: path) {
-                    BotListView()
-                        .safeAreaInset(edge: .bottom, spacing: 0) { AccessBanners() }
-                        .navigationDestination(for: BotReference.self) { ref in
-                            ChatScreen(ref: ref).toolbar(.hidden, for: .tabBar)
-                        }
+        NavigationStack(path: path) {
+            BotListView()
+                .navigationDestination(for: BotReference.self) { ref in
+                    ChatScreen(ref: ref)
                 }
-            }
-            Tab("State", systemImage: "rectangle.stack.fill", value: AppTab.state) {
-                StateTab()
-                    .safeAreaInset(edge: .bottom, spacing: 0) { AccessBanners() }
-            }
-            // Usage and widgets are the owner's: an account that only joined computers by invite has none.
-            .hidden(!accounts.computers.isEmpty && accounts.ownedComputers.isEmpty)
         }
         .tint(Palette.text)
-        // Opening a bot (notification, widget, link) always lands on the Bots tab.
-        .onChange(of: accounts.selection) { _, ref in if ref != nil { app.tab = .bots } }
     }
 
     // MARK: one place for every computer's errors and screen requests
@@ -162,13 +154,12 @@ private struct ChatScreen: View {
 }
 
 /// Where your bots show up outside the app: Widget, Live Activity and Dynamic Island,
-/// each designed and switched on here. Usage limits open from the header.
-private struct StateTab: View {
+/// each designed and switched on here. Settings > Widgets & Live Activities.
+struct WidgetsAndActivitiesView: View {
     enum Surface: Hashable { case widget, liveActivity, island }
 
-    @Environment(AppStore.self) private var app
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    // Screenshots: KITH_STATE_SURFACE=widget|liveActivity|island opens the tab on that gallery.
+    // Screenshots: KITH_STATE_SURFACE=widget|liveActivity|island opens it on that gallery.
     @State private var surface: Surface = {
         #if DEBUG
             switch ProcessInfo.processInfo.environment["KITH_STATE_SURFACE"] {
@@ -183,13 +174,6 @@ private struct StateTab: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScreenHeader {
-                EmptyView()
-            } title: {
-                Text("State").font(.body.weight(.semibold)).foregroundStyle(Palette.text)
-            } trailing: {
-                IconButton("Usage limits", systemImage: "chart.bar") { app.showUsage = true }
-            }
             SegmentedChoice(selection: $surface, options: [
                 (.widget, "Widget"), (.liveActivity, "Live Activity"), (.island, "Dynamic Island"),
             ])
@@ -198,7 +182,7 @@ private struct StateTab: View {
             ZStack {
                 // Holds the gallery's pushes (Lock Screen widgets); no bar shows.
                 NavigationStack { WidgetGalleryView() }
-                    .environment(\.stateSurfaceActive, app.tab == .state && surface == .widget)
+                    .environment(\.stateSurfaceActive, surface == .widget)
                     .tabLayer(surface == .widget)
                 ActivityGalleryView(forms: [.lockScreen])
                     .tabLayer(surface == .liveActivity)
@@ -207,8 +191,7 @@ private struct StateTab: View {
             }
             .animation(Motion.reduced(Motion.fade, reduceMotion), value: surface)
         }
-        .background(Palette.background)
-        .kithSheet(isPresented: Bindable(app).showUsage) { UsageSheet() }
+        .page("Widgets & Live Activities", pushed: true)
     }
 }
 
@@ -331,7 +314,7 @@ private extension View {
 }
 
 /// Account computers this iPhone asked on its own after sign-in: the code to check, until they answer.
-private struct AccessBanners: View {
+struct AccessBanners: View {
     @Environment(AccountStore.self) private var accounts
 
     var body: some View {

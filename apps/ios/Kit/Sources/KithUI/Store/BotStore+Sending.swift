@@ -52,8 +52,10 @@ extension BotStore {
     }
 
     /// `thread`: reply in the thread on that main-chat message.
-    public func send(_ text: String, to botId: String, thread: String? = nil, files: [OutgoingFile] = []) {
-        send(text, to: botId, thread: thread, nonce: UUID().uuidString, files: files)
+    /// `newTask`: starts a new task (a fresh session) instead of going on with the current one, as the composer's
+    /// "new task" does.
+    public func send(_ text: String, to botId: String, thread: String? = nil, files: [OutgoingFile] = [], newTask: Bool = false) {
+        send(text, to: botId, thread: thread, nonce: UUID().uuidString, files: files, newTask: newTask)
     }
 
     private func send(_ text: String, to botId: String, thread: String?, nonce: String, files: [OutgoingFile] = [],

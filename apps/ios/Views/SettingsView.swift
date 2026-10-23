@@ -7,6 +7,9 @@ import SwiftUI
 struct SettingsView: View {
     /// Pushed inside Accounts rather than opened as its own sheet.
     var pushed = false
+    /// Which half of the screen shows: the profile menu opens Computers and Settings apart, the Account sheet both.
+    enum Mode { case all, computers, settings }
+    var mode = Mode.all
     @Environment(AppStore.self) private var app
     @Environment(AccountStore.self) private var accounts
     @Environment(\.dismissModal) private var dismissModal
@@ -25,9 +28,17 @@ struct SettingsView: View {
     @State private var aboutAnalytics = false
     @State private var showLicenses = false
     @State private var newChat: VoiceTarget?
+    @AppStorage(CrewOrderMode.storageKey) private var crewOrder = CrewOrderMode.automatic.rawValue
+    @AppStorage("hiddenComputers") private var hiddenComputers = ""
+    @State private var widgets = false
+
+    private var showsComputers: Bool { mode != .settings }
+    private var showsSettings: Bool { mode != .computers }
+    private var title: String { mode == .computers ? "Computers" : mode == .settings ? "Settings" : "Computers & settings" }
 
     var body: some View {
         CardForm {
+            if showsComputers {
             CardSection("Computers", footer: app.account.isSignedIn
                         ? "Computers in your account need your OK on the computer before this iPhone can use them."
                         : "Each bot runs on its own computer. Sign in to see the computers in your account.") {
@@ -62,9 +73,12 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
             }
 
+            if accounts.computers.count > 1 { crewFilter }
+            }
+
             // What only the owner of a computer can use: a person invited to one sees none of it.
             let online = accounts.ownedComputers.compactMap { accounts.store(for: $0.id) }.filter { $0.connection == .online }
-            if !online.isEmpty {
+            if showsSettings, !online.isEmpty {
                 CardSection("Voice chat", footer: "Apple speech on this iPhone, or OpenAI and Gemini on your own API key, kept on the computer.") {
                     ForEach(online, id: \.computer.id) { store in
                         Button { voice = VoiceTarget(store: store) } label: {
@@ -78,16 +92,17 @@ struct SettingsView: View {
             }
 
             // Linking their own Telegram or Discord account is for an invited person too.
-            if let linkStore = online.first ?? accounts.computers.compactMap({ accounts.store(for: $0.id) }).first(where: { $0.connection == .online }) {
+            if showsSettings, let linkStore = online.first ?? accounts.computers.compactMap({ accounts.store(for: $0.id) }).first(where: { $0.connection == .online }) {
                 LinkChatSection(store: linkStore)
             }
 
-            if let owner = online.first {
+            if showsSettings, let owner = online.first {
                 PeopleSection(store: owner)
             }
 
-            BackupsStatusSection()
+            if showsComputers { BackupsStatusSection() }
 
+            if showsSettings {
             CardSection("Notifications", footer: "Get a result summary, a request for input, or a failure notice. Notification previews follow your iOS settings.") {
                 Toggle("Push notifications", isOn: $notificationsEnabled)
                     .toggleStyle(.kith)
@@ -109,7 +124,23 @@ struct SettingsView: View {
                 }
             }
 
-            if !hiddenBots.isEmpty {
+            CardSection("Crew order", footer: crewOrder == CrewOrderMode.manual.rawValue
+                        ? "Your drag order for every room, synced to your computers. Pinned rooms stay on top."
+                        : "Pinned rooms first, then rooms that need you, then working, then recent. Pinned rooms can still be dragged.") {
+                SegmentedChoice(selection: $crewOrder, options: CrewOrderMode.allCases.map { ($0.rawValue, $0.label) })
+            }
+
+            if accounts.computers.isEmpty || !accounts.ownedComputers.isEmpty {
+                CardSection(footer: "Design how your bots show up on the Home Screen, Lock Screen and Dynamic Island.") {
+                    Button { widgets = true } label: {
+                        LinkRow { Label("Widgets & Live Activities", systemImage: "rectangle.stack") }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            }
+
+            if showsSettings, !hiddenBots.isEmpty {
                 CardSection("Hidden bots") {
                     ForEach(hiddenBots) { item in
                         let store = item.store, bot = item.bot
@@ -128,6 +159,7 @@ struct SettingsView: View {
                 }
             }
 
+            if showsSettings {
             CardSection {
                 ValueRow("App version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
                 Button("Source code") { openURL(URL(string: "https://github.com/Ying-Kai-Liao/kith")!) }
@@ -147,7 +179,9 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
             }
+            }
         }
+        .navigationDestination(isPresented: $widgets) { WidgetsAndActivitiesView() }
         .kithDialog("Remove the older \(confirmRemoveCopy?.name ?? "computer")?", isPresented: Binding(
             get: { confirmRemoveCopy != nil }, set: { if !$0 { confirmRemoveCopy = nil } }
         ), message: "It's this computer under an earlier identity and can't be reached anymore. Removing it only cleans up your account.") {
@@ -159,7 +193,7 @@ struct SettingsView: View {
             [DialogAction("Start over", destructive: true) { Task { await app.startOver() } }]
         }
         .refreshable { await accounts.refreshCloud() }
-        .page("Computers & settings", pushed: pushed)
+        .page(title, pushed: pushed)
         .task { await accounts.refreshCloud() }
         .kithSheet(isPresented: $addingComputer) {
             PairingView(inModal: true)
@@ -186,8 +220,43 @@ struct SettingsView: View {
             }]
         }
         .task { notificationsAllowed = await PushRegistrar.shared.isAllowed() }
+        .task { if app.openWidgets { app.openWidgets = false; widgets = true } }
     }
 
+
+    /// Which computers' rooms Crew lists, and the order the computers are kept in on this iPhone: what the roster's
+    /// computer filter and headings did before rooms from every computer became one crew.
+    private var crewFilter: some View {
+        let selection = ComputerSelection(all: accounts.computers.map(\.id), hidden: hiddenComputers)
+        return CardSection("Show in Crew", footer: "Rooms from every shown computer appear together in Crew. This only changes this iPhone.") {
+            ForEach(Array(accounts.computers.enumerated()), id: \.element.id) { index, computer in
+                HStack(spacing: 4) {
+                    Toggle(isOn: Binding(get: { selection.shown.contains(computer.id) },
+                                         set: { _ in withAnimation(Motion.layout) { hiddenComputers = selection.toggling(computer.id) } })) {
+                        Text(accounts.store(for: computer.id)?.hostName ?? computer.name).lineLimit(1)
+                    }
+                    .toggleStyle(.kith)
+                    IconButton("Move \(computer.name) up", systemImage: "chevron.up") {
+                        withAnimation(Motion.layout) { accounts.move(computer.id, to: accounts.computers[index - 1].id) }
+                    }
+                    .disabled(index == 0)
+                    IconButton("Move \(computer.name) down", systemImage: "chevron.down") {
+                        withAnimation(Motion.layout) { accounts.move(computer.id, to: accounts.computers[index + 1].id) }
+                    }
+                    .disabled(index == accounts.computers.count - 1)
+                }
+            }
+            Button {
+                for computer in accounts.computers { accounts.store(for: computer.id)?.restartStream() }
+            } label: {
+                Label("Reconnect", systemImage: "arrow.clockwise")
+                    .foregroundStyle(Palette.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
 
     private struct VoiceTarget: Identifiable {
         let store: BotStore

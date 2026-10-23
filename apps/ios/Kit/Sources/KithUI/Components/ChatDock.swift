@@ -20,6 +20,12 @@ public enum ChatDockLayout {
     }
 }
 
+/// How the send button looks. Additive: Crew home greys the arrow while the typed words lead to a room and spells
+/// out "Send" when nothing matches; chats keep `.ink`.
+public enum ChatDockSendStyle: Sendable {
+    case ink, muted, word
+}
+
 /// The chat box: a floating Liquid Glass pill (54 pt). `+` opens Photos / Camera / Files; a text field; mic when
 /// empty, send when there is text; a round glass call button to its right that slides away while typing.
 ///
@@ -36,13 +42,14 @@ public struct ChatDock<Accessory: View>: View {
     let onPhotos: () -> Void
     let onCamera: () -> Void
     let onFiles: () -> Void
+    let sendStyle: ChatDockSendStyle
     let accessory: Accessory
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(text: Binding<String>, placeholder: String, showsCall: Bool = true, hasAttachment: Bool = false,
                 onSend: @escaping () -> Void = {}, onMic: @escaping () -> Void = {}, onCall: @escaping () -> Void = {},
                 onPhotos: @escaping () -> Void = {}, onCamera: @escaping () -> Void = {}, onFiles: @escaping () -> Void = {},
-                @ViewBuilder accessory: () -> Accessory) {
+                sendStyle: ChatDockSendStyle = .ink, @ViewBuilder accessory: () -> Accessory) {
         _text = text
         self.placeholder = placeholder
         self.showsCall = showsCall
@@ -53,6 +60,7 @@ public struct ChatDock<Accessory: View>: View {
         self.onPhotos = onPhotos
         self.onCamera = onCamera
         self.onFiles = onFiles
+        self.sendStyle = sendStyle
         self.accessory = accessory()
     }
 
@@ -107,10 +115,18 @@ public struct ChatDock<Accessory: View>: View {
     @ViewBuilder private var trailingButton: some View {
         if ChatDockLayout.showsSend(text: text, hasAttachment: hasAttachment) {
             Button(action: onSend) {
-                Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(Palette.background)
-                    .frame(width: 44, height: 44)
-                    .background(Palette.ink, in: Circle())
-                    .contentShape(Circle())
+                switch sendStyle {
+                case .word:
+                    Text("Send").kithText(.body).fontWeight(.semibold).foregroundStyle(Palette.background)
+                        .padding(.horizontal, 16).frame(minWidth: 44, minHeight: 44)
+                        .background(Palette.ink, in: Capsule())
+                        .contentShape(Capsule())
+                default:
+                    Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(Palette.background)
+                        .frame(width: 44, height: 44)
+                        .background(sendStyle == .muted ? Palette.muted : Palette.ink, in: Circle())
+                        .contentShape(Circle())
+                }
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text("Send"))
@@ -129,9 +145,11 @@ public struct ChatDock<Accessory: View>: View {
 public extension ChatDock where Accessory == EmptyView {
     init(text: Binding<String>, placeholder: String, showsCall: Bool = true, hasAttachment: Bool = false,
          onSend: @escaping () -> Void = {}, onMic: @escaping () -> Void = {}, onCall: @escaping () -> Void = {},
-         onPhotos: @escaping () -> Void = {}, onCamera: @escaping () -> Void = {}, onFiles: @escaping () -> Void = {}) {
+         onPhotos: @escaping () -> Void = {}, onCamera: @escaping () -> Void = {}, onFiles: @escaping () -> Void = {},
+         sendStyle: ChatDockSendStyle = .ink) {
         self.init(text: text, placeholder: placeholder, showsCall: showsCall, hasAttachment: hasAttachment, onSend: onSend,
-                  onMic: onMic, onCall: onCall, onPhotos: onPhotos, onCamera: onCamera, onFiles: onFiles) { EmptyView() }
+                  onMic: onMic, onCall: onCall, onPhotos: onPhotos, onCamera: onCamera, onFiles: onFiles,
+                  sendStyle: sendStyle) { EmptyView() }
     }
 }
 

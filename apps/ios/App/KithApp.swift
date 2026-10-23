@@ -86,8 +86,11 @@ struct KithApp: App {
                     if let s = ProcessInfo.processInfo.environment["KITH_PAIR_URL"], let p = Pairing(string: s) {
                         _ = try? await app.pair(p)
                     }
-                    if ProcessInfo.processInfo.environment["KITH_OPEN_USAGE"] != nil { app.tab = .state; app.showUsage = true }
-                    if ProcessInfo.processInfo.environment["KITH_STATE_SURFACE"] != nil { app.tab = .state }
+                    if ProcessInfo.processInfo.environment["KITH_OPEN_USAGE"] != nil { app.showUsage = true }
+                    // Screenshots: Settings, opened on the Widgets & Live Activities page.
+                    if ProcessInfo.processInfo.environment["KITH_STATE_SURFACE"] != nil { app.showSettings = true; app.openWidgets = true }
+                    if ProcessInfo.processInfo.environment["KITH_OPEN_SETTINGS"] != nil { app.showSettings = true }
+                    if ProcessInfo.processInfo.environment["KITH_OPEN_COMPUTERS"] != nil { app.showComputers = true }
                     // Screenshots: KITH_OPEN_URL=kith://bot/<botId>?scope=local&computer=<id>, without the system prompt.
                     if let s = ProcessInfo.processInfo.environment["KITH_OPEN_URL"], let url = URL(string: s) {
                         try? await Task.sleep(for: .seconds(1))
@@ -104,8 +107,6 @@ struct KithApp: App {
     }
 }
 
-enum AppTab: Hashable { case bots, state }
-
 /// One `AccountStore` per account context: switching accounts retires the old one so
 /// in-flight work can't land on another user's screen or storage.
 @MainActor
@@ -119,9 +120,13 @@ final class AppStore {
     private(set) var contextID: String
     /// Bumped by Start over so the whole UI is rebuilt, even though the local context keeps its id.
     private(set) var generation = 0
-    var tab = AppTab.bots
+    /// The Computers sheet (profile menu, `kith://computers`).
     var showComputers = false
-    /// The usage limits sheet over the State tab.
+    /// The Settings sheet (profile menu).
+    var showSettings = false
+    /// Settings opens on its Widgets & Live Activities page (a screenshot hook).
+    var openWidgets = false
+    /// The usage limits sheet (profile menu, `kith://usage`).
     var showUsage = false
     /// The computer whose marketplace is open.
     var marketplace: ComputerID?
@@ -161,8 +166,9 @@ final class AppStore {
         SharedStore.activeAccountID = userID
         storage.bots = []
         contextID = storage.id
-        tab = .bots
         showComputers = false
+        showSettings = false
+        showUsage = false
         marketplace = nil
         guestPrompt = nil
         (accounts, cloud) = Self.makeAccounts(storage, session: account)
@@ -197,9 +203,10 @@ final class AppStore {
         SharedStore.activeAccountID = nil
         UserDefaults.standard.set(false, forKey: "onboardingCompleted")
         showComputers = false
+        showSettings = false
+        showUsage = false
         account.showSwitcher = false
         marketplace = nil
-        tab = .bots
         contextID = storage.id
         (accounts, cloud) = Self.makeAccounts(storage, session: account)
         generation += 1
@@ -238,15 +245,12 @@ final class AppStore {
             openBot(ref)
         case "plugins":
             accounts.selection = nil
-            tab = .bots
             marketplace = currentStore?.computer.id
         case "usage":
             accounts.selection = nil
-            tab = .state
             showUsage = true
         case "computers":
             accounts.selection = nil
-            tab = .bots
             showComputers = true
         case "screen":
             currentStore?.screenRequest = ScreenRequest()
@@ -258,7 +262,6 @@ final class AppStore {
     /// Opens a bot's chat. A chat the account has no bot for, on a computer it owns, is a guest's: its push is for the
     /// request waiting there, which shows as a card instead of a chat that isn't the owner's.
     func openBot(_ ref: BotReference) {
-        tab = .bots
         if accounts.opensGuestPrompt(ref) {
             accounts.selection = nil
             guestPrompt = ref
