@@ -10,7 +10,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/kith-serve-check.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 export HOME=$T/home
 mkdir -p "$HOME" "$T/repo/kernel/bin" "$T/repo/serve/host/src" "$T/stubs" "$T/target/dev-app"
-unset KITH_HOME CARGO_TARGET_DIR KITH_KERNEL_BIN HQ_BIN KITH_SERVE_LAUNCHER KITH_SERVE_ENV
+unset KITH_HOME CARGO_TARGET_DIR KITH_KERNEL_BIN HQ_BIN KITH_SERVE_LAUNCHER KITH_SERVE_ENV KITH_SERVE_DEV
 export CARGO_TARGET_DIR=$T/target
 
 cp "$KERNEL/bin/kith-serve" "$T/repo/kernel/bin/"
@@ -44,6 +44,37 @@ BIN=$HOME/.kith/serve/bin/kith-serve
 fails=0
 check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; fails=$((fails + 1)); fi; }
 count() { grep -c "$1" "$STUB_LOG" || true; }
+
+# The live-host guard: this temp repo is not ~/.kith/hq-serve, so a plain start must not build from it.
+: > "$STUB_LOG"
+out=$("$SERVE" start 2>&1); rc=$?
+check "start from a non-live checkout without hq-serve refuses" "[ $rc = 1 ] && echo \"\$out\" | grep -q 'hq-serve' && echo \"\$out\" | grep -q -- '--dev'"
+check "the refusal builds and installs nothing" "[ ! -s '$STUB_LOG' ] && [ ! -e '$BIN' ]"
+out=$("$SERVE" restart 2>&1); rc=$?
+check "restart from a non-live checkout refuses too" "[ $rc = 1 ] && ! grep -q 'cargo' '$STUB_LOG'"
+# a fake live checkout: its script is a copy that logs, and does not delegate (it is the live one)
+LIVE=$HOME/.kith/hq-serve; mkdir -p "$LIVE/kernel/bin" "$LIVE/serve/host"
+printf '#!/usr/bin/env bash\necho "live-serve $*" >> "$STUB_LOG"\n' > "$LIVE/kernel/bin/kith-serve"; chmod +x "$LIVE/kernel/bin/kith-serve"
+: > "$STUB_LOG"; out=$("$SERVE" start --no-build 2>&1); rc=$?
+check "start from a non-live checkout hands over to hq-serve with the same arguments" "[ $rc = 0 ] && grep -qx 'live-serve start --no-build' '$STUB_LOG' && echo \"\$out\" | grep -q 'hq-serve'"
+check "handing over builds nothing here" "! grep -q cargo '$STUB_LOG'"
+mkdir -p "$HOME/.kith/serve/bin"; printf '#!/bin/sh\n' > "$BIN"; chmod +x "$BIN"
+: > "$STUB_LOG"; "$SERVE" restart >/dev/null 2>&1
+check "restart hands over as start --no-build" "grep -qx 'live-serve start --no-build' '$STUB_LOG' && ! grep -q cargo '$STUB_LOG'"
+# the live checkout itself (reached through a symlink) builds normally and never loops
+rm -rf "$LIVE"; mkdir -p "$HOME/.kith"; cp -R "$T/repo" "$LIVE"; ln -s "$LIVE" "$T/livelink"
+: > "$STUB_LOG"; out=$("$T/livelink/kernel/bin/kith-serve" start 2>&1); rc=$?
+check "the live checkout builds from itself (no handover loop, symlink resolved)" "[ $rc = 0 ] && grep -q 'cargo build' '$STUB_LOG'"
+rm -rf "$LIVE" "$HOME/.kith/serve" "$T/livelink"
+# --dev and KITH_SERVE_DEV=1 build from here
+: > "$STUB_LOG"; "$SERVE" start --dev >/dev/null 2>&1
+check "start --dev builds from this checkout" "grep -q 'cargo build.*--bin kith-serve' '$STUB_LOG' && [ -x '$BIN' ]"
+rm -rf "$HOME/.kith/serve"; : > "$STUB_LOG"; KITH_SERVE_DEV=1 "$SERVE" start >/dev/null 2>&1
+check "KITH_SERVE_DEV=1 builds from this checkout" "grep -q 'cargo build.*--bin kith-serve' '$STUB_LOG' && [ -x '$BIN' ]"
+rm -rf "$HOME/.kith/serve"
+# everything below is the dev workflow
+export KITH_SERVE_DEV=1
+: > "$STUB_LOG"
 
 # start: builds when missing, copies, installs on 19224
 out=$("$SERVE" start 2>&1); rc=$?
@@ -174,5 +205,24 @@ printf '#!/bin/sh\necho two\n' > "$CARGO_TARGET_DIR/dev-app/kith-tts"; chmod +x 
 check "a newer kith-tts replaces the old one" "cmp -s '$CARGO_TARGET_DIR/dev-app/kith-tts' '$HOME/.kith/serve/bin/kith-tts'"
 check "no temp files left beside the host" "[ -z \"\$(ls '$HOME/.kith/serve/bin' | grep tmp)\" ]"
 rm -f "$CARGO_TARGET_DIR/dev-app/kith-tts"
+
+# kith_paths.kith_bin: the installed host wins over a dev build in CARGO_TARGET_DIR, unless the dev one is asked for.
+stubhook() { mkdir -p "$(dirname "$1")"; printf '#!/bin/sh\necho "phase %s"\n' "$2" > "$1"; chmod +x "$1"; }
+resolve() { python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import kith_paths; print(kith_paths.kith_bin())' "$KERNEL/lib"; }
+rm -rf "$HOME/.kith"; mkdir -p "$T/ptarget"
+stubhook "$T/ptarget/dev-app/kith" built
+(
+  unset KITH_BIN KITH_DEV_BIN; export CARGO_TARGET_DIR=$T/ptarget
+  check "kith_bin: no installed host falls back to the target build" "[ \"\$(resolve)\" = '$T/ptarget/dev-app/kith' ]"
+  stubhook "$HOME/.kith/serve/bin/kith-serve" installed
+  check "kith_bin: the installed host beats CARGO_TARGET_DIR" "[ \"\$(resolve)\" = '$HOME/.kith/serve/bin/kith-serve' ]"
+  check "kith_bin: KITH_DEV_BIN=1 picks the target build" "[ \"\$(KITH_DEV_BIN=1 resolve)\" = '$T/ptarget/dev-app/kith' ]"
+  stubhook "$T/explicit/kith" explicit
+  check "kith_bin: KITH_BIN beats both" "[ \"\$(KITH_BIN='$T/explicit/kith' resolve)\" = '$T/explicit/kith' ]"
+  check "kith_bin: KITH_BIN beats the target build under KITH_DEV_BIN=1 too" "[ \"\$(KITH_DEV_BIN=1 KITH_BIN='$T/explicit/kith' resolve)\" = '$T/explicit/kith' ]"
+  echo "$fails" > "$T/fails"
+)
+fails=$(cat "$T/fails")
+rm -rf "$HOME/.kith" "$T/ptarget"
 
 [ $fails = 0 ] && echo "all good" || { echo "$fails check(s) failed"; exit 1; }
