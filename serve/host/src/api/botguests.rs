@@ -1036,7 +1036,7 @@ fn thread(hub: &Hub, bot: &BotGuest, b: &Value) -> Result<Value> {
     };
     let shape = |e: &Entry| roles::bot_entry(&json!(e), &conv.conversation_id, &waits_on);
     let entries: Vec<Value> =
-        all.iter().filter(|e| e.seq > after).filter_map(shape).take(usize::try_from(limit).unwrap_or(200)).collect();
+        all.iter().filter(|e| e.rev > after).filter_map(shape).take(usize::try_from(limit).unwrap_or(200)).collect();
     // Done: the last ask has its final answer, or a terminal notice, or was taken back.
     let last = all.iter().rev().find(|e| e.kind == EntryKind::User.as_str());
     let done = last.is_none_or(|u| {
