@@ -124,6 +124,10 @@ pub fn start(hub: &Arc<Hub>) {
     }
     let hub = hub.clone();
     tokio::spawn(async move {
+        let h = hub.clone();
+        if let Err(error) = tokio::task::spawn_blocking(move || backfill_finals(&h)).await {
+            tracing::warn!(%error, "final-reply repair failed");
+        }
         loop {
             let h = hub.clone();
             if let Err(error) = tokio::task::spawn_blocking(move || scan(&h)).await {
@@ -483,6 +487,8 @@ fn apply(hub: &Hub, t: &Thread, items: &[Item], live: bool) {
     let mut tools: Option<HashMap<String, String>> = None;
     let mut final_id = hub.store.kv_get(&final_key(t)).filter(|s| !s.is_empty());
     let lane = t.lane();
+    // A turn's last reply is its final one, as in app turns: only a later reply moves it, never a thought or a
+    // tool call, and a new user message starts a turn without touching the last one's.
     let unfinal = |final_id: &mut Option<String>| {
         if let Some(id) = final_id.take()
             && let Some(mut e) = hub.store.entry(&id)
@@ -497,6 +503,7 @@ fn apply(hub: &Hub, t: &Thread, items: &[Item], live: bool) {
             Item::User { text, at } => {
                 let data = json!({"text": cap_text(text), "status": "sent", "clientNonce": "", "attachments": []});
                 hub.add_entry_at(&lane, EntryKind::User, turn + 1, &data, *at);
+                final_id = None;
             }
             Item::Agent { text, at } => {
                 unfinal(&mut final_id);
@@ -504,11 +511,9 @@ fn apply(hub: &Hub, t: &Thread, items: &[Item], live: bool) {
                 final_id = hub.add_entry_at(&lane, EntryKind::Agent, turn, &data, *at).map(|e| e.id);
             }
             Item::Thought { text, at } => {
-                unfinal(&mut final_id);
                 hub.add_entry_at(&lane, EntryKind::Thought, turn, &json!({"text": text}), *at);
             }
             Item::ToolUse { id, title, kind, at } => {
-                unfinal(&mut final_id);
                 let answered = items[i + 1..].iter().any(|x| matches!(x, Item::ToolResult { id: r, .. } if r == id));
                 let status = if answered || !live { "completed" } else { "pending" };
                 let data = json!({
@@ -533,6 +538,53 @@ fn apply(hub: &Hub, t: &Thread, items: &[Item], live: bool) {
     let stored = final_id.unwrap_or_default();
     if let Err(error) = hub.store.kv_set(&final_key(t), &stored) {
         tracing::warn!(%error, "couldn't keep the final reply of a terminal thread");
+    }
+}
+
+/// One-off repair (idempotent, runs once at start): terminal threads imported before a turn's last reply stayed
+/// final lost the flag on every reply that a later tool call or thought followed. Marks each turn's last agent
+/// entry final again and recomputes the summaries. Only threads the terminal imported are looked at.
+pub fn backfill_finals(hub: &Hub) {
+    const DONE: &str = "terminal.finals.v2";
+    if hub.store.kv_get(DONE).is_some() {
+        return;
+    }
+    for key in hub.store.kv_prefix("terminal.info.") {
+        let Some(t) = Thread::parse(&key["terminal.info.".len()..]) else { continue };
+        if hub.store.entry(&t.root).is_none_or(|r| r.data["thread"]["origin"] != "terminal") {
+            continue;
+        }
+        let lock = hub.terminal.thread_lock(&t.key());
+        let _one = lock.locked();
+        let entries = hub.store.thread(&t.bot, &t.root, i64::MAX).unwrap_or_default();
+        let mut changed = false;
+        let mut last: Option<&crate::store::Entry> = None;
+        let mut fix = |e: Option<&crate::store::Entry>| {
+            if let Some(e) = e.filter(|e| e.data["final"] != true) {
+                let mut data = e.data.clone();
+                data["final"] = true.into();
+                hub.set_entry(&e.id, &data);
+                changed = true;
+            }
+        };
+        for e in &entries {
+            match e.kind.as_str() {
+                "user" => fix(last.take()),
+                "agent" => last = Some(e),
+                _ => {}
+            }
+        }
+        fix(last);
+        if changed {
+            hub.refresh_thread_summary(&t.bot, &t.root);
+        }
+        // The importer's remembered reply must be the newest turn's last one.
+        if let Err(error) = hub.store.kv_set(&final_key(&t), last.map_or("", |e| e.id.as_str())) {
+            tracing::warn!(%error, "couldn't keep the final reply of a terminal thread");
+        }
+    }
+    if let Err(error) = hub.store.kv_set(DONE, "1") {
+        tracing::warn!(%error, "couldn't mark the final-reply repair done");
     }
 }
 
