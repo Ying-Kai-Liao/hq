@@ -5,9 +5,10 @@ import type { HostClient } from '../client/host-client'
 export type DownloadState = { kind: 'downloading'; received: number } | { kind: 'saved' } | { kind: 'failed'; message: string }
 interface Job { cancelled: boolean; handle: string | null }
 
-/** Pictures an agent shared, kept after the first read (a shared file never changes). Bounded: the newest few. */
+/** Pictures an agent shared, kept after the first read (a shared file never changes). Bounded by total size. */
 const imageCache = new Map<string, Uint8Array>()
-const IMAGE_CACHE_LIMIT = 24
+const IMAGE_CACHE_BYTES = 100_000_000
+let imageCacheBytes = 0
 
 /** Scoped to one computer store; retiring it cannot save a file into another account. */
 export class FileDownloads {
@@ -46,7 +47,13 @@ export class FileDownloads {
         offset += bytes.length
       }
       imageCache.set(file.id, out)
-      if (imageCache.size > IMAGE_CACHE_LIMIT) imageCache.delete(imageCache.keys().next().value as string)
+      imageCacheBytes += out.length
+      // Oldest first, but never the picture just read.
+      for (const [id, kept] of imageCache) {
+        if (imageCacheBytes <= IMAGE_CACHE_BYTES || id === file.id) break
+        imageCache.delete(id)
+        imageCacheBytes -= kept.length
+      }
       return out
     } catch {
       return null

@@ -118,7 +118,8 @@ updated: YYYY-MM-DD   by: <agent>
   (docs, wording, config) skips local builds and relies on CI.
 - To put a result on the user's phone (a plan card, a summary, a file), use `{{KITH}}/bin/kith-send "text"` or
   `{{KITH}}/bin/kith-send --caption "text" FILE...`. Inside a Discord task it posts into that task's thread; otherwise
-  it goes to his own Telegram DM. Only to him, never anyone else.
+  it goes to his own Telegram DM (from an app chat too, with a hint: in an app chat share files with the `send_file`
+  tool instead). Only to him, never anyone else.
 
 ## Owner and helpers
 - **Owner:** the agent whose channel (or call) the task came in on owns it end to end. Do your part with your own

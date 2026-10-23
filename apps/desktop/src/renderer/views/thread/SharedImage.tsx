@@ -40,7 +40,8 @@ function SharedImage({ entry, file }: { entry: Entry; file: SharedFile }) {
       alive = false
       if (made) URL.revokeObjectURL(made)
     }
-  }, [store, entry.id, file])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a shared file never changes; its id is its identity
+  }, [store, entry.id, file.id])
   // Not readable now, or a format this window can't draw (HEIC): the card still offers the file.
   if (failed) return <FileDownloadCard entry={entry} file={file} />
   if (!url) {
@@ -52,7 +53,10 @@ function SharedImage({ entry, file }: { entry: Entry; file: SharedFile }) {
   }
   const copy = async () => {
     try {
-      const bitmap = await createImageBitmap(await (await fetch(url)).blob())
+      // From the cached bytes: the page's CSP doesn't allow fetching a blob: URL.
+      const bytes = await store.fileDownloads.bytes(store.client, entry.id, file)
+      if (!bytes) return
+      const bitmap = await createImageBitmap(new Blob([bytes as BlobPart], { type: mime(file.name) }))
       const canvas = document.createElement('canvas')
       canvas.width = bitmap.width
       canvas.height = bitmap.height

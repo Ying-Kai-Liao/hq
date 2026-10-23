@@ -92,6 +92,9 @@ pub async fn serve(bot: String, port: u16, server: Server) -> Result<()> {
                     Server::Computer => computer_tools(port, &token).await,
                     _ => json!({"tools": available_tools}),
                 }),
+                "tools/call" if matches!(server, Server::Files) && params["name"] != "send_file" => {
+                    Ok(json!({"content": [{"type": "text", "text": "unknown tool: only send_file"}], "isError": true}))
+                }
                 "tools/call" => Ok(call(port, &token, &bot, params, server).await),
                 method => Err(json!({"code": -32601, "message": format!("unknown method {method}")})),
             };
