@@ -27,7 +27,7 @@ final class MemoryStore {
                 error = nil
             }
         } catch {
-            // A host before 2.18.0 answers with its old memory listing, which has no layers or dreams.
+            // A host before 2.18.0 answers with its old memory listing, which has no layers or tidy-ups.
             if asked == request {
                 self.error = error is DecodingError ? "Update Kith on your computer to see this bot's memory." : error.localizedDescription
             }
@@ -74,7 +74,14 @@ final class MemoryStore {
         error = nil
         defer { busy = false }
         do {
-            try await client().memoryCall(method, Body(botId: botId, id: id, pinned: pinned, archived: archived, shared: shared, text: text))
+            let host = try await client()
+            let body = Body(botId: botId, id: id, pinned: pinned, archived: archived, shared: shared, text: text)
+            do {
+                try await host.memoryCall(method, body)
+            } catch where method == "undoTidy" && isUnknownMethod(error) {
+                // A host from before the "tidy" rename knows the old name.
+                try await host.memoryCall("undoDream", body)
+            }
             await load()
             return true
         } catch {

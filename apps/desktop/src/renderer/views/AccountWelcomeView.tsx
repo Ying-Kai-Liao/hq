@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { LiveBot, type Mood } from '../components/Avatar'
 import { Button, Spinner } from '../components/Controls'
+import { GitHubMark } from '../components/GitHubMark'
 import { Icon } from '../components/Icon'
 import { HStack, Spacer, VStack } from '../components/Stack'
 import { Text } from '../components/Text'
@@ -85,6 +86,16 @@ export function AccountWelcomeView({ onContinue }: { onContinue: () => void }) {
               <HStack as="span" gap={10}>
                 <img src={googleLogo} alt="" width={20} height={20} />
                 Continue with Google
+              </HStack>
+            )}
+          </Button>
+          <Button kind="secondary" onClick={() => void account.signIn('github')} disabled={!account.isConfigured || account.isBusy} className="welcome-button">
+            {account.isBusy ? (
+              <Spinner size={18} />
+            ) : (
+              <HStack as="span" gap={10}>
+                <GitHubMark size={20} />
+                Continue with GitHub
               </HStack>
             )}
           </Button>

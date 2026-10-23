@@ -113,6 +113,17 @@ def set_backups(agent, ids):
     write(s)
 
 
+def clear_backups(agent):
+    """Drop one agent's own chain, so it follows the global one again. Keeps the rest of the file."""
+    s, why = read()
+    if why:
+        raise ValueError(why)
+    own = s.get('agents', {}).get(agent)
+    if own is not None and 'backups' in own:
+        del own['backups']
+        write(s)
+
+
 if __name__ == '__main__':
     if len(sys.argv) == 5 and sys.argv[1] == 'set':   # set KEY AGENT VALUE
         if sys.argv[2] != 'permission_mode':

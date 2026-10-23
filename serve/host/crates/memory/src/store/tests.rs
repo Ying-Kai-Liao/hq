@@ -15,7 +15,7 @@ fn bots_cannot_change_what_the_user_wrote() {
     let conn = db();
     let mine = add(&conn, Writer::User, new(Some("a"), "Likes tea"), 1, 1).unwrap();
     assert!(matches!(revise(&conn, Writer::Bot("a"), mine.id, "Likes coffee", 2, 2), Err(Error::UsersOwn)));
-    assert!(matches!(archive(&conn, Writer::Dream("a"), mine.id, None, 2, 2), Err(Error::UsersOwn)));
+    assert!(matches!(archive(&conn, Writer::Tidy("a"), mine.id, None, 2, 2), Err(Error::UsersOwn)));
     let theirs = add(&conn, Writer::Bot("a"), new(Some("a"), "Works late"), 3, 3).unwrap();
     assert_eq!(theirs.author, Author::Bot);
     assert_eq!(theirs.author_bot.as_deref(), Some("a"));
@@ -87,23 +87,29 @@ fn a_forgotten_memory_isnt_learned_again_from_the_same_message() {
     let mine = |text: &'static str, message: &str| New { bot: Some("a"), ..from(text, message) };
     let entry = add(&conn, Writer::Bot("a"), mine("我養了一隻柴犬叫麻糬", "m1"), 1, 1).unwrap();
     forget(&conn, entry.id).unwrap();
-    let reworded = add(&conn, Writer::Dream("a"), from("養了一隻柴犬叫麻糬", "m1"), 2, 2);
+    let reworded = add(&conn, Writer::Tidy("a"), from("養了一隻柴犬叫麻糬", "m1"), 2, 2);
     assert!(matches!(reworded, Err(Error::Refused(Refusal::Forgotten))), "nor in the other layer");
     // A later message may still say it, and the user may always write it.
-    add(&conn, Writer::Dream("a"), from("養了一隻柴犬叫麻糬", "m2"), 3, 3).unwrap();
+    add(&conn, Writer::Tidy("a"), from("養了一隻柴犬叫麻糬", "m2"), 3, 3).unwrap();
     forbid(&conn, None, "Works late", Some("m3")).unwrap();
     assert!(matches!(add(&conn, Writer::Bot("a"), from("Likes tea", "m3"), 4, 4), Err(Error::Refused(_))));
     add(&conn, Writer::User, from("Likes tea", "m3"), 5, 5).unwrap();
 }
 
 #[test]
-fn dreaming_leaves_an_entry_the_user_brought_back() {
+fn tidying_leaves_an_entry_the_user_brought_back() {
     let conn = db();
     let entry = add(&conn, Writer::Bot("a"), new(Some("a"), "Gets up at 7"), 1, 1).unwrap();
     archive(&conn, Writer::Bot("a"), entry.id, None, 2, 2).unwrap();
     bring_back(&conn, entry.id, 3, 3).unwrap();
-    let again = archive(&conn, Writer::Dream("a"), entry.id, None, 4, 4);
+    let again = archive(&conn, Writer::Tidy("a"), entry.id, None, 4, 4);
     assert!(matches!(again, Err(Error::UsersOwn)));
     // The bot may still archive it when the user asks in chat.
     assert_eq!(archive(&conn, Writer::Bot("a"), entry.id, None, 5, 5).unwrap().state, State::Archived);
+}
+
+#[test]
+fn entries_written_before_the_rename_read_as_tidy() {
+    assert_eq!(parse_author("dream"), Author::Tidy);
+    assert_eq!(author_name(Author::Tidy), "tidy");
 }

@@ -162,6 +162,11 @@ pub trait Adapter: Send + Sync {
     fn footer(&self) -> &str {
         ""
     }
+    /// A short line under a reply that says something about it (a backup account answered): italics, which all
+    /// the platforms read.
+    fn note_line(&self, text: &str) -> String {
+        format!("_{text}_")
+    }
     /// Seconds without a sign of life after which the connection is restarted.
     fn quiet(&self) -> Option<Duration> {
         None

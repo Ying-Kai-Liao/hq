@@ -60,7 +60,7 @@ await assert.rejects(client.push("CaseSensitiveToken", { sealed: "x".repeat(4096
 assert.equal(exchanges, 1);
 
 const ticket = { p: "fcm" as const, t: "CaseSensitiveToken", k: "alert" as const, c: "local", h: "A".repeat(22) };
-const alert = { alert: { title: "Codync", body: "A bot needs you" }, data: { botId: "bot", computerId: ticket.h, ctx: "local", sealed: "ciphertext" } };
+const alert = { alert: { title: "Kith", body: "A bot needs you" }, data: { botId: "bot", computerId: ticket.h, ctx: "local", sealed: "ciphertext" } };
 assert.equal(fcmData(ticket, alert).sealed, "ciphertext");
 assert.throws(() => fcmData(ticket, { ...alert, data: { ...alert.data, ctx: "other" } }));
 assert.throws(() => fcmData(ticket, { ...alert, data: { ...alert.data, sealed: undefined } }));

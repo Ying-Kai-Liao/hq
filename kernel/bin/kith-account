@@ -9,6 +9,8 @@
   kith backup list [--agent A] [--json]    the backup chain (global, or what agent A uses)
   kith backup add <id> [--agent A] [--at N]    add an entry; --at N moves one already there to place N (1 = first backup)
   kith backup remove <id> [--agent A]      take an entry out
+  kith account backup set [id ...] [--agent A]   replace the whole chain in one write (no ids: empty); what the apps use
+  kith account backup reset --agent A     drop A's own chain, so A follows the global one again
 
 An entry id is claude, claude:<name>, claude-api:<profile>, codex or codex:<name> (lib/kith_accounts.py). The chain is the
 backups kith serve moves to, in order, when the agent's own harness runs out of usage; it is empty until you add entries.
@@ -136,9 +138,34 @@ def target(args):
     return agent, ids, where
 
 
+def _fix(entry, agent):
+    try:
+        return acc.fix(entry, agent)
+    except ValueError:
+        return None
+
+
+def cmd_backup_write(sub, args):
+    agent = option(args, '--agent')
+    if sub == 'reset':
+        if not agent or args:
+            die('backup reset --agent A', 2)
+        kith_settings.clear_backups(agent)
+        print(f'{agent} follows the global backups')
+        return
+    try:
+        for i in args:
+            acc.parse(i)
+    except ValueError as e:
+        die(str(e), 2)
+    ids = list(dict.fromkeys(args))
+    kith_settings.set_backups(agent, ids)
+    print(f"backups for {agent or 'every agent'}: {', '.join(ids) or 'none'}")
+
+
 def cmd_backup(args):
-    if not args or args[0] not in ('list', 'add', 'remove'):
-        die('backup list|add|remove (kith account --help)', 2)
+    if not args or args[0] not in ('list', 'add', 'remove', 'set', 'reset'):
+        die('backup list|add|remove|set|reset (kith account --help)', 2)
     sub, args = args[0], args[1:]
     as_json = flag(args, '--json')
     if sub == 'list':
@@ -149,7 +176,8 @@ def cmd_backup(args):
                 ready, why = acc.check(i, agent)
             except ValueError as e:
                 ready, why = False, str(e)
-            rows.append({'id': i, 'ready': ready, **({} if ready else {'why': why})})
+            fix = None if ready else _fix(i, agent)
+            rows.append({'id': i, 'ready': ready, **({} if ready else {'why': why}), **({'fix': fix} if fix else {})})
         if as_json:
             print(json.dumps({'agent': agent, 'source': where, 'backups': rows}))
         else:
@@ -158,6 +186,8 @@ def cmd_backup(args):
             for n, r in enumerate(rows, 1):
                 print(f"  {n}. {r['id']:<22} {'ready' if r['ready'] else 'not ready: ' + r['why']}")
         return
+    if sub in ('set', 'reset'):
+        return cmd_backup_write(sub, args)
     at = option(args, '--at')
     agent, ids, where = target(args)
     if len(args) != 1:

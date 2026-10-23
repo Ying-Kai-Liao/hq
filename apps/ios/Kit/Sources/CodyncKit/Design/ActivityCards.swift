@@ -25,9 +25,10 @@ public extension BotActivityPresentation {
 
     var mood: CharacterAvatar.Mood {
         switch phase {
-        case .working: .working
+        case .sending, .queued, .working: .working
         case .needsInput: .needsInput
-        case .sending, .queued, .completed, .failed, .stale, .waiting: .idle
+        case .failed: .error
+        case .completed, .stale, .waiting: .idle
         }
     }
 
@@ -44,26 +45,20 @@ public extension AnyTransition {
     }
 }
 
-/// The bot's face in its phase's mood. On a phase change the bot itself moves: the halftone
-/// highlight sweeps to the new side and the eyes glance over (or the ripple appears).
+/// The bot's body in its phase's mood: one still frame (widgets and Live Activities cannot run
+/// animation), the eyes posed for the phase. A nil portrait is a group's cube.
 public struct ActivityAvatar: View {
-    let shape: String
     let color: String
     let state: BotActivityPresentation
     let size: CGFloat
     let portrait: String?
 
-    public init(shape: String, color: String, portrait: String? = nil, state: BotActivityPresentation, size: CGFloat) {
-        self.shape = shape; self.color = color; self.portrait = portrait; self.state = state; self.size = size
+    public init(color: String, portrait: String? = nil, state: BotActivityPresentation, size: CGFloat) {
+        self.color = color; self.portrait = portrait; self.state = state; self.size = size
     }
 
     public var body: some View {
-        if let portrait {
-            CharacterAvatar(portrait: portrait, size: size)
-        } else {
-            CharacterAvatar(shape: shape, color: color, size: size, mood: state.mood, still: true)
-                .animation(Motion.activityPhase, value: state.mood)
-        }
+        CharacterAvatar(portrait: portrait, color: color, size: size, mood: state.mood, still: true)
     }
 }
 
@@ -161,7 +156,7 @@ public struct BotActivityCard<Face: View, Mark: View>: View {
 public extension BotActivityCard where Face == ActivityAvatar, Mark == BotActivityIndicator {
     init(bot: Bot, state: BotActivityPresentation, startedAt: Date? = nil) {
         self.init(name: bot.name, state: state, startedAt: startedAt) {
-            ActivityAvatar(shape: bot.avatarShape, color: bot.avatarColor, portrait: CrewAvatar.asset(for: bot), state: state, size: 32)
+            ActivityAvatar(color: bot.avatarColor, portrait: CrewAvatar.asset(for: bot), state: state, size: 32)
         } mark: {
             BotActivityIndicator(state: state, size: 28)
         }
@@ -197,6 +192,42 @@ public struct BotActivityIndicator: View {
         .animation(Motion.activityPhase, value: state.phase)
         .accessibilityElement()
         .accessibilityLabel(state.title)
+    }
+}
+
+/// The working indicator of the Dynamic Island and Lock Screen: Kith's hop, drawn by the KithHop
+/// fonts (apps/ios/tools/make-kith-glyph-fonts.py). A Live Activity cannot run an animation, but
+/// a timer redraws every second, so the fonts map each digit to a pose and draw only the timer's
+/// last digit (every other character shapes to nothing): the text is one face wide however the
+/// system lays out timer text, and the bot steps through ten poses, one a second.
+public struct HopFrames: View {
+    let content: Text
+    let color: Color
+    let size: CGFloat
+
+    /// `content` is the timer (`Text(since, style: .timer)`) while the bot works, or one digit for
+    /// a still pose (`Text("0")` is the resting frame, used with Reduce Motion).
+    public init(_ content: Text, color: Color, size: CGFloat) {
+        self.content = content; self.color = color; self.size = size
+    }
+
+    public var body: some View {
+        ZStack {
+            layer("KithHop-Ghost").foregroundStyle(color.opacity(0.3))
+            layer("KithHop-Dot").foregroundStyle(color)
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+
+    private func layer(_ font: String) -> some View {
+        content
+            .font(.custom(font, fixedSize: size))
+            // Western digits whatever the region: the fonts only have those.
+            .environment(\.locale, Locale(identifier: "en_US_POSIX"))
+            .lineLimit(1)
+            .frame(width: size, height: size)
+            .clipped()
     }
 }
 
@@ -290,17 +321,7 @@ public struct BotActivityPreview: View {
         }
     }
 
-    /// The island plays the working bot's loop (WorkingBotFace in the widget); here the live
-    /// avatar stands in for it.
     @ViewBuilder private func islandFace(_ size: CGFloat) -> some View {
-        if state.phase == .working {
-            if let portrait = CrewAvatar.asset(for: bot) {
-                CharacterAvatar(portrait: portrait, size: size)
-            } else {
-                CharacterAvatar(shape: bot.avatarShape, color: bot.avatarColor, size: size, mood: .working)
-            }
-        } else {
-            ActivityAvatar(shape: bot.avatarShape, color: bot.avatarColor, portrait: CrewAvatar.asset(for: bot), state: state, size: size)
-        }
+        ActivityAvatar(color: bot.avatarColor, portrait: CrewAvatar.asset(for: bot), state: state, size: size)
     }
 }

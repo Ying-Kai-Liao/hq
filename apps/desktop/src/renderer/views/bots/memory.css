@@ -22,3 +22,16 @@
 .memory-file-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font: var(--text-callout)/1.5 var(--mono); }
 .memory-info-icon { padding-top: 2px; }
 .switch.memory-harness-switch { flex: 1; justify-content: flex-end; }
+.memory-sheet-body { display: flex; flex-direction: column; gap: 12px; padding: 16px 20px 20px; overflow: auto; flex: 1; min-height: 0; }
+.memory-file-edit { flex: 1; min-height: 320px; padding: 10px; background: var(--surface); color: var(--text); border: 0; border-radius: var(--radius-s); font: var(--text-callout)/1.5 var(--mono); resize: none; }
+.memory-conflict { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--radius-s); background: var(--surface); color: var(--attention); }
+.memory-versions { display: flex; flex-direction: column; gap: 10px; }
+.memory-version { display: flex; flex-direction: column; gap: 6px; }
+.memory-version .memory-item { align-items: center; }
+.memory-diff { margin: 0; padding: 8px 10px; border-radius: var(--radius-s); background: var(--surface); font: var(--text-callout)/1.5 var(--mono); overflow-x: auto; user-select: text; }
+.memory-diff span { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+.memory-diff-add { color: var(--success, #2e9d4f); }
+.memory-diff-del { color: var(--danger); }
+.memory-diff-gap { color: var(--tertiary); }
+.memory-stack { display: flex; flex-direction: column; gap: 10px; flex: 1; min-width: 0; }
+.memory-version-actions { flex-wrap: wrap; align-items: center; gap: 6px; }

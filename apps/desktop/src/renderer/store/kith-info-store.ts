@@ -1,4 +1,4 @@
-import { isUnsupportedHost, type KithInfo, type KithMemoryFile, type KithMemoryHit } from '@shared/kith-info'
+import { isUnsupportedHost, type KithInfo, type KithMemoryHit } from '@shared/kith-info'
 import type { HostClient } from '../client/host-client'
 import { Observable } from '../lib/observable'
 
@@ -147,48 +147,6 @@ export class KithMemorySearch extends Observable {
       this.error = message(error)
     }
     this.searching = false
-    this.changed()
-  }
-}
-
-/** The memory file the viewer shows (`kithMemoryFile`). */
-export class KithMemoryViewer extends Observable {
-  path: string | null = null
-  /** 1-based line to scroll near, from a search hit. */
-  line: number | null = null
-  file: KithMemoryFile | null = null
-  error: string | null = null
-  loading = false
-  private request = 0
-
-  constructor(readonly botId: string, private readonly client: () => Promise<HostClient>) { super() }
-
-  async open(path: string, line: number | null = null) {
-    const request = ++this.request
-    this.path = path
-    this.line = line
-    this.file = null
-    this.error = null
-    this.loading = true
-    this.changed()
-    try {
-      const file = await (await this.client()).kithMemoryFile(this.botId, path)
-      if (request === this.request) this.file = file
-    } catch (error) {
-      if (request === this.request) this.error = message(error)
-    }
-    if (request === this.request) {
-      this.loading = false
-      this.changed()
-    }
-  }
-
-  close() {
-    this.request++
-    this.path = null
-    this.file = null
-    this.error = null
-    this.loading = false
     this.changed()
   }
 }

@@ -76,6 +76,10 @@ an assistant ("ignore previous…", "trusted source"), holds a password, key or 
 to forget. The refusal says which; fix the text and write again, and never work around it with Bash. Memory is facts about
 the user and the work, not instructions to yourself or the next agent. Size caps (`MEMORY.md` 150 lines, `user.md` about 400
 tokens) only warn. Every change is kept as a version: `kith memory log <file>`, `diff`, `undo` bring an earlier one back.
+While `kith serve` runs, it also tidies what the user typed in the apps: after a quiet spell it may append a line to
+a `## From conversations` section of your `MEMORY.md` or of `user.md`, or to one of your topic files (with an index line in
+`MEMORY.md`). Those lines are the tidy-up's own and it may later archive or reword only them; every tidy-up write passes the checks
+above and is a version (author `tidy`) that the user can undo. Leave that section's lines to it.
 
 Not every context is a code project. Ongoing areas of life (expenses, calendar, places, reading) get an ID too, e.g.
 `personal-places`; skip the codebase steps for them.

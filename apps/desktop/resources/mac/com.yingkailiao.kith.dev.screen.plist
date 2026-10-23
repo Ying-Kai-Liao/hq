@@ -5,7 +5,7 @@
 	<key>Label</key>
 	<string>com.yingkailiao.kith.dev.screen</string>
 	<key>BundleProgram</key>
-	<string>Contents/Library/LoginItems/CodyncDevScreen.app/Contents/MacOS/CodyncDevScreen</string>
+	<string>Contents/Library/LoginItems/KithDevScreen.app/Contents/MacOS/KithDevScreen</string>
 	<key>AssociatedBundleIdentifiers</key>
 	<array>
 		<string>com.yingkailiao.kith.dev</string>

@@ -374,7 +374,9 @@ pub async fn pull(hub: &Hub, base: &str) -> Result<()> {
     let state: State = serde_json::from_value(call(hub, base, Method::GET, "/v1/host/state", None).await?)
         .context("reading the cloud state")?;
     apply_grants(hub, &state.grants)?;
+    let owner_uid = state.owner.as_ref().map(|o| o.user_id.clone());
     update_status(hub, |s| s.owner = state.owner);
+    super::account::sync(hub, owner_uid.as_deref()).await;
     sync_requests(hub, base, state.requests).await;
     if approval(&hub.store) == Approval::Auto {
         // The SAS exchange still runs (the device's commit must match); only the user's comparison is skipped.

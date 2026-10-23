@@ -97,7 +97,7 @@ impl Launch {
 }
 
 /// Runs `bin args…` in `cwd` with `KITH_VIA=serve` (and `HQ_VIA`): its stdout, or the stderr text it failed with.
-async fn run(bin: &Path, args: &[&str], cwd: Option<&str>, budget: Duration) -> Result<String> {
+pub(crate) async fn run(bin: &Path, args: &[&str], cwd: Option<&str>, budget: Duration) -> Result<String> {
     let shown = format!("kith {}", args.join(" "));
     let mut command = tokio::process::Command::new(bin);
     command

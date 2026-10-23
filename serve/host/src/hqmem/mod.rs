@@ -1,15 +1,18 @@
 //! Write checks and version history for the hq agents' memory files.
 //!
 //! The Markdown files stay the truth (agents/<name>/memory/** and the shared user layer in the state folder:
-//! user.md, people/, projects/). This module puts kith-mem's checks in front of an agent's or dream's write and
+//! user.md, people/, projects/). This module puts kith-mem's checks in front of an agent's or tidy-up's write and
 //! records every change as a version in one SQLite file, `<state>/memory.db`. Deleting that file loses history only.
 //!
-//! The functions here are what the `kith memory` commands and the Claude Code hook call; the host's dreaming
-//! calls them too, so a dream's write passes the same checks and lands in the same history.
+//! The functions here are what the `kith memory` commands and the Claude Code hook call; the host's tidying
+//! calls them too, so a tidy-up's write passes the same checks and lands in the same history.
 
+mod browse;
 mod cli;
 mod hook;
+pub mod tidy;
 
+pub use browse::{diff, history, list_files, read_file, restore, save};
 pub use cli::{Cmd, run};
 
 use anyhow::{Context, Result};
@@ -200,8 +203,8 @@ fn resolve(path: &Path) -> PathBuf {
 pub enum Who<'a> {
     /// An agent in a turn.
     Agent(&'a str),
-    /// The agent's dreaming.
-    Dream(&'a str),
+    /// The agent's tidying.
+    Tidy(&'a str),
     /// The user, by hand or from their own terminal: never checked.
     Kai,
 }
@@ -210,7 +213,7 @@ impl Who<'_> {
     fn author(self) -> (Author, Option<String>, Cause) {
         match self {
             Who::Agent(name) => (Author::Bot, Some(name.to_owned()), Cause::Edit),
-            Who::Dream(name) => (Author::Dream, Some(name.to_owned()), Cause::Dream),
+            Who::Tidy(name) => (Author::Tidy, Some(name.to_owned()), Cause::Tidy),
             Who::Kai => (Author::User, None, Cause::Edit),
         }
     }
@@ -231,6 +234,7 @@ pub fn open_with(layout: &Layout, busy: Duration) -> Result<Connection> {
     if schema::migrate(&conn).is_err() {
         schema::migrate(&conn)?;
     }
+    tidy::migrate(&conn)?;
     Ok(conn)
 }
 
@@ -240,14 +244,28 @@ fn now_ms() -> i64 {
 
 /// What is on disk: content, modification time (Unix ms) and size. `None` when there is no file.
 fn read_disk(path: &Path) -> Option<(String, i64, u64)> {
-    let bytes = std::fs::read(path).ok()?;
-    let mtime = std::fs::metadata(path)
-        .and_then(|m| m.modified())
-        .ok()
+    // Never block on a pipe or follow a link out of the folder; trust only the open handle.
+    let handle = open_regular(path, true)?;
+    let meta = handle.metadata().ok()?;
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut std::io::Read::take(handle, READ_MAX), &mut bytes).ok()?;
+    let mtime = Some(meta)
+        .and_then(|m| m.modified().ok())
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(0));
     let size = bytes.len() as u64;
     Some((String::from_utf8_lossy(&bytes).into_owned(), mtime, size))
+}
+
+/// The most of a file a read takes.
+const READ_MAX: u64 = 8 * 1024 * 1024;
+
+/// Opens a regular file without blocking; with `no_follow`, not through a link either.
+pub(crate) fn open_regular(path: &Path, no_follow: bool) -> Option<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let flags = libc::O_NONBLOCK | if no_follow { libc::O_NOFOLLOW } else { 0 };
+    let file = std::fs::OpenOptions::new().read(true).custom_flags(flags).open(path).ok()?;
+    file.metadata().ok()?.is_file().then_some(file)
 }
 
 pub fn read(path: &Path) -> Option<String> {
@@ -325,6 +343,15 @@ pub fn record_undo(conn: &Connection, target: &Target, who: Who<'_>) -> Result<O
     let (author, author_bot, _) = who.author();
     let tx = immediate(conn)?;
     let version = record_disk(&tx, target, (author, author_bot, Cause::Undo), false)?;
+    tx.commit()?;
+    Ok(version)
+}
+
+/// Records the file as `who` just put an earlier version back by hand (the apps' restore).
+pub fn record_restore(conn: &Connection, target: &Target, who: Who<'_>) -> Result<Option<Version>> {
+    let (author, author_bot, _) = who.author();
+    let tx = immediate(conn)?;
+    let version = record_disk(&tx, target, (author, author_bot, Cause::Restore), false)?;
     tx.commit()?;
     Ok(version)
 }
@@ -408,15 +435,13 @@ fn pieces(text: &str) -> Vec<String> {
 
 /// What a checked write did.
 #[derive(Debug)]
-#[allow(dead_code)] // read by the dreaming that writes through `write`, the next phase
 pub struct Written {
     pub version: Option<Version>,
     pub warnings: Vec<String>,
 }
 
 /// Writes a memory file as `who`: records the file as it is (so nothing is lost), checks the new content, writes it
-/// and records it. The call for code that writes memory itself, such as the host's dreaming.
-#[allow(dead_code)] // the dreaming that writes through it is the next phase
+/// and records it. The call for code that writes memory itself, such as the host's tidying.
 pub fn write(
     conn: &Connection,
     target: &Target,
@@ -451,7 +476,7 @@ pub fn put(path: &Path, content: Option<&str>) -> Result<()> {
     std::fs::rename(&tmp, path).context("replace the file")
 }
 
-/// Tells Kith to keep a fact out of memory: no agent or dream writes it again.
+/// Tells Kith to keep a fact out of memory: no agent or tidy writes it again.
 pub fn forget(conn: &Connection, text: &str) -> Result<()> {
     store::forbid(conn, None, text, None)?;
     Ok(())
@@ -459,3 +484,5 @@ pub fn forget(conn: &Connection, text: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tidy_tests;

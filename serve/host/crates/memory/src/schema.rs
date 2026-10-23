@@ -3,7 +3,7 @@
 use rusqlite::{Connection, OptionalExtension};
 
 const MIGRATIONS: &[&str] = &[
-    // 1: entries, tombstones and the dream log.
+    // 1: entries, tombstones and the tidy-up log.
     "CREATE TABLE memory_entries (
         id INTEGER PRIMARY KEY,
         bot TEXT,
@@ -38,7 +38,7 @@ const MIGRATIONS: &[&str] = &[
         change TEXT NOT NULL
     );
     CREATE INDEX memory_dream_changes_dream ON memory_dream_changes (dream);",
-    // 2: long-form files (the layer's key is '' for the shared one), their versions, and the ones dreaming wrote.
+    // 2: long-form files (the layer's key is '' for the shared one), their versions, and the ones tidying wrote.
     "CREATE TABLE memory_files (
         bot TEXT NOT NULL,
         name TEXT NOT NULL,
@@ -69,8 +69,8 @@ const MIGRATIONS: &[&str] = &[
         version INTEGER NOT NULL
     );
     CREATE INDEX memory_dream_files_dream ON memory_dream_files (dream);",
-    // 3: entry ids are never reused, so an old undo line, a dream's undo or a bot's stale id can't reach a newer
-    // entry. Ids the dream log still names count as used.
+    // 3: entry ids are never reused, so an old undo line, a tidy-up's undo or a bot's stale id can't reach a newer
+    // entry. Ids the tidy-up log still names count as used.
     "CREATE TABLE memory_entries_new (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         bot TEXT,
@@ -150,7 +150,7 @@ mod tests {
     }
 
     #[test]
-    fn upgrading_keeps_entries_and_skips_ids_the_dream_log_names() {
+    fn upgrading_keeps_entries_and_skips_ids_the_tidy_log_names() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("CREATE TABLE memory_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)").unwrap();
         conn.execute_batch(&MIGRATIONS[..2].concat()).unwrap();

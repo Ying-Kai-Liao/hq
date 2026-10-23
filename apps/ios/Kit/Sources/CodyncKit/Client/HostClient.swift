@@ -318,6 +318,12 @@ public extension HostClient {
         return try await call("listDirs", Body(path: path, showHidden: showHidden ? true : nil))
     }
 
+    /// A one-time code to send a Kith bot as `/link CODE`, tying that chat account to this person.
+    /// An older host answers with `HostError.http(404, …)`; asking again gives a fresh code.
+    func linkCode() async throws -> LinkCode {
+        try await call("linkCode")
+    }
+
     // MARK: kith bot details (serve/docs/bot-info.md)
 
     func kithInfo(botId: String, refresh: Bool = false) async throws -> KithInfoResponse {
@@ -330,6 +336,11 @@ public extension HostClient {
     func kithSetPermission(botId: String, mode: String) async throws -> KithInfoResponse {
         struct Body: Encodable { var botId: String; var mode: String }
         return try await call("kithSetPermission", Body(botId: botId, mode: mode), timeout: 60)
+    }
+
+    /// The backup chain (serve/host/src/api/backups.rs); this app only reads it. A host before it answers 404.
+    func backups() async throws -> Backups {
+        try await call("backups", timeout: 90)
     }
 
     func kithMemoryFile(botId: String, path: String) async throws -> KithMemoryFile {
@@ -452,6 +463,15 @@ public extension HostClient {
     func termClose(_ term: String) async throws {
         let _: Empty = try await call("termClose", ["term": term])
     }
+}
+
+/// What the host's `linkCode` returns; `expiresAt` is epoch milliseconds.
+public struct LinkCode: Decodable, Sendable, Equatable {
+    public var code: String
+    public var expiresAt: Double
+
+    public var expiry: Date { Date(timeIntervalSince1970: expiresAt / 1000) }
+    public init(code: String, expiresAt: Double) { self.code = code; self.expiresAt = expiresAt }
 }
 
 public struct ScreenAnswer: Codable, Sendable {

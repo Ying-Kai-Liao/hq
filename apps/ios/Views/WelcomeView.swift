@@ -79,12 +79,12 @@ private struct Crew: View {
     let shown: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let members: [(shape: String, color: String, size: CGFloat, x: CGFloat, y: CGFloat, mood: CharacterAvatar.Mood)] = [
-        ("blob", "blue", 92, 0, 0, .working),
-        ("squircle", "orange", 64, -104, -34, .idle),
-        ("teardrop", "violet", 58, 100, -46, .working),
-        ("hex", "green", 48, -76, 64, .idle),
-        ("cloud", "magenta", 52, 84, 58, .needsInput),
+    private let members: [(bot: String, color: String, size: CGFloat, x: CGFloat, y: CGFloat, mood: CharacterAvatar.Mood)] = [
+        ("crew-builder", "", 92, 0, 0, .working),
+        ("crew-designer", "kith:coral", 64, -104, -34, .idle),
+        ("crew-lab", "kith:violet", 58, 100, -46, .working),
+        ("spare-globe", "kith:green", 48, -76, 64, .idle),
+        ("crew-house", "kith:peach", 52, 84, 58, .needsInput),
     ]
 
     var body: some View {
@@ -93,7 +93,7 @@ private struct Crew: View {
             ZStack {
                 ForEach(members.indices, id: \.self) { i in
                     let m = members[i]
-                    CharacterAvatar(shape: m.shape, color: m.color, size: m.size, mood: m.mood)
+                    CharacterAvatar(portrait: m.bot, color: m.color, size: m.size, mood: m.mood, id: m.bot)
                         .offset(x: m.x, y: m.y + (reduceMotion ? 0 : sin(t * 1.3 + Double(i) * 1.7) * 5))
                         .scaleEffect(shown ? 1 : 0.3)
                         .opacity(shown ? 1 : 0)
@@ -119,7 +119,7 @@ private struct ChatGlimpse: View {
                 .rise(shown)
 
             HStack(alignment: .bottom, spacing: 8) {
-                CharacterAvatar(shape: "blob", color: "blue", size: 28, mood: replied ? .idle : .working)
+                CharacterAvatar(portrait: "crew-builder", size: 28, mood: replied ? .idle : .working)
                 if replied {
                     Text("Done. It raced the session refresh; tests pass on fix/login.")
                         .bubble(Palette.bubbleAgent)

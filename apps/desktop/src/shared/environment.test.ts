@@ -5,7 +5,7 @@ import { environmentProfile, hostEnvironmentError } from './environment.ts'
 test('development installations cannot share production resources or update feed', () => {
   const prod = environmentProfile('main')
   const dev = environmentProfile('dev')
-  assert.equal(prod.appId, 'com.pokai.Codync')
+  assert.equal(prod.appId, 'com.yingkailiao.kith')
   assert.equal(prod.port, 19225)
   assert.equal(prod.dataFolder, '.kith/serve-main')
   assert.equal(prod.hostLabel, 'dev.kith.serve.main')
@@ -25,11 +25,9 @@ test('the development app installs as Kith Dev', () => {
   assert.equal(dev.screenLabel, 'com.yingkailiao.kith.dev.screen')
 })
 
-test('links use the kith schemes and the codync ones stay registered', () => {
+test('links use the kith schemes and nothing else is registered', () => {
   assert.equal(environmentProfile('main').scheme, 'kith')
   assert.equal(environmentProfile('dev').scheme, 'kith-dev')
-  assert.equal(environmentProfile('main').legacyScheme, 'codync')
-  assert.equal(environmentProfile('dev').legacyScheme, 'codync-dev')
 })
 
 test('a development app rejects production and old unidentified hosts', () => {

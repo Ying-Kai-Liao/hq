@@ -18,6 +18,9 @@ pub const RATE_LIMIT: &str = "rate_limit";
 pub const USAGE_95: &str = "usage_95";
 /// The usage at which an entry stops being started on (a window of the 5-hour or weekly limit).
 pub const EARLY_PERCENT: f64 = 95.0;
+/// A turn moves on at most this many times; every move marks the entry it leaves, so it is also the chain's length
+/// that ends it. Shared by the bots' turns and the channels' runs.
+pub const MAX_MOVES: usize = 3;
 /// How long an entry stays out when the provider didn't say when its limit lifts; it is checked again then.
 pub const UNKNOWN_RESET_SECS: i64 = 3600;
 /// A chain with backups is asked of hq again after this long, in the background (hq checks each entry's login, which
@@ -243,6 +246,11 @@ impl Backups {
     /// The last chain hq gave however old (a turn that failed needs it, not a fresh one).
     pub fn known_chain(&self, agent: &str) -> Option<Vec<ChainEntry>> {
         self.chain_state(agent).map(|(_, c)| c)
+    }
+
+    /// The chains hq gave are out of date (the user changed the order): the next turn asks again.
+    pub fn forget_chains(&self) {
+        self.inner.locked().chains.clear();
     }
 
     /// Whether the chain is old enough to ask hq again: an agent without backups is asked rarely.

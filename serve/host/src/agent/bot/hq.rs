@@ -1,6 +1,6 @@
 //! The sessions of an hq agent's bot: `hq <agent> --launch-json` says how to start it (see `agent::hq`), and
 //! nothing of Kith's goes in with it — no instructions of its own, no `chat`/`memory`/`team`/`routines` servers,
-//! no memory snapshot, no dreaming. The agent's reply is its turn's text.
+//! no memory snapshot, no tidying. The agent's reply is its turn's text.
 
 use super::fast_mode::Listing;
 use super::launch::{launch_commands, start_agent};

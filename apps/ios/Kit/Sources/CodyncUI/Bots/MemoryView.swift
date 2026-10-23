@@ -1,7 +1,7 @@
 import CodyncKit
 import SwiftUI
 
-/// A bot's memory: what all your bots know about you, what this one knows, its dreams, and its harness's own notes
+/// A bot's memory: what all your bots know about you, what this one knows, its tidy-ups, and its harness's own notes
 /// when the user kept them on.
 struct MemoryCard: View {
     let botId: String
@@ -14,7 +14,7 @@ struct MemoryCard: View {
     @State private var confirmClear = false
     @State private var aboutHarness = false
 
-    enum Section: Hashable { case yours, bot, dreams, harness }
+    enum Section: Hashable { case yours, bot, tidyUps, harness }
 
     private var bot: Bot? { host.bots[botId] }
 
@@ -62,7 +62,7 @@ struct MemoryCard: View {
         if let view = memory.view {
             switch section {
             case .yours, .bot: layer(memory, view: view)
-            case .dreams: dreams(memory, view.dreams)
+            case .tidyUps: tidyUps(memory, view.tidyUps)
             case .harness: harness(view.projectMemory)
             }
         } else if memory.error == nil {
@@ -71,7 +71,7 @@ struct MemoryCard: View {
     }
 
     private func sections(_ view: MemoryView?) -> [(id: Section, label: String)] {
-        [(Section.yours, "About you"), (.bot, "This bot"), (.dreams, "Dreams")]
+        [(Section.yours, "About you"), (.bot, "This bot"), (.tidyUps, "Tidy-ups")]
             + (view?.projectMemory != nil && showsHarnessTab ? [(.harness, host.backendName(bot?.backend ?? "claude"))] : [])
     }
 
@@ -132,10 +132,10 @@ struct MemoryCard: View {
         if let files = view.files { MemoryFilesList(memory: memory, files: files, shared: shared) }
     }
 
-    @ViewBuilder private func dreams(_ memory: MemoryStore, _ runs: [DreamRun]) -> some View {
+    @ViewBuilder private func tidyUps(_ memory: MemoryStore, _ runs: [TidyRun]) -> some View {
         Text("Between chats the bot tidies its memory from your own words. Each run can be undone.")
             .font(.footnote).foregroundStyle(Palette.secondary)
-        if runs.isEmpty { empty("moon", "No dreams yet.") }
+        if runs.isEmpty { empty("sparkles", "No tidy-ups yet.") }
         ForEach(runs) { run in
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -147,8 +147,8 @@ struct MemoryCard: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if !run.undone {
-                    IconButton("Undo this dream", systemImage: "arrow.uturn.backward") {
-                        Task { await memory.mutate("undoDream", id: run.id) }
+                    IconButton("Undo this tidy", systemImage: "arrow.uturn.backward") {
+                        Task { await memory.mutate("undoTidy", id: run.id) }
                     }
                     .disabled(memory.busy)
                 }
@@ -180,7 +180,7 @@ struct MemoryCard: View {
         switch entry.author {
         case "user": "You wrote it"
         case "bot": "\(host.bots[entry.authorBot ?? ""]?.name ?? "A bot") remembered it"
-        case "dream": "Dreaming"
+        case "tidy", "dream": "Tidying up"
         default: "Moved from the old memory"
         }
     }

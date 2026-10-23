@@ -109,7 +109,12 @@ export function CallView({ botId, onSpeaking, interrupt, onEnd }: {
     let stopWatching: (() => void) | null = null
     next.onActivityChanged = (active) => {
       if (active && !stopWatching) {
-        stopWatching = watchVoiceCall(store, botId, { speak: (t) => next.speak(t), announce: (t) => next.announce(t) })
+        stopWatching = watchVoiceCall(store, botId, {
+          speak: (t) => next.speak(t),
+          announce: (t) => next.announce(t),
+          stream: next.streamsReplies ? (id, text, final) => next.streamReply(id, text, final) : undefined,
+          working: (on) => next.setWorking(on),
+        })
       } else if (!active && stopWatching) {
         stopWatching()
         stopWatching = null
