@@ -750,10 +750,10 @@ enum AppearancePreference: String, CaseIterable {
         }
     }
 
-    /// nil means no override. An unknown stored value (from a newer version) falls back to System.
-    var scheme: ColorScheme? {
+    /// .unspecified means no override. An unknown stored value (from a newer version) falls back to System.
+    var interfaceStyle: UIUserInterfaceStyle {
         switch self {
-        case .system: nil
+        case .system: .unspecified
         case .light: .light
         case .dark: .dark
         }
@@ -765,8 +765,24 @@ enum AppearancePreference: String, CaseIterable {
 private struct AppearanceOverride: ViewModifier {
     @AppStorage(AppearancePreference.key) private var stored = AppearancePreference.system.rawValue
 
+    // Set on the UIWindows, not with .preferredColorScheme: SwiftUI's modifier often fails to go back to
+    // System after Light/Dark until relaunch, and it is flaky inside presentations. A window-level style
+    // is inherited by every sheet and cover, and .unspecified hands control back to the phone.
     func body(content: Content) -> some View {
-        content.preferredColorScheme(AppearancePreference(stored: stored).scheme)
+        content
+            .onAppear(perform: apply)
+            .onChange(of: stored) { apply() }
+            .onReceive(NotificationCenter.default.publisher(for: UIWindow.didBecomeKeyNotification)) { _ in apply() }
+            .onReceive(NotificationCenter.default.publisher(for: UIScene.didActivateNotification)) { _ in apply() }
+    }
+
+    private func apply() {
+        let style = AppearancePreference(stored: stored).interfaceStyle
+        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+            for window in scene.windows where window.overrideUserInterfaceStyle != style {
+                window.overrideUserInterfaceStyle = style
+            }
+        }
     }
 }
 
