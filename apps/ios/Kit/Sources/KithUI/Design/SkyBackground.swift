@@ -55,7 +55,15 @@ public struct SkyBackground: View {
                     .clipped()
                     // Night clouds sit close to the ground colour; lift them so they read.
                     .brightness(variant == .home && isNight ? 0.14 : 0)
-                    .contrast(variant == .home && isNight ? 1.25 : 1)
+                    .contrast(variant == .home && isNight ? 1.25 : (isNight ? 1 : 1.1))
+                    // Day: a touch more colour so the blue and clouds read against the white page.
+                    .saturation(isNight ? 1 : 1.6)
+            }
+            if !isNight {
+                // Day: a soft sky-blue wash over the artwork (multiply keeps the clouds), so the sky reads against the white page.
+                LinearGradient(colors: [Color(red: 0.72, green: 0.86, blue: 1), .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: variant == .home ? 330 : KithSize.skyHeaderFade)
+                    .blendMode(.multiply)
             }
         }
         // The strip is only its own height; the ground behind it comes from the screen.
@@ -65,7 +73,7 @@ public struct SkyBackground: View {
                 LinearGradient(stops: [.init(color: .black, location: 0.55), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
             } else {
                 // Full strength at the top, clear by about half the height, as in the home mock.
-                LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.2), .init(color: .clear, location: 0.55)],
+                LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: isNight ? 0.2 : 0.3), .init(color: .clear, location: isNight ? 0.55 : 0.7)],
                                startPoint: .top, endPoint: .bottom)
             }
         }
