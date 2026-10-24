@@ -1,6 +1,6 @@
 {
   "name": "kith-cloud",
-  "version": "2.2.0",
+  "version": "0.1.0",
   "description": "Kith cloud: accounts, computers and the end-to-end encrypted relay (Cloudflare Worker + Durable Object)",
   "private": true,
   "license": "Apache-2.0",
