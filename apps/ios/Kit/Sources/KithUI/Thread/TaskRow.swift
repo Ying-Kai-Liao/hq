@@ -59,7 +59,7 @@ struct TaskRow: View {
         HStack(alignment: .top, spacing: 10) {
             RoundedRectangle(cornerRadius: 1).fill(tint.a).frame(width: 2)
             VStack(alignment: .leading, spacing: 8) {
-                Text(status.label).kithText(.label).foregroundStyle(Palette.muted)
+                Text(Tasks.label(status, replies: replies)).kithText(.label).foregroundStyle(Palette.muted)
                 ForEach(ThreadFeed.replies(replies)) { reply in
                     switch reply {
                     case .entry(let e, let groupStart):

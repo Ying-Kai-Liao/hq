@@ -63,6 +63,9 @@ public struct EntryData: Codable, Hashable, Sendable {
     public var callLive: Bool?
     /// notice (divider): who started or stopped writing. Open string; see `WriterChange`.
     public var writerChange: String?
+    /// permission, answered: an old run still holds the session this approval resumes in (host `cards/resume.rs`). Nil
+    /// otherwise, and on entries from an older host.
+    public var held: HeldRun?
     /// notice: when the writer changed, in ms.
     public var at: Int64?
 

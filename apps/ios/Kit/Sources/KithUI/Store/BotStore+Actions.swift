@@ -1,6 +1,9 @@
 import KithKit
 import Foundation
 import os
+#if canImport(UIKit)
+import UIKit
+#endif
 
 private let log = Logger(subsystem: "com.yingkailiao.kith", category: "BotStore")
 
@@ -165,6 +168,34 @@ extension BotStore {
                 lastError = error.localizedDescription
             }
             Motion.animate { answering[entry.id] = nil }
+        }
+    }
+
+    /// This account owns the computer: only the owner's hello has no member grant list.
+    public var isOwner: Bool { hello?.grantedAgents == nil }
+
+    /// The owner's Stop on a card's held row: ends the old run that holds the card's session. One at a time per
+    /// session (a second tap, or the same session's other card, does nothing while it runs). The cards' rows close
+    /// when the host clears `held` on their entries, not here.
+    public func stopHolder(for entry: Entry) {
+        guard let held = entry.data.held, holderPhases[held.session] != .stopping else { return }
+        Motion.animate { holderPhases[held.session] = .stopping }
+        Task {
+            var phase: HeldRunModel.Phase?
+            do {
+                let result = try await withLink(replay: true) { try await $0.stopHolder(session: held.session) }
+                if result.ownTurn != nil {
+                    phase = HeldRunModel.ownTurnPhase
+                } else if result.stopped != nil {
+                    Motion.animate { stoppedRuns[entry.id] = StoppedRun(kind: held.kind, at: .now) }
+                }
+            } catch {
+                phase = HeldRunModel.failure(for: error, mac: hostName)
+            }
+            #if canImport(UIKit)
+            UINotificationFeedbackGenerator().notificationOccurred(phase == nil ? .success : .error)
+            #endif
+            Motion.animate { holderPhases[held.session] = phase }
         }
     }
 

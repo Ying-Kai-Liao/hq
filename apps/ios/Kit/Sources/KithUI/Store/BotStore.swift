@@ -160,6 +160,10 @@ public final class BotStore {
     /// Permission cards whose answer is on its way, with the chosen option: the card shows
     /// a spinner on it and takes no second answer.
     public internal(set) var answering: [String: String] = [:]
+    /// Per session, how a Stop of the old run holding it stands (cards of one session share it). Nothing while idle.
+    public internal(set) var holderPhases: [String: HeldRunModel.Phase] = [:]
+    /// Per approved card, the old run its owner stopped from it: the transcript's "Stopped the old … run" divider.
+    public internal(set) var stoppedRuns: [String: StoppedRun] = [:]
 
     @ObservationIgnored var readingViews: [UUID: ReadingScope] = [:]
 

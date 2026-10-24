@@ -54,6 +54,11 @@ public enum Tasks {
         return last?.kind == "notice" && last?.data.text == "Stopped." ? .stopped : .done
     }
 
+    /// The thread row's subtitle: the status word, or the old run an approved card waits behind (no needs-you).
+    public static func label(_ status: TaskStatus, replies: [Entry]) -> String {
+        replies.contains(where: \.isHeldPermission) ? "Waiting for an old run" : status.label
+    }
+
     /// When the task last moved: its newest message, or its start.
     public static func lastAt(_ root: Entry) -> Int64 {
         if let at = root.data.thread?.lastAt, at > 0 { return at }
