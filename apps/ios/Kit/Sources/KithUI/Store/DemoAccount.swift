@@ -17,6 +17,8 @@ public enum DemoScreens {
     public static let chatBotId = "coder"
     /// What the Crew dock starts with: `crew-typing` shows it mid-search.
     public static var query: String { name == "crew-typing" ? "co" : "" }
+    /// The demos that show more than one computer: a Mac that's offline and one that turned the phone away.
+    static var showsProblems: Bool { name == "problem" || name == "account-devices" }
     #else
     public static var active: Bool { false }
     public static let chatBotId = "coder"
@@ -37,6 +39,15 @@ extension AccountStore {
             .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
         let mac = Computer(id: RelayCrypto.computerId(signKey: key), name: "Studio Mac", signKey: encoded, device: "macmini")
         storage.computers = [mac]
+        // Problem demos: an offline Mac and one that stopped letting this iPhone in, beside the online one.
+        func extra(_ name: String, _ device: String, byte: UInt8) -> Computer {
+            let key = Data((0..<32).map { UInt8($0) &+ byte })
+            let encoded = key.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+            return Computer(id: RelayCrypto.computerId(signKey: key), name: name, signKey: encoded, device: device)
+        }
+        let air = extra("MacBook Air", "macbook", byte: 40), mini = extra("Mac mini", "macmini", byte: 80)
+        if DemoScreens.showsProblems { storage.computers += [air, mini] }
         let accounts = AccountStore(storage: storage, cloud: nil) { computer in
             // Never answers: the demo shows a fixed roster, not a connection.
             BotStore(computer: computer, storage: storage) {
@@ -45,6 +56,10 @@ extension AccountStore {
             }
         }
         accounts.setActive(false)
+        if DemoScreens.showsProblems {
+            accounts.store(for: air.id)?.connection = .computerOffline(lastSeen: Date().addingTimeInterval(-3 * 3600))
+            accounts.store(for: mini.id)?.connection = .unauthorized("Access was removed on the Mac.")
+        }
         guard let store = accounts.store(for: mac.id) else { return accounts }
         let now = Int64(Date().timeIntervalSince1970 * 1000)
         func bot(_ id: String, _ name: String, kind: String = "agent", status: String = "idle", unread: Int = 0,
