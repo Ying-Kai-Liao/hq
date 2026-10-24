@@ -140,9 +140,11 @@ public struct InviteBotSheet: View {
             .frame(maxHeight: 8 * 18 + 24)
             .background(Palette.panel, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             VStack(spacing: 10) {
-                Button(copied ? "Copied" : "Copy") {
+                Button {
                     UIPasteboard.general.string = share
                     copied = true
+                } label: {
+                    Text(copied ? "Copied" : "Copy").frame(maxWidth: .infinity, minHeight: 28)
                 }
                 .buttonStyle(.primary)
                 ShareLink(item: share) {

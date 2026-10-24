@@ -18,6 +18,26 @@ public enum DemoScreens {
         let json: [String: Any] = ["inviteId": "i2", "link": "https://kith.app/join#demo-invite-token", "expiresAt": 0, "personId": "lee"]
         return (try? JSONSerialization.data(withJSONObject: json)).flatMap { try? JSONDecoder().decode(CreatedInvite.self, from: $0) }
     }
+    /// The `bots-*` demos: one bot per state, and a second waiting one from Sam. Rex is Sam's active bot.
+    static func demoBots(now: Int64) -> [BotGuest] {
+        let hour: Int64 = 3_600_000
+        return [
+            BotGuest(botId: "bg_wait", name: "Rex", state: .pending, ownerPerson: "sam", ownerName: "Sam", agents: ["ada", "remy", "pip"],
+                     createdAt: now - 50 * hour, joinedAt: now - 50 * hour),
+            BotGuest(botId: "bg_echo", name: "Echo", provider: "other", state: .pending, agents: ["ada"], createdAt: now - 2 * hour,
+                     joinedAt: now - 2 * hour),
+            BotGuest(botId: "bg_act", name: "Rex Sr", state: .active, ownerPerson: "sam", ownerName: "Sam", agents: ["ada", "remy"],
+                     limits: BotGuestLimits(ratePerHour: 60, concurrent: 2), connected: true, createdAt: now - 80 * hour,
+                     joinedAt: now - 79 * hour, decidedAt: now - 78 * hour, decidedBy: "kai", lastSeenAt: now - 600_000, personId: "bot-1",
+                     conversations: [BotGuestConversation(conversation: "c1", agent: "ada", chatBotId: nil, threadRoot: nil,
+                                                          originLabel: "Dinner plans", lastAt: now - hour)]),
+            BotGuest(botId: "bg_inv", name: "Nova Bot", state: .invited, agents: ["pip"], createdAt: now - hour),
+            BotGuest(botId: "bg_join", name: "Joiner", state: .joining, agents: ["pip"], createdAt: now - hour),
+            BotGuest(botId: "bg_no", name: "Spam", state: .denied, ownerPerson: "maya", ownerName: "Maya", agents: ["ada"], createdAt: now - 90 * hour),
+            BotGuest(botId: "bg_gone", name: "Old", state: .revoked, agents: ["ada"], createdAt: now - 99 * hour, revokedAt: now - 30 * hour),
+        ]
+    }
+
     /// The bot the `chat` demo opens.
     public static let chatBotId = "coder"
     /// What the Crew dock starts with: `crew-typing` shows it mid-search.
@@ -91,6 +111,7 @@ extension AccountStore {
         for b in bots { store.bots[b.id] = b }
         seedChat(store, now: now)
         seedBoard(store, now: now)
+        if DemoScreens.name?.hasPrefix("bots-") == true { store.botGuests.seedDemo(DemoScreens.demoBots(now: now)) }
         store.connection = .online
         store.caughtUp = true
         return accounts
@@ -233,8 +254,7 @@ extension AccountStore {
 extension PeopleStore {
     @MainActor
     public static func demo() -> PeopleStore {
-        let store = PeopleStore(host: { DemoPeopleHost() })
-        return store
+        PeopleStore(host: { DemoPeopleHost() })
     }
 }
 

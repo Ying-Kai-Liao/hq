@@ -8,12 +8,14 @@ public struct BotDetailView: View {
     let viewer: BotViewer
     let store: BotStore
     @Environment(\.dismissModal) private var dismiss
-    @Environment(AccountStore.self) private var accounts
-    @State private var confirmRemove = false
+    @Environment(AccountStore.self) private var accounts: AccountStore?
+    @State private var confirmRemove: Bool
     /// The last row seen, so the sheet still reads after the bot leaves the list.
     @State private var last: BotGuest
 
-    public init(bot: BotGuest, viewer: BotViewer, store: BotStore) {
+    /// `askRemove` opens the remove dialog at once (screenshots).
+    public init(bot: BotGuest, viewer: BotViewer, store: BotStore, askRemove: Bool = false) {
+        _confirmRemove = State(initialValue: askRemove)
         botId = bot.botId
         self.viewer = viewer
         self.store = store
@@ -36,7 +38,7 @@ public struct BotDetailView: View {
                 }
             }
             CardSection("Status", footer: BotGuestRowModel.limits(bot)) {
-                ValueRow("State", value: BotGuestRowModel(bot, viewer: viewer, ownerName: ownerName).line)
+                ValueRow("State", value: stateWord(bot))
                 if let joined = bot.joined {
                     ValueRow("Joined", value: joined.formatted(date: .abbreviated, time: .shortened))
                 }
@@ -85,6 +87,18 @@ public struct BotDetailView: View {
         }
     }
 
+    private func stateWord(_ bot: BotGuest) -> String {
+        switch bot.state {
+        case .invited: "Invited"
+        case .joining: "Joining"
+        case .pending: "Waiting for an answer"
+        case .active: bot.connected ? "Online now" : "Active"
+        case .denied: "Denied"
+        case .revoked: "Removed"
+        case .unknown: "Unknown"
+        }
+    }
+
     private func subtitle(_ bot: BotGuest) -> String {
         if viewer == .owner, bot.ownerPerson != nil {
             return "\(bot.ownerName ?? "Someone")'s \(bot.providerTitle) bot"
@@ -111,7 +125,7 @@ public struct BotDetailView: View {
     @ViewBuilder private func conversationRow(_ conversation: BotGuestConversation) -> some View {
         let opens = conversation.chatBotId.flatMap { store.bots[$0] } != nil
         Button {
-            guard let chat = conversation.chatBotId, opens else { return }
+            guard let accounts, let chat = conversation.chatBotId, opens else { return }
             dismiss()
             accounts.selection = BotReference(accountId: accounts.accountId, computerId: store.computer.id, botId: chat)
         } label: {

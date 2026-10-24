@@ -168,3 +168,13 @@ public final class BotGuestStore {
         }
     }
 }
+
+#if DEBUG
+extension BotGuestStore {
+    /// The `bots-*` demo screens: a fixed list, nothing asked of a host.
+    func seedDemo(_ list: [BotGuest]) {
+        bots = list
+        loaded = true
+    }
+}
+#endif

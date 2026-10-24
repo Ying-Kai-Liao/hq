@@ -63,6 +63,16 @@ public struct BotGuestConversation: Codable, Hashable, Sendable, Identifiable {
     public var lastAt: Int64?
     public var id: String { conversation }
 
+    public init(conversation: String, agent: String, chatBotId: String? = nil, threadRoot: String? = nil,
+                originLabel: String? = nil, lastAt: Int64? = nil) {
+        self.conversation = conversation
+        self.agent = agent
+        self.chatBotId = chatBotId
+        self.threadRoot = threadRoot
+        self.originLabel = originLabel
+        self.lastAt = lastAt
+    }
+
     public var last: Date? { lastAt.map { Date(milliseconds: $0) } }
 }
 
@@ -204,6 +214,15 @@ public struct CreatedBotInvite: Codable, Hashable, Sendable {
     public var link: String
     public var kithLink: String?
     public var share: String
+
+    public init(botId: String, inviteId: String, expiresAt: Int64, link: String, kithLink: String? = nil, share: String) {
+        self.botId = botId
+        self.inviteId = inviteId
+        self.expiresAt = expiresAt
+        self.link = link
+        self.kithLink = kithLink
+        self.share = share
+    }
 
     public var expiry: Date { Date(milliseconds: expiresAt) }
 }
