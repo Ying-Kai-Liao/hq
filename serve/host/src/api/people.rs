@@ -398,7 +398,30 @@ async fn stop_runs(hub: &Hub, person: &str, only_denied: bool) {
             tracing::warn!(error = format!("{e:#}"), person, "couldn't stop a turn");
         }
     }
+    // Their cards end with the access (A7): all of them, or those of every agent they lost, chat or no chat.
+    if only_denied {
+        for agent in hub.store.cards_agents(person) {
+            if !roles::may_use(person, &agent).await {
+                crate::cards::withdraw_person(hub, person, Some(&agent));
+            }
+        }
+    } else {
+        crate::cards::withdraw_person(hub, person, None);
+    }
     crate::channels::stop_person_runs(person, only_denied).await;
+    // Runs a restarted host no longer knows: found by their claims. Their bots' runs too (a bot may use what its owner may).
+    if only_denied {
+        let mut ids = vec![person.to_owned()];
+        ids.extend(
+            hub.store
+                .bot_guests()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|g| g.state.live() && g.owner_person.as_deref() == Some(person))
+                .map(|g| g.person_id),
+        );
+        super::botguests::sweep_claims(hub, ids, true).await;
+    }
 }
 
 /// Wrong tries a device may make at `proveInvite` per window.

@@ -10,6 +10,7 @@ use super::adapter::{Adapter, Ended, Incoming, Reaction, StopPress};
 use super::core::{Busy, Core};
 use super::hq;
 use super::text::{INTERRUPTED, merged, short};
+use crate::LockExt as _;
 use crate::chat::router::Route;
 use serde_json::Value;
 use std::sync::Arc;
@@ -25,6 +26,18 @@ pub(super) fn kill(pid: u32) {
 
 #[cfg(not(unix))]
 pub(super) fn kill(_pid: u32) {}
+
+/// What a card's wake came to (see [`Core::wake`]).
+#[derive(Debug, PartialEq, Eq)]
+pub enum Wake {
+    Queued,
+    /// Someone else already took this card's resume.
+    Claimed,
+    /// The thread is gone from the channel state: the resume can't happen.
+    NoThread,
+    /// The connection isn't up (yet): try again later.
+    Offline,
+}
 
 /// Ends a worker's claim on its work key, also when the worker panics or fails.
 struct Claim {
@@ -388,8 +401,61 @@ impl Core {
         }
     }
 
+    /// An approved card's resume for the thread behind work key `wk`: `text` joins the thread's inbox as a batch of
+    /// its own and a worker starts if none runs. The card store is the record of the owed resume, not this inbox
+    /// (the inbox is emptied before a run starts): `claim` is the card's compare-and-set, taken only once the thread
+    /// and its connection are known to be here, so a refusal leaves the resume owed. It returns the ids of the cards it
+    /// took (none: someone else did). If the turn that carries `text` then fails to start (the session is held, the
+    /// spawn failed), [`Self::settle_wake`] gives the cards back to the store, so the resume stays owed (C5).
+    pub fn wake(self: &Arc<Self>, wk: &str, text: &str, claim: impl FnOnce() -> Vec<String>) -> Wake {
+        let (key, agent) = wk.rsplit_once('#').unwrap_or((wk, ""));
+        let ad =
+            self.ads.locked().iter().find(|(conn, _)| key.starts_with(&format!("{conn}:"))).map(|(_, ad)| ad.clone());
+        let Some(ad) = ad else { return Wake::Offline };
+        let spawn = self.with(|i| {
+            if !i.st.threads.contains_key(key) {
+                return None;
+            }
+            let cards = claim();
+            if cards.is_empty() {
+                return Some(None);
+            }
+            self.wakes.locked().push((text.to_owned(), cards));
+            i.st.inbox.entry(wk.to_owned()).or_default().push(vec![text.to_owned()]);
+            let spawn = !i.busy.contains_key(wk);
+            if spawn {
+                i.busy.insert(wk.to_owned(), Busy::default());
+            }
+            i.save();
+            Some(Some(spawn))
+        });
+        match spawn {
+            None => Wake::NoThread,
+            Some(None) => Wake::Claimed,
+            Some(Some(spawn)) => {
+                if spawn {
+                    self.spawn_worker(&ad, key, agent);
+                }
+                Wake::Queued
+            }
+        }
+    }
+
+    /// The turn that carried `task` is over. `started`: it produced a result, so the wake was delivered. Otherwise (no
+    /// result: the kernel refused the held session, or the spawn failed) the cards go back to the store as owed.
+    pub(super) fn settle_wake(&self, task: &str, started: bool) -> Vec<String> {
+        let done: Vec<Vec<String>> = {
+            let mut wakes = self.wakes.locked();
+            let (mine, rest): (Vec<_>, Vec<_>) = wakes.drain(..).partition(|(note, _)| task.contains(note.as_str()));
+            *wakes = rest;
+            mine.into_iter().map(|(_, cards)| cards).collect()
+        };
+        if started { Vec::new() } else { done.into_iter().flatten().collect() }
+    }
+
     /// Messages that waited for this connection when the host last stopped, and live sessions' answers.
     pub fn resume(self: &Arc<Self>, ad: &Arc<dyn Adapter>) {
+        self.ads.locked().insert(ad.conn().to_owned(), ad.clone());
         let prefix = format!("{}:", ad.conn());
         if self.with(|i| i.st.live.values().any(|k| k.as_str().is_some_and(|k| k.starts_with(&prefix)))) {
             self.ensure_pump(ad);

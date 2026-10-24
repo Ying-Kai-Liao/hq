@@ -980,3 +980,145 @@ async fn releasing_a_claim_leaves_a_foreign_claim_alone() {
     claim::release(&r.state(), "s1", b, false);
     assert!(claim::holder(&r.state(), "s1").is_none());
 }
+
+#[tokio::test]
+async fn a_oneshot_claim_written_by_the_kernel_is_parsed_and_holds_the_session() {
+    let r = Rig::new();
+    let pid = r.sleeper();
+    // The shape kernel/bin/kith-sessions writes for a `claude -p --resume` one-shot. An unparsed claim would be ignored.
+    let p = claim::path(&r.state(), "s1", false);
+    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+    let start = registry::proc_start(pid).expect("ps knows the process");
+    std::fs::write(
+        &p,
+        json!({"pid": pid, "procStart": start, "at": "2026-10-24T00:00:00+00:00", "kind": "oneshot"}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(claim::read(&p).expect("the host parses a oneshot claim").kind, Kind::Oneshot);
+    let held = claim::holder(&r.state(), "s1").expect("a live one-shot holds the session for a host turn");
+    assert_eq!((held.pid, held.kind), (pid, Kind::Oneshot));
+    assert!(claim::take(&r.state(), "s1", Kind::App, std::process::id(), false).unwrap().is_err());
+}
+
+// --- the revoke sweep: claims name the person, the sweep ends their holders -----------------------------------------
+
+/// A process with a child of its own (`sh` waiting on a `sleep`), so the sweep's reach to children can be seen. The child's pid
+/// is the first line `sh` prints.
+fn shell_with_child() -> (std::process::Child, u32) {
+    use std::io::BufRead as _;
+    let mut sh = std::process::Command::new("sh")
+        .args(["-c", "sleep 300 & echo $!; wait"])
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut line = String::new();
+    std::io::BufReader::new(sh.stdout.take().unwrap()).read_line(&mut line).unwrap();
+    (sh, line.trim().parse().unwrap())
+}
+
+fn gone(pid: u32) -> bool {
+    for _ in 0..40 {
+        if !registry::pid_runs(pid) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    false
+}
+
+const GRACE: std::time::Duration = std::time::Duration::from_millis(300);
+
+#[tokio::test]
+async fn the_sweep_ends_a_left_over_guest_holder_and_its_child_and_keeps_the_owners() {
+    let r = Rig::new();
+    let (mut guest, guest_child) = shell_with_child();
+    let owner = r.sleeper();
+    let other_guest = r.sleeper();
+    let gpid = guest.id();
+    claim::take_as(&r.state(), "g1", Kind::Oneshot, gpid, false, Some("bot-sam"), None).unwrap().unwrap();
+    claim::take(&r.state(), "o1", Kind::Terminal, owner, false).unwrap().unwrap();
+    claim::take_as(&r.state(), "x1", Kind::Oneshot, other_guest, false, Some("ann"), None).unwrap().unwrap();
+    let ended = claim::sweep(&r.state(), &["bot-sam".into(), "sam".into()], &|_| false, GRACE);
+    assert_eq!(ended, [gpid]);
+    guest.wait().unwrap();
+    assert!(gone(guest_child), "what the holder started goes with it");
+    assert!(registry::pid_runs(owner), "a claim without a person is the owner's and is never touched");
+    assert!(registry::pid_runs(other_guest), "another person's holder is left alone");
+    assert!(claim::read(&claim::path(&r.state(), "g1", false)).is_none(), "the ended holder's claim is removed");
+    assert!(claim::read(&claim::path(&r.state(), "o1", false)).is_some());
+    // Again: nothing left to end.
+    assert_eq!(claim::sweep(&r.state(), &["bot-sam".into()], &|_| false, GRACE).len(), 0);
+}
+
+#[tokio::test]
+async fn the_sweep_leaves_a_reused_pid_alone() {
+    let r = Rig::new();
+    let stranger = r.sleeper();
+    // A live pid that started at another time than the claim says: not the process that took the claim.
+    let path = claim::path(&r.state(), "g2", false);
+    std::fs::write(
+        &path,
+        json!({"pid": stranger, "procStart": "Mon Jan  1 00:00:00 2001", "at": "t", "kind": "oneshot", "person": "sam"})
+            .to_string(),
+    )
+    .unwrap();
+    assert_eq!(claim::sweep(&r.state(), &["sam".into()], &|_| false, GRACE).len(), 0);
+    assert!(registry::pid_runs(stranger));
+    // A dead pid is stale: nothing to kill either.
+    std::fs::write(&path, json!({"pid": DEAD, "at": "t", "kind": "oneshot", "person": "sam"}).to_string()).unwrap();
+    assert_eq!(claim::sweep(&r.state(), &["sam".into()], &|_| false, GRACE).len(), 0);
+}
+
+#[tokio::test]
+async fn claim_files_from_before_the_person_field_parse_as_the_owners() {
+    let r = Rig::new();
+    let me = r.sleeper();
+    let path = claim::path(&r.state(), "old1", false);
+    for body in [
+        json!({"pid": me, "at": "t"}),
+        json!({"pid": me, "at": "t", "kind": "oneshot", "takeover": false}),
+        json!({"pid": me, "at": "t", "kind": "terminal", "person": null}),
+    ] {
+        std::fs::write(&path, body.to_string()).unwrap();
+        let c = claim::read(&path).expect("parses");
+        assert_eq!(c.person, None);
+    }
+    std::fs::write(&path, json!({"pid": me, "kind": "oneshot"}).to_string()).unwrap();
+    assert_eq!(claim::sweep(&r.state(), &["sam".into()], &|_| false, GRACE).len(), 0);
+    assert!(registry::pid_runs(me), "an old claim is the owner's: kept");
+    // The owner's claim is written without the field.
+    claim::release(&r.state(), "old1", me, false);
+    claim::take(&r.state(), "old1", Kind::Terminal, me, false).unwrap().unwrap();
+    assert!(!std::fs::read_to_string(&path).unwrap().contains("person"));
+}
+
+#[tokio::test]
+async fn a_persons_warm_process_stays_findable_between_turns() {
+    let r = Rig::new();
+    let (mut warm, _child) = shell_with_child();
+    // The turn claim is given back at the end of the turn; the process claim is not.
+    claim::take_proc(&r.state(), warm.id(), "sam", None).unwrap();
+    claim::take_as(&r.state(), "t1", Kind::App, warm.id(), false, Some("sam"), None).unwrap().unwrap();
+    claim::release(&r.state(), "t1", warm.id(), false);
+    assert!(claim::holder(&r.state(), "proc-1").is_none(), "it keeps no writer out");
+    let ended = claim::sweep(&r.state(), &["sam".into()], &|_| false, GRACE);
+    assert_eq!(ended, [warm.id()]);
+    warm.wait().unwrap();
+}
+
+#[tokio::test]
+async fn a_narrowing_sweep_ends_only_the_holders_on_agents_the_person_lost() {
+    let r = Rig::new();
+    let (mut lost, _c1) = shell_with_child();
+    let (mut kept, _c2) = shell_with_child();
+    claim::take_as(&r.state(), "n1", Kind::Oneshot, lost.id(), false, Some("sam"), Some("money")).unwrap().unwrap();
+    claim::take_as(&r.state(), "n2", Kind::Oneshot, kept.id(), false, Some("sam"), Some("house")).unwrap().unwrap();
+    assert_eq!(claim::holders_of(&r.state(), &["sam".into()]).len(), 2);
+    let spare = |c: &claim::Claim| c.agent.as_deref() == Some("house");
+    let ended = claim::sweep(&r.state(), &["sam".into()], &spare, GRACE);
+    assert_eq!(ended, [lost.id()]);
+    lost.wait().unwrap();
+    assert!(kept.try_wait().unwrap().is_none(), "the agent they still hold keeps running");
+    kept.kill().unwrap();
+    kept.wait().unwrap();
+}

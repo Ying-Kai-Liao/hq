@@ -5,6 +5,7 @@ mod analytics;
 mod api;
 mod background;
 mod calls;
+mod cards;
 mod channels;
 mod chat;
 mod compat;
@@ -571,6 +572,8 @@ async fn serve(bind: &str, port: u16) -> Result<()> {
     runauth::start();
     let hub = hub::Hub::new(store, host_id, identity, token, port);
     hub.start()?;
+    runauth::attach(&hub);
+    cards::start(&hub);
     background::start(&hub);
     watchdog::start();
     tracing::info!(version = env!("CARGO_PKG_VERSION"), bind, port, "kith-serve listening");

@@ -36,6 +36,9 @@ pub(super) const LOCAL_ONLY: &[&str] = &[
     "setHostAutomaticUpdates",
     "setScreenEnabled",
     "requestScreenPermission",
+    // A token for the kernel's own owner runs (approval cards): from this computer's credentials only.
+    "issueAskToken",
+    "revokeAskToken",
     // Analytics is the computer owner's choice; phones decide only for themselves.
     "setAnalytics",
     "track",

@@ -557,6 +557,11 @@ pub async fn launch(
     // Only the host hands a run its token (see `runauth`), whatever the kernel's answer says.
     launch.env.remove(crate::runauth::TOKEN_ENV);
     launch.env.remove(crate::runauth::SOCKET_ENV);
+    // An owner's ask token (the kernel may fetch one for the owner's run) is no part of a person's launch.
+    if person.is_some() {
+        launch.env.remove(crate::runauth::ASK_TOKEN_ENV);
+        launch.env.remove(crate::runauth::ASK_SOCKET_ENV);
+    }
     if let Some(person) = person {
         launch.confine_to(person)?;
     }

@@ -659,8 +659,27 @@ def pairs(args, allowed):
 
 
 def need_person(auth, pid):
+    """The C2 rule: every command that gives a person access calls this after its locked load_auth, so the read of
+    who is a person and the write that follows are one transaction. Someone removed (or never added) is refused."""
     if pid not in auth['people']:
         die(f"no person '{pid}' (kith-auth person {pid} name=..)")
+
+
+def forget(auth, ids):
+    """Drop everything that gives these ids access: memberships, their own grants, open invites, shared profiles.
+    Removal is final, and a new person who takes an old id starts with nothing (rows left by an older kith-auth too)."""
+    ids = set(ids)
+    for rows in auth['members'].values():
+        for x in ids:
+            rows.pop(x, None)
+    auth['members'] = {a: r for a, r in auth['members'].items() if r}
+    auth['grants'] = {k: g for k, g in auth['grants'].items() if k.rsplit('@', 1)[-1] not in ids or '@' not in k}
+    auth['invites'] = {c: i for c, i in auth['invites'].items() if i.get('person') not in ids}
+    for prof in auth['profiles'].values():
+        if ids & set(prof.get('with', [])):
+            prof['with'] = [x for x in prof['with'] if x not in ids]
+            if not prof['with']:
+                prof.pop('with')
 
 
 def services_of(auth, agent, person):
@@ -810,11 +829,7 @@ def cmd_person(args):
             gone += [b for b in bots_of(auth, x) if b not in gone]
         for x in gone:
             auth['people'].pop(x, None)
-        for rows in auth['members'].values():
-            for x in gone:
-                rows.pop(x, None)
-        auth['members'] = {a: r for a, r in auth['members'].items() if r}
-        auth['grants'] = {k: g for k, g in auth['grants'].items() if k.rsplit('@', 1)[-1] not in gone}
+        forget(auth, gone)
         save_auth(auth)
         kept = sorted({label for label, _ in person_folders(pid)})
         print(f'{pid} removed, with their memberships and grants' + (f' and bots ({", ".join(gone[1:])})' if gone[1:] else '')
@@ -823,6 +838,8 @@ def cmd_person(args):
         return
     if pid not in auth['people'] and canonical(auth, pid) != pid:
         die(f"'{pid}' was renamed to {canonical(auth, pid)}")
+    if pid not in auth['people']:
+        forget(auth, [pid])   # a new person starts with nothing, whatever an older removal left behind
     p = auth['people'].setdefault(pid, {})
     p.update({k: v for k, v in kv.items() if v})
     for k in [k for k, v in kv.items() if not v]:
@@ -851,6 +868,7 @@ def rename(auth, old, new):
         die('a person id is lowercase letters, digits and -, e.g. sam', 2)
     if new in auth['people'] or any(new in p.get('was', []) for p in auth['people'].values()):
         die(f"'{new}' is already a person (or one's old id)")
+    forget(auth, [new])
     p = auth['people'].pop(old)
     p['was'] = list(dict.fromkeys(p.get('was', []) + [old]))
     auth['people'][new] = p
@@ -981,6 +999,7 @@ def cmd_link(args):
     inv = auth['invites'].pop(code.strip().upper(), None)
     if not inv or inv['expires'] < time.time():
         die('that code is unknown or expired; ask for a new one (kith-auth invite <id>)')
+    need_person(auth, inv['person'])   # removed since the code was made: nothing is written
     bind(auth, inv['person'], plat, uid)
     save_auth(auth)
     print(inv['person'])
@@ -1028,7 +1047,7 @@ def cmd_member(args):
         except ValueError:
             die('budget is dollars a month, e.g. budget=20', 2)
     auth = load_auth(write=True)
-    if pid != EVERYONE:
+    if pid != EVERYONE and '--rm' not in flags:   # taking access away works on anyone, giving it only on a person
         need_person(auth, pid)
     if auth['people'].get(pid, {}).get('bot_of'):
         if kv.get('preset', 'guest') != 'guest':
@@ -1075,6 +1094,9 @@ def cmd_member(args):
                  'deny': p.get('deny', []) + row.get('deny', []), 'helpers': row.get('helpers', [])}
         else:
             r = resolve(auth, agent, pid)
+            if r['owner']:   # the owner is always allowed: resolve gives no preset or mode for them
+                print(f'{pid} is the owner: always may use {agent}')
+                continue
             if not r['allowed']:   # a bot whose owner does not hold the agent: the row waits, the access is not there
                 print(f'{pid} has a row for {agent}, but may not use it now: {r["why"]}')
                 continue
@@ -1099,10 +1121,7 @@ def cmd_bot(args):
         if not auth['people'].get(bid, {}).get('bot_of'):
             die(f"no bot '{bid}'")
         auth['people'].pop(bid)
-        for rows in auth['members'].values():
-            rows.pop(bid, None)
-        auth['members'] = {a: r for a, r in auth['members'].items() if r}
-        auth['grants'] = {k: g for k, g in auth['grants'].items() if not k.endswith(f'@{bid}')}
+        forget(auth, [bid])
         save_auth(auth)
         print(f'{bid} removed, with its memberships')
         return
@@ -1118,6 +1137,8 @@ def cmd_bot(args):
         die(f"'{bid}' is already a person, not a bot")
     if cur and canonical(auth, cur['bot_of']) != parent:
         die(f"{bid} belongs to {cur['bot_of']}; remove it (--rm) and add it again to hand it over")
+    if cur is None:
+        forget(auth, [bid])
     p = auth['people'].setdefault(bid, {})
     p['bot_of'] = parent
     for k, v in kv.items():

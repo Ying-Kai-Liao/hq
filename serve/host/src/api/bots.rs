@@ -378,8 +378,20 @@ pub(super) async fn call(hub: &Arc<Hub>, method: &str, b: Value) -> Result<Contr
             if invitee_chat && option_id.as_deref().is_some_and(|o| !super::roles::offered(&e.data, o)) {
                 bail!("That isn't one of the choices on this request.");
             }
-            hub.send_cmd(bot, Cmd::Permission { entry_id: entry_id.to_owned(), option_id })?;
-            json!({})
+            // The card store decides whether the answer counts (A1) and records it; an answer for a process that is up
+            // goes on to the bot's actor, which holds the request id.
+            let by = b["asPerson"].as_str().unwrap_or("owner");
+            match crate::cards::answer(hub, entry_id, option_id.as_deref(), by)? {
+                crate::cards::Outcome::Closed => json!({"closed": true}),
+                crate::cards::Outcome::Recorded { forward } => {
+                    if forward
+                        && let Err(e) = hub.send_cmd(bot, Cmd::Permission { entry_id: entry_id.to_owned(), option_id })
+                    {
+                        tracing::warn!(error = format!("{e:#}"), bot, "the bot was gone before it heard the answer");
+                    }
+                    json!({})
+                }
+            }
         }
         _ => return Ok(ControlFlow::Continue(b)),
     }))

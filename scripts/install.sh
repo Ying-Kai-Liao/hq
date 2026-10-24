@@ -75,6 +75,8 @@ SRC=$(echo "$WORK"/x/kith-*)
 # Swap in what a release owns; anything else under share/kith (agents/, state of an older layout) stays.
 # A new file is moved into place by rename, so a running kith is never half-written.
 mkdir -p "$PREFIX/bin" "$PREFIX/share/kith"
+cat > "$WORK/swap.sh" <<'SWAP'
+set -eu
 cp "$SRC/bin/kith" "$PREFIX/bin/.kith.new.$$" && chmod 755 "$PREFIX/bin/.kith.new.$$" && mv -f "$PREFIX/bin/.kith.new.$$" "$PREFIX/bin/kith"
 for part in kernel .claude-plugin install.sh LICENSE LICENSE.serve NOTICE THIRD_PARTY_NOTICES.md README.md; do
   # Tarballs from before LICENSE.serve, NOTICE and THIRD_PARTY_NOTICES.md shipped lack them.
@@ -82,6 +84,91 @@ for part in kernel .claude-plugin install.sh LICENSE LICENSE.serve NOTICE THIRD_
   rm -rf "$PREFIX/share/kith/$part"
   cp -R "$SRC/share/kith/$part" "$PREFIX/share/kith/$part"
 done
+SWAP
+
+# The swap runs under the auth.json lock, then waits for every kith-auth / kith_settings process that started
+# before it (SIGTERM after KITH_INSTALL_DRAIN_S, default 30; auth.json stays whole, its rename is atomic), then lets
+# go. Waiting before the swap would be wrong: an old writer could start in the gap. The old code has no C2 check
+# (no grant for someone removed), so no old writer may touch auth.json or settings.json once the new code is in.
+cat > "$WORK/quiesce.py" <<'QUIESCE'
+import fcntl, os, re, signal, subprocess, sys, time
+locks, limit, cmd = sys.argv[1:3], float(sys.argv[3]), sys.argv[4:]
+fds = []
+for lock in locks:                                  # 1. both locks, always auth then settings (kith_settings writes take the second)
+    os.makedirs(os.path.dirname(lock), exist_ok=True)
+    fds.append(open(lock, 'a'))
+    fcntl.flock(fds[-1], fcntl.LOCK_EX)
+if subprocess.call(cmd) != 0:                       # 2. the swap
+    sys.exit(1)
+t_swap = time.time()
+mine = {os.getpid()}
+pid = os.getppid()                                  # our own chain is not an old writer
+while pid > 1:
+    mine.add(pid)
+    out = subprocess.run(['ps', '-o', 'ppid=', '-p', str(pid)], capture_output=True, text=True).stdout.strip()
+    pid = int(out) if out.isdigit() else 0
+WRITER = re.compile(os.environ.get('KITH_QUIESCE_MATCH') or r'(^|[/\s])(kith-auth|kith_settings(\.py)?)(\s|$)')   # the env is for tests
+
+
+def seconds(etime):                                 # [[dd-]hh:]mm:ss
+    days, _, rest = etime.rpartition('-')
+    parts = [int(x) for x in rest.split(':')]
+    while len(parts) < 3:
+        parts.insert(0, 0)
+    return int(days or 0) * 86400 + parts[0] * 3600 + parts[1] * 60 + parts[2]
+
+
+def old_writers():
+    out = subprocess.run(['ps', '-axo', 'pid=,etime=,command='], capture_output=True, text=True).stdout
+    now, found = time.time(), []
+    for line in out.splitlines():
+        f = line.split(None, 2)
+        if len(f) < 3 or not f[0].isdigit() or int(f[0]) in mine or not WRITER.search(f[2]):
+            continue
+        try:
+            started = now - seconds(f[1])           # etime has whole seconds, so allow one second of slack: a new writer that
+                                                    # starts within ~1s after the swap counts as old, is waited for up to the
+                                                    # limit and then SIGTERMed. That is the safe side; keep it.
+        except ValueError:
+            continue
+        if started <= t_swap + 1:
+            found.append(int(f[0]))
+    return found
+
+
+deadline = time.time() + limit                      # 3. wait for them
+while old_writers() and time.time() < deadline:
+    time.sleep(0.2)
+for p in old_writers():
+    try:
+        os.kill(p, signal.SIGTERM)
+    except OSError:
+        pass
+for fd in fds:                                      # 4. let go
+    fd.close()
+QUIESCE
+export SRC PREFIX
+# Where this Mac keeps auth.json and settings.json is the installed kernel's own kith_paths to say (a Mac whose
+# ~/.kith is not its folder keeps both under ~/.config/kith); a first install has no kernel yet: the defaults.
+lock_paths() {
+  AUTH_LOCK=$PREFIX/secrets/auth.json.lock SETTINGS_LOCK=$PREFIX/settings.json.lock
+  lib=$PREFIX/share/kith/kernel/lib
+  if have python3 && [ -f "$lib/kith_paths.py" ]; then
+    found=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); from kith_paths import paths; p = paths(); print(p["KITH_SECRETS"] / "auth.json"); print(p["KITH_MACHINE"] / "settings.json")' "$lib" 2>/dev/null) || found=
+    if [ -n "$found" ]; then
+      AUTH_LOCK=$(printf '%s\n' "$found" | sed -n 1p).lock
+      SETTINGS_LOCK=$(printf '%s\n' "$found" | sed -n 2p).lock
+    fi
+  fi
+  [ -z "${KITH_AUTH:-}" ] || AUTH_LOCK=$KITH_AUTH.lock
+  [ -z "${KITH_SETTINGS_LOCK:-}" ] || SETTINGS_LOCK=$KITH_SETTINGS_LOCK
+}
+lock_paths
+if have python3 && [ -d "$(dirname "$AUTH_LOCK")" ]; then
+  python3 "$WORK/quiesce.py" "$AUTH_LOCK" "$SETTINGS_LOCK" "${KITH_INSTALL_DRAIN_S:-30}" sh "$WORK/swap.sh" || die "could not install kith to $PREFIX"
+else
+  sh "$WORK/swap.sh" || die "could not install kith to $PREFIX"   # a first install: nothing yet to lock
+fi
 say "installed kith to $PREFIX"
 
 # The rest (~/kith, the commands, the plugin, kith init) is the repo's install.sh, packaged: one place for it.
