@@ -1,12 +1,10 @@
 import { useEffect, useState } from 'react'
-import { hostHas } from '@shared/compat'
 import { CardForm, CardSection, IconButton, Spinner } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
 import { ModalHeader, SheetPage } from '../../components/Overlay'
 import { Text } from '../../components/Text'
 import { useStore } from '../../store/context'
 import { MarkdownText } from '../thread/Markdown'
-import { SKILLS_HOST } from '../thread/slash-commands'
 import { errorText, market } from './market-models'
 import { ErrorText } from './pieces'
 import { usePlugins } from './plugins'
@@ -24,11 +22,8 @@ export function SkillSheet({ skill }: { skill: SkillRef }) {
   const which = skill.source !== undefined ? { source: skill.source } : { id: skill.id }
   const source = skill.source ?? null
   const added = source === null || skill.installed === true || plugins.installedSkills.some((s) => s.id === source.toLowerCase())
-  // Older hosts list skills but can't show what's in them.
-  const readable = hostHas(store.hello, SKILLS_HOST)
 
   useEffect(() => {
-    if (!readable) return
     let live = true
     void store
       .ready()
@@ -66,11 +61,9 @@ export function SkillSheet({ skill }: { skill: SkillRef }) {
             <Text size="subheadline" tone="secondary">{skill.description}</Text>
           </CardSection>
         ) : null}
-        {readable ? (
-          <CardSection title="Instructions" footer={added ? 'Bots read these before using the skill.' : 'Add it to let bots use these instructions.'}>
+        <CardSection title="Instructions" footer={added ? 'Bots read these before using the skill.' : 'Add it to let bots use these instructions.'}>
             {markdown ? <MarkdownText text={markdown} /> : markdown === '' ? <Text tone="secondary">No instructions.</Text> : error ? null : <Spinner />}
           </CardSection>
-        ) : null}
         {error ? <CardSection><ErrorText text={error} /></CardSection> : null}
       </CardForm>
     </SheetPage>

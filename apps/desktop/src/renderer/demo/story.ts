@@ -10,10 +10,10 @@ const CWD = '/Users/demo/code/pace'
 const pace = { kind: 'project' as const, project: 'pace', path: CWD, name: 'pace', inherited: false }
 
 export type SeedBot = Pick<Bot, 'id' | 'name' | 'description' | 'avatarColor' | 'avatarShape' | 'backend' | 'model'> &
-  Partial<Pick<Bot, 'avatarSource' | 'kind' | 'members' | 'permission' | 'status' | 'activity' | 'unread' | 'folder' | 'workingChat' | 'workingThread'>>
+  Partial<Pick<Bot, 'hqAgent' | 'avatarSource' | 'kind' | 'members' | 'permission' | 'status' | 'activity' | 'unread' | 'folder' | 'workingChat' | 'workingThread'>>
 
 export const bots: SeedBot[] = [
-  { id: 'pacer', name: 'Pacer', description: 'Owns the pace math', avatarColor: '', avatarShape: 'blob', backend: 'claude', model: 'opus', permission: 'default', status: 'needsInput', activity: 'Needs approval: Edit src/pace.js', unread: 1, folder: pace },
+  { id: 'pacer', hqAgent: 'pacer', name: 'Pacer', description: 'Owns the pace math', avatarColor: '', avatarShape: 'blob', backend: 'claude', model: 'opus', permission: 'default', status: 'needsInput', activity: 'Needs approval: Edit src/pace.js', unread: 1, folder: pace },
   { id: 'scout', name: 'Scout', description: 'Finds things in the repo and builds them', avatarColor: 'kith:mint', avatarShape: 'blob', backend: 'codex', model: null, unread: 1, status: 'working', activity: 'Running npm test', workingChat: 'scout', workingThread: 's1', folder: pace },
   { id: 'reviewer', name: 'Reviewer', description: 'Reviews every change before it ships', avatarColor: 'kith:violet', avatarShape: 'blob', backend: 'claude', model: 'sonnet', unread: 1, folder: pace },
   { id: 'relay', name: 'Relay', description: 'Writes the release notes', avatarColor: 'kith:sky', avatarShape: 'blob', avatarSource: 'spare:globe', backend: 'codex', model: null, unread: 1 },

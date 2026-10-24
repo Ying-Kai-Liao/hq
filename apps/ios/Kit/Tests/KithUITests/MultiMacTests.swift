@@ -26,7 +26,7 @@ private func bot(_ id: String, agent: String? = nil, kind: String = "agent") thr
 }
 
 private func hello(granted: String?) throws -> Hello {
-    let base = #""hostId":"h1","name":"Mac","version":"3.0.0","os":"macos","rev":4"#
+    let base = #""hostId":"h1","name":"Mac","version":"0.1.0","protocol":1,"minProtocol":1,"os":"macos","rev":4"#
     let extra = granted.map { #","grantedAgents":\#($0)"# } ?? ""
     return try JSONDecoder().decode(Hello.self, from: Data("{\(base)\(extra)}".utf8))
 }

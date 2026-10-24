@@ -47,6 +47,7 @@
 #   kith project [ls [--json]|open ID|root|add ID [dir] [--in P] [--home [DIR]]]  projects: what each holds, its folder, its memory
 #   kith schedule [ls|add|rm|run|log|--install ...]      run agent tasks on a cron schedule (kith-sched)
 #   kith acp <agent> [--keep team,…]                     the agent as an ACP agent, one session per chat (kith-acp)
+#   kith bug "<title>" [--details TEXT|-]|list|show ID|send ID|publish ID   report a bug: the owner's stays on this Mac with the transcript; anyone else's is a redacted GitHub issue after a yes (kith-bug)
 #   kith migrate [--dry-run|--undo|--force]            move this Mac from ~/.hq and the dev.hq.* jobs to ~/.kith and dev.kith.*, reversibly (kith-migrate)
 #   kith serve start|stop|restart|status|relay [URL]     Kith's host on this Mac (launchd dev.kith.serve, port 19224); `kith` is the same command (kith-serve)
 #
@@ -75,7 +76,7 @@ set -euo pipefail
 src=$0; while [ -L "$src" ]; do t=$(readlink "$src"); case $t in /*) src=$t ;; *) src=$(dirname "$src")/$t ;; esac; done
 KITH="$(cd "$(dirname "$src")/.." && pwd)"
 
-[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,46p' "$0" | sed 's/^#   //'; exit 0; }
+[[ $# -eq 0 || $1 == -h || $1 == --help ]] && { sed -n '4,47p' "$0" | sed 's/^#   //'; exit 0; }
 # migrate runs before the paths below are exported: it moves what they point at, and its children must see the new ones
 [[ $1 == migrate ]] && exec "$KITH/bin/kith-migrate" "${@:2}"
 . "$KITH/lib/kith-env.sh"   # KITH_X and the old HQ_X agree (role repos read HQ_X)
@@ -103,6 +104,7 @@ case $1 in
   summarise|forget)   exec "$KITH/bin/kith-recall" "$@" ;;
   memory)             shift; exec "$KITH/bin/kith-memory" "${@:---help}" ;;
   who)                shift; exec "$KITH/bin/kith-who" "${@:---help}" ;;
+  bug)                shift; exec "$KITH/bin/kith-bug" "${@:---help}" ;;
   project)            shift; exec "$KITH/bin/kith-project" "$@" ;;
   schedule)           shift; exec "$KITH/bin/kith-sched" "${@:-ls}" ;;
   acp)                shift; exec "$KITH/bin/kith-acp" "$@" ;;
@@ -757,7 +759,7 @@ while IFS= read -r base; do
   done
 done < <(printf '%s\n' "$KITH" "$kith_real" "$KITH_HOME/kernel" | awk '!seen[$0]++')
 # The way out of the guest sandbox is a request, not a prompt: asking is always allowed (the host makes the card, F11 2b).
-[[ $p_owner == 0 ]] && allowed+=("mcp__kithpermit__request_access")
+[[ $p_owner == 0 ]] && allowed+=("mcp__kithpermit__request_access" "mcp__kithpermit__report_bug")
 # Each agent carries only its own tools: the shared services it needs and is granted (kith-auth), its own mcp.json
 # for servers no one else uses, and no global skills unless capabilities.yaml says global_skills: true. Its own
 # skills are files it reads on demand. A broken auth.json costs the agent its services, not the run.

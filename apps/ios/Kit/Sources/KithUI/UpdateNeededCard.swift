@@ -34,8 +34,7 @@ public struct UpdateNeededCard: View {
 
     var title: String { UpdateNeededText.title(mismatch, host: store.hostName) }
     var detail: String {
-        UpdateNeededText.detail(mismatch, host: store.hostName, hostVersion: store.hostVersion?.version,
-                                os: store.hello?.os)
+        UpdateNeededText.detail(mismatch, host: store.hostName, os: store.hello?.os)
     }
 }
 
@@ -49,18 +48,16 @@ public enum UpdateNeededText {
         }
     }
 
-    public static func detail(_ mismatch: VersionMismatch, host: String, hostVersion: String?, os: String?,
-                              instructions: Bool = true) -> String {
+    public static func detail(_ mismatch: VersionMismatch, host: String, os: String?, instructions: Bool = true) -> String {
         switch mismatch {
         case .updateApp:
-            let runs = hostVersion.map { "\(host) runs Kith \($0) and" } ?? host
-            return "\(runs) needs a newer version of this app. Your chats are safe on the computer."
-        case let .updateHost(version):
+            return "\(host) needs a newer version of this app. Your chats are safe on the computer."
+        case .updateHost:
             let how = switch os {
             case "macos": "Pull the latest hq on that Mac and run kith serve start there."
             default: "Update Kith on that computer."
             }
-            let needs = "\(host) runs Kith \(version); this app needs a newer one."
+            let needs = "\(host) needs a newer Kith to work with this app."
             return instructions ? "\(needs) \(how)" : needs
         }
     }

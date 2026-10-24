@@ -177,6 +177,8 @@ jobs:
         run: kernel/tests/kith-trajectory-check
       - name: Recall check
         run: kernel/tests/kith-recall-check
+      - name: Bug check
+        run: kernel/tests/kith-bug-check
       - name: Guest sandbox check
         run: kernel/tests/kith-guest-sandbox-check
       - name: Load check

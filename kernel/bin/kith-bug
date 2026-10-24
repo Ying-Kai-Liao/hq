@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""kith-bug — report a bug in Kith: kept locally with everything for the owner, a redacted GitHub issue for anyone else.
+
+  kith bug "<title>" [--details TEXT|-]   report one (details from stdin with -)
+  kith bug list                           (owner) the local reports, newest first
+  kith bug show <id>                      (owner) one report: where it is and what it says
+  kith bug send <id>                      (owner) hand it to coder (kith ask --bg coder -p kith), by path
+  kith bug publish <id>                   (owner) turn a local report into a redacted public issue, after a yes
+
+The owner's run (KITH_OWNER=1, or a terminal with no KITH_PERSON) files nothing on GitHub: it writes <state>/bugs/<id>/
+with report.md, report.json and a full copy of the session transcript (the Claude Code log of CLAUDE_CODE_SESSION_ID).
+That folder is 0700, its files 0600, and git ignores it (the state repo ignores everything not listed); the command
+refuses to write where git would track it. Everyone else, and `publish`, build a draft with secrets and personal details
+scrubbed and never any transcript, show it, and file it on Ying-Kai-Liao/kith (KITH_BUG_REPO) only after an explicit yes:
+a y/N at a terminal, else an approval card that carries the exact draft. Without a yes nothing is filed; the draft is kept
+and an issues/new link is printed. Agents in guest runs use the report_bug tool of kith-permit instead.
+"""
+import importlib.machinery, importlib.util, json, os, sys, time, uuid
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / 'lib'))
+import kith_bug as kb  # noqa: E402
+
+USAGE = __doc__.split('\n\n')[0].strip()
+
+
+def die(msg, code=1):
+    print('kith bug: ' + msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def permit_decide():
+    loader = importlib.machinery.SourceFileLoader('kith_permit', str(HERE / 'kith-permit'))
+    spec = importlib.util.spec_from_loader('kith_permit', loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod.decide
+
+
+def bugs_dir():
+    return kb.state_dir() / 'bugs'
+
+
+def find_transcript(sid):
+    """(file, extra folder) of the session log under the run's Claude config dir, or (None, None)."""
+    if not sid or '/' in sid:
+        return None, None
+    roots = [Path(os.environ['CLAUDE_CONFIG_DIR'])] if os.environ.get('CLAUDE_CONFIG_DIR') else []
+    roots.append(Path.home() / '.claude')
+    for root in roots:
+        for f in sorted((root / 'projects').glob('*/%s.jsonl' % sid)):
+            sub = f.parent / sid      # the helpers of the session (subagents) sit beside it
+            return f, sub if sub.is_dir() else None
+    return None, None
+
+
+def copy_private(src, dst):
+    kb.write_private(dst, Path(src).read_bytes())
+
+
+def report_owner(title, details):
+    base = bugs_dir()
+    new_id = '%s-%s' % (time.strftime('%Y%m%d-%H%M%S'), uuid.uuid4().hex[:4])
+    folder = base / new_id
+    try:
+        kb.ensure_untracked(folder / 'report.md')
+    except RuntimeError as e:
+        die(str(e))
+    kb.private_dir(base)
+    kb.private_dir(folder)
+    sid = os.environ.get('CLAUDE_CODE_SESSION_ID', '')
+    src, extra = find_transcript(sid)
+    note = 'transcript not found'
+    if src:
+        copy_private(src, folder / 'transcript.jsonl')
+        note = 'transcript.jsonl'
+        if extra:
+            for f in extra.rglob('*'):
+                if f.is_file():
+                    rel = f.relative_to(extra)
+                    kb.private_dir(folder / 'helpers' / rel.parent)
+                    copy_private(f, folder / 'helpers' / rel)
+            note += ' (+ helpers/)'
+    meta = {'id': new_id, 'title': title, 'details': details, 'agent': os.environ.get('KITH_AGENT', ''),
+            'project': os.environ.get('KITH_PROJECT', ''), 'cwd': os.getcwd(), 'kith': kb.kith_version(),
+            'time': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'session': sid, 'transcript': note}
+    kb.write_private(folder / 'report.json', json.dumps(meta, indent=1))
+    kb.write_private(folder / 'report.md', '\n'.join(
+        ['# ' + title, '', details or '(no details)', '', '- agent: %s' % (meta['agent'] or '-'), '- project: %s' % (meta['project'] or '-'),
+         '- cwd: %s' % meta['cwd'], '- kith: %s' % meta['kith'], '- time: %s' % meta['time'], '- session: %s' % (sid or '-'),
+         '- transcript: %s' % note, '']))
+    print('Saved bug %s (%s)\n%s' % (new_id, note, folder))
+    return 0
+
+
+def report_redacted(title, details, who):
+    d = kb.build_draft(title, details, who)
+    tty = sys.stdin.isatty() and sys.stdout.isatty()
+    if not tty:
+        print(kb.draft_text(d))
+    status, text = kb.file_draft(d, permit_decide(), interactive=tty)
+    print(text)
+    return 0 if status in ('filed', 'already') else 3
+
+
+def load(bug_id):
+    f = bugs_dir() / bug_id / 'report.json'
+    if not bug_id or '/' in bug_id or not f.is_file():
+        die('no bug %r (kith bug list)' % bug_id)
+    return json.loads(f.read_text()), f.parent
+
+
+def need_owner():
+    if not kb.is_owner():
+        die('only the owner can do that')
+
+
+def main(argv):
+    if not argv or argv[0] in ('-h', '--help'):
+        print(__doc__.strip())
+        return 0
+    cmd = argv[0]
+    if cmd == 'list':
+        need_owner()
+        rows = sorted(p.parent for p in bugs_dir().glob('*/report.json')) if bugs_dir().is_dir() else []
+        for r in reversed(rows):
+            print('%s  %s' % (r.name, json.loads((r / 'report.json').read_text()).get('title', '')))
+        return 0
+    if cmd in ('show', 'send', 'publish'):
+        need_owner()
+        if len(argv) != 2:
+            die('usage: kith bug %s <id>' % cmd)
+        meta, folder = load(argv[1])
+        if cmd == 'show':
+            print(folder)
+            print((folder / 'report.md').read_text())
+            return 0
+        if cmd == 'send':
+            ask = os.environ.get('KITH_BUG_ASK') or str(HERE / 'kith')
+            msg = ('A bug was reported in kith. Read %s/report.md; the full session transcript is %s/transcript.jsonl (helpers '
+                   'beside it). Find the cause and fix it. Do not paste the transcript anywhere public.' % (folder, folder))
+            os.execv(ask, [ask, 'ask', '--bg', 'coder', '-p', 'kith', msg])
+        return report_redacted(meta['title'], meta.get('details', ''), 'user')
+    # everything else is a new report
+    title, details, rest = None, '', list(argv)
+    while rest:
+        a = rest.pop(0)
+        if a == '--details' and rest:
+            v = rest.pop(0)
+            details = sys.stdin.read() if v == '-' else v
+        elif title is None and not a.startswith('--'):
+            title = a
+        else:
+            die('unexpected %r\n%s' % (a, USAGE))
+    if not title:
+        die(USAGE)
+    if kb.is_owner():
+        return report_owner(title, details)
+    return report_redacted(title, details, 'user')
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

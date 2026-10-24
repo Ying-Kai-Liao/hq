@@ -362,7 +362,8 @@ export class HostClient {
     return this.call('revokeInvite', { inviteId })
   }
 
-  setPersonAccess(personId: string, agents: Record<string, Role>, projects: string[]) {
+  /** `projects` left out keeps the person's projects as they are. */
+  setPersonAccess(personId: string, agents: Record<string, Role>, projects?: string[]) {
     return this.call('setPersonAccess', { personId, agents, projects }, 60_000)
   }
 

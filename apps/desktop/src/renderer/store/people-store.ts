@@ -1,4 +1,5 @@
 import { isUnsupportedHost } from '@shared/kith-info'
+import { agentsWithout } from '@shared/agent-share'
 import type { AuditRow, CreatedInvite, PendingInvite, Person, Role } from '@shared/people'
 import type { HostClient } from '../client/host-client'
 import { Observable } from '../lib/observable'
@@ -14,6 +15,8 @@ export class PeopleModel extends Observable {
   invites: PendingInvite[] = []
   audit: AuditRow[] = []
   error: string | null = null
+  /** A host warning from the last change that still went through. */
+  notice: string | null = null
   busy = false
 
   constructor(private store: BotStore) {
@@ -64,10 +67,19 @@ export class PeopleModel extends Observable {
     if ((await this.run((c) => c.revokeInvite(inviteId))) !== null) await this.load()
   }
 
-  async setAccess(personId: string, agents: Record<string, Role>, projects: string[]) {
+  async setAccess(personId: string, agents: Record<string, Role>, projects?: string[]) {
     const done = await this.run((c) => c.setPersonAccess(personId, agents, projects))
     if (done !== null) await this.load()
     return done !== null
+  }
+
+  /** Takes one agent away from a person; they stay, with whatever else they hold. Host warnings land in `notice`. */
+  async removeAgent(person: Person, agent: string) {
+    const done = await this.run((c) => c.setPersonAccess(person.personId, agentsWithout(person, agent)))
+    if (done === null) return
+    const warnings = (done as { warnings?: unknown } | undefined)?.warnings
+    this.notice = Array.isArray(warnings) && warnings.length ? warnings.map(String).join(' ') : null
+    await this.load()
   }
 
   async removePerson(personId: string) {
