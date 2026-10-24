@@ -537,9 +537,11 @@ s.setdefault("permissions", {}).setdefault("deny", []).extend(
 # the same files are unreadable there too; for the owner, in auto mode the classifier, in default mode the prompt,
 # is the only guard. The kernel CLIs run in Bash and are unaffected.
 roots = list(dict.fromkeys(r for k in ("KITH_STATE", "KITH_MACHINE") for r in (os.environ[k], os.path.realpath(os.environ[k]))))
-sensitive = ["secrets/**", "serve/token", "serve/identity.json", "serve/*.db", "serve/*.db-*", "browsers/**", "bridge/**",
-             "index/**",   # the memory index holds every audience, not only yours: reached only through `kith recall`
-             "memory.db*"]   # the history, and the promotion approvals kith_facets trusts: written by `kith memory` only
+sys.path.insert(0, os.environ["KITH_ROOT"] + "/lib")
+import kith_guard
+# (index/: the memory index holds every audience, reached only through `kith recall`; memory.db*: the history and the
+# promotion approvals kith_facets trusts, written by `kith memory` only.)
+sensitive = list(kith_guard.SECRET_RULES)
 for r in roots:
     for f in sensitive:
         for tool in ("Read", "Edit"):
@@ -555,12 +557,8 @@ s["permissions"]["deny"].extend(d for d in os.environ["DENY"].split("\n") if d) 
 if os.environ["P_OWNER"] == "0":
     def both(p):
         return list(dict.fromkeys((p, os.path.realpath(p))))
+    deny_read = kith_guard.secret_paths([os.environ["KITH_STATE"], os.environ["KITH_MACHINE"]], os.environ["KITH_SECRETS"], os.environ["KITH_MACHINE"])
     machine = both(os.environ["KITH_MACHINE"])
-    deny_read = []
-    for r in dict.fromkeys(both(os.environ["KITH_STATE"]) + machine):
-        deny_read += ["%s/%s" % (r, f) for f in ("secrets", "serve", "browsers", "bridge", "index", "room-ledger")]
-    for p in both(os.environ["KITH_SECRETS"]):   # the older layout keeps two files among the machine things
-        deny_read += [p + "/env", p + "/auth.json"] if p in machine else [p]
     if os.environ.get("KITH_SERVE_HOME"):
         deny_read += both(os.path.expanduser(os.environ["KITH_SERVE_HOME"]))
     # The Read rules of the membership (other agents, the owner user.md, the memory of other people): Read(//abs/**) or Read(//abs).
@@ -667,7 +665,7 @@ if [[ $p_owner == 0 && $harness == claude ]]; then
   [[ $wide == 1 && $PWD != "$files" ]] && { echo "kith: working directory $PWD is wider than a guest may read; working in $files" >&2; cd "$files"; }
   read_dirs=$PWD
   for ((i = 1; i < ${#dirs[@]}; i += 2)); do read_dirs+=$'\n'"${dirs[i]}"; done
-  READ_DIRS=$read_dirs python3 -c '
+  READ_DIRS=$read_dirs GUARD_TREES=$(printf '%s\n' "$KITH" "$src_pkg/role" "$src_pkg/skills" "$pkg" "$src_pkg" "$KITH_STATE/people" "$KITH_STORE") python3 -c '
 import json, os, re, sys
 f = sys.argv[1]
 s = json.load(open(f))
@@ -701,19 +699,44 @@ for a in list(allow):
             allow.append(d)
         d = os.path.dirname(d)
 fs = s["sandbox"]["filesystem"]
-fs["denyRead"] = list(dict.fromkeys(fs["denyRead"] + both(home)))
-# The Kith folder and the agents folder, dotfiles included (agents/.git holds the memory of every agent in its history), and,
-# when they sit on an external volume, the whole volume: the allowlist below opens back only what the run was given.
+# Deny by default: nothing is readable but what is allowed below, and the named denies from the settings (secrets, the
+# serve folder, the index, other people) stay listed. Not ~/Library: the Keychain is there (lab T1).
+fs["denyRead"] = ["/"] + [d for d in fs["denyRead"] if d != "/"]
+allow += [x for d in ("/usr", "/bin", "/sbin", "/System", "/Library", "/private/etc", "/private/var/db/timezone",
+                      "/private/var/select", "/dev", "/opt/homebrew") for x in both(d)]
+allow += ["/var", "/etc"]   # the links themselves, read as links before they are followed; what they point at stays closed (/tmp is not opened)
+# The Kith folder and the agents folder, dotfiles included (agents/.git holds the memory of every agent in its history):
+# denied whole, then the allowlist opens back only what the run was given.
 for r in ("KITH_HOME", "KITH_AGENTS"):
     if os.environ.get(r):
         for p in both(os.path.abspath(os.environ[r])):
-            m = re.match("/Volumes/[^/]+", p)
-            for x in ([m.group()] if m else []) + [p]:
-                if x not in fs["denyRead"]:
-                    fs["denyRead"].append(x)
-# the host socket sits among the machine things, which may be on that volume: allowing it to be read costs nothing
+            if p not in fs["denyRead"]:
+                fs["denyRead"].append(p)
+# the host socket sits among the machine things: allowing it to be read costs nothing
 allow += s["sandbox"]["network"].get("allowUnixSockets", [])
 fs["allowRead"] = [a for a in dict.fromkeys(allow)]
+# Writes: the allowWrite list stays (the person slice, the shared memory, their uv cache); rule W and the secrets are
+# denied on top, also below the folders that are allowed (deny beats allow), and the file tools get the same list.
+folders = fs["allowWrite"] + [d for d in os.environ["READ_DIRS"].split("\n") if d]
+extra = [x for x in os.environ.get("GUARD_TREES", "").split("\n") if x]
+writable = [os.path.realpath(w) for w in fs["allowWrite"]]
+# A folder that holds something writable (the agent folder holds the person memory) is not denied whole.
+extra = [x for x in extra if not any(w == os.path.realpath(x) or w.startswith(os.path.realpath(x) + "/") for w in writable)]
+sys.path.insert(0, os.environ["KITH_ROOT"] + "/lib")
+import kith_guard
+w_trees, w_files = kith_guard.rule_w(home, folders, trees=extra)
+secrets = kith_guard.secret_paths([os.environ["KITH_STATE"], os.environ["KITH_MACHINE"]], os.environ["KITH_SECRETS"], os.environ["KITH_MACHINE"])
+fs["denyWrite"] = list(dict.fromkeys(secrets + w_trees + [t + "/**" for t in w_trees if "**" in t] + w_files))   # a glob names the folder, not what is in it
+deny = s["permissions"].setdefault("deny", [])
+deny += [r for r in kith_guard.edit_rules(w_trees, w_files) if r not in deny]
+# The file tools write only where Bash may: a folder the run can read but not write (the project, the kernel, the shared
+# project files) is closed to Edit/Write, whatever the permission mode would allow there.
+for d in os.environ["READ_DIRS"].split("\n"):
+    for x in both(os.path.abspath(d)) if d else []:
+        if not any(w == x or w.startswith(x + "/") or x.startswith(w + "/") for w in writable):
+            r = "Edit(/%s/**)" % x
+            if r not in deny:
+                deny.append(r)
 s["permissions"]["blockReadsOutsideWorkingDirectories"] = True
 # The tool reads the owner global config (name, email, credential helpers), which sits in the closed home folder and
 # makes it fail outright when it cannot be read: point it at nothing instead.
@@ -741,7 +764,10 @@ done < <(printf '%s\n' "$KITH" "$kith_real" "$KITH_HOME/kernel" | awk '!seen[$0]
 
 kith_env_sync   # the exports above reach role repos under their old HQ_ names too
 # The agent's MCP servers for a launch-json run: the granted shared services plus its own mcp.json, as one {"mcpServers": {...}}.
+# Anyone but the owner gets kith-permit and nothing else: no shared services (their logins), no server of the agent's own.
+permit_mcp() { printf '{"mcpServers":{"kithpermit":{"command":"%s/bin/kith-permit","args":[]}}}' "$KITH"; }
 merged_mcp() {
+  [[ $p_owner == 0 ]] && { permit_mcp; return; }
   local f=("$runs/$$.mcp.json"); [[ -f $pkg/mcp.json ]] && f+=("$pkg/mcp.json")
   python3 -c '
 import json, sys
@@ -821,9 +847,10 @@ if [[ $launch -eq 1 ]]; then
   settings_arg=$(cat "$runs/$$.settings.json")
   mcp_arg=$(merged_mcp)
 fi
+[[ $p_owner == 0 ]] && mcp_arg=$(permit_mcp)
 args=(--append-system-prompt "$prompt" "${dirs[@]}" --settings "$settings_arg" --allowedTools "${allowed[@]}")
 args+=(--strict-mcp-config --mcp-config "$mcp_arg")
-[[ $launch -eq 0 && -f $pkg/mcp.json ]] && args+=(--mcp-config "$pkg/mcp.json")
+[[ $launch -eq 0 && $p_owner == 1 && -f $pkg/mcp.json ]] && args+=(--mcp-config "$pkg/mcp.json")
 grep -q '^global_skills: *true' "$pkg/capabilities.yaml" 2>/dev/null || args+=(--disable-slash-commands)
 [[ -n $KITH_MODEL ]] && args+=(--model "$KITH_MODEL")
 [[ -n $KITH_EFFORT ]] && args+=(--effort "$KITH_EFFORT")
