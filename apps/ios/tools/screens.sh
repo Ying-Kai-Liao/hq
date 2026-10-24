@@ -43,12 +43,20 @@ modes=(
   "demo-chat|-kithDemoScreens chat"
   "demo-settings|-kithDemoScreens settings"
   "demo-computers|-kithDemoScreens computers"
+  "demo-account|-kithDemoScreens account"
+  "demo-account-devices|-kithDemoScreens account-devices"
+  "demo-settings-problem|-kithDemoScreens problem"
   "demo-widgets|-kithDemoScreens widgets"
   "demo-agent|-kithDemoScreens agent"
   "demo-agent-memory|-kithDemoScreens agent-memory"
   "demo-agent-settings|-kithDemoScreens agent-settings"
   "demo-call|-kithDemoScreens call"
   "demo-incoming-call|-kithDemoScreens incoming-call"
+  "pairing-welcome|-kithDemoScreens pairing-welcome"
+  "pairing-scan|-kithDemoScreens pairing-scan"
+  "pairing-install|-kithDemoScreens pairing-install"
+  "pairing-success|-kithDemoScreens pairing-success"
+  "pairing-error|-kithDemoScreens pairing-error"
 )
 
 for appearance in light dark; do

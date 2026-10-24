@@ -16,6 +16,19 @@ struct BotListView: View {
     @State private var confirmDelete: RosterItem?
     @State private var newChat: ChatTarget?
     @State private var inviting: ChatTarget?
+    @State private var sharingAgent: ShareAgentTarget?
+    fileprivate struct ShareAgentTarget: Identifiable {
+        let store: BotStore
+        let agent: String
+        let name: String
+        let id: String
+        @MainActor init(store: BotStore, agent: String, name: String) {
+            self.store = store
+            self.agent = agent
+            self.name = name
+            id = "\(store.computer.id)/\(agent)"
+        }
+    }
     fileprivate struct ChatTarget: Identifiable {
         let store: BotStore
         let id: ComputerID
@@ -172,7 +185,7 @@ struct BotListView: View {
         .onChange(of: frozen) { _, _ in syncOrder() }
         .modifier(HomeSheets(
             editing: $editing, editingGroup: $editingGroup, confirmDelete: $confirmDelete, newChat: $newChat,
-            inviting: $inviting, allStores: allStores, query: $query, files: $files, picking: $picking, calling: $calling,
+            inviting: $inviting, sharingAgent: $sharingAgent, allStores: allStores, query: $query, files: $files, picking: $picking, calling: $calling,
             pickingPhotos: $pickingPhotos, photoItems: $photoItems, pickingFiles: $pickingFiles, pickingCamera: $pickingCamera,
             pickChoices: pickChoices(for:), addPhotos: addPhotos, addFiles: addFiles, addCamera: { append(HomeAttachments.photos([$0])) }))
     }
@@ -311,8 +324,9 @@ struct BotListView: View {
         } else {
             Button("Edit profile", systemImage: "pencil") { editing = EditTarget(computerId: item.ref.computerId, draft: BotDraft(bot)) }
         }
-        if accounts.role(for: item.ref.computerId) == .owner, store.connection == .online {
-            Button("Share", systemImage: "person.badge.plus") { inviting = ChatTarget(store: store) }
+        if accounts.role(for: item.ref.computerId) == .owner, store.connection == .online, !bot.isGroup,
+           let agent = bot.hqAgent, AgentShare.canShare(hqAgent: agent) {
+            Button("Share", systemImage: "person.badge.plus") { sharingAgent = ShareAgentTarget(store: store, agent: agent, name: bot.name) }
         }
         Button("Mark as read", systemImage: "checkmark.message") { store.markAllRead(bot.id) }
         Button("Hide from list", systemImage: "eye.slash") { store.setHidden(bot, true) }
@@ -581,6 +595,7 @@ private struct HomeSheets: ViewModifier {
     @Binding var confirmDelete: RosterItem?
     @Binding var newChat: BotListView.ChatTarget?
     @Binding var inviting: BotListView.ChatTarget?
+    @Binding var sharingAgent: BotListView.ShareAgentTarget?
     let allStores: [BotStore]
     @Binding var query: String
     @Binding var files: [OutgoingFile]
@@ -622,6 +637,9 @@ private struct HomeSheets: ViewModifier {
             }
             .kithSheet(item: $inviting) { target in
                 InvitePeopleSheet(store: target.store)
+            }
+            .kithSheet(item: $sharingAgent) { target in
+                ShareAgentSheet(store: target.store, agent: target.agent, name: target.name)
             }
             .kithSheet(item: $editingGroup) { target in
                 if let store = accounts.store(for: target.computerId) {

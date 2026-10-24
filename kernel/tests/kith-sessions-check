@@ -37,6 +37,30 @@ hook s-person "$T/work/a" startup KITH_PERSON=anna;             [[ ! -e $REG/s-p
 hook s-serve "$T/work/a" startup KITH_VIA=serve;                [[ ! -e $REG/s-serve.json ]] && ok "KITH_VIA=serve: nothing" || bad "via serve writes"
 hook s-term "$T/work/a" startup KITH_VIA=terminal;              [[ -f $REG/s-term.json ]] && ok "KITH_VIA=terminal: written" || bad "via terminal"
 hook s-hide "$T/work/a" startup KITH_HIDE_SESSION=1;            [[ ! -e $REG/s-hide.json ]] && ok "KITH_HIDE_SESSION: nothing" || bad "hide writes"
+# one-shots of the owner's (bin/kith sets KITH_RUN_KIND for exactly that run): listed with their kind and who started them
+hook s-ask "$T/work/a" startup KITH_TERMINAL_SESSION= KITH_VIA=ask KITH_RUN_KIND=ask KITH_RUN_LABEL=architect
+is "ask: kind" "$(field $REG/s-ask.json kind)" ask
+is "ask: label" "$(field $REG/s-ask.json label)" "asked by architect"
+hook s-ask0 "$T/work/a" startup KITH_TERMINAL_SESSION= KITH_VIA=ask KITH_RUN_KIND=ask
+is "ask from a terminal: label" "$(field $REG/s-ask0.json label)" "asked from a terminal"
+hook s-sched "$T/work/a" startup KITH_TERMINAL_SESSION= KITH_VIA=schedule KITH_RUN_KIND=schedule KITH_RUN_LABEL=daily
+is "schedule: kind and label" "$(field $REG/s-sched.json kind)/$(field $REG/s-sched.json label)" "schedule/scheduled: daily"
+hook s-help "$T/work/a" startup KITH_TERMINAL_SESSION= KITH_VIA=terminal KITH_RUN_KIND=helper KITH_RUN_LABEL=architect
+is "helper: kind and label" "$(field $REG/s-help.json kind)/$(field $REG/s-help.json label)" "helper/helper of architect"
+is "terminal: kind" "$(field $REG/s-ok.json kind)" terminal
+is "one-shot records the claude process start" "$([[ -n $(field $REG/s-ask.json procStart) ]] && echo yes || echo no)" "$([[ -n $(field $REG/s-ask.json pid) ]] && echo yes || echo no)"
+hook s-ask-person "$T/work/a" startup KITH_TERMINAL_SESSION= KITH_VIA=ask KITH_RUN_KIND=ask KITH_PERSON=anna
+[[ ! -e $REG/s-ask-person.json ]] && ok "ask with KITH_PERSON: nothing" || bad "person's ask written"
+hook s-ask-hide "$T/work/a" startup KITH_TERMINAL_SESSION= KITH_RUN_KIND=ask KITH_HIDE_SESSION=1
+[[ ! -e $REG/s-ask-hide.json ]] && ok "ask with KITH_HIDE_SESSION: nothing" || bad "hidden ask written"
+hook s-ask-wt "$T/x/.claude/worktrees/w1" startup KITH_TERMINAL_SESSION= KITH_RUN_KIND=ask
+[[ ! -e $REG/s-ask-wt.json ]] && ok "ask in an agent worktree: nothing" || bad "worktree ask written"
+hook s-ask-serve "$T/work/a" startup KITH_TERMINAL_SESSION= KITH_VIA=serve
+[[ ! -e $REG/s-ask-serve.json ]] && ok "host run (KITH_VIA=serve, no kind): nothing" || bad "serve run written"
+hook s-ask-bad "$T/work/a" startup KITH_TERMINAL_SESSION= KITH_RUN_KIND=serve
+[[ ! -e $REG/s-ask-bad.json ]] && ok "unknown kind: nothing" || bad "unknown kind written"
+hook s-term-kind "$T/work/a" startup KITH_RUN_KIND=ask
+is "interactive terminal ignores a stray kind" "$(field $REG/s-term-kind.json kind)" terminal
 hook s-wt "$T/x/.claude/worktrees/w1" startup;                  [[ ! -e $REG/s-wt.json ]] && ok "worktree cwd: nothing" || bad "worktree writes"
 hook s-noagent "$T/work/a" startup KITH_AGENT=;                 [[ ! -e $REG/s-noagent.json ]] && ok "no agent: nothing" || bad "no agent writes"
 printf '{"session_id":"s-nostate","cwd":"/x","source":"startup"}' | env -u KITH_STATE KITH_AGENT=designer KITH_TERMINAL_SESSION=1 python3 "$SK" record

@@ -276,7 +276,7 @@ private struct AgentRoleRow: View {
 }
 
 /// The link, to copy or share, and a QR code; the words the owner passes on with it.
-private struct InviteLinkView: View {
+struct InviteLinkView: View {
     let invite: CreatedInvite
     let name: String
     @State private var copied = false

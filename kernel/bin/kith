@@ -337,18 +337,19 @@ fi
 # A program reads stdout as the JSON alone: whatever a helper prints on the way goes to stderr; fd 3 is the real stdout.
 [[ $print -eq 1 ]] && launch=0
 [[ $launch -eq 1 ]] && exec 3>&1 1>&2
+# Launch-time lookups are the kernel's own, whoever the run is for: a guest token in the environment would narrow them.
 if [[ -n $project ]]; then
-  "$KITH/bin/project-id" --list | cut -f1 | cut -d' ' -f1 | grep -qx -- "$project" \
-    || { echo "kith: unknown project '$project'. Known: $("$KITH/bin/project-id" --list | cut -f1 | cut -d' ' -f1 | tr '\n' ' ')" >&2
+  env -u KITH_RUN_TOKEN "$KITH/bin/project-id" --list | cut -f1 | cut -d' ' -f1 | grep -qx -- "$project" \
+    || { echo "kith: unknown project '$project'. Known: $(env -u KITH_RUN_TOKEN "$KITH/bin/project-id" --list | cut -f1 | cut -d' ' -f1 | tr '\n' ' ')" >&2
          echo "    register one with: $KITH/bin/project-id --register $project [dir]" >&2; exit 1; }
 else
-  project=$("$KITH/bin/project-id" || true)
+  project=$(env -u KITH_RUN_TOKEN "$KITH/bin/project-id" || true)
 fi
 
 # The project's parents (closest first) and the home folders along the chain (bin/project-id --info).
-info=$([[ -n $project ]] && "$KITH/bin/project-id" --info "$project" || true)
+info=$([[ -n $project ]] && env -u KITH_RUN_TOKEN "$KITH/bin/project-id" --info "$project" || true)
 parents=$(printf '%s\n' "$info" | tail -n +2 | cut -f1 | paste -sd' ' -)
-held=$([[ -n $project ]] && "$KITH/bin/project-id" --children "$project" --all || true)
+held=$([[ -n $project ]] && env -u KITH_RUN_TOKEN "$KITH/bin/project-id" --children "$project" --all || true)
 
 # Body without frontmatter, then long-term memory: the load filter of docs/memory-context.md (lib/kith_facets.py, the
 # same one the host's runs get through KITH_ROOM). The owner's run: about them, the agent's memory, then the shared part
@@ -418,6 +419,19 @@ sys.exit(0 if ok else 1)' || { echo "kith: session $resume is not one of ${KITH_
 fi
 # These two belong to one run (listing a terminal session, and where it was resumed from): a helper this agent starts must not inherit them.
 unset KITH_TERMINAL_SESSION KITH_RESUMED_FROM
+# What kind of one-shot this is, for the apps' rooms (bin/kith-sessions record lists it): kith-ask and kith-sched pass
+# KITH_LAUNCH_KIND to the run they start; a run another run of the owner's started (from a terminal, an ask or a job) is
+# a helper. The host's own runs (KITH_VIA=serve, channels) are not listed here. Neither name is inherited further.
+run_kind=${KITH_LAUNCH_KIND:-} run_label=${KITH_LAUNCH_LABEL:-}
+unset KITH_LAUNCH_KIND KITH_LAUNCH_LABEL KITH_RUN_KIND KITH_RUN_LABEL HQ_LAUNCH_KIND HQ_LAUNCH_LABEL HQ_RUN_KIND HQ_RUN_LABEL   # (HQ_ twins: kith_env_sync fills the KITH_ names back from them)
+if [[ -z $run_kind && $nested -eq 1 ]]; then
+  case ${KITH_VIA:-terminal} in terminal|ask|schedule) run_kind=helper run_label=$caller ;; esac
+fi
+if [[ $p_owner == 1 && -z ${KITH_PERSON:-} && -n $run_kind ]]; then
+  export KITH_RUN_KIND=$run_kind KITH_RUN_LABEL=$run_label
+  # `kith ask -c` continues a session: the card joins the thread of the one it resumes (the registry's resumedFrom).
+  [[ -n $resume && $resume != *:* && -z $r_sid ]] && export KITH_RESUMED_FROM=$resume
+fi
 # An ask token (the owner's approval cards, KITH_ASK_*) belongs to one run: a helper this run starts, or any run for a person
 # who isn't the owner, never inherits it. A helper of the owner's asks the host for its own below.
 [[ $nested -eq 1 || $p_owner == 0 ]] && unset KITH_ASK_TOKEN KITH_ASK_SOCKET HQ_ASK_TOKEN HQ_ASK_SOCKET   # (kith_env_sync would fill the KITH_ names back from the HQ_ ones)

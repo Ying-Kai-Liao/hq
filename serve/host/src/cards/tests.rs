@@ -22,6 +22,7 @@ pub(super) fn guest_run(person: &str, room: &str) -> RunIdentity {
         run_id: format!("run-{person}"),
         scope: TokenScope::Guest,
         session: format!("run:{room}"),
+        project: None,
     }
 }
 

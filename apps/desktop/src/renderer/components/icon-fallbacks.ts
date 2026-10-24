@@ -112,6 +112,7 @@ const map: Record<string, IconNode> = {
   'list.bullet.rectangle': L.ScrollText,
   'lock.display': L.MonitorDot,
   'lock.shield': L.ShieldCheck,
+  'lock.slash': L.LockOpen,
   macmini: L.Server,
   'macpro.gen3': L.Server,
   macstudio: L.Server,

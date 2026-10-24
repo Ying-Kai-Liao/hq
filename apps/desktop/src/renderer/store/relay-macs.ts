@@ -206,6 +206,15 @@ export class RelayMacs extends Observable {
     }
   }
 
+  /**
+   * Tries a Mac again: the main process restarts its relay link (the same call `connect` makes for an approved Mac)
+   * and the store opens a fresh event stream over it. Access is left alone, so it never asks the Mac again.
+   */
+  reconnect(id: string) {
+    void window.kith.relay.restart(id)
+    this.store(id)?.restartStream()
+  }
+
   cancel(id: string) {
     const mine = this.asking.get(id)
     if (mine) mine.cancelled = true

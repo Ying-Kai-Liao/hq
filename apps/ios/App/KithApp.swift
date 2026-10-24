@@ -90,6 +90,8 @@ private struct DebugHooks: ViewModifier {
     let app: AppStore
     /// The agent sheet demo shots (`-kithDemoScreens agent`, `agent-memory`, `agent-settings`).
     @State private var agentScreen: String?
+    /// The share sheet demo shots (`share-sheet`, `share-link`).
+    @State private var shareScreen: String?
 
     func body(content: Content) -> some View {
         content
@@ -102,10 +104,25 @@ private struct DebugHooks: ViewModifier {
                 }
             }
         }
+        .kithSheet(isPresented: Binding(get: { shareScreen != nil }, set: { if !$0 { shareScreen = nil } })) {
+            if let screen = shareScreen, let computer = app.accounts.computers.first, let store = app.accounts.store(for: computer.id) {
+                ShareAgentSheet(store: store, agent: "ada", name: "Ada", people: PeopleStore.demo(),
+                                created: screen == "share-link" ? DemoScreens.demoInvite : nil)
+            }
+        }
         .overlay {
             // Design token gallery for screenshots: launch with -kithTokenGallery.
             if ProcessInfo.processInfo.arguments.contains("-kithTokenGallery") { KithTokenGallery() }
             if ProcessInfo.processInfo.arguments.contains("-kithComponentGallery") { KithComponentGallery() }
+            // First-run and pairing shots sit over the demo account's home: `-kithDemoScreens pairing-<welcome|scan|install|success|error>`.
+            if let screen = DemoScreens.name, screen.hasPrefix("pairing-") {
+                Group {
+                    if screen == "pairing-welcome" { WelcomeView {} } else { PairingView(onSkip: {}) { BackButton {} } }
+                }
+                .environment(app)
+                .environment(app.account)
+                .background(Palette.background)
+            }
         }
         .task {
             // Simulator/UI-test pairing: SIMCTL_CHILD_KITH_PAIR_URL=kith://pair?...
@@ -127,7 +144,8 @@ private struct DebugHooks: ViewModifier {
                 try? await Task.sleep(for: .seconds(1))
                 switch screen {
                 case "settings": app.showSettings = true
-                case "computers": app.showComputers = true
+                case "computers", "account", "account-devices": app.showComputers = true
+                case "problem": app.showSettings = true
                 case "widgets":
                     // The page is pushed inside the Settings sheet, so wait for the sheet and its stack to be up.
                     app.showSettings = true
@@ -137,6 +155,11 @@ private struct DebugHooks: ViewModifier {
                     if let computer = app.accounts.computers.first {
                         app.accounts.selection = BotReference(accountId: nil, computerId: computer.id, botId: DemoScreens.chatBotId)
                     }
+                case "share-chat":
+                    if let computer = app.accounts.computers.first {
+                        app.accounts.selection = BotReference(accountId: nil, computerId: computer.id, botId: "ada")
+                    }
+                case "share-sheet", "share-link": shareScreen = screen
                 case "agent", "agent-memory", "agent-settings", "call", "incoming-call": agentScreen = screen
                 default: break // "crew", "crew-typing" and "board" (BotListView opens its Board tab) are the root
                 }

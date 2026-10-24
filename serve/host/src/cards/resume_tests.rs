@@ -36,6 +36,7 @@ fn guest(person: &str, session: &str) -> RunIdentity {
         run_id: format!("run-{person}-{session}"),
         scope: TokenScope::Guest,
         session: format!("run:g:{}:{person}:{session}", person.len()),
+        project: None,
     }
 }
 

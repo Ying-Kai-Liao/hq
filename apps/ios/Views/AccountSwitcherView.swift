@@ -19,26 +19,18 @@ struct AccountSwitcherButton: View {
     }
 }
 
-/// Who you're signed in as, the other accounts on this iPhone, and the way to the computers.
+/// Who you're signed in as, the other accounts on this iPhone, and Your devices: every Mac this iPhone can use.
 struct AccountSwitcherView: View {
     /// Pushed from the account card in Settings rather than opened as the account sheet.
     var pushed = false
     @Environment(AppStore.self) private var app
     @Environment(AccountSession.self) private var account
-    @State private var showSettings = false
+    @Environment(AccountStore.self) private var accounts
     @State private var confirmSignOut = false
-    @State private var pairing = false
     @State private var addingAccount = false
 
     var body: some View {
         CardForm {
-            CardSection {
-                Button { pairing = true } label: {
-                    RowLabel("Scan a computer's code", systemImage: "qrcode.viewfinder", chevron: true)
-                }
-                .buttonStyle(.plain)
-            }
-
             profile
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
@@ -48,14 +40,12 @@ struct AccountSwitcherView: View {
                 if addingAccount { SignInButtons().transition(.opacity.combined(with: .move(edge: .top))) }
             }
 
-            CardSection {
-                if !pushed {
-                    Button { showSettings = true } label: {
-                        RowLabel("Computers", systemImage: "desktopcomputer", chevron: true)
-                    }
-                    .buttonStyle(.plain)
-                }
-                if account.isSignedIn {
+            if account.isSignedIn { AccountShareSlot() }
+
+            YourDevicesSection()
+
+            if account.isSignedIn {
+                CardSection {
                     Button { confirmSignOut = true } label: {
                         RowLabel("Sign out", systemImage: "rectangle.portrait.and.arrow.right", tint: Palette.danger)
                     }
@@ -86,8 +76,8 @@ struct AccountSwitcherView: View {
         .animation(Motion.fade, value: account.errorMessage)
         .onChange(of: account.userID) { _, _ in withAnimation(Motion.layout) { addingAccount = false } }
         .hidesSystemNavigationBar()
-        .navigationDestination(isPresented: $showSettings) { SettingsView(pushed: true) }
-        .kithSheet(isPresented: $pairing) { PairingView(inModal: true) }
+        .refreshable { await accounts.refreshCloud() }
+        .task { await accounts.refreshCloud() }
         .kithDialog("Sign out of \(account.email ?? "this account")?", isPresented: $confirmSignOut,
                       message: "This iPhone forgets the account's computers. Your bots stay on them.") {
             [DialogAction("Sign out", destructive: true) { Task { await app.signOut() } }]
@@ -111,14 +101,17 @@ struct AccountSwitcherView: View {
             }
             .transition(.opacity.combined(with: .scale(scale: 0.96)))
         } else {
-            VStack(spacing: 16) {
-                ZStack {
-                    Circle().fill(Palette.bubbleAgent).frame(width: 76, height: 76)
-                    Image(systemName: "person.fill")
-                        .font(.system(size: 32))
-                        .foregroundStyle(Palette.tertiary)
-                }
-                .accessibilityHidden(true)
+            VStack(spacing: 10) {
+                SkyPatch(id: "you", size: 76, isYou: true)
+                    .accessibilityHidden(true)
+                Text("Not signed in")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Palette.text)
+                Text("Sign in to keep one crew on every Mac.")
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.bottom, 6)
                 if account.isConfigured {
                     SignInButtons()
                 } else {

@@ -229,6 +229,8 @@ def main(argv):
             for f, v in zip(kith_opts[::2], kith_opts[1::2])}
 
     env = dict(os.environ, KITH_VIA='ask', KITH_OUTPUT='json')   # bin/kith: the same for every harness
+    # The asked agent's room shows the run as a card, "asked by <caller>" (a terminal when no agent is asking): bin/kith-sessions.
+    env.update(KITH_LAUNCH_KIND='ask', KITH_LAUNCH_LABEL=os.environ.get('KITH_AGENT', ''))
     if os.environ.get('KITH_ASK_PERMISSION_MODE'):
         env['KITH_PERMISSION_MODE'] = os.environ['KITH_ASK_PERMISSION_MODE']
     if prev:

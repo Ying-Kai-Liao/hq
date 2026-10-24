@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# kith-run-kind-check — bin/kith labels the owner's one-shot runs (KITH_RUN_KIND / KITH_RUN_LABEL) so bin/kith-sessions can list them
+# as cards in the agent's room: ask and schedule from what their launcher passed, helper for a run another run started, nothing
+# for the host's own runs (KITH_VIA=serve). The names are never inherited further. A stub claude logs its env in a throwaway
+# HOME/KITH_HOME/KITH_STATE (never the real ~/.kith).
+#
+#   kernel/tests/kith-run-kind-check     a few seconds; exits 1 when a check fails
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "$0")/.." && pwd)"
+T=$(mktemp -d "${TMPDIR:-/tmp}/kith-run-kind-check.XXXXXX"); T=$(cd "$T" && pwd -P)
+trap 'rm -rf "$T"' EXIT
+fails=0
+expect() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1 (got '$2', want '$3')"; fails=$((fails + 1)); fi; }
+export HOME=$T/home KITH_HOME=$T/root KITH_AUTH=$T/auth.json KITH_STATE=$T/state
+unset KITH_PROJECT KITH_PERSON KITH_AGENT KITH_CLAUDE_ARGS KITH_HARNESS KITH_PERMISSION_MODE CLAUDE_CONFIG_DIR HQ_HOME KITH_RUN_TOKEN KITH_RUN_SOCKET KITH_VIA KITH_RESUME
+mkdir -p "$HOME" "$T/bin" "$KITH_HOME/agents/echo/role" "$KITH_STATE/projects" "$KITH_STATE/logs"
+printf -- '---\nname: echo\ndescription: t\n---\nYou echo.\n' > "$KITH_HOME/agents/echo/role/agent.md"
+cat > "$T/bin/claude" <<'STUB'
+#!/bin/sh
+[ "$1" = "--version" ] && echo "2.1.309 (Claude Code)"
+[ "$1 $2" = "plugin list" ] && echo "[]"
+case "$*" in *--append-system-prompt*) env | grep -E '^KITH_(RUN_KIND|RUN_LABEL|RESUMED_FROM|LAUNCH_)' | sort | tr '\n' ' ' > "$ENV_LOG";; esac
+exit 0
+STUB
+chmod +x "$T/bin/claude"
+printf '#!/bin/sh\nexit 0\n' > "$T/bin/kith-stub"; chmod +x "$T/bin/kith-stub"
+export KITH_BIN=$T/bin/kith-stub PATH=$T/bin:$PATH ENV_LOG=$T/env
+
+run() {   # run VAR=value ... — one `kith echo hi`, prints what claude saw
+  : > "$ENV_LOG"
+  (cd "$KITH_HOME/agents/echo" && env "$@" "$KERNEL/bin/kith" echo hi >/dev/null 2>"$T/err")
+  cat "$ENV_LOG"
+}
+
+expect "a plain terminal one-shot is not listed" "$(run)" ""
+expect "kith ask: kind and who asked" "$(run KITH_LAUNCH_KIND=ask KITH_LAUNCH_LABEL=architect KITH_VIA=ask)" "KITH_RUN_KIND=ask KITH_RUN_LABEL=architect "
+expect "kith sched: kind and job" "$(run KITH_LAUNCH_KIND=schedule KITH_LAUNCH_LABEL=daily KITH_VIA=schedule)" "KITH_RUN_KIND=schedule KITH_RUN_LABEL=daily "
+expect "kith ask -c: joins the session it resumes" "$(run KITH_LAUNCH_KIND=ask KITH_LAUNCH_LABEL=architect KITH_VIA=ask KITH_RESUME=abc-123)" "KITH_RESUMED_FROM=abc-123 KITH_RUN_KIND=ask KITH_RUN_LABEL=architect "
+expect "helper of a terminal session" "$(run KITH_AGENT=architect KITH_VIA=terminal)" "KITH_RUN_KIND=helper KITH_RUN_LABEL=architect "
+expect "helper of a scheduled run" "$(run KITH_AGENT=architect KITH_VIA=schedule)" "KITH_RUN_KIND=helper KITH_RUN_LABEL=architect "
+expect "a run the host started is not listed (the app shows it)" "$(run KITH_AGENT=architect KITH_VIA=serve)" ""
+expect "a channel run is not listed" "$(run KITH_AGENT=architect KITH_VIA=telegram)" ""
+expect "the kind is not inherited by the run's own helper" "$(run KITH_AGENT=architect KITH_VIA=ask KITH_RUN_KIND=ask KITH_RUN_LABEL=zed)" "KITH_RUN_KIND=helper KITH_RUN_LABEL=architect "
+
+exit $((fails > 0))

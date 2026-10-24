@@ -45,11 +45,11 @@ export type Origin = 'terminal' | 'discord' | 'telegram' | 'slack'
 const ORIGIN_WORD: Record<Origin, string> = { terminal: 'Terminal', discord: 'Discord', telegram: 'Telegram', slack: 'Slack' }
 
 /** Where a thread started: a muted icon and one word. Never coloured, never truncated. Not shown for app threads. */
-export function OriginTag({ origin, title }: { origin: Origin; title?: string }) {
+export function OriginTag({ origin, title, label }: { origin: Origin; title?: string; label?: string }) {
   return (
-    <span className="kc-origin" title={title ?? `Started in ${origin === 'terminal' ? 'a terminal' : ORIGIN_WORD[origin]}`}>
+    <span className="kc-origin" title={title ?? label ?? `Started in ${origin === 'terminal' ? 'a terminal' : ORIGIN_WORD[origin]}`}>
       <Icon name={origin === 'terminal' ? 'terminal' : 'bubble.left.and.bubble.right'} size={10} weight="medium" />
-      {ORIGIN_WORD[origin]}
+      {label ?? ORIGIN_WORD[origin]}
     </span>
   )
 }

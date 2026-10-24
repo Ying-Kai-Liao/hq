@@ -22,6 +22,8 @@ export interface ThreadInfo {
   /** A briefcase and the project, or a folder only outside a project. */
   place?: Place
   origin?: Origin
+  /** Who started a one-shot run shown as a terminal thread: replaces the word on the tag. */
+  originLabel?: string
   writer?: { working: boolean }
   /** Your turn: a dot and "your turn" in place of the new pill. */
   yourTurn?: boolean
@@ -47,7 +49,8 @@ export function ThreadChip({ thread }: { thread: ThreadInfo }) {
   return (
     <div className="kc-thread-meta" style={pairStyle(t.pair)}>
       <span className="kc-thread-tags">
-        {t.writer ? <WriterChip working={t.writer.working} pair={t.pair} /> : t.origin ? <OriginTag origin={t.origin} /> : null}
+        {t.writer ? <WriterChip working={t.writer.working} pair={t.pair} /> : null}
+        {t.origin && (!t.writer || t.originLabel) ? <OriginTag origin={t.origin} label={t.originLabel} /> : null}
         {t.place ? <PlaceText place={t.place} /> : null}
       </span>
       <span className={`kc-thread-chip ${t.open ? 'open' : ''}`}>

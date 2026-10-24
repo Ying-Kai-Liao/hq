@@ -120,3 +120,12 @@ private func summary(origin: String? = nil, writer: String? = nil, busy: Bool? =
     // The backfill turns an older reply final: the summary count rises, so the loaded thread reloads.
     #expect(ThreadFeed.isMissingReplies(loaded, summary: ThreadSummary(count: 3, lastAt: 0, authors: [])))
 }
+
+@Test func theChipCarriesWhoStartedAMirroredOneShot() {
+    var s = summary(origin: "terminal")
+    s.originLabel = "scheduled: nightly"
+    let chip = ThreadFeed.chip(face: CrewFace(portrait: nil), tint: .neutral, count: 1, unread: 1, lastAt: 0, place: nil, yourTurn: false, summary: s)
+    #expect(chip.origin == .terminal && chip.originLabel == "scheduled: nightly")
+    let plain = ThreadFeed.chip(face: CrewFace(portrait: nil), tint: .neutral, count: 1, unread: 0, lastAt: 0, place: nil, yourTurn: false, summary: summary(origin: "terminal"))
+    #expect(plain.originLabel == nil)
+}

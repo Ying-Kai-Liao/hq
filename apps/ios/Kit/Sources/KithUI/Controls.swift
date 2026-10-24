@@ -78,6 +78,44 @@ public struct SecondaryButtonStyle: ButtonStyle {
     }
 }
 
+/// First-run and pairing buttons: ink fill, 12 pt corners. A new style so `.primary` keeps its accent everywhere else.
+public struct InkButtonStyle: ButtonStyle {
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
+        SquareButton(configuration: configuration, fill: Palette.text, foreground: Palette.background, edge: nil)
+    }
+}
+
+/// The white button next to an ink one: background fill with a hairline edge.
+public struct LineButtonStyle: ButtonStyle {
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
+        SquareButton(configuration: configuration, fill: Palette.background, foreground: Palette.text, edge: Palette.border)
+    }
+}
+
+private struct SquareButton: View {
+    let configuration: ButtonStyleConfiguration
+    let fill: Color
+    let foreground: Color
+    let edge: Color?
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        configuration.label
+            .foregroundStyle(foreground)
+            .background(fill, in: shape)
+            .overlay { if let edge { shape.strokeBorder(edge, lineWidth: 1) } }
+            .opacity(isEnabled ? (configuration.isPressed ? 0.85 : 1) : 0.4)
+            .scaleEffect(configuration.isPressed ? Motion.pressScale : 1)
+            .animation(Motion.press, value: configuration.isPressed)
+            .contentShape(shape)
+    }
+}
+
 private struct StyledButton: View {
     let configuration: ButtonStyleConfiguration
     let fill: Color
@@ -100,6 +138,14 @@ private struct StyledButton: View {
 
 public extension ButtonStyle where Self == PrimaryButtonStyle {
     static var primary: PrimaryButtonStyle { PrimaryButtonStyle() }
+}
+
+public extension ButtonStyle where Self == InkButtonStyle {
+    static var ink: InkButtonStyle { InkButtonStyle() }
+}
+
+public extension ButtonStyle where Self == LineButtonStyle {
+    static var line: LineButtonStyle { LineButtonStyle() }
 }
 
 public extension ButtonStyle where Self == SecondaryButtonStyle {

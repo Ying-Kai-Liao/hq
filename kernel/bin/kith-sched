@@ -163,7 +163,8 @@ def start(agent, job, now, why):
     task = ('%s\n\n(Scheduled job "%s" of %s, cron `%s`, %s. No one is watching this session: finish the task and '
             'deliver the result with %s/bin/kith-send. If there is nothing worth sending, send nothing.)'
             % (job['task'], job['id'], agent, job['cron'], why, KITH))
-    env = dict(os.environ, KITH_VIA='schedule', KITH_SCHED_JOB=job['id'])
+    env = dict(os.environ, KITH_VIA='schedule', KITH_SCHED_JOB=job['id'],
+               KITH_LAUNCH_KIND='schedule', KITH_LAUNCH_LABEL=job['id'])   # a card in the agent's room (bin/kith-sessions)
     if os.environ.get('KITH_SCHED_PERMISSION_MODE'):   # unset: the agent's mode, else kith's default (bin/kith)
         env['KITH_PERMISSION_MODE'] = os.environ['KITH_SCHED_PERMISSION_MODE']
     for k in ('KITH_AGENT', 'KITH_MODEL', 'KITH_EFFORT', 'KITH_HARNESS', 'KITH_DISCORD_WEBHOOK_URL', 'KITH_DISCORD_THREAD_ID',
