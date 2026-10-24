@@ -75,12 +75,13 @@ ratelimits = [{ name = "REGISTER_LIMITER", namespace_id = "2001", simple = { lim
 triggers = { crons = ["*/15 * * * *"] }
 
 # kith-dev: Kith's own relay for every local build, on our Cloudflare account at workers.dev (no custom domain).
-# No Clerk secrets, so the account routes answer 401 and only QR-paired devices get in.
+# Accounts use the Kith Clerk development instance. Until CLERK_SECRET_KEY and CLERK_WEBHOOK_SECRET are set on
+# this worker, the account routes answer 401 and the webhook answers an internal error; QR pairing works either way.
 [env.kith-dev]
 name = "kith-cloud-dev"
 routes = []
 workers_dev = true
-vars = { CLERK_ISSUER = "https://clerk.invalid" }
+vars = { CLERK_ISSUER = "https://adjusted-starfish-4735.clerk.accounts.dev" }
 d1_databases = [{ binding = "DB", database_name = "kith-dev", database_id = "f8912768-50ee-45b0-a2b0-320ab8468afe", migrations_dir = "migrations" }]
 durable_objects.bindings = [{ name = "RELAY", class_name = "ComputerRelay" }]
 ratelimits = [{ name = "REGISTER_LIMITER", namespace_id = "2002", simple = { limit = 10, period = 60 } }, { name = "TURN_LIMITER", namespace_id = "2012", simple = { limit = 12, period = 60 } }, { name = "HOOK_LIMITER", namespace_id = "2022", simple = { limit = 60, period = 60 } }, { name = "BOT_JOIN_LIMITER", namespace_id = "2032", simple = { limit = 10, period = 60 } }]
