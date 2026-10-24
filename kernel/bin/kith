@@ -139,7 +139,8 @@ agent_suggest() {
 }
 
 if [[ $1 == ls && ${2:-} == --json ]]; then
-  "$KITH/bin/kith-pkg" list --json | python3 -c '
+  pkgs=$("$KITH/bin/kith-pkg" list --json) && [[ -n $pkgs ]] || exit 1   # kith-pkg already printed why on stderr
+  python3 -c '
 import json, os, re, sys
 def field(text, k):
     m = re.match(r"---\n(.*?)\n---", text, re.S)
@@ -153,7 +154,7 @@ for name, o in json.load(sys.stdin).items():
     h = field(text, "harness") or "claude"
     out.append({"name": name, "description": d.group(1) if d else "", "home": home, "model": field(text, "model"),
                 "effort": field(text, "effort"), "harness": "claude" if h == "claude-code" else h})
-print(json.dumps(out))'
+print(json.dumps(out))' <<<"$pkgs"
   exit 0
 fi
 if [[ $1 == ls ]]; then

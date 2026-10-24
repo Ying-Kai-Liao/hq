@@ -339,4 +339,18 @@ PY
 is "main env: port 19225 and serve-main token" "$(probe)" "http://127.0.0.1:19225/api/resolveThread Bearer maintok"
 is "main env: KITH_SERVE_PORT overrides the port" "$(probe KITH_SERVE_PORT=4242)" "http://127.0.0.1:4242/api/resolveThread Bearer maintok"
 
+# release_claims gives back only the releasing pid's claims, and takes the claim lock to do it.
+RC=$T/rc; mkdir -p "$RC"
+rel=$(KITH_STATE=$RC python3 - "$SK" <<'PY'
+import importlib.machinery, importlib.util, json, os, sys
+l = importlib.machinery.SourceFileLoader('ks', sys.argv[1]); m = importlib.util.module_from_spec(importlib.util.spec_from_loader('ks', l)); l.exec_module(m)
+d = m.reg_dir(); d.mkdir(parents=True, exist_ok=True)
+(d / 'mine.claim').write_text(json.dumps({'pid': 111}))
+(d / 'theirs.claim').write_text(json.dumps({'pid': 222}))
+m.release_claims(111)
+print((d / 'mine.claim').exists(), (d / 'theirs.claim').exists(), (d / 'mine.claim.lock').exists())
+PY
+)
+is "release_claims: own claim removed, foreign claim kept, under the lock" "$rel" "False True True"
+
 exit $fail

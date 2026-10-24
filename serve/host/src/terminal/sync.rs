@@ -838,7 +838,7 @@ pub async fn resolve(hub: &Hub, which: &str) -> Value {
         Some(e) => Some(Thread { bot: e.bot_id.clone(), root: e.thread_id.clone().unwrap_or(e.id.clone()) }),
         None => hub.store.kv_get(&sid_key(which)).and_then(|k| Thread::parse(&k)).or_else(|| lane_owner(hub, which)),
     };
-    let Some(t) = thread else { return unknown() };
+    let Some(t) = thread else { return resolve_main_lane(hub, which).await.unwrap_or_else(unknown) };
     let Some(row) = hub.store.bot(&t.bot).ok().flatten().filter(|r| !r.deleted && r.config.person.is_none()) else {
         return unknown();
     };
@@ -864,6 +864,24 @@ pub async fn resolve(hub: &Hub, which: &str) -> Value {
     })
 }
 
+/// The answer for a session that is a bot's main chat lane: the kernel claims it like a thread's, and `hostBusy` says
+/// whether the app is answering in it right now (a turn there holds a writer claim too, see `claim_for_turn`).
+async fn resolve_main_lane(hub: &Hub, sid: &str) -> Option<Value> {
+    let bot = hub.store.kv_prefix("lane.session.").into_iter().find_map(|key| {
+        (hub.store.kv_get(&key).as_deref() == Some(sid)).then_some(())?;
+        let (bot, chat) = key["lane.session.".len()..].split_once('@')?;
+        (bot == chat).then(|| bot.to_owned())
+    })?;
+    let row = hub.store.bot(&bot).ok().flatten().filter(|r| !r.deleted && r.config.person.is_none())?;
+    let agent = row.config.hq_agent.clone()?;
+    let lane = Lane::main(&bot);
+    let cwd = crate::agent::folder::resolve(&hub.store, &row.config, &lane).await.cwd;
+    let busy = hub.working_lanes(&row.config).contains(&lane);
+    Some(
+        json!({"botId": bot, "threadId": null, "agent": agent, "sessionId": sid, "cwd": cwd, "hostBusy": busy, "claims": 1}),
+    )
+}
+
 /// The thread whose lane runs session `sid`.
 fn lane_owner(hub: &Hub, sid: &str) -> Option<Thread> {
     hub.store.kv_prefix("lane.session.").into_iter().find_map(|key| {
@@ -884,9 +902,20 @@ pub async fn take_over(hub: &Arc<Hub>, bot: &str, root: &str) -> Result<Value> {
         // A second tap while the first runs.
         return Ok(json!({"liveWriter": null, "tookOver": false}));
     }
-    let result = take_over_inner(hub, &t).await;
-    hub.terminal.taking.locked().remove(&t.key());
-    result
+    // Dropped with the request, the key must still go, or the thread refuses every send until a restart.
+    let _taking = TakingGuard { hub: hub.clone(), key: t.key() };
+    take_over_inner(hub, &t).await
+}
+
+struct TakingGuard {
+    hub: Arc<Hub>,
+    key: String,
+}
+
+impl Drop for TakingGuard {
+    fn drop(&mut self) {
+        self.hub.terminal.taking.locked().remove(&self.key);
+    }
 }
 
 async fn take_over_inner(hub: &Arc<Hub>, t: &Thread) -> Result<Value> {

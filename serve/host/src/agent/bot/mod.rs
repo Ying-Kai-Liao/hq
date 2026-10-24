@@ -166,6 +166,7 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig, home: Lane, tidier: mpsc::UnboundedS
     let fast_support = FastModeSupport::from_stored(hub.store.kv_get(&fast_mode::stored_key(&cfg.id)).as_deref());
     let support = fast_support.clone();
     hub.set_runtime(&rt, |r| r.fast_mode = support);
+    let retire_after = lifecycle::retire_after(&hub.store);
     let actor = Actor {
         hub,
         cfg,
@@ -232,6 +233,9 @@ pub fn spawn(hub: Arc<Hub>, cfg: BotConfig, home: Lane, tidier: mpsc::UnboundedS
         tools_changed: false,
         fast_support,
         idle_checked: Instant::now(),
+        busy_at: Instant::now(),
+        own_tx: tx.downgrade(),
+        retire_after,
         permit: None,
         admission: None,
         waiting_shown: false,
@@ -459,6 +463,12 @@ struct Actor {
     fast_support: FastModeSupport,
     /// When idle sessions and agents were last looked for.
     idle_checked: Instant,
+    /// When this actor was last in use (see `lifecycle::retire_if_unused`).
+    busy_at: Instant,
+    /// The hub's channel to this actor, weak so it doesn't keep the channel open once the hub lets go.
+    own_tx: mpsc::WeakUnboundedSender<Cmd>,
+    /// How long a thread actor may sit unused before it ends.
+    retire_after: Duration,
     /// The gate slot the running turn holds (see `room`); none between turns.
     permit: Option<Permit>,
     /// This actor's place in the gate's line, while it has turns queued and no slot.
@@ -556,6 +566,7 @@ impl Actor {
                         if let Some(c) = self.conn.take() { c.acp.kill().await; }
                     }
                     self.release_idle().await;
+                    if self.retire_if_unused() { break }
                     // The idle check may have queued a compaction.
                     if self.turn.is_none() && !self.queue.is_empty() {
                         self.next_in_queue(&done_tx).await;

@@ -166,6 +166,10 @@ private func card(_ id: String, chat: String, status: String = "pending", approv
     let suite = "MultiMacTests.\(UUID().uuidString)"
     defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
     let storage = SharedStore.Context(accountID: "user_four", suite: suite)
+    // The stores mirror their entries to a cache file per account and computer, outside the suite. An earlier run's
+    // answered "p1" would otherwise load first and win over this run's newer-looking-or-equal upsert.
+    storage.erase()
+    defer { storage.erase() }
     let a = mac("A", keyByte: 1), b = mac("B", keyByte: 2)
     storage.computers = [a, b]
     let tokens = Tokens()
