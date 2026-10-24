@@ -78,7 +78,7 @@ sh "$T/bin/kith-auth" 3 & old=$!
 sleep 1.3
 s=$(date +%s)
 ( sleep 1.8; sh "$T/bin/kith-auth" 9 ) & late=$!
-KITH_QUIESCE_MATCH="$T/bin/kith-auth" python3 "$T/quiesce.py" "$T/lock-dir/auth.json.lock" 20 sh "$T/swap.sh"; rc=$?
+KITH_QUIESCE_MATCH="$T/bin/kith-auth" python3 "$T/quiesce.py" "$T/lock-dir/auth.json.lock" "$T/lock-dir/settings.json.lock" 20 sh "$T/swap.sh"; rc=$?
 took=$(( $(date +%s) - s ))
 check "the swap ran" "[ $rc = 0 ] && [ -e '$T/swapped' ]"
 check "it waited for the writer that started before the swap (${took}s)" "[ $took -ge 1 ]"
@@ -86,7 +86,23 @@ check "it did not wait for the one that started after it (${took}s)" "[ $took -l
 kill "$late" 2>/dev/null; pkill -P "$late" 2>/dev/null; wait 2>/dev/null
 sh "$T/bin/kith-auth" 60 & stuck=$!
 sleep 1.3
-KITH_QUIESCE_MATCH="$T/bin/kith-auth" python3 "$T/quiesce.py" "$T/lock-dir/auth.json.lock" 1 sh "$T/swap.sh"
+KITH_QUIESCE_MATCH="$T/bin/kith-auth" python3 "$T/quiesce.py" "$T/lock-dir/auth.json.lock" "$T/lock-dir/settings.json.lock" 1 sh "$T/swap.sh"
 sleep 0.3
 check "a writer that outlives the limit is SIGTERMed" "! kill -0 $stuck"
+
+# settings.json: an old settings writer is waited for, and a new kith_settings write waits for the drain to end
+S=$(python3 -c "import sys; sys.path.insert(0, '$KERNEL/lib'); import kith_settings as s; print(s.FILE)")
+SL=$S.lock
+printf '#!/bin/sh\nsleep "$1"\n' > "$T/bin/kith_settings.py"; chmod +x "$T/bin/kith_settings.py"
+sh "$T/bin/kith_settings.py" 3 & oldset=$!
+sleep 1.3
+( KITH_QUIESCE_MATCH="$T/bin/kith_settings" python3 "$T/quiesce.py" "$T/lock-dir/auth.json.lock" "$SL" 20 sh "$T/swap.sh"; date +%s > "$T/drained" ) &
+drain=$!
+sleep 0.8
+python3 "$KERNEL/lib/kith_settings.py" set permission_mode late plan >/dev/null 2>&1
+date +%s > "$T/written"
+wait "$drain"
+check "a new settings write waited for the drain to end" "[ \$(cat '$T/written') -ge \$(cat '$T/drained') ]"
+check "the old settings writer was waited for" "! kill -0 $oldset"
+check "the write landed" "python3 -c \"import json; assert 'late' in json.load(open('$S'))['agents']\""
 exit $fail

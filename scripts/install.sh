@@ -92,10 +92,12 @@ SWAP
 # (no grant for someone removed), so no old writer may touch auth.json or settings.json once the new code is in.
 cat > "$WORK/quiesce.py" <<'QUIESCE'
 import fcntl, os, re, signal, subprocess, sys, time
-lock, limit, cmd = sys.argv[1], float(sys.argv[2]), sys.argv[3:]
-os.makedirs(os.path.dirname(lock), exist_ok=True)
-fd = open(lock, 'a')
-fcntl.flock(fd, fcntl.LOCK_EX)                      # 1. the lock
+locks, limit, cmd = sys.argv[1:3], float(sys.argv[3]), sys.argv[4:]
+fds = []
+for lock in locks:                                  # 1. both locks, always auth then settings (kith_settings writes take the second)
+    os.makedirs(os.path.dirname(lock), exist_ok=True)
+    fds.append(open(lock, 'a'))
+    fcntl.flock(fds[-1], fcntl.LOCK_EX)
 if subprocess.call(cmd) != 0:                       # 2. the swap
     sys.exit(1)
 t_swap = time.time()
@@ -124,7 +126,9 @@ def old_writers():
         if len(f) < 3 or not f[0].isdigit() or int(f[0]) in mine or not WRITER.search(f[2]):
             continue
         try:
-            started = now - seconds(f[1])           # etime rounds down: allow a second
+            started = now - seconds(f[1])           # etime has whole seconds, so allow one second of slack: a new writer that
+                                                    # starts within ~1s after the swap counts as old, is waited for up to the
+                                                    # limit and then SIGTERMed. That is the safe side; keep it.
         except ValueError:
             continue
         if started <= t_swap + 1:
@@ -140,12 +144,14 @@ for p in old_writers():
         os.kill(p, signal.SIGTERM)
     except OSError:
         pass
-fd.close()                                          # 4. let go
+for fd in fds:                                      # 4. let go
+    fd.close()
 QUIESCE
 export SRC PREFIX
 AUTH_LOCK=${KITH_AUTH:-$PREFIX/secrets/auth.json}.lock
+SETTINGS_LOCK=${KITH_SETTINGS_LOCK:-$PREFIX/settings.json.lock}   # next to settings.json, where kith_settings locks
 if have python3 && [ -d "$(dirname "$AUTH_LOCK")" ]; then
-  python3 "$WORK/quiesce.py" "$AUTH_LOCK" "${KITH_INSTALL_DRAIN_S:-30}" sh "$WORK/swap.sh" || die "could not install kith to $PREFIX"
+  python3 "$WORK/quiesce.py" "$AUTH_LOCK" "$SETTINGS_LOCK" "${KITH_INSTALL_DRAIN_S:-30}" sh "$WORK/swap.sh" || die "could not install kith to $PREFIX"
 else
   sh "$WORK/swap.sh" || die "could not install kith to $PREFIX"   # a first install: nothing yet to lock
 fi
