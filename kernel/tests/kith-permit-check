@@ -24,6 +24,7 @@ cat > "$T/bin/claude" <<'STUB'
 [[ $1 == plugin ]] && { echo '[]'; exit 0; }
 { printf 'PID=%s\nASK=%s|%s\nRUN=%s|%s\n' "$$" "${KITH_ASK_TOKEN:-}" "${KITH_ASK_SOCKET:-}" "${KITH_RUN_TOKEN:-}" "${KITH_RUN_SOCKET:-}"
   printf 'ARG=%s\n' "$@"; } > "$STUB_OUT"
+prev=; for a in "$@"; do [ "$prev" = --settings ] && cp "$a" "$STUB_OUT.settings" 2>/dev/null; prev=$a; done
 STUB
 chmod +x "$T/bin/claude"
 export PATH=$T/bin:$PATH STUB_OUT=$T/stub.out
@@ -93,7 +94,7 @@ def serve2():
             x = c.recv(4096)
             if not x: break
             buf += x
-        c.sendall(reply[0]); c.close()
+        seen.append(json.loads(buf)); c.sendall(reply[0]); c.close()
 threading.Thread(target=serve2, daemon=True).start()
 env = dict(os.environ, **guest)
 p = subprocess.Popen([path], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env)
@@ -102,7 +103,20 @@ def rpc(m):
     return json.loads(p.stdout.readline())
 check('mcp: initialize', rpc({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {'protocolVersion': '2025-03-26'}})['result']['serverInfo']['name'], 'kithpermit')
 p.stdin.write(json.dumps({'jsonrpc': '2.0', 'method': 'notifications/initialized'}) + '\n'); p.stdin.flush()
-check('mcp: one tool, approve', [t['name'] for t in rpc({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})['result']['tools']], ['approve'])
+check('mcp: two tools, approve and request_access', [t['name'] for t in rpc({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})['result']['tools']], ['approve', 'request_access'])
+reply[0] = b'{"ok":true,"carded":true,"message":"Asked Kai. End your turn now."}\n'
+r = rpc({'jsonrpc': '2.0', 'id': 5, 'method': 'tools/call', 'params': {'name': 'request_access', 'arguments': {'path': '/Users/x/Documents', 'reason': 'read the notes'}}})
+check('request_access: the host message is the tool result', r['result']['content'][0]['text'], 'Asked Kai. End your turn now.')
+check('request_access: sent kind, target, reason, write', {k: v for k, v in seen[-1].items() if k != 'token'}, {'method': 'requestAccess', 'kind': 'path', 'target': '/Users/x/Documents', 'reason': 'read the notes', 'write': False})
+r = rpc({'jsonrpc': '2.0', 'id': 6, 'method': 'tools/call', 'params': {'name': 'request_access', 'arguments': {'domain': 'pypi.org', 'reason': 'pip', 'write': True}}})
+check('request_access: a domain', (seen[-1]['kind'], seen[-1]['target']), ('domain', 'pypi.org'))
+n = len(seen)
+r = rpc({'jsonrpc': '2.0', 'id': 7, 'method': 'tools/call', 'params': {'name': 'request_access', 'arguments': {'path': '/a', 'domain': 'b.org', 'reason': 'x'}}})
+check('request_access: both a path and a domain is not sent', (len(seen), 'Give either' in r['result']['content'][0]['text']), (n, True))
+reply[0] = b'{"ok":false,"error":"That is a secret or a login."}\n'
+r = rpc({'jsonrpc': '2.0', 'id': 8, 'method': 'tools/call', 'params': {'name': 'request_access', 'arguments': {'path': '/Users/x/.kith/secrets', 'reason': 'x'}}})
+check('request_access: a refusal reaches the agent', r['result']['content'][0]['text'], 'That is a secret or a login.')
+reply[0] = b'{"ok":true,"behavior":"allow"}\n'
 r = rpc({'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call', 'params': {'name': 'approve', 'arguments': {'tool_name': 'Bash', 'input': inp, 'tool_use_id': 'u1'}}})
 check('mcp: tools/call returns the decision as JSON text', json.loads(r['result']['content'][0]['text']), {'behavior': 'allow', 'updatedInput': inp})
 r = rpc({'jsonrpc': '2.0', 'id': 4, 'method': 'tools/call', 'params': {'name': 'approve', 'arguments': {'tool_name': 'Bash'}}})
@@ -207,4 +221,70 @@ hasnt "non-owner run without run token: no prompt tool" "$(args)" "$FLAG"
 KITH_PERSON=guest KITH_ASK_TOKEN=owner-tok KITH_ASK_SOCKET=/tmp/p.sock KITH_RUN_TOKEN=run-tok KITH_RUN_SOCKET=/tmp/run.sock run "guest with both" >/dev/null
 is "non-owner run with both: only the run token left" "$(stub ASK)/$(stub RUN)" "|/run-tok|/tmp/run.sock"
 
+# --- escape grants (F11 step 2b): a yes-once widens the next launch only ------------------------------------------------------
+# A fake run socket answers consumeAccess from a file it deletes when it hands it out, like the host's compare-and-set.
+GD=$(mktemp -d /tmp/kpg.XXXXXX)
+cat > "$T/grants.py" <<'PY'
+import json, os, socket, sys
+sock, src, log = sys.argv[1:4]
+srv = socket.socket(socket.AF_UNIX); srv.bind(sock); srv.listen(5)
+while True:
+    c, _ = srv.accept(); buf = b''
+    while not buf.endswith(b'\n'):
+        x = c.recv(4096)
+        if not x: break
+        buf += x
+    req = json.loads(buf)
+    open(log, 'a').write(json.dumps(req) + '\n')
+    if req.get('method') == 'consumeAccess' and os.path.exists(src):
+        out = {'ok': True, 'grants': json.load(open(src))}; os.remove(src)
+    elif req.get('method') == 'consumeAccess':
+        out = {'ok': True, 'grants': {'read': [], 'write': [], 'domains': []}}
+    else:
+        out = {'ok': False, 'error': 'no'}
+    c.sendall(json.dumps(out).encode() + b'\n'); c.close()
+PY
+python3 "$T/grants.py" "$GD/g.sock" "$T/grants.json" "$T/grants.log" & PIDS+=($!); disown
+for _ in $(seq 50); do [[ -S $GD/g.sock ]] && break; sleep 0.1; done
+mkdir -p "$T/granted" "$T/granted-rw" "$T/work/.claude" "$KITH_STATE/secrets"
+set_ok() { python3 -c '
+import json,sys
+s=json.load(open(sys.argv[1])); fs=s["sandbox"]["filesystem"]
+print(eval(sys.argv[2]))' "$STUB_OUT.settings" "$1"; }
+grun() { rm -f "$STUB_OUT.settings"; KITH_PERSON=guest KITH_RUN_TOKEN=run-tok KITH_RUN_SOCKET=$GD/g.sock run "guest" >/dev/null 2>&1; }
+grun
+is "no grant: the folder is not readable" "$(set_ok "'$T/granted' in fs['allowRead']")" False
+printf '{"read": ["%s"], "write": ["%s"], "domains": ["pypi.org", "*.evil.com"]}' "$T/granted" "$T/granted-rw" > "$T/grants.json"
+grun
+is "yes once: the next launch reads it" "$(set_ok "'$T/granted' in fs['allowRead'] and '$T/granted' in s['permissions']['additionalDirectories']")" True
+is "yes once: a read-only grant is closed to Edit" "$(set_ok "'Edit(/$T/granted/**)' in s['permissions']['deny'] and '$T/granted' not in fs['allowWrite']")" True
+is "yes once: a write grant is writable and readable" "$(set_ok "'$T/granted-rw' in fs['allowWrite'] and '$T/granted-rw' in fs['allowRead']")" True
+is "yes once: rule W is denied below a granted folder" "$(set_ok "'$T/granted-rw/**/.claude' in fs['denyWrite'] and 'Edit(/$T/granted-rw/**/.claude/**)' in s['permissions']['deny']")" True
+is "yes once: a domain goes to allowedDomains, a wildcard doesn't" "$(set_ok "s['sandbox']['network']['allowedDomains']")" "['pypi.org']"
+is "yes once: allowUnsandboxedCommands stays off" "$(set_ok "s['sandbox']['allowUnsandboxedCommands']")" False
+grun
+is "the activation after: nothing, the grant was one use" "$(set_ok "'$T/granted' in fs['allowRead'] or 'allowedDomains' in s['sandbox']['network']")" False
+printf '{"read": ["%s", "%s/x"], "write": ["%s", "%s"], "domains": []}' "$KITH_STATE/secrets" "$KITH_STATE/serve" "$T/work/.claude" "$HOME/.zshrc" > "$T/grants.json"
+grun
+is "build-time re-check: secrets and rule W are never added, whatever the host said" "$(set_ok "not any(x in fs['allowRead'] + fs['allowWrite'] for x in ['$KITH_STATE/secrets', '$KITH_STATE/serve', '$T/work/.claude', '$HOME/.zshrc'])")" True
+# a folder that holds the secrets is refused too (a grant of $KITH_STATE would reach secrets/)
+printf '{"read": ["%s"], "write": ["%s"], "domains": []}' "$KITH_STATE" "$KITH_STATE" > "$T/grants.json"
+grun
+is "build-time re-check: a folder that holds the secrets is never added" "$(set_ok "'$KITH_STATE' not in fs['allowRead'] + fs['allowWrite']")" True
+# the shared layout (no ~/.kith, KITH_STATE unset): the secrets folder is ~/.config/kith itself, all of it
+mkdir -p "$HOME/.config/kith"
+printf '{"read": ["%s", "%s/x", "%s", "%s"], "write": ["%s"], "domains": []}' "$HOME/.config/kith" "$HOME/.config/kith" "$HOME/.config" "$HOME" "$HOME/.config/kith" > "$T/grants.json"
+mkdir -p "$KITH_HOME/kernel"   # the Kith folder around a kernel/: the link layout, so the machine folder is ~/.config/kith
+(unset KITH_STATE HQ_STATE; grun)
+is "shared layout: the whole config folder, below it and the folders above it are never added" "$(set_ok "not any(x in fs['allowRead'] + fs['allowWrite'] for x in ['$HOME/.config/kith', '$HOME/.config/kith/x', '$HOME/.config', '$HOME'])")" True
+ln -sfn "$T/granted" "$T/moved"; printf '{"read": ["%s"], "write": [], "domains": []}' "$T/moved" > "$T/grants.json"
+grun
+is "build-time re-check: a grant that is a link now (it resolves elsewhere) is dropped" "$(set_ok "'$T/moved' not in fs['allowRead'] and '$T/granted' not in fs['allowRead']")" True
+: > "$T/grants.log"; KITH_PERSON=guest run "no token" >/dev/null 2>&1
+is "a guest launch with no run token asks nothing" "$(wc -c < "$T/grants.log" | tr -d ' ')" 0
+run "owner" >/dev/null 2>&1
+is "an owner launch asks nothing" "$(grep -c consumeAccess "$T/grants.log")" 0
+KITH_PERSON=guest KITH_RUN_TOKEN=run-tok KITH_RUN_SOCKET=$GD/g.sock run guest >/dev/null 2>&1
+has "the guest may always ask: request_access is in the allowed tools" "$(args)" "mcp__kithpermit__request_access"
+rm -rf "$GD"
 exit $fail

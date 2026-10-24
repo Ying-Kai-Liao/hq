@@ -32,6 +32,69 @@ pub const SENSITIVE: &[&str] = &[
     "memory.db*",
 ];
 
+/// The folders below a Kith state or machine folder that a guest's sandbox denies whole (`kith_guard.SECRET_DIRS`). `SENSITIVE`
+/// names the files among them a card for a *tool call* never touches; a grant of *access* is judged by the whole folders.
+pub const SECRET_DIRS: &[&str] = &["secrets", "serve", "browsers", "bridge", "index", "room-ledger"];
+
+/// Whether `path` is, is below, or holds one of the [`SECRET_DIRS`] of the Kith folders.
+pub fn touches_secret_dirs(path: &Path, roots: &Roots) -> bool {
+    let p = fold(path);
+    roots
+        .kith
+        .iter()
+        .flat_map(|r| SECRET_DIRS.iter().map(move |d| fold(&r.join(d))))
+        .any(|s| p.starts_with(&s) || s.starts_with(&p))
+}
+
+/// Rule W (designs/2026-10-24-cards-plan.md, plan 2): a run that is not the owner's never writes a file that something
+/// outside its sandbox later runs, loads as settings, or loads as instructions. These mirror `kernel/lib/kith_guard.py`
+/// (`IN_FOLDER_TREES`, `IN_FOLDER_FILES`, `HOME_TREES`, `HOME_FILES`, `ABS_TREES`); `kith_guard_lists_match_the_kernels` fails when
+/// they drift. The kernel's per-run extras (the kernel itself, the agent's package, the people files) are added by
+/// [`is_rule_w`]'s caller.
+pub const RULE_W_IN_FOLDER_TREES: &[&str] = &[".claude", ".vscode", ".idea", ".git/hooks"];
+pub const RULE_W_IN_FOLDER_FILES: &[&str] =
+    &["CLAUDE.md", "CLAUDE.local.md", ".mcp.json", ".envrc", ".git/config", ".gitmodules"];
+pub const RULE_W_HOME_TREES: &[&str] =
+    &[".config/git", "Library/LaunchAgents", ".local/bin", ".npm-global", ".cargo/bin"];
+pub const RULE_W_HOME_FILES: &[&str] = &[
+    ".zshrc",
+    ".zshenv",
+    ".zprofile",
+    ".zlogin",
+    ".bashrc",
+    ".bash_profile",
+    ".profile",
+    ".gitconfig",
+    ".claude.json",
+];
+pub const RULE_W_ABS_TREES: &[&str] = &["/opt/homebrew", "/usr/local/bin"];
+
+/// Whether `path` (absolute, real) is, or is below, a place rule W closes to a boxed run: at any depth for the in-folder
+/// names, below `home` for the home ones, below the absolute folders, and below each of `extra`.
+pub fn is_rule_w(path: &Path, home: &Path, extra: &[PathBuf]) -> bool {
+    let path = fold(path);
+    let comps = |p: &str| -> Vec<String> { p.split('/').filter(|c| !c.is_empty()).map(str::to_owned).collect() };
+    let have: Vec<String> = comps(&path.to_string_lossy());
+    // `want` appears as a run of whole components; a file must end the path, a tree may be followed by more.
+    let run = |want: &str, file: bool| {
+        let w = comps(&fold_text(want.to_owned()));
+        !w.is_empty()
+            && have
+                .windows(w.len())
+                .enumerate()
+                .any(|(i, win)| win == w.as_slice() && (!file || i + w.len() == have.len()))
+    };
+    if RULE_W_IN_FOLDER_TREES.iter().any(|t| run(t, false)) || RULE_W_IN_FOLDER_FILES.iter().any(|f| run(f, true)) {
+        return true;
+    }
+    let home = fold(home);
+    let below_home = |rel: &str| path.starts_with(home.join(fold_text(rel.to_owned())));
+    RULE_W_HOME_TREES.iter().any(|t| below_home(t))
+        || RULE_W_HOME_FILES.iter().any(|f| fold(&home.join(f)) == path)
+        || RULE_W_ABS_TREES.iter().any(|a| path.starts_with(fold(Path::new(a))))
+        || extra.iter().any(|e| path.starts_with(fold(e)))
+}
+
 /// Tools whose input names one file by an absolute path, and the input fields that hold it.
 const FILE_FIELDS: &[&str] = &["file_path", "path", "notebook_path"];
 const FILE_TOOLS: &[&str] =
@@ -59,12 +122,15 @@ pub struct Roots {
     /// Folders that are secret all the way down: the secrets folder (when it is a folder of its own) and the host's
     /// own data folder (serve token, identity, databases).
     pub whole: Vec<PathBuf>,
+    /// The secrets folder even when it is the machine folder itself (the shared layout, no `~/.kith`): a grant of access
+    /// never reaches it, though tool calls inside it are judged by the patterns. See [`holds_secrets_folder`].
+    pub secrets_folder: Vec<PathBuf>,
 }
 
 impl Roots {
     #[cfg(test)]
     pub fn new(kith: Vec<PathBuf>) -> Self {
-        Self { kith, whole: Vec::new() }
+        Self { kith, whole: Vec::new(), secrets_folder: Vec::new() }
     }
 
     fn add(list: &mut Vec<PathBuf>, p: PathBuf) {
@@ -103,6 +169,9 @@ pub fn roots() -> Roots {
                     if let Some(p) = v[key].as_str() {
                         Roots::add(&mut r.kith, PathBuf::from(p));
                     }
+                }
+                if let Some(sec) = v["KITH_SECRETS"].as_str() {
+                    Roots::add(&mut r.secrets_folder, PathBuf::from(sec));
                 }
                 // The older layout keeps the secrets among the machine things: the patterns cover `env` and
                 // `auth.json` there, and the folder is only secret whole when it is a folder of its own.
@@ -157,6 +226,13 @@ pub fn is_sensitive(path: &Path, roots: &Roots) -> bool {
                 .and_then(|rel| rel.to_str())
                 .is_some_and(|rel| !rel.is_empty() && sensitive_rel(rel))
         })
+}
+
+/// Whether `path` is, is inside, or holds the secrets folder, whichever layout the kernel reports: a grant of access is
+/// refused for all of it (`kith-auth access` does the same with `kith_guard.whole_secret_paths`).
+pub fn holds_secrets_folder(path: &Path, roots: &Roots) -> bool {
+    let p = fold(path);
+    roots.secrets_folder.iter().map(|s| fold(s)).any(|s| p.starts_with(&s) || s.starts_with(&p))
 }
 
 /// Whether a folder (or file) `path` is, or holds, something never carded: a request to search it would read it.
@@ -364,6 +440,7 @@ mod tests {
         Roots {
             kith: vec![PathBuf::from("/Users/x/.kith"), PathBuf::from("/Volumes/ssd/kith-state")],
             whole: vec![PathBuf::from("/Users/x/.kith/serve-data"), PathBuf::from("/Volumes/ssd/secretsdir")],
+            secrets_folder: Vec::new(),
         }
     }
 
