@@ -270,10 +270,10 @@ fn settle(hub: &Arc<Hub>, id: &str, to: State, who: Who) -> Result<Call> {
     let call = {
         let mut g = hub.calls.inner.locked();
         let Some(c) = g.calls.get_mut(id).filter(|c| who.is_none_or(|w| w == c.person.as_deref())) else {
-            bail!("That call is gone.");
+            return Err(crate::api::UserError("That call is gone.".into()).into());
         };
         if c.state != State::Ringing {
-            bail!("That call is already {}.", c.state.as_str());
+            return Err(crate::api::UserError(format!("That call is already {}.", c.state.as_str())).into());
         }
         c.state = to;
         c.settled = now_ms();
@@ -307,9 +307,11 @@ pub fn decline(hub: &Arc<Hub>, who: Option<&str>, id: &str) -> Result<Value> {
 pub fn greet(hub: &Arc<Hub>, who: Option<&str>, id: &str) -> Result<Value> {
     let call = {
         let mut g = hub.calls.inner.locked();
-        let Some(c) = g.calls.get_mut(id).filter(|c| who == c.person.as_deref()) else { bail!("That call is gone.") };
+        let Some(c) = g.calls.get_mut(id).filter(|c| who == c.person.as_deref()) else {
+            return Err(crate::api::UserError("That call is gone.".into()).into());
+        };
         if c.state != State::Accepted || c.greeted {
-            bail!("That call isn't waiting for the agent to speak.");
+            return Err(crate::api::UserError("That call isn't waiting for the agent to speak.".into()).into());
         }
         c.greeted = true;
         c.clone()

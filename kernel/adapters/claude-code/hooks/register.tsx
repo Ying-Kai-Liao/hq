@@ -12,7 +12,7 @@ import type { EngineInterface, Register } from 'claude-code'
 // The kernel comes from kith_path (default ~/kith/kernel, else ~/hq/kernel, ~/.kith/kernel, ~/Workspace/kith); agents and state from the resolver, as every
 // kernel tool finds them (lib/kith_paths.py).
 
-type Spawned = { agent: string; project: string; isNamed: boolean; cwd: string; task: string; startedMs: number }
+type Spawned = { agent: string; project: string; isNamed: boolean; cwd: string; task: string; startedMs: number; sessionsDir?: string }
 
 const spawned = new Map<string, Spawned>()
 // A subagent's final report by agent id (turn.complete), for mcp__kith__invoke to hand to its caller; bounded.
@@ -153,8 +153,32 @@ export const register: Register = (on, options) => {
     if (dir?.endsWith('/role')) return real && agentsReal ? `${agentsReal}/${agent}` : dir.slice(0, -'/role'.length)
     return `${(real && stateReal) || state || kith}/agents/${agent}`
   }
-  const fill = (text: string, kith: string, agent: string, agentDir = installed[agent] ?? `${kith}/agents/${agent}`) =>
-    text
+  // The run's memory layout, as bin/kith renders it: the owner's is the agent's memory/ itself; anyone else's is
+  // memory/people/<id>/, with their outputs in files/people/<id>/ and who they are in <state>/people/<id>.md.
+  // person '' is the owner.
+  const layout = (agent: string, kith: string, person: string) => {
+    const life = lifeOf(agent, kith)
+    return person
+      ? { mem: `${life}/memory/people/${person}`, files: `${life}/files/people/${person}`,
+          personFile: `${state || kith}/people/${person}.md`, shared: `${life}/memory/shared` }
+      : { mem: `${life}/memory`, files: `${life}/files`, personFile: `${state || kith}/user.md`, shared: `${life}/memory/shared` }
+  }
+  // Who a run's memory belongs to: '' for the owner (KITH_OWNER decides; KITH_PERSON can name the owner too, and without
+  // either the run is the owner's), else the person's id. A KITH_PERSON that is no valid id yields null: no memory at all.
+  const runPerson = async ($: any): Promise<string | null> => {
+    const flag = await $.env.get('KITH_OWNER')
+    const person = (await $.env.get('KITH_PERSON')) ?? ''
+    if (flag !== undefined && flag !== '' ? flag === '1' : !person) return ''
+    return /^[a-z][a-z0-9-]*$/.test(person) ? person : null
+  }
+  let runWho: string | null = ''
+  const fill = (text: string, kith: string, agent: string, agentDir = installed[agent] ?? `${kith}/agents/${agent}`) => {
+    const l = layout(agent, kith, runWho ?? '')
+    return text
+      .replaceAll('{{MEMORY_DIR}}', l.mem)
+      .replaceAll('{{SHARED_MEMORY}}', l.shared)
+      .replaceAll('{{FILES_DIR}}', l.files)
+      .replaceAll('{{PERSON_FILE}}', l.personFile)
       .replaceAll('{{AGENT_DIR}}', agentDir)
       .replaceAll('{{AGENTS}}', agentsRoot || `${state || kith}/packages`)
       .replaceAll('{{PACKAGE}}', installed[agent] ?? `${kith}/agents/${agent}`)
@@ -166,6 +190,7 @@ export const register: Register = (on, options) => {
       .replaceAll('{{KITH}}', kith)
       .replaceAll('{{HQ}}', kith)   // role repos written before the rename
       .replaceAll('{{AGENT}}', agent)
+  }
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
@@ -189,8 +214,8 @@ export const register: Register = (on, options) => {
     // (its permission mode, and its own memory, files and notes writable). A run for anyone else (KITH_PERSON, set by
     // bin/kith) stays capped by the caller: nothing is widened for a guest.
     // bin/kith says whether the run is the owner's (KITH_OWNER; KITH_PERSON can name the owner too); without it, no person means owner.
-    const flag = await $.env.get('KITH_OWNER')
-    const isOwner = flag !== undefined && flag !== '' ? flag === '1' : !(await $.env.get('KITH_PERSON'))
+    runWho = await runPerson($)
+    const isOwner = runWho === ''
     for (const [name, dir] of Object.entries(installed)) {
       const file = `${dir}/agent.md`
       if (!(await $.fs.exists(file))) continue
@@ -288,15 +313,46 @@ export const register: Register = (on, options) => {
       ? info.stdout.trim().split('\n').slice(1).map((l) => l.split('\t')[0]).join(' ')
       : ''
     if (!state) state = (await kithPaths($, kith)).KITH_STATE
-    const memoryFile = `${lifeOf(agent, kith)}/memory/MEMORY.md`
-    const memory = (await $.fs.exists(memoryFile)) ? await $.fs.read(memoryFile) : ''
     const today = new Date().toISOString().slice(0, 10)
 
+    // Whose memory the helper gets. The owner's run: the agent's own MEMORY.md, as ever. Anyone else's: what
+    // kith_facets.py loads for that person, as bin/kith does for their own run (a bot guest, bot-*, is a guest). Fails
+    // closed: when that can't be had, the helper gets no memory, never the owner's.
+    const who = await runPerson($)
+    let memoryBlock = ''
+    let sessionsDir = who === null ? '' : `${layout(agent, kith, who).mem}/sessions`
+    if (who === '') {
+      const memoryFile = `${layout(agent, kith, '').mem}/MEMORY.md`
+      const memory = (await $.fs.exists(memoryFile)) ? await $.fs.read(memoryFile) : ''
+      memoryBlock = `<long-term-memory path="${memoryFile}">\n${memory}\n</long-term-memory>`
+    } else if (who) {
+      try {
+        const caller = (await $.env.get('KITH_AGENT')) ?? ''
+        const res = await $.process.run([`${kith}/bin/kith-auth`, 'resolve', agent, ...(caller && caller !== agent ? ['--via', caller] : [])],
+          { timeoutMs: 10_000 })
+        const r = JSON.parse(res.stdout)
+        const id = String(r.person ?? who)
+        if (res.exitCode !== 0 || r.allowed !== 1 || r.owner === 1 || !/^[a-z][a-z0-9-]*$/.test(id)) throw new Error('not resolved')
+        const dirs = layout(agent, kith, id)
+        sessionsDir = `${dirs.mem}/sessions`
+        const rooms = (Array.isArray(r.rooms) ? r.rooms : []).filter((x: unknown) => typeof x === 'string').join(' ')
+        const home = lifeOf(agent, kith)
+        const out = await $.process.run(['python3', `${kith}/lib/kith_facets.py`, 'load', '--agent', agent, '--home', home,
+          '--person-file', dirs.personFile, '--kind', id.startsWith('bot-') ? 'guest' : 'person', '--person', id,
+          '--rooms', rooms, '--room', (await $.env.get('KITH_ROOM')) ?? '', '--project', project,
+          '--agent-md', `${installed[agent] ?? `${home}/role`}/agent.md`, '--json'], { timeoutMs: 10_000 })
+        if (out.exitCode !== 0) throw new Error('facets load failed')
+        memoryBlock = JSON.parse(out.stdout).block ?? ''
+      } catch {
+        memoryBlock = ''
+      }
+    }
+
     // The helper's report is the last thing it says: the session file goes first.
-    const sessionFile = project ? `${lifeOf(agent, kith)}/memory/sessions/${project}.md` : ''
+    const sessionFile = project && sessionsDir ? `${sessionsDir}/${project}.md` : ''
     const prompt =
       `<session project="${project || 'none'}"${parents ? ` parents="${parents}"` : ''} cwd="${cwd}" date="${today}"/>\n` +
-      `<long-term-memory path="${memoryFile}">\n${memory}\n</long-term-memory>\n\n${task}` +
+      `${memoryBlock}${memoryBlock ? '\n\n' : ''}${task}` +
       (sessionFile
         ? `\n\n(Before your final report, write ${sessionFile}: task, state, next step, open questions; max 30 lines. ` +
           'Your final message is what the caller receives: make it the report.)'
@@ -305,7 +361,7 @@ export const register: Register = (on, options) => {
     const startedMs = Date.now()   // before the spawn: a spawn that waits for the run must not date its files before it
     const started = await next({ ...e, prompt })
     if (started.agentId) {
-      spawned.set(started.agentId, { agent, project, isNamed: !!named, cwd, task, startedMs })
+      spawned.set(started.agentId, { agent, project, isNamed: !!named, cwd, task, startedMs, sessionsDir })
       const effort = agentEffort.get(agent)
       if (effort) runningEffort.set(started.agentId, effort)
     }
@@ -344,10 +400,12 @@ export const register: Register = (on, options) => {
     runningEffort.delete(e.agent_id)
     const startedMs = run.startedMs
     if (!project) return next(e)
-    const file = `${lifeOf(run.agent, kith)}/memory/sessions/${project}.md`
+    // The dir the spawn pointed the helper at: a guest's run never writes into the owner's sessions.
+    const dir = run.sessionsDir ?? `${lifeOf(run.agent, kith)}/memory/sessions`
+    if (!dir) return next(e)
+    const file = `${dir}/${project}.md`
     const exists = await $.fs.exists(file)
     // Written when any of the agent's session files changed during the run (it may have used another project's name).
-    const dir = `${lifeOf(run.agent, kith)}/memory/sessions`
     for (const f of (await $.fs.exists(dir)) ? await $.fs.list(dir) : []) {
       if (f.name.endsWith('.md') && f.mtimeMs >= startedMs) return next(e)
     }

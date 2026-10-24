@@ -15,7 +15,7 @@ type Handler = (...args: any[]) => any
 import { statSync } from 'node:fs'
 const await_stat = (p: string) => statSync(p).mtimeMs
 
-function setup(env: Record<string, string> = {}) {
+function setup(env: Record<string, string> = {}, extra?: (argv: string[]) => { exitCode: number; stdout: string; stderr: string } | undefined) {
   const root = mkdtempSync(join(tmpdir(), 'kith-hooks-'))
   const kernel = join(root, 'kernel')
   const agents = join(root, 'agents')
@@ -33,6 +33,7 @@ function setup(env: Record<string, string> = {}) {
     return { catch: (c: Handler) => { (fn as any).onError = c; return undefined } }
   }
   const registered: any[] = []
+  const calls: string[][] = []
   let nextId = 0
   const $ = {
     env: { get: async (k: string) => (k === 'HOME' ? root : env[k]) },
@@ -47,6 +48,9 @@ function setup(env: Record<string, string> = {}) {
     process: {
       run: async (argv: string[]) => {
         const j = argv.join(' ')
+        calls.push(argv)
+        const x = extra?.(argv)
+        if (x) return x
         const ok = (stdout: string) => ({ exitCode: 0, stdout, stderr: '' })
         if (j.includes('kith_paths.py'))
           return ok(JSON.stringify({ KITH_STATE: state, KITH_AGENTS: agents, KITH_STATE_REAL: state, KITH_AGENTS_REAL: agents }))
@@ -72,7 +76,7 @@ function setup(env: Record<string, string> = {}) {
     const next = async (x: any) => x
     return list[0]($, e, next)
   }
-  return { root, agents, state, $, registered, handlers, fire }
+  return { root, agents, state, $, registered, handlers, fire, calls }
 }
 
 test('SubagentStop never blocks and writes a stub when the session file is stale', async () => {
@@ -177,4 +181,91 @@ test('kith-helper-allow allows writes under its folders only, symlinks and .. re
   expect(run(join(root, 'life/../other/x.md'))).toBe('')
   expect(run(join(root, 'other/x.md'))).toBe('')
   expect(run('relative.md')).toBe('')
+})
+
+// Helper memory follows the run's person (R6): a helper spawned in a guest's run never gets the owner's memory.
+const withFacets = (resolve: object | null, facets: string | null) => (argv: string[]) => {
+  const j = argv.join(' ')
+  if (j.includes('kith-auth') && j.includes(' may ')) return { exitCode: 0, stdout: '', stderr: '' }
+  if (j.includes('kith-auth') && j.includes('resolve'))
+    return resolve ? { exitCode: 0, stdout: JSON.stringify(resolve), stderr: '' } : { exitCode: 1, stdout: '', stderr: 'no' }
+  if (j.includes('kith_facets.py'))
+    return facets !== null ? { exitCode: 0, stdout: JSON.stringify({ block: facets, attrs: '' }), stderr: '' } : { exitCode: 1, stdout: '', stderr: 'bad' }
+  return undefined
+}
+
+async function spawnHelper(t: ReturnType<typeof setup>) {
+  writeFileSync(join(t.agents, 'builder/role/agent.md'),
+    '---\nname: builder\ndescription: builds\n---\nmem={{MEMORY_DIR}} shared={{SHARED_MEMORY}} files={{FILES_DIR}} who={{PERSON_FILE}}\n')
+  mkdirSync(join(t.agents, 'builder/memory/sessions'), { recursive: true })
+  writeFileSync(join(t.agents, 'builder/memory/MEMORY.md'), 'OWNER-SECRET')
+  writeFileSync(join(t.agents, 'builder/memory/sessions/kith.md'), 'OWNER-SESSION')
+  await t.fire('session.start', { cwd: t.root })
+  const spawn = t.handlers['agent.spawn'][0]
+  return spawn(t.$, { subagentType: 'kith:builder', prompt: 'do the thing', cwd: t.root }, async (x: any) => ({ agentId: 'a1', prompt: x.prompt }))
+}
+
+test('owner helper gets the owner memory', async () => {
+  const t = setup()
+  const started = await spawnHelper(t)
+  expect(started.prompt).toContain('OWNER-SECRET')
+  expect(started.prompt).toContain(join(t.agents, 'builder/memory/sessions/kith.md'))
+  expect(t.calls.some((c) => c.join(' ').includes('kith_facets'))).toBe(false)
+})
+
+test('a person helper gets the person memory and none of the owner\'s', async () => {
+  const t = setup({ KITH_PERSON: 'mia', KITH_OWNER: '0' },
+    withFacets({ allowed: 1, owner: 0, person: 'mia', rooms: ['r1'] }, '<memory>MIA-NOTES</memory>'))
+  const started = await spawnHelper(t)
+  expect(started.prompt).toContain('MIA-NOTES')
+  expect(started.prompt).not.toContain('OWNER-SECRET')
+  expect(started.prompt).not.toContain(join(t.agents, 'builder/memory/sessions'))
+  expect(started.prompt).toContain(join(t.agents, 'builder/memory/people/mia/sessions/kith.md'))
+  const f = t.calls.find((c) => c.join(' ').includes('kith_facets'))!
+  expect(f[f.indexOf('--kind') + 1]).toBe('person')
+  expect(f[f.indexOf('--person') + 1]).toBe('mia')
+  expect(f).toContain('--json')
+  expect(f[f.indexOf('--person-file') + 1]).toBe(join(t.state, 'people/mia.md'))
+  // the stub lands in the person's sessions dir, never the owner's
+  await t.fire('classic.SubagentStop', { agent_id: 'a1', last_assistant_message: 'Report: mia done' })
+  expect(readFileSync(join(t.agents, 'builder/memory/people/mia/sessions/kith.md'), 'utf8')).toContain('mia done')
+  expect(readFileSync(join(t.agents, 'builder/memory/sessions/kith.md'), 'utf8')).toBe('OWNER-SESSION')
+})
+
+test('a bot guest helper is loaded as a guest', async () => {
+  const t = setup({ KITH_PERSON: 'bot-ab12', KITH_OWNER: '0' },
+    withFacets({ allowed: 1, owner: 0, person: 'bot-ab12', rooms: [] }, 'BOT-NOTES'))
+  const started = await spawnHelper(t)
+  expect(started.prompt).toContain('BOT-NOTES')
+  expect(started.prompt).not.toContain('OWNER-SECRET')
+  const f = t.calls.find((c) => c.join(' ').includes('kith_facets'))!
+  expect(f[f.indexOf('--kind') + 1]).toBe('guest')
+})
+
+test('kith-auth or facets failing gives no memory, never the owner\'s', async () => {
+  for (const extra of [withFacets(null, 'X'), withFacets({ allowed: 1, owner: 0, person: 'mia', rooms: [] }, null),
+                       withFacets({ allowed: 0, owner: 0, person: 'mia', rooms: [] }, 'X')]) {
+    const t = setup({ KITH_PERSON: 'mia', KITH_OWNER: '0' }, extra)
+    const started = await spawnHelper(t)
+    expect(started.prompt).not.toContain('OWNER-SECRET')
+    expect(started.prompt).not.toContain('long-term-memory')
+    expect(started.prompt).toContain('do the thing')
+  }
+  const bad = setup({ KITH_PERSON: '../x', KITH_OWNER: '0' }, withFacets(null, 'X'))
+  const started = await spawnHelper(bad)
+  expect(started.prompt).not.toContain('OWNER-SECRET')
+  expect(started.prompt).not.toContain('Before your final report')
+})
+
+test('the memory placeholders are filled for the owner and for a person', async () => {
+  const o = setup()
+  await spawnHelper(o)
+  const life = join(o.agents, 'builder')
+  expect(o.registered[0].prompt).toContain(`mem=${life}/memory shared=${life}/memory/shared files=${life}/files who=${o.state}/user.md`)
+  const p = setup({ KITH_PERSON: 'mia', KITH_OWNER: '0' })
+  await spawnHelper(p)
+  const pl = join(p.agents, 'builder')
+  const prompt = p.registered[p.registered.length - 1].prompt as string
+  expect(prompt).toContain(`mem=${pl}/memory/people/mia shared=${pl}/memory/shared files=${pl}/files/people/mia who=${p.state}/people/mia.md`)
+  expect(prompt).not.toContain('{{')
 })

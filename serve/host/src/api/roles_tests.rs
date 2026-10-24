@@ -542,7 +542,12 @@ async fn an_invitee_never_reaches_a_terminal_thread() {
     }
     // Naming the owner's thread from their own chat reaches nothing either.
     let e = call(&r, &sam, "send", json!({"botId": theirs, "threadId": root.id, "text": "hi"})).await.unwrap_err();
-    assert!(e.to_string().contains("threads start from a message"), "{e:#}");
+    // A plain-string refusal is hidden from a guest; the owner's same call keeps the text.
+    assert!(e.to_string().starts_with("Something went wrong on the host."), "{e:#}");
+    let own = call(&r, &Caller::Local, "send", json!({"botId": theirs, "threadId": root.id, "text": "hi"}))
+        .await
+        .unwrap_err();
+    assert!(own.to_string().contains("threads start from a message"), "{own:#}");
     assert!(!roles::member_may("resolveThread") && !roles::member_may("takeOverThread"));
 
     // No event of it reaches them; the owner's stream has it.

@@ -150,7 +150,7 @@ async fn a_deleted_template_makes_no_chat_and_a_second_account_keeps_the_handle(
     let sam = joined(&r, json!({"house": "member"})).await;
     r.hub.delete_bot(&owner_bot).unwrap();
     let e = call(&r, &sam, "startChat", json!({"agent": "house"})).await.unwrap_err();
-    assert!(format!("{e:#}").contains("isn't set up"), "{e:#}");
+    assert!(format!("{e:#}").starts_with("Something went wrong on the host."), "{e:#}");
 
     // Two accounts on one person: losing one leaves the other bound.
     let made = call(&r, &Caller::Local, "createInvite", json!({"personId": "sam", "agents": {"house": "member"}}))

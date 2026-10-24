@@ -81,6 +81,26 @@ public final class BotStore {
     public var routineDrafts: [String: String] = [:]
     public let fileDownloads = FileDownloads()
     public var lastError: String?
+    /// Bots whose thread the reader just left: the next message in their main chat starts a new task instead of
+    /// going on with the current one (which would put it back in that thread).
+    var leftThread: Set<String> = []
+    /// What the user picked per task on this device: open or folded in the main chat; nil follows the task.
+    var taskChoices: [String: Bool] = [:]
+    /// Whether a send from the composer starts a new task: asked for, or (main chat only) the reader is out of the
+    /// current task: they left its thread, or it is folded. `currentOpen` is nil when the chat has no task yet.
+    func startsNewTask(_ botId: String, thread: String?, requested: Bool, currentOpen: Bool? = nil) -> Bool {
+        if requested { return true }
+        guard thread == nil else { return false }
+        return leftThread.contains(botId) || currentOpen == false
+    }
+    /// Whether the bot's current task shows open in its main chat, by the rule TaskRow uses; nil without a task.
+    func isCurrentTaskOpen(_ botId: String, now: Date = .now) -> Bool? {
+        guard let bot = bots[botId], let root = Tasks.current(in: chat(botId)) else { return nil }
+        let replies = self.replies(botId, root: root.id)
+        let status = Tasks.status(of: root, bot: bot, replies: replies)
+        return ThreadFeed.hasQuestion(replies, held: root.data.thread?.isHeldElsewhere == true)
+            || Tasks.isOpen(status, newest: true, lastAt: Tasks.lastAt(root), now: Int64(now.timeIntervalSince1970 * 1000), choice: taskChoices[root.id])
+    }
     /// The open conversation (navigation path).
     public var selection: String?
     /// The remote screen viewer (iPhone); `kith://screen` opens it.

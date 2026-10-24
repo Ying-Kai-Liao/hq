@@ -868,7 +868,7 @@ fn what_a_person_is_shown_has_no_paths_folders_or_error_text() {
             // hello: only the allowed names survive.
             let hello =
                 roles::shape(&w.hub, "p1", "hello", with_secrets(base.clone(), &["cwd", "addr", "screens", "path"]));
-            let keep = ["hostId", "computerId", "signKey", "boxKey", "name", "version", "minApp", "os", "rev"];
+            let keep = ["hostId", "computerId", "signKey", "boxKey", "name", "version", "minApp", "os", "rev", "store"];
             prop_assert!(hello.as_object().is_none_or(|o| o.keys().all(|k| keep.contains(&k.as_str()))), "{hello}");
             // history / thread: not the folder.
             for m in ["history", "thread"] {
@@ -1054,4 +1054,17 @@ fn a_bot_guest_is_shown_words_only() {
             Ok(())
         })
         .unwrap();
+}
+
+#[test]
+fn the_store_health_reaches_a_member_without_its_error_text_and_only_the_owner_hears_the_event() {
+    let w = World::new();
+    let hello = json!({"hostId": "h", "store": {"writable": false, "unsaved": 2, "dropped": 0, "error": SECRET}});
+    let shaped = roles::shape(&w.hub, "p1", "hello", hello);
+    assert_eq!(shaped["store"]["writable"], false);
+    assert!(shaped["store"].get("error").is_none(), "{shaped}");
+    let event = json!({"type": "storeHealth", "store": w.hub.store_health(false)});
+    assert!(roles::event_for(&w.hub.store, Some("p1"), event.clone()).is_none(), "a member hears no host event");
+    assert!(roles::event_for(&w.hub.store, None, event).is_some());
+    assert!(w.hub.store_health(false).get("error").is_none(), "the event never carries the error text");
 }

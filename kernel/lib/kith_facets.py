@@ -340,6 +340,7 @@ def main(argv):
     ap.add_argument('--room', default='')
     ap.add_argument('--project', default='')
     ap.add_argument('--agent-md', default='')
+    ap.add_argument('--json', action='store_true', help='print {block, attrs} instead of shell assignments')
     a = ap.parse_args(argv)
     cap = LOAD_CAP
     try:
@@ -358,6 +359,10 @@ def main(argv):
     out = load_memory(a.agent, a.home, a.person_file, reader, room, [a.project] if a.project else [], cap, members)
     attrs = ' loaded="%d"%s%s' % (out['loaded'], ' more="%d"' % out['more'] if out['more'] else '',
                                   ' room="group"' if out['group'] else '')
+    if a.json:
+        import json
+        print(json.dumps({'block': out['block'], 'attrs': attrs}))
+        return 0
     print('mems=%s\nload_attrs=%s' % (shlex.quote(out['block']), shlex.quote(attrs)))
     return 0
 
