@@ -175,7 +175,7 @@ export function BotRoster({ roster, compact, onContext }: {
         dragged={dragged} setDragged={setDragged} move={roster.move} notice={notice}>
         {prompts}
         {rows}
-        {!items.length && !store.mismatch && !compact ? <div className="computer-roster-empty">{store.shownConnection.kind === 'online' ? 'No bots yet' : store.connectionLabel}</div> : null}
+        {!items.length && !store.mismatch && !compact ? <div className="computer-roster-empty">{store.shownConnection.kind === 'online' ? 'No agents yet' : store.connectionLabel}</div> : null}
       </ComputerRosterSection>
     )
   })

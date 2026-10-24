@@ -57,7 +57,7 @@ export function BotEditorView({ draft: initial }: { draft: BotDraft }) {
   return (
     <SheetPage>
       <ModalHeader
-        title={isNew ? 'New bot' : 'Settings'}
+        title={isNew ? 'New agent' : 'Settings'}
         trailing={saving ? <Spinner /> : <IconButton title={isNew ? 'Create' : 'Save'} icon="checkmark" disabled={!isValid(draft) || saving || !online} onClick={save} />}
       />
       <div className="bot-editor-body">
@@ -215,7 +215,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all', bare =
       <div className="bot-form-content">
         <CardSection title="Profile">
           <ValueRow label="Look and colour">
-            <button className="avatar-button small look-row" title="Edit Bot avatar" aria-label="Edit Bot avatar" onClick={() => setPickingAvatar(true)}>
+            <button className="avatar-button small look-row" title="Edit look" aria-label="Edit look" onClick={() => setPickingAvatar(true)}>
               <LiveBot face={image ?? 'group'} color={draft.avatarColor} size={24} id={draft.id ?? 'new'} animated={false} />
               <Icon name="chevron.right" size={10} weight="semibold" color="var(--tertiary)" />
             </button>
@@ -292,7 +292,7 @@ function BotSettingsForm({ draft, onChange, error, plugins, part = 'all', bare =
         ) : null}
 
         <CardSection title="Activity">
-          <SwitchRow title="Notifications" detail="Get notified when this bot finishes or needs you" on={draft.notify ?? true} onChange={(on) => set('notify', on)} />
+          <SwitchRow title="Notifications" detail="Get notified when this agent finishes or needs you" on={draft.notify ?? true} onChange={(on) => set('notify', on)} />
           {store.screen ? (
             <SwitchRow
               title="Use the computer"

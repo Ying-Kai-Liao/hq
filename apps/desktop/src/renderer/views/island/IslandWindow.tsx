@@ -114,7 +114,7 @@ function Header({ model, mode }: { model: IslandModel; mode: IslandMode }) {
             <Icon name={t.icon} size={13} scaled={false} />
           </button>
         ))}
-        <button className="island-tab" title="New bot" aria-label="New bot" onClick={() => model.newBot()}>
+        <button className="island-tab" title="New agent" aria-label="New agent" onClick={() => model.newBot()}>
           <Icon name="plus" size={13} weight="semibold" scaled={false} />
         </button>
       </div>

@@ -23,10 +23,18 @@ export class FakeHost {
   private analytics = true
   /** The people the owner invited and their open invites (host methods `people`, `invites`). */
   private people: Record<string, unknown>[] = [
-    { personId: 'mia', name: 'Mia', agents: { pacer: 'member', relay: 'guest' }, projects: [], joined: true, openInvites: 0, devices: [] },
-    { personId: 'leo', name: 'Leo', agents: { pacer: 'guest' }, projects: [], joined: false, openInvites: 0, devices: [] },
+    { personId: 'mia', name: 'Mia', agents: { pacer: 'member', relay: 'guest' }, projects: [], joined: true, openInvites: 0, devices: [], autoBots: false },
+    { personId: 'leo', name: 'Leo', agents: { pacer: 'guest' }, projects: [], joined: false, openInvites: 0, devices: [], autoBots: false },
   ]
   private invites: Record<string, unknown>[] = []
+  /** Bots from outside, one in each state (host methods `bots`, `decideBot`, ...). */
+  private botGuests: Record<string, unknown>[] = ['invited', 'joining', 'pending', 'active', 'denied', 'revoked'].map((state, i) => ({
+    botId: `bg_${state}`, name: ['Rex', 'Pip', 'Ada', 'Max', 'Zed', 'Old'][i], provider: i % 2 ? 'other' : 'grok', state,
+    ownerPerson: state === 'pending' || state === 'denied' ? 'mia' : null, ownerName: state === 'pending' || state === 'denied' ? 'Mia' : null,
+    agents: state === 'pending' ? ['pacer', 'relay', 'notes', 'house'] : ['pacer'], limits: { ratePerHour: 60, concurrent: 2 }, connected: state === 'active',
+    createdAt: Date.now() - 2 * 86_400_000, joinedAt: null, decidedAt: null, decidedBy: state === 'active' ? 'kai' : null, lastSeenAt: null,
+    revokedAt: state === 'revoked' ? Date.now() - 3_600_000 : null, revokedWhy: null, personId: `bot-${i}`, conversations: [],
+  }))
 
   constructor(
     readonly version: string,
@@ -300,7 +308,7 @@ export class FakeHost {
         const agents = (b.agents ?? {}) as Record<string, string>
         const existing = this.people.find((p) => p.personId === b.personId)
         const personId = existing ? String(existing.personId) : str('name').toLowerCase().replace(/\W+/g, '-')
-        if (!existing) this.people.push({ personId, name: str('name'), agents: {}, projects: [], joined: false, openInvites: 0, devices: [] })
+        if (!existing) this.people.push({ personId, name: str('name'), agents: {}, projects: [], joined: false, openInvites: 0, devices: [], autoBots: false })
         // Like the host, the invite grants the membership when it is made.
         const holder = this.people.find((p) => p.personId === personId)
         if (holder) holder.agents = { ...(holder.agents as object), ...agents }
@@ -316,6 +324,31 @@ export class FakeHost {
         const person = this.people.find((p) => p.personId === b.personId)
         if (!person) throw fail(`\`${str('personId')}\` isn't someone you invited`)
         if (b.agents) person.agents = b.agents
+        return { person }
+      }
+      case 'bots':
+        return { bots: this.botGuests }
+      case 'myBots':
+        return { bots: [] }
+      case 'createBotInvite': {
+        const botId = `bg_${this.botGuests.length + 1}`
+        const link = `https://kith.app/b/demo/${botId}#t=demo`
+        if (!b.botId) this.botGuests.unshift({ botId, name: str('name'), provider: str('provider'), state: 'invited', ownerPerson: null, ownerName: null, agents: b.agents, limits: { ratePerHour: 60, concurrent: 2 }, connected: false, createdAt: Date.now(), joinedAt: null, decidedAt: null, decidedBy: null, lastSeenAt: null, revokedAt: null, revokedWhy: null, personId: botId, conversations: [] })
+        return { botId: str('botId') || botId, inviteId: `bi_${botId}`, expiresAt: Date.now() + 86_400_000, link, kithLink: `kith://bot?i=${botId}`, share: `Install the Kith client, then join my Kith computer.\n\n  kith join '${link}'\n` }
+      }
+      case 'decideBot': {
+        const bot = this.botGuests.find((x) => x.botId === b.botId)
+        if (bot && bot.state === 'pending') Object.assign(bot, b.decision === 'allow' ? { state: 'active', decidedBy: 'kai' } : { state: 'denied' })
+        return { bot }
+      }
+      case 'revokeBot': {
+        const bot = this.botGuests.find((x) => x.botId === b.botId)
+        if (bot) Object.assign(bot, { state: 'revoked', revokedAt: Date.now() })
+        return { revoked: true }
+      }
+      case 'setAutoAllowBots': {
+        const person = this.people.find((p) => p.personId === b.personId)
+        if (person) person.autoBots = b.on === true
         return { person }
       }
       default:

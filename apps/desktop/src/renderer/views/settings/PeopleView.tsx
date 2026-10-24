@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import QRCode from 'qrcode'
+import { botsOf, ownersOwn } from '@shared/bot-guests'
 import { isOpenInvite, type CreatedInvite, type PendingInvite, type Person, type Role } from '@shared/people'
 import type { ProjectInfo } from '@shared/place-folders'
 import { Button, CardForm, CardSection, IconButton, SegmentedChoice, Switch } from '../../components/Controls'
@@ -10,27 +11,27 @@ import { Text } from '../../components/Text'
 import { useModel } from '../../lib/observable'
 import type { BotStore } from '../../store/bot-store'
 import { useApp } from '../../store/context'
+import { botGuestsFor } from '../../store/bot-guests-store'
 import { peopleFor } from '../../store/people-store'
+import { BotList, InviteBotSheet, OwnBotsSection, ownerAgents } from './BotGuestsView'
 import { deviceIcon, relativeDay } from './parts'
-
-/** The owner's agents a person can be given: one per hq agent on this computer. */
-function ownerAgents(store: BotStore) {
-  const seen = new Map<string, string>()
-  for (const bot of store.roster) if (bot.hqAgent && !seen.has(bot.hqAgent)) seen.set(bot.hqAgent, bot.name)
-  return [...seen].map(([id, name]) => ({ id, name }))
-}
 
 /** Settings > People: who the owner invited, what they can use, and what they did. */
 export function PeopleView() {
   const app = useApp()
   const local = app.local
   const people = useModel(local ? peopleFor(local) : null)
+  const guests = useModel(local ? botGuestsFor(local) : null)
   const [inviting, setInviting] = useState<{ personId?: string } | null>(null)
+  const [invitingBot, setInvitingBot] = useState(false)
   const [editing, setEditing] = useState<Person | null>(null)
   const [removing, setRemoving] = useState<Person | null>(null)
   const [activity, setActivity] = useState(false)
   const online = local?.connection.kind === 'online'
   useEffect(() => void (online && people ? people.load() : undefined), [online, people])
+  useEffect(() => void (online && guests ? guests.load() : undefined), [online, guests])
+  // A host before bot guests answers "unknown method": everything about them hides, without an error.
+  const botsShown = guests?.supported === true
   if (!local || !people) return <CardForm><Text tone="secondary">People are kept by this computer's host, which isn't running.</Text></CardForm>
 
   const now = Date.now()
@@ -47,11 +48,15 @@ export function PeopleView() {
           <div className="settings-row"><Text tone="secondary">No one yet.</Text></div>
         ) : (
           people.people.map((person) => (
-            <PersonRow key={person.personId} person={person} onEdit={() => setEditing(person)} onInvite={() => setInviting({ personId: person.personId })} onRemove={() => setRemoving(person)} />
+            <div key={person.personId}>
+              <PersonRow person={person} onEdit={() => setEditing(person)} onInvite={() => setInviting({ personId: person.personId })} onRemove={() => setRemoving(person)} />
+              {botsShown && guests ? <BotList store={local} bots={botsOf(guests.bots, person.personId)} view="owner" indent /> : null}
+            </div>
           ))
         )}
         <div className="settings-row">
           <Button onClick={() => setInviting({})}>Invite someone</Button>
+          {botsShown ? <Button kind="secondary" onClick={() => setInvitingBot(true)}>Invite a bot</Button> : null}
           <Spacer />
           <Button kind="secondary" onClick={() => { setActivity(true); void people.loadAudit() }}>Activity</Button>
         </div>
@@ -65,6 +70,11 @@ export function PeopleView() {
         </CardSection>
       ) : null}
 
+      {botsShown && guests ? <OwnBotsSection store={local} bots={ownersOwn(guests.bots)} onInvite={() => setInvitingBot(true)} /> : null}
+
+      <Sheet className="settings-sheet" open={invitingBot} onClose={() => setInvitingBot(false)} width={480}>
+        {invitingBot ? <InviteBotSheet store={local} onDone={() => setInvitingBot(false)} /> : null}
+      </Sheet>
       <Sheet className="settings-sheet" open={inviting !== null} onClose={() => setInviting(null)} width={480}>
         {inviting ? <InviteSheet store={local} personId={inviting.personId} /> : null}
       </Sheet>
@@ -244,9 +254,13 @@ export function InviteLinkCard({ invite }: { invite: CreatedInvite }) {
   )
 }
 
-function EditSheet({ store, person }: { store: BotStore; person: Person }) {
+function EditSheet({ store, person: opened }: { store: BotStore; person: Person }) {
   const people = peopleFor(store)
   useModel(people)
+  const guests = botGuestsFor(store)
+  useModel(guests)
+  // The toggle follows the refreshed list, not the person as they were when the sheet opened.
+  const person = people.people.find((p) => p.personId === opened.personId) ?? opened
   const agents = useMemo(() => ownerAgents(store), [store])
   const [roles, setRoles] = useState<Record<string, Role>>(person.agents)
   const [projects, setProjects] = useState<string[]>(person.projects)
@@ -271,7 +285,16 @@ function EditSheet({ store, person }: { store: BotStore; person: Person }) {
             ))}
           </VStack>
         ) : null}
+        {guests.supported === true ? (
+          <CardSection title={`${person.name}'s bots`} footer={`New bots ${person.name} invites start without waiting for you. Turning this on also allows any waiting now.`}>
+            <div className="settings-row">
+              <Switch on={person.autoBots} disabled={guests.working.has(person.personId)} onChange={(on) => void guests.setAutoAllow(person.personId, on)}>{`Always allow ${person.name}'s bots`}</Switch>
+            </div>
+            {botsOf(guests.bots, person.personId).length === 0 ? <div className="settings-row"><Text tone="secondary">No bots yet.</Text></div> : <BotList store={store} bots={botsOf(guests.bots, person.personId)} view="owner" />}
+          </CardSection>
+        ) : null}
         {people.error ? <Text size="footnote" tone="danger">{people.error}</Text> : null}
+        {guests.error ? <Text size="footnote" tone="danger">{guests.error}</Text> : null}
         <HStack>
           <Text size="footnote" tone="secondary">{saved ? 'Saved' : ''}</Text>
           <Spacer />

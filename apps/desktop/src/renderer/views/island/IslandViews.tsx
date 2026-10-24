@@ -111,9 +111,9 @@ export function Empty({ model }: { model: IslandModel }) {
       {focus ? <BigCharacter bot={focus} size={62} mood="idle" badge={null} /> : null}
       <span className="island-empty-text">
         <span className="island-title">Nothing running right now.</span>
-        <span className="island-subtitle">{focus ? 'Your bots are idle. Message one from here, or open Kith.' : 'Create a bot in Kith to get started.'}</span>
+        <span className="island-subtitle">{focus ? 'Your crew is idle. Message an agent from here, or open Kith.' : 'Make an agent in Kith to get started.'}</span>
       </span>
-      {focus ? <Button onClick={() => model.setTab('message')}>Message a bot</Button> : <Button onClick={() => model.newBot()}>New bot</Button>}
+      {focus ? <Button onClick={() => model.setTab('message')}>Message an agent</Button> : <Button onClick={() => model.newBot()}>New agent</Button>}
     </div>
   )
 }

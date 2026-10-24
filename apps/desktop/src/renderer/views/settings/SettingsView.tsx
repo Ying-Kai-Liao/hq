@@ -8,14 +8,16 @@ import { Icon } from '../../components/Icon'
 import { ModalHeader, Sheet } from '../../components/Overlay'
 import { HStack, VStack } from '../../components/Stack'
 import { Text } from '../../components/Text'
-import { useModel } from '../../lib/observable'
+import { useModel, useModels } from '../../lib/observable'
 import { DEFAULT_TEXT_SIZE, prefs, TEXT_SIZES, usePref } from '../../lib/prefs'
 import { useAccount } from '../../store/account'
 import { StoreContext, useApp } from '../../store/context'
+import { botGuestsFor } from '../../store/bot-guests-store'
 import { peopleFor } from '../../store/people-store'
 import { UpdateButton, useUpdates } from '../UpdateButton'
 import { AccountDevices } from './ComputersView'
 import { SkyPatch } from '../../components/kith'
+import { MyBotsPage } from './BotGuestsView'
 import { PeopleView } from './PeopleView'
 import { LinkChatRow } from './LinkChatRow'
 import { errorText, isMac, thisMac } from './parts'
@@ -37,6 +39,7 @@ const pages: { id: SettingsPage; title: string; icon: string; gapAfter?: boolean
   { id: 'account', title: 'Account', icon: 'person.crop.circle' },
   { id: 'crew', title: 'Crew', icon: 'person.2' },
   { id: 'people', title: 'People', icon: 'person.2' },
+  { id: 'bots', title: 'Your bots', icon: 'bubble.left.and.bubble.right' },
   { id: 'voice', title: 'Voice chat', icon: 'waveform' },
   { id: 'usage', title: 'Usage', icon: 'gauge.with.dots.needle.33percent', gapAfter: true },
   { id: 'notifications', title: 'Notifications & display', icon: 'bell.badge' },
@@ -68,7 +71,12 @@ export function SettingsWindow({ initial }: { initial: SettingsPage }) {
   useEffect(() => void (online && role === 'owner' && people?.supported === null ? people.load() : undefined), [online, role, people, people?.supported])
   // The menu and ⌘, ask an open window to show a page.
   useEffect(() => window.kith.app.onCommand((c) => c.kind === 'openSettingsPage' && isSettingsPage(c.page) && setPage(resolveSettingsPage(c.page))), [])
-  const visible = pagesFor(role, pages.map((p) => p.id), ownerOnly).filter((id) => id !== 'people' || people?.supported === true)
+  // Your bots is the invitee's page: an owner manages bots under People. It shows when a Mac they are a member of answers.
+  const memberBots = [...app.stores.values()].filter((s) => botGuestsFor(s).mode === 'member')
+  useModels(memberBots.map(botGuestsFor))
+  useEffect(() => void memberBots.forEach((s) => void botGuestsFor(s).load()), [memberBots.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  const hasBots = memberBots.some((s) => botGuestsFor(s).supported === true)
+  const visible = pagesFor(role, pages.map((p) => p.id), ownerOnly).filter((id) => (id !== 'people' || people?.supported === true) && (id !== 'bots' || hasBots))
   const shown = pages.filter((p) => visible.includes(p.id) && p.id !== 'account')
   const current = shown.find((p) => p.id === page) ?? pages[0]!
   const approval = app.currentApproval
@@ -120,6 +128,8 @@ function PageContent({ page }: { page: SettingsPage }) {
       return <AccountSettings />
     case 'people':
       return <PeopleView />
+    case 'bots':
+      return <MyBotsPage />
     case 'voice':
       return <VoiceSettings />
     case 'usage':

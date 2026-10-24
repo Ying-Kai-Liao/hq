@@ -1,8 +1,11 @@
+import { alwaysLabel, cardHeading, cardQuestion, type BotGuest } from '@shared/bot-guests'
 import type { GuestPrompt } from '@shared/mac-role'
 import { Spinner } from '../components/Controls'
+import { DecisionCard, NEUTRAL_PAIR } from '../components/kith'
 import { VStack } from '../components/Stack'
 import { Text } from '../components/Text'
 import { useModel } from '../lib/observable'
+import { botGuestsFor } from '../store/bot-guests-store'
 import type { BotStore } from '../store/bot-store'
 import { optionLabel, sortedOptions } from './thread/PermissionCard'
 
@@ -12,11 +15,15 @@ import { optionLabel, sortedOptions } from './thread/PermissionCard'
  */
 export function GuestPromptList({ store }: { store: BotStore }) {
   useModel(store)
+  const guests = botGuestsFor(store)
+  useModel(guests)
   const prompts = store.guestPrompts
-  if (!prompts.length) return null
+  const bots = guests.cards
+  if (!prompts.length && !bots.length) return null
   return (
     <VStack gap={8} className="guest-prompts" aria-label="Needs your OK">
       <Text size="caption" weight="semibold" tone="secondary">Needs your OK</Text>
+      {bots.map(({ bot, outcome }) => <BotRequestCard key={bot.botId} bot={bot} outcome={outcome} busy={guests.working.has(bot.botId)} decide={(d, always) => void guests.decide(bot, d, always)} />)}
       {prompts.map((p) => (
         <GuestPromptRow key={p.entryId} prompt={p} answering={store.answering.get(p.entryId) ?? null} respond={(option) => store.respond(p.entry, option)} />
       ))}
@@ -43,5 +50,24 @@ function GuestPromptRow({ prompt, answering, respond }: { prompt: GuestPrompt; a
         ))}
       </div>
     </VStack>
+  )
+}
+
+/** A bot from outside asking to be let in: the owner's to answer. Neutral, never an agent's colours. */
+function BotRequestCard({ bot, outcome, busy, decide }: { bot: BotGuest; outcome: string | null; busy: boolean; decide: (decision: 'allow' | 'deny', always: boolean) => void }) {
+  const always = alwaysLabel(bot)
+  return (
+    <DecisionCard
+      kind="permission"
+      pair={NEUTRAL_PAIR}
+      heading={cardHeading(bot)}
+      title={cardQuestion(bot)}
+      outcome={outcome ?? undefined}
+      pending={busy}
+      onAllow={() => decide('allow', false)}
+      onDeny={() => decide('deny', false)}
+      onAlways={always ? () => decide('allow', true) : undefined}
+      alwaysLabel={always ?? undefined}
+    />
   )
 }

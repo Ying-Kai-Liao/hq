@@ -35,13 +35,13 @@ export function NewChatView({ group, onClose }: { group: boolean; onClose: () =>
   const matches = store.roster.filter((b) => !recipients.includes(b.id) && !(isGroup(b) && (group || recipients.length > 0)) && (!q || b.name.toLowerCase().includes(q)))
   const picked = recipients.map((id) => store.bots.get(id)).filter((b): b is Bot => !!b)
 
-  const toPrompt = group ? (recipients.length < 2 ? 'Add bots to the group' : 'Add another bot') : recipients.length ? 'Add another bot' : 'Search or create bots'
+  const toPrompt = group ? (recipients.length < 2 ? 'Add agents to the group' : 'Add another agent') : recipients.length ? 'Add another agent' : 'Search or make an agent'
   const placeholder = group
     ? picked.length < 2
       ? 'Pick at least two bots'
       : 'Message the group'
     : picked.length === 0
-      ? 'Message Bot'
+      ? 'Message an agent'
       : `Message ${picked.map((b) => b.name).join(', ')}`
 
   useEffect(() => {
@@ -184,7 +184,7 @@ export function NewChatView({ group, onClose }: { group: boolean; onClose: () =>
             <Icon key={creating ? 'hourglass' : 'plus'} name={creating ? 'hourglass' : 'plus'} size={13} weight="medium" className="fade-in" />
           </span>
         }>
-          {query ? `Create “${query}”` : 'Create new Bot'}
+          {query ? `New agent “${query}”` : 'New agent'}
         </PickRow>
         {matches.map((bot, i) => (
           <PickRow key={bot.id} shortcut={i + 2 <= 9 ? i + 2 : null} onClick={() => choose(bot)} icon={isGroup(bot) ? <GroupAvatar members={store.members(bot)} size={26} animated={false} /> : <BotAvatar bot={bot} size={26} animated={false} />}>
