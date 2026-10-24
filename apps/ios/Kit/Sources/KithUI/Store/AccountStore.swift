@@ -104,6 +104,11 @@ public final class AccountStore {
         role(for: id) == .owner ? stores[id]?.guestPrompts ?? [] : []
     }
 
+    /// Bots from outside waiting for this account's answer on a computer it owns.
+    public func botRequests(for id: ComputerID) -> [BotGuest] {
+        role(for: id) == .owner ? stores[id]?.botGuests.requests ?? [] : []
+    }
+
     /// Whether a link to this chat opens a guest's request instead: the account owns the computer and has no bot by that
     /// id. If it only hasn't synced yet, the request view waits and hands over to the chat when the bot appears; if the
     /// request was answered meanwhile, it says so.

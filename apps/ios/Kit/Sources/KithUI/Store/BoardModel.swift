@@ -32,21 +32,24 @@ public struct BoardComputer: Sendable {
     public var entries: [String: [Entry]]
     /// Guests' requests for this account's answer (owned computers only).
     public var guestPrompts: [GuestPrompt]
+    /// Bots from outside waiting for this account's answer (owned computers only).
+    public var botRequests: [BotGuest]
 
     public init(id: ComputerID, hostName: String, trouble: BoardTrouble? = nil, bots: [Bot], entries: [String: [Entry]],
-                guestPrompts: [GuestPrompt] = []) {
+                guestPrompts: [GuestPrompt] = [], botRequests: [BotGuest] = []) {
         self.id = id
         self.hostName = hostName
         self.trouble = trouble
         self.bots = bots
         self.entries = entries
         self.guestPrompts = guestPrompts
+        self.botRequests = botRequests
     }
 
-    @MainActor public init(store: BotStore, guestPrompts: [GuestPrompt]) {
+    @MainActor public init(store: BotStore, guestPrompts: [GuestPrompt], botRequests: [BotGuest] = []) {
         self.init(id: store.computer.id, hostName: store.hostName,
                   trouble: store.isOffline ? .unreachable : store.shownConnection == .connecting ? .catchingUp : nil,
-                  bots: store.roster, entries: store.entries, guestPrompts: guestPrompts)
+                  bots: store.roster, entries: store.entries, guestPrompts: guestPrompts, botRequests: botRequests)
     }
 }
 
@@ -55,12 +58,18 @@ public struct BoardDecision: Identifiable, Equatable, Sendable {
     public var id: String
     public var target: BoardTarget
     public var hostName: String
-    public var entry: Entry
+    /// The chat's permission card; nil for a bot from outside asking to join.
+    public var entry: Entry?
+    /// The bot from outside this answers for (`BotGuestStore.decide`).
+    public var botRequest: BotGuest?
     public var card: DecisionCardModel
     /// The bot's colour, for the card's tint.
     public var color: String
     public var at: Int64
     public var trouble: BoardTrouble?
+
+    /// Bots from outside waiting for the owner's answer go first, then questions, oldest first.
+    fileprivate var rank: Int { botRequest == nil ? 1 : 0 }
 }
 
 /// A task at work, or one finished today.
@@ -140,7 +149,8 @@ public struct BoardModel: Equatable, Sendable {
 
     /// The room a Return in the dock opens: the first item in the order the Board shows them.
     public var top: BoardTarget? {
-        needsYou.first?.target ?? working.first?.target ?? doneToday.first?.target ?? leftOff.first?.target
+        // A bot from outside has no room to open.
+        needsYou.first { $0.botRequest == nil }?.target ?? working.first?.target ?? doneToday.first?.target ?? leftOff.first?.target
             ?? waits.compactMap(\.target).first ?? projects.first?.target
     }
 
@@ -151,12 +161,19 @@ public struct BoardModel: Equatable, Sendable {
         var projectBots: [String: [(bot: Bot, computer: ComputerID)]] = [:]
 
         for computer in computers {
+            // Bots from outside asking to join: no chat of the owner's either.
+            for request in computer.botRequests {
+                decisions.append(BoardDecision(
+                    id: "\(computer.id)/bot/\(request.botId)", target: BoardTarget(computerId: computer.id, botId: request.botId),
+                    hostName: computer.hostName, entry: nil, botRequest: request, card: DecisionCardModel(botRequest: request),
+                    color: "", at: request.createdAt, trouble: computer.trouble))
+            }
             // Guests' requests: outside any chat of the owner's, so no bot to open.
             for prompt in computer.guestPrompts {
                 let target = BoardTarget(computerId: computer.id, botId: prompt.chatId)
                 decisions.append(BoardDecision(
                     id: "\(computer.id)/\(prompt.id)", target: target, hostName: computer.hostName, entry: prompt.entry,
-                    card: DecisionCardModel(guest: prompt), color: "", at: prompt.entry.createdAt, trouble: computer.trouble))
+                    botRequest: nil, card: DecisionCardModel(guest: prompt), color: "", at: prompt.entry.createdAt, trouble: computer.trouble))
             }
             if let trouble = computer.trouble {
                 waits.append(BoardWait(id: "computer/\(computer.id)", kind: .computer(trouble), target: nil, hostName: computer.hostName,
@@ -188,7 +205,8 @@ public struct BoardModel: Equatable, Sendable {
                     var card = Self.decision(for: entry)
                     card.heading = [bot.name, entry.threadId.flatMap { titles[$0] }].compactMap { $0 }.joined(separator: " · ")
                     decisions.append(BoardDecision(
-                        id: "\(computer.id)/\(entry.id)", target: target, hostName: computer.hostName, entry: entry, card: card,
+                        id: "\(computer.id)/\(entry.id)", target: target, hostName: computer.hostName, entry: entry,
+                        botRequest: nil, card: card,
                         color: bot.avatarColor, at: entry.createdAt, trouble: computer.trouble))
                 }
 
@@ -240,7 +258,7 @@ public struct BoardModel: Equatable, Sendable {
             }
         }
 
-        needsYou = decisions.sorted { $0.at != $1.at ? $0.at < $1.at : $0.id < $1.id }
+        needsYou = decisions.sorted { $0.rank != $1.rank ? $0.rank < $1.rank : $0.at != $1.at ? $0.at < $1.at : $0.id < $1.id }
         working.sort { $0.at != $1.at ? $0.at > $1.at : $0.id < $1.id }
         doneToday = Array(doneToday.sorted { $0.at != $1.at ? $0.at > $1.at : $0.id < $1.id }.prefix(Self.doneLimit))
         leftOff = Array(leftOff.sorted { $0.at > $1.at }.prefix(Self.leftOffLimit))

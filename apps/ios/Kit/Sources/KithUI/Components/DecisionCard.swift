@@ -50,6 +50,20 @@ public struct DecisionCardModel: Equatable, Sendable {
         })
     }
 
+    /// The owner's view of a bot from outside asking to join: "Sam's bot · Grok" over "Rex wants to ask house and
+    /// notes". Option ids are `allow`, `deny` and `always`; the last only for a bot an invited person made.
+    public init(botRequest bot: BotGuest) {
+        var options = [
+            DecisionOption(id: "allow", title: "Allow", role: .primary),
+            DecisionOption(id: "deny", title: "Deny", role: .destructive),
+        ]
+        if bot.ownerPerson != nil {
+            let who = bot.ownerName?.isEmpty == false ? "\(bot.ownerName!)'s" : "their"
+            options.append(DecisionOption(id: "always", title: "Always allow \(who) bots"))
+        }
+        self.init(heading: bot.requestHeading, question: bot.requestQuestion, options: options)
+    }
+
     /// Short answers sit in one row; anything longer stacks so labels wrap instead of clipping.
     var fitsInRow: Bool { options.count <= 3 && options.allSatisfy { $0.title.count <= 12 } }
 }

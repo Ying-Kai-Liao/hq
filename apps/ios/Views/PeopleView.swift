@@ -6,7 +6,7 @@ import SwiftUI
 /// The agents the owner has on a computer, which an invite can offer. Their own bots only: a chat an invited person has
 /// is theirs and doesn't make a new agent.
 @MainActor
-private func agentsOffered(on store: BotStore, plus extra: some Sequence<String> = [String]()) -> [String] {
+func agentsOffered(on store: BotStore, plus extra: some Sequence<String> = [String]()) -> [String] {
     Array(Set(store.bots.values.compactMap(\.hqAgent).filter { !$0.isEmpty }).union(extra)).sorted()
 }
 
@@ -34,14 +34,16 @@ struct PeopleSection: View {
                 }
             }
         }
-        .task { await people.load() }
+        .task { await people.load(); await store.botGuests.refresh() }
         .kithSheet(isPresented: $showing) { PeopleView(people: people, store: store) }
     }
 
     private var summary: String {
         guard people.loaded else { return "People" }
         let count = people.people.count
-        return count == 0 ? "Invite someone" : count == 1 ? "1 person" : "\(count) people"
+        let people = count == 0 ? "Invite someone" : count == 1 ? "1 person" : "\(count) people"
+        let bots = store.botGuests.liveCount
+        return bots == 0 ? people : "\(count == 0 ? "0 people" : people) · \(bots == 1 ? "1 bot" : "\(bots) bots")"
     }
 }
 
@@ -52,6 +54,9 @@ struct PeopleView: View {
     @State private var inviting = false
     @State private var editing: HostPerson?
     @State private var showActivity = false
+    @State private var botSheet: BotSheetTarget?
+
+    private var guests: BotGuestStore { store.botGuests }
 
     var body: some View {
         CardForm {
@@ -64,10 +69,11 @@ struct PeopleView: View {
                 ForEach(people.people) { person in
                     Button { editing = person } label: { PersonRow(person: person) }
                         .buttonStyle(.plain)
-                    // kith-bot-guests: that person's bot guests go here as rows under them. The empty list keeps
-                    // the hook in the row stream without adding a row.
-                    ForEach(botGuestRows(of: person)) { guest in
-                        BotGuestRow(guest: guest)
+                    // That person's bots, as rows under them.
+                    ForEach(botGuestRows(of: person, in: guests)) { guest in
+                        BotGuestRow(bot: guest, viewer: .owner, store: store, indent: 20,
+                                    open: { botSheet = BotSheetTarget(store: store, kind: .detail($0)) },
+                                    newLink: { bot in Task { if let next = await BotSheetTarget.newLink(for: bot, on: store) { botSheet = next } } })
                     }
                 }
                 Button { inviting = true } label: {
@@ -77,6 +83,24 @@ struct PeopleView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+            }
+
+            if !guests.unsupported {
+                CardSection("Your bots", footer: "Bots from Grok and other apps can ask the agents you pick. They never act as you.") {
+                    ForEach(BotGuestStore.live(guests.mine)) { bot in
+                        BotGuestRow(bot: bot, viewer: .owner, store: store,
+                                    open: { botSheet = BotSheetTarget(store: store, kind: .detail($0)) },
+                                    newLink: { bot in Task { if let next = await BotSheetTarget.newLink(for: bot, on: store) { botSheet = next } } })
+                    }
+                    Button { botSheet = .invite(on: store) } label: {
+                        Label("Invite a bot", systemImage: "plus")
+                            .foregroundStyle(Palette.accent)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    EndedBots(bots: BotGuestStore.ended(guests.mine), viewer: .owner, store: store)
+                }
             }
 
             let pending = people.pending
@@ -99,33 +123,18 @@ struct PeopleView: View {
         }
         .background(Palette.background)
         .safeAreaInset(edge: .top, spacing: 0) { ModalHeader("People") }
-        .refreshable { await people.load() }
-        .task { await people.load() }
+        .refreshable { await people.load(); await guests.refresh() }
+        .task { await people.load(); await guests.refresh() }
+        .botSheets($botSheet, viewer: .owner)
         .kithSheet(isPresented: $inviting) { InviteSheet(people: people, store: store) }
         .kithSheet(item: $editing) { person in EditPersonSheet(person: person, people: people, store: store) }
         .kithSheet(isPresented: $showActivity) { ActivitySheet(people: people) }
     }
 }
 
-/// A bot guest listed under the person who brought it. Placeholder shape for kith-bot-guests to fill in.
-struct BotGuestRowItem: Identifiable {
-    let id: String
-    let name: String
-}
-
-/// The bot guests under one person. Empty until kith-bot-guests wires the host's list in.
-private func botGuestRows(of person: HostPerson) -> [BotGuestRowItem] { [] }
-
-private struct BotGuestRow: View {
-    let guest: BotGuestRowItem
-
-    var body: some View {
-        HStack(spacing: 12) {
-            SkyPatch(id: guest.id, size: 26)
-            Text(guest.name).kithText(.body)
-        }
-        .padding(.leading, 20)
-    }
+/// The bots under one person: live ones, then ended ones (which the Your bots section folds).
+@MainActor private func botGuestRows(of person: HostPerson, in guests: BotGuestStore) -> [BotGuest] {
+    guests.bots(of: person.personId).filter { !$0.state.isEnded }
 }
 
 private struct PersonRow: View {
@@ -345,6 +354,8 @@ private struct EditPersonSheet: View {
     @State private var roles: [String: InviteRole]
     @State private var projects: Set<String>
     @State private var confirmRemove = false
+    /// What the always-allow switch was just set to, until the people list says so.
+    @State private var autoBots: Bool?
 
     init(person: HostPerson, people: PeopleStore, store: BotStore) {
         self.person = person
@@ -373,11 +384,27 @@ private struct EditPersonSheet: View {
                     }
                 }
             }
-            // kith-bot-guests: the bots this person brought. Empty until the host lists them, and then no section.
-            let guests = botGuestRows(of: person)
-            if !guests.isEmpty {
-                CardSection("\(person.name)'s bots", footer: "Removing \(person.name) removes these too.") {
-                    ForEach(guests) { guest in BotGuestRow(guest: guest) }
+            if !store.botGuests.unsupported {
+                let theirs = store.botGuests.bots(of: person.personId)
+                CardSection("\(person.name)'s bots", footer: "New bots \(person.name) invites start without waiting for you. Turning this on also allows any waiting now. Removing \(person.name) removes these too.") {
+                    Toggle("Always allow \(person.name)'s bots", isOn: Binding(
+                        get: { autoBots ?? person.autoBots },
+                        set: { on in
+                            autoBots = on
+                            Task {
+                                let done = await store.botGuests.setAutoAllow(personId: person.personId, on: on)
+                                await people.load()
+                                if !done { autoBots = nil }
+                            }
+                        }))
+                        .toggleStyle(.kith)
+                        .disabled(store.botGuests.busy)
+                    ForEach(BotGuestStore.live(theirs)) { bot in
+                        BotGuestRow(bot: bot, viewer: .owner, store: store, indent: 0, open: { _ in }, newLink: { _ in })
+                    }
+                    if BotGuestStore.live(theirs).isEmpty {
+                        Text("No bots yet").font(.subheadline).foregroundStyle(Palette.secondary)
+                    }
                 }
             }
             if let error = people.error {
@@ -455,4 +482,31 @@ private struct ActivitySheet: View {
     }
 
     private func name(_ id: String) -> String { people.person(id)?.name ?? id }
+}
+
+/// Settings → Your bots: for an invited person, the bots they invited to the computers they are members of. Shown
+/// only where the computer answers `myBots`.
+struct BotsSection: View {
+    let stores: [BotStore]
+    @State private var showing = false
+
+    private var shown: [BotStore] { stores.filter { !$0.botGuests.unsupported && $0.botGuests.loaded } }
+
+    var body: some View {
+        Group {
+            if !shown.isEmpty {
+                let count = shown.reduce(0) { $0 + BotGuestStore.live($1.botGuests.bots).count }
+                CardSection("Your bots", footer: "Bots from Grok and other apps can ask the agents you were given. They never act as you.") {
+                    Button { showing = true } label: {
+                        LinkRow {
+                            Label(count == 0 ? "Invite a bot" : count == 1 ? "1 bot" : "\(count) bots",
+                                  systemImage: "bubble.left.and.bubble.right")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .kithSheet(isPresented: $showing) { BotsView(stores: shown) }
+    }
 }

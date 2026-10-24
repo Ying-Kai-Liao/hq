@@ -54,6 +54,12 @@ struct SettingsView: View {
                 PeopleSection(store: owner)
             }
 
+            let memberStores = accounts.computers.filter { accounts.role(for: $0.id) == .member }
+                .compactMap { accounts.store(for: $0.id) }.filter { $0.connection == .online }
+            if !memberStores.isEmpty {
+                BotsSection(stores: memberStores)
+            }
+
             AccountShareSlot()
 
             if !online.isEmpty {
