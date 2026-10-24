@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { islandLabel } from '@shared/island'
 import { parseAppearance } from '@shared/appearance'
-import { isSettingsPage, type SettingsPage } from '@shared/settings-pages'
+import { isSettingsPage, resolveSettingsPage, type SettingsPage } from '@shared/settings-pages'
 import { pagesFor, type ComputerRole } from '@shared/people'
 import { Button, CardSection, ChoicePicker, IconButton, ProgressBar, SegmentedChoice, Switch, ValueRow } from '../../components/Controls'
 import { Icon } from '../../components/Icon'
@@ -14,7 +14,8 @@ import { useAccount } from '../../store/account'
 import { StoreContext, useApp } from '../../store/context'
 import { peopleFor } from '../../store/people-store'
 import { UpdateButton, useUpdates } from '../UpdateButton'
-import { ComputersView } from './ComputersView'
+import { AccountDevices } from './ComputersView'
+import { SkyPatch } from '../../components/kith'
 import { PeopleView } from './PeopleView'
 import { LinkChatRow } from './LinkChatRow'
 import { errorText, isMac, thisMac } from './parts'
@@ -31,21 +32,21 @@ import './settings-window.css'
 
 export type { SettingsPage }
 
-const pages: { id: SettingsPage; title: string; icon: string }[] = [
+// Account is the sidebar's header, not a row; `computers` is a page name that opens it (see resolveSettingsPage).
+const pages: { id: SettingsPage; title: string; icon: string; gapAfter?: boolean }[] = [
   { id: 'account', title: 'Account', icon: 'person.crop.circle' },
   { id: 'crew', title: 'Crew', icon: 'person.2' },
-  { id: 'computers', title: 'Computers', icon: 'desktopcomputer' },
   { id: 'people', title: 'People', icon: 'person.2' },
   { id: 'voice', title: 'Voice chat', icon: 'waveform' },
-  { id: 'usage', title: 'Usage', icon: 'gauge.with.dots.needle.33percent' },
+  { id: 'usage', title: 'Usage', icon: 'gauge.with.dots.needle.33percent', gapAfter: true },
   { id: 'notifications', title: 'Notifications & display', icon: 'bell.badge' },
-  { id: 'privacy', title: 'Privacy', icon: 'lock.shield' },
+  { id: 'privacy', title: 'Privacy', icon: 'lock.shield', gapAfter: true },
   { id: 'updates', title: 'Updates', icon: 'arrow.down.circle' },
   { id: 'about', title: 'About', icon: 'info.circle' },
 ]
 
 /** Pages only the owner of the connected Mac has: an invited person keeps Account and what is theirs alone. */
-const ownerOnly: SettingsPage[] = ['computers', 'people', 'voice', 'usage', 'updates']
+const ownerOnly: SettingsPage[] = ['people', 'voice', 'usage', 'updates']
 
 /** This account's part in the connected Mac, from the cloud's computer rows; the owner when it isn't listed (the Mac's own app). */
 export function useComputerRole(): ComputerRole {
@@ -56,8 +57,9 @@ export function useComputerRole(): ComputerRole {
 
 /** The Settings window (⌘,): a sidebar of pages and a small centred title over grouped cards. */
 export function SettingsWindow({ initial }: { initial: SettingsPage }) {
-  const [page, setPage] = useState(initial)
+  const [page, setPage] = useState(resolveSettingsPage(initial))
   const app = useApp()
+  const account = useAccount()
   useSSHAttachments(app)
   const role = useComputerRole()
   // A host before invites answers "unknown method": People hides rather than failing.
@@ -65,20 +67,31 @@ export function SettingsWindow({ initial }: { initial: SettingsPage }) {
   const online = app.local?.connection.kind === 'online'
   useEffect(() => void (online && role === 'owner' && people?.supported === null ? people.load() : undefined), [online, role, people, people?.supported])
   // The menu and ⌘, ask an open window to show a page.
-  useEffect(() => window.kith.app.onCommand((c) => c.kind === 'openSettingsPage' && isSettingsPage(c.page) && setPage(c.page)), [])
+  useEffect(() => window.kith.app.onCommand((c) => c.kind === 'openSettingsPage' && isSettingsPage(c.page) && setPage(resolveSettingsPage(c.page))), [])
   const visible = pagesFor(role, pages.map((p) => p.id), ownerOnly).filter((id) => id !== 'people' || people?.supported === true)
-  const shown = pages.filter((p) => visible.includes(p.id))
-  const current = shown.find((p) => p.id === page) ?? shown[0]!
+  const shown = pages.filter((p) => visible.includes(p.id) && p.id !== 'account')
+  const current = shown.find((p) => p.id === page) ?? pages[0]!
   const approval = app.currentApproval
   return (
     <div className="settings-win">
       <nav className="settings-win-sidebar">
         <div className="settings-win-drag drag" />
+        <button className={`settings-win-account ${current.id === 'account' ? 'selected' : ''}`} aria-current={current.id === 'account' ? 'page' : undefined} onClick={() => setPage('account')}>
+          {account.user?.avatarURL ? (
+            <img src={account.user.avatarURL} alt="" className="settings-win-avatar" />
+          ) : (
+            <SkyPatch id={account.user?.userId ?? 'you'} you={!account.user} size={32} />
+          )}
+          <span className="settings-win-account-text">
+            <span className="settings-win-account-name">{account.isSignedIn ? (account.user?.email ?? 'Signed in') : 'Not signed in'}</span>
+            <span className="settings-win-account-sub">{account.isSignedIn ? 'Kith account' : 'Sign in'}</span>
+          </span>
+          {app.approvals.length > 0 ? <span className="settings-count">{app.approvals.length}</span> : null}
+        </button>
         {shown.map((item) => (
-          <button key={item.id} className={`settings-win-item ${item.id === current.id ? 'selected' : ''}`} aria-current={item.id === current.id ? 'page' : undefined} onClick={() => setPage(item.id)}>
+          <button key={item.id} className={`settings-win-item ${item.id === current.id ? 'selected' : ''} ${item.gapAfter ? 'gap-after' : ''}`} aria-current={item.id === current.id ? 'page' : undefined} onClick={() => setPage(item.id)}>
             <Icon name={item.icon} size={13} />
             <span className="settings-win-item-label">{item.title}</span>
-            {item.id === 'computers' && app.approvals.length > 0 ? <span className="settings-count">{app.approvals.length}</span> : null}
           </button>
         ))}
       </nav>
@@ -104,7 +117,7 @@ function PageContent({ page }: { page: SettingsPage }) {
     case 'crew':
       return <CrewSettings />
     case 'computers':
-      return <ComputersView />
+      return <AccountSettings />
     case 'people':
       return <PeopleView />
     case 'voice':
@@ -122,17 +135,25 @@ function PageContent({ page }: { page: SettingsPage }) {
   }
 }
 
-/** Who is signed in, and how to sign in or out. */
+/** Apple sign-in hidden until it works; the button and its sign-in call stay. */
+const showAppleSignIn = false
+
+/** Who is signed in and how to sign in or out; then this account's computers. */
 function AccountSettings() {
   const account = useAccount()
+  const role = useComputerRole()
   return (
-    <CardSection title="Account" footer={account.errorMessage}>
-      <div className="settings-row">
-        <Icon name="person.crop.circle" size={26} color="var(--secondary)" />
+    <>
+      <div className="settings-identity">
+        {account.user?.avatarURL ? (
+          <img src={account.user.avatarURL} alt="" className="settings-identity-avatar" />
+        ) : (
+          <SkyPatch id={account.user?.userId ?? 'you'} you={!account.user} size={48} />
+        )}
         <VStack grow className="settings-stack">
-          <Text truncate>{account.isSignedIn ? (account.user?.email ?? 'Signed in') : 'Not signed in'}</Text>
+          <Text truncate weight="semibold">{account.isSignedIn ? (account.user?.email ?? 'Signed in') : 'Not signed in'}</Text>
           <Text size="caption" tone="secondary">
-            {account.isSignedIn ? 'Reach your computers from anywhere' : 'Sign in to reach your computers from anywhere'}
+            {account.isSignedIn ? 'Reach your computers from anywhere' : 'Sign in to keep one crew on every Mac.'}
           </Text>
         </VStack>
         {account.isSignedIn ? (
@@ -141,13 +162,15 @@ function AccountSettings() {
           </Button>
         ) : (
           <>
-            <Button kind="secondary" onClick={() => void account.signIn('apple')} disabled={account.isBusy}>Apple</Button>
+            {showAppleSignIn ? <Button kind="secondary" onClick={() => void account.signIn('apple')} disabled={account.isBusy}>Apple</Button> : null}
             <Button kind="secondary" onClick={() => void account.signIn('google')} disabled={account.isBusy}>Google</Button>
             <Button kind="secondary" onClick={() => void account.signIn('github')} disabled={account.isBusy}>GitHub</Button>
           </>
         )}
       </div>
-    </CardSection>
+      {account.errorMessage ? <Text as="div" size="caption" tone="attention">{account.errorMessage}</Text> : null}
+      <AccountDevices owner={role === 'owner'} />
+    </>
   )
 }
 
