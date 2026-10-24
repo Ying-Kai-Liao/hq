@@ -1122,3 +1122,146 @@ async fn a_narrowing_sweep_ends_only_the_holders_on_agents_the_person_lost() {
     kept.kill().unwrap();
     kept.wait().unwrap();
 }
+
+// --- one-shots: `kith ask`, scheduled and helper runs show up as cards in the agent's room ---------------------
+
+impl Rig {
+    /// A registry file the kernel wrote for a one-shot (`kind` ask | schedule | helper) of the process `pid`.
+    fn register_one_shot(&self, sid: &str, kind: &str, label: &str, pid: u32, resumed_from: Option<&str>) {
+        let reg = json!({
+            "v": 1, "sessionId": sid, "agent": "builder", "cwd": self.dir.to_string_lossy(),
+            "transcriptPath": self.transcript(sid).to_string_lossy(), "pid": pid, "project": null,
+            "source": "startup", "resumedFrom": resumed_from, "startedAt": chrono::Utc::now().to_rfc3339(),
+            "kind": kind, "label": label, "procStart": registry::proc_start(pid),
+        });
+        std::fs::write(registry::dir(&self.dir.join("state")).join(format!("{sid}.json")), reg.to_string()).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn an_ask_run_that_already_ended_is_a_card_labelled_with_who_asked() {
+    let r = Rig::new();
+    r.append("a1", &(user("2026-10-23T01:00:01Z", "is the build green?") + &agent("2026-10-23T01:00:02Z", "Yes.")));
+    // The process exited before the host looked: the registry file and the transcript are all it has.
+    r.register_one_shot("a1", "ask", "asked by architect", DEAD, None);
+    r.scan();
+    let roots = r.roots();
+    assert_eq!(roots.len(), 1);
+    assert_eq!(roots[0].data["text"], "is the build green?");
+    let root = roots[0].id.clone();
+    assert_eq!(r.texts(&root), ["Yes."], "no writer-change notices for a run nobody sat in");
+    let s = r.summary(&root);
+    assert_eq!((s["origin"].as_str(), s["originLabel"].as_str()), (Some("terminal"), Some("asked by architect")));
+    assert_eq!((s["liveWriter"].clone(), s["liveBusy"].clone()), (Value::Null, json!(false)), "a finished ask is done");
+    assert_eq!(s["unread"], 1, "the owner has not seen it");
+    assert_eq!(r.thread(&root)[0].data["final"], true);
+    r.scan();
+    r.scan();
+    assert_eq!(r.roots().len(), 1, "rescans (a host restart) add no second card");
+    assert_eq!(r.texts(&root), ["Yes."]);
+}
+
+#[tokio::test]
+async fn a_running_ask_is_working_until_its_process_ends() {
+    let r = Rig::new();
+    let pid = r.sleeper();
+    r.append("a2", &user("2026-10-23T01:00:01Z", "dig into the logs"));
+    // `claude -p` keeps no session file here: the process alone says it works.
+    r.register_one_shot("a2", "schedule", "scheduled: nightly", pid, None);
+    r.scan();
+    let root = r.roots()[0].id.clone();
+    let s = r.summary(&root);
+    assert_eq!((s["liveWriter"].as_str(), s["liveBusy"].clone()), (Some("terminal"), json!(true)));
+    assert_eq!(s["originLabel"], "scheduled: nightly");
+    // The run crashes: no final reply, yet the card ends.
+    for mut c in r.children.borrow_mut().drain(..) {
+        c.kill().unwrap();
+        c.wait().unwrap();
+    }
+    r.scan();
+    let s = r.summary(&root);
+    assert_eq!((s["liveWriter"].clone(), s["liveBusy"].clone()), (Value::Null, json!(false)));
+    assert!(r.thread(&root).iter().all(|e| e.kind != "notice"), "no 'terminal closed' for a one-shot");
+}
+
+#[tokio::test]
+async fn a_pid_reused_after_a_crash_does_not_keep_a_one_shot_working() {
+    let r = Rig::new();
+    let pid = r.sleeper();
+    r.append("a3", &user("2026-10-23T01:00:01Z", "hello"));
+    r.register_one_shot("a3", "ask", "asked from a terminal", pid, None);
+    let path = registry::dir(&r.dir.join("state")).join("a3.json");
+    let mut reg: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    reg["procStart"] = "Mon Jan  1 00:00:00 2001".into();
+    std::fs::write(&path, reg.to_string()).unwrap();
+    let parsed = registry::read_one(&r.dir.join("state"), "a3").unwrap();
+    assert_eq!(registry::liveness(&parsed, Some(&r.dir.join("sessions"))), Live::Closed);
+}
+
+#[tokio::test]
+async fn a_continued_ask_lands_in_the_thread_it_continues() {
+    let r = Rig::new();
+    r.append("c1", &(user("2026-10-23T01:00:01Z", "first question") + &agent("2026-10-23T01:00:02Z", "First answer.")));
+    r.register_one_shot("c1", "ask", "asked by architect", DEAD, None);
+    r.scan();
+    let root = r.roots()[0].id.clone();
+    // `kith ask -c`: a new session that resumes the first (claude copies the history, then adds the new turn).
+    r.append(
+        "c2",
+        &(user("2026-10-23T01:00:01Z", "first question")
+            + &agent("2026-10-23T01:00:02Z", "First answer.")
+            + &user("2026-10-23T02:00:01Z", "and then?")
+            + &agent("2026-10-23T02:00:02Z", "Second answer.")),
+    );
+    r.register_one_shot("c2", "ask", "asked by architect", DEAD, Some("c1"));
+    r.scan();
+    assert_eq!(r.roots().len(), 1, "no second card for a continued ask");
+    let texts = r.texts(&root);
+    assert!(texts.contains(&"Second answer.".to_owned()) && texts.contains(&"and then?".to_owned()), "{texts:?}");
+    assert_eq!(texts.iter().filter(|t| *t == "First answer.").count(), 1, "history is not imported twice");
+}
+
+#[tokio::test]
+async fn a_person_s_run_is_never_mirrored_even_with_a_kind() {
+    let r = Rig::new();
+    r.append("p1", &user("2026-10-23T01:00:01Z", "private"));
+    r.register_one_shot("p1", "ask", "asked by architect", DEAD, None);
+    let path = registry::dir(&r.dir.join("state")).join("p1.json");
+    let mut reg: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    reg["person"] = "anna".into();
+    std::fs::write(&path, reg.to_string()).unwrap();
+    r.scan();
+    assert!(r.roots().is_empty());
+    // And a file naming a kind the host doesn't know is skipped.
+    r.register_one_shot("p2", "serve", "x", DEAD, None);
+    r.append("p2", &user("2026-10-23T01:00:01Z", "maintenance"));
+    r.scan();
+    assert!(r.roots().is_empty());
+}
+
+#[tokio::test]
+async fn a_mirrored_ask_card_reaches_the_owner_and_no_invited_person_or_bot_guest() {
+    use crate::api::roles;
+    let r = Rig::new();
+    r.append(
+        "g1",
+        &(user("2026-10-23T01:00:01Z", "private question") + &agent("2026-10-23T01:00:02Z", "private answer")),
+    );
+    r.register_one_shot("g1", "ask", "asked by architect", DEAD, None);
+    r.scan();
+    let root = r.roots()[0].id.clone();
+    let mut entries = vec![r.hub.store.entry(&root).unwrap()];
+    entries.extend(r.thread(&root));
+    for e in entries {
+        let ev =
+            json!({"type": "entry", "rev": 1, "entry": {"botId": r.bot, "id": e.id, "kind": e.kind, "data": e.data}});
+        assert!(roles::event_for(&r.hub.store, None, ev.clone()).is_some(), "the owner sees the card");
+        for person in ["p1", "p2"] {
+            assert!(
+                roles::event_for(&r.hub.store, Some(person), ev.clone()).is_none(),
+                "{person} saw an owner-only run"
+            );
+        }
+        assert!(roles::event_for_bot(&r.hub.store, "some-bot", ev).is_none(), "a bot guest saw an owner-only run");
+    }
+}

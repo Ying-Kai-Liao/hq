@@ -26,9 +26,31 @@ pub struct Registry {
     pub resumed_from: Option<String>,
     #[serde(default)]
     pub started_at: String,
+    /// What started the run: `terminal` (an interactive `kith <agent>`), or a one-shot the owner's machine ran for the
+    /// agent: `ask`, `schedule`, `helper`. Files written before one-shots were listed have none: terminal.
+    #[serde(default = "default_kind")]
+    pub kind: String,
+    /// Who or what started a one-shot, as the room shows it ("asked by architect"); None for a terminal.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// When the claude process started (`ps -o lstart`): a one-shot's liveness, since `claude -p` may keep no session file.
+    #[serde(default)]
+    pub proc_start: Option<String>,
 }
 
+fn default_kind() -> String {
+    "terminal".to_owned()
+}
+
+/// The kinds the kernel registers.
+pub const KINDS: [&str; 4] = ["terminal", "ask", "schedule", "helper"];
+
 impl Registry {
+    /// A one-shot the machine ran (not a terminal a person sits in).
+    pub fn one_shot(&self) -> bool {
+        self.kind != "terminal"
+    }
+
     /// When the session started (ms), 0 when the file doesn't say.
     pub fn started_ms(&self) -> i64 {
         chrono::DateTime::parse_from_rfc3339(&self.started_at).map_or(0, |t| t.timestamp_millis())
@@ -70,6 +92,7 @@ pub fn parse(raw: &str) -> Option<Registry> {
         && Path::new(&reg.cwd).is_absolute()
         && reg.transcript().is_absolute()
         && reg.transcript().file_name().is_some_and(|n| n.to_string_lossy() == format!("{}.jsonl", reg.session_id))
+        && KINDS.contains(&reg.kind.as_str())
         && reg.pid > 1
         && reg.pid != std::process::id();
     sane.then_some(reg)
@@ -140,6 +163,11 @@ pub fn liveness(reg: &Registry, sessions: Option<&Path>) -> Live {
             continue;
         }
         return if file["status"] == "idle" { Live::Idle } else { Live::Busy };
+    }
+    // A `claude -p` run may keep no session file: while its process runs (the same one that started) it is working.
+    // It ends with the process, so a crashed run never stays busy.
+    if reg.one_shot() && reg.proc_start.is_some() && started_as(reg.pid, reg.proc_start.as_deref()) {
+        return Live::Busy;
     }
     Live::Closed
 }

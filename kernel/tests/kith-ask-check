@@ -18,6 +18,7 @@ cat > "$T/k/bin/kith" <<'STUB'
 #!/bin/sh
 # stub: kith <agent> [opts] -- <task>; answers like KITH_OUTPUT=json
 for last; do :; done
+env | grep -E '^KITH_(LAUNCH|VIA)' | sort > "$KITH_STATE/stub-env"
 sleep 2
 if [ "$last" = "boom" ]; then echo "agent failed" >&2; exit 1; fi
 printf '{"result":"answer to: %s","session_id":"s1","total_cost_usd":0.01}\n' "$last"
@@ -44,5 +45,11 @@ expect "a second --bg gets its own id" "$([ -n "$id2" ] && [ "$id2" != "$id" ] &
 "$ASK" --wait "$id2" --timeout 30 >/dev/null 2>"$T/err"; code=$?
 expect "a failed run: exit code passes through" "$code" 1
 expect "a failed run: its stderr is shown" "$(grep -c 'agent failed' "$T/err")" 1
+
+# the run is labelled for the asked agent's room: who asked (an agent, else a terminal)
+(cd "$T" && KITH_AGENT=architect "$ASK" echo hi >/dev/null 2>&1)
+expect "a foreground ask is launched as an ask card by the asking agent" "$(tr '\n' ' ' < "$KITH_STATE/stub-env")" "KITH_LAUNCH_KIND=ask KITH_LAUNCH_LABEL=architect KITH_VIA=ask "
+(cd "$T" && "$ASK" echo hi >/dev/null 2>&1)
+expect "an ask from a terminal has no asking agent" "$(tr '\n' ' ' < "$KITH_STATE/stub-env")" "KITH_LAUNCH_KIND=ask KITH_LAUNCH_LABEL= KITH_VIA=ask "
 
 [ "$fails" = 0 ] && echo "all kith-ask checks passed" || { echo "$fails check(s) failed"; exit 1; }
